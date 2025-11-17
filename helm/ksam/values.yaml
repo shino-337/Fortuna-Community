@@ -1,0 +1,85 @@
+# Default values for ksam
+core:
+  name: ksam-core
+  image:
+    repository: ksam/core
+    tag: latest
+    pullPolicy: Never
+  
+  replicaCount: 1
+  
+  service:
+    type: ClusterIP
+    port: 8080
+    grpcPort: 9090
+  
+  resources:
+    requests:
+      memory: "256Mi"
+      cpu: "100m"
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+  
+  database:
+    url: "postgres://postgres:postgres123@postgres:5432/ksam?sslmode=disable"
+    host: postgres
+    port: 5432
+    name: ksam
+    user: postgres
+    password: postgres123
+  
+  auth:
+    enabled: true
+    jwtSecret: "change-me-in-production"
+  
+  redis:
+    enabled: false
+    host: redis
+    port: 6379
+
+agent:
+  name: ksam-agent
+  image:
+    repository: ksam/agent
+    tag: latest
+    pullPolicy: Never
+  
+  coreEndpoint: "ksam-core.ksam.svc.cluster.local:9090"
+  syncInterval: "30s"
+  
+  resources:
+    requests:
+      memory: "50Mi"
+      cpu: "50m"
+    limits:
+      memory: "100Mi"
+      cpu: "100m"
+
+dashboard:
+  name: ksam-dashboard
+  image:
+    repository: ksam/dashboard
+    tag: latest
+    pullPolicy: Never
+  
+  replicaCount: 1
+  
+  service:
+    type: ClusterIP
+    port: 80
+  
+  resources:
+    requests:
+      memory: "128Mi"
+      cpu: "50m"
+    limits:
+      memory: "256Mi"
+      cpu: "200m"
+
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: postgres
+    database: ksam
+

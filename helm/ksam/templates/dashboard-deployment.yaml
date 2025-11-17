@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.dashboard.name | default "ksam-dashboard" }}
+  labels:
+    app: ksam-dashboard
+spec:
+  replicas: {{ .Values.dashboard.replicaCount }}
+  selector:
+    matchLabels:
+      app: ksam-dashboard
+  template:
+    metadata:
+      labels:
+        app: ksam-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: "{{ .Values.dashboard.image.repository }}:{{ .Values.dashboard.image.tag }}"
+        imagePullPolicy: {{ .Values.dashboard.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.dashboard.service.port }}
+        resources:
+          {{- toYaml .Values.dashboard.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: http
+          initialDelaySeconds: 10
+          periodSeconds: 5
+

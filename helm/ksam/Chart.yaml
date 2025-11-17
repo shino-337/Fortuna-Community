@@ -1,0 +1,7 @@
+apiVersion: v2
+name: ksam
+description: Kubernetes Service Account Manager
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+

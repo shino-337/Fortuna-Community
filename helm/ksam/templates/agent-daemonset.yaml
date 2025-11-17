@@ -1,0 +1,41 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Values.agent.name | default "ksam-agent" }}
+  labels:
+    {{- include "ksam.labels" . | nindent 4 }}
+    app: ksam-agent
+spec:
+  selector:
+    matchLabels:
+      app: ksam-agent
+  template:
+    metadata:
+      labels:
+        app: ksam-agent
+    spec:
+      serviceAccountName: ksam-agent
+      containers:
+      - name: agent
+        image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+        imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+        env:
+        - name: KSAM_CORE_ENDPOINT
+          value: "{{ .Values.agent.coreEndpoint }}"
+        - name: KSAM_CLUSTER_ID
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: KSAM_SYNC_INTERVAL
+          value: "{{ .Values.agent.syncInterval }}"
+        resources:
+          {{- toYaml .Values.agent.resources | nindent 10 }}
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+            - ALL
+

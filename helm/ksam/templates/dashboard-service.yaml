@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.dashboard.name | default "ksam-dashboard" }}
+  labels:
+    app: ksam-dashboard
+spec:
+  type: {{ .Values.dashboard.service.type }}
+  ports:
+  - port: {{ .Values.dashboard.service.port }}
+    targetPort: http
+    protocol: TCP
+    name: http
+  selector:
+    app: ksam-dashboard
+

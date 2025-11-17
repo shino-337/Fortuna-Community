@@ -1,0 +1,61 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.core.name | default "ksam-core" }}
+  labels:
+    app: ksam-core
+spec:
+  replicas: {{ .Values.core.replicaCount }}
+  selector:
+    matchLabels:
+      app: ksam-core
+  template:
+    metadata:
+      labels:
+        app: ksam-core
+    spec:
+      containers:
+      - name: core
+        image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
+        imagePullPolicy: {{ .Values.core.image.pullPolicy }}
+        ports:
+        - name: http
+          containerPort: {{ .Values.core.service.port }}
+        - name: grpc
+          containerPort: {{ .Values.core.service.grpcPort }}
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: ksam-secrets
+              key: database-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ksam-secrets
+              key: jwt-secret
+        - name: HTTP_PORT
+          value: "{{ .Values.core.service.port }}"
+        - name: GRPC_PORT
+          value: "{{ .Values.core.service.grpcPort }}"
+        - name: AUTH_ENABLED
+          value: "{{ .Values.core.auth.enabled }}"
+        resources:
+          {{- toYaml .Values.core.resources | nindent 10 }}
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: http
+          initialDelaySeconds: 120
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 90
+          periodSeconds: 10
+          timeoutSeconds: 10
+          failureThreshold: 6
+
