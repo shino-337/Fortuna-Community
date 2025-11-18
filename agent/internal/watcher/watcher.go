@@ -12,8 +12,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/cache"
 
-	"github.com/ksam/agent/internal/config"
 	grpcClient "github.com/ksam/agent/internal/client"
+	"github.com/ksam/agent/internal/config"
 	"github.com/ksam/agent/internal/k8s"
 	"github.com/ksam/agent/pkg/types"
 )
@@ -57,7 +57,7 @@ func (w *Watcher) Watch(ctx context.Context) error {
 	resyncPeriod := 0 * time.Second
 	informerFactory := k8s.NewInformerFactory(w.k8s.Clientset, w.config.WatchNamespace, resyncPeriod)
 	factory := informerFactory.GetFactory()
-	
+
 	// Start informer factory
 	informerFactory.Start(ctx)
 	defer informerFactory.Stop()
@@ -138,6 +138,21 @@ func (w *Watcher) sendUpdate(ctx context.Context, data *types.CollectedData) {
 	}
 }
 
+// sendDeltaData is a helper to send delta updates with shared metadata
+func (w *Watcher) sendDeltaData(setter func(*types.CollectedData)) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	data := &types.CollectedData{
+		ClusterID:   w.config.ClusterID,
+		CollectedAt: metav1.NewTime(time.Now()),
+		IsFullSync:  false,
+		IsDeltaSync: true,
+	}
+	setter(data)
+	w.sendUpdate(ctx, data)
+}
+
 // ServiceAccount event handlers
 func (w *Watcher) onServiceAccountAdd(obj interface{}) {
 	sa, ok := obj.(*corev1.ServiceAccount)
@@ -147,17 +162,17 @@ func (w *Watcher) onServiceAccountAdd(obj interface{}) {
 	}
 	saData := types.ConvertServiceAccount(sa)
 	log.Printf("ServiceAccount added: %s/%s", saData.Namespace, saData.Name)
-	
+
 	// Send update to Core Controller
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	data := &types.CollectedData{
 		ClusterID:       w.config.ClusterID,
 		ServiceAccounts: []types.ServiceAccountData{saData},
-		CollectedAt:      metav1.NewTime(time.Now()),
-		IsFullSync:       false,
-		IsDeltaSync:      true, // Watcher events are always delta
+		CollectedAt:     metav1.NewTime(time.Now()),
+		IsFullSync:      false,
+		IsDeltaSync:     true, // Watcher events are always delta
 	}
 	w.sendUpdate(ctx, data)
 }
@@ -170,17 +185,17 @@ func (w *Watcher) onServiceAccountUpdate(oldObj, newObj interface{}) {
 	}
 	saData := types.ConvertServiceAccount(newSA)
 	log.Printf("ServiceAccount updated: %s/%s", saData.Namespace, saData.Name)
-	
+
 	// Send update to Core Controller
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	data := &types.CollectedData{
 		ClusterID:       w.config.ClusterID,
 		ServiceAccounts: []types.ServiceAccountData{saData},
-		CollectedAt:      metav1.NewTime(time.Now()),
-		IsFullSync:       false,
-		IsDeltaSync:      true, // Watcher events are always delta
+		CollectedAt:     metav1.NewTime(time.Now()),
+		IsFullSync:      false,
+		IsDeltaSync:     true, // Watcher events are always delta
 	}
 	w.sendUpdate(ctx, data)
 }
@@ -202,18 +217,18 @@ func (w *Watcher) onServiceAccountDelete(obj interface{}) {
 	}
 	saData := types.ConvertServiceAccount(sa)
 	log.Printf("ServiceAccount deleted: %s/%s", saData.Namespace, saData.Name)
-	
+
 	// Send delete event to Core Controller
 	// Note: For delete, we still send the data so Core can identify which SA to delete
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	data := &types.CollectedData{
 		ClusterID:       w.config.ClusterID,
 		ServiceAccounts: []types.ServiceAccountData{saData},
-		CollectedAt:      metav1.NewTime(time.Now()),
-		IsFullSync:       false,
-		IsDeltaSync:      true, // Watcher events are always delta
+		CollectedAt:     metav1.NewTime(time.Now()),
+		IsFullSync:      false,
+		IsDeltaSync:     true, // Watcher events are always delta
 	}
 	w.sendUpdate(ctx, data)
 }
@@ -227,7 +242,9 @@ func (w *Watcher) onRoleBindingAdd(obj interface{}) {
 	}
 	rbData := types.ConvertRoleBinding(rb)
 	log.Printf("RoleBinding added: %s/%s", rbData.Namespace, rbData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.RoleBindings = []types.RoleBindingData{rbData}
+	})
 }
 
 func (w *Watcher) onRoleBindingUpdate(oldObj, newObj interface{}) {
@@ -238,7 +255,9 @@ func (w *Watcher) onRoleBindingUpdate(oldObj, newObj interface{}) {
 	}
 	rbData := types.ConvertRoleBinding(newRB)
 	log.Printf("RoleBinding updated: %s/%s", rbData.Namespace, rbData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.RoleBindings = []types.RoleBindingData{rbData}
+	})
 }
 
 func (w *Watcher) onRoleBindingDelete(obj interface{}) {
@@ -257,7 +276,9 @@ func (w *Watcher) onRoleBindingDelete(obj interface{}) {
 	}
 	rbData := types.ConvertRoleBinding(rb)
 	log.Printf("RoleBinding deleted: %s/%s", rbData.Namespace, rbData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.RoleBindings = []types.RoleBindingData{rbData}
+	})
 }
 
 // ClusterRoleBinding event handlers
@@ -269,7 +290,9 @@ func (w *Watcher) onClusterRoleBindingAdd(obj interface{}) {
 	}
 	crbData := types.ConvertClusterRoleBinding(crb)
 	log.Printf("ClusterRoleBinding added: %s", crbData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoleBindings = []types.ClusterRoleBindingData{crbData}
+	})
 }
 
 func (w *Watcher) onClusterRoleBindingUpdate(oldObj, newObj interface{}) {
@@ -280,7 +303,9 @@ func (w *Watcher) onClusterRoleBindingUpdate(oldObj, newObj interface{}) {
 	}
 	crbData := types.ConvertClusterRoleBinding(newCRB)
 	log.Printf("ClusterRoleBinding updated: %s", crbData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoleBindings = []types.ClusterRoleBindingData{crbData}
+	})
 }
 
 func (w *Watcher) onClusterRoleBindingDelete(obj interface{}) {
@@ -299,7 +324,9 @@ func (w *Watcher) onClusterRoleBindingDelete(obj interface{}) {
 	}
 	crbData := types.ConvertClusterRoleBinding(crb)
 	log.Printf("ClusterRoleBinding deleted: %s", crbData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoleBindings = []types.ClusterRoleBindingData{crbData}
+	})
 }
 
 // Role event handlers
@@ -311,7 +338,9 @@ func (w *Watcher) onRoleAdd(obj interface{}) {
 	}
 	roleData := types.ConvertRole(role)
 	log.Printf("Role added: %s/%s", roleData.Namespace, roleData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.Roles = []types.RoleData{roleData}
+	})
 }
 
 func (w *Watcher) onRoleUpdate(oldObj, newObj interface{}) {
@@ -322,7 +351,9 @@ func (w *Watcher) onRoleUpdate(oldObj, newObj interface{}) {
 	}
 	roleData := types.ConvertRole(newRole)
 	log.Printf("Role updated: %s/%s", roleData.Namespace, roleData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.Roles = []types.RoleData{roleData}
+	})
 }
 
 func (w *Watcher) onRoleDelete(obj interface{}) {
@@ -341,7 +372,9 @@ func (w *Watcher) onRoleDelete(obj interface{}) {
 	}
 	roleData := types.ConvertRole(role)
 	log.Printf("Role deleted: %s/%s", roleData.Namespace, roleData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.Roles = []types.RoleData{roleData}
+	})
 }
 
 // ClusterRole event handlers
@@ -353,7 +386,9 @@ func (w *Watcher) onClusterRoleAdd(obj interface{}) {
 	}
 	crData := types.ConvertClusterRole(cr)
 	log.Printf("ClusterRole added: %s", crData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoles = []types.ClusterRoleData{crData}
+	})
 }
 
 func (w *Watcher) onClusterRoleUpdate(oldObj, newObj interface{}) {
@@ -364,7 +399,9 @@ func (w *Watcher) onClusterRoleUpdate(oldObj, newObj interface{}) {
 	}
 	crData := types.ConvertClusterRole(newCR)
 	log.Printf("ClusterRole updated: %s", crData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoles = []types.ClusterRoleData{crData}
+	})
 }
 
 func (w *Watcher) onClusterRoleDelete(obj interface{}) {
@@ -383,5 +420,7 @@ func (w *Watcher) onClusterRoleDelete(obj interface{}) {
 	}
 	crData := types.ConvertClusterRole(cr)
 	log.Printf("ClusterRole deleted: %s", crData.Name)
-	// TODO: Send to Core Controller
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoles = []types.ClusterRoleData{crData}
+	})
 }

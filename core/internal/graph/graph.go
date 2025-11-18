@@ -12,7 +12,7 @@ import (
 type GraphNode struct {
 	ID    string                 `json:"id"`
 	Label string                 `json:"label"`
-	Type  string                 `json:"type"` // serviceaccount, role, namespace, cluster
+	Type  string                 `json:"type"` // serviceaccount, namespace, cluster
 	Data  map[string]interface{} `json:"data,omitempty"`
 }
 
@@ -21,7 +21,7 @@ type GraphEdge struct {
 	ID     string                 `json:"id"`
 	Source string                 `json:"source"`
 	Target string                 `json:"target"`
-	Type   string                 `json:"type"` // binding, usage, belongs_to
+	Type   string                 `json:"type"` // belongs_to
 	Data   map[string]interface{} `json:"data,omitempty"`
 }
 
@@ -41,7 +41,7 @@ func NewGraphService(db *gorm.DB) *GraphService {
 	return &GraphService{db: db}
 }
 
-// BuildGraph builds a graph from database data
+// BuildGraph builds a simplified graph showing ServiceAccounts, Namespaces, and Clusters
 func (s *GraphService) BuildGraph(clusterID, namespace string) (*GraphData, error) {
 	graph := &GraphData{
 		Nodes: []GraphNode{},
@@ -50,18 +50,13 @@ func (s *GraphService) BuildGraph(clusterID, namespace string) (*GraphData, erro
 
 	// Build query
 	saQuery := s.db.Model(&models.ServiceAccount{})
-	rbQuery := s.db.Model(&models.RoleBinding{})
-	crbQuery := s.db.Model(&models.ClusterRoleBinding{})
 
 	if clusterID != "" {
 		saQuery = saQuery.Where("cluster_id = ?", clusterID)
-		rbQuery = rbQuery.Where("cluster_id = ?", clusterID)
-		crbQuery = crbQuery.Where("cluster_id = ?", clusterID)
 	}
 
 	if namespace != "" {
 		saQuery = saQuery.Where("namespace = ?", namespace)
-		rbQuery = rbQuery.Where("namespace = ?", namespace)
 	}
 
 	// Get ServiceAccounts
@@ -70,239 +65,91 @@ func (s *GraphService) BuildGraph(clusterID, namespace string) (*GraphData, erro
 		return nil, err
 	}
 
-	// Add ServiceAccount nodes
-	saNodes := make(map[string]bool)
-	nsNodes := make(map[string]bool)
-	clusterNodes := make(map[string]bool)
-
-	// Track edges to avoid duplicates
+	// Track unique clusters and namespaces
+	clusterMap := make(map[string]bool)
+	namespaceMap := make(map[string]map[string]bool) // cluster -> namespace -> exists
 	edgeMap := make(map[string]bool)
 
+	// Add ServiceAccount nodes and track clusters/namespaces
 	for _, sa := range sas {
 		saID := "sa:" + sa.ClusterID + ":" + sa.Namespace + ":" + sa.Name
 		
-		// Add ServiceAccount node if not exists
-		if !saNodes[saID] {
-			graph.Nodes = append(graph.Nodes, GraphNode{
-				ID:    saID,
-				Label: sa.Name,
-				Type:  "serviceaccount",
-				Data: map[string]interface{}{
-					"id":        sa.ID,
-					"cluster":   sa.ClusterID,
-					"namespace": sa.Namespace,
-					"name":      sa.Name,
-					"uid":       sa.UID,
-				},
-			})
-			saNodes[saID] = true
+		// Parse labels
+		var labels map[string]string
+		if sa.Labels != "" && sa.Labels != "null" {
+			json.Unmarshal([]byte(sa.Labels), &labels)
 		}
 
-		// Add namespace node if not exists
+		graph.Nodes = append(graph.Nodes, GraphNode{
+			ID:    saID,
+			Label: sa.Name,
+			Type:  "serviceaccount",
+			Data: map[string]interface{}{
+				"namespace": sa.Namespace,
+				"cluster":   sa.ClusterID,
+				"labels":    labels,
+			},
+		})
+
+		// Track cluster
+		clusterMap[sa.ClusterID] = true
+
+		// Track namespace
+		if namespaceMap[sa.ClusterID] == nil {
+			namespaceMap[sa.ClusterID] = make(map[string]bool)
+		}
+		namespaceMap[sa.ClusterID][sa.Namespace] = true
+
+		// Add edge from SA to namespace
 		nsID := "ns:" + sa.ClusterID + ":" + sa.Namespace
-		if !nsNodes[nsID] {
-			graph.Nodes = append(graph.Nodes, GraphNode{
-				ID:    nsID,
-				Label: sa.Namespace,
-				Type:  "namespace",
-				Data: map[string]interface{}{
-					"cluster": sa.ClusterID,
-				},
-			})
-			nsNodes[nsID] = true
-		}
-
-		// Edge: ServiceAccount -> Namespace (create for every SA, not just when namespace is new)
-		edgeID := "sa-ns:" + saID
-		if !edgeMap[edgeID] {
+		saNsEdgeID := saID + "->" + nsID
+		if !edgeMap[saNsEdgeID] {
 			graph.Edges = append(graph.Edges, GraphEdge{
-				ID:     edgeID,
+				ID:     saNsEdgeID,
 				Source: saID,
 				Target: nsID,
 				Type:   "belongs_to",
 			})
-			edgeMap[edgeID] = true
+			edgeMap[saNsEdgeID] = true
 		}
+	}
 
-		// Add cluster node if not exists
-		clusterID := "cluster:" + sa.ClusterID
-		if !clusterNodes[clusterID] {
+	// Add cluster nodes
+	for clusterID := range clusterMap {
+		graph.Nodes = append(graph.Nodes, GraphNode{
+			ID:    "cluster:" + clusterID,
+			Label: clusterID,
+			Type:  "cluster",
+		})
+	}
+
+	// Add namespace nodes and edges to clusters
+	for clusterID, namespaces := range namespaceMap {
+		for ns := range namespaces {
+			nsID := "ns:" + clusterID + ":" + ns
 			graph.Nodes = append(graph.Nodes, GraphNode{
-				ID:    clusterID,
-				Label: sa.ClusterID,
-				Type:  "cluster",
+				ID:    nsID,
+				Label: ns,
+				Type:  "namespace",
+				Data: map[string]interface{}{
+					"cluster": clusterID,
+				},
 			})
-			clusterNodes[clusterID] = true
-		}
 
-		// Edge: Namespace -> Cluster (create only once per namespace)
-		nsClusterEdgeID := "ns-cluster:" + nsID
-		if !edgeMap[nsClusterEdgeID] {
-			graph.Edges = append(graph.Edges, GraphEdge{
-				ID:     nsClusterEdgeID,
-				Source: nsID,
-				Target: clusterID,
-				Type:   "belongs_to",
-			})
-			edgeMap[nsClusterEdgeID] = true
-		}
-	}
-
-	// Get RoleBindings
-	var rbs []models.RoleBinding
-	if err := rbQuery.Find(&rbs).Error; err != nil {
-		return nil, err
-	}
-
-	// Process RoleBindings to create edges
-	for _, rb := range rbs {
-		// Parse subjects
-		var subjects []map[string]interface{}
-		if err := json.Unmarshal([]byte(rb.Subjects), &subjects); err == nil {
-			for _, subject := range subjects {
-				if kind, ok := subject["kind"].(string); ok && kind == "ServiceAccount" {
-					if name, ok := subject["name"].(string); ok {
-						saID := "sa:" + rb.ClusterID + ":" + rb.Namespace + ":" + name
-
-						// Parse roleRef
-						var roleRef map[string]interface{}
-						if err := json.Unmarshal([]byte(rb.RoleRef), &roleRef); err == nil {
-							if roleName, ok := roleRef["name"].(string); ok {
-								roleID := "role:" + rb.ClusterID + ":" + rb.Namespace + ":" + roleName
-
-								// Add role node if not exists
-								roleExists := false
-								for _, node := range graph.Nodes {
-									if node.ID == roleID {
-										roleExists = true
-										break
-									}
-								}
-								if !roleExists {
-									graph.Nodes = append(graph.Nodes, GraphNode{
-										ID:    roleID,
-										Label: roleName,
-										Type:  "role",
-										Data: map[string]interface{}{
-											"cluster":   rb.ClusterID,
-											"namespace": rb.Namespace,
-										},
-									})
-								}
-
-								// Edge: ServiceAccount -> Role (via RoleBinding)
-								// Only create edge if ServiceAccount node exists
-								if saNodes[saID] {
-									edgeID := "sa-role:" + saID + "-" + roleID
-									if !edgeMap[edgeID] {
-										graph.Edges = append(graph.Edges, GraphEdge{
-											ID:     edgeID,
-											Source: saID,
-											Target: roleID,
-											Type:   "binding",
-											Data: map[string]interface{}{
-												"roleBinding": rb.Name,
-											},
-										})
-										edgeMap[edgeID] = true
-									}
-								}
-							}
-						}
-					}
-				}
+			// Add edge from namespace to cluster
+			nsClusterID := "cluster:" + clusterID
+			nsClusterEdgeID := nsID + "->" + nsClusterID
+			if !edgeMap[nsClusterEdgeID] {
+				graph.Edges = append(graph.Edges, GraphEdge{
+					ID:     nsClusterEdgeID,
+					Source: nsID,
+					Target: nsClusterID,
+					Type:   "belongs_to",
+				})
+				edgeMap[nsClusterEdgeID] = true
 			}
 		}
 	}
-
-	// Get ClusterRoleBindings
-	var crbs []models.ClusterRoleBinding
-	if err := crbQuery.Find(&crbs).Error; err != nil {
-		return nil, err
-	}
-
-	// Process ClusterRoleBindings
-	// When namespace filter is applied, only include ClusterRoleBindings that reference ServiceAccounts in that namespace
-	clusterRoleNodesAdded := make(map[string]bool) // Track which ClusterRoles we've added
-	for _, crb := range crbs {
-		// Parse subjects
-		var subjects []map[string]interface{}
-		if err := json.Unmarshal([]byte(crb.Subjects), &subjects); err == nil {
-			for _, subject := range subjects {
-				if kind, ok := subject["kind"].(string); ok && kind == "ServiceAccount" {
-					if name, ok := subject["name"].(string); ok {
-						ns := ""
-						if nsVal, ok := subject["namespace"].(string); ok {
-							ns = nsVal
-						}
-						
-						// If namespace filter is applied, skip ClusterRoleBindings that reference ServiceAccounts in other namespaces
-						if namespace != "" && ns != namespace {
-							continue
-						}
-						
-						saID := "sa:" + crb.ClusterID + ":" + ns + ":" + name
-
-						// Only process if ServiceAccount node exists (meaning it's in the filtered namespace)
-						if !saNodes[saID] {
-							continue
-						}
-
-						// Parse roleRef
-						var roleRef map[string]interface{}
-						if err := json.Unmarshal([]byte(crb.RoleRef), &roleRef); err == nil {
-							if roleName, ok := roleRef["name"].(string); ok {
-								roleID := "clusterrole:" + crb.ClusterID + ":" + roleName
-
-								// Add cluster role node if not exists
-								if !clusterRoleNodesAdded[roleID] {
-									graph.Nodes = append(graph.Nodes, GraphNode{
-										ID:    roleID,
-										Label: roleName,
-										Type:  "clusterrole",
-										Data: map[string]interface{}{
-											"cluster": crb.ClusterID,
-										},
-									})
-									clusterRoleNodesAdded[roleID] = true
-								}
-
-								// Edge: ServiceAccount -> ClusterRole (via ClusterRoleBinding)
-								edgeID := "sa-clusterrole:" + saID + "-" + roleID
-								if !edgeMap[edgeID] {
-									graph.Edges = append(graph.Edges, GraphEdge{
-										ID:     edgeID,
-										Source: saID,
-										Target: roleID,
-										Type:   "binding",
-										Data: map[string]interface{}{
-											"clusterRoleBinding": crb.Name,
-										},
-									})
-									edgeMap[edgeID] = true
-								}
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	// Validate edges: remove edges with non-existent source or target nodes
-	nodeIDMap := make(map[string]bool)
-	for _, node := range graph.Nodes {
-		nodeIDMap[node.ID] = true
-	}
-
-	validEdges := []GraphEdge{}
-	for _, edge := range graph.Edges {
-		if nodeIDMap[edge.Source] && nodeIDMap[edge.Target] {
-			validEdges = append(validEdges, edge)
-		}
-	}
-	graph.Edges = validEdges
 
 	return graph, nil
 }
-

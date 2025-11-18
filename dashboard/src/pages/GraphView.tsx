@@ -126,13 +126,13 @@ const GraphView = () => {
   }, [namespace])
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col" style={{ height: '100vh' }}>
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex flex-col" style={{ height: '100vh' }}>
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-4 py-3 flex-shrink-0">
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex-shrink-0">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Graph View</h1>
-            <p className="text-sm text-gray-600">Visualize ServiceAccount relationships and permissions</p>
+            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Graph View</h1>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Visualize ServiceAccount relationships and permissions</p>
           </div>
         </div>
       </div>
@@ -140,15 +140,15 @@ const GraphView = () => {
       {/* Main Content: 3-Panel Layout */}
       <div className="flex-1 flex overflow-hidden" style={{ minHeight: 0 }}>
         {/* Left Sidebar: Filters + Legend (Collapsible) */}
-        <div className={`bg-white border-r border-gray-200 transition-all duration-300 ease-in-out ${
+        <div className={`bg-white dark:bg-gray-800 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 ease-in-out ${
           sidebarCollapsed ? 'w-0 overflow-hidden' : 'w-72 flex-shrink-0'
         }`}>
           <div className="h-full overflow-y-auto p-3">
             <div className="flex items-center justify-between mb-3">
-              <h2 className="text-base font-semibold text-gray-900">Filters & Legend</h2>
+              <h2 className="text-base font-semibold text-gray-900 dark:text-white">Filters & Legend</h2>
               <button
                 onClick={toggleSidebar}
-                className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded transition-colors"
+                className="p-1.5 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
                 title="Collapse sidebar"
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -180,10 +180,10 @@ const GraphView = () => {
         {sidebarCollapsed && (
           <button
             onClick={toggleSidebar}
-            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white border-r border-t border-b border-gray-200 rounded-r-lg p-2 shadow-md hover:bg-gray-50 transition-colors"
+            className="absolute left-0 top-1/2 -translate-y-1/2 z-20 bg-white dark:bg-gray-800 border-r border-t border-b border-gray-200 dark:border-gray-700 rounded-r-lg p-2 shadow-md hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
             title="Expand sidebar"
           >
-            <svg className="w-5 h-5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-5 h-5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 5l7 7-7 7M5 5l7 7-7 7" />
             </svg>
           </button>

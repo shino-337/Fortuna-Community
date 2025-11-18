@@ -49,14 +49,18 @@ func main() {
 	}
 	defer sqlDB.Close()
 
-	// Run migrations
-	if err := storage.Migrate(db); err != nil {
-		log.Fatalf("Failed to run migrations: %v", err)
-	}
+	if os.Getenv("KSAM_SKIP_MIGRATIONS") == "true" {
+		log.Println("Skipping database migrations due to KSAM_SKIP_MIGRATIONS=true")
+	} else {
+		// Run migrations
+		if err := storage.Migrate(db); err != nil {
+			log.Fatalf("Failed to run migrations: %v", err)
+		}
 
-	// Run post-migrations (create default admin, etc.)
-	if err := migrations.RunPostMigrations(db); err != nil {
-		log.Printf("Warning: Failed to run post-migrations: %v", err)
+		// Run post-migrations (create default admin, etc.)
+		if err := migrations.RunPostMigrations(db); err != nil {
+			log.Printf("Warning: Failed to run post-migrations: %v", err)
+		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

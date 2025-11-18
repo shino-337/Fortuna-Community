@@ -198,28 +198,28 @@ const GraphFilters = ({
   }, [recentNamespaces])
 
   return (
-    <div className="bg-white rounded-lg shadow-sm border border-gray-200 mb-3 overflow-hidden">
+    <div className="flex flex-col h-full bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
       {/* Main Filters - Collapsible Card */}
-      <div className="border-b border-gray-200">
+      <div className="border-b border-gray-200 dark:border-gray-700">
         <button
           type="button"
           onClick={() => setShowAdvancedFilters(!showAdvancedFilters)}
-          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 transition-colors"
+          className="w-full px-4 py-3 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
         >
           <div className="flex items-center">
-            <svg className="w-4 h-4 mr-2 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg className="w-4 h-4 mr-2 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
-            <span className="text-sm font-semibold text-gray-900">Filters</span>
+            <span className="text-sm font-semibold text-gray-900 dark:text-white">Filters</span>
             {(cluster || namespace) && (
-              <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-blue-100 text-blue-800 rounded-full">
+              <span className="ml-2 px-1.5 py-0.5 text-xs font-medium bg-blue-100 dark:bg-blue-900 text-blue-800 dark:text-blue-200 rounded-full">
                 Active
               </span>
             )}
           </div>
           <div className="flex items-center gap-2">
             {isLoading && (
-              <div className="flex items-center text-xs text-gray-500">
+              <div className="flex items-center text-xs text-gray-500 dark:text-gray-400">
                 <svg className="animate-spin h-4 w-4 mr-1" fill="none" viewBox="0 0 24 24">
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
@@ -228,7 +228,7 @@ const GraphFilters = ({
               </div>
             )}
             <svg 
-              className={`w-4 h-4 text-gray-500 transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-gray-500 dark:text-gray-400 transition-transform ${showAdvancedFilters ? 'rotate-180' : ''}`}
               fill="none" 
               viewBox="0 0 24 24" 
               stroke="currentColor"
@@ -239,12 +239,12 @@ const GraphFilters = ({
         </button>
       </div>
 
-      <div className="p-4">
+      <div className="flex-shrink-0 p-4">
         <div className="grid grid-cols-1 gap-4">
           {/* Cluster Filter */}
           <div className="relative">
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center">
-              <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center">
+              <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h14M5 12a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v4a2 2 0 01-2 2M5 12a2 2 0 00-2 2v4a2 2 0 002 2h14a2 2 0 002-2v-4a2 2 0 00-2-2m-2-4h.01M17 16h.01" />
               </svg>
               Cluster
@@ -260,7 +260,7 @@ const GraphFilters = ({
                 value={cluster || ''}
                 onChange={(e) => onClusterChange(e.target.value)}
                 disabled={clustersLoading || isLoading}
-                className="w-full px-3 py-2 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors appearance-none disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full px-3 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors appearance-none disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:cursor-not-allowed"
               >
                 <option value="">All Clusters</option>
                 {clusters && Array.isArray(clusters) && clusters.map((c) => (
@@ -279,8 +279,8 @@ const GraphFilters = ({
           
           {/* Namespace Filter */}
           <div className="relative">
-            <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center">
-              <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 mb-1.5 flex items-center">
+              <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
               </svg>
               Namespace
@@ -303,7 +303,7 @@ const GraphFilters = ({
                 }}
                 placeholder="Enter namespace (empty for all)..."
                 disabled={isLoading}
-                className="w-full pl-3 pr-8 py-2 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed"
+                className="w-full pl-3 pr-8 py-2 text-xs border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors disabled:bg-gray-100 dark:disabled:bg-gray-700 disabled:cursor-not-allowed"
               />
               {localNamespace ? (
                 <button 
@@ -312,7 +312,7 @@ const GraphFilters = ({
                     onNamespaceChange('')
                     namespaceInputRef.current?.focus()
                   }}
-                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600"
+                  className="absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400 hover:text-gray-600 dark:text-gray-400"
                 >
                   <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -330,20 +330,20 @@ const GraphFilters = ({
               {showNamespaceSuggestions && (
                 <div 
                   ref={suggestionsRef}
-                  className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg border border-gray-200 py-1 max-h-48 overflow-y-auto"
+                  className="absolute z-10 w-full mt-1 bg-white rounded-md shadow-lg border border-gray-200 dark:border-gray-700 py-1 max-h-48 overflow-y-auto"
                 >
                   {suggestedNamespaces.map((ns) => (
                     <div
                       key={ns}
                       onClick={() => selectNamespace(ns)}
-                      className="px-3 py-1.5 text-xs text-gray-700 hover:bg-blue-50 cursor-pointer flex items-center"
+                      className="px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-blue-50 cursor-pointer flex items-center"
                     >
                       {recentNamespaces.includes(ns) ? (
-                        <svg className="w-3.5 h-3.5 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-3.5 h-3.5 mr-1.5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
                       ) : (
-                        <svg className="w-3.5 h-3.5 mr-1.5 text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <svg className="w-3.5 h-3.5 mr-1.5 text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                         </svg>
                       )}
@@ -363,7 +363,7 @@ const GraphFilters = ({
               type="button"
               onClick={handleClearFilters}
               disabled={isLoading}
-              className="text-xs text-gray-600 hover:text-gray-800 focus:outline-none flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="text-xs text-gray-600 dark:text-gray-400 hover:text-gray-800 focus:outline-none flex items-center disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               <svg className="w-3.5 h-3.5 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -374,20 +374,20 @@ const GraphFilters = ({
         )}
       </div>
       
-      {/* Advanced Filters Panel - Collapsible */}
+      {/* Advanced Filters Panel - Collapsible với scroll */}
       {showAdvancedFilters && (
-        <div className="border-t border-gray-200 bg-gray-50">
+        <div className="flex-1 border-t border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 overflow-y-auto">
           <div className="p-4">
             <div className="grid grid-cols-1 gap-4">
               {/* Node Type Filter - Segmented Toggle */}
               <div className="space-y-3">
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center">
-                  <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 mb-1.5 flex items-center">
+                  <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600 dark:text-gray-400 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
                   </svg>
                   Node Types
                 </label>
-                <div className="inline-flex rounded-md border border-gray-300 bg-gray-100 p-0.5 flex-wrap gap-0.5" role="group">
+                <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 p-0.5 flex-wrap gap-0.5" role="group">
                   {NODE_TYPE_OPTIONS.map(({ key, label }) => (
                     <button
                       key={key}
@@ -396,8 +396,8 @@ const GraphFilters = ({
                       disabled={isLoading}
                       className={`px-2 py-1 text-xs font-medium rounded transition-all ${
                         nodeTypeFilters[key]
-                          ? 'bg-white text-blue-700 shadow-sm border border-blue-200'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                          ? 'bg-white dark:bg-gray-800 text-blue-700 dark:text-blue-400 shadow-sm border border-blue-200 dark:border-blue-600'
+                          : 'text-gray-600 dark:text-gray-400 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 dark:hover:bg-gray-600'
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                       title={label}
                     >
@@ -409,13 +409,13 @@ const GraphFilters = ({
               
               {/* Connection Type Filter - Segmented Toggle */}
               <div className="space-y-3">
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center">
-                  <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 mb-1.5 flex items-center">
+                  <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600 dark:text-gray-400 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                   Connection Types
                 </label>
-                <div className="inline-flex rounded-md border border-gray-300 bg-gray-100 p-0.5 flex-wrap gap-0.5" role="group">
+                <div className="inline-flex rounded-md border border-gray-300 dark:border-gray-600 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 p-0.5 flex-wrap gap-0.5" role="group">
                   {CONNECTION_TYPE_OPTIONS.map(({ key, label }) => (
                     <button
                       key={key}
@@ -424,8 +424,8 @@ const GraphFilters = ({
                       disabled={isLoading}
                       className={`px-2 py-1 text-xs font-medium rounded transition-all ${
                         connectionTypeFilters[key]
-                          ? 'bg-white text-purple-700 shadow-sm border border-purple-200'
-                          : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                          ? 'bg-white dark:bg-gray-800 text-purple-700 dark:text-purple-400 shadow-sm border border-purple-200 dark:border-purple-600'
+                          : 'text-gray-600 dark:text-gray-400 dark:text-gray-300 hover:text-gray-900 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 dark:hover:bg-gray-600'
                       } disabled:opacity-50 disabled:cursor-not-allowed`}
                       title={label}
                     >
@@ -437,15 +437,15 @@ const GraphFilters = ({
               
               {/* Layout Options */}
               <div className="space-y-3">
-                <label className="block text-xs font-semibold text-gray-700 mb-1.5 flex items-center">
-                  <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <label className="block text-xs font-semibold text-gray-700 dark:text-gray-300 dark:text-gray-300 mb-1.5 flex items-center">
+                  <svg className="w-3.5 h-3.5 mr-1.5 text-gray-600 dark:text-gray-400 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" />
                   </svg>
                   Layout Options
                 </label>
                 <div className="space-y-3">
                   <select 
-                    className="block w-full py-1.5 px-2.5 text-xs border border-gray-300 rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
+                    className="block w-full py-1.5 px-2.5 text-xs border border-gray-300 dark:border-gray-600 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white rounded-md focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     value={layout}
                     onChange={(e) => onLayoutChange(e.target.value as LayoutOption)}
                     disabled={isLoading}
@@ -464,22 +464,22 @@ const GraphFilters = ({
                       type="checkbox"
                       id="autofit"
                       name="autofit"
-                      className="h-3.5 w-3.5 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+                      className="h-3.5 w-3.5 text-blue-600 border-gray-300 dark:border-gray-600 dark:border-gray-600 rounded focus:ring-blue-500"
                       checked={autoFitEnabled}
                       onChange={(e) => onAutoFitChange(e.target.checked)}
                       disabled={isLoading}
                     />
-                    <label htmlFor="autofit" className="ml-2 text-xs text-gray-700">
+                    <label htmlFor="autofit" className="ml-2 text-xs text-gray-700 dark:text-gray-300 dark:text-gray-300">
                       Auto-fit to view
                     </label>
                   </div>
                 </div>
               </div>
               
-              <div className="mt-3 pt-3 border-t border-gray-200">
+              <div className="mt-3 pt-3 border-t border-gray-200 dark:border-gray-700 dark:border-gray-700">
                 <div className="flex items-center justify-between">
-                  <p className="text-xs text-gray-500 flex items-center">
-                    <svg className="w-3.5 h-3.5 mr-1 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <p className="text-xs text-gray-500 dark:text-gray-400 dark:text-gray-400 flex items-center">
+                    <svg className="w-3.5 h-3.5 mr-1 text-gray-400 dark:text-gray-500 dark:text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Advanced filters are now active. Adjust visibility and layout to refine the graph.
@@ -488,7 +488,7 @@ const GraphFilters = ({
                     <button
                       type="button"
                       onClick={onResetAdvancedFilters}
-                      className="text-xs text-blue-600 hover:text-blue-800 focus:outline-none"
+                      className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-300 focus:outline-none"
                     >
                       Reset advanced filters
                     </button>

@@ -28,10 +28,10 @@ type Cluster struct {
 // ServiceAccount represents a Kubernetes ServiceAccount
 type ServiceAccount struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index;uniqueIndex:idx_sa_cluster_uid,where:deleted_at IS NULL" json:"clusterId"`
+	ClusterID string         `gorm:"not null;index" json:"clusterId"`
 	Name      string         `gorm:"not null;index" json:"name"`
 	Namespace string         `gorm:"not null;index" json:"namespace"`
-	UID       string         `gorm:"uniqueIndex:idx_sa_cluster_uid,where:deleted_at IS NULL" json:"uid"`
+	UID       string         `gorm:"not null;index" json:"uid"`
 	Labels    string         `gorm:"type:jsonb" json:"labels"`  // JSON string
 	Secrets   string         `gorm:"type:jsonb" json:"secrets"` // JSON array
 	CreatedAt time.Time      `json:"createdAt"`
@@ -44,10 +44,10 @@ type ServiceAccount struct {
 // RoleBinding represents a Kubernetes RoleBinding
 type RoleBinding struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index;uniqueIndex:idx_rb_cluster_uid,where:deleted_at IS NULL" json:"clusterId"`
+	ClusterID string         `gorm:"not null;index" json:"clusterId"`
 	Name      string         `gorm:"not null;index" json:"name"`
 	Namespace string         `gorm:"not null;index" json:"namespace"`
-	UID       string         `gorm:"uniqueIndex:idx_rb_cluster_uid,where:deleted_at IS NULL" json:"uid"`
+	UID       string         `gorm:"not null;index" json:"uid"`
 	RoleRef   string         `gorm:"type:jsonb" json:"roleRef"`  // JSON
 	Subjects  string         `gorm:"type:jsonb" json:"subjects"` // JSON array
 	CreatedAt time.Time      `json:"createdAt"`
@@ -60,9 +60,9 @@ type RoleBinding struct {
 // ClusterRoleBinding represents a Kubernetes ClusterRoleBinding
 type ClusterRoleBinding struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index;uniqueIndex:idx_crb_cluster_uid,where:deleted_at IS NULL" json:"clusterId"`
+	ClusterID string         `gorm:"not null;index" json:"clusterId"`
 	Name      string         `gorm:"not null;index" json:"name"`
-	UID       string         `gorm:"uniqueIndex:idx_crb_cluster_uid,where:deleted_at IS NULL" json:"uid"`
+	UID       string         `gorm:"not null;index" json:"uid"`
 	RoleRef   string         `gorm:"type:jsonb" json:"roleRef"`  // JSON
 	Subjects  string         `gorm:"type:jsonb" json:"subjects"` // JSON array
 	CreatedAt time.Time      `json:"createdAt"`
@@ -75,10 +75,10 @@ type ClusterRoleBinding struct {
 // Role represents a Kubernetes Role
 type Role struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index;uniqueIndex:idx_role_cluster_uid,where:deleted_at IS NULL" json:"clusterId"`
+	ClusterID string         `gorm:"not null;index" json:"clusterId"`
 	Name      string         `gorm:"not null;index" json:"name"`
 	Namespace string         `gorm:"not null;index" json:"namespace"`
-	UID       string         `gorm:"uniqueIndex:idx_role_cluster_uid,where:deleted_at IS NULL" json:"uid"`
+	UID       string         `gorm:"not null;index" json:"uid"`
 	Rules     string         `gorm:"type:jsonb" json:"rules"` // JSON array
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
@@ -90,9 +90,9 @@ type Role struct {
 // ClusterRole represents a Kubernetes ClusterRole
 type ClusterRole struct {
 	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index;uniqueIndex:idx_cr_cluster_uid,where:deleted_at IS NULL" json:"clusterId"`
+	ClusterID string         `gorm:"not null;index" json:"clusterId"`
 	Name      string         `gorm:"not null;index" json:"name"`
-	UID       string         `gorm:"uniqueIndex:idx_cr_cluster_uid,where:deleted_at IS NULL" json:"uid"`
+	UID       string         `gorm:"not null;index" json:"uid"`
 	Rules     string         `gorm:"type:jsonb" json:"rules"` // JSON array
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
@@ -104,11 +104,11 @@ type ClusterRole struct {
 // Pod represents a Kubernetes Pod (to track ServiceAccount usage)
 type Pod struct {
 	ID             uint           `gorm:"primaryKey" json:"id"`
-	ClusterID      string         `gorm:"not null;index;uniqueIndex:idx_pod_cluster_uid,where:deleted_at IS NULL" json:"clusterId"`
+	ClusterID      string         `gorm:"not null;index" json:"clusterId"`
 	Name           string         `gorm:"not null;index" json:"name"`
 	Namespace      string         `gorm:"not null;index" json:"namespace"`
 	ServiceAccount string         `gorm:"not null;index" json:"serviceAccount"`
-	UID            string         `gorm:"uniqueIndex:idx_pod_cluster_uid,where:deleted_at IS NULL" json:"uid"`
+	UID            string         `gorm:"not null;index" json:"uid"`
 	CreatedAt      time.Time      `json:"createdAt"`
 	UpdatedAt      time.Time      `json:"updatedAt"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`

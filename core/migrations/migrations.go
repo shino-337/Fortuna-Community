@@ -20,7 +20,6 @@ func RunMigrations(db *gorm.DB) error {
 		Migration001_InitialSchema,
 		Migration002_AddUsers,
 		Migration003_AddUserToAuditLogs,
-		Migration004_UpdateIndexes,
 	}
 
 	for i, migration := range migrations {
@@ -37,14 +36,10 @@ func RunMigrations(db *gorm.DB) error {
 func Migration001_InitialSchema(db *gorm.DB) error {
 	log.Println("Running migration 001: Initial schema")
 
+	// Focus on ServiceAccount only for now
 	return db.AutoMigrate(
 		&models.Cluster{},
 		&models.ServiceAccount{},
-		&models.RoleBinding{},
-		&models.ClusterRoleBinding{},
-		&models.Role{},
-		&models.ClusterRole{},
-		&models.Pod{},
 		&models.AuditLog{},
 	)
 }

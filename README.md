@@ -1,179 +1,255 @@
-# Kubernetes Service Account Manager (KSAM)
+# K8s Workload Management Platform
 
-Hệ thống quản lý ServiceAccount tập trung cho Kubernetes clusters.
+> Formerly known as KSAM (K8s Service Account Management)
 
-## Tổng quan
+A comprehensive Kubernetes workload management platform for monitoring ServiceAccounts, RBAC, audit logs, and cluster resources.
 
-KSAM là một công cụ quản lý tập trung để quản lý, audit và visualize ServiceAccounts trên nhiều Kubernetes clusters, đảm bảo visibility, compliance và least-privilege principles.
+## ✨ Features
 
-## Cấu trúc dự án
+### 🔐 Authentication & Authorization
+- JWT-based authentication
+- Role-Based Access Control (RBAC)
+- Two roles: Admin & User
+- Granular permissions system
 
-```
-.
-├── agent/              # KSAM Agent - DaemonSet chạy trong mỗi cluster
-├── core/               # KSAM Core Controller - API Server + Scheduler
-├── dashboard/          # KSAM Dashboard - Web UI
-├── helm/               # Helm charts cho deployment
-├── docs/               # Documentation
-├── scripts/            # Utility scripts
-└── docker-compose.yml  # Local development setup
-```
+### 📊 Dashboard & Monitoring
+- **Dashboard**: Overview of cluster resources
+- **Graph View**: Visual representation of ServiceAccounts, Namespaces, and Clusters
+- **ServiceAccounts**: Manage and monitor all ServiceAccounts
+- **Audit Logs**: Complete audit trail of all changes
 
-## Components
-
-### 1. KSAM Agent
-- Lightweight DaemonSet deployed trong mỗi cluster
-- Thu thập và theo dõi ServiceAccounts, RoleBindings, ClusterRoleBindings
-- Gửi dữ liệu về Core Controller qua gRPC với retry logic
-- Sử dụng shared informer cache cho performance
-
-### 2. KSAM Core Controller
-- Central API Server và Scheduler
-- REST/gRPC API
-- PostgreSQL database với connection pooling
-- Prometheus metrics
-- Health endpoints (/health, /ready, /live)
-- Authentication và authorization
-
-### 3. KSAM Dashboard
-- Web UI với graph visualization (Cytoscape.js)
-- Hiển thị relationships giữa SAs, Roles, Namespaces
-- Filtering và pagination
+### 🌓 Modern UI/UX
+- Dark mode support with system preference detection
+- Responsive design
 - Real-time updates
+- Custom branding and icons
 
-## Quick Start
+### 📝 Audit Logging
+- Track all CREATE, UPDATE, DELETE operations
+- No throttling - every event is logged
+- 90-day retention with automatic cleanup
+- Detailed event information
+
+### 🔄 Real-time Sync
+- Agent-based architecture
+- Delta sync for efficiency
+- Full sync every ~10th cycle
+- Watcher for real-time events
+
+## 🏗️ Architecture
+
+```
+┌─────────────────┐
+│   Dashboard     │  (React + TypeScript + Tailwind)
+│   (Frontend)    │
+└────────┬────────┘
+         │ HTTP/REST
+         ▼
+┌─────────────────┐
+│   Core API      │  (Go + Gin + GORM)
+│   Controller    │
+└────────┬────────┘
+         │
+         ├─────► PostgreSQL (Data storage)
+         │
+         ▲ gRPC/HTTP
+         │
+┌────────┴────────┐
+│   Agent         │  (Go + K8s Client)
+│   (DaemonSet)   │
+└─────────────────┘
+         │
+         ▼
+    Kubernetes API
+```
+
+## 🚀 Quick Start
 
 ### Prerequisites
-- Go 1.20+
-- Node.js 18+
-- Docker & Docker Compose
-- kubectl
-- Helm 3.x
+- Minikube or Kubernetes cluster
+- kubectl configured
+- Docker
+
+### Installation
+
+1. **Clone repository**
+```bash
+git clone <repository-url>
+cd KSAM
+```
+
+2. **Build and deploy**
+```bash
+# Build all components
+./scripts/rebuild.sh all
+
+# Or build individually
+./scripts/rebuild.sh core
+./scripts/rebuild.sh agent
+./scripts/rebuild.sh dashboard
+```
+
+3. **Access Dashboard**
+```bash
+# Get dashboard URL
+minikube service ksam-dashboard -n ksam --url
+
+# Or port-forward
+kubectl port-forward -n ksam svc/ksam-dashboard 30080:80
+```
+
+4. **Default Login**
+- **Username**: `admin`
+- **Password**: `admin123`
+- **Role**: admin
+
+## 📚 Documentation
+
+- [UI Improvements & RBAC](./docs/UI_IMPROVEMENTS.md)
+- [Architecture Document](./docs/k8s-event-sync-architecture.md)
+- [Graph Dashboard Enhancement](./docs/k8s-graph-dashboard-enhancement.md)
+- [Migration Guide](./core/migrations/README.md)
+
+## 🔐 RBAC Permissions
+
+| Feature | Admin | User |
+|---------|-------|------|
+| View Dashboard | ✅ | ✅ |
+| View ServiceAccounts | ✅ | ✅ |
+| Create/Edit ServiceAccounts | ✅ | ❌ |
+| Delete ServiceAccounts | ✅ | ❌ |
+| View Audit Logs | ✅ | ✅ |
+| View Graph | ✅ | ✅ |
+| User Management | ✅ | ❌ |
+
+## 🛠️ Development
+
+### Project Structure
+```
+KSAM/
+├── agent/              # Kubernetes agent (collects data)
+│   ├── cmd/           # Main application
+│   ├── internal/      # Internal packages
+│   └── deploy/        # Kubernetes manifests
+├── core/              # Core API controller
+│   ├── cmd/           # Main application
+│   ├── internal/      # Internal packages
+│   ├── migrations/    # Database migrations
+│   └── pkg/           # Public packages
+├── dashboard/         # Frontend dashboard
+│   ├── src/           # React source code
+│   ├── public/        # Static assets
+│   └── dist/          # Build output
+├── docs/              # Documentation
+├── scripts/           # Utility scripts
+└── helm/              # Helm charts
+```
+
+### Technologies
+
+**Backend:**
+- Go 1.20
+- Gin (HTTP framework)
+- GORM (ORM)
 - PostgreSQL
+- gRPC
 
-### Development
+**Frontend:**
+- React 18
+- TypeScript
+- Tailwind CSS
+- React Query
+- React Router
+- Axios
 
-1. Clone repository
-2. Start local development environment:
+**Infrastructure:**
+- Kubernetes
+- Docker
+- Minikube (dev)
+
+## 🧪 Testing
+
+### Create Test ServiceAccounts
 ```bash
-docker-compose up -d
+kubectl create serviceaccount test-sa -n default
+kubectl label serviceaccount test-sa env=test -n default
+kubectl delete serviceaccount test-sa -n default
 ```
 
-3. Deploy Agent to cluster:
+### Check Audit Logs
 ```bash
-cd helm/ksam
-helm install ksam ./helm/ksam
+# Via API
+curl http://localhost:8080/api/v1/audit -H "Authorization: Bearer <token>"
+
+# Via Database
+kubectl exec -n ksam postgres-xxx -- psql -U postgres -d ksam -c "SELECT * FROM audit_logs ORDER BY created_at DESC LIMIT 10;"
 ```
 
-4. Start Core Controller:
+### View Core Logs
 ```bash
-cd core
-export DATABASE_URL=postgres://postgres:postgres@localhost:5432/ksam?sslmode=disable
-export JWT_SECRET=your-secret-key
-go run cmd/main.go
+kubectl logs -n ksam -l app=ksam-core -f
 ```
 
-5. Start Dashboard:
+### View Agent Logs
 ```bash
-cd dashboard
-npm install
-npm run dev
+kubectl logs -n kube-system -l app=ksam-agent -f
 ```
 
-## Features
+## 📊 Monitoring
 
-### ✅ Đã Implement
-- ✅ Discovery: Enumerate và monitor ServiceAccounts, RoleBindings
-- ✅ Centralized Management: View, edit, delete, disable ServiceAccounts
-- ✅ Bulk Operations: Disable/delete multiple SAs, disable inactive SAs
-- ✅ Visualization: Interactive graph view với filtering
-- ✅ Audit & Compliance: Audit logs, reports
-- ✅ Authentication: JWT-based authentication với roles
-- ✅ Security: Security headers, CORS, password hashing
-- ✅ Performance: Connection pooling, shared informer cache, retry logic
-- ✅ Observability: Prometheus metrics, health endpoints
-
-### ⚠️ Optional/Enhancement
-- ⚠️ Token usage tracking
-- ⚠️ Role revocation API
-- ⚠️ Token rotation API
-- ⚠️ TLS/mTLS configuration
-- ⚠️ Redis caching (code ready, cần enable)
-- ⚠️ OPA/Kyverno integration
-
-## API Endpoints
-
-### Public
-- `GET /health` - Health check
-- `GET /ready` - Readiness check
-- `GET /live` - Liveness check
-- `GET /metrics` - Prometheus metrics
-- `POST /api/v1/auth/login` - Login
-
-### Protected (require authentication)
-- `GET /api/v1/clusters` - List clusters
-- `GET /api/v1/serviceaccounts` - List service accounts
-- `GET /api/v1/graph` - Get graph data
-- `GET /api/v1/audit` - Get audit logs
-- `POST /api/v1/serviceaccounts/bulk/disable` - Bulk disable (admin only)
-- `POST /api/v1/serviceaccounts/disable-inactive` - Disable inactive (admin only)
-
-## Configuration
-
-### Core Controller
-- `DATABASE_URL` - PostgreSQL connection string
-- `JWT_SECRET` - JWT signing secret (required)
-- `AUTH_ENABLED` - Enable authentication (default: true)
-- `HTTP_PORT` - HTTP server port (default: 8080)
-- `GRPC_PORT` - gRPC server port (default: 9090)
-- `REDIS_URL` - Redis connection string (optional)
-
-### Agent
-- `KSAM_CORE_ENDPOINT` - Core Controller endpoint
-- `KSAM_CLUSTER_ID` - Cluster identifier
-- `KSAM_SYNC_INTERVAL` - Sync interval (default: 30s)
-
-## Deployment
-
-### Helm Chart
+### Check System Status
 ```bash
-helm install ksam ./helm/ksam
+kubectl get pods -n ksam
+kubectl get pods -n kube-system -l app=ksam-agent
 ```
 
-### Manual Deployment
+### View Metrics
 ```bash
-# Deploy Agent
-kubectl apply -f agent/deploy/rbac.yaml
-kubectl apply -f agent/deploy/daemonset.yaml
+# Core metrics
+curl http://localhost:8080/metrics
 
-# Deploy Core
-kubectl apply -f core/deploy/
+# Health checks
+curl http://localhost:8080/health
+curl http://localhost:8080/ready
 ```
 
-## Performance Optimizations
+## 🔧 Configuration
 
-1. **Database Connection Pooling**: Max 100 connections, idle timeout 10min
-2. **Shared Informer Cache**: Reuse informers, reduce API server load
-3. **Retry Logic**: Exponential backoff cho Agent sync
-4. **Pagination**: Default page size 50, configurable
-5. **Caching**: Redis support (optional)
+### Environment Variables
 
-## Security
+**Core Controller:**
+- `DATABASE_URL`: PostgreSQL connection string
+- `JWT_SECRET`: Secret for JWT token generation
+- `HTTP_PORT`: HTTP server port (default: 8080)
+- `GRPC_PORT`: gRPC server port (default: 9090)
 
-- JWT authentication với token expiration
-- Password hashing (bcrypt, cost 12)
-- Security headers (X-Frame-Options, CSP, HSTS, etc.)
-- Role-based access control (admin, user, viewer)
-- Audit logging với user tracking
+**Agent:**
+- `CORE_CONTROLLER_URL`: Core API endpoint
+- `CLUSTER_ID`: Kubernetes cluster identifier
+- `SYNC_INTERVAL`: Data sync interval (default: 30s)
 
-## Documentation
+## 🤝 Contributing
 
-Xem [docs/](docs/) để biết thêm chi tiết:
-- [Architecture](docs/ARCHITECTURE.md)
-- [Deployment Guide](docs/DEPLOYMENT.md)
-- [Security Guide](core/docs/SECURITY.md)
-- [Implementation Status](docs/IMPLEMENTATION_STATUS.md)
+1. Fork the repository
+2. Create feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open Pull Request
 
-## License
+## 📝 License
 
-MIT
+MIT License - see LICENSE file for details
+
+## 🙏 Acknowledgments
+
+- Kubernetes community
+- Go community
+- React community
+
+## 📧 Contact
+
+For questions or support, please open an issue on GitHub.
+
+---
+
+**K8s Workload Management Platform** - Simplifying Kubernetes workload management

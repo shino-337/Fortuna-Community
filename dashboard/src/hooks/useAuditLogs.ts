@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
-import { auditApi } from '../services/api'
+import { auditApi, type AuditLog } from '../services/api'
 
 interface AuditLogsParams {
   cluster?: string
@@ -9,13 +9,24 @@ interface AuditLogsParams {
   pageSize?: number
 }
 
-export const useAuditLogs = (params?: AuditLogsParams) => {
-  return useQuery({
+interface AuditLogsResponse {
+  logs: AuditLog[]
+  total: number
+  page: number
+  pageSize: number
+}
+
+export const useAuditLogs = (
+  params?: AuditLogsParams,
+  options?: { refetchInterval?: number }
+) => {
+  return useQuery<AuditLogsResponse>({
     queryKey: ['auditLogs', params],
     queryFn: async () => {
       const response = await auditApi.getLogs(params)
       return response.data
     },
+    refetchInterval: options?.refetchInterval ?? false,
   })
 }
 

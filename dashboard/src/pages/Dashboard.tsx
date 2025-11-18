@@ -12,52 +12,52 @@ const Dashboard = () => {
   const recentLogs = auditLogs?.logs?.length || 0
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
       <div className="container mx-auto px-4 py-6 max-w-7xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">KSAM Dashboard</h1>
-          <p className="text-sm text-gray-600">Overview of your Kubernetes ServiceAccount management</p>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Dashboard</h1>
+          <p className="text-sm text-gray-600 dark:text-gray-400">Overview of your Kubernetes ServiceAccount management</p>
         </div>
         
         {clustersLoading || sasLoading || logsLoading ? (
           <div className="text-center py-8">
-            <div className="text-gray-500">Loading...</div>
+            <div className="text-gray-500 dark:text-gray-400">Loading...</div>
           </div>
         ) : (
           <>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h2 className="text-lg font-semibold mb-2 text-gray-700">Clusters</h2>
-                <p className="text-3xl font-bold text-blue-600">{totalClusters}</p>
-                <p className="text-sm text-gray-500 mt-2">Total connected clusters</p>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">Clusters</h2>
+                <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalClusters}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total connected clusters</p>
               </div>
               
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h2 className="text-lg font-semibold mb-2 text-gray-700">ServiceAccounts</h2>
-                <p className="text-3xl font-bold text-green-600">{totalServiceAccounts}</p>
-                <p className="text-sm text-gray-500 mt-2">Total service accounts</p>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">ServiceAccounts</h2>
+                <p className="text-3xl font-bold text-green-600 dark:text-green-400">{totalServiceAccounts}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total service accounts</p>
               </div>
               
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h2 className="text-lg font-semibold mb-2 text-gray-700">Recent Activity</h2>
-                <p className="text-3xl font-bold text-purple-600">{recentLogs}</p>
-                <p className="text-sm text-gray-500 mt-2">Recent audit logs</p>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">Recent Activity</h2>
+                <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{recentLogs}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Recent audit logs</p>
               </div>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h2 className="text-lg font-semibold mb-4 text-gray-800">Clusters Status</h2>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Clusters Status</h2>
                 {clusters && Array.isArray(clusters) && clusters.length > 0 ? (
                   <div className="space-y-2">
                     {clusters.map((cluster) => (
-                      <div key={cluster.id} className="flex items-center justify-between p-2 bg-gray-50 rounded">
-                        <span className="font-medium">{cluster.name}</span>
+                      <div key={cluster.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
+                        <span className="font-medium text-gray-900 dark:text-gray-100">{cluster.name}</span>
                         <span
                           className={`px-2 py-1 rounded text-xs ${
                             cluster.status === 'active'
-                              ? 'bg-green-100 text-green-800'
-                              : 'bg-red-100 text-red-800'
+                              ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
+                              : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
                           }`}
                         >
                           {cluster.status}
@@ -66,28 +66,28 @@ const Dashboard = () => {
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500">No clusters connected</p>
+                  <p className="text-gray-500 dark:text-gray-400">No clusters connected</p>
                 )}
               </div>
 
-              <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-200">
-                <h2 className="text-lg font-semibold mb-4 text-gray-800">Recent Audit Logs</h2>
+              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
+                <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Recent Audit Logs</h2>
                 {auditLogs && auditLogs.logs && auditLogs.logs.length > 0 ? (
                   <div className="space-y-2">
                     {auditLogs.logs.slice(0, 5).map((log: any) => (
-                      <div key={log.id} className="p-2 bg-gray-50 rounded text-sm">
+                      <div key={log.id} className="p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm">
                         <div className="flex justify-between">
-                          <span className="font-medium">{log.action}</span>
-                          <span className="text-gray-500">{log.resource}</span>
+                          <span className="font-medium text-gray-900 dark:text-gray-100">{log.action}</span>
+                          <span className="text-gray-500 dark:text-gray-400">{log.resource}</span>
                         </div>
-                        <div className="text-gray-500 text-xs mt-1">
+                        <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
                           {new Date(log.createdAt).toLocaleString()}
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500">No recent activity</p>
+                  <p className="text-gray-500 dark:text-gray-400">No recent activity</p>
                 )}
               </div>
             </div>

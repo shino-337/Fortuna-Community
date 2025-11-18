@@ -1966,16 +1966,18 @@ const GraphVisualization = ({
         </div>
       )}
 
-      {/* Graph container */}
+      {/* Graph container - Full size responsive */}
       <div 
         ref={containerRef} 
-        className="w-full h-full"
+        className="absolute inset-0 bg-white dark:bg-gray-900"
         style={{ 
-          height: height === '100%' ? '100%' : (height || '600px'), 
           width: '100%',
-          minHeight: height === '100%' ? '600px' : '400px',
-          position: 'relative',
-          display: 'block'
+          height: '100%',
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0
         }} 
       />
     </div>
