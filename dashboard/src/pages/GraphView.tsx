@@ -190,7 +190,7 @@ const GraphView = () => {
         )}
 
         {/* Center: Graph Canvas */}
-        <div className="flex-1 relative overflow-hidden" style={{ minHeight: '600px', height: '100%' }}>
+        <div className="flex-1 relative overflow-hidden bg-white dark:bg-gray-900" style={{ minHeight: '600px', height: '100%' }}>
           <GraphVisualization 
             cluster={cluster || undefined} 
             namespace={namespace || undefined} 

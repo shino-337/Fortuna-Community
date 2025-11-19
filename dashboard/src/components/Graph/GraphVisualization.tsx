@@ -340,9 +340,17 @@ const GraphVisualization = ({
   autoFitEnabled = true,
   onNodeSelect,
 }: GraphVisualizationProps) => {
-  const containerRef = useRef<HTMLDivElement>(null)
+  const [container, setContainer] = useState<HTMLDivElement | null>(null)
+  const containerRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) {
+      setContainer(node)
+    }
+  }, [])
+  
   const cyRef = useRef<Core | null>(null)
+  const [isCytoscapeReady, setIsCytoscapeReady] = useState(false)
   const { data, isLoading, error, refetch } = useGraph({ cluster, namespace })
+  
   
   // Notify parent of loading state changes
   useEffect(() => {
@@ -367,22 +375,8 @@ const GraphVisualization = ({
   // Memoize nodes and edges conversion for performance
   const { nodes, edges } = useMemo(() => {
     if (!data || !Array.isArray(data.nodes) || !Array.isArray(data.edges)) {
-      console.warn('Invalid data structure:', {
-        hasData: !!data,
-        nodesIsArray: Array.isArray(data?.nodes),
-        edgesIsArray: Array.isArray(data?.edges),
-        nodesCount: data?.nodes?.length,
-        edgesCount: data?.edges?.length
-      })
       return { nodes: [], edges: [] }
     }
-
-    console.log('Converting data to Cytoscape format:', {
-      rawNodes: data.nodes.length,
-      rawEdges: data.edges.length,
-      sampleNode: data.nodes[0],
-      sampleEdge: data.edges[0]
-    })
 
     // Convert data to Cytoscape format
     const convertedNodes: NodeDefinition[] = data.nodes.map((node) => {
@@ -525,8 +519,8 @@ const GraphVisualization = ({
                     nodes: nodes.length,
                     edges: edges.length,
                     containerSize: {
-                      width: containerRef.current?.offsetWidth,
-                      height: containerRef.current?.offsetHeight
+                      width: container?.offsetWidth,
+                      height: container?.offsetHeight
                     }
                   })
                   
@@ -601,11 +595,15 @@ const GraphVisualization = ({
     [layout, autoFitEnabled]
   )
 
-  // Update graph when nodes/edges change
+  // Update graph when nodes/edges change OR when Cytoscape becomes ready
   useEffect(() => {
-    if (!cyRef.current) return
+    if (!cyRef.current || !isCytoscapeReady) {
+      return
+    }
 
-    console.log('Updating graph elements:', { nodes: nodes.length, edges: edges.length })
+    if (nodes.length === 0 && edges.length === 0) {
+      return
+    }
     cyRef.current.batch(() => {
       cyRef.current!.elements().remove()
       if (nodes.length > 0 || edges.length > 0) {
@@ -639,7 +637,7 @@ const GraphVisualization = ({
         setTooltipVisible(false)
       }
     }
-  }, [nodes, edges, runLayout, selectedNodeId])
+  }, [nodes, edges, runLayout, selectedNodeId, isCytoscapeReady])
 
   useEffect(() => {
     if (cyRef.current && cyRef.current.nodes().length > 0) {
@@ -663,15 +661,31 @@ const GraphVisualization = ({
 
   // Use ResizeObserver to wait for container to have size
   useEffect(() => {
-    if (!containerRef.current || !data) return
-
-    const container = containerRef.current
+    console.log('🎬 Initialization useEffect triggered', {
+      hasContainer: !!container,
+      containerElement: container,
+      containerSize: container ? {
+        width: container.offsetWidth,
+        height: container.offsetHeight
+      } : null
+    })
+    
+    if (!container) {
+      console.log('❌ container is null, skipping initialization')
+      return
+    }
     let resizeObserver: ResizeObserver | null = null
     let initTimeout: ReturnType<typeof setTimeout> | null = null
     let isCleanedUp = false
 
     const checkAndInit = () => {
-      if (cyRef.current || isCleanedUp) return // Already initialized or cleaned up
+      if (cyRef.current || isCleanedUp) {
+        console.log('⏭️ Skipping init:', { 
+          alreadyInitialized: !!cyRef.current, 
+          cleanedUp: isCleanedUp 
+        })
+        return
+      }
       
       const width = container.offsetWidth || container.clientWidth || container.getBoundingClientRect().width
       const height = container.offsetHeight || container.clientHeight || container.getBoundingClientRect().height
@@ -682,7 +696,7 @@ const GraphVisualization = ({
       
       const finalHeight = height || computedHeight
       
-      console.log('Checking container size:', { 
+      console.log('🔍 Checking container size:', { 
         offsetWidth: container.offsetWidth,
         offsetHeight: container.offsetHeight,
         clientWidth: container.clientWidth,
@@ -690,7 +704,13 @@ const GraphVisualization = ({
         boundingRect: container.getBoundingClientRect(),
         computedHeight,
         finalWidth: width,
-        finalHeight
+        finalHeight,
+        containerElement: container,
+        parentElement: container.parentElement,
+        parentSize: {
+          width: container.parentElement?.offsetWidth,
+          height: container.parentElement?.offsetHeight
+        }
       })
       
       if (width > 0 && finalHeight > 0) {
@@ -731,25 +751,25 @@ const GraphVisualization = ({
     }
 
     function initializeCytoscape() {
-      if (!containerRef.current || cyRef.current) return
+      if (!container || cyRef.current) return
       
-      const width = containerRef.current.offsetWidth || containerRef.current.clientWidth
-      const height = containerRef.current.offsetHeight || containerRef.current.clientHeight
+      const width = container.offsetWidth || container.clientWidth
+      const height = container.offsetHeight || container.clientHeight
       
       if (width === 0 || height === 0) {
         console.error('Cannot initialize Cytoscape: container has no size', {
-          offsetWidth: containerRef.current.offsetWidth,
-          offsetHeight: containerRef.current.offsetHeight,
-          clientWidth: containerRef.current.clientWidth,
-          clientHeight: containerRef.current.clientHeight
+          offsetWidth: container.offsetWidth,
+          offsetHeight: container.offsetHeight,
+          clientWidth: container.clientWidth,
+          clientHeight: container.clientHeight
         })
         return
       }
       
-      console.log('Initializing Cytoscape with container size:', { width, height })
+      console.log('🚀 Initializing Cytoscape with container size:', { width, height })
       
       cyRef.current = cytoscape({
-        container: containerRef.current,
+        container: container,
         style: [
           // Base node style
           {
@@ -946,6 +966,15 @@ const GraphVisualization = ({
         pixelRatio: 'auto',
       })
       
+      console.log('✅ Cytoscape initialized successfully!', {
+        cyInitialized: !!cyRef.current,
+        containerWidth: width,
+        containerHeight: height
+      })
+      
+      // Mark as ready to trigger update effect
+      setIsCytoscapeReady(true)
+      
       // Enable pan inertia (smooth deceleration after pan)
       if (cyRef.current) {
         let panVelocity = { x: 0, y: 0 }
@@ -1065,9 +1094,9 @@ const GraphVisualization = ({
         const nodeType = node.data('type') || ''
         
         // Show tooltip with full text
-        if (fullText && containerRef.current) {
+        if (fullText && container) {
           const position = e.renderedPosition || e.position
-          const containerRect = containerRef.current.getBoundingClientRect()
+          const containerRect = container.getBoundingClientRect()
           
           setTooltipPosition({
             x: containerRect.left + position.x,
@@ -1144,8 +1173,8 @@ const GraphVisualization = ({
         layout,
         cytoscapeInitialized: !!cyRef.current,
         containerSize: {
-          width: containerRef.current?.offsetWidth,
-          height: containerRef.current?.offsetHeight
+          width: container?.offsetWidth,
+          height: container?.offsetHeight
         }
       })
       
@@ -1228,12 +1257,21 @@ const GraphVisualization = ({
         clearTimeout(initTimeout)
         initTimeout = null
       }
+      // Don't destroy cyRef here, let it persist
+      // Only destroy on component unmount
+    }
+  }, [container]) // Add container as dependency to re-run when it's set
+
+  // Cleanup on component unmount
+  useEffect(() => {
+    return () => {
       if (cyRef.current) {
+        console.log('🧹 Cleaning up Cytoscape on unmount')
         cyRef.current.destroy()
         cyRef.current = null
       }
     }
-  }, [data, nodes, edges, layout, runLayout])
+  }, [])
 
   // Zoom controls
   const handleZoomIn = useCallback(() => {
@@ -1241,20 +1279,20 @@ const GraphVisualization = ({
     const newZoom = cyRef.current.zoom() * 1.2
     cyRef.current.zoom({
       level: newZoom,
-      renderedPosition: { x: containerRef.current!.offsetWidth / 2, y: containerRef.current!.offsetHeight / 2 }
+      renderedPosition: { x: (container?.offsetWidth || 0) / 2, y: (container?.offsetHeight || 0) / 2 }
     })
     setZoomLevel(newZoom)
-  }, [])
+  }, [container])
 
   const handleZoomOut = useCallback(() => {
     if (!cyRef.current) return
     const newZoom = cyRef.current.zoom() / 1.2
     cyRef.current.zoom({
       level: newZoom,
-      renderedPosition: { x: containerRef.current!.offsetWidth / 2, y: containerRef.current!.offsetHeight / 2 }
+      renderedPosition: { x: (container?.offsetWidth || 0) / 2, y: (container?.offsetHeight || 0) / 2 }
     })
     setZoomLevel(newZoom)
-  }, [])
+  }, [container])
 
   const handleFit = useCallback(() => {
     if (!cyRef.current) return
@@ -1501,7 +1539,7 @@ const GraphVisualization = ({
   }
 
   return (
-    <div className="w-full border border-gray-300 rounded-lg overflow-hidden relative bg-gray-50">
+    <div className="w-full h-full border border-gray-300 rounded-lg overflow-hidden relative bg-gray-50">
       {/* Search Bar */}
       <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 p-2 min-w-[280px]">
         <div className="flex items-center gap-2">
@@ -1969,7 +2007,7 @@ const GraphVisualization = ({
       {/* Graph container - Full size responsive */}
       <div 
         ref={containerRef} 
-        className="absolute inset-0 bg-white dark:bg-gray-900"
+        className="absolute inset-0"
         style={{ 
           width: '100%',
           height: '100%',
@@ -1977,7 +2015,8 @@ const GraphVisualization = ({
           top: 0,
           left: 0,
           right: 0,
-          bottom: 0
+          bottom: 0,
+          backgroundColor: 'transparent'
         }} 
       />
     </div>

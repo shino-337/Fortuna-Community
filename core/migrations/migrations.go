@@ -36,10 +36,15 @@ func RunMigrations(db *gorm.DB) error {
 func Migration001_InitialSchema(db *gorm.DB) error {
 	log.Println("Running migration 001: Initial schema")
 
-	// Focus on ServiceAccount only for now
+	// Migrate all RBAC resources
 	return db.AutoMigrate(
 		&models.Cluster{},
 		&models.ServiceAccount{},
+		&models.Role{},
+		&models.ClusterRole{},
+		&models.RoleBinding{},
+		&models.ClusterRoleBinding{},
+		&models.Pod{},
 		&models.AuditLog{},
 	)
 }
