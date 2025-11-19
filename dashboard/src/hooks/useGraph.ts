@@ -8,7 +8,7 @@ interface GraphParams {
 
 export const useGraph = (params?: GraphParams) => {
   return useQuery<GraphData>({
-    queryKey: ['graph', params],
+    queryKey: ['graph', params?.cluster, params?.namespace], // Explicit keys for better cache invalidation
     queryFn: async () => {
       const response = await graphApi.getGraph(params)
       return response.data
@@ -17,6 +17,8 @@ export const useGraph = (params?: GraphParams) => {
     refetchOnMount: true,
     // Don't cache too long to ensure filter changes are reflected
     staleTime: 0,
+    // Ensure we don't keep previous data when filters change
+    placeholderData: undefined,
   })
 }
 

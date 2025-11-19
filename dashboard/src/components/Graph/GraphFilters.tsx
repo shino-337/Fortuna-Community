@@ -134,6 +134,12 @@ const GraphFilters = ({
 
   // Select a suggested namespace
   const selectNamespace = (selected: string) => {
+    // Clear any pending debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    
     setLocalNamespace(selected)
     onNamespaceChange(selected)
     setShowNamespaceSuggestions(false)
@@ -159,6 +165,12 @@ const GraphFilters = ({
 
   // Clear filters handler
   const handleClearFilters = () => {
+    // Clear any pending debounce timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current)
+      debounceTimerRef.current = null
+    }
+    
     onClusterChange('')
     onNamespaceChange('')
     setLocalNamespace('')
