@@ -106,7 +106,6 @@ const GraphView = () => {
 
   // Save to localStorage when filters change
   useEffect(() => {
-    console.log('[DEBUG GraphView] Cluster changed to:', cluster)
     if (typeof window !== 'undefined') {
       if (cluster) {
         localStorage.setItem(STORAGE_KEY_CLUSTER, cluster)
@@ -117,7 +116,6 @@ const GraphView = () => {
   }, [cluster])
 
   useEffect(() => {
-    console.log('[DEBUG GraphView] Namespace changed to:', namespace)
     if (typeof window !== 'undefined') {
       if (namespace) {
         localStorage.setItem(STORAGE_KEY_NAMESPACE, namespace)

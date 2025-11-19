@@ -1539,11 +1539,11 @@ const GraphVisualization = ({
   }
 
   return (
-    <div className="w-full h-full border border-gray-300 rounded-lg overflow-hidden relative bg-gray-50">
+    <div className="w-full h-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden relative bg-gray-50 dark:bg-gray-800">
       {/* Search Bar */}
-      <div className="absolute top-4 left-4 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 p-2 min-w-[280px]">
+      <div className="absolute top-4 left-4 z-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 dark:border-gray-600 p-2 min-w-[280px]">
         <div className="flex items-center gap-2">
-          <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <svg className="w-4 h-4 text-gray-400 dark:text-gray-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
           </svg>
           <input
@@ -1551,7 +1551,7 @@ const GraphVisualization = ({
             value={searchQuery}
             onChange={(e) => handleSearch(e.target.value)}
             placeholder="Search nodes..."
-            className="flex-1 text-sm border-0 focus:outline-none focus:ring-0 bg-transparent text-gray-700 placeholder-gray-400"
+            className="flex-1 text-sm border-0 focus:outline-none focus:ring-0 bg-transparent text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500"
           />
           {searchQuery && (
             <button
@@ -1559,7 +1559,7 @@ const GraphVisualization = ({
                 setSearchQuery('')
                 handleSearch('')
               }}
-              className="text-gray-400 hover:text-gray-600"
+              className="text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
               title="Clear search"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -1569,17 +1569,17 @@ const GraphVisualization = ({
           )}
         </div>
         {searchResults.length > 0 && (
-          <div className="mt-2 text-xs text-gray-600">
+          <div className="mt-2 text-xs text-gray-600 dark:text-gray-400">
             Found {searchResults.length} node{searchResults.length !== 1 ? 's' : ''}
           </div>
         )}
       </div>
 
       {/* Toolbar */}
-      <div className="absolute top-4 right-4 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 p-2 flex flex-col gap-1.5">
+      <div className="absolute top-4 right-4 z-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 dark:border-gray-600 p-2 flex flex-col gap-1.5">
         <button
           onClick={handleZoomIn}
-          className="p-2.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+          className="p-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
           title="Zoom In (+)"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1588,7 +1588,7 @@ const GraphVisualization = ({
         </button>
         <button
           onClick={handleZoomOut}
-          className="p-2.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+          className="p-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
           title="Zoom Out (-)"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1597,7 +1597,7 @@ const GraphVisualization = ({
         </button>
         <button
           onClick={handleFit}
-          className="p-2.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+          className="p-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
           title="Fit to View (0)"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1606,7 +1606,7 @@ const GraphVisualization = ({
         </button>
         <button
           onClick={handleReset}
-          className="p-2.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+          className="p-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
           title="Reset View"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1616,7 +1616,7 @@ const GraphVisualization = ({
         <button
           onClick={handleRefresh}
           disabled={isLoading}
-          className="p-2.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          className="p-2.5 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
           title="Refresh Data (Ctrl+R)"
         >
           <svg className={`w-5 h-5 ${isLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1627,7 +1627,7 @@ const GraphVisualization = ({
         {/* Minimap toggle - Disabled for now */}
         <button
           disabled
-          className="p-2.5 text-xs font-medium border border-gray-300 rounded-md transition-colors bg-gray-100 text-gray-400 cursor-not-allowed opacity-50"
+          className="p-2.5 text-xs font-medium border border-gray-300 dark:border-gray-600 rounded-md transition-colors bg-gray-100 dark:bg-gray-700 text-gray-400 dark:text-gray-500 cursor-not-allowed opacity-50"
           title="Minimap (Coming soon)"
         >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1636,10 +1636,10 @@ const GraphVisualization = ({
         </button>
 
         {/* Export buttons */}
-        <div className="border-t border-gray-200 pt-1.5 mt-1 flex flex-col gap-1">
+        <div className="border-t border-gray-200 dark:border-gray-600 pt-1.5 mt-1 flex flex-col gap-1">
           <button
             onClick={() => handleExportScreenshot('png')}
-            className="p-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            className="p-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
             title="Export as PNG"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1648,7 +1648,7 @@ const GraphVisualization = ({
           </button>
           <button
             onClick={() => handleExportScreenshot('svg')}
-            className="p-2 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
+            className="p-2 text-xs font-medium text-gray-700 dark:text-gray-200 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600 hover:border-gray-400 dark:hover:border-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition-colors"
             title="Export as SVG"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1657,23 +1657,23 @@ const GraphVisualization = ({
           </button>
         </div>
         
-        <div className="px-3 py-1 text-xs text-gray-500 text-center border-t border-gray-200 mt-1 pt-1">
+        <div className="px-3 py-1 text-xs text-gray-500 dark:text-gray-400 text-center border-t border-gray-200 dark:border-gray-600 mt-1 pt-1">
           {Math.round(zoomLevel * 100)}%
         </div>
       </div>
 
       {/* Info panel */}
       {data && (
-        <div className="absolute bottom-4 left-4 z-10 bg-white/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 p-3 text-xs">
-          <div className="font-semibold text-gray-800 mb-2">Graph Info</div>
-          <div className="text-gray-600 space-y-1">
+        <div className="absolute bottom-4 left-4 z-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 dark:border-gray-600 p-3 text-xs">
+          <div className="font-semibold text-gray-800 dark:text-gray-200 mb-2">Graph Info</div>
+          <div className="text-gray-600 dark:text-gray-400 space-y-1">
             <div className="flex items-center gap-1">
               <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
               </svg>
               <span>
                 Nodes:{' '}
-                <span className="font-medium text-gray-800">
+                <span className="font-medium text-gray-800 dark:text-gray-200">
                   {nodes.length}
                   {originalNodeCount ? ` / ${originalNodeCount}` : ''}
                 </span>
@@ -1685,7 +1685,7 @@ const GraphVisualization = ({
               </svg>
               <span>
                 Edges:{' '}
-                <span className="font-medium text-gray-800">
+                <span className="font-medium text-gray-800 dark:text-gray-200">
                   {edges.length}
                   {originalEdgeCount ? ` / ${originalEdgeCount}` : ''}
                 </span>
@@ -1696,7 +1696,7 @@ const GraphVisualization = ({
                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
-                <span>Namespace: <span className="font-medium text-gray-800">{namespace}</span></span>
+                <span>Namespace: <span className="font-medium text-gray-800 dark:text-gray-200">{namespace}</span></span>
               </div>
             )}
           </div>
