@@ -1273,6 +1273,33 @@ const GraphVisualization = ({
     }
   }, [])
 
+  // Update graph when nodes/edges change (filter changes)
+  useEffect(() => {
+    if (!cyRef.current || !isCytoscapeReady) {
+      return
+    }
+
+    if (nodes.length === 0 && edges.length === 0) {
+      // Clear graph if no nodes
+      cyRef.current.elements().remove()
+      return
+    }
+
+    // Update graph with new filtered nodes/edges
+    cyRef.current.batch(() => {
+      cyRef.current!.elements().remove()
+      cyRef.current!.add([...nodes, ...edges])
+    })
+
+    // Run layout after updating
+    setTimeout(() => {
+      if (cyRef.current && cyRef.current.nodes().length > 0) {
+        cyRef.current.resize()
+        runLayout(true)
+      }
+    }, 100)
+  }, [nodes, edges, isCytoscapeReady, runLayout])
+
   // Zoom controls
   const handleZoomIn = useCallback(() => {
     if (!cyRef.current) return
