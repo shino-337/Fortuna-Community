@@ -451,15 +451,23 @@ const GraphVisualization = ({
 
     let filteredEdges: EdgeDefinition[] = data.edges
       .filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target))
-      .map((edge) => ({
-        data: {
+      .map((edge) => {
+        const edgeData: any = {
           id: edge.id,
           source: edge.source,
           target: edge.target,
           type: edge.type,
-          ...(edge.data || {}),
-        },
-      }))
+        }
+        
+        // Copy additional data properties safely (avoid Symbol properties)
+        if (edge.data && typeof edge.data === 'object') {
+          Object.keys(edge.data).forEach((key) => {
+            edgeData[key] = edge.data![key]
+          })
+        }
+        
+        return { data: edgeData }
+      })
 
     if (connectionTypeFilters) {
       filteredEdges = filteredEdges.filter((edge) => {
@@ -470,14 +478,6 @@ const GraphVisualization = ({
         return connectionTypeFilters[typeKey] !== false
       })
     }
-
-    console.log('Converted nodes and edges:', {
-      convertedNodes: convertedNodes.length,
-      filteredNodes: filteredNodes.length,
-      filteredEdges: filteredEdges.length,
-      sampleConvertedNode: filteredNodes[0],
-      sampleConvertedEdge: filteredEdges[0]
-    })
 
     return { nodes: filteredNodes, edges: filteredEdges }
   }, [data, nodeTypeFilters, connectionTypeFilters])

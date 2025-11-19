@@ -13,11 +13,12 @@ export default defineConfig({
       },
     },
   },
-  test: {
-    globals: true,
-    environment: 'jsdom',
-    setupFiles: './src/test/setup.ts',
-    css: true,
+  build: {
+    // Use esbuild (default) for minification - it's faster than terser
+    minify: 'esbuild',
+  },
+  esbuild: {
+    // Remove console logs in production
+    drop: ['console', 'debugger'],
   },
 })
-
