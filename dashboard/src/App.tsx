@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Link, useLocation, Navigate } from 'react
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AuthProvider, useAuth } from './contexts/AuthContext'
 import { ThemeProvider, useTheme } from './contexts/ThemeContext'
+import LandingPage from './pages/LandingPage'
 import Dashboard from './pages/Dashboard'
 import GraphView from './pages/GraphView'
 import ServiceAccounts from './pages/ServiceAccounts'
@@ -35,25 +36,38 @@ function Navigation() {
 
   return (
     <nav className="bg-white dark:bg-gray-900 shadow-lg border-b border-gray-200 dark:border-gray-700">
-      <div className="container mx-auto px-4">
-        <div className="flex justify-between items-center py-4">
-          <Link to="/" className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-              <svg className="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-              </svg>
-            </div>
-            <div>
-              <div className="text-xl font-bold text-gray-900 dark:text-white">K8s Workload</div>
-              <div className="text-xs text-gray-500 dark:text-gray-400">Management Platform</div>
-            </div>
-          </Link>
-          <div className="flex items-center space-x-4">
+      <div className="w-full px-6">
+        {/* 3-Column Layout: Left | Center | Right */}
+        <div className="grid grid-cols-3 items-center h-16">
+          {/* LEFT: Logo + Project Name */}
+          <div className="flex items-center justify-start">
+            <Link to="/dashboard" className="flex items-center space-x-3 group">
+              <div className="w-10 h-10 bg-gradient-to-br from-pink-600 to-pink-800 rounded-lg flex items-center justify-center transition-transform group-hover:scale-105">
+                <svg className="w-6 h-6 text-white" viewBox="0 0 200 200" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  <g stroke="currentColor" strokeWidth="14" strokeLinecap="round">
+                    <line x1="100" y1="20" x2="100" y2="180" />
+                    <line x1="20" y1="100" x2="180" y2="100" />
+                    <line x1="43" y1="43" x2="157" y2="157" />
+                    <line x1="157" y1="43" x2="43" y2="157" />
+                  </g>
+                  <circle cx="100" cy="100" r="52" stroke="currentColor" strokeWidth="12" fill="none" />
+                  <circle cx="100" cy="100" r="24" fill="currentColor" />
+                </svg>
+              </div>
+              <div>
+                <div className="text-base font-bold text-gray-900 dark:text-white leading-tight">K8s<span className="text-pink-600 dark:text-pink-500">Fortuna</span></div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 leading-tight">Management Platform</div>
+              </div>
+            </Link>
+          </div>
+
+          {/* CENTER: Navigation Links */}
+          <div className="flex items-center justify-center space-x-1">
             <Link
-              to="/"
-              className={`px-4 py-2 rounded-md transition-colors ${
-                isActive('/')
-                  ? 'bg-blue-600 text-white'
+              to="/dashboard"
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isActive('/dashboard')
+                  ? 'bg-pink-600 text-white shadow-sm'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
@@ -61,9 +75,9 @@ function Navigation() {
             </Link>
             <Link
               to="/graph"
-              className={`px-4 py-2 rounded-md transition-colors ${
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 isActive('/graph')
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-pink-600 text-white shadow-sm'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
@@ -71,9 +85,9 @@ function Navigation() {
             </Link>
             <Link
               to="/serviceaccounts"
-              className={`px-4 py-2 rounded-md transition-colors ${
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 isActive('/serviceaccounts')
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-pink-600 text-white shadow-sm'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
@@ -81,19 +95,22 @@ function Navigation() {
             </Link>
             <Link
               to="/audit"
-              className={`px-4 py-2 rounded-md transition-colors ${
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
                 isActive('/audit')
-                  ? 'bg-blue-600 text-white'
+                  ? 'bg-pink-600 text-white shadow-sm'
                   : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
               }`}
             >
               Audit Logs
             </Link>
-            
+          </div>
+
+          {/* RIGHT: Theme Toggle + User Account */}
+          <div className="flex items-center justify-end space-x-3">
             {/* Theme Toggle */}
             <button
               onClick={toggleTheme}
-              className="p-2 rounded-md text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800"
+              className="p-2 rounded-lg text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors"
               title={theme === 'light' ? 'Switch to dark mode' : 'Switch to light mode'}
             >
               {theme === 'light' ? (
@@ -107,22 +124,20 @@ function Navigation() {
               )}
             </button>
 
-            {/* User Menu */}
-            <div className="flex items-center space-x-3 pl-4 border-l border-gray-200 dark:border-gray-700">
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                  <span className="text-sm font-semibold text-white">
-                    {user?.username?.charAt(0).toUpperCase()}
-                  </span>
-                </div>
-                <div className="text-left">
-                  <div className="text-sm font-medium text-gray-900 dark:text-white">{user?.username}</div>
-                  <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">{user?.role}</div>
-                </div>
+            {/* User Account */}
+            <div className="flex items-center space-x-2 pl-3 border-l border-gray-200 dark:border-gray-700">
+              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                <span className="text-sm font-semibold text-white">
+                  {user?.username?.charAt(0).toUpperCase()}
+                </span>
+              </div>
+              <div className="text-left">
+                <div className="text-sm font-medium text-gray-900 dark:text-white leading-tight">{user?.username}</div>
+                <div className="text-xs text-gray-500 dark:text-gray-400 capitalize leading-tight">{user?.role}</div>
               </div>
               <button
                 onClick={logout}
-                className="px-3 py-1.5 text-sm text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-md transition-colors"
+                className="ml-2 px-3 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 rounded-lg transition-colors"
               >
                 Logout
               </button>
@@ -152,45 +167,64 @@ function AppRoutes() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors">
+    <>
       {isAuthenticated && <Navigation />}
-      <Routes>
-        <Route path="/login" element={<Login />} />
-        <Route
-          path="/"
-          element={
-            <ProtectedRoute>
-              <Dashboard />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/graph"
-          element={
-            <ProtectedRoute>
-              <GraphView />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/serviceaccounts"
-          element={
-            <ProtectedRoute>
-              <ServiceAccounts />
-            </ProtectedRoute>
-          }
-        />
-        <Route
-          path="/audit"
-          element={
-            <ProtectedRoute>
-              <AuditLogs />
-            </ProtectedRoute>
-          }
-        />
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-    </div>
+      <div className={isAuthenticated ? "flex-1 overflow-hidden" : ""}>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/login" element={<Login />} />
+          
+          {/* Landing page for unauthenticated users */}
+          <Route 
+            path="/" 
+            element={
+              isAuthenticated ? (
+                <Navigate to="/dashboard" replace />
+              ) : (
+                <LandingPage />
+              )
+            } 
+          />
+
+          {/* Protected routes */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/graph"
+            element={
+              <ProtectedRoute>
+                <GraphView />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/serviceaccounts"
+            element={
+              <ProtectedRoute>
+                <ServiceAccounts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/audit"
+            element={
+              <ProtectedRoute>
+                <AuditLogs />
+              </ProtectedRoute>
+            }
+          />
+          
+          {/* Catch all */}
+          <Route path="*" element={<Navigate to={isAuthenticated ? "/dashboard" : "/"} replace />} />
+        </Routes>
+      </div>
+    </>
   )
 }
 
@@ -200,11 +234,21 @@ function App() {
       <ThemeProvider>
         <AuthProvider>
           <BrowserRouter>
-            <AppRoutes />
+            <AppContent />
           </BrowserRouter>
         </AuthProvider>
       </ThemeProvider>
     </QueryClientProvider>
+  )
+}
+
+function AppContent() {
+  const { isAuthenticated } = useAuth()
+  
+  return (
+    <div className={isAuthenticated ? "flex flex-col h-screen overflow-hidden" : ""}>
+      <AppRoutes />
+    </div>
   )
 }
 

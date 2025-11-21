@@ -80,13 +80,13 @@ func (s *GraphService) BuildGraph(clusterID, namespace string) (*GraphData, erro
 			json.Unmarshal([]byte(sa.Labels), &labels)
 		}
 
-		graph.Nodes = append(graph.Nodes, GraphNode{
-			ID:    saID,
-			Label: sa.Name,
-			Type:  "serviceaccount",
-			Data: map[string]interface{}{
+			graph.Nodes = append(graph.Nodes, GraphNode{
+				ID:    saID,
+				Label: sa.Name,
+				Type:  "serviceaccount",
+				Data: map[string]interface{}{
 				"namespace": sa.Namespace,
-				"cluster":   sa.ClusterID,
+					"cluster":   sa.ClusterID,
 				"labels":    labels,
 			},
 		})
@@ -112,7 +112,7 @@ func (s *GraphService) BuildGraph(clusterID, namespace string) (*GraphData, erro
 			})
 			edgeMap[saNsEdgeID] = true
 		}
-	}
+		}
 
 	// Add cluster nodes
 	for clusterID := range clusterMap {
@@ -139,16 +139,16 @@ func (s *GraphService) BuildGraph(clusterID, namespace string) (*GraphData, erro
 			// Add edge from namespace to cluster
 			nsClusterID := "cluster:" + clusterID
 			nsClusterEdgeID := nsID + "->" + nsClusterID
-			if !edgeMap[nsClusterEdgeID] {
-				graph.Edges = append(graph.Edges, GraphEdge{
-					ID:     nsClusterEdgeID,
-					Source: nsID,
+		if !edgeMap[nsClusterEdgeID] {
+			graph.Edges = append(graph.Edges, GraphEdge{
+				ID:     nsClusterEdgeID,
+				Source: nsID,
 					Target: nsClusterID,
-					Type:   "belongs_to",
-				})
-				edgeMap[nsClusterEdgeID] = true
-			}
+				Type:   "belongs_to",
+			})
+			edgeMap[nsClusterEdgeID] = true
 		}
+	}
 	}
 
 	return graph, nil

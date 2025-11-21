@@ -12,8 +12,8 @@ const Dashboard = () => {
   const recentLogs = auditLogs?.logs?.length || 0
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto px-4 py-6 max-w-7xl">
+    <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+      <div className="container mx-auto px-6 py-6 max-w-7xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Dashboard</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">Overview of your Kubernetes ServiceAccount management</p>

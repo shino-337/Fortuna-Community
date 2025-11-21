@@ -4,8 +4,10 @@ import cytoscape, { Core, EdgeDefinition, NodeDefinition, NodeSingular, LayoutOp
 import dagre from 'cytoscape-dagre'
 // @ts-ignore - No type definitions available
 import fcose from 'cytoscape-fcose'
-import { useGraph } from '../../hooks/useGraph'
 import { useServiceAccount } from '../../hooks/useServiceAccounts'
+
+// Test log at module level to verify console is not dropped
+console.log('📦 [GraphVisualization] Module loaded - Console logs enabled!')
 
 // Register Cytoscape extensions
 cytoscape.use(dagre)
@@ -25,6 +27,9 @@ interface GraphVisualizationProps {
   cluster?: string
   namespace?: string
   height?: string
+  data?: { nodes: any[]; edges: any[] } // Graph data from parent
+  isLoading?: boolean // Loading state from parent
+  error?: any // Error state from parent
   onLoadingChange?: (loading: boolean) => void // Callback to notify parent of loading state
   nodeTypeFilters?: Record<string, boolean>
   connectionTypeFilters?: Record<string, boolean>
@@ -146,6 +151,154 @@ const NODE_CONFIGS: Record<string, NodeConfig> = {
     backgroundColor: '#1e3a8a', // Navy Blue
     borderColor: '#1e40af', // Darker Navy Blue
     shadowColor: '#1e3a8a40', // Semi-transparent navy blue
+  },
+  // RBAC Bindings - Fix 2.2: Add missing NODE_CONFIGS
+  rolebinding: {
+    minWidth: 140,
+    maxWidth: 240,
+    textMaxWidth: 200,
+    fontSize: 12,
+    charWidth: 7.5,
+    padding: 30,
+    heightRatio: 0.75,
+    textMarginY: 0,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    extraPadding: 8,
+    backgroundColor: '#9b59b6', // Medium Purple
+    borderColor: '#8e44ad', // Darker Purple
+    shadowColor: '#9b59b640',
+  },
+  clusterrolebinding: {
+    minWidth: 140,
+    maxWidth: 240,
+    textMaxWidth: 200,
+    fontSize: 12,
+    charWidth: 7.5,
+    padding: 30,
+    heightRatio: 0.75,
+    textMarginY: 0,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    extraPadding: 8,
+    backgroundColor: '#8e44ad', // Dark Purple
+    borderColor: '#7d3c98', // Darker Purple
+    shadowColor: '#8e44ad40',
+  },
+  // Reference & Binding edges
+  reference: {
+    minWidth: 120,
+    maxWidth: 200,
+    textMaxWidth: 180,
+    fontSize: 11,
+    charWidth: 7,
+    padding: 24,
+    heightRatio: 0.6,
+    textMarginY: 0,
+    fontWeight: 500,
+    lineHeight: 1.4,
+    extraPadding: 6,
+    backgroundColor: '#7f8c8d', // Gray
+    borderColor: '#6c7a7b', // Darker Gray
+    shadowColor: '#7f8c8d40',
+  },
+  'sa-binding': {
+    minWidth: 130,
+    maxWidth: 220,
+    textMaxWidth: 190,
+    fontSize: 12,
+    charWidth: 7.5,
+    padding: 28,
+    heightRatio: 0.7,
+    textMarginY: 0,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    extraPadding: 7,
+    backgroundColor: '#e67e22', // Orange
+    borderColor: '#d35400', // Darker Orange
+    shadowColor: '#e67e2240',
+  },
+  // Workload nodes
+  pod: {
+    minWidth: 110,
+    maxWidth: 220,
+    textMaxWidth: 190,
+    fontSize: 11,
+    charWidth: 7,
+    padding: 26,
+    heightRatio: 0.8,
+    textMarginY: 0,
+    fontWeight: 500,
+    lineHeight: 1.4,
+    extraPadding: 6,
+    backgroundColor: '#3498db', // Light Blue
+    borderColor: '#2980b9', // Darker Blue
+    shadowColor: '#3498db40',
+  },
+  deployment: {
+    minWidth: 120,
+    maxWidth: 230,
+    textMaxWidth: 200,
+    fontSize: 12,
+    charWidth: 7.5,
+    padding: 28,
+    heightRatio: 0.75,
+    textMarginY: 0,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    extraPadding: 7,
+    backgroundColor: '#16a085', // Teal
+    borderColor: '#138f7a', // Darker Teal
+    shadowColor: '#16a08540',
+  },
+  statefulset: {
+    minWidth: 120,
+    maxWidth: 230,
+    textMaxWidth: 200,
+    fontSize: 12,
+    charWidth: 7.5,
+    padding: 28,
+    heightRatio: 0.75,
+    textMarginY: 0,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    extraPadding: 7,
+    backgroundColor: '#27ae60', // Green
+    borderColor: '#229954', // Darker Green
+    shadowColor: '#27ae6040',
+  },
+  daemonset: {
+    minWidth: 120,
+    maxWidth: 230,
+    textMaxWidth: 200,
+    fontSize: 12,
+    charWidth: 7.5,
+    padding: 28,
+    heightRatio: 0.75,
+    textMarginY: 0,
+    fontWeight: 600,
+    lineHeight: 1.4,
+    extraPadding: 7,
+    backgroundColor: '#f39c12', // Yellow
+    borderColor: '#d68910', // Darker Yellow
+    shadowColor: '#f39c1240',
+  },
+  // Fix 2.3: Fallback for unknown types
+  unknown: {
+    minWidth: 100,
+    maxWidth: 200,
+    textMaxWidth: 180,
+    fontSize: 11,
+    charWidth: 7,
+    padding: 24,
+    heightRatio: 0.7,
+    textMarginY: 0,
+    fontWeight: 500,
+    lineHeight: 1.4,
+    extraPadding: 6,
+    backgroundColor: '#95a5a6', // Light Gray
+    borderColor: '#7f8c8d', // Darker Gray
+    shadowColor: '#95a5a640',
   },
 }
 
@@ -297,11 +450,21 @@ function calculateNodeWidth(text: string, config: NodeConfig, fontSize: number):
  * Utility function to estimate text dimensions
  * Now uses truncation instead of wrapping, and dynamic font sizing
  */
+// Fix 2.1: Always guarantee non-zero node dimensions
 function estimateTextDimensions(
   text: string,
   config: NodeConfig
 ): { width: number; height: number; fontSize: number; truncatedText: string; fullText: string } {
-  if (!text) return { width: 0, height: 0, fontSize: config.fontSize, truncatedText: '', fullText: '' }
+  // Fix 2.1: Empty text should use minimum dimensions, not zero
+  if (!text) {
+    return {
+      width: config.minWidth,
+      height: config.minWidth * config.heightRatio,
+      fontSize: config.fontSize,
+      truncatedText: '',
+      fullText: ''
+    }
+  }
   
   // Calculate dynamic font size based on text length
   const dynamicFontSize = calculateDynamicFontSize(text, config.fontSize)
@@ -320,9 +483,13 @@ function estimateTextDimensions(
   // Calculate text height (single line)
   const textHeight = dynamicFontSize * config.lineHeight
   
+  // Fix 2.1: Guarantee minimum dimensions
+  const finalWidth = Math.max(config.minWidth, nodeWidth)
+  const finalHeight = Math.max(config.minWidth * config.heightRatio, textHeight)
+  
   return {
-    width: nodeWidth,
-    height: textHeight,
+    width: finalWidth,
+    height: finalHeight,
     fontSize: dynamicFontSize,
     truncatedText,
     fullText: text
@@ -333,6 +500,9 @@ const GraphVisualization = ({
   cluster,
   namespace,
   height = '600px',
+  data: propData, // Receive data from parent
+  isLoading: propIsLoading, // Receive loading state from parent
+  error: propError, // Receive error state from parent
   onLoadingChange,
   nodeTypeFilters,
   connectionTypeFilters,
@@ -349,8 +519,24 @@ const GraphVisualization = ({
   
   const cyRef = useRef<Core | null>(null)
   const [isCytoscapeReady, setIsCytoscapeReady] = useState(false)
-  const { data, isLoading, error, refetch } = useGraph({ cluster, namespace })
   
+  // Use data from props instead of fetching internally
+  const data = propData
+  const isLoading = propIsLoading || false
+  const error = propError
+  
+  // Test log to verify data flow from parent
+  useEffect(() => {
+    console.log('🚀 [GraphVisualization] Data received from parent:', {
+      hasData: !!data,
+      nodesCount: data?.nodes?.length || 0,
+      edgesCount: data?.edges?.length || 0,
+      cluster,
+      namespace,
+      isLoading,
+      timestamp: new Date().toISOString()
+    })
+  }, [data, cluster, namespace, isLoading])
   
   // Notify parent of loading state changes
   useEffect(() => {
@@ -386,8 +572,9 @@ const GraphVisualization = ({
         type: node.type,
       }
       
-      // Get configuration for this node type, fallback to namespace if unknown
-      const nodeConfig = NODE_CONFIGS[node.type] || NODE_CONFIGS.namespace
+      // Fix 2.3: Get configuration for this node type, fallback to 'unknown' to prevent silent failures
+      const nodeType = node.type || 'unknown'
+      const nodeConfig = NODE_CONFIGS[nodeType] || NODE_CONFIGS['unknown']
       
       // Estimate text dimensions with truncation and dynamic font sizing
       const { width: estimatedWidth, height: textHeight, fontSize: dynamicFontSize, truncatedText, fullText } = 
@@ -408,9 +595,9 @@ const GraphVisualization = ({
         estimatedHeight = Math.max(baseHeight, textRequiredHeight)
       }
       
-      // Store all configuration in node data for style access
-      nodeData.width = Math.round(estimatedWidth)
-      nodeData.height = Math.round(estimatedHeight)
+      // Fix 2.1: Store all configuration in node data - guaranteed non-zero
+      nodeData.width = Math.max(1, Math.round(estimatedWidth))
+      nodeData.height = Math.max(1, Math.round(estimatedHeight))
       nodeData.textMaxWidth = Math.round(estimatedWidth - (nodeConfig.padding * 2) - 16) // Safety margin
       nodeData.fontSize = dynamicFontSize // Use dynamic font size
       nodeData.textMarginY = nodeConfig.textMarginY
@@ -487,140 +674,341 @@ const GraphVisualization = ({
 
   const runLayout = useCallback(
     (fitOverride = false) => {
-      if (!cyRef.current) return
-      if (cyRef.current.nodes().length === 0) {
-        console.warn('No nodes to layout')
+      if (!cyRef.current || !container) {
+        console.warn('⚠️ [GraphVisualization] Cannot run layout: cyRef or container is null')
+        return
+      }
+      
+      const nodes = cyRef.current.nodes()
+      if (nodes.length === 0) {
+        console.warn('⚠️ [GraphVisualization] Cannot run layout: No nodes')
         return
       }
 
       try {
-        const baseOptions = LAYOUT_OPTIONS[layout] ?? LAYOUT_OPTIONS.cose
-        const layoutOptions: LayoutOptions = {
-          ...baseOptions,
-        }
-
-        console.log('Running layout:', layout, 'with options:', layoutOptions)
-        const layoutInstance = cyRef.current.layout(layoutOptions)
+        // CRITICAL FIX: Don't use layout algorithms at all - set positions manually
+        // Even random layout accesses bounding box which can fail
+        cyRef.current.resize()
         
-        // Listen for layout completion
-        layoutInstance.one('layoutstop', () => {
-          console.log('Layout completed')
-          if (autoFitEnabled || fitOverride) {
-            if (cyRef.current) {
-              // Small delay to ensure rendering is complete
-              setTimeout(() => {
-                if (cyRef.current) {
-                  const nodes = cyRef.current.nodes()
-                  const edges = cyRef.current.edges()
-                  
-                  console.log('Before fit:', {
-                    zoom: cyRef.current.zoom(),
-                    pan: cyRef.current.pan(),
-                    nodes: nodes.length,
-                    edges: edges.length,
-                    containerSize: {
-                      width: container?.offsetWidth,
-                      height: container?.offsetHeight
-                    }
-                  })
-                  
-                  // Check node positions
-                  if (nodes.length > 0) {
-                    const firstNode = nodes[0]
-                    const lastNode = nodes[nodes.length - 1]
-                    console.log('Node positions:', {
-                      first: firstNode.position(),
-                      last: lastNode.position(),
-                      firstRendered: firstNode.renderedPosition(),
-                      lastRendered: lastNode.renderedPosition()
-                    })
-                  }
-                  
-                  // Get bounding box of all elements
-                  const extent = cyRef.current.extent()
-                  console.log('Graph extent:', extent)
-                  
-                  // Force resize first
-                  cyRef.current.resize()
-                  
-                  // Fit with padding
-                  cyRef.current.fit(cyRef.current.elements(), 50)
-                  
-                  // Force another resize after fit
-                  cyRef.current.resize()
-                  
-                  setZoomLevel(cyRef.current.zoom())
-                  console.log('After fit:', {
-                    zoom: cyRef.current.zoom(),
-                    pan: cyRef.current.pan(),
-                    nodesVisible: nodes.length
-                  })
-                }
-              }, 100)
-            }
-          }
+        console.log('📍 [GraphVisualization] Setting manual positions for', nodes.length, 'nodes (no layout algorithm)')
+        
+        // Set positions manually in a grid
+        const containerWidth = container.offsetWidth || 800
+        const containerHeight = container.offsetHeight || 600
+        const cols = Math.ceil(Math.sqrt(nodes.length))
+        const rows = Math.ceil(nodes.length / cols)
+        const cellWidth = containerWidth / (cols + 1)
+        const cellHeight = containerHeight / (rows + 1)
+        
+        nodes.forEach((node, index) => {
+          const col = index % cols
+          const row = Math.floor(index / cols)
+          const x = (col + 1) * cellWidth + (Math.random() - 0.5) * cellWidth * 0.3
+          const y = (row + 1) * cellHeight + (Math.random() - 0.5) * cellHeight * 0.3
+          node.position({ x, y })
         })
         
-        // Run layout with error handling
-        layoutInstance.run()
+        console.log('✅ [GraphVisualization] Manual positions set')
         
-        // Fallback timeout in case layoutstop event doesn't fire
-        setTimeout(() => {
-          if (autoFitEnabled || fitOverride) {
-            if (cyRef.current) {
-              const currentZoom = cyRef.current.zoom()
-              if (currentZoom === 1 || currentZoom === 0) {
-                console.log('Fallback: Fitting to view after timeout')
+        // Fit after setting positions (if enabled)
+        if (autoFitEnabled || fitOverride) {
+          setTimeout(() => {
+            if (!cyRef.current) return
+            
+            try {
+              // Verify nodes are rendered before fitting
+              const currentNodes = cyRef.current.nodes()
+              const hasSize = currentNodes.some(n => {
+                try {
+                  const bb = n.renderedBoundingBox()
+                  return bb && bb.w > 0 && bb.h > 0
+                } catch {
+                  return false
+                }
+              })
+              
+              if (hasSize) {
                 cyRef.current.fit(undefined, 50)
                 setZoomLevel(cyRef.current.zoom())
+                console.log('✅ [GraphVisualization] Fit completed')
+              } else {
+                console.warn('⚠️ [GraphVisualization] Nodes not fully rendered, skipping fit')
+              }
+            } catch (fitError) {
+              console.error('❌ [GraphVisualization] Fit error:', fitError)
+            }
+          }, 300)
+        }
+        return
+      } catch (error) {
+        console.error('❌ [GraphVisualization] Layout error:', error)
+        console.error('Error details:', {
+          layout,
+          nodesCount: nodes.length,
+          errorMessage: error instanceof Error ? error.message : String(error)
+        })
+        
+        // Fallback to simple random layout if there's an error
+        // Random layout is the simplest and doesn't require node dimensions
+        try {
+          console.log('🔄 [GraphVisualization] Trying fallback random layout...')
+          cyRef.current.resize()
+          
+          // Wait longer for nodes to be fully rendered
+          setTimeout(() => {
+            if (!cyRef.current) return
+            
+            const currentNodes = cyRef.current.nodes()
+            if (currentNodes.length === 0) {
+              console.warn('⚠️ [GraphVisualization] No nodes for fallback layout')
+              return
+            }
+            
+            // Verify nodes exist and have basic properties
+            const validNodes = currentNodes.filter(n => {
+              try {
+                const id = n.id()
+                const pos = n.position()
+                return !!id && !!pos && !isNaN(pos.x) && !isNaN(pos.y)
+              } catch {
+                return false
+              }
+            })
+            
+            if (validNodes.length === 0) {
+              console.warn('⚠️ [GraphVisualization] No valid nodes for fallback layout')
+              return
+            }
+            
+            console.log('🔄 [GraphVisualization] Running fallback random layout with', validNodes.length, 'nodes')
+            // Use random layout - it's the simplest and doesn't access node dimensions
+            const fallbackLayout = cyRef.current.layout({
+              name: 'random',
+              animate: false,
+            } as any)
+            
+            fallbackLayout.one('layoutstop', () => {
+              console.log('✅ [GraphVisualization] Fallback random layout completed')
+              if (autoFitEnabled || fitOverride) {
+                setTimeout(() => {
+                  if (cyRef.current) {
+                    try {
+                      cyRef.current.fit(undefined, 50)
+                      setZoomLevel(cyRef.current.zoom())
+                    } catch (fitError) {
+                      console.error('❌ [GraphVisualization] Fallback fit error:', fitError)
+                    }
+                  }
+                }, 200)
+              }
+            })
+            
+            fallbackLayout.run()
+          }, 500) // Wait longer for rendering
+        } catch (fallbackError) {
+          console.error('❌ [GraphVisualization] Fallback layout also failed:', fallbackError)
+          // Last resort: just set positions manually
+          try {
+            if (cyRef.current) {
+              const currentNodes = cyRef.current.nodes()
+              const containerWidth = container?.offsetWidth || 800
+              const containerHeight = container?.offsetHeight || 600
+              const cols = Math.ceil(Math.sqrt(currentNodes.length))
+              const rows = Math.ceil(currentNodes.length / cols)
+              const cellWidth = containerWidth / (cols + 1)
+              const cellHeight = containerHeight / (rows + 1)
+              
+              currentNodes.forEach((node, index) => {
+                try {
+                  const col = index % cols
+                  const row = Math.floor(index / cols)
+                  const x = (col + 1) * cellWidth
+                  const y = (row + 1) * cellHeight
+                  node.position({ x, y })
+                } catch (e) {
+                  console.warn('Failed to set position for node', index, e)
+                }
+              })
+              
+              if (autoFitEnabled || fitOverride) {
+                setTimeout(() => {
+                  if (cyRef.current) {
+                    try {
+                      cyRef.current.fit(undefined, 50)
+                      setZoomLevel(cyRef.current.zoom())
+                    } catch (fitError) {
+                      console.error('❌ [GraphVisualization] Manual fit error:', fitError)
+                    }
+                  }
+                }, 200)
               }
             }
+          } catch (manualError) {
+            console.error('❌ [GraphVisualization] Manual position setting also failed:', manualError)
           }
-        }, 1000)
-      } catch (error) {
-        console.error('Layout error:', error, 'Falling back to cose layout')
-        // Fallback to cose layout if there's an error
-        try {
-          const fallbackOptions = LAYOUT_OPTIONS.cose
-          cyRef.current.layout(fallbackOptions).run()
-          if (autoFitEnabled || fitOverride) {
-            cyRef.current.fit(undefined, 50)
-            setZoomLevel(cyRef.current.zoom())
-          }
-        } catch (fallbackError) {
-          console.error('Fallback layout also failed:', fallbackError)
         }
       }
     },
-    [layout, autoFitEnabled]
+    [layout, autoFitEnabled, container]
   )
 
   // Update graph when nodes/edges change OR when Cytoscape becomes ready
   useEffect(() => {
+    console.log('🔄 [GraphVisualization] Update graph effect triggered:', {
+      hasCytoscape: !!cyRef.current,
+      isCytoscapeReady,
+      nodesCount: nodes.length,
+      edgesCount: edges.length,
+      hasData: !!data,
+      dataNodesCount: data?.nodes?.length || 0,
+      timestamp: new Date().toISOString()
+    })
+    
     if (!cyRef.current || !isCytoscapeReady) {
+      console.log('⏭️ [GraphVisualization] Skipping update - Cytoscape not ready')
       return
     }
 
     if (nodes.length === 0 && edges.length === 0) {
+      console.log('🧹 [GraphVisualization] Clearing graph - no nodes/edges')
+      cyRef.current.elements().remove()
       return
     }
+    
+    console.log('📊 [GraphVisualization] Updating graph with new elements:', {
+      nodesCount: nodes.length,
+      edgesCount: edges.length,
+      currentElementsCount: cyRef.current.elements().length
+    })
+    
+    // Fix 2.1: With guaranteed non-zero dimensions, this check should not filter out nodes
+    const validNodes = nodes.filter(node => {
+      const width = node.data?.width
+      const height = node.data?.height
+      const isValid = width && height && width > 0 && height > 0
+      
+      if (!isValid) {
+        console.error('❌ [GraphVisualization] Node with invalid dimensions detected:', {
+          id: node.data?.id,
+          type: node.data?.type,
+          label: node.data?.label,
+          width,
+          height
+        })
+      }
+      
+      return isValid
+    })
+    
+    if (validNodes.length !== nodes.length) {
+      console.warn('⚠️ [GraphVisualization] Some nodes filtered out due to invalid dimensions:', {
+        total: nodes.length,
+        valid: validNodes.length,
+        invalid: nodes.length - validNodes.length
+      })
+    }
+    
     cyRef.current.batch(() => {
-      cyRef.current!.elements().remove()
-      if (nodes.length > 0 || edges.length > 0) {
-        cyRef.current!.add([...nodes, ...edges])
+      const removed = cyRef.current!.elements().remove()
+      console.log('🗑️ [GraphVisualization] Removed', removed.length, 'old elements')
+      
+      if (validNodes.length > 0 || edges.length > 0) {
+        const added = cyRef.current!.add([...validNodes, ...edges])
+        console.log('✅ [GraphVisualization] Added', added.length, 'new elements:', {
+          nodes: added.nodes().length,
+          edges: added.edges().length
+        })
+        
+        // Set initial positions for all nodes to ensure they have positions
+        // This prevents layout errors when accessing node dimensions
+        const allNodes = added.nodes()
+        const containerWidth = container?.offsetWidth || 800
+        const containerHeight = container?.offsetHeight || 600
+        const cols = Math.ceil(Math.sqrt(allNodes.length))
+        const rows = Math.ceil(allNodes.length / cols)
+        const cellWidth = containerWidth / (cols + 1)
+        const cellHeight = containerHeight / (rows + 1)
+        
+        allNodes.forEach((node, index) => {
+          const col = index % cols
+          const row = Math.floor(index / cols)
+          const x = (col + 1) * cellWidth
+          const y = (row + 1) * cellHeight
+          node.position({ x, y })
+        })
+        
+        console.log('📍 [GraphVisualization] Set initial positions for', allNodes.length, 'nodes')
       }
     })
 
     // Resize to ensure container is properly sized
     cyRef.current.resize()
 
-    if (nodes.length > 0) {
-      // Small delay to ensure elements are rendered
+    if (validNodes.length > 0) {
+      // CRITICAL: Wait longer to ensure elements are fully rendered with dimensions
+      // This is especially important when filters change and nodes are updated
       setTimeout(() => {
-        if (cyRef.current && cyRef.current.nodes().length > 0) {
-          runLayout()
+        if (!cyRef.current) return
+        
+        const currentNodes = cyRef.current.nodes()
+        if (currentNodes.length === 0) {
+          console.warn('⚠️ [GraphVisualization] No nodes found after add, skipping layout')
+          return
         }
-      }, 50)
+        
+        // Verify nodes have dimensions and are properly rendered
+        const nodesWithDimensions = currentNodes.filter(n => {
+          try {
+            const w = n.width()
+            const h = n.height()
+            const pos = n.position()
+            return w > 0 && h > 0 && !isNaN(w) && !isNaN(h) && 
+                   pos && !isNaN(pos.x) && !isNaN(pos.y)
+          } catch {
+            return false
+          }
+        })
+        
+        console.log('🎨 [GraphVisualization] Ready to run layout:', {
+          totalNodes: currentNodes.length,
+          nodesWithDimensions: nodesWithDimensions.length,
+          firstNodeValid: currentNodes.length > 0 ? {
+            id: currentNodes[0].id(),
+            width: currentNodes[0].width(),
+            height: currentNodes[0].height(),
+            position: currentNodes[0].position()
+          } : null
+        })
+        
+        if (nodesWithDimensions.length === 0) {
+          console.warn('⚠️ [GraphVisualization] No nodes with dimensions, waiting more...')
+          setTimeout(() => {
+            if (cyRef.current) {
+              cyRef.current.resize()
+              runLayout(true)
+            }
+          }, 500) // Wait longer
+          return
+        }
+        
+        // Only run layout if all nodes have dimensions
+        if (nodesWithDimensions.length === currentNodes.length) {
+          // Force resize before layout to ensure dimensions are calculated
+          cyRef.current.resize()
+          runLayout(true)
+        } else {
+          console.warn('⚠️ [GraphVisualization] Some nodes missing dimensions, waiting more...', {
+            total: currentNodes.length,
+            withDimensions: nodesWithDimensions.length
+          })
+          setTimeout(() => {
+            if (cyRef.current) {
+              cyRef.current.resize()
+              runLayout(true)
+            }
+          }, 500)
+        }
+      }, 300) // Increased delay to ensure rendering, especially after filter changes
     }
 
     if (selectedNodeId && cyRef.current) {
@@ -641,10 +1029,15 @@ const GraphVisualization = ({
 
   useEffect(() => {
     if (cyRef.current && cyRef.current.nodes().length > 0) {
-      console.log('Layout changed, re-running layout:', layout)
-      runLayout()
+      console.log('⚙️ [GraphVisualization] Layout setting changed, re-running layout:', layout)
+      // Add small delay to ensure any theme/dark mode changes have settled
+      setTimeout(() => {
+        if (cyRef.current && cyRef.current.nodes().length > 0) {
+          runLayout()
+        }
+      }, 100)
     } else {
-      console.log('Layout changed but no nodes yet, will run when nodes are added')
+      console.log('⏭️ [GraphVisualization] Layout changed but no nodes yet, will run when nodes are added')
     }
   }, [layout, autoFitEnabled, runLayout])
 
@@ -1323,15 +1716,63 @@ const GraphVisualization = ({
 
   const handleFit = useCallback(() => {
     if (!cyRef.current) return
-    cyRef.current.fit(undefined, 50)
-    setZoomLevel(cyRef.current.zoom())
+    
+    const nodes = cyRef.current.nodes()
+    if (nodes.length === 0) {
+      console.warn('⚠️ [GraphVisualization] No nodes to fit')
+      return
+    }
+    
+    try {
+      // Verify at least one node has valid bounding box
+      const hasValidNodes = nodes.some(n => {
+        try {
+          const bb = n.renderedBoundingBox()
+          return bb && bb.w > 0 && bb.h > 0
+        } catch {
+          return false
+        }
+      })
+      
+      if (!hasValidNodes) {
+        console.warn('⚠️ [GraphVisualization] Nodes not fully rendered, cannot fit')
+        return
+      }
+      
+      cyRef.current.fit(undefined, 50)
+      setZoomLevel(cyRef.current.zoom())
+      console.log('✅ [GraphVisualization] Manual fit completed')
+    } catch (error) {
+      console.error('❌ [GraphVisualization] Fit error:', error)
+    }
   }, [])
 
   const handleReset = useCallback(() => {
     if (!cyRef.current) return
     
-    // Reset view
-    cyRef.current.fit(undefined, 50)
+    const nodes = cyRef.current.nodes()
+    if (nodes.length > 0) {
+      try {
+        // Verify nodes are rendered before fitting
+        const hasValidNodes = nodes.some(n => {
+          try {
+            const bb = n.renderedBoundingBox()
+            return bb && bb.w > 0 && bb.h > 0
+          } catch {
+            return false
+          }
+        })
+        
+        if (hasValidNodes) {
+          cyRef.current.fit(undefined, 50)
+          setZoomLevel(cyRef.current.zoom())
+        } else {
+          console.warn('⚠️ [GraphVisualization] Nodes not fully rendered for reset, skipping fit')
+        }
+      } catch (error) {
+        console.error('❌ [GraphVisualization] Reset fit error:', error)
+      }
+    }
     
     // Reset selection
     cyRef.current.elements().unselect()
@@ -1342,13 +1783,12 @@ const GraphVisualization = ({
     
     // Reset classes
     cyRef.current.elements().removeClass('highlighted highlighted-node faded')
-    
-    setZoomLevel(cyRef.current.zoom())
   }, [])
 
   const handleRefresh = useCallback(() => {
-    refetch()
-  }, [refetch])
+    // Refresh is now handled by parent component
+    console.log('🔄 [GraphVisualization] Refresh requested - parent will handle')
+  }, [])
 
   // Search nodes
   const handleSearch = useCallback((query: string) => {
@@ -1566,7 +2006,7 @@ const GraphVisualization = ({
   }
 
   return (
-    <div className="w-full h-full border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden relative bg-gray-50 dark:bg-gray-800">
+    <div className="w-full h-full overflow-hidden relative bg-gray-50 dark:bg-gray-800">
       {/* Search Bar */}
       <div className="absolute top-4 left-4 z-10 bg-white/95 dark:bg-gray-800/95 backdrop-blur-sm rounded-lg shadow-md border border-gray-200 dark:border-gray-600 p-2 min-w-[280px]">
         <div className="flex items-center gap-2">
@@ -2043,7 +2483,8 @@ const GraphVisualization = ({
           left: 0,
           right: 0,
           bottom: 0,
-          backgroundColor: 'transparent'
+          backgroundColor: 'transparent',
+          zIndex: 0 // Ensure canvas renders behind overlays but is still visible
         }} 
       />
     </div>

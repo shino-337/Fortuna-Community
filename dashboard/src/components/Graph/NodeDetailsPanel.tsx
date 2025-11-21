@@ -1,63 +1,42 @@
-import { useServiceAccount } from '../../hooks/useServiceAccounts'
+import React from 'react'
 
 interface NodeDetailsPanelProps {
-  nodeId: string | null
-  nodeType: string | null
-  nodeData: Record<string, any> | null
+  node: any
   onClose: () => void
 }
 
-const NodeDetailsPanel = ({ nodeId, nodeType, nodeData, onClose }: NodeDetailsPanelProps) => {
-  // Get ServiceAccount details when ServiceAccount node is selected
-  const { data: serviceAccount, isLoading: isLoadingDetails } = useServiceAccount(
-    (nodeType === 'serviceaccount' && nodeData?.id) ? String(nodeData.id) : ''
-  )
-
-  if (!nodeId || !nodeType || !nodeData) {
-    return null
+/**
+ * Node Details Panel - Right sidebar
+ * Shows detailed information about selected node
+ */
+const NodeDetailsPanel: React.FC<NodeDetailsPanelProps> = ({ node, onClose }) => {
+  if (!node) {
+    return (
+      <div className="flex items-center justify-center h-full p-4 text-gray-500 dark:text-gray-400">
+        <div className="text-center">
+          <svg className="w-12 h-12 mx-auto mb-2 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <p className="text-sm">Select a node to view details</p>
+        </div>
+      </div>
+    )
   }
+  
+  const nodeType = node.type || 'unknown'
+  const nodeData = node.data || {}
 
   return (
-    <div className="w-96 bg-white border-l border-gray-200 flex-shrink-0 overflow-y-auto h-full">
-      <div className="p-4">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center">
-            {nodeType === 'serviceaccount' && (
-              <svg className="w-5 h-5 mr-1.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-              </svg>
-            )}
-            {nodeType === 'role' && (
-              <svg className="w-5 h-5 mr-1.5 text-purple-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            )}
-            {nodeType === 'clusterrole' && (
-              <svg className="w-5 h-5 mr-1.5 text-purple-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
-              </svg>
-            )}
-            {nodeType === 'namespace' && (
-              <svg className="w-5 h-5 mr-1.5 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-            )}
-            {nodeType === 'cluster' && (
-              <svg className="w-5 h-5 mr-1.5 text-gray-800" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-              </svg>
-            )}
-            {nodeType === 'serviceaccount' ? 'ServiceAccount' : 
-             nodeType === 'role' ? 'Role' :
-             nodeType === 'clusterrole' ? 'ClusterRole' :
-             nodeType === 'namespace' ? 'Namespace' :
-             nodeType === 'cluster' ? 'Cluster' :
-             'Node'} Details
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+        <h2 className="text-base font-semibold text-gray-900 dark:text-white">
+          Node Details
           </h2>
           <button
             onClick={onClose}
-            className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded transition-colors"
-            title="Close details"
+          className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-600 dark:text-gray-400 transition-colors"
+          title="Close panel"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -65,183 +44,138 @@ const NodeDetailsPanel = ({ nodeId, nodeType, nodeData, onClose }: NodeDetailsPa
           </button>
         </div>
 
-        {nodeType === 'serviceaccount' && isLoadingDetails ? (
-          <div className="text-gray-500 text-sm flex items-center justify-center p-4">
-            <svg className="animate-spin -ml-1 mr-3 h-5 w-5 text-blue-500" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-            </svg>
-            <span>Loading details...</span>
-          </div>
-        ) : nodeType === 'serviceaccount' && serviceAccount ? (
-          <div className="space-y-2 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                </svg>
-                <span>Name:</span>
-              </div>
-              <div className="font-medium text-gray-900">{serviceAccount.name}</div>
-              
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                </svg>
-                <span>Namespace:</span>
-              </div>
-              <div className="font-medium text-gray-900">{serviceAccount.namespace}</div>
-              
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                </svg>
-                <span>Cluster:</span>
-              </div>
-              <div className="font-medium text-gray-900">{serviceAccount.clusterId}</div>
-              
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
-                </svg>
-                <span>UID:</span>
-              </div>
-              <div className="font-mono text-xs text-gray-700 break-all">{serviceAccount.uid}</div>
-              
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                </svg>
-                <span>Created:</span>
-              </div>
-              <div className="text-gray-700">
-                {new Date(serviceAccount.createdAt).toLocaleString()}
+      {/* Content */}
+      <div className="flex-1 overflow-y-auto p-4">
+        <div className="space-y-4">
+        {/* Node Type Badge */}
+        <div>
+          <span className={`
+            inline-flex items-center px-3 py-1 rounded-full text-xs font-medium
+            ${nodeType === 'serviceaccount' ? 'bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200' : ''}
+            ${nodeType === 'role' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : ''}
+            ${nodeType === 'clusterrole' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200' : ''}
+            ${nodeType === 'namespace' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200' : ''}
+            ${nodeType === 'cluster' ? 'bg-gray-100 text-gray-800 dark:bg-gray-900 dark:text-gray-200' : ''}
+          `}>
+            {nodeType.toUpperCase()}
+          </span>
               </div>
               
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-                </svg>
-                <span>Updated:</span>
-              </div>
-              <div className="text-gray-700">
-                {new Date(serviceAccount.updatedAt).toLocaleString()}
-              </div>
+        {/* Node Name */}
+        <div>
+          <h3 className="text-lg font-bold text-gray-900 dark:text-white break-words leading-tight">
+            {String(nodeData.name || nodeData.label || node.id || 'Unknown')}
+          </h3>
             </div>
 
-            {serviceAccount.labels && serviceAccount.labels !== '' && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="text-gray-600 mb-1 flex items-center">
-                  <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                  </svg>
-                  <span>Labels:</span>
-                </div>
-                <div className="font-mono text-xs text-gray-700 break-all bg-gray-50 p-2 rounded">
-                  {serviceAccount.labels}
-                </div>
+        {/* Properties */}
+        <div className="space-y-3">
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+            Properties
+          </h4>
+          
+          <div className="space-y-2">
+            {nodeData.namespace && (
+              <div className="flex justify-between items-start">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Namespace:</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-white text-right">
+                  {nodeData.namespace}
+                </span>
               </div>
             )}
 
-            {serviceAccount.secrets && serviceAccount.secrets !== '' && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="text-gray-600 mb-1 flex items-center">
-                  <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                  </svg>
-                  <span>Secrets:</span>
-                </div>
-                <div className="font-mono text-xs text-gray-700 break-all bg-gray-50 p-2 rounded">
-                  {serviceAccount.secrets}
-                </div>
+            {nodeData.cluster && (
+              <div className="flex justify-between items-start">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Cluster:</span>
+                <span className="text-sm font-medium text-gray-900 dark:text-white text-right">
+                  {nodeData.cluster}
+                </span>
+              </div>
+            )}
+            
+            {nodeData.uid && (
+              <div className="flex justify-between items-start">
+                <span className="text-sm text-gray-600 dark:text-gray-400">UID:</span>
+                <span className="text-xs font-mono text-gray-700 dark:text-gray-300 text-right break-all">
+                  {nodeData.uid}
+                </span>
+              </div>
+            )}
+            
+            {nodeData.createdAt && (
+              <div className="flex justify-between items-start">
+                <span className="text-sm text-gray-600 dark:text-gray-400">Created:</span>
+                <span className="text-sm text-gray-900 dark:text-white text-right">
+                  {(() => {
+                    try {
+                      return new Date(nodeData.createdAt).toLocaleDateString()
+                    } catch {
+                      return String(nodeData.createdAt)
+                    }
+                  })()}
+                </span>
               </div>
             )}
           </div>
-        ) : (
-          <div className="space-y-2 text-sm">
-            <div className="grid grid-cols-2 gap-2">
-              <div className="text-gray-600 flex items-center">
-                <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
-                </svg>
-                <span>Name:</span>
-              </div>
-              <div className="font-medium text-gray-900">{nodeData.name || nodeData.label || 'N/A'}</div>
-              
-              {nodeData.cluster && (
-                <>
-                  <div className="text-gray-600 flex items-center">
-                    <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z" />
-                    </svg>
-                    <span>Cluster:</span>
-                  </div>
-                  <div className="font-medium text-gray-900">{nodeData.cluster}</div>
-                </>
-              )}
-              
-              {nodeData.namespace && (
-                <>
-                  <div className="text-gray-600 flex items-center">
-                    <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-                    </svg>
-                    <span>Namespace:</span>
-                  </div>
-                  <div className="font-medium text-gray-900">{nodeData.namespace}</div>
-                </>
-              )}
-              
-              {nodeData.uid && (
-                <>
-                  <div className="text-gray-600 flex items-center">
-                    <svg className="w-3 h-3 mr-1" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V8a2 2 0 00-2-2h-5m-4 0V5a2 2 0 114 0v1m-4 0a2 2 0 104 0m-5 8a2 2 0 100-4 2 2 0 000 4zm0 0c1.306 0 2.417.835 2.83 2M9 14a3.001 3.001 0 00-2.83 2M15 11h3m-3 4h2" />
-                    </svg>
-                    <span>UID:</span>
-                  </div>
-                  <div className="font-mono text-xs text-gray-700 break-all">{nodeData.uid}</div>
-                </>
-              )}
-            </div>
-            
-            {nodeType === 'role' && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="text-gray-600 mb-1 text-xs">
-                  Role is scoped to namespace: <span className="font-medium">{nodeData.namespace || 'N/A'}</span>
+        </div>
+        
+        {/* Labels */}
+        {nodeData.labels && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+              Labels
+            </h4>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded p-3">
+              <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all">
+                {typeof nodeData.labels === 'object' 
+                  ? JSON.stringify(nodeData.labels, null, 2) 
+                  : String(nodeData.labels)}
+              </pre>
                 </div>
               </div>
             )}
             
-            {nodeType === 'clusterrole' && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="text-gray-600 mb-1 text-xs">
-                  ClusterRole is cluster-scoped and applies to all namespaces.
+        {/* Secrets */}
+        {nodeData.secrets && (
+          <div className="space-y-2">
+            <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+              Secrets
+            </h4>
+            <div className="bg-gray-50 dark:bg-gray-900 rounded p-3">
+              <pre className="text-xs font-mono text-gray-700 dark:text-gray-300 whitespace-pre-wrap break-all">
+                {typeof nodeData.secrets === 'object' 
+                  ? JSON.stringify(nodeData.secrets, null, 2) 
+                  : String(nodeData.secrets)}
+              </pre>
                 </div>
               </div>
             )}
-            
-            {nodeType === 'namespace' && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="text-gray-600 mb-1 text-xs">
-                  Namespace contains ServiceAccounts, Roles, and RoleBindings.
-                </div>
-              </div>
-            )}
-            
-            {nodeType === 'cluster' && (
-              <div className="mt-3 pt-3 border-t border-gray-200">
-                <div className="text-gray-600 mb-1 text-xs">
-                  Cluster contains all namespaces and cluster-scoped resources.
-                </div>
-              </div>
-            )}
+        
+        {/* Connections */}
+        <div className="space-y-2">
+          <h4 className="text-sm font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wider">
+            Connections
+          </h4>
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            <p>Select a node in the graph to see its connections</p>
           </div>
-        )}
+        </div>
+        </div>
+      </div>
+      
+      {/* Footer Actions */}
+      <div className="px-4 py-3 border-t border-gray-200 dark:border-gray-700">
+        <div className="space-y-2">
+        <button className="w-full px-3 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-600 rounded-lg transition-colors shadow-sm">
+          View Full Details
+        </button>
+        <button className="w-full px-3 py-2 text-sm font-medium text-gray-700 dark:text-gray-300 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 rounded-lg transition-colors">
+          Export Info
+        </button>
+        </div>
       </div>
     </div>
   )
 }
 
 export default NodeDetailsPanel
-

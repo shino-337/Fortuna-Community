@@ -38,8 +38,8 @@ const AuditLogs = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-700 dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-6 py-6 max-w-7xl">
           <div className="text-center py-8">
             <div className="text-gray-500 dark:text-gray-400">Loading...</div>
           </div>
@@ -50,10 +50,10 @@ const AuditLogs = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-700 dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-6 py-6 max-w-7xl">
           <div className="text-center py-8">
-            <div className="text-red-500">Error loading audit logs: {String(error)}</div>
+            <div className="text-red-500 dark:text-red-400">Error loading audit logs: {String(error)}</div>
           </div>
         </div>
       </div>
@@ -65,26 +65,26 @@ const AuditLogs = () => {
   const totalPages = Math.ceil(total / pageSize)
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-700 dark:bg-gray-900">
-      <div className="container mx-auto px-4 py-6 max-w-7xl">
+    <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+      <div className="container mx-auto px-6 py-6 max-w-7xl">
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 mb-2">Audit Logs</h1>
+          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Audit Logs</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
             Showing ServiceAccount logs only. Data auto-refreshes every 10 seconds.
           </p>
         </div>
 
         {/* Filters */}
-        <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow-sm border border-gray-200 mb-6">
+        <div className="bg-white dark:bg-gray-800 p-5 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 mb-6">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 Cluster
               </label>
               <select
                 value={cluster}
                 onChange={(e) => setCluster(e.target.value)}
-                className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                className="w-full px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               >
                 <option value="">All Clusters</option>
                 {clusters && Array.isArray(clusters) && clusters.map((c) => (
@@ -95,13 +95,13 @@ const AuditLogs = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 Resource
               </label>
               <select
                 value={resource}
                 onChange={(e) => setResource(e.target.value)}
-                className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                className="w-full px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               >
                 <option value="">All Resources</option>
                 <option value="serviceaccount">ServiceAccount</option>
@@ -112,13 +112,13 @@ const AuditLogs = () => {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-2">
+              <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-2">
                 Action
               </label>
               <select
                 value={action}
                 onChange={(e) => setAction(e.target.value)}
-                className="w-full px-4 py-2.5 text-sm border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
+                className="w-full px-4 py-2.5 text-sm border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors"
               >
                 <option value="">All Actions</option>
                 <option value="create">Create</option>
@@ -137,7 +137,7 @@ const AuditLogs = () => {
               <button
                 type="button"
                 onClick={handleClearFilters}
-                className="px-4 py-2 text-sm border border-gray-300 rounded-md text-gray-600 dark:text-gray-300 hover:text-gray-800 hover:bg-gray-50 dark:bg-gray-700 transition-colors"
+                className="px-4 py-2 text-sm border border-gray-300 dark:border-gray-600 rounded-md text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-white hover:bg-gray-50 dark:hover:bg-gray-700 bg-white dark:bg-gray-800 transition-colors"
               >
                 Clear Filters
               </button>
@@ -146,35 +146,35 @@ const AuditLogs = () => {
         </div>
 
         {/* Audit Logs Table */}
-        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+        <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
-              <thead className="bg-gray-50 dark:bg-gray-700 dark:bg-gray-900">
+            <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+              <thead className="bg-gray-50 dark:bg-gray-700">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Timestamp
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Action
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Resource
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Cluster
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     User
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     IP Address
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-300 uppercase tracking-wider">
                     Details
                   </th>
                 </tr>
               </thead>
-              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200">
+              <tbody className="bg-white dark:bg-gray-800 divide-y divide-gray-200 dark:divide-gray-700">
                 {logs.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="px-6 py-4 text-center text-gray-500 dark:text-gray-400">
@@ -196,7 +196,7 @@ const AuditLogs = () => {
                     })
 
                     return (
-                      <tr key={log.id} className="hover:bg-gray-50 dark:bg-gray-700 dark:bg-gray-900">
+                      <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-700">
                         <td className="px-6 py-4 whitespace-nowrap">
                           <div className="text-sm text-gray-900 dark:text-white">
                             <div className="font-medium">{formattedDate}</div>
@@ -207,19 +207,19 @@ const AuditLogs = () => {
                           <span
                             className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full capitalize ${
                               log.action === 'create'
-                                ? 'bg-green-100 text-green-800'
+                                ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
                                 : log.action === 'update'
-                                ? 'bg-yellow-100 text-yellow-800'
-                                : 'bg-red-100 text-red-800'
+                                ? 'bg-yellow-100 dark:bg-yellow-900 text-yellow-800 dark:text-yellow-200'
+                                : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
                             }`}
                           >
                             {log.action}
                           </span>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-900 capitalize">{log.resource}</div>
+                          <div className="text-sm text-gray-900 dark:text-white capitalize">{log.resource}</div>
                           {log.resourceId && (
-                            <div className="text-xs text-gray-500 font-mono">{log.resourceId}</div>
+                            <div className="text-xs text-gray-500 dark:text-gray-400 font-mono">{log.resourceId}</div>
                           )}
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
@@ -229,15 +229,15 @@ const AuditLogs = () => {
                           <div className="text-sm text-gray-500 dark:text-gray-400">{log.user || '-'}</div>
                         </td>
                         <td className="px-6 py-4 whitespace-nowrap">
-                          <div className="text-sm text-gray-500 font-mono">{log.ip || '-'}</div>
+                          <div className="text-sm text-gray-500 dark:text-gray-400 font-mono">{log.ip || '-'}</div>
                         </td>
                         <td className="px-6 py-4">
                           {log.details ? (
-                            <div className="text-sm text-gray-600 max-w-xs truncate" title={log.details}>
+                            <div className="text-sm text-gray-600 dark:text-gray-400 max-w-xs truncate" title={log.details}>
                               {log.details}
                             </div>
                           ) : (
-                            <div className="text-sm text-gray-400">-</div>
+                            <div className="text-sm text-gray-400 dark:text-gray-500">-</div>
                           )}
                         </td>
                       </tr>
@@ -258,14 +258,14 @@ const AuditLogs = () => {
                 <button
                   onClick={() => setPage(page - 1)}
                   disabled={page === 1}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Previous
                 </button>
                 <button
                   onClick={() => setPage(page + 1)}
                   disabled={page >= totalPages}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-md text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 >
                   Next
                 </button>

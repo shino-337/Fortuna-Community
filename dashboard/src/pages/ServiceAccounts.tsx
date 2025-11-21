@@ -76,8 +76,8 @@ const ServiceAccounts = () => {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-6 py-6 max-w-7xl">
           <div className="text-center py-8">
             <div className="text-gray-500 dark:text-gray-400">Loading...</div>
           </div>
@@ -88,8 +88,8 @@ const ServiceAccounts = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-        <div className="container mx-auto px-4 py-6 max-w-7xl">
+      <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+        <div className="container mx-auto px-6 py-6 max-w-7xl">
           <div className="text-center py-8">
             <div className="text-red-500 dark:text-red-400">Error loading service accounts: {String(error)}</div>
           </div>
@@ -103,8 +103,8 @@ const ServiceAccounts = () => {
   const totalPages = Math.ceil(total / pageSize)
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto px-4 py-6 max-w-7xl">
+    <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
+      <div className="container mx-auto px-6 py-6 max-w-7xl">
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">ServiceAccounts</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">Manage and view all ServiceAccounts across clusters</p>
@@ -231,12 +231,12 @@ const ServiceAccounts = () => {
                           Permissions
                         </button>
                         <RBACGuard resource="serviceaccounts" action="delete">
-                          <button
-                            onClick={() => handleDelete(String(sa.id))}
+                        <button
+                          onClick={() => handleDelete(String(sa.id))}
                             className="text-red-600 dark:text-red-400 hover:text-red-900 dark:hover:text-red-300"
-                          >
-                            Delete
-                          </button>
+                        >
+                          Delete
+                        </button>
                         </RBACGuard>
                       </td>
                     </tr>
