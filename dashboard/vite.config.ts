@@ -18,7 +18,7 @@ export default defineConfig({
     minify: 'esbuild',
   },
   esbuild: {
-    // Remove console logs in production
-    drop: ['console', 'debugger'],
+    // Keep console logs for debugging (remove in production release)
+    // drop: ['console', 'debugger'],
   },
 })

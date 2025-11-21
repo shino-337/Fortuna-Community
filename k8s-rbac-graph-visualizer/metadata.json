@@ -1,0 +1,5 @@
+{
+  "name": "K8s RBAC Graph Visualizer",
+  "description": "An interactive D3.js force-directed graph to visualize Kubernetes Role-Based Access Control relationships, integrated with Gemini for security auditing.",
+  "requestFramePermissions": []
+}
