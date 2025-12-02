@@ -5,7 +5,7 @@ import type { AuditLog } from '../services/api'
 
 const AuditLogs = () => {
   const [cluster, setCluster] = useState<string>('')
-  const [resource, setResource] = useState<string>('serviceaccount')
+  const [resource, setResource] = useState<string>('')
   const [action, setAction] = useState<string>('')
   const [page, setPage] = useState(1)
   const pageSize = 20
@@ -31,7 +31,7 @@ const AuditLogs = () => {
 
   const handleClearFilters = useCallback(() => {
     setCluster('')
-    setResource('serviceaccount')
+    setResource('')
     setAction('')
     setPage(1)
   }, [])
@@ -70,7 +70,7 @@ const AuditLogs = () => {
         <div className="mb-6">
           <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Audit Logs</h1>
           <p className="text-sm text-gray-600 dark:text-gray-400">
-            Showing ServiceAccount logs only. Data auto-refreshes every 10 seconds.
+            Track all RBAC and workload changes: ServiceAccounts, Roles, ClusterRoles, RoleBindings, ClusterRoleBindings, Deployments, and ReplicaSets. Data auto-refreshes every 10 seconds.
           </p>
         </div>
 
@@ -105,10 +105,12 @@ const AuditLogs = () => {
               >
                 <option value="">All Resources</option>
                 <option value="serviceaccount">ServiceAccount</option>
-                <option value="rolebinding">RoleBinding</option>
-                <option value="clusterrolebinding">ClusterRoleBinding</option>
                 <option value="role">Role</option>
                 <option value="clusterrole">ClusterRole</option>
+                <option value="rolebinding">RoleBinding</option>
+                <option value="clusterrolebinding">ClusterRoleBinding</option>
+                <option value="deployment">Deployment</option>
+                <option value="replicaset">ReplicaSet</option>
               </select>
             </div>
             <div>

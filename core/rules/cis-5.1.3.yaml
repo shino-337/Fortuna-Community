@@ -1,0 +1,27 @@
+# CIS 5.1.3: ServiceAccount with cluster-admin binding
+# This rule detects ServiceAccounts bound to cluster-admin role
+
+id: cis-5.1.3
+name: "ServiceAccount granted cluster-admin"
+category: rbac
+severity: critical
+description: "A ServiceAccount is bound to cluster-admin role, granting full cluster access"
+enabled: true
+
+conditions:
+  - type: resource
+    field: roleRef.name
+    operator: eq
+    value: cluster-admin
+  - type: resource
+    field: subjects[].kind
+    operator: eq
+    value: ServiceAccount
+
+aggregation: AND
+base_score: 10.0
+tags:
+  - cis
+  - cluster-admin
+  - critical
+

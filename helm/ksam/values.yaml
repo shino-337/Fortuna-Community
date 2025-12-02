@@ -2,9 +2,9 @@
 core:
   name: ksam-core
   image:
-    repository: ksam/core
+    repository: ksam-core
     tag: latest
-    pullPolicy: Never
+    pullPolicy: Always
   
   replicaCount: 1
   
@@ -41,9 +41,9 @@ core:
 agent:
   name: ksam-agent
   image:
-    repository: ksam/agent
+    repository: ksam-agent
     tag: latest
-    pullPolicy: Never
+    pullPolicy: Always
   
   coreEndpoint: "ksam-core.ksam.svc.cluster.local:9090"
   syncInterval: "30s"

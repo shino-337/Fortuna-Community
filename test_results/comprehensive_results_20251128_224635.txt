@@ -1,0 +1,33 @@
+PASS|NATS Pods: 3 pods running
+PASS|NATS Service: Exists
+PASS|PostgreSQL: Running
+PASS|Redis: Running
+PASS|Core Deployment: 1/1 replicas ready
+PASS|Core Service: Exists
+PASS|Core Pod: ksam-core-64f8d4467c-82xd4 exists
+PASS|Core Pod Ready: true
+PASS|Core HTTP Health: Responding
+PASS|Core Readiness: Ready
+PASS|Agent DaemonSet: 1 pods ready
+PASS|Agent Pod: ksam-agent-fffxl exists
+PASS|Agent Registration: Registered with Core
+PASS|Agent Streaming: 292 streams completed
+PASS|NATS Connection: Core connected to NATS
+PASS|NATS Streams: 4 streams created
+FAIL|Normalizer Workers: No workers found
+PASS|Correlator Workers: 5 workers started
+WARN|Worker Processing: No processing logs found
+PASS|gRPC Port: 9090 exposed
+PASS|gRPC Server: Started
+PASS|gRPC Streams: 292 inventory streams received
+PASS|Agent → Core: 292 inventory items sent
+PASS|Core → NATS: 292 items published to NATS
+WARN|NATS → Workers: No processing found
+PASS|API /health: Responding
+PASS|API /ready: Responding
+WARN|API /live: Not responding
+PASS|Core Endpoints: 10.244.3.51 configured
+PASS|Agent → Core: Connection successful
+PASS|Pod Status: All pods running
+PASS|Services: 4 services configured
+FAIL|Overall Status: SOME TESTS FAILED

@@ -1,0 +1,20 @@
+# Overprivileged Binding Rule
+# Detects ServiceAccounts bound to overprivileged roles
+
+id: overprivileged-binding
+name: "ServiceAccount bound to overprivileged role"
+category: rbac
+severity: high
+description: "ServiceAccount is bound to a role with excessive permissions"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: "roleRef.kind == 'Role' || roleRef.kind == 'ClusterRole'"
+
+aggregation: AND
+base_score: 6.0
+tags:
+  - overprivileged
+  - binding
+

@@ -1,0 +1,169 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: ksam
+data:
+  nats.conf: |
+    port: 4222
+    http_port: 8222
+    cluster {
+      name: ksam-nats
+      port: 6222
+      routes = [
+        nats://nats-0.nats.ksam.svc.cluster.local:6222
+        nats://nats-1.nats.ksam.svc.cluster.local:6222
+        nats://nats-2.nats.ksam.svc.cluster.local:6222
+      ]
+    }
+    jetstream {
+      max_mem: 2GB
+      max_file: 10GB
+    }
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nats-pvc-0
+  namespace: ksam
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nats-pvc-1
+  namespace: ksam
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: nats-pvc-2
+  namespace: ksam
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: ksam
+spec:
+  serviceName: nats
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+      - name: nats
+        image: nats:2.10-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          cat > /tmp/nats.conf <<EOF
+          port: 4222
+          http_port: 8222
+          server_name: ${POD_NAME}
+          cluster {
+            name: ksam-nats
+            port: 6222
+            routes = [
+              nats://nats-0.nats.ksam.svc.cluster.local:6222
+              nats://nats-1.nats.ksam.svc.cluster.local:6222
+              nats://nats-2.nats.ksam.svc.cluster.local:6222
+            ]
+          }
+          jetstream {
+            store_dir: /data/jetstream
+            max_mem: 2GB
+            max_file: 10GB
+          }
+          EOF
+          exec nats-server -c /tmp/nats.conf -js
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        ports:
+        - containerPort: 4222
+          name: client
+        - containerPort: 6222
+          name: cluster
+        - containerPort: 8222
+          name: monitor
+        volumeMounts:
+        - name: config
+          mountPath: /etc/nats
+        - name: data
+          mountPath: /data/jetstream
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "1Gi"
+            cpu: "500m"
+      volumes:
+      - name: config
+        configMap:
+          name: nats-config
+  volumeClaimTemplates:
+  - metadata:
+      name: data
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: ksam
+spec:
+  clusterIP: None
+  selector:
+    app: nats
+  ports:
+  - port: 4222
+    targetPort: 4222
+    name: client
+  - port: 6222
+    targetPort: 6222
+    name: cluster
+  - port: 8222
+    targetPort: 8222
+    name: monitor
+

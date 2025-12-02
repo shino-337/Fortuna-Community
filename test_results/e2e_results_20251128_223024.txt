@@ -1,0 +1,12 @@
+PASS|Core Pod Exists|Found pod: ksam-core-bc4cffbc5-lbcmc
+PASS|Core Pod Ready|Pod is ready
+PASS|Core HTTP Health|Health endpoint responding
+PASS|Core NATS Connection|NATS connected
+PASS|Core Worker Pool|Found 5 workers started
+PASS|Agent Pods Running|Found 1 agent pods
+FAIL|Agent Registration|Registration not found in logs
+FAIL|NATS Streams Created|No streams found (may need Core to connect first)
+PASS|gRPC Port Exposed|gRPC port 9090 exposed
+PASS|gRPC Server Running|gRPC server started
+FAIL|Agent Data Collection|No data collection logs found yet
+FAIL|Core Data Processing|No data processing logs found yet

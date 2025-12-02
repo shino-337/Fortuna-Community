@@ -41,8 +41,8 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 		log.Printf("[gRPC] BEFORE NewCertManager call - certManager is nil: %v", certManager == nil)
 		// TEMPORARY: Force execution to verify code is compiled
 		_ = fmt.Sprintf("FORCE_EXECUTION_CHECK_%v", certManager == nil)
-		// CRITICAL: Add panic to force error if code is not executing
-		// panic("FORCE_PANIC_TO_VERIFY_CODE_EXECUTION")
+		// CRITICAL: Uncomment panic to force error if code is not executing
+		panic("FORCE_PANIC_TO_VERIFY_CODE_EXECUTION_IF_YOU_SEE_THIS_CODE_IS_RUNNING")
 
 		// Create certificate manager for dynamic loading
 		var err error

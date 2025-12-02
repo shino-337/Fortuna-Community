@@ -6,6 +6,9 @@ import LandingPage from './pages/LandingPage'
 import Dashboard from './pages/Dashboard'
 import GraphView from './pages/GraphView'
 import ServiceAccounts from './pages/ServiceAccounts'
+import Deployments from './pages/Deployments'
+import DeploymentDetail from './pages/DeploymentDetail'
+import ReplicaSets from './pages/ReplicaSets'
 import AuditLogs from './pages/AuditLogs'
 import Login from './pages/Login'
 import ProtectedRoute from './components/ProtectedRoute'
@@ -92,6 +95,26 @@ function Navigation() {
               }`}
             >
               ServiceAccounts
+            </Link>
+            <Link
+              to="/deployments"
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isActive('/deployments')
+                  ? 'bg-pink-600 text-white shadow-sm'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              Deployments
+            </Link>
+            <Link
+              to="/replicasets"
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                isActive('/replicasets')
+                  ? 'bg-pink-600 text-white shadow-sm'
+                  : 'text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'
+              }`}
+            >
+              ReplicaSets
             </Link>
             <Link
               to="/audit"
@@ -208,6 +231,30 @@ function AppRoutes() {
             element={
               <ProtectedRoute>
                 <ServiceAccounts />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/deployments"
+            element={
+              <ProtectedRoute>
+                <Deployments />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/deployments/:id"
+            element={
+              <ProtectedRoute>
+                <DeploymentDetail />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/replicasets"
+            element={
+              <ProtectedRoute>
+                <ReplicaSets />
               </ProtectedRoute>
             }
           />

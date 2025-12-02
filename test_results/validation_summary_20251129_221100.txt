@@ -1,0 +1,31 @@
+PASS: TC-P1-001.1: Core tables exist
+SKIP: TC-P1-001.2: Apache AGE extension - AGE extension not installed (expected in fallback mode)
+PASS: TC-P1-001.3: Indexes present
+PASS: TC-P1-001.4: Foreign keys
+PASS: TC-P1-003.1: Core pods running
+PASS: TC-P1-003.2: Agent pods running
+PASS: TC-P1-003.3: NATS pods running
+PASS: TC-P1-003.4: PostgreSQL pods running
+FAIL: TC-P1-003.5: No CrashLoopBackOff - 0
+0 pod(s) in CrashLoopBackOff
+PASS: TC-P1-004.1: Database query
+PASS: TC-P1-004.2: Core DB connection
+SKIP: TC-P2-001: Pods in database - No pods found (Agent may not be collecting)
+PASS: TC-P2-002: ServiceAccounts in database
+PASS: TC-P2-002.1: ServiceAccount details populated
+PASS: TC-P2-003.1: Roles collected
+PASS: TC-P2-003.2: ClusterRoles collected
+PASS: TC-P2-003.3: RoleBindings collected
+PASS: TC-P2-003.4: ClusterRoleBindings collected
+PASS: TC-P2-004: Normalization activity
+PASS: TC-P2-005: Correlation activity
+SKIP: TC-P2-005.1: Pod-SA relationships - No pod-SA links (no pods in DB)
+SKIP: TC-P2-006: Insights created - No insights found (Risk Worker may need data)
+PASS: TC-P2-009.1: Login returns token
+PASS: TC-P2-009.2: Authenticated request
+PASS: TC-P2-009.3: Unauthenticated request blocked
+PASS: TC-P2-011: Pagination works
+PASS: TC-P2-012: Filtering works
+SKIP: TC-F001: Risk scores calculated - Risk scoring not implemented in SA table
+SKIP: TC-F002: Orphaned SAs detected - Orphan detection may not be implemented
+SKIP: TC-I001: Pod lifecycle tracked - No pods in database (Agent may not be collecting)

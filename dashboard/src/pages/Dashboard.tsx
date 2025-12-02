@@ -1,13 +1,15 @@
-import { useClusters } from '../hooks/useClusters'
+import { useClusterStats } from '../hooks/useClusters'
 import { useServiceAccounts } from '../hooks/useServiceAccounts'
 import { useAuditLogs } from '../hooks/useAuditLogs'
+import ClusterStatusCard from '../components/Dashboard/ClusterStatusCard'
 
 const Dashboard = () => {
-  const { data: clusters, isLoading: clustersLoading } = useClusters()
+  const { data: clusterStats, isLoading: clustersLoading } = useClusterStats()
   const { data: serviceAccounts, isLoading: sasLoading } = useServiceAccounts()
   const { data: auditLogs, isLoading: logsLoading } = useAuditLogs({ page: 1, pageSize: 10 })
 
-  const totalClusters = clusters?.length || 0
+  const totalClusters = clusterStats?.length || 0
+  const connectedClusters = clusterStats?.filter(c => c.connectionStatus === 'connected').length || 0
   const totalServiceAccounts = serviceAccounts?.serviceAccounts?.length || 0
   const recentLogs = auditLogs?.logs?.length || 0
 
@@ -28,8 +30,11 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">Clusters</h2>
-                <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalClusters}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total connected clusters</p>
+                <p className="text-3xl font-bold text-pink-600 dark:text-pink-400">{totalClusters}</p>
+                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
+                  <span className="text-green-600 dark:text-green-400 font-semibold">{connectedClusters} connected</span>
+                  {' '}• {totalClusters - connectedClusters} offline
+                </p>
               </div>
               
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
@@ -48,25 +53,19 @@ const Dashboard = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
                 <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Clusters Status</h2>
-                {clusters && Array.isArray(clusters) && clusters.length > 0 ? (
-                  <div className="space-y-2">
-                    {clusters.map((cluster) => (
-                      <div key={cluster.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                        <span className="font-medium text-gray-900 dark:text-gray-100">{cluster.name}</span>
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            cluster.status === 'active'
-                              ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
-                              : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
-                          }`}
-                        >
-                          {cluster.status}
-                        </span>
-                      </div>
+                {clusterStats && Array.isArray(clusterStats) && clusterStats.length > 0 ? (
+                  <div className="space-y-3 max-h-96 overflow-y-auto">
+                    {clusterStats.map((cluster) => (
+                      <ClusterStatusCard key={cluster.id} cluster={cluster} />
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500 dark:text-gray-400">No clusters connected</p>
+                  <div className="text-center py-8">
+                    <p className="text-gray-500 dark:text-gray-400 mb-2">No clusters connected</p>
+                    <p className="text-sm text-gray-400 dark:text-gray-500">
+                      Deploy the KSAM agent to your clusters to start monitoring
+                    </p>
+                  </div>
                 )}
               </div>
 

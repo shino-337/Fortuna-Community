@@ -20,6 +20,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration001_InitialSchema,
 		Migration002_AddUsers,
 		Migration003_AddUserToAuditLogs,
+		Migration010_ImplementationGuideSchema,
 	}
 
 	for i, migration := range migrations {
@@ -36,7 +37,19 @@ func RunMigrations(db *gorm.DB) error {
 func Migration001_InitialSchema(db *gorm.DB) error {
 	log.Println("Running migration 001: Initial schema")
 
-	// Migrate all RBAC resources
+	// First, try to execute SQL migration if it exists
+	sqlBytes, err := os.ReadFile("migrations/001_initial_schema.sql")
+	if err == nil {
+		// Execute SQL migration first
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
+		} else {
+			log.Println("SQL migration 001 executed successfully")
+			return nil
+		}
+	}
+
+	// Fallback to AutoMigrate if SQL file doesn't exist or failed
 	return db.AutoMigrate(
 		&models.Cluster{},
 		&models.ServiceAccount{},
@@ -111,6 +124,39 @@ func CreateDefaultAdmin(db *gorm.DB, username, password, email string) error {
 		log.Printf("Admin user already exists: %s", username)
 	}
 
+	return nil
+}
+
+// Migration010_ImplementationGuideSchema adds tables according to IMPLEMENTATION_GUIDE.md
+func Migration010_ImplementationGuideSchema(db *gorm.DB) error {
+	log.Println("Running migration 010: Implementation Guide schema")
+
+	// Read and execute SQL migration file
+	sqlBytes, err := os.ReadFile("migrations/010_add_implementation_guide_schema.sql")
+	if err != nil {
+		log.Printf("Warning: Could not read SQL migration file: %v. Using AutoMigrate instead.", err)
+		// Fallback to AutoMigrate for new models
+		return db.AutoMigrate(
+			&models.Node{},
+			&models.Policy{},
+			&models.Insight{},
+			&models.EventIndex{},
+		)
+	}
+
+	// Execute SQL
+	if err := db.Exec(string(sqlBytes)).Error; err != nil {
+		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
+		// Fallback to AutoMigrate
+		return db.AutoMigrate(
+			&models.Node{},
+			&models.Policy{},
+			&models.Insight{},
+			&models.EventIndex{},
+		)
+	}
+
+	log.Println("Migration 010 completed successfully")
 	return nil
 }
 

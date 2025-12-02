@@ -191,6 +191,31 @@ func (s *AgentService) SyncData(clusterID string, data map[string]interface{}) e
 		return err
 	}
 
+	// Process RBAC resources (only during full sync)
+	if isFullSync {
+		if err := s.processSyncedRoles(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing roles: %v", err)
+		}
+		if err := s.processSyncedClusterRoles(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing cluster roles: %v", err)
+		}
+		if err := s.processSyncedRoleBindings(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing role bindings: %v", err)
+		}
+		if err := s.processSyncedClusterRoleBindings(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing cluster role bindings: %v", err)
+		}
+		if err := s.processSyncedPods(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing pods: %v", err)
+		}
+		if err := s.processSyncedDeployments(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing deployments: %v", err)
+		}
+		if err := s.processSyncedReplicaSets(clusterID, data); err != nil {
+			s.logger.Printf("❌ Error processing replicasets: %v", err)
+		}
+	}
+
 	// Cleanup old audit logs (TTL)
 	go s.cleanupOldAuditLogs()
 
@@ -350,6 +375,848 @@ func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[s
 		}
 	}
 
+	return nil
+}
+
+// processSyncedRoles handles Role sync (full sync only)
+func (s *AgentService) processSyncedRoles(clusterID string, data map[string]interface{}) error {
+	roles, ok := data["roles"].([]interface{})
+	if !ok || len(roles) == 0 {
+		s.logger.Printf("ℹ️  No roles in payload, clearing existing roles")
+		s.db.Where("cluster_id = ?", clusterID).Delete(&models.Role{})
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d roles", len(roles))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, roleData := range roles {
+		roleMap, ok := roleData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		name, nameOK := roleMap["name"].(string)
+		namespace, nsOK := roleMap["namespace"].(string)
+		uid, uidOK := roleMap["uid"].(string)
+		if !nameOK || !nsOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		// Parse rules
+		var rulesJSON string = "[]"
+		if rules, ok := roleMap["rules"].([]interface{}); ok {
+			if rulesBytes, err := json.Marshal(rules); err == nil {
+				rulesJSON = string(rulesBytes)
+			}
+		}
+		
+		role := models.Role{
+			ClusterID: clusterID,
+			UID:       uid,
+			Name:      name,
+			Namespace: namespace,
+			Rules:     rulesJSON,
+		}
+		
+		// Upsert role
+		var existing models.Role
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Check if changed
+			changed := existing.Name != role.Name ||
+				existing.Namespace != role.Namespace ||
+				existing.Rules != role.Rules
+			
+			if changed {
+				// Update existing
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":      role.Name,
+					"namespace": role.Namespace,
+					"rules":     role.Rules,
+				})
+				resourceID := strconv.Itoa(int(existing.ID))
+				s.createAuditLog(clusterID, "update", "role", resourceID, namespace, name)
+				s.logger.Printf("🔄 Updated Role %s/%s (ID=%d)", namespace, name, existing.ID)
+			}
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			if err := s.db.Create(&role).Error; err != nil {
+				s.logger.Printf("❌ Failed to create Role %s/%s: %v", namespace, name, err)
+				continue
+			}
+			resourceID := strconv.Itoa(int(role.ID))
+			s.createAuditLog(clusterID, "create", "role", resourceID, namespace, name)
+			s.logger.Printf("✨ Created Role %s/%s (ID=%d)", namespace, name, role.ID)
+		}
+	}
+	
+	// Delete roles not in sync
+	if len(syncedUIDs) > 0 {
+		keepUIDs := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			keepUIDs = append(keepUIDs, uid)
+		}
+		
+		var toDelete []models.Role
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Find(&toDelete)
+		for _, role := range toDelete {
+			resourceID := strconv.Itoa(int(role.ID))
+			s.createAuditLog(clusterID, "delete", "role", resourceID, role.Namespace, role.Name)
+			s.db.Delete(&role)
+			s.logger.Printf("🗑️  Deleted Role %s/%s (ID=%d) - not in full sync", role.Namespace, role.Name, role.ID)
+		}
+	}
+	
+	return nil
+}
+
+// processSyncedClusterRoles handles ClusterRole sync (full sync only)
+func (s *AgentService) processSyncedClusterRoles(clusterID string, data map[string]interface{}) error {
+	clusterRoles, ok := data["clusterRoles"].([]interface{})
+	if !ok || len(clusterRoles) == 0 {
+		s.logger.Printf("ℹ️  No cluster roles in payload, clearing existing cluster roles")
+		s.db.Where("cluster_id = ?", clusterID).Delete(&models.ClusterRole{})
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d cluster roles", len(clusterRoles))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, crData := range clusterRoles {
+		crMap, ok := crData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		name, nameOK := crMap["name"].(string)
+		uid, uidOK := crMap["uid"].(string)
+		if !nameOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		// Parse rules
+		var rulesJSON string = "[]"
+		if rules, ok := crMap["rules"].([]interface{}); ok {
+			if rulesBytes, err := json.Marshal(rules); err == nil {
+				rulesJSON = string(rulesBytes)
+			}
+		}
+		
+		clusterRole := models.ClusterRole{
+			ClusterID: clusterID,
+			UID:       uid,
+			Name:      name,
+			Rules:     rulesJSON,
+		}
+		
+		// Upsert cluster role
+		var existing models.ClusterRole
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Check if changed
+			changed := existing.Name != clusterRole.Name ||
+				existing.Rules != clusterRole.Rules
+			
+			if changed {
+				// Update existing
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":  clusterRole.Name,
+					"rules": clusterRole.Rules,
+				})
+				resourceID := strconv.Itoa(int(existing.ID))
+				s.createAuditLog(clusterID, "update", "clusterrole", resourceID, "", name)
+				s.logger.Printf("🔄 Updated ClusterRole %s (ID=%d)", name, existing.ID)
+			}
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			if err := s.db.Create(&clusterRole).Error; err != nil {
+				s.logger.Printf("❌ Failed to create ClusterRole %s: %v", name, err)
+				continue
+			}
+			resourceID := strconv.Itoa(int(clusterRole.ID))
+			s.createAuditLog(clusterID, "create", "clusterrole", resourceID, "", name)
+			s.logger.Printf("✨ Created ClusterRole %s (ID=%d)", name, clusterRole.ID)
+		}
+	}
+	
+	// Delete cluster roles not in sync
+	if len(syncedUIDs) > 0 {
+		keepUIDs := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			keepUIDs = append(keepUIDs, uid)
+		}
+		
+		var toDelete []models.ClusterRole
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Find(&toDelete)
+		for _, cr := range toDelete {
+			resourceID := strconv.Itoa(int(cr.ID))
+			s.createAuditLog(clusterID, "delete", "clusterrole", resourceID, "", cr.Name)
+			s.db.Delete(&cr)
+			s.logger.Printf("🗑️  Deleted ClusterRole %s (ID=%d) - not in full sync", cr.Name, cr.ID)
+		}
+	}
+	
+	return nil
+}
+
+// processSyncedRoleBindings handles RoleBinding sync (full sync only)
+func (s *AgentService) processSyncedRoleBindings(clusterID string, data map[string]interface{}) error {
+	roleBindings, ok := data["roleBindings"].([]interface{})
+	if !ok || len(roleBindings) == 0 {
+		s.logger.Printf("ℹ️  No role bindings in payload, clearing existing role bindings")
+		s.db.Where("cluster_id = ?", clusterID).Delete(&models.RoleBinding{})
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d role bindings", len(roleBindings))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, rbData := range roleBindings {
+		rbMap, ok := rbData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		name, nameOK := rbMap["name"].(string)
+		namespace, nsOK := rbMap["namespace"].(string)
+		uid, uidOK := rbMap["uid"].(string)
+		if !nameOK || !nsOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		// Parse roleRef
+		var roleRefJSON string = "{}"
+		if roleRef, ok := rbMap["roleRef"].(map[string]interface{}); ok {
+			if refBytes, err := json.Marshal(roleRef); err == nil {
+				roleRefJSON = string(refBytes)
+			}
+		}
+		
+		// Parse subjects
+		var subjectsJSON string = "[]"
+		if subjects, ok := rbMap["subjects"].([]interface{}); ok {
+			if subjBytes, err := json.Marshal(subjects); err == nil {
+				subjectsJSON = string(subjBytes)
+			}
+		}
+		
+		roleBinding := models.RoleBinding{
+			ClusterID: clusterID,
+			UID:       uid,
+			Name:      name,
+			Namespace: namespace,
+			RoleRef:   roleRefJSON,
+			Subjects:  subjectsJSON,
+		}
+		
+		// Upsert role binding
+		var existing models.RoleBinding
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Check if changed
+			changed := existing.Name != roleBinding.Name ||
+				existing.Namespace != roleBinding.Namespace ||
+				existing.RoleRef != roleBinding.RoleRef ||
+				existing.Subjects != roleBinding.Subjects
+			
+			if changed {
+				// Update existing
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":      roleBinding.Name,
+					"namespace": roleBinding.Namespace,
+					"role_ref":  roleBinding.RoleRef,
+					"subjects":  roleBinding.Subjects,
+				})
+				resourceID := strconv.Itoa(int(existing.ID))
+				s.createAuditLog(clusterID, "update", "rolebinding", resourceID, namespace, name)
+				s.logger.Printf("🔄 Updated RoleBinding %s/%s (ID=%d)", namespace, name, existing.ID)
+			}
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			if err := s.db.Create(&roleBinding).Error; err != nil {
+				s.logger.Printf("❌ Failed to create RoleBinding %s/%s: %v", namespace, name, err)
+				continue
+			}
+			resourceID := strconv.Itoa(int(roleBinding.ID))
+			s.createAuditLog(clusterID, "create", "rolebinding", resourceID, namespace, name)
+			s.logger.Printf("✨ Created RoleBinding %s/%s (ID=%d)", namespace, name, roleBinding.ID)
+		}
+	}
+	
+	// Delete role bindings not in sync
+	if len(syncedUIDs) > 0 {
+		keepUIDs := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			keepUIDs = append(keepUIDs, uid)
+		}
+		
+		var toDelete []models.RoleBinding
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Find(&toDelete)
+		for _, rb := range toDelete {
+			resourceID := strconv.Itoa(int(rb.ID))
+			s.createAuditLog(clusterID, "delete", "rolebinding", resourceID, rb.Namespace, rb.Name)
+			s.db.Delete(&rb)
+			s.logger.Printf("🗑️  Deleted RoleBinding %s/%s (ID=%d) - not in full sync", rb.Namespace, rb.Name, rb.ID)
+		}
+	}
+	
+	return nil
+}
+
+// processSyncedClusterRoleBindings handles ClusterRoleBinding sync (full sync only)
+func (s *AgentService) processSyncedClusterRoleBindings(clusterID string, data map[string]interface{}) error {
+	clusterRoleBindings, ok := data["clusterRoleBindings"].([]interface{})
+	if !ok || len(clusterRoleBindings) == 0 {
+		s.logger.Printf("ℹ️  No cluster role bindings in payload, clearing existing cluster role bindings")
+		s.db.Where("cluster_id = ?", clusterID).Delete(&models.ClusterRoleBinding{})
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d cluster role bindings", len(clusterRoleBindings))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, crbData := range clusterRoleBindings {
+		crbMap, ok := crbData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		name, nameOK := crbMap["name"].(string)
+		uid, uidOK := crbMap["uid"].(string)
+		if !nameOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		// Parse roleRef
+		var roleRefJSON string = "{}"
+		if roleRef, ok := crbMap["roleRef"].(map[string]interface{}); ok {
+			if refBytes, err := json.Marshal(roleRef); err == nil {
+				roleRefJSON = string(refBytes)
+			}
+		}
+		
+		// Parse subjects
+		var subjectsJSON string = "[]"
+		if subjects, ok := crbMap["subjects"].([]interface{}); ok {
+			if subjBytes, err := json.Marshal(subjects); err == nil {
+				subjectsJSON = string(subjBytes)
+			}
+		}
+		
+		clusterRoleBinding := models.ClusterRoleBinding{
+			ClusterID: clusterID,
+			UID:       uid,
+			Name:      name,
+			RoleRef:   roleRefJSON,
+			Subjects:  subjectsJSON,
+		}
+		
+		// Upsert cluster role binding
+		var existing models.ClusterRoleBinding
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Check if changed
+			changed := existing.Name != clusterRoleBinding.Name ||
+				existing.RoleRef != clusterRoleBinding.RoleRef ||
+				existing.Subjects != clusterRoleBinding.Subjects
+			
+			if changed {
+				// Update existing
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":     clusterRoleBinding.Name,
+					"role_ref": clusterRoleBinding.RoleRef,
+					"subjects": clusterRoleBinding.Subjects,
+				})
+				resourceID := strconv.Itoa(int(existing.ID))
+				s.createAuditLog(clusterID, "update", "clusterrolebinding", resourceID, "", name)
+				s.logger.Printf("🔄 Updated ClusterRoleBinding %s (ID=%d)", name, existing.ID)
+			}
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			if err := s.db.Create(&clusterRoleBinding).Error; err != nil {
+				s.logger.Printf("❌ Failed to create ClusterRoleBinding %s: %v", name, err)
+				continue
+			}
+			resourceID := strconv.Itoa(int(clusterRoleBinding.ID))
+			s.createAuditLog(clusterID, "create", "clusterrolebinding", resourceID, "", name)
+			s.logger.Printf("✨ Created ClusterRoleBinding %s (ID=%d)", name, clusterRoleBinding.ID)
+		}
+	}
+	
+	// Delete cluster role bindings not in sync
+	if len(syncedUIDs) > 0 {
+		keepUIDs := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			keepUIDs = append(keepUIDs, uid)
+		}
+		
+		var toDelete []models.ClusterRoleBinding
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Find(&toDelete)
+		for _, crb := range toDelete {
+			resourceID := strconv.Itoa(int(crb.ID))
+			s.createAuditLog(clusterID, "delete", "clusterrolebinding", resourceID, "", crb.Name)
+			s.db.Delete(&crb)
+			s.logger.Printf("🗑️  Deleted ClusterRoleBinding %s (ID=%d) - not in full sync", crb.Name, crb.ID)
+		}
+	}
+	
+	return nil
+}
+
+// processSyncedPods handles Pod sync (full sync only)
+func (s *AgentService) processSyncedPods(clusterID string, data map[string]interface{}) error {
+	pods, ok := data["pods"].([]interface{})
+	if !ok || len(pods) == 0 {
+		s.logger.Printf("ℹ️  No pods in payload, clearing existing pods")
+		s.db.Where("cluster_id = ?", clusterID).Delete(&models.Pod{})
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d pods", len(pods))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, podData := range pods {
+		podMap, ok := podData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		name, nameOK := podMap["name"].(string)
+		namespace, nsOK := podMap["namespace"].(string)
+		uid, uidOK := podMap["uid"].(string)
+		if !nameOK || !nsOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		serviceAccount := ""
+		if sa, ok := podMap["serviceAccountName"].(string); ok {
+			serviceAccount = sa
+		}
+		
+		pod := models.Pod{
+			ClusterID:      clusterID,
+			UID:            uid,
+			Name:           name,
+			Namespace:      namespace,
+			ServiceAccount: serviceAccount,
+		}
+		
+		// Upsert pod
+		var existing models.Pod
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Update existing
+			s.db.Model(&existing).Updates(map[string]interface{}{
+				"name":            pod.Name,
+				"namespace":       pod.Namespace,
+				"service_account": pod.ServiceAccount,
+			})
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			s.db.Create(&pod)
+			s.logger.Printf("✨ Created Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
+		}
+	}
+	
+	// Delete pods not in sync
+	if len(syncedUIDs) > 0 {
+		keepUIDs := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			keepUIDs = append(keepUIDs, uid)
+		}
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Delete(&models.Pod{})
+	}
+	
+	return nil
+}
+
+// processSyncedDeployments handles Deployment sync
+func (s *AgentService) processSyncedDeployments(clusterID string, data map[string]interface{}) error {
+	deploymentsData, ok := data["deployments"].([]interface{})
+	if !ok || len(deploymentsData) == 0 {
+		s.logger.Printf("ℹ️  No deployments in payload")
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d deployments", len(deploymentsData))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, depData := range deploymentsData {
+		depMap, ok := depData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		// Extract basic fields
+		name, nameOK := depMap["name"].(string)
+		namespace, nsOK := depMap["namespace"].(string)
+		uid, uidOK := depMap["uid"].(string)
+		if !nameOK || !nsOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		// Extract replica counts
+		replicas := int32(0)
+		if r, ok := depMap["replicas"].(float64); ok {
+			replicas = int32(r)
+		}
+		readyReplicas := int32(0)
+		if r, ok := depMap["readyReplicas"].(float64); ok {
+			readyReplicas = int32(r)
+		}
+		availableReplicas := int32(0)
+		if r, ok := depMap["availableReplicas"].(float64); ok {
+			availableReplicas = int32(r)
+		}
+		unavailableReplicas := int32(0)
+		if r, ok := depMap["unavailableReplicas"].(float64); ok {
+			unavailableReplicas = int32(r)
+		}
+		updatedReplicas := int32(0)
+		if r, ok := depMap["updatedReplicas"].(float64); ok {
+			updatedReplicas = int32(r)
+		}
+		
+		// Extract strategy
+		strategy := "RollingUpdate"
+		if s, ok := depMap["strategy"].(string); ok {
+			strategy = s
+		}
+		
+		// Parse JSON fields
+		labelsJSON := "{}"
+		if labels, ok := depMap["labels"].(map[string]interface{}); ok {
+			if bytes, err := json.Marshal(labels); err == nil {
+				labelsJSON = string(bytes)
+			}
+		}
+		
+		annotationsJSON := "{}"
+		if annotations, ok := depMap["annotations"].(map[string]interface{}); ok {
+			if bytes, err := json.Marshal(annotations); err == nil {
+				annotationsJSON = string(bytes)
+			}
+		}
+		
+		selectorJSON := "{}"
+		if selector, ok := depMap["selector"].(map[string]interface{}); ok {
+			if bytes, err := json.Marshal(selector); err == nil {
+				selectorJSON = string(bytes)
+			}
+		}
+		
+		templateJSON := "{}"
+		if containers, ok := depMap["containers"].([]interface{}); ok {
+			template := map[string]interface{}{
+				"containers": containers,
+			}
+			if bytes, err := json.Marshal(template); err == nil {
+				templateJSON = string(bytes)
+			}
+		}
+		
+		conditionsJSON := "[]"
+		if conditions, ok := depMap["conditions"].([]interface{}); ok {
+			if bytes, err := json.Marshal(conditions); err == nil {
+				conditionsJSON = string(bytes)
+			}
+		}
+		
+		deployment := models.Deployment{
+			ClusterID:           clusterID,
+			UID:                 uid,
+			Name:                name,
+			Namespace:           namespace,
+			Replicas:            replicas,
+			ReadyReplicas:       readyReplicas,
+			AvailableReplicas:   availableReplicas,
+			UnavailableReplicas: unavailableReplicas,
+			UpdatedReplicas:     updatedReplicas,
+			Strategy:            strategy,
+			Labels:              labelsJSON,
+			Annotations:         annotationsJSON,
+			Selector:            selectorJSON,
+			Template:            templateJSON,
+			Conditions:          conditionsJSON,
+		}
+		
+		// Upsert deployment
+		var existing models.Deployment
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Check if changed
+			changed := existing.Name != deployment.Name ||
+				existing.Namespace != deployment.Namespace ||
+				existing.Replicas != deployment.Replicas ||
+				existing.ReadyReplicas != deployment.ReadyReplicas ||
+				existing.AvailableReplicas != deployment.AvailableReplicas ||
+				existing.Strategy != deployment.Strategy ||
+				existing.Template != deployment.Template
+			
+			if changed {
+				// Update existing
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":                 deployment.Name,
+					"namespace":            deployment.Namespace,
+					"replicas":             deployment.Replicas,
+					"ready_replicas":       deployment.ReadyReplicas,
+					"available_replicas":   deployment.AvailableReplicas,
+					"unavailable_replicas": deployment.UnavailableReplicas,
+					"updated_replicas":     deployment.UpdatedReplicas,
+					"strategy":             deployment.Strategy,
+					"labels":               deployment.Labels,
+					"annotations":          deployment.Annotations,
+					"selector":             deployment.Selector,
+					"template":             deployment.Template,
+					"conditions":           deployment.Conditions,
+				})
+				resourceID := strconv.Itoa(int(existing.ID))
+				s.createAuditLog(clusterID, "update", "deployment", resourceID, namespace, name)
+				s.logger.Printf("🔄 Updated Deployment %s/%s (ID=%d)", namespace, name, existing.ID)
+			} else {
+				s.logger.Printf("⏭️  Deployment %s/%s unchanged, skipping", namespace, name)
+			}
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			if err := s.db.Create(&deployment).Error; err != nil {
+				s.logger.Printf("❌ Failed to create Deployment %s/%s: %v", namespace, name, err)
+				continue
+			}
+			resourceID := strconv.Itoa(int(deployment.ID))
+			s.createAuditLog(clusterID, "create", "deployment", resourceID, namespace, name)
+			s.logger.Printf("✨ Created Deployment %s/%s (ID=%d)", namespace, name, deployment.ID)
+		} else {
+			s.logger.Printf("❌ Error checking Deployment %s/%s: %v", namespace, name, err)
+			continue
+		}
+	}
+	
+	// Delete deployments not in sync (removed from cluster)
+	if len(syncedUIDs) > 0 {
+		var toDelete []models.Deployment
+		uidList := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			uidList = append(uidList, uid)
+		}
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, uidList).Find(&toDelete)
+		for _, dep := range toDelete {
+			resourceID := strconv.Itoa(int(dep.ID))
+			s.createAuditLog(clusterID, "delete", "deployment", resourceID, dep.Namespace, dep.Name)
+			s.db.Delete(&dep)
+			s.logger.Printf("🗑️  Deleted Deployment %s/%s (ID=%d) - not in full sync", dep.Namespace, dep.Name, dep.ID)
+		}
+	}
+	
+	return nil
+}
+
+// processSyncedReplicaSets handles ReplicaSet sync
+func (s *AgentService) processSyncedReplicaSets(clusterID string, data map[string]interface{}) error {
+	replicasetsData, ok := data["replicasets"].([]interface{})
+	if !ok || len(replicasetsData) == 0 {
+		s.logger.Printf("ℹ️  No replicasets in payload")
+		return nil
+	}
+
+	s.logger.Printf("📦 Processing %d replicasets", len(replicasetsData))
+	
+	syncedUIDs := make(map[string]bool)
+	
+	for _, rsData := range replicasetsData {
+		rsMap, ok := rsData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		
+		// Extract basic fields
+		name, nameOK := rsMap["name"].(string)
+		namespace, nsOK := rsMap["namespace"].(string)
+		uid, uidOK := rsMap["uid"].(string)
+		if !nameOK || !nsOK || !uidOK || uid == "" {
+			continue
+		}
+		
+		syncedUIDs[uid] = true
+		
+		// Extract replica counts
+		replicas := int32(0)
+		if r, ok := rsMap["replicas"].(float64); ok {
+			replicas = int32(r)
+		}
+		readyReplicas := int32(0)
+		if r, ok := rsMap["readyReplicas"].(float64); ok {
+			readyReplicas = int32(r)
+		}
+		availableReplicas := int32(0)
+		if r, ok := rsMap["availableReplicas"].(float64); ok {
+			availableReplicas = int32(r)
+		}
+		fullyLabeledReplicas := int32(0)
+		if r, ok := rsMap["fullyLabeledReplicas"].(float64); ok {
+			fullyLabeledReplicas = int32(r)
+		}
+		
+		// Extract owner reference
+		ownerKind := ""
+		if k, ok := rsMap["ownerKind"].(string); ok {
+			ownerKind = k
+		}
+		ownerName := ""
+		if n, ok := rsMap["ownerName"].(string); ok {
+			ownerName = n
+		}
+		ownerUID := ""
+		if u, ok := rsMap["ownerUid"].(string); ok {
+			ownerUID = u
+		}
+		
+		// Parse JSON fields
+		labelsJSON := "{}"
+		if labels, ok := rsMap["labels"].(map[string]interface{}); ok {
+			if bytes, err := json.Marshal(labels); err == nil {
+				labelsJSON = string(bytes)
+			}
+		}
+		
+		annotationsJSON := "{}"
+		if annotations, ok := rsMap["annotations"].(map[string]interface{}); ok {
+			if bytes, err := json.Marshal(annotations); err == nil {
+				annotationsJSON = string(bytes)
+			}
+		}
+		
+		selectorJSON := "{}"
+		if selector, ok := rsMap["selector"].(map[string]interface{}); ok {
+			if bytes, err := json.Marshal(selector); err == nil {
+				selectorJSON = string(bytes)
+			}
+		}
+		
+		templateJSON := "{}"
+		if containers, ok := rsMap["containers"].([]interface{}); ok {
+			template := map[string]interface{}{
+				"containers": containers,
+			}
+			if bytes, err := json.Marshal(template); err == nil {
+				templateJSON = string(bytes)
+			}
+		}
+		
+		conditionsJSON := "[]"
+		if conditions, ok := rsMap["conditions"].([]interface{}); ok {
+			if bytes, err := json.Marshal(conditions); err == nil {
+				conditionsJSON = string(bytes)
+			}
+		}
+		
+		replicaset := models.ReplicaSet{
+			ClusterID:            clusterID,
+			UID:                  uid,
+			Name:                 name,
+			Namespace:            namespace,
+			Replicas:             replicas,
+			ReadyReplicas:        readyReplicas,
+			AvailableReplicas:    availableReplicas,
+			FullyLabeledReplicas: fullyLabeledReplicas,
+			OwnerKind:            ownerKind,
+			OwnerName:            ownerName,
+			OwnerUID:             ownerUID,
+			Labels:               labelsJSON,
+			Annotations:          annotationsJSON,
+			Selector:             selectorJSON,
+			Template:             templateJSON,
+			Conditions:           conditionsJSON,
+		}
+		
+		// Upsert replicaset
+		var existing models.ReplicaSet
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		if err == nil {
+			// Check if changed
+			changed := existing.Name != replicaset.Name ||
+				existing.Namespace != replicaset.Namespace ||
+				existing.Replicas != replicaset.Replicas ||
+				existing.ReadyReplicas != replicaset.ReadyReplicas ||
+				existing.AvailableReplicas != replicaset.AvailableReplicas ||
+				existing.FullyLabeledReplicas != replicaset.FullyLabeledReplicas ||
+				existing.OwnerKind != replicaset.OwnerKind ||
+				existing.OwnerName != replicaset.OwnerName ||
+				existing.Template != replicaset.Template
+			
+			if changed {
+				// Update existing
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":                  replicaset.Name,
+					"namespace":             replicaset.Namespace,
+					"replicas":              replicaset.Replicas,
+					"ready_replicas":        replicaset.ReadyReplicas,
+					"available_replicas":    replicaset.AvailableReplicas,
+					"fully_labeled_replicas": replicaset.FullyLabeledReplicas,
+					"owner_kind":            replicaset.OwnerKind,
+					"owner_name":            replicaset.OwnerName,
+					"owner_uid":             replicaset.OwnerUID,
+					"labels":                replicaset.Labels,
+					"annotations":           replicaset.Annotations,
+					"selector":              replicaset.Selector,
+					"template":              replicaset.Template,
+					"conditions":            replicaset.Conditions,
+				})
+				resourceID := strconv.Itoa(int(existing.ID))
+				s.createAuditLog(clusterID, "update", "replicaset", resourceID, namespace, name)
+				s.logger.Printf("🔄 Updated ReplicaSet %s/%s (ID=%d)", namespace, name, existing.ID)
+			} else {
+				s.logger.Printf("⏭️  ReplicaSet %s/%s unchanged, skipping", namespace, name)
+			}
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// Create new
+			if err := s.db.Create(&replicaset).Error; err != nil {
+				s.logger.Printf("❌ Failed to create ReplicaSet %s/%s: %v", namespace, name, err)
+				continue
+			}
+			resourceID := strconv.Itoa(int(replicaset.ID))
+			s.createAuditLog(clusterID, "create", "replicaset", resourceID, namespace, name)
+			s.logger.Printf("✨ Created ReplicaSet %s/%s (ID=%d)", namespace, name, replicaset.ID)
+		} else {
+			s.logger.Printf("❌ Error checking ReplicaSet %s/%s: %v", namespace, name, err)
+			continue
+		}
+	}
+	
+	// Delete replicasets not in sync (removed from cluster)
+	if len(syncedUIDs) > 0 {
+		var toDelete []models.ReplicaSet
+		uidList := make([]string, 0, len(syncedUIDs))
+		for uid := range syncedUIDs {
+			uidList = append(uidList, uid)
+		}
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, uidList).Find(&toDelete)
+		for _, rs := range toDelete {
+			resourceID := strconv.Itoa(int(rs.ID))
+			s.createAuditLog(clusterID, "delete", "replicaset", resourceID, rs.Namespace, rs.Name)
+			s.db.Delete(&rs)
+			s.logger.Printf("🗑️  Deleted ReplicaSet %s/%s (ID=%d) - not in full sync", rs.Namespace, rs.Name, rs.ID)
+		}
+	}
+	
 	return nil
 }
 

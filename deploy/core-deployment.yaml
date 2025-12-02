@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ksam-core
+  namespace: ksam
+  labels:
+    app: ksam-core
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ksam-core
+  template:
+    metadata:
+      labels:
+        app: ksam-core
+    spec:
+      containers:
+      - name: core
+        image: ksam-core:latest
+        imagePullPolicy: Never
+        ports:
+        - name: http
+          containerPort: 8080
+        - name: grpc
+          containerPort: 9090
+        env:
+        - name: DATABASE_URL
+          valueFrom:
+            secretKeyRef:
+              name: ksam-secrets
+              key: database-url
+        - name: JWT_SECRET
+          valueFrom:
+            secretKeyRef:
+              name: ksam-secrets
+              key: jwt-secret
+        - name: HTTP_PORT
+          value: "8080"
+        - name: GRPC_PORT
+          value: "9090"
+        - name: AUTH_ENABLED
+          value: "true"
+        - name: KSAM_ADMIN_USERNAME
+          value: "admin"
+        - name: KSAM_ADMIN_PASSWORD
+          value: "admin123"
+        - name: KSAM_ADMIN_EMAIL
+          value: "admin@ksam.local"
+        - name: NATS_ENDPOINT
+          value: "nats://nats.ksam.svc.cluster.local:4222"
+        - name: TLS_ENABLED
+          value: "true"
+        - name: TLS_CA_CERT_PATH
+          value: "/etc/ksam/ca-cert/ca.crt"
+        - name: TLS_CERT_PATH
+          value: "/etc/ksam/certs/tls.crt"
+        - name: TLS_KEY_PATH
+          value: "/etc/ksam/certs/tls.key"
+        volumeMounts:
+        - name: tls-certs
+          mountPath: /etc/ksam/certs
+          readOnly: true
+        - name: ca-cert
+          mountPath: /etc/ksam/ca-cert
+          readOnly: true
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "100m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+        livenessProbe:
+          httpGet:
+            path: /live
+            port: http
+          initialDelaySeconds: 120
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http
+          initialDelaySeconds: 30
+          periodSeconds: 5
+      volumes:
+      - name: tls-certs
+        secret:
+          secretName: ksam-core-tls
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
+      - name: ca-cert
+        secret:
+          secretName: ksam-ca-cert
+          items:
+          - key: ca.crt
+            path: ca.crt

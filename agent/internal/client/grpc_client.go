@@ -118,6 +118,12 @@ func (c *Client) SendData(ctx context.Context, data *types.CollectedData) error 
 		if len(data.Pods) > 0 || includeEmpty {
 			dataMap["pods"] = convertPodsToMap(data.Pods)
 		}
+		if len(data.Deployments) > 0 || includeEmpty {
+			dataMap["deployments"] = convertDeploymentsToMap(data.Deployments)
+		}
+		if len(data.ReplicaSets) > 0 || includeEmpty {
+			dataMap["replicasets"] = convertReplicaSetsToMap(data.ReplicaSets)
+		}
 
 		payload := map[string]interface{}{
 			"clusterId": data.ClusterID,
@@ -235,6 +241,83 @@ func convertPodsToMap(pods []types.PodData) []map[string]interface{} {
 			"namespace":      pod.Namespace,
 			"serviceAccount": pod.ServiceAccount,
 			"uid":            pod.UID,
+		}
+	}
+	return result
+}
+
+func convertDeploymentsToMap(deployments []types.DeploymentData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(deployments))
+	for i, dep := range deployments {
+		result[i] = map[string]interface{}{
+			"name":                 dep.Name,
+			"namespace":            dep.Namespace,
+			"uid":                  dep.UID,
+			"replicas":             dep.Replicas,
+			"readyReplicas":        dep.ReadyReplicas,
+			"availableReplicas":    dep.AvailableReplicas,
+			"unavailableReplicas":  dep.UnavailableReplicas,
+			"updatedReplicas":      dep.UpdatedReplicas,
+			"strategy":             dep.Strategy,
+			"labels":               dep.Labels,
+			"annotations":          dep.Annotations,
+			"selector":             dep.Selector,
+			"containers":           dep.Containers,
+			"conditions":           dep.Conditions,
+			"createdAt":            dep.CreatedAt,
+		}
+	}
+	return result
+}
+
+// convertReplicaSetsToMap converts ReplicaSetData to map for JSON serialization
+func convertReplicaSetsToMap(replicasets []types.ReplicaSetData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(replicasets))
+	for i, rs := range replicasets {
+		containers := make([]map[string]interface{}, len(rs.Containers))
+		for j, c := range rs.Containers {
+			containerMap := map[string]interface{}{
+				"name":  c.Name,
+				"image": c.Image,
+			}
+			if c.Resources.Requests != nil {
+				containerMap["cpuRequest"] = c.Resources.Requests["cpu"]
+				containerMap["memoryRequest"] = c.Resources.Requests["memory"]
+			}
+			if c.Resources.Limits != nil {
+				containerMap["cpuLimit"] = c.Resources.Limits["cpu"]
+				containerMap["memoryLimit"] = c.Resources.Limits["memory"]
+			}
+			containers[j] = containerMap
+		}
+
+		conditions := make([]map[string]interface{}, len(rs.Conditions))
+		for j, cond := range rs.Conditions {
+			conditions[j] = map[string]interface{}{
+				"type":    string(cond.Type),
+				"status":  string(cond.Status),
+				"reason":  cond.Reason,
+				"message": cond.Message,
+			}
+		}
+
+		result[i] = map[string]interface{}{
+			"name":                 rs.Name,
+			"namespace":            rs.Namespace,
+			"uid":                  rs.UID,
+			"replicas":             rs.Replicas,
+			"readyReplicas":        rs.ReadyReplicas,
+			"availableReplicas":   rs.AvailableReplicas,
+			"fullyLabeledReplicas": rs.FullyLabeledReplicas,
+			"labels":               rs.Labels,
+			"annotations":          rs.Annotations,
+			"selector":             rs.Selector,
+			"containers":           containers,
+			"conditions":           conditions,
+			"ownerKind":            rs.OwnerKind,
+			"ownerName":            rs.OwnerName,
+			"ownerUid":             rs.OwnerUID,
+			"createdAt":            rs.CreatedAt,
 		}
 	}
 	return result

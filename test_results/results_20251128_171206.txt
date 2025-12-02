@@ -1,0 +1,12 @@
+PASS|NATS Pods Running|Found 3 NATS pods
+PASS|NATS Service|NATS service exists
+PASS|PostgreSQL Running|PostgreSQL pod is running
+PASS|Redis Running|Redis pod is running
+FAIL|NATS Connection|Cannot connect to NATS server
+FAIL|NATS JetStream Streams|No streams found (may be created on first connection)
+FAIL|Core Deployment|Core deployment not found (may not be deployed yet)
+FAIL|Core Service|Core service not found
+FAIL|Core Pods Running|No Core pods running
+FAIL|Agent DaemonSet|Agent DaemonSet not found
+FAIL|Agent Pods Running|No Agent pods running
+FAIL|gRPC Port Exposed|Core service not found

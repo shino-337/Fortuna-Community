@@ -1,4 +1,4 @@
-FROM golang:1.20-alpine AS builder
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
@@ -10,6 +10,9 @@ RUN go mod download || (sleep 5 && go mod download) || (sleep 10 && go mod downl
 
 # Copy source code
 COPY . .
+
+# Update go.mod if needed
+RUN go mod tidy
 
 # Build with optimizations
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \

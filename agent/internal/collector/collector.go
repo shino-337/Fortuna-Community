@@ -4,338 +4,281 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
-	"strings"
+	"sync"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"os"
 
-	grpcClient "github.com/ksam/agent/internal/client"
-	"github.com/ksam/agent/internal/config"
-	"github.com/ksam/agent/internal/k8s"
-	"github.com/ksam/agent/pkg/types"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/watch"
+	"k8s.io/client-go/kubernetes"
+
+	"github.com/ksam/agent/internal/client"
+	"github.com/ksam/agent/internal/converter"
+	"github.com/ksam/agent/internal/watcher"
+	fortuna "github.com/ksam/agent/proto/gen/proto"
 )
 
-// Collector collects ServiceAccount and RBAC data from Kubernetes
-type Collector struct {
-	config        *config.Config
-	k8s           *k8s.Client
-	grpcClient    *grpcClient.Client
-	lastSyncState map[string]string // Track last sync state: resourceType:UID -> hash
-	lastFullSync  time.Time
-	fullSyncCount int
+// WatcherInterface for all watchers
+type WatcherInterface interface {
+	Start() error
+	Stop()
 }
 
-// New creates a new Collector
-func New(cfg *config.Config) (*Collector, error) {
-	k8sClient, err := k8s.NewClient(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create k8s client: %w", err)
-	}
+// Collector collects Kubernetes resources and forwards them to the core
+type Collector struct {
+	client      kubernetes.Interface
+	grpcClient  client.GRPCClient
+	clusterID   string
+	clusterName string
+	watchers    []WatcherInterface
+	wg          sync.WaitGroup
+	ctx         context.Context
+	cancel      context.CancelFunc
+}
 
-	// Initialize gRPC client to Core Controller
-	grpcClient, err := grpcClient.NewClient(cfg)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
-	}
-
+// NewCollector creates a new collector
+func NewCollector(k8sClient kubernetes.Interface, grpcClient client.GRPCClient, clusterID, clusterName string) (*Collector, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Collector{
-		config:        cfg,
-		k8s:           k8sClient,
-		grpcClient:    grpcClient,
-		lastSyncState: make(map[string]string),
-		fullSyncCount: 0,
+		client:      k8sClient,
+		grpcClient:  grpcClient,
+		clusterID:   clusterID,
+		clusterName: clusterName,
+		ctx:         ctx,
+		cancel:      cancel,
 	}, nil
 }
 
-func canonicalizeLabels(labels map[string]string) string {
-	if len(labels) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	pairs := make([]string, 0, len(labels))
-	for _, k := range keys {
-		pairs = append(pairs, fmt.Sprintf("%s=%s", k, labels[k]))
-	}
-	return strings.Join(pairs, ",")
-}
+// Start starts the collector
+func (c *Collector) Start() error {
+	log.Printf("[Collector] Starting collector for cluster: %s (%s)", c.clusterName, c.clusterID)
 
-// hashResource creates a simple hash for resource to detect changes
-func (c *Collector) hashResource(resourceType, uid string, data interface{}) string {
-	switch v := data.(type) {
-	case types.ServiceAccountData:
-		return fmt.Sprintf("%s:%s:%s:%s:%s:%s",
-			resourceType,
-			uid,
-			v.Name,
-			v.Namespace,
-			canonicalizeLabels(v.Labels),
-			strings.Join(v.Secrets, ","),
-		)
-	default:
-		return fmt.Sprintf("%s:%s:%v", resourceType, uid, data)
-	}
-}
-
-// Collect collects all ServiceAccount and RBAC data
-// Uses delta sync: first sync is full, subsequent syncs only send changes
-func (c *Collector) Collect(ctx context.Context) error {
-	// Determine if this should be a full sync
-	// Full sync: first sync, or every 10th sync (every ~5 minutes with 30s interval)
-	shouldFullSync := c.fullSyncCount == 0 || (c.fullSyncCount%10 == 0)
-
-	if shouldFullSync {
-		log.Println("Starting FULL sync collection...")
-		c.lastSyncState = make(map[string]string) // Reset state for full sync
-	} else {
-		log.Println("Starting DELTA sync collection (changes only)...")
+	// Register with core
+	if err := c.register(); err != nil {
+		return fmt.Errorf("failed to register: %w", err)
 	}
 
-	c.fullSyncCount++
-
-	data := &types.CollectedData{
-		ClusterID:           c.config.ClusterID,
-		ServiceAccounts:     []types.ServiceAccountData{},
-		RoleBindings:        []types.RoleBindingData{},
-		ClusterRoleBindings: []types.ClusterRoleBindingData{},
-		Roles:               []types.RoleData{},
-		ClusterRoles:        []types.ClusterRoleData{},
-		Pods:                []types.PodData{},
-		CollectedAt:         metav1.NewTime(time.Now()),
-		IsFullSync:          shouldFullSync,
-		IsDeltaSync:         !shouldFullSync,
+	// Start watchers for all namespaces
+	if err := c.startWatchers(); err != nil {
+		return fmt.Errorf("failed to start watchers: %w", err)
 	}
 
-	// Collect ServiceAccounts (with delta sync support)
-	if err := c.collectServiceAccounts(ctx, data, shouldFullSync); err != nil {
-		log.Printf("Error collecting ServiceAccounts: %v", err)
-	}
-
-	if shouldFullSync {
-		if err := c.collectRoleBindings(ctx, data); err != nil {
-			log.Printf("Error collecting RoleBindings: %v", err)
-		}
-		if err := c.collectClusterRoleBindings(ctx, data); err != nil {
-			log.Printf("Error collecting ClusterRoleBindings: %v", err)
-		}
-		if err := c.collectRoles(ctx, data); err != nil {
-			log.Printf("Error collecting Roles: %v", err)
-		}
-		if err := c.collectClusterRoles(ctx, data); err != nil {
-			log.Printf("Error collecting ClusterRoles: %v", err)
-		}
-		if err := c.collectPods(ctx, data); err != nil {
-			log.Printf("Error collecting Pods: %v", err)
-		}
-	} else {
-		log.Println("Skipping RBAC/Pod collections for DELTA sync (handled via full snapshots)")
-	}
-
-	syncType := "FULL"
-	if !shouldFullSync {
-		syncType = "DELTA"
-	}
-	log.Printf("Collection complete (%s): %d SAs, %d RBs, %d CRBs, %d Roles, %d CRoles, %d Pods",
-		syncType,
-		len(data.ServiceAccounts),
-		len(data.RoleBindings),
-		len(data.ClusterRoleBindings),
-		len(data.Roles),
-		len(data.ClusterRoles),
-		len(data.Pods))
-
-	// Send data to Core Controller via gRPC with retry
-	if err := c.grpcClient.SendData(ctx, data); err != nil {
-		return fmt.Errorf("failed to send data to core: %w", err)
-	}
-
-	// Update last sync time
-	c.lastFullSync = time.Now()
+	// Start heartbeat
+	c.wg.Add(1)
+	go c.heartbeat()
 
 	return nil
 }
 
-// collectServiceAccounts collects ServiceAccounts (with delta sync support)
-func (c *Collector) collectServiceAccounts(ctx context.Context, data *types.CollectedData, fullSync bool) error {
-	var listOptions metav1.ListOptions
+// register registers the agent with the core
+func (c *Collector) register() error {
+	log.Printf("[Collector] Registering agent with core...")
 
-	// If WatchNamespace is set, only collect from that namespace
-	// Otherwise, collect from all namespaces
-	if c.config.WatchNamespace != "" {
-		saList, err := c.k8s.Clientset.CoreV1().ServiceAccounts(c.config.WatchNamespace).List(ctx, listOptions)
-		if err != nil {
-			return err
+	req := &fortuna.RegisterRequest{
+		ClusterId: c.clusterID,
+		NodeName:  getNodeName(),
+		Version:   "1.0.0",
+	}
+
+	resp, err := c.grpcClient.Register(context.Background(), req)
+	if err != nil {
+		return fmt.Errorf("registration failed: %w", err)
+	}
+
+	if !resp.Ok {
+		return fmt.Errorf("registration failed: %s", resp.Message)
+	}
+
+	log.Printf("[Collector] Registered successfully")
+	return nil
+}
+
+// startWatchers starts all resource watchers
+func (c *Collector) startWatchers() error {
+	// Get all namespaces
+	namespaces, err := c.client.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to list namespaces: %w", err)
+	}
+
+	log.Printf("[Collector] Starting watchers for %d namespaces", len(namespaces.Items))
+
+	// Start watchers for each namespace
+	for _, ns := range namespaces.Items {
+		c.startNamespaceWatchers(ns.Name)
+	}
+
+	// Start cluster-scoped watchers
+	c.startClusterWatchers()
+
+	return nil
+}
+
+// startNamespaceWatchers starts watchers for a specific namespace
+func (c *Collector) startNamespaceWatchers(namespace string) {
+	// Pod watcher
+	podWatcher := watcher.NewPodWatcher(c.client, namespace, c.handlePod)
+	c.watchers = append(c.watchers, podWatcher)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := podWatcher.Start(); err != nil {
+			log.Printf("[Collector] Pod watcher error: %v", err)
 		}
-		for i := range saList.Items {
-			sa := &saList.Items[i]
-			saData := types.ConvertServiceAccount(sa)
+	}()
 
-			// Delta sync: only include if changed or new
-			if !fullSync {
-				key := fmt.Sprintf("sa:%s", saData.UID)
-				currentHash := c.hashResource("sa", saData.UID, saData)
-				lastHash, exists := c.lastSyncState[key]
+	// ServiceAccount watcher
+	saWatcher := watcher.NewServiceAccountWatcher(c.client, namespace, c.handleServiceAccount)
+	c.watchers = append(c.watchers, saWatcher)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := saWatcher.Start(); err != nil {
+			log.Printf("[Collector] ServiceAccount watcher error: %v", err)
+		}
+	}()
 
-				if !exists || currentHash != lastHash {
-					// Changed or new - include in delta
-					data.ServiceAccounts = append(data.ServiceAccounts, saData)
-					c.lastSyncState[key] = currentHash
-				}
-			} else {
-				// Full sync: include all
-				data.ServiceAccounts = append(data.ServiceAccounts, saData)
-				key := fmt.Sprintf("sa:%s", saData.UID)
-				c.lastSyncState[key] = c.hashResource("sa", saData.UID, saData)
+	// Role watcher
+	roleWatcher := watcher.NewRoleWatcher(c.client, namespace, c.handleRole)
+	c.watchers = append(c.watchers, roleWatcher)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := roleWatcher.Start(); err != nil {
+			log.Printf("[Collector] Role watcher error: %v", err)
+		}
+	}()
+
+	// RoleBinding watcher
+	rbWatcher := watcher.NewRoleBindingWatcher(c.client, namespace, c.handleRoleBinding)
+	c.watchers = append(c.watchers, rbWatcher)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := rbWatcher.Start(); err != nil {
+			log.Printf("[Collector] RoleBinding watcher error: %v", err)
+		}
+	}()
+}
+
+// startClusterWatchers starts cluster-scoped watchers
+func (c *Collector) startClusterWatchers() {
+	// ClusterRole watcher
+	crWatcher := watcher.NewClusterRoleWatcher(c.client, c.handleClusterRole)
+	c.watchers = append(c.watchers, crWatcher)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := crWatcher.Start(); err != nil {
+			log.Printf("[Collector] ClusterRole watcher error: %v", err)
+		}
+	}()
+
+	// ClusterRoleBinding watcher
+	crbWatcher := watcher.NewClusterRoleBindingWatcher(c.client, c.handleClusterRoleBinding)
+	c.watchers = append(c.watchers, crbWatcher)
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		if err := crbWatcher.Start(); err != nil {
+			log.Printf("[Collector] ClusterRoleBinding watcher error: %v", err)
+		}
+	}()
+}
+
+// handlePod handles Pod events
+func (c *Collector) handlePod(pod *corev1.Pod, eventType watch.EventType) error {
+	item := converter.PodToInventoryItem(pod, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// handleServiceAccount handles ServiceAccount events
+func (c *Collector) handleServiceAccount(sa *corev1.ServiceAccount, eventType watch.EventType) error {
+	item := converter.ServiceAccountToInventoryItem(sa, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// handleRole handles Role events
+func (c *Collector) handleRole(role *rbacv1.Role, eventType watch.EventType) error {
+	item := converter.RoleToInventoryItem(role, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// handleRoleBinding handles RoleBinding events
+func (c *Collector) handleRoleBinding(rb *rbacv1.RoleBinding, eventType watch.EventType) error {
+	item := converter.RoleBindingToInventoryItem(rb, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// handleClusterRole handles ClusterRole events
+func (c *Collector) handleClusterRole(cr *rbacv1.ClusterRole, eventType watch.EventType) error {
+	item := converter.ClusterRoleToInventoryItem(cr, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// handleClusterRoleBinding handles ClusterRoleBinding events
+func (c *Collector) handleClusterRoleBinding(crb *rbacv1.ClusterRoleBinding, eventType watch.EventType) error {
+	item := converter.ClusterRoleBindingToInventoryItem(crb, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// sendInventoryItem sends an inventory item to the core
+func (c *Collector) sendInventoryItem(item *fortuna.InventoryItem) error {
+	items := []*fortuna.InventoryItem{item}
+	return c.grpcClient.StreamInventory(context.Background(), items)
+}
+
+// heartbeat sends periodic heartbeat to the core
+func (c *Collector) heartbeat() {
+	defer c.wg.Done()
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			req := &fortuna.RegisterRequest{
+				ClusterId: c.clusterID,
+				NodeName:  getNodeName(),
+				Version:   "1.0.0",
+				AgentId:   getNodeName(),
+			}
+			if err := c.grpcClient.Heartbeat(context.Background(), req); err != nil {
+				log.Printf("[Collector] Heartbeat error: %v", err)
 			}
 		}
-	} else {
-		// Collect from all namespaces
-		saList, err := c.k8s.Clientset.CoreV1().ServiceAccounts("").List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range saList.Items {
-			sa := &saList.Items[i]
-			saData := types.ConvertServiceAccount(sa)
-
-			// Delta sync: only include if changed or new
-			if !fullSync {
-				key := fmt.Sprintf("sa:%s", saData.UID)
-				currentHash := c.hashResource("sa", saData.UID, saData)
-				lastHash, exists := c.lastSyncState[key]
-
-				if !exists || currentHash != lastHash {
-					// Changed or new - include in delta
-					data.ServiceAccounts = append(data.ServiceAccounts, saData)
-					c.lastSyncState[key] = currentHash
-				}
-			} else {
-				// Full sync: include all
-				data.ServiceAccounts = append(data.ServiceAccounts, saData)
-				key := fmt.Sprintf("sa:%s", saData.UID)
-				c.lastSyncState[key] = c.hashResource("sa", saData.UID, saData)
-			}
-		}
 	}
-
-	return nil
 }
 
-// collectRoleBindings collects all RoleBindings
-func (c *Collector) collectRoleBindings(ctx context.Context, data *types.CollectedData) error {
-	var listOptions metav1.ListOptions
+// Stop stops the collector
+func (c *Collector) Stop() {
+	log.Printf("[Collector] Stopping collector...")
+	c.cancel()
 
-	if c.config.WatchNamespace != "" {
-		rbList, err := c.k8s.Clientset.RbacV1().RoleBindings(c.config.WatchNamespace).List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range rbList.Items {
-			rb := &rbList.Items[i]
-			data.RoleBindings = append(data.RoleBindings, types.ConvertRoleBinding(rb))
-		}
-	} else {
-		rbList, err := c.k8s.Clientset.RbacV1().RoleBindings("").List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range rbList.Items {
-			rb := &rbList.Items[i]
-			data.RoleBindings = append(data.RoleBindings, types.ConvertRoleBinding(rb))
-		}
+	// Stop all watchers
+	for _, w := range c.watchers {
+		w.Stop()
 	}
 
-	return nil
+	// Wait for all goroutines
+	c.wg.Wait()
+	log.Printf("[Collector] Stopped")
 }
 
-// collectClusterRoleBindings collects all ClusterRoleBindings
-func (c *Collector) collectClusterRoleBindings(ctx context.Context, data *types.CollectedData) error {
-	var listOptions metav1.ListOptions
-
-	crbList, err := c.k8s.Clientset.RbacV1().ClusterRoleBindings().List(ctx, listOptions)
-	if err != nil {
-		return err
+// getNodeName gets the current node name
+func getNodeName() string {
+	// Try to get from environment variable
+	if nodeName := os.Getenv("NODE_NAME"); nodeName != "" {
+		return nodeName
 	}
-
-	for i := range crbList.Items {
-		crb := &crbList.Items[i]
-		data.ClusterRoleBindings = append(data.ClusterRoleBindings, types.ConvertClusterRoleBinding(crb))
+	// Try to get from hostname
+	if hostname, err := os.Hostname(); err == nil {
+		return hostname
 	}
-
-	return nil
-}
-
-// collectRoles collects all Roles
-func (c *Collector) collectRoles(ctx context.Context, data *types.CollectedData) error {
-	var listOptions metav1.ListOptions
-
-	if c.config.WatchNamespace != "" {
-		roleList, err := c.k8s.Clientset.RbacV1().Roles(c.config.WatchNamespace).List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range roleList.Items {
-			role := &roleList.Items[i]
-			data.Roles = append(data.Roles, types.ConvertRole(role))
-		}
-	} else {
-		roleList, err := c.k8s.Clientset.RbacV1().Roles("").List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range roleList.Items {
-			role := &roleList.Items[i]
-			data.Roles = append(data.Roles, types.ConvertRole(role))
-		}
-	}
-
-	return nil
-}
-
-// collectClusterRoles collects all ClusterRoles
-func (c *Collector) collectClusterRoles(ctx context.Context, data *types.CollectedData) error {
-	var listOptions metav1.ListOptions
-
-	crList, err := c.k8s.Clientset.RbacV1().ClusterRoles().List(ctx, listOptions)
-	if err != nil {
-		return err
-	}
-
-	for i := range crList.Items {
-		cr := &crList.Items[i]
-		data.ClusterRoles = append(data.ClusterRoles, types.ConvertClusterRole(cr))
-	}
-
-	return nil
-}
-
-// collectPods collects Pods to see which ServiceAccounts are in use
-func (c *Collector) collectPods(ctx context.Context, data *types.CollectedData) error {
-	var listOptions metav1.ListOptions
-
-	if c.config.WatchNamespace != "" {
-		podList, err := c.k8s.Clientset.CoreV1().Pods(c.config.WatchNamespace).List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range podList.Items {
-			pod := &podList.Items[i]
-			data.Pods = append(data.Pods, types.ConvertPod(pod))
-		}
-	} else {
-		podList, err := c.k8s.Clientset.CoreV1().Pods("").List(ctx, listOptions)
-		if err != nil {
-			return err
-		}
-		for i := range podList.Items {
-			pod := &podList.Items[i]
-			data.Pods = append(data.Pods, types.ConvertPod(pod))
-		}
-	}
-
-	return nil
+	return "unknown"
 }
