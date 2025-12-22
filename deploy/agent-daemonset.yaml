@@ -2,29 +2,29 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: ksam-agent
-  namespace: ksam
+  namespace: fortuna
   labels:
-    app: ksam-agent
+    app: fortuna-agent
 spec:
   selector:
     matchLabels:
-      app: ksam-agent
+      app: fortuna-agent
   template:
     metadata:
       labels:
-        app: ksam-agent
+        app: fortuna-agent
     spec:
       serviceAccountName: ksam-agent
       containers:
       - name: agent
-        image: ksam-agent:latest
-        imagePullPolicy: IfNotPresent
+        image: docker.io/fortuna/agent:latest
+        imagePullPolicy: Never
         env:
-        - name: KSAM_CORE_ENDPOINT
-          value: "ksam-core.ksam.svc.cluster.local:9090"
-        - name: KSAM_CLUSTER_ID
+        - name: FORTUNA_CORE_ENDPOINT
+          value: "ksam-core.fortuna.svc.cluster.local:9090"
+        - name: FORTUNA_CLUSTER_ID
           value: "minikube"
-        - name: KSAM_SYNC_INTERVAL
+        - name: FORTUNA_SYNC_INTERVAL
           value: "30s"
         - name: NODE_NAME
           valueFrom:

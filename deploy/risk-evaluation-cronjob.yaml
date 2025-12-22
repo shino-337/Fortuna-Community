@@ -2,7 +2,7 @@ apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: ksam-risk-evaluation
-  namespace: ksam
+  namespace: fortuna
   labels:
     app: ksam-risk-evaluation
 spec:

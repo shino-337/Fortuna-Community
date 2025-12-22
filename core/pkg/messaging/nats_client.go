@@ -70,7 +70,7 @@ func (c *NATSClient) SetupStreams() error {
 		},
 		{
 			name:     "ksam-events",
-			subjects: []string{"ksam.events.runtime"},
+			subjects: []string{"ksam.events.runtime", "ksam.sbom.>", "ksam.cve.>"},
 		},
 		{
 			name:     "ksam-insights",
@@ -83,20 +83,37 @@ func (c *NATSClient) SetupStreams() error {
 	}
 
 	for _, stream := range streams {
+		// Layer 4: Configure retention policy - auto-discard old messages
+		// For raw and normalized streams, use 1 hour retention to prevent ghost pods
+		maxAge := 7 * 24 * time.Hour // Default: 7 days
+		if stream.name == "ksam-raw" || stream.name == "ksam-normalized" {
+			maxAge = 1 * time.Hour // Layer 4: 1 hour for pod-related streams
+		}
+		
 		cfg := &nats.StreamConfig{
 			Name:      stream.name,
 			Subjects:  stream.subjects,
 			Retention: nats.LimitsPolicy,
-			MaxAge:    7 * 24 * time.Hour, // 7 days
+			MaxAge:    maxAge,
 			Storage:   nats.FileStorage,
 			Replicas:  3,
 		}
 
+		// Try to add stream, if exists, update it
 		_, err := c.js.AddStream(cfg)
-		if err != nil && err != nats.ErrStreamNameAlreadyInUse {
+		if err == nats.ErrStreamNameAlreadyInUse {
+			// Update existing stream with new retention policy
+			_, updateErr := c.js.UpdateStream(cfg)
+			if updateErr != nil {
+				log.Printf("[NATS] Warning: Failed to update stream %s retention: %v", stream.name, updateErr)
+			} else {
+				log.Printf("[NATS] Updated stream %s retention to %v", stream.name, maxAge)
+			}
+		} else if err != nil {
 			return fmt.Errorf("failed to create stream %s: %w", stream.name, err)
+		} else {
+			log.Printf("[NATS] Stream %s ready (retention: %v)", stream.name, maxAge)
 		}
-		log.Printf("[NATS] Stream %s ready", stream.name)
 	}
 
 	return nil

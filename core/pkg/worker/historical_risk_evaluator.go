@@ -166,13 +166,24 @@ func (e *HistoricalRiskEvaluator) evaluateRoles(ctx context.Context, stats *stru
 	stats.Roles = len(roles)
 
 	for _, role := range roles {
+		// Parse rules JSON to ensure proper format
+		var rules interface{}
+		if role.Rules != "" {
+			if err := json.Unmarshal([]byte(role.Rules), &rules); err != nil {
+				log.Printf("[HistoricalRiskEvaluator] Failed to parse rules JSON for Role %s/%s: %v", role.Namespace, role.Name, err)
+				rules = []interface{}{}
+			}
+		} else {
+			rules = []interface{}{}
+		}
+		
 		normalizedData := map[string]interface{}{
 			"kind":       "Role",
 			"name":       role.Name,
 			"namespace":  role.Namespace,
 			"cluster_id": role.ClusterID,
 			"uid":        role.UID,
-			"rules":      role.Rules,
+			"rules":      rules,
 		}
 
 		insights, err := e.riskEngine.EvaluateResource(ctx, "Role", normalizedData)

@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ksam-dashboard
+  namespace: fortuna
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ksam-dashboard
+  template:
+    metadata:
+      labels:
+        app: ksam-dashboard
+    spec:
+      containers:
+      - name: dashboard
+        image: docker.io/ksam/dashboard:latest
+        imagePullPolicy: Never
+        ports:
+        - containerPort: 80
+        env:
+        - name: VITE_API_URL
+          value: "http://ksam-core.ksam.svc.cluster.local:8080"
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "50m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ksam-dashboard
+  namespace: fortuna
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: ksam-dashboard
+

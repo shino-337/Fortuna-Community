@@ -13,9 +13,14 @@ import (
 
 // AgeGraphEngine provides graph operations using Apache AGE
 type AgeGraphEngine struct {
-	db     *gorm.DB
-	sqlDB  *sql.DB
+	db      *gorm.DB
+	sqlDB   *sql.DB
 	enabled bool
+}
+
+// GetSQLDB returns the underlying sql.DB (for QueryService)
+func (e *AgeGraphEngine) GetSQLDB() *sql.DB {
+	return e.sqlDB
 }
 
 // NewAgeGraphEngine creates a new AGE graph engine
@@ -276,5 +281,37 @@ func (e *AgeGraphEngine) ExecuteCypher(ctx context.Context, query string, params
 	}
 
 	return results, nil
+}
+
+// GetAttackPath finds attack paths from a pod to sensitive resources
+// This is a convenience method that uses QueryService
+func (e *AgeGraphEngine) GetAttackPath(ctx context.Context, podUID string, maxDepth int) ([]AttackPath, error) {
+	if !e.enabled {
+		return []AttackPath{}, nil
+	}
+
+	// Use QueryService for implementation
+	queryService := &QueryService{engine: e}
+	return queryService.GetAttackPath(ctx, podUID, maxDepth)
+}
+
+// GetServiceAccountPermissionsGraph gets all permissions for a service account via graph
+func (e *AgeGraphEngine) GetServiceAccountPermissionsGraph(ctx context.Context, saUID string) ([]Permission, error) {
+	if !e.enabled {
+		return []Permission{}, nil
+	}
+
+	queryService := &QueryService{engine: e}
+	return queryService.GetServiceAccountPermissions(ctx, saUID)
+}
+
+// GetPodsWithEscalationRisk finds pods that can escalate privileges
+func (e *AgeGraphEngine) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPod, error) {
+	if !e.enabled {
+		return []RiskyPod{}, nil
+	}
+
+	queryService := &QueryService{engine: e}
+	return queryService.GetPodsWithEscalationRisk(ctx)
 }
 

@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: redis-config
-  namespace: ksam
+  namespace: fortuna
 data:
   redis.conf: |
     maxmemory 256mb
@@ -15,7 +15,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: redis-pvc
-  namespace: ksam
+  namespace: fortuna
 spec:
   accessModes:
     - ReadWriteOnce
@@ -27,7 +27,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: redis
-  namespace: ksam
+  namespace: fortuna
 spec:
   replicas: 1
   selector:
@@ -70,7 +70,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: redis
-  namespace: ksam
+  namespace: fortuna
 spec:
   selector:
     app: redis

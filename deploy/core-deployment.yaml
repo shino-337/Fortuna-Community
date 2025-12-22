@@ -2,28 +2,33 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: ksam-core
-  namespace: ksam
+  namespace: fortuna
   labels:
-    app: ksam-core
+    app: fortuna-core
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: ksam-core
+      app: fortuna-core
   template:
     metadata:
       labels:
-        app: ksam-core
+        app: fortuna-core
     spec:
       containers:
       - name: core
-        image: ksam-core:latest
+        image: ksam/core:latest
         imagePullPolicy: Never
         ports:
         - name: http
           containerPort: 8080
+          protocol: TCP
+        - name: webhook
+          containerPort: 8443
+          protocol: TCP
         - name: grpc
           containerPort: 9090
+          protocol: TCP
         env:
         - name: DATABASE_URL
           valueFrom:
@@ -41,11 +46,11 @@ spec:
           value: "9090"
         - name: AUTH_ENABLED
           value: "true"
-        - name: KSAM_ADMIN_USERNAME
+        - name: FORTUNA_ADMIN_USERNAME
           value: "admin"
-        - name: KSAM_ADMIN_PASSWORD
+        - name: FORTUNA_ADMIN_PASSWORD
           value: "admin123"
-        - name: KSAM_ADMIN_EMAIL
+        - name: FORTUNA_ADMIN_EMAIL
           value: "admin@ksam.local"
         - name: NATS_ENDPOINT
           value: "nats://nats.ksam.svc.cluster.local:4222"
@@ -57,13 +62,34 @@ spec:
           value: "/etc/ksam/certs/tls.crt"
         - name: TLS_KEY_PATH
           value: "/etc/ksam/certs/tls.key"
+        - name: WEBHOOK_TLS_CERT_PATH
+          value: "/etc/webhook/certs/tls.crt"
+        - name: WEBHOOK_TLS_KEY_PATH
+          value: "/etc/webhook/certs/tls.key"
+        - name: FORTUNA_RULES_DIR
+          value: "/root/rules"
+        - name: FORTUNA_SBOM_ENABLED
+          value: "true"
+        - name: FORTUNA_SBOM_USE_CUSTOM
+          value: "true"
+        - name: FORTUNA_SBOM_MODE
+          value: "async"
+        - name: FORTUNA_CVE_SOURCE
+          value: "postgres"
         volumeMounts:
         - name: tls-certs
           mountPath: /etc/ksam/certs
           readOnly: true
+        - name: webhook-certs
+          mountPath: /etc/webhook/certs
+          readOnly: true
         - name: ca-cert
           mountPath: /etc/ksam/ca-cert
           readOnly: true
+        - name: containerd-sock
+          mountPath: /run/containerd/containerd.sock
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
         resources:
           requests:
             memory: "512Mi"
@@ -92,9 +118,25 @@ spec:
             path: tls.crt
           - key: tls.key
             path: tls.key
+      - name: webhook-certs
+        secret:
+          secretName: ksam-webhook-tls
+          items:
+          - key: tls.crt
+            path: tls.crt
+          - key: tls.key
+            path: tls.key
       - name: ca-cert
         secret:
           secretName: ksam-ca-cert
           items:
           - key: ca.crt
             path: ca.crt
+      - name: containerd-sock
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+          type: Socket

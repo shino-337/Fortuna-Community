@@ -1,0 +1,15 @@
+FROM postgres:15-alpine
+
+# Install dependencies for AGE (if available via package manager)
+# Note: AGE may not be available in Alpine packages
+# Alternative: Use postgres image with AGE pre-installed or install at runtime
+
+# Copy init script that will attempt to install AGE
+COPY init-age-runtime.sh /docker-entrypoint-initdb.d/01-init-age.sh
+RUN chmod +x /docker-entrypoint-initdb.d/01-init-age.sh
+
+# For now, we'll use the standard postgres image
+# AGE installation will be handled by init script or migration
+# In production, use a custom image with AGE pre-built
+
+

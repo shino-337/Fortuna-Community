@@ -1,0 +1,20 @@
+                 List of relations
+ Schema |         Name          | Type  |  Owner   
+--------+-----------------------+-------+----------
+ public | audit_logs            | table | postgres
+ public | cluster_role_bindings | table | postgres
+ public | cluster_roles         | table | postgres
+ public | clusters              | table | postgres
+ public | deployments           | table | postgres
+ public | events_index          | table | postgres
+ public | insights              | table | postgres
+ public | namespaces            | table | postgres
+ public | nodes                 | table | postgres
+ public | pods                  | table | postgres
+ public | policies              | table | postgres
+ public | replicasets           | table | postgres
+ public | role_bindings         | table | postgres
+ public | roles                 | table | postgres
+ public | service_accounts      | table | postgres
+ public | users                 | table | postgres
+(16 rows)

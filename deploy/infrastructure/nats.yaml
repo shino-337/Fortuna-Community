@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: nats-config
-  namespace: ksam
+  namespace: fortuna
 data:
   nats.conf: |
     port: 4222
@@ -25,7 +25,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: nats-pvc-0
-  namespace: ksam
+  namespace: fortuna
 spec:
   accessModes:
     - ReadWriteOnce
@@ -37,7 +37,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: nats-pvc-1
-  namespace: ksam
+  namespace: fortuna
 spec:
   accessModes:
     - ReadWriteOnce
@@ -49,7 +49,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: nats-pvc-2
-  namespace: ksam
+  namespace: fortuna
 spec:
   accessModes:
     - ReadWriteOnce
@@ -61,7 +61,7 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: nats
-  namespace: ksam
+  namespace: fortuna
 spec:
   serviceName: nats
   replicas: 3
@@ -151,7 +151,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: nats
-  namespace: ksam
+  namespace: fortuna
 spec:
   clusterIP: None
   selector:

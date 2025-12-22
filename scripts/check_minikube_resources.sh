@@ -80,3 +80,4 @@ echo "  1. Stop Minikube: minikube stop"
 echo "  2. Start with new config: bash scripts/start_minikube.sh"
 echo ""
 
+

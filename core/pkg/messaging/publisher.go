@@ -66,3 +66,18 @@ func (p *Publisher) PublishInsight(data interface{}) error {
 	log.Printf("[Publisher] Published insight to ksam.insights.created")
 	return nil
 }
+
+// PublishSBOMCreated publishes an SBOM created event (event-driven SBOM→CVE pipeline)
+func (p *Publisher) PublishSBOMCreated(data interface{}) error {
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal sbom event: %w", err)
+	}
+
+	if _, err := p.js.Publish("ksam.sbom.created", jsonData); err != nil {
+		return fmt.Errorf("failed to publish sbom.created: %w", err)
+	}
+
+	log.Printf("[Publisher] Published event to ksam.sbom.created")
+	return nil
+}

@@ -1,0 +1,6 @@
+
+==========================================
+TEST SUITE 1: Infrastructure & Health
+==========================================
+[0;34m[INFO][0m Test 1.1: Core Pod Status
+[0;32m[PASS][0m Core pod is running: ksam-core-6ff598f9d7-hsjbn

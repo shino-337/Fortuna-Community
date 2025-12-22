@@ -203,3 +203,93 @@ func getGraphData(graphEngine *graph.AgeGraphEngine) map[string]interface{} {
 		"edges": []interface{}{},
 	}
 }
+
+// GetAttackPaths returns attack paths from a pod
+func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		podUID := c.Param("uid")
+		maxDepthStr := c.DefaultQuery("max_depth", "5")
+		maxDepth, _ := strconv.Atoi(maxDepthStr)
+
+		if maxDepth < 1 || maxDepth > 10 {
+			maxDepth = 5
+		}
+
+		queryService, err := graph.NewQueryService(db)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to create query service",
+			})
+			return
+		}
+
+		paths, err := queryService.GetAttackPath(c.Request.Context(), podUID, maxDepth)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"pod_uid": podUID,
+			"paths":   paths,
+			"count":   len(paths),
+		})
+	}
+}
+
+// GetServiceAccountPermissionsGraph returns all permissions for a service account via graph
+func GetServiceAccountPermissionsGraph(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		saUID := c.Param("uid")
+
+		queryService, err := graph.NewQueryService(db)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to create query service",
+			})
+			return
+		}
+
+		permissions, err := queryService.GetServiceAccountPermissions(c.Request.Context(), saUID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"service_account_uid": saUID,
+			"permissions":         permissions,
+			"count":               len(permissions),
+		})
+	}
+}
+
+// GetRiskyPods returns pods with privilege escalation risk
+func GetRiskyPods(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		queryService, err := graph.NewQueryService(db)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to create query service",
+			})
+			return
+		}
+
+		pods, err := queryService.GetPodsWithEscalationRisk(c.Request.Context())
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"risky_pods": pods,
+			"count":      len(pods),
+		})
+	}
+}

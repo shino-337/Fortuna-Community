@@ -2,7 +2,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-config
-  namespace: ksam
+  namespace: fortuna
 data:
   POSTGRES_DB: ksam
   POSTGRES_USER: postgres
@@ -12,7 +12,7 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
-  namespace: ksam
+  namespace: fortuna
 spec:
   accessModes:
     - ReadWriteOnce
@@ -24,7 +24,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: ksam
+  namespace: fortuna
 spec:
   replicas: 1
   selector:
@@ -75,7 +75,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: postgres
-  namespace: ksam
+  namespace: fortuna
 spec:
   selector:
     app: postgres

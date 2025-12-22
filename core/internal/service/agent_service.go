@@ -205,7 +205,7 @@ func (s *AgentService) SyncData(clusterID string, data map[string]interface{}) e
 		if err := s.processSyncedClusterRoleBindings(clusterID, data); err != nil {
 			s.logger.Printf("❌ Error processing cluster role bindings: %v", err)
 		}
-		if err := s.processSyncedPods(clusterID, data); err != nil {
+		if err := s.processSyncedPods(clusterID, data, isFullSync); err != nil {
 			s.logger.Printf("❌ Error processing pods: %v", err)
 		}
 		if err := s.processSyncedDeployments(clusterID, data); err != nil {
@@ -213,6 +213,14 @@ func (s *AgentService) SyncData(clusterID string, data map[string]interface{}) e
 		}
 		if err := s.processSyncedReplicaSets(clusterID, data); err != nil {
 			s.logger.Printf("❌ Error processing replicasets: %v", err)
+		}
+	} else {
+		// For delta sync, still process pods if they are in the payload
+		// This allows real-time pod updates
+		if pods, ok := data["pods"].([]interface{}); ok && len(pods) > 0 {
+			if err := s.processSyncedPods(clusterID, data, false); err != nil {
+				s.logger.Printf("❌ Error processing pods (delta): %v", err)
+			}
 		}
 	}
 
@@ -422,7 +430,8 @@ func (s *AgentService) processSyncedRoles(clusterID string, data map[string]inte
 			Rules:     rulesJSON,
 		}
 		
-		// Upsert role
+		// Upsert role - check by UID first, then by name+namespace if UID not found
+		// This handles cases where role was deleted and recreated with new UID
 		var existing models.Role
 		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
 		if err == nil {
@@ -437,12 +446,29 @@ func (s *AgentService) processSyncedRoles(clusterID string, data map[string]inte
 					"name":      role.Name,
 					"namespace": role.Namespace,
 					"rules":     role.Rules,
+					"updated_at": time.Now(),
 				})
 				resourceID := strconv.Itoa(int(existing.ID))
 				s.createAuditLog(clusterID, "update", "role", resourceID, namespace, name)
 				s.logger.Printf("🔄 Updated Role %s/%s (ID=%d)", namespace, name, existing.ID)
 			}
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
+			// UID not found - check if role with same name+namespace exists (role was recreated)
+			var existingByName models.Role
+			errByName := s.db.Where("cluster_id = ? AND name = ? AND namespace = ? AND deleted_at IS NULL", clusterID, name, namespace).
+				Order("updated_at DESC").First(&existingByName).Error
+			if errByName == nil {
+				// Role with same name exists - update it with new UID and rules
+				s.db.Model(&existingByName).Updates(map[string]interface{}{
+					"uid":       role.UID,
+					"rules":     role.Rules,
+					"updated_at": time.Now(),
+				})
+				resourceID := strconv.Itoa(int(existingByName.ID))
+				s.createAuditLog(clusterID, "update", "role", resourceID, namespace, name)
+				s.logger.Printf("🔄 Updated Role %s/%s (ID=%d) with new UID (role recreated)", namespace, name, existingByName.ID)
+				continue // Skip creation
+			}
 			// Create new
 			if err := s.db.Create(&role).Error; err != nil {
 				s.logger.Printf("❌ Failed to create Role %s/%s: %v", namespace, name, err)
@@ -777,7 +803,7 @@ func (s *AgentService) processSyncedClusterRoleBindings(clusterID string, data m
 }
 
 // processSyncedPods handles Pod sync (full sync only)
-func (s *AgentService) processSyncedPods(clusterID string, data map[string]interface{}) error {
+func (s *AgentService) processSyncedPods(clusterID string, data map[string]interface{}, isFullSync bool) error {
 	pods, ok := data["pods"].([]interface{})
 	if !ok || len(pods) == 0 {
 		s.logger.Printf("ℹ️  No pods in payload, clearing existing pods")
@@ -817,30 +843,97 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			ServiceAccount: serviceAccount,
 		}
 		
-		// Upsert pod
+		// Upsert pod - use UID as unique identifier
 		var existing models.Pod
 		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
 		if err == nil {
-			// Update existing
-			s.db.Model(&existing).Updates(map[string]interface{}{
-				"name":            pod.Name,
-				"namespace":       pod.Namespace,
-				"service_account": pod.ServiceAccount,
-			})
+			// Update existing pod (avoid duplicates)
+			changed := existing.Name != pod.Name ||
+				existing.Namespace != pod.Namespace ||
+				existing.ServiceAccount != pod.ServiceAccount
+			
+			if changed {
+				s.db.Model(&existing).Updates(map[string]interface{}{
+					"name":            pod.Name,
+					"namespace":       pod.Namespace,
+					"service_account": pod.ServiceAccount,
+				})
+				s.logger.Printf("🔄 Updated Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
+			}
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
-			// Create new
-			s.db.Create(&pod)
-			s.logger.Printf("✨ Created Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
+			// Check if soft-deleted pod exists
+			var deletedPod models.Pod
+			errDeleted := s.db.Unscoped().Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&deletedPod).Error
+			
+			if errDeleted == nil && deletedPod.DeletedAt.Valid {
+				// Restore soft-deleted pod
+				deletedPod.Name = pod.Name
+				deletedPod.Namespace = pod.Namespace
+				deletedPod.ServiceAccount = pod.ServiceAccount
+				deletedPod.DeletedAt = gorm.DeletedAt{}
+				s.db.Save(&deletedPod)
+				s.logger.Printf("🔄 Restored Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
+			} else {
+				// Create new pod
+				if err := s.db.Create(&pod).Error; err != nil {
+					s.logger.Printf("❌ Failed to create Pod %s/%s: %v", namespace, name, err)
+					continue
+				}
+				s.logger.Printf("✨ Created Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
+			}
+		} else {
+			// Database error
+			s.logger.Printf("❌ DB error checking Pod %s/%s: %v", namespace, name, err)
+			continue
 		}
 	}
 	
-	// Delete pods not in sync
-	if len(syncedUIDs) > 0 {
+	// Soft delete pods not in sync (for full sync only)
+	// Also clean up duplicate pods (same UID, keep only the latest)
+	if isFullSync && len(syncedUIDs) > 0 {
 		keepUIDs := make([]string, 0, len(syncedUIDs))
 		for uid := range syncedUIDs {
 			keepUIDs = append(keepUIDs, uid)
 		}
-		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Delete(&models.Pod{})
+		
+		// Soft delete pods not in current sync
+		var toDelete []models.Pod
+		s.db.Where("cluster_id = ? AND uid NOT IN ?", clusterID, keepUIDs).Find(&toDelete)
+		
+		for _, pod := range toDelete {
+			s.db.Delete(&pod) // Soft delete
+			s.logger.Printf("🗑️  Soft-deleted Pod %s/%s (UID: %s) - not in full sync", pod.Namespace, pod.Name, pod.UID)
+		}
+		
+		// Clean up duplicate pods (same UID) - keep only the latest one per UID
+		for uid := range syncedUIDs {
+			var duplicates []models.Pod
+			s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).Order("created_at DESC").Find(&duplicates)
+			
+			if len(duplicates) > 1 {
+				// Keep the first (latest) one, soft delete the rest
+				for i := 1; i < len(duplicates); i++ {
+					s.db.Delete(&duplicates[i])
+					s.logger.Printf("🗑️  Soft-deleted duplicate Pod %s/%s (UID: %s) - keeping latest", duplicates[i].Namespace, duplicates[i].Name, uid)
+				}
+			}
+		}
+	}
+	
+	// Always clean up duplicates, even in delta sync (to prevent accumulation)
+	if len(syncedUIDs) > 0 {
+		for uid := range syncedUIDs {
+			var duplicates []models.Pod
+			s.db.Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, uid).Order("created_at DESC").Find(&duplicates)
+			
+			if len(duplicates) > 1 {
+				// Keep the first (latest) one, soft delete the rest
+				for i := 1; i < len(duplicates); i++ {
+					s.db.Delete(&duplicates[i])
+					s.logger.Printf("🗑️  Soft-deleted duplicate Pod %s/%s (UID: %s) - keeping latest", duplicates[i].Namespace, duplicates[i].Name, uid)
+				}
+			}
+		}
 	}
 	
 	return nil

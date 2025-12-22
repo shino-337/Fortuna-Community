@@ -1,64 +1,55 @@
 #!/bin/bash
-
-# Script to clear/reset the database
-# Usage: ./scripts/clear_database.sh [database_url]
+# Clear Database for Fresh Test
 
 set -e
 
-# Default database URL
-DEFAULT_DB_URL="postgres://postgres:postgres@localhost:5432/ksam?sslmode=disable"
-DB_URL="${1:-$DEFAULT_DB_URL}"
+POSTGRES_POD=$(kubectl get pods -n ksam | grep postgres | head -1 | awk '{print $1}')
 
-echo "⚠️  WARNING: This will DROP ALL TABLES in the database!"
-echo "Database URL: $DB_URL"
-read -p "Are you sure you want to continue? (yes/no): " confirm
-
-if [ "$confirm" != "yes" ]; then
-    echo "Aborted."
+if [ -z "$POSTGRES_POD" ]; then
+    echo "❌ PostgreSQL pod not found"
     exit 1
 fi
 
-echo "Clearing database..."
+echo "=========================================="
+echo "Clearing Database"
+echo "=========================================="
+echo ""
+echo "PostgreSQL Pod: $POSTGRES_POD"
+echo ""
 
-# Extract connection details from URL
-# Format: postgres://user:password@host:port/database?params
-DB_USER=$(echo $DB_URL | sed -n 's|.*://\([^:]*\):.*|\1|p')
-DB_PASS=$(echo $DB_URL | sed -n 's|.*://[^:]*:\([^@]*\)@.*|\1|p')
-DB_HOST=$(echo $DB_URL | sed -n 's|.*@\([^:]*\):.*|\1|p')
-DB_PORT=$(echo $DB_URL | sed -n 's|.*@[^:]*:\([^/]*\)/.*|\1|p')
-DB_NAME=$(echo $DB_URL | sed -n 's|.*/\([^?]*\).*|\1|p')
+# Clear tables in order (respecting foreign keys)
+echo "Clearing tables..."
 
-echo "Connecting to: $DB_USER@$DB_HOST:$DB_PORT/$DB_NAME"
+kubectl exec -n ksam "$POSTGRES_POD" -- psql -U postgres -d ksam <<EOF
+-- Disable foreign key checks temporarily
+SET session_replication_role = 'replica';
 
-# Use PGPASSWORD environment variable for password
-export PGPASSWORD="$DB_PASS"
+-- Clear tables in order
+TRUNCATE TABLE insights CASCADE;
+TRUNCATE TABLE service_accounts CASCADE;
+TRUNCATE TABLE roles CASCADE;
+TRUNCATE TABLE cluster_roles CASCADE;
+TRUNCATE TABLE role_bindings CASCADE;
+TRUNCATE TABLE cluster_role_bindings CASCADE;
+TRUNCATE TABLE pods CASCADE;
+TRUNCATE TABLE deployments CASCADE;
+TRUNCATE TABLE replica_sets CASCADE;
+TRUNCATE TABLE clusters CASCADE;
 
-# Drop all tables
-psql -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" <<EOF
--- Drop all tables in public schema
-DO \$\$ 
-DECLARE 
-    r RECORD;
-BEGIN
-    FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') 
-    LOOP
-        EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
-    END LOOP;
-END \$\$;
+-- Re-enable foreign key checks
+SET session_replication_role = 'origin';
 
--- Drop all sequences
-DO \$\$ 
-DECLARE 
-    r RECORD;
-BEGIN
-    FOR r IN (SELECT sequence_name FROM information_schema.sequences WHERE sequence_schema = 'public') 
-    LOOP
-        EXECUTE 'DROP SEQUENCE IF EXISTS ' || quote_ident(r.sequence_name) || ' CASCADE';
-    END LOOP;
-END \$\$;
+-- Show counts
+SELECT 
+    'insights' as table_name, COUNT(*) as count FROM insights
+UNION ALL
+SELECT 'service_accounts', COUNT(*) FROM service_accounts
+UNION ALL
+SELECT 'pods', COUNT(*) FROM pods
+UNION ALL
+SELECT 'clusters', COUNT(*) FROM clusters;
 EOF
 
-echo "✅ Database cleared successfully!"
-echo "Run migrations to recreate tables: go run core/cmd/main.go"
-
-
+echo ""
+echo "✅ Database cleared"
+echo ""

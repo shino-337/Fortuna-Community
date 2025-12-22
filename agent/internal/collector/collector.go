@@ -37,6 +37,8 @@ type Collector struct {
 	wg          sync.WaitGroup
 	ctx         context.Context
 	cancel      context.CancelFunc
+	started     chan struct{} // Signal that watchers have started
+	mu          sync.Mutex    // Protects started channel
 }
 
 // NewCollector creates a new collector
@@ -49,10 +51,12 @@ func NewCollector(k8sClient kubernetes.Interface, grpcClient client.GRPCClient, 
 		clusterName: clusterName,
 		ctx:         ctx,
 		cancel:      cancel,
+		started:     make(chan struct{}),
 	}, nil
 }
 
 // Start starts the collector
+// Bug 1 & 2 Fix: Add synchronization to ensure watchers are ready before returning
 func (c *Collector) Start() error {
 	log.Printf("[Collector] Starting collector for cluster: %s (%s)", c.clusterName, c.clusterID)
 
@@ -69,6 +73,16 @@ func (c *Collector) Start() error {
 	// Start heartbeat
 	c.wg.Add(1)
 	go c.heartbeat()
+
+	// Bug 1 & 2 Fix: Wait for watchers to initialize (with timeout)
+	select {
+	case <-c.started:
+		log.Printf("[Collector] All watchers started successfully")
+	case <-time.After(30 * time.Second):
+		log.Printf("[Collector] Warning: Timeout waiting for watchers to start")
+	case <-c.ctx.Done():
+		return fmt.Errorf("collector context cancelled during startup")
+	}
 
 	return nil
 }
@@ -97,6 +111,7 @@ func (c *Collector) register() error {
 }
 
 // startWatchers starts all resource watchers
+// Bug 3 Fix: Signal when all watchers have started
 func (c *Collector) startWatchers() error {
 	// Get all namespaces
 	namespaces, err := c.client.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
@@ -114,17 +129,31 @@ func (c *Collector) startWatchers() error {
 	// Start cluster-scoped watchers
 	c.startClusterWatchers()
 
+	// Bug 3 Fix: Signal that all watchers have been started
+	c.mu.Lock()
+	select {
+	case <-c.started:
+		// Already closed, do nothing
+	default:
+		close(c.started)
+	}
+	c.mu.Unlock()
+
 	return nil
 }
 
 // startNamespaceWatchers starts watchers for a specific namespace
+// Bug 3 Fix: Add synchronization to ensure watchers have started
 func (c *Collector) startNamespaceWatchers(namespace string) {
+	watcherStarted := make(chan struct{}, 4) // Buffer for 4 watchers per namespace
+
 	// Pod watcher
 	podWatcher := watcher.NewPodWatcher(c.client, namespace, c.handlePod)
 	c.watchers = append(c.watchers, podWatcher)
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		watcherStarted <- struct{}{}
 		if err := podWatcher.Start(); err != nil {
 			log.Printf("[Collector] Pod watcher error: %v", err)
 		}
@@ -136,6 +165,7 @@ func (c *Collector) startNamespaceWatchers(namespace string) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		watcherStarted <- struct{}{}
 		if err := saWatcher.Start(); err != nil {
 			log.Printf("[Collector] ServiceAccount watcher error: %v", err)
 		}
@@ -147,6 +177,7 @@ func (c *Collector) startNamespaceWatchers(namespace string) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		watcherStarted <- struct{}{}
 		if err := roleWatcher.Start(); err != nil {
 			log.Printf("[Collector] Role watcher error: %v", err)
 		}
@@ -158,20 +189,39 @@ func (c *Collector) startNamespaceWatchers(namespace string) {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		watcherStarted <- struct{}{}
 		if err := rbWatcher.Start(); err != nil {
 			log.Printf("[Collector] RoleBinding watcher error: %v", err)
 		}
 	}()
+
+	// Wait for all watchers in this namespace to start (with timeout)
+	timeout := time.After(10 * time.Second)
+	for i := 0; i < 4; i++ {
+		select {
+		case <-watcherStarted:
+			// Watcher started
+		case <-timeout:
+			log.Printf("[Collector] Warning: Timeout waiting for watchers in namespace %s", namespace)
+			return
+		case <-c.ctx.Done():
+			return
+		}
+	}
 }
 
 // startClusterWatchers starts cluster-scoped watchers
+// Bug 3 Fix: Add synchronization for cluster watchers
 func (c *Collector) startClusterWatchers() {
+	watcherStarted := make(chan struct{}, 2) // Buffer for 2 cluster watchers
+
 	// ClusterRole watcher
 	crWatcher := watcher.NewClusterRoleWatcher(c.client, c.handleClusterRole)
 	c.watchers = append(c.watchers, crWatcher)
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		watcherStarted <- struct{}{}
 		if err := crWatcher.Start(); err != nil {
 			log.Printf("[Collector] ClusterRole watcher error: %v", err)
 		}
@@ -183,10 +233,25 @@ func (c *Collector) startClusterWatchers() {
 	c.wg.Add(1)
 	go func() {
 		defer c.wg.Done()
+		watcherStarted <- struct{}{}
 		if err := crbWatcher.Start(); err != nil {
 			log.Printf("[Collector] ClusterRoleBinding watcher error: %v", err)
 		}
 	}()
+
+	// Wait for cluster watchers to start (with timeout)
+	timeout := time.After(10 * time.Second)
+	for i := 0; i < 2; i++ {
+		select {
+		case <-watcherStarted:
+			// Watcher started
+		case <-timeout:
+			log.Printf("[Collector] Warning: Timeout waiting for cluster watchers")
+			return
+		case <-c.ctx.Done():
+			return
+		}
+	}
 }
 
 // handlePod handles Pod events

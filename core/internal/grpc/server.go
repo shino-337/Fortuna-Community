@@ -37,19 +37,11 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 	var certManager *security.CertManager
 	if cfg.TLSEnabled {
 		log.Printf("[gRPC] TLS enabled, loading TLS configuration...")
-		log.Printf("[gRPC] TEST_UNIQUE_STRING_CERTMANAGER_12345")
-		log.Printf("[gRPC] BEFORE NewCertManager call - certManager is nil: %v", certManager == nil)
-		// TEMPORARY: Force execution to verify code is compiled
-		_ = fmt.Sprintf("FORCE_EXECUTION_CHECK_%v", certManager == nil)
-		// CRITICAL: Uncomment panic to force error if code is not executing
-		panic("FORCE_PANIC_TO_VERIFY_CODE_EXECUTION_IF_YOU_SEE_THIS_CODE_IS_RUNNING")
+		log.Printf("[gRPC] CertPath: %s, KeyPath: %s, CACertPath: %s",
+			cfg.TLSCertPath, cfg.TLSKeyPath, cfg.TLSCACertPath)
 
 		// Create certificate manager for dynamic loading
 		var err error
-		log.Printf("[gRPC] Creating CertManager with:")
-		log.Printf("[gRPC]   CertPath: %s", cfg.TLSCertPath)
-		log.Printf("[gRPC]   KeyPath: %s", cfg.TLSKeyPath)
-		log.Printf("[gRPC]   CACertPath: %s", cfg.TLSCACertPath)
 		certManager, err = security.NewCertManager(
 			cfg.TLSCertPath,
 			cfg.TLSKeyPath,
@@ -60,14 +52,12 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 			return nil, fmt.Errorf("failed to create certificate manager: %w", err)
 		}
 		log.Printf("[gRPC] ✅ CertManager created successfully")
-		log.Printf("[gRPC]   CertManager pointer: %p", certManager)
 
 		// Start expiry monitoring
 		certManager.StartExpiryMonitoring()
 		log.Printf("[gRPC] ✅ CertManager expiry monitoring started")
 
 		// Load CA certificate for client verification
-		log.Printf("[gRPC] BEFORE os.ReadFile - about to load CA cert from: %s", cfg.TLSCACertPath)
 		caCert, err := os.ReadFile(cfg.TLSCACertPath)
 		if err != nil {
 			log.Printf("[gRPC] ERROR: Failed to read CA cert from %s: %v", cfg.TLSCACertPath, err)
@@ -134,11 +124,5 @@ func (s *Server) Stop() {
 
 // GetCertManager returns the certificate manager (for API handlers)
 func (s *Server) GetCertManager() *security.CertManager {
-	log.Printf("[gRPC] GetCertManager() called")
-	log.Printf("[gRPC]   certManager == nil: %v", s.certManager == nil)
-	log.Printf("[gRPC]   TLS_ENABLED: %v", s.config.TLSEnabled)
-	if s.certManager != nil {
-		log.Printf("[gRPC]   CertManager pointer: %p", s.certManager)
-	}
 	return s.certManager
 }

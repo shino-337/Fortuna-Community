@@ -26,11 +26,15 @@ type Config struct {
 	JWTSecret            string
 	TokenExpirationHours int
 
-	// TLS/mTLS Configuration
+	// TLS/mTLS Configuration for gRPC
 	TLSEnabled    bool
 	TLSCACertPath string
 	TLSCertPath   string
 	TLSKeyPath    string
+
+	// Webhook TLS Configuration (separate from gRPC)
+	WebhookTLSCertPath string
+	WebhookTLSKeyPath  string
 }
 
 func Load(configPath string) (*Config, error) {
@@ -43,7 +47,7 @@ func Load(configPath string) (*Config, error) {
 	fmt.Fprintf(os.Stdout, "[Config] TLS_ENABLED env='%s', parsed=%v\n", tlsEnabledStr, tlsEnabled)
 
 	cfg := &Config{
-		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@localhost:5432/ksam?sslmode=disable"),
+		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/ksam?sslmode=disable"),
 		RedisURL:             getEnv("REDIS_URL", ""),
 		GRPCPort:             getEnv("GRPC_PORT", "9090"),
 		HTTPPort:             getEnv("HTTP_PORT", "8080"),
@@ -53,9 +57,11 @@ func Load(configPath string) (*Config, error) {
 		JWTSecret:            getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 		TokenExpirationHours: parseInt(getEnv("TOKEN_EXPIRATION_HOURS", "24")),
 		TLSEnabled:           tlsEnabled,
-		TLSCACertPath:        getEnv("TLS_CA_CERT_PATH", "/etc/ksam/certs/ca.crt"),
+		TLSCACertPath:        getEnv("TLS_CA_CERT_PATH", "/etc/ksam/ca-cert/ca.crt"),
 		TLSCertPath:          getEnv("TLS_CERT_PATH", "/etc/ksam/certs/tls.crt"),
 		TLSKeyPath:           getEnv("TLS_KEY_PATH", "/etc/ksam/certs/tls.key"),
+		WebhookTLSCertPath:   getEnv("WEBHOOK_TLS_CERT_PATH", "/etc/webhook/certs/tls.crt"),
+		WebhookTLSKeyPath:    getEnv("WEBHOOK_TLS_KEY_PATH", "/etc/webhook/certs/tls.key"),
 	}
 
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",

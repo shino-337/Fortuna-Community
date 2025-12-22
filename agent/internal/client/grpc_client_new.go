@@ -29,6 +29,8 @@ type NewGRPCClient struct {
 	nodeName   string
 	version    string
 	registered bool
+	ctx        context.Context    // Bug 4 Fix: Context for cancellation
+	cancel     context.CancelFunc  // Bug 4 Fix: Cancel function
 }
 
 // NewNewGRPCClient creates a new gRPC client
@@ -96,6 +98,9 @@ func NewNewGRPCClient(cfg *config.Config) (*NewGRPCClient, error) {
 		nodeName = "unknown"
 	}
 
+	// Bug 4 Fix: Create context for heartbeat cancellation
+	ctx, cancel := context.WithCancel(context.Background())
+
 	client := &NewGRPCClient{
 		conn:      conn,
 		client:    fortuna.NewAgentServiceClient(conn),
@@ -104,6 +109,8 @@ func NewNewGRPCClient(cfg *config.Config) (*NewGRPCClient, error) {
 		clusterID: clusterID,
 		nodeName:  nodeName,
 		version:   "1.0.0",
+		ctx:       ctx,
+		cancel:    cancel,
 	}
 
 	// Register with core
@@ -114,6 +121,7 @@ func NewNewGRPCClient(cfg *config.Config) (*NewGRPCClient, error) {
 		Version:   "1.0.0",
 	}
 	if _, err := client.Register(context.Background(), req); err != nil {
+		cancel() // Clean up context on error
 		return nil, fmt.Errorf("failed to register: %w", err)
 	}
 
@@ -140,24 +148,31 @@ func (c *NewGRPCClient) Register(ctx context.Context, req *fortuna.RegisterReque
 }
 
 // startHeartbeat starts periodic heartbeat
+// Bug 4 Fix: Add context cancellation to prevent goroutine leak
 func (c *NewGRPCClient) startHeartbeat() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		req := &fortuna.RegisterRequest{
-			AgentId:   c.agentID,
-			ClusterId: c.clusterID,
-			NodeName:  c.nodeName,
-			Version:   c.version,
-		}
+	for {
+		select {
+		case <-c.ctx.Done():
+			log.Printf("Heartbeat stopped: context cancelled")
+			return
+		case <-ticker.C:
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			req := &fortuna.RegisterRequest{
+				AgentId:   c.agentID,
+				ClusterId: c.clusterID,
+				NodeName:  c.nodeName,
+				Version:   c.version,
+			}
 
-		_, err := c.client.Heartbeat(ctx, req)
-		cancel()
+			_, err := c.client.Heartbeat(ctx, req)
+			cancel()
 
-		if err != nil {
-			log.Printf("Heartbeat failed: %v", err)
+			if err != nil {
+				log.Printf("Heartbeat failed: %v", err)
+			}
 		}
 	}
 }
@@ -209,7 +224,11 @@ func (c *NewGRPCClient) Heartbeat(ctx context.Context, req *fortuna.RegisterRequ
 }
 
 // Close closes the gRPC connection
+// Bug 4 Fix: Cancel context to stop heartbeat goroutine
 func (c *NewGRPCClient) Close() error {
+	if c.cancel != nil {
+		c.cancel() // Stop heartbeat goroutine
+	}
 	if c.conn != nil {
 		return c.conn.Close()
 	}

@@ -342,6 +342,7 @@ func (e *Engine) createInsight(rule Rule, resourceType string, resourceData map[
 		AffectedResources: string(affectedResourcesJSON),
 		Severity:          string(rule.Severity),
 		RecommendedAction: recommendedAction,
+		Status:            "active", // Explicitly set status to 'active'
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
 	}

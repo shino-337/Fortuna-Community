@@ -68,10 +68,18 @@ func (s *RiskScheduler) runEvaluation() {
 	log.Printf("[RiskScheduler] Starting scheduled risk evaluation...")
 	startTime := time.Now()
 
+	// Step 1: Re-evaluate all resources (creates/updates insights for existing risks)
 	evaluator := worker.NewHistoricalRiskEvaluator(s.db)
 	if err := evaluator.EvaluateAllResources(s.ctx); err != nil {
 		log.Printf("[RiskScheduler] Error during risk evaluation: %v", err)
 		return
+	}
+
+	// Step 2: Auto-resolve insights where risks no longer exist
+	statusUpdater := worker.NewInsightStatusUpdater(s.db)
+	if err := statusUpdater.UpdateStatusForResolvedRisks(s.ctx); err != nil {
+		log.Printf("[RiskScheduler] Error updating insight status: %v", err)
+		// Don't return - evaluation was successful, status update is secondary
 	}
 
 	duration := time.Since(startTime)

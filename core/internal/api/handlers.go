@@ -73,14 +73,17 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 				Cluster: cluster,
 			}
 
-			// Count resources for this cluster
-			db.Model(&models.ServiceAccount{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ServiceAccountCount)
-			db.Model(&models.Role{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleCount)
-			db.Model(&models.ClusterRole{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleCount)
-			db.Model(&models.RoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleBindingCount)
-			db.Model(&models.ClusterRoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleBindingCount)
-			db.Model(&models.Pod{}).Where("cluster_id = ?", cluster.ID).Count(&stat.PodCount)
-			db.Model(&models.Deployment{}).Where("cluster_id = ?", cluster.ID).Count(&stat.DeploymentCount)
+		// Count resources for this cluster (GORM automatically filters deleted_at IS NULL)
+		db.Model(&models.ServiceAccount{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ServiceAccountCount)
+		db.Model(&models.Role{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleCount)
+		db.Model(&models.ClusterRole{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleCount)
+		db.Model(&models.RoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleBindingCount)
+		db.Model(&models.ClusterRoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleBindingCount)
+		// Count distinct UIDs to avoid duplicates (GORM automatically filters deleted_at IS NULL)
+		var podCount int64
+		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", cluster.ID).Scan(&podCount)
+		stat.PodCount = podCount
+		db.Model(&models.Deployment{}).Where("cluster_id = ?", cluster.ID).Count(&stat.DeploymentCount)
 
 			// Determine connection status based on LastSync time
 			// If lastSync is within last 5 minutes, consider connected
@@ -116,6 +119,7 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var serviceAccounts []models.ServiceAccount
 		query := db.Model(&models.ServiceAccount{})
+		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
 
 		// Filter by cluster
 		if clusterID := c.Query("cluster"); clusterID != "" {
@@ -129,22 +133,62 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+		pageSizeParam, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+		
+		// Special handling: pageSize=-1 means return all records
+		// For security, set a maximum limit (1000) when fetching all
+		// Note: pageSize=0 is not supported as GORM treats Limit(0) specially
+		fetchAll := pageSizeParam == -1
+		
+		var pageSize int
+		var responsePageSize int
+		if fetchAll {
+			// When fetching all, use a large limit (1000) but don't apply offset
+			pageSize = 1000 // Max limit for "all" requests
+			responsePageSize = 0 // Will be set to actual count later
+		} else {
+			pageSize = pageSizeParam
+			// Validate pageSize (max 1000 for normal pagination)
+			// pageSize=0 is treated as invalid and defaults to 50
+			if pageSize < 1 {
+				pageSize = 50 // Default if invalid (including 0)
+			}
+			if pageSize > 1000 {
+				pageSize = 1000 // Max limit
+			}
+			responsePageSize = pageSize
+		}
+		
 		offset := (page - 1) * pageSize
 
 		var total int64
 		query.Count(&total)
 
-		if err := query.Offset(offset).Limit(pageSize).Find(&serviceAccounts).Error; err != nil {
+		// Build query with pagination
+		resultQuery := query
+		if fetchAll {
+			// For "all", apply limit but no offset (start from beginning)
+			resultQuery = resultQuery.Limit(pageSize)
+		} else {
+			// Normal pagination with offset and limit
+			resultQuery = resultQuery.Offset(offset).Limit(pageSize)
+		}
+
+		if err := resultQuery.Find(&serviceAccounts).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
+		}
+
+		// If fetching all, update responsePageSize to actual returned count
+		if fetchAll {
+			responsePageSize = len(serviceAccounts)
 		}
 
 		c.JSON(http.StatusOK, gin.H{
 			"serviceAccounts": serviceAccounts,
 			"total":           total,
 			"page":            page,
-			"pageSize":        pageSize,
+			"pageSize":        responsePageSize,
 		})
 	}
 }
@@ -171,6 +215,7 @@ func GetDeployments(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var deployments []models.Deployment
 		query := db.Model(&models.Deployment{})
+		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
 
 		// Filter by cluster
 		if clusterID := c.Query("cluster"); clusterID != "" {
@@ -269,6 +314,7 @@ func GetReplicaSets(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var replicasets []models.ReplicaSet
 		query := db.Model(&models.ReplicaSet{})
+		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
 
 		// Filter by cluster
 		if clusterID := c.Query("cluster"); clusterID != "" {
@@ -525,6 +571,69 @@ func GetAuditLogs(db *gorm.DB) gin.HandlerFunc {
 			"page":     page,
 			"pageSize": pageSize,
 		})
+	}
+}
+
+// GetPods returns all pods with optional filters
+func GetPods(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var pods []models.Pod
+		query := db.Model(&models.Pod{})
+		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
+
+		// Filter by cluster
+		if clusterID := c.Query("cluster"); clusterID != "" {
+			query = query.Where("cluster_id = ?", clusterID)
+		}
+
+		// Filter by namespace
+		if namespace := c.Query("namespace"); namespace != "" {
+			query = query.Where("namespace = ?", namespace)
+		}
+
+		// Filter by service account
+		if serviceAccount := c.Query("serviceAccount"); serviceAccount != "" {
+			query = query.Where("service_account = ?", serviceAccount)
+		}
+
+		// Pagination
+		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+		offset := (page - 1) * pageSize
+
+		var total int64
+		query.Count(&total)
+
+		// GORM automatically filters soft-deleted records
+		if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&pods).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"pods":    pods,
+			"total":   total,
+			"page":    page,
+			"pageSize": pageSize,
+		})
+	}
+}
+
+// GetPod returns a specific pod by ID
+func GetPod(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var pod models.Pod
+		// GORM automatically filters soft-deleted records
+		if err := db.Preload("Cluster").First(&pod, id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Pod not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, pod)
 	}
 }
 

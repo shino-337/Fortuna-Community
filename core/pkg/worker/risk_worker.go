@@ -24,6 +24,7 @@ type RiskWorker struct {
 
 // NewRiskWorker creates a new risk worker
 func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB) *RiskWorker {
+	log.Printf("[RiskWorker] Creating new RiskWorker...")
 	// Try to create YAML engine if rules directory is configured
 	rulesDir := os.Getenv("KSAM_RULES_DIR")
 	var engine *riskengine.Engine
@@ -31,6 +32,7 @@ func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB) *RiskWorker {
 	var watcher *riskengine.RuleWatcher
 
 	if rulesDir != "" {
+		log.Printf("[RiskWorker] Attempting to create YAML engine...")
 		if ye, err := riskengine.NewYAMLEngine(db, rulesDir); err == nil {
 			yamlEngine = ye
 			engine = ye.Engine
@@ -78,31 +80,35 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		clusterID = "default"
 	}
 
-	log.Printf("[RiskWorker] Evaluating risks for: kind=%s, name=%s/%s, cluster=%s",
-		kind, namespace, name, clusterID)
-
-	// Evaluate risks for this resource
+	// Evaluate risks for this resource (policy-based)
 	insights, err := w.riskEngine.EvaluateResource(ctx, kind, normalizedData)
 	if err != nil {
 		log.Printf("[RiskWorker] Error evaluating risks for %s/%s: %v", namespace, name, err)
 		return fmt.Errorf("failed to evaluate risks: %w", err)
 	}
 
-	// Create or update insights
-	createdCount := 0
-	for _, insight := range insights {
-		if err := w.insightMgr.CreateOrUpdateInsight(insight); err != nil {
-			log.Printf("[RiskWorker] Failed to create/update insight: %v", err)
-			// Continue with other insights
-			continue
+	// Create or update insights (use batch processing for efficiency)
+	if len(insights) > 0 {
+		if err := w.insightMgr.BatchCreateOrUpdateInsights(insights); err != nil {
+			log.Printf("[RiskWorker] Failed to batch create/update insights: %v", err)
+			// Fallback to individual processing
+			createdCount := 0
+			for _, insight := range insights {
+				if err := w.insightMgr.CreateOrUpdateInsight(insight); err != nil {
+					log.Printf("[RiskWorker] Failed to create/update insight: %v", err)
+					continue
+				}
+				createdCount++
+			}
+			log.Printf("[RiskWorker] Created %d insights for %s/%s (total evaluated: %d)",
+				createdCount, namespace, name, len(insights))
+		} else {
+			log.Printf("[RiskWorker] Batch created/updated %d insights for %s/%s",
+				len(insights), namespace, name)
 		}
-		createdCount++
 	}
 
-	if len(insights) > 0 {
-		log.Printf("[RiskWorker] Created %d insights for %s/%s (total evaluated: %d)",
-			createdCount, namespace, name, len(insights))
-	} else {
+	if len(insights) == 0 {
 		log.Printf("[RiskWorker] No risks found for %s/%s", namespace, name)
 	}
 
@@ -124,5 +130,9 @@ func (w *RiskWorker) Stop() {
 	if w.watcher != nil {
 		w.watcher.Stop()
 		log.Printf("[RiskWorker] Rule watcher stopped")
+	}
+	if w.insightMgr != nil {
+		w.insightMgr.Stop()
+		log.Printf("[RiskWorker] InsightManager stopped")
 	}
 }
