@@ -1,33 +1,52 @@
-FROM golang:1.20-alpine AS builder
+# Multi-stage build for Fortuna Agent
+FROM golang:1.23-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependency files first for better caching
+# Copy agent module files
 COPY go.mod go.sum ./
 
-# Download dependencies with timeout and retry
-RUN go mod download || (sleep 5 && go mod download) || (sleep 10 && go mod download)
+# Download dependencies
+RUN go mod download
 
 # Copy source code
 COPY . .
 
-# Build with optimizations
+# Build binary with version info
+ARG VERSION=dev
+ARG BUILD_TIME
+ARG GIT_COMMIT
+
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
-    -ldflags="-w -s" \
+    -ldflags="-w -s \
+    -X main.version=${VERSION} \
+    -X main.buildTime=${BUILD_TIME} \
+    -X main.gitCommit=${GIT_COMMIT}" \
     -trimpath \
-    -o /ksam-agent ./cmd
+    -o /agent \
+    ./cmd/main.go
 
-FROM alpine:latest
+# Final stage - minimal runtime image
+FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates
+# Install CA certificates for TLS
+RUN apk --no-cache add ca-certificates tzdata
 
-COPY --from=builder /ksam-agent /usr/local/bin/ksam-agent
+# Create non-root user
+RUN addgroup -g 1000 fortuna && \
+    adduser -D -u 1000 -G fortuna fortuna
 
-RUN chmod +x /usr/local/bin/ksam-agent
+# Copy binary from builder
+COPY --from=builder /agent /usr/local/bin/agent
 
-USER 1000
+# Set ownership
+RUN chown fortuna:fortuna /usr/local/bin/agent
 
-WORKDIR /tmp
+# Switch to non-root user
+USER fortuna
 
-ENTRYPOINT ["/usr/local/bin/ksam-agent"]
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD pgrep agent || exit 1
 
+ENTRYPOINT ["/usr/local/bin/agent"]

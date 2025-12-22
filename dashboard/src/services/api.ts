@@ -23,6 +23,21 @@ export interface Cluster {
   name: string
   endpoint: string
   status: string
+  lastSync?: string
+  createdAt?: string
+  updatedAt?: string
+}
+
+export interface ClusterStats extends Cluster {
+  serviceAccountCount: number
+  roleCount: number
+  clusterRoleCount: number
+  roleBindingCount: number
+  clusterRoleBindingCount: number
+  podCount: number
+  deploymentCount: number
+  connectionStatus: 'connected' | 'disconnected' | 'degraded' | 'unknown'
+  agentVersion?: string
 }
 
 export interface ServiceAccount {
@@ -33,6 +48,43 @@ export interface ServiceAccount {
   uid: string
   labels?: string
   secrets?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Container {
+  name: string
+  image: string
+  cpuRequest?: string
+  memoryRequest?: string
+  cpuLimit?: string
+  memoryLimit?: string
+}
+
+export interface Condition {
+  type: string
+  status: string
+  reason?: string
+  message?: string
+}
+
+export interface Deployment {
+  id: number
+  clusterId: string
+  uid: string
+  name: string
+  namespace: string
+  replicasDesired: number
+  replicasReady: number
+  replicasAvailable: number
+  replicasUnavailable: number
+  replicasUpdated: number
+  strategy: string
+  containers: Container[]
+  labels: Record<string, string>
+  annotations: Record<string, string>
+  selector: Record<string, string>
+  conditions: Condition[]
   createdAt: string
   updatedAt: string
 }
@@ -58,8 +110,9 @@ export interface GraphData {
 }
 
 export const clustersApi = {
-  getAll: () => api.get<Cluster[]>('/clusters'),
+  getAll: () => api.get<{ clusters: Cluster[] }>('/clusters'),
   getById: (id: string) => api.get<Cluster>(`/clusters/${id}`),
+  getStats: () => api.get<{ clusters: ClusterStats[]; total: number }>('/clusters/stats'),
 }
 
 export interface Rule {
@@ -115,6 +168,86 @@ export const serviceAccountsApi = {
   update: (id: string, data: Partial<ServiceAccount>) =>
     api.put(`/serviceaccounts/${id}`, data),
   delete: (id: string) => api.delete(`/serviceaccounts/${id}`),
+}
+
+export interface ReplicaSet {
+  id: number
+  clusterId: string
+  uid: string
+  name: string
+  namespace: string
+  replicas: number
+  readyReplicas: number
+  availableReplicas: number
+  fullyLabeledReplicas: number
+  ownerKind?: string
+  ownerName?: string
+  ownerUid?: string
+  containers: Container[]
+  labels: Record<string, string>
+  annotations: Record<string, string>
+  selector: Record<string, string>
+  conditions: Condition[]
+  createdAt: string
+  updatedAt: string
+}
+
+export const deploymentsApi = {
+  getAll: (params?: { cluster?: string; namespace?: string; page?: number; pageSize?: number }) =>
+    api.get<{ deployments: Deployment[]; total: number; page: number; pageSize: number }>('/deployments', { params }),
+  getById: (id: string) => api.get<Deployment>(`/deployments/${id}`),
+}
+
+export const replicasetsApi = {
+  getAll: (params?: { cluster?: string; namespace?: string; ownerKind?: string; ownerName?: string; page?: number; pageSize?: number }) =>
+    api.get<{ replicasets: ReplicaSet[]; total: number; page: number; pageSize: number }>('/replicasets', { params }),
+  getById: (id: string) => api.get<ReplicaSet>(`/replicasets/${id}`),
+}
+
+export interface StatefulSet {
+  id: number
+  clusterId: string
+  uid: string
+  name: string
+  namespace: string
+  replicas: number
+  readyReplicas: number
+  containers: Container[]
+  labels: Record<string, string>
+  annotations: Record<string, string>
+  selector: Record<string, string>
+  conditions: Condition[]
+  createdAt: string
+  updatedAt: string
+}
+
+export const statefulsetsApi = {
+  getAll: (params?: { cluster?: string; namespace?: string; page?: number; pageSize?: number }) =>
+    api.get<{ statefulsets: StatefulSet[]; total: number; page: number; pageSize: number }>('/statefulsets', { params }),
+  getById: (id: string) => api.get<StatefulSet>(`/statefulsets/${id}`),
+}
+
+export interface Service {
+  id: number
+  clusterId: string
+  uid: string
+  name: string
+  namespace: string
+  type: string
+  clusterIP?: string
+  externalIPs?: string[]
+  ports?: string
+  selector?: Record<string, string>
+  labels?: Record<string, string>
+  annotations?: Record<string, string>
+  createdAt: string
+  updatedAt: string
+}
+
+export const servicesApi = {
+  getAll: (params?: { cluster?: string; namespace?: string; page?: number; pageSize?: number }) =>
+    api.get<{ services: Service[]; total: number; page: number; pageSize: number }>('/services', { params }),
+  getById: (id: string) => api.get<Service>(`/services/${id}`),
 }
 
 export const graphApi = {

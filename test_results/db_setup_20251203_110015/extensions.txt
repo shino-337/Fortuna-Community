@@ -1,0 +1,4 @@
+ extname | extversion 
+---------+------------
+ plpgsql | 1.0
+(1 row)

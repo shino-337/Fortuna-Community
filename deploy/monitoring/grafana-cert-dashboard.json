@@ -1,0 +1,143 @@
+{
+  "dashboard": {
+    "title": "KSAM Certificate Management",
+    "tags": ["ksam", "certificates", "mtls"],
+    "timezone": "browser",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Days Until Certificate Expires",
+        "type": "gauge",
+        "gridPos": {"x": 0, "y": 0, "w": 8, "h": 6},
+        "targets": [{
+          "expr": "ksam_cert_days_until_expiry",
+          "legendFormat": "Days Until Expiry"
+        }],
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            {"value": 0, "color": "red"},
+            {"value": 7, "color": "orange"},
+            {"value": 30, "color": "yellow"},
+            {"value": 90, "color": "green"}
+          ]
+        },
+        "options": {
+          "min": 0,
+          "max": 365,
+          "unit": "d"
+        }
+      },
+      {
+        "id": 2,
+        "title": "Certificate Expiry Timeline",
+        "type": "graph",
+        "gridPos": {"x": 8, "y": 0, "w": 16, "h": 6},
+        "targets": [{
+          "expr": "ksam_cert_days_until_expiry",
+          "legendFormat": "Days Until Expiry"
+        }],
+        "yaxes": [{
+          "label": "Days",
+          "format": "short"
+        }]
+      },
+      {
+        "id": 3,
+        "title": "Certificate Rotation Rate",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 6, "w": 12, "h": 6},
+        "targets": [{
+          "expr": "rate(ksam_cert_rotation_total[5m])",
+          "legendFormat": "Rotations/sec"
+        }],
+        "yaxes": [{
+          "label": "Rotations/sec",
+          "format": "short"
+        }]
+      },
+      {
+        "id": 4,
+        "title": "Certificate Rotation Failures",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 6, "w": 12, "h": 6},
+        "targets": [{
+          "expr": "rate(ksam_cert_rotation_failure_total[5m])",
+          "legendFormat": "Failures/sec"
+        }],
+        "yaxes": [{
+          "label": "Failures/sec",
+          "format": "short"
+        }]
+      },
+      {
+        "id": 5,
+        "title": "Certificate Rotation Duration",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
+        "targets": [{
+          "expr": "histogram_quantile(0.95, rate(ksam_cert_rotation_duration_seconds_bucket[5m]))",
+          "legendFormat": "95th percentile"
+        }, {
+          "expr": "histogram_quantile(0.50, rate(ksam_cert_rotation_duration_seconds_bucket[5m]))",
+          "legendFormat": "50th percentile"
+        }],
+        "yaxes": [{
+          "label": "Seconds",
+          "format": "s"
+        }]
+      },
+      {
+        "id": 6,
+        "title": "Certificate Expiry Warnings",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 12, "w": 6, "h": 3},
+        "targets": [{
+          "expr": "ksam_cert_expiry_warning_total",
+          "legendFormat": "Warnings"
+        }]
+      },
+      {
+        "id": 7,
+        "title": "Certificate Expiry Critical Alerts",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 12, "w": 6, "h": 3},
+        "targets": [{
+          "expr": "ksam_cert_expiry_critical_total",
+          "legendFormat": "Critical"
+        }]
+      },
+      {
+        "id": 8,
+        "title": "Certificate Expired Count",
+        "type": "stat",
+        "gridPos": {"x": 12, "y": 15, "w": 6, "h": 3},
+        "targets": [{
+          "expr": "ksam_cert_expired_total",
+          "legendFormat": "Expired"
+        }]
+      },
+      {
+        "id": 9,
+        "title": "Last Certificate Rotation",
+        "type": "stat",
+        "gridPos": {"x": 18, "y": 15, "w": 6, "h": 3},
+        "targets": [{
+          "expr": "ksam_last_cert_rotation_timestamp",
+          "legendFormat": "Last Rotation"
+        }],
+        "options": {
+          "unit": "dateTimeFromNow"
+        }
+      }
+    ],
+    "refresh": "30s",
+    "time": {
+      "from": "now-6h",
+      "to": "now"
+    }
+  }
+}
+
+
+

@@ -1,0 +1,193 @@
+{
+  "dashboard": {
+    "title": "Admission Webhook - Performance & Health",
+    "tags": ["ksam", "admission", "webhook", "policy"],
+    "timezone": "browser",
+    "schemaVersion": 27,
+    "version": 1,
+    "refresh": "30s",
+    "panels": [
+      {
+        "id": 1,
+        "title": "Admission Latency (P95)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(admission_latency_ms_bucket[5m]))",
+            "legendFormat": "P95 Latency",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(admission_latency_ms_bucket[5m]))",
+            "legendFormat": "P50 Latency",
+            "refId": "B"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(admission_latency_ms_bucket[5m]))",
+            "legendFormat": "P99 Latency",
+            "refId": "C"
+          }
+        ],
+        "yaxes": [
+          {"format": "ms", "label": "Latency (ms)", "min": 0},
+          {"format": "short"}
+        ],
+        "alert": {
+          "conditions": [
+            {
+              "evaluator": {"params": [100], "type": "gt"},
+              "operator": {"type": "and"},
+              "query": {"params": ["A", "5m", "now"]},
+              "reducer": {"type": "last"},
+              "type": "query"
+            }
+          ],
+          "executionErrorState": "alerting",
+          "for": "5m",
+          "frequency": "30s",
+          "handler": 1,
+          "name": "High Latency Alert",
+          "noDataState": "no_data",
+          "notifications": []
+        },
+        "thresholds": [
+          {"colorMode": "green", "op": "lt", "value": 50},
+          {"colorMode": "yellow", "op": "lt", "value": 100},
+          {"colorMode": "red", "op": "gte", "value": 100}
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Admission Requests Rate",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 0, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(admission_allowed_count[5m])",
+            "legendFormat": "Allowed - {{resource_type}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(admission_denied_count[5m])",
+            "legendFormat": "Denied - {{reason}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"format": "reqps", "label": "Requests/sec", "min": 0},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 3,
+        "title": "CEL Evaluation Time (P95)",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, rate(cel_eval_ms_bucket[5m]))",
+            "legendFormat": "P95 CEL Eval Time",
+            "refId": "A"
+          },
+          {
+            "expr": "histogram_quantile(0.50, rate(cel_eval_ms_bucket[5m]))",
+            "legendFormat": "P50 CEL Eval Time",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"format": "ms", "label": "Time (ms)", "min": 0},
+          {"format": "short"}
+        ],
+        "thresholds": [
+          {"colorMode": "green", "op": "lt", "value": 25},
+          {"colorMode": "yellow", "op": "lt", "value": 50},
+          {"colorMode": "red", "op": "gte", "value": 50}
+        ]
+      },
+      {
+        "id": 4,
+        "title": "Event Publish Status",
+        "type": "graph",
+        "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(event_publish_success_count[5m])",
+            "legendFormat": "Success - {{event_type}}",
+            "refId": "A"
+          },
+          {
+            "expr": "rate(event_publish_fail_count[5m])",
+            "legendFormat": "Failed - {{event_type}}",
+            "refId": "B"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Events/sec", "min": 0},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 5,
+        "title": "Admission Errors",
+        "type": "graph",
+        "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(admission_errors_total[5m])",
+            "legendFormat": "{{error_type}}",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ops", "label": "Errors/sec", "min": 0},
+          {"format": "short"}
+        ]
+      },
+      {
+        "id": 6,
+        "title": "Admission Decision Breakdown",
+        "type": "piechart",
+        "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+        "targets": [
+          {
+            "expr": "sum(rate(admission_allowed_count[5m]))",
+            "legendFormat": "Allowed",
+            "refId": "A"
+          },
+          {
+            "expr": "sum(rate(admission_denied_count[5m]))",
+            "legendFormat": "Denied",
+            "refId": "B"
+          }
+        ]
+      },
+      {
+        "id": 7,
+        "title": "Admission Latency Distribution",
+        "type": "heatmap",
+        "gridPos": {"x": 0, "y": 24, "w": 24, "h": 8},
+        "targets": [
+          {
+            "expr": "rate(admission_latency_ms_bucket[5m])",
+            "format": "heatmap",
+            "refId": "A"
+          }
+        ],
+        "yaxes": [
+          {"format": "ms", "label": "Latency (ms)"},
+          {"format": "short"}
+        ]
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {
+      "refresh_intervals": ["10s", "30s", "1m", "5m", "15m", "30m", "1h", "2h", "1d"]
+    }
+  }
+}
+

@@ -1,0 +1,371 @@
+
+==========================================
+KSAM Database Setup
+==========================================
+
+==========================================
+Step 1: Checking PostgreSQL
+==========================================
+[0;32m[SUCCESS][0m PostgreSQL pod found: postgres-6d84b5b778-82hpz
+[0;32m[SUCCESS][0m PostgreSQL pod is running
+[0;34m[INFO][0m Testing database connection...
+[0;32m[SUCCESS][0m Database connection successful
+ PostgreSQL 15.15 on aarch64-unknown-linux-musl, compiled by gcc (Alpine 14.2.0) 14.2.0, 64-bit
+
+==========================================
+Step 2: Checking Database
+==========================================
+[0;34m[INFO][0m Checking if database 'ksam' exists...
+[0;32m[SUCCESS][0m Database 'ksam' exists
+
+==========================================
+Step 3: Running Migrations
+==========================================
+[0;34m[INFO][0m Found 9 migration file(s)
+[0;34m[INFO][0m Running migration: 001_initial_schema.sql
+psql:/tmp/001_initial_schema.sql:24: NOTICE:  relation "clusters" already exists, skipping
+CREATE TABLE
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:37: NOTICE:  relation "nodes" already exists, skipping
+psql:/tmp/001_initial_schema.sql:39: ERROR:  relation "idx_nodes_cluster" already exists
+psql:/tmp/001_initial_schema.sql:40: ERROR:  relation "idx_nodes_name" already exists
+psql:/tmp/001_initial_schema.sql:52: NOTICE:  relation "namespaces" already exists, skipping
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:54: ERROR:  relation "idx_namespaces_cluster" already exists
+psql:/tmp/001_initial_schema.sql:55: ERROR:  relation "idx_namespaces_name" already exists
+psql:/tmp/001_initial_schema.sql:71: NOTICE:  relation "service_accounts" already exists, skipping
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:73: ERROR:  relation "idx_service_accounts_cluster" already exists
+psql:/tmp/001_initial_schema.sql:74: ERROR:  relation "idx_service_accounts_namespace" already exists
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:75: ERROR:  relation "idx_service_accounts_uid" already exists
+psql:/tmp/001_initial_schema.sql:92: NOTICE:  relation "pods" already exists, skipping
+DO
+psql:/tmp/001_initial_schema.sql:128: NOTICE:  relation "idx_pods_cluster" already exists, skipping
+CREATE INDEX
+psql:/tmp/001_initial_schema.sql:129: NOTICE:  relation "idx_pods_namespace" already exists, skipping
+psql:/tmp/001_initial_schema.sql:130: NOTICE:  relation "idx_pods_service_account" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/001_initial_schema.sql:131: NOTICE:  relation "idx_pods_node" already exists, skipping
+psql:/tmp/001_initial_schema.sql:132: NOTICE:  relation "idx_pods_uid" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+CREATE TABLE
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:145: NOTICE:  relation "roles" already exists, skipping
+psql:/tmp/001_initial_schema.sql:147: ERROR:  relation "idx_roles_cluster" already exists
+psql:/tmp/001_initial_schema.sql:148: ERROR:  relation "idx_roles_namespace" already exists
+psql:/tmp/001_initial_schema.sql:160: NOTICE:  relation "cluster_roles" already exists, skipping
+psql:/tmp/001_initial_schema.sql:162: ERROR:  relation "idx_cluster_roles_cluster" already exists
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:176: NOTICE:  relation "role_bindings" already exists, skipping
+psql:/tmp/001_initial_schema.sql:178: ERROR:  relation "idx_role_bindings_cluster" already exists
+psql:/tmp/001_initial_schema.sql:179: ERROR:  relation "idx_role_bindings_namespace" already exists
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:192: NOTICE:  relation "cluster_role_bindings" already exists, skipping
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:194: ERROR:  relation "idx_cluster_role_bindings_cluster" already exists
+psql:/tmp/001_initial_schema.sql:210: NOTICE:  relation "insights" already exists, skipping
+psql:/tmp/001_initial_schema.sql:212: ERROR:  relation "idx_insights_type" already exists
+psql:/tmp/001_initial_schema.sql:213: ERROR:  relation "idx_insights_severity" already exists
+psql:/tmp/001_initial_schema.sql:214: ERROR:  relation "idx_insights_created" already exists
+psql:/tmp/001_initial_schema.sql:227: NOTICE:  relation "policies" already exists, skipping
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:229: ERROR:  relation "idx_policies_type" already exists
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:230: ERROR:  relation "idx_policies_status" already exists
+psql:/tmp/001_initial_schema.sql:245: NOTICE:  relation "events_index" already exists, skipping
+psql:/tmp/001_initial_schema.sql:252: ERROR:  relation "idx_events_cluster" already exists
+psql:/tmp/001_initial_schema.sql:253: ERROR:  relation "idx_events_node" already exists
+psql:/tmp/001_initial_schema.sql:254: ERROR:  relation "idx_events_pod" already exists
+psql:/tmp/001_initial_schema.sql:255: ERROR:  relation "idx_events_ts" already exists
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:272: NOTICE:  relation "users" already exists, skipping
+psql:/tmp/001_initial_schema.sql:274: ERROR:  relation "idx_users_username" already exists
+CREATE TABLE
+psql:/tmp/001_initial_schema.sql:275: ERROR:  relation "idx_users_email" already exists
+psql:/tmp/001_initial_schema.sql:289: NOTICE:  relation "audit_logs" already exists, skipping
+psql:/tmp/001_initial_schema.sql:291: ERROR:  relation "idx_audit_cluster" already exists
+psql:/tmp/001_initial_schema.sql:292: ERROR:  relation "idx_audit_user" already exists
+psql:/tmp/001_initial_schema.sql:293: ERROR:  relation "idx_audit_action" already exists
+psql:/tmp/001_initial_schema.sql:294: ERROR:  relation "idx_audit_resource" already exists
+psql:/tmp/001_initial_schema.sql:295: ERROR:  relation "idx_audit_created" already exists
+[0;32m[SUCCESS][0m Migration 001_initial_schema.sql completed (some objects may already exist)
+
+[0;34m[INFO][0m Running migration: 002_install_age.sql
+DO
+DO
+psql:/tmp/002_install_age.sql:26: NOTICE:  Apache AGE extension not available. Graph features will be disabled. Error: extension "age" is not available
+psql:/tmp/002_install_age.sql:37: NOTICE:  Could not create graph. AGE may not be installed. Error: function create_graph(unknown) does not exist
+DO
+psql:/tmp/002_install_age.sql:64: NOTICE:  Could not create vertex labels. Error: function create_vlabel(unknown, unknown) does not exist
+DO
+psql:/tmp/002_install_age.sql:91: NOTICE:  Could not create edge labels. Error: function create_elabel(unknown, unknown) does not exist
+[0;31m[ERROR][0m Migration 002_install_age.sql failed
+
+[0;34m[INFO][0m Running migration: 003_age_triggers.sql
+psql:/tmp/003_age_triggers.sql:97: ERROR:  syntax error at or near "MERGE"
+LINE 20:                 MERGE (p:Pod {uid: $uid})
+                         ^
+DROP TRIGGER
+CREATE TRIGGER
+psql:/tmp/003_age_triggers.sql:170: ERROR:  syntax error at or near "MERGE"
+LINE 16:                 MERGE (sa:ServiceAccount {id: $id})
+                         ^
+DROP TRIGGER
+CREATE TRIGGER
+psql:/tmp/003_age_triggers.sql:257: ERROR:  syntax error at or near "MERGE"
+LINE 17:                 MERGE (rb:RoleBinding {uid: $uid})
+                         ^
+DROP TRIGGER
+CREATE TRIGGER
+psql:/tmp/003_age_triggers.sql:312: ERROR:  syntax error at or near "MERGE"
+LINE 16:                 MERGE (r:Role {id: $id})
+                         ^
+DROP TRIGGER
+CREATE TRIGGER
+DO
+psql:/tmp/003_age_triggers.sql:325: NOTICE:  AGE triggers created successfully
+psql:/tmp/003_age_triggers.sql:325: NOTICE:  Triggers will sync data to graph when AGE extension is available
+[0;31m[ERROR][0m Migration 003_age_triggers.sql failed
+
+[0;34m[INFO][0m Running migration: 003_age_triggers_conditional.sql
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:21: ERROR:  syntax error at or near "BEGIN"
+LINE 15:         BEGIN
+                 ^
+psql:/tmp/003_age_triggers_conditional.sql:22: WARNING:  there is no transaction in progress
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:28: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+        CREATE OR REPLACE FUNCTION sync_serviceaccount_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+psql:/tmp/003_age_triggers_conditional.sql:29: WARNING:  there is no transaction in progress
+psql:/tmp/003_age_triggers_conditional.sql:35: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+        CREATE OR REPLACE FUNCTION sync_rolebinding_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+psql:/tmp/003_age_triggers_conditional.sql:36: WARNING:  there is no transaction in progress
+COMMIT
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:42: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+        CREATE OR REPLACE FUNCTION sync_role_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+psql:/tmp/003_age_triggers_conditional.sql:43: WARNING:  there is no transaction in progress
+psql:/tmp/003_age_triggers_conditional.sql:55: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+    ELSE
+        RAISE NOTICE 'Apache AGE extension found. Creating full graph sync functions.';
+        
+        -- Create full functions with Cypher (only if AGE available)
+        -- Note: These will be created in a separate migration when AGE is installed
+        -- For now, create stubs that will be replaced
+        CREATE OR REPLACE FUNCTION sync_pod_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:56: WARNING:  there is no transaction in progress
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:62: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+        CREATE OR REPLACE FUNCTION sync_serviceaccount_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+psql:/tmp/003_age_triggers_conditional.sql:63: WARNING:  there is no transaction in progress
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:69: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+        CREATE OR REPLACE FUNCTION sync_rolebinding_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+psql:/tmp/003_age_triggers_conditional.sql:70: WARNING:  there is no transaction in progress
+psql:/tmp/003_age_triggers_conditional.sql:76: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+        
+        CREATE OR REPLACE FUNCTION sync_role_to_graph()
+        RETURNS TRIGGER AS $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+COMMIT
+psql:/tmp/003_age_triggers_conditional.sql:77: WARNING:  there is no transaction in progress
+psql:/tmp/003_age_triggers_conditional.sql:80: ERROR:  syntax error at or near "$$ LANGUAGE plpgsql;
+    END IF;
+END $$"
+LINE 1: $$ LANGUAGE plpgsql;
+        ^
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+psql:/tmp/003_age_triggers_conditional.sql:126: NOTICE:  AGE triggers infrastructure created successfully
+psql:/tmp/003_age_triggers_conditional.sql:126: NOTICE:  Triggers will sync data to graph when AGE extension is available
+psql:/tmp/003_age_triggers_conditional.sql:126: NOTICE:  Run upgrade script after AGE installation to enable full functionality
+CREATE FUNCTION
+DO
+[0;31m[ERROR][0m Migration 003_age_triggers_conditional.sql failed
+
+[0;34m[INFO][0m Running migration: 003_age_triggers_simple.sql
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+CREATE FUNCTION
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+DROP TRIGGER
+CREATE TRIGGER
+psql:/tmp/003_age_triggers_simple.sql:65: NOTICE:  AGE triggers infrastructure created successfully
+psql:/tmp/003_age_triggers_simple.sql:65: NOTICE:  Triggers are active but will skip graph operations until AGE is installed
+psql:/tmp/003_age_triggers_simple.sql:65: NOTICE:  Run migration 004_age_functions_full.sql after AGE installation to enable graph sync
+DO
+[0;32m[SUCCESS][0m Migration 003_age_triggers_simple.sql completed successfully
+
+[0;34m[INFO][0m Running migration: 004_age_functions_full.sql
+psql:/tmp/004_age_functions_full.sql:13: ERROR:  Apache AGE extension not installed. Please install AGE first.
+CONTEXT:  PL/pgSQL function inline_code_block line 4 at RAISE
+psql:/tmp/004_age_functions_full.sql:97: ERROR:  syntax error at or near "MERGE"
+LINE 16:                 MERGE (p:Pod {uid: $uid})
+                         ^
+psql:/tmp/004_age_functions_full.sql:163: ERROR:  syntax error at or near "MERGE"
+LINE 16:                 MERGE (sa:ServiceAccount {id: $id})
+                         ^
+psql:/tmp/004_age_functions_full.sql:242: ERROR:  syntax error at or near "MERGE"
+LINE 16:                 MERGE (rb:RoleBinding {uid: $uid})
+                         ^
+psql:/tmp/004_age_functions_full.sql:291: ERROR:  syntax error at or near "MERGE"
+LINE 16:                 MERGE (r:Role {id: $id})
+                         ^
+psql:/tmp/004_age_functions_full.sql:297: NOTICE:  Graph sync functions upgraded to use Apache AGE
+psql:/tmp/004_age_functions_full.sql:297: NOTICE:  Triggers will now sync data to graph on INSERT/UPDATE/DELETE
+DO
+[0;31m[ERROR][0m Migration 004_age_functions_full.sql failed
+
+[0;34m[INFO][0m Running migration: 008_add_deployments.sql
+psql:/tmp/008_add_deployments.sql:40: NOTICE:  relation "deployments" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+psql:/tmp/008_add_deployments.sql:43: NOTICE:  relation "idx_deployments_cluster_id" already exists, skipping
+CREATE INDEX
+psql:/tmp/008_add_deployments.sql:44: NOTICE:  relation "idx_deployments_namespace" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/008_add_deployments.sql:45: NOTICE:  relation "idx_deployments_name" already exists, skipping
+psql:/tmp/008_add_deployments.sql:46: NOTICE:  relation "idx_deployments_uid" already exists, skipping
+psql:/tmp/008_add_deployments.sql:47: NOTICE:  relation "idx_deployments_cluster_namespace" already exists, skipping
+CREATE INDEX
+psql:/tmp/008_add_deployments.sql:48: NOTICE:  relation "idx_deployments_deleted_at" already exists, skipping
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+[0;32m[SUCCESS][0m Migration 008_add_deployments.sql completed successfully
+
+[0;34m[INFO][0m Running migration: 009_add_replicasets.sql
+CREATE TABLE
+psql:/tmp/009_add_replicasets.sql:44: NOTICE:  relation "replicasets" already exists, skipping
+CREATE INDEX
+psql:/tmp/009_add_replicasets.sql:47: NOTICE:  relation "idx_replicasets_cluster_id" already exists, skipping
+psql:/tmp/009_add_replicasets.sql:48: NOTICE:  relation "idx_replicasets_namespace" already exists, skipping
+psql:/tmp/009_add_replicasets.sql:49: NOTICE:  relation "idx_replicasets_name" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/009_add_replicasets.sql:50: NOTICE:  relation "idx_replicasets_uid" already exists, skipping
+psql:/tmp/009_add_replicasets.sql:51: NOTICE:  relation "idx_replicasets_cluster_namespace" already exists, skipping
+psql:/tmp/009_add_replicasets.sql:52: NOTICE:  relation "idx_replicasets_owner" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/009_add_replicasets.sql:53: NOTICE:  relation "idx_replicasets_deleted_at" already exists, skipping
+CREATE INDEX
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+COMMENT
+[0;32m[SUCCESS][0m Migration 009_add_replicasets.sql completed successfully
+
+[0;34m[INFO][0m Running migration: 010_add_implementation_guide_schema.sql
+psql:/tmp/010_add_implementation_guide_schema.sql:15: NOTICE:  relation "nodes" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+psql:/tmp/010_add_implementation_guide_schema.sql:17: NOTICE:  relation "idx_nodes_cluster_id" already exists, skipping
+psql:/tmp/010_add_implementation_guide_schema.sql:18: NOTICE:  relation "idx_nodes_node_name" already exists, skipping
+CREATE INDEX
+CREATE TABLE
+psql:/tmp/010_add_implementation_guide_schema.sql:31: NOTICE:  relation "policies" already exists, skipping
+CREATE INDEX
+psql:/tmp/010_add_implementation_guide_schema.sql:33: NOTICE:  relation "idx_policies_status" already exists, skipping
+CREATE INDEX
+CREATE TABLE
+psql:/tmp/010_add_implementation_guide_schema.sql:34: NOTICE:  relation "idx_policies_type" already exists, skipping
+psql:/tmp/010_add_implementation_guide_schema.sql:46: NOTICE:  relation "insights" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/010_add_implementation_guide_schema.sql:48: NOTICE:  relation "idx_insights_type" already exists, skipping
+psql:/tmp/010_add_implementation_guide_schema.sql:49: NOTICE:  relation "idx_insights_severity" already exists, skipping
+CREATE INDEX
+psql:/tmp/010_add_implementation_guide_schema.sql:50: NOTICE:  relation "idx_insights_created_at" already exists, skipping
+psql:/tmp/010_add_implementation_guide_schema.sql:61: NOTICE:  relation "events_index" already exists, skipping
+CREATE TABLE
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/010_add_implementation_guide_schema.sql:63: NOTICE:  relation "idx_events_index_cluster_id" already exists, skipping
+psql:/tmp/010_add_implementation_guide_schema.sql:64: NOTICE:  relation "idx_events_index_node_id" already exists, skipping
+CREATE INDEX
+CREATE INDEX
+psql:/tmp/010_add_implementation_guide_schema.sql:65: NOTICE:  relation "idx_events_index_pod_uid" already exists, skipping
+psql:/tmp/010_add_implementation_guide_schema.sql:66: NOTICE:  relation "idx_events_index_ts" already exists, skipping
+DO
+DO
+DO
+DO
+DO
+[0;32m[SUCCESS][0m Migration 010_add_implementation_guide_schema.sql completed successfully
+
+
+==========================================
+Step 4: Verifying Database Schema
+==========================================
+[0;34m[INFO][0m Listing all tables...
+[0;34m[INFO][0m Found 17 table(s)
+[0;34m[INFO][0m Listing all extensions...
+[0;34m[INFO][0m Checking required tables...
+[0;32m[SUCCESS][0m Table 'clusters' exists
+[0;32m[SUCCESS][0m Table 'service_accounts' exists
+[0;32m[SUCCESS][0m Table 'pods' exists
+[0;32m[SUCCESS][0m Table 'roles' exists
+[0;32m[SUCCESS][0m Table 'role_bindings' exists
+[0;32m[SUCCESS][0m Table 'insights' exists
+[0;32m[SUCCESS][0m All required tables exist
+
+==========================================
+Step 5: Checking Core Database Connection
+==========================================
+[0;34m[INFO][0m Core pod: ksam-core-6ff598f9d7-hsjbn
+[0;34m[INFO][0m Checking Core health endpoint...
+[0;32m[SUCCESS][0m Core health check passed
+[0;32m[SUCCESS][0m Core database connection verified
+
+==========================================
+Database Setup Complete
+==========================================

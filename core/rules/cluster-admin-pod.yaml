@@ -1,0 +1,29 @@
+# Cluster Admin Pod Rule
+# Detects pods using ServiceAccounts bound to cluster-admin
+
+id: cluster-admin-pod
+name: "Pod using ServiceAccount with cluster-admin access"
+category: rbac
+severity: critical
+description: "Pod is using a ServiceAccount that is bound to cluster-admin ClusterRole, granting full cluster access"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      resource.kind == "Pod" &&
+      resource.service_account_name != "" &&
+      resource.service_account_name != "default"
+
+# Note: This rule will match pods, but the actual cluster-admin binding
+# detection should be done via RoleBinding/ClusterRoleBinding evaluation
+# For now, we'll create a rule that can be enhanced with correlation data
+
+aggregation: AND
+base_score: 10.0
+tags:
+  - cluster-admin
+  - critical
+  - pod
+  - overprivileged
+

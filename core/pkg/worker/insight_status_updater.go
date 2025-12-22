@@ -1,0 +1,249 @@
+package worker
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"strings"
+	"time"
+
+	"github.com/ksam/core/pkg/models"
+	"github.com/ksam/core/pkg/riskengine"
+	"gorm.io/gorm"
+)
+
+// InsightStatusUpdater updates insight status based on current risk evaluation
+// This is called after historical risk evaluation to auto-resolve insights
+// when risks no longer exist
+type InsightStatusUpdater struct {
+	db           *gorm.DB
+	riskEngine   *riskengine.Engine
+	insightMgr   *riskengine.InsightManager
+}
+
+// NewInsightStatusUpdater creates a new insight status updater
+func NewInsightStatusUpdater(db *gorm.DB) *InsightStatusUpdater {
+	return &InsightStatusUpdater{
+		db:         db,
+		riskEngine: riskengine.NewEngine(db),
+		insightMgr: riskengine.NewInsightManager(db),
+	}
+}
+
+// UpdateStatusForResolvedRisks checks all active insights and auto-resolves
+// those where the risk no longer exists
+func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context) error {
+	log.Printf("[InsightStatusUpdater] Starting status update for resolved risks...")
+	startTime := time.Now()
+
+	// Get all active insights
+	var activeInsights []models.Insight
+	if err := u.db.Where("status = ? OR status IS NULL", "active").Find(&activeInsights).Error; err != nil {
+		return err
+	}
+
+	log.Printf("[InsightStatusUpdater] Found %d active insights to check", len(activeInsights))
+
+	resolvedCount := 0
+	for _, insight := range activeInsights {
+		// Parse affected resources
+		var affectedResources []map[string]interface{}
+		if err := json.Unmarshal([]byte(insight.AffectedResources), &affectedResources); err != nil {
+			log.Printf("[InsightStatusUpdater] Failed to parse affected resources for insight %d: %v", insight.ID, err)
+			continue
+		}
+
+		if len(affectedResources) == 0 {
+			continue
+		}
+
+		// Get resource info
+		firstResource := affectedResources[0]
+		resourceType, _ := firstResource["type"].(string)
+		resourceName, _ := firstResource["name"].(string)
+		resourceNamespace, _ := firstResource["namespace"].(string)
+
+		// Check if resource still exists and has the risk
+		stillHasRisk, err := u.checkIfRiskStillExists(ctx, resourceType, resourceName, resourceNamespace, &insight)
+		if err != nil {
+			log.Printf("[InsightStatusUpdater] Error checking risk for insight %d: %v", insight.ID, err)
+			continue
+		}
+
+		if !stillHasRisk {
+			// Risk no longer exists - auto-resolve
+			updates := map[string]interface{}{
+				"status":     "resolved",
+				"updated_at": time.Now(),
+			}
+			if err := u.db.Model(&insight).Updates(updates).Error; err != nil {
+				log.Printf("[InsightStatusUpdater] Failed to auto-resolve insight %d: %v", insight.ID, err)
+				continue
+			}
+			resolvedCount++
+			log.Printf("[InsightStatusUpdater] Auto-resolved insight ID=%d (risk no longer exists for %s/%s/%s)",
+				insight.ID, resourceType, resourceNamespace, resourceName)
+		}
+	}
+
+	duration := time.Since(startTime)
+	log.Printf("[InsightStatusUpdater] Status update completed in %v: %d insights auto-resolved", duration, resolvedCount)
+	return nil
+}
+
+// checkIfRiskStillExists checks if the risk described by the insight still exists
+// by re-evaluating the resource
+func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resourceType, resourceName, resourceNamespace string, insight *models.Insight) (bool, error) {
+	// Get resource from database
+	var resourceData map[string]interface{}
+	
+	switch resourceType {
+	case "ServiceAccount":
+		var sa models.ServiceAccount
+		if err := u.db.Where("name = ? AND namespace = ? AND deleted_at IS NULL", resourceName, resourceNamespace).First(&sa).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				// Resource doesn't exist - risk is resolved
+				return false, nil
+			}
+			return false, err
+		}
+		// Build resource data for evaluation
+		resourceData = map[string]interface{}{
+			"name":       sa.Name,
+			"namespace":  sa.Namespace,
+			"uid":        sa.UID,
+			"cluster_id": sa.ClusterID,
+		}
+	case "Role":
+		var role models.Role
+		// Get the most recently updated role (in case of duplicates with different UIDs)
+		// This handles cases where role was deleted and recreated with new UID
+		if err := u.db.Where("name = ? AND namespace = ? AND deleted_at IS NULL", resourceName, resourceNamespace).
+			Order("updated_at DESC").First(&role).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				log.Printf("[InsightStatusUpdater] Role %s/%s not found in database - risk resolved", resourceNamespace, resourceName)
+				return false, nil
+			}
+			return false, err
+		}
+		log.Printf("[InsightStatusUpdater] Loaded role %s/%s (UID: %s, updated_at: %v) for re-evaluation", 
+			resourceNamespace, resourceName, role.UID, role.UpdatedAt)
+		// Parse rules JSON
+		var rules interface{}
+		if role.Rules != "" {
+			json.Unmarshal([]byte(role.Rules), &rules)
+		} else {
+			rules = []interface{}{}
+		}
+		resourceData = map[string]interface{}{
+			"name":       role.Name,
+			"namespace":  role.Namespace,
+			"uid":        role.UID,
+			"cluster_id": role.ClusterID,
+			"rules":      rules,
+		}
+	case "ClusterRole":
+		var cr models.ClusterRole
+		if err := u.db.Where("name = ? AND deleted_at IS NULL", resourceName).First(&cr).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return false, nil
+			}
+			return false, err
+		}
+		// Parse rules JSON
+		var rules interface{}
+		json.Unmarshal([]byte(cr.Rules), &rules)
+		resourceData = map[string]interface{}{
+			"name":       cr.Name,
+			"uid":        cr.UID,
+			"cluster_id": cr.ClusterID,
+			"rules":      rules,
+		}
+	case "RoleBinding", "ClusterRoleBinding":
+		// For bindings, we need to check if the binding still exists and if it's still risky
+		// This is more complex - for now, we'll just check if the resource exists
+		// A more sophisticated check would evaluate the binding against rules
+		return true, nil // Assume risk still exists if we can't determine
+	default:
+		// Unknown resource type - assume risk still exists
+		return true, nil
+	}
+
+	// Re-evaluate the resource
+	insights, err := u.riskEngine.EvaluateResource(ctx, resourceType, resourceData)
+	if err != nil {
+		log.Printf("[InsightStatusUpdater] Error re-evaluating resource %s/%s/%s: %v", resourceType, resourceNamespace, resourceName, err)
+		return true, err // On error, assume risk still exists (safer)
+	}
+
+	// Check if any of the new insights match this insight's description or type
+	// Use flexible matching: exact description match OR same type + severity for wildcard insights
+	insightType := insight.Type
+	insightSeverity := insight.Severity
+	insightDescLower := strings.ToLower(insight.Description)
+	
+	for _, newInsight := range insights {
+		// Exact description match - risk still exists
+		if newInsight.Description == insight.Description {
+			log.Printf("[InsightStatusUpdater] Risk still exists: exact description match for insight %d", insight.ID)
+			return true, nil
+		}
+		
+		// For wildcard/overprivileged insights, check if same type and severity
+		// This handles cases where description might vary slightly but risk is the same
+		// Also check if both descriptions mention the same resource name/namespace
+		newInsightDescLower := strings.ToLower(newInsight.Description)
+		if (insightType == "rbac" && newInsight.Type == "rbac") &&
+		   (insightSeverity == newInsight.Severity) &&
+		   (contains(insightDescLower, "wildcard") || contains(insightDescLower, "overprivileged")) &&
+		   (contains(newInsightDescLower, "wildcard") || contains(newInsightDescLower, "overprivileged")) {
+			// Additional check: if insight mentions specific resource name, ensure new insight mentions it too
+			// Extract resource name from description if present
+			resourceNameInDesc := extractResourceNameFromDescription(insight.Description)
+			if resourceNameInDesc != "" {
+				if contains(newInsight.Description, resourceNameInDesc) {
+					log.Printf("[InsightStatusUpdater] Risk still exists: similar wildcard/overprivileged insight found for same resource (insight %d)", insight.ID)
+					return true, nil
+				}
+			} else {
+				// No specific resource name - match by type and severity
+				log.Printf("[InsightStatusUpdater] Risk still exists: similar wildcard/overprivileged insight found (insight %d)", insight.ID)
+				return true, nil
+			}
+		}
+	}
+
+	// No matching insight found - risk is resolved
+	log.Printf("[InsightStatusUpdater] Risk resolved: no matching insights found for insight %d (was: %s)", insight.ID, insight.Description)
+	return false, nil
+}
+
+// contains checks if a string contains a substring (case-insensitive)
+func contains(s, substr string) bool {
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
+}
+
+// extractResourceNameFromDescription extracts resource name from insight description
+// Format: "Role with wildcard permissions: Role or ClusterRole contains wildcard (*) permissions in namespace default"
+// Or: "Role with wildcard permissions: Role or ClusterRole contains wildcard (*) permissions"
+func extractResourceNameFromDescription(description string) string {
+	// Try to extract from "in namespace X" pattern
+	parts := strings.Split(description, "in namespace")
+	if len(parts) > 1 {
+		// Could extract namespace, but for now just return empty
+		// Resource name is usually in affectedResources, not description
+	}
+	return ""
+}
+
+// countRules counts the number of rules in the rules interface
+func countRules(rules interface{}) int {
+	if rules == nil {
+		return 0
+	}
+	if rulesArr, ok := rules.([]interface{}); ok {
+		return len(rulesArr)
+	}
+	return 0
+}
+

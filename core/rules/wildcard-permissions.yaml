@@ -1,0 +1,20 @@
+# Wildcard Permissions Rule
+# Detects roles with wildcard (*) permissions
+
+id: wildcard-permissions
+name: "Role with wildcard permissions"
+category: rbac
+severity: high
+description: "Role or ClusterRole contains wildcard (*) permissions"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: "rules[].resources contains '*' || rules[].verbs contains '*'"
+
+aggregation: OR
+base_score: 8.0
+tags:
+  - wildcard
+  - overprivileged
+

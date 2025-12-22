@@ -20,9 +20,9 @@ export const NODE_COLORS: Record<string, string> = {
   [NodeType.ROLE_BINDING]: '#f59e0b', // Amber 500
   [NodeType.CLUSTER_ROLE_BINDING]: '#d97706', // Amber 600
   
-  // Infrastructure - Blue/Cyan shades
-  [NodeType.NAMESPACE]: '#06b6d4', // Cyan 500
-  [NodeType.CLUSTER]: '#0891b2', // Cyan 600
+  // Infrastructure - Varied colors for clarity
+  [NodeType.CLUSTER]: '#10b981', // Emerald 500 (Top level - distinct)
+  [NodeType.NAMESPACE]: '#06b6d4', // Cyan 500 (Mid level)
   [NodeType.POD]: '#3b82f6', // Blue 500
   [NodeType.DEPLOYMENT]: '#2563eb', // Blue 600
   [NodeType.STATEFULSET]: '#1d4ed8', // Blue 700

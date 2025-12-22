@@ -1,101 +1,202 @@
-import { useClusters } from '../hooks/useClusters'
-import { useServiceAccounts } from '../hooks/useServiceAccounts'
-import { useAuditLogs } from '../hooks/useAuditLogs'
+import React, { useEffect, useState } from 'react';
+import { StatCard } from '../components/StatCard';
+import { Card } from '../components/ui/Card';
+import api from '../lib/api';
+import { InsightSummary } from '../types';
 
-const Dashboard = () => {
-  const { data: clusters, isLoading: clustersLoading } = useClusters()
-  const { data: serviceAccounts, isLoading: sasLoading } = useServiceAccounts()
-  const { data: auditLogs, isLoading: logsLoading } = useAuditLogs({ page: 1, pageSize: 10 })
+export const Dashboard: React.FC = () => {
+  const [summary, setSummary] = useState<InsightSummary | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [clusterCount, setClusterCount] = useState(0);
+  const [podCount, setPodCount] = useState(0);
+  const [queueMetrics, setQueueMetrics] = useState<any>(null);
+  const [workerMetrics, setWorkerMetrics] = useState<any[]>([]);
 
-  const totalClusters = clusters?.length || 0
-  const totalServiceAccounts = serviceAccounts?.serviceAccounts?.length || 0
-  const recentLogs = auditLogs?.logs?.length || 0
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        // Fetch all data in parallel
+        const [summaryRes, clustersRes, podsRes, queueRes, workersRes] = await Promise.all([
+          api.get('/api/v1/insights/summary').catch(() => ({ data: null })),
+          api.get('/api/v1/clusters/stats').catch(() => ({ data: null })),
+          api.get('/api/v1/pods', { params: { pageSize: 1 } }).catch(() => ({ data: { total: 0 } })),
+          api.get('/api/v1/metrics/queue').catch(() => ({ data: null })),
+          api.get('/api/v1/metrics/workers').catch(() => ({ data: { workers: [] } })),
+        ]);
+
+        // Set insights summary
+        if (summaryRes.data) {
+          setSummary(summaryRes.data);
+        }
+
+        // Set cluster count
+        if (clustersRes.data) {
+          const clusters = clustersRes.data?.clusters || clustersRes.data || [];
+          const clusterArray = Array.isArray(clusters) ? clusters : [];
+          setClusterCount(clusterArray.length);
+        } else {
+          // Fallback: try basic clusters endpoint
+          try {
+            const fallbackRes = await api.get('/api/v1/clusters');
+            const clusters = fallbackRes.data?.clusters || fallbackRes.data || [];
+            setClusterCount(Array.isArray(clusters) ? clusters.length : 0);
+          } catch (e) {
+            console.error('Failed to fetch clusters:', e);
+            setClusterCount(0);
+          }
+        }
+
+        // Set pod count - use total from pods API (most accurate)
+        const podsTotal = podsRes.data?.total || 0;
+        if (podsTotal > 0) {
+          setPodCount(podsTotal);
+        } else if (clustersRes.data) {
+          // Fallback: calculate from clusters stats
+          const clusters = clustersRes.data?.clusters || clustersRes.data || [];
+          const clusterArray = Array.isArray(clusters) ? clusters : [];
+          const totalPods = clusterArray.reduce((sum: number, cluster: any) => {
+            return sum + (parseInt(cluster.podCount) || 0);
+          }, 0);
+          setPodCount(totalPods);
+        }
+
+        // Set queue metrics
+        if (queueRes.data) {
+          setQueueMetrics(queueRes.data);
+        }
+
+        // Set worker metrics
+        if (workersRes.data?.workers) {
+          setWorkerMetrics(workersRes.data.workers);
+        }
+      } catch (err) {
+        console.error('Failed to fetch dashboard data:', err);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 10000); // Refresh every 10 seconds for real-time updates
+    return () => clearInterval(interval);
+  }, []);
 
   return (
-    <div className="h-full overflow-y-auto bg-gray-50 dark:bg-gray-900">
-      <div className="container mx-auto px-6 py-6 max-w-7xl">
-        <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">Dashboard</h1>
-          <p className="text-sm text-gray-600 dark:text-gray-400">Overview of your Kubernetes ServiceAccount management</p>
-        </div>
-        
-        {clustersLoading || sasLoading || logsLoading ? (
-          <div className="text-center py-8">
-            <div className="text-gray-500 dark:text-gray-400">Loading...</div>
-          </div>
-        ) : (
-          <>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">Clusters</h2>
-                <p className="text-3xl font-bold text-blue-600 dark:text-blue-400">{totalClusters}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total connected clusters</p>
-              </div>
-              
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">ServiceAccounts</h2>
-                <p className="text-3xl font-bold text-green-600 dark:text-green-400">{totalServiceAccounts}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Total service accounts</p>
-              </div>
-              
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold mb-2 text-gray-700 dark:text-gray-300">Recent Activity</h2>
-                <p className="text-3xl font-bold text-purple-600 dark:text-purple-400">{recentLogs}</p>
-                <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">Recent audit logs</p>
-              </div>
-            </div>
+    <div className="space-y-6">
+      <h1 className="text-2xl font-bold text-gray-900">Dashboard Overview</h1>
 
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Clusters Status</h2>
-                {clusters && Array.isArray(clusters) && clusters.length > 0 ? (
-                  <div className="space-y-2">
-                    {clusters.map((cluster) => (
-                      <div key={cluster.id} className="flex items-center justify-between p-2 bg-gray-50 dark:bg-gray-700 rounded">
-                        <span className="font-medium text-gray-900 dark:text-gray-100">{cluster.name}</span>
-                        <span
-                          className={`px-2 py-1 rounded text-xs ${
-                            cluster.status === 'active'
-                              ? 'bg-green-100 dark:bg-green-900 text-green-800 dark:text-green-200'
-                              : 'bg-red-100 dark:bg-red-900 text-red-800 dark:text-red-200'
-                          }`}
-                        >
-                          {cluster.status}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 dark:text-gray-400">No clusters connected</p>
-                )}
-              </div>
-
-              <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700">
-                <h2 className="text-lg font-semibold mb-4 text-gray-800 dark:text-gray-200">Recent Audit Logs</h2>
-                {auditLogs && auditLogs.logs && auditLogs.logs.length > 0 ? (
-                  <div className="space-y-2">
-                    {auditLogs.logs.slice(0, 5).map((log: any) => (
-                      <div key={log.id} className="p-2 bg-gray-50 dark:bg-gray-700 rounded text-sm">
-                        <div className="flex justify-between">
-                          <span className="font-medium text-gray-900 dark:text-gray-100">{log.action}</span>
-                          <span className="text-gray-500 dark:text-gray-400">{log.resource}</span>
-                        </div>
-                        <div className="text-gray-500 dark:text-gray-400 text-xs mt-1">
-                          {new Date(log.createdAt).toLocaleString()}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="text-gray-500 dark:text-gray-400">No recent activity</p>
-                )}
-              </div>
-            </div>
-          </>
-        )}
+      {/* Stats Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard
+          title="Clusters"
+          value={clusterCount}
+          subtitle="Active"
+          loading={loading}
+        />
+        <StatCard
+          title="Insights"
+          value={summary?.total || 0}
+          subtitle={`${summary?.critical || 0} Critical`}
+          loading={loading}
+        />
+        <StatCard
+          title="Pods"
+          value={podCount}
+          subtitle="Monitored"
+          loading={loading}
+        />
+        <StatCard
+          title="Critical Issues"
+          value={summary?.critical || 0}
+          subtitle="Requires attention"
+          loading={loading}
+        />
       </div>
-    </div>
-  )
-}
 
-export default Dashboard
+      {/* Insights by Severity */}
+      {summary && (
+        <Card title="Insights by Severity">
+          <div className="grid grid-cols-4 gap-4">
+            <div className="text-center">
+              <div className="text-2xl font-bold text-red-600">{summary.critical}</div>
+              <div className="text-sm text-gray-600">Critical</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-orange-600">{summary.high}</div>
+              <div className="text-sm text-gray-600">High</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-yellow-600">{summary.medium}</div>
+              <div className="text-sm text-gray-600">Medium</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-green-600">{summary.low}</div>
+              <div className="text-sm text-gray-600">Low</div>
+            </div>
+          </div>
+        </Card>
+      )}
+
+      {/* System Health */}
+      <Card title="System Health">
+        <div className="space-y-4">
+          {queueMetrics && (
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-sm text-gray-600">Queue Depth</span>
+                <span className="text-sm text-gray-600">
+                  {Object.values(queueMetrics).reduce((sum: number, val: any) => {
+                    const num = typeof val === 'number' ? val : 0;
+                    return sum + num;
+                  }, 0)} messages
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                {(() => {
+                  const totalQueue = Object.values(queueMetrics).reduce((sum: number, val: any) => {
+                    const num = typeof val === 'number' ? val : 0;
+                    return sum + num;
+                  }, 0);
+                  const percentage = Math.min(100, (totalQueue / 200) * 100); // Assuming 200 as max
+                  const color = totalQueue > 100 ? 'bg-red-600' : totalQueue > 50 ? 'bg-yellow-600' : 'bg-green-600';
+                  return <div className={`${color} h-2 rounded-full`} style={{ width: `${percentage}%` }}></div>;
+                })()}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                Normalizer: {queueMetrics.normalizer || 0} | 
+                Correlator: {queueMetrics.correlator || 0} | 
+                Risk: {queueMetrics.risk || 0}
+              </div>
+            </div>
+          )}
+          {workerMetrics.length > 0 && (
+            <div>
+              <div className="flex justify-between mb-1">
+                <span className="text-sm text-gray-600">Worker Load</span>
+                <span className="text-sm text-gray-600">
+                  {workerMetrics.filter((w: any) => w.status === 'healthy').length}/{workerMetrics.length} healthy
+                </span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                {(() => {
+                  const healthyCount = workerMetrics.filter((w: any) => w.status === 'healthy').length;
+                  const percentage = workerMetrics.length > 0 ? (healthyCount / workerMetrics.length) * 100 : 0;
+                  const color = percentage >= 80 ? 'bg-green-600' : percentage >= 50 ? 'bg-yellow-600' : 'bg-red-600';
+                  return <div className={`${color} h-2 rounded-full`} style={{ width: `${percentage}%` }}></div>;
+                })()}
+              </div>
+              <div className="text-xs text-gray-500 mt-1">
+                {workerMetrics.map((w: any) => `${w.type}: ${w.status}`).join(' | ')}
+              </div>
+            </div>
+          )}
+          {!queueMetrics && !workerMetrics.length && (
+            <div className="text-center py-4 text-gray-500 text-sm">
+              Loading system metrics...
+            </div>
+          )}
+        </div>
+      </Card>
+    </div>
+  );
+};

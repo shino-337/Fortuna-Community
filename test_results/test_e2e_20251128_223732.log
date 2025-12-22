@@ -1,0 +1,21 @@
+[0;32m[TEST][0m Starting End-to-End Tests...
+[0;32m[TEST][0m Test log: ./test_results/test_e2e_20251128_223732.log
+[0;32m[TEST][0m Timestamp: 20251128_223732
+[0;32m[TEST][0m === Test 1: Core Service Health ===
+[0;32m[TEST][0m ✅ Core Pod Exists: PASS - Found pod: ksam-core-64f8d4467c-82xd4
+[0;31m[ERROR][0m ❌ Core Pod Ready: FAIL - Pod not ready
+[0;32m[TEST][0m ✅ Core HTTP Health: PASS - Health endpoint responding
+[0;32m[TEST][0m ✅ Core NATS Connection: PASS - NATS connected
+[0;32m[TEST][0m ✅ Core Worker Pool: PASS - Found 5 workers started
+[0;32m[TEST][0m === Test 2: Agent Service ===
+[0;32m[TEST][0m ✅ Agent Pods Running: PASS - Found 1 agent pods
+[0;31m[ERROR][0m ❌ Agent Registration: FAIL - Registration not found in logs
+[0;32m[TEST][0m === Test 3: NATS Streams ===
+[0;31m[ERROR][0m ❌ NATS Streams Created: FAIL - No streams found (may need Core to connect first)
+[0;32m[TEST][0m === Test 4: gRPC Communication ===
+[0;32m[TEST][0m ✅ gRPC Port Exposed: PASS - gRPC port 9090 exposed
+[0;32m[TEST][0m ✅ gRPC Server Running: PASS - gRPC server started
+[0;32m[TEST][0m === Test 5: Data Flow ===
+[0;31m[ERROR][0m ❌ Agent Data Collection: FAIL - No data collection logs found yet
+[0;31m[ERROR][0m ❌ Core Data Processing: FAIL - No data processing logs found yet
+[0;32m[TEST][0m === Test Summary ===

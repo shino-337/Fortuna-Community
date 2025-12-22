@@ -1,10 +1,12 @@
 package storage
 
 import (
+	"log"
 	"time"
 
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"github.com/ksam/core/internal/config"
 	"github.com/ksam/core/migrations"
@@ -12,7 +14,12 @@ import (
 
 func New(cfg *config.Config) (*gorm.DB, error) {
 	// Configure connection pool for better performance
-	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), &gorm.Config{})
+	gormConfig := &gorm.Config{}
+	// ✅ ALWAYS enable SQL logging to debug risk trends API issue
+	// This will help us see the actual SQL queries being executed
+	gormConfig.Logger = logger.Default.LogMode(logger.Info) // Log SQL queries
+	log.Printf("[Storage] SQL logging enabled (LogLevel: %s)", cfg.LogLevel)
+	db, err := gorm.Open(postgres.Open(cfg.DatabaseURL), gormConfig)
 	if err != nil {
 		return nil, err
 	}

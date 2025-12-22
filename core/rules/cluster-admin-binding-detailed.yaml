@@ -1,0 +1,25 @@
+# Cluster Admin Binding Rule (Detailed)
+# Detects ClusterRoleBindings granting cluster-admin to ServiceAccounts
+
+id: cluster-admin-binding-detailed
+name: "ClusterRoleBinding grants cluster-admin to ServiceAccount"
+category: rbac
+severity: critical
+description: "A ClusterRoleBinding grants cluster-admin ClusterRole to a ServiceAccount, providing full cluster access"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "ClusterRoleBinding" &&
+      ((has(object.roleRef) && object.roleRef.name == "cluster-admin") ||
+       (has(object.role_name) && object.role_name == "cluster-admin"))
+
+aggregation: AND
+base_score: 10.0
+tags:
+  - cluster-admin
+  - critical
+  - clusterrolebinding
+  - overprivileged
+

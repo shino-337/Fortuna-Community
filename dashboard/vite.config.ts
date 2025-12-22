@@ -5,20 +5,15 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    port: 3000,
     proxy: {
       '/api': {
         target: 'http://localhost:8080',
         changeOrigin: true,
       },
+      '/metrics': {
+        target: 'http://localhost:8080',
+        changeOrigin: true,
+      },
     },
-  },
-  build: {
-    // Use esbuild (default) for minification - it's faster than terser
-    minify: 'esbuild',
-  },
-  esbuild: {
-    // Remove console logs in production
-    drop: ['console', 'debugger'],
   },
 })

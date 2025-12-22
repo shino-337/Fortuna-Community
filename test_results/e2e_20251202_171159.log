@@ -1,0 +1,13 @@
+==========================================
+KSAM End-to-End Comprehensive Test Suite
+==========================================
+Date: Tue Dec  2 17:11:59 +07 2025
+Namespace: ksam
+Report Directory: test_results/e2e_20251202_171159
+
+
+==========================================
+TEST SUITE 1: Infrastructure & Health Checks
+==========================================
+[0;34m[INFO][0m Test 1.1: Core Pod Status
+[0;32m[PASS][0m Core pod is running: ksam-core-795599988-zjjwb

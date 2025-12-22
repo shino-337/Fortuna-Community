@@ -1,0 +1,59 @@
+apiVersion: v1
+kind: PolicyTemplate
+metadata:
+  name: test-required-labels
+spec:
+  templateId: test-required-labels
+  version: v1.0.0
+  name: Test Required Labels Policy
+  description: Test policy to ensure required labels are present on resources
+  category: compliance
+  defaultSeverity: medium
+  celExpression: |
+    has(resource.metadata.labels, 'app') &&
+    has(resource.metadata.labels, 'version') &&
+    has(resource.metadata.labels, 'environment')
+  defaultScope:
+    resourceTypes:
+      - Pod
+      - Deployment
+      - Service
+    clusters: []
+    namespaces: []
+  defaultAction: warn
+  supportsRemediation: false
+  rationale: |
+    Resources should have standard labels (app, version, environment)
+    for proper organization and management in Kubernetes clusters.
+  references:
+    - https://kubernetes.io/docs/concepts/overview/working-with-objects/common-labels/
+  examples:
+    - name: Violation Example
+      description: Pod missing required labels
+      resource:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: unlabeled-pod
+          labels: {}
+        spec:
+          containers:
+            - name: test
+              image: nginx
+    - name: Compliant Example
+      description: Pod with all required labels
+      resource:
+        apiVersion: v1
+        kind: Pod
+        metadata:
+          name: labeled-pod
+          labels:
+            app: myapp
+            version: v1.0.0
+            environment: production
+        spec:
+          containers:
+            - name: test
+              image: nginx
+  isSystem: false
+

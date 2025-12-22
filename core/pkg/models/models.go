@@ -10,6 +10,7 @@ import (
 type Cluster struct {
 	ID         string         `gorm:"primaryKey" json:"id"`
 	Name       string         `gorm:"not null" json:"name"`
+	Region     string         `json:"region"`                      // Region field from IMPLEMENTATION_GUIDE
 	Endpoint   string         `json:"endpoint"`
 	Kubeconfig string         `gorm:"type:text" json:"-"`           // Kubeconfig content (not exposed in JSON for security)
 	Status     string         `gorm:"default:active" json:"status"` // active, inactive, error
@@ -23,20 +24,24 @@ type Cluster struct {
 	ClusterRoleBindings []ClusterRoleBinding `gorm:"foreignKey:ClusterID" json:"clusterRoleBindings,omitempty"`
 	Roles               []Role               `gorm:"foreignKey:ClusterID" json:"roles,omitempty"`
 	ClusterRoles        []ClusterRole        `gorm:"foreignKey:ClusterID" json:"clusterRoles,omitempty"`
+	Deployments         []Deployment         `gorm:"foreignKey:ClusterID" json:"deployments,omitempty"`
+	ReplicaSets         []ReplicaSet         `gorm:"foreignKey:ClusterID" json:"replicaSets,omitempty"`
 }
 
 // ServiceAccount represents a Kubernetes ServiceAccount
 type ServiceAccount struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index" json:"clusterId"`
-	Name      string         `gorm:"not null;index" json:"name"`
-	Namespace string         `gorm:"not null;index" json:"namespace"`
-	UID       string         `gorm:"not null;index" json:"uid"`
-	Labels    string         `gorm:"type:jsonb" json:"labels"`  // JSON string
-	Secrets   string         `gorm:"type:jsonb" json:"secrets"` // JSON array
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `gorm:"index" json:"-"`
+	ID         uint           `gorm:"primaryKey" json:"id"`
+	ClusterID  string         `gorm:"not null;index" json:"clusterId"`
+	Name       string         `gorm:"not null;index" json:"name"`
+	Namespace  string         `gorm:"not null;index" json:"namespace"`
+	UID        string         `gorm:"not null;index" json:"uid"`
+	Labels     string         `gorm:"type:jsonb" json:"labels"`      // JSON string
+	Secrets    string         `gorm:"type:jsonb" json:"secrets"`     // JSON array
+	LinkedPods string         `gorm:"type:jsonb" json:"linkedPods"`  // JSON array of pod UIDs
+	LastUsed   *time.Time     `json:"lastUsed"`                      // Last usage timestamp
+	CreatedAt  time.Time      `json:"createdAt"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 
 	Cluster Cluster `gorm:"foreignKey:ClusterID" json:"cluster,omitempty"`
 }
@@ -109,11 +114,15 @@ type Pod struct {
 	Namespace      string         `gorm:"not null;index" json:"namespace"`
 	ServiceAccount string         `gorm:"not null;index" json:"serviceAccount"`
 	UID            string         `gorm:"not null;index" json:"uid"`
+	Containers     string         `gorm:"type:jsonb" json:"containers"`     // JSON array of container info
+	ImageDigests   string         `gorm:"type:jsonb" json:"imageDigests"` // JSON array of image digests
+	NodeID         *uint          `gorm:"index" json:"nodeId"`            // Reference to nodes table
 	CreatedAt      time.Time      `json:"createdAt"`
 	UpdatedAt      time.Time      `json:"updatedAt"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`
 
 	Cluster Cluster `gorm:"foreignKey:ClusterID" json:"cluster,omitempty"`
+	Node    *Node   `gorm:"foreignKey:NodeID" json:"node,omitempty"`
 }
 
 // AuditLog represents an audit log entry
