@@ -37,15 +37,15 @@ func (m *Matcher) MatchSBOM(
 	ctx context.Context,
 	sbom *models.SBOM,
 ) ([]*models.CVEMatch, error) {
-	m.logger.Printf("Matching CVEs for SBOM ID %d (%d components)", sbom.ID, sbom.ComponentCount)
+	m.logger.Printf("Matching CVEs for SBOM ID %d (%d packages)", sbom.ID, sbom.PackageCount)
 
 	// Load SBOM components
 	var components []models.SBOMComponent
-	if err := m.db.WithContext(ctx).
-		Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).
-		Find(&components).Error; err != nil {
-		return 0.0, fmt.Errorf("failed to load SBOM components: %w", err)
-	}
+		if err := m.db.WithContext(ctx).
+			Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).
+			Find(&components).Error; err != nil {
+			return nil, fmt.Errorf("failed to load SBOM components: %w", err)
+		}
 
 	m.logger.Printf("Found %d components to match", len(components))
 
@@ -97,17 +97,20 @@ func (m *Matcher) MatchSBOM(
 				continue // Not vulnerable
 			}
 
-			// 4. Create match
+			// 4. Create match (using new schema - no ComponentID, CVSSScore is float32)
 			match := &models.CVEMatch{
-				SBOMID:      sbom.ID,
-				ComponentID: component.ID,
-				CVEID:       cveData.ID,
-				Severity:    strings.ToUpper(cveData.Severity),
-				CVSSScore:   &cveData.CVSSScore,
-				FixedVersion: cveData.FixedVersion,
-				MatchedAt:   component.CreatedAt, // Use component creation time
-				Matcher:     "custom",
-				DBVersion:   "", // Will be set if available
+				SBOMID:         sbom.ID,
+				PodUID:         sbom.PodUID,
+				ContainerName:  sbom.ContainerName,
+				CVEID:          cveData.ID,
+				PackageName:    component.ComponentName,
+				PackageVersion: component.ComponentVersion,
+				PURL:           component.PURL,
+				Severity:       strings.ToUpper(cveData.Severity),
+				CVSS:           float32(cveData.CVSSScore), // Convert to float32
+				FixedVersion:   cveData.FixedVersion,
+				MatchedBy:      "fortuna-core-cve-matcher",
+				MatchedAt:      component.CreatedAt,
 			}
 
 			matches = append(matches, match)

@@ -269,7 +269,7 @@ func ResolveInsight(db *gorm.DB) gin.HandlerFunc {
 
 		// Update insight status to 'resolved'
 		insight.Status = "resolved"
-		insight.RecommendedAction = request.Resolution
+		insight.Recommendation = request.Resolution
 		insight.UpdatedAt = time.Now()
 
 		if err := db.Save(&insight).Error; err != nil {

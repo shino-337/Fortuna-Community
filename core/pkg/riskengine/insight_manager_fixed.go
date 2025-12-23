@@ -1,6 +1,10 @@
+// This file contains fixed version of insight_manager.go
+// TODO: Replace original file after verification
+
 package riskengine
 
 import (
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -9,16 +13,6 @@ import (
 
 	"github.com/fortuna/core/pkg/models"
 )
-
-// InsightManager manages insight creation and updates
-type InsightManager struct {
-	db *gorm.DB
-}
-
-// NewInsightManager creates a new InsightManager
-func NewInsightManager(db *gorm.DB) *InsightManager {
-	return &InsightManager{db: db}
-}
 
 // createOrUpdateInsightTx performs the actual work within a transaction
 // UPDATED: Uses new Insight schema (no AffectedResources JSONB, direct resource fields)
@@ -188,30 +182,6 @@ func (m *InsightManager) scheduleRiskScoreCalculation(insight *models.Insight) {
 	// Schedule risk score calculation for the resource
 	// This is a placeholder - actual implementation depends on risk engine architecture
 	log.Printf("[InsightManager] Scheduling risk score calculation for resource_uid=%s", insight.ResourceUID)
-}
-
-// CreateOrUpdateInsight creates or updates an insight (public API)
-func (m *InsightManager) CreateOrUpdateInsight(insight *models.Insight) error {
-	return m.db.Transaction(func(tx *gorm.DB) error {
-		return m.createOrUpdateInsightTx(tx, insight)
-	})
-}
-
-// BatchCreateOrUpdateInsights processes multiple insights in batch
-func (m *InsightManager) BatchCreateOrUpdateInsights(insights []*models.Insight) error {
-	return m.db.Transaction(func(tx *gorm.DB) error {
-		for _, insight := range insights {
-			if err := m.createOrUpdateInsightTx(tx, insight); err != nil {
-				return err
-			}
-		}
-		return nil
-	})
-}
-
-// Stop stops the insight manager (placeholder for async workers)
-func (m *InsightManager) Stop() {
-	// No async workers in simplified version
 }
 
 // GetInsightsByType returns insights by type

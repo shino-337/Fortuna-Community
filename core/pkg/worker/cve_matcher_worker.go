@@ -129,8 +129,8 @@ func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models
 		if m.MatchedAt.IsZero() {
 			m.MatchedAt = now
 		}
-		if m.Matcher == "" {
-			m.Matcher = "postgres-osv"
+		if m.MatchedBy == "" {
+			m.MatchedBy = "fortuna-core-cve-matcher"
 		}
 	}
 
@@ -172,34 +172,24 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, component *models.SBOMC
 	)
 
 	return &models.Insight{
-		Type:        "vulnerability",
-		Severity:    sevLower,
-		Description: description,
-		Status:      "active",
-		Source:      "cve-sbom-scanner",
-		AffectedResources: models.ToJSONBString([]map[string]interface{}{{
-			"type":      "Pod",
-			"uid":       ev.PodUID,
-			"name":      ev.PodName,
-			"namespace": ev.PodNamespace,
-			"clusterId": ev.ClusterID,
-			"container": ev.ContainerName,
-			"image":     ev.ContainerImage,
-			"component": component.ComponentName,
-			"version":   component.ComponentVersion,
-		}}),
-		RecommendedAction: fmt.Sprintf("Update image/package to a fixed version (package %s -> %s, or update image %s).",
+		ResourceType:      "Pod",
+		ResourceNamespace: ev.PodNamespace,
+		ResourceName:      ev.PodName,
+		ResourceUID:       ev.PodUID,
+		InsightType:       "vulnerability",
+		Severity:          sevLower,
+		Title:             fmt.Sprintf("%s in %s", match.CVEID, component.ComponentName),
+		Description:       description,
+		Status:            "active",
+		Recommendation:    fmt.Sprintf("Update image/package to a fixed version (package %s -> %s, or update image %s).",
 			component.ComponentName, match.FixedVersion, ev.ContainerImage),
 
 		// CVE specific fields
-		CVEID:            match.CVEID,
-		CVSSScore:        match.CVSSScore,
-		PackageName:      component.ComponentName,
-		InstalledVersion: component.ComponentVersion,
-		FixedVersion:     match.FixedVersion,
-
-		// Traceability
-		SBOMID:     &ev.SBOMID,
-		CVEMatchID: &match.ID,
+		CVEID:             match.CVEID,
+		CVSS:              match.CVSS, // float32
+		AffectedComponent: component.ComponentName,
+		AffectedVersion:   component.ComponentVersion,
+		FixedVersion:      match.FixedVersion,
+		DetectedAt:        time.Now(),
 	}
 }

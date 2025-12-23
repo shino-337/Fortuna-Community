@@ -316,16 +316,7 @@ func (e *Engine) createInsight(rule Rule, resourceType string, resourceData map[
 
 	name, _ := resourceData["name"].(string)
 	namespace, _ := resourceData["namespace"].(string)
-
-	// Build affected resources
-	affectedResources := []map[string]interface{}{
-		{
-			"type":      resourceType,
-			"name":      name,
-			"namespace": namespace,
-		},
-	}
-	affectedResourcesJSON, _ := json.Marshal(affectedResources)
+	uid, _ := resourceData["uid"].(string)
 
 	// Build description
 	description := fmt.Sprintf("%s: %s", rule.Name, rule.Description)
@@ -337,12 +328,17 @@ func (e *Engine) createInsight(rule Rule, resourceType string, resourceData map[
 	recommendedAction := e.getRecommendedAction(rule, resourceType)
 
 	return &models.Insight{
-		Type:              string(rule.Category),
+		ResourceType:      resourceType,
+		ResourceNamespace: namespace,
+		ResourceName:      name,
+		ResourceUID:       uid,
+		InsightType:       string(rule.Category),
+		Title:             rule.Name,
 		Description:       description,
-		AffectedResources: string(affectedResourcesJSON),
 		Severity:          string(rule.Severity),
-		RecommendedAction: recommendedAction,
+		Recommendation:    recommendedAction,
 		Status:            "active", // Explicitly set status to 'active'
+		DetectedAt:        time.Now(),
 		CreatedAt:         time.Now(),
 		UpdatedAt:         time.Now(),
 	}

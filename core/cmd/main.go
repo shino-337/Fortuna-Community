@@ -135,8 +135,9 @@ func main() {
 	log.Printf("[Main] About to add workers to pool...")
 	log.Printf("[Main] WorkerPool check: workerPool == nil: %v", workerPool == nil)
 	log.Printf("[Main] Adding workers to pool...")
-	workerPool.AddWorker(worker.NewNormalizerWorker(js, db))
-	log.Printf("[Main] ✅ Added NormalizerWorker")
+	// NormalizerWorker removed - normalization done in handlers
+	// workerPool.AddWorker(worker.NewNormalizerWorker(js, db))
+	log.Printf("[Main] ✅ NormalizerWorker skipped (handled in handlers)")
 	workerPool.AddWorker(worker.NewCorrelatorWorker(js, db))
 	log.Printf("[Main] ✅ Added CorrelatorWorker")
 	workerPool.AddWorker(worker.NewRiskWorker(js, db)) // Add Risk Engine worker

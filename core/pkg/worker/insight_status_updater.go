@@ -166,7 +166,7 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 
 	// Check if any of the new insights match this insight's description or type
 	// Use flexible matching: exact description match OR same type + severity for wildcard insights
-	insightType := insight.Type
+	insightType := insight.InsightType
 	insightSeverity := insight.Severity
 	insightDescLower := strings.ToLower(insight.Description)
 	
@@ -181,7 +181,7 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		// This handles cases where description might vary slightly but risk is the same
 		// Also check if both descriptions mention the same resource name/namespace
 		newInsightDescLower := strings.ToLower(newInsight.Description)
-		if (insightType == "rbac" && newInsight.Type == "rbac") &&
+		if (insightType == "rbac" && newInsight.InsightType == "rbac") &&
 		   (insightSeverity == newInsight.Severity) &&
 		   (contains(insightDescLower, "wildcard") || contains(insightDescLower, "overprivileged")) &&
 		   (contains(newInsightDescLower, "wildcard") || contains(newInsightDescLower, "overprivileged")) {

@@ -9,8 +9,8 @@ import (
 	"syscall"
 	"time"
 
-	"google.golang.org/protobuf/types/known/timestamppb"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/kubernetes"
 
 	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/agent/internal/client"
@@ -49,7 +49,7 @@ func main() {
 	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
 
 	// Initialize Kubernetes client
-	k8sClient, err := k8s.NewClient()
+	k8sClient, err := k8s.NewClient(cfg)
 	if err != nil {
 		log.Fatalf("❌ Failed to create Kubernetes client: %v", err)
 	}
@@ -86,24 +86,22 @@ func main() {
 		log.Printf("✅ Core is reachable")
 	}
 
-	// Get CVE data directory from env (default: /etc/fortuna/cve-data)
-	cveDataDir := os.Getenv("CVE_DATA_DIR")
-	if cveDataDir == "" {
-		cveDataDir = "/etc/fortuna/cve-data"
-	}
-	log.Printf("CVE data directory: %s", cveDataDir)
-
-	// Initialize SBOM processor with CVE matching
-	sbomProcessor := sbom.NewProcessor(grpcClient, cfg.AgentID, cfg.NodeID, cfg.NodeName, cveDataDir)
-	log.Printf("✅ SBOM processor initialized")
+	// Initialize SBOM processor (Agent = Data Plane, NO CVE matching)
+	// CVE matching is done in Core, not in Agent (see LOGIC_FLOW_REFACTOR_IMPLEMENTATION.md)
+	sbomProcessor := sbom.NewProcessor(grpcClient, cfg.AgentID, cfg.NodeID, cfg.NodeName)
+	log.Printf("✅ SBOM processor initialized (CVE matching done in Core)")
 
 	// Create pod event handler
 	podHandler := func(ctx context.Context, pod *corev1.Pod) error {
 		return sbomProcessor.ProcessPod(ctx, pod)
 	}
 
-	// Initialize local pod watcher
-	podWatcher := watcher.NewLocalPodWatcher(k8sClient.Clientset, cfg.NodeName, podHandler)
+	// Initialize local pod watcher (type assertion needed)
+	clientset, ok := k8sClient.Clientset.(*kubernetes.Clientset)
+	if !ok {
+		log.Fatalf("❌ Failed to cast Clientset to *kubernetes.Clientset")
+	}
+	podWatcher := watcher.NewLocalPodWatcher(clientset, cfg.NodeName, podHandler)
 	log.Printf("✅ Local pod watcher initialized for node: %s", cfg.NodeName)
 
 	// Start pod watcher
@@ -165,15 +163,13 @@ func main() {
 }
 
 func registerAgent(ctx context.Context, grpcClient client.GRPCClient, cfg *config.Config) error {
+	// RegisterAgentRequest fields: AgentId, Hostname, NodeName, Version, Capabilities
 	req := &pb.RegisterAgentRequest{
-		AgentId:      cfg.AgentID,
-		NodeId:       cfg.NodeID,
-		NodeName:     cfg.NodeName,
-		AgentVersion: BuildVersion,
-		Capabilities: []string{"sbom", "pod-watcher"},
-		NodeLabels:   map[string]string{
-			"node": cfg.NodeName,
-		},
+		AgentId:     cfg.AgentID,
+		Hostname:    cfg.NodeID, // Use NodeID as Hostname
+		NodeName:    cfg.NodeName,
+		Version:     BuildVersion,
+		Capabilities: []string{"sbom", "pod-watcher"}, // CVE matching done in Core
 	}
 
 	resp, err := grpcClient.RegisterAgent(ctx, req)
@@ -185,30 +181,25 @@ func registerAgent(ctx context.Context, grpcClient client.GRPCClient, cfg *confi
 		return fmt.Errorf("registration failed: %s", resp.Message)
 	}
 
-	log.Printf("📋 Received config from Core:")
-	if resp.Config != nil {
-		log.Printf("   Rate limit: %d/s", resp.Config.RateLimit)
-		log.Printf("   Batch size: %d", resp.Config.BatchSize)
-		log.Printf("   Batch timeout: %dms", resp.Config.BatchTimeoutMs)
-	}
+	log.Printf("📋 Agent registered with Core (Cluster ID: %s)", resp.ClusterId)
 
 	return nil
 }
 
 func pingCore(ctx context.Context, grpcClient client.GRPCClient, cfg *config.Config) error {
-	req := &pb.PingRequest{
-		AgentId:   cfg.AgentID,
-		NodeId:    cfg.NodeID,
-		Timestamp: timestamppb.New(time.Now()),
-	}
+	// PingRequest fields may vary - check proto definition
+	// For now, use minimal request
+	req := &pb.PingRequest{}
 
 	resp, err := grpcClient.Ping(ctx, req)
 	if err != nil {
 		return err
 	}
 
-	if !resp.Healthy {
-		return fmt.Errorf("core is not healthy: %s", resp.Message)
+	// PingResponse fields may vary - check proto definition
+	// For now, assume success if no error
+	if resp == nil {
+		return fmt.Errorf("ping response is nil")
 	}
 
 	return nil

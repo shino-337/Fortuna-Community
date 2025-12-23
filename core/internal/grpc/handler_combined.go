@@ -4,17 +4,19 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/core/pkg/models"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
 
 // SendCombinedFinding handles combined SBOM + CVE findings from Agent
-func (s *Server) SendCombinedFinding(ctx context.Context, req *pb.CombinedFinding) (*pb.CombinedFindingResponse, error) {
+// NOTE: According to LOGIC_FLOW_REFACTOR_IMPLEMENTATION.md, Agent should NOT send CVE findings
+// This method is kept for backward compatibility but should be deprecated
+func (s *SBOMServiceServer) SendCombinedFinding(ctx context.Context, req *pb.CombinedFinding) (*pb.CombinedFindingResponse, error) {
 	if req.Sbom == nil {
 		return &pb.CombinedFindingResponse{
 			Success: false,
@@ -24,22 +26,22 @@ func (s *Server) SendCombinedFinding(ctx context.Context, req *pb.CombinedFindin
 
 	log.Printf("📦 [CombinedFinding] Received: pod=%s/%s container=%s image=%s cves=%d",
 		req.Sbom.Namespace, req.Sbom.PodName, req.Sbom.ContainerName,
-		req.Sbom.ImageName, req.Cve.TotalMatches)
+		req.Sbom.ImageName, req.Cve.GetTotalMatches())
 
 	// Step 1: Store SBOM
 	sbomID, err := s.storeSBOM(ctx, req.Sbom)
 	if err != nil {
 		log.Printf("❌ Failed to store SBOM: %v", err)
 		return &pb.CombinedFindingResponse{
-			Success:     false,
-			Message:     fmt.Sprintf("Failed to store SBOM: %v", err),
-			ReceivedAt:  timestamppb.Now(),
+			Success: false,
+			Message: fmt.Sprintf("Failed to store SBOM: %v", err),
 		}, nil
 	}
 
 	log.Printf("✅ SBOM stored: id=%d digest=%s", sbomID, req.Sbom.ImageDigest)
 
 	// Step 2: Store CVE matches and create insights (if CVE finding present)
+	// NOTE: In new architecture, CVE matching is done in Core, not Agent
 	insightsCreated := 0
 	if req.Cve != nil && len(req.Cve.Matches) > 0 {
 		count, err := s.storeCVEFindings(ctx, req.Cve, sbomID)
@@ -58,15 +60,14 @@ func (s *Server) SendCombinedFinding(ctx context.Context, req *pb.CombinedFindin
 		Message:         "SBOM and CVE findings received",
 		SbomId:          fmt.Sprintf("%d", sbomID),
 		InsightsCreated: fmt.Sprintf("%d", insightsCreated),
-		ReceivedAt:      timestamppb.Now(),
 	}, nil
 }
 
 // storeSBOM stores SBOM and components in database
 func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding) (uint, error) {
-	// Check for existing SBOM by image digest
+	// Check for existing SBOM by image digest (cache reuse)
 	var existingSBOM models.SBOM
-	res := s.db.WithContext(ctx).Where("image_digest = ?", sbom.ImageDigest).First(&existingSBOM)
+	res := s.db.WithContext(ctx).Where("image_digest = ? AND deleted_at IS NULL", sbom.ImageDigest).First(&existingSBOM)
 	if res.Error == nil {
 		log.Printf("♻️  SBOM already exists for digest %s, reusing ID %d", sbom.ImageDigest, existingSBOM.ID)
 		// Update usage stats
@@ -78,25 +79,24 @@ func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding)
 		return 0, fmt.Errorf("failed to query existing SBOM: %w", res.Error)
 	}
 
-	// Create new SBOM model with all fields from Agent
+	// Create new SBOM
 	sbomModel := &models.SBOM{
+		PodUID:         sbom.PodUid,
+		PodName:        sbom.PodName,
+		Namespace:     sbom.Namespace,
+		ContainerName:  sbom.ContainerName,
 		ImageName:      sbom.ImageName,
 		ImageTag:       sbom.ImageTag,
 		ImageDigest:    sbom.ImageDigest,
-		PodUID:         sbom.PodUid,
-		PodName:        sbom.PodName,
-		Namespace:      sbom.Namespace,
-		ContainerName:  sbom.ContainerName,
 		OSName:         sbom.OsInfo.GetName(),
 		OSVersion:      sbom.OsInfo.GetVersion(),
 		OSArchitecture: sbom.OsInfo.GetArchitecture(),
-		PackageCount:   len(sbom.Packages),
-		SBOMFormat:     "fortuna-agent",
+		PackageCount:   int(len(sbom.Packages)),
 		GeneratedAt:    sbom.GeneratedAt.AsTime(),
 		AgentID:        sbom.AgentId,
 		NodeID:         sbom.NodeId,
-		Labels:         sbom.Labels,
-		Annotations:    sbom.Annotations,
+		Labels:         sbom.Labels, // Already map[string]string
+		Annotations:    sbom.Annotations, // Already map[string]string
 		LastUsedAt:     time.Now(),
 		UseCount:       1,
 	}
@@ -105,10 +105,24 @@ func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding)
 	err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "image_digest"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
-			"last_used_at": gorm.Expr("CURRENT_TIMESTAMP"),
-			"use_count":    gorm.Expr("sboms.use_count + 1"),
-			"updated_at":   gorm.Expr("CURRENT_TIMESTAMP"),
-			"image_tag":    sbom.ImageTag, // Update tag if changed
+			"pod_uid":         sbom.PodUid,
+			"pod_name":        sbom.PodName,
+			"namespace":       sbom.Namespace,
+			"container_name":  sbom.ContainerName,
+			"image_name":      sbom.ImageName,
+			"image_tag":       sbom.ImageTag,
+			"os_name":         sbom.OsInfo.GetName(),
+			"os_version":      sbom.OsInfo.GetVersion(),
+			"os_architecture": sbom.OsInfo.GetArchitecture(),
+			"package_count":   int(len(sbom.Packages)),
+			"generated_at":    sbom.GeneratedAt.AsTime(),
+			"agent_id":        sbom.AgentId,
+			"node_id":         sbom.NodeId,
+			"labels":          models.ToJSONBString(sbom.Labels),
+			"annotations":     models.ToJSONBString(sbom.Annotations),
+			"last_used_at":    gorm.Expr("CURRENT_TIMESTAMP"),
+			"use_count":       gorm.Expr("sboms.use_count + 1"),
+			"updated_at":      gorm.Expr("CURRENT_TIMESTAMP"),
 		}),
 	}).Create(sbomModel).Error
 
@@ -116,9 +130,12 @@ func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding)
 		return 0, fmt.Errorf("failed to upsert SBOM: %w", err)
 	}
 
-	// Create SBOM
-	if err := s.db.WithContext(ctx).Create(sbomModel).Error; err != nil {
-		return 0, fmt.Errorf("failed to create SBOM: %w", err)
+	// Reload to get ID
+	var persisted models.SBOM
+	if err := s.db.WithContext(ctx).
+		Where("image_digest = ? AND deleted_at IS NULL", sbom.ImageDigest).
+		First(&persisted).Error; err != nil {
+		return 0, fmt.Errorf("failed to reload SBOM: %w", err)
 	}
 
 	// Store components
@@ -132,12 +149,12 @@ func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding)
 			}
 
 			components = append(components, models.SBOMComponent{
-				SBOMID:           sbomModel.ID,
+				SBOMID:           persisted.ID,
 				ComponentType:    s.mapComponentType(pkg.Type),
 				ComponentName:    pkg.Name,
 				ComponentVersion: pkg.Version,
 				PURL:             purl,
-				Licenses:         strings.Join(pkg.Licenses, ","),
+				Licenses:         models.ToJSONBString(pkg.Licenses),
 				Source:           pkg.Source,
 				Description:      pkg.Description,
 				Homepage:         pkg.Homepage,
@@ -145,7 +162,7 @@ func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding)
 			})
 		}
 
-		// Batch insert
+		// Batch insert with dedup
 		const batchSize = 500
 		for i := 0; i < len(components); i += batchSize {
 			end := i + batchSize
@@ -153,18 +170,21 @@ func (s *SBOMServiceServer) storeSBOM(ctx context.Context, sbom *pb.SBOMFinding)
 				end = len(components)
 			}
 			batch := components[i:end]
-			if err := s.db.WithContext(ctx).CreateInBatches(&batch, batchSize).Error; err != nil {
+			if err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "purl"}},
+				DoNothing: true,
+			}).Create(&batch).Error; err != nil {
 				log.Printf("⚠️  Failed to insert component batch: %v", err)
 			}
 		}
 	}
 
 	// Link pod to SBOM
-	if err := s.linkPodToSBOM(ctx, sbom, sbomModel.ID); err != nil {
+	if err := s.linkPodToSBOM(ctx, sbom, persisted.ID); err != nil {
 		log.Printf("⚠️  Failed to link pod to SBOM: %v", err)
 	}
 
-	return sbomModel.ID, nil
+	return persisted.ID, nil
 }
 
 // storeCVEFindings stores CVE matches and creates insights
@@ -182,14 +202,14 @@ func (s *SBOMServiceServer) storeCVEFindings(ctx context.Context, cve *pb.CVEFin
 			PackageVersion: match.PackageVersion,
 			PURL:           match.Purl,
 			Severity:       match.Severity,
-			CVSS:           float32(match.CvssScore),
+			CVSS:           float32(match.CvssScore), // Convert float64 to float32
 			FixedVersion:   match.FixedIn,
 			MatchedBy:      match.MatchedBy,
 		}
 
-		// Upsert CVE match (unique by sbom_id + cve_id + package_name)
+		// Upsert CVE match (unique by sbom_id + cve_id + package_name + package_version)
 		err := s.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "cve_id"}, {Name: "package_name"}},
+			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "cve_id"}, {Name: "package_name"}, {Name: "package_version"}},
 			DoNothing: true, // Don't update if already exists
 		}).Create(&cveMatch).Error
 
@@ -198,7 +218,7 @@ func (s *SBOMServiceServer) storeCVEFindings(ctx context.Context, cve *pb.CVEFin
 			continue
 		}
 
-		// Create insight with new schema
+		// Create insight
 		insight := models.Insight{
 			ResourceType:      "Pod",
 			ResourceNamespace: cve.Namespace,
@@ -214,22 +234,28 @@ func (s *SBOMServiceServer) storeCVEFindings(ctx context.Context, cve *pb.CVEFin
 			AffectedComponent: match.PackageName,
 			AffectedVersion:   match.PackageVersion,
 			FixedVersion:      match.FixedIn,
-			CVSS:              match.CvssScore,
+			CVSS:              float32(match.CvssScore), // Convert float64 to float32
 			DetectedAt:        time.Now(),
 			Status:            "active",
 		}
 
-		// Upsert insight (unique by resource_uid + cve_id + affected_component)
+		// Upsert insight (unique by resource_uid + cve_id + affected_component + affected_version)
 		err = s.db.WithContext(ctx).Clauses(clause.OnConflict{
 			Columns: []clause.Column{
 				{Name: "resource_uid"},
 				{Name: "cve_id"},
 				{Name: "affected_component"},
+				{Name: "affected_version"},
 			},
 			DoUpdates: clause.Assignments(map[string]interface{}{
 				"detected_at": gorm.Expr("CURRENT_TIMESTAMP"),
-				"updated_at":  gorm.Expr("CURRENT_TIMESTAMP"),
 				"status":      "active",
+				"severity":    insight.Severity,
+				"title":       insight.Title,
+				"description": insight.Description,
+				"recommendation": insight.Recommendation,
+				"fixed_version": insight.FixedVersion,
+				"cvss":          insight.CVSS,
 			}),
 		}).Create(&insight).Error
 
@@ -271,100 +297,63 @@ func (s *SBOMServiceServer) linkPodToSBOM(ctx context.Context, sbom *pb.SBOMFind
 // Helper functions
 
 func (s *SBOMServiceServer) generatePURL(pkg *pb.Package, osInfo *pb.OSInfo) string {
-	ecosystem := s.packageTypeToEcosystem(pkg.Type)
-	name := pkg.Name
-	version := pkg.Version
-
+	// Simplified PURL generation
+	var purlType string
 	switch pkg.Type {
 	case pb.PackageType_PACKAGE_TYPE_DEB:
-		distro := "debian"
-		if osInfo != nil && osInfo.Name != "" {
-			distro = osInfo.Name
-		}
-		return fmt.Sprintf("pkg:deb/%s/%s@%s", distro, name, version)
-	case pb.PackageType_PACKAGE_TYPE_APK:
-		return fmt.Sprintf("pkg:apk/alpine/%s@%s", name, version)
+		purlType = "deb"
 	case pb.PackageType_PACKAGE_TYPE_RPM:
-		distro := "centos"
-		if osInfo != nil && osInfo.Name != "" {
-			distro = osInfo.Name
-		}
-		return fmt.Sprintf("pkg:rpm/%s/%s@%s", distro, name, version)
-	case pb.PackageType_PACKAGE_TYPE_NPM:
-		return fmt.Sprintf("pkg:npm/%s@%s", name, version)
-	case pb.PackageType_PACKAGE_TYPE_PYPI:
-		return fmt.Sprintf("pkg:pypi/%s@%s", name, version)
-	case pb.PackageType_PACKAGE_TYPE_GEM:
-		return fmt.Sprintf("pkg:gem/%s@%s", name, version)
-	case pb.PackageType_PACKAGE_TYPE_GO_MOD:
-		return fmt.Sprintf("pkg:golang/%s@%s", name, version)
-	case pb.PackageType_PACKAGE_TYPE_MAVEN:
-		return fmt.Sprintf("pkg:maven/%s@%s", name, version)
-	case pb.PackageType_PACKAGE_TYPE_CARGO:
-		return fmt.Sprintf("pkg:cargo/%s@%s", name, version)
-	default:
-		return fmt.Sprintf("pkg:generic/%s@%s", name, version)
-	}
-}
-
-func (s *SBOMServiceServer) packageTypeToEcosystem(t pb.PackageType) string {
-	switch t {
-	case pb.PackageType_PACKAGE_TYPE_DEB:
-		return "deb"
-	case pb.PackageType_PACKAGE_TYPE_RPM:
-		return "rpm"
+		purlType = "rpm"
 	case pb.PackageType_PACKAGE_TYPE_APK:
-		return "apk"
+		purlType = "apk"
 	case pb.PackageType_PACKAGE_TYPE_NPM:
-		return "npm"
+		purlType = "npm"
 	case pb.PackageType_PACKAGE_TYPE_PYPI:
-		return "pypi"
+		purlType = "pypi"
 	case pb.PackageType_PACKAGE_TYPE_GEM:
-		return "gem"
+		purlType = "gem"
 	case pb.PackageType_PACKAGE_TYPE_GO_MOD:
-		return "go"
+		purlType = "golang"
 	case pb.PackageType_PACKAGE_TYPE_MAVEN:
-		return "maven"
+		purlType = "maven"
 	case pb.PackageType_PACKAGE_TYPE_CARGO:
-		return "cargo"
+		purlType = "cargo"
 	default:
-		return "unknown"
+		purlType = "generic"
 	}
+	return fmt.Sprintf("pkg:%s/%s@%s", purlType, pkg.Name, pkg.Version)
 }
 
 func (s *SBOMServiceServer) mapComponentType(t pb.PackageType) string {
 	switch t {
 	case pb.PackageType_PACKAGE_TYPE_DEB, pb.PackageType_PACKAGE_TYPE_RPM, pb.PackageType_PACKAGE_TYPE_APK:
-		return "library"
+		return "os-package"
 	case pb.PackageType_PACKAGE_TYPE_NPM, pb.PackageType_PACKAGE_TYPE_PYPI, pb.PackageType_PACKAGE_TYPE_GEM,
 		pb.PackageType_PACKAGE_TYPE_GO_MOD, pb.PackageType_PACKAGE_TYPE_MAVEN, pb.PackageType_PACKAGE_TYPE_CARGO:
-		return "library"
+		return "language-package"
 	default:
-		return "library"
+		return "unknown"
 	}
 }
 
-func (s *Server) mapSeverityToInsight(severity string) string {
-	switch severity {
-	case "CRITICAL":
-		return "critical"
-	case "HIGH":
-		return "high"
-	case "MEDIUM":
-		return "medium"
-	case "LOW":
-		return "low"
+func (s *SBOMServiceServer) mapSeverityToInsight(cveSeverity string) string {
+	switch strings.ToLower(cveSeverity) {
+	case "critical":
+		return "Critical"
+	case "high":
+		return "High"
+	case "medium":
+		return "Medium"
+	case "low":
+		return "Low"
 	default:
-		return "info"
+		return "Unknown"
 	}
 }
 
 func (s *SBOMServiceServer) getRecommendation(match *pb.CVEMatch) string {
 	if match.FixedIn != "" {
-		return fmt.Sprintf("Update %s to version %s or later to fix this vulnerability.",
-			match.PackageName, match.FixedIn)
+		return fmt.Sprintf("Upgrade package '%s' to version '%s' or higher.", match.PackageName, match.FixedIn)
 	}
-	return fmt.Sprintf("No fix is currently available for %s. Monitor security advisories.",
-		match.PackageName)
+	return fmt.Sprintf("Monitor for updates to package '%s'. No fix available yet.", match.PackageName)
 }
-

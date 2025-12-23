@@ -165,20 +165,17 @@ func (s *Scorer) getResourceInfo(ctx context.Context, resourceUID string, insigh
 		ComplianceFrameworks: []string{},
 	}
 
-	// Try to get from first insight's affected resources
+	// Use direct resource fields from Insight model (no JSONB parsing)
 	if len(insights) > 0 {
-		var resources []map[string]interface{}
-		if err := json.Unmarshal([]byte(insights[0].AffectedResources), &resources); err == nil && len(resources) > 0 {
-			res := resources[0]
-			if name, ok := res["name"].(string); ok {
-				info.ResourceName = name
-			}
-			if ns, ok := res["namespace"].(string); ok {
-				info.Namespace = ns
-			}
-			if rtype, ok := res["type"].(string); ok {
-				info.ResourceType = rtype
-			}
+		insight := insights[0]
+		if insight.ResourceName != "" {
+			info.ResourceName = insight.ResourceName
+		}
+		if insight.ResourceNamespace != "" {
+			info.Namespace = insight.ResourceNamespace
+		}
+		if insight.ResourceType != "" {
+			info.ResourceType = insight.ResourceType
 		}
 	}
 
@@ -434,9 +431,9 @@ func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 	for _, insight := range insights {
 		score := 0.0
 
-		// For CVE insights: Use exploit_available field directly
-		if insight.Type == "vulnerability" && insight.ExploitAvailable {
-			// Check exploit maturity from description or use default
+		// For CVE insights: Check exploit from description (ExploitAvailable field removed)
+		if insight.InsightType == "vulnerability" {
+			// Check exploit maturity from description
 			desc := strings.ToLower(insight.Description)
 			if strings.Contains(desc, "functional") || strings.Contains(desc, "high") {
 				score = 6.0
@@ -480,7 +477,7 @@ func (s *Scorer) separateInsights(insights []models.Insight) ([]models.Insight, 
 	policyInsights := []models.Insight{}
 
 	for _, insight := range insights {
-		if insight.Type == "vulnerability" && insight.CVEID != "" {
+		if insight.InsightType == "vulnerability" && insight.CVEID != "" {
 			cveInsights = append(cveInsights, insight)
 		} else {
 			policyInsights = append(policyInsights, insight)
@@ -503,8 +500,8 @@ func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 	for _, insight := range cveInsights {
 		// Use CVSS score if available, otherwise map from severity
 		var cvssScore float64
-		if insight.CVSSScore != nil {
-			cvssScore = *insight.CVSSScore
+		if insight.CVSS > 0 {
+			cvssScore = float64(insight.CVSS)
 		} else {
 			// Fallback: map severity to CVSS
 			switch strings.ToUpper(insight.Severity) {
@@ -524,9 +521,10 @@ func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 		// Scale CVSS (0-10) to base score range (0-40)
 		baseCVSS := cvssScore * 4.0
 
-		// Weight by exploit availability
+		// Weight by exploit availability (check from description)
 		exploitWeight := 1.0
-		if insight.ExploitAvailable {
+		desc := strings.ToLower(insight.Description)
+		if strings.Contains(desc, "exploit") || strings.Contains(desc, "poc") {
 			exploitWeight = 1.5 // 50% boost for exploits
 		}
 
@@ -693,17 +691,19 @@ func (s *Scorer) scoreBlastRadius(insights []models.Insight) float64 {
 			strings.Contains(desc, "namespace-wide") {
 			score = 5.0
 		} else {
-			// Count affected resources
-			var resources []map[string]interface{}
-			if err := json.Unmarshal([]byte(insight.AffectedResources), &resources); err == nil {
-				count := len(resources)
-				if count > 10 {
-					score = 3.0
-				} else if count > 1 {
-					score = 2.0
-				} else {
-					score = 1.0
+			// Count affected resources by checking distinct resource UIDs from all insights
+			affectedCount := 0
+			resourceUIDs := make(map[string]bool)
+			for _, ins := range insights {
+				if ins.ResourceUID != "" {
+					resourceUIDs[ins.ResourceUID] = true
 				}
+			}
+			affectedCount = len(resourceUIDs)
+			if affectedCount > 10 {
+				score = 3.0
+			} else if affectedCount > 1 {
+				score = 2.0
 			} else {
 				score = 1.0
 			}
@@ -819,7 +819,7 @@ func (s *Scorer) getHighestSeverity(insights []models.Insight) string {
 func (s *Scorer) getInsightTypes(insights []models.Insight) []string {
 	types := make(map[string]bool)
 	for _, insight := range insights {
-		types[insight.Type] = true
+		types[insight.InsightType] = true
 	}
 
 	result := make([]string, 0, len(types))

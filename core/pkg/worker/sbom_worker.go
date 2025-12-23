@@ -114,9 +114,11 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			continue
 		}
 
-		sbomModel, err := w.service.EnsureSBOM(ctx, imageRef)
-		if err != nil {
-			w.logger.Printf("❌ EnsureSBOM failed for %s (pod %s/%s): %v", imageRef, podNS, podName, err)
+		// EnsureSBOM is deprecated - SBOM is already stored by handler
+		// Just verify it exists
+		var sbomModel models.SBOM
+		if err := w.db.WithContext(ctx).Where("image_digest = ? AND deleted_at IS NULL", imageRef).First(&sbomModel).Error; err != nil {
+			w.logger.Printf("⚠️  SBOM not found for %s (pod %s/%s): %v", imageRef, podNS, podName, err)
 			continue
 		}
 
