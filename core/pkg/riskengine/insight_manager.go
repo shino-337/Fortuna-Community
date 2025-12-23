@@ -8,8 +8,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/risk"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/risk"
 	"gorm.io/gorm"
 )
 

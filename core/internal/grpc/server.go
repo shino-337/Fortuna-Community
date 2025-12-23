@@ -11,12 +11,12 @@ import (
 
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
-
-	"github.com/ksam/core/internal/config"
-	"github.com/ksam/core/pkg/messaging"
-	"github.com/ksam/core/pkg/security"
-	fortuna "github.com/ksam/core/proto/gen/proto"
 	"gorm.io/gorm"
+
+	agentpb "github.com/fortuna/api/proto/agent"
+	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/security"
 )
 
 type Server struct {
@@ -88,9 +88,12 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 
 	grpcServer := grpc.NewServer(opts...)
 
-	// Register new AgentService from fortuna_agent.proto
-	agentServiceServer := NewAgentServiceServer(db, natsClient)
-	fortuna.RegisterAgentServiceServer(grpcServer, agentServiceServer)
+	// Register SBOM service (Phase 1: Agent→Core SBOM ingestion)
+	// Import the new proto package
+	sbomServiceServer := NewSBOMServiceServer(db, natsClient)
+	agentpb.RegisterAgentServiceServer(grpcServer, sbomServiceServer)
+
+	log.Printf("[gRPC] ✅ Registered AgentService (SBOM ingestion)")
 
 	return &Server{
 		config:      cfg,

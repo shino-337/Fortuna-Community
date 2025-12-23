@@ -8,8 +8,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"github.com/ksam/core/internal/config"
-	"github.com/ksam/core/migrations"
+	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/migrations"
 )
 
 func New(cfg *config.Config) (*gorm.DB, error) {

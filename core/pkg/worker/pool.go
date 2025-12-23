@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/nats-io/nats.go"
-	"github.com/ksam/core/pkg/metrics"
+	"github.com/fortuna/core/pkg/metrics"
 )
 
 // Worker represents a single worker that processes messages

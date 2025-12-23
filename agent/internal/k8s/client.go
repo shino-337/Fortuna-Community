@@ -5,7 +5,7 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/ksam/agent/internal/config"
+	"github.com/fortuna/agent/internal/config"
 )
 
 // Client wraps Kubernetes clientset

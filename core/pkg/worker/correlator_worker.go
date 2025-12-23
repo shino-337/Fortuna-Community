@@ -14,7 +14,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // CorrelatorWorker builds relationships between resources

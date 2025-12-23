@@ -35,33 +35,38 @@ type Policy struct {
 }
 
 // Insight represents a risk insight or security finding
+// Insight represents a security insight or finding
+// Updated for Agent-Based architecture with direct resource references
 type Insight struct {
-	ID                uint           `gorm:"primaryKey" json:"id"`
-	Type              string         `gorm:"not null;index" json:"type"` // e.g., "rbac_risk", "network_risk", "runtime_anomaly", "vulnerability"
-	Description       string         `gorm:"not null" json:"description"`
-	AffectedResources string         `gorm:"type:jsonb" json:"affectedResources"` // JSON array
-	Severity          string         `gorm:"not null;index" json:"severity"`      // low, medium, high, critical
-	RecommendedAction string         `json:"recommendedAction"`
-	Status            string         `gorm:"default:active;index" json:"status"` // active, resolved, dismissed
-	CreatedAt         time.Time      `gorm:"index" json:"createdAt"`
-	UpdatedAt         time.Time      `json:"updatedAt"`
-	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"` // Soft delete support
+	ID uint `gorm:"primaryKey" json:"id"`
 
-	// Source field to track where insight came from
-	Source string `gorm:"type:varchar(50);index" json:"source,omitempty"` // policy-engine, cve-scanner, correlation-engine, manual
+	// Resource context (direct references, no JSONB)
+	ResourceType      string `gorm:"type:varchar(50);not null;index" json:"resourceType"` // Pod, Node, ServiceAccount, etc.
+	ResourceNamespace string `gorm:"type:varchar(255);index" json:"resourceNamespace"`
+	ResourceName      string `gorm:"type:varchar(255);not null;index" json:"resourceName"`
+	ResourceUID       string `gorm:"type:varchar(255);not null;index" json:"resourceUid"` // Unique identifier
+
+	// Insight info
+	InsightType    string `gorm:"type:varchar(50);not null;index" json:"insightType"` // vulnerability, misconfiguration, rbac_risk, etc.
+	Severity       string `gorm:"type:varchar(20);not null;index" json:"severity"`    // low, medium, high, critical
+	Title          string `gorm:"type:varchar(500);not null" json:"title"`
+	Description    string `gorm:"type:text;not null" json:"description"`
+	Recommendation string `gorm:"type:text" json:"recommendation"`
 
 	// CVE-specific fields (nullable, only for vulnerability insights)
-	CVEID            string   `gorm:"type:varchar(20);index" json:"cveId,omitempty"` // CVE-2021-23017
-	CVSSScore        *float64 `gorm:"type:decimal(3,1)" json:"cvssScore,omitempty"`
-	CVSSVector       string   `gorm:"type:text" json:"cvssVector,omitempty"`
-	ExploitAvailable bool     `gorm:"default:false;index" json:"exploitAvailable,omitempty"`
-	PackageName      string   `gorm:"type:varchar(255);index" json:"packageName,omitempty"`
-	InstalledVersion string   `gorm:"type:varchar(50)" json:"installedVersion,omitempty"`
-	FixedVersion     string   `gorm:"type:varchar(50)" json:"fixedVersion,omitempty"`
+	CVEID             string  `gorm:"type:varchar(20);index" json:"cveId,omitempty"`
+	AffectedComponent string  `gorm:"type:varchar(255);index" json:"affectedComponent,omitempty"` // Package name
+	AffectedVersion   string  `gorm:"type:varchar(100)" json:"affectedVersion,omitempty"`
+	FixedVersion      string  `gorm:"type:varchar(100)" json:"fixedVersion,omitempty"`
+	CVSS              float32 `gorm:"type:decimal(4,1)" json:"cvss,omitempty"` // Changed from *float64
 
-	// SBOM references (nullable, only for SBOM-based insights)
-	SBOMID     *uint `gorm:"index" json:"sbomId,omitempty"`
-	CVEMatchID *uint `gorm:"index" json:"cveMatchId,omitempty"`
+	// Status & Timestamps
+	Status     string         `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed
+	DetectedAt time.Time      `gorm:"not null;index" json:"detectedAt"`
+	ResolvedAt *time.Time     `json:"resolvedAt,omitempty"`
+	CreatedAt  time.Time      `json:"createdAt"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // EventIndex represents an index entry pointing to raw events in ClickHouse/Timescale

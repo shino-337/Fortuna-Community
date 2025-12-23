@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/ksam/core/pkg/riskengine"
+	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 )

@@ -1,0 +1,115 @@
+---
+# ServiceAccount for Fortuna Core
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+---
+# ClusterRole for Core (read-only for metadata)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fortuna-core
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+rules:
+# Read pods, services, namespaces for metadata
+- apiGroups: [""]
+  resources:
+    - pods
+    - services
+    - namespaces
+    - serviceaccounts
+  verbs: ["get", "list", "watch"]
+
+# Read RBAC resources
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+
+# Read network policies
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - networkpolicies
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding for Core
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fortuna-core
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fortuna-core
+subjects:
+- kind: ServiceAccount
+  name: fortuna-core
+  namespace: fortuna
+---
+# ServiceAccount for Fortuna Agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fortuna-agent
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+---
+# ClusterRole for Agent (read pods + access container runtime)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fortuna-agent
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+rules:
+# Watch pods on local node only
+- apiGroups: [""]
+  resources:
+    - pods
+  verbs: ["get", "list", "watch"]
+
+# Read node info
+- apiGroups: [""]
+  resources:
+    - nodes
+  verbs: ["get", "list"]
+
+# Read namespaces for context
+- apiGroups: [""]
+  resources:
+    - namespaces
+  verbs: ["get", "list"]
+---
+# ClusterRoleBinding for Agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fortuna-agent
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fortuna-agent
+subjects:
+- kind: ServiceAccount
+  name: fortuna-agent
+  namespace: fortuna
+

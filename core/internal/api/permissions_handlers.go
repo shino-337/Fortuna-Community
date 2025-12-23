@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // ServiceAccountPermissions represents permissions for a ServiceAccount

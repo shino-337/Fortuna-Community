@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ksam/core/internal/metrics"
+	"github.com/fortuna/core/internal/metrics"
 )
 
 // MetricsMiddleware records HTTP metrics

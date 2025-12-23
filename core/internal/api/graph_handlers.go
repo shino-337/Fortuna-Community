@@ -7,7 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/graph"
+	"github.com/fortuna/core/pkg/graph"
 )
 
 // GetGraph returns graph data (fallback to relational if AGE not available)

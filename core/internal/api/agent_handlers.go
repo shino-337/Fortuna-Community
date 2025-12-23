@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ksam/core/internal/service"
+	"github.com/fortuna/core/internal/service"
 	"gorm.io/gorm"
 )
 

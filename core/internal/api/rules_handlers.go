@@ -15,8 +15,8 @@ import (
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/riskengine"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/riskengine"
 )
 
 // RulesManager manages rules engine instance

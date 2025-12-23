@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // ScopeMatcher handles scope matching logic for policy instances

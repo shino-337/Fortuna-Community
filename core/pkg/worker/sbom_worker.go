@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ksam/core/pkg/messaging"
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/sbom"
+	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/sbom"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 )

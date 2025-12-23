@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ksam/core/pkg/security"
+	"github.com/fortuna/core/pkg/security"
 )
 
 // CertHandler handles certificate management API

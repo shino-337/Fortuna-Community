@@ -6,8 +6,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/ksam/core/pkg/cve/database"
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 
@@ -44,7 +44,7 @@ func (m *Matcher) MatchSBOM(
 	if err := m.db.WithContext(ctx).
 		Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).
 		Find(&components).Error; err != nil {
-		return nil, fmt.Errorf("failed to load SBOM components: %w", err)
+		return 0.0, fmt.Errorf("failed to load SBOM components: %w", err)
 	}
 
 	m.logger.Printf("Found %d components to match", len(components))

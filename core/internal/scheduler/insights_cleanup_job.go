@@ -7,7 +7,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // InsightsCleanupJob periodically cleans up old or resolved insights

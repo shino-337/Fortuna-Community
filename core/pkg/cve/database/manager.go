@@ -8,10 +8,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ksam/core/pkg/cve"
-	"github.com/ksam/core/pkg/cve/database/nvd"
-	"github.com/ksam/core/pkg/cve/database/trivy"
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/cve"
+	"github.com/fortuna/core/pkg/cve/database/nvd"
+	"github.com/fortuna/core/pkg/cve/database/trivy"
+	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 

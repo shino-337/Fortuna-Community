@@ -1,0 +1,45 @@
+package client
+
+import (
+	"context"
+	"fmt"
+
+	pb "github.com/fortuna/api/proto/agent"
+)
+
+// SendCombinedFinding sends combined SBOM + CVE findings to Core
+func (c *Client) SendCombinedFinding(ctx context.Context, finding *pb.CombinedFinding) (*pb.CombinedFindingResponse, error) {
+	if !c.isConnected() {
+		return nil, fmt.Errorf("not connected to Core")
+	}
+
+	c.logger.Printf("Sending CombinedFinding: pod=%s/%s container=%s cves=%d",
+		finding.Sbom.Namespace, finding.Sbom.PodName, finding.Sbom.ContainerName,
+		finding.Cve.TotalMatches)
+
+	resp, err := c.client.SendCombinedFinding(ctx, finding)
+	if err != nil {
+		return nil, fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	return resp, nil
+}
+
+// SendSBOMFinding sends SBOM finding (backward compatibility)
+func (c *Client) SendSBOMFinding(ctx context.Context, finding *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
+	if !c.isConnected() {
+		return nil, fmt.Errorf("not connected to Core")
+	}
+
+	c.logger.Printf("Sending SBOMFinding: pod=%s/%s container=%s packages=%d",
+		finding.Namespace, finding.PodName, finding.ContainerName,
+		len(finding.Packages))
+
+	resp, err := c.client.SendSBOMFinding(ctx, finding)
+	if err != nil {
+		return nil, fmt.Errorf("gRPC call failed: %w", err)
+	}
+
+	return resp, nil
+}
+

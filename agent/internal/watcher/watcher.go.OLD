@@ -1,0 +1,426 @@
+package watcher
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"sync"
+	"time"
+
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/tools/cache"
+
+	grpcClient "github.com/fortuna/agent/internal/client"
+	"github.com/fortuna/agent/internal/config"
+	"github.com/fortuna/agent/internal/k8s"
+	"github.com/fortuna/agent/pkg/types"
+)
+
+// Watcher watches for changes in ServiceAccounts and RBAC resources
+type Watcher struct {
+	config     *config.Config
+	k8s        *k8s.Client
+	stopCh     chan struct{}
+	wg         sync.WaitGroup
+	grpcClient *grpcClient.Client
+}
+
+// New creates a new Watcher
+func New(cfg *config.Config) (*Watcher, error) {
+	k8sClient, err := k8s.NewClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create k8s client: %w", err)
+	}
+
+	// Initialize gRPC client to Core Controller
+	grpcClient, err := grpcClient.NewClient(cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
+	}
+
+	return &Watcher{
+		config:     cfg,
+		k8s:        k8sClient,
+		stopCh:     make(chan struct{}),
+		grpcClient: grpcClient,
+	}, nil
+}
+
+// Watch starts watching for changes
+func (w *Watcher) Watch(ctx context.Context) error {
+	log.Println("Starting watchers...")
+
+	// Use shared informer factory for better performance
+	// Resync period: 0 means no resync (only watch for changes)
+	resyncPeriod := 0 * time.Second
+	informerFactory := k8s.NewInformerFactory(w.k8s.Clientset, w.config.WatchNamespace, resyncPeriod)
+	factory := informerFactory.GetFactory()
+
+	// Start informer factory
+	informerFactory.Start(ctx)
+	defer informerFactory.Stop()
+
+	// Watch ServiceAccounts
+	saInformer := factory.Core().V1().ServiceAccounts().Informer()
+	saInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    w.onServiceAccountAdd,
+		UpdateFunc: w.onServiceAccountUpdate,
+		DeleteFunc: w.onServiceAccountDelete,
+	})
+
+	// Watch RoleBindings
+	rbInformer := factory.Rbac().V1().RoleBindings().Informer()
+	rbInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    w.onRoleBindingAdd,
+		UpdateFunc: w.onRoleBindingUpdate,
+		DeleteFunc: w.onRoleBindingDelete,
+	})
+
+	// Watch ClusterRoleBindings
+	crbInformer := factory.Rbac().V1().ClusterRoleBindings().Informer()
+	crbInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    w.onClusterRoleBindingAdd,
+		UpdateFunc: w.onClusterRoleBindingUpdate,
+		DeleteFunc: w.onClusterRoleBindingDelete,
+	})
+
+	// Watch Roles
+	roleInformer := factory.Rbac().V1().Roles().Informer()
+	roleInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    w.onRoleAdd,
+		UpdateFunc: w.onRoleUpdate,
+		DeleteFunc: w.onRoleDelete,
+	})
+
+	// Watch ClusterRoles
+	crInformer := factory.Rbac().V1().ClusterRoles().Informer()
+	crInformer.AddEventHandler(cache.ResourceEventHandlerFuncs{
+		AddFunc:    w.onClusterRoleAdd,
+		UpdateFunc: w.onClusterRoleUpdate,
+		DeleteFunc: w.onClusterRoleDelete,
+	})
+
+	// Start informers
+	factory.Start(w.stopCh)
+
+	// Wait for caches to sync
+	if !cache.WaitForCacheSync(ctx.Done(),
+		saInformer.HasSynced,
+		rbInformer.HasSynced,
+		crbInformer.HasSynced,
+		roleInformer.HasSynced,
+		crInformer.HasSynced,
+	) {
+		return fmt.Errorf("failed to sync caches")
+	}
+
+	log.Println("Watchers started successfully")
+
+	// Wait for context cancellation
+	<-ctx.Done()
+	close(w.stopCh)
+	w.wg.Wait()
+
+	return ctx.Err()
+}
+
+// sendUpdate sends a single resource update to Core Controller
+func (w *Watcher) sendUpdate(ctx context.Context, data *types.CollectedData) {
+	if w.grpcClient == nil {
+		log.Printf("Warning: gRPC client not initialized, skipping update")
+		return
+	}
+
+	if err := w.grpcClient.SendData(ctx, data); err != nil {
+		log.Printf("Error sending update to Core Controller: %v", err)
+	}
+}
+
+// sendDeltaData is a helper to send delta updates with shared metadata
+func (w *Watcher) sendDeltaData(setter func(*types.CollectedData)) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	data := &types.CollectedData{
+		ClusterID:   w.config.ClusterID,
+		CollectedAt: metav1.NewTime(time.Now()),
+		IsFullSync:  false,
+		IsDeltaSync: true,
+	}
+	setter(data)
+	w.sendUpdate(ctx, data)
+}
+
+// ServiceAccount event handlers
+func (w *Watcher) onServiceAccountAdd(obj interface{}) {
+	sa, ok := obj.(*corev1.ServiceAccount)
+	if !ok {
+		log.Printf("Error: expected *corev1.ServiceAccount, got %T", obj)
+		return
+	}
+	saData := types.ConvertServiceAccount(sa)
+	log.Printf("ServiceAccount added: %s/%s", saData.Namespace, saData.Name)
+
+	// Send update to Core Controller
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	data := &types.CollectedData{
+		ClusterID:       w.config.ClusterID,
+		ServiceAccounts: []types.ServiceAccountData{saData},
+		CollectedAt:     metav1.NewTime(time.Now()),
+		IsFullSync:      false,
+		IsDeltaSync:     true, // Watcher events are always delta
+	}
+	w.sendUpdate(ctx, data)
+}
+
+func (w *Watcher) onServiceAccountUpdate(oldObj, newObj interface{}) {
+	newSA, ok := newObj.(*corev1.ServiceAccount)
+	if !ok {
+		log.Printf("Error: expected *corev1.ServiceAccount, got %T", newObj)
+		return
+	}
+	saData := types.ConvertServiceAccount(newSA)
+	log.Printf("ServiceAccount updated: %s/%s", saData.Namespace, saData.Name)
+
+	// Send update to Core Controller
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	data := &types.CollectedData{
+		ClusterID:       w.config.ClusterID,
+		ServiceAccounts: []types.ServiceAccountData{saData},
+		CollectedAt:     metav1.NewTime(time.Now()),
+		IsFullSync:      false,
+		IsDeltaSync:     true, // Watcher events are always delta
+	}
+	w.sendUpdate(ctx, data)
+}
+
+func (w *Watcher) onServiceAccountDelete(obj interface{}) {
+	sa, ok := obj.(*corev1.ServiceAccount)
+	if !ok {
+		// Handle DeletedFinalStateUnknown
+		deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			log.Printf("Error: expected *corev1.ServiceAccount or DeletedFinalStateUnknown, got %T", obj)
+			return
+		}
+		sa, ok = deletedState.Obj.(*corev1.ServiceAccount)
+		if !ok {
+			log.Printf("Error: expected *corev1.ServiceAccount in DeletedFinalStateUnknown, got %T", deletedState.Obj)
+			return
+		}
+	}
+	saData := types.ConvertServiceAccount(sa)
+	log.Printf("ServiceAccount deleted: %s/%s", saData.Namespace, saData.Name)
+
+	// Send delete event to Core Controller
+	// Note: For delete, we still send the data so Core can identify which SA to delete
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	data := &types.CollectedData{
+		ClusterID:       w.config.ClusterID,
+		ServiceAccounts: []types.ServiceAccountData{saData},
+		CollectedAt:     metav1.NewTime(time.Now()),
+		IsFullSync:      false,
+		IsDeltaSync:     true, // Watcher events are always delta
+	}
+	w.sendUpdate(ctx, data)
+}
+
+// RoleBinding event handlers
+func (w *Watcher) onRoleBindingAdd(obj interface{}) {
+	rb, ok := obj.(*rbacv1.RoleBinding)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.RoleBinding, got %T", obj)
+		return
+	}
+	rbData := types.ConvertRoleBinding(rb)
+	log.Printf("RoleBinding added: %s/%s", rbData.Namespace, rbData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.RoleBindings = []types.RoleBindingData{rbData}
+	})
+}
+
+func (w *Watcher) onRoleBindingUpdate(oldObj, newObj interface{}) {
+	newRB, ok := newObj.(*rbacv1.RoleBinding)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.RoleBinding, got %T", newObj)
+		return
+	}
+	rbData := types.ConvertRoleBinding(newRB)
+	log.Printf("RoleBinding updated: %s/%s", rbData.Namespace, rbData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.RoleBindings = []types.RoleBindingData{rbData}
+	})
+}
+
+func (w *Watcher) onRoleBindingDelete(obj interface{}) {
+	rb, ok := obj.(*rbacv1.RoleBinding)
+	if !ok {
+		deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.RoleBinding or DeletedFinalStateUnknown, got %T", obj)
+			return
+		}
+		rb, ok = deletedState.Obj.(*rbacv1.RoleBinding)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.RoleBinding in DeletedFinalStateUnknown, got %T", deletedState.Obj)
+			return
+		}
+	}
+	rbData := types.ConvertRoleBinding(rb)
+	log.Printf("RoleBinding deleted: %s/%s", rbData.Namespace, rbData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.RoleBindings = []types.RoleBindingData{rbData}
+	})
+}
+
+// ClusterRoleBinding event handlers
+func (w *Watcher) onClusterRoleBindingAdd(obj interface{}) {
+	crb, ok := obj.(*rbacv1.ClusterRoleBinding)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.ClusterRoleBinding, got %T", obj)
+		return
+	}
+	crbData := types.ConvertClusterRoleBinding(crb)
+	log.Printf("ClusterRoleBinding added: %s", crbData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoleBindings = []types.ClusterRoleBindingData{crbData}
+	})
+}
+
+func (w *Watcher) onClusterRoleBindingUpdate(oldObj, newObj interface{}) {
+	newCRB, ok := newObj.(*rbacv1.ClusterRoleBinding)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.ClusterRoleBinding, got %T", newObj)
+		return
+	}
+	crbData := types.ConvertClusterRoleBinding(newCRB)
+	log.Printf("ClusterRoleBinding updated: %s", crbData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoleBindings = []types.ClusterRoleBindingData{crbData}
+	})
+}
+
+func (w *Watcher) onClusterRoleBindingDelete(obj interface{}) {
+	crb, ok := obj.(*rbacv1.ClusterRoleBinding)
+	if !ok {
+		deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.ClusterRoleBinding or DeletedFinalStateUnknown, got %T", obj)
+			return
+		}
+		crb, ok = deletedState.Obj.(*rbacv1.ClusterRoleBinding)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.ClusterRoleBinding in DeletedFinalStateUnknown, got %T", deletedState.Obj)
+			return
+		}
+	}
+	crbData := types.ConvertClusterRoleBinding(crb)
+	log.Printf("ClusterRoleBinding deleted: %s", crbData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoleBindings = []types.ClusterRoleBindingData{crbData}
+	})
+}
+
+// Role event handlers
+func (w *Watcher) onRoleAdd(obj interface{}) {
+	role, ok := obj.(*rbacv1.Role)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.Role, got %T", obj)
+		return
+	}
+	roleData := types.ConvertRole(role)
+	log.Printf("Role added: %s/%s", roleData.Namespace, roleData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.Roles = []types.RoleData{roleData}
+	})
+}
+
+func (w *Watcher) onRoleUpdate(oldObj, newObj interface{}) {
+	newRole, ok := newObj.(*rbacv1.Role)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.Role, got %T", newObj)
+		return
+	}
+	roleData := types.ConvertRole(newRole)
+	log.Printf("Role updated: %s/%s", roleData.Namespace, roleData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.Roles = []types.RoleData{roleData}
+	})
+}
+
+func (w *Watcher) onRoleDelete(obj interface{}) {
+	role, ok := obj.(*rbacv1.Role)
+	if !ok {
+		deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.Role or DeletedFinalStateUnknown, got %T", obj)
+			return
+		}
+		role, ok = deletedState.Obj.(*rbacv1.Role)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.Role in DeletedFinalStateUnknown, got %T", deletedState.Obj)
+			return
+		}
+	}
+	roleData := types.ConvertRole(role)
+	log.Printf("Role deleted: %s/%s", roleData.Namespace, roleData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.Roles = []types.RoleData{roleData}
+	})
+}
+
+// ClusterRole event handlers
+func (w *Watcher) onClusterRoleAdd(obj interface{}) {
+	cr, ok := obj.(*rbacv1.ClusterRole)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.ClusterRole, got %T", obj)
+		return
+	}
+	crData := types.ConvertClusterRole(cr)
+	log.Printf("ClusterRole added: %s", crData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoles = []types.ClusterRoleData{crData}
+	})
+}
+
+func (w *Watcher) onClusterRoleUpdate(oldObj, newObj interface{}) {
+	newCR, ok := newObj.(*rbacv1.ClusterRole)
+	if !ok {
+		log.Printf("Error: expected *rbacv1.ClusterRole, got %T", newObj)
+		return
+	}
+	crData := types.ConvertClusterRole(newCR)
+	log.Printf("ClusterRole updated: %s", crData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoles = []types.ClusterRoleData{crData}
+	})
+}
+
+func (w *Watcher) onClusterRoleDelete(obj interface{}) {
+	cr, ok := obj.(*rbacv1.ClusterRole)
+	if !ok {
+		deletedState, ok := obj.(cache.DeletedFinalStateUnknown)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.ClusterRole or DeletedFinalStateUnknown, got %T", obj)
+			return
+		}
+		cr, ok = deletedState.Obj.(*rbacv1.ClusterRole)
+		if !ok {
+			log.Printf("Error: expected *rbacv1.ClusterRole in DeletedFinalStateUnknown, got %T", deletedState.Obj)
+			return
+		}
+	}
+	crData := types.ConvertClusterRole(cr)
+	log.Printf("ClusterRole deleted: %s", crData.Name)
+	w.sendDeltaData(func(data *types.CollectedData) {
+		data.ClusterRoles = []types.ClusterRoleData{crData}
+	})
+}

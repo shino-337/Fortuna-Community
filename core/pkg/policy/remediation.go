@@ -14,8 +14,8 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/ksam/core/internal/k8s"
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/internal/k8s"
+	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 

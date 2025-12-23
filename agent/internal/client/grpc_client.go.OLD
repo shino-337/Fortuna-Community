@@ -1,0 +1,332 @@
+package client
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"strings"
+	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/keepalive"
+
+	"github.com/fortuna/agent/internal/config"
+	"github.com/fortuna/agent/internal/retry"
+	"github.com/fortuna/agent/pkg/types"
+)
+
+// Client wraps gRPC client connection
+type Client struct {
+	conn   *grpc.ClientConn
+	config *config.Config
+}
+
+// NewClient creates a new gRPC client
+func NewClient(cfg *config.Config) (*Client, error) {
+	// TODO: Replace with actual gRPC service client after generating proto files
+	// For now, this is a placeholder
+
+	// Configure gRPC connection with keepalive
+	opts := []grpc.DialOption{
+		grpc.WithTransportCredentials(insecure.NewCredentials()), // TODO: Use TLS in production
+		grpc.WithKeepaliveParams(keepalive.ClientParameters{
+			Time:    2 * time.Minute,
+			Timeout: 20 * time.Second,
+		}),
+		grpc.WithBlock(),
+	}
+
+	// Connect to Core Controller with retry
+	var conn *grpc.ClientConn
+	var err error
+
+	// Retry connection up to 3 times with exponential backoff
+	for attempt := 0; attempt < 3; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		conn, err = grpc.DialContext(ctx, cfg.CoreEndpoint, opts...)
+		cancel()
+
+		if err == nil {
+			break
+		}
+
+		if attempt < 2 {
+			waitTime := time.Duration(attempt+1) * 5 * time.Second
+			log.Printf("Failed to connect to core (attempt %d/3): %v. Retrying in %v...", attempt+1, err, waitTime)
+			time.Sleep(waitTime)
+		}
+	}
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to core after retries: %w", err)
+	}
+
+	return &Client{
+		conn:   conn,
+		config: cfg,
+	}, nil
+}
+
+// SendData sends collected data to Core Controller with retry
+// Currently uses HTTP endpoint as gRPC proto files are not yet generated
+func (c *Client) SendData(ctx context.Context, data *types.CollectedData) error {
+	retryCfg := retry.DefaultConfig()
+	retryCfg.MaxRetries = 3
+	retryCfg.InitialWait = 2 * time.Second
+
+	return retry.Retry(ctx, retryCfg, func() error {
+		// Convert endpoint from gRPC format to HTTP
+		// e.g., "ksam-core:9090" -> "http://ksam-core:8080"
+		endpoint := c.config.CoreEndpoint
+		if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
+			// Assume it's a gRPC endpoint, convert to HTTP
+			endpoint = strings.Replace(endpoint, ":9090", ":8080", 1)
+			if !strings.HasPrefix(endpoint, "http://") {
+				endpoint = "http://" + endpoint
+			}
+		}
+
+		// Convert CollectedData to map for JSON
+		dataMap := map[string]interface{}{
+			"clusterId":   data.ClusterID,
+			"isFullSync":  data.IsFullSync,
+			"isDeltaSync": data.IsDeltaSync,
+		}
+
+		// Only include resource collections when they have data or when full sync explicitly needs empty lists
+		includeEmpty := data.IsFullSync
+
+		if len(data.ServiceAccounts) > 0 || includeEmpty {
+			dataMap["serviceAccounts"] = convertServiceAccountsToMap(data.ServiceAccounts)
+		}
+		if len(data.RoleBindings) > 0 || includeEmpty {
+			dataMap["roleBindings"] = convertRoleBindingsToMap(data.RoleBindings)
+		}
+		if len(data.ClusterRoleBindings) > 0 || includeEmpty {
+			dataMap["clusterRoleBindings"] = convertClusterRoleBindingsToMap(data.ClusterRoleBindings)
+		}
+		if len(data.Roles) > 0 || includeEmpty {
+			dataMap["roles"] = convertRolesToMap(data.Roles)
+		}
+		if len(data.ClusterRoles) > 0 || includeEmpty {
+			dataMap["clusterRoles"] = convertClusterRolesToMap(data.ClusterRoles)
+		}
+		if len(data.Pods) > 0 || includeEmpty {
+			dataMap["pods"] = convertPodsToMap(data.Pods)
+		}
+		if len(data.Deployments) > 0 || includeEmpty {
+			dataMap["deployments"] = convertDeploymentsToMap(data.Deployments)
+		}
+		if len(data.ReplicaSets) > 0 || includeEmpty {
+			dataMap["replicasets"] = convertReplicaSetsToMap(data.ReplicaSets)
+		}
+
+		payload := map[string]interface{}{
+			"clusterId": data.ClusterID,
+			"data":      dataMap,
+		}
+
+		jsonData, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("failed to marshal data: %w", err)
+		}
+
+		url := strings.TrimSuffix(endpoint, "/") + "/api/v1/agent/sync"
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonData))
+		if err != nil {
+			return fmt.Errorf("failed to create request: %w", err)
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+		if c.config.AuthToken != "" {
+			req.Header.Set("Authorization", "Bearer "+c.config.AuthToken)
+		}
+
+		client := &http.Client{Timeout: 10 * time.Second}
+		resp, err := client.Do(req)
+		if err != nil {
+			return fmt.Errorf("failed to send request: %w", err)
+		}
+		defer resp.Body.Close()
+
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("unexpected status code: %d", resp.StatusCode)
+		}
+
+		log.Printf("Successfully sent data to core: %d SAs, %d RBs, %d CRBs",
+			len(data.ServiceAccounts),
+			len(data.RoleBindings),
+			len(data.ClusterRoleBindings))
+
+		return nil
+	})
+}
+
+// Helper functions to convert types to map for JSON
+func convertServiceAccountsToMap(sas []types.ServiceAccountData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(sas))
+	for i, sa := range sas {
+		result[i] = map[string]interface{}{
+			"name":      sa.Name,
+			"namespace": sa.Namespace,
+			"uid":       sa.UID,
+			"labels":    sa.Labels,
+			"secrets":   sa.Secrets,
+		}
+	}
+	return result
+}
+
+func convertRoleBindingsToMap(rbs []types.RoleBindingData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(rbs))
+	for i, rb := range rbs {
+		result[i] = map[string]interface{}{
+			"name":      rb.Name,
+			"namespace": rb.Namespace,
+			"uid":       rb.UID,
+			"roleRef":   rb.RoleRef,
+			"subjects":  rb.Subjects,
+		}
+	}
+	return result
+}
+
+func convertClusterRoleBindingsToMap(crbs []types.ClusterRoleBindingData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(crbs))
+	for i, crb := range crbs {
+		result[i] = map[string]interface{}{
+			"name":     crb.Name,
+			"uid":      crb.UID,
+			"roleRef":  crb.RoleRef,
+			"subjects": crb.Subjects,
+		}
+	}
+	return result
+}
+
+func convertRolesToMap(roles []types.RoleData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(roles))
+	for i, role := range roles {
+		result[i] = map[string]interface{}{
+			"name":      role.Name,
+			"namespace": role.Namespace,
+			"uid":       role.UID,
+			"rules":     role.Rules,
+		}
+	}
+	return result
+}
+
+func convertClusterRolesToMap(crs []types.ClusterRoleData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(crs))
+	for i, cr := range crs {
+		result[i] = map[string]interface{}{
+			"name":  cr.Name,
+			"uid":   cr.UID,
+			"rules": cr.Rules,
+		}
+	}
+	return result
+}
+
+func convertPodsToMap(pods []types.PodData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(pods))
+	for i, pod := range pods {
+		result[i] = map[string]interface{}{
+			"name":           pod.Name,
+			"namespace":      pod.Namespace,
+			"serviceAccount": pod.ServiceAccount,
+			"uid":            pod.UID,
+		}
+	}
+	return result
+}
+
+func convertDeploymentsToMap(deployments []types.DeploymentData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(deployments))
+	for i, dep := range deployments {
+		result[i] = map[string]interface{}{
+			"name":                 dep.Name,
+			"namespace":            dep.Namespace,
+			"uid":                  dep.UID,
+			"replicas":             dep.Replicas,
+			"readyReplicas":        dep.ReadyReplicas,
+			"availableReplicas":    dep.AvailableReplicas,
+			"unavailableReplicas":  dep.UnavailableReplicas,
+			"updatedReplicas":      dep.UpdatedReplicas,
+			"strategy":             dep.Strategy,
+			"labels":               dep.Labels,
+			"annotations":          dep.Annotations,
+			"selector":             dep.Selector,
+			"containers":           dep.Containers,
+			"conditions":           dep.Conditions,
+			"createdAt":            dep.CreatedAt,
+		}
+	}
+	return result
+}
+
+// convertReplicaSetsToMap converts ReplicaSetData to map for JSON serialization
+func convertReplicaSetsToMap(replicasets []types.ReplicaSetData) []map[string]interface{} {
+	result := make([]map[string]interface{}, len(replicasets))
+	for i, rs := range replicasets {
+		containers := make([]map[string]interface{}, len(rs.Containers))
+		for j, c := range rs.Containers {
+			containerMap := map[string]interface{}{
+				"name":  c.Name,
+				"image": c.Image,
+			}
+			if c.Resources.Requests != nil {
+				containerMap["cpuRequest"] = c.Resources.Requests["cpu"]
+				containerMap["memoryRequest"] = c.Resources.Requests["memory"]
+			}
+			if c.Resources.Limits != nil {
+				containerMap["cpuLimit"] = c.Resources.Limits["cpu"]
+				containerMap["memoryLimit"] = c.Resources.Limits["memory"]
+			}
+			containers[j] = containerMap
+		}
+
+		conditions := make([]map[string]interface{}, len(rs.Conditions))
+		for j, cond := range rs.Conditions {
+			conditions[j] = map[string]interface{}{
+				"type":    string(cond.Type),
+				"status":  string(cond.Status),
+				"reason":  cond.Reason,
+				"message": cond.Message,
+			}
+		}
+
+		result[i] = map[string]interface{}{
+			"name":                 rs.Name,
+			"namespace":            rs.Namespace,
+			"uid":                  rs.UID,
+			"replicas":             rs.Replicas,
+			"readyReplicas":        rs.ReadyReplicas,
+			"availableReplicas":   rs.AvailableReplicas,
+			"fullyLabeledReplicas": rs.FullyLabeledReplicas,
+			"labels":               rs.Labels,
+			"annotations":          rs.Annotations,
+			"selector":             rs.Selector,
+			"containers":           containers,
+			"conditions":           conditions,
+			"ownerKind":            rs.OwnerKind,
+			"ownerName":            rs.OwnerName,
+			"ownerUid":             rs.OwnerUID,
+			"createdAt":            rs.CreatedAt,
+		}
+	}
+	return result
+}
+
+// Close closes the gRPC connection
+func (c *Client) Close() error {
+	if c.conn != nil {
+		return c.conn.Close()
+	}
+	return nil
+}

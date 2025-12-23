@@ -47,19 +47,19 @@ func Load(configPath string) (*Config, error) {
 	fmt.Fprintf(os.Stdout, "[Config] TLS_ENABLED env='%s', parsed=%v\n", tlsEnabledStr, tlsEnabled)
 
 	cfg := &Config{
-		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/ksam?sslmode=disable"),
+		DatabaseURL:          getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/fortuna?sslmode=disable"),
 		RedisURL:             getEnv("REDIS_URL", ""),
 		GRPCPort:             getEnv("GRPC_PORT", "9090"),
 		HTTPPort:             getEnv("HTTP_PORT", "8080"),
-		NATSEndpoint:         getEnv("NATS_ENDPOINT", "nats://nats.ksam.svc.cluster.local:4222"),
+		NATSEndpoint:         getEnv("NATS_ENDPOINT", "nats://nats.fortuna.svc.cluster.local:4222"),
 		LogLevel:             getEnv("LOG_LEVEL", "info"),
 		AuthEnabled:          getEnv("AUTH_ENABLED", "true") == "true",
 		JWTSecret:            getEnv("JWT_SECRET", "your-secret-key-change-in-production"),
 		TokenExpirationHours: parseInt(getEnv("TOKEN_EXPIRATION_HOURS", "24")),
 		TLSEnabled:           tlsEnabled,
-		TLSCACertPath:        getEnv("TLS_CA_CERT_PATH", "/etc/ksam/ca-cert/ca.crt"),
-		TLSCertPath:          getEnv("TLS_CERT_PATH", "/etc/ksam/certs/tls.crt"),
-		TLSKeyPath:           getEnv("TLS_KEY_PATH", "/etc/ksam/certs/tls.key"),
+		TLSCACertPath:        getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/server/ca.crt"),
+		TLSCertPath:          getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/server/tls.crt"),
+		TLSKeyPath:           getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/server/tls.key"),
 		WebhookTLSCertPath:   getEnv("WEBHOOK_TLS_CERT_PATH", "/etc/webhook/certs/tls.crt"),
 		WebhookTLSKeyPath:    getEnv("WEBHOOK_TLS_KEY_PATH", "/etc/webhook/certs/tls.key"),
 	}

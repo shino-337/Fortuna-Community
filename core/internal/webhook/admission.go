@@ -15,9 +15,9 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/runtime/serializer"
 
-	"github.com/ksam/core/pkg/messaging"
-	"github.com/ksam/core/pkg/metrics"
-	"github.com/ksam/core/pkg/policy"
+	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/metrics"
+	"github.com/fortuna/core/pkg/policy"
 	"gorm.io/gorm"
 )
 

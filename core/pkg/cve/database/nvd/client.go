@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 	
-	"github.com/ksam/core/pkg/cve"
+	"github.com/fortuna/core/pkg/cve"
 )
 
 // Client queries NVD API for CVE data

@@ -13,7 +13,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/watch"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 

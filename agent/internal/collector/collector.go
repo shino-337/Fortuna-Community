@@ -15,10 +15,10 @@ import (
 	"k8s.io/apimachinery/pkg/watch"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/ksam/agent/internal/client"
-	"github.com/ksam/agent/internal/converter"
-	"github.com/ksam/agent/internal/watcher"
-	fortuna "github.com/ksam/agent/proto/gen/proto"
+	"github.com/fortuna/agent/internal/client"
+	"github.com/fortuna/agent/internal/converter"
+	"github.com/fortuna/agent/internal/watcher"
+	fortuna "github.com/fortuna/api/proto/agent"
 )
 
 // WatcherInterface for all watchers

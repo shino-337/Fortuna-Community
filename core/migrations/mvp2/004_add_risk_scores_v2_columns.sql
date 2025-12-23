@@ -17,3 +17,4 @@ COMMENT ON COLUMN risk_scores.scorer_version IS 'Scorer version: v1 (old) or v2 
 -- Note: This is a data migration, actual constraint update handled in code
 
 
+

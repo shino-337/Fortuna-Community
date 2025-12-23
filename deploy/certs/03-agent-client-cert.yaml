@@ -1,0 +1,51 @@
+---
+# Agent gRPC Client Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: fortuna-agent-client
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+    cert-type: client
+spec:
+  secretName: fortuna-agent-client-tls
+  
+  # Certificate lifetime (shorter for client certs)
+  duration: 2160h  # 90 days
+  renewBefore: 360h  # 15 days before expiry
+  
+  # Issuer
+  issuerRef:
+    name: fortuna-ca-issuer
+    kind: ClusterIssuer
+  
+  # Client identity (all agents share same cert)
+  commonName: fortuna-agent.fortuna.svc.cluster.local
+  
+  # DNS names (optional for client cert)
+  dnsNames:
+    - fortuna-agent
+    - fortuna-agent.fortuna.svc.cluster.local
+  
+  # Subject
+  subject:
+    organizations:
+      - Fortuna Security Platform
+    organizationalUnits:
+      - Agent DaemonSet
+    countries:
+      - US
+  
+  # Key configuration
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  
+  # Key usage (client cert)
+  usages:
+    - digital signature
+    - key encipherment
+    - client auth
+

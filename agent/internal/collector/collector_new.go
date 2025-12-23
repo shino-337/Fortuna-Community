@@ -7,8 +7,8 @@ import (
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
 
-	"github.com/ksam/agent/internal/client"
-	"github.com/ksam/agent/internal/config"
+	"github.com/fortuna/agent/internal/client"
+	"github.com/fortuna/agent/internal/config"
 )
 
 // New creates a new collector using the new implementation

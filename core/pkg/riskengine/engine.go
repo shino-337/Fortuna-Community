@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 

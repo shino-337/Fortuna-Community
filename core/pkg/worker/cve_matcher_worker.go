@@ -8,11 +8,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ksam/core/pkg/cve/database"
-	"github.com/ksam/core/pkg/cve/matcher"
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/riskengine"
-	"github.com/ksam/core/pkg/sbom"
+	"github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/cve/matcher"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/riskengine"
+	"github.com/fortuna/core/pkg/sbom"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -88,22 +88,22 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			continue
 		}
 
-		// Reload persisted match to get ID
+		// Reload persisted match to get ID (using new schema: package_name instead of component_id)
 		var persisted models.CVEMatch
 		if err := w.db.WithContext(ctx).
-			Where("sbom_id = ? AND component_id = ? AND cve_id = ? AND deleted_at IS NULL",
-				m.SBOMID, m.ComponentID, m.CVEID).
+			Where("sbom_id = ? AND package_name = ? AND cve_id = ? AND deleted_at IS NULL",
+				m.SBOMID, m.PackageName, m.CVEID).
 			First(&persisted).Error; err != nil {
 			w.logger.Printf("⚠️  Cannot load persisted CVEMatch: %v", err)
 			continue
 		}
 
-		// Load component
+		// Load component by package name (using new schema)
 		var component models.SBOMComponent
 		if err := w.db.WithContext(ctx).
-			Where("id = ? AND deleted_at IS NULL", m.ComponentID).
+			Where("sbom_id = ? AND component_name = ? AND deleted_at IS NULL", m.SBOMID, m.PackageName).
 			First(&component).Error; err != nil {
-			w.logger.Printf("⚠️  Cannot load component %d: %v", m.ComponentID, err)
+			w.logger.Printf("⚠️  Cannot load component for package %s: %v", m.PackageName, err)
 			continue
 		}
 
@@ -134,7 +134,7 @@ func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models
 		}
 	}
 
-	// Batch insert with ON CONFLICT DO NOTHING (requires unique index: (sbom_id, component_id, cve_id))
+	// Batch insert with ON CONFLICT DO NOTHING (requires unique index: (sbom_id, cve_id, package_name))
 	const batchSize = 500
 	for i := 0; i < len(matches); i += batchSize {
 		end := i + batchSize

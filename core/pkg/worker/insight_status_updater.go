@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/riskengine"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/riskengine"
 	"gorm.io/gorm"
 )
 
@@ -46,22 +46,10 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 
 	resolvedCount := 0
 	for _, insight := range activeInsights {
-		// Parse affected resources
-		var affectedResources []map[string]interface{}
-		if err := json.Unmarshal([]byte(insight.AffectedResources), &affectedResources); err != nil {
-			log.Printf("[InsightStatusUpdater] Failed to parse affected resources for insight %d: %v", insight.ID, err)
-			continue
-		}
-
-		if len(affectedResources) == 0 {
-			continue
-		}
-
-		// Get resource info
-		firstResource := affectedResources[0]
-		resourceType, _ := firstResource["type"].(string)
-		resourceName, _ := firstResource["name"].(string)
-		resourceNamespace, _ := firstResource["namespace"].(string)
+		// Use new Insight schema with direct resource fields (no JSONB parsing needed)
+		resourceType := insight.ResourceType
+		resourceName := insight.ResourceName
+		resourceNamespace := insight.ResourceNamespace
 
 		// Check if resource still exists and has the risk
 		stillHasRisk, err := u.checkIfRiskStillExists(ctx, resourceType, resourceName, resourceNamespace, &insight)

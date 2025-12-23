@@ -9,11 +9,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/internal/api/policy"
-	"github.com/ksam/core/internal/api/risk"
-	"github.com/ksam/core/internal/config"
-	"github.com/ksam/core/internal/middleware"
-	"github.com/ksam/core/pkg/security"
+	"github.com/fortuna/core/internal/api/policy"
+	"github.com/fortuna/core/internal/api/risk"
+	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/internal/middleware"
+	"github.com/fortuna/core/pkg/security"
 )
 
 // Force link analytics handlers to prevent dead code elimination

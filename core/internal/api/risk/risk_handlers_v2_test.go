@@ -10,7 +10,7 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // setupTestRouter creates a test router with risk handlers

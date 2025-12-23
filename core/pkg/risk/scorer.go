@@ -10,7 +10,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // Scorer calculates risk scores using improved V2 formula
@@ -275,7 +275,7 @@ func (s *Scorer) getVulnerabilityTypeBonus(insights []models.Insight) float64 {
 
 	for _, insight := range insights {
 		desc := strings.ToLower(insight.Description)
-		iType := strings.ToLower(insight.Type)
+		iType := strings.ToLower(insight.InsightType)
 		bonus := 0.0
 
 		// Check for vulnerability types (highest to lowest)

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ksam/core/pkg/metrics"
+	"github.com/fortuna/core/pkg/metrics"
 )
 
 // CertManager manages certificate loading and rotation

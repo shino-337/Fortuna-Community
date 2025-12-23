@@ -9,8 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/worker"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/worker"
 )
 
 // GetInsights returns all insights with optional filtering

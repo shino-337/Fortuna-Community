@@ -1,0 +1,85 @@
+syntax = "proto3";
+
+package fortuna.agent.v1;
+
+option go_package = "github.com/fortuna/api/proto/agent";
+
+import "google/protobuf/timestamp.proto";
+
+// SBOMFinding represents SBOM data extracted by Agent
+message SBOMFinding {
+  // Schema version for evolution
+  int32 schema_version = 1;
+  
+  // Pod identity (required)
+  string pod_uid = 2;
+  string pod_name = 3;
+  string namespace = 4;
+  string container_name = 5;
+  
+  // Image info (required)
+  string image_name = 6;
+  string image_digest = 7;  // sha256:abc123...
+  string image_tag = 8;
+  
+  // Operating System (optional)
+  OSInfo os_info = 9;
+  
+  // Packages (required)
+  repeated Package packages = 10;
+  
+  // Metadata (required)
+  google.protobuf.Timestamp generated_at = 11;
+  string agent_id = 12;
+  string node_id = 13;
+  
+  // Additional context (optional)
+  map<string, string> labels = 14;
+  map<string, string> annotations = 15;
+}
+
+// OSInfo describes the container OS
+message OSInfo {
+  string name = 1;        // e.g., "debian", "alpine", "ubuntu"
+  string version = 2;     // e.g., "11", "3.18", "22.04"
+  string variant = 3;     // e.g., "slim", "musl"
+  string architecture = 4; // e.g., "amd64", "arm64"
+}
+
+// Package represents a software package
+message Package {
+  string name = 1;         // e.g., "nginx"
+  string version = 2;      // e.g., "1.21.6"
+  PackageType type = 3;    // Enum of package types
+  string architecture = 4; // e.g., "amd64", "all"
+  repeated string licenses = 5;
+  string source = 6;       // e.g., source package name
+  
+  // Optional metadata
+  string description = 7;
+  string homepage = 8;
+  string maintainer = 9;
+}
+
+// PackageType enum
+enum PackageType {
+  PACKAGE_TYPE_UNKNOWN = 0;
+  PACKAGE_TYPE_DEB = 1;      // Debian/Ubuntu
+  PACKAGE_TYPE_RPM = 2;      // Red Hat/CentOS
+  PACKAGE_TYPE_APK = 3;      // Alpine
+  PACKAGE_TYPE_NPM = 4;      // Node.js
+  PACKAGE_TYPE_PYPI = 5;     // Python
+  PACKAGE_TYPE_GEM = 6;      // Ruby
+  PACKAGE_TYPE_GO_MOD = 7;   // Go modules
+  PACKAGE_TYPE_MAVEN = 8;    // Java Maven
+  PACKAGE_TYPE_CARGO = 9;    // Rust
+}
+
+// SBOMFindingResponse returned by Core
+message SBOMFindingResponse {
+  bool success = 1;
+  string message = 2;
+  string sbom_id = 3;  // Used to reference in CVEFinding
+  google.protobuf.Timestamp received_at = 4;
+}
+

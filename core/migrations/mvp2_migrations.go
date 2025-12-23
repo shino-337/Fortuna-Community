@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // Migration012_AddRiskScores creates the risk_scores table

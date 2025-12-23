@@ -150,3 +150,4 @@ COMMENT ON COLUMN insights.cve_match_id IS 'Reference to CVE match that created 
 COMMENT ON COLUMN pod_image_scans.sbom_id IS 'Reference to SBOM for this pod image';
 
 
+

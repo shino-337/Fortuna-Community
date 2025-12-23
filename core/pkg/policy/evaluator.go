@@ -11,7 +11,7 @@ import (
 	"github.com/google/cel-go/cel"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // Resource represents a Kubernetes resource to be evaluated

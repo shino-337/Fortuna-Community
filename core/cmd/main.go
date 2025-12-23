@@ -14,21 +14,21 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/ksam/core/internal/api"
-	"github.com/ksam/core/internal/config"
-	"github.com/ksam/core/internal/grpc"
-	"github.com/ksam/core/internal/health"
-	"github.com/ksam/core/internal/middleware"
-	"github.com/ksam/core/internal/scheduler"
-	"github.com/ksam/core/internal/storage"
-	"github.com/ksam/core/internal/webhook"
-	"github.com/ksam/core/migrations"
-	"github.com/ksam/core/pkg/messaging"
-	"github.com/ksam/core/pkg/policy"
-	"github.com/ksam/core/pkg/worker"
+	"github.com/fortuna/core/internal/api"
+	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/internal/grpc"
+	"github.com/fortuna/core/internal/health"
+	"github.com/fortuna/core/internal/middleware"
+	"github.com/fortuna/core/internal/scheduler"
+	"github.com/fortuna/core/internal/storage"
+	"github.com/fortuna/core/internal/webhook"
+	"github.com/fortuna/core/migrations"
+	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/policy"
+	"github.com/fortuna/core/pkg/worker"
 	"github.com/nats-io/nats.go"
 
-	_ "github.com/ksam/core/pkg/metrics" // Import to register admission metrics
+	_ "github.com/fortuna/core/pkg/metrics" // Import to register admission metrics
 	_ "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 

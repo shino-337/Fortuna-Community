@@ -6,7 +6,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/ksam/core/internal/service"
+	"github.com/fortuna/core/internal/service"
 	"gorm.io/gorm"
 )
 

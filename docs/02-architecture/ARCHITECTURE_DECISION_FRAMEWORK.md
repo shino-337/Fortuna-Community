@@ -1,17 +1,19 @@
-# KSAM Architecture Decision Framework
+# Fortuna Architecture Decision Framework
 
-**Date:** 2025-12-22
-**Purpose:** Help you decide which architectural approach is best for your use case
+**Date:** December 23, 2024  
+**Status:** ✅ Updated - Agent-Based is REQUIRED  
+**Purpose:** Understand WHY Agent-Based is the only correct architecture  
+**References:** ADR-0010
 
 ---
 
-## Quick Decision Tree
+## Decision Tree (Simplified)
 
 ```
-START: What is your deployment scenario?
+START: Are you building a production security platform?
 
 ┌─────────────────────────────────────────────────────────────┐
-│ Do you manage MULTIPLE Kubernetes clusters?                │
+│ Is this for production use?                                 │
 └─────────────────┬───────────────────────────────────────────┘
                   │
         ┌─────────┴─────────┐
@@ -20,132 +22,106 @@ START: What is your deployment scenario?
         │                   │
         ↓                   ↓
 ┌───────────────┐   ┌───────────────────────────┐
-│ AGENT-BASED   │   │ Single cluster only?      │
-│ RECOMMENDED   │   └───────────┬───────────────┘
-│               │               │
-│ Deploy Core   │      ┌────────┴────────┐
-│ externally,   │      │                 │
-│ Agents in     │     YES               NO (multi-env)
-│ each cluster  │      │                 │
-└───────────────┘      ↓                 ↓
-              ┌─────────────────┐  ┌─────────────┐
-              │ < 50 nodes?     │  │ AGENT-BASED │
-              └────────┬────────┘  │ RECOMMENDED │
-                       │           └─────────────┘
-              ┌────────┴────────┐
-              │                 │
-             YES               NO
-              │                 │
-              ↓                 ↓
-      ┌──────────────┐  ┌──────────────┐
-      │ CORE-ONLY OK │  │ AGENT-BASED  │
-      │ (simpler)    │  │ RECOMMENDED  │
-      │              │  │ (scalability)│
-      └──────────────┘  └──────────────┘
+│ AGENT-BASED   │   │ POC/Demo: Core-Only OK    │
+│ REQUIRED      │   │ (But plan Agent migration)│
+│               │   └───────────────────────────┘
+│ Data Gravity  │
+│ Network Eff.  │
+│ Scalability   │
+│ Industry Std  │
+└───────────────┘
+
+For Production → AGENT-BASED (no other option)
 ```
+
+**Simple Rule**: If you're serious about this platform, use Agent-Based from day 1.
 
 ---
 
-## Detailed Comparison Matrix
+## The ONLY Correct Architecture: Agent-Based
 
-| Criteria | Core-Only | Agent-Based | Hybrid (Migration) |
-|----------|-----------|-------------|-------------------|
-| **Deployment Complexity** | ⭐⭐⭐⭐⭐ Simple | ⭐⭐⭐ Moderate | ⭐⭐ Complex |
-| **Scalability** | ⭐⭐ Limited | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐⭐ Good |
-| **Resource Efficiency** | ⭐⭐ Poor (concentrated) | ⭐⭐⭐⭐ Good (distributed) | ⭐⭐ Poor (duplicate) |
-| **Fault Tolerance** | ⭐ Poor (SPOF) | ⭐⭐⭐⭐ Good (isolated) | ⭐⭐⭐ Good |
-| **Multi-Cluster Support** | ❌ Not supported | ✅ Native | ⚠️ Partial |
-| **API Server Load** | ⭐⭐ High (single client) | ⭐⭐⭐⭐ Low (distributed) | ⭐ Very high (duplicate) |
-| **Operational Complexity** | ⭐⭐⭐⭐⭐ Simple | ⭐⭐⭐ Moderate | ⭐⭐ Complex |
-| **Debugging** | ⭐⭐⭐⭐ Easy | ⭐⭐⭐ Moderate | ⭐⭐ Difficult |
-| **Network Resilience** | ⭐⭐ Poor (no buffer) | ⭐⭐⭐⭐ Good (local buffer) | ⭐⭐⭐ Good |
-| **Collection Latency** | ⭐⭐⭐⭐ Low (~50ms) | ⭐⭐⭐ Medium (~80ms) | ⭐⭐ High (duplicate) |
-| **Processing Scalability** | ⭐⭐ Coupled | ⭐⭐⭐⭐⭐ Independent | ⭐⭐⭐⭐ Independent |
-| **Clear Architecture** | ⭐⭐ Mixed concerns | ⭐⭐⭐⭐⭐ Separated | ⭐ Confusing |
-| **Production Readiness** | ⭐⭐⭐ Acceptable | ⭐⭐⭐⭐⭐ Excellent | ⭐⭐ Temporary only |
-| **Cost (Resources)** | ⭐⭐⭐ Medium | ⭐⭐⭐⭐ Low (distributed) | ⭐ High (duplicate) |
-| **Cost (Development)** | ⭐⭐⭐⭐⭐ Low | ⭐⭐⭐ Medium | ⭐⭐ High |
+### Why Agent-Based is Mandatory
+
+| Aspect | Agent-Based (CORRECT) | Core-Only (WRONG) |
+|--------|----------------------|------------------|
+| **Data Gravity** | ✅ Compute moves to data | ❌ Data moves to compute (inefficient) |
+| **Network** | ✅ 50KB findings | ❌ 4GB image transfer (99% waste) |
+| **Scalability** | ✅ 10,000+ nodes | ❌ Max ~100 nodes (bottleneck) |
+| **SBOM/CVE Location** | ✅ On-node (fast, local) | ❌ Centralized (slow, network) |
+| **Resource Distribution** | ✅ Balanced across nodes | ❌ Single pod overload |
+| **Industry Standard** | ✅ How all tools work | ❌ Anti-pattern |
+| **Cache Efficiency** | ✅ Per-node SBOM cache | ❌ No efficient caching |
+| **Fault Tolerance** | ✅ Node-level isolation | ❌ Single point of failure |
+| **Production Ready** | ✅ YES | ❌ NO (dev/POC only) |
+
+**Verdict**: Core-Only is architecturally incorrect for production security platforms.
 
 **Legend:** ⭐⭐⭐⭐⭐ = Excellent, ⭐⭐⭐⭐ = Good, ⭐⭐⭐ = Acceptable, ⭐⭐ = Poor, ⭐ = Very Poor
 
 ---
 
-## Use Case Recommendations
+## Use Case: Production Security Platform
 
-### Scenario 1: Small Single Cluster (< 50 nodes, < 500 pods)
+### For ALL Sizes: Agent-Based Required
 
-**Recommended:** Core-Only
+**Why not "wait until you're bigger":**
 
-**Rationale:**
-- Simple deployment (single pod)
-- Low operational overhead
-- Adequate performance for small scale
-- Easier debugging
-- Lower development cost
+❌ **Migration is harder later**
+- More data to migrate
+- More risk of downtime
+- Team has learned wrong patterns
+- Technical debt accumulated
 
-**Trade-offs:**
-- Limited scalability (but not needed at this scale)
-- Single point of failure (acceptable with pod restart)
-- Cannot scale horizontally for collection
+❌ **Core-Only creates bad habits**
+- Code structured wrong
+- Patterns violate data gravity
+- Future refactoring is expensive
 
-**Example Use Cases:**
-- Development/staging environments
-- Small production clusters
-- POC/MVP deployments
-- Single-tenant SaaS with small clusters
+✅ **Agent-Based from start**
+- Scales from 10 to 10,000 nodes
+- No migration needed
+- Correct patterns from day 1
+- Industry-standard approach
 
----
+**Example: POC/Development**
 
-### Scenario 2: Medium Single Cluster (50-200 nodes, 500-2000 pods)
-
-**Recommended:** Agent-Based
-
-**Rationale:**
-- Better resource distribution
-- Improved fault tolerance
-- Can scale processing independently
-- Lower API server load
-- Production-ready architecture
-
-**Trade-offs:**
-- More complex deployment
-- Requires DaemonSet management
-- Slightly higher latency (negligible)
-
-**Example Use Cases:**
-- Mid-size production clusters
-- Multi-tenant SaaS (single cluster per tenant)
-- E-commerce platforms
-- SaaS with steady growth
+Even for POC, use Agent-Based:
+- Validates production architecture
+- No "surprise" migration later
+- Proves scalability from start
+- DaemonSet is standard K8s (not complex)
 
 ---
 
-### Scenario 3: Large Single Cluster (200+ nodes, 2000+ pods)
+### Industry Examples (All Use Agent-Based)
 
-**Recommended:** Agent-Based (REQUIRED)
+**Security & Observability Tools:**
 
-**Rationale:**
-- Only architecture that scales to this size
-- Distributed collection prevents bottlenecks
-- Independent processing scalability
-- Fault isolation critical at this scale
-- API server load distribution essential
+| Tool | Architecture | Why |
+|------|-------------|-----|
+| **Falco** | DaemonSet agents | Runtime security, node-level monitoring |
+| **Trivy Operator** | In-cluster scanning | SBOM + CVE on-node |
+| **Aqua Security** | Agent-based sensors | Workload scanning locally |
+| **Sysdig** | Agent collectors | eBPF + local processing |
+| **Datadog** | Node agents | Metrics/logs from source |
+| **Prometheus** | Per-node exporters | Data collected where it lives |
 
-**Trade-offs:**
-- Operational complexity (worth it at this scale)
-- More components to monitor
+**Pattern**: Heavy data collection happens at the edge.
 
-**Example Use Cases:**
-- Large enterprises
-- Multi-tenant SaaS platforms
-- High-traffic production systems
-- ML/AI workloads
+**Why Fortuna Should Follow**:
+- SBOM extraction: I/O + CPU intensive
+- CVE scanning: CPU intensive
+- Image data: GBs per image
+- Network: Expensive resource
+- Cache: More efficient per-node
+
+**Conclusion**: Agent-Based is not "our preference", it's **industry consensus**.
 
 ---
 
-### Scenario 4: Multiple Clusters (Any Size)
+### Multi-Cluster (Enterprise)
 
-**Recommended:** Agent-Based (REQUIRED)
+**Requirement:** Agent-Based (Only Option)
 
 **Architecture:**
 ```
@@ -502,47 +478,72 @@ Before migrating to Agent-Based, ensure:
 
 ---
 
-## Summary Decision Table
+## Summary: ONE Decision
 
-| If You Are... | Choose | Why |
-|--------------|--------|-----|
-| Small startup, POC | Core-Only | Simplicity, speed to market |
-| Growing SaaS, single region | Agent-Based | Scalability, lower TCO |
-| Enterprise, multi-region | Agent-Based | Only option |
-| Edge/IoT deployment | Agent-Based | Network resilience |
-| Budget-constrained | Core-Only → Agent-Based | Start simple, migrate later |
-| Resource-constrained | Agent-Based | Better distribution |
-| Limited team | Core-Only | Lower ops burden |
-| Experienced team | Agent-Based | Better architecture |
+| Scenario | Architecture | Rationale |
+|----------|-------------|-----------|
+| **Production** | Agent-Based | Only correct option |
+| **POC/Demo** | Agent-Based (preferred) | Validates production arch |
+| **POC/Demo (lazy)** | Core-Only | OK for throw-away demo, BUT plan migration |
+| **Multi-cluster** | Agent-Based | Only option |
+| **Enterprise** | Agent-Based | Only option |
+| **Any size** | Agent-Based | Scales from 10 to 10,000 nodes |
 
----
+**Rule**: If you plan to use this in production, use Agent-Based from day 1.
 
-## Next Steps After Decision
-
-### If You Chose Core-Only:
-
-1. Read `/docs/START_HERE.md`
-2. Deploy using Helm with `agent.enabled=false`
-3. Monitor resource usage and pod count
-4. Set alert: "Migrate to Agent-Based when nodes > 50"
-5. Plan quarterly architecture review
-
-### If You Chose Agent-Based:
-
-1. Read `/docs/REFACTORING_PLAN_AGENT_BASED.md`
-2. Read `/docs/IMPLEMENTATION_CODE_EXAMPLES.md`
-3. Follow 6-week implementation plan
-4. Start with hybrid mode for safety
-5. Migrate to agent-only after 2 weeks of validation
-
-### If You Chose Hybrid (Temporary):
-
-1. This is for MIGRATION ONLY
-2. Set deadline (2 weeks maximum)
-3. Monitor duplicate data
-4. Validate agent data quality
-5. Switch to agent-only or core-only
+**No "wait until you're bigger".** Start correctly.
 
 ---
 
-**Remember:** The best architecture is the one that meets your needs TODAY while allowing growth TOMORROW. Don't over-engineer for hypothetical scale, but don't paint yourself into a corner either.
+## Next Steps (Agent-Based Implementation)
+
+**You chose correctly. Now implement it:**
+
+### Phase 1: Move SBOM to Agent (Week 1-2)
+
+1. Read `REFACTORING_PLAN_AGENT_BASED.md`
+2. Read `IMPLEMENTATION_CODE_EXAMPLES.md`
+3. Migrate `pkg/sbom/extractor/` to `agent/`
+4. Define proto contract (Agent→Core)
+5. Agent generates + sends SBOM findings
+6. Core receives + stores
+
+### Phase 2: Move CVE Scan to Agent (Week 2-3)
+
+1. Embed trivy/grype library in agent
+2. Agent runs local CVE scan
+3. Agent sends vulnerability findings
+4. Core processes insights
+5. Remove CVE logic from Core
+
+### Phase 3: Production Ready (Week 3-4)
+
+1. Add caching (SBOM per digest)
+2. Rate limiting (scans per minute)
+3. Metrics + monitoring
+4. Health checks
+5. Load testing (1000 pods)
+
+**Timeline**: 3-4 weeks  
+**Team**: 2 engineers  
+**Cost**: $40k (one-time)
+
+See **ADR-0010** for detailed rationale.
+
+---
+
+**Remember:** 
+
+> "Architecture should be correct first, simple second."
+
+For security platforms: Agent-Based is architecturally correct.
+
+**Don't compromise on correctness for perceived simplicity.**
+
+Core-Only might seem "simpler" but creates technical debt immediately.
+
+---
+
+*Fortuna K8s Management Platform*  
+*Agent-Based Architecture - The Only Correct Choice*  
+*December 23, 2024*

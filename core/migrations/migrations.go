@@ -8,8 +8,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/internal/auth"
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/internal/auth"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // Force reference to migration functions to prevent dead code elimination

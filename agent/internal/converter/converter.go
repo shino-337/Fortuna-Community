@@ -8,7 +8,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/watch"
 
-	fortuna "github.com/ksam/agent/proto/gen/proto"
+	fortuna "github.com/fortuna/api/proto/agent"
 )
 
 // PodToInventoryItem converts a Pod to InventoryItem

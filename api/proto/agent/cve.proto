@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package fortuna.agent.v1;
+
+option go_package = "github.com/fortuna/api/proto/agent";
+
+import "google/protobuf/timestamp.proto";
+
+// CVEFinding represents CVE vulnerabilities found in a container
+message CVEFinding {
+  // Schema version for compatibility
+  int32 schema_version = 1;
+  
+  // Pod identification
+  string pod_uid = 2;
+  string pod_name = 3;
+  string namespace = 4;
+  string container_name = 5;
+  
+  // Image identification
+  string image_name = 6;
+  string image_digest = 7;
+  string image_tag = 8;
+  
+  // CVE matches
+  repeated CVEMatch matches = 9;
+  
+  // Metadata
+  google.protobuf.Timestamp scanned_at = 10;
+  string agent_id = 11;
+  string node_id = 12;
+  
+  // Summary
+  int32 total_matches = 13;
+  int32 critical_count = 14;
+  int32 high_count = 15;
+  int32 medium_count = 16;
+  int32 low_count = 17;
+}
+
+// CVEMatch represents a single CVE match
+message CVEMatch {
+  string cve_id = 1;              // e.g., CVE-2024-1234
+  string package_name = 2;        // e.g., openssl
+  string package_version = 3;     // e.g., 1.1.1k
+  string purl = 4;                // Package URL
+  string severity = 5;            // CRITICAL, HIGH, MEDIUM, LOW
+  double cvss_score = 6;          // 0-10
+  string description = 7;         // CVE description
+  string fixed_in = 8;            // Version with fix
+  string matched_by = 9;          // Version range that matched
+}
+
+// CVEFindingResponse is returned after receiving CVE findings
+message CVEFindingResponse {
+  bool success = 1;
+  string message = 2;
+  string insights_created = 3;    // Number of insights created
+}
+

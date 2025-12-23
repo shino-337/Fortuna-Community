@@ -15,8 +15,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/internal/auth"
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/internal/auth"
+	"github.com/fortuna/core/pkg/models"
 )
 
 const (

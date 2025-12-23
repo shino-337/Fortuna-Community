@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/risk"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/risk"
 )
 
 // GetRiskScores returns all risk scores with optional filtering

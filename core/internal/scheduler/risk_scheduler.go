@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/ksam/core/pkg/worker"
+	"github.com/fortuna/core/pkg/worker"
 	"gorm.io/gorm"
 )
 

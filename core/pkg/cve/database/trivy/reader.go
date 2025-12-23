@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/boltdb/bolt"
-	"github.com/ksam/core/pkg/cve"
+	"github.com/fortuna/core/pkg/cve"
 )
 
 // Reader reads CVE data from Trivy DB (BoltDB format)

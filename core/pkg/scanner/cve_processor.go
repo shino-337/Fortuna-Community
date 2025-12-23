@@ -9,8 +9,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/ksam/core/pkg/models"
-	"github.com/ksam/core/pkg/riskengine"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/riskengine"
 	"gorm.io/gorm"
 )
 

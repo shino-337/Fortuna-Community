@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/ksam/core/internal/k8s"
-	"github.com/ksam/core/pkg/models"
+	"github.com/fortuna/core/internal/k8s"
+	"github.com/fortuna/core/pkg/models"
 )
 
 // GetClusters returns all clusters
