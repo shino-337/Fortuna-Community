@@ -172,6 +172,17 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 
 // identifyMissingSBOMs identifies pods that don't have SBOMs (informational only)
 func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *ReconciliationStats) error {
+	// Check if pods table exists first
+	var tableExists bool
+	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
+		return fmt.Errorf("check pods table: %w", err)
+	}
+	
+	if !tableExists {
+		r.logger.Printf("⚠️  Pods table does not exist, skipping missing SBOM identification")
+		return nil
+	}
+	
 	// Find all running pods
 	var runningPods []models.Pod
 	if err := r.db.WithContext(ctx).

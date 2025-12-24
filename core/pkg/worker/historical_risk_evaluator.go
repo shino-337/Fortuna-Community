@@ -108,6 +108,17 @@ func (e *HistoricalRiskEvaluator) evaluateServiceAccounts(ctx context.Context, s
 	InsightsCreated     int
 	Errors              int
 }) error {
+	// Check if table exists first
+	var tableExists bool
+	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='service_accounts')").Scan(&tableExists).Error; err != nil {
+		return fmt.Errorf("check service_accounts table: %w", err)
+	}
+	
+	if !tableExists {
+		log.Printf("[HistoricalRiskEvaluator] service_accounts table does not exist, skipping")
+		return nil
+	}
+	
 	var serviceAccounts []models.ServiceAccount
 	if err := e.db.Find(&serviceAccounts).Error; err != nil {
 		return fmt.Errorf("failed to fetch service accounts: %w", err)
@@ -263,6 +274,17 @@ func (e *HistoricalRiskEvaluator) evaluateRoleBindings(ctx context.Context, stat
 	InsightsCreated     int
 	Errors              int
 }) error {
+	// Check if table exists first
+	var tableExists bool
+	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='role_bindings')").Scan(&tableExists).Error; err != nil {
+		return fmt.Errorf("check role_bindings table: %w", err)
+	}
+	
+	if !tableExists {
+		log.Printf("[HistoricalRiskEvaluator] role_bindings table does not exist, skipping")
+		return nil
+	}
+	
 	var roleBindings []models.RoleBinding
 	if err := e.db.Find(&roleBindings).Error; err != nil {
 		return fmt.Errorf("failed to fetch role bindings: %w", err)
