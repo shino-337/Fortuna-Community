@@ -51,8 +51,14 @@ func (m *Matcher) MatchSBOM(
 
 	matches := make([]*models.CVEMatch, 0)
 
-	// Process each component
-	for _, component := range components {
+	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk
+	ecosystemPackages := make(map[string][]string)
+	componentsByName := make(map[string]*models.SBOMComponent)
+	purlsByName := make(map[string]*PURL)
+
+	for i := range components {
+		component := &components[i]
+
 		// 1. Parse PURL
 		purl, err := ParsePURL(component.PURL)
 		if err != nil {
@@ -60,60 +66,74 @@ func (m *Matcher) MatchSBOM(
 			continue
 		}
 
-		// Normalize ecosystem for DB queries (align SBOM PURL with OSV loader ecosystem values)
+		// Normalize ecosystem for DB queries
 		queryEcosystem := normalizeQueryEcosystem(purl)
 
-		// 2. Query CVE database
-		cves, err := m.dbManager.GetVulnerabilitiesForPackage(
-			ctx,
-			queryEcosystem,
-			purl.Name,
-			component.ComponentVersion,
-		)
+		// Group by ecosystem
+		ecosystemPackages[queryEcosystem] = append(ecosystemPackages[queryEcosystem], purl.Name)
+		componentsByName[component.ComponentName] = component
+		purlsByName[component.ComponentName] = purl
+	}
+
+	// 2. Bulk query CVEs for all packages per ecosystem
+	for ecosystem, packageNames := range ecosystemPackages {
+		m.logger.Printf("Bulk querying CVEs for %d packages in ecosystem %s", len(packageNames), ecosystem)
+
+		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, ecosystem, packageNames)
 		if err != nil {
-			m.logger.Printf("⚠️  Failed to query CVEs for %s: %v", component.ComponentName, err)
+			m.logger.Printf("⚠️  Failed to bulk query CVEs for ecosystem %s: %v", ecosystem, err)
 			continue
 		}
 
-		if len(cves) == 0 {
-			continue // No CVEs found
+		totalCVEs := 0
+		for _, cves := range packageCVEs {
+			totalCVEs += len(cves)
 		}
+		m.logger.Printf("Found %d total CVEs for %d packages in ecosystem %s", totalCVEs, len(packageNames), ecosystem)
 
-		m.logger.Printf("Found %d potential CVEs for %s", len(cves), component.ComponentName)
+		// 3. Process each package's CVEs
+		for pkgName, cves := range packageCVEs {
+			component := componentsByName[pkgName]
+			purl := purlsByName[pkgName]
 
-		// 3. Check version constraints
-		for _, cveData := range cves {
-			vulnerable, err := m.comparator.IsVulnerable(
-				component.ComponentVersion,
-				cveData.Constraint,
-				purl.Ecosystem,
-			)
-			if err != nil {
-				m.logger.Printf("⚠️  Version comparison failed for %s: %v", component.ComponentName, err)
+			if component == nil || purl == nil {
 				continue
 			}
 
-			if !vulnerable {
-				continue // Not vulnerable
-			}
+			// Check version constraints for each CVE
+			for _, cveData := range cves {
+				vulnerable, err := m.comparator.IsVulnerable(
+					component.ComponentVersion,
+					cveData.Constraint,
+					purl.Ecosystem,
+				)
+				if err != nil {
+					m.logger.Printf("⚠️  Version comparison failed for %s: %v", component.ComponentName, err)
+					continue
+				}
 
-			// 4. Create match (using new schema - no ComponentID, CVSSScore is float32)
-			match := &models.CVEMatch{
-				SBOMID:         sbom.ID,
-				PodUID:         sbom.PodUID,
-				ContainerName:  sbom.ContainerName,
-				CVEID:          cveData.ID,
-				PackageName:    component.ComponentName,
-				PackageVersion: component.ComponentVersion,
-				PURL:           component.PURL,
-				Severity:       strings.ToUpper(cveData.Severity),
-				CVSS:           float32(cveData.CVSSScore), // Convert to float32
-				FixedVersion:   cveData.FixedVersion,
-				MatchedBy:      "fortuna-core-cve-matcher",
-				MatchedAt:      component.CreatedAt,
-			}
+				if !vulnerable {
+					continue // Not vulnerable
+				}
 
-			matches = append(matches, match)
+				// 4. Create match
+				match := &models.CVEMatch{
+					SBOMID:         sbom.ID,
+					PodUID:         sbom.PodUID,
+					ContainerName:  sbom.ContainerName,
+					CVEID:          cveData.ID,
+					PackageName:    component.ComponentName,
+					PackageVersion: component.ComponentVersion,
+					PURL:           component.PURL,
+					Severity:       strings.ToUpper(cveData.Severity),
+					CVSS:           float32(cveData.CVSSScore), // Convert to float32
+					FixedVersion:   cveData.FixedVersion,
+					MatchedBy:      "fortuna-core-cve-matcher",
+					MatchedAt:      component.CreatedAt,
+				}
+
+				matches = append(matches, match)
+			}
 		}
 	}
 

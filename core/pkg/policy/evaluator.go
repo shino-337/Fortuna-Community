@@ -91,8 +91,19 @@ func NewEvaluator(db *gorm.DB) (*Evaluator, error) {
 	}
 
 	// Load instances
-	if err := e.loadInstances(); err != nil {
-		return nil, fmt.Errorf("failed to load instances: %w", err)
+	// Check if policy_instances table exists before loading
+	var tableExists bool
+	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')").Scan(&tableExists).Error; err != nil {
+		return nil, fmt.Errorf("failed to check policy_instances table: %w", err)
+	}
+	
+	if tableExists {
+		if err := e.loadInstances(); err != nil {
+			log.Printf("Warning: Failed to load policy instances: %v (continuing with empty instances)", err)
+			// Continue with empty instances - policies will be loaded from templates only
+		}
+	} else {
+		log.Println("Warning: policy_instances table does not exist (migrations may not have completed). Continuing with templates only.")
 	}
 
 	// Start periodic refresh (every 5 minutes)

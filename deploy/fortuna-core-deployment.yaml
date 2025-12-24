@@ -66,7 +66,7 @@ spec:
           env:
             # Database
             - name: DATABASE_URL
-              value: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
+              value: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/ksam?sslmode=disable"
             
             # NATS
             - name: NATS_ENDPOINT

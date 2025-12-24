@@ -3,6 +3,7 @@ package riskengine
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -197,16 +198,142 @@ func (m *InsightManager) CreateOrUpdateInsight(insight *models.Insight) error {
 	})
 }
 
-// BatchCreateOrUpdateInsights processes multiple insights in batch
+// BatchCreateOrUpdateInsights processes multiple insights in batch using PostgreSQL UPSERT
 func (m *InsightManager) BatchCreateOrUpdateInsights(insights []*models.Insight) error {
+	if len(insights) == 0 {
+		return nil
+	}
+
 	return m.db.Transaction(func(tx *gorm.DB) error {
+		// Separate vulnerability insights from other types for different upsert strategies
+		vulnInsights := make([]*models.Insight, 0)
+		otherInsights := make([]*models.Insight, 0)
+
 		for _, insight := range insights {
+			if insight.InsightType == "vulnerability" && insight.CVEID != "" {
+				vulnInsights = append(vulnInsights, insight)
+			} else {
+				otherInsights = append(otherInsights, insight)
+			}
+		}
+
+		// Batch upsert vulnerability insights using PostgreSQL ON CONFLICT
+		if len(vulnInsights) > 0 {
+			// Use raw SQL for efficient batch UPSERT with proper conflict handling
+			const batchSize = 100
+			for i := 0; i < len(vulnInsights); i += batchSize {
+				end := i + batchSize
+				if end > len(vulnInsights) {
+					end = len(vulnInsights)
+				}
+				batch := vulnInsights[i:end]
+
+				// Build bulk INSERT with ON CONFLICT for vulnerability insights
+				if err := m.batchUpsertVulnerabilityInsights(tx, batch); err != nil {
+					return fmt.Errorf("batch upsert vulnerability insights: %w", err)
+				}
+			}
+			log.Printf("[InsightManager] Batch upserted %d vulnerability insights", len(vulnInsights))
+		}
+
+		// Process other insights using existing logic (fallback for non-vulnerability)
+		for _, insight := range otherInsights {
 			if err := m.createOrUpdateInsightTx(tx, insight); err != nil {
 				return err
 			}
 		}
+
 		return nil
 	})
+}
+
+// batchUpsertVulnerabilityInsights performs efficient batch UPSERT for vulnerability insights
+func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights []*models.Insight) error {
+	if len(insights) == 0 {
+		return nil
+	}
+
+	// Prepare data for bulk insert
+	now := time.Now()
+	values := make([]interface{}, 0, len(insights)*20) // Estimate 20 columns
+	placeholders := make([]string, 0, len(insights))
+
+	paramIndex := 1
+	for _, insight := range insights {
+		// Set timestamps
+		if insight.DetectedAt.IsZero() {
+			insight.DetectedAt = now
+		}
+		if insight.Status == "" {
+			insight.Status = "active"
+		}
+
+		// Build placeholder for this row
+		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			paramIndex, paramIndex+1, paramIndex+2, paramIndex+3, paramIndex+4, paramIndex+5,
+			paramIndex+6, paramIndex+7, paramIndex+8, paramIndex+9, paramIndex+10, paramIndex+11,
+			paramIndex+12, paramIndex+13, paramIndex+14, paramIndex+15, paramIndex+16, paramIndex+17)
+		placeholders = append(placeholders, placeholder)
+
+		// Add values in same order as placeholder
+		values = append(values,
+			insight.ResourceType,
+			insight.ResourceNamespace,
+			insight.ResourceName,
+			insight.ResourceUID,
+			insight.InsightType,
+			insight.Severity,
+			insight.Title,
+			insight.Description,
+			insight.Status,
+			insight.Recommendation,
+			insight.CVEID,
+			insight.CVSS,
+			insight.AffectedComponent,
+			insight.AffectedVersion,
+			insight.FixedVersion,
+			insight.DetectedAt,
+			now, // created_at
+			now, // updated_at
+		)
+
+		paramIndex += 18
+	}
+
+	// Build the UPSERT query
+	query := fmt.Sprintf(`
+INSERT INTO insights (
+	resource_type, resource_namespace, resource_name, resource_uid,
+	insight_type, severity, title, description, status, recommendation,
+	cve_id, cvss, affected_component, affected_version, fixed_version,
+	detected_at, created_at, updated_at
+) VALUES %s
+ON CONFLICT (resource_uid, cve_id, insight_type)
+WHERE deleted_at IS NULL
+DO UPDATE SET
+	description = EXCLUDED.description,
+	recommendation = EXCLUDED.recommendation,
+	cvss = EXCLUDED.cvss,
+	severity = EXCLUDED.severity,
+	affected_version = EXCLUDED.affected_version,
+	fixed_version = EXCLUDED.fixed_version,
+	status = CASE
+		WHEN insights.status IN ('resolved', 'dismissed') THEN 'active'
+		ELSE insights.status
+	END,
+	detected_at = CASE
+		WHEN insights.status IN ('resolved', 'dismissed') THEN EXCLUDED.detected_at
+		ELSE insights.detected_at
+	END,
+	updated_at = EXCLUDED.updated_at
+`, strings.Join(placeholders, ", "))
+
+	// Execute the batch UPSERT
+	if err := tx.Exec(query, values...).Error; err != nil {
+		return fmt.Errorf("execute batch upsert: %w", err)
+	}
+
+	return nil
 }
 
 // Stop stops the insight manager (placeholder for async workers)

@@ -82,44 +82,91 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 
 	// Create insights (critical/high only)
-	created := 0
+	// OPTIMIZATION: Load all persisted matches and components in bulk to avoid N+1 queries
+	if len(matches) == 0 {
+		return nil
+	}
+
+	// Collect all package names and CVE IDs for bulk loading
+	packageNames := make([]string, 0, len(matches))
+	cveIDs := make([]string, 0, len(matches))
+	for _, m := range matches {
+		if w.onlySeverities[strings.ToUpper(m.Severity)] {
+			packageNames = append(packageNames, m.PackageName)
+			cveIDs = append(cveIDs, m.CVEID)
+		}
+	}
+
+	if len(packageNames) == 0 {
+		return nil
+	}
+
+	// Bulk load all persisted matches (2 queries instead of N*2)
+	var persistedMatches []models.CVEMatch
+	if err := w.db.WithContext(ctx).
+		Where("sbom_id = ? AND package_name IN ? AND cve_id IN ? AND deleted_at IS NULL",
+			sbomModel.ID, packageNames, cveIDs).
+		Find(&persistedMatches).Error; err != nil {
+		w.logger.Printf("⚠️  Failed to load persisted matches: %v", err)
+		return fmt.Errorf("load persisted matches: %w", err)
+	}
+
+	// Bulk load all components
+	var components []models.SBOMComponent
+	if err := w.db.WithContext(ctx).
+		Where("sbom_id = ? AND component_name IN ? AND deleted_at IS NULL",
+			sbomModel.ID, packageNames).
+		Find(&components).Error; err != nil {
+		w.logger.Printf("⚠️  Failed to load components: %v", err)
+		return fmt.Errorf("load components: %w", err)
+	}
+
+	// Create lookup maps for O(1) access
+	matchMap := make(map[string]*models.CVEMatch)
+	for i := range persistedMatches {
+		key := persistedMatches[i].PackageName + ":" + persistedMatches[i].CVEID
+		matchMap[key] = &persistedMatches[i]
+	}
+
+	componentMap := make(map[string]*models.SBOMComponent)
+	for i := range components {
+		componentMap[components[i].ComponentName] = &components[i]
+	}
+
+	// Build insights in batch
+	insights := make([]*models.Insight, 0, len(matches))
 	for _, m := range matches {
 		if !w.onlySeverities[strings.ToUpper(m.Severity)] {
 			continue
 		}
 
-		// Reload persisted match to get ID (using new schema: package_name instead of component_id)
-		var persisted models.CVEMatch
-		if err := w.db.WithContext(ctx).
-			Where("sbom_id = ? AND package_name = ? AND cve_id = ? AND deleted_at IS NULL",
-				m.SBOMID, m.PackageName, m.CVEID).
-			First(&persisted).Error; err != nil {
-			w.logger.Printf("⚠️  Cannot load persisted CVEMatch: %v", err)
+		// Lookup from maps (O(1) instead of query)
+		key := m.PackageName + ":" + m.CVEID
+		persisted, foundMatch := matchMap[key]
+		if !foundMatch {
+			w.logger.Printf("⚠️  Persisted match not found for %s:%s", m.PackageName, m.CVEID)
 			continue
 		}
 
-		// Load component by package name (using new schema)
-		var component models.SBOMComponent
-		if err := w.db.WithContext(ctx).
-			Where("sbom_id = ? AND component_name = ? AND deleted_at IS NULL", m.SBOMID, m.PackageName).
-			First(&component).Error; err != nil {
-			w.logger.Printf("⚠️  Cannot load component for package %s: %v", m.PackageName, err)
+		component, foundComp := componentMap[m.PackageName]
+		if !foundComp {
+			w.logger.Printf("⚠️  Component not found for package %s", m.PackageName)
 			continue
 		}
 
-		insight := buildVulnInsightFromEvent(ev, &component, &persisted)
-		// Use batch processing if multiple insights (future optimization)
-		// For now, process individually but within transaction (handled by InsightManager)
-		if err := w.insightMgr.CreateOrUpdateInsight(insight); err != nil {
-			w.logger.Printf("⚠️  Failed to create/update insight for %s: %v", m.CVEID, err)
-			continue
-		}
-		created++
+		insight := buildVulnInsightFromEvent(ev, component, persisted)
+		insights = append(insights, insight)
 	}
 
-	if created > 0 {
-		w.logger.Printf("✅ Created/updated %d vulnerability insights for pod %s/%s", created, ev.PodNamespace, ev.PodName)
+	// Batch create/update insights (single transaction)
+	if len(insights) > 0 {
+		if err := w.insightMgr.BatchCreateOrUpdateInsights(insights); err != nil {
+			w.logger.Printf("⚠️  Failed to batch create/update insights: %v", err)
+			return fmt.Errorf("batch create insights: %w", err)
+		}
+		w.logger.Printf("✅ Created/updated %d vulnerability insights for pod %s/%s", len(insights), ev.PodNamespace, ev.PodName)
 	}
+
 	return nil
 }
 
@@ -134,7 +181,7 @@ func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models
 		}
 	}
 
-	// Batch insert with ON CONFLICT DO NOTHING (requires unique index: (sbom_id, cve_id, package_name))
+	// Batch insert with ON CONFLICT DO NOTHING (requires unique index: (sbom_id, package_name, cve_id))
 	const batchSize = 500
 	for i := 0; i < len(matches); i += batchSize {
 		end := i + batchSize
@@ -143,7 +190,7 @@ func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models
 		}
 		batch := matches[i:end]
 		if err := w.db.WithContext(ctx).Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "component_id"}, {Name: "cve_id"}},
+			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "package_name"}, {Name: "cve_id"}},
 			DoNothing: true,
 		}).Create(&batch).Error; err != nil {
 			return fmt.Errorf("persist cve_matches batch: %w", err)

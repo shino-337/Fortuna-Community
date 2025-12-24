@@ -123,6 +123,117 @@ func (m *Manager) GetVulnerabilitiesForPackage(
 	return cves, nil
 }
 
+// GetVulnerabilitiesForPackages gets CVEs for multiple packages in bulk (OPTIMIZATION)
+// Returns a map of package name -> CVEs
+func (m *Manager) GetVulnerabilitiesForPackages(
+	ctx context.Context,
+	ecosystem string,
+	packages []string, // Package names only
+) (map[string][]*cve.CVE, error) {
+	if m.source != "postgres" || m.postgresDB == nil {
+		// Fallback to individual queries for non-postgres sources
+		result := make(map[string][]*cve.CVE)
+		for _, pkg := range packages {
+			cves, err := m.GetVulnerabilitiesForPackage(ctx, ecosystem, pkg, "")
+			if err != nil {
+				m.logger.Printf("⚠️  Failed to query CVEs for %s: %v", pkg, err)
+				continue
+			}
+			result[pkg] = cves
+		}
+		return result, nil
+	}
+
+	// Check cache first
+	result := make(map[string][]*cve.CVE)
+	uncachedPackages := make([]string, 0, len(packages))
+
+	for _, pkg := range packages {
+		cacheKey := fmt.Sprintf("%s:%s:*", ecosystem, pkg)
+		if cached, ok := m.cache.Get(cacheKey); ok {
+			result[pkg] = cached
+		} else {
+			uncachedPackages = append(uncachedPackages, pkg)
+		}
+	}
+
+	if len(uncachedPackages) == 0 {
+		m.logger.Printf("✅ Bulk cache hit for all %d packages", len(packages))
+		return result, nil
+	}
+
+	// Bulk query PostgreSQL for uncached packages
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+
+	var rows []models.PackageVulnerability
+	if err := m.postgresDB.WithContext(ctx).
+		Where("ecosystem = ? AND package_name IN ? AND deleted_at IS NULL", eco, uncachedPackages).
+		Preload("CVE", "deleted_at IS NULL").
+		Find(&rows).Error; err != nil {
+		return nil, fmt.Errorf("bulk query postgres: %w", err)
+	}
+
+	// Group CVEs by package name
+	packageCVEs := make(map[string][]*cve.CVE)
+	for _, pv := range rows {
+		if pv.CVEID == "" || pv.PackageName == "" {
+			continue
+		}
+
+		// Build CVE object
+		constraint := buildConstraintFromPV(pv)
+		if constraint == "" && pv.AffectedRange != "" {
+			constraint = pv.AffectedRange
+		}
+
+		fixed := pv.FixedVersion
+		if fixed == "" {
+			fixed = pv.VersionEndExcluding
+		}
+
+		var published time.Time
+		var modified time.Time
+		if pv.CVE.PublishedDate != nil {
+			published = *pv.CVE.PublishedDate
+		}
+		if pv.CVE.LastModifiedDate != nil {
+			modified = *pv.CVE.LastModifiedDate
+		}
+
+		cveObj := &cve.CVE{
+			ID:           pv.CVEID,
+			Description:  pv.CVE.Description,
+			Severity:     pv.CVE.Severity,
+			CVSSScore:    pv.CVE.CVSSScore,
+			CVSSVector:   pv.CVE.CVSSVector,
+			Constraint:   constraint,
+			FixedVersion: fixed,
+			Published:    published,
+			Modified:     modified,
+			References:   nil,
+		}
+
+		packageCVEs[pv.PackageName] = append(packageCVEs[pv.PackageName], cveObj)
+	}
+
+	// Cache and add to result
+	for _, pkg := range uncachedPackages {
+		cves := packageCVEs[pkg]
+		if cves == nil {
+			cves = []*cve.CVE{} // Empty slice for packages with no CVEs
+		}
+
+		cacheKey := fmt.Sprintf("%s:%s:*", ecosystem, pkg)
+		m.cache.Set(cacheKey, cves)
+		result[pkg] = cves
+	}
+
+	m.logger.Printf("✅ Bulk query returned CVEs for %d packages (queried %d, cached %d)",
+		len(packages), len(uncachedPackages), len(packages)-len(uncachedPackages))
+
+	return result, nil
+}
+
 func (m *Manager) queryPostgres(ctx context.Context, ecosystem, name string) ([]*cve.CVE, error) {
 	eco := strings.ToLower(strings.TrimSpace(ecosystem))
 	pkg := strings.TrimSpace(name)

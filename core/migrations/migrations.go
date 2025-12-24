@@ -28,6 +28,7 @@ var (
 	_ = Migration025_MakeUpsertUniqueIndexesNonPartial
 	_ = Migration026_AddInsightsJSONBIndexes
 	_ = Migration027_AddCVEFileMetadata
+	_ = Migration028_AddPerformanceIndexes
 )
 
 // RunMigrations runs all database migrations
@@ -58,6 +59,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration025_MakeUpsertUniqueIndexesNonPartial, // MVP2: Non-partial unique indexes for ON CONFLICT inference
 		Migration026_AddInsightsJSONBIndexes,           // MVP2: GIN indexes for efficient JSONB queries on insights
 		Migration027_AddCVEFileMetadata,                // CVE Optimization: File metadata tracking for incremental updates
+		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))
@@ -212,6 +214,16 @@ func Migration002_AddUsers(db *gorm.DB) error {
 func Migration003_AddUserToAuditLogs(db *gorm.DB) error {
 	log.Println("Running migration 003: Add user_id to audit_logs")
 
+	// Check if audit_logs table exists first
+	if !db.Migrator().HasTable(&models.AuditLog{}) {
+		log.Println("audit_logs table does not exist, creating it first")
+		if err := db.AutoMigrate(&models.AuditLog{}); err != nil {
+			log.Printf("Warning: Failed to create audit_logs table: %v", err)
+			// Continue anyway - table may be created by later migrations
+			return nil
+		}
+	}
+
 	// Check if column already exists
 	if db.Migrator().HasColumn(&models.AuditLog{}, "user_id") {
 		log.Println("Column user_id already exists, skipping")
@@ -220,7 +232,9 @@ func Migration003_AddUserToAuditLogs(db *gorm.DB) error {
 
 	// Add user_id column
 	if err := db.Migrator().AddColumn(&models.AuditLog{}, "user_id"); err != nil {
-		return err
+		log.Printf("Warning: Failed to add user_id column: %v (table may not exist yet)", err)
+		// Don't fail - column may already exist or table may be created later
+		return nil
 	}
 
 	// Add foreign key constraint

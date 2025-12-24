@@ -25,6 +25,7 @@ import (
 	"github.com/fortuna/core/migrations"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/policy"
+	"github.com/fortuna/core/pkg/reconciler"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/nats-io/nats.go"
 
@@ -284,6 +285,15 @@ func main() {
 	}()
 	defer insightsCleanupJob.Stop()
 	log.Printf("Insights cleanup job started (interval: 24 hours)")
+
+	// Start SBOM reconciliation loop (runs every hour)
+	// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
+	sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)
+	go func() {
+		log.Printf("[Main] Starting SBOM reconciliation loop in goroutine...")
+		sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
+	}()
+	log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
 
 	// Initialize gRPC server
 	log.Printf("[Main] Creating gRPC server with TLS_ENABLED=%v", cfg.TLSEnabled)

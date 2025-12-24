@@ -57,13 +57,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sbom_components_unique_sbom_purl
 	}
 
 	if cveMatchesExists {
-		// 3) Deduplicate cve_matches by (sbom_id, component_id, cve_id) for active rows
+		// 3) Deduplicate cve_matches by (sbom_id, package_name, cve_id) for active rows
 		dedupCVEMatches := `
 DELETE FROM cve_matches a
 USING cve_matches b
 WHERE a.id > b.id
   AND a.sbom_id = b.sbom_id
-  AND a.component_id = b.component_id
+  AND a.package_name = b.package_name
   AND a.cve_id = b.cve_id
   AND a.deleted_at IS NULL
   AND b.deleted_at IS NULL;
@@ -72,14 +72,14 @@ WHERE a.id > b.id
 			return fmt.Errorf("dedup cve_matches failed: %w", err)
 		}
 
-		// 4) Create unique index for cve_matches upsert path
+		// 4) Create unique index for cve_matches upsert path (using package_name instead of component_id)
 		createUniqueCVEMatches := `
-CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_matches_unique_sbom_component_cve
-  ON cve_matches(sbom_id, component_id, cve_id)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_matches_unique_sbom_package_cve
+  ON cve_matches(sbom_id, package_name, cve_id)
   WHERE deleted_at IS NULL;
 `
 		if err := db.Exec(createUniqueCVEMatches).Error; err != nil {
-			return fmt.Errorf("create unique index cve_matches(sbom_id,component_id,cve_id) failed: %w", err)
+			return fmt.Errorf("create unique index cve_matches(sbom_id,package_name,cve_id) failed: %w", err)
 		}
 	}
 

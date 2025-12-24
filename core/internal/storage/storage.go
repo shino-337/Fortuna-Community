@@ -1,6 +1,8 @@
 package storage
 
 import (
+	"context"
+	"database/sql"
 	"log"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/migrations"
+	"github.com/fortuna/core/pkg/metrics"
 )
 
 func New(cfg *config.Config) (*gorm.DB, error) {
@@ -36,7 +39,48 @@ func New(cfg *config.Config) (*gorm.DB, error) {
 	sqlDB.SetConnMaxLifetime(time.Hour)        // Connection max lifetime
 	sqlDB.SetConnMaxIdleTime(10 * time.Minute) // Idle connection timeout
 
+	// Start connection pool metrics monitoring
+	go monitorConnectionPool(context.Background(), sqlDB)
+
 	return db, nil
+}
+
+// monitorConnectionPool monitors database connection pool stats and exports as metrics
+func monitorConnectionPool(ctx context.Context, sqlDB *sql.DB) {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	log.Printf("[Storage] Started connection pool monitoring (interval: 10s)")
+
+	for {
+		select {
+		case <-ctx.Done():
+			log.Printf("[Storage] Stopped connection pool monitoring")
+			return
+		case <-ticker.C:
+			stats := sqlDB.Stats()
+
+			// Update Prometheus metrics
+			metrics.DBConnectionsOpen.Set(float64(stats.OpenConnections))
+			metrics.DBConnectionsInUse.Set(float64(stats.InUse))
+			metrics.DBConnectionsIdle.Set(float64(stats.Idle))
+			metrics.DBConnectionsWaitCount.Add(float64(stats.WaitCount))
+			metrics.DBConnectionsWaitDuration.Add(float64(stats.WaitDuration.Milliseconds()))
+
+			// Log if approaching connection limit
+			utilizationPct := float64(stats.OpenConnections) / float64(stats.MaxOpenConnections) * 100
+			if utilizationPct > 80 {
+				log.Printf("⚠️  [Storage] High connection pool utilization: %d/%d (%.1f%%)",
+					stats.OpenConnections, stats.MaxOpenConnections, utilizationPct)
+			}
+
+			// Log if connections are waiting
+			if stats.WaitCount > 0 {
+				log.Printf("⚠️  [Storage] Connections waiting: %d (total wait duration: %v)",
+					stats.WaitCount, stats.WaitDuration)
+			}
+		}
+	}
 }
 
 func Migrate(db *gorm.DB) error {

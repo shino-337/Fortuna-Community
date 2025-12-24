@@ -11,8 +11,8 @@ ARG FORTUNA_BUILD_TIME=unknown
 # Install build dependencies
 RUN apk add --no-cache git
 
-# Copy proto module first
-COPY api/proto/agent /build/api/proto/agent/
+# Copy api module first (needed for go.mod replace directive)
+COPY api/ /build/api/
 
 # Copy agent go.mod and download deps
 COPY agent/go.mod agent/go.sum ./

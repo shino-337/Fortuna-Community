@@ -32,22 +32,22 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_sbom_components_unique_sbom_purl_all
 		return fmt.Errorf("create unique index sbom_components(sbom_id,purl): %w", err)
 	}
 
-	// CVE matches: (sbom_id, component_id, cve_id)
+	// CVE matches: (sbom_id, package_name, cve_id) - FIXED: use package_name instead of component_id
 	if err := db.Exec(`
 DELETE FROM cve_matches a
 USING cve_matches b
 WHERE a.id > b.id
   AND a.sbom_id = b.sbom_id
-  AND a.component_id = b.component_id
+  AND a.package_name = b.package_name
   AND a.cve_id = b.cve_id;
 `).Error; err != nil {
 		return fmt.Errorf("dedup cve_matches for non-partial unique index: %w", err)
 	}
 	if err := db.Exec(`
-CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_matches_unique_sbom_component_cve_all
-  ON cve_matches(sbom_id, component_id, cve_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_matches_unique_sbom_package_cve_all
+  ON cve_matches(sbom_id, package_name, cve_id);
 `).Error; err != nil {
-		return fmt.Errorf("create unique index cve_matches(sbom_id,component_id,cve_id): %w", err)
+		return fmt.Errorf("create unique index cve_matches(sbom_id,package_name,cve_id): %w", err)
 	}
 
 	// Pod image scans: (pod_uid, container_name)

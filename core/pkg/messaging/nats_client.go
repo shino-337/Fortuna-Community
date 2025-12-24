@@ -83,20 +83,34 @@ func (c *NATSClient) SetupStreams() error {
 	}
 
 	for _, stream := range streams {
-		// Layer 4: Configure retention policy - auto-discard old messages
-		// For raw and normalized streams, use 1 hour retention to prevent ghost pods
-		maxAge := 7 * 24 * time.Hour // Default: 7 days
+		// OPTIMIZED: Configure retention policy based on stream type
+		// Use WorkQueuePolicy for better message cleanup (delete after all consumers ack)
+		// Increase retention time to prevent message loss during high load
+		maxAge := 7 * 24 * time.Hour // Default: 7 days for events/insights
+		retention := nats.LimitsPolicy
+
 		if stream.name == "ksam-raw" || stream.name == "ksam-normalized" {
-			maxAge = 1 * time.Hour // Layer 4: 1 hour for pod-related streams
+			// For pod-related streams: Use 24h retention with WorkQueuePolicy
+			// This prevents message loss while still cleaning up processed messages
+			maxAge = 24 * time.Hour
+			retention = nats.WorkQueuePolicy // Delete after ALL consumers ack
+		} else if stream.name == "ksam-events" {
+			// For SBOM/CVE events: Longer retention for retry safety
+			maxAge = 48 * time.Hour
+			retention = nats.WorkQueuePolicy
 		}
-		
+
 		cfg := &nats.StreamConfig{
 			Name:      stream.name,
 			Subjects:  stream.subjects,
-			Retention: nats.LimitsPolicy,
+			Retention: retention,
 			MaxAge:    maxAge,
 			Storage:   nats.FileStorage,
 			Replicas:  3,
+			// Add limits to prevent unbounded growth
+			MaxMsgs:     1000000,              // Max 1M messages per stream
+			MaxBytes:    10 * 1024 * 1024 * 1024, // Max 10GB per stream
+			Discard:     nats.DiscardOld,       // Discard oldest when limits reached
 		}
 
 		// Try to add stream, if exists, update it
