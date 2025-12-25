@@ -335,10 +335,10 @@ Performance Target Summary:
 Metric                          Target      Status
 --------------------------------------------------------
 SBOM Processing                 < 30s       ⏳ Measure during E2E
-CVE Matching (200 packages)     < 5s        $([ "${NORMALIZED_TIME}" != "N/A" ] && [ $(echo "${NORMALIZED_TIME} < 5" | bc) -eq 1 ] && echo "✅ PASS" || echo "⏳ Pending")
-Insight Query Performance       < 1s        $([ $(echo "${INDEXED_TIME} < 1.0" | bc) -eq 1 ] && echo "✅ PASS" || echo "❌ FAIL")
-Database Connection Utilization < 80%       $([ -n "${UTILIZATION}" ] && [ $(echo "${UTILIZATION} < 80" | bc) -eq 1 ] && echo "✅ PASS" || echo "⏳ Pending")
-Bulk CVE Lookup Speedup         > 5x        $([ -n "${SPEEDUP}" ] && [ $(echo "${SPEEDUP} > 5" | bc) -eq 1 ] && echo "✅ PASS" || echo "⏳ Pending")
+CVE Matching (200 packages)     < 5s        $([ -n "${NORMALIZED_TIME:-}" ] && [ "${NORMALIZED_TIME}" != "N/A" ] && [ $(echo "${NORMALIZED_TIME} < 5" | bc) -eq 1 ] && echo "✅ PASS" || echo "⏳ Pending")
+Insight Query Performance       < 1s        $([ -n "${INDEXED_TIME:-}" ] && [ $(echo "${INDEXED_TIME} < 1.0" | bc) -eq 1 ] && echo "✅ PASS" || echo "❌ FAIL")
+Database Connection Utilization < 80%       $([ -n "${UTILIZATION:-}" ] && [ $(echo "${UTILIZATION} < 80" | bc) -eq 1 ] && echo "✅ PASS" || echo "⏳ Pending")
+Bulk CVE Lookup Speedup         > 5x        $([ -n "${SPEEDUP:-}" ] && [ $(echo "${SPEEDUP} > 5" | bc) -eq 1 ] && echo "✅ PASS" || echo "⏳ Pending")
 
 Expected Improvements (vs baseline):
 ------------------------------------

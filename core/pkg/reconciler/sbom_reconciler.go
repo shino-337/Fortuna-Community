@@ -125,6 +125,23 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 		}
 	}
 
+	// Check if pods table exists first
+	var tableExists bool
+	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
+		return fmt.Errorf("check pods table: %w", err)
+	}
+	
+	var orphanedSBOMIDs []uint
+	if !tableExists {
+		// If pods table doesn't exist, mark all SBOMs as orphaned (they can't be verified)
+		r.logger.Printf("⚠️  Pods table does not exist, marking all SBOMs as potentially orphaned")
+		for _, sbom := range activeSBOMs {
+			orphanedSBOMIDs = append(orphanedSBOMIDs, sbom.ID)
+		}
+		stats.OrphanedSBOMs = len(orphanedSBOMIDs)
+		return nil
+	}
+	
 	// Query database for existing pods
 	var existingPods []models.Pod
 	if err := r.db.WithContext(ctx).
@@ -141,7 +158,7 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 	}
 
 	// Identify orphaned SBOMs (pods that don't exist)
-	orphanedSBOMIDs := make([]uint, 0)
+	orphanedSBOMIDs = make([]uint, 0)
 	for podUID, sbomID := range sbomByPodUID {
 		if !existingPodUIDs[podUID] {
 			orphanedSBOMIDs = append(orphanedSBOMIDs, sbomID)

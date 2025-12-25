@@ -404,6 +404,17 @@ func (e *Evaluator) ReloadTemplates() error {
 
 // ReloadInstances reloads policy instances
 func (e *Evaluator) ReloadInstances() error {
+	// Check if policy_instances table exists before loading
+	var tableExists bool
+	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')").Scan(&tableExists).Error; err != nil {
+		return fmt.Errorf("failed to check policy_instances table: %w", err)
+	}
+	
+	if !tableExists {
+		log.Printf("[PolicyEvaluator] policy_instances table does not exist, skipping reload")
+		return nil
+	}
+	
 	return e.loadInstances()
 }
 

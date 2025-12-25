@@ -407,7 +407,8 @@ func main() {
 		go func() {
 			log.Printf("[Webhook] Starting webhook HTTPS server on :8443")
 			if err := webhookServer.ListenAndServeTLS(cfg.WebhookTLSCertPath, cfg.WebhookTLSKeyPath); err != nil && err != http.ErrServerClosed {
-				log.Fatalf("[Webhook] Failed to start webhook HTTPS server: %v", err)
+				log.Printf("[Webhook] ⚠️  Failed to start webhook HTTPS server: %v (non-fatal, continuing)", err)
+				// Don't exit - webhook is optional, main HTTP server can still run
 			}
 		}()
 

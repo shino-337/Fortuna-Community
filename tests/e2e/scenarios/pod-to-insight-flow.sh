@@ -78,7 +78,8 @@ end_timer() {
 # Database query function
 db_query() {
     local query=$1
-    PGPASSWORD="${DB_PASSWORD:-ksam}" psql -h "${DB_HOST}" -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" -t -A -c "${query}" 2>/dev/null || echo ""
+    local result=$(kubectl exec -n fortuna postgres-747fc6cdfb-zzw8m -- psql -U postgres -d fortuna -t -A -c "${query}" 2>/dev/null | tr -d '[:space:]' || echo "0")
+    echo "${result}"
 }
 
 # Wait for pod to be ready
@@ -125,8 +126,9 @@ wait_for_sbom() {
     
     while [ $elapsed -lt $max_wait ]; do
         local sbom_count=$(db_query "SELECT COUNT(*) FROM sboms WHERE pod_uid = '${pod_uid}' AND deleted_at IS NULL;")
+        sbom_count=${sbom_count:-0}
         
-        if [ "${sbom_count}" -gt 0 ]; then
+        if [ "${sbom_count}" -gt 0 ] 2>/dev/null; then
             log_success "SBOM found in database"
             return 0
         fi
@@ -248,12 +250,27 @@ main() {
     log "Phase 1: Creating test pod..."
     start_timer "pod_creation"
     
-    kubectl run "${POD_NAME}" \
-        --image="${IMAGE}" \
-        --namespace="${NAMESPACE}" \
-        --restart=Never \
-        --labels="test=ksam-e2e,app=test-pod" \
-        2>&1 | tee -a "${LOG_FILE}"
+    # Get agent node name to ensure pod is scheduled on same node
+    AGENT_NODE=$(kubectl get pods -n "${NAMESPACE}" -l app.kubernetes.io/component=agent -o jsonpath='{.items[0].spec.nodeName}' 2>/dev/null || echo "")
+    
+    if [ -n "${AGENT_NODE}" ]; then
+        log "Agent node: ${AGENT_NODE}, using node selector"
+        kubectl run "${POD_NAME}" \
+            --image="${IMAGE}" \
+            --namespace="${NAMESPACE}" \
+            --restart=Never \
+            --labels="test=ksam-e2e,app=test-pod" \
+            --overrides="{\"spec\":{\"nodeSelector\":{\"kubernetes.io/hostname\":\"${AGENT_NODE}\"}}}" \
+            2>&1 | tee -a "${LOG_FILE}"
+    else
+        log_warning "Could not determine agent node, creating pod without node selector"
+        kubectl run "${POD_NAME}" \
+            --image="${IMAGE}" \
+            --namespace="${NAMESPACE}" \
+            --restart=Never \
+            --labels="test=ksam-e2e,app=test-pod" \
+            2>&1 | tee -a "${LOG_FILE}"
+    fi
     
     wait_for_pod "${POD_NAME}" "${NAMESPACE}" 120
     local pod_creation_time=$(end_timer "pod_creation")

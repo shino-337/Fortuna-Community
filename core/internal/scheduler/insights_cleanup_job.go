@@ -86,15 +86,15 @@ func (j *InsightsCleanupJob) run() {
 	// Keep only the latest one, soft delete older duplicates
 	var duplicates []struct {
 		Description string
-		Type        string
+		InsightType string `gorm:"column:insight_type"`
 		Severity    string
 		Count       int64
 	}
 	j.db.Raw(`
-		SELECT description, type, severity, COUNT(*) as count
+		SELECT description, insight_type, severity, COUNT(*) as count
 		FROM insights
 		WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
-		GROUP BY description, type, severity
+		GROUP BY description, insight_type, severity
 		HAVING COUNT(*) > 1
 	`).Scan(&duplicates)
 
@@ -108,22 +108,22 @@ func (j *InsightsCleanupJob) run() {
 				WHERE deleted_at IS NULL 
 				  AND (status = 'active' OR status IS NULL)
 				  AND description = ?
-				  AND type = ?
+				  AND insight_type = ?
 				  AND severity = ?
 				  AND id NOT IN (
 					SELECT id FROM insights
 					WHERE deleted_at IS NULL
 					  AND (status = 'active' OR status IS NULL)
 					  AND description = ?
-					  AND type = ?
+					  AND insight_type = ?
 					  AND severity = ?
 					ORDER BY created_at DESC
 					LIMIT 1
 				  )
-			`, dup.Description, dup.Type, dup.Severity,
-				dup.Description, dup.Type, dup.Severity)
+			`, dup.Description, dup.InsightType, dup.Severity,
+				dup.Description, dup.InsightType, dup.Severity)
 			if result.Error != nil {
-				log.Printf("[InsightsCleanupJob] Error cleaning up duplicates for %s/%s: %v", dup.Type, dup.Severity, result.Error)
+				log.Printf("[InsightsCleanupJob] Error cleaning up duplicates for %s/%s: %v", dup.InsightType, dup.Severity, result.Error)
 			} else if result.RowsAffected > 0 {
 				log.Printf("[InsightsCleanupJob] Soft-deleted %d duplicate insights (description: %s)", result.RowsAffected, dup.Description[:50])
 			}

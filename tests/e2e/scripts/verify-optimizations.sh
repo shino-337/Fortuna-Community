@@ -187,16 +187,31 @@ echo "----------------------------------------"
 
 test_batch_insights_deduplication() {
     # Check that insights have unique constraint for batch upsert
+    # This can be either a unique constraint OR a unique index on (resource_uid, cve_id, insight_type)
+
+    # Check for unique indexes
+    local has_unique_index=$(db_query "
+        SELECT COUNT(*) FROM pg_indexes
+        WHERE schemaname = 'public'
+        AND tablename = 'insights'
+        AND (indexname LIKE '%unique%resource%' OR indexname LIKE 'idx_insights_unique%');
+    ")
+
+    # Check for unique constraints
     local has_constraint=$(db_query "
         SELECT COUNT(*) FROM pg_constraint
         WHERE conrelid = 'insights'::regclass
         AND contype = 'u';
     ")
 
-    if [ "${has_constraint}" -gt "0" ]; then
+    # Either unique index or constraint is fine
+    if [ "${has_unique_index}" -gt "0" ] || [ "${has_constraint}" -gt "0" ]; then
+        if [ "${has_unique_index}" -gt "0" ]; then
+            echo "  Found ${has_unique_index} unique index(es) on insights table"
+        fi
         return 0
     else
-        log_warning "No unique constraint on insights (batch upsert may not work)"
+        log_warning "No unique constraint or index on insights (batch upsert may not work)"
         return 1
     fi
 }

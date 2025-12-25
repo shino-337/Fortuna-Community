@@ -29,6 +29,7 @@ var (
 	_ = Migration026_AddInsightsJSONBIndexes
 	_ = Migration027_AddCVEFileMetadata
 	_ = Migration028_AddPerformanceIndexes
+	_ = Migration029_AddInsightsUniqueConstraint
 )
 
 // RunMigrations runs all database migrations
@@ -60,6 +61,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration026_AddInsightsJSONBIndexes,           // MVP2: GIN indexes for efficient JSONB queries on insights
 		Migration027_AddCVEFileMetadata,                // CVE Optimization: File metadata tracking for incremental updates
 		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
+		Migration029_AddInsightsUniqueConstraint,       // Performance: Unique constraint for insights batch UPSERT
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

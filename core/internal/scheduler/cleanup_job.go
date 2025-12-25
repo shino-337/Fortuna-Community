@@ -79,6 +79,25 @@ func (j *PodCleanupJob) run() {
 	if j.k8sClient == nil {
 		// Fallback: Use time-based cleanup if K8s client not available
 		log.Printf("[PodCleanupJob] K8s client not available, using time-based cleanup")
+		
+		// Check if pods table exists
+		var podsTableExists bool
+		if err := j.db.Raw(`
+			SELECT EXISTS (
+				SELECT FROM information_schema.tables 
+				WHERE table_schema = 'public' 
+				AND table_name = 'pods'
+			)
+		`).Scan(&podsTableExists).Error; err != nil {
+			log.Printf("[PodCleanupJob] Error checking pods table existence: %v", err)
+			return
+		}
+
+		if !podsTableExists {
+			log.Printf("[PodCleanupJob] Pods table does not exist, skipping cleanup")
+			return
+		}
+		
 		result := j.db.Exec(`
 			UPDATE pods 
 			SET deleted_at = NOW()
@@ -117,6 +136,24 @@ func (j *PodCleanupJob) run() {
 	}
 
 	log.Printf("[PodCleanupJob] Found %d pods in Kubernetes", len(k8sUIDs))
+
+	// Check if pods table exists
+	var podsTableExists bool
+	if err := j.db.Raw(`
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = 'public' 
+			AND table_name = 'pods'
+		)
+	`).Scan(&podsTableExists).Error; err != nil {
+		log.Printf("[PodCleanupJob] Error checking pods table existence: %v", err)
+		return
+	}
+
+	if !podsTableExists {
+		log.Printf("[PodCleanupJob] Pods table does not exist, skipping cleanup")
+		return
+	}
 
 	// Get all active pods from database
 	var dbPods []struct {

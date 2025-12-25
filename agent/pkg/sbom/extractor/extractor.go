@@ -88,18 +88,21 @@ func (e *Extractor) ExtractSBOM(
 	osInfo := e.detectOS(fs)
 	e.logger.Printf("Detected OS: %s %s", osInfo.Name, osInfo.Version)
 
-	// 5. Run all parsers
+	// 5. Run OS-specific parsers (skip parsers that won't work for this OS)
 	allPackages := make([]Package, 0)
+	parsersToRun := e.selectParsersForOS(osInfo.Name)
 
-	for name, parser := range e.parsers {
+	for _, parserName := range parsersToRun {
+		parser := e.parsers[parserName]
 		packages, err := parser.Parse(fs)
 		if err != nil {
-			e.logger.Printf("⚠️  Parser %s failed: %v", name, err)
+			// Debug level - file not found is expected for wrong OS type
+			e.logger.Printf("   Parser %s: not applicable (OS: %s)", parserName, osInfo.Name)
 			continue
 		}
 
 		if len(packages) > 0 {
-			e.logger.Printf("✅ Parser %s found %d packages", name, len(packages))
+			e.logger.Printf("✅ Parser %s found %d packages", parserName, len(packages))
 			allPackages = append(allPackages, packages...)
 		}
 	}
@@ -232,6 +235,48 @@ func (e *Extractor) detectOS(fs *Filesystem) OSInfo {
 
 	// Default
 	return OSInfo{Name: "unknown", Version: "unknown"}
+}
+
+// selectParsersForOS selects parsers based on detected OS
+// This avoids running dpkg on Alpine, apk on Debian, etc.
+func (e *Extractor) selectParsersForOS(osName string) []string {
+	// Normalize OS name
+	osLower := strings.ToLower(osName)
+
+	// OS-specific parsers
+	osParsers := make([]string, 0)
+
+	// Debian/Ubuntu
+	if strings.Contains(osLower, "debian") || strings.Contains(osLower, "ubuntu") {
+		osParsers = append(osParsers, "dpkg")
+	}
+
+	// Alpine
+	if strings.Contains(osLower, "alpine") {
+		osParsers = append(osParsers, "apk")
+	}
+
+	// RHEL/CentOS/Fedora
+	if strings.Contains(osLower, "rhel") || strings.Contains(osLower, "centos") ||
+	   strings.Contains(osLower, "fedora") || strings.Contains(osLower, "rocky") ||
+	   strings.Contains(osLower, "alma") {
+		osParsers = append(osParsers, "rpm")
+	}
+
+	// Language package managers (run for all OS types)
+	languageParsers := []string{"npm", "pip", "gomod"}
+
+	// If OS is unknown or no OS parsers matched, try all parsers
+	// (safer approach for unknown distros)
+	if len(osParsers) == 0 || osLower == "unknown" {
+		e.logger.Printf("   Unknown OS '%s', trying all parsers", osName)
+		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod"}
+	}
+
+	// Combine OS parsers + language parsers
+	allParsers := append(osParsers, languageParsers...)
+	e.logger.Printf("   Selected parsers for OS '%s': %v", osName, allParsers)
+	return allParsers
 }
 
 // deduplicate removes duplicate packages

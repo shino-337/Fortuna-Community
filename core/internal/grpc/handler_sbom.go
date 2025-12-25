@@ -38,6 +38,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		req.AgentId, req.PodName, req.ImageDigest)
 
 	// Convert proto to internal model
+	// Initialize all JSONB fields properly to avoid PostgreSQL errors
 	sbom := &models.SBOM{
 		PodUID:        req.PodUid,
 		PodName:       req.PodName,
@@ -49,6 +50,13 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		GeneratedAt:   req.GeneratedAt.AsTime(),
 		AgentID:       req.AgentId,
 		NodeID:        req.NodeId,
+		PackageCount:  len(req.Packages),
+		SBOMFormat:    "fortuna-agent",
+		SBOMContent:   "{}", // Initialize as empty JSON object string for jsonb column
+		Labels:        make(map[string]string), // Initialize empty map to avoid JSONB serialization error
+		Annotations:   make(map[string]string), // Initialize empty map to avoid JSONB serialization error
+		LastUsedAt:    time.Now(),
+		UseCount:      1,
 	}
 
 	// Start transaction
@@ -59,35 +67,78 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		}
 	}()
 
-	// Insert SBOM
-	if err := tx.Create(sbom).Error; err != nil {
+	// Insert or update SBOM (UPSERT) - handle duplicate image_digest gracefully
+	// Use ON CONFLICT to update LastUsedAt and UseCount if SBOM already exists
+	var existingSBOM models.SBOM
+	isNewSBOM := false
+	err := tx.Where("image_digest = ? AND deleted_at IS NULL", sbom.ImageDigest).First(&existingSBOM).Error
+	
+	if err == nil {
+		// SBOM already exists - update LastUsedAt and increment UseCount
+		sbom.ID = existingSBOM.ID
+		sbom.UseCount = existingSBOM.UseCount + 1
+		sbom.LastUsedAt = time.Now()
+		if err := tx.Model(&existingSBOM).Updates(map[string]interface{}{
+			"last_used_at": sbom.LastUsedAt,
+			"use_count":    sbom.UseCount,
+			"pod_uid":      sbom.PodUID,
+			"pod_name":     sbom.PodName,
+			"namespace":    sbom.Namespace,
+			"container_name": sbom.ContainerName,
+		}).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[SBOM] Failed to update existing SBOM: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to update SBOM: %v", err)
+		}
+		log.Printf("[SBOM] Updated existing SBOM id=%d (use_count=%d)", existingSBOM.ID, sbom.UseCount)
+		isNewSBOM = false
+	} else if err == gorm.ErrRecordNotFound {
+		// SBOM doesn't exist - create new one
+		if err := tx.Create(sbom).Error; err != nil {
+			tx.Rollback()
+			log.Printf("[SBOM] Failed to insert SBOM: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to insert SBOM: %v", err)
+		}
+		log.Printf("[SBOM] Created new SBOM id=%d", sbom.ID)
+		isNewSBOM = true
+	} else {
+		// Database error
 		tx.Rollback()
-		log.Printf("[SBOM] Failed to insert SBOM: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to insert SBOM: %v", err)
+		log.Printf("[SBOM] Database error checking SBOM: %v", err)
+		return nil, status.Errorf(codes.Internal, "database error: %v", err)
 	}
 
-		// Insert SBOM components
-		for _, pkg := range req.Packages {
-			// Generate PURL
-			purl := fmt.Sprintf("pkg:%s/%s@%s", pkg.Type.String(), pkg.Name, pkg.Version)
-			
-			component := &models.SBOMComponent{
-				SBOMID:           sbom.ID,
-				ComponentType:    mapComponentType(pkg.Type),
-				ComponentName:    pkg.Name,
-				ComponentVersion: pkg.Version,
-				PURL:             purl,
-				Licenses:         models.ToJSONBString(pkg.Licenses),
-				Source:           pkg.Source,
-				Description:      pkg.Description,
-				Homepage:         pkg.Homepage,
-				Maintainer:       pkg.Maintainer,
+		// Insert SBOM components (skip if already exist for this SBOM)
+		// For existing SBOMs, components should already exist, so we skip insertion
+		// Only insert components for new SBOMs
+		if isNewSBOM {
+			// This is a new SBOM - insert all components
+			for _, pkg := range req.Packages {
+				// Generate PURL
+				purl := fmt.Sprintf("pkg:%s/%s@%s", pkg.Type.String(), pkg.Name, pkg.Version)
+				
+				component := &models.SBOMComponent{
+					SBOMID:           sbom.ID,
+					ComponentType:    mapComponentType(pkg.Type),
+					ComponentName:    pkg.Name,
+					ComponentVersion: pkg.Version,
+					PURL:             purl,
+					Licenses:         models.ToJSONBString(pkg.Licenses),
+					Source:           pkg.Source,
+					Description:      pkg.Description,
+					Homepage:         pkg.Homepage,
+					Maintainer:       pkg.Maintainer,
+				}
+				// Use FirstOrCreate to handle duplicates gracefully
+				if err := tx.Where("sbom_id = ? AND purl = ?", sbom.ID, purl).FirstOrCreate(component).Error; err != nil {
+					tx.Rollback()
+					log.Printf("[SBOM] Failed to insert component %s: %v", pkg.Name, err)
+					return nil, status.Errorf(codes.Internal, "failed to insert component: %v", err)
+				}
 			}
-			if err := tx.Create(component).Error; err != nil {
-				tx.Rollback()
-				log.Printf("[SBOM] Failed to insert component %s: %v", pkg.Name, err)
-				return nil, status.Errorf(codes.Internal, "failed to insert component: %v", err)
-			}
+		} else {
+			// Existing SBOM - components already exist, skip insertion
+			log.Printf("[SBOM] Skipping component insertion for existing SBOM id=%d", sbom.ID)
 		}
 
 	// Commit transaction
@@ -97,10 +148,11 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	}
 
 		// Publish SBOM_CREATED event to NATS (for CVE matching worker)
+		// Use subject 'ksam.sbom.created' to match stream pattern 'ksam.sbom.>' in 'ksam-events' stream
 		if s.natsClient != nil {
 			eventData := fmt.Sprintf(`{"sbom_id":%d,"pod_uid":"%s","image_digest":"%s","package_count":%d}`, 
 				sbom.ID, sbom.PodUID, sbom.ImageDigest, len(req.Packages))
-			if err := s.natsClient.Publish("fortuna.sbom.created", []byte(eventData)); err != nil {
+			if err := s.natsClient.Publish("ksam.sbom.created", []byte(eventData)); err != nil {
 				log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED event: %v", err)
 				// Non-fatal, continue
 			} else {
