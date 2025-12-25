@@ -119,18 +119,36 @@ get_pod_uid() {
 # Wait for SBOM
 wait_for_sbom() {
     local pod_uid=$1
-    local max_wait=${2:-300}
+    local pod_name=$2
+    local max_wait=${3:-300}
     local elapsed=0
     
-    log "Waiting for SBOM extraction (pod_uid: ${pod_uid})..."
+    log "Waiting for SBOM extraction (pod_uid: ${pod_uid}, pod_name: ${pod_name})..."
     
     while [ $elapsed -lt $max_wait ]; do
-        local sbom_count=$(db_query "SELECT COUNT(*) FROM sboms WHERE pod_uid = '${pod_uid}' AND deleted_at IS NULL;")
+        # Try multiple column name variations (GORM uses different naming conventions)
+        local sbom_count=$(db_query "SELECT COUNT(*) FROM sboms WHERE \"podUid\" = '${pod_uid}' AND deleted_at IS NULL;" 2>/dev/null || echo "0")
         sbom_count=${sbom_count:-0}
+        sbom_count=$(echo "${sbom_count}" | tr -d '[:space:]')
         
-        if [ "${sbom_count}" -gt 0 ] 2>/dev/null; then
+        # Also try by pod name as fallback
+        if [ "${sbom_count}" = "0" ] || [ -z "${sbom_count}" ]; then
+            sbom_count=$(db_query "SELECT COUNT(*) FROM sboms WHERE \"podName\" = '${pod_name}' AND deleted_at IS NULL;" 2>/dev/null || echo "0")
+            sbom_count=$(echo "${sbom_count}" | tr -d '[:space:]')
+        fi
+        
+        if [ -n "${sbom_count}" ] && [ "${sbom_count}" != "0" ] && [ "${sbom_count}" -gt 0 ] 2>/dev/null; then
             log_success "SBOM found in database"
             return 0
+        fi
+        
+        # Check agent logs for processing status
+        if [ $((elapsed % 30)) -eq 0 ] && [ $elapsed -gt 0 ]; then
+            log "Still waiting... Checking agent status..."
+            local agent_processing=$(kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=20 2>&1 | grep -c "${pod_name}" || echo "0")
+            if [ "${agent_processing}" = "0" ]; then
+                log_warning "Agent has not processed pod ${pod_name} yet"
+            fi
         fi
         
         sleep 5
@@ -139,6 +157,8 @@ wait_for_sbom() {
     done
     
     log_error "SBOM not found within ${max_wait} seconds"
+    log "Checking agent logs for pod ${pod_name}..."
+    kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=50 2>&1 | grep -E "${pod_name}|Pod added" | tail -5 || log "No agent logs found for pod"
     return 1
 }
 
@@ -288,7 +308,7 @@ main() {
     log "Phase 2: Waiting for SBOM extraction..."
     start_timer "sbom_extraction"
     
-    wait_for_sbom "${pod_uid}" 300
+    wait_for_sbom "${pod_uid}" "${POD_NAME}" 300
     local sbom_extraction_time=$(end_timer "sbom_extraction")
     log_success "SBOM extracted in ${sbom_extraction_time} seconds"
     

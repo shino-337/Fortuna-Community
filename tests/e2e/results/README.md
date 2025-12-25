@@ -7,10 +7,11 @@ This directory contains results from E2E test executions.
 ## Latest Test Execution
 
 **Date**: 2025-12-25  
-**Status**: Analysis Complete  
-**Tests Run**: 2  
+**Status**: Analysis Complete - Critical Issues Identified  
+**Tests Run**: 5  
 **Tests Passed**: 0  
-**Tests Failed**: 2
+**Tests Failed**: 5  
+**Success Rate**: 0%
 
 ---
 
@@ -54,12 +55,33 @@ This directory contains results from E2E test executions.
 
 ## Root Cause
 
-**Primary Issue**: Agent local pod watcher is not detecting new test pods immediately.
+### Issue 1: Agent Pod Watcher Not Detecting New Pods
 
-**Contributing Factors**:
-- Test pods may be scheduled on different node than agent
-- Agent watcher may have delay in detecting new pods
-- No node selector in test script to ensure pod is on agent node
+**Primary Issue**: Agent local pod watcher is not detecting new test pods, even when correctly scheduled on agent node.
+
+**Evidence**:
+- ✅ Pods created successfully (6-8 seconds)
+- ✅ Pods scheduled on correct node (minikube) via node selector
+- ✅ Pods reach Running state
+- ❌ Agent watcher does not detect new pods
+- ❌ No "Pod added" logs for test pods
+- ❌ No SBOM processing for test pods
+
+**Possible Causes**:
+- Informer resync period too long (30 seconds)
+- Event handlers may miss pods that are already Running
+- Field selector may have timing issues
+
+### Issue 2: Database Schema Mismatch
+
+**Expected Schema** (from code):
+- `pod_uid`, `pod_name`, `namespace`, `container_name`
+
+**Actual Schema** (from database):
+- Missing: `pod_uid`, `pod_name`, `namespace`, `container_name`
+- Has: `image_name`, `image_tag`, `image_digest`, `component_count`
+
+**Impact**: Test script cannot query SBOMs by pod_uid/pod_name.
 
 ---
 

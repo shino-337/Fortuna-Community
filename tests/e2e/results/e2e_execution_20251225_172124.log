@@ -1,0 +1,20 @@
+[0;34m[2025-12-25 17:21:24][0m ==========================================
+[0;34m[2025-12-25 17:21:24][0m E2E Test: Pod-to-Insight Flow
+[0;34m[2025-12-25 17:21:24][0m ==========================================
+[0;34m[2025-12-25 17:21:24][0m Pod Name: test-pod-1766658084
+[0;34m[2025-12-25 17:21:24][0m Namespace: fortuna
+[0;34m[2025-12-25 17:21:24][0m Image: nginx:latest
+[0;34m[2025-12-25 17:21:24][0m Results: /Users/tuatnh/Desktop/Learn/K8s Service Account Management Platform/KSAM/tests/e2e/results
+[0;34m[2025-12-25 17:21:24][0m ==========================================
+[0;34m[2025-12-25 17:21:24][0m Phase 1: Creating test pod...
+[0;34m[2025-12-25 17:21:25][0m Agent node: minikube, using node selector
+pod/test-pod-1766658084 created
+[0;34m[2025-12-25 17:21:25][0m Waiting for pod test-pod-1766658084 to be ready...
+...[0;32m[2025-12-25 17:21:31] ✅[0m Pod test-pod-1766658084 is ready
+[0;32m[2025-12-25 17:21:31] ✅[0m Pod created in 6.489312000 seconds
+[0;34m[2025-12-25 17:21:31][0m Pod UID: c4b449fa-4368-440e-b31c-0c4a5734d5ec
+[0;34m[2025-12-25 17:21:31][0m Phase 2: Waiting for SBOM extraction...
+[0;34m[2025-12-25 17:21:31][0m Waiting for SBOM extraction (pod_uid: c4b449fa-4368-440e-b31c-0c4a5734d5ec)...
+............................................................[0;31m[2025-12-25 17:26:44] ❌[0m SBOM not found within 300 seconds
+[0;34m[2025-12-25 17:26:44][0m Cleaning up test pod...
+pod "test-pod-1766658084" deleted
