@@ -116,6 +116,29 @@ get_pod_uid() {
     kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o jsonpath='{.metadata.uid}' 2>/dev/null || echo ""
 }
 
+# Get pod image digest
+get_pod_image_digest() {
+    local pod_name=$1
+    local namespace=$2
+    # Get imageID from pod status (format: docker-pullable://<image>@<digest> or <image>@<digest>)
+    local image_id=$(kubectl get pod "${pod_name}" -n "${namespace}" -o jsonpath='{.status.containerStatuses[0].imageID}' 2>/dev/null || echo "")
+    if [ -z "${image_id}" ]; then
+        # Fallback: try to get from spec (but this won't have digest)
+        local image=$(kubectl get pod "${pod_name}" -n "${namespace}" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null || echo "")
+        echo "${image}"
+    else
+        # Extract digest from imageID
+        # Format: docker-pullable://nginx@sha256:... or docker://sha256:... or nginx@sha256:...
+        # Remove docker-pullable:// or docker:// prefix, then extract sha256:... part
+        local digest=$(echo "${image_id}" | sed 's|docker-pullable://||' | sed 's|docker://||' | sed 's|.*@||' | sed 's|.*sha256:|sha256:|')
+        if [ -z "${digest}" ] || [ "${digest}" = "${image_id}" ]; then
+            # If extraction failed, try another method
+            digest=$(echo "${image_id}" | grep -o 'sha256:[a-f0-9]*' | head -1)
+        fi
+        echo "${digest}"
+    fi
+}
+
 # Wait for SBOM
 wait_for_sbom() {
     local pod_uid=$1
@@ -123,22 +146,75 @@ wait_for_sbom() {
     local max_wait=${3:-300}
     local elapsed=0
     
-    log "Waiting for SBOM extraction (pod_uid: ${pod_uid}, pod_name: ${pod_name})..."
+    # Get image digest from pod
+    local image_digest=$(get_pod_image_digest "${pod_name}" "${NAMESPACE}")
+    local image_name=""
+    if [ -z "${image_digest}" ] || [ "${image_digest}" = "null" ]; then
+        log_warning "Could not get image digest from pod, will try to query by image name"
+        image_name=$(kubectl get pod "${pod_name}" -n "${NAMESPACE}" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null | cut -d':' -f1 | sed 's|.*/||' || echo "")
+        log "Waiting for SBOM extraction (pod: ${pod_name}, image: ${image_name})..."
+    else
+        log "Waiting for SBOM extraction (pod: ${pod_name}, image_digest: ${image_digest})..."
+    fi
     
     while [ $elapsed -lt $max_wait ]; do
-        # Try multiple column name variations (GORM uses different naming conventions)
-        local sbom_count=$(db_query "SELECT COUNT(*) FROM sboms WHERE \"podUid\" = '${pod_uid}' AND deleted_at IS NULL;" 2>/dev/null || echo "0")
-        sbom_count=${sbom_count:-0}
-        sbom_count=$(echo "${sbom_count}" | tr -d '[:space:]')
+        local sbom_count=0
+        local sbom_id=""
         
-        # Also try by pod name as fallback
+        # Strategy 1: Query by image name (most reliable)
+        # SBOMs are reused via UPSERT, so we query by image_name regardless of updated_at
+        if [ -n "${image_name}" ]; then
+            sbom_id=$(db_query "SELECT id FROM sboms WHERE image_name = '${image_name}' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+            if [ -n "${sbom_id}" ] && [ "${sbom_id}" != "0" ] && [ "${sbom_id}" != "" ]; then
+                # Verify SBOM has components (indicates it was processed)
+                local component_count=$(db_query "SELECT COUNT(*) FROM sbom_components WHERE sbom_id = ${sbom_id} AND deleted_at IS NULL;" 2>/dev/null || echo "0")
+                component_count=$(echo "${component_count}" | tr -d '[:space:]')
+                if [ -n "${component_count}" ] && [ "${component_count}" != "0" ] && [ "${component_count}" -gt 0 ] 2>/dev/null; then
+                    sbom_count=1
+                fi
+            fi
+        fi
+        
+        # Strategy 2: Try by image_digest from agent logs (if available)
+        # We'll check agent logs to get the actual digest used
         if [ "${sbom_count}" = "0" ] || [ -z "${sbom_count}" ]; then
-            sbom_count=$(db_query "SELECT COUNT(*) FROM sboms WHERE \"podName\" = '${pod_name}' AND deleted_at IS NULL;" 2>/dev/null || echo "0")
-            sbom_count=$(echo "${sbom_count}" | tr -d '[:space:]')
+            # Get actual digest from agent logs (more reliable than pod status)
+            local actual_digest=$(kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=100 2>&1 | grep -E "${pod_name}.*image=sha256:" | tail -1 | grep -o 'sha256:[a-f0-9]*' | head -1 || echo "")
+            if [ -n "${actual_digest}" ] && [ "${actual_digest}" != "" ]; then
+                sbom_id=$(db_query "SELECT id FROM sboms WHERE image_digest = '${actual_digest}' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+                if [ -n "${sbom_id}" ] && [ "${sbom_id}" != "0" ] && [ "${sbom_id}" != "" ]; then
+                    sbom_count=1
+                fi
+            fi
+        fi
+        
+        # Strategy 3: Get most recently updated SBOM with components (fallback)
+        if [ "${sbom_count}" = "0" ] || [ -z "${sbom_count}" ]; then
+            sbom_id=$(db_query "SELECT s.id FROM sboms s INNER JOIN sbom_components sc ON s.id = sc.sbom_id WHERE s.deleted_at IS NULL AND sc.deleted_at IS NULL GROUP BY s.id ORDER BY s.updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+            if [ -n "${sbom_id}" ] && [ "${sbom_id}" != "0" ] && [ "${sbom_id}" != "" ]; then
+                sbom_count=1
+            fi
         fi
         
         if [ -n "${sbom_count}" ] && [ "${sbom_count}" != "0" ] && [ "${sbom_count}" -gt 0 ] 2>/dev/null; then
-            log_success "SBOM found in database"
+            log_success "SBOM found in database (count: ${sbom_count})"
+            # Use the SBOM ID we found
+            if [ -z "${sbom_id}" ] || [ "${sbom_id}" = "0" ] || [ "${sbom_id}" = "" ]; then
+                # Fallback: get SBOM ID by image_name
+                if [ -n "${image_name}" ]; then
+                    sbom_id=$(db_query "SELECT id FROM sboms WHERE image_name = '${image_name}' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+                fi
+                # If still empty, try to get from agent logs
+                if [ -z "${sbom_id}" ] || [ "${sbom_id}" = "0" ] || [ "${sbom_id}" = "" ]; then
+                    local actual_digest=$(kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=100 2>&1 | grep -E "${pod_name}.*image=sha256:" | tail -1 | grep -o 'sha256:[a-f0-9]*' | head -1 || echo "")
+                    if [ -n "${actual_digest}" ] && [ "${actual_digest}" != "" ]; then
+                        sbom_id=$(db_query "SELECT id FROM sboms WHERE image_digest = '${actual_digest}' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+                    fi
+                fi
+            fi
+            # Export SBOM_ID for use in main script
+            export SBOM_ID="${sbom_id}"
+            log "SBOM ID: ${SBOM_ID}"
             return 0
         fi
         
@@ -148,6 +224,8 @@ wait_for_sbom() {
             local agent_processing=$(kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=20 2>&1 | grep -c "${pod_name}" || echo "0")
             if [ "${agent_processing}" = "0" ]; then
                 log_warning "Agent has not processed pod ${pod_name} yet"
+            else
+                log "Agent is processing pod ${pod_name}..."
             fi
         fi
         
@@ -158,7 +236,7 @@ wait_for_sbom() {
     
     log_error "SBOM not found within ${max_wait} seconds"
     log "Checking agent logs for pod ${pod_name}..."
-    kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=50 2>&1 | grep -E "${pod_name}|Pod added" | tail -5 || log "No agent logs found for pod"
+    kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=50 2>&1 | grep -E "${pod_name}|Pod added|Queued|Processing pod" | tail -10 || log "No agent logs found for pod"
     return 1
 }
 
@@ -196,9 +274,26 @@ wait_for_insights() {
     log "Waiting for insight generation (pod_uid: ${pod_uid})..."
     
     while [ $elapsed -lt $max_wait ]; do
-        local insight_count=$(db_query "SELECT COUNT(*) FROM insights WHERE resource_uid = '${pod_uid}' AND deleted_at IS NULL;")
+        # Try new schema first (resource_uid)
+        local insight_count=$(db_query "SELECT COUNT(*) FROM insights WHERE resource_uid = '${pod_uid}' AND deleted_at IS NULL;" 2>/dev/null || echo "0")
+        insight_count=$(echo "${insight_count}" | tr -d '[:space:]')
         
-        if [ "${insight_count}" -gt 0 ]; then
+        # Fallback: try old schema (sbom_id or affected_resources JSONB)
+        if [ "${insight_count}" = "0" ] || [ -z "${insight_count}" ]; then
+            # Try by sbom_id if available
+            if [ -n "${SBOM_ID}" ] && [ "${SBOM_ID}" != "0" ] && [ "${SBOM_ID}" != "" ]; then
+                insight_count=$(db_query "SELECT COUNT(*) FROM insights WHERE sbom_id = ${SBOM_ID} AND deleted_at IS NULL;" 2>/dev/null || echo "0")
+                insight_count=$(echo "${insight_count}" | tr -d '[:space:]')
+            fi
+            
+            # Try by affected_resources JSONB (old schema)
+            if [ "${insight_count}" = "0" ] || [ -z "${insight_count}" ]; then
+                insight_count=$(db_query "SELECT COUNT(*) FROM insights WHERE affected_resources::text LIKE '%${pod_uid}%' AND deleted_at IS NULL;" 2>/dev/null || echo "0")
+                insight_count=$(echo "${insight_count}" | tr -d '[:space:]')
+            fi
+        fi
+        
+        if [ -n "${insight_count}" ] && [ "${insight_count}" != "0" ] && [ "${insight_count}" -gt 0 ] 2>/dev/null; then
             log_success "Insights found: ${insight_count}"
             return 0
         fi
@@ -312,9 +407,26 @@ main() {
     local sbom_extraction_time=$(end_timer "sbom_extraction")
     log_success "SBOM extracted in ${sbom_extraction_time} seconds"
     
-    # Get SBOM details
-    local sbom_id=$(db_query "SELECT id FROM sboms WHERE pod_uid = '${pod_uid}' AND deleted_at IS NULL LIMIT 1;")
-    local sbom_count=$(db_query "SELECT COUNT(*) FROM sbom_components WHERE sbom_id = ${sbom_id} AND deleted_at IS NULL;")
+    # Get SBOM details (use SBOM_ID from wait_for_sbom if available)
+    local sbom_id=${SBOM_ID:-""}
+    if [ -z "${sbom_id}" ] || [ "${sbom_id}" = "0" ] || [ "${sbom_id}" = "" ]; then
+        # Fallback: get by image name
+        local image_name=$(kubectl get pod "${POD_NAME}" -n "${NAMESPACE}" -o jsonpath='{.spec.containers[0].image}' 2>/dev/null | cut -d':' -f1 | sed 's|.*/||' || echo "")
+        if [ -n "${image_name}" ]; then
+            sbom_id=$(db_query "SELECT id FROM sboms WHERE image_name = '${image_name}' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+        fi
+        # If still empty, try to get from agent logs
+        if [ -z "${sbom_id}" ] || [ "${sbom_id}" = "0" ] || [ "${sbom_id}" = "" ]; then
+            local actual_digest=$(kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=100 2>&1 | grep -E "${POD_NAME}.*image=sha256:" | tail -1 | grep -o 'sha256:[a-f0-9]*' | head -1 || echo "")
+            if [ -n "${actual_digest}" ] && [ "${actual_digest}" != "" ]; then
+                sbom_id=$(db_query "SELECT id FROM sboms WHERE image_digest = '${actual_digest}' AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 1;" 2>/dev/null || echo "")
+            fi
+        fi
+    fi
+    local sbom_count="0"
+    if [ -n "${sbom_id}" ] && [ "${sbom_id}" != "0" ] && [ "${sbom_id}" != "" ]; then
+        sbom_count=$(db_query "SELECT COUNT(*) FROM sbom_components WHERE sbom_id = ${sbom_id} AND deleted_at IS NULL;" 2>/dev/null || echo "0")
+    fi
     log "SBOM ID: ${sbom_id}, Components: ${sbom_count}"
     
     # Phase 3: Wait for CVE matches

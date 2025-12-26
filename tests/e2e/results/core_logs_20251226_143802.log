@@ -1,0 +1,589 @@
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[79.756ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.577ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[14.127ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[2.570ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[9.180ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[43.081ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[10.541ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.109ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[9.386ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.914ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.140ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.806ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 74 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 74 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.633ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 74 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 74
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.569ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 89 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 89 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.496ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 89 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 89
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.590ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 89 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 89 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[5.242ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 89 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 89
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.604ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.664ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.644ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.352ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.506ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.767ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.839ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.022ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.787ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 89 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 89 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.991ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 89 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 89
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.611ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.908ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.518ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 84 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 84 (17 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.757ms] [34;1m[rows:17][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 84 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 17 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 17 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 17 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 17 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 84
+[GIN] 2025/12/26 - 07:37:24 | 200 |   11.855042ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:37:24.626115 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:37:29 | 200 |    6.996041ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:34 | 200 |   74.930292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:34 | 200 |   79.339083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:39 | 200 |    7.037542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:44 | 200 |    8.526375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:44 | 200 |   12.105083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:49 | 200 |   73.480209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:54 | 200 |     25.1635ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:54 | 200 |   91.310416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:59 | 200 |    8.259125ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:37:59.608318 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:38:04 | 200 |  652.421959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:05 | 200 |  1.371629667s |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:09 | 200 |      15.194ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:14 | 200 |   15.463583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:14 | 200 |   18.147291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:19 | 200 |    6.943875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:24 | 200 |   21.143667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:24 | 200 |   13.143875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:29 | 200 |   11.156291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:34 | 200 |   20.418167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:34 | 200 |   20.520792ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:39 | 200 |     9.11525ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:44 | 200 |    5.284209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:44 | 200 |    5.297833ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:38:48.522180 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:38:49 | 200 |    5.540667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:54 | 200 |    5.520334ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:54 | 200 |    5.506375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:59 | 200 |      3.6185ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:04 | 200 |    4.478583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:04 | 200 |    4.479083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:09 | 200 |    4.016333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:14 | 200 |    4.104417ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:14 | 200 |    4.104958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:19 | 200 |     5.96625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:24 | 200 |   90.431625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:24 | 200 |      91.149ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:29 | 200 |    4.953458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:34 | 200 |    4.899667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:34 | 200 |    4.781167ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:39:34.219357 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:39:39 | 200 |   12.767709ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:44 | 200 |    19.75525ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:44 | 200 |   14.032875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:49 | 200 |    25.83675ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:54 | 200 |    4.592166ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:54 | 200 |    4.576542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:39:59 | 200 |   16.227625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:04 | 200 |   89.080042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:04 | 200 |     89.2525ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:09 | 200 |    2.302042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:14 | 200 |    5.627167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:14 | 200 |    5.840417ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:19 | 200 |    3.506542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:24 | 200 |   12.901583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:24 | 200 |   15.217666ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:29 | 200 |    2.183125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:34 | 200 |    3.897583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:34 | 200 |    3.897375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:39 | 200 |    3.216333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:44 | 200 |     2.26325ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:44 | 200 |    3.020458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:49 | 200 |    3.817667ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:40:49.910951 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:40:54 | 200 |    4.116458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:54 | 200 |    4.095625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:40:59 | 200 |    4.896708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:04 | 200 |      13.958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:04 | 200 |    13.96725ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:09 | 200 |   17.487167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:14 | 200 |    6.289291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:14 | 200 |        4.62ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:19 | 200 |    3.270541ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:24 | 200 |       12.96ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:24 | 200 |   12.955583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:29 | 200 |    3.244958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:34 | 200 |     3.94775ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:34 | 200 |     3.94225ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:39 | 200 |     4.66825ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:44 | 200 |    5.050917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:44 | 200 |    8.188458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:49 | 200 |      5.5005ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:54 | 200 |    5.930333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:54 | 200 |    5.995416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:41:59 | 200 |    2.861458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:04 | 200 |    11.44825ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:04 | 200 |    13.44875ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:42:06.237746 [PolicyEvaluator] Refreshing templates and instances...
+2025/12/26 07:42:06.256332 [PodCleanupJob] Running cleanup...
+
+2025/12/26 07:42:06 [32mgithub.com/fortuna/core/pkg/policy/evaluator.go:122
+[0m[33m[20.940ms] [34;1m[rows:0][0m SELECT * FROM "policy_templates" WHERE deleted_at IS NULL AND "policy_templates"."deleted_at" IS NULL
+
+2025/12/26 07:42:06 [32mgithub.com/fortuna/core/pkg/policy/evaluator.go:409
+[0m[33m[7.982ms] [34;1m[rows:1][0m SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')
+2025/12/26 07:42:06.269836 [PolicyEvaluator] policy_instances table does not exist, skipping reload
+2025/12/26 07:42:06.337316 [PodCleanupJob] Found 16 pods in Kubernetes
+
+2025/12/26 07:42:06 [32mgithub.com/fortuna/core/internal/scheduler/cleanup_job.go:148
+[0m[33m[2.913ms] [34;1m[rows:1][0m 
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = 'public' 
+			AND table_name = 'pods'
+		)
+	
+2025/12/26 07:42:06.340498 [PodCleanupJob] Pods table does not exist, skipping cleanup
+[GIN] 2025/12/26 - 07:42:09 | 200 |  488.466292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:14 | 200 |   13.815083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:14 | 200 |   13.826875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:19 | 200 |   16.979416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:24 | 200 |    4.717917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:24 | 200 |   10.039625ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:42:26.241889 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:42:29 | 200 |    4.032417ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:34 | 200 |    4.883292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:34 | 200 |    5.341083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:39 | 200 |   12.195125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:44 | 200 |    3.432959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:44 | 200 |     4.54775ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:49 | 200 |    5.496542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:54 | 200 |    4.069291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:54 | 200 |    4.042625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:42:59 | 200 |    7.145708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:04 | 200 |   11.981166ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:04 | 200 |   12.023292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:09 | 200 |     8.99375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:14 | 200 |    2.510167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:14 | 200 |    3.147792ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:19 | 200 |   12.572167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:24 | 200 |    8.676625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:24 | 200 |       8.689ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:29 | 200 |     2.57975ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:34 | 200 |    8.824833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:34 | 200 |    8.802584ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:39 | 200 |    4.581917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:44 | 200 |       5.828ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:44 | 200 |    6.320001ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:49 | 200 |    4.311625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:54 | 200 |    6.143791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:54 | 200 |    6.325458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:43:59 | 200 |    2.546125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:04 | 200 |   10.611833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:04 | 200 |   10.473666ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:09 | 200 |    3.306125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:14 | 200 |   13.875417ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:14 | 200 |   18.214876ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:19 | 200 |    4.792042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:24 | 200 |    2.517791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:24 | 200 |    3.173792ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:29 | 200 |    9.722791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:34 | 200 |    3.514875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:34 | 200 |    3.525917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:39 | 200 |    9.991625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:44 | 200 |    4.497625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:44 | 200 |    4.497041ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:49 | 200 |    4.344125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:54 | 200 |     8.41875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:54 | 200 |       8.416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:44:59 | 200 |    5.866042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:04 | 200 |    4.034959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:04 | 200 |    3.979708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:09 | 200 |    3.755958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:14 | 200 |    3.556667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:14 | 200 |    5.823333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:19 | 200 |    6.655583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:24 | 200 |    6.506958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:24 | 200 |    6.507042ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:45:28.245134 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:45:29 | 200 |    2.046958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:34 | 200 |       8.284ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:34 | 200 |      8.3575ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:39 | 200 |    3.397583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:44 | 200 |    5.128542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:44 | 200 |     5.18375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:49 | 200 |    2.668958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:54 | 200 |    4.926875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:54 | 200 |    6.378084ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:45:59 | 200 |     2.55625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:04 | 200 |    5.825333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:04 | 200 |      5.8255ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:09 | 200 |    3.808167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:14 | 200 |    3.802125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:14 | 200 |    3.589958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:19 | 200 |    4.506875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:24 | 200 |    5.335208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:24 | 200 |    5.231542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:29 | 200 |       3.028ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:34 | 200 |    5.910084ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:34 | 200 |    7.723791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:39 | 200 |    2.373709ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:44 | 200 |    4.538667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:44 | 200 |    4.541292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:49 | 200 |    6.191458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:54 | 200 |    7.806458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:54 | 200 |    7.822375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:46:59 | 200 |    5.587416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:04 | 200 |      2.8695ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:04 | 200 |    2.786084ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:47:06.242246 [PolicyEvaluator] Refreshing templates and instances...
+
+2025/12/26 07:47:06 [32mgithub.com/fortuna/core/pkg/policy/evaluator.go:122
+[0m[33m[17.814ms] [34;1m[rows:0][0m SELECT * FROM "policy_templates" WHERE deleted_at IS NULL AND "policy_templates"."deleted_at" IS NULL
+2025/12/26 07:47:06.264114 [PodCleanupJob] Running cleanup...
+
+2025/12/26 07:47:06 [32mgithub.com/fortuna/core/pkg/policy/evaluator.go:409
+[0m[33m[3.150ms] [34;1m[rows:1][0m SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')
+2025/12/26 07:47:06.266567 [PolicyEvaluator] policy_instances table does not exist, skipping reload
+2025/12/26 07:47:06.346261 [PodCleanupJob] Found 16 pods in Kubernetes
+
+2025/12/26 07:47:06 [32mgithub.com/fortuna/core/internal/scheduler/cleanup_job.go:148
+[0m[33m[1.053ms] [34;1m[rows:1][0m 
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = 'public' 
+			AND table_name = 'pods'
+		)
+	
+2025/12/26 07:47:06.347542 [PodCleanupJob] Pods table does not exist, skipping cleanup
+[GIN] 2025/12/26 - 07:47:09 | 200 |    3.851083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:14 | 200 |      16.955ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:14 | 200 |   21.397541ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:19 | 200 |      8.1645ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:24 | 200 |    7.112166ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:24 | 200 |    7.112041ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:29 | 200 |       6.517ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:34 | 200 |   54.229041ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:34 | 200 |   50.067875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:39 | 200 |      5.9615ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:44 | 200 |    5.116916ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:44 | 200 |   10.019208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:49 | 200 |    7.114833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:54 | 200 |    2.509584ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:54 | 200 |    3.461459ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:47:59 | 200 |    2.893709ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:04 | 200 |    3.014334ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:04 | 200 |    3.016375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:09 | 200 |    3.894291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:14 | 200 |    2.769041ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:14 | 200 |    2.768958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:19 | 200 |       3.267ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:24 | 200 |    5.614125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:24 | 200 |      5.3905ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:29 | 200 |    1.836166ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:34 | 200 |     11.2215ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:34 | 200 |   11.295167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:39 | 200 |       2.697ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:44 | 200 |    3.233833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:44 | 200 |    3.630458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:49 | 200 |    7.009667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:54 | 200 |    2.877333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:54 | 200 |       2.877ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:48:59 | 200 |    3.217042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:04 | 200 |    3.265792ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:04 | 200 |    3.265708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:09 | 200 |   13.256084ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:14 | 200 |   16.190958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:14 | 200 |   16.183625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:19 | 200 |    9.605459ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:24 | 200 |   12.350166ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:24 | 200 |   12.150166ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:29 | 200 |   87.931209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:34 | 200 |    5.002583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:34 | 200 |    5.438625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:39 | 200 |   16.306042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:44 | 200 |   81.282125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:44 | 200 |   81.206917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:49 | 200 |   31.925292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:54 | 200 |   13.577541ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:54 | 200 |   11.996791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:49:59 | 200 |    5.252167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:04 | 200 |   11.284959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:04 | 200 |   14.603833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:09 | 200 |     11.5555ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:15 | 200 |  107.554959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:15 | 200 |   405.89725ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:19 | 200 |   29.130167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:24 | 200 |   96.714542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:24 | 200 |  366.482333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:29 | 200 |  337.201042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:34 | 200 |   28.230291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:34 | 200 |   34.897959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:39 | 200 |   68.085709ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:44 | 200 |   80.327875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:44 | 200 |   97.514042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:49 | 200 |   20.686959ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:50:52.725154 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:50:54 | 200 |     4.69675ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:54 | 200 |       4.689ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:50:59 | 200 |    30.45375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:05 | 200 |  391.136417ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:05 | 200 |  792.130834ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:09 | 200 |      41.802ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:14 | 200 |    6.346542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:14 | 200 |     51.7445ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:19 | 200 |   47.898125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:24 | 200 |   24.576209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:24 | 200 |   267.27625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:29 | 200 |   86.454167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:34 | 200 |    13.21625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:34 | 200 |   14.731833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:39 | 200 |   58.624458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:44 | 200 |    6.441208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:44 | 200 |  276.546834ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:49 | 200 |    17.90875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:54 | 200 |  259.207876ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:54 | 200 |   26.378459ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:51:59 | 200 |    9.116667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:04 | 200 |      81.595ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:04 | 200 |  120.223167ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:52:06.445742 [PolicyEvaluator] Refreshing templates and instances...
+2025/12/26 07:52:06.742539 [PodCleanupJob] Running cleanup...
+
+2025/12/26 07:52:07 [32mgithub.com/fortuna/core/pkg/policy/evaluator.go:122 [33mSLOW SQL >= 200ms
+[0m[31;1m[668.335ms] [33m[rows:0][35m SELECT * FROM "policy_templates" WHERE deleted_at IS NULL AND "policy_templates"."deleted_at" IS NULL[0m
+
+2025/12/26 07:52:07 [32mgithub.com/fortuna/core/pkg/policy/evaluator.go:409
+[0m[33m[31.312ms] [34;1m[rows:1][0m SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')
+2025/12/26 07:52:07.555230 [PolicyEvaluator] policy_instances table does not exist, skipping reload
+2025/12/26 07:52:07.928583 [PodCleanupJob] Found 16 pods in Kubernetes
+
+2025/12/26 07:52:07 [32mgithub.com/fortuna/core/internal/scheduler/cleanup_job.go:148
+[0m[33m[1.810ms] [34;1m[rows:1][0m 
+		SELECT EXISTS (
+			SELECT FROM information_schema.tables 
+			WHERE table_schema = 'public' 
+			AND table_name = 'pods'
+		)
+	
+2025/12/26 07:52:07.930737 [PodCleanupJob] Pods table does not exist, skipping cleanup
+[GIN] 2025/12/26 - 07:52:09 | 200 |   14.171916ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:14 | 200 |   20.987375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:14 | 200 |   12.505875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:19 | 200 |   21.463167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:24 | 200 |   18.514292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:24 | 200 |   14.810917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:29 | 200 |   56.190958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:34 | 200 |  276.115208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:34 | 200 |   31.752791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:39 | 200 |   42.907625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:44 | 200 |  279.641083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:44 | 200 |   271.68775ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:49 | 200 |   75.775667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:54 | 200 |  315.547416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:54 | 200 |  319.498833ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:52:59 | 200 |   17.334958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:04 | 200 |  252.595083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:04 | 200 |    1.907958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:09 | 200 |   76.975209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:14 | 200 |  261.526333ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:14 | 200 |    272.9715ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:19 | 200 |   17.043834ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:24 | 200 |  263.950917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:24 | 200 |  265.523167ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:29 | 200 |    6.745708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:34 | 200 |   24.750958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:34 | 200 |  303.101207ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:39 | 200 |   50.327708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:44 | 200 |   23.373917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:44 | 200 |      45.585ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:49 | 200 |   55.847208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:54 | 200 |   20.698958ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:53:54 | 200 |  241.979042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:00 | 200 |  1.197834459s |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:04 | 200 |   32.655542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:04 | 200 |   33.784708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:09 | 200 |   18.241208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:14 | 200 |    51.29575ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:14 | 200 |   38.050458ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:19 | 200 |   25.291584ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:24 | 200 |    13.82875ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:24 | 200 |    7.942292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:29 | 200 |    9.870917ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:34 | 200 |   11.601291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:34 | 200 |  257.377292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:39 | 200 |   10.512083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:44 | 200 |   13.844334ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:44 | 200 |   13.822125ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:49 | 200 |    16.11075ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:54 | 200 |  258.398708ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:54 | 200 |  263.494625ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:54:59 | 200 |   45.280209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:04 | 200 |    2.034208ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:04 | 200 |   19.895792ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:09 | 200 |   25.986667ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:14 | 200 |  269.611791ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:14 | 200 |    1.063292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:19 | 200 |   19.330042ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:24 | 200 |   13.171666ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:55:24 | 200 |   92.754625ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:55:27.971157 Shutting down...
+[SBOMReconciler] 2025/12/26 07:55:28 Reconciliation loop stopped
+2025/12/26 07:55:28.066041 [CertManager] Stopping certificate expiry monitoring
+2025/12/26 07:55:28.145301 [PodCleanupJob] Stopped
+2025/12/26 07:55:28.175262 [RiskScheduler] Stopping scheduler...
+2025/12/26 07:55:28.136694 [InsightsCleanupJob] Stopped
+2025/12/26 07:55:28.315194 [RiskScheduler] Scheduler stopped
+2025/12/26 07:55:28.471964 [WorkerPool] Stopping worker pool...
+2025/12/26 07:55:28.472399 [WorkerPool] All workers stopped

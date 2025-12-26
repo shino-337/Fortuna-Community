@@ -2,6 +2,7 @@ package grpc
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -149,14 +150,41 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 
 		// Publish SBOM_CREATED event to NATS (for CVE matching worker)
 		// Use subject 'ksam.sbom.created' to match stream pattern 'ksam.sbom.>' in 'ksam-events' stream
+		// Include all required fields for worker to create insights with new schema
+		// IMPORTANT: Use PodUID from request (req.PodUid), not from SBOM record (sbom.PodUID)
+		// This ensures insights are created for the CURRENT pod, not the pod that first created the SBOM
 		if s.natsClient != nil {
-			eventData := fmt.Sprintf(`{"sbom_id":%d,"pod_uid":"%s","image_digest":"%s","package_count":%d}`, 
-				sbom.ID, sbom.PodUID, sbom.ImageDigest, len(req.Packages))
-			if err := s.natsClient.Publish("ksam.sbom.created", []byte(eventData)); err != nil {
-				log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED event: %v", err)
-				// Non-fatal, continue
+			// Use PodUID from request to ensure insights are created for the current pod
+			// even when SBOM is reused (same image_digest)
+			podUID := req.PodUid
+			podName := req.PodName
+			podNamespace := req.Namespace
+			containerName := req.ContainerName
+			
+			// Create proper JSON event with all required fields using map to avoid import issues
+			event := map[string]interface{}{
+				"type":           "sbom.created",
+				"timestamp":      time.Now().Unix(),
+				"cluster_id":     "default", // TODO: Get from config
+				"pod_uid":        podUID,    // Use from request, not from SBOM record
+				"pod_name":       podName,   // Use from request, not from SBOM record
+				"pod_namespace":  podNamespace, // Use from request, not from SBOM record
+				"container_name": containerName, // Use from request, not from SBOM record
+				"container_image": fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
+				"sbom_id":        sbom.ID,
+				"image_digest":   sbom.ImageDigest,
+			}
+			eventJSON, err := json.Marshal(event)
+			if err != nil {
+				log.Printf("[SBOM] WARNING: Failed to marshal SBOM_CREATED event: %v", err)
 			} else {
-				log.Printf("[SBOM] Published SBOM_CREATED event for sbom_id=%d", sbom.ID)
+				if err := s.natsClient.Publish("ksam.sbom.created", eventJSON); err != nil {
+					log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED event: %v", err)
+					// Non-fatal, continue
+				} else {
+					log.Printf("[SBOM] Published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)", 
+						sbom.ID, podUID, !isNewSBOM)
+				}
 			}
 		}
 

@@ -1,0 +1,57 @@
+[0;34m[2025-12-26 15:48:32][0m ==========================================
+[0;34m[2025-12-26 15:48:32][0m E2E Test: Pod-to-Insight Flow
+[0;34m[2025-12-26 15:48:32][0m ==========================================
+[0;34m[2025-12-26 15:48:32][0m Pod Name: test-pod-1766738912
+[0;34m[2025-12-26 15:48:32][0m Namespace: fortuna
+[0;34m[2025-12-26 15:48:32][0m Image: nginx:latest
+[0;34m[2025-12-26 15:48:32][0m Results: /Users/tuatnh/Desktop/Learn/K8s Service Account Management Platform/KSAM/tests/e2e/results
+[0;34m[2025-12-26 15:48:32][0m ==========================================
+[0;34m[2025-12-26 15:48:32][0m Phase 1: Creating test pod...
+[0;34m[2025-12-26 15:48:32][0m Agent node: minikube, using node selector
+pod/test-pod-1766738912 created
+[0;34m[2025-12-26 15:48:32][0m Waiting for pod test-pod-1766738912 to be ready...
+..[0;32m[2025-12-26 15:48:36] ✅[0m Pod test-pod-1766738912 is ready
+[0;32m[2025-12-26 15:48:36] ✅[0m Pod created in 4.562305000 seconds
+[0;34m[2025-12-26 15:48:36][0m Pod UID: e6a5f600-c1be-4bfe-9849-27f72b825f9c
+[0;34m[2025-12-26 15:48:37][0m Phase 2: Waiting for SBOM extraction...
+[0;34m[2025-12-26 15:48:37][0m Waiting for SBOM extraction (pod: test-pod-1766738912, image_digest: sha256:325b00a35073d9aa1d3df16da8afbbae1ac7d824c505f7490cd5cdbb79d60f6d)...
+[0;32m[2025-12-26 15:48:37] ✅[0m SBOM found in database (count: 1)
+[0;34m[2025-12-26 15:48:37][0m SBOM ID: 4531
+[0;32m[2025-12-26 15:48:37] ✅[0m SBOM extracted in .368242000 seconds
+[0;34m[2025-12-26 15:48:37][0m SBOM ID: 4531, Components: 1
+[0;34m[2025-12-26 15:48:37][0m Phase 3: Waiting for CVE matching...
+[0;34m[2025-12-26 15:48:37][0m Waiting for CVE matching (sbom_id: 4531)...
+[0;32m[2025-12-26 15:48:37] ✅[0m CVE matches found: 1
+[0;32m[2025-12-26 15:48:37] ✅[0m CVE matching completed in .146011000 seconds
+[0;34m[2025-12-26 15:48:37][0m CVE Matches: 1
+[0;34m[2025-12-26 15:48:37][0m Phase 4: Waiting for insight generation...
+[0;34m[2025-12-26 15:48:37][0m Waiting for insight generation (pod_uid: e6a5f600-c1be-4bfe-9849-27f72b825f9c)...
+[0;32m[2025-12-26 15:48:38] ✅[0m Insights found: 3
+[0;32m[2025-12-26 15:48:38] ✅[0m Insight generation completed in .262691000 seconds
+[0;34m[2025-12-26 15:48:38][0m Insights: 0
+[0;34m[2025-12-26 15:48:38][0m Phase 5: Verifying API response...
+[0;34m[2025-12-26 15:48:38][0m API returned 0 insights for pod_uid: e6a5f600-c1be-4bfe-9849-27f72b825f9c
+[1;33m[2025-12-26 15:48:38] ⚠️[0m No insights in API response
+[0;34m[2025-12-26 15:48:38][0m Comparing API response with database...
+[0;34m[2025-12-26 15:48:38][0m Database insights: 0, API insights: 0
+[0;32m[2025-12-26 15:48:38] ✅[0m Insight counts match between API and database
+[0;32m[2025-12-26 15:48:38] ✅[0m API verification completed in .374430000 seconds
+[0;34m[2025-12-26 15:48:38][0m ==========================================
+[0;34m[2025-12-26 15:48:38][0m Test Summary
+[0;34m[2025-12-26 15:48:38][0m ==========================================
+[0;34m[2025-12-26 15:48:38][0m Pod Creation: 4.562305000 seconds
+[0;34m[2025-12-26 15:48:38][0m SBOM Extraction: .368242000 seconds
+[0;34m[2025-12-26 15:48:38][0m CVE Matching: .146011000 seconds
+[0;34m[2025-12-26 15:48:38][0m Insight Generation: .262691000 seconds
+[0;34m[2025-12-26 15:48:38][0m API Verification: .374430000 seconds
+[0;34m[2025-12-26 15:48:38][0m Total E2E Time: 5.713679000 seconds
+[0;34m[2025-12-26 15:48:38][0m ==========================================
+[0;34m[2025-12-26 15:48:38][0m SBOM ID: 4531
+[0;34m[2025-12-26 15:48:38][0m SBOM Components: 1
+[0;34m[2025-12-26 15:48:38][0m CVE Matches: 1
+[0;34m[2025-12-26 15:48:38][0m Insights: 0
+[0;34m[2025-12-26 15:48:38][0m ==========================================
+[0;32m[2025-12-26 15:48:38] ✅[0m Test completed successfully!
+[0;34m[2025-12-26 15:48:38][0m Results saved to: /Users/tuatnh/Desktop/Learn/K8s Service Account Management Platform/KSAM/tests/e2e/results
+[0;34m[2025-12-26 15:48:38][0m Cleaning up test pod...
+pod "test-pod-1766738912" deleted

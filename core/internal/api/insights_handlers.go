@@ -36,9 +36,14 @@ func GetInsights(db *gorm.DB) gin.HandlerFunc {
 			log.Printf("[GetInsights] No status param: defaulting to active (applying WHERE status = 'active')")
 		}
 
-		// Filter by type
+		// Filter by type (support both old 'type' and new 'insight_type')
 		if insightType := c.Query("type"); insightType != "" {
-			query = query.Where("type = ?", insightType)
+			query = query.Where("(type = ? OR insight_type = ?)", insightType, insightType)
+		}
+
+		// Filter by insight_type (new schema)
+		if insightType := c.Query("insight_type"); insightType != "" {
+			query = query.Where("insight_type = ?", insightType)
 		}
 
 		// Filter by severity
@@ -46,7 +51,32 @@ func GetInsights(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("severity = ?", severity)
 		}
 
-		// Filter by cluster (from affected resources)
+		// Filter by resource_uid (new schema)
+		if resourceUID := c.Query("resource_uid"); resourceUID != "" {
+			query = query.Where("resource_uid = ?", resourceUID)
+		}
+
+		// Filter by resource_type (new schema)
+		if resourceType := c.Query("resource_type"); resourceType != "" {
+			query = query.Where("resource_type = ?", resourceType)
+		}
+
+		// Filter by resource_namespace (new schema)
+		if resourceNamespace := c.Query("resource_namespace"); resourceNamespace != "" {
+			query = query.Where("resource_namespace = ?", resourceNamespace)
+		}
+
+		// Filter by resource_name (new schema)
+		if resourceName := c.Query("resource_name"); resourceName != "" {
+			query = query.Where("resource_name = ?", resourceName)
+		}
+
+		// Filter by sbom_id (old schema, still supported)
+		if sbomID := c.Query("sbom_id"); sbomID != "" {
+			query = query.Where("sbom_id = ?", sbomID)
+		}
+
+		// Filter by cluster (from affected resources - old schema, still supported)
 		if clusterID := c.Query("cluster"); clusterID != "" {
 			query = query.Where("affected_resources::text LIKE ?", "%"+clusterID+"%")
 		}

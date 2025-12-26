@@ -12,12 +12,12 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/client-go/kubernetes"
 
-	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/agent/internal/client"
 	"github.com/fortuna/agent/internal/config"
 	"github.com/fortuna/agent/internal/k8s"
 	"github.com/fortuna/agent/internal/sbom"
 	"github.com/fortuna/agent/internal/watcher"
+	pb "github.com/fortuna/api/proto/agent"
 )
 
 // Build info (set via -ldflags at build time)
@@ -91,18 +91,28 @@ func main() {
 	sbomProcessor := sbom.NewProcessor(grpcClient, cfg.AgentID, cfg.NodeID, cfg.NodeName)
 	log.Printf("✅ SBOM processor initialized (CVE matching done in Core)")
 
-	// Create pod event handler
+	// Create SBOM work queue for async processing
+	// This prevents blocking the informer during slow SBOM extraction (2-3 min per pod)
+	// Workers: Use 3 workers to process pods in parallel while keeping resource usage reasonable
+	workers := 3
+	sbomQueue := sbom.NewWorkQueue(sbomProcessor, workers)
+	sbomQueue.Start()
+	log.Printf("✅ SBOM work queue started with %d workers", workers)
+	defer sbomQueue.Stop()
+
+	// Create pod event handler (for backward compatibility, but won't be used if queue is provided)
 	podHandler := func(ctx context.Context, pod *corev1.Pod) error {
 		return sbomProcessor.ProcessPod(ctx, pod)
 	}
 
-	// Initialize local pod watcher (type assertion needed)
+	// Initialize local pod watcher with work queue for async processing
+	// This allows the informer to continue detecting new pods while SBOM extraction happens
 	clientset, ok := k8sClient.Clientset.(*kubernetes.Clientset)
 	if !ok {
 		log.Fatalf("❌ Failed to cast Clientset to *kubernetes.Clientset")
 	}
-	podWatcher := watcher.NewLocalPodWatcher(clientset, cfg.NodeName, podHandler)
-	log.Printf("✅ Local pod watcher initialized for node: %s", cfg.NodeName)
+	podWatcher := watcher.NewLocalPodWatcher(clientset, cfg.NodeName, podHandler, sbomQueue.Queue())
+	log.Printf("✅ Local pod watcher initialized for node: %s (async SBOM processing enabled)", cfg.NodeName)
 
 	// Start pod watcher
 	go func() {
@@ -165,10 +175,10 @@ func main() {
 func registerAgent(ctx context.Context, grpcClient client.GRPCClient, cfg *config.Config) error {
 	// RegisterAgentRequest fields: AgentId, Hostname, NodeName, Version, Capabilities
 	req := &pb.RegisterAgentRequest{
-		AgentId:     cfg.AgentID,
-		Hostname:    cfg.NodeID, // Use NodeID as Hostname
-		NodeName:    cfg.NodeName,
-		Version:     BuildVersion,
+		AgentId:      cfg.AgentID,
+		Hostname:     cfg.NodeID, // Use NodeID as Hostname
+		NodeName:     cfg.NodeName,
+		Version:      BuildVersion,
 		Capabilities: []string{"sbom", "pod-watcher"}, // CVE matching done in Core
 	}
 

@@ -30,6 +30,14 @@ var (
 	_ = Migration027_AddCVEFileMetadata
 	_ = Migration028_AddPerformanceIndexes
 	_ = Migration029_AddInsightsUniqueConstraint
+	_ = Migration030_MigrateInsightsToNewSchema
+	_ = Migration031_CleanupOldInsightsColumns
+	_ = Migration032_RemoveDuplicateIndexes
+	_ = Migration033_AddUniqueConstraints
+	_ = Migration034_StandardizeCVSSType
+	_ = Migration035_EvaluateTrivyTables
+	_ = Migration036_AddMissingSBOMColumns
+	_ = Migration037_MigrateCVEMatchesToPackageName
 )
 
 // RunMigrations runs all database migrations
@@ -62,6 +70,14 @@ func RunMigrations(db *gorm.DB) error {
 		Migration027_AddCVEFileMetadata,                // CVE Optimization: File metadata tracking for incremental updates
 		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
 		Migration029_AddInsightsUniqueConstraint,       // Performance: Unique constraint for insights batch UPSERT
+		Migration030_MigrateInsightsToNewSchema,        // Schema Migration: Migrate insights from OLD schema (JSONB) to NEW schema (direct fields)
+		Migration031_CleanupOldInsightsColumns,         // Schema Cleanup: Remove deprecated columns from insights table after migration
+		Migration032_RemoveDuplicateIndexes,            // Schema Cleanup: Remove duplicate and redundant indexes
+		Migration033_AddUniqueConstraints,                // Schema Integrity: Add proper unique constraints for data integrity
+		Migration034_StandardizeCVSSType,                // Schema Standardization: Standardize CVSS column types to REAL
+		Migration035_EvaluateTrivyTables,                 // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
+		Migration036_AddMissingSBOMColumns,               // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
+		Migration037_MigrateCVEMatchesToPackageName,      // Schema Migration: Migrate cve_matches from component_id to package_name
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

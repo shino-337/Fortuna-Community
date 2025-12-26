@@ -1,0 +1,9 @@
+NAME                            READY   STATUS    RESTARTS      AGE     IP             NODE       NOMINATED NODE   READINESS GATES
+fortuna-agent-764gw             1/1     Running   1 (27s ago)   61s     10.244.4.62    minikube   <none>           <none>
+fortuna-core-6747487dd4-89pf9   1/1     Running   0             78s     10.244.4.61    minikube   <none>           <none>
+nats-0                          1/1     Running   0             3d22h   10.244.3.197   minikube   <none>           <none>
+nats-1                          1/1     Running   0             3d22h   10.244.3.198   minikube   <none>           <none>
+nats-2                          1/1     Running   0             3d22h   10.244.3.199   minikube   <none>           <none>
+postgres-747fc6cdfb-zzw8m       1/1     Running   0             47h     10.244.3.216   minikube   <none>           <none>
+test-pod-debug-1766658411       1/1     Running   0             21h     10.244.4.29    minikube   <none>           <none>
+test-pod-monitor-1766658027     1/1     Running   0             21h     10.244.4.27    minikube   <none>           <none>

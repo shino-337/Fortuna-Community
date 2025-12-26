@@ -1,0 +1,22 @@
+E2E Test Summary - 20251226_154343
+========================================
+Pod Name: test-pod-1766738623
+Pod UID: d6053cd8-150a-45d6-ae07-208833209709
+Namespace: fortuna
+Image: nginx:latest
+
+Timing:
+- Pod Creation: 4.486240000 seconds
+- SBOM Extraction: .324660000 seconds
+- CVE Matching: .198408000 seconds
+- Insight Generation: .289907000 seconds
+- API Verification: .283768000 seconds
+- Total E2E Time: 5.582983000 seconds
+
+Results:
+- SBOM ID: 4531
+- SBOM Components: 1
+- CVE Matches: 1
+- Insights: 0
+
+Status: PASSED

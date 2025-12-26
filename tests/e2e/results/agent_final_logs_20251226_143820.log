@@ -1,0 +1,131 @@
+2025/12/26 07:37:58.112703 ========================================
+2025/12/26 07:37:58.114468 🚀 Starting Fortuna Agent
+2025/12/26 07:37:58.114543 ========================================
+2025/12/26 07:37:58.114605 [Build] version=dev commit=none time=unknown
+2025/12/26 07:37:58.116033 ========================================
+2025/12/26 07:37:58.116079 📋 Configuration:
+2025/12/26 07:37:58.116129    Agent ID: fortuna-agent-764gw
+2025/12/26 07:37:58.116167    Node Name: minikube
+2025/12/26 07:37:58.116203    Node ID: 192.168.49.2
+2025/12/26 07:37:58.116243    Core Endpoint: fortuna-core.fortuna.svc.cluster.local:9090
+2025/12/26 07:37:58.116290    TLS Enabled: true
+2025/12/26 07:37:58.116374    TLS Cert: /etc/fortuna/tls/client/tls.crt
+2025/12/26 07:37:58.116405    TLS Key: /etc/fortuna/tls/client/tls.key
+2025/12/26 07:37:58.116431    TLS CA: /etc/fortuna/tls/client/ca.crt
+2025/12/26 07:37:58.116451 ========================================
+2025/12/26 07:37:58.312651 ✅ Kubernetes client initialized
+2025/12/26 07:37:58.312867 🔗 Connecting to Core at fortuna-core.fortuna.svc.cluster.local:9090...
+[gRPCClient] 2025/12/26 07:37:58 Connecting to Core at fortuna-core.fortuna.svc.cluster.local:9090 (TLS: true)
+[gRPCClient] 2025/12/26 07:37:58 Loading mTLS certificates...
+[gRPCClient] 2025/12/26 07:37:58   Cert: /etc/fortuna/tls/client/tls.crt
+[gRPCClient] 2025/12/26 07:37:58   Key:  /etc/fortuna/tls/client/tls.key
+[gRPCClient] 2025/12/26 07:37:58   CA:   /etc/fortuna/tls/client/ca.crt
+[gRPCClient] 2025/12/26 07:37:58 ✅ mTLS configured
+[gRPCClient] 2025/12/26 07:37:58 ✅ Connected to Core at fortuna-core.fortuna.svc.cluster.local:9090
+2025/12/26 07:37:58.532503 ✅ Connected to Core
+[gRPCClient] 2025/12/26 07:37:58 Registering agent: id=fortuna-agent-764gw node=minikube
+[gRPCClient] 2025/12/26 07:37:59 ✅ Agent registered: Agent registered successfully
+2025/12/26 07:37:59.617847 📋 Agent registered with Core (Cluster ID: default)
+2025/12/26 07:37:59.617905 ✅ Agent registered with Core
+2025/12/26 07:37:59.706007 ✅ Core is reachable
+2025/12/26 07:37:59.706455 ✅ SBOM processor initialized (CVE matching done in Core)
+[SBOMQueue] 2025/12/26 07:37:59 Starting SBOM work queue with 3 workers
+[SBOMQueue] 2025/12/26 07:37:59 ✅ SBOM work queue started
+2025/12/26 07:37:59.706876 ✅ SBOM work queue started with 3 workers
+[SBOMQueue] 2025/12/26 07:37:59 Worker 0 started
+[SBOMQueue] 2025/12/26 07:37:59 Worker 1 started
+[SBOMQueue] 2025/12/26 07:37:59 Worker 2 started
+2025/12/26 07:37:59.707569 ✅ Local pod watcher initialized for node: minikube (async SBOM processing enabled)
+2025/12/26 07:37:59.707675 🔄 Processing existing pods on node minikube...
+[LocalPodWatcher] 2025/12/26 07:37:59 Starting pod watcher for node: minikube
+[LocalPodWatcher] 2025/12/26 07:37:59 Waiting for cache sync...
+[LocalPodWatcher] 2025/12/26 07:38:00 Found 15 running pods on node minikube
+[LocalPodWatcher] 2025/12/26 07:38:00 ✅ Queued 15/15 existing pods for async processing
+[SBOMQueue] 2025/12/26 07:38:00 [Worker 2] Processing pod fortuna/nats-0
+[SBOMQueue] 2025/12/26 07:38:00 [Worker 0] Processing pod fortuna/fortuna-core-6747487dd4-89pf9
+[SBOMQueue] 2025/12/26 07:38:00 [Worker 1] Processing pod fortuna/fortuna-agent-764gw
+[SBOMProcessor] 2025/12/26 07:38:00 Processing pod fortuna/fortuna-agent-764gw on node minikube
+[SBOMProcessor] 2025/12/26 07:38:00 Processing pod fortuna/nats-0 on node minikube
+[SBOMProcessor] 2025/12/26 07:38:00 Processing pod fortuna/fortuna-core-6747487dd4-89pf9 on node minikube
+2025/12/26 07:38:00.811509 Found 0 existing pods to process
+2025/12/26 07:38:00.811883 ✅ Initial pod processing complete
+[SBOMProcessor] 2025/12/26 07:38:00 🔍 Extracting SBOM: pod=fortuna/fortuna-core-6747487dd4-89pf9 container=core image=fortuna-core:latest
+[SBOMProcessor] 2025/12/26 07:38:00 🔍 Extracting SBOM: pod=fortuna/nats-0 container=nats image=nats:2.10-alpine
+[SBOMExtractor] 2025/12/26 07:38:00 Extracting SBOM from image: nats:2.10-alpine
+2025/12/26 07:38:00.812415 ========================================
+2025/12/26 07:38:00.812486 ✅ Fortuna Agent is running
+2025/12/26 07:38:00.812526    Node: minikube
+2025/12/26 07:38:00.812562    Agent ID: fortuna-agent-764gw
+2025/12/26 07:38:00.812594    Core: fortuna-core.fortuna.svc.cluster.local:9090
+2025/12/26 07:38:00.812622 ========================================
+[SBOMExtractor] 2025/12/26 07:38:00 Extracting SBOM from image: fortuna-core:latest
+[SBOMProcessor] 2025/12/26 07:38:00 🔍 Extracting SBOM: pod=fortuna/fortuna-agent-764gw container=agent image=fortuna-agent:latest
+[SBOMExtractor] 2025/12/26 07:38:00 Extracting SBOM from image: fortuna-agent:latest
+[SBOMExtractor] 2025/12/26 07:38:00 🔍 Attempting to load image from local daemon: index.docker.io/library/fortuna-agent:latest
+[SBOMExtractor] 2025/12/26 07:38:00 🔍 Attempting to load image from local daemon: index.docker.io/library/fortuna-core:latest
+[SBOMExtractor] 2025/12/26 07:38:00 🔍 Attempting to load image from local daemon: index.docker.io/library/nats:2.10-alpine
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: agent-sync-test/test-pod (phase: Succeeded, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Waiting for pod agent-sync-test/test-pod to reach Running state (current: Succeeded)
+I1226 07:38:01.409324       1 trace.go:236] Trace[71820005]: "DeltaFIFO Pop Process" ID:agent-sync-test/test-pod,Depth:16,Reason:slow event handlers blocking the queue (26-Dec-2025 07:38:01.206) (total time: 100ms):
+Trace[71820005]: [100.851084ms] [100.851084ms] END
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/fortuna-agent-764gw (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/fortuna-agent-764gw (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/fortuna-core-6747487dd4-89pf9 (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/fortuna-core-6747487dd4-89pf9 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 ✅ Cache synced, watching pods on node minikube
+[LocalPodWatcher] 2025/12/26 07:38:01 📋 Checking for pods that may have been missed during startup...
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/fortuna-core-6747487dd4-89pf9 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/nats-0 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/postgres-747fc6cdfb-zzw8m (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-proxy-jjmwf (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/storage-provisioner (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/nats-2 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/test-pod-monitor-1766658027 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-apiserver-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-scheduler-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/etcd-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-controller-manager-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/fortuna-agent-764gw (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/nats-1 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/test-pod-debug-1766658411 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/coredns-6f6b679f8f-sxmjn (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 ✅ Startup check complete: processed 0 pods
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/nats-0 (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/nats-0 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/nats-1 (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/nats-1 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/nats-2 (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/nats-2 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/postgres-747fc6cdfb-zzw8m (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/postgres-747fc6cdfb-zzw8m (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/test-pod-1766734671 (phase: Succeeded, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Waiting for pod fortuna/test-pod-1766734671 to reach Running state (current: Succeeded)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/test-pod-debug-1766658411 (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/test-pod-debug-1766658411 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: fortuna/test-pod-monitor-1766658027 (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod fortuna/test-pod-monitor-1766658027 (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/coredns-6f6b679f8f-sxmjn (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/coredns-6f6b679f8f-sxmjn (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/etcd-minikube (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/etcd-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/kube-apiserver-minikube (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-apiserver-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/kube-controller-manager-minikube (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-controller-manager-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/kube-proxy-jjmwf (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-proxy-jjmwf (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/kube-scheduler-minikube (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/kube-scheduler-minikube (already processed)
+[LocalPodWatcher] 2025/12/26 07:38:01 🆕 Pod added: kube-system/storage-provisioner (phase: Running, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:01    → Skipping pod kube-system/storage-provisioner (already processed)
+[SBOMExtractor] 2025/12/26 07:38:01 ✅ Found image in local daemon (no remote fetch needed)
+[SBOMExtractor] 2025/12/26 07:38:01 🔍 Attempting to get digest from image manifest...
+[SBOMExtractor] 2025/12/26 07:38:01 ✅ Found image in local daemon (no remote fetch needed)
+[SBOMExtractor] 2025/12/26 07:38:01 🔍 Attempting to get digest from image manifest...
+[SBOMExtractor] 2025/12/26 07:38:01 ✅ Found image in local daemon (no remote fetch needed)
+[SBOMExtractor] 2025/12/26 07:38:01 🔍 Attempting to get digest from image manifest...
+[LocalPodWatcher] 2025/12/26 07:38:05 🗑️  Pod deleted: fortuna/test-pod-1766734671
+[LocalPodWatcher] 2025/12/26 07:38:06 🆕 Pod added: fortuna/test-pod-1766734685 (phase: Pending, node: minikube, containers: 1)
+[LocalPodWatcher] 2025/12/26 07:38:06    → Waiting for pod fortuna/test-pod-1766734685 to reach Running state (current: Pending)
+[LocalPodWatcher] 2025/12/26 07:38:14 🔄 Pod phase changed: fortuna/test-pod-1766734685 (Pending → Running)
+[LocalPodWatcher] 2025/12/26 07:38:14    → Queued pod fortuna/test-pod-1766734685 for async processing (transitioned to Running)

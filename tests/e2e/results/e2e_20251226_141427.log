@@ -1,0 +1,57 @@
+[0;34m[2025-12-26 14:14:27][0m ==========================================
+[0;34m[2025-12-26 14:14:27][0m E2E Test: Pod-to-Insight Flow
+[0;34m[2025-12-26 14:14:27][0m ==========================================
+[0;34m[2025-12-26 14:14:27][0m Pod Name: test-pod-1766733267
+[0;34m[2025-12-26 14:14:27][0m Namespace: fortuna
+[0;34m[2025-12-26 14:14:27][0m Image: nginx:latest
+[0;34m[2025-12-26 14:14:27][0m Results: /Users/tuatnh/Desktop/Learn/K8s Service Account Management Platform/KSAM/tests/e2e/results
+[0;34m[2025-12-26 14:14:27][0m ==========================================
+[0;34m[2025-12-26 14:14:27][0m Phase 1: Creating test pod...
+[0;34m[2025-12-26 14:14:27][0m Agent node: minikube, using node selector
+pod/test-pod-1766733267 created
+[0;34m[2025-12-26 14:14:27][0m Waiting for pod test-pod-1766733267 to be ready...
+[0;32m[2025-12-26 14:14:32] ✅[0m Pod test-pod-1766733267 is ready
+[0;32m[2025-12-26 14:14:32] ✅[0m Pod created in 4.482373000 seconds
+[0;34m[2025-12-26 14:14:32][0m Pod UID: 8817d9b1-092e-4ef5-9cc1-9f07ca5c8d2c
+[0;34m[2025-12-26 14:14:32][0m Phase 2: Waiting for SBOM extraction...
+[0;34m[2025-12-26 14:14:32][0m Waiting for SBOM extraction (pod: test-pod-1766733267, image_digest: sha256:325b00a35073d9aa1d3df16da8afbbae1ac7d824c505f7490cd5cdbb79d60f6d)...
+[0;32m[2025-12-26 14:14:32] ✅[0m SBOM found in database (count: 1)
+[0;34m[2025-12-26 14:14:32][0m SBOM ID: 4531
+[0;32m[2025-12-26 14:14:32] ✅[0m SBOM extracted in .464236000 seconds
+[0;34m[2025-12-26 14:14:33][0m SBOM ID: 4531, Components: 1
+[0;34m[2025-12-26 14:14:33][0m Phase 3: Waiting for CVE matching...
+[0;34m[2025-12-26 14:14:33][0m Waiting for CVE matching (sbom_id: 4531)...
+[0;32m[2025-12-26 14:14:33] ✅[0m CVE matches found: 1
+[0;32m[2025-12-26 14:14:33] ✅[0m CVE matching completed in .283587000 seconds
+[0;34m[2025-12-26 14:14:33][0m CVE Matches: 1
+[0;34m[2025-12-26 14:14:33][0m Phase 4: Waiting for insight generation...
+[0;34m[2025-12-26 14:14:33][0m Waiting for insight generation (pod_uid: 8817d9b1-092e-4ef5-9cc1-9f07ca5c8d2c)...
+[1;33m[2025-12-26 14:19:53] ⚠️[0m No insights found (this may be normal if no vulnerabilities exist)
+[0;32m[2025-12-26 14:19:53] ✅[0m Insight generation completed in 319.950685000 seconds
+[0;34m[2025-12-26 14:19:53][0m Insights: 0
+[0;34m[2025-12-26 14:19:53][0m Phase 5: Verifying API response...
+[0;34m[2025-12-26 14:19:54][0m API returned 0 insights for pod_uid: 8817d9b1-092e-4ef5-9cc1-9f07ca5c8d2c
+[1;33m[2025-12-26 14:19:54] ⚠️[0m No insights in API response
+[0;34m[2025-12-26 14:19:54][0m Comparing API response with database...
+[0;34m[2025-12-26 14:19:54][0m Database insights: 0, API insights: 0
+[0;32m[2025-12-26 14:19:54] ✅[0m Insight counts match between API and database
+[0;32m[2025-12-26 14:19:54] ✅[0m API verification completed in .884145000 seconds
+[0;34m[2025-12-26 14:19:54][0m ==========================================
+[0;34m[2025-12-26 14:19:54][0m Test Summary
+[0;34m[2025-12-26 14:19:54][0m ==========================================
+[0;34m[2025-12-26 14:19:54][0m Pod Creation: 4.482373000 seconds
+[0;34m[2025-12-26 14:19:54][0m SBOM Extraction: .464236000 seconds
+[0;34m[2025-12-26 14:19:54][0m CVE Matching: .283587000 seconds
+[0;34m[2025-12-26 14:19:54][0m Insight Generation: 319.950685000 seconds
+[0;34m[2025-12-26 14:19:54][0m API Verification: .884145000 seconds
+[0;34m[2025-12-26 14:19:54][0m Total E2E Time: 326.065026000 seconds
+[0;34m[2025-12-26 14:19:54][0m ==========================================
+[0;34m[2025-12-26 14:19:54][0m SBOM ID: 4531
+[0;34m[2025-12-26 14:19:54][0m SBOM Components: 1
+[0;34m[2025-12-26 14:19:54][0m CVE Matches: 1
+[0;34m[2025-12-26 14:19:54][0m Insights: 0
+[0;34m[2025-12-26 14:19:54][0m ==========================================
+[0;32m[2025-12-26 14:19:54] ✅[0m Test completed successfully!
+[0;34m[2025-12-26 14:19:54][0m Results saved to: /Users/tuatnh/Desktop/Learn/K8s Service Account Management Platform/KSAM/tests/e2e/results
+[0;34m[2025-12-26 14:19:54][0m Cleaning up test pod...
+pod "test-pod-1766733267" deleted

@@ -1,0 +1,500 @@
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.305ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 74 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 74 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.269ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 74 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 74
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.359ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.015ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.492ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 84 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 84 (17 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.015ms] [34;1m[rows:17][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 84 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 17 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 17 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 17 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 17 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 84
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.415ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.805ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.341ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[70.583ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[5.170ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 74 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 74 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[3.699ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 74 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 74
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.027ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 84 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 84 (17 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[2.756ms] [34;1m[rows:17][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 84 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 17 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 17 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 17 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 17 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 84
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[2.054ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.157ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.267ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[66.364ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/database/manager.go:172
+[0m[33m[5.118ms] [34;1m[rows:0][0m SELECT * FROM "package_vulnerabilities" WHERE (ecosystem = 'package_type_deb' AND package_name IN ('apt','base-files','base-passwd','bash','bsdutils','ca-certificates','coreutils','curl','dash','debconf','debian-archive-keyring','debianutils','diffutils','dpkg','findutils','fontconfig-config','fonts-dejavu-core','fonts-dejavu-mono','gcc-14-base','gettext-base','grep','gzip','hostname','init-system-helpers','libabsl20240722','libacl1','libaom3','libapt-pkg7.0','libattr1','libaudit-common','libaudit1','libavif16','libblkid1','libbrotli1','libbsd0','libbz2-1.0','libc-bin','libc6','libcap-ng0','libcap2','libcom-err2','libcrypt1','libcurl4t64','libdav1d7','libdb5.3t64','libde265-0','libdebconfclient0','libdeflate0','libedit2','libexpat1','libffi8','libfontconfig1','libfreetype6','libgav1-1','libgcc-s1','libgcrypt20','libgd3','libgeoip1t64','libgmp10','libgnutls30t64','libgomp1','libgpg-error0','libgssapi-krb5-2','libheif-plugin-dav1d','libheif-plugin-libde265','libheif1','libhogweed6t64','libidn2-0','libimagequant0','libjbig0','libjpeg62-turbo','libk5crypto3','libkeyutils1','libkrb5-3','libkrb5support0','liblastlog2-2','libldap2','liblerc4','liblz4-1','liblzma5','libmd0','libmount1','libnettle8t64','libnghttp2-14','libnghttp3-9','libp11-kit0','libpam-modules','libpam-modules-bin','libpam-runtime','libpam0g','libpcre2-8-0','libpng16-16t64','libpsl5t64','librav1e0.7','librtmp1','libsasl2-2','libsasl2-modules-db','libseccomp2','libselinux1','libsemanage-common','libsemanage2','libsepol2','libsharpyuv0','libsmartcols1','libsqlite3-0','libssh2-1t64','libssl3t64','libstdc++6','libsvtav1enc2','libsystemd0','libtasn1-6','libtiff6','libtinfo6','libudev1','libunistring5','libuuid1','libwebp7','libx11-6','libx11-data','libxau6','libxcb1','libxdmcp6','libxml2','libxpm4','libxslt1.1','libxxhash0','libyuv0','libzstd1','login','login.defs','mawk','mount','ncurses-base','ncurses-bin','nginx','nginx-module-geoip','nginx-module-image-filter','nginx-module-njs','nginx-module-xslt','openssl','openssl-provider-legacy','passwd','perl-base','sed','sqv','sysvinit-utils','tar','tzdata','util-linux','zlib1g') AND deleted_at IS NULL) AND "package_vulnerabilities"."deleted_at" IS NULL
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk query returned CVEs for 150 packages (queried 150, cached 0)
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.931ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.476ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.962ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 86 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 86 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[2.234ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 86 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 86
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.544ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 87 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 87 (45 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.510ms] [34;1m[rows:45][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 87 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 45 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 45 packages in ecosystem package_type_apk
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/database/manager.go:172
+[0m[33m[1.283ms] [34;1m[rows:0][0m SELECT * FROM "package_vulnerabilities" WHERE (ecosystem = 'package_type_apk' AND package_name IN ('.postgresql-rundeps','bash','gdbm','icu-data-full','icu-libs','keyutils-libs','krb5-conf','krb5-libs','libapk','libcom_err','libedit','libffi','libgcc','libldap','libncursesw','libsasl','libstdc++','libuuid','libverto','libxml2','libxslt','llvm19-libs','lz4-libs','ncurses-terminfo-base','nss_wrapper','readline','xz-libs','zstd') AND deleted_at IS NULL) AND "package_vulnerabilities"."deleted_at" IS NULL
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk query returned CVEs for 45 packages (queried 28, cached 17)
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 45 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 87
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.743ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[3.608ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.398ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 79 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 79 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.247ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 79 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 79
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.384ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 81 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 81 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.289ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 81 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 81
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.333ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 82 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 82 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.244ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 82 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 82
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.459ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 77 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 77 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.260ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 77 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 77
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.605ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 83 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 83 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.272ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 83 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 83
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.322ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 88 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 88 (0 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.259ms] [34;1m[rows:0][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 88 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 components to match
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 88
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.355ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[3.951ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.458ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[85.608ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.139ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[5.225ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.461ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[9.504ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[52.109ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[7.438ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.221ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[6.934ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.025ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[79.756ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.577ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[14.127ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[2.570ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[9.180ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[43.081ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[10.541ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.109ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[9.386ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.914ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.140ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.806ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 74 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 74 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.633ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 74 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 74
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.569ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 89 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 89 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.496ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 89 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 89
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.590ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 89 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 89 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[5.242ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 89 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 89
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[1.604ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.664ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.644ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 85 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 85 (150 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[4.352ms] [34;1m[rows:150][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 85 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 150 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 150 packages in ecosystem package_type_deb
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 150 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 150 packages in ecosystem package_type_deb
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 85
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.506ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.767ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.839ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[1.022ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.787ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 89 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 89 (25 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.991ms] [34;1m[rows:25][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 89 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 25 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 25 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 25 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 25 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 89
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.611ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 5 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 5 (18 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.908ms] [34;1m[rows:18][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 5 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 18 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 18 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 18 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 18 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 5
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/worker/cve_matcher_worker.go:64
+[0m[33m[0.518ms] [34;1m[rows:1][0m SELECT * FROM "sboms" WHERE (id = 84 AND deleted_at IS NULL) AND "sboms"."deleted_at" IS NULL ORDER BY "sboms"."id" LIMIT 1
+[CVEMatcher] 2025/12/26 07:37:19 Matching CVEs for SBOM ID 84 (17 packages)
+
+2025/12/26 07:37:19 [32mgithub.com/fortuna/core/pkg/cve/matcher/matcher.go:46
+[0m[33m[0.757ms] [34;1m[rows:17][0m SELECT * FROM "sbom_components" WHERE (sbom_id = 84 AND deleted_at IS NULL) AND "sbom_components"."deleted_at" IS NULL
+[CVEMatcher] 2025/12/26 07:37:19 Found 17 components to match
+[CVEMatcher] 2025/12/26 07:37:19 Bulk querying CVEs for 17 packages in ecosystem package_type_apk
+[CVEDatabaseManager] 2025/12/26 07:37:19 ✅ Bulk cache hit for all 17 packages
+[CVEMatcher] 2025/12/26 07:37:19 Found 0 total CVEs for 17 packages in ecosystem package_type_apk
+[CVEMatcher] 2025/12/26 07:37:19 ✅ Found 0 CVE matches for SBOM ID 84
+[GIN] 2025/12/26 - 07:37:24 | 200 |   11.855042ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:37:24.626115 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:37:29 | 200 |    6.996041ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:34 | 200 |   74.930292ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:34 | 200 |   79.339083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:39 | 200 |    7.037542ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:44 | 200 |    8.526375ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:44 | 200 |   12.105083ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:49 | 200 |   73.480209ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:54 | 200 |     25.1635ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:54 | 200 |   91.310416ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:37:59 | 200 |    8.259125ms |      10.244.0.1 | GET      "/health"
+2025/12/26 07:37:59.608318 [Agent] Register: id=fortuna-agent-764gw, node=minikube, version=dev, capabilities=[sbom pod-watcher]
+[GIN] 2025/12/26 - 07:38:04 | 200 |  652.421959ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:05 | 200 |  1.371629667s |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:09 | 200 |      15.194ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:14 | 200 |   15.463583ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:14 | 200 |   18.147291ms |      10.244.0.1 | GET      "/health"
+[GIN] 2025/12/26 - 07:38:19 | 200 |    6.943875ms |      10.244.0.1 | GET      "/health"
