@@ -52,8 +52,13 @@ spec:
       
       containers:
         - name: core
+          # Production: Use versioned image tag
+          # For minikube/local: Use 'fortuna-core:latest' with imagePullPolicy: Never
+          # For production: Use 'fortuna-core:v1.0.0' with imagePullPolicy: IfNotPresent
           image: fortuna-core:latest
-          imagePullPolicy: Never  # For local minikube
+          # For local development (minikube): Never
+          # For production: IfNotPresent or Always
+          imagePullPolicy: IfNotPresent
           
           ports:
             - name: http
@@ -101,13 +106,25 @@ spec:
               mountPath: /etc/fortuna/tls/server
               readOnly: true
           
+          # Production-ready resource limits
           resources:
             requests:
               cpu: 100m
               memory: 256Mi
             limits:
-              cpu: 500m
-              memory: 512Mi
+              cpu: 1000m
+              memory: 1Gi
+          
+          # Security context - non-root user
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # Core needs to write logs and temp files
+            capabilities:
+              drop:
+                - ALL
           
           livenessProbe:
             httpGet:
@@ -115,6 +132,8 @@ spec:
               port: 8080
             initialDelaySeconds: 30
             periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           
           readinessProbe:
             httpGet:
@@ -122,4 +141,5 @@ spec:
               port: 8080
             initialDelaySeconds: 10
             periodSeconds: 5
-
+            timeoutSeconds: 3
+            failureThreshold: 3
