@@ -681,3 +681,6 @@ After successful deployment:
 
 *Fortuna K8s Management Platform - Complete Setup Guide v1.0*
 
+
+
+

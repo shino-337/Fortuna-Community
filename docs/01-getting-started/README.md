@@ -22,6 +22,18 @@ This section provides comprehensive guides for setting up and deploying Fortuna 
    - Full deployment process
    - **Time**: 30-45 minutes to complete
 
+3. **[Multi-Node K8s Deployment Guide](./MULTI_NODE_K8S_DEPLOYMENT.md)** ⭐ **NEW**
+   - Production-ready multi-node cluster
+   - Master-worker architecture
+   - containerd runtime
+   - **Time**: 45-60 minutes to complete
+
+4. **[Environment Requirements](./ENVIRONMENT_REQUIREMENTS.md)** ⭐ **NEW**
+   - Complete hardware/software specs
+   - Network requirements
+   - Resource limits
+   - Deployment scenarios
+
 ---
 
 ## 🎯 Choose Your Path
@@ -96,8 +108,21 @@ Before starting, ensure you have:
 
 ### Build and Deploy
 
+**For Multi-Node Production Cluster:**
 ```bash
-# Full automated deployment
+# Build and deploy to multi-node K8s cluster
+./scripts/build-and-deploy-multinode.sh
+
+# With custom registry
+REGISTRY=docker.io/yourusername ./scripts/build-and-deploy-multinode.sh
+
+# With custom image tag
+IMAGE_TAG=v1.0.0 ./scripts/build-and-deploy-multinode.sh
+```
+
+**For Local/Development:**
+```bash
+# Full automated deployment (minikube/local)
 ./scripts/build-and-deploy.sh
 
 # Skip build (use existing binaries)
@@ -113,7 +138,7 @@ Before starting, ensure you have:
 ### Kubernetes Setup
 
 ```bash
-# Setup Kubernetes on Ubuntu VM
+# Setup Kubernetes on Ubuntu VM (single node)
 sudo bash scripts/setup-k8s-standalone.sh
 ```
 
@@ -135,22 +160,40 @@ scripts/
 
 ---
 
-## 🚀 Quick Start (5 Minutes)
+## 🚀 Quick Start
 
-### 1. Setup Kubernetes
+### For Multi-Node Production Cluster
 
+**1. Setup Kubernetes Cluster** (see [Multi-Node Guide](./MULTI_NODE_K8S_DEPLOYMENT.md#2-cluster-setup))
+
+**2. Build and Deploy**
+```bash
+# With registry
+REGISTRY=docker.io/yourusername ./scripts/build-and-deploy-multinode.sh
+
+# Or without registry (load images manually to nodes)
+./scripts/build-and-deploy-multinode.sh
+```
+
+**3. Verify**
+```bash
+kubectl get pods -n fortuna
+kubectl logs -n fortuna -l app.kubernetes.io/component=core --tail=50
+```
+
+### For Local/Development (Single Node)
+
+**1. Setup Kubernetes**
 ```bash
 sudo bash scripts/setup-k8s-standalone.sh
 ```
 
-### 2. Build and Deploy
-
+**2. Build and Deploy**
 ```bash
 ./scripts/build-and-deploy.sh
 ```
 
-### 3. Verify
-
+**3. Verify**
 ```bash
 kubectl get pods -n fortuna
 kubectl logs -n fortuna -l app.kubernetes.io/component=core --tail=50

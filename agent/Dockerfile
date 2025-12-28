@@ -1,7 +1,9 @@
 # Multi-stage build for Fortuna Agent
+# Build context: repository root
+# Usage: docker build -f agent/Dockerfile -t fortuna-agent:latest .
 FROM golang:1.24-alpine AS builder
 
-WORKDIR /build/agent
+WORKDIR /build
 
 # Build metadata
 ARG FORTUNA_BUILD_VERSION=dev
@@ -11,15 +13,18 @@ ARG FORTUNA_BUILD_TIME=unknown
 # Install build dependencies
 RUN apk add --no-cache git
 
+# Copy go.work and go.work.sum (if exists) for workspace support
+COPY go.work* ./
+
 # Copy api module first (needed for go.mod replace directive)
-COPY api/ /build/api/
+COPY api/ ./api/
 
-# Copy agent go.mod and download deps
-COPY agent/go.mod agent/go.sum ./
+# Copy agent directory (includes go.mod, go.sum, and source)
+COPY agent/ ./agent/
+WORKDIR /build/agent
+
+# Download dependencies (before building for better caching)
 RUN go mod download
-
-# Copy agent source
-COPY agent/ ./
 
 # Tidy dependencies
 RUN go mod tidy

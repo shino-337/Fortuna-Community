@@ -248,3 +248,5 @@ Insights → Base Score (0-40) + Exploitability (0-30) + Business Impact (0-30) 
 
 *Fortuna K8s Management Platform - Analysis Summary v1.0*
 
+
+
