@@ -35,7 +35,7 @@ COPY agent/ ./
 # Verify dependencies
 RUN go mod verify
 
-# Build Agent binary and cleanup cache immediately
+# Build Agent binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
@@ -43,13 +43,13 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -X main.BuildTime=${FORTUNA_BUILD_TIME}" \
     -trimpath \
     -buildvcs=false \
-    -o /fortuna-agent ./cmd/main.go && \
-    # Clean build cache immediately to free space
-    go clean -cache && \
-    rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
+    -o /fortuna-agent ./cmd/main.go
 
-# Final cleanup of all Go caches
-RUN go clean -modcache -testcache && \
+# Verify Agent binary exists
+RUN test -f /fortuna-agent || (echo "ERROR: /fortuna-agent not found after build" && exit 1)
+
+# Clean up Go caches to free disk space (after verifying binary exists)
+RUN go clean -cache -modcache -testcache && \
     rm -rf /tmp/go-build-cache /tmp/go-mod-cache /root/.cache/go-build 2>/dev/null || true
 
 # Final stage - minimal runtime image

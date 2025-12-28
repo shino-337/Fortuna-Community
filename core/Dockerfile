@@ -35,7 +35,7 @@ COPY core/ ./
 # Verify dependencies
 RUN go mod verify
 
-# Build Core binary and cleanup cache immediately
+# Build Core binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
@@ -43,25 +43,25 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -X main.BuildTime=${FORTUNA_BUILD_TIME}" \
     -trimpath \
     -buildvcs=false \
-    -o /fortuna-core ./cmd/main.go && \
-    # Clean build cache immediately to free space
-    go clean -cache && \
-    rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
+    -o /fortuna-core ./cmd/main.go
 
-# Build CVE loader binary (if exists) and cleanup
+# Verify Core binary exists
+RUN test -f /fortuna-core || (echo "ERROR: /fortuna-core not found after build" && exit 1)
+
+# Build CVE loader binary (if exists)
 RUN if [ -f "./cmd/cve-loader/main.go" ]; then \
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
         -ldflags="-w -s" \
         -trimpath \
         -buildvcs=false \
         -o /cve-loader ./cmd/cve-loader/main.go && \
-        go clean -cache; \
+        test -f /cve-loader || touch /cve-loader; \
     else \
         touch /cve-loader; \
     fi
 
-# Final cleanup of all Go caches
-RUN go clean -modcache -testcache && \
+# Clean up Go caches to free disk space (after verifying binaries exist)
+RUN go clean -cache -modcache -testcache && \
     rm -rf /tmp/go-build-cache /tmp/go-mod-cache /root/.cache/go-build 2>/dev/null || true
 
 # Final stage - minimal runtime image
