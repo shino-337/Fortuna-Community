@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 
 	"gorm.io/gorm"
 
@@ -26,18 +25,62 @@ func Migration012_AddRiskScores(db *gorm.DB) error {
 		return nil
 	}
 
-	// Read SQL from file
-	sqlPath := filepath.Join("migrations", "mvp2", "001_risk_scores.sql")
-	sqlBytes, err := os.ReadFile(sqlPath)
-	if err != nil {
-		// Fallback: use AutoMigrate
-		log.Println("Migration file not found, using AutoMigrate")
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/mvp2/001_risk_scores.sql",
+		"/app/migrations/mvp2/001_risk_scores.sql",
+		"./migrations/mvp2/001_risk_scores.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: mvp2/001_risk_scores.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		var tableExists bool
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'risk_scores')").Scan(&tableExists).Error; err != nil {
+			return fmt.Errorf("failed to validate risk_scores table: %w", err)
+		}
+		if !tableExists {
+			return fmt.Errorf("risk_scores table was not created")
+		}
+
+		log.Println("Migration 012 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
 		return db.AutoMigrate(&models.RiskScore{})
 	}
 
-	// Execute SQL
+	// Development with SQL file
 	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
 		return db.AutoMigrate(&models.RiskScore{})
 	}
 
@@ -71,12 +114,56 @@ func Migration013_AddRiskScoresDeletedAt(db *gorm.DB) error {
 		return nil
 	}
 
-	// Read SQL from file
-	sqlPath := filepath.Join("migrations", "mvp2", "002_add_risk_scores_deleted_at.sql")
-	sqlBytes, err := os.ReadFile(sqlPath)
-	if err != nil {
-		// Fallback: use DO block
-		log.Println("Migration file not found, using inline SQL")
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/mvp2/002_add_risk_scores_deleted_at.sql",
+		"/app/migrations/mvp2/002_add_risk_scores_deleted_at.sql",
+		"./migrations/mvp2/002_add_risk_scores_deleted_at.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: mvp2/002_add_risk_scores_deleted_at.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		hasDeletedAt, err := validateColumnExists(db, "risk_scores", "deleted_at")
+		if err != nil {
+			return fmt.Errorf("failed to validate deleted_at column: %w", err)
+		}
+		if !hasDeletedAt {
+			return fmt.Errorf("deleted_at column was not created")
+		}
+
+		log.Println("Migration 013 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback or inline SQL
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using inline SQL")
 		sqlBytes = []byte(`
 -- Add deleted_at column for soft delete support
 DO $$ 
@@ -118,18 +205,62 @@ func Migration014_AddPolicyTemplates(db *gorm.DB) error {
 		return nil
 	}
 
-	// Read SQL from file
-	sqlPath := filepath.Join("migrations", "mvp2", "003_policy_templates.sql")
-	sqlBytes, err := os.ReadFile(sqlPath)
-	if err != nil {
-		// Fallback: use AutoMigrate
-		log.Println("Migration file not found, using AutoMigrate")
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/mvp2/003_policy_templates.sql",
+		"/app/migrations/mvp2/003_policy_templates.sql",
+		"./migrations/mvp2/003_policy_templates.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: mvp2/003_policy_templates.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		var tableExists bool
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'policy_templates')").Scan(&tableExists).Error; err != nil {
+			return fmt.Errorf("failed to validate policy_templates table: %w", err)
+		}
+		if !tableExists {
+			return fmt.Errorf("policy_templates table was not created")
+		}
+
+		log.Println("Migration 014 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
 		return db.AutoMigrate(&models.PolicyTemplate{})
 	}
 
-	// Execute SQL
+	// Development with SQL file
 	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
 		return db.AutoMigrate(&models.PolicyTemplate{})
 	}
 
@@ -202,12 +333,56 @@ func Migration018_AddRiskScoresV2Columns(db *gorm.DB) error {
 		return nil
 	}
 
-	// Read SQL from file
-	sqlPath := filepath.Join("migrations", "mvp2", "004_add_risk_scores_v2_columns.sql")
-	sqlBytes, err := os.ReadFile(sqlPath)
-	if err != nil {
-		// Fallback: inline SQL
-		log.Println("Migration file not found, using inline SQL")
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/mvp2/004_add_risk_scores_v2_columns.sql",
+		"/app/migrations/mvp2/004_add_risk_scores_v2_columns.sql",
+		"./migrations/mvp2/004_add_risk_scores_v2_columns.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: mvp2/004_add_risk_scores_v2_columns.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		hasExploitability, err := validateColumnExists(db, "risk_scores", "exploitability_score")
+		if err != nil {
+			return fmt.Errorf("failed to validate exploitability_score column: %w", err)
+		}
+		if !hasExploitability {
+			return fmt.Errorf("exploitability_score column was not created")
+		}
+
+		log.Println("Migration 018 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow inline SQL fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using inline SQL")
 		sqlBytes = []byte(`
 -- Migration 004: Add V2 scoring columns to risk_scores table
 -- MVP2 Phase 1.2: Risk Scoring V2 Enhancement
@@ -360,12 +535,53 @@ func Migration020_AddSBOMTables(db *gorm.DB) error {
 		return nil
 	}
 
-	// Read SQL from file
-	sqlPath := filepath.Join("migrations", "mvp2", "006_add_sbom_tables.sql")
-	sqlBytes, err := os.ReadFile(sqlPath)
-	if err != nil {
-		// Fallback: use AutoMigrate
-		log.Println("Migration file not found, using AutoMigrate")
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/mvp2/006_add_sbom_tables.sql",
+		"/app/migrations/mvp2/006_add_sbom_tables.sql",
+		"./migrations/mvp2/006_add_sbom_tables.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: mvp2/006_add_sbom_tables.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		requiredTables := []string{"sboms", "sbom_components", "cve_matches"}
+		if validationErr := validateMigrationResult(db, 20, requiredTables); validationErr != nil {
+			return validationErr
+		}
+
+		log.Println("Migration 020 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
 		if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 			return fmt.Errorf("failed to create SBOM tables: %w", err)
 		}
@@ -377,9 +593,9 @@ func Migration020_AddSBOMTables(db *gorm.DB) error {
 		return nil
 	}
 
-	// Execute SQL
+	// Development with SQL file
 	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
 		if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
 			return fmt.Errorf("failed to create SBOM tables: %w", err)
 		}

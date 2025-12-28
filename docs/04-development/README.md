@@ -5,22 +5,16 @@ Developer guides, API documentation, and testing resources.
 ## 📚 Documents
 
 ### CVE & SBOM Development
-- **[CVE_LOADING_GUIDE.md](./CVE_LOADING_GUIDE.md)** - Load CVE data into PostgreSQL
-- **[CVE_LOADER_USAGE.md](./CVE_LOADER_USAGE.md)** - Using the CVE loader tool
-- **[CVE_LOADER_TESTING_GUIDE.md](./CVE_LOADER_TESTING_GUIDE.md)** - Testing CVE loading
-- **[CVE_UPDATE_MECHANISM.md](./CVE_UPDATE_MECHANISM.md)** - CVE update automation
-- **[CVE_DATABASE_STATUS.md](./CVE_DATABASE_STATUS.md)** - Current database state
-- **[CVE_DATA_SOURCE_STRATEGY.md](./CVE_DATA_SOURCE_STRATEGY.md)** - Data sources & strategy
-- **[OSV_PARSER_ANALYSIS.md](./OSV_PARSER_ANALYSIS.md)** - OSV JSON parsing
+- **[CVE Guide](../03-components/cve-scanner/CVE_GUIDE.md)** - Complete CVE scanner guide (loading, matching, management)
+- **[CVE Loader Testing Guide](./CVE_LOADER_TESTING_GUIDE.md)** - Testing CVE loading
+- **[OSV Parser Analysis](./OSV_PARSER_ANALYSIS.md)** - OSV JSON parsing details
 
 ### API Documentation
 - **[API_VERIFICATION_RESULTS.md](./API_VERIFICATION_RESULTS.md)** - API endpoint testing
 - **[INSIGHTS_API_CURL_EXAMPLES.md](./INSIGHTS_API_CURL_EXAMPLES.md)** - API usage examples
 
 ### Testing
-- **[E2E_CVE_INSIGHTS_TEST.md](./E2E_CVE_INSIGHTS_TEST.md)** - End-to-end CVE testing
-- **[E2E_OPTIMIZATION_VERIFICATION_REPORT.md](./E2E_OPTIMIZATION_VERIFICATION_REPORT.md)** - Performance verification
-- **[E2E_TEST_ANALYSIS_20251217.md](./E2E_TEST_ANALYSIS_20251217.md)** - Test analysis
+- **[E2E Testing Guide](./testing/E2E_TESTING.md)** - Complete end-to-end testing guide
 - **[testing/](./testing/)** - Test suites and reports
 
 ### Architecture Review

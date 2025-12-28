@@ -22,34 +22,36 @@ Fortuna is a comprehensive Kubernetes security and management platform that prov
 
 ## 📚 Documentation Structure
 
-### 🎯 [Getting Started](./getting-started/)
+### 🎯 [Getting Started](./01-getting-started/)
 - **Installation** - Deploy Fortuna in your cluster
+- **Deployment** - Complete deployment guide (see [Deployment Guide](./01-getting-started/DEPLOYMENT.md))
 - **Quick Start** - Basic usage examples
 - **Configuration** - Environment variables & settings
 - **Troubleshooting** - Common issues & solutions
 
-### 🏗️ [Architecture](./architecture/)
+### 🏗️ [Architecture](./02-architecture/)
 - **Overview** - System design & data flows
 - **Components** - Core, Agent, and services
-- **Database Schema** - PostgreSQL + Apache AGE
+- **Database Schema** - PostgreSQL + Apache AGE (see [Schema Analysis](./02-architecture/database/SCHEMA_ANALYSIS.md))
 - **Event System** - NATS JetStream architecture
 - **Security** - mTLS, RBAC, admission control
 
-### 🔧 [Components](./components/)
-- **[Agent](./components/agent/)** - DaemonSet resource collector
-- **[Core](./components/core/)** - Central controller & API
-- **[SBOM Generator](./components/sbom/)** - Custom SBOM extraction
-- **[CVE Scanner](./components/cve-scanner/)** - Vulnerability matching
-- **[Policy Engine](./components/policy-engine/)** - CEL-based policies
-- **[Risk Engine](./components/risk-engine/)** - Risk scoring & insights
-- **[Dashboard](./components/dashboard/)** - Web UI (optional)
+### 🔧 [Components](./03-components/)
+- **[Agent](./03-components/agent/)** - DaemonSet resource collector
+- **[Core](./03-components/core/)** - Central controller & API
+- **[SBOM Generator](./03-components/sbom/)** - Custom SBOM extraction
+- **[CVE Scanner](./03-components/cve-scanner/)** - Vulnerability matching (see [CVE Guide](./03-components/cve-scanner/CVE_GUIDE.md))
+- **[Policy Engine](./03-components/policy-engine/)** - CEL-based policies
+- **[Risk Engine](./03-components/risk-engine/)** - Risk scoring & insights
+- **[Dashboard](./03-components/dashboard/)** - Web UI (optional)
 
-### 💻 [Development](./development/)
+### 💻 [Development](./04-development/)
 - **Contributing** - How to contribute
 - **Development Setup** - Local development environment
-- **Testing** - E2E tests, unit tests
+- **Testing** - E2E tests, unit tests (see [E2E Testing Guide](./04-development/testing/E2E_TESTING.md))
 - **Performance** - Benchmarks & optimization
 - **API Reference** - REST API documentation
+- **Bug Fixes** - Historical bug fix reference (see [Bug Fix History](./04-development/bugfixes/BUGFIX_HISTORY.md))
 
 ### 🚀 [Operations](./operations/)
 - **Deployment** - Production deployment guide
@@ -73,9 +75,10 @@ Fortuna is a comprehensive Kubernetes security and management platform that prov
 - **[SECURITY.md](./SECURITY.md)** - Security policies & best practices
 
 ### Reference
-- **[API_REFERENCE.md](./development/API_REFERENCE.md)** - REST API endpoints
-- **[DATABASE_SCHEMA.md](./architecture/DATABASE_SCHEMA.md)** - Database structure
-- **[CONFIGURATION.md](./getting-started/CONFIGURATION.md)** - All config options
+- **[API Reference](./04-development/API_REFERENCE.md)** - REST API endpoints
+- **[Database Schema](./02-architecture/database/SCHEMA_ANALYSIS.md)** - Database structure
+- **[Configuration](./01-getting-started/CONFIGURATION.md)** - All config options
+- **[Migration History](./06-reference/migration/SCHEMA_MIGRATION_HISTORY.md)** - Schema migration history
 
 ### Guides
 - **[QUICKSTART.md](./getting-started/QUICKSTART.md)** - Get started in 10 minutes

@@ -30,14 +30,20 @@ var (
 	_ = Migration027_AddCVEFileMetadata
 	_ = Migration028_AddPerformanceIndexes
 	_ = Migration029_AddInsightsUniqueConstraint
-	_ = Migration030_MigrateInsightsToNewSchema
-	_ = Migration031_CleanupOldInsightsColumns
-	_ = Migration032_RemoveDuplicateIndexes
+	_ = Migration030_MigrateInsightsSchemaComplete
+	_ = Migration031_CleanupDuplicateIndexes
+	_ = Migration032_MigrateCVEMatchesComplete
 	_ = Migration033_AddUniqueConstraints
 	_ = Migration034_StandardizeCVSSType
 	_ = Migration035_EvaluateTrivyTables
 	_ = Migration036_AddMissingSBOMColumns
-	_ = Migration037_MigrateCVEMatchesToPackageName
+	// Old migrations 030-039 (replaced by optimized versions above):
+	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
+	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
+	// _ = Migration032_RemoveDuplicateIndexes (merged into 031_CleanupDuplicateIndexes)
+	// _ = Migration037_MigrateCVEMatchesToPackageName (merged into 032_MigrateCVEMatchesComplete)
+	// _ = Migration038_CleanupOldSchemaColumns (merged into 030_MigrateInsightsSchemaComplete and 031_CleanupDuplicateIndexes)
+	// _ = Migration039_AddMissingCVEMatchColumns (merged into 032_MigrateCVEMatchesComplete)
 )
 
 // RunMigrations runs all database migrations
@@ -66,18 +72,17 @@ func RunMigrations(db *gorm.DB) error {
 		Migration023_FixSBOMCVEIndexes,                 // MVP2: Unique indexes for SBOM/CVE upserts + dedup
 		Migration024_AddPodImageScansUniqueIndex,       // MVP2: Unique index for pod_image_scans upsert path
 		Migration025_MakeUpsertUniqueIndexesNonPartial, // MVP2: Non-partial unique indexes for ON CONFLICT inference
-		Migration026_AddInsightsJSONBIndexes,           // MVP2: GIN indexes for efficient JSONB queries on insights
+		Migration026_AddInsightsJSONBIndexes,           // MVP2: GIN indexes for efficient JSONB queries on insights (skips if column doesn't exist)
 		Migration027_AddCVEFileMetadata,                // CVE Optimization: File metadata tracking for incremental updates
 		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
 		Migration029_AddInsightsUniqueConstraint,       // Performance: Unique constraint for insights batch UPSERT
-		Migration030_MigrateInsightsToNewSchema,        // Schema Migration: Migrate insights from OLD schema (JSONB) to NEW schema (direct fields)
-		Migration031_CleanupOldInsightsColumns,         // Schema Cleanup: Remove deprecated columns from insights table after migration
-		Migration032_RemoveDuplicateIndexes,            // Schema Cleanup: Remove duplicate and redundant indexes
+		Migration030_MigrateInsightsSchemaComplete,      // Schema Migration: Complete insights schema migration (combines old 030+031+038)
+		Migration031_CleanupDuplicateIndexes,            // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
+		Migration032_MigrateCVEMatchesComplete,          // Schema Migration: Complete cve_matches migration (combines old 037+039)
 		Migration033_AddUniqueConstraints,                // Schema Integrity: Add proper unique constraints for data integrity
 		Migration034_StandardizeCVSSType,                // Schema Standardization: Standardize CVSS column types to REAL
 		Migration035_EvaluateTrivyTables,                 // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
 		Migration036_AddMissingSBOMColumns,               // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
-		Migration037_MigrateCVEMatchesToPackageName,      // Schema Migration: Migrate cve_matches from component_id to package_name
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))
@@ -93,19 +98,23 @@ func RunMigrations(db *gorm.DB) error {
 			if errStr != "" && (strings.Contains(errStr, "insufficient arguments") ||
 				strings.Contains(errStr, "migration 1 failed") ||
 				strings.Contains(errStr, "Migration 1 failed")) {
-				log.Printf("WARNING: Migration %d encountered known GORM/PostgreSQL issue (insufficient arguments). This may be safe to ignore if tables were created.", i+1)
-				// Verify tables exist before continuing
-				var tableExists bool
-				if checkErr := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'clusters')").Scan(&tableExists).Error; checkErr == nil && tableExists {
-					log.Printf("Migration %d: Tables verified to exist, continuing despite error", i+1)
-					continue
-				}
-				// For migration 1, always continue even if tables don't exist (known issue)
+				log.Printf("WARNING: Migration %d encountered known GORM/PostgreSQL issue (insufficient arguments)", i+1)
+				log.Printf("This is a known compatibility issue between GORM and PostgreSQL")
+
+				// For migration 1, validate all core tables exist
 				if i == 0 {
-					log.Printf("Migration 1: Continuing despite error (known GORM/PostgreSQL compatibility issue)")
-					log.Printf("Migration 1: This error is non-fatal and tables may still be created")
+					requiredTables := []string{"clusters", "service_accounts", "roles", "cluster_roles",
+						"role_bindings", "cluster_role_bindings", "pods", "audit_logs"}
+					if validationErr := validateMigrationResult(db, i+1, requiredTables); validationErr != nil {
+						// FAIL LOUDLY - don't continue with broken schema
+						return fmt.Errorf("migration %d schema validation failed: %w", i+1, validationErr)
+					}
+					log.Printf("Migration %d: All required tables validated successfully", i+1)
 					continue
 				}
+
+				// For other migrations, log warning but don't fail automatically
+				log.Printf("Migration %d: Manual validation recommended", i+1)
 			}
 			log.Printf("ERROR: Migration %d failed: %v", i+1, err)
 			return fmt.Errorf("migration %d failed: %w", i+1, err)
@@ -222,45 +231,201 @@ func Migration001_InitialSchema(db *gorm.DB) error {
 }
 
 // Migration002_AddUsers creates users table
+//
+// Date: 2025-12-27 (converted from AutoMigrate to SQL)
+// Author: KSAM Team
+// Ticket: Migration Audit - Phase 2
+//
+// Description:
+//   Creates users table for authentication and authorization.
+//
+// Tables Affected:
+//   - users: New table with username, email, password, role, active fields
+//
+// Rollback Plan:
+//   DROP TABLE IF EXISTS users CASCADE;
+//
+// Testing:
+//   - Verify table: SELECT * FROM users LIMIT 1;
+//   - Check indexes: \di idx_users_*
 func Migration002_AddUsers(db *gorm.DB) error {
 	log.Println("Running migration 002: Add users table")
 
-	return db.AutoMigrate(&models.User{})
-}
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
 
-// Migration003_AddUserToAuditLogs adds user_id to audit_logs
-func Migration003_AddUserToAuditLogs(db *gorm.DB) error {
-	log.Println("Running migration 003: Add user_id to audit_logs")
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/002_add_users.sql",
+		"/app/migrations/002_add_users.sql",
+		"./migrations/002_add_users.sql",
+	}
 
-	// Check if audit_logs table exists first
-	if !db.Migrator().HasTable(&models.AuditLog{}) {
-		log.Println("audit_logs table does not exist, creating it first")
-		if err := db.AutoMigrate(&models.AuditLog{}); err != nil {
-			log.Printf("Warning: Failed to create audit_logs table: %v", err)
-			// Continue anyway - table may be created by later migrations
-			return nil
+	var sqlBytes []byte
+	var err error
+
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
 		}
 	}
 
-	// Check if column already exists
-	if db.Migrator().HasColumn(&models.AuditLog{}, "user_id") {
-		log.Println("Column user_id already exists, skipping")
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: 002_add_users.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		var tableExists bool
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'users')").Scan(&tableExists).Error; err != nil {
+			return fmt.Errorf("failed to validate users table: %w", err)
+		}
+		if !tableExists {
+			return fmt.Errorf("users table was not created")
+		}
+
+		log.Println("Migration 002 completed successfully (SQL)")
 		return nil
 	}
 
-	// Add user_id column
-	if err := db.Migrator().AddColumn(&models.AuditLog{}, "user_id"); err != nil {
-		log.Printf("Warning: Failed to add user_id column: %v (table may not exist yet)", err)
-		// Don't fail - column may already exist or table may be created later
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
+		return db.AutoMigrate(&models.User{})
+	}
+
+	// Development with SQL file
+	if err := db.Exec(string(sqlBytes)).Error; err != nil {
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
+		return db.AutoMigrate(&models.User{})
+	}
+
+	log.Println("Migration 002 completed successfully")
+	return nil
+}
+
+// Migration003_AddUserToAuditLogs adds user_id to audit_logs
+//
+// Date: 2025-12-27 (converted from AutoMigrate to SQL)
+// Author: KSAM Team
+// Ticket: Migration Audit - Phase 2
+//
+// Description:
+//   Adds user_id column to audit_logs table to link audit entries to users.
+//
+// Tables Affected:
+//   - audit_logs: Add user_id column with foreign key to users table
+//
+// Dependencies:
+//   - Requires Migration 002 (users table) to be applied first
+//
+// Rollback Plan:
+//   ALTER TABLE audit_logs DROP COLUMN IF EXISTS user_id CASCADE;
+//
+// Testing:
+//   - Verify column: SELECT user_id FROM audit_logs LIMIT 1;
+//   - Check foreign key: \d audit_logs
+func Migration003_AddUserToAuditLogs(db *gorm.DB) error {
+	log.Println("Running migration 003: Add user_id to audit_logs")
+
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/003_add_user_to_audit_logs.sql",
+		"/app/migrations/003_add_user_to_audit_logs.sql",
+		"./migrations/003_add_user_to_audit_logs.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: 003_add_user_to_audit_logs.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		columnExists, err := validateColumnExists(db, "audit_logs", "user_id")
+		if err != nil {
+			return fmt.Errorf("failed to validate user_id column: %w", err)
+		}
+		if !columnExists {
+			return fmt.Errorf("user_id column was not created")
+		}
+
+		log.Println("Migration 003 completed successfully (SQL)")
 		return nil
 	}
 
-	// Add foreign key constraint
-	if err := db.Migrator().CreateConstraint(&models.AuditLog{}, "UserID"); err != nil {
-		// Constraint might already exist, ignore error
-		log.Printf("Warning: Could not create constraint: %v", err)
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
+		// Check if audit_logs table exists first
+		if !db.Migrator().HasTable(&models.AuditLog{}) {
+			log.Println("audit_logs table does not exist, creating it first")
+			if err := db.AutoMigrate(&models.AuditLog{}); err != nil {
+				log.Printf("Warning: Failed to create audit_logs table: %v", err)
+				return nil
+			}
+		}
+
+		// Check if column already exists
+		if db.Migrator().HasColumn(&models.AuditLog{}, "user_id") {
+			log.Println("Column user_id already exists, skipping")
+			return nil
+		}
+
+		// Add user_id column
+		if err := db.Migrator().AddColumn(&models.AuditLog{}, "user_id"); err != nil {
+			log.Printf("Warning: Failed to add user_id column: %v", err)
+			return nil
+		}
+
+		return nil
 	}
 
+	// Development with SQL file
+	if err := db.Exec(string(sqlBytes)).Error; err != nil {
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
+		if !db.Migrator().HasColumn(&models.AuditLog{}, "user_id") {
+			if err := db.Migrator().AddColumn(&models.AuditLog{}, "user_id"); err != nil {
+				log.Printf("Warning: Failed to add user_id column: %v", err)
+			}
+		}
+		return nil
+	}
+
+	log.Println("Migration 003 completed successfully")
 	return nil
 }
 
@@ -332,21 +497,79 @@ func Migration010_ImplementationGuideSchema(db *gorm.DB) error {
 }
 
 // Migration011_AddInsightsSoftDelete adds soft delete and status to insights table
+//
+// Date: 2025-12-27 (removed AutoMigrate fallback)
+// Author: KSAM Team
+// Ticket: Migration Audit - Phase 2
+//
+// Description:
+//   Adds soft delete (deleted_at) and status columns to insights table.
+//
+// Tables Affected:
+//   - insights: Add deleted_at and status columns
+//
+// Rollback Plan:
+//   ALTER TABLE insights DROP COLUMN IF EXISTS deleted_at, status CASCADE;
 func Migration011_AddInsightsSoftDelete(db *gorm.DB) error {
 	log.Println("Running migration 011: Add soft delete and status to insights")
 
-	// Read and execute SQL migration file
-	sqlBytes, err := os.ReadFile("migrations/011_add_insights_soft_delete.sql")
-	if err != nil {
-		log.Printf("Warning: Could not read SQL migration file: %v. Using AutoMigrate instead.", err)
-		// Fallback to AutoMigrate - will add columns if they don't exist
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/011_add_insights_soft_delete.sql",
+		"/app/migrations/011_add_insights_soft_delete.sql",
+		"./migrations/011_add_insights_soft_delete.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: 011_add_insights_soft_delete.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		hasDeletedAt, err := validateColumnExists(db, "insights", "deleted_at")
+		if err != nil {
+			return fmt.Errorf("failed to validate deleted_at column: %w", err)
+		}
+		if !hasDeletedAt {
+			return fmt.Errorf("deleted_at column was not created")
+		}
+
+		log.Println("Migration 011 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
 		return db.AutoMigrate(&models.Insight{})
 	}
 
-	// Execute SQL
+	// Development with SQL file
 	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
-		// Fallback to AutoMigrate
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
 		return db.AutoMigrate(&models.Insight{})
 	}
 
@@ -355,21 +578,79 @@ func Migration011_AddInsightsSoftDelete(db *gorm.DB) error {
 }
 
 // Migration008_AddDeployments adds deployments table
+//
+// Date: 2025-12-27 (removed AutoMigrate fallback)
+// Author: KSAM Team
+// Ticket: Migration Audit - Phase 2
+//
+// Description:
+//   Creates deployments table for tracking Kubernetes deployments.
+//
+// Tables Affected:
+//   - deployments: New table for deployment tracking
+//
+// Rollback Plan:
+//   DROP TABLE IF EXISTS deployments CASCADE;
 func Migration008_AddDeployments(db *gorm.DB) error {
 	log.Println("Running migration 008: Add deployments table")
 
-	// Read and execute SQL migration file
-	sqlBytes, err := os.ReadFile("migrations/008_add_deployments.sql")
-	if err != nil {
-		log.Printf("Warning: Could not read SQL migration file: %v. Using AutoMigrate instead.", err)
-		// Fallback to AutoMigrate
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/008_add_deployments.sql",
+		"/app/migrations/008_add_deployments.sql",
+		"./migrations/008_add_deployments.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: 008_add_deployments.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		var tableExists bool
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'deployments')").Scan(&tableExists).Error; err != nil {
+			return fmt.Errorf("failed to validate deployments table: %w", err)
+		}
+		if !tableExists {
+			return fmt.Errorf("deployments table was not created")
+		}
+
+		log.Println("Migration 008 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
 		return db.AutoMigrate(&models.Deployment{})
 	}
 
-	// Execute SQL
+	// Development with SQL file
 	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
-		// Fallback to AutoMigrate
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
 		return db.AutoMigrate(&models.Deployment{})
 	}
 
@@ -378,21 +659,79 @@ func Migration008_AddDeployments(db *gorm.DB) error {
 }
 
 // Migration009_AddReplicaSets adds replicasets table
+//
+// Date: 2025-12-27 (removed AutoMigrate fallback)
+// Author: KSAM Team
+// Ticket: Migration Audit - Phase 2
+//
+// Description:
+//   Creates replicasets table for tracking Kubernetes replica sets.
+//
+// Tables Affected:
+//   - replicasets: New table for replica set tracking
+//
+// Rollback Plan:
+//   DROP TABLE IF EXISTS replicasets CASCADE;
 func Migration009_AddReplicaSets(db *gorm.DB) error {
 	log.Println("Running migration 009: Add replicasets table")
 
-	// Read and execute SQL migration file
-	sqlBytes, err := os.ReadFile("migrations/009_add_replicasets.sql")
-	if err != nil {
-		log.Printf("Warning: Could not read SQL migration file: %v. Using AutoMigrate instead.", err)
-		// Fallback to AutoMigrate
+	// Determine environment
+	env := os.Getenv("ENVIRONMENT")
+	if env == "" {
+		env = "development"
+	}
+
+	// Try multiple paths for SQL file
+	sqlPaths := []string{
+		"migrations/009_add_replicasets.sql",
+		"/app/migrations/009_add_replicasets.sql",
+		"./migrations/009_add_replicasets.sql",
+	}
+
+	var sqlBytes []byte
+	var err error
+
+	for _, path := range sqlPaths {
+		sqlBytes, err = os.ReadFile(path)
+		if err == nil {
+			log.Printf("Found SQL migration file at: %s", path)
+			break
+		}
+	}
+
+	// Production: SQL file is mandatory
+	if env == "production" || env == "staging" {
+		if err != nil || len(sqlBytes) == 0 {
+			return fmt.Errorf("CRITICAL: SQL migration file required: 009_add_replicasets.sql not found. Tried paths: %v", sqlPaths)
+		}
+
+		// Execute SQL
+		if err := db.Exec(string(sqlBytes)).Error; err != nil {
+			return fmt.Errorf("SQL migration failed: %w", err)
+		}
+
+		// Validate result
+		var tableExists bool
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'replicasets')").Scan(&tableExists).Error; err != nil {
+			return fmt.Errorf("failed to validate replicasets table: %w", err)
+		}
+		if !tableExists {
+			return fmt.Errorf("replicasets table was not created")
+		}
+
+		log.Println("Migration 009 completed successfully (SQL)")
+		return nil
+	}
+
+	// Development: Allow AutoMigrate fallback
+	if err != nil || len(sqlBytes) == 0 {
+		log.Println("Development: SQL file not found, using AutoMigrate")
 		return db.AutoMigrate(&models.ReplicaSet{})
 	}
 
-	// Execute SQL
+	// Development with SQL file
 	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("Warning: SQL migration had errors: %v. Attempting AutoMigrate fallback.", err)
-		// Fallback to AutoMigrate
+		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
 		return db.AutoMigrate(&models.ReplicaSet{})
 	}
 

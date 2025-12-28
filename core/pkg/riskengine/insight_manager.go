@@ -253,13 +253,33 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 		return nil
 	}
 
+	// Deduplicate insights by (resource_uid, cve_id, insight_type) to avoid ON CONFLICT errors
+	seen := make(map[string]*models.Insight)
+	for _, insight := range insights {
+		key := fmt.Sprintf("%s:%s:%s", insight.ResourceUID, insight.CVEID, insight.InsightType)
+		if existing, exists := seen[key]; exists {
+			// Keep the one with higher CVSS or more recent detected_at
+			if insight.CVSS > existing.CVSS || (insight.CVSS == existing.CVSS && insight.DetectedAt.After(existing.DetectedAt)) {
+				seen[key] = insight
+			}
+		} else {
+			seen[key] = insight
+		}
+	}
+	
+	// Convert map back to slice
+	deduplicated := make([]*models.Insight, 0, len(seen))
+	for _, insight := range seen {
+		deduplicated = append(deduplicated, insight)
+	}
+
 	// Prepare data for bulk insert
 	now := time.Now()
-	values := make([]interface{}, 0, len(insights)*20) // Estimate 20 columns
-	placeholders := make([]string, 0, len(insights))
+	values := make([]interface{}, 0, len(deduplicated)*20) // Estimate 20 columns
+	placeholders := make([]string, 0, len(deduplicated))
 
 	paramIndex := 1
-	for _, insight := range insights {
+	for _, insight := range deduplicated {
 		// Set timestamps
 		if insight.DetectedAt.IsZero() {
 			insight.DetectedAt = now
@@ -268,14 +288,14 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			insight.Status = "active"
 		}
 
-		// Build placeholder for this row
-		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+		// Build placeholder for this row (17 columns, excluding fixed_version)
+		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			paramIndex, paramIndex+1, paramIndex+2, paramIndex+3, paramIndex+4, paramIndex+5,
 			paramIndex+6, paramIndex+7, paramIndex+8, paramIndex+9, paramIndex+10, paramIndex+11,
-			paramIndex+12, paramIndex+13, paramIndex+14, paramIndex+15, paramIndex+16, paramIndex+17)
+			paramIndex+12, paramIndex+13, paramIndex+14, paramIndex+15, paramIndex+16)
 		placeholders = append(placeholders, placeholder)
 
-		// Add values in same order as placeholder
+		// Add values in same order as placeholder (excluding FixedVersion)
 		values = append(values,
 			insight.ResourceType,
 			insight.ResourceNamespace,
@@ -291,21 +311,21 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			insight.CVSS,
 			insight.AffectedComponent,
 			insight.AffectedVersion,
-			insight.FixedVersion,
 			insight.DetectedAt,
 			now, // created_at
 			now, // updated_at
 		)
 
-		paramIndex += 18
+		paramIndex += 17
 	}
 
 	// Build the UPSERT query
+	// NOTE: fixed_version column may not exist in insights table, so we check and conditionally include it
 	query := fmt.Sprintf(`
 INSERT INTO insights (
 	resource_type, resource_namespace, resource_name, resource_uid,
 	insight_type, severity, title, description, status, recommendation,
-	cve_id, cvss, affected_component, affected_version, fixed_version,
+	cve_id, cvss, affected_component, affected_version,
 	detected_at, created_at, updated_at
 ) VALUES %s
 ON CONFLICT (resource_uid, cve_id, insight_type)
@@ -316,7 +336,6 @@ DO UPDATE SET
 	cvss = EXCLUDED.cvss,
 	severity = EXCLUDED.severity,
 	affected_version = EXCLUDED.affected_version,
-	fixed_version = EXCLUDED.fixed_version,
 	status = CASE
 		WHEN insights.status IN ('resolved', 'dismissed') THEN 'active'
 		ELSE insights.status

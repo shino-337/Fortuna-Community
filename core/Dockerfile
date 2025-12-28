@@ -24,7 +24,7 @@ COPY core/ ./
 # Tidy dependencies
 RUN go mod tidy
 
-# Build
+# Build Core binary
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
@@ -33,15 +33,23 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -trimpath \
     -o /fortuna-core ./cmd/main.go
 
+# Build CVE loader binary
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+    -ldflags="-w -s" \
+    -trimpath \
+    -o /cve-loader ./cmd/cve-loader/main.go
+
 # Final stage
 FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates tzdata curl
+RUN apk update && apk --no-cache add ca-certificates tzdata curl
 
 WORKDIR /app
 
 COPY --from=builder /fortuna-core /app/fortuna-core
+COPY --from=builder /cve-loader /app/cve-loader
 COPY --from=builder /build/core/rules /app/rules/
+COPY --from=builder /build/core/migrations /app/migrations/
 
 EXPOSE 8080 9090
 

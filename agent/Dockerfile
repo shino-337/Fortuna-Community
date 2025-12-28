@@ -36,7 +36,7 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # Final stage
 FROM alpine:3.20
 
-RUN apk --no-cache add ca-certificates tzdata docker-cli
+RUN apk update && apk --no-cache add ca-certificates tzdata docker-cli
 
 WORKDIR /app
 

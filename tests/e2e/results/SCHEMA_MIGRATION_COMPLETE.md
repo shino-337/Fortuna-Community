@@ -1,194 +1,97 @@
-# Schema Migration Complete ✅
+# Schema Migration Complete - Final Report
 
-**Date**: 2025-12-26  
-**Migration**: 030_MigrateInsightsToNewSchema  
-**Status**: ✅ **COMPLETED**
+**Date**: 2025-12-27  
+**Time**: 14:30 UTC  
+**Status**: ✅ **SCHEMA CLEANUP COMPLETED**
 
 ---
 
 ## Summary
 
-Successfully migrated `insights` table from OLD schema (JSONB-based) to NEW schema (direct fields) to align with the updated model definition.
+Successfully cleaned up old schema columns and indexes, synchronizing database schema with Go models.
 
 ---
 
-## Migration Steps Executed
+## Actions Taken
 
-### ✅ Step 1: Add New Columns
-- Added `insight_type` (VARCHAR(50))
-- Added `resource_type`, `resource_uid`, `resource_namespace`, `resource_name`
-- Added `title`, `recommendation`
-- Added `affected_component`, `affected_version`, `cvss`
-- Added `detected_at` (TIMESTAMP)
+### 1. Dropped Old Columns from `insights` Table
+- ✅ `type` → Replaced by `insight_type`
+- ✅ `affected_resources` → Replaced by direct fields
+- ✅ `recommended_action` → Replaced by `recommendation`
+- ✅ `sbom_id` → Removed
+- ✅ `cve_match_id` → Removed
+- ✅ `source` → Removed
+- ✅ `cvss_score` → Replaced by `cvss`
+- ✅ `cvss_vector` → Removed
+- ✅ `exploit_available` → Removed
+- ✅ `package_name` → Replaced by `affected_component`
+- ✅ `installed_version` → Replaced by `affected_version`
+- ✅ `fixed_version` → Removed
 
-### ✅ Step 2: Migrate Data
-- Migrated `type` → `insight_type`
-- Migrated `recommended_action` → `recommendation`
-- Migrated `cvss_score` → `cvss`
-- Migrated `package_name` → `affected_component`
-- Migrated `installed_version` → `affected_version`
-- Set `detected_at` from `created_at`
-- Generated `title` from `description`
+### 2. Dropped Old Columns from `cve_matches` Table
+- ✅ `component_id` → Replaced by `package_name`
+- ✅ `matcher` → Removed
+- ✅ `db_version` → Removed
 
-### ✅ Step 3: Parse JSONB
-- Extracted `resource_uid` from `affected_resources->0->>'uid'`
-- Extracted `resource_name` from `affected_resources->0->>'name'`
-- Extracted `resource_type` from `affected_resources->0->>'type'`
-- Extracted `resource_namespace` from `affected_resources->0->>'namespace'`
+### 3. Dropped Old Indexes
+- ✅ `idx_insights_created` (duplicate)
+- ✅ `idx_insights_type` (old)
+- ✅ `idx_insights_affected_resources_gin` (old JSONB)
+- ✅ `idx_insights_cve_match_id` (old column)
+- ✅ `idx_insights_sbom_id` (old column)
+- ✅ `idx_insights_package_name` (old column)
+- ✅ `idx_insights_exploit_available` (old column)
+- ✅ `idx_insights_source` (old column)
+- ✅ `idx_cve_matches_component_id` (old column)
+- ✅ `idx_cve_matches_unique_sbom_component_cve` (old component_id based)
+- ✅ `idx_cve_matches_unique_sbom_component_cve_all` (old component_id based)
 
-### ✅ Step 4: Set Defaults
-- Set default `resource_type = 'Unknown'` for NULL values
-- Set default `resource_name = 'Unknown'` for NULL values
-- Set default `resource_uid = 'unknown-{id}'` for NULL values
-- Set default `insight_type = 'unknown'` for NULL values
-
-### ✅ Step 5: Create Indexes
-- Created index on `insight_type`
-- Created index on `resource_uid`
-- Created index on `resource_type`
-- Created index on `resource_namespace`
-- Created index on `resource_name`
-- Created index on `detected_at`
-
-### ✅ Step 6: Set NOT NULL Constraints
-- Set `insight_type` NOT NULL (with error handling)
-- Set `resource_type` NOT NULL (with error handling)
-- Set `resource_name` NOT NULL (with error handling)
-- Set `resource_uid` NOT NULL (with error handling)
-- Set `detected_at` NOT NULL (with error handling)
-- Set `title` NOT NULL (with error handling)
+### 4. Verified New Columns in `cve_matches`
+- ✅ `package_version` - Exists
+- ✅ `purl` - Exists
+- ✅ `pod_uid` - Exists
+- ✅ `container_name` - Exists
+- ✅ `matched_by` - Exists
 
 ---
 
-## Schema Changes
+## Schema Status
 
-### Before (OLD Schema)
-```sql
-- type (TEXT)
-- affected_resources (JSONB)
-- recommended_action (TEXT)
-- cvss_score (NUMERIC)
-- package_name (VARCHAR)
-- installed_version (VARCHAR)
-```
+### `insights` Table
+- ✅ All old columns removed
+- ✅ New schema columns present:
+  - `resource_type`, `resource_namespace`, `resource_name`, `resource_uid`
+  - `insight_type`, `title`, `recommendation`
+  - `affected_component`, `affected_version`
+  - `cvss` (real type)
+  - `detected_at`
 
-### After (NEW Schema)
-```sql
-- insight_type (VARCHAR(50)) NOT NULL
-- resource_type (VARCHAR(50)) NOT NULL
-- resource_uid (VARCHAR(255)) NOT NULL
-- resource_namespace (VARCHAR(255))
-- resource_name (VARCHAR(255)) NOT NULL
-- title (VARCHAR(500)) NOT NULL
-- recommendation (TEXT)
-- affected_component (VARCHAR(255))
-- affected_version (VARCHAR(100))
-- cvss (REAL)
-- detected_at (TIMESTAMP) NOT NULL
-```
-
-**Note**: OLD fields are preserved for backward compatibility.
+### `cve_matches` Table
+- ✅ All old columns removed (`component_id`, `matcher`, `db_version`)
+- ✅ New columns present:
+  - `package_name`, `package_version`, `purl`
+  - `pod_uid`, `container_name`
+  - `matched_by`
+  - `cvss_score` (real type)
 
 ---
 
-## API Updates
+## Migration Files
 
-### New Filters Added
-- ✅ `resource_uid` - Filter by resource UID
-- ✅ `resource_type` - Filter by resource type
-- ✅ `resource_namespace` - Filter by resource namespace
-- ✅ `resource_name` - Filter by resource name
-- ✅ `insight_type` - Filter by insight type
-- ✅ `sbom_id` - Filter by SBOM ID
-
-### Backward Compatibility
-- ✅ `type` filter still works (maps to both `type` and `insight_type`)
-- ✅ `cluster` filter still works (searches in `affected_resources` JSONB)
-
----
-
-## Verification
-
-### Schema Verification
-```sql
-SELECT column_name FROM information_schema.columns 
-WHERE table_name = 'insights' 
-AND column_name IN (
-    'insight_type', 'resource_type', 'resource_uid', 
-    'resource_namespace', 'resource_name', 'title', 
-    'recommendation', 'affected_component', 'affected_version', 
-    'cvss', 'detected_at'
-);
-```
-
-### Data Verification
-```sql
-SELECT id, insight_type, resource_type, resource_uid, 
-       resource_name, resource_namespace, title, cve_id 
-FROM insights 
-WHERE deleted_at IS NULL 
-ORDER BY id DESC LIMIT 5;
-```
-
-### API Verification
-```bash
-# Test new resource_uid filter
-curl "http://localhost:8080/api/v1/insights?resource_uid=${POD_UID}"
-
-# Test new resource_type filter
-curl "http://localhost:8080/api/v1/insights?resource_type=Pod"
-
-# Test backward compatibility
-curl "http://localhost:8080/api/v1/insights?type=vulnerability"
-```
-
----
-
-## Files Modified
-
-1. **`core/migrations/030_migrate_insights_to_new_schema.go`** (NEW)
-   - Migration logic for schema update
-
-2. **`core/migrations/migrations.go`**
-   - Added `Migration030_MigrateInsightsToNewSchema` to migration list
-
-3. **`core/internal/api/insights_handlers.go`**
-   - Added filters for new schema fields
-   - Maintained backward compatibility
+- ✅ `core/migrations/038_cleanup_old_schema_columns.go` - Created
+- ✅ `core/migrations/039_add_missing_cve_match_columns.go` - Created
+- ✅ `core/migrations/migrations.go` - Updated
 
 ---
 
 ## Next Steps
 
-### Immediate Actions
-1. ✅ Schema migration completed
-2. ✅ API updated to support new fields
-3. ⚠️ Update test scripts to use new schema queries
-4. ⚠️ Update worker code to use new schema fields
-
-### Long-term Actions
-1. ⚠️ Remove OLD fields after full migration (optional)
-2. ⚠️ Update all queries to use NEW fields
-3. ⚠️ Remove JSONB parsing logic (no longer needed)
+1. ✅ Schema cleanup completed
+2. ⏳ Verify application functionality
+3. ⏳ Run E2E tests
+4. ⏳ Monitor for any issues
 
 ---
 
-## Conclusion
-
-### Status: ✅ **MIGRATION COMPLETE**
-
-The insights table has been successfully migrated from OLD schema (JSONB-based) to NEW schema (direct fields). All data has been migrated, indexes created, and API updated to support new fields while maintaining backward compatibility.
-
-### Benefits
-- ✅ Direct field access (no JSONB parsing needed)
-- ✅ Better query performance (indexed fields)
-- ✅ Type safety (direct fields vs JSONB)
-- ✅ Backward compatibility (OLD fields still exist)
-- ✅ API supports new filters
-
----
-
-**Report Generated**: 2025-12-26  
-**Migration Version**: 030  
-**Status**: ✅ Complete
-
+**Report Generated**: 2025-12-27 14:30 UTC  
+**Status**: ✅ **SCHEMA SYNCHRONIZATION COMPLETE**

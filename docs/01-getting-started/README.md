@@ -10,11 +10,11 @@ This section provides comprehensive guides for setting up and deploying Fortuna 
 
 ### 🚀 Quick Start Guides
 
-1. **[Quick Deployment Reference](./QUICK_DEPLOYMENT.md)**
-   - Quick command reference
-   - Common operations
-   - Troubleshooting tips
-   - **Time**: 5 minutes to read
+1. **[Deployment Guide](./DEPLOYMENT.md)**
+   - Complete deployment guide
+   - Quick deploy, Minikube, Production
+   - Troubleshooting and verification
+   - **Time**: 15-20 minutes to read
 
 2. **[Complete Setup Guide](./COMPLETE_SETUP_GUIDE.md)**
    - Step-by-step instructions
@@ -124,8 +124,9 @@ sudo bash scripts/setup-k8s-standalone.sh
 ```
 docs/01-getting-started/
 ├── README.md                    # This file
-├── QUICK_DEPLOYMENT.md          # Quick reference
-└── COMPLETE_SETUP_GUIDE.md      # Detailed guide
+├── DEPLOYMENT.md                # Complete deployment guide
+├── QUICKSTART.md                # Quick start tutorial
+└── COMPLETE_SETUP_GUIDE.md      # Detailed setup guide
 
 scripts/
 ├── build-and-deploy.sh          # Automated deployment

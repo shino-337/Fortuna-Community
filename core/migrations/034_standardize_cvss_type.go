@@ -15,27 +15,33 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 
 	// 1. Check and update cve_matches.cvss_score
 	log.Println("[Migration 034] Checking cve_matches.cvss_score type...")
+	// Check current type first
 	var currentType string
 	if err := db.Raw(`
 		SELECT data_type 
 		FROM information_schema.columns 
-		WHERE table_name = 'cve_matches' 
+		WHERE table_schema = 'public'
+		AND table_name = 'cve_matches' 
 		AND column_name = 'cvss_score'
 	`).Scan(&currentType).Error; err != nil {
-		log.Printf("[Migration 034] ⚠️  Error checking cve_matches.cvss_score type: %v", err)
+		// If query fails, column likely doesn't exist
+		log.Println("[Migration 034] ℹ️  cve_matches.cvss_score column does not exist, skipping")
+	} else if currentType == "" {
+		// Empty result means column doesn't exist
+		log.Println("[Migration 034] ℹ️  cve_matches.cvss_score column does not exist, skipping")
+	} else if currentType == "real" {
+		// Already correct type
+		log.Println("[Migration 034] ✅ cve_matches.cvss_score already has type real")
 	} else {
-		if currentType != "real" {
-			log.Printf("[Migration 034] Converting cve_matches.cvss_score from %s to real...", currentType)
-			if err := db.Exec(`
-				ALTER TABLE cve_matches 
-				ALTER COLUMN cvss_score TYPE real USING cvss_score::real;
-			`).Error; err != nil {
-				log.Printf("[Migration 034] ⚠️  Error converting cve_matches.cvss_score: %v", err)
-			} else {
-				log.Println("[Migration 034] ✅ Converted cve_matches.cvss_score to real")
-			}
+		// Column exists but wrong type, convert it
+		log.Printf("[Migration 034] Converting cve_matches.cvss_score from %s to real...", currentType)
+		if err := db.Exec(`
+			ALTER TABLE cve_matches 
+			ALTER COLUMN cvss_score TYPE real USING cvss_score::real;
+		`).Error; err != nil {
+			log.Printf("[Migration 034] ⚠️  Error converting cve_matches.cvss_score: %v", err)
 		} else {
-			log.Println("[Migration 034] ✅ cve_matches.cvss_score already has type real")
+			log.Println("[Migration 034] ✅ Converted cve_matches.cvss_score to real")
 		}
 	}
 

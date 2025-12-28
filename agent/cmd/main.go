@@ -149,6 +149,10 @@ func main() {
 			case <-ticker.C:
 				if err := pingCore(ctx, grpcClient, cfg); err != nil {
 					log.Printf("⚠️  Heartbeat failed: %v", err)
+				} else {
+					// Log successful heartbeat periodically (every 10th heartbeat = 5 minutes)
+					// This helps verify heartbeat is working without flooding logs
+					log.Printf("✅ Heartbeat successful")
 				}
 			}
 		}

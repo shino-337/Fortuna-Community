@@ -50,10 +50,12 @@ func ParsePURL(purlString string) (*PURL, error) {
 
 	if len(pathComponents) == 2 {
 		// pkg:npm/lodash@4.17.21
+		// OR pkg:PACKAGE_TYPE_APK/alpine-baselayout@3.4.3-r2 (no namespace)
 		purl.Ecosystem = pathComponents[0]
 		purl.Name = pathComponents[1]
 	} else if len(pathComponents) == 3 {
 		// pkg:deb/debian/openssl@1.1.1d
+		// OR pkg:apk/alpine/package@version
 		purl.Ecosystem = pathComponents[0]
 		purl.Namespace = pathComponents[1]
 		purl.Name = pathComponents[2]

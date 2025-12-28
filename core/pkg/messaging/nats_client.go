@@ -3,6 +3,7 @@ package messaging
 import (
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/nats-io/nats.go"
@@ -36,10 +37,23 @@ func NewNATSClient(servers string) (*NATSClient, error) {
 		return nil, fmt.Errorf("failed to connect to NATS: %w", err)
 	}
 
-	js, err := conn.JetStream()
+	// Wait for JetStream to be available (with retries)
+	var js nats.JetStreamContext
+	maxRetries := 10
+	retryDelay := 2 * time.Second
+	for i := 0; i < maxRetries; i++ {
+		js, err = conn.JetStream()
+		if err == nil {
+			break
+		}
+		if i < maxRetries-1 {
+			log.Printf("[NATS] JetStream not available yet (attempt %d/%d), retrying in %v...", i+1, maxRetries, retryDelay)
+			time.Sleep(retryDelay)
+		}
+	}
 	if err != nil {
 		conn.Close()
-		return nil, fmt.Errorf("failed to get JetStream context: %w", err)
+		return nil, fmt.Errorf("failed to get JetStream context after %d retries: %w", maxRetries, err)
 	}
 
 	client := &NATSClient{
@@ -106,27 +120,62 @@ func (c *NATSClient) SetupStreams() error {
 			Retention: retention,
 			MaxAge:    maxAge,
 			Storage:   nats.FileStorage,
-			Replicas:  3,
+			Replicas:  1, // Use 1 replica for now to avoid quorum issues during startup
 			// Add limits to prevent unbounded growth
 			MaxMsgs:     1000000,              // Max 1M messages per stream
 			MaxBytes:    10 * 1024 * 1024 * 1024, // Max 10GB per stream
 			Discard:     nats.DiscardOld,       // Discard oldest when limits reached
 		}
 
-		// Try to add stream, if exists, update it
-		_, err := c.js.AddStream(cfg)
-		if err == nats.ErrStreamNameAlreadyInUse {
-			// Update existing stream with new retention policy
-			_, updateErr := c.js.UpdateStream(cfg)
-			if updateErr != nil {
-				log.Printf("[NATS] Warning: Failed to update stream %s retention: %v", stream.name, updateErr)
+		// Retry stream creation with exponential backoff
+		maxRetries := 5
+		retryDelay := 2 * time.Second
+		var lastErr error
+		for i := 0; i < maxRetries; i++ {
+			// Try to add stream, if exists, update it
+			_, err := c.js.AddStream(cfg)
+			if err == nil {
+				log.Printf("[NATS] Stream %s ready (retention: %v)", stream.name, maxAge)
+				lastErr = nil
+				break
+			} else if err == nats.ErrStreamNameAlreadyInUse {
+				// Stream already exists - check if we need to update it
+				// Note: Retention policy cannot be changed after stream creation
+				// So we just log and continue if stream exists
+				info, infoErr := c.js.StreamInfo(stream.name)
+				if infoErr == nil {
+					log.Printf("[NATS] Stream %s already exists (retention: %v), skipping update", stream.name, info.Config.Retention)
+					lastErr = nil
+					break
+				} else {
+					// If we can't get stream info, try to update (but it may fail)
+					_, updateErr := c.js.UpdateStream(cfg)
+					if updateErr != nil {
+						// If update fails due to retention policy change, just log and continue
+						if strings.Contains(updateErr.Error(), "retention policy") {
+							log.Printf("[NATS] Stream %s exists with different retention policy, using existing configuration", stream.name)
+							lastErr = nil
+							break
+						}
+						log.Printf("[NATS] Warning: Failed to update stream %s: %v", stream.name, updateErr)
+						lastErr = updateErr
+					} else {
+						log.Printf("[NATS] Updated stream %s retention to %v", stream.name, maxAge)
+						lastErr = nil
+						break
+					}
+				}
 			} else {
-				log.Printf("[NATS] Updated stream %s retention to %v", stream.name, maxAge)
+				lastErr = err
+				if i < maxRetries-1 {
+					log.Printf("[NATS] Failed to create stream %s (attempt %d/%d): %v, retrying in %v...", stream.name, i+1, maxRetries, err, retryDelay)
+					time.Sleep(retryDelay)
+					retryDelay *= 2 // Exponential backoff
+				}
 			}
-		} else if err != nil {
-			return fmt.Errorf("failed to create stream %s: %w", stream.name, err)
-		} else {
-			log.Printf("[NATS] Stream %s ready (retention: %v)", stream.name, maxAge)
+		}
+		if lastErr != nil {
+			return fmt.Errorf("failed to create stream %s after %d retries: %w", stream.name, maxRetries, lastErr)
 		}
 	}
 

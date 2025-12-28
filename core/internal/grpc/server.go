@@ -104,18 +104,27 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 }
 
 func (s *Server) Start(ctx context.Context) error {
-	lis, err := net.Listen("tcp", ":"+s.config.GRPCPort)
+	// Bind to all interfaces (0.0.0.0) to ensure service connectivity
+	addr := "0.0.0.0:" + s.config.GRPCPort
+	lis, err := net.Listen("tcp", addr)
 	if err != nil {
+		log.Printf("[gRPC] ERROR: Failed to listen on %s: %v", addr, err)
 		return err
 	}
 
 	// Log TLS status when starting server
 	if s.config.TLSEnabled {
-		log.Printf("Starting gRPC server on port %s WITH mTLS", s.config.GRPCPort)
+		log.Printf("Starting gRPC server on %s WITH mTLS", addr)
 	} else {
-		log.Printf("Starting gRPC server on port %s WITHOUT TLS (INSECURE)", s.config.GRPCPort)
+		log.Printf("Starting gRPC server on %s WITHOUT TLS (INSECURE)", addr)
 	}
-	return s.server.Serve(lis)
+	
+	log.Printf("[gRPC] ✅ gRPC server listening on %s", addr)
+	err = s.server.Serve(lis)
+	if err != nil {
+		log.Printf("[gRPC] ERROR: gRPC server stopped: %v", err)
+	}
+	return err
 }
 
 func (s *Server) Stop() {

@@ -1,4 +1,0 @@
-Forwarding from 127.0.0.1:8080 -> 8080
-Handling connection for 8080
-E1226 14:03:47.760471    2880 portforward.go:409] an error occurred forwarding 8080 -> 8080: error forwarding port 8080 to pod 6e1bceef416319416bc111ba47922f6a1fd69090c88782a1b42264db03c39c9b, uid : Error response from daemon: No such container: 6e1bceef416319416bc111ba47922f6a1fd69090c88782a1b42264db03c39c9b
-error: lost connection to pod

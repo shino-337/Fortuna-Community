@@ -151,28 +151,34 @@ func normalizeQueryEcosystem(p *PURL) string {
 	ns := strings.ToLower(strings.TrimSpace(p.Namespace))
 
 	switch eco {
-	case "deb":
+	case "deb", "package_type_dpkg", "package_type_deb":
 		// OSV loader stores ecosystem as distro (debian/ubuntu)
+		// Handle both "deb", "package_type_dpkg", and "package_type_deb" formats
 		if ns != "" {
 			return ns
 		}
 		return "debian"
-	case "apk":
+	case "apk", "package_type_apk":
 		// OSV loader stores "alpine"
+		// Handle both "apk" and "package_type_apk" formats
 		if ns != "" {
 			return ns
 		}
 		return "alpine"
-	case "rpm":
+	case "rpm", "package_type_rpm":
 		// Use namespace if present (e.g., centos/redhat)
 		if ns != "" {
 			return ns
 		}
-		return "rpm"
-	case "golang":
+		return "linux" // Most RPM vulnerabilities are in "linux" ecosystem
+	case "golang", "go":
 		// OSV loader normalizes to "go"
 		return "go"
 	default:
+		// For unknown ecosystems, try to use namespace or return as-is
+		if ns != "" {
+			return ns
+		}
 		return eco
 	}
 }

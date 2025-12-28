@@ -1,0 +1,83 @@
+package migrations
+
+import (
+	"log"
+
+	"gorm.io/gorm"
+)
+
+// Migration039_AddMissingCVEMatchColumns adds missing columns to cve_matches table
+func Migration039_AddMissingCVEMatchColumns(db *gorm.DB) error {
+	log.Println("[Migration 039] Starting: Add missing columns to cve_matches")
+
+	// Columns to add
+	columnsToAdd := []struct {
+		name    string
+		sqlType string
+	}{
+		{"package_version", "VARCHAR(100)"},
+		{"purl", "VARCHAR(500)"},
+		{"pod_uid", "VARCHAR(255)"},
+		{"container_name", "VARCHAR(255)"},
+		{"matched_by", "VARCHAR(255)"},
+	}
+
+	for _, col := range columnsToAdd {
+		var exists bool
+		if err := db.Raw(`
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns 
+				WHERE table_schema = 'public'
+				AND table_name = 'cve_matches' 
+				AND column_name = $1
+			)
+		`, col.name).Scan(&exists).Error; err != nil {
+			log.Printf("[Migration 039] ⚠️  Error checking if cve_matches.%s exists: %v", col.name, err)
+		} else if !exists {
+			log.Printf("[Migration 039] Adding column: cve_matches.%s", col.name)
+			if err := db.Exec(`ALTER TABLE cve_matches ADD COLUMN ` + col.name + ` ` + col.sqlType).Error; err != nil {
+				log.Printf("[Migration 039] ⚠️  Error adding cve_matches.%s: %v", col.name, err)
+			} else {
+				log.Printf("[Migration 039] ✅ Added cve_matches.%s", col.name)
+			}
+		} else {
+			log.Printf("[Migration 039] ✅ cve_matches.%s already exists", col.name)
+		}
+	}
+
+	// Add indexes on new columns
+	indexesToAdd := []struct {
+		name    string
+		columns string
+	}{
+		{"idx_cve_matches_pod_uid", "pod_uid"},
+		{"idx_cve_matches_container_name", "container_name"},
+		{"idx_cve_matches_package_version", "package_version"},
+	}
+
+	for _, idx := range indexesToAdd {
+		var exists bool
+		if err := db.Raw(`
+			SELECT EXISTS (
+				SELECT 1 FROM pg_indexes 
+				WHERE schemaname = 'public' 
+				AND indexname = $1
+			)
+		`, idx.name).Scan(&exists).Error; err != nil {
+			log.Printf("[Migration 039] ⚠️  Error checking if index %s exists: %v", idx.name, err)
+		} else if !exists {
+			log.Printf("[Migration 039] Creating index: %s", idx.name)
+			if err := db.Exec(`CREATE INDEX ` + idx.name + ` ON cve_matches(` + idx.columns + `) WHERE deleted_at IS NULL`).Error; err != nil {
+				log.Printf("[Migration 039] ⚠️  Error creating index %s: %v", idx.name, err)
+			} else {
+				log.Printf("[Migration 039] ✅ Created index %s", idx.name)
+			}
+		} else {
+			log.Printf("[Migration 039] ✅ Index %s already exists", idx.name)
+		}
+	}
+
+	log.Println("[Migration 039] ✅ Completed successfully")
+	return nil
+}
+

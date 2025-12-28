@@ -3,9 +3,9 @@ package matcher
 import (
 	"fmt"
 	"log"
-	"strconv"
 	"strings"
 
+	debversion "github.com/knqyf263/go-deb-version"
 	"github.com/hashicorp/go-version"
 )
 
@@ -31,7 +31,14 @@ func (vc *VersionComparator) IsVulnerable(
 		return false, nil // No constraint = not vulnerable
 	}
 
-	switch ecosystem {
+	// Normalize ecosystem name (handle PACKAGE_TYPE_* formats)
+	normalizedEco := strings.ToLower(strings.TrimSpace(ecosystem))
+	if strings.HasPrefix(normalizedEco, "package_type_") {
+		// Extract ecosystem from PACKAGE_TYPE_DEB -> deb, PACKAGE_TYPE_APK -> apk, etc.
+		normalizedEco = strings.TrimPrefix(normalizedEco, "package_type_")
+	}
+
+	switch normalizedEco {
 	case "deb", "debian", "ubuntu":
 		return vc.compareDebianVersion(installedVersion, constraint)
 	case "rpm", "redhat", "centos":
@@ -41,18 +48,25 @@ func (vc *VersionComparator) IsVulnerable(
 	case "npm", "pypi", "go":
 		return vc.compareSemver(installedVersion, constraint)
 	default:
-		// Fallback to semantic versioning
-		return vc.compareSemver(installedVersion, constraint)
+		// No implicit semver fallback - explicit error per ADR-001
+		return false, fmt.Errorf("unsupported ecosystem: %s (normalized from: %s)", normalizedEco, ecosystem)
 	}
 }
 
-// compareDebianVersion compares Debian package versions
+// compareDebianVersion compares Debian package versions using go-deb-version library
 // Format: [epoch:]upstream_version[-debian_revision]
-// Example: 1:1.1.1d-0+deb10u7
+// Example: 1:1.1.1d-0+deb10u7, 2.12.7+dfsg+really2.9.14-2.1+deb13u2
+// Uses github.com/knqyf263/go-deb-version per ADR-001 (no self-implementation)
 func (vc *VersionComparator) compareDebianVersion(
 	installed string,
 	constraint string,
 ) (bool, error) {
+	// Parse installed version using go-deb-version
+	v1, err := debversion.NewVersion(installed)
+	if err != nil {
+		return false, fmt.Errorf("failed to parse Debian version %s: %w", installed, err)
+	}
+
 	// Support multi-part constraints like: ">= 1.0, < 2.0"
 	parts := strings.Split(constraint, ",")
 	for _, part := range parts {
@@ -62,105 +76,53 @@ func (vc *VersionComparator) compareDebianVersion(
 		}
 
 		// Parse constraint operator
-		op, targetVersion := vc.parseConstraint(part)
-		if targetVersion == "" {
+		op, targetVersionStr := vc.parseConstraint(part)
+		if targetVersionStr == "" {
 			// No target version -> treat as not vulnerable for this constraint
 			return false, nil
 		}
 
-		// Compare versions using Debian's dpkg --compare-versions logic
-		result := vc.dpkgCompareVersions(installed, targetVersion)
+		// Parse target version using go-deb-version
+		v2, err := debversion.NewVersion(targetVersionStr)
+		if err != nil {
+			vc.logger.Printf("⚠️  Failed to parse constraint version %s: %v", targetVersionStr, err)
+			// If constraint version can't be parsed, skip this constraint part
+			continue
+		}
+
+		// Compare versions using go-deb-version
+		// Compare returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
+		cmp := v1.Compare(v2)
 
 		// Apply operator; all parts must match
 		ok := false
 		switch op {
 		case "<":
-			ok = result < 0
+			ok = cmp < 0
 		case "<=":
-			ok = result <= 0
+			ok = cmp <= 0
 		case ">":
-			ok = result > 0
+			ok = cmp > 0
 		case ">=":
-			ok = result >= 0
+			ok = cmp >= 0
 		case "==":
-			ok = result == 0
+			ok = cmp == 0
 		default:
 			return false, fmt.Errorf("unknown operator: %s", op)
 		}
+
 		if !ok {
+			// This constraint part doesn't match
 			return false, nil
 		}
 	}
 
+	// All constraint parts matched
 	return true, nil
 }
 
-// dpkgCompareVersions compares two Debian versions
-// Returns: -1 if v1 < v2, 0 if v1 == v2, 1 if v1 > v2
-func (vc *VersionComparator) dpkgCompareVersions(v1, v2 string) int {
-	// Split into epoch:version-revision
-	epoch1, ver1, rev1 := vc.splitDebianVersion(v1)
-	epoch2, ver2, rev2 := vc.splitDebianVersion(v2)
-
-	// Compare epoch
-	if epoch1 != epoch2 {
-		if epoch1 < epoch2 {
-			return -1
-		}
-		return 1
-	}
-
-	// Compare upstream version
-	cmp := vc.compareDebianVersionPart(ver1, ver2)
-	if cmp != 0 {
-		return cmp
-	}
-
-	// Compare revision
-	return vc.compareDebianVersionPart(rev1, rev2)
-}
-
-// splitDebianVersion splits Debian version into epoch, version, revision
-// Format: [epoch:]upstream_version[-debian_revision]
-func (vc *VersionComparator) splitDebianVersion(v string) (int, string, string) {
-	epoch := 0
-	version := v
-	revision := ""
-
-	// Extract epoch
-	if idx := strings.Index(v, ":"); idx != -1 {
-		if e, err := strconv.Atoi(v[:idx]); err == nil {
-			epoch = e
-		}
-		version = v[idx+1:]
-	}
-
-	// Extract revision
-	if idx := strings.LastIndex(version, "-"); idx != -1 {
-		revision = version[idx+1:]
-		version = version[:idx]
-	}
-
-	return epoch, version, revision
-}
-
-// compareDebianVersionPart compares Debian version parts
-// Simplified implementation - for production, use full dpkg algorithm
-func (vc *VersionComparator) compareDebianVersionPart(v1, v2 string) int {
-	// Debian version comparison rules:
-	// - Letters < numbers
-	// - Compare character by character
-	// - Non-alphanumeric < alphanumeric
-
-	// For now, use string comparison (simplified)
-	// TODO: Implement full Debian version comparison algorithm
-	if v1 < v2 {
-		return -1
-	} else if v1 > v2 {
-		return 1
-	}
-	return 0
-}
+// Removed: dpkgCompareVersions, splitDebianVersion, compareDebianVersionPart
+// These functions are no longer needed as we use go-deb-version library per ADR-001
 
 // compareRPMVersion compares RPM package versions
 // Format: [epoch:]version-release

@@ -40,6 +40,7 @@ func NewCVEMatcherWorker(db *gorm.DB) *CVEMatcherWorker {
 		onlySeverities: map[string]bool{
 			"CRITICAL": true,
 			"HIGH":     true,
+			"MEDIUM":   true, // Temporarily added for testing
 		},
 	}
 }
@@ -82,33 +83,22 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 
 	// Create insights (critical/high only)
-	// OPTIMIZATION: Load all persisted matches and components in bulk to avoid N+1 queries
+	// OPTIMIZATION: Use matches directly instead of re-querying from DB
+	// This avoids timing issues where persistedMatches query might not find newly inserted records
 	if len(matches) == 0 {
 		return nil
 	}
 
-	// Collect all package names and CVE IDs for bulk loading
+	// Collect all package names for bulk loading components
 	packageNames := make([]string, 0, len(matches))
-	cveIDs := make([]string, 0, len(matches))
 	for _, m := range matches {
 		if w.onlySeverities[strings.ToUpper(m.Severity)] {
 			packageNames = append(packageNames, m.PackageName)
-			cveIDs = append(cveIDs, m.CVEID)
 		}
 	}
 
 	if len(packageNames) == 0 {
 		return nil
-	}
-
-	// Bulk load all persisted matches (2 queries instead of N*2)
-	var persistedMatches []models.CVEMatch
-	if err := w.db.WithContext(ctx).
-		Where("sbom_id = ? AND package_name IN ? AND cve_id IN ? AND deleted_at IS NULL",
-			sbomModel.ID, packageNames, cveIDs).
-		Find(&persistedMatches).Error; err != nil {
-		w.logger.Printf("⚠️  Failed to load persisted matches: %v", err)
-		return fmt.Errorf("load persisted matches: %w", err)
 	}
 
 	// Bulk load all components
@@ -121,40 +111,28 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		return fmt.Errorf("load components: %w", err)
 	}
 
-	// Create lookup maps for O(1) access
-	matchMap := make(map[string]*models.CVEMatch)
-	for i := range persistedMatches {
-		key := persistedMatches[i].PackageName + ":" + persistedMatches[i].CVEID
-		matchMap[key] = &persistedMatches[i]
-	}
-
+	// Create lookup map for components (O(1) access)
 	componentMap := make(map[string]*models.SBOMComponent)
 	for i := range components {
 		componentMap[components[i].ComponentName] = &components[i]
 	}
 
-	// Build insights in batch
+	// Build insights directly from matches (no need to re-query persistedMatches)
 	insights := make([]*models.Insight, 0, len(matches))
 	for _, m := range matches {
 		if !w.onlySeverities[strings.ToUpper(m.Severity)] {
 			continue
 		}
 
-		// Lookup from maps (O(1) instead of query)
-		key := m.PackageName + ":" + m.CVEID
-		persisted, foundMatch := matchMap[key]
-		if !foundMatch {
-			w.logger.Printf("⚠️  Persisted match not found for %s:%s", m.PackageName, m.CVEID)
-			continue
-		}
-
+		// Lookup component from map
 		component, foundComp := componentMap[m.PackageName]
 		if !foundComp {
 			w.logger.Printf("⚠️  Component not found for package %s", m.PackageName)
 			continue
 		}
 
-		insight := buildVulnInsightFromEvent(ev, component, persisted)
+		// Use match directly (it was already persisted)
+		insight := buildVulnInsightFromEvent(ev, component, m)
 		insights = append(insights, insight)
 	}
 

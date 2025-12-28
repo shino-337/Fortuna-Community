@@ -11,9 +11,9 @@ data:
       name: ksam-nats
       port: 6222
       routes = [
-        nats://nats-0.nats.ksam.svc.cluster.local:6222
-        nats://nats-1.nats.ksam.svc.cluster.local:6222
-        nats://nats-2.nats.ksam.svc.cluster.local:6222
+        nats://nats-0.nats.fortuna.svc.cluster.local:6222
+        nats://nats-1.nats.fortuna.svc.cluster.local:6222
+        nats://nats-2.nats.fortuna.svc.cluster.local:6222
       ]
     }
     jetstream {
@@ -88,9 +88,9 @@ spec:
             name: ksam-nats
             port: 6222
             routes = [
-              nats://nats-0.nats.ksam.svc.cluster.local:6222
-              nats://nats-1.nats.ksam.svc.cluster.local:6222
-              nats://nats-2.nats.ksam.svc.cluster.local:6222
+              nats://nats-0.nats.fortuna.svc.cluster.local:6222
+              nats://nats-1.nats.fortuna.svc.cluster.local:6222
+              nats://nats-2.nats.fortuna.svc.cluster.local:6222
             ]
           }
           jetstream {
