@@ -1,13 +1,15 @@
 # Dockerfile Production Guide
 
 **Date**: 2025-12-28  
-**Version**: 2.0
+**Version**: 3.0
 
 ---
 
 ## Overview
 
 This document describes the production-ready Dockerfiles and deployment configurations for the Fortuna K8s Management Platform.
+
+**Base Image**: Debian Bookworm Slim (changed from Alpine for better compatibility)
 
 ---
 
@@ -17,10 +19,11 @@ This document describes the production-ready Dockerfiles and deployment configur
 
 #### Security Enhancements
 - ✅ **Non-root user**: Runs as `fortuna` user (UID 1000)
-- ✅ **Minimal base image**: Alpine 3.20
+- ✅ **Minimal base image**: Debian Bookworm Slim
 - ✅ **Build optimizations**: Multi-stage build, layer caching
 - ✅ **Dependency verification**: `go mod verify`
 - ✅ **Build flags**: `-trimpath`, `-buildvcs=false` for reproducible builds
+- ✅ **Disk space optimization**: Disabled build cache (`GOCACHE=off`) to reduce disk usage
 
 #### Features
 - ✅ **CVE loader binary**: Included for database population
@@ -43,11 +46,12 @@ ARG FORTUNA_BUILD_TIME=unknown
 - ⚠️ **Root user**: Required for Docker socket access
   - **Mitigation**: Minimal capabilities, read-only root filesystem
   - **Note**: This is a known security trade-off for DaemonSet workloads
-- ✅ **Minimal base image**: Alpine 3.20
+- ✅ **Minimal base image**: Debian Bookworm Slim
 - ✅ **Build optimizations**: Multi-stage build, layer caching
+- ✅ **Disk space optimization**: Disabled build cache (`GOCACHE=off`) to reduce disk usage
 
 #### Features
-- ✅ **Docker CLI**: Included for SBOM extraction
+- ✅ **Docker CLI**: Included via `docker.io` package for SBOM extraction
 - ✅ **Healthcheck**: Process check
 - ✅ **Labels**: OCI labels for metadata
 
@@ -117,13 +121,16 @@ securityContext:
 # Set Docker environment for minikube
 eval $(minikube docker-env)
 
-# Build images
+# Build images from repository root
+cd /path/to/fortuna
 docker build -f core/Dockerfile -t fortuna-core:latest .
 docker build -f agent/Dockerfile -t fortuna-agent:latest .
 
 # Use in deployment with:
 # imagePullPolicy: Never
 ```
+
+**Note**: Build context must be the repository root (`.`), not the component directory.
 
 ### Production Build
 
@@ -183,10 +190,11 @@ The `scripts/build-production.sh` script provides:
 - ✅ Dedicated service account with minimal privileges
 
 ### Image Security
-- ✅ Minimal base images (Alpine)
+- ✅ Minimal base images (Debian Bookworm Slim)
 - ✅ Multi-stage builds (smaller final images)
 - ✅ No unnecessary packages
 - ✅ Regular base image updates
+- ✅ Better compatibility (glibc vs musl libc)
 
 ---
 

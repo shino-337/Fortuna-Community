@@ -45,10 +45,9 @@ COPY core/ ./
 RUN go mod verify
 
 # Build Core binary
-# Disable build cache completely to save disk space (GOCACHE=off)
-# Use -a flag to rebuild all packages
-# Disable cache trimming by setting GOTRIMCACHE=off
-RUN GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+# Note: Go 1.24 requires build cache to be enabled (cannot use GOCACHE=off)
+# Use -a flag to rebuild all packages, then cleanup cache immediately
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
     -X main.BuildCommit=${FORTUNA_BUILD_COMMIT} \
@@ -56,19 +55,23 @@ RUN GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -trimpath \
     -buildvcs=false \
     -a \
-    -o /fortuna-core ./cmd/main.go
+    -o /fortuna-core ./cmd/main.go && \
+    # Clean build cache immediately after build to save disk space
+    go clean -cache && \
+    rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
 
 # Verify Core binary exists
 RUN test -f /fortuna-core || (echo "ERROR: /fortuna-core not found after build" && exit 1)
 
-# Build CVE loader binary (if exists) - disable cache
+# Build CVE loader binary (if exists) - cleanup cache after
 RUN if [ -f "./cmd/cve-loader/main.go" ]; then \
-        GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
         -ldflags="-w -s" \
         -trimpath \
         -buildvcs=false \
         -a \
         -o /cve-loader ./cmd/cve-loader/main.go && \
+        go clean -cache && \
         test -f /cve-loader || touch /cve-loader; \
     else \
         touch /cve-loader; \

@@ -4,6 +4,10 @@
 
 Dockerfiles for Core and Agent have been updated to support building from the repository root with containerd/buildkit. This ensures proper handling of the Go workspace (`go.work`) and module dependencies.
 
+**Base Images**: 
+- Builder: `golang:1.24` (Debian-based)
+- Runtime: `debian:bookworm-slim`
+
 ## Changes Made
 
 ### 1. Build Context
@@ -13,8 +17,9 @@ Dockerfiles for Core and Agent have been updated to support building from the re
 - **Build Command**: `docker build -f core/Dockerfile -t fortuna-core:latest .`
 
 ### 2. Go Workspace Support
-- Added `COPY go.work* ./` to support Go workspace files
-- Ensures proper module resolution with `replace` directives
+- Note: `go.work` is NOT copied to avoid conflicts (references both core and agent)
+- Module resolution uses `replace` directives in `go.mod` instead
+- This ensures builds work correctly when only one component is needed
 
 ### 3. Module Dependencies
 - API module is copied first: `COPY api/ ./api/`
@@ -25,6 +30,13 @@ Dockerfiles for Core and Agent have been updated to support building from the re
 - CVE loader binary is built conditionally (if `cmd/cve-loader/main.go` exists)
 - Empty file created if CVE loader doesn't exist to ensure COPY succeeds
 - Final stage checks if file has content before keeping it
+
+### 5. Base Image Changes
+- **Builder**: `golang:1.24` (Debian-based, not Alpine)
+- **Runtime**: `debian:bookworm-slim` (changed from Alpine 3.20)
+- **Package Manager**: `apt-get` (instead of `apk`)
+- **Benefits**: Better compatibility (glibc), more packages available
+- **Trade-off**: Larger image size (~80MB vs ~5MB for Alpine)
 
 ## Build Instructions
 
@@ -104,8 +116,9 @@ REGISTRY=docker.io/username ./scripts/deploy-fortuna.sh
 - Check that `api/` directory exists
 
 ### Error: "go.work not found"
-- Go workspace file is optional but recommended
-- Create it with: `go work init core agent api`
+- Go workspace file is NOT used in Docker builds (intentionally)
+- Module resolution uses `replace` directives in `go.mod` instead
+- This avoids build errors when only one component directory is present
 
 ### Error: "module github.com/fortuna/api not found"
 - Ensure `replace` directive exists in `go.mod`

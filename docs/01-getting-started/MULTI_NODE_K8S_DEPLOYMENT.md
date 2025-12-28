@@ -273,7 +273,8 @@ cd fortuna
 ```bash
 cd fortuna
 
-# Build Core image
+# Build Core image (from repository root)
+# Note: Base image is Debian Bookworm Slim (not Alpine)
 docker build \
     --build-arg FORTUNA_BUILD_VERSION=v1.0.0 \
     --build-arg FORTUNA_BUILD_COMMIT=$(git rev-parse --short HEAD) \
@@ -288,13 +289,15 @@ docker images | grep fortuna-core
 ### 3.3 Build Agent Image
 
 ```bash
-# Build Agent image
+# Build Agent image (from repository root)
+# Note: Base image is Debian Bookworm Slim (not Alpine)
 docker build \
     --build-arg FORTUNA_BUILD_VERSION=v1.0.0 \
     --build-arg FORTUNA_BUILD_COMMIT=$(git rev-parse --short HEAD) \
     --build-arg FORTUNA_BUILD_TIME=$(date -u +"%Y-%m-%dT%H:%M:%SZ") \
     -t fortuna-agent:latest \
     -f agent/Dockerfile .
+```
 
 # Verify
 docker images | grep fortuna-agent

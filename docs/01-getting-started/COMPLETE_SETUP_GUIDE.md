@@ -221,17 +221,17 @@ If you want to use Docker images instead of local binaries:
 ```bash
 cd ~/fortuna
 
-# Build Core image
-cd core
-docker build -t fortuna-core:latest .
+# Build Core image (from repository root)
+docker build -f core/Dockerfile -t fortuna-core:latest .
 
-# Build Agent image
-cd ../agent
-docker build -t fortuna-agent:latest .
+# Build Agent image (from repository root)
+docker build -f agent/Dockerfile -t fortuna-agent:latest .
 
 # Verify
 docker images | grep fortuna
 ```
+
+**Important**: Build context must be the repository root (`.`), not the component directory. Use `-f` flag to specify Dockerfile path.
 
 ---
 

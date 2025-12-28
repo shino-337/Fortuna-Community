@@ -45,10 +45,9 @@ COPY agent/ ./
 RUN go mod verify
 
 # Build Agent binary
-# Disable build cache completely to save disk space (GOCACHE=off)
-# Use -a flag to rebuild all packages
-# Disable cache trimming by setting GOTRIMCACHE=off
-RUN GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+# Note: Go 1.24 requires build cache to be enabled (cannot use GOCACHE=off)
+# Use -a flag to rebuild all packages, then cleanup cache immediately
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
     -X main.BuildCommit=${FORTUNA_BUILD_COMMIT} \
@@ -56,7 +55,10 @@ RUN GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -trimpath \
     -buildvcs=false \
     -a \
-    -o /fortuna-agent ./cmd/main.go
+    -o /fortuna-agent ./cmd/main.go && \
+    # Clean build cache immediately after build to save disk space
+    go clean -cache && \
+    rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
 
 # Verify Agent binary exists
 RUN test -f /fortuna-agent || (echo "ERROR: /fortuna-agent not found after build" && exit 1)
