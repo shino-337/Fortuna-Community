@@ -42,8 +42,13 @@ spec:
       
       containers:
         - name: agent
+          # Production: Use versioned image tag
+          # For minikube/local: Use 'fortuna-agent:latest' with imagePullPolicy: Never
+          # For production: Use 'fortuna-agent:v1.0.0' with imagePullPolicy: IfNotPresent
           image: fortuna-agent:latest
-          imagePullPolicy: Never  # For local minikube
+          # For local development (minikube): Never
+          # For production: IfNotPresent or Always
+          imagePullPolicy: IfNotPresent
           
           env:
             # Core gRPC endpoint
@@ -93,16 +98,30 @@ spec:
               mountPath: /run/containerd/containerd.sock
               readOnly: true
           
+          # Production-ready resource limits
           resources:
             requests:
               cpu: 50m
               memory: 256Mi
             limits:
-              cpu: 200m
+              cpu: 500m
               memory: 2Gi
           
+          # Security context - root required for docker socket access
+          # This is a known security trade-off for DaemonSet workloads
+          # Mitigations:
+          # 1. Use dedicated service account with minimal privileges
+          # 2. Run with only necessary capabilities
+          # 3. Use read-only root filesystem where possible
           securityContext:
             privileged: false
-            runAsNonRoot: false  # Need root for docker socket access
+            runAsNonRoot: false  # Required for docker socket access
             readOnlyRootFilesystem: true
-
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+                - SETGID
+                - SETUID
