@@ -14,9 +14,6 @@ ARG BUILDKIT_INLINE_CACHE=1
 # Install build dependencies
 RUN apk add --no-cache git make
 
-# Copy go.work and go.work.sum for workspace support (if exists)
-COPY go.work* ./
-
 # Copy api module first (needed for go.mod replace directive)
 COPY api/ ./api/
 
@@ -25,6 +22,8 @@ COPY core/go.mod core/go.sum ./core/
 WORKDIR /build/core
 
 # Download dependencies (before copying source for better caching)
+# Note: We don't copy go.work because it references ./agent which isn't needed for Core build
+# The replace directive in go.mod handles the api module dependency
 RUN go mod download
 
 # Copy core source
