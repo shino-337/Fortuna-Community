@@ -24,6 +24,9 @@ WORKDIR /build/agent
 # Download dependencies (before copying source for better caching)
 # Note: We don't copy go.work because it references ./core which isn't needed for Agent build
 # The replace directive in go.mod handles the api module dependency
+# Use temp directory for Go cache to reduce disk usage
+ENV GOCACHE=/tmp/go-build-cache
+ENV GOMODCACHE=/tmp/go-mod-cache
 RUN go mod download
 
 # Copy agent source
@@ -32,7 +35,7 @@ COPY agent/ ./
 # Verify dependencies
 RUN go mod verify
 
-# Build Agent binary
+# Build Agent binary and cleanup cache immediately
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
@@ -40,7 +43,14 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -X main.BuildTime=${FORTUNA_BUILD_TIME}" \
     -trimpath \
     -buildvcs=false \
-    -o /fortuna-agent ./cmd/main.go
+    -o /fortuna-agent ./cmd/main.go && \
+    # Clean build cache immediately to free space
+    go clean -cache && \
+    rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
+
+# Final cleanup of all Go caches
+RUN go clean -modcache -testcache && \
+    rm -rf /tmp/go-build-cache /tmp/go-mod-cache /root/.cache/go-build 2>/dev/null || true
 
 # Final stage - minimal runtime image
 FROM alpine:3.20
