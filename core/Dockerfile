@@ -1,7 +1,7 @@
 # Multi-stage build for Fortuna Core (Production-Ready)
 # Build context: repository root
 # Usage: docker build -f core/Dockerfile -t fortuna-core:latest .
-FROM golang:1.24-alpine AS builder
+FROM golang:1.24 AS builder
 
 WORKDIR /build
 
@@ -12,7 +12,13 @@ ARG FORTUNA_BUILD_TIME=unknown
 ARG BUILDKIT_INLINE_CACHE=1
 
 # Install build dependencies
-RUN apk add --no-cache git make
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+    git \
+    make \
+    && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Copy api module first (needed for go.mod replace directive)
 COPY api/ ./api/
@@ -27,7 +33,10 @@ WORKDIR /build/core
 # Use temp directory for Go cache to reduce disk usage
 ENV GOCACHE=/tmp/go-build-cache
 ENV GOMODCACHE=/tmp/go-mod-cache
-RUN go mod download
+RUN go mod download && \
+    # Clean up any existing build cache before building
+    go clean -cache 2>/dev/null || true && \
+    rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
 
 # Copy core source
 COPY core/ ./
@@ -36,24 +45,29 @@ COPY core/ ./
 RUN go mod verify
 
 # Build Core binary
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+# Disable build cache completely to save disk space (GOCACHE=off)
+# Use -a flag to rebuild all packages
+# Disable cache trimming by setting GOTRIMCACHE=off
+RUN GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
     -X main.BuildCommit=${FORTUNA_BUILD_COMMIT} \
     -X main.BuildTime=${FORTUNA_BUILD_TIME}" \
     -trimpath \
     -buildvcs=false \
+    -a \
     -o /fortuna-core ./cmd/main.go
 
 # Verify Core binary exists
 RUN test -f /fortuna-core || (echo "ERROR: /fortuna-core not found after build" && exit 1)
 
-# Build CVE loader binary (if exists)
+# Build CVE loader binary (if exists) - disable cache
 RUN if [ -f "./cmd/cve-loader/main.go" ]; then \
-        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+        GOCACHE=off GOTRIMCACHE=off CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
         -ldflags="-w -s" \
         -trimpath \
         -buildvcs=false \
+        -a \
         -o /cve-loader ./cmd/cve-loader/main.go && \
         test -f /cve-loader || touch /cve-loader; \
     else \
@@ -65,20 +79,26 @@ RUN go clean -cache -modcache -testcache && \
     rm -rf /tmp/go-build-cache /tmp/go-mod-cache /root/.cache/go-build 2>/dev/null || true
 
 # Final stage - minimal runtime image
-FROM alpine:3.20
+FROM debian:bookworm-slim
 
 # Install only runtime dependencies
-RUN apk update && \
-    apk --no-cache add \
+# Retry apt-get update in case of network issues (up to 5 retries)
+RUN for i in 1 2 3 4 5; do \
+        echo "Attempt $i: Updating Debian packages..." && \
+        apt-get update && break || \
+        (echo "Attempt $i failed, retrying in 5 seconds..." && sleep 5); \
+    done && \
+    apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
     curl \
     && \
     # Create non-root user
-    addgroup -g 1000 fortuna && \
-    adduser -D -u 1000 -G fortuna fortuna && \
+    groupadd -r -g 1000 fortuna && \
+    useradd -r -m -u 1000 -g fortuna fortuna && \
     # Clean up
-    rm -rf /var/cache/apk/*
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 WORKDIR /app
 
