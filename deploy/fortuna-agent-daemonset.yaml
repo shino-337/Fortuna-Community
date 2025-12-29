@@ -28,13 +28,7 @@ spec:
           secret:
             secretName: fortuna-agent-client-tls
         
-        # Docker socket for SBOM extraction
-        - name: docker-socket
-          hostPath:
-            path: /var/run/docker.sock
-            type: Socket
-        
-        # Containerd socket (alternative)
+        # Containerd socket (primary - for containerd runtime)
         - name: containerd-socket
           hostPath:
             path: /run/containerd/containerd.sock
@@ -43,12 +37,12 @@ spec:
       containers:
         - name: agent
           # Production: Use versioned image tag
-          # For minikube/local: Use 'fortuna-agent:latest' with imagePullPolicy: Never
+          # For local development: Use 'fortuna-agent:latest' with imagePullPolicy: Never
           # For production: Use 'fortuna-agent:v1.0.0' with imagePullPolicy: IfNotPresent
           image: fortuna-agent:latest
-          # For local development (minikube): Never
+          # For local development: Never (use local image, don't pull from registry)
           # For production: IfNotPresent or Always
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           
           env:
             # Core gRPC endpoint
@@ -90,9 +84,6 @@ spec:
           volumeMounts:
             - name: fortuna-agent-client-tls
               mountPath: /etc/fortuna/tls/client
-              readOnly: true
-            - name: docker-socket
-              mountPath: /var/run/docker.sock
               readOnly: true
             - name: containerd-socket
               mountPath: /run/containerd/containerd.sock

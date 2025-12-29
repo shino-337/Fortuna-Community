@@ -1,12 +1,25 @@
+# PostgreSQL with Local PersistentVolume (for environments without StorageClass)
+# Use this if your cluster doesn't have a default StorageClass
+# 
+# Usage:
+#   1. Create directory on node: sudo mkdir -p /mnt/postgres-data && sudo chmod 777 /mnt/postgres-data
+#   2. Apply this file: kubectl apply -f deploy/infrastructure/postgresql-local-pv.yaml
+#   3. Or use the version with StorageClass: deploy/infrastructure/postgresql-with-age.yaml
+
 apiVersion: v1
-kind: ConfigMap
+kind: PersistentVolume
 metadata:
-  name: postgres-config
-  namespace: fortuna
-data:
-  POSTGRES_DB: ksam
-  POSTGRES_USER: postgres
-  POSTGRES_PASSWORD: postgres
+  name: postgres-pv
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage
+  hostPath:
+    path: /mnt/postgres-data
+    type: DirectoryOrCreate
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -16,10 +29,20 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: ""  # Use default storage class, or set to "local-path" if using local-path-provisioner
+  storageClassName: local-storage
   resources:
     requests:
       storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: fortuna
+data:
+  POSTGRES_DB: ksam
+  POSTGRES_USER: postgres
+  POSTGRES_PASSWORD: postgres
 ---
 apiVersion: v1
 kind: ConfigMap

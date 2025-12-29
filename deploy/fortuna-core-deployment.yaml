@@ -53,12 +53,12 @@ spec:
       containers:
         - name: core
           # Production: Use versioned image tag
-          # For minikube/local: Use 'fortuna-core:latest' with imagePullPolicy: Never
+          # For local development: Use 'fortuna-core:latest' with imagePullPolicy: Never
           # For production: Use 'fortuna-core:v1.0.0' with imagePullPolicy: IfNotPresent
           image: fortuna-core:latest
-          # For local development (minikube): Never
+          # For local development: Never (use local image, don't pull from registry)
           # For production: IfNotPresent or Always
-          imagePullPolicy: IfNotPresent
+          imagePullPolicy: Never
           
           ports:
             - name: http
