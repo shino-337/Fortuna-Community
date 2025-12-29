@@ -7,15 +7,7 @@ data:
   nats.conf: |
     port: 4222
     http_port: 8222
-    cluster {
-      name: ksam-nats
-      port: 6222
-      routes = [
-        nats://nats-0.nats.fortuna.svc.cluster.local:6222
-        nats://nats-1.nats.fortuna.svc.cluster.local:6222
-        nats://nats-2.nats.fortuna.svc.cluster.local:6222
-      ]
-    }
+    # Single node mode - no cluster needed for 1 replica
     jetstream {
       max_mem: 2GB
       max_file: 10GB
@@ -32,30 +24,32 @@ spec:
   resources:
     requests:
       storage: 10Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: nats-pvc-1
-  namespace: fortuna
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: nats-pvc-2
-  namespace: fortuna
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
+# PVCs for additional replicas (commented out for single replica setup)
+# Uncomment if scaling to 2-3 replicas
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: nats-pvc-1
+#   namespace: fortuna
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
+# ---
+# apiVersion: v1
+# kind: PersistentVolumeClaim
+# metadata:
+#   name: nats-pvc-2
+#   namespace: fortuna
+# spec:
+#   accessModes:
+#     - ReadWriteOnce
+#   resources:
+#     requests:
+#       storage: 10Gi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -64,7 +58,7 @@ metadata:
   namespace: fortuna
 spec:
   serviceName: nats
-  replicas: 3
+  replicas: 1
   selector:
     matchLabels:
       app: nats
@@ -84,15 +78,7 @@ spec:
           port: 4222
           http_port: 8222
           server_name: ${POD_NAME}
-          cluster {
-            name: ksam-nats
-            port: 6222
-            routes = [
-              nats://nats-0.nats.fortuna.svc.cluster.local:6222
-              nats://nats-1.nats.fortuna.svc.cluster.local:6222
-              nats://nats-2.nats.fortuna.svc.cluster.local:6222
-            ]
-          }
+          # Single node mode - no cluster needed for 1 replica
           jetstream {
             store_dir: /data/jetstream
             max_mem: 2GB
@@ -108,8 +94,6 @@ spec:
         ports:
         - containerPort: 4222
           name: client
-        - containerPort: 6222
-          name: cluster
         - containerPort: 8222
           name: monitor
         volumeMounts:
@@ -160,9 +144,6 @@ spec:
   - port: 4222
     targetPort: 4222
     name: client
-  - port: 6222
-    targetPort: 6222
-    name: cluster
   - port: 8222
     targetPort: 8222
     name: monitor
