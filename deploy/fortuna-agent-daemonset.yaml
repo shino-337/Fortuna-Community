@@ -22,6 +22,15 @@ spec:
       hostNetwork: false
       hostPID: false
       
+      # Allow Agent to run on all nodes including master (if master has taints)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      
       volumes:
         # mTLS certificates
         - name: fortuna-agent-client-tls

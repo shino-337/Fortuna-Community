@@ -44,6 +44,19 @@ spec:
     spec:
       serviceAccountName: fortuna-core
       
+      # Schedule Core only on master/control-plane nodes
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      
+      # Allow scheduling on master node (which may have taints)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      
       volumes:
         # mTLS certificates
         - name: fortuna-core-server-tls
