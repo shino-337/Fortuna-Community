@@ -47,11 +47,11 @@ func TestCalculateRiskScore_V2(t *testing.T) {
 
 	// Create test insight
 	insight := models.Insight{
-		Type:            "security",
-		Severity:        "critical",
-		Status:          "active",
+		Type:              "security",
+		Severity:          "critical",
+		Status:            "active",
 		AffectedResources: `[{"uid":"test-uid-api","name":"test-pod","namespace":"default","type":"Pod"}]`,
-		Description:     "Test critical security issue",
+		Description:       "Test critical security issue",
 	}
 	db.Create(&insight)
 
@@ -103,14 +103,14 @@ func TestGetRiskScores_V2Fields(t *testing.T) {
 
 	// Create test risk score with V2 fields
 	score := models.RiskScore{
-		ResourceUID:          "test-uid-list",
-		ResourceType:         "Pod",
-		TotalScore:           75.0,
-		BaseScore:            30.0,
-		ExploitabilityScore:  25.0,
-		BusinessImpactScore:  20.0,
-		ScorerVersion:        "v2",
-		PriorityLevel:        "P1",
+		ResourceUID:         "test-uid-list",
+		ResourceType:        "Pod",
+		TotalScore:          75.0,
+		BaseScore:           30.0,
+		ExploitabilityScore: 25.0,
+		BusinessImpactScore: 20.0,
+		ScorerVersion:       "v2",
+		PriorityLevel:       "P1",
 	}
 	db.Create(&score)
 
@@ -148,4 +148,3 @@ func TestGetRiskScores_V2Fields(t *testing.T) {
 		t.Error("Response missing businessImpactScore field")
 	}
 }
-

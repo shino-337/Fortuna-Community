@@ -1,67 +1,205 @@
 version: '3.8'
 
 services:
+  # PostgreSQL Database with AGE extension support
   postgres:
     image: postgres:15-alpine
+    container_name: fortuna-postgres
     environment:
       POSTGRES_DB: ksam
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "-E UTF8"
     ports:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      # Optional: Mount init scripts if needed
+      # - ./deploy/infrastructure/postgres-with-age/init-scripts:/docker-entrypoint-initdb.d
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - fortuna-network
+    restart: unless-stopped
 
-  redis:
-    image: redis:7-alpine
+  # NATS JetStream for event streaming
+  nats:
+    image: nats:2.10-alpine
+    container_name: fortuna-nats
+    command:
+      - /bin/sh
+      - -c
+      - |
+        cat > /tmp/nats.conf <<EOF
+        port: 4222
+        http_port: 8222
+        server_name: fortuna-nats
+        # Single node mode for local development
+        jetstream {
+          store_dir: /data/jetstream
+          max_mem: 2GB
+          max_file: 10GB
+        }
+        EOF
+        exec nats-server -c /tmp/nats.conf -js
     ports:
-      - "6379:6379"
+      - "4222:4222"   # Client port
+      - "8222:8222"   # Monitoring port
+    volumes:
+      - nats_data:/data/jetstream
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8222/healthz"]
       interval: 10s
       timeout: 5s
       retries: 5
+      start_period: 10s
+    networks:
+      - fortuna-network
+    restart: unless-stopped
 
+  # Fortuna Core Service
   core:
     build:
-      context: ./core
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: core/Dockerfile
+      args:
+        FORTUNA_BUILD_VERSION: dev
+        FORTUNA_BUILD_COMMIT: local
+        FORTUNA_BUILD_TIME: ${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+    image: fortuna-core:dev
+    container_name: fortuna-core
     environment:
+      # Database
       DATABASE_URL: postgres://postgres:postgres@postgres:5432/ksam?sslmode=disable
-      REDIS_URL: redis://redis:6379
-      HTTP_PORT: 8080
-      GRPC_PORT: 9090
+      
+      # NATS
+      NATS_ENDPOINT: nats://nats:4222
+      
+      # Ports
+      HTTP_PORT: "8080"
+      GRPC_PORT: "9090"
+      
+      # TLS (disabled for local development)
+      TLS_ENABLED: "false"
+      
+      # Logging
+      LOG_LEVEL: "debug"
+      
+      # Auth (optional)
+      AUTH_ENABLED: "false"
+      
+      # Build info
+      FORTUNA_BUILD_VERSION: dev
+      FORTUNA_BUILD_COMMIT: local
     ports:
-      - "8080:8080"
-      - "9090:9090"
+      - "8080:8080"   # HTTP API
+      - "9090:9090"   # gRPC
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
+      nats:
         condition: service_healthy
     volumes:
-      - ./core:/app
+      # Mount source for hot-reload during development (optional)
+      # - ./core:/app/core:ro
+      # - ./api:/app/api:ro
       - /app/bin
+    networks:
+      - fortuna-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
+  # Fortuna Agent (DaemonSet equivalent for local dev)
+  agent:
+    build:
+      context: .
+      dockerfile: agent/Dockerfile
+      args:
+        FORTUNA_BUILD_VERSION: dev
+        FORTUNA_BUILD_COMMIT: local
+        FORTUNA_BUILD_TIME: ${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}
+    image: fortuna-agent:dev
+    container_name: fortuna-agent
+    environment:
+      # Core gRPC endpoint
+      CORE_GRPC_ENDPOINT: core:9090
+      
+      # TLS (disabled for local development)
+      TLS_ENABLED: "false"
+      
+      # Node info (for local dev)
+      NODE_NAME: "local-dev"
+      NODE_IP: "127.0.0.1"
+      
+      # Agent config
+      AGENT_ID: "fortuna-agent-local"
+      LOG_LEVEL: "debug"
+      BATCH_SIZE: "50"
+      BATCH_TIMEOUT_MS: "5000"
+      
+      # Build info
+      FORTUNA_BUILD_VERSION: dev
+      FORTUNA_BUILD_COMMIT: local
+    depends_on:
+      core:
+        condition: service_healthy
+    volumes:
+      # Mount Docker socket for container inspection (local dev only)
+      # WARNING: This gives agent access to host Docker daemon
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # Or for containerd:
+      # - /run/containerd/containerd.sock:/run/containerd/containerd.sock:ro
+      # Mount source for hot-reload during development (optional)
+      # - ./agent:/app/agent:ro
+      # - ./api:/app/api:ro
+      - /app/bin
+    networks:
+      - fortuna-network
+    restart: unless-stopped
+    # Note: Agent typically runs as DaemonSet in K8s
+    # For local dev, we run a single instance
+
+  # Dashboard (optional - for local development)
   dashboard:
     build:
       context: ./dashboard
       dockerfile: Dockerfile
+    image: fortuna-dashboard:dev
+    container_name: fortuna-dashboard
     environment:
       VITE_API_URL: http://localhost:8080
+      # For production, use: http://core:8080
     ports:
       - "3000:3000"
     depends_on:
       - core
     volumes:
-      - ./dashboard:/app
-      - /app/node_modules
+      # Mount source for hot-reload during development (optional)
+      # - ./dashboard:/app
+      # - /app/node_modules
+      - /app/dist
+    networks:
+      - fortuna-network
+    restart: unless-stopped
+    profiles:
+      - dashboard  # Only start with --profile dashboard
 
 volumes:
   postgres_data:
+    driver: local
+  nats_data:
+    driver: local
 
+networks:
+  fortuna-network:
+    driver: bridge
+    name: fortuna-network

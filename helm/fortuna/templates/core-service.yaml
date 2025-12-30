@@ -1,0 +1,23 @@
+{{- if .Values.core.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.core.name }}
+  namespace: {{ include "fortuna.namespace" . }}
+  labels:
+    {{- include "fortuna.core.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.core.service.type }}
+  selector:
+    {{- include "fortuna.core.selectorLabels" . | nindent 4 }}
+  ports:
+    - name: http
+      port: {{ .Values.core.service.httpPort }}
+      targetPort: http
+      protocol: TCP
+    - name: grpc
+      port: {{ .Values.core.service.grpcPort }}
+      targetPort: grpc
+      protocol: TCP
+{{- end }}
+
