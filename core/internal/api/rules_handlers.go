@@ -30,7 +30,7 @@ var globalRulesManager *RulesManager
 // GetRulesManager returns the global rules manager
 func GetRulesManager(db *gorm.DB) *RulesManager {
 	if globalRulesManager == nil {
-		rulesDir := os.Getenv("KSAM_RULES_DIR")
+		rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 		if rulesDir == "" {
 			// Try default paths
 			if _, err := os.Stat("./rules"); err == nil {

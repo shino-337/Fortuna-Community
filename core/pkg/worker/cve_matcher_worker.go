@@ -47,7 +47,7 @@ func NewCVEMatcherWorker(db *gorm.DB) *CVEMatcherWorker {
 
 func (w *CVEMatcherWorker) Name() string { return "cve_matcher" }
 
-func (w *CVEMatcherWorker) Subject() string { return "ksam.sbom.created" }
+func (w *CVEMatcherWorker) Subject() string { return "fortuna.sbom.created" }
 
 func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	var ev sbom.SBOMCreatedEvent

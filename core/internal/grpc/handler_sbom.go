@@ -149,7 +149,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	}
 
 		// Publish SBOM_CREATED event to NATS (for CVE matching worker)
-		// Use subject 'ksam.sbom.created' to match stream pattern 'ksam.sbom.>' in 'ksam-events' stream
+		// Use subject 'fortuna.sbom.created' to match stream pattern 'fortuna.sbom.>' in 'fortuna-events' stream
 		// Include all required fields for worker to create insights with new schema
 		// IMPORTANT: Use PodUID from request (req.PodUid), not from SBOM record (sbom.PodUID)
 		// This ensures insights are created for the CURRENT pod, not the pod that first created the SBOM
@@ -178,7 +178,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			if err != nil {
 				log.Printf("[SBOM] WARNING: Failed to marshal SBOM_CREATED event: %v", err)
 			} else {
-				if err := s.natsClient.Publish("ksam.sbom.created", eventJSON); err != nil {
+				if err := s.natsClient.Publish("fortuna.sbom.created", eventJSON); err != nil {
 					log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED event: %v", err)
 					// Non-fatal, continue
 				} else {

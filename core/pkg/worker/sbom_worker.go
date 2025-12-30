@@ -37,11 +37,11 @@ func (w *SBOMWorker) Name() string { return "sbom" }
 
 func (w *SBOMWorker) Subject() string {
 	// Only pods drive SBOM generation.
-	return "ksam.normalized.pods"
+	return "fortuna.normalized.pods"
 }
 
 func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
-	enabled := strings.ToLower(strings.TrimSpace(getEnv("KSAM_SBOM_ENABLED", "true")))
+	enabled := strings.ToLower(strings.TrimSpace(getEnv("FORTUNA_SBOM_ENABLED", "true")))
 	if enabled == "false" {
 		return nil
 	}

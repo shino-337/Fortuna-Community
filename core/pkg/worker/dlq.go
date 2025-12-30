@@ -23,8 +23,8 @@ type DLQConfig struct {
 func DefaultDLQConfig() DLQConfig {
 	return DLQConfig{
 		Enabled:        true,
-		StreamName:     "ksam-dlq",
-		Subject:        "ksam.dlq.>",
+		StreamName:     "fortuna-dlq",
+		Subject:        "fortuna.dlq.>",
 		Retention:      7 * 24 * time.Hour, // 7 days
 		AlertThreshold: 100,
 	}
@@ -127,7 +127,7 @@ func (m *DLQManager) SendToDLQ(ctx context.Context, originalMsg *nats.Msg, err e
 	}
 
 	// Publish to DLQ
-	subject := fmt.Sprintf("ksam.dlq.%s", workerName)
+	subject := fmt.Sprintf("fortuna.dlq.%s", workerName)
 	if _, err := m.js.Publish(subject, dlqData); err != nil {
 		return fmt.Errorf("failed to publish to DLQ: %w", err)
 	}

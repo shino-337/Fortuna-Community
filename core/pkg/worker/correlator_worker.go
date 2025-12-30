@@ -491,7 +491,7 @@ func (w *CorrelatorWorker) processRoleBinding(data map[string]interface{}, clust
 
 // Subject returns the NATS subject to subscribe to
 func (w *CorrelatorWorker) Subject() string {
-	return "ksam.normalized.>"
+	return "fortuna.normalized.>"
 }
 
 // Name returns the worker name

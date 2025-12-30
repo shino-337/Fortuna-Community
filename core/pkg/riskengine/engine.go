@@ -41,7 +41,7 @@ func NewEngine(db *gorm.DB) *Engine {
 			log.Printf("[RiskEngine] ⚠️  Failed to load YAML rules: %v, using hardcoded rules only", err)
 		}
 	} else {
-		log.Printf("[RiskEngine] ℹ️  No rules directory configured (KSAM_RULES_DIR), using hardcoded rules")
+		log.Printf("[RiskEngine] ℹ️  No rules directory configured (FORTUNA_RULES_DIR), using hardcoded rules")
 	}
 
 	// Fallback to hardcoded rules only
@@ -53,7 +53,7 @@ func NewEngine(db *gorm.DB) *Engine {
 // getRulesDirectory returns the rules directory path
 func getRulesDirectory() string {
 	// Try environment variable first
-	if dir := os.Getenv("KSAM_RULES_DIR"); dir != "" {
+	if dir := os.Getenv("FORTUNA_RULES_DIR"); dir != "" {
 		return dir
 	}
 

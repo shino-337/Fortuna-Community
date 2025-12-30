@@ -19,7 +19,7 @@ type NATSClient struct {
 // NewNATSClient creates a new NATS client
 func NewNATSClient(servers string) (*NATSClient, error) {
 	opts := []nats.Option{
-		nats.Name("ksam-core"),
+		nats.Name("fortuna-core"),
 		nats.ReconnectWait(2 * time.Second),
 		nats.MaxReconnects(10),
 		nats.DisconnectErrHandler(func(nc *nats.Conn, err error) {
@@ -79,20 +79,20 @@ func (c *NATSClient) SetupStreams() error {
 		subjects []string
 	}{
 		{
-			name:     "ksam-raw",
-			subjects: []string{"ksam.raw.pods", "ksam.raw.serviceaccounts", "ksam.raw.roles", "ksam.raw.rolebindings"},
+			name:     "fortuna-raw",
+			subjects: []string{"fortuna.raw.pods", "fortuna.raw.serviceaccounts", "fortuna.raw.roles", "fortuna.raw.rolebindings"},
 		},
 		{
-			name:     "ksam-events",
-			subjects: []string{"ksam.events.runtime", "ksam.sbom.>", "ksam.cve.>"},
+			name:     "fortuna-events",
+			subjects: []string{"fortuna.events.runtime", "fortuna.sbom.>", "fortuna.cve.>"},
 		},
 		{
-			name:     "ksam-insights",
-			subjects: []string{"ksam.insights.created"},
+			name:     "fortuna-insights",
+			subjects: []string{"fortuna.insights.created"},
 		},
 		{
-			name:     "ksam-normalized",
-			subjects: []string{"ksam.normalized.>"},
+			name:     "fortuna-normalized",
+			subjects: []string{"fortuna.normalized.>"},
 		},
 	}
 
@@ -103,12 +103,12 @@ func (c *NATSClient) SetupStreams() error {
 		maxAge := 7 * 24 * time.Hour // Default: 7 days for events/insights
 		retention := nats.LimitsPolicy
 
-		if stream.name == "ksam-raw" || stream.name == "ksam-normalized" {
+		if stream.name == "fortuna-raw" || stream.name == "fortuna-normalized" {
 			// For pod-related streams: Use 24h retention with WorkQueuePolicy
 			// This prevents message loss while still cleaning up processed messages
 			maxAge = 24 * time.Hour
 			retention = nats.WorkQueuePolicy // Delete after ALL consumers ack
-		} else if stream.name == "ksam-events" {
+		} else if stream.name == "fortuna-events" {
 			// For SBOM/CVE events: Longer retention for retry safety
 			maxAge = 48 * time.Hour
 			retention = nats.WorkQueuePolicy
@@ -193,7 +193,7 @@ func (c *NATSClient) Publish(subject string, data []byte) error {
 
 // Subscribe creates a subscription to a subject
 func (c *NATSClient) Subscribe(subject string, handler func(*nats.Msg)) (*nats.Subscription, error) {
-	sub, err := c.js.Subscribe(subject, handler, nats.Durable("ksam-worker"))
+	sub, err := c.js.Subscribe(subject, handler, nats.Durable("fortuna-worker"))
 	if err != nil {
 		return nil, fmt.Errorf("failed to subscribe to %s: %w", subject, err)
 	}

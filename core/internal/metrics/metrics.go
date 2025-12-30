@@ -9,7 +9,7 @@ var (
 	// HTTP metrics
 	HTTPRequestsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "ksam_http_requests_total",
+			Name: "fortuna_http_requests_total",
 			Help: "Total number of HTTP requests",
 		},
 		[]string{"method", "endpoint", "status"},
@@ -17,7 +17,7 @@ var (
 
 	HTTPRequestDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "ksam_http_request_duration_seconds",
+			Name:    "fortuna_http_request_duration_seconds",
 			Help:    "HTTP request duration in seconds",
 			Buckets: prometheus.DefBuckets,
 		},
@@ -27,7 +27,7 @@ var (
 	// Database metrics
 	DatabaseQueriesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "ksam_database_queries_total",
+			Name: "fortuna_database_queries_total",
 			Help: "Total number of database queries",
 		},
 		[]string{"operation", "table"},
@@ -35,7 +35,7 @@ var (
 
 	DatabaseQueryDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "ksam_database_query_duration_seconds",
+			Name:    "fortuna_database_query_duration_seconds",
 			Help:    "Database query duration in seconds",
 			Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10},
 		},
@@ -45,7 +45,7 @@ var (
 	// Agent metrics
 	AgentSyncsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "ksam_agent_syncs_total",
+			Name: "fortuna_agent_syncs_total",
 			Help: "Total number of agent syncs",
 		},
 		[]string{"cluster_id", "status"},
@@ -53,7 +53,7 @@ var (
 
 	AgentSyncDuration = promauto.NewHistogramVec(
 		prometheus.HistogramOpts{
-			Name:    "ksam_agent_sync_duration_seconds",
+			Name:    "fortuna_agent_sync_duration_seconds",
 			Help:    "Agent sync duration in seconds",
 			Buckets: []float64{1, 5, 10, 30, 60, 120, 300},
 		},
@@ -63,7 +63,7 @@ var (
 	// Resource metrics
 	ServiceAccountsTotal = promauto.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "ksam_serviceaccounts_total",
+			Name: "fortuna_serviceaccounts_total",
 			Help: "Total number of service accounts",
 		},
 		[]string{"cluster_id", "namespace"},
@@ -71,7 +71,7 @@ var (
 
 	ClustersTotal = promauto.NewGauge(
 		prometheus.GaugeOpts{
-			Name: "ksam_clusters_total",
+			Name: "fortuna_clusters_total",
 			Help: "Total number of connected clusters",
 		},
 	)
@@ -79,7 +79,7 @@ var (
 	// Cache metrics
 	CacheHitsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "ksam_cache_hits_total",
+			Name: "fortuna_cache_hits_total",
 			Help: "Total number of cache hits",
 		},
 		[]string{"cache_type"},
@@ -87,7 +87,7 @@ var (
 
 	CacheMissesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "ksam_cache_misses_total",
+			Name: "fortuna_cache_misses_total",
 			Help: "Total number of cache misses",
 		},
 		[]string{"cache_type"},

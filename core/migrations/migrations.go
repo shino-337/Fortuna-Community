@@ -748,7 +748,7 @@ func RunPostMigrations(db *gorm.DB) error {
 
 	if adminUsername != "" && adminPassword != "" {
 		if adminEmail == "" {
-			adminEmail = adminUsername + "@ksam.local"
+			adminEmail = adminUsername + "@fortuna.local"
 		}
 		if err := CreateDefaultAdmin(db, adminUsername, adminPassword, adminEmail); err != nil {
 			return fmt.Errorf("failed to create default admin: %w", err)
