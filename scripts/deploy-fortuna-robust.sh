@@ -93,9 +93,24 @@ else
     echo -e "${GREEN}✅${NC} NATS already exists"
 fi
 
-# Step 5: Test DNS or use IP fallback
+# Step 5: Verify images in containerd (if using containerd)
 echo ""
-echo -e "${BLUE}Step 5: Testing DNS resolution...${NC}"
+echo -e "${BLUE}Step 5: Verifying images in containerd...${NC}"
+
+# Check if using containerd
+if command -v ctr >/dev/null 2>&1 && [ -S /run/containerd/containerd.sock ] || [ -S /var/run/containerd/containerd.sock ]; then
+    echo "Containerd detected, checking images..."
+    if ctr -n k8s.io images ls 2>/dev/null | grep -q "fortuna-core"; then
+        echo -e "${GREEN}✅${NC} Fortuna images found in containerd"
+    else
+        echo -e "${YELLOW}⚠️${NC}  Fortuna images not found in containerd"
+        echo "Build images with: ./scripts/build-with-containerd.sh"
+    fi
+fi
+
+# Step 6: Test DNS or use IP fallback
+echo ""
+echo -e "${BLUE}Step 6: Testing DNS resolution...${NC}"
 
 USE_DNS=true
 if [ "$USE_IP_FALLBACK" = "true" ]; then
@@ -112,15 +127,15 @@ if [ "$USE_IP_FALLBACK" = "true" ]; then
     fi
 fi
 
-# Step 6: Deploy RBAC
+# Step 7: Deploy RBAC
 echo ""
-echo -e "${BLUE}Step 6: Deploying RBAC...${NC}"
+echo -e "${BLUE}Step 7: Deploying RBAC...${NC}"
 kubectl apply -f "${PROJECT_ROOT}/deploy/fortuna-rbac.yaml"
 echo -e "${GREEN}✅${NC} RBAC deployed"
 
-# Step 7: Deploy Core
+# Step 8: Deploy Core
 echo ""
-echo -e "${BLUE}Step 7: Deploying Core...${NC}"
+echo -e "${BLUE}Step 8: Deploying Core...${NC}"
 kubectl apply -f "${PROJECT_ROOT}/deploy/fortuna-core-deployment.yaml"
 
 # Configure DATABASE_URL
