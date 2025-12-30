@@ -97,28 +97,70 @@ log_success "mTLS secrets found"
 log_section "Step 2: Cleaning Up Existing Resources"
 log_warning "Deleting all existing Core and Agent deployments..."
 
-# Delete all Core deployments
+# List all deployments first
+log_info "Listing all deployments in namespace $NAMESPACE..."
+ALL_DEPLOYS=$(kubectl get deployment -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || echo "")
+if [ -n "$ALL_DEPLOYS" ]; then
+    log_info "Found deployments: $ALL_DEPLOYS"
+    for deploy in $ALL_DEPLOYS; do
+        if echo "$deploy" | grep -qiE "core|ksam"; then
+            log_info "Deleting deployment: $deploy"
+            kubectl delete deployment -n "$NAMESPACE" "$deploy" --wait=false 2>/dev/null || true
+        fi
+    done
+fi
+
+# Delete all Core deployments by labels
+log_info "Deleting Core deployments by labels..."
 kubectl delete deployment -n "$NAMESPACE" -l app.kubernetes.io/component=core --wait=false 2>/dev/null || true
 kubectl delete deployment -n "$NAMESPACE" -l app=ksam-core --wait=false 2>/dev/null || true
 kubectl delete deployment -n "$NAMESPACE" -l app=fortuna-core --wait=false 2>/dev/null || true
+
+# Delete by name (explicit)
+log_info "Deleting Core deployments by name..."
 kubectl delete deployment -n "$NAMESPACE" fortuna-core --wait=false 2>/dev/null || true
 kubectl delete deployment -n "$NAMESPACE" ksam-core --wait=false 2>/dev/null || true
 
 # Delete all Core pods
+log_info "Deleting Core pods..."
 kubectl delete pods -n "$NAMESPACE" -l app.kubernetes.io/component=core --force --grace-period=0 2>/dev/null || true
+kubectl delete pods -n "$NAMESPACE" -l app=ksam-core --force --grace-period=0 2>/dev/null || true
+kubectl delete pods -n "$NAMESPACE" -l app=fortuna-core --force --grace-period=0 2>/dev/null || true
 
 # Delete all Agent DaemonSets
+log_info "Deleting Agent DaemonSets..."
 kubectl delete daemonset -n "$NAMESPACE" -l app.kubernetes.io/component=agent --wait=false 2>/dev/null || true
 kubectl delete daemonset -n "$NAMESPACE" -l app=ksam-agent --wait=false 2>/dev/null || true
 kubectl delete daemonset -n "$NAMESPACE" -l app=fortuna-agent --wait=false 2>/dev/null || true
+
+# Delete by name (explicit)
+log_info "Deleting Agent DaemonSets by name..."
 kubectl delete daemonset -n "$NAMESPACE" fortuna-agent --wait=false 2>/dev/null || true
 kubectl delete daemonset -n "$NAMESPACE" ksam-agent --wait=false 2>/dev/null || true
 
 # Delete all Agent pods
+log_info "Deleting Agent pods..."
 kubectl delete pods -n "$NAMESPACE" -l app.kubernetes.io/component=agent --force --grace-period=0 2>/dev/null || true
+kubectl delete pods -n "$NAMESPACE" -l app=ksam-agent --force --grace-period=0 2>/dev/null || true
+kubectl delete pods -n "$NAMESPACE" -l app=fortuna-agent --force --grace-period=0 2>/dev/null || true
 
-log_info "Waiting for resources to be deleted (15 seconds)..."
-sleep 15
+log_info "Waiting for resources to be deleted (20 seconds)..."
+sleep 20
+
+# Verify deletion
+REMAINING_CORE=$(kubectl get deployment -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "core|ksam" | wc -l || echo "0")
+if [ "$REMAINING_CORE" -gt 0 ]; then
+    log_warning "Still have $REMAINING_CORE Core deployments, forcing deletion..."
+    kubectl get deployment -n "$NAMESPACE" | grep -iE "core|ksam" | awk '{print $1}' | xargs -r kubectl delete deployment -n "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+    sleep 10
+fi
+
+REMAINING_PODS=$(kubectl get pods -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "core|ksam" | wc -l || echo "0")
+if [ "$REMAINING_PODS" -gt 0 ]; then
+    log_warning "Still have $REMAINING_PODS Core pods, forcing deletion..."
+    kubectl get pods -n "$NAMESPACE" | grep -iE "core|ksam" | awk '{print $1}' | xargs -r kubectl delete pod -n "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+    sleep 5
+fi
 
 log_success "Cleanup completed"
 
@@ -132,6 +174,15 @@ log_info "Core service IP will be set after Core deployment"
 
 # Step 4: Deploy Core with IP-based DATABASE_URL
 log_section "Step 4: Deploying Core with IP-based Configuration"
+
+# Verify no existing Core deployments
+EXISTING_CORE=$(kubectl get deployment -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "core|ksam" | wc -l || echo "0")
+if [ "$EXISTING_CORE" -gt 0 ]; then
+    log_warning "Still have $EXISTING_CORE Core deployments, deleting..."
+    kubectl get deployment -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "core|ksam" | xargs -r kubectl delete deployment -n "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+    sleep 10
+fi
+
 log_info "Applying Core deployment..."
 
 # Apply Core deployment
@@ -139,6 +190,17 @@ kubectl apply -f deploy/fortuna-core-deployment.yaml || {
     log_error "Failed to apply Core deployment"
     exit 1
 }
+
+# Verify only one Core deployment
+sleep 5
+CORE_DEPLOY_COUNT=$(kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/component=core --no-headers 2>/dev/null | wc -l || echo "0")
+if [ "$CORE_DEPLOY_COUNT" -gt 1 ]; then
+    log_error "Multiple Core deployments detected! ($CORE_DEPLOY_COUNT)"
+    kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/component=core
+    exit 1
+fi
+
+log_success "Core deployment applied (single deployment verified)"
 
 # Update DATABASE_URL immediately with IP
 NEW_DB_URL="postgres://postgres:postgres@${POSTGRES_IP}:5432/ksam?sslmode=disable"
@@ -213,13 +275,40 @@ log_success "Core service endpoints: $ENDPOINTS"
 
 # Step 7: Deploy Agent with IP-based CORE_GRPC_ENDPOINT
 log_section "Step 7: Deploying Agent with IP-based Configuration"
+
+# Verify no existing Agent DaemonSets
+EXISTING_AGENT=$(kubectl get daemonset -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "agent|ksam" | wc -l || echo "0")
+if [ "$EXISTING_AGENT" -gt 0 ]; then
+    log_warning "Still have $EXISTING_AGENT Agent DaemonSets, deleting..."
+    kubectl get daemonset -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "agent|ksam" | xargs -r kubectl delete daemonset -n "$NAMESPACE" --force --grace-period=0 2>/dev/null || true
+    sleep 10
+fi
+
 log_info "Applying Agent DaemonSet..."
+
+# Verify file exists
+if [ ! -f "deploy/fortuna-agent-daemonset.yaml" ]; then
+    log_error "Agent DaemonSet file not found: deploy/fortuna-agent-daemonset.yaml"
+    exit 1
+fi
 
 # Apply Agent DaemonSet
 kubectl apply -f deploy/fortuna-agent-daemonset.yaml || {
     log_error "Failed to apply Agent DaemonSet"
     exit 1
 }
+
+# Verify Agent DaemonSet was created
+sleep 5
+AGENT_DS=$(kubectl get daemonset -n "$NAMESPACE" fortuna-agent 2>/dev/null || echo "")
+if [ -z "$AGENT_DS" ]; then
+    log_error "Agent DaemonSet not found after apply!"
+    log_info "Checking all DaemonSets..."
+    kubectl get daemonset -n "$NAMESPACE"
+    exit 1
+fi
+
+log_success "Agent DaemonSet applied and verified"
 
 # Update CORE_GRPC_ENDPOINT immediately with IP
 NEW_AGENT_ENDPOINT="${CORE_SVC_IP}:9090"
@@ -275,14 +364,62 @@ if [ -n "$AGENT_POD" ]; then
     fi
 fi
 
-# Step 10: Final status
-log_section "Step 10: Final Status"
+# Step 10: Final status and verification
+log_section "Step 10: Final Status and Verification"
+
+# Verify only ONE Core deployment
+log_info "Verifying Core deployments..."
+CORE_DEPLOY_COUNT=$(kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/component=core --no-headers 2>/dev/null | wc -l || echo "0")
+ALL_CORE_DEPLOYS=$(kubectl get deployment -n "$NAMESPACE" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | tr ' ' '\n' | grep -iE "core|ksam" || echo "")
+
+if [ "$CORE_DEPLOY_COUNT" -gt 1 ]; then
+    log_error "Multiple Core deployments detected! ($CORE_DEPLOY_COUNT)"
+    kubectl get deployment -n "$NAMESPACE" | grep -iE "core|ksam"
+    log_warning "Cleaning up duplicates..."
+    # Keep only fortuna-core, delete others
+    for deploy in $ALL_CORE_DEPLOYS; do
+        if [ "$deploy" != "fortuna-core" ]; then
+            log_info "Deleting duplicate deployment: $deploy"
+            kubectl delete deployment -n "$NAMESPACE" "$deploy" --force --grace-period=0 2>/dev/null || true
+        fi
+    done
+    sleep 10
+elif [ "$CORE_DEPLOY_COUNT" -eq 1 ]; then
+    log_success "Only one Core deployment exists ✅"
+else
+    log_warning "No Core deployments found"
+fi
+
+# Verify Agent DaemonSet exists
+log_info "Verifying Agent DaemonSet..."
+AGENT_DS_COUNT=$(kubectl get daemonset -n "$NAMESPACE" -l app.kubernetes.io/component=agent --no-headers 2>/dev/null | wc -l || echo "0")
+if [ "$AGENT_DS_COUNT" -eq 0 ]; then
+    log_error "No Agent DaemonSet found!"
+    log_info "Re-applying Agent DaemonSet..."
+    kubectl apply -f deploy/fortuna-agent-daemonset.yaml || {
+        log_error "Failed to apply Agent DaemonSet"
+    }
+    sleep 10
+elif [ "$AGENT_DS_COUNT" -eq 1 ]; then
+    log_success "Agent DaemonSet exists ✅"
+else
+    log_warning "Multiple Agent DaemonSets found ($AGENT_DS_COUNT)"
+fi
+
 log_info "Core status:"
 kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=core -o wide
 echo ""
 
 log_info "Agent status:"
 kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=agent -o wide
+echo ""
+
+log_info "Deployments:"
+kubectl get deployment -n "$NAMESPACE" | grep -E "NAME|core|agent" || kubectl get deployment -n "$NAMESPACE"
+echo ""
+
+log_info "DaemonSets:"
+kubectl get daemonset -n "$NAMESPACE" | grep -E "NAME|agent" || kubectl get daemonset -n "$NAMESPACE"
 echo ""
 
 log_info "Service endpoints:"
