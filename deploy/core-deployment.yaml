@@ -1,19 +1,22 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ksam-core
+  name: fortuna-core
   namespace: fortuna
   labels:
-    app: fortuna-core
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: fortuna-core
+      app.kubernetes.io/name: fortuna
+      app.kubernetes.io/component: core
   template:
     metadata:
       labels:
-        app: fortuna-core
+        app.kubernetes.io/name: fortuna
+        app.kubernetes.io/component: core
     spec:
       containers:
       - name: core
