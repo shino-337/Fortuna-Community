@@ -302,11 +302,11 @@ func (p *Pool) updateQueueDepthMetrics() {
 // getStreamNameFromSubject extracts stream name from subject pattern
 func getStreamNameFromSubject(subject string) string {
 	// Map subject patterns to stream names (matching actual stream names in nats_client.go)
-	if subject == "ksam.raw.>" {
-		return "ksam-raw"  // Fixed: use hyphen, not underscore
+	if subject == "fortuna.raw.>" {
+		return "fortuna-raw"  // Fixed: use hyphen, not underscore
 	}
-	if subject == "ksam.normalized.>" {
-		return "ksam-normalized"  // Fixed: use hyphen, not underscore
+	if subject == "fortuna.normalized.>" {
+		return "fortuna-normalized"  // Fixed: use hyphen, not underscore
 	}
 	// Default: try to infer from subject
 	if len(subject) > 0 {

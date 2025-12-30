@@ -14,7 +14,7 @@ import (
 // setupTestDB creates a test database connection
 func setupTestDB(t *testing.T) *gorm.DB {
 	// Use in-memory SQLite for testing (or configure test PostgreSQL)
-	dsn := "host=localhost user=postgres password=postgres dbname=ksam_test port=5432 sslmode=disable"
+	dsn := "host=localhost user=postgres password=postgres dbname=fortuna_test port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Skipf("Skipping test: cannot connect to test database: %v", err)

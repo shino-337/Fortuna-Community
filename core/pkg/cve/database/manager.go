@@ -29,7 +29,7 @@ type Manager struct {
 
 // NewManager creates a new CVE database manager
 func NewManager(trivyDBPath string) (*Manager, error) {
-	source := os.Getenv("KSAM_CVE_SOURCE")
+	source := os.Getenv("FORTUNA_CVE_SOURCE")
 	if source == "" {
 		source = "postgres" // default to postgres (OSV JSON loaded into DB)
 	}

@@ -83,7 +83,7 @@ func (s *AgentService) ensureSystemUser() (uint, error) {
 
 	user = models.User{
 		Username: "system",
-		Email:    "system@ksam.local",
+		Email:    "system@fortuna.local",
 		Password: hashed,
 		Role:     models.RoleAdmin,
 		Active:   true,

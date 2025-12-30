@@ -17,7 +17,7 @@ import (
 func setupTestRouterV2(t *testing.T) (*gin.Engine, *gorm.DB) {
 	gin.SetMode(gin.TestMode)
 
-	dsn := "host=localhost user=postgres password=postgres dbname=ksam_test port=5432 sslmode=disable"
+	dsn := "host=localhost user=postgres password=postgres dbname=fortuna_test port=5432 sslmode=disable"
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Skipf("Skipping test: cannot connect to test database: %v", err)

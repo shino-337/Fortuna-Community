@@ -10,17 +10,17 @@ import (
 	"gorm.io/gorm"
 )
 
-// KSAMServiceServer implements the gRPC service
-type KSAMServiceServer struct {
+// FortunaServiceServer implements the gRPC service
+type FortunaServiceServer struct {
 	db            *gorm.DB
 	agentService  *service.AgentService
-	// UnimplementedKSAMServiceServer must be embedded for forward compatibility
-	// pb.UnimplementedKSAMServiceServer
+	// UnimplementedFortunaServiceServer must be embedded for forward compatibility
+	// pb.UnimplementedFortunaServiceServer
 }
 
-// NewKSAMServiceServer creates a new gRPC service server
-func NewKSAMServiceServer(db *gorm.DB) *KSAMServiceServer {
-	return &KSAMServiceServer{
+// NewFortunaServiceServer creates a new gRPC service server
+func NewFortunaServiceServer(db *gorm.DB) *FortunaServiceServer {
+	return &FortunaServiceServer{
 		db:           db,
 		agentService: service.NewAgentService(db),
 	}
@@ -28,7 +28,7 @@ func NewKSAMServiceServer(db *gorm.DB) *KSAMServiceServer {
 
 // SyncData syncs collected data from agent
 // This is a placeholder - actual implementation will use generated proto types
-func (s *KSAMServiceServer) SyncData(ctx context.Context, req interface{}) (interface{}, error) {
+func (s *FortunaServiceServer) SyncData(ctx context.Context, req interface{}) (interface{}, error) {
 	// TODO: Replace with actual proto types after generating from proto file
 	// For now, we'll use a generic approach
 	
@@ -63,7 +63,7 @@ func (s *KSAMServiceServer) SyncData(ctx context.Context, req interface{}) (inte
 }
 
 // HealthCheck checks if service is healthy
-func (s *KSAMServiceServer) HealthCheck(ctx context.Context, req interface{}) (interface{}, error) {
+func (s *FortunaServiceServer) HealthCheck(ctx context.Context, req interface{}) (interface{}, error) {
 	// Check database connection
 	sqlDB, err := s.db.DB()
 	if err != nil {

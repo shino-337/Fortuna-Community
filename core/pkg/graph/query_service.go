@@ -43,7 +43,7 @@ func (s *QueryService) GetAttackPath(ctx context.Context, podUID string, maxDept
 	// Note: This is a simplified query - in production, you'd want more sophisticated path finding
 	// AGE Cypher queries: use $pod_uid in Cypher, $1 in SQL
 	query := fmt.Sprintf(`
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH path = (p:Pod {uid: $pod_uid})-[*1..%d]->(target)
 			WHERE (target:Role OR target:ClusterRole)
 			AND (
@@ -93,7 +93,7 @@ func (s *QueryService) GetServiceAccountPermissions(ctx context.Context, saUID s
 	}
 
 	query := `
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH (sa:ServiceAccount {uid: $sa_uid})-[:BINDS_TO]->(rb)-[:GRANTS_ROLE]->(role)
 			RETURN 
 				role.name AS role_name,
@@ -145,7 +145,7 @@ func (s *QueryService) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPo
 	}
 
 	query := `
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH (p:Pod)-[:USES_SERVICE_ACCOUNT]->(sa:ServiceAccount)-[:BINDS_TO]->(rb)-[:GRANTS_ROLE]->(role:Role|ClusterRole)
 			WHERE 
 				role.rules @> '[{"verbs": ["*"], "resources": ["*"]}]'::jsonb

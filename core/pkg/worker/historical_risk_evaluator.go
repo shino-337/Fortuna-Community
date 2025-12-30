@@ -23,7 +23,7 @@ type HistoricalRiskEvaluator struct {
 // NewHistoricalRiskEvaluator creates a new historical risk evaluator
 func NewHistoricalRiskEvaluator(db *gorm.DB) *HistoricalRiskEvaluator {
 	// Try YAML engine first, fallback to standard
-	rulesDir := os.Getenv("KSAM_RULES_DIR")
+	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 	var engine *riskengine.Engine
 	
 	if rulesDir != "" {

@@ -26,7 +26,7 @@ type RiskWorker struct {
 func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB) *RiskWorker {
 	log.Printf("[RiskWorker] Creating new RiskWorker...")
 	// Try to create YAML engine if rules directory is configured
-	rulesDir := os.Getenv("KSAM_RULES_DIR")
+	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 	var engine *riskengine.Engine
 	var yamlEngine *riskengine.YAMLEngine
 	var watcher *riskengine.RuleWatcher
@@ -117,7 +117,7 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 
 // Subject returns the NATS subject to subscribe to
 func (w *RiskWorker) Subject() string {
-	return "ksam.normalized.>"
+	return "fortuna.normalized.>"
 }
 
 // Name returns the worker name

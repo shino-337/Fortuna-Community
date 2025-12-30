@@ -20,9 +20,9 @@ func NewPublisher(client *NATSClient) *Publisher {
 }
 
 // PublishInventory publishes an inventory item to the appropriate stream
-// Uses ksam.raw.* subject pattern as per Architecture Review Issue #2
+// Uses fortuna.raw.* subject pattern as per Architecture Review Issue #2
 func (p *Publisher) PublishInventory(itemType string, data interface{}) error {
-	subject := fmt.Sprintf("ksam.raw.%s", itemType)
+	subject := fmt.Sprintf("fortuna.raw.%s", itemType)
 
 	jsonData, err := json.Marshal(data)
 	if err != nil {
@@ -44,11 +44,11 @@ func (p *Publisher) PublishEvent(data interface{}) error {
 		return fmt.Errorf("failed to marshal event: %w", err)
 	}
 
-	if _, err := p.js.Publish("ksam.events.runtime", jsonData); err != nil {
+	if _, err := p.js.Publish("fortuna.events.runtime", jsonData); err != nil {
 		return fmt.Errorf("failed to publish event: %w", err)
 	}
 
-	log.Printf("[Publisher] Published event to ksam.events.runtime")
+	log.Printf("[Publisher] Published event to fortuna.events.runtime")
 	return nil
 }
 
@@ -59,11 +59,11 @@ func (p *Publisher) PublishInsight(data interface{}) error {
 		return fmt.Errorf("failed to marshal insight: %w", err)
 	}
 
-	if _, err := p.js.Publish("ksam.insights.created", jsonData); err != nil {
+	if _, err := p.js.Publish("fortuna.insights.created", jsonData); err != nil {
 		return fmt.Errorf("failed to publish insight: %w", err)
 	}
 
-	log.Printf("[Publisher] Published insight to ksam.insights.created")
+	log.Printf("[Publisher] Published insight to fortuna.insights.created")
 	return nil
 }
 
@@ -74,10 +74,10 @@ func (p *Publisher) PublishSBOMCreated(data interface{}) error {
 		return fmt.Errorf("failed to marshal sbom event: %w", err)
 	}
 
-	if _, err := p.js.Publish("ksam.sbom.created", jsonData); err != nil {
+	if _, err := p.js.Publish("fortuna.sbom.created", jsonData); err != nil {
 		return fmt.Errorf("failed to publish sbom.created: %w", err)
 	}
 
-	log.Printf("[Publisher] Published event to ksam.sbom.created")
+	log.Printf("[Publisher] Published event to fortuna.sbom.created")
 	return nil
 }

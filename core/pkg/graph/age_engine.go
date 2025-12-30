@@ -82,7 +82,7 @@ func (e *AgeGraphEngine) CreateVertex(ctx context.Context, label string, propert
 	propsJSON := buildPropertiesJSON(properties)
 
 	query := fmt.Sprintf(`
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			CREATE (v:%s %s)
 			RETURN id(v)
 		$$) as (id agtype)
@@ -106,7 +106,7 @@ func (e *AgeGraphEngine) CreateEdge(ctx context.Context, fromID, toID, label str
 	propsJSON := buildPropertiesJSON(properties)
 
 	query := fmt.Sprintf(`
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH (a), (b)
 			WHERE id(a) = %s AND id(b) = %s
 			CREATE (a)-[e:%s %s]->(b)
@@ -130,7 +130,7 @@ func (e *AgeGraphEngine) GetAccessibleSecrets(ctx context.Context, saID string) 
 	}
 
 	query := `
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH (sa:ServiceAccount {id: $saID})-[:USES]->(r:Role|ClusterRole)-[:GRANTS]->(s:Secret)
 			RETURN s.name
 		$$, $1) as (name agtype)
@@ -161,7 +161,7 @@ func (e *AgeGraphEngine) ShortestPath(ctx context.Context, fromID, toID string) 
 	}
 
 	query := fmt.Sprintf(`
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH path = shortestPath((a)-[*]-(b))
 			WHERE id(a) = %s AND id(b) = %s
 			RETURN [node in nodes(path) | id(node)]
@@ -185,7 +185,7 @@ func (e *AgeGraphEngine) GetBlastRadius(ctx context.Context, resourceID string, 
 	}
 
 	query := fmt.Sprintf(`
-		SELECT * FROM cypher('ksam_graph', $$
+		SELECT * FROM cypher('fortuna_graph', $$
 			MATCH (start {id: $resourceID})-[*1..%d]-(connected)
 			RETURN DISTINCT id(connected)
 		$$, $1) as (id agtype)

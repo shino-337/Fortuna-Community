@@ -43,7 +43,7 @@ var (
 func main() {
 	// CRITICAL: Use os.Stdout directly first to ensure logs appear
 	fmt.Fprintf(os.Stdout, "========================================\n")
-	fmt.Fprintf(os.Stdout, "[MAIN] Starting KSAM Core...\n")
+	fmt.Fprintf(os.Stdout, "[MAIN] Starting Fortuna Core...\n")
 	fmt.Fprintf(os.Stdout, "========================================\n")
 	log.Printf("[Build] version=%s commit=%s time=%s", BuildVersion, BuildCommit, BuildTime)
 
@@ -174,13 +174,13 @@ func main() {
 	policyWorker := policy.NewPolicyWorker(db, policyEvaluator)
 	log.Printf("[Main] ✅ Policy Worker created")
 	// Subscribe to violation events
-	sub, err := js.Subscribe("ksam.policy.violation.detected", func(msg *nats.Msg) {
+	sub, err := js.Subscribe("fortuna.policy.violation.detected", func(msg *nats.Msg) {
 		ctx := context.Background()
 		if err := policyWorker.ProcessViolationEvent(ctx, msg.Data); err != nil {
 			log.Printf("[PolicyWorker] Failed to process violation event: %v", err)
 		}
 		msg.Ack()
-	}, nats.Durable("ksam-policy-worker"))
+	}, nats.Durable("fortuna-policy-worker"))
 	if err != nil {
 		log.Printf("[Main] Warning: Failed to subscribe to policy violation events: %v", err)
 	} else {
@@ -204,7 +204,7 @@ func main() {
 	// the durable consumer retains its deliver subject (inbox) and subsequent restarts can fail with:
 	// "consumer is already bound to a subscription".
 	// For now we run these consumers as *ephemeral* by default, and only enable durables when explicitly requested.
-	useDurables := strings.EqualFold(strings.TrimSpace(os.Getenv("KSAM_JS_DURABLES")), "true")
+	useDurables := strings.EqualFold(strings.TrimSpace(os.Getenv("FORTUNA_JS_DURABLES")), "true")
 	sbomDurable := "sbom-worker"
 	cveDurable := "cve-matcher-worker"
 

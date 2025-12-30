@@ -263,7 +263,7 @@ func (w *AdmissionWebhook) publishViolationEvent(
 	}
 
 	// Publish to policy.violation.detected subject
-	if err := w.eventBus.Publish("ksam.policy.violation.detected", eventJSON); err != nil {
+	if err := w.eventBus.Publish("fortuna.policy.violation.detected", eventJSON); err != nil {
 		log.Printf("[Webhook] Failed to publish violation event: %v", err)
 		metrics.EventPublishFailCount.WithLabelValues("violation_detected").Inc()
 		// Don't fail webhook if event publish fails
