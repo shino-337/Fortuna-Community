@@ -16,7 +16,7 @@ type CELCompiler struct {
 	programsMutex sync.RWMutex
 }
 
-// NewCELCompiler creates a new CEL compiler with KSAM-specific environment
+// NewCELCompiler creates a new CEL compiler with Fortuna-specific environment
 func NewCELCompiler() (*CELCompiler, error) {
 	// Create CEL environment with custom variables for Kubernetes objects
 	env, err := cel.NewEnv(

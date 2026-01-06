@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_policy_templates_system
     ON policy_templates(is_system);
 
 -- Comments
-COMMENT ON TABLE policy_templates IS 'Immutable policy templates with CEL expressions (built-in by KSAM)';
+COMMENT ON TABLE policy_templates IS 'Immutable policy templates with CEL expressions (built-in by Fortuna)';
 COMMENT ON COLUMN policy_templates.template_id IS 'Unique identifier for template (e.g., no-root-containers)';
 COMMENT ON COLUMN policy_templates.version IS 'Semantic versioning (e.g., 1.0.0)';
 COMMENT ON COLUMN policy_templates.cel_expression IS 'CEL expression that defines the policy rule (immutable)';

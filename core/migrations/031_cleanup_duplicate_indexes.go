@@ -9,7 +9,7 @@ import (
 // Migration031_CleanupDuplicateIndexes removes duplicate and redundant indexes across all tables
 //
 // Date: 2025-12-27 (consolidated from old migrations 032, 038)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 1
 //
 // Description:

@@ -29,7 +29,7 @@ core:
   
   # Database configuration
   database:
-    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/ksam?sslmode=disable"
+    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
     host: postgres
     port: 5432
     name: ksam
@@ -194,7 +194,7 @@ postgresql:
   enabled: false
   auth:
     postgresPassword: postgres
-    database: ksam
+    database: fortuna
 
 # NATS (optional - can use external NATS)
 nats:

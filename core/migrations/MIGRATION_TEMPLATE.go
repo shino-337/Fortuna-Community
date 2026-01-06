@@ -10,7 +10,7 @@ import (
 //
 // Date: YYYY-MM-DD
 // Author: [Your Name]
-// Ticket: KSAM-XXX
+// Ticket: FORTUNA-XXX
 //
 // Description:
 //   [Detailed description of what this migration does]

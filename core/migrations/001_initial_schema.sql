@@ -1,4 +1,4 @@
--- KSAM Initial Database Schema
+-- Fortuna Initial Database Schema
 -- PostgreSQL with TimescaleDB and Apache AGE extensions
 
 -- Enable required extensions

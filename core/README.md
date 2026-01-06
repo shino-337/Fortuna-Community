@@ -1,10 +1,10 @@
-# KSAM Core Controller
+# Fortuna Core Controller
 
-KSAM Core Controller là central API Server và Scheduler quản lý dữ liệu từ tất cả các clusters.
+Fortuna Core Controller là central API Server và Scheduler quản lý dữ liệu từ tất cả các clusters.
 
 ## Chức năng
 
-- Nhận và lưu trữ dữ liệu từ các KSAM Agents
+- Nhận và lưu trữ dữ liệu từ các Fortuna Agents
 - Cung cấp REST/gRPC API cho Dashboard và external tools
 - Quản lý kết nối với nhiều clusters
 - Xử lý audit logs và compliance reports
@@ -34,13 +34,13 @@ core/
 ## Build
 
 ```bash
-go build -o bin/ksam-core ./cmd
+go build -o bin/fortuna-core ./cmd
 ```
 
 ## Run
 
 ```bash
-./bin/ksam-core --config config.yaml
+./bin/fortuna-core --config config.yaml
 ```
 
 ## Configuration
@@ -106,7 +106,7 @@ docker run -d -p 5432:5432 -e POSTGRES_PASSWORD=postgres postgres:15-alpine
 
 2. Set environment variables:
 ```bash
-export DATABASE_URL=postgres://postgres:postgres@localhost:5432/ksam?sslmode=disable
+export DATABASE_URL=postgres://postgres:postgres@localhost:5432/fortuna?sslmode=disable
 export HTTP_PORT=8080
 export GRPC_PORT=9090
 ```
@@ -124,7 +124,7 @@ go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
 go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
 
 # Generate Go code from proto
-protoc --go_out=. --go-grpc_out=. proto/ksam.proto
+protoc --go_out=. --go-grpc_out=. proto/fortuna.proto
 ```
 
 ## Testing

@@ -241,7 +241,7 @@ func Migration001_InitialSchema(db *gorm.DB) error {
 // Migration002_AddUsers creates users table
 //
 // Date: 2025-12-27 (converted from AutoMigrate to SQL)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
@@ -326,7 +326,7 @@ func Migration002_AddUsers(db *gorm.DB) error {
 // Migration003_AddUserToAuditLogs adds user_id to audit_logs
 //
 // Date: 2025-12-27 (converted from AutoMigrate to SQL)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
@@ -507,7 +507,7 @@ func Migration010_ImplementationGuideSchema(db *gorm.DB) error {
 // Migration011_AddInsightsSoftDelete adds soft delete and status to insights table
 //
 // Date: 2025-12-27 (removed AutoMigrate fallback)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
@@ -588,7 +588,7 @@ func Migration011_AddInsightsSoftDelete(db *gorm.DB) error {
 // Migration008_AddDeployments adds deployments table
 //
 // Date: 2025-12-27 (removed AutoMigrate fallback)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
@@ -669,7 +669,7 @@ func Migration008_AddDeployments(db *gorm.DB) error {
 // Migration009_AddReplicaSets adds replicasets table
 //
 // Date: 2025-12-27 (removed AutoMigrate fallback)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 2
 //
 // Description:

@@ -8,7 +8,7 @@ import (
 // TestCriticalRules tests critical rules from YAML
 func TestCriticalRules(t *testing.T) {
 	// Create test engine with YAML rules
-	// Note: This requires KSAM_RULES_DIR to be set or rules directory to exist
+	// Note: This requires FORTUNA_RULES_DIR to be set or rules directory to exist
 	engine := NewEngine(nil) // nil DB for testing
 
 	testCases := []struct {

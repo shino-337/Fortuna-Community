@@ -36,7 +36,7 @@ core:
   image:
     tag: v1.0.0
   database:
-    url: "postgres://user:pass@external-db:5432/ksam"
+    url: "postgres://user:pass@external-db:5432/fortuna"
 
 agent:
   image:
@@ -63,7 +63,7 @@ core:
     pullPolicy: IfNotPresent
   
   database:
-    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/ksam?sslmode=disable"
+    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
   
   nats:
     endpoint: "nats://nats.fortuna.svc.cluster.local:4222"

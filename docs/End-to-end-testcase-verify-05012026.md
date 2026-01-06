@@ -1,4 +1,4 @@
-# KSAM End-to-End (E2E) Security Test Specification
+# Fortuna End-to-End (E2E) Security Test Specification
 
 ## 1. Mục tiêu
 
@@ -348,6 +348,5 @@ Fail bất kỳ tiêu chí nào → **Release Blocker**.
 
 ## 8. Kết luận
 
-Bộ test spec này đảm bảo KSAM không chỉ **chạy đúng**, mà còn **chịu lỗi và chịu tải**.
+Bộ test spec này đảm bảo Fortuna không chỉ **chạy đúng**, mà còn **chịu lỗi và chịu tải**.
 
-Nói thẳng: nếu hệ thống pass toàn bộ spec này, bạn có quyền tự tin đưa vào môi trường enterprise thực tế.

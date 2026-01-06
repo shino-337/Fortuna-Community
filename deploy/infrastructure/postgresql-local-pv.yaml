@@ -40,7 +40,7 @@ metadata:
   name: postgres-config
   namespace: fortuna
 data:
-  POSTGRES_DB: ksam
+        POSTGRES_DB: fortuna
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: postgres
 ---

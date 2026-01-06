@@ -8,7 +8,7 @@ import (
 
 // TestYAMLEngineCreation tests YAML engine creation
 func TestYAMLEngineCreation(t *testing.T) {
-	rulesDir := os.Getenv("KSAM_RULES_DIR")
+	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 	if rulesDir == "" {
 		// Try default locations
 		if _, err := os.Stat("./rules"); err == nil {
@@ -16,7 +16,7 @@ func TestYAMLEngineCreation(t *testing.T) {
 		} else if _, err := os.Stat("../rules"); err == nil {
 			rulesDir = "../rules"
 		} else {
-			t.Skip("KSAM_RULES_DIR not set and default rules directory not found")
+			t.Skip("FORTUNA_RULES_DIR not set and default rules directory not found")
 		}
 	}
 
@@ -49,12 +49,12 @@ func TestYAMLEngineCreation(t *testing.T) {
 
 // TestCriticalRuleEvaluation tests critical rule evaluation
 func TestCriticalRuleEvaluation(t *testing.T) {
-	rulesDir := os.Getenv("KSAM_RULES_DIR")
+	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 	if rulesDir == "" {
 		if _, err := os.Stat("./rules"); err == nil {
 			rulesDir = "./rules"
 		} else {
-			t.Skip("KSAM_RULES_DIR not set")
+			t.Skip("FORTUNA_RULES_DIR not set")
 		}
 	}
 

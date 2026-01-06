@@ -288,30 +288,34 @@ cmp := v1.Compare(v2) // -1, 0, or 1
 
 ### NATS JetStream Streams
 
-1. **ksam-raw**
+1. **fortuna-raw**
    - **Purpose**: Raw events from agents
-   - **Retention**: WorkQueuePolicy, 24h, 1M messages, 10GB
+   - **Retention**: WorkQueuePolicy, 24h, 100K messages, 1GB
+   - **Subjects**: `fortuna.raw.pods`, `fortuna.raw.serviceaccounts`, `fortuna.raw.roles`, `fortuna.raw.rolebindings`
 
-2. **ksam-sbom-created**
-   - **Purpose**: SBOM creation events
-   - **Retention**: WorkQueuePolicy, 24h, 1M messages, 10GB
+2. **fortuna-events**
+   - **Purpose**: Normalized events and SBOM/CVE processing
+   - **Retention**: WorkQueuePolicy, 48h, 200K messages, 2GB
+   - **Subjects**: `fortuna.events.runtime`, `fortuna.sbom.>`, `fortuna.cve.>`
 
-3. **ksam-events**
-   - **Purpose**: Normalized events
-   - **Retention**: WorkQueuePolicy, 48h, 1M messages, 10GB
-
-4. **ksam-insights**
+3. **fortuna-insights**
    - **Purpose**: Insight generation events
-   - **Retention**: WorkQueuePolicy, 48h, 1M messages, 10GB
+   - **Retention**: LimitsPolicy, 48h, 50K messages, 512MB
+   - **Subjects**: `fortuna.insights.created`
+
+4. **fortuna-normalized**
+   - **Purpose**: Normalized event processing
+   - **Retention**: WorkQueuePolicy, 24h, 100K messages, 1GB
+   - **Subjects**: `fortuna.normalized.>`
 
 ### Workers
 
 1. **SBOM Worker**
-   - **Subject**: `ksam.sbom.created`
+   - **Subject**: `fortuna.sbom.created`
    - **Purpose**: Process SBOM creation events
 
 2. **CVE Matcher Worker**
-   - **Subject**: `ksam.sbom.created`
+   - **Subject**: `fortuna.sbom.created`
    - **Purpose**: Match CVEs and generate insights
    - **Severity Filter**: CRITICAL, HIGH, MEDIUM (configurable)
 

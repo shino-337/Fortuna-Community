@@ -9,7 +9,7 @@ import (
 // Migration032_MigrateCVEMatchesComplete migrates cve_matches from component_id to package_name and adds missing columns
 //
 // Date: 2025-12-27 (consolidated from old migrations 037, 039)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 1
 //
 // Description:

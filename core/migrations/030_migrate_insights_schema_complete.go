@@ -9,7 +9,7 @@ import (
 // Migration030_MigrateInsightsSchemaComplete migrates insights table to new schema and cleans up old columns
 //
 // Date: 2025-12-27 (consolidated from old migrations 030, 031, 038)
-// Author: KSAM Team
+// Author: Fortuna Team
 // Ticket: Migration Audit - Phase 1
 //
 // Description:

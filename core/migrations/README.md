@@ -1,6 +1,6 @@
 # Database Migrations
 
-This directory contains database migration files for KSAM Core.
+This directory contains database migration files for Fortuna Core.
 
 ## Migration System
 
@@ -48,15 +48,15 @@ After schema migrations, post-migrations are run:
 
 ### Environment Variables for Default Admin
 
-- `KSAM_ADMIN_USERNAME` - Admin username (required)
-- `KSAM_ADMIN_PASSWORD` - Admin password (required)
-- `KSAM_ADMIN_EMAIL` - Admin email (optional, defaults to username@ksam.local)
+- `FORTUNA_ADMIN_USERNAME` - Admin username (required)
+- `FORTUNA_ADMIN_PASSWORD` - Admin password (required)
+- `FORTUNA_ADMIN_EMAIL` - Admin email (optional, defaults to username@fortuna.local)
 
 Example:
 ```bash
-export KSAM_ADMIN_USERNAME=admin
-export KSAM_ADMIN_PASSWORD=changeme
-export KSAM_ADMIN_EMAIL=admin@example.com
+export FORTUNA_ADMIN_USERNAME=admin
+export FORTUNA_ADMIN_PASSWORD=changeme
+export FORTUNA_ADMIN_EMAIL=admin@example.com
 ```
 
 ## Manual Migration
@@ -65,7 +65,7 @@ To run migrations manually:
 
 ```go
 import (
-    "github.com/ksam/core/migrations"
+    "github.com/fortuna/core/migrations"
     "gorm.io/gorm"
 )
 
