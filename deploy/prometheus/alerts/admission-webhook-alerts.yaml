@@ -4,7 +4,7 @@ metadata:
   name: admission-webhook-alerts
   namespace: fortuna
   labels:
-    app: ksam
+    app: fortuna
     component: admission-webhook
 spec:
   groups:
