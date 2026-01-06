@@ -31,7 +31,7 @@ Fortuna is a comprehensive security and risk management platform for Kubernetes 
 ### Architecture & Design
 
 - [Architecture Documentation](ARCHITECTURE.md) - System architecture and components
-- [Database Schema](DATABASE_SCHEMA_UPDATED.md) - Complete database schema reference
+- [Database Schema](MIGRATIONS.md#database-schema) - Complete database schema reference
 - [Migration Guide](MIGRATIONS.md) - Database migrations and schema management
 
 ### Operations
