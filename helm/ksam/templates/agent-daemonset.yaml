@@ -1,20 +1,20 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: {{ .Values.agent.name | default "ksam-agent" }}
+  name: {{ .Values.agent.name | default "fortuna-agent" }}
   labels:
     {{- include "fortuna.labels" . | nindent 4 }}
-    app: ksam-agent
+    app: fortuna-agent
 spec:
   selector:
     matchLabels:
-      app: ksam-agent
+      app: fortuna-agent
   template:
     metadata:
       labels:
-        app: ksam-agent
+        app: fortuna-agent
     spec:
-      serviceAccountName: ksam-agent
+      serviceAccountName: fortuna-agent
       containers:
       - name: agent
         image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
