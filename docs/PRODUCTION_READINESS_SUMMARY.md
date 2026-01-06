@@ -65,7 +65,7 @@ Fortuna platform has been prepared for production deployment with comprehensive 
 #### Updated Existing Documentation
 
 - **ARCHITECTURE_UPDATED.md**: Updated with production-ready information
-- **DATABASE_SCHEMA_UPDATED.md**: Already contains complete schema reference
+- **Database Schema**: Documented in MIGRATIONS.md
 
 ### 3. ✅ Deployment Files Updated
 
@@ -108,7 +108,7 @@ docs/
 ├── BUILD_GUIDE.md                     # Build instructions
 ├── ENVIRONMENT_PREPARATION.md         # Environment setup
 ├── ARCHITECTURE.md                    # System architecture
-├── DATABASE_SCHEMA_UPDATED.md         # Database schema
+├── MIGRATIONS.md                      # Database schema and migrations
 ├── API_REFERENCE.md                   # API documentation
 └── test-results/
     └── E2E-TEST-EXECUTION-FULL-REPORT.md  # Test results

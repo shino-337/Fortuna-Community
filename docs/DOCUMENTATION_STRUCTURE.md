@@ -13,7 +13,7 @@ Main entry points and essential guides:
 - `BUILD_GUIDE.md` - Build instructions
 - `ENVIRONMENT_PREPARATION.md` - Environment setup guide
 - `ARCHITECTURE.md` - System architecture documentation
-- `DATABASE_SCHEMA_UPDATED.md` - Database schema reference
+- Database schema is documented in `MIGRATIONS.md`
 - `API_REFERENCE.md` - REST API documentation
 - `PRODUCTION_READINESS_SUMMARY.md` - Production readiness summary
 - `End-to-end-testcase-verify-05012026.md` - E2E test specification

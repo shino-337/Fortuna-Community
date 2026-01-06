@@ -268,13 +268,13 @@ If migrations are out of order, you may need to:
 - `container_name`: Container name
 - `matched_by`: Matcher used (grype, etc.)
 
-See [Database Schema Documentation](DATABASE_SCHEMA_UPDATED.md) for complete schema reference.
+See the [Database Schema](#database-schema) section below for complete schema reference.
 
 ---
 
 ## Next Steps
 
 - [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md)
-- [Database Schema Documentation](DATABASE_SCHEMA_UPDATED.md)
+- [Database Schema](#database-schema) (in this document)
 - [Architecture Documentation](ARCHITECTURE.md)
 
