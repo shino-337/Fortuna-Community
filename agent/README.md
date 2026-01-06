@@ -1,145 +1,345 @@
-# KSAM Agent
+# Fortuna Agent
 
-KSAM Agent là một lightweight DaemonSet được deploy trong mỗi Kubernetes cluster để thu thập và theo dõi ServiceAccounts, RoleBindings, và ClusterRoleBindings.
+**Version**: 1.0.0  
+**Status**: Production Ready
 
-## Chức năng
+Fortuna Agent is a lightweight DaemonSet that runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
 
-- Thu thập ServiceAccounts, RoleBindings, ClusterRoleBindings từ cluster
-- Theo dõi real-time changes qua Kubernetes Watch API
-- Gửi dữ liệu về KSAM Core Controller qua gRPC
-- Hoạt động với least privilege - chỉ cần read-only access
+---
 
-## Cấu trúc
+## Overview
+
+Fortuna Agent operates at the data plane, focusing on pod detection and SBOM extraction. It does **not** perform CVE matching (that's done in Core). The Agent uses an asynchronous work queue to prevent blocking pod detection during slow SBOM extraction operations.
+
+### Key Responsibilities
+
+- **Pod Detection**: Real-time monitoring of pods on the local node
+- **SBOM Extraction**: Extract Software Bill of Materials from container images
+- **Asynchronous Processing**: Work queue prevents blocking during SBOM extraction
+- **gRPC Communication**: Send SBOMs to Core via secure gRPC with mTLS support
+- **Multi-Parser Support**: Support for multiple package managers (dpkg, apk, rpm, npm, pip, gomod)
+
+---
+
+## Architecture
+
+### Components
 
 ```
 agent/
 ├── cmd/
-│   └── main.go           # Entry point
+│   └── main.go                    # Application entry point
 ├── internal/
-│   ├── collector/        # Thu thập dữ liệu từ K8s API
-│   ├── watcher/          # Watch API cho real-time updates
-│   ├── k8s/              # Kubernetes client setup
-│   └── config/           # Configuration management
-├── pkg/
-│   └── types/            # Shared types
+│   ├── watcher/                   # Pod watcher
+│   │   └── local_pod_watcher.go  # Local node pod detection
+│   ├── sbom/                      # SBOM extraction
+│   │   ├── processor.go          # SBOM processing logic
+│   │   ├── extractor.go          # Image SBOM extraction
+│   │   ├── parser/                # Package parsers
+│   │   │   ├── dpkg.go           # Debian dpkg parser
+│   │   │   ├── apk.go            # Alpine apk parser
+│   │   │   ├── rpm.go            # RPM parser
+│   │   │   ├── npm.go            # npm parser
+│   │   │   ├── pip.go            # pip parser
+│   │   │   └── gomod.go          # Go modules parser
+│   │   └── queue.go              # Work queue for async processing
+│   ├── client/                    # gRPC client
+│   │   ├── grpc_client_mtls.go   # mTLS-enabled gRPC client
+│   │   └── ...
+│   ├── k8s/                       # Kubernetes client
+│   │   └── client.go              # K8s client setup
+│   └── config/                    # Configuration
+│       └── config.go              # Config loading
 ├── deploy/
-│   ├── rbac.yaml         # RBAC permissions cho Agent
-│   └── daemonset.yaml    # DaemonSet manifest
+│   ├── rbac.yaml                  # RBAC permissions
+│   └── daemonset.yaml            # DaemonSet manifest
 ├── Dockerfile
 ├── go.mod
 └── go.sum
 ```
 
+---
+
+## Features
+
+### 1. Local Pod Detection
+
+- **Node-Specific**: Only monitors pods on the local node
+- **Real-Time**: Uses Kubernetes Informers for immediate pod detection
+- **Efficient**: Filters pods by node name to reduce API calls
+
+### 2. SBOM Extraction
+
+- **Multi-Parser Support**:
+  - **dpkg**: Debian/Ubuntu packages (`/var/lib/dpkg/status`)
+  - **apk**: Alpine packages (`/lib/apk/db/installed`)
+  - **rpm**: RedHat/CentOS packages (`/var/lib/rpm`)
+  - **npm**: Node.js packages (`node_modules/package.json`)
+  - **pip**: Python packages (`site-packages`)
+  - **gomod**: Go modules (`go.mod`)
+
+- **OS-Aware Parsing**: Only runs relevant parsers based on detected OS
+- **PURL Support**: Generates Package URLs (PURL) for all components
+- **Metadata Extraction**: OS name, version, architecture
+
+### 3. Asynchronous Work Queue
+
+- **Non-Blocking**: Pod detection continues while SBOM extraction runs
+- **Parallel Processing**: Multiple workers process pods concurrently
+- **Configurable Workers**: Default 3 workers (configurable)
+- **Queue Management**: Prevents memory buildup with bounded queue
+
+### 4. gRPC Communication
+
+- **mTLS Support**: Mutual TLS for secure communication with Core
+- **Automatic Reconnection**: Handles network interruptions
+- **Heartbeat**: Periodic health checks
+- **Error Handling**: Retry logic for transient failures
+
+---
+
+## Configuration
+
+### Environment Variables
+
+**Core Connection**:
+- `CORE_GRPC_ENDPOINT`: Core gRPC endpoint (required)
+  - Example: `fortuna-core.fortuna.svc.cluster.local:9090`
+
+**Agent Identity**:
+- `AGENT_ID`: Unique agent identifier (default: auto-generated)
+- `NODE_NAME`: Kubernetes node name (required, auto-detected)
+- `NODE_ID`: Node identifier (default: node name)
+
+**TLS/mTLS**:
+- `TLS_ENABLED`: Enable mTLS (default: `true`)
+- `TLS_CERT_PATH`: Client certificate path (default: `/etc/fortuna/tls/client/tls.crt`)
+- `TLS_KEY_PATH`: Client private key path (default: `/etc/fortuna/tls/client/tls.key`)
+- `TLS_CA_CERT_PATH`: CA certificate path (default: `/etc/fortuna/tls/client/ca.crt`)
+
+**Containerd**:
+- `CONTAINERD_SOCKET`: Containerd socket path (default: `/run/containerd/containerd.sock`)
+
+**Logging**:
+- `LOG_LEVEL`: Log level (default: `info`)
+
+**SBOM Processing**:
+- `SBOM_WORKERS`: Number of SBOM extraction workers (default: `3`)
+- `SBOM_QUEUE_SIZE`: Work queue size (default: `100`)
+
+---
+
 ## Build
 
+### Prerequisites
+
+- Go 1.21+
+- Access to Kubernetes cluster (for testing)
+- Containerd or Docker (for image access)
+
+### Build Binary
+
 ```bash
-go build -o bin/ksam-agent ./cmd
+go build -o bin/fortuna-agent ./cmd
 ```
 
-## Deploy
+### Build Docker Image
 
-### 1. Deploy RBAC
+```bash
+docker build -t fortuna-agent:latest -f Dockerfile .
+```
+
+Or using `nerdctl`:
+
+```bash
+nerdctl build -t fortuna-agent:latest -f Dockerfile .
+```
+
+---
+
+## Deployment
+
+### Kubernetes DaemonSet
+
+The Agent is deployed as a DaemonSet to run on every node.
+
+#### 1. Deploy RBAC
 
 ```bash
 kubectl apply -f deploy/rbac.yaml
 ```
 
-### 2. Deploy DaemonSet
+This creates:
+- ServiceAccount: `fortuna-agent`
+- ClusterRole: `fortuna-agent-reader`
+- ClusterRoleBinding: `fortuna-agent-reader`
+
+#### 2. Deploy DaemonSet
 
 ```bash
 kubectl apply -f deploy/daemonset.yaml
 ```
 
-## Configuration
-
-Agent được cấu hình qua environment variables hoặc ConfigMap:
-
-- `KSAM_CORE_ENDPOINT`: Endpoint của KSAM Core Controller (default: `http://ksam-core:8080`)
-- `KSAM_CLUSTER_ID`: Unique identifier cho cluster (default: node name)
-- `KSAM_AUTH_TOKEN`: Authentication token (optional)
-- `KSAM_SYNC_INTERVAL`: Interval để sync dữ liệu (default: `30s`)
-- `KSAM_KUBECONFIG`: Path to kubeconfig file (optional, uses in-cluster config if empty)
-- `KSAM_WATCH_NAMESPACE`: Namespace to watch (empty = all namespaces)
-
-## Local Development
-
-### Prerequisites
-
-- Go 1.21+
-- kubectl configured
-- Access to a Kubernetes cluster
-
-### Run locally
+#### 3. Verify Deployment
 
 ```bash
-# Set environment variables
-export KSAM_CORE_ENDPOINT=http://localhost:8080
-export KSAM_CLUSTER_ID=local-cluster
-export KSAM_SYNC_INTERVAL=30s
+# Check pods
+kubectl get pods -l app=fortuna-agent -n fortuna
 
-# Run agent
+# Check logs
+kubectl logs -l app=fortuna-agent -n fortuna
+```
+
+### Local Development
+
+1. **Set Environment Variables**:
+```bash
+export CORE_GRPC_ENDPOINT=localhost:9090
+export NODE_NAME=local-node
+export TLS_ENABLED=false
+export LOG_LEVEL=debug
+```
+
+2. **Run**:
+```bash
 go run cmd/main.go
 ```
 
-### Test with local cluster
+---
 
-```bash
-# Use minikube or kind
-minikube start
+## Data Flow
 
-# Set kubeconfig
-export KSAM_KUBECONFIG=~/.kube/config
+### End-to-End Process
 
-# Run agent
-go run cmd/main.go
+```
+1. Pod Created on Node
+   ↓
+2. Agent Detects Pod (Local Pod Watcher)
+   ↓
+3. Agent Enqueues Pod to SBOM Queue (Asynchronous)
+   ↓
+4. SBOM Worker Extracts SBOM:
+   - Mounts container filesystem
+   - Runs OS-aware parsers
+   - Extracts packages with PURLs
+   - Collects OS metadata
+   ↓
+5. Agent Sends SBOM to Core via gRPC
+   ↓
+6. Core Stores SBOM and Triggers CVE Matching
 ```
 
-## Data Collection
+### SBOM Extraction Process
 
-Agent thu thập các loại dữ liệu sau:
+1. **Image Access**: Access container image via containerd socket
+2. **Filesystem Mount**: Mount container root filesystem
+3. **OS Detection**: Detect OS type (Debian, Alpine, etc.)
+4. **Parser Selection**: Select relevant parsers based on OS
+5. **Package Extraction**: Extract packages with versions
+6. **PURL Generation**: Generate Package URLs for all components
+7. **Metadata Collection**: Collect OS name, version, architecture
+8. **SBOM Assembly**: Create SBOM JSON structure
+9. **Send to Core**: Transmit via gRPC
 
-1. **ServiceAccounts**: Tất cả ServiceAccounts trong cluster
-2. **RoleBindings**: Tất cả RoleBindings (namespace-scoped)
-3. **ClusterRoleBindings**: Tất cả ClusterRoleBindings (cluster-scoped)
-4. **Roles**: Tất cả Roles (namespace-scoped)
-5. **ClusterRoles**: Tất cả ClusterRoles (cluster-scoped)
-6. **Pods**: Pods để xác định ServiceAccounts đang được sử dụng
-
-## Real-time Watching
-
-Agent sử dụng Kubernetes Informers để theo dõi real-time changes:
-
-- ServiceAccount add/update/delete events
-- RoleBinding add/update/delete events
-- ClusterRoleBinding add/update/delete events
-- Role add/update/delete events
-- ClusterRole add/update/delete events
+---
 
 ## Security
 
-Agent chỉ cần read-only permissions:
+### RBAC Permissions
 
-- `get`, `list`, `watch` trên `serviceaccounts`, `pods`
-- `get`, `list`, `watch` trên `roles`, `rolebindings`, `clusterroles`, `clusterrolebindings`
+Agent requires **read-only** permissions:
 
-Xem `deploy/rbac.yaml` để biết chi tiết.
+- `get`, `list`, `watch` on `pods`
+- `get`, `list`, `watch` on `nodes`
+
+See `deploy/rbac.yaml` for complete RBAC configuration.
+
+### mTLS
+
+- **Client Certificate**: Agent authenticates to Core
+- **CA Verification**: Validates Core server certificate
+- **Secure Channel**: All gRPC communication encrypted
+
+### Least Privilege
+
+- No write permissions
+- No access to secrets
+- Only reads pod/node information
+
+---
 
 ## Troubleshooting
 
-### Check Agent logs
+### Check Agent Logs
 
 ```bash
-kubectl logs -l app=ksam-agent -n kube-system
+kubectl logs -l app=fortuna-agent -n fortuna
 ```
 
-### Verify RBAC permissions
+### Verify RBAC Permissions
 
 ```bash
-kubectl auth can-i list serviceaccounts --as=system:serviceaccount:kube-system:ksam-agent
+kubectl auth can-i list pods \
+  --as=system:serviceaccount:fortuna:fortuna-agent \
+  -n fortuna
 ```
 
-### Check connectivity to Core
+### Check Core Connectivity
 
 ```bash
-kubectl exec -it <agent-pod> -n kube-system -- wget -O- http://ksam-core:8080/health
+# From agent pod
+kubectl exec -it <agent-pod> -n fortuna -- \
+  wget -O- http://fortuna-core.fortuna.svc.cluster.local:8080/health
 ```
+
+### Verify Containerd Access
+
+```bash
+# Check containerd socket
+kubectl exec -it <agent-pod> -n fortuna -- \
+  ls -la /run/containerd/containerd.sock
+```
+
+### Common Issues
+
+**Issue**: Agent can't connect to Core
+- **Solution**: Check `CORE_GRPC_ENDPOINT` and network policies
+
+**Issue**: SBOM extraction fails
+- **Solution**: Verify containerd socket access and image availability
+
+**Issue**: mTLS handshake fails
+- **Solution**: Verify certificates are mounted correctly
+
+**Issue**: Pods not detected
+- **Solution**: Check node name matches and RBAC permissions
+
+---
+
+## Performance
+
+### Resource Usage
+
+- **CPU**: 50m-500m (configurable)
+- **Memory**: 256Mi-2Gi (configurable)
+- **Workers**: 3 workers by default (configurable)
+
+### Optimization
+
+- **Async Queue**: Prevents blocking during slow SBOM extraction
+- **Parallel Processing**: Multiple workers process pods concurrently
+- **OS-Aware Parsing**: Only runs relevant parsers
+- **Efficient Watchers**: Node-specific pod filtering
+
+---
+
+## Related Documentation
+
+- [Architecture](../../docs/ARCHITECTURE.md)
+- [Production Deployment](../../docs/PRODUCTION_DEPLOYMENT.md)
+- [Core README](../core/README.md)
+
+---
+
+**Version**: 1.0.0  
+**Last Updated**: 2026-01-06
