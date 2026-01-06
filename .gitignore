@@ -28,6 +28,37 @@ go.work.sum
 .idea/
 .vscode/
 *.swp
+
+# Certificates and keys
+.certs/
+*.key
+*.crt
+*.pem
+*.csr
+*.srl
+
+# Secrets
+*.secret
+.env
+.env.local
+
+# Build artifacts
+bin/
+*.tar
+*.tar.gz
+
+# Test results
+docs/test-results/*.md
+!docs/test-results/README.md
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
 *.swo
 *~
 .DS_Store
