@@ -267,6 +267,37 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 	return nil
 }
 
+// cleanupProcessedPods periodically cleans up old entries from processedPods map
+// to prevent memory leaks when pods are not deleted (e.g., long-running pods)
+func (w *LocalPodWatcher) cleanupProcessedPods(ctx context.Context) {
+	ticker := time.NewTicker(1 * time.Hour) // Run cleanup every hour
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-w.stopCh:
+			return
+		case <-ticker.C:
+			w.mu.Lock()
+			now := time.Now()
+			cleaned := 0
+			for podUID, processedTime := range w.processedPods {
+				// Remove entries older than 24 hours
+				if now.Sub(processedTime) > 24*time.Hour {
+					delete(w.processedPods, podUID)
+					cleaned++
+				}
+			}
+			w.mu.Unlock()
+			if cleaned > 0 {
+				w.logger.Printf("🧹 Cleaned up %d old entries from processedPods map", cleaned)
+			}
+		}
+	}
+}
+
 // Stop stops the watcher
 func (w *LocalPodWatcher) Stop() {
 	w.logger.Printf("Stopping pod watcher")
