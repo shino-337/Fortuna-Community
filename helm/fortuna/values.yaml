@@ -1,0 +1,202 @@
+# Default values for Fortuna
+# This is a YAML-formatted file.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# Global settings
+global:
+  namespace: fortuna
+  imageRegistry: ""
+  imagePullSecrets: []
+
+# Core component configuration
+core:
+  name: fortuna-core
+  enabled: true
+  
+  image:
+    repository: fortuna-core
+    tag: latest
+    pullPolicy: IfNotPresent  # Never for local, IfNotPresent/Always for production
+  
+  replicaCount: 1
+  
+  service:
+    type: ClusterIP
+    httpPort: 8080
+    grpcPort: 9090
+  
+  # Database configuration
+  database:
+    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/ksam?sslmode=disable"
+    host: postgres
+    port: 5432
+    name: ksam
+    user: postgres
+    password: postgres
+  
+  # NATS configuration
+  nats:
+    endpoint: "nats://nats.fortuna.svc.cluster.local:4222"
+  
+  # mTLS configuration
+  tls:
+    enabled: true
+    certSecret: fortuna-core-server-tls
+    certPath: /etc/fortuna/tls/server/tls.crt
+    keyPath: /etc/fortuna/tls/server/tls.key
+    caCertPath: /etc/fortuna/tls/server/ca.crt
+  
+  # Node placement
+  nodeSelector:
+    node-role.kubernetes.io/control-plane: ""
+  
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+  
+  # Resource limits
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  
+  # Security context
+  securityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
+    capabilities:
+      drop:
+        - ALL
+  
+  # Health checks
+  livenessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 30
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  
+  readinessProbe:
+    httpGet:
+      path: /health
+      port: 8080
+    initialDelaySeconds: 10
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  
+  # Environment variables
+  env:
+    LOG_LEVEL: "info"
+    AUTH_ENABLED: "false"
+
+# Agent component configuration
+agent:
+  name: fortuna-agent
+  enabled: true
+  
+  image:
+    repository: fortuna-agent
+    tag: latest
+    pullPolicy: IfNotPresent  # Never for local, IfNotPresent/Always for production
+  
+  # Core endpoint
+  coreEndpoint: "fortuna-core.fortuna.svc.cluster.local:9090"
+  
+  # mTLS configuration
+  tls:
+    enabled: true
+    certSecret: fortuna-agent-client-tls
+    certPath: /etc/fortuna/tls/client/tls.crt
+    keyPath: /etc/fortuna/tls/client/tls.key
+    caCertPath: /etc/fortuna/tls/client/ca.crt
+  
+  # Containerd socket
+  containerdSocket:
+    enabled: true
+    path: /run/containerd/containerd.sock
+  
+  # Tolerations (allow on all nodes including master)
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+  
+  # Resource limits
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 2Gi
+  
+  # Security context (root required for containerd socket)
+  securityContext:
+    privileged: false
+    runAsNonRoot: false  # Required for containerd socket access
+    readOnlyRootFilesystem: true
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+      add:
+        - CHOWN
+        - SETGID
+        - SETUID
+  
+  # Environment variables
+  env:
+    LOG_LEVEL: "info"
+    BATCH_SIZE: "50"
+    BATCH_TIMEOUT_MS: "5000"
+
+# RBAC configuration
+rbac:
+  create: true
+  serviceAccount:
+    core:
+      create: true
+      name: fortuna-core
+      annotations: {}
+    agent:
+      create: true
+      name: fortuna-agent
+      annotations: {}
+
+# Service account annotations (for IRSA, Workload Identity, etc.)
+serviceAccountAnnotations: {}
+
+# Secrets configuration
+secrets:
+  create: false  # Set to true if you want Helm to create secrets
+  # Secrets should be created using create-mtls-secrets.sh script
+
+# PostgreSQL (optional - can use external database)
+postgresql:
+  enabled: false
+  auth:
+    postgresPassword: postgres
+    database: ksam
+
+# NATS (optional - can use external NATS)
+nats:
+  enabled: false
+

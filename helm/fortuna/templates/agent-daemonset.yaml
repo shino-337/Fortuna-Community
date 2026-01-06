@@ -1,0 +1,86 @@
+{{- if .Values.agent.enabled }}
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: {{ .Values.agent.name }}
+  namespace: {{ include "fortuna.namespace" . }}
+  labels:
+    {{- include "fortuna.agent.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "fortuna.agent.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "fortuna.agent.selectorLabels" . | nindent 8 }}
+    spec:
+      serviceAccountName: {{ .Values.rbac.serviceAccount.agent.name }}
+      hostNetwork: false
+      hostPID: false
+      {{- with .Values.agent.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        {{- if .Values.agent.tls.enabled }}
+        - name: fortuna-agent-client-tls
+          secret:
+            secretName: {{ .Values.agent.tls.certSecret }}
+        {{- end }}
+        {{- if .Values.agent.containerdSocket.enabled }}
+        - name: containerd-socket
+          hostPath:
+            path: {{ .Values.agent.containerdSocket.path }}
+            type: Socket
+        {{- end }}
+      containers:
+        - name: agent
+          image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
+          env:
+            - name: CORE_GRPC_ENDPOINT
+              value: {{ .Values.agent.coreEndpoint | quote }}
+            {{- if .Values.agent.tls.enabled }}
+            - name: TLS_ENABLED
+              value: "true"
+            - name: TLS_CERT_PATH
+              value: {{ .Values.agent.tls.certPath | quote }}
+            - name: TLS_KEY_PATH
+              value: {{ .Values.agent.tls.keyPath | quote }}
+            - name: TLS_CA_CERT_PATH
+              value: {{ .Values.agent.tls.caCertPath | quote }}
+            {{- end }}
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: NODE_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.hostIP
+            - name: AGENT_ID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            {{- range $key, $value := .Values.agent.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          {{- if .Values.agent.tls.enabled }}
+          volumeMounts:
+            - name: fortuna-agent-client-tls
+              mountPath: /etc/fortuna/tls/client
+              readOnly: true
+          {{- end }}
+          {{- if .Values.agent.containerdSocket.enabled }}
+            - name: containerd-socket
+              mountPath: {{ .Values.agent.containerdSocket.path }}
+              readOnly: true
+          {{- end }}
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+          securityContext:
+            {{- toYaml .Values.agent.securityContext | nindent 12 }}
+{{- end }}
+

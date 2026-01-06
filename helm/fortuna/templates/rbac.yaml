@@ -1,0 +1,130 @@
+{{- if .Values.rbac.create }}
+---
+# ServiceAccount for Fortuna Core
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.rbac.serviceAccount.core.name }}
+  namespace: {{ include "fortuna.namespace" . }}
+  labels:
+    {{- include "fortuna.core.labels" . | nindent 4 }}
+  {{- with .Values.rbac.serviceAccount.core.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.rbac.serviceAccount.core.create }}
+{{- end }}
+
+---
+# ClusterRole for Core (read-only for metadata)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.core.name }}
+  labels:
+    {{- include "fortuna.core.labels" . | nindent 4 }}
+rules:
+# Read pods, services, namespaces for metadata
+- apiGroups: [""]
+  resources:
+    - pods
+    - services
+    - namespaces
+    - serviceaccounts
+  verbs: ["get", "list", "watch"]
+
+# Read RBAC resources
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+
+# Read network policies
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - networkpolicies
+  verbs: ["get", "list", "watch"]
+
+---
+# ClusterRoleBinding for Core
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.core.name }}
+  labels:
+    {{- include "fortuna.core.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.core.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.rbac.serviceAccount.core.name }}
+  namespace: {{ include "fortuna.namespace" . }}
+
+{{- if .Values.agent.enabled }}
+---
+# ServiceAccount for Fortuna Agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ .Values.rbac.serviceAccount.agent.name }}
+  namespace: {{ include "fortuna.namespace" . }}
+  labels:
+    {{- include "fortuna.agent.labels" . | nindent 4 }}
+  {{- with .Values.rbac.serviceAccount.agent.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- if .Values.rbac.serviceAccount.agent.create }}
+{{- end }}
+
+---
+# ClusterRole for Agent (read pods + access container runtime)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ .Values.agent.name }}
+  labels:
+    {{- include "fortuna.agent.labels" . | nindent 4 }}
+rules:
+# Watch pods on local node only
+- apiGroups: [""]
+  resources:
+    - pods
+  verbs: ["get", "list", "watch"]
+
+# Read node info
+- apiGroups: [""]
+  resources:
+    - nodes
+  verbs: ["get", "list"]
+
+# Read namespaces for context
+- apiGroups: [""]
+  resources:
+    - namespaces
+  verbs: ["get", "list"]
+
+---
+# ClusterRoleBinding for Agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ .Values.agent.name }}
+  labels:
+    {{- include "fortuna.agent.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ .Values.agent.name }}
+subjects:
+- kind: ServiceAccount
+  name: {{ .Values.rbac.serviceAccount.agent.name }}
+  namespace: {{ include "fortuna.namespace" . }}
+{{- end }}
+{{- end }}
+

@@ -13,7 +13,10 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Configuration
 IMAGE_PREFIX="${IMAGE_PREFIX:-fortuna}"
-VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}"
+# Get version and sanitize (remove -dirty suffix, replace invalid chars)
+GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')
+# Remove -dirty suffix and sanitize for image tags (no special chars except - and :)
+VERSION="${VERSION:-$(echo "$GIT_VERSION" | sed 's/-dirty$//' | sed 's/[^a-zA-Z0-9._-]/-/g')}"
 BUILD_COMMIT="${BUILD_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')}"
 BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
 NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"

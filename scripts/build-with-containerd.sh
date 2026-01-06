@@ -13,7 +13,10 @@ PROJECT_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Configuration
 IMAGE_PREFIX="${IMAGE_PREFIX:-fortuna}"
-VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')}"
+# Get version and sanitize (remove -dirty suffix, replace invalid chars)
+GIT_VERSION=$(git describe --tags --always --dirty 2>/dev/null || echo 'dev')
+# Remove -dirty suffix and sanitize for image tags (no special chars except - and :)
+VERSION="${VERSION:-$(echo "$GIT_VERSION" | sed 's/-dirty$//' | sed 's/[^a-zA-Z0-9._-]/-/g')}"
 BUILD_COMMIT="${BUILD_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')}"
 BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
 NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"  # Default containerd namespace for K8s
@@ -82,13 +85,20 @@ build_image() {
     
     echo -e "${BLUE}Building ${component} with nerdctl...${NC}"
     echo "  Image: ${image_name}"
+    echo "  Image (latest): ${image_latest}"
     echo "  Dockerfile: ${dockerfile}"
     echo ""
     
     cd "${PROJECT_ROOT}"
     
+    # Verify Dockerfile exists
+    if [ ! -f "${dockerfile}" ]; then
+        echo -e "${RED}❌${NC} Dockerfile not found: ${dockerfile}"
+        return 1
+    fi
+    
     # Build with nerdctl
-    nerdctl build \
+    if ! nerdctl build \
         -f "${dockerfile}" \
         -t "${image_name}" \
         -t "${image_latest}" \
@@ -97,13 +107,18 @@ build_image() {
         --build-arg FORTUNA_BUILD_TIME="${BUILD_TIME}" \
         --namespace "${NAMESPACE}" \
         --progress=plain \
-        .
+        .; then
+        echo -e "${RED}❌${NC} Failed to build ${component}"
+        return 1
+    fi
     
     echo ""
     echo -e "${GREEN}✅ ${component} built successfully${NC}"
     echo "  ${image_name}"
     echo "  ${image_latest}"
     echo ""
+    
+    return 0
 }
 
 # Function to verify image in containerd
@@ -157,13 +172,41 @@ export_import_image() {
 main() {
     check_prerequisites
     
+    BUILD_FAILED=0
+    
     # Build Core
-    build_image "core" "core/Dockerfile"
-    verify_image "core"
+    echo "=========================================="
+    echo "Building Core"
+    echo "=========================================="
+    if build_image "core" "core/Dockerfile"; then
+        verify_image "core"
+    else
+        echo -e "${RED}❌${NC} Core build failed"
+        BUILD_FAILED=1
+    fi
     
     # Build Agent
-    build_image "agent" "agent/Dockerfile"
-    verify_image "agent"
+    echo "=========================================="
+    echo "Building Agent"
+    echo "=========================================="
+    if build_image "agent" "agent/Dockerfile"; then
+        verify_image "agent"
+    else
+        echo -e "${RED}❌${NC} Agent build failed"
+        BUILD_FAILED=1
+    fi
+    
+    # Check if any build failed
+    if [ $BUILD_FAILED -eq 1 ]; then
+        echo ""
+        echo "=========================================="
+        echo -e "${RED}❌ Build Failed!${NC}"
+        echo "=========================================="
+        echo ""
+        echo "Check the errors above and fix them before retrying."
+        echo ""
+        exit 1
+    fi
     
     # Export images (optional, for multi-node)
     if [ "${EXPORT_IMAGES:-false}" = "true" ]; then
