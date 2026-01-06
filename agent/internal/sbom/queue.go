@@ -26,7 +26,7 @@ type WorkQueue struct {
 func NewWorkQueue(processor *Processor, workers int) *WorkQueue {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WorkQueue{
-		queue:     make(chan *corev1.Pod, 100), // Buffer up to 100 pods
+		queue:     make(chan *corev1.Pod, 30), // Buffer up to 30 pods (reduced from 100 to prevent memory buildup)
 		workers:   workers,
 		processor: processor,
 		ctx:       ctx,

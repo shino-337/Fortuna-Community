@@ -93,8 +93,9 @@ func main() {
 
 	// Create SBOM work queue for async processing
 	// This prevents blocking the informer during slow SBOM extraction (2-3 min per pod)
-	// Workers: Use 3 workers to process pods in parallel while keeping resource usage reasonable
-	workers := 3
+	// Workers: Use 2 workers to reduce memory usage (reduced from 3)
+	// Queue buffer: 30 pods (reduced from 100 to prevent memory buildup)
+	workers := 2
 	sbomQueue := sbom.NewWorkQueue(sbomProcessor, workers)
 	sbomQueue.Start()
 	log.Printf("✅ SBOM work queue started with %d workers", workers)
