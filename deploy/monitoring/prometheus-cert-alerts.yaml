@@ -11,7 +11,7 @@ data:
         rules:
           # Certificate expiring in 30 days
           - alert: CertificateExpiringWarning
-            expr: fortuna_cert_days_until_expiry < 30 and ksam_cert_days_until_expiry > 7
+            expr: fortuna_cert_days_until_expiry < 30 and fortuna_cert_days_until_expiry > 7
             for: 1h
             labels:
               severity: warning
@@ -22,7 +22,7 @@ data:
           
           # Certificate expiring in 7 days
           - alert: CertificateExpiringCritical
-            expr: fortuna_cert_days_until_expiry < 7 and ksam_cert_days_until_expiry > 0
+            expr: fortuna_cert_days_until_expiry < 7 and fortuna_cert_days_until_expiry > 0
             for: 5m
             labels:
               severity: critical
