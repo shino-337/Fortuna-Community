@@ -32,7 +32,7 @@ core:
     url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
     host: postgres
     port: 5432
-    name: ksam
+    name: fortuna
     user: postgres
     password: postgres
   
