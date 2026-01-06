@@ -6,10 +6,10 @@ metadata:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: ksam-e2e-vuln-debian10
+  name: fortuna-e2e-vuln-debian10
   namespace: fortuna-e2e
   labels:
-    app: ksam-e2e-vuln
+    app: fortuna-e2e-vuln
     test: e2e-cve-insight
 spec:
   restartPolicy: Never

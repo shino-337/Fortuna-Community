@@ -1,10 +1,10 @@
 apiVersion: batch/v1
 kind: CronJob
 metadata:
-  name: ksam-risk-evaluation
+  name: fortuna-risk-evaluation
   namespace: fortuna
   labels:
-    app: ksam-risk-evaluation
+    app: fortuna-risk-evaluation
 spec:
   # Run every 6 hours
   schedule: "0 */6 * * *"
@@ -16,9 +16,9 @@ spec:
       template:
         metadata:
           labels:
-            app: ksam-risk-evaluation
+            app: fortuna-risk-evaluation
         spec:
-          serviceAccountName: ksam-core
+          serviceAccountName: fortuna-core
           containers:
           - name: risk-evaluator
             image: curlimages/curl:latest
@@ -29,7 +29,7 @@ spec:
               echo "Starting risk evaluation at $(date)"
               
               # Get Core service endpoint
-              CORE_SERVICE="http://core.ksam.svc.cluster.local:8080"
+              CORE_SERVICE="http://core.fortuna.svc.cluster.local:8080"
               
               # Login to get token
               echo "Authenticating..."
