@@ -107,7 +107,7 @@ kubectl create namespace fortuna
 Fortuna uses mutual TLS (mTLS) for secure communication between Core and Agent components.
 
 ```bash
-cd /path/to/KSAM
+cd /path/to/fortuna
 bash scripts/create_mtls_secret.sh
 ```
 
@@ -307,7 +307,7 @@ bash scripts/load-cve-data.sh
 ```
 
 This script:
-- Checks if CVE data directory exists (`/home/k8s/KSAM/cve-data/all`)
+- Checks if CVE data directory exists (`/home/k8s/fortuna/cve-data/all`)
 - Verifies CVE tables exist
 - Checks if data is already loaded (skips if present)
 - Creates a Kubernetes Job to load CVE data
@@ -316,10 +316,10 @@ This script:
 **Note**: CVE data loading may take 10-30 minutes depending on data size. The script will monitor progress automatically.
 
 **Prerequisites**:
-- CVE data directory must exist at `/home/k8s/KSAM/cve-data/all` (or set `CVE_DATA_DIR` environment variable to parent directory `/home/k8s/KSAM/cve-data`)
+- CVE data directory must exist at `/home/k8s/fortuna/cve-data/all` (or set `CVE_DATA_DIR` environment variable to parent directory `/home/k8s/fortuna/cve-data`)
 - Core image must be built and loaded (from step 3)
 
-**Note**: The script mounts the parent directory (`/home/k8s/KSAM/cve-data`) to `/cve-data` in the container, allowing access to `/cve-data/all` subdirectory.
+**Note**: The script mounts the parent directory (`/home/k8s/fortuna/cve-data`) to `/cve-data` in the container, allowing access to `/cve-data/all` subdirectory.
 
 **Skip if**: CVE data is not available or CVE matching is not required immediately.
 

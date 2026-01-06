@@ -41,7 +41,7 @@ Fortuna is designed to work with containerd, the container runtime used by Kuber
 The easiest way to build and load images:
 
 ```bash
-cd /path/to/KSAM
+cd /path/to/fortuna
 bash scripts/build-and-load-containerd.sh
 ```
 
@@ -63,7 +63,7 @@ go build -o ../bin/fortuna-core ./cmd
 #### Build Image with nerdctl
 
 ```bash
-cd /path/to/KSAM
+cd /path/to/fortuna
 nerdctl build -f core/Dockerfile -t fortuna-core:latest --namespace k8s.io .
 ```
 
@@ -91,7 +91,7 @@ go build -o ../bin/fortuna-agent ./cmd
 #### Build Image with nerdctl
 
 ```bash
-cd /path/to/KSAM
+cd /path/to/fortuna
 nerdctl build -f agent/Dockerfile -t fortuna/agent:latest --namespace k8s.io .
 ```
 

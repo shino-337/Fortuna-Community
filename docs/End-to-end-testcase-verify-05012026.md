@@ -85,7 +85,7 @@ Agent gửi SBOM payload hợp lệ cho workload chứa component OpenSSL có CV
 #### Steps
 
 1. Agent POST SBOM → Core
-2. Core trả HTTP 202, publish event `ksam.sbom.ingested`
+2. Core trả HTTP 202, publish event `fortuna.sbom.created`
 3. Worker consume event, map CVE
 4. Worker persist SBOM, CVE, Insight
 5. Query API: SBOM / CVE / Insight
