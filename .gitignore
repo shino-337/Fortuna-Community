@@ -113,3 +113,100 @@ Thumbs.db
 cve-data/.gitkeep
 *.old
 
+# Development/Debug Scripts (keep local only)
+scripts/fix-*.sh
+scripts/apply-*.sh
+scripts/clean-*.sh
+scripts/quick-*.sh
+scripts/validate-*.sh
+scripts/migrate-*.sh
+scripts/cleanup-*.sh
+scripts/import-*.sh
+scripts/copy-*.sh
+scripts/deploy-fortuna-robust.sh
+scripts/load-cve-database.sh
+scripts/build-and-import-containerd.sh
+scripts/build-with-containerd.sh
+scripts/apply-core-master-only.sh
+scripts/apply-nats-single-replica.sh
+scripts/fix_dns_isues.sh
+scripts/fix_nats_storage.sh
+scripts/create-mtls-secrets.sh
+
+# Test Results (generated files)
+tests/results/
+tests/e2e/results/
+docs/test-results/*.md
+!docs/test-results/README.md
+
+# Temporary Documentation Files
+CLEANUP_SUMMARY.md
+HELM_CHART_UPDATE.md
+PROJECT_CLEANUP_ANALYSIS.md
+*.md.bak
+
+# Docker Compose (if not using)
+docker-compose.prod.yml
+docker-compose.override.yml.example
+
+# Archive directory (old scripts)
+scripts/archive/
+
+# Test documentation (development)
+tests/BUILD_AND_TEST_STATUS.md
+tests/TEST_EXECUTION_*.md
+tests/TEST_SUITE_SUMMARY.md
+tests/TESTING_SUMMARY.md
+tests/QUICK_START.md
+tests/README.md
+tests/TEST_EXECUTION_GUIDE.md
+tests/verification/
+tests/performance/
+
+# Development documentation (optional)
+docs/06-reference/
+docs/04-development/
+docs/05-operations/
+docs/08-tutorials/
+docs/01-getting-started/
+docs/03-components/
+docs/07-guides/
+docs/02-architecture/archive/
+docs/02-architecture/migration-*.md
+docs/02-architecture/policy-engine-*.md
+docs/02-architecture/policy-engine-analysis.md
+docs/02-architecture/AGENT_IMPLEMENTATION_COMPLETE.md
+docs/02-architecture/ARCHITECTURE_DIAGRAMS_COMPARISON.md
+docs/02-architecture/LOGIC_FLOW_REFACTOR_IMPLEMENTATION.md
+docs/02-architecture/DETAILED_LOGIC_FLOW.md
+docs/02-architecture/INDEX.md
+docs/02-architecture/README.md
+docs/02-architecture/ADR-*.md
+docs/02-architecture/ARCHITECTURE_DECISION_FRAMEWORK.md
+docs/02-architecture/WHY_FORTUNA.md
+docs/02-architecture/DESIGN_PRINCIPLES.md
+docs/02-architecture/SECURITY_MODEL.md
+docs/02-architecture/MTLS_SETUP.md
+docs/02-architecture/RBAC_DESIGN.md
+docs/02-architecture/COMPONENT_DIAGRAM.md
+docs/02-architecture/DEPLOYMENT_TOPOLOGY.md
+docs/02-architecture/DATA_FLOWS.md
+docs/02-architecture/EVENT_SYSTEM.md
+docs/02-architecture/database/
+docs/02-architecture/KSAM_ADR_FULL.md
+
+# Keep only essential root docs
+!docs/README.md
+!docs/PRODUCTION_DEPLOYMENT.md
+!docs/DEPLOYMENT_CHECKLIST.md
+!docs/DEPLOYMENT.md
+!docs/BUILD_GUIDE.md
+!docs/ENVIRONMENT_PREPARATION.md
+!docs/ARCHITECTURE.md
+!docs/MIGRATIONS.md
+!docs/API_REFERENCE.md
+!docs/End-to-end-testcase-verify-05012026.md
+!docs/DOCUMENTATION_STRUCTURE.md
+!docs/PRODUCTION_READINESS_SUMMARY.md
+!docs/DATABASE_SCHEMA_UPDATED.md
+
