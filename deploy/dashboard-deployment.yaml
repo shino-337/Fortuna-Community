@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: ksam-dashboard
+  name: fortuna-dashboard
   namespace: fortuna
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: ksam-dashboard
+      app: fortuna-dashboard
   template:
     metadata:
       labels:
-        app: ksam-dashboard
+        app: fortuna-dashboard
     spec:
       containers:
       - name: dashboard
-        image: docker.io/ksam/dashboard:latest
+        image: docker.io/fortuna/dashboard:latest
         imagePullPolicy: Never
         ports:
         - containerPort: 80
@@ -33,7 +33,7 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: ksam-dashboard
+  name: fortuna-dashboard
   namespace: fortuna
 spec:
   type: LoadBalancer

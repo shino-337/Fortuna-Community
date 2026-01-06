@@ -1,7 +1,7 @@
 {
   "dashboard": {
     "title": "Admission Webhook - Performance & Health",
-    "tags": ["ksam", "admission", "webhook", "policy"],
+    "tags": ["fortuna", "admission", "webhook", "policy"],
     "timezone": "browser",
     "schemaVersion": 27,
     "version": 1,

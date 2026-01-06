@@ -1,7 +1,7 @@
 {
   "dashboard": {
-    "title": "KSAM Certificate Management",
-    "tags": ["ksam", "certificates", "mtls"],
+    "title": "Fortuna Certificate Management",
+    "tags": ["fortuna", "certificates", "mtls"],
     "timezone": "browser",
     "panels": [
       {
@@ -10,7 +10,7 @@
         "type": "gauge",
         "gridPos": {"x": 0, "y": 0, "w": 8, "h": 6},
         "targets": [{
-          "expr": "ksam_cert_days_until_expiry",
+          "expr": "fortuna_cert_days_until_expiry",
           "legendFormat": "Days Until Expiry"
         }],
         "thresholds": {
@@ -34,7 +34,7 @@
         "type": "graph",
         "gridPos": {"x": 8, "y": 0, "w": 16, "h": 6},
         "targets": [{
-          "expr": "ksam_cert_days_until_expiry",
+          "expr": "fortuna_cert_days_until_expiry",
           "legendFormat": "Days Until Expiry"
         }],
         "yaxes": [{
@@ -48,7 +48,7 @@
         "type": "graph",
         "gridPos": {"x": 0, "y": 6, "w": 12, "h": 6},
         "targets": [{
-          "expr": "rate(ksam_cert_rotation_total[5m])",
+          "expr": "rate(fortuna_cert_rotation_total[5m])",
           "legendFormat": "Rotations/sec"
         }],
         "yaxes": [{
@@ -62,7 +62,7 @@
         "type": "graph",
         "gridPos": {"x": 12, "y": 6, "w": 12, "h": 6},
         "targets": [{
-          "expr": "rate(ksam_cert_rotation_failure_total[5m])",
+          "expr": "rate(fortuna_cert_rotation_failure_total[5m])",
           "legendFormat": "Failures/sec"
         }],
         "yaxes": [{
@@ -76,10 +76,10 @@
         "type": "graph",
         "gridPos": {"x": 0, "y": 12, "w": 12, "h": 6},
         "targets": [{
-          "expr": "histogram_quantile(0.95, rate(ksam_cert_rotation_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.95, rate(fortuna_cert_rotation_duration_seconds_bucket[5m]))",
           "legendFormat": "95th percentile"
         }, {
-          "expr": "histogram_quantile(0.50, rate(ksam_cert_rotation_duration_seconds_bucket[5m]))",
+          "expr": "histogram_quantile(0.50, rate(fortuna_cert_rotation_duration_seconds_bucket[5m]))",
           "legendFormat": "50th percentile"
         }],
         "yaxes": [{
@@ -93,7 +93,7 @@
         "type": "stat",
         "gridPos": {"x": 12, "y": 12, "w": 6, "h": 3},
         "targets": [{
-          "expr": "ksam_cert_expiry_warning_total",
+          "expr": "fortuna_cert_expiry_warning_total",
           "legendFormat": "Warnings"
         }]
       },
@@ -103,7 +103,7 @@
         "type": "stat",
         "gridPos": {"x": 18, "y": 12, "w": 6, "h": 3},
         "targets": [{
-          "expr": "ksam_cert_expiry_critical_total",
+          "expr": "fortuna_cert_expiry_critical_total",
           "legendFormat": "Critical"
         }]
       },
@@ -113,7 +113,7 @@
         "type": "stat",
         "gridPos": {"x": 12, "y": 15, "w": 6, "h": 3},
         "targets": [{
-          "expr": "ksam_cert_expired_total",
+          "expr": "fortuna_cert_expired_total",
           "legendFormat": "Expired"
         }]
       },
@@ -123,7 +123,7 @@
         "type": "stat",
         "gridPos": {"x": 18, "y": 15, "w": 6, "h": 3},
         "targets": [{
-          "expr": "ksam_last_cert_rotation_timestamp",
+          "expr": "fortuna_last_cert_rotation_timestamp",
           "legendFormat": "Last Rotation"
         }],
         "options": {

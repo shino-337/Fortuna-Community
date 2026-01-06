@@ -1,4 +1,4 @@
--- KSAM E2E helper: clear SBOM/CVE derived caches for a clean end-to-end run.
+-- Fortuna E2E helper: clear SBOM/CVE derived caches for a clean end-to-end run.
 -- WARNING: this deletes SBOM/CVE artifacts and vulnerability insights. Use on dev/test DB only.
 
 -- Remove previous synthetic CVE test data (optional)
