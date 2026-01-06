@@ -50,11 +50,11 @@ spec:
           readOnly: true
         resources:
           requests:
-            memory: "512Mi"
-            cpu: "200m"
+            memory: "256Mi"  # Reduced from 512Mi
+            cpu: "100m"      # Reduced from 200m
           limits:
-            memory: "2Gi"
-            cpu: "1000m"
+            memory: "1Gi"   # Reduced from 2Gi to prevent OOM
+            cpu: "500m"     # Reduced from 1000m
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
