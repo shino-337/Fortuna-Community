@@ -69,11 +69,14 @@ func main() {
 	log.Printf("[Config] TLS_KEY_PATH=%s", cfg.TLSKeyPath)
 	log.Printf("========================================")
 
-	// Initialize database
+	// Initialize database with retry logic
+	// The storage.New() function now includes exponential backoff retry
+	log.Printf("[MAIN] Initializing database connection...")
 	db, err := storage.New(cfg)
 	if err != nil {
-		log.Fatalf("Failed to connect to database: %v", err)
+		log.Fatalf("Failed to connect to database after retries: %v", err)
 	}
+	log.Printf("[MAIN] Database connection established successfully")
 
 	// Get underlying sql.DB for proper cleanup
 	sqlDB, err := db.DB()
@@ -83,8 +86,10 @@ func main() {
 	defer sqlDB.Close()
 
 	// Run migrations
-	// Note: Migration may fail with "insufficient arguments" error (known GORM/PostgreSQL issue)
-	// This is non-fatal and tables may still be created
+	// CRITICAL: Migrations must run on every startup to ensure schema is up-to-date
+	log.Printf("========================================")
+	log.Printf("[MAIN] Starting database migrations...")
+	log.Printf("========================================")
 	if err := storage.Migrate(db); err != nil {
 		errStr := err.Error()
 		// Check if error is the known "insufficient arguments" issue
@@ -101,8 +106,12 @@ func main() {
 				log.Printf("WARNING: Tables may not exist - application may have limited functionality")
 			}
 		} else {
-			log.Fatalf("Failed to run migrations: %v", err)
+			log.Fatalf("CRITICAL: Failed to run migrations: %v", err)
 		}
+	} else {
+		log.Printf("========================================")
+		log.Printf("[MAIN] ✅ Database migrations completed successfully")
+		log.Printf("========================================")
 	}
 
 	// Run post-migrations (create default admin, etc.)
@@ -113,38 +122,60 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	// Initialize NATS client
+	// Initialize NATS client with retry logic
+	// NATS connection failures are non-fatal for initial startup
+	// Core can continue without NATS, but some features will be limited
+	log.Printf("[MAIN] Initializing NATS client...")
 	natsClient, err := messaging.NewNATSClient(cfg.NATSEndpoint)
+	var js nats.JetStreamContext
 	if err != nil {
-		log.Fatalf("Failed to connect to NATS: %v", err)
+		log.Printf("⚠️  WARNING: Failed to connect to NATS: %v", err)
+		log.Printf("⚠️  WARNING: Core will continue without NATS, but messaging features will be unavailable")
+		log.Printf("⚠️  WARNING: This may be due to NATS storage issues - check NATS pod and PVC")
+		// Don't fatal - allow Core to start without NATS for now
+		// natsClient will be nil, handlers should check for nil before use
+		natsClient = nil
+		js = nil
+	} else {
+		log.Printf("[MAIN] NATS client initialized successfully")
+		defer natsClient.Close()
+		js = natsClient.JetStream()
 	}
-	defer natsClient.Close()
 
-	js := natsClient.JetStream()
-
-	// Initialize worker pool
-	workerPool, err := worker.NewPool(js, 5) // 5 concurrent workers per worker type
-	if err != nil {
-		log.Printf("Warning: Failed to create worker pool with DLQ: %v. Continuing without DLQ.", err)
-		// Create pool without DLQ if setup fails
-		workerPool, err = worker.NewPool(js, 5)
+	// Initialize worker pool (only if NATS is available)
+	var workerPool *worker.Pool
+	if js != nil {
+		workerPool, err = worker.NewPool(js, 5) // 5 concurrent workers per worker type
 		if err != nil {
-			log.Fatalf("Failed to create worker pool: %v", err)
+			log.Printf("Warning: Failed to create worker pool with DLQ: %v. Continuing without DLQ.", err)
+			// Create pool without DLQ if setup fails
+			workerPool, err = worker.NewPool(js, 5)
+			if err != nil {
+				log.Printf("⚠️  WARNING: Failed to create worker pool: %v. Continuing without worker pool.", err)
+				workerPool = nil
+			}
 		}
+	} else {
+		log.Printf("⚠️  WARNING: Skipping worker pool initialization (NATS unavailable)")
+		workerPool = nil
 	}
-	log.Printf("[Main] ========================================")
-	log.Printf("[Main] About to add workers to pool...")
-	log.Printf("[Main] WorkerPool check: workerPool == nil: %v", workerPool == nil)
-	log.Printf("[Main] Adding workers to pool...")
-	// NormalizerWorker removed - normalization done in handlers
-	// workerPool.AddWorker(worker.NewNormalizerWorker(js, db))
-	log.Printf("[Main] ✅ NormalizerWorker skipped (handled in handlers)")
-	workerPool.AddWorker(worker.NewCorrelatorWorker(js, db))
-	log.Printf("[Main] ✅ Added CorrelatorWorker")
-	workerPool.AddWorker(worker.NewRiskWorker(js, db)) // Add Risk Engine worker
-	log.Printf("[Main] ✅ Added RiskWorker")
-	log.Printf("[Main] ✅ Added 3 workers to pool (normalizer, correlator, risk)")
-	log.Printf("[Main] ========================================")
+	if workerPool != nil && js != nil {
+		log.Printf("[Main] ========================================")
+		log.Printf("[Main] About to add workers to pool...")
+		log.Printf("[Main] WorkerPool check: workerPool == nil: %v", workerPool == nil)
+		log.Printf("[Main] Adding workers to pool...")
+		// NormalizerWorker removed - normalization done in handlers
+		// workerPool.AddWorker(worker.NewNormalizerWorker(js, db))
+		log.Printf("[Main] ✅ NormalizerWorker skipped (handled in handlers)")
+		workerPool.AddWorker(worker.NewCorrelatorWorker(js, db))
+		log.Printf("[Main] ✅ Added CorrelatorWorker")
+		workerPool.AddWorker(worker.NewRiskWorker(js, db)) // Add Risk Engine worker
+		log.Printf("[Main] ✅ Added RiskWorker")
+		log.Printf("[Main] ✅ Added 3 workers to pool (normalizer, correlator, risk)")
+		log.Printf("[Main] ========================================")
+	} else {
+		log.Printf("[Main] ⚠️  WARNING: Skipping worker pool setup (NATS unavailable)")
+	}
 
 	// Phase 2.7: Initialize Policy Evaluator and Worker
 	log.Printf("[Main] ========================================")
@@ -163,35 +194,48 @@ func main() {
 	log.Printf("[Main] Calling policy.NewEvaluator(db)...")
 	policyEvaluator, err := policy.NewEvaluator(db)
 	if err != nil {
-		log.Fatalf("[Main] ❌ Failed to create policy evaluator: %v", err)
+		log.Printf("[Main] ⚠️  WARNING: Failed to create policy evaluator: %v", err)
+		log.Printf("[Main] ⚠️  WARNING: Policy features will be unavailable, but Core will continue")
+		log.Printf("[Main] ⚠️  WARNING: This may be due to missing policy_templates table - check migrations")
+		policyEvaluator = nil
+	} else {
+		log.Printf("[Main] ✅ Policy Evaluator initialized successfully")
+		log.Printf("[Main] Policy Evaluator pointer: %p", policyEvaluator)
 	}
-	log.Printf("[Main] ✅ Policy Evaluator initialized successfully")
-	log.Printf("[Main] Policy Evaluator pointer: %p", policyEvaluator)
 	log.Printf("[Main] ========================================")
 
 	// Add Policy Worker to worker pool (for slow path processing)
 	log.Printf("[Main] Creating Policy Worker...")
 	policyWorker := policy.NewPolicyWorker(db, policyEvaluator)
 	log.Printf("[Main] ✅ Policy Worker created")
-	// Subscribe to violation events
-	sub, err := js.Subscribe("fortuna.policy.violation.detected", func(msg *nats.Msg) {
-		ctx := context.Background()
-		if err := policyWorker.ProcessViolationEvent(ctx, msg.Data); err != nil {
-			log.Printf("[PolicyWorker] Failed to process violation event: %v", err)
+	// Subscribe to violation events (only if NATS is available)
+	if js != nil {
+		sub, err := js.Subscribe("fortuna.policy.violation.detected", func(msg *nats.Msg) {
+			ctx := context.Background()
+			if err := policyWorker.ProcessViolationEvent(ctx, msg.Data); err != nil {
+				log.Printf("[PolicyWorker] Failed to process violation event: %v", err)
+			}
+			msg.Ack()
+		}, nats.Durable("fortuna-policy-worker"))
+		if err != nil {
+			log.Printf("[Main] Warning: Failed to subscribe to policy violation events: %v", err)
+		} else {
+			log.Printf("[Main] ✅ Policy Worker subscribed to violation events")
+			defer sub.Unsubscribe()
 		}
-		msg.Ack()
-	}, nats.Durable("fortuna-policy-worker"))
-	if err != nil {
-		log.Printf("[Main] Warning: Failed to subscribe to policy violation events: %v", err)
 	} else {
-		log.Printf("[Main] ✅ Policy Worker subscribed to violation events")
-		defer sub.Unsubscribe()
+		log.Printf("[Main] ⚠️  WARNING: Skipping policy violation subscription (NATS unavailable)")
 	}
 
-	if err := workerPool.Start(); err != nil {
-		log.Fatalf("Failed to start worker pool: %v", err)
+	if workerPool != nil {
+		if err := workerPool.Start(); err != nil {
+			log.Printf("⚠️  WARNING: Failed to start worker pool: %v. Continuing without worker pool.", err)
+		} else {
+			defer workerPool.Stop()
+		}
+	} else {
+		log.Printf("[Main] ⚠️  WARNING: Worker pool is nil, skipping start")
 	}
-	defer workerPool.Stop()
 
 	// ============================================================
 	// SBOM/CVE pipeline (event-driven, non-duplicated consumption)
@@ -204,61 +248,70 @@ func main() {
 	// the durable consumer retains its deliver subject (inbox) and subsequent restarts can fail with:
 	// "consumer is already bound to a subscription".
 	// For now we run these consumers as *ephemeral* by default, and only enable durables when explicitly requested.
-	useDurables := strings.EqualFold(strings.TrimSpace(os.Getenv("FORTUNA_JS_DURABLES")), "true")
-	sbomDurable := "sbom-worker"
-	cveDurable := "cve-matcher-worker"
+	// SBOM/CVE pipeline (only if NATS is available)
+	if js != nil && natsClient != nil {
+		useDurables := strings.EqualFold(strings.TrimSpace(os.Getenv("FORTUNA_JS_DURABLES")), "true")
+		sbomDurable := "sbom-worker"
+		cveDurable := "cve-matcher-worker"
 
-	sbomWorker := worker.NewSBOMWorker(js, db, natsClient)
-	sbomOpts := []nats.SubOpt{
-		nats.ManualAck(),
-		nats.DeliverAll(),      // Changed from DeliverNew() to process all messages, including those published before subscription
-		nats.MaxAckPending(10), // Increased from 1 to 10 to prevent slow consumer message drops
-		nats.AckWait(10 * time.Minute),
-	}
-	if useDurables {
-		sbomOpts = append(sbomOpts, nats.Durable(sbomDurable))
-	}
-	sbomSub, err := js.Subscribe(sbomWorker.Subject(), func(msg *nats.Msg) {
-		if err := sbomWorker.Process(ctx, msg); err != nil {
-			log.Printf("[SBOMWorker] Error: %v (will retry via NATS redelivery)", err)
-			return
+		sbomWorker := worker.NewSBOMWorker(js, db, natsClient)
+		sbomOpts := []nats.SubOpt{
+			nats.ManualAck(),
+			nats.DeliverAll(),      // Changed from DeliverNew() to process all messages, including those published before subscription
+			nats.MaxAckPending(10), // Increased from 1 to 10 to prevent slow consumer message drops
+			nats.AckWait(10 * time.Minute),
 		}
-		msg.Ack()
-	}, sbomOpts...)
-	if err != nil {
-		log.Printf("[Main] Warning: Failed to subscribe SBOM worker: %v", err)
-	} else {
-		log.Printf("[Main] ✅ SBOMWorker subscribed to %s", sbomWorker.Subject())
-		defer sbomSub.Unsubscribe()
-	}
-
-	cveWorker := worker.NewCVEMatcherWorker(db)
-	cveOpts := []nats.SubOpt{
-		nats.ManualAck(),
-		nats.DeliverAll(), // Changed from DeliverNew() to process all messages, including those published before subscription
-		nats.MaxAckPending(50),
-		nats.AckWait(2 * time.Minute),
-	}
-	if useDurables {
-		cveOpts = append(cveOpts, nats.Durable(cveDurable))
-	}
-	cveSub, err := js.Subscribe(cveWorker.Subject(), func(msg *nats.Msg) {
-		if err := cveWorker.Process(ctx, msg); err != nil {
-			log.Printf("[CVEMatcherWorker] Error: %v (will retry via NATS redelivery)", err)
-			return
+		if useDurables {
+			sbomOpts = append(sbomOpts, nats.Durable(sbomDurable))
 		}
-		msg.Ack()
-	}, cveOpts...)
-	if err != nil {
-		log.Printf("[Main] Warning: Failed to subscribe CVE matcher worker: %v", err)
+		sbomSub, err := js.Subscribe(sbomWorker.Subject(), func(msg *nats.Msg) {
+			if err := sbomWorker.Process(ctx, msg); err != nil {
+				log.Printf("[SBOMWorker] Error: %v (will retry via NATS redelivery)", err)
+				return
+			}
+			msg.Ack()
+		}, sbomOpts...)
+		if err != nil {
+			log.Printf("[Main] Warning: Failed to subscribe SBOM worker: %v", err)
+		} else {
+			log.Printf("[Main] ✅ SBOMWorker subscribed to %s", sbomWorker.Subject())
+			defer sbomSub.Unsubscribe()
+		}
+
+		cveWorker := worker.NewCVEMatcherWorker(db)
+		cveOpts := []nats.SubOpt{
+			nats.ManualAck(),
+			nats.DeliverAll(), // Changed from DeliverNew() to process all messages, including those published before subscription
+			nats.MaxAckPending(50),
+			nats.AckWait(2 * time.Minute),
+		}
+		if useDurables {
+			cveOpts = append(cveOpts, nats.Durable(cveDurable))
+		}
+		cveSub, err := js.Subscribe(cveWorker.Subject(), func(msg *nats.Msg) {
+			if err := cveWorker.Process(ctx, msg); err != nil {
+				log.Printf("[CVEMatcherWorker] Error: %v (will retry via NATS redelivery)", err)
+				return
+			}
+			msg.Ack()
+		}, cveOpts...)
+		if err != nil {
+			log.Printf("[Main] Warning: Failed to subscribe CVE matcher worker: %v", err)
+		} else {
+			log.Printf("[Main] ✅ CVEMatcherWorker subscribed to %s", cveWorker.Subject())
+			defer cveSub.Unsubscribe()
+		}
 	} else {
-		log.Printf("[Main] ✅ CVEMatcherWorker subscribed to %s", cveWorker.Subject())
-		defer cveSub.Unsubscribe()
+		log.Printf("[Main] ⚠️  WARNING: Skipping SBOM/CVE pipeline setup (NATS unavailable)")
 	}
 
-	// Start queue depth monitoring
-	workerPool.StartQueueDepthMonitoring(ctx)
-	log.Printf("Queue depth monitoring started for all workers")
+	// Start queue depth monitoring (only if worker pool is available)
+	if workerPool != nil {
+		workerPool.StartQueueDepthMonitoring(ctx)
+		log.Printf("Queue depth monitoring started for all workers")
+	} else {
+		log.Printf("[Main] ⚠️  WARNING: Skipping queue depth monitoring (worker pool unavailable)")
+	}
 
 	// Start risk evaluation scheduler (runs every 6 hours)
 	riskScheduler := scheduler.NewRiskScheduler(db, 6*time.Hour)

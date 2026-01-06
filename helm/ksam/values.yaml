@@ -1,10 +1,10 @@
-# Default values for ksam
+# Default values for Fortuna (formerly KSAM)
 core:
-  name: ksam-core
+  name: fortuna-core
   image:
-    repository: ksam-core
+    repository: fortuna-core
     tag: latest
-    pullPolicy: Always
+    pullPolicy: Never  # For containerd local images. Change to IfNotPresent or Always for production registry
   
   replicaCount: 1
   
@@ -22,10 +22,10 @@ core:
       cpu: "500m"
   
   database:
-    url: "postgres://postgres:postgres123@postgres:5432/ksam?sslmode=disable"
+    url: "postgres://postgres:postgres123@postgres:5432/fortuna?sslmode=disable"
     host: postgres
     port: 5432
-    name: ksam
+    name: fortuna
     user: postgres
     password: postgres123
   
@@ -39,13 +39,13 @@ core:
     port: 6379
 
 agent:
-  name: ksam-agent
+  name: fortuna-agent
   image:
-    repository: ksam-agent
+    repository: fortuna/agent
     tag: latest
-    pullPolicy: Always
+    pullPolicy: Never  # For containerd local images. Change to IfNotPresent or Always for production registry
   
-  coreEndpoint: "ksam-core.ksam.svc.cluster.local:9090"
+  coreEndpoint: "fortuna-core.fortuna.svc.cluster.local:9090"
   syncInterval: "30s"
   
   resources:
@@ -57,11 +57,11 @@ agent:
       cpu: "100m"
 
 dashboard:
-  name: ksam-dashboard
+  name: fortuna-dashboard
   image:
-    repository: ksam/dashboard
+    repository: fortuna/dashboard
     tag: latest
-    pullPolicy: Never
+    pullPolicy: Never  # For containerd local images
   
   replicaCount: 1
   
@@ -81,5 +81,5 @@ postgresql:
   enabled: true
   auth:
     postgresPassword: postgres
-    database: ksam
+    database: fortuna
 

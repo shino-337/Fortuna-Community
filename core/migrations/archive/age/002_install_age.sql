@@ -29,8 +29,8 @@ END $$;
 DO $$
 BEGIN
     -- Create the main graph
-    PERFORM create_graph('ksam_graph');
-    RAISE NOTICE 'Graph ksam_graph created successfully';
+    PERFORM create_graph('fortuna_graph');
+    RAISE NOTICE 'Graph fortuna_graph created successfully';
 EXCEPTION
     WHEN OTHERS THEN
         RAISE NOTICE 'Could not create graph. AGE may not be installed. Error: %', SQLERRM;
@@ -40,22 +40,22 @@ END $$;
 DO $$
 BEGIN
     -- ServiceAccount vertex
-    PERFORM create_vlabel('ksam_graph', 'ServiceAccount');
+    PERFORM create_vlabel('fortuna_graph', 'ServiceAccount');
     
     -- Pod vertex
-    PERFORM create_vlabel('ksam_graph', 'Pod');
+    PERFORM create_vlabel('fortuna_graph', 'Pod');
     
     -- Role vertex
-    PERFORM create_vlabel('ksam_graph', 'Role');
+    PERFORM create_vlabel('fortuna_graph', 'Role');
     
     -- ClusterRole vertex
-    PERFORM create_vlabel('ksam_graph', 'ClusterRole');
+    PERFORM create_vlabel('fortuna_graph', 'ClusterRole');
     
     -- Namespace vertex
-    PERFORM create_vlabel('ksam_graph', 'Namespace');
+    PERFORM create_vlabel('fortuna_graph', 'Namespace');
     
     -- Cluster vertex
-    PERFORM create_vlabel('ksam_graph', 'Cluster');
+    PERFORM create_vlabel('fortuna_graph', 'Cluster');
     
     RAISE NOTICE 'Vertex labels created successfully';
 EXCEPTION
@@ -67,22 +67,22 @@ END $$;
 DO $$
 BEGIN
     -- USES: ServiceAccount uses Role/ClusterRole
-    PERFORM create_elabel('ksam_graph', 'USES');
+    PERFORM create_elabel('fortuna_graph', 'USES');
     
     -- MOUNTS: Pod mounts ServiceAccount
-    PERFORM create_elabel('ksam_graph', 'MOUNTS');
+    PERFORM create_elabel('fortuna_graph', 'MOUNTS');
     
     -- BELONGS_TO: Resource belongs to Namespace
-    PERFORM create_elabel('ksam_graph', 'BELONGS_TO');
+    PERFORM create_elabel('fortuna_graph', 'BELONGS_TO');
     
     -- IN_CLUSTER: Resource in Cluster
-    PERFORM create_elabel('ksam_graph', 'IN_CLUSTER');
+    PERFORM create_elabel('fortuna_graph', 'IN_CLUSTER');
     
     -- GRANTS: RoleBinding/ClusterRoleBinding grants permissions
-    PERFORM create_elabel('ksam_graph', 'GRANTS');
+    PERFORM create_elabel('fortuna_graph', 'GRANTS');
     
     -- LINKS_TO: General relationship
-    PERFORM create_elabel('ksam_graph', 'LINKS_TO');
+    PERFORM create_elabel('fortuna_graph', 'LINKS_TO');
     
     RAISE NOTICE 'Edge labels created successfully';
 EXCEPTION

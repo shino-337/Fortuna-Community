@@ -1,0 +1,115 @@
+# Binaries
+/bin/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+fortuna-core
+fortuna-agent
+ksam-core
+ksam-agent
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+dist/
+build/
+
+# Certificates and secrets
+.certs/
+*.key
+*.crt
+*.pem
+!deploy/certs/*.yaml
+secrets/
+*.secret
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Containerd images (if exported)
+*.tar
+fortuna-*.tar
+agent-*.tar
+
+# Test results (keep structure, ignore generated)
+tests/e2e/results/*.md
+!tests/e2e/results/README.md
+!tests/e2e/results/E2E-TEST-EXECUTION-FULL-REPORT.md
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Project specific
+cve-data/.gitkeep
+*.old
+

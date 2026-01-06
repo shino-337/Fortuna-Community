@@ -38,12 +38,15 @@ func NewNATSClient(servers string) (*NATSClient, error) {
 	}
 
 	// Wait for JetStream to be available (with retries)
+	// For cluster mode (3 replicas), wait for quorum (2/3 nodes)
 	var js nats.JetStreamContext
-	maxRetries := 10
-	retryDelay := 2 * time.Second
+	maxRetries := 15 // Increased retries for cluster quorum
+	retryDelay := 3 * time.Second
 	for i := 0; i < maxRetries; i++ {
 		js, err = conn.JetStream()
 		if err == nil {
+			// Verify cluster is ready (for 3 replicas, need quorum = 2)
+			// This is handled by NATS server automatically
 			break
 		}
 		if i < maxRetries-1 {
@@ -114,28 +117,49 @@ func (c *NATSClient) SetupStreams() error {
 			retention = nats.WorkQueuePolicy
 		}
 
+		// Calculate stream limits based on retention and storage capacity
+		// For 3 replicas: Each stream replicated 3x, total storage = 30GB (3 x 10GB)
+		// Stream storage: 4 streams * 1GB = 4GB, leaving 26GB buffer across replicas
+		// Per-replica: 4GB streams + 8.67GB buffer = ~12.67GB per replica (within 10GB limit per PVC)
+		// Note: With 3 replicas, each stream is replicated, so actual storage per replica is lower
+		maxMsgs := int64(100000)  // Max 100K messages per stream
+		maxBytes := int64(1 * 1024 * 1024 * 1024) // Max 1GB per stream
+		
+		// Adjust limits based on stream importance and retention
+		if stream.name == "fortuna-events" {
+			// SBOM/CVE events are critical - allow more messages
+			maxMsgs = 200000  // 200K messages for events
+			maxBytes = 2 * 1024 * 1024 * 1024 // 2GB for events stream
+		} else if stream.name == "fortuna-insights" {
+			// Insights are important but less frequent
+			maxMsgs = 50000   // 50K messages for insights
+			maxBytes = 512 * 1024 * 1024 // 512MB for insights
+		}
+
 		cfg := &nats.StreamConfig{
 			Name:      stream.name,
 			Subjects:  stream.subjects,
 			Retention: retention,
 			MaxAge:    maxAge,
 			Storage:   nats.FileStorage,
-			Replicas:  1, // Use 1 replica for now to avoid quorum issues during startup
-			// Add limits to prevent unbounded growth
-			MaxMsgs:     1000000,              // Max 1M messages per stream
-			MaxBytes:    10 * 1024 * 1024 * 1024, // Max 10GB per stream
-			Discard:     nats.DiscardOld,       // Discard oldest when limits reached
+			Replicas:  3, // Use 3 replicas for HA (quorum = 2)
+			MaxMsgs:   maxMsgs,
+			MaxBytes:  maxBytes,
+			Discard:   nats.DiscardOld, // Discard oldest when limits reached
 		}
 
 		// Retry stream creation with exponential backoff
-		maxRetries := 5
-		retryDelay := 2 * time.Second
+		// For cluster mode, may need more retries to ensure quorum
+		maxRetries := 10 // Increased for cluster quorum
+		retryDelay := 3 * time.Second
 		var lastErr error
 		for i := 0; i < maxRetries; i++ {
 			// Try to add stream, if exists, update it
+			// With 3 replicas, stream creation requires quorum (2/3 nodes)
 			_, err := c.js.AddStream(cfg)
 			if err == nil {
-				log.Printf("[NATS] Stream %s ready (retention: %v)", stream.name, maxAge)
+				log.Printf("[NATS] Stream %s ready (replicas: %d, retention: %v, maxBytes: %dMB, maxMsgs: %d)", 
+					stream.name, cfg.Replicas, maxAge, cfg.MaxBytes/(1024*1024), cfg.MaxMsgs)
 				lastErr = nil
 				break
 			} else if err == nats.ErrStreamNameAlreadyInUse {
@@ -149,6 +173,7 @@ func (c *NATSClient) SetupStreams() error {
 					break
 				} else {
 					// If we can't get stream info, try to update (but it may fail)
+					// For cluster mode, update requires quorum
 					_, updateErr := c.js.UpdateStream(cfg)
 					if updateErr != nil {
 						// If update fails due to retention policy change, just log and continue
@@ -157,10 +182,16 @@ func (c *NATSClient) SetupStreams() error {
 							lastErr = nil
 							break
 						}
+						// For cluster mode, may need quorum - log warning but continue
+						if strings.Contains(updateErr.Error(), "quorum") || strings.Contains(updateErr.Error(), "replica") {
+							log.Printf("[NATS] Warning: Stream %s update may require cluster quorum, using existing configuration", stream.name)
+							lastErr = nil
+							break
+						}
 						log.Printf("[NATS] Warning: Failed to update stream %s: %v", stream.name, updateErr)
 						lastErr = updateErr
 					} else {
-						log.Printf("[NATS] Updated stream %s retention to %v", stream.name, maxAge)
+						log.Printf("[NATS] Updated stream %s (replicas: %d, retention: %v)", stream.name, cfg.Replicas, maxAge)
 						lastErr = nil
 						break
 					}

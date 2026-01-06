@@ -75,7 +75,7 @@ data:
             IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
                 LOAD 'age';
                 SET search_path = ag_catalog, "\$user", public;
-                PERFORM create_graph('ksam_graph');
+                PERFORM create_graph('fortuna_graph');
                 RAISE NOTICE 'Apache AGE initialized successfully';
             ELSE
                 RAISE NOTICE 'Apache AGE extension not available. Graph features disabled.';

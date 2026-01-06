@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  name: ksam-agent
+  name: fortuna-agent
   namespace: fortuna
   labels:
     app: fortuna-agent
@@ -14,14 +14,17 @@ spec:
       labels:
         app: fortuna-agent
     spec:
-      serviceAccountName: ksam-agent
+      serviceAccountName: fortuna-agent
       containers:
       - name: agent
-        image: docker.io/fortuna/agent:latest
-        imagePullPolicy: Never
+        # Production: Use versioned tag (e.g., fortuna/agent:v1.0.0)
+        # Development: Use latest with imagePullPolicy: Never
+        # Image should be built with: nerdctl build -f agent/Dockerfile -t fortuna/agent:latest --namespace k8s.io .
+        image: fortuna/agent:latest
+        imagePullPolicy: IfNotPresent  # For containerd local images. Change to IfNotPresent or Always for production registry
         env:
         - name: FORTUNA_CORE_ENDPOINT
-          value: "ksam-core.fortuna.svc.cluster.local:9090"
+          value: "fortuna-core.fortuna.svc.cluster.local:9090"
         - name: FORTUNA_CLUSTER_ID
           value: "minikube"
         - name: FORTUNA_SYNC_INTERVAL
@@ -33,25 +36,25 @@ spec:
         - name: TLS_ENABLED
           value: "true"
         - name: TLS_CA_CERT_PATH
-          value: "/etc/ksam/ca-cert/ca.crt"
+          value: "/etc/fortuna/ca-cert/ca.crt"
         - name: TLS_CERT_PATH
-          value: "/etc/ksam/certs/tls.crt"
+          value: "/etc/fortuna/certs/tls.crt"
         - name: TLS_KEY_PATH
-          value: "/etc/ksam/certs/tls.key"
+          value: "/etc/fortuna/certs/tls.key"
         volumeMounts:
         - name: tls-certs
-          mountPath: /etc/ksam/certs
+          mountPath: /etc/fortuna/certs
           readOnly: true
         - name: ca-cert
-          mountPath: /etc/ksam/ca-cert
+          mountPath: /etc/fortuna/ca-cert
           readOnly: true
         resources:
           requests:
-            memory: "50Mi"
-            cpu: "50m"
+            memory: "512Mi"
+            cpu: "200m"
           limits:
-            memory: "100Mi"
-            cpu: "100m"
+            memory: "2Gi"
+            cpu: "1000m"
         securityContext:
           runAsNonRoot: true
           runAsUser: 1000
@@ -63,7 +66,7 @@ spec:
       volumes:
       - name: tls-certs
         secret:
-          secretName: ksam-agent-tls
+          secretName: fortuna-agent-tls
           items:
           - key: tls.crt
             path: tls.crt
@@ -71,7 +74,7 @@ spec:
             path: tls.key
       - name: ca-cert
         secret:
-          secretName: ksam-ca-cert
+          secretName: fortuna-ca-cert
           items:
           - key: ca.crt
             path: ca.crt

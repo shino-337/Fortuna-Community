@@ -21,7 +21,7 @@ spec:
         - containerPort: 80
         env:
         - name: VITE_API_URL
-          value: "http://ksam-core.ksam.svc.cluster.local:8080"
+          value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
         resources:
           requests:
             memory: "64Mi"

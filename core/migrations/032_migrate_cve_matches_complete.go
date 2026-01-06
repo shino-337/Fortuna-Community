@@ -55,9 +55,11 @@ func Migration032_MigrateCVEMatchesComplete(db *gorm.DB) error {
 		{"package_name", "VARCHAR(255)"},
 		{"package_version", "VARCHAR(100)"},
 		{"purl", "VARCHAR(500)"},
+		{"p_url", "VARCHAR(500)"}, // Alternative name for purl (used in some code paths)
 		{"pod_uid", "VARCHAR(255)"},
 		{"container_name", "VARCHAR(255)"},
 		{"matched_by", "VARCHAR(255)"},
+		{"cvss", "DECIMAL(4,1)"}, // CVSS score (standardized to DECIMAL(4,1))
 	}
 
 	for _, col := range newColumns {

@@ -23,7 +23,7 @@ BEGIN
     IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
         -- Upsert Pod vertex using Cypher (only if AGE available)
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MERGE (p:Pod {uid: $uid})
                 SET p.name = $name,
                     p.namespace = $namespace,
@@ -47,7 +47,7 @@ BEGIN
         -- Create edge to ServiceAccount if exists
         IF NEW.service_account_id IS NOT NULL THEN
             BEGIN
-                PERFORM * FROM cypher('ksam_graph', $$
+                PERFORM * FROM cypher('fortuna_graph', $$
                     MATCH (p:Pod {uid: $pod_uid})
                     MATCH (sa:ServiceAccount {id: $sa_id})
                     MERGE (p)-[r:USES_SERVICE_ACCOUNT]->(sa)
@@ -64,7 +64,7 @@ BEGIN
         -- Create edge to Namespace
         IF NEW.namespace IS NOT NULL THEN
             BEGIN
-                PERFORM * FROM cypher('ksam_graph', $$
+                PERFORM * FROM cypher('fortuna_graph', $$
                     MATCH (p:Pod {uid: $pod_uid})
                     MERGE (ns:Namespace {name: $namespace, cluster_name: $cluster_name})
                     MERGE (p)-[r:IN_NAMESPACE]->(ns)
@@ -82,7 +82,7 @@ BEGIN
     ELSIF TG_OP = 'DELETE' THEN
         -- Delete Pod vertex and relationships
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MATCH (p:Pod {uid: $uid})
                 DETACH DELETE p
             $$, jsonb_build_object('uid', OLD.uid::text)) AS (result agtype);
@@ -117,7 +117,7 @@ BEGIN
     
     IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MERGE (sa:ServiceAccount {id: $id})
                 SET sa.name = $name,
                     sa.namespace = $namespace,
@@ -138,7 +138,7 @@ BEGIN
         -- Create edge to Namespace
         IF NEW.namespace IS NOT NULL THEN
             BEGIN
-                PERFORM * FROM cypher('ksam_graph', $$
+                PERFORM * FROM cypher('fortuna_graph', $$
                     MATCH (sa:ServiceAccount {id: $sa_id})
                     MERGE (ns:Namespace {name: $namespace, cluster_name: $cluster_name})
                     MERGE (sa)-[r:IN_NAMESPACE]->(ns)
@@ -155,7 +155,7 @@ BEGIN
         
     ELSIF TG_OP = 'DELETE' THEN
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MATCH (sa:ServiceAccount {id: $id})
                 DETACH DELETE sa
             $$, jsonb_build_object('id', OLD.id::text)) AS (result agtype);
@@ -191,7 +191,7 @@ BEGIN
     IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
         -- Create RoleBinding vertex
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MERGE (rb:RoleBinding {uid: $uid})
                 SET rb.name = $name,
                     rb.namespace = $namespace,
@@ -210,7 +210,7 @@ BEGIN
         -- Create edges: ServiceAccount -> RoleBinding -> Role
         IF NEW.service_account_id IS NOT NULL THEN
             BEGIN
-                PERFORM * FROM cypher('ksam_graph', $$
+                PERFORM * FROM cypher('fortuna_graph', $$
                     MATCH (sa:ServiceAccount {id: $sa_id})
                     MATCH (rb:RoleBinding {uid: $rb_uid})
                     MERGE (sa)-[:BINDS_TO]->(rb)
@@ -226,7 +226,7 @@ BEGIN
         
         IF NEW.role_id IS NOT NULL THEN
             BEGIN
-                PERFORM * FROM cypher('ksam_graph', $$
+                PERFORM * FROM cypher('fortuna_graph', $$
                     MATCH (rb:RoleBinding {uid: $rb_uid})
                     MATCH (r:Role {id: $role_id})
                     MERGE (rb)-[:GRANTS_ROLE]->(r)
@@ -242,7 +242,7 @@ BEGIN
         
     ELSIF TG_OP = 'DELETE' THEN
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MATCH (rb:RoleBinding {uid: $uid})
                 DETACH DELETE rb
             $$, jsonb_build_object('uid', OLD.uid::text)) AS (result agtype);
@@ -277,7 +277,7 @@ BEGIN
     
     IF TG_OP = 'INSERT' OR TG_OP = 'UPDATE' THEN
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MERGE (r:Role {id: $id})
                 SET r.name = $name,
                     r.namespace = $namespace,
@@ -297,7 +297,7 @@ BEGIN
         
     ELSIF TG_OP = 'DELETE' THEN
         BEGIN
-            PERFORM * FROM cypher('ksam_graph', $$
+            PERFORM * FROM cypher('fortuna_graph', $$
                 MATCH (r:Role {id: $id})
                 DETACH DELETE r
             $$, jsonb_build_object('id', OLD.id::text)) AS (result agtype);

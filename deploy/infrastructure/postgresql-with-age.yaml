@@ -4,7 +4,7 @@ metadata:
   name: postgres-config
   namespace: fortuna
 data:
-  POSTGRES_DB: ksam
+  POSTGRES_DB: fortuna
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: postgres
 ---
@@ -16,7 +16,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: ""  # Use default storage class, or set to "local-path" if using local-path-provisioner
+  storageClassName: local-path  # Use default storage class with WaitForFirstConsumer mode
   resources:
     requests:
       storage: 20Gi
@@ -52,7 +52,7 @@ data:
             IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
                 LOAD 'age';
                 SET search_path = ag_catalog, "\$user", public;
-                PERFORM create_graph('ksam_graph');
+                PERFORM create_graph('fortuna_graph');
                 RAISE NOTICE 'Apache AGE initialized successfully';
             ELSE
                 RAISE NOTICE 'Apache AGE extension not available. Graph features disabled.';

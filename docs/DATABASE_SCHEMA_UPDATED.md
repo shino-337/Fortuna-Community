@@ -82,16 +82,17 @@ This document describes the complete database schema for the KSAM Platform, incl
 |--------|------|----------|-------------|
 | `id` | bigint | NO | Primary key |
 | `sbom_id` | bigint | NO | Foreign key to `sboms` |
-| `pod_uid` | varchar(255) | YES | Pod UID |
-| `container_name` | varchar(255) | YES | Container name |
+| `pod_uid` | varchar(255) | YES | Pod UID (from Agent) |
+| `container_name` | varchar(255) | YES | Container name (from Agent) |
 | `cve_id` | varchar(20) | NO | CVE identifier |
-| `package_name` | varchar(255) | NO | Package name |
+| `package_name` | varchar(255) | NO | Package name (direct from Agent) |
 | `package_version` | varchar(100) | YES | Installed version |
-| `purl` | text | YES | Package URL |
+| `purl` | varchar(500) | YES | Package URL (pkg:type/name@version) |
+| `p_url` | varchar(500) | YES | Alternative name for purl (used in some code paths) |
 | `severity` | varchar(20) | NO | CRITICAL, HIGH, MEDIUM, LOW |
-| `cvss` | real | YES | CVSS score |
-| `fixed_version` | varchar(100) | YES | Fixed version |
-| `matched_by` | varchar(100) | YES | Matcher identifier |
+| `cvss` | decimal(4,1) | YES | CVSS score (standardized) |
+| `fixed_version` | varchar(255) | YES | Fixed version |
+| `matched_by` | varchar(255) | YES | Matcher identifier (e.g., fortuna-core-cve-matcher) |
 | `matched_at` | timestamp | YES | Match timestamp |
 | `created_at` | timestamp | YES | Creation timestamp |
 | `updated_at` | timestamp | YES | Update timestamp |
@@ -154,7 +155,7 @@ This document describes the complete database schema for the KSAM Platform, incl
 - `ON CONFLICT DO UPDATE` used in batch upserts
 - Pre-insert deduplication prevents ON CONFLICT errors
 
-**Note**: `fixed_version` column does NOT exist in this table (removed from schema)
+**Note**: `fixed_version` column exists in this table (added for vulnerability insights)
 
 ---
 

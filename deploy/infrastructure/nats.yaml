@@ -7,49 +7,21 @@ data:
   nats.conf: |
     port: 4222
     http_port: 8222
-    # Single node mode - no cluster needed for 1 replica
+    # Cluster mode for 3 replicas with quorum support
+    cluster {
+      name: fortuna-nats-cluster
+      port: 6222
+      routes = [
+        nats://nats-0.nats.fortuna.svc.cluster.local:6222
+        nats://nats-1.nats.fortuna.svc.cluster.local:6222
+        nats://nats-2.nats.fortuna.svc.cluster.local:6222
+      ]
+    }
     jetstream {
+      store_dir: /data/jetstream
       max_mem: 2GB
       max_file: 10GB
     }
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: nats-pvc-0
-  namespace: fortuna
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 10Gi
-# PVCs for additional replicas (commented out for single replica setup)
-# Uncomment if scaling to 2-3 replicas
-# ---
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: nats-pvc-1
-#   namespace: fortuna
-# spec:
-#   accessModes:
-#     - ReadWriteOnce
-#   resources:
-#     requests:
-#       storage: 10Gi
-# ---
-# apiVersion: v1
-# kind: PersistentVolumeClaim
-# metadata:
-#   name: nats-pvc-2
-#   namespace: fortuna
-# spec:
-#   accessModes:
-#     - ReadWriteOnce
-#   resources:
-#     requests:
-#       storage: 10Gi
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -58,7 +30,7 @@ metadata:
   namespace: fortuna
 spec:
   serviceName: nats
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app: nats
@@ -78,7 +50,19 @@ spec:
           port: 4222
           http_port: 8222
           server_name: ${POD_NAME}
-          # Single node mode - no cluster needed for 1 replica
+          # Cluster mode for 3 replicas
+          # Only connect to other pods (not self)
+          cluster {
+            name: fortuna-nats-cluster
+            port: 6222
+            routes = [
+              nats://nats-0.nats.fortuna.svc.cluster.local:6222
+              nats://nats-1.nats.fortuna.svc.cluster.local:6222
+              nats://nats-2.nats.fortuna.svc.cluster.local:6222
+            ]
+            # Cluster will auto-connect to available routes
+            no_advertise: false
+          }
           jetstream {
             store_dir: /data/jetstream
             max_mem: 2GB
@@ -91,25 +75,22 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
         ports:
         - containerPort: 4222
           name: client
         - containerPort: 8222
           name: monitor
+        - containerPort: 6222
+          name: cluster
         volumeMounts:
         - name: config
           mountPath: /etc/nats
         - name: data
           mountPath: /data/jetstream
-        env:
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
         resources:
           requests:
             memory: "512Mi"
@@ -127,6 +108,7 @@ spec:
     spec:
       accessModes:
       - ReadWriteOnce
+      storageClassName: local-path
       resources:
         requests:
           storage: 10Gi
@@ -147,4 +129,23 @@ spec:
   - port: 8222
     targetPort: 8222
     name: monitor
-
+  - port: 6222
+    targetPort: 6222
+    name: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-client
+  namespace: fortuna
+spec:
+  type: ClusterIP
+  selector:
+    app: nats
+  ports:
+  - port: 4222
+    targetPort: 4222
+    name: client
+  - port: 8222
+    targetPort: 8222
+    name: monitor

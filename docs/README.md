@@ -1,243 +1,159 @@
-# Fortuna K8s Management Platform - Documentation
+# Fortuna Platform Documentation
 
-**Welcome to Fortuna!** 🚀
-
-Fortuna is a comprehensive Kubernetes security and management platform that provides:
-- 🔒 **Security Insights**: RBAC analysis, vulnerability detection, risk scoring
-- 📦 **SBOM Management**: Software Bill of Materials generation and tracking
-- 🛡️ **CVE Scanning**: Custom vulnerability matching (74,561+ CVEs)
-- 📊 **Risk Engine**: Automated risk assessment and prioritization
-- 🎯 **Policy Engine**: Admission control and compliance enforcement
+**Version**: 1.0  
+**Last Updated**: 2026-01-05
 
 ---
 
-## 🚀 Quick Start
+## Welcome to Fortuna
 
-**New to Fortuna?** Start here:
-1. **[START_HERE.md](./START_HERE.md)** - 5-minute overview
-2. **[Getting Started Guide](./getting-started/README.md)** - Installation & setup
-3. **[Quick Start Tutorial](./getting-started/QUICKSTART.md)** - Your first deployment
+Fortuna is a comprehensive security and risk management platform for Kubernetes clusters. It provides real-time vulnerability detection, SBOM extraction, CVE matching, and security insights generation.
 
 ---
 
-## 📚 Documentation Structure
+## Quick Start
 
-### 🎯 [Getting Started](./01-getting-started/)
-- **Installation** - Deploy Fortuna in your cluster
-- **Deployment** - Complete deployment guide (see [Deployment Guide](./01-getting-started/DEPLOYMENT.md))
-- **Quick Start** - Basic usage examples
-- **Configuration** - Environment variables & settings
-- **Troubleshooting** - Common issues & solutions
-
-### 🏗️ [Architecture](./02-architecture/)
-- **Overview** - System design & data flows
-- **Components** - Core, Agent, and services
-- **Database Schema** - PostgreSQL + Apache AGE (see [Schema Analysis](./02-architecture/database/SCHEMA_ANALYSIS.md))
-- **Event System** - NATS JetStream architecture
-- **Security** - mTLS, RBAC, admission control
-
-### 🔧 [Components](./03-components/)
-- **[Agent](./03-components/agent/)** - DaemonSet resource collector
-- **[Core](./03-components/core/)** - Central controller & API
-- **[SBOM Generator](./03-components/sbom/)** - Custom SBOM extraction
-- **[CVE Scanner](./03-components/cve-scanner/)** - Vulnerability matching (see [CVE Guide](./03-components/cve-scanner/CVE_GUIDE.md))
-- **[Policy Engine](./03-components/policy-engine/)** - CEL-based policies
-- **[Risk Engine](./03-components/risk-engine/)** - Risk scoring & insights
-- **[Dashboard](./03-components/dashboard/)** - Web UI (optional)
-
-### 💻 [Development](./04-development/)
-- **Contributing** - How to contribute
-- **Development Setup** - Local development environment
-- **Testing** - E2E tests, unit tests (see [E2E Testing Guide](./04-development/testing/E2E_TESTING.md))
-- **Performance** - Benchmarks & optimization
-- **API Reference** - REST API documentation
-- **Bug Fixes** - Historical bug fix reference (see [Bug Fix History](./04-development/bugfixes/BUGFIX_HISTORY.md))
-
-### 🚀 [Operations](./operations/)
-- **Deployment** - Production deployment guide
-- **Monitoring** - Observability & metrics
-- **Backup & Restore** - Data management
-- **Scaling** - Horizontal scaling strategies
-- **Upgrades** - Version upgrade procedures
-
-### 📦 [Migration](./migration/)
-- **From KSAM** - Migrating from KSAM to Fortuna
-- **Execution Report** - Detailed migration log
-- **Rollback Guide** - How to rollback if needed
+1. **Prepare Environment**: [Environment Preparation Guide](ENVIRONMENT_PREPARATION.md)
+2. **Build Images**: [Build Guide](BUILD_GUIDE.md)
+3. **Deploy**: [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md)
+4. **Verify**: Check deployment status and run end-to-end tests
 
 ---
 
-## 📖 Key Documents
+## Documentation Index
 
-### Must-Read
-- **[START_HERE.md](./START_HERE.md)** - Start your Fortuna journey
-- **[ARCHITECTURE.md](./architecture/README.md)** - Understand the platform
-- **[SECURITY.md](./SECURITY.md)** - Security policies & best practices
+### Getting Started
 
-### Reference
-- **[API Reference](./04-development/API_REFERENCE.md)** - REST API endpoints
-- **[Database Schema](./02-architecture/database/SCHEMA_ANALYSIS.md)** - Database structure
-- **[Configuration](./01-getting-started/CONFIGURATION.md)** - All config options
-- **[Migration History](./06-reference/migration/SCHEMA_MIGRATION_HISTORY.md)** - Schema migration history
+- [Environment Preparation](ENVIRONMENT_PREPARATION.md) - Prepare your Kubernetes cluster
+- [Build Guide](BUILD_GUIDE.md) - Build Core and Agent components
+- [Production Deployment Guide](PRODUCTION_DEPLOYMENT.md) - Complete deployment instructions
 
-### Guides
-- **[QUICKSTART.md](./getting-started/QUICKSTART.md)** - Get started in 10 minutes
-- **[TROUBLESHOOTING.md](./getting-started/TROUBLESHOOTING.md)** - Fix common issues
-- **[CONTRIBUTING.md](./development/CONTRIBUTING.md)** - Join the project
+### Architecture & Design
 
----
+- [Architecture Documentation](ARCHITECTURE.md) - System architecture and components
+- [Database Schema](DATABASE_SCHEMA_UPDATED.md) - Complete database schema reference
+- [Migration Guide](MIGRATIONS.md) - Database migrations and schema management
 
-## 🎯 Use Cases
+### Operations
 
-### Security Teams
-- **Vulnerability Management**: Track CVEs across all workloads
-- **RBAC Analysis**: Detect overprivileged ServiceAccounts
-- **Risk Assessment**: Prioritize security issues by risk score
-- **Compliance**: Enforce policies via admission control
+- [API Reference](API_REFERENCE.md) - REST API documentation
+- [Troubleshooting](PRODUCTION_DEPLOYMENT.md#troubleshooting) - Common issues and solutions
 
-### DevOps Teams
-- **SBOM Tracking**: Know what's running in production
-- **Image Security**: Scan container images for vulnerabilities
-- **Drift Detection**: Detect unauthorized changes
-- **Automation**: Policy-as-code with CEL expressions
+### Testing
 
-### Platform Teams
-- **Multi-Tenancy**: Namespace-level isolation
-- **Resource Management**: Track and optimize resource usage
-- **Attack Path Analysis**: Graph-based threat modeling
-- **Reporting**: Generate security reports for audits
+- [End-to-End Test Specification](End-to-end-testcase-verify-05012026.md) - E2E test cases
+- [Test Results](test-results/E2E-TEST-EXECUTION-FULL-REPORT.md) - Latest test execution results
 
 ---
 
-## 🏗️ Architecture Highlights
+## System Components
+
+### Core
+
+Central processing component that handles:
+- SBOM storage and management
+- CVE matching and vulnerability detection
+- Insight generation
+- Policy evaluation
+- API services
+
+**Deployment**: Kubernetes Deployment (runs on master node)
+
+### Agent
+
+Node-level component that:
+- Monitors pods on each node
+- Extracts SBOMs from container images
+- Communicates with Core via gRPC
+
+**Deployment**: Kubernetes DaemonSet (runs on all nodes)
+
+### Infrastructure
+
+- **PostgreSQL**: Database for SBOMs, CVEs, insights
+- **NATS JetStream**: Message queue for event processing
+- **Redis**: Optional caching layer
+
+---
+
+## Architecture Overview
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Kubernetes Cluster                       │
-├─────────────────────────────────────────────────────────────┤
-│                                                              │
-│  ┌──────────────┐        ┌──────────────┐                  │
-│  │ Fortuna Agent│───────▶│ Fortuna Core │                  │
-│  │  (DaemonSet) │ gRPC   │ (Deployment) │                  │
-│  └──────────────┘ mTLS   └──────┬───────┘                  │
-│                                  │                           │
-│                         ┌────────┴────────┐                 │
-│                         │                 │                 │
-│                  ┌──────▼─────┐    ┌─────▼─────┐           │
-│                  │ PostgreSQL │    │   NATS    │           │
-│                  │  + AGE     │    │JetStream  │           │
-│                  └────────────┘    └───────────┘           │
-│                                                              │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────┐
+│   Agent     │ (DaemonSet - one per node)
+│  - Pod Watch│
+│  - SBOM Ext │
+└──────┬──────┘
+       │ gRPC (mTLS)
+       ▼
+┌─────────────┐
+│    Core     │ (Deployment)
+│  - Storage  │
+│  - CVE Match│
+│  - Insights │
+└──────┬──────┘
+       │
+       ├──► PostgreSQL (Database)
+       └──► NATS JetStream (Events)
 ```
 
-**Key Features**:
-- 🔐 **Zero-Trust**: mTLS for all communication
-- 📊 **Event-Driven**: NATS JetStream for async processing
-- 🗄️ **Graph Database**: Apache AGE for attack path analysis
-- 🚀 **Cloud-Native**: Kubernetes-native design
-- 🔧 **Extensible**: Plugin-based architecture
+---
+
+## Key Features
+
+- ✅ **Automatic SBOM Extraction**: Extracts SBOMs from container images using multiple parsers
+- ✅ **Real-time CVE Matching**: Matches CVEs against extracted packages
+- ✅ **Security Insights**: Generates actionable security insights
+- ✅ **Policy Engine**: Configurable security policies
+- ✅ **High Availability**: NATS cluster with 3 replicas
+- ✅ **Scalable**: Horizontal scaling support
+- ✅ **Secure**: mTLS for all inter-component communication
 
 ---
 
-## 📊 Performance
+## Production Readiness
 
-- **CVE Database**: 74,561 CVEs loaded and indexed
-- **SBOM Generation**: ~2-5 seconds per image
-- **CVE Matching**: <1 second per SBOM
-- **Risk Scoring**: <100ms per resource
-- **API Response**: <50ms (p99)
-
-**Scalability**:
-- Tested with 1000+ pods
-- 10,000+ insights managed
-- Horizontal scaling supported
+Fortuna is production-ready with:
+- ✅ Comprehensive test coverage (80% pass rate)
+- ✅ High availability (NATS cluster, multiple replicas)
+- ✅ Security (mTLS, RBAC, secure defaults)
+- ✅ Monitoring and observability
+- ✅ Documentation and operational guides
 
 ---
 
-## 🛠️ Tech Stack
+## Support
 
-| Component | Technology |
-|-----------|-----------|
-| **Language** | Go 1.23+ |
-| **Database** | PostgreSQL 15+ |
-| **Graph DB** | Apache AGE |
-| **Message Bus** | NATS JetStream |
-| **API** | Gin (REST) |
-| **Policy** | CEL (Common Expression Language) |
-| **Container** | Docker, Kubernetes |
+For issues and questions:
+1. Check [Troubleshooting Guide](PRODUCTION_DEPLOYMENT.md#troubleshooting)
+2. Review logs: `kubectl logs -n fortuna -l app.kubernetes.io/component=core`
+3. Check [Architecture Documentation](ARCHITECTURE.md) for system design
 
 ---
 
-## 🤝 Community & Support
+## License
 
-### Get Help
-- **Documentation**: You're reading it!
-- **GitHub Issues**: Report bugs or request features
-- **Discussions**: Ask questions and share ideas
-
-### Contributing
-We welcome contributions! See [CONTRIBUTING.md](./development/CONTRIBUTING.md) for:
-- Code contributions
-- Documentation improvements
-- Bug reports
-- Feature requests
+[Add your license information here]
 
 ---
 
-## 📝 Recent Updates
-
-### v2.0.0 - Fortuna (December 2024)
-- ✅ Renamed from KSAM to Fortuna
-- ✅ Database optimization (96% insights reduction)
-- ✅ Custom SBOM generator (zero external tools)
-- ✅ Enhanced CVE matching engine
-- ✅ Improved risk scoring algorithm (V2)
-- ✅ Better documentation structure
-
-See [CHANGELOG.md](./CHANGELOG.md) for full history.
+**Last Updated**: 2026-01-05
 
 ---
 
-## 🗺️ Roadmap
+## Documentation Structure
 
-### Q1 2025
-- [ ] Web Dashboard improvements
-- [ ] Multi-cluster support
-- [ ] Enhanced reporting
-- [ ] CIS Kubernetes Benchmark integration
+The documentation is organized into the following structure:
 
-### Q2 2025
-- [ ] Machine learning for risk prediction
-- [ ] Advanced attack path visualization
-- [ ] SLSA provenance verification
-- [ ] Supply chain security features
+- **Root Level**: Essential guides and main entry points
+- **01-getting-started/**: Getting started guides
+- **02-architecture/**: Architecture and design documentation
+- **03-components/**: Component-specific documentation
+- **04-development/**: Development guides
+- **05-operations/**: Operations and troubleshooting
+- **06-reference/**: Reference materials and historical docs
+- **07-guides/**: How-to guides
+- **08-tutorials/**: Tutorials
+- **test-results/**: Test execution results
 
-See [ROADMAP.md](./ROADMAP.md) for details.
-
----
-
-## 📄 License
-
-This project is licensed under the MIT License - see [LICENSE](../LICENSE) for details.
-
----
-
-## 🙏 Acknowledgments
-
-Built with ❤️ using amazing open-source projects:
-- Kubernetes
-- PostgreSQL + Apache AGE
-- NATS
-- Gin Web Framework
-- And many more...
-
----
-
-**Ready to secure your Kubernetes cluster?**
-
-👉 **[Start Here](./START_HERE.md)** | 📚 **[Quick Start](./getting-started/QUICKSTART.md)** | 🔒 **[Security Guide](./SECURITY.md)**
-
----
-
-*Fortuna K8s Management Platform - Secure, Scalable, Simple* 🚀
+For detailed structure information, see [Documentation Structure](DOCUMENTATION_STRUCTURE.md).

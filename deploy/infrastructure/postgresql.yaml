@@ -4,7 +4,7 @@ metadata:
   name: postgres-config
   namespace: fortuna
 data:
-  POSTGRES_DB: ksam
+  POSTGRES_DB: fortuna
   POSTGRES_USER: postgres
   POSTGRES_PASSWORD: postgres
 ---
@@ -16,6 +16,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteOnce
+  storageClassName: local-path
   resources:
     requests:
       storage: 20Gi

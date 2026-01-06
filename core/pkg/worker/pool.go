@@ -122,6 +122,41 @@ func (p *Pool) runWorker(worker Worker, id int) {
 	// Get load tracker for this worker type
 	tracker := p.getOrCreateLoadTracker(worker.Name())
 
+	// For WorkQueuePolicy streams, we can only have ONE consumer per stream
+	// So we create only the first worker (id=0) for WorkQueuePolicy streams
+	// Other workers will be skipped to avoid "filtered consumer not unique" error
+	streamName := getStreamNameFromSubject(worker.Subject())
+	isWorkQueueStream := streamName == "fortuna-raw" || streamName == "fortuna-normalized"
+	if isWorkQueueStream && id > 0 {
+		log.Printf("[WorkerPool] Skipping worker %s-%d: WorkQueuePolicy stream '%s' only allows one consumer", worker.Name(), id, streamName)
+		// Wait for context cancellation without subscribing
+		<-p.ctx.Done()
+		return
+	}
+	
+	// For WorkQueuePolicy streams, also ensure we don't create multiple consumers
+	// by using a durable consumer name that's unique per worker type but same for all instances
+	// This ensures only one consumer exists even if multiple workers try to subscribe
+	var durableName string
+	if isWorkQueueStream {
+		// Use worker type name as durable name (same for all instances of this worker type)
+		durableName = fmt.Sprintf("fortuna-%s-worker", worker.Name())
+	} else {
+		// For non-WorkQueue streams, use unique durable name per worker instance
+		durableName = fmt.Sprintf("fortuna-%s-worker-%d", worker.Name(), id)
+	}
+
+	opts := []nats.SubOpt{
+		nats.ManualAck(),
+		nats.DeliverAll(),
+		nats.MaxAckPending(10),
+	}
+	
+	// For WorkQueuePolicy streams, use durable consumer to ensure only one consumer exists
+	if isWorkQueueStream {
+		opts = append(opts, nats.Durable(durableName))
+	}
+
 	sub, err := p.js.Subscribe(worker.Subject(), func(msg *nats.Msg) {
 		start := time.Now()
 
@@ -227,7 +262,7 @@ func (p *Pool) runWorker(worker Worker, id int) {
 		} else {
 			log.Printf("[WorkerPool] Worker %s-%d processed message in %v", worker.Name(), id, duration)
 		}
-	}, nats.Durable(fmt.Sprintf("%s-worker-%d", worker.Name(), id)), nats.ManualAck())
+	}, opts...)
 
 	if err != nil {
 		log.Printf("[WorkerPool] Failed to subscribe worker %s-%d: %v", worker.Name(), id, err)

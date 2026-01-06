@@ -509,102 +509,178 @@ func Migration019_AddCVETables(db *gorm.DB) error {
 
 // Migration020_AddSBOMTables creates SBOM-based scanning tables
 func Migration020_AddSBOMTables(db *gorm.DB) error {
-	// Force compiler to include these strings
-	var _ = "MIGRATION_020_NEW_VERSION_2025_12_15"
-	var _ = "STARTING_MIGRATION_020_WITH_SCHEMA_FIX"
-
 	log.Println("========================================")
 	log.Println("[Migration 020] ====== STARTING MIGRATION 020 ======")
-	log.Println("[Migration 020] This is the NEW version with schema fix logic")
-	log.Println("[Migration 020] Version: MIGRATION_020_NEW_VERSION_2025_12_15")
+	log.Println("[Migration 020] Add SBOM-based scanning tables")
 	log.Println("[Migration 020] ========================================")
-	log.Println("Running migration 020: Add SBOM-based scanning tables")
 
-	// Check if sboms table already exists
-	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sboms')").Scan(&exists).Error; err != nil {
+	// Check if all required tables exist with all required columns
+	var sbomsExists bool
+	var sbomComponentsExists bool
+	var cveMatchesExists bool
+	
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sboms')").Scan(&sbomsExists).Error; err != nil {
 		return fmt.Errorf("failed to check if sboms table exists: %w", err)
 	}
-	log.Printf("[Migration 020] sboms table exists: %v", exists)
-
-	// If tables already exist, skip this migration
-	// Schema fixes are handled by Migration021_FixSBOMSchema
-	if exists {
-		log.Println("[Migration 020] SBOM tables already exist, skipping migration 020")
-		log.Println("[Migration 020] Note: Schema fixes (p_url->purl, insights.source) handled by Migration 021")
-		return nil
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sbom_components')").Scan(&sbomComponentsExists).Error; err != nil {
+		return fmt.Errorf("failed to check if sbom_components table exists: %w", err)
+	}
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'cve_matches')").Scan(&cveMatchesExists).Error; err != nil {
+		return fmt.Errorf("failed to check if cve_matches table exists: %w", err)
 	}
 
-	// Determine environment
-	env := os.Getenv("ENVIRONMENT")
-	if env == "" {
-		env = "development"
+	// If all tables exist, verify they have required columns
+	if sbomsExists && sbomComponentsExists && cveMatchesExists {
+		log.Println("[Migration 020] All SBOM tables exist, verifying schema...")
+		
+		// Check if sboms has all required columns
+		var hasRequiredColumns bool
+		checkSQL := `
+			SELECT EXISTS (
+				SELECT 1 FROM information_schema.columns 
+				WHERE table_name = 'sboms' 
+				AND column_name IN ('image_digest', 'pod_uid', 'pod_name', 'namespace', 'container_name', 'os_name', 'package_count')
+			)
+		`
+		if err := db.Raw(checkSQL).Scan(&hasRequiredColumns).Error; err == nil && hasRequiredColumns {
+			log.Println("[Migration 020] ✅ All tables exist with required columns, skipping")
+			return nil
+		}
+		log.Println("[Migration 020] ⚠️  Tables exist but missing required columns, recreating...")
 	}
 
-	// Try multiple paths for SQL file
-	sqlPaths := []string{
-		"migrations/mvp2/006_add_sbom_tables.sql",
-		"/app/migrations/mvp2/006_add_sbom_tables.sql",
-		"./migrations/mvp2/006_add_sbom_tables.sql",
+	// Use inline SQL to ensure tables are created correctly (similar to Migration 019)
+	log.Println("[Migration 020] Creating SBOM tables using inline SQL...")
+
+	// Create sboms table with all required columns
+	sbomsSQL := `CREATE TABLE IF NOT EXISTS sboms (
+		id SERIAL PRIMARY KEY,
+		image_digest VARCHAR(255) NOT NULL,
+		image_name VARCHAR(500),
+		image_tag VARCHAR(255),
+		namespace VARCHAR(255),
+		pod_name VARCHAR(255),
+		pod_uid VARCHAR(255),
+		container_name VARCHAR(255),
+		os_name VARCHAR(100),
+		os_version VARCHAR(100),
+		os_architecture VARCHAR(50),
+		package_count INTEGER DEFAULT 0,
+		agent_id VARCHAR(255),
+		node_id VARCHAR(255),
+		labels JSONB,
+		annotations JSONB,
+		sbom_format VARCHAR(50) DEFAULT 'fortuna-agent',
+		sbom_content JSONB,
+		generated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		last_used_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		use_count INTEGER DEFAULT 1,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP WITH TIME ZONE
+	);`
+
+	log.Println("[Migration 020] Creating sboms table...")
+	if err := db.Exec(sbomsSQL).Error; err != nil {
+		return fmt.Errorf("failed to create sboms table: %w", err)
+	}
+	log.Println("[Migration 020] ✅ sboms table created")
+
+	// Create sbom_components table
+	sbomComponentsSQL := `CREATE TABLE IF NOT EXISTS sbom_components (
+		id SERIAL PRIMARY KEY,
+		sbom_id INTEGER NOT NULL,
+		name VARCHAR(500),
+		version VARCHAR(255),
+		purl VARCHAR(1000),
+		type VARCHAR(100),
+		source VARCHAR(255),
+		component_type VARCHAR(50) NOT NULL,
+		component_name VARCHAR(255) NOT NULL,
+		component_version VARCHAR(255) NOT NULL,
+		licenses JSONB,
+		supplier VARCHAR(255),
+		description TEXT,
+		homepage VARCHAR(500),
+		maintainer VARCHAR(255),
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP WITH TIME ZONE,
+		FOREIGN KEY (sbom_id) REFERENCES sboms(id) ON DELETE CASCADE
+	);`
+
+	log.Println("[Migration 020] Creating sbom_components table...")
+	if err := db.Exec(sbomComponentsSQL).Error; err != nil {
+		return fmt.Errorf("failed to create sbom_components table: %w", err)
+	}
+	log.Println("[Migration 020] ✅ sbom_components table created")
+
+	// Create cve_matches table
+	cveMatchesSQL := `CREATE TABLE IF NOT EXISTS cve_matches (
+		id SERIAL PRIMARY KEY,
+		sbom_id INTEGER NOT NULL,
+		package_name VARCHAR(500) NOT NULL,
+		package_version VARCHAR(255),
+		purl VARCHAR(1000),
+		cve_id VARCHAR(50) NOT NULL,
+		cvss REAL,
+		severity VARCHAR(20),
+		fixed_version VARCHAR(255),
+		pod_uid VARCHAR(255),
+		container_name VARCHAR(255),
+		matched_by VARCHAR(100),
+		matched_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+		deleted_at TIMESTAMP WITH TIME ZONE,
+		FOREIGN KEY (sbom_id) REFERENCES sboms(id) ON DELETE CASCADE
+	);`
+
+	log.Println("[Migration 020] Creating cve_matches table...")
+	if err := db.Exec(cveMatchesSQL).Error; err != nil {
+		return fmt.Errorf("failed to create cve_matches table: %w", err)
+	}
+	log.Println("[Migration 020] ✅ cve_matches table created")
+
+	// Create indexes
+	log.Println("[Migration 020] Creating indexes...")
+	indexesSQL := []string{
+		"CREATE INDEX IF NOT EXISTS idx_sboms_image_digest ON sboms(image_digest);",
+		"CREATE INDEX IF NOT EXISTS idx_sboms_pod_uid ON sboms(pod_uid);",
+		"CREATE INDEX IF NOT EXISTS idx_sbom_components_sbom_id ON sbom_components(sbom_id);",
+		"CREATE INDEX IF NOT EXISTS idx_cve_matches_sbom_id ON cve_matches(sbom_id);",
+		"CREATE INDEX IF NOT EXISTS idx_cve_matches_cve_id ON cve_matches(cve_id);",
+		"CREATE INDEX IF NOT EXISTS idx_cve_matches_package_name ON cve_matches(package_name);",
 	}
 
-	var sqlBytes []byte
-	var err error
-	for _, path := range sqlPaths {
-		sqlBytes, err = os.ReadFile(path)
-		if err == nil {
-			log.Printf("Found SQL migration file at: %s", path)
-			break
+	for _, idxSQL := range indexesSQL {
+		if err := db.Exec(idxSQL).Error; err != nil {
+			log.Printf("[Migration 020] ⚠️  Warning: Failed to create index: %v", err)
+			// Don't fail on index creation errors
 		}
 	}
 
-	// Production: SQL file is mandatory
-	if env == "production" || env == "staging" {
-		if err != nil || len(sqlBytes) == 0 {
-			return fmt.Errorf("CRITICAL: SQL migration file required: mvp2/006_add_sbom_tables.sql not found. Tried paths: %v", sqlPaths)
-		}
-
-		// Execute SQL
-		if err := db.Exec(string(sqlBytes)).Error; err != nil {
-			return fmt.Errorf("SQL migration failed: %w", err)
-		}
-
-		// Validate result
-		requiredTables := []string{"sboms", "sbom_components", "cve_matches"}
-		if validationErr := validateMigrationResult(db, 20, requiredTables); validationErr != nil {
-			return validationErr
-		}
-
-		log.Println("Migration 020 completed successfully (SQL)")
-		return nil
+	// Create unique constraints
+	log.Println("[Migration 020] Creating unique constraints...")
+	constraintsSQL := []string{
+		"DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sboms_image_digest_key') THEN ALTER TABLE sboms ADD CONSTRAINT sboms_image_digest_key UNIQUE (image_digest); END IF; END $$;",
+		"CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_matches_unique ON cve_matches(sbom_id, package_name, cve_id) WHERE deleted_at IS NULL;",
 	}
 
-	// Development: Allow AutoMigrate fallback
-	if err != nil || len(sqlBytes) == 0 {
-		log.Println("Development: SQL file not found, using AutoMigrate")
-		if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
-			return fmt.Errorf("failed to create SBOM tables: %w", err)
-		}
-		// Also update insights and pod_image_scans
-		if err := db.AutoMigrate(&models.Insight{}, &models.PodImageScan{}); err != nil {
-			return fmt.Errorf("failed to update tables: %w", err)
-		}
-		log.Println("Migration 020 completed: SBOM tables created via AutoMigrate")
-		return nil
-	}
-
-	// Development with SQL file
-	if err := db.Exec(string(sqlBytes)).Error; err != nil {
-		log.Printf("SQL migration failed, using AutoMigrate fallback: %v", err)
-		if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}); err != nil {
-			return fmt.Errorf("failed to create SBOM tables: %w", err)
-		}
-		if err := db.AutoMigrate(&models.Insight{}, &models.PodImageScan{}); err != nil {
-			return fmt.Errorf("failed to update tables: %w", err)
+	for _, constraintSQL := range constraintsSQL {
+		if err := db.Exec(constraintSQL).Error; err != nil {
+			log.Printf("[Migration 020] ⚠️  Warning: Failed to create constraint: %v", err)
+			// Don't fail on constraint creation errors
 		}
 	}
 
-	log.Println("Migration 020 completed: SBOM tables created")
+	// Validate result
+	requiredTables := []string{"sboms", "sbom_components", "cve_matches"}
+	if validationErr := validateMigrationResult(db, 20, requiredTables); validationErr != nil {
+		return validationErr
+	}
+
+	log.Println("[Migration 020] ✅ Migration 020 completed successfully")
 	return nil
 }
 

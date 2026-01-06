@@ -60,11 +60,13 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 		{"resource_namespace", "VARCHAR(255)"},
 		{"resource_name", "VARCHAR(255)"},
 		{"title", "VARCHAR(500)"},
-		{"recommendation", "TEXT"},
+		{"recommendation", "TEXT"}, // Remediation recommendation
 		{"affected_component", "VARCHAR(255)"},
 		{"affected_version", "VARCHAR(100)"},
-		{"cvss", "REAL"},
-		{"detected_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"},
+		{"fixed_version", "VARCHAR(255)"}, // Fixed version for vulnerabilities
+		{"cve_id", "VARCHAR(20)"},          // CVE ID for vulnerability insights
+		{"cvss", "REAL"},                   // CVSS score (standardized to REAL)
+		{"detected_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"}, // Detection timestamp
 	}
 
 	for _, col := range newColumns {

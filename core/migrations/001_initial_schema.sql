@@ -36,8 +36,8 @@ CREATE TABLE IF NOT EXISTS nodes (
     UNIQUE(cluster_id, node_name)
 );
 
-CREATE INDEX idx_nodes_cluster ON nodes(cluster_id);
-CREATE INDEX idx_nodes_name ON nodes(node_name);
+CREATE INDEX IF NOT EXISTS idx_nodes_cluster ON nodes(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_nodes_name ON nodes(node_name);
 
 -- Namespaces
 CREATE TABLE IF NOT EXISTS namespaces (
@@ -51,8 +51,8 @@ CREATE TABLE IF NOT EXISTS namespaces (
     UNIQUE(cluster_id, name)
 );
 
-CREATE INDEX idx_namespaces_cluster ON namespaces(cluster_id);
-CREATE INDEX idx_namespaces_name ON namespaces(name);
+CREATE INDEX IF NOT EXISTS idx_namespaces_cluster ON namespaces(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_namespaces_name ON namespaces(name);
 
 -- Service Accounts
 CREATE TABLE IF NOT EXISTS service_accounts (
@@ -70,9 +70,9 @@ CREATE TABLE IF NOT EXISTS service_accounts (
     UNIQUE(cluster_id, namespace, name)
 );
 
-CREATE INDEX idx_service_accounts_cluster ON service_accounts(cluster_id);
-CREATE INDEX idx_service_accounts_namespace ON service_accounts(namespace);
-CREATE INDEX idx_service_accounts_uid ON service_accounts(uid);
+CREATE INDEX IF NOT EXISTS idx_service_accounts_cluster ON service_accounts(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_service_accounts_namespace ON service_accounts(namespace);
+CREATE INDEX IF NOT EXISTS idx_service_accounts_uid ON service_accounts(uid);
 
 -- Pods
 CREATE TABLE IF NOT EXISTS pods (
@@ -144,8 +144,8 @@ CREATE TABLE IF NOT EXISTS roles (
     UNIQUE(cluster_id, namespace, name)
 );
 
-CREATE INDEX idx_roles_cluster ON roles(cluster_id);
-CREATE INDEX idx_roles_namespace ON roles(namespace);
+CREATE INDEX IF NOT EXISTS idx_roles_cluster ON roles(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_roles_namespace ON roles(namespace);
 
 -- Cluster Roles
 CREATE TABLE IF NOT EXISTS cluster_roles (
@@ -159,7 +159,7 @@ CREATE TABLE IF NOT EXISTS cluster_roles (
     UNIQUE(cluster_id, name)
 );
 
-CREATE INDEX idx_cluster_roles_cluster ON cluster_roles(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_cluster_roles_cluster ON cluster_roles(cluster_id);
 
 -- Role Bindings
 CREATE TABLE IF NOT EXISTS role_bindings (
@@ -175,8 +175,8 @@ CREATE TABLE IF NOT EXISTS role_bindings (
     UNIQUE(cluster_id, namespace, name)
 );
 
-CREATE INDEX idx_role_bindings_cluster ON role_bindings(cluster_id);
-CREATE INDEX idx_role_bindings_namespace ON role_bindings(namespace);
+CREATE INDEX IF NOT EXISTS idx_role_bindings_cluster ON role_bindings(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_role_bindings_namespace ON role_bindings(namespace);
 
 -- Cluster Role Bindings
 CREATE TABLE IF NOT EXISTS cluster_role_bindings (
@@ -191,7 +191,7 @@ CREATE TABLE IF NOT EXISTS cluster_role_bindings (
     UNIQUE(cluster_id, name)
 );
 
-CREATE INDEX idx_cluster_role_bindings_cluster ON cluster_role_bindings(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_cluster_role_bindings_cluster ON cluster_role_bindings(cluster_id);
 
 -- ============================================
 -- Insights & Policies
@@ -209,9 +209,9 @@ CREATE TABLE IF NOT EXISTS insights (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_insights_type ON insights(type);
-CREATE INDEX idx_insights_severity ON insights(severity);
-CREATE INDEX idx_insights_created ON insights(created_at);
+CREATE INDEX IF NOT EXISTS idx_insights_type ON insights(type);
+CREATE INDEX IF NOT EXISTS idx_insights_severity ON insights(severity);
+CREATE INDEX IF NOT EXISTS idx_insights_created ON insights(created_at);
 
 -- Policies
 CREATE TABLE IF NOT EXISTS policies (
@@ -226,8 +226,8 @@ CREATE TABLE IF NOT EXISTS policies (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_policies_type ON policies(type);
-CREATE INDEX idx_policies_status ON policies(status);
+CREATE INDEX IF NOT EXISTS idx_policies_type ON policies(type);
+CREATE INDEX IF NOT EXISTS idx_policies_status ON policies(status);
 
 -- ============================================
 -- Events (TimescaleDB)
@@ -249,10 +249,10 @@ CREATE TABLE IF NOT EXISTS events_index (
 -- SELECT create_hypertable('events_index', 'ts', if_not_exists => TRUE);
 -- For now, use regular table with index
 
-CREATE INDEX idx_events_cluster ON events_index(cluster_id);
-CREATE INDEX idx_events_node ON events_index(node_id);
-CREATE INDEX idx_events_pod ON events_index(pod_uid);
-CREATE INDEX idx_events_ts ON events_index(ts DESC);
+CREATE INDEX IF NOT EXISTS idx_events_cluster ON events_index(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_events_node ON events_index(node_id);
+CREATE INDEX IF NOT EXISTS idx_events_pod ON events_index(pod_uid);
+CREATE INDEX IF NOT EXISTS idx_events_ts ON events_index(ts DESC);
 
 -- ============================================
 -- Users & Audit
@@ -271,8 +271,8 @@ CREATE TABLE IF NOT EXISTS users (
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_users_username ON users(username);
-CREATE INDEX idx_users_email ON users(email);
+CREATE INDEX IF NOT EXISTS idx_users_username ON users(username);
+CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
 
 -- Audit Logs
 CREATE TABLE IF NOT EXISTS audit_logs (
@@ -288,11 +288,11 @@ CREATE TABLE IF NOT EXISTS audit_logs (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX idx_audit_cluster ON audit_logs(cluster_id);
-CREATE INDEX idx_audit_user ON audit_logs(user_id);
-CREATE INDEX idx_audit_action ON audit_logs(action);
-CREATE INDEX idx_audit_resource ON audit_logs(resource);
-CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_cluster ON audit_logs(cluster_id);
+CREATE INDEX IF NOT EXISTS idx_audit_user ON audit_logs(user_id);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_logs(action);
+CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_logs(resource);
+CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_logs(created_at DESC);
 
 -- ============================================
 -- Apache AGE Graph Schema
@@ -300,5 +300,5 @@ CREATE INDEX idx_audit_created ON audit_logs(created_at DESC);
 
 -- Note: Apache AGE graph creation requires AGE extension
 -- Will be created later when extension is installed
--- SELECT create_graph('ksam_graph');
+-- SELECT create_graph('fortuna_graph');
 
