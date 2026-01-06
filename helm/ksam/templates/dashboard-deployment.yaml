@@ -1,18 +1,18 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.dashboard.name | default "ksam-dashboard" }}
+  name: {{ .Values.dashboard.name | default "fortuna-dashboard" }}
   labels:
-    app: ksam-dashboard
+    app: fortuna-dashboard
 spec:
   replicas: {{ .Values.dashboard.replicaCount }}
   selector:
     matchLabels:
-      app: ksam-dashboard
+      app: fortuna-dashboard
   template:
     metadata:
       labels:
-        app: ksam-dashboard
+        app: fortuna-dashboard
     spec:
       containers:
       - name: dashboard

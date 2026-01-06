@@ -1,9 +1,9 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.dashboard.name | default "ksam-dashboard" }}
+  name: {{ .Values.dashboard.name | default "fortuna-dashboard" }}
   labels:
-    app: ksam-dashboard
+    app: fortuna-dashboard
 spec:
   type: {{ .Values.dashboard.service.type }}
   ports:
@@ -12,5 +12,5 @@ spec:
     protocol: TCP
     name: http
   selector:
-    app: ksam-dashboard
+    app: fortuna-dashboard
 

@@ -3,7 +3,7 @@ kind: DaemonSet
 metadata:
   name: {{ .Values.agent.name | default "ksam-agent" }}
   labels:
-    {{- include "ksam.labels" . | nindent 4 }}
+    {{- include "fortuna.labels" . | nindent 4 }}
     app: ksam-agent
 spec:
   selector:
@@ -20,13 +20,13 @@ spec:
         image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
         imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
         env:
-        - name: KSAM_CORE_ENDPOINT
+        - name: FORTUNA_CORE_ENDPOINT
           value: "{{ .Values.agent.coreEndpoint }}"
-        - name: KSAM_CLUSTER_ID
+        - name: FORTUNA_CLUSTER_ID
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        - name: KSAM_SYNC_INTERVAL
+        - name: FORTUNA_SYNC_INTERVAL
           value: "{{ .Values.agent.syncInterval }}"
         resources:
           {{- toYaml .Values.agent.resources | nindent 10 }}
