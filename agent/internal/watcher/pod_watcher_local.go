@@ -86,7 +86,10 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 				if pod.Status.Phase == corev1.PodRunning {
 					// Check if already processed to prevent duplicates
 					podUID := string(pod.UID)
-					if w.processedPods[podUID] {
+					w.mu.RLock()
+					_, alreadyProcessed := w.processedPods[podUID]
+					w.mu.RUnlock()
+					if alreadyProcessed {
 						w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
 						return
 					}
@@ -217,7 +220,10 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 		pod := item.(*corev1.Pod)
 		if pod.Status.Phase == corev1.PodRunning && len(pod.Spec.Containers) > 0 {
 			podUID := string(pod.UID)
-			if w.processedPods[podUID] {
+			w.mu.RLock()
+			_, alreadyProcessed := w.processedPods[podUID]
+			w.mu.RUnlock()
+			if alreadyProcessed {
 				w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
 				continue
 			}
