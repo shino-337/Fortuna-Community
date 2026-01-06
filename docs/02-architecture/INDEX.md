@@ -11,7 +11,7 @@ This directory contains the architectural documentation for Fortuna K8s Manageme
 ### Core Architecture
 - **[README.md](./README.md)** - Architecture overview and system design
 - **[DATA_FLOWS.md](./DATA_FLOWS.md)** - Data flow diagrams and explanations
-- **[DATABASE_SCHEMA.md](./DATABASE_SCHEMA.md)** - PostgreSQL + Apache AGE schema
+- **[Database Schema](./database/SCHEMA_ANALYSIS.md)** - PostgreSQL + Apache AGE schema
 - **[EVENT_SYSTEM.md](./EVENT_SYSTEM.md)** - NATS JetStream architecture
 
 ### Design Decisions
