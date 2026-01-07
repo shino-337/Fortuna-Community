@@ -15,7 +15,7 @@ NC='\033[0m'
 # Configuration
 CORE_IMAGE="${CORE_IMAGE:-fortuna-core:latest}"
 AGENT_IMAGE="${AGENT_IMAGE:-fortuna/agent:latest}"
-WORKER_NODES="${WORKER_NODES:-k8s-worker01}"
+WORKER_NODES="${WORKER_NODES:-192.168.56.101}"
 SSH_USER="${SSH_USER:-k8s}"
 SSH_PASS="${SSH_PASS:-k8s}"
 TEMP_DIR="${TEMP_DIR:-/tmp/fortuna-images}"
@@ -74,8 +74,12 @@ export_image() {
     # Create temp directory
     mkdir -p "$TEMP_DIR"
     
-    # Export using nerdctl
-    if nerdctl --namespace k8s.io save -o "$output_file" "$image_name" 2>/dev/null; then
+    # Export using ctr (containerd)
+    if ctr -n k8s.io images export "$output_file" "$image_name" 2>/dev/null; then
+        log_success "Image exported: $output_file"
+        return 0
+    # Fallback to nerdctl
+    elif nerdctl --namespace k8s.io save -o "$output_file" "$image_name" 2>/dev/null; then
         log_success "Image exported: $output_file"
         return 0
     else
@@ -122,7 +126,15 @@ import_on_worker() {
     
     # Try with sshpass if available, otherwise use SSH keys
     if command -v sshpass &> /dev/null && [ -n "$SSH_PASS" ]; then
-        if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "sudo ctr -n k8s.io images import $remote_file && sudo ctr -n k8s.io images tag $image_name $image_name" 2>/dev/null; then
+        if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images import $remote_file 2>&1 && echo '$SSH_PASS' | sudo -S ctr -n k8s.io images tag $(ctr -n k8s.io images import --help 2>&1 | head -1 || echo $image_name) $image_name 2>&1 || true" 2>&1; then
+            # Verify import
+            if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images ls | grep -q '$image_name'" 2>/dev/null; then
+                log_success "Image imported on $worker"
+                return 0
+            fi
+        fi
+        # Retry with simpler approach
+        if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images import $remote_file" 2>&1 | grep -v "password"; then
             log_success "Image imported on $worker"
             return 0
         fi
@@ -259,4 +271,5 @@ main() {
 }
 
 main "$@"
+
 

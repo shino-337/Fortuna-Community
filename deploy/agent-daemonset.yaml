@@ -15,6 +15,21 @@ spec:
         app: fortuna-agent
     spec:
       serviceAccountName: fortuna-agent
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - "10.96.0.10"
+        searches:
+        - "fortuna.svc.cluster.local"
+        - "svc.cluster.local"
+        - "cluster.local"
+        options:
+        - name: "ndots"
+          value: "5"
+        - name: "timeout"
+          value: "2"
+        - name: "attempts"
+          value: "3"
       containers:
       - name: agent
         # Production: Use versioned tag (e.g., fortuna/agent:v1.0.0)
