@@ -20,6 +20,21 @@ spec:
     spec:
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
+      dnsPolicy: ClusterFirst
+      dnsConfig:
+        nameservers:
+        - "10.96.0.10"
+        searches:
+        - "fortuna.svc.cluster.local"
+        - "svc.cluster.local"
+        - "cluster.local"
+        options:
+        - name: "ndots"
+          value: "5"
+        - name: "timeout"
+          value: "2"
+        - name: "attempts"
+          value: "3"
       containers:
       - name: core
         # Production: Use versioned tag (e.g., fortuna-core:v1.0.0)
