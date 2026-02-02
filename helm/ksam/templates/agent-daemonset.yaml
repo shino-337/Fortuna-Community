@@ -20,14 +20,17 @@ spec:
         image: "{{ .Values.agent.image.repository }}:{{ .Values.agent.image.tag }}"
         imagePullPolicy: {{ .Values.agent.image.pullPolicy }}
         env:
-        - name: FORTUNA_CORE_ENDPOINT
+        - name: CORE_GRPC_ENDPOINT
           value: "{{ .Values.agent.coreEndpoint }}"
-        - name: FORTUNA_CLUSTER_ID
+        - name: CORE_HTTP_ENDPOINT
+          value: 'http://{{ .Values.agent.coreHttpHost | default "fortuna-core.fortuna.svc.cluster.local" }}:{{ .Values.core.service.port | default "8080" }}'
+        - name: SYNC_INTERVAL
+          value: "{{ .Values.agent.syncInterval }}"
+        - name: NODE_NAME
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        - name: FORTUNA_SYNC_INTERVAL
-          value: "{{ .Values.agent.syncInterval }}"
+        # Cluster identity: auto-discovered from K8s API (kube-system UID). Optional override via agent.env.CLUSTER_ID / CLUSTER_NAME.
         resources:
           {{- toYaml .Values.agent.resources | nindent 10 }}
         securityContext:

@@ -10,6 +10,7 @@ Follow these steps in order for a successful deployment.
 - [ ] nerdctl and ctr available
 - [ ] openssl installed
 - [ ] Network connectivity between nodes (for multi-node clusters)
+- [ ] **Multi-node only:** Pod network (Flannel/CNI) working so pods on worker can reach pods on master (DNS and Core). If Agent on worker cannot reach Core, run: `./scripts/fix-flannel-vxlan.sh`
 
 ## Step-by-Step Deployment
 
@@ -205,7 +206,78 @@ bash scripts/load-cve-data.sh
 
 **Expected time**: 10-30 minutes depending on data size.
 
-### Step 12: Deploy Agent
+### Step 12: Configure DNS (Required for Multi-Node Clusters)
+
+**Important**: DNS configuration is critical for Agent-Core communication. Run the automated fix:
+
+```bash
+bash scripts/fix-dns-config.sh
+```
+
+**Verify**: Script should report:
+- ✅ CoreDNS ConfigMap updated
+- ✅ Agent DNS config verified
+- ✅ CoreDNS pods restarted
+- ✅ Agent pods restarted
+- ✅ DNS resolution test passed
+
+**Manual verification** (if script fails):
+```bash
+# Test DNS resolution
+kubectl run dns-test --image=busybox:1.35 --restart=Never -n fortuna --rm -i -- nslookup fortuna-core.fortuna.svc.cluster.local
+
+# Check Agent DNS config
+kubectl get daemonset -n fortuna fortuna-agent -o jsonpath='{.spec.template.spec.dnsConfig}' | grep -E "timeout|attempts"
+```
+
+**Expected**: 
+- DNS resolves to Core service IP
+- Agent DNS config: timeout >= 5s, attempts >= 5
+
+### Step 13: Fix Flannel VXLAN (Required for Multi-Node Clusters)
+
+**Critical**: For multi-node clusters, Flannel VXLAN tunnel must be properly configured to enable pod-to-pod communication between nodes.
+
+```bash
+bash scripts/fix-flannel-vxlan.sh
+```
+
+**Verify**: Script should report:
+- ✅ Flannel ConfigMap verified (Network: 10.244.0.0/16, Backend: vxlan)
+- ✅ Node PodCIDR assignments verified
+- ✅ Flannel DaemonSet restarted
+- ✅ Connectivity test passed (or warning if test inconclusive)
+
+**Manual verification** (if script fails):
+```bash
+# Check Flannel ConfigMap
+kubectl get configmap kube-flannel-cfg -n kube-flannel -o jsonpath='{.data.net-conf\.json}' | jq .
+
+# Check Node PodCIDR
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.podCIDR}{"\n"}{end}'
+
+# Check Flannel pods
+kubectl get pods -n kube-flannel -l app=flannel
+
+# On each node, verify VXLAN interface (requires SSH)
+ip addr show flannel.1
+# Should show: inet 10.244.x.0/32 (not just inet6)
+
+# On each node, verify routes (requires SSH)
+ip route | grep 10.244
+# Master should show: 10.244.1.0/24 via 10.244.1.0 dev flannel.1
+# Worker should show: 10.244.0.0/24 via 10.244.0.0 dev flannel.1
+```
+
+**Expected**: 
+- Flannel ConfigMap has correct Network and Backend
+- All nodes have PodCIDR assigned
+- VXLAN interfaces have IPv4 addresses
+- Routes between subnets exist via `flannel.1`
+
+**Note**: Wait 30-60 seconds after Flannel restart for VXLAN to fully initialize.
+
+### Step 14: Deploy Agent
 
 ```bash
 kubectl apply -f deploy/agent-daemonset.yaml
@@ -217,6 +289,19 @@ kubectl wait --for=condition=ready pod -l app=fortuna-agent -n fortuna --timeout
 kubectl get pods -n fortuna -l app=fortuna-agent
 # Should see 1 pod per node, all Running
 ```
+
+**Verify Agent Connection to Core**:
+```bash
+kubectl logs -n fortuna -l app=fortuna-agent --tail=20 | grep -E "Connected|Heartbeat"
+```
+
+**Expected**: Should see "✅ Connected to Core" or "Heartbeat successful" messages.
+
+**If Agent on worker node cannot connect**:
+- Wait 30-60 seconds after Flannel restart
+- Check Flannel VXLAN is working: `bash scripts/fix-flannel-vxlan.sh`
+- Check Agent logs: `kubectl logs -n fortuna -l app=fortuna-agent --tail=50`
+- Verify routes on nodes: `ip route | grep 10.244`
 
 ## Post-Deployment Verification
 
@@ -299,6 +384,7 @@ kubectl logs -n fortuna -l app=fortuna-agent --tail=50
 - ✅ "Heartbeat successful" or "Connected to Core"
 - ✅ "Registered with Core"
 - ✅ No connection errors
+- ❌ If you see DNS timeout errors, run: `bash scripts/fix-dns-config.sh`
 
 ### 7. Test Core API
 

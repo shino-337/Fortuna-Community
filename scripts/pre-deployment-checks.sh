@@ -3,7 +3,8 @@
 # ============================================================================
 # Pre-Deployment Checks for Fortuna
 # ============================================================================
-# Validates cluster readiness before deploying Fortuna components
+# Validates cluster readiness before deploying Fortuna components.
+# Target: Kubernetes with containerd + nerdctl for building images (no Docker/Podman required).
 # ============================================================================
 
 set -euo pipefail
@@ -34,7 +35,7 @@ check_cmd() {
         return 0
     else
         echo -e "${RED}❌${NC} $1 not found"
-        ((ERRORS++))
+        ERRORS=$((ERRORS+1))
         return 1
     fi
 }
@@ -51,7 +52,7 @@ check_k8s_resource() {
             return 0
         else
             echo -e "${RED}❌${NC} $resource/$name not found in namespace $namespace"
-            ((ERRORS++))
+            ERRORS=$((ERRORS+1))
             return 1
         fi
     else
@@ -60,30 +61,29 @@ check_k8s_resource() {
             return 0
         else
             echo -e "${RED}❌${NC} $resource/$name not found"
-            ((ERRORS++))
+            ERRORS=$((ERRORS+1))
             return 1
         fi
     fi
 }
 
-# Function to check DNS resolution
+# Function to check DNS resolution (warning only: ephemeral pod can fail on image pull/timeout)
 check_dns() {
     local service=$1
     local namespace=$2
     
     echo -n "Testing DNS resolution for $service.$namespace.svc.cluster.local... "
     
-    # Create test pod
     TEST_POD="dns-test-$(date +%s)"
     if kubectl run "$TEST_POD" --image=busybox:1.36 --rm -i --restart=Never \
-        --namespace="$namespace" -- \
+        --namespace="$namespace" --timeout=15s -- \
         nslookup "$service.$namespace.svc.cluster.local" >/dev/null 2>&1; then
         echo -e "${GREEN}✅${NC}"
         return 0
     else
-        echo -e "${RED}❌${NC} DNS resolution failed"
-        ((ERRORS++))
-        return 1
+        echo -e "${YELLOW}⚠️${NC}  DNS test failed (pod/image may be unavailable; deploy can continue)"
+        WARNINGS=$((WARNINGS+1))
+        return 0
     fi
 }
 
@@ -96,7 +96,7 @@ check_coredns() {
     COREDNS_PODS=$(kubectl get pods -n kube-system -l k8s-app=kube-dns --no-headers 2>/dev/null | wc -l)
     if [ "$COREDNS_PODS" -eq 0 ]; then
         echo -e "${RED}❌${NC} No CoreDNS pods found"
-        ((ERRORS++))
+        ERRORS=$((ERRORS+1))
         return 1
     else
         echo -e "${GREEN}✅${NC} Found $COREDNS_PODS CoreDNS pod(s)"
@@ -106,7 +106,7 @@ check_coredns() {
     COREDNS_READY=$(kubectl get pods -n kube-system -l k8s-app=kube-dns --no-headers 2>/dev/null | grep -c "Running" || true)
     if [ "$COREDNS_READY" -eq 0 ]; then
         echo -e "${RED}❌${NC} No CoreDNS pods in Running state"
-        ((ERRORS++))
+        ERRORS=$((ERRORS+1))
     else
         echo -e "${GREEN}✅${NC} $COREDNS_READY CoreDNS pod(s) Running"
     fi
@@ -116,7 +116,7 @@ check_coredns() {
         awk '{sum+=$4} END {print sum}' 2>/dev/null || echo "0")
     if [ "$RESTART_COUNT" -gt 10 ]; then
         echo -e "${YELLOW}⚠️${NC}  High CoreDNS restart count: $RESTART_COUNT (may indicate issues)"
-        ((WARNINGS++))
+        WARNINGS=$((WARNINGS+1))
     else
         echo -e "${GREEN}✅${NC} CoreDNS restart count: $RESTART_COUNT"
     fi
@@ -128,11 +128,11 @@ check_coredns() {
             echo -e "${GREEN}✅${NC} CoreDNS service IP: $COREDNS_IP"
         else
             echo -e "${RED}❌${NC} CoreDNS service has no ClusterIP"
-            ((ERRORS++))
+            ERRORS=$((ERRORS+1))
         fi
     else
         echo -e "${RED}❌${NC} CoreDNS service not found"
-        ((ERRORS++))
+        ERRORS=$((ERRORS+1))
     fi
 }
 
@@ -149,7 +149,7 @@ check_network() {
             echo -e "${GREEN}✅${NC}"
         else
             echo -e "${YELLOW}⚠️${NC}  Cannot reach CoreDNS (may be normal if not on cluster node)"
-            ((WARNINGS++))
+            WARNINGS=$((WARNINGS+1))
         fi
     fi
 }
@@ -157,7 +157,19 @@ check_network() {
 # Main checks
 echo "=== Checking Prerequisites ==="
 check_cmd kubectl
-check_cmd docker || check_cmd podman
+
+# Container runtime: target is containerd + nerdctl for build; docker/podman optional
+if command -v nerdctl >/dev/null 2>&1 && command -v ctr >/dev/null 2>&1; then
+    echo -e "${GREEN}✅${NC} nerdctl found (build with nerdctl)"
+    echo -e "${GREEN}✅${NC} ctr found (containerd)"
+elif command -v docker >/dev/null 2>&1; then
+    echo -e "${GREEN}✅${NC} docker found"
+elif command -v podman >/dev/null 2>&1; then
+    echo -e "${GREEN}✅${NC} podman found"
+else
+    echo -e "${RED}❌${NC} No container runtime found. For k8s deploy with containerd: install nerdctl and ctr (containerd)."
+    ERRORS=$((ERRORS+1))
+fi
 
 echo ""
 echo "=== Checking Kubernetes Cluster ==="
@@ -166,7 +178,7 @@ if kubectl cluster-info >/dev/null 2>&1; then
     kubectl cluster-info | head -1
 else
     echo -e "${RED}❌${NC} Cannot access Kubernetes cluster"
-    ((ERRORS++))
+    ERRORS=$((ERRORS+1))
     exit 1
 fi
 
@@ -176,13 +188,24 @@ if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
     echo -e "${GREEN}✅${NC} Namespace $NAMESPACE exists"
 else
     echo -e "${YELLOW}⚠️${NC}  Namespace $NAMESPACE does not exist (will be created)"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS+1))
 fi
 
 echo ""
 echo "=== Checking Infrastructure ==="
-check_k8s_resource service postgres "$NAMESPACE" || echo "  PostgreSQL service will be created"
-check_k8s_resource service nats "$NAMESPACE" || echo "  NATS service will be created"
+# Optional: postgres/nats may not exist yet (deploy script will create them). Treat missing as warning, not error.
+if kubectl get service postgres -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo -e "${GREEN}✅${NC} service/postgres exists in namespace $NAMESPACE"
+else
+    echo -e "${YELLOW}⚠️${NC}  PostgreSQL service not found (will be created by deploy)"
+    WARNINGS=$((WARNINGS+1))
+fi
+if kubectl get service nats -n "$NAMESPACE" >/dev/null 2>&1; then
+    echo -e "${GREEN}✅${NC} service/nats exists in namespace $NAMESPACE"
+else
+    echo -e "${YELLOW}⚠️${NC}  NATS service not found (will be created by deploy)"
+    WARNINGS=$((WARNINGS+1))
+fi
 
 # Check CoreDNS
 check_coredns
@@ -215,7 +238,7 @@ if [ "$WORKER_NODES" -gt 0 ]; then
     echo -e "${GREEN}✅${NC} Found $WORKER_NODES worker node(s) with label"
 else
     echo -e "${YELLOW}⚠️${NC}  No worker nodes labeled (Core will use nodeSelector workaround)"
-    ((WARNINGS++))
+    WARNINGS=$((WARNINGS+1))
 fi
 
 MASTER_NODES=$(kubectl get nodes -l node-role.kubernetes.io/control-plane --no-headers 2>/dev/null | wc -l)

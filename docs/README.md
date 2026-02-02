@@ -1,7 +1,7 @@
 # Fortuna Platform Documentation
 
-**Version**: 1.0  
-**Last Updated**: 2026-01-05
+**Version**: 2.0  
+**Last Updated**: 2026-01-29
 
 ---
 
@@ -31,6 +31,7 @@ Fortuna is a comprehensive security and risk management platform for Kubernetes 
 ### Architecture & Design
 
 - [Architecture Documentation](ARCHITECTURE.md) - System architecture and components
+- [Components Documentation](COMPONENTS.md) - Detailed component breakdown
 - [Database Schema](MIGRATIONS.md#database-schema) - Complete database schema reference
 - [Migration Guide](MIGRATIONS.md) - Database migrations and schema management
 
@@ -39,10 +40,15 @@ Fortuna is a comprehensive security and risk management platform for Kubernetes 
 - [API Reference](API_REFERENCE.md) - REST API documentation
 - [Troubleshooting](PRODUCTION_DEPLOYMENT.md#troubleshooting) - Common issues and solutions
 
+### Components
+
+- [Core Components Analysis](CORE_COMPONENTS_ANALYSIS.md) - Core component breakdown
+- [Agent Components Analysis](AGENT_COMPONENTS_ANALYSIS.md) - Agent component breakdown
+- [Agent-Core Flow](AGENT_CORE_FLOW.md) - Data flow between Agent and Core
+
 ### Testing
 
-- [End-to-End Test Specification](End-to-end-testcase-verify-05012026.md) - E2E test cases
-- [Test Results](test-results/E2E-TEST-EXECUTION-FULL-REPORT.md) - Latest test execution results
+- [Test Results](test-results/) - Latest test execution results
 
 ---
 
@@ -70,9 +76,9 @@ Node-level component that:
 
 ### Infrastructure
 
-- **PostgreSQL**: Database for SBOMs, CVEs, insights
-- **NATS JetStream**: Message queue for event processing
-- **Redis**: Optional caching layer
+- **PostgreSQL**: Database for SBOMs, CVEs, insights, capabilities, attack steps
+- **NATS JetStream**: Message queue for event processing (3-replica cluster)
+- **Metrics**: Core service exposes `/metrics` endpoint (Prometheus format)
 
 ---
 
@@ -104,10 +110,14 @@ Node-level component that:
 - ✅ **Automatic SBOM Extraction**: Extracts SBOMs from container images using multiple parsers
 - ✅ **Real-time CVE Matching**: Matches CVEs against extracted packages
 - ✅ **Security Insights**: Generates actionable security insights
-- ✅ **Policy Engine**: Configurable security policies
+- ✅ **Policy Engine**: Configurable security policies with CEL-based evaluation
+- ✅ **Pod Capability Engine (PCE)**: Runtime capability detection and attack step inference
+- ✅ **Attack Path Analysis**: Graph-based attack path visualization
+- ✅ **Runtime Signals**: Real-time security signal detection and correlation
 - ✅ **High Availability**: NATS cluster with 3 replicas
 - ✅ **Scalable**: Horizontal scaling support
 - ✅ **Secure**: mTLS for all inter-component communication
+- ✅ **Observability**: Metrics endpoint (`/metrics`) for Prometheus scraping
 
 ---
 
@@ -117,7 +127,7 @@ Fortuna is production-ready with:
 - ✅ Comprehensive test coverage (80% pass rate)
 - ✅ High availability (NATS cluster, multiple replicas)
 - ✅ Security (mTLS, RBAC, secure defaults)
-- ✅ Monitoring and observability
+- ✅ Observability (Prometheus metrics endpoint)
 - ✅ Documentation and operational guides
 
 ---
@@ -137,7 +147,7 @@ For issues and questions:
 
 ---
 
-**Last Updated**: 2026-01-05
+**Last Updated**: 2026-01-29
 
 ---
 

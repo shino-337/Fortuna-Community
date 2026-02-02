@@ -43,9 +43,6 @@ func NewLocalPodWatcher(clientset *kubernetes.Clientset, nodeName string, handle
 		processedPods: make(map[string]time.Time),
 	}
 	
-	// Start periodic cleanup goroutine to prevent memory leaks
-	go watcher.cleanupProcessedPods(ctx)
-	
 	return watcher
 }
 

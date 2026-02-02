@@ -63,12 +63,16 @@ func TestScorerV2_CalculateScore_WithInsights(t *testing.T) {
 
 	// Create test insight
 	insight := models.Insight{
-		Type:            "security",
-		Severity:        "critical",
-		Status:          "active",
-		AffectedResources: `[{"uid":"test-uid-123","name":"test-pod","namespace":"default","type":"Pod"}]`,
-		Description:     "Test critical security issue",
-		CreatedAt:       time.Now(),
+		ResourceType:      "Pod",
+		ResourceNamespace: "default",
+		ResourceName:      "test-pod",
+		ResourceUID:       "test-uid-123",
+		InsightType:       "security",
+		Severity:          "critical",
+		Title:             "Test critical security issue",
+		Description:       "Test critical security issue",
+		Status:            "active",
+		DetectedAt:        time.Now(),
 	}
 
 	if err := db.Create(&insight).Error; err != nil {
@@ -130,21 +134,21 @@ func TestScorerV2_SaveScore(t *testing.T) {
 
 	scorer := NewScorer(db)
 	score := &RiskScoreV2{
-		ResourceUID:          "test-uid-456",
-		ResourceType:         "Pod",
-		ResourceName:         "test-pod",
-		Namespace:            "default",
-		ClusterID:            "test-cluster",
-		BaseScore:            25.0,
-		ExploitabilityScore:  20.0,
-		BusinessImpactScore:  15.0,
-		TimeDecay:            0.9,
-		TotalScore:           54.0, // (25+20+15)*0.9
-		PriorityLevel:        "P2",
-		ScorerVersion:        "v2",
-		InsightsCount:        1,
-		HighestSeverity:      "critical",
-		Factors:              map[string]interface{}{"test": "value"},
+		ResourceUID:         "test-uid-456",
+		ResourceType:        "Pod",
+		ResourceName:        "test-pod",
+		Namespace:           "default",
+		ClusterID:           "test-cluster",
+		BaseScore:           25.0,
+		ExploitabilityScore: 20.0,
+		BusinessImpactScore: 15.0,
+		TimeDecay:           0.9,
+		TotalScore:          54.0, // (25+20+15)*0.9
+		PriorityLevel:       "P2",
+		ScorerVersion:       "v2",
+		InsightsCount:       1,
+		HighestSeverity:     "critical",
+		Factors:             map[string]interface{}{"test": "value"},
 	}
 
 	err := scorer.SaveScore(context.Background(), score)
@@ -178,9 +182,9 @@ func TestScorerV2_SaveScore(t *testing.T) {
 // TestScorerV2_PriorityLevels tests priority level calculation
 func TestScorerV2_PriorityLevels(t *testing.T) {
 	testCases := []struct {
-		score        float64
-		expected     string
-		description  string
+		score       float64
+		expected    string
+		description string
 	}{
 		{95.0, "P0", "Critical score"},
 		{80.0, "P0", "Critical threshold"},
@@ -203,4 +207,3 @@ func TestScorerV2_PriorityLevels(t *testing.T) {
 		})
 	}
 }
-

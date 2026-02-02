@@ -77,7 +77,11 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	namespace, _ := normalizedData["namespace"].(string)
 	clusterID, _ := normalizedData["cluster_id"].(string)
 	if clusterID == "" {
-		clusterID = "default"
+		if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
+			clusterID = v
+		} else {
+			clusterID = "unknown"
+		}
 	}
 
 	// Evaluate risks for this resource (policy-based)

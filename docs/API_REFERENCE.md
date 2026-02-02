@@ -17,12 +17,13 @@
 7. [Risk API](#risk-api)
 8. [Clusters API](#clusters-api)
 9. [Pods API](#pods-api)
-10. [Service Accounts API](#service-accounts-api)
-11. [Graph API](#graph-api)
-12. [Audit API](#audit-api)
-13. [Policy API](#policy-api)
-14. [Metrics API](#metrics-api)
-15. [Error Responses](#error-responses)
+10. [Pod Capabilities API (PCE)](#pod-capabilities-api-pce)
+11. [Service Accounts API](#service-accounts-api)
+12. [Graph API](#graph-api)
+13. [Audit API](#audit-api)
+14. [Policy API](#policy-api)
+15. [Metrics API](#metrics-api)
+16. [Error Responses](#error-responses)
 
 ---
 
@@ -695,6 +696,273 @@ curl -H "Authorization: Bearer <token>" \
   "pageSize": 50
 }
 ```
+
+---
+
+## Pod Capabilities API (PCE)
+
+### List Pod Capabilities
+
+**GET** `/api/v1/pod-capabilities`
+
+**Description**: List evaluated pod capabilities with filters and pagination
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `podUid` (optional): Filter by pod UID
+- `clusterId` (optional): Filter by cluster ID
+- `namespace` (optional): Filter by namespace
+- `capabilityId` (optional): Filter by capability ID (e.g., `FS_HOST_RW`)
+- `severity` (optional): Filter by severity (e.g., `CRITICAL`)
+- `limit` (optional): Default `50`, max `200`
+- `offset` (optional): Default `0`
+
+**Response**:
+```json
+{
+  "capabilities": [
+    {
+      "podUid": "a16e7c70-...",
+      "namespace": "kube-system",
+      "capabilityId": "FS_HOST_RW",
+      "group": "FS",
+      "severity": "CRITICAL",
+      "evidence": {
+        "hostPath": true
+      },
+      "mitreTechniques": ["T1611"],
+      "createdAt": "2026-01-26T06:24:11Z",
+      "updatedAt": "2026-01-26T06:24:11Z"
+    }
+  ],
+  "total": 40,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
+
+---
+
+### Get Pod Capabilities (by Pod UID)
+
+**GET** `/api/v1/pods/{podUid}/capabilities`
+
+**Description**: Get all capabilities for a specific pod UID
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Response**:
+```json
+{
+  "podUid": "24228d0a-...",
+  "capabilities": [
+    {
+      "podUid": "24228d0a-...",
+      "namespace": "kube-flannel",
+      "capabilityId": "API_K8S_WRITE",
+      "group": "API",
+      "severity": "HIGH",
+      "evidence": {
+        "role": "flannel",
+        "roleKind": "ClusterRole"
+      },
+      "mitreTechniques": ["T1609"],
+      "createdAt": "2026-01-26T06:24:11Z",
+      "updatedAt": "2026-01-26T06:24:11Z"
+    }
+  ],
+  "total": 4
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `400 Bad Request`
+- `500 Internal Server Error`
+
+---
+
+### Pod Capabilities Summary (by Cluster/Namespace)
+
+**GET** `/api/v1/pod-capabilities/summary`
+
+**Description**: Aggregated counts by cluster, namespace, capability, and severity
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `clusterId` (optional)
+- `namespace` (optional)
+- `capabilityId` (optional)
+- `severity` (optional)
+
+**Response**:
+```json
+{
+  "summary": [
+    {
+      "clusterId": "minikube",
+      "namespace": "kube-system",
+      "capabilityId": "NET_HOST_NETWORK",
+      "severity": "MEDIUM",
+      "count": 8
+    }
+  ],
+  "total": 6
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
+
+---
+
+### Pod Capabilities Summary (by Cluster Only)
+
+**GET** `/api/v1/pod-capabilities/summary/cluster`
+
+**Description**: Aggregated counts by cluster only
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `clusterId` (optional)
+
+**Response**:
+```json
+{
+  "summary": [
+    { "clusterId": "minikube", "count": 40 }
+  ],
+  "total": 1
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
+
+---
+
+### Pod Capabilities Summary (by Capability Only)
+
+**GET** `/api/v1/pod-capabilities/summary/capability`
+
+**Description**: Aggregated counts by capability and severity
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `capabilityId` (optional)
+- `severity` (optional)
+
+**Response**:
+```json
+{
+  "summary": [
+    { "capabilityId": "FS_HOST_RW", "severity": "CRITICAL", "count": 8 }
+  ],
+  "total": 6
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
+
+---
+
+### Pod Capabilities Summary (by Namespace)
+
+**GET** `/api/v1/pod-capabilities/summary/namespace`
+
+**Description**: Aggregated counts by namespace and severity
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `namespace` (optional)
+- `severity` (optional)
+- `capabilityId` (optional)
+
+**Response**:
+```json
+{
+  "summary": [
+    { "namespace": "kube-system", "severity": "MEDIUM", "count": 8 }
+  ],
+  "total": 1
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
+
+---
+
+### Pod Capabilities Summary (by Severity Only)
+
+**GET** `/api/v1/pod-capabilities/summary/severity`
+
+**Description**: Aggregated counts by severity only
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `severity` (optional)
+- `capabilityId` (optional)
+
+**Response**:
+```json
+{
+  "summary": [
+    { "severity": "CRITICAL", "count": 10 }
+  ],
+  "total": 4
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
+
+---
+
+### Pod Capabilities Trend (Time Series)
+
+**GET** `/api/v1/pod-capabilities/trends`
+
+**Description**: Time-series counts by severity (daily)
+
+**Authentication**: Optional (depends on `AUTH_ENABLED`)
+
+**Query Params**:
+- `days` (optional, default `7`, max `90`)
+- `namespace` (optional)
+- `capabilityId` (optional)
+- `podUid` (optional)
+- `clusterId` (optional)
+
+**Response**:
+```json
+{
+  "points": [
+    { "date": "2026-01-26", "critical": 2, "high": 3, "medium": 5, "low": 1 }
+  ],
+  "total": 1
+}
+```
+
+**Status Codes**:
+- `200 OK`
+- `500 Internal Server Error`
 
 ---
 

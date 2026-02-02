@@ -13,9 +13,12 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/fortuna/agent/internal/client"
+	"github.com/fortuna/agent/internal/cluster"
 	"github.com/fortuna/agent/internal/config"
 	"github.com/fortuna/agent/internal/k8s"
+	"github.com/fortuna/agent/internal/runtime"
 	"github.com/fortuna/agent/internal/sbom"
+	"github.com/fortuna/agent/internal/syncer"
 	"github.com/fortuna/agent/internal/watcher"
 	pb "github.com/fortuna/api/proto/agent"
 )
@@ -54,6 +57,23 @@ func main() {
 		log.Fatalf("❌ Failed to create Kubernetes client: %v", err)
 	}
 	log.Printf("✅ Kubernetes client initialized")
+
+	// Resolve cluster identity: auto-discovery from K8s API, or env override (optional)
+	clusterInfo, err := cluster.Discover(ctx, k8sClient.Clientset, cfg.Kubeconfig)
+	if err != nil {
+		log.Fatalf("❌ Cluster discovery failed: %v", err)
+	}
+	cfg.ClusterID = clusterInfo.ID
+	cfg.ClusterName = clusterInfo.Name
+	log.Printf("📋 [cluster] id=%s source=%s name=%s", clusterInfo.ID, clusterInfo.Source, clusterInfo.Name)
+
+	// Start periodic full sync to Core HTTP endpoint (pods/RBAC/resources)
+	syncClientset, ok := k8sClient.Clientset.(*kubernetes.Clientset)
+	if !ok {
+		log.Fatalf("❌ Failed to cast Clientset to *kubernetes.Clientset")
+	}
+	autoSyncer := syncer.NewSyncer(syncClientset, cfg.CoreHTTPEndpoint, clusterInfo, cfg.SyncInterval, cfg.WatchNamespace)
+	autoSyncer.Start(ctx)
 
 	// Initialize gRPC client with mTLS
 	grpcClient := client.NewMTLSClient(
@@ -108,11 +128,7 @@ func main() {
 
 	// Initialize local pod watcher with work queue for async processing
 	// This allows the informer to continue detecting new pods while SBOM extraction happens
-	clientset, ok := k8sClient.Clientset.(*kubernetes.Clientset)
-	if !ok {
-		log.Fatalf("❌ Failed to cast Clientset to *kubernetes.Clientset")
-	}
-	podWatcher := watcher.NewLocalPodWatcher(clientset, cfg.NodeName, podHandler, sbomQueue.Queue())
+	podWatcher := watcher.NewLocalPodWatcher(syncClientset, cfg.NodeName, podHandler, sbomQueue.Queue())
 	log.Printf("✅ Local pod watcher initialized for node: %s (async SBOM processing enabled)", cfg.NodeName)
 
 	// Start pod watcher
@@ -158,6 +174,13 @@ func main() {
 			}
 		}
 	}()
+
+	// Start runtime events reader (optional)
+	if cfg.RuntimeEventsEnabled {
+		reader := runtime.NewReader(cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll, cfg.CoreHTTPEndpoint)
+		go reader.Start(ctx)
+		log.Printf("✅ Runtime events reader enabled (path=%s poll=%s)", cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll)
+	}
 
 	log.Printf("========================================")
 	log.Printf("✅ Fortuna Agent is running")
@@ -224,9 +247,15 @@ func logConfig(cfg *config.Config) {
 	log.Printf("========================================")
 	log.Printf("📋 Configuration:")
 	log.Printf("   Agent ID: %s", cfg.AgentID)
+	log.Printf("   Cluster ID: %s", cfg.ClusterID)
+	if cfg.ClusterName != "" && cfg.ClusterName != cfg.ClusterID {
+		log.Printf("   Cluster Name (display): %s", cfg.ClusterName)
+	}
 	log.Printf("   Node Name: %s", cfg.NodeName)
 	log.Printf("   Node ID: %s", cfg.NodeID)
 	log.Printf("   Core Endpoint: %s", cfg.CoreGRPCEndpoint)
+	log.Printf("   Core HTTP Endpoint: %s", cfg.CoreHTTPEndpoint)
+	log.Printf("   Sync Interval: %s", cfg.SyncInterval)
 	log.Printf("   TLS Enabled: %v", cfg.TLSEnabled)
 	if cfg.TLSEnabled {
 		log.Printf("   TLS Cert: %s", cfg.TLSCertPath)

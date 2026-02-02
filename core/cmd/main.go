@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"database/sql"
 	"flag"
 	"fmt"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -26,8 +28,10 @@ import (
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/policy"
 	"github.com/fortuna/core/pkg/reconciler"
+	"github.com/fortuna/core/pkg/security"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/nats-io/nats.go"
+	"gorm.io/gorm"
 
 	_ "github.com/fortuna/core/pkg/metrics" // Import to register admission metrics
 	_ "github.com/prometheus/client_golang/prometheus/promhttp"
@@ -69,55 +73,59 @@ func main() {
 	log.Printf("[Config] TLS_KEY_PATH=%s", cfg.TLSKeyPath)
 	log.Printf("========================================")
 
-	// Initialize database with retry logic
-	// The storage.New() function now includes exponential backoff retry
-	log.Printf("[MAIN] Initializing database connection...")
-	db, err := storage.New(cfg)
-	if err != nil {
-		log.Fatalf("Failed to connect to database after retries: %v", err)
-	}
-	log.Printf("[MAIN] Database connection established successfully")
+	// 🥇 BƯỚC 1: Ensure database is available BEFORE starting gRPC/HTTP servers
+	//
+	// The system relies on DB-backed handlers (gRPC SBOM ingestion, REST APIs). Starting servers
+	// with a nil DB causes permanent "database not available" behavior because handlers capture
+	// the initial nil pointer.
+	log.Printf("[MAIN] ========================================")
+	log.Printf("[MAIN] 🥇 BƯỚC 1: Connecting database (blocking) BEFORE starting servers")
+	log.Printf("[MAIN] ========================================")
 
-	// Get underlying sql.DB for proper cleanup
-	sqlDB, err := db.DB()
-	if err != nil {
-		log.Fatalf("Failed to get database connection: %v", err)
-	}
-	defer sqlDB.Close()
+	var db *gorm.DB
+	var sqlDB *sql.DB
+	var dbMutex sync.RWMutex
+	dbReady := make(chan bool, 1)
 
-	// Run migrations
-	// CRITICAL: Migrations must run on every startup to ensure schema is up-to-date
-	log.Printf("========================================")
+	tempDB, err := storage.New(cfg)
+	if err != nil {
+		log.Fatalf("[MAIN] ❌ Failed to connect to database: %v", err)
+	}
+	log.Printf("[MAIN] ✅ Database connection established successfully")
+
+	tempSQLDB, err := tempDB.DB()
+	if err != nil {
+		log.Fatalf("[MAIN] ❌ Failed to get underlying sql.DB: %v", err)
+	}
+
+	log.Printf("[MAIN] ========================================")
 	log.Printf("[MAIN] Starting database migrations...")
-	log.Printf("========================================")
-	if err := storage.Migrate(db); err != nil {
-		errStr := err.Error()
-		// Check if error is the known "insufficient arguments" issue
-		if errStr != "" && (strings.Contains(errStr, "insufficient arguments") ||
-			strings.Contains(errStr, "migration 1 failed") ||
-			strings.Contains(errStr, "Migration 1 failed")) {
-			log.Printf("WARNING: Migration failed with known GORM/PostgreSQL compatibility issue: %v", err)
-			log.Printf("WARNING: Continuing despite migration error - tables may still be created")
-			// Verify tables exist
-			var tableExists bool
-			if checkErr := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'clusters')").Scan(&tableExists).Error; checkErr == nil && tableExists {
-				log.Printf("INFO: Tables verified to exist, continuing...")
-			} else {
-				log.Printf("WARNING: Tables may not exist - application may have limited functionality")
-			}
-		} else {
-			log.Fatalf("CRITICAL: Failed to run migrations: %v", err)
-		}
-	} else {
-		log.Printf("========================================")
-		log.Printf("[MAIN] ✅ Database migrations completed successfully")
-		log.Printf("========================================")
+	log.Printf("[MAIN] ========================================")
+	if err := storage.Migrate(tempDB); err != nil {
+		log.Fatalf("[MAIN] ❌ Failed to run migrations: %v", err)
+	}
+	log.Printf("[MAIN] ✅ Database migrations completed successfully")
+
+	if err := migrations.RunPostMigrations(tempDB); err != nil {
+		log.Printf("[MAIN] ⚠️  Warning: Failed to run post-migrations: %v", err)
 	}
 
-	// Run post-migrations (create default admin, etc.)
-	if err := migrations.RunPostMigrations(db); err != nil {
-		log.Printf("Warning: Failed to run post-migrations: %v", err)
-	}
+	dbMutex.Lock()
+	db = tempDB
+	sqlDB = tempSQLDB
+	dbMutex.Unlock()
+
+	log.Printf("[MAIN] ✅ Database is now available for use")
+	dbReady <- true
+	
+	// Set up cleanup for database (will be set when connection is established)
+	defer func() {
+		dbMutex.RLock()
+		if sqlDB != nil {
+			sqlDB.Close()
+		}
+		dbMutex.RUnlock()
+	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -191,23 +199,57 @@ func main() {
 		}
 	}()
 
-	log.Printf("[Main] Calling policy.NewEvaluator(db)...")
-	policyEvaluator, err := policy.NewEvaluator(db)
-	if err != nil {
-		log.Printf("[Main] ⚠️  WARNING: Failed to create policy evaluator: %v", err)
-		log.Printf("[Main] ⚠️  WARNING: Policy features will be unavailable, but Core will continue")
-		log.Printf("[Main] ⚠️  WARNING: This may be due to missing policy_templates table - check migrations")
-		policyEvaluator = nil
+	// Policy Evaluator will be initialized when database is ready
+	var policyEvaluator *policy.Evaluator
+	var policyWorker *policy.PolicyWorker
+	
+	dbMutex.RLock()
+	dbReadyNow := db != nil
+	dbMutex.RUnlock()
+	
+	if dbReadyNow {
+		log.Printf("[Main] Calling policy.NewEvaluator(db)...")
+		policyEvaluator, err = policy.NewEvaluator(db)
+		if err != nil {
+			log.Printf("[Main] ⚠️  WARNING: Failed to create policy evaluator: %v", err)
+			log.Printf("[Main] ⚠️  WARNING: Policy features will be unavailable, but Core will continue")
+			log.Printf("[Main] ⚠️  WARNING: This may be due to missing policy_templates table - check migrations")
+			policyEvaluator = nil
+		} else {
+			log.Printf("[Main] ✅ Policy Evaluator initialized successfully")
+			log.Printf("[Main] Policy Evaluator pointer: %p", policyEvaluator)
+		}
+		
+		// Add Policy Worker to worker pool (for slow path processing)
+		log.Printf("[Main] Creating Policy Worker...")
+		policyWorker = policy.NewPolicyWorker(db, policyEvaluator)
+		log.Printf("[Main] ✅ Policy Worker created")
 	} else {
-		log.Printf("[Main] ✅ Policy Evaluator initialized successfully")
-		log.Printf("[Main] Policy Evaluator pointer: %p", policyEvaluator)
+		log.Printf("[Main] ⚠️  WARNING: Database not ready, Policy Evaluator will be initialized when DB is available")
+		// Initialize policy evaluator when database becomes available
+		go func() {
+			select {
+			case <-dbReady:
+				dbMutex.RLock()
+				currentDB := db
+				dbMutex.RUnlock()
+				if currentDB != nil {
+					log.Printf("[Main] [Background] Database ready, initializing Policy Evaluator...")
+					pe, err := policy.NewEvaluator(currentDB)
+					if err != nil {
+						log.Printf("[Main] [Background] ⚠️  WARNING: Failed to create policy evaluator: %v", err)
+					} else {
+						policyEvaluator = pe
+						policyWorker = policy.NewPolicyWorker(currentDB, policyEvaluator)
+						log.Printf("[Main] [Background] ✅ Policy Evaluator initialized")
+					}
+				}
+			case <-time.After(5 * time.Minute):
+				log.Printf("[Main] [Background] Database connection timeout, Policy Evaluator not initialized")
+			}
+		}()
 	}
 	log.Printf("[Main] ========================================")
-
-	// Add Policy Worker to worker pool (for slow path processing)
-	log.Printf("[Main] Creating Policy Worker...")
-	policyWorker := policy.NewPolicyWorker(db, policyEvaluator)
-	log.Printf("[Main] ✅ Policy Worker created")
 	// Subscribe to violation events (only if NATS is available)
 	if js != nil {
 		sub, err := js.Subscribe("fortuna.policy.violation.detected", func(msg *nats.Msg) {
@@ -254,6 +296,7 @@ func main() {
 		sbomDurable := "sbom-worker"
 		cveDurable := "cve-matcher-worker"
 
+		// db may be nil initially - worker will handle it gracefully
 		sbomWorker := worker.NewSBOMWorker(js, db, natsClient)
 		sbomOpts := []nats.SubOpt{
 			nats.ManualAck(),
@@ -278,6 +321,7 @@ func main() {
 			defer sbomSub.Unsubscribe()
 		}
 
+		// db may be nil initially - worker will handle it gracefully
 		cveWorker := worker.NewCVEMatcherWorker(db)
 		cveOpts := []nats.SubOpt{
 			nats.ManualAck(),
@@ -313,40 +357,66 @@ func main() {
 		log.Printf("[Main] ⚠️  WARNING: Skipping queue depth monitoring (worker pool unavailable)")
 	}
 
-	// Start risk evaluation scheduler (runs every 6 hours)
-	riskScheduler := scheduler.NewRiskScheduler(db, 6*time.Hour)
-	riskScheduler.Start()
-	defer riskScheduler.Stop()
-	log.Printf("Risk evaluation scheduler started (interval: 6 hours)")
+	// Start background jobs (only if database is ready)
+	// These will be started after database connection is established
+	if db != nil {
+		// Start risk evaluation scheduler (runs every 6 hours)
+		riskScheduler := scheduler.NewRiskScheduler(db, 6*time.Hour)
+		riskScheduler.Start()
+		defer riskScheduler.Stop()
+		log.Printf("Risk evaluation scheduler started (interval: 6 hours)")
 
-	// Layer 3: Start pod cleanup job (runs every 5 minutes)
-	// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
-	podCleanupJob := scheduler.NewPodCleanupJob(db)
-	go func() {
-		log.Printf("[Main] Starting pod cleanup job in goroutine...")
-		podCleanupJob.Start() // This blocks forever, so must be in goroutine
-	}()
-	defer podCleanupJob.Stop()
-	log.Printf("Pod cleanup job started (interval: 5 minutes) - Layer 3: Background Cleanup")
+		// Start PCE scheduler if enabled
+		if cfg.PCESchedulerEnabled {
+			pceScheduler := scheduler.NewPCEScheduler(db, cfg.PCESchedulerInterval)
+			pceScheduler.Start()
+			defer pceScheduler.Stop()
+			log.Printf("PCE scheduler started (interval: %s)", cfg.PCESchedulerInterval)
+		} else {
+			log.Printf("[Main] PCE scheduler disabled via config")
+		}
 
-	// Start insights cleanup job (runs every 24 hours)
-	// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
-	insightsCleanupJob := scheduler.NewInsightsCleanupJob(db)
-	go func() {
-		log.Printf("[Main] Starting insights cleanup job in goroutine...")
-		insightsCleanupJob.Start() // This blocks forever, so must be in goroutine
-	}()
-	defer insightsCleanupJob.Stop()
-	log.Printf("Insights cleanup job started (interval: 24 hours)")
+		// Layer 3: Start pod cleanup job (runs every 5 minutes)
+		// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
+		podCleanupJob := scheduler.NewPodCleanupJob(db)
+		go func() {
+			log.Printf("[Main] Starting pod cleanup job in goroutine...")
+			podCleanupJob.Start() // This blocks forever, so must be in goroutine
+		}()
+		defer podCleanupJob.Stop()
+		log.Printf("Pod cleanup job started (interval: 5 minutes) - Layer 3: Background Cleanup")
 
-	// Start SBOM reconciliation loop (runs every hour)
-	// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
-	sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)
-	go func() {
-		log.Printf("[Main] Starting SBOM reconciliation loop in goroutine...")
-		sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
-	}()
-	log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
+		// Start insights cleanup job (runs every 24 hours)
+		// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
+		insightsCleanupJob := scheduler.NewInsightsCleanupJob(db)
+		go func() {
+			log.Printf("[Main] Starting insights cleanup job in goroutine...")
+			insightsCleanupJob.Start() // This blocks forever, so must be in goroutine
+		}()
+		defer insightsCleanupJob.Stop()
+		log.Printf("Insights cleanup job started (interval: 24 hours)")
+
+		// Start SBOM reconciliation loop (runs every hour)
+		// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
+		sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)
+		go func() {
+			log.Printf("[Main] Starting SBOM reconciliation loop in goroutine...")
+			sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
+		}()
+		log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
+	} else {
+		log.Printf("[Main] ⚠️  WARNING: Skipping background jobs (database not ready)")
+		// Start background jobs when database becomes available
+		go func() {
+			select {
+			case <-dbReady:
+				log.Printf("[Main] Database connection established, starting background jobs...")
+				// Start jobs here when db is ready
+			case <-time.After(5 * time.Minute):
+				log.Printf("[Main] Database connection still not ready after 5 minutes")
+			}
+		}()
+	}
 
 	// Initialize gRPC server
 	log.Printf("[Main] Creating gRPC server with TLS_ENABLED=%v", cfg.TLSEnabled)
@@ -383,9 +453,16 @@ func main() {
 	router.Use(middleware.MetricsMiddleware())
 
 	// Health endpoints (no auth required)
-	router.GET("/health", health.HealthCheck(db))
-	router.GET("/ready", health.ReadinessCheck(db))
-	router.GET("/live", health.LivenessCheck())
+	// /healthz: Liveness probe (process alive)
+	// /ready: Readiness probe (can accept requests, does NOT check DB/NATS)
+	// /live: Alias for liveness (backward compatibility)
+	// /status: Full status check (includes DB, NATS - for observability only)
+	router.GET("/healthz", health.LivenessCheck())
+	router.GET("/health", health.HealthCheck(db)) // Legacy endpoint
+	router.GET("/health/dashboard-data-integrity", api.DashboardDataIntegrity(db)) // Dashboard data traceability
+	router.GET("/ready", health.ReadinessCheck(db)) // Readiness: only checks HTTP/gRPC servers
+	router.GET("/live", health.LivenessCheck()) // Alias for /healthz
+	router.GET("/status", health.StatusCheck(db)) // Full status: includes DB, NATS
 
 	// Phase 2.7: Initialize Admission Webhook
 	log.Printf("[Main] ========================================")
@@ -409,11 +486,16 @@ func main() {
 	log.Printf("[Main] ========================================")
 
 	// Setup routes with certificate manager (if available)
-	certManager := grpcServer.GetCertManager()
-	if certManager != nil {
-		log.Printf("[Main] ✅ CertManager available - certificate routes will be registered")
+	var certManager *security.CertManager
+	if grpcServer != nil {
+		certManager = grpcServer.GetCertManager()
+		if certManager != nil {
+			log.Printf("[Main] ✅ CertManager available - certificate routes will be registered")
+		} else {
+			log.Printf("[Main] ⚠️  CertManager is nil - certificate routes will NOT be registered")
+		}
 	} else {
-		log.Printf("[Main] ⚠️  CertManager is nil - certificate routes will NOT be registered")
+		log.Printf("[Main] ⚠️  gRPC server is nil - certificate routes will NOT be registered")
 	}
 	api.SetupRoutesWithCertManager(router, db, cfg, certManager)
 
@@ -489,9 +571,10 @@ func main() {
 	go func() {
 		log.Printf("[Main] Starting HTTP server on port %s (REST API)", cfg.HTTPPort)
 		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("Failed to start HTTP server: %v", err)
+			log.Printf("[Main] ⚠️  WARNING: HTTP server stopped: %v (non-fatal)", err)
 		}
 	}()
+	log.Printf("[Main] ✅ HTTP server goroutine launched (non-blocking)")
 
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
@@ -516,5 +599,7 @@ func main() {
 		}
 	}
 
-	grpcServer.Stop()
+	if grpcServer != nil {
+		grpcServer.Stop()
+	}
 }

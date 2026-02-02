@@ -18,6 +18,7 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo '
 BUILD_COMMIT="${BUILD_COMMIT:-$(git rev-parse --short HEAD 2>/dev/null || echo 'unknown')}"
 BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
 NAMESPACE="${CONTAINERD_NAMESPACE:-k8s.io}"  # containerd namespace for K8s
+NO_CACHE="${NO_CACHE:-false}"  # set to true for clean rebuild (no cache)
 
 # Colors
 RED='\033[0;31m'
@@ -102,14 +103,21 @@ build_image() {
     
     cd "${PROJECT_ROOT}"
     
-    # Build with nerdctl
+    # Build args - dashboard doesn't need FORTUNA build args
+    local build_args=""
+    if [ "${component}" != "dashboard" ]; then
+        build_args="--build-arg FORTUNA_BUILD_VERSION=${VERSION} --build-arg FORTUNA_BUILD_COMMIT=${BUILD_COMMIT} --build-arg FORTUNA_BUILD_TIME=${BUILD_TIME}"
+    fi
+    
+    # Build with nerdctl (--no-cache when NO_CACHE=true)
+    local no_cache_arg=""
+    [ "${NO_CACHE}" = "true" ] && no_cache_arg="--no-cache"
     if nerdctl build \
         -f "${dockerfile}" \
         -t "${image_name}" \
         -t "${image_latest}" \
-        --build-arg FORTUNA_BUILD_VERSION="${VERSION}" \
-        --build-arg FORTUNA_BUILD_COMMIT="${BUILD_COMMIT}" \
-        --build-arg FORTUNA_BUILD_TIME="${BUILD_TIME}" \
+        ${build_args} \
+        ${no_cache_arg} \
         --namespace "${NAMESPACE}" \
         --progress=plain \
         .; then
@@ -125,7 +133,7 @@ build_image() {
     fi
 }
 
-# Verify image in containerd
+# Verify image in containerd (ctr may list as docker.io/library/IMAGE:TAG)
 verify_image() {
     local component=$1
     local image_name="${IMAGE_PREFIX}-${component}:${VERSION}"
@@ -137,10 +145,19 @@ verify_image() {
         ctr -n "${NAMESPACE}" images ls | grep "${image_name}" | head -1
         echo ""
         return 0
-    else
-        log_error "Image ${image_name} not found in containerd"
-        return 1
     fi
+    if ctr -n "${NAMESPACE}" images ls | grep "${IMAGE_PREFIX}-${component}" | grep -q "${VERSION}"; then
+        log_success "Image ${image_name} found in containerd (by prefix)"
+        ctr -n "${NAMESPACE}" images ls | grep "${IMAGE_PREFIX}-${component}" | head -1
+        echo ""
+        return 0
+    fi
+    if nerdctl --namespace "${NAMESPACE}" images | grep -q "${IMAGE_PREFIX}-${component}"; then
+        log_success "Image ${image_name} found (nerdctl)"
+        return 0
+    fi
+    log_error "Image ${image_name} not found in containerd"
+    return 1
 }
 
 # Export image for distribution
@@ -191,11 +208,22 @@ main() {
     build_image "agent" "agent/Dockerfile"
     verify_image "agent"
     
+    # Build Dashboard (optional - can be skipped with SKIP_DASHBOARD=true)
+    if [ "${SKIP_DASHBOARD:-false}" != "true" ]; then
+        build_image "dashboard" "dashboard/Dockerfile"
+        verify_image "dashboard"
+    else
+        log_info "Skipping dashboard build (SKIP_DASHBOARD=true)"
+    fi
+    
     # Export images if requested
     if [ "${EXPORT_IMAGES:-false}" = "true" ]; then
         log_info "Exporting images for distribution..."
         export_image "core"
         export_image "agent"
+        if [ "${SKIP_DASHBOARD:-false}" != "true" ]; then
+            export_image "dashboard"
+        fi
     fi
     
     # Summary
@@ -204,10 +232,14 @@ main() {
     echo "=========================================="
     echo ""
     echo "Images available in containerd:"
-    ctr -n "${NAMESPACE}" images ls | grep "${IMAGE_PREFIX}" | head -4
+    ctr -n "${NAMESPACE}" images ls | grep "${IMAGE_PREFIX}" | head -6
     echo ""
     echo "To use in Kubernetes deployments:"
     echo "  image: ${IMAGE_PREFIX}-core:${VERSION}"
+    echo "  image: ${IMAGE_PREFIX}-agent:${VERSION}"
+    if [ "${SKIP_DASHBOARD:-false}" != "true" ]; then
+        echo "  image: ${IMAGE_PREFIX}-dashboard:${VERSION}"
+    fi
     echo "  imagePullPolicy: Never  # for local images"
     echo ""
     echo "To export images for other nodes:"
@@ -217,4 +249,5 @@ main() {
 
 # Run main
 main
+
 

@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -46,7 +46,7 @@ func setupTestDBEnforcement(t *testing.T) *gorm.DB {
 			UNIQUE(template_id, version)
 		)
 	`)
-	
+
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS policy_instances (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -66,7 +66,7 @@ func setupTestDBEnforcement(t *testing.T) *gorm.DB {
 			UNIQUE(instance_name)
 		)
 	`)
-	
+
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS policy_violations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,12 +102,12 @@ func TestEnforcementService_EnforcePolicy_ContextCancellation(t *testing.T) {
 	service := NewEnforcementService(db, evaluator)
 
 	instance := &models.PolicyInstance{
-		ID:           1,
-		InstanceName: "test-instance",
-		TemplateID:   "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Enabled:     true,
-		Action:      "block",
+		Enabled:         true,
+		Action:          "block",
 	}
 
 	resource := map[string]interface{}{
@@ -131,12 +131,12 @@ func TestEnforcementService_EnforcePolicy_ContextTimeout(t *testing.T) {
 	service := NewEnforcementService(db, evaluator)
 
 	instance := &models.PolicyInstance{
-		ID:           1,
-		InstanceName: "test-instance",
-		TemplateID:   "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Enabled:     true,
-		Action:      "block",
+		Enabled:         true,
+		Action:          "block",
 	}
 
 	resource := map[string]interface{}{
@@ -161,12 +161,12 @@ func TestEnforcementService_EnforcePolicy_DisabledInstance(t *testing.T) {
 	service := NewEnforcementService(db, evaluator)
 
 	instance := &models.PolicyInstance{
-		ID:           1,
-		InstanceName: "test-instance",
-		TemplateID:   "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Enabled:     false, // Disabled
-		Action:      "block",
+		Enabled:         false, // Disabled
+		Action:          "block",
 	}
 
 	resource := map[string]interface{}{
@@ -195,11 +195,11 @@ func TestEnforcementService_FindActiveViolation(t *testing.T) {
 
 	// Create test violation
 	violation := &models.PolicyViolation{
-		InstanceID:   1,
-		ResourceUID:  "uid-123",
-		ClusterID:    "cluster-1",
-		Status:       "active",
-		DetectedAt:   timePtr(time.Now()),
+		InstanceID:  1,
+		ResourceUID: "uid-123",
+		ClusterID:   "cluster-1",
+		Status:      "active",
+		DetectedAt:  timePtr(time.Now()),
 	}
 	db.Create(violation)
 
@@ -227,4 +227,3 @@ func TestEnforcementService_FindActiveViolation(t *testing.T) {
 		t.Error("findActiveViolation() should not find non-existent violation")
 	}
 }
-

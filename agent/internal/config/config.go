@@ -8,12 +8,16 @@ import (
 
 type Config struct {
 	// Agent identification
-	AgentID  string
-	NodeID   string
-	NodeName string
+	AgentID     string
+	NodeID      string
+	NodeName    string
+	ClusterID   string
+	ClusterName string // Display name for dashboard (from kubeconfig or CLUSTER_NAME env; falls back to ClusterID)
 
 	// Core gRPC endpoint
 	CoreGRPCEndpoint string
+	// Core HTTP endpoint (for full sync)
+	CoreHTTPEndpoint string
 
 	// TLS/mTLS Configuration
 	TLSEnabled    bool
@@ -33,6 +37,11 @@ type Config struct {
 
 	// Namespace to watch (empty = all namespaces)
 	WatchNamespace string
+
+	// Runtime event ingestion (optional)
+	RuntimeEventsEnabled bool
+	RuntimeEventsPath    string
+	RuntimeEventsPoll    time.Duration
 }
 
 func LoadConfig() *Config {
@@ -45,7 +54,10 @@ func LoadConfig() *Config {
 		AgentID:          agentID,
 		NodeID:           nodeID,
 		NodeName:         nodeName,
+		ClusterID:        getEnv("CLUSTER_ID", ""),   // From env or kubeconfig in main; no hardcoded default
+		ClusterName:      getEnv("CLUSTER_NAME", ""), // Optional; main uses kubeconfig or CLUSTER_ID when set
 		CoreGRPCEndpoint: getEnv("CORE_GRPC_ENDPOINT", "fortuna-core.fortuna.svc.cluster.local:9090"),
+		CoreHTTPEndpoint: getEnv("CORE_HTTP_ENDPOINT", "http://fortuna-core.fortuna.svc.cluster.local:8080"),
 		TLSEnabled:       getEnv("TLS_ENABLED", "true") == "true",
 		TLSCertPath:      getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/client/tls.crt"),
 		TLSKeyPath:       getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/client/tls.key"),
@@ -55,6 +67,9 @@ func LoadConfig() *Config {
 		SyncInterval:     parseDuration(getEnv("SYNC_INTERVAL", "30s")),
 		Kubeconfig:       getEnv("KUBECONFIG", ""),
 		WatchNamespace:   getEnv("WATCH_NAMESPACE", ""),
+		RuntimeEventsEnabled: getEnv("RUNTIME_EVENTS_ENABLED", "false") == "true",
+		RuntimeEventsPath:    getEnv("RUNTIME_EVENTS_PATH", "/var/log/fortuna/runtime-events.log"),
+		RuntimeEventsPoll:    parseDuration(getEnv("RUNTIME_EVENTS_POLL", "5s")),
 	}
 
 	return cfg

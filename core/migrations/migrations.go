@@ -14,6 +14,20 @@ import (
 
 // Force reference to migration functions to prevent dead code elimination
 // Note: Some migrations are defined in mvp2_migrations.go
+//
+// Migration Numbering:
+//   - 001-003: Core schema (clusters, users, audit logs)
+//   - 004-007: Intentionally skipped (no functionality needed)
+//   - 008-011: Deployments, replicasets, implementation guide, insights
+//   - 012-016: Risk scores, policies (MVP2) - defined in mvp2_migrations.go
+//   - 017: Intentionally skipped (no functionality needed)
+//   - 018-022: Risk scores V2, CVE tables, SBOM tables (MVP2) - defined in mvp2_migrations.go
+//   - 023-036: Advanced migrations (indexes, schema updates, cleanup) - separate files
+//
+// Old migrations 030-039 were merged into optimized versions (030-032):
+//   - 030, 031, 038 → 030_MigrateInsightsSchemaComplete + 031_CleanupDuplicateIndexes
+//   - 032 → 031_CleanupDuplicateIndexes
+//   - 037, 039 → 032_MigrateCVEMatchesComplete
 var (
 	_ = Migration014_AddPolicyTemplates
 	_ = Migration015_AddPolicyInstances
@@ -37,6 +51,25 @@ var (
 	_ = Migration034_StandardizeCVSSType
 	_ = Migration035_EvaluateTrivyTables
 	_ = Migration036_AddMissingSBOMColumns
+	_ = Migration037_AddSoftDeleteToResources
+	_ = Migration038_AddAgentsTable
+	_ = Migration039_AddDeletedAtToClusters
+	_ = Migration040_AddMissingInsightColumns
+	_ = Migration041_AddPodCapabilitiesTable
+	_ = Migration042_AddPodFactColumns
+	_ = Migration043_AddREPTables
+	_ = Migration044_AddPodInstancesTable
+	_ = Migration045_AddRuntimeSignalsTable
+	_ = Migration046_AddCapabilityStateMachine
+	_ = Migration047_AddCapabilityMetadataTable
+	_ = Migration048_AddPromotionRulesTable
+	_ = Migration049_AddPodAttackStepsTable
+	_ = Migration050_SeedCapabilityMetadata
+	_ = Migration051_SeedPromotionRules
+	_ = Migration052_SBOMOneRowPerPod
+	_ = Migration053_FixMinikubeClusterDisplayName
+	_ = Migration054_AddClusterMetadataColumns
+	_ = Migration055_DropClustersNameUnique
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -51,24 +84,33 @@ func RunMigrations(db *gorm.DB) error {
 	log.Println("Running database migrations...")
 
 	// Run migrations in order
+	// Note: Migration numbers 004-007 and 017 are intentionally skipped (no functionality needed)
 	migrations := []func(*gorm.DB) error{
-		Migration001_InitialSchema,
-		Migration002_AddUsers,
-		Migration003_AddUserToAuditLogs,
-		Migration008_AddDeployments,
-		Migration009_AddReplicaSets,
-		Migration010_ImplementationGuideSchema,
-		Migration011_AddInsightsSoftDelete,
-		Migration012_AddRiskScores,
-		Migration013_AddRiskScoresDeletedAt,            // Add deleted_at column if missing
-		Migration014_AddPolicyTemplates,                // MVP2 Phase 2: Policy Engine
-		Migration015_AddPolicyInstances,                // MVP2 Phase 2: Policy Engine
-		Migration016_AddPolicyViolations,               // MVP2 Phase 2: Policy Engine
-		Migration018_AddRiskScoresV2Columns,            // MVP2 Phase 1.2: Risk Scoring V2
-		Migration019_AddCVETables,                      // MVP2 Phase 2: CVE Detection Integration (Trivy-based)
-		Migration020_AddSBOMTables,                     // MVP2 Phase 2: SBOM-based CVE Detection (replacing Trivy)
-		Migration021_FixSBOMSchema,                     // MVP2 Phase 2: Schema fix for p_url -> purl and insights.source
-		Migration022_AddCVEColumnsToInsights,           // MVP2 Phase 2: Add CVE-specific columns to insights table
+		// Core schema (001-003)
+		Migration001_InitialSchema,      // Core tables: clusters, nodes, namespaces, pods, RBAC
+		Migration002_AddUsers,           // Users table for authentication
+		Migration003_AddUserToAuditLogs, // Add user_id to audit_logs
+		// 004-007: Intentionally skipped
+		// Deployments and replicasets (008-009)
+		Migration008_AddDeployments, // Deployments table
+		Migration009_AddReplicaSets, // ReplicaSets table
+		// Implementation guide schema (010-011)
+		Migration010_ImplementationGuideSchema, // Nodes, policies, insights, events_index
+		Migration011_AddInsightsSoftDelete,     // Add soft delete and status to insights
+		// MVP2: Risk scores and policies (012-016)
+		Migration012_AddRiskScores,          // Risk scores table
+		Migration013_AddRiskScoresDeletedAt, // Add deleted_at column if missing
+		Migration014_AddPolicyTemplates,     // MVP2 Phase 2: Policy Engine
+		Migration015_AddPolicyInstances,     // MVP2 Phase 2: Policy Engine
+		Migration016_AddPolicyViolations,    // MVP2 Phase 2: Policy Engine
+		// 017: Intentionally skipped
+		// MVP2: Risk scores V2, CVE, SBOM (018-022)
+		Migration018_AddRiskScoresV2Columns,  // MVP2 Phase 1.2: Risk Scoring V2
+		Migration019_AddCVETables,            // MVP2 Phase 2: CVE Detection Integration (Trivy-based)
+		Migration020_AddSBOMTables,           // MVP2 Phase 2: SBOM-based CVE Detection (replacing Trivy)
+		Migration021_FixSBOMSchema,           // MVP2 Phase 2: Schema fix for p_url -> purl and insights.source
+		Migration022_AddCVEColumnsToInsights, // MVP2 Phase 2: Add CVE-specific columns to insights table
+		// MVP2: Indexes and performance (023-029)
 		Migration023_FixSBOMCVEIndexes,                 // MVP2: Unique indexes for SBOM/CVE upserts + dedup
 		Migration024_AddPodImageScansUniqueIndex,       // MVP2: Unique index for pod_image_scans upsert path
 		Migration025_MakeUpsertUniqueIndexesNonPartial, // MVP2: Non-partial unique indexes for ON CONFLICT inference
@@ -76,13 +118,33 @@ func RunMigrations(db *gorm.DB) error {
 		Migration027_AddCVEFileMetadata,                // CVE Optimization: File metadata tracking for incremental updates
 		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
 		Migration029_AddInsightsUniqueConstraint,       // Performance: Unique constraint for insights batch UPSERT
-		Migration030_MigrateInsightsSchemaComplete,      // Schema Migration: Complete insights schema migration (combines old 030+031+038)
-		Migration031_CleanupDuplicateIndexes,            // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
-		Migration032_MigrateCVEMatchesComplete,          // Schema Migration: Complete cve_matches migration (combines old 037+039)
-		Migration033_AddUniqueConstraints,                // Schema Integrity: Add proper unique constraints for data integrity
-		Migration034_StandardizeCVSSType,                // Schema Standardization: Standardize CVSS column types to REAL
-		Migration035_EvaluateTrivyTables,                 // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
-		Migration036_AddMissingSBOMColumns,               // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
+		// Schema migrations and cleanup (030-036)
+		Migration030_MigrateInsightsSchemaComplete, // Schema Migration: Complete insights schema migration (combines old 030+031+038)
+		Migration031_CleanupDuplicateIndexes,       // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
+		Migration032_MigrateCVEMatchesComplete,     // Schema Migration: Complete cve_matches migration (combines old 037+039)
+		Migration033_AddUniqueConstraints,          // Schema Integrity: Add proper unique constraints for data integrity
+		Migration034_StandardizeCVSSType,           // Schema Standardization: Standardize CVSS column types to REAL
+		Migration035_EvaluateTrivyTables,           // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
+		Migration036_AddMissingSBOMColumns,         // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
+		Migration037_AddSoftDeleteToResources,      // Schema Update: Add deleted_at to resource tables
+		Migration038_AddAgentsTable,                // Schema Update: Add agents table for dashboard metrics
+		Migration039_AddDeletedAtToClusters,        // Schema Update: Add deleted_at to clusters
+		Migration040_AddMissingInsightColumns,      // Schema Update: Ensure insights columns exist (fixed_version, resolved_at)
+		Migration041_AddPodCapabilitiesTable,       // Schema Update: Add pod_capabilities table (PCE)
+		Migration042_AddPodFactColumns,             // Schema Update: Add pod security fact columns
+		Migration043_AddREPTables,                  // Schema Update: Add REP tables (pod_risk_profiles, runtime_events)
+		Migration044_AddPodInstancesTable,          // PCE Phase 1.5: Pod lifecycle normalization (pod_instances)
+		Migration045_AddRuntimeSignalsTable,        // PCE Phase 1.5: Runtime signals semantic layer
+		Migration046_AddCapabilityStateMachine,     // PCE Phase 1.5: Capability state machine (detected/confirmed/exploited/chained)
+		Migration047_AddCapabilityMetadataTable,    // PCE Phase 1.5 Adjustment: Capability metadata (semantic layer)
+		Migration048_AddPromotionRulesTable,        // PCE Phase 1.5 Adjustment: Promotion rules (signal → state)
+		Migration049_AddPodAttackStepsTable,        // PCE Phase 1.5 Adjustment: Minimal AttackStep model
+		Migration050_SeedCapabilityMetadata,        // PCE Phase 1.5 Adjustment: Seed capability metadata
+		Migration051_SeedPromotionRules,            // PCE Phase 1.5 Adjustment: Seed promotion rules
+		Migration052_SBOMOneRowPerPod,              // SBOM: one row per pod (drop unique on image_digest)
+		Migration053_FixMinikubeClusterDisplayName, // Cluster display name from env only (CLUSTER_ID_TO_UPDATE, CLUSTER_DISPLAY_NAME)
+		Migration054_AddClusterMetadataColumns,     // Cluster SSOT: source, k8s_version, distribution
+		Migration055_DropClustersNameUnique,        // Cluster SSOT: allow same display name for multiple clusters (id is identity)
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))
@@ -102,7 +164,7 @@ func RunMigrations(db *gorm.DB) error {
 				strings.Contains(errStr, "relation.*does not exist")) {
 				log.Printf("WARNING: Migration %d encountered known GORM/PostgreSQL issue: %s", i+1, errStr)
 				log.Printf("WARNING: This is a known compatibility issue - continuing with next migration")
-				
+
 				// For migration 1, validate all core tables exist
 				if i == 0 {
 					requiredTables := []string{"clusters", "service_accounts", "roles", "cluster_roles",
@@ -245,13 +307,15 @@ func Migration001_InitialSchema(db *gorm.DB) error {
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
-//   Creates users table for authentication and authorization.
+//
+//	Creates users table for authentication and authorization.
 //
 // Tables Affected:
 //   - users: New table with username, email, password, role, active fields
 //
 // Rollback Plan:
-//   DROP TABLE IF EXISTS users CASCADE;
+//
+//	DROP TABLE IF EXISTS users CASCADE;
 //
 // Testing:
 //   - Verify table: SELECT * FROM users LIMIT 1;
@@ -319,6 +383,23 @@ func Migration002_AddUsers(db *gorm.DB) error {
 		return db.AutoMigrate(&models.User{})
 	}
 
+	// Ensure deleted_at column exists (in case table was created by migration 001 without it)
+	var columnExists bool
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'deleted_at')").Scan(&columnExists).Error; err != nil {
+		log.Printf("Warning: Failed to check deleted_at column: %v", err)
+	} else if !columnExists {
+		log.Println("Adding deleted_at column to users table (was missing)")
+		if err := db.Exec("ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE").Error; err != nil {
+			log.Printf("Warning: Failed to add deleted_at column: %v", err)
+		} else {
+			log.Println("deleted_at column added successfully")
+			// Create index
+			if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at)").Error; err != nil {
+				log.Printf("Warning: Failed to create index on deleted_at: %v", err)
+			}
+		}
+	}
+
 	log.Println("Migration 002 completed successfully")
 	return nil
 }
@@ -330,7 +411,8 @@ func Migration002_AddUsers(db *gorm.DB) error {
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
-//   Adds user_id column to audit_logs table to link audit entries to users.
+//
+//	Adds user_id column to audit_logs table to link audit entries to users.
 //
 // Tables Affected:
 //   - audit_logs: Add user_id column with foreign key to users table
@@ -339,7 +421,8 @@ func Migration002_AddUsers(db *gorm.DB) error {
 //   - Requires Migration 002 (users table) to be applied first
 //
 // Rollback Plan:
-//   ALTER TABLE audit_logs DROP COLUMN IF EXISTS user_id CASCADE;
+//
+//	ALTER TABLE audit_logs DROP COLUMN IF EXISTS user_id CASCADE;
 //
 // Testing:
 //   - Verify column: SELECT user_id FROM audit_logs LIMIT 1;
@@ -511,13 +594,15 @@ func Migration010_ImplementationGuideSchema(db *gorm.DB) error {
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
-//   Adds soft delete (deleted_at) and status columns to insights table.
+//
+//	Adds soft delete (deleted_at) and status columns to insights table.
 //
 // Tables Affected:
 //   - insights: Add deleted_at and status columns
 //
 // Rollback Plan:
-//   ALTER TABLE insights DROP COLUMN IF EXISTS deleted_at, status CASCADE;
+//
+//	ALTER TABLE insights DROP COLUMN IF EXISTS deleted_at, status CASCADE;
 func Migration011_AddInsightsSoftDelete(db *gorm.DB) error {
 	log.Println("Running migration 011: Add soft delete and status to insights")
 
@@ -592,13 +677,15 @@ func Migration011_AddInsightsSoftDelete(db *gorm.DB) error {
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
-//   Creates deployments table for tracking Kubernetes deployments.
+//
+//	Creates deployments table for tracking Kubernetes deployments.
 //
 // Tables Affected:
 //   - deployments: New table for deployment tracking
 //
 // Rollback Plan:
-//   DROP TABLE IF EXISTS deployments CASCADE;
+//
+//	DROP TABLE IF EXISTS deployments CASCADE;
 func Migration008_AddDeployments(db *gorm.DB) error {
 	log.Println("Running migration 008: Add deployments table")
 
@@ -673,13 +760,15 @@ func Migration008_AddDeployments(db *gorm.DB) error {
 // Ticket: Migration Audit - Phase 2
 //
 // Description:
-//   Creates replicasets table for tracking Kubernetes replica sets.
+//
+//	Creates replicasets table for tracking Kubernetes replica sets.
 //
 // Tables Affected:
 //   - replicasets: New table for replica set tracking
 //
 // Rollback Plan:
-//   DROP TABLE IF EXISTS replicasets CASCADE;
+//
+//	DROP TABLE IF EXISTS replicasets CASCADE;
 func Migration009_AddReplicaSets(db *gorm.DB) error {
 	log.Println("Running migration 009: Add replicasets table")
 

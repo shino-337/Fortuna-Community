@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/fortuna/core/pkg/models"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -45,7 +45,7 @@ func setupTestDBEvaluator(t *testing.T) *gorm.DB {
 			UNIQUE(template_id, version)
 		)
 	`)
-	
+
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS policy_instances (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,14 +93,14 @@ func TestEvaluator_EvaluateInstance(t *testing.T) {
 
 	// Create instance
 	instance := &models.PolicyInstance{
-		ID:             1,
-		InstanceName:   "test-instance",
-		TemplateID:     "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Enabled:        true,
-		Clusters:       []string{"*"},
-		Namespaces:     []string{"default"},
-		ResourceTypes:  []string{"Pod"},
+		Enabled:         true,
+		Clusters:        []string{"*"},
+		Namespaces:      []string{"default"},
+		ResourceTypes:   []string{"Pod"},
 	}
 
 	// Reload evaluator to pick up template
@@ -164,11 +164,11 @@ func TestEvaluator_EvaluateInstance_DisabledInstance(t *testing.T) {
 	}
 
 	instance := &models.PolicyInstance{
-		ID:           1,
-		InstanceName: "test-instance",
-		TemplateID:   "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Enabled:     false, // Disabled
+		Enabled:         false, // Disabled
 	}
 
 	resource := &Resource{
@@ -199,11 +199,11 @@ func TestEvaluator_EvaluateInstance_ContextCancellation(t *testing.T) {
 	}
 
 	instance := &models.PolicyInstance{
-		ID:           1,
-		InstanceName: "test-instance",
-		TemplateID:   "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Enabled:     true,
+		Enabled:         true,
 	}
 
 	resource := &Resource{
@@ -225,4 +225,3 @@ func TestEvaluator_EvaluateInstance_ContextCancellation(t *testing.T) {
 		t.Error("EvaluateInstance() should return error on cancelled context")
 	}
 }
-

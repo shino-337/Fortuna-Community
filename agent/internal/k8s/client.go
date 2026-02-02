@@ -53,7 +53,8 @@ func GetCurrentContext(kubeconfigPath string) (string, error) {
 	return config.CurrentContext, nil
 }
 
-// GetClusterName extracts cluster name from kubeconfig
+// GetClusterName extracts the cluster name (context.cluster) from kubeconfig.
+// This matches the name shown by `kubectl config get-clusters`.
 func GetClusterName(kubeconfigPath string) (string, error) {
 	config, err := clientcmd.LoadFromFile(kubeconfigPath)
 	if err != nil {
@@ -62,19 +63,18 @@ func GetClusterName(kubeconfigPath string) (string, error) {
 
 	ctx := config.CurrentContext
 	if ctx == "" {
-		return "default", nil
+		return "unknown", nil
 	}
 
-	context, ok := config.Contexts[ctx]
+	kctx, ok := config.Contexts[ctx]
 	if !ok {
-		return "default", nil
+		return "unknown", nil
 	}
 
-	cluster, ok := config.Clusters[context.Cluster]
-	if !ok {
-		return "default", nil
+	// Cluster name in kubeconfig (context.cluster); matches kubectl config get-clusters
+	if kctx.Cluster == "" {
+		return "unknown", nil
 	}
-
-	return cluster.Server, nil
+	return kctx.Cluster, nil
 }
 

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -44,7 +44,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			UNIQUE(template_id, version)
 		)
 	`)
-	
+
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS policy_instances (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -238,9 +238,9 @@ func TestRemediationService_ValidatePatchFields(t *testing.T) {
 	service := NewRemediationService(db)
 
 	tests := []struct {
-		name    string
+		name     string
 		template string
-		wantErr bool
+		wantErr  bool
 	}{
 		{
 			name: "Allow securityContext",
@@ -371,4 +371,3 @@ func TestRemediationService_ComputeDiff(t *testing.T) {
 		t.Error("computeDiff() should include runAsNonRoot change")
 	}
 }
-

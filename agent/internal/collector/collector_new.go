@@ -25,12 +25,15 @@ func New(cfg *config.Config) (*Collector, error) {
 		return nil, fmt.Errorf("failed to create gRPC client: %w", err)
 	}
 
-	// Get cluster ID and name
+	// Get cluster ID and name from config (same resolution as main: env or kubeconfig; no hardcode)
 	clusterID := cfg.ClusterID
 	if clusterID == "" {
-		clusterID = "default"
+		clusterID = "unknown"
 	}
-	clusterName := clusterID // Use clusterID as name for now
+	clusterName := cfg.ClusterName
+	if clusterName == "" {
+		clusterName = clusterID
+	}
 
 	return NewCollector(k8sClient, grpcClient, clusterID, clusterName)
 }

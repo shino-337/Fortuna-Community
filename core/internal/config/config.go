@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 )
 
 type Config struct {
@@ -35,6 +36,10 @@ type Config struct {
 	// Webhook TLS Configuration (separate from gRPC)
 	WebhookTLSCertPath string
 	WebhookTLSKeyPath  string
+
+	// PCE Scheduler
+	PCESchedulerEnabled  bool
+	PCESchedulerInterval time.Duration
 }
 
 func Load(configPath string) (*Config, error) {
@@ -62,6 +67,8 @@ func Load(configPath string) (*Config, error) {
 		TLSKeyPath:           getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/server/tls.key"),
 		WebhookTLSCertPath:   getEnv("WEBHOOK_TLS_CERT_PATH", "/etc/webhook/certs/tls.crt"),
 		WebhookTLSKeyPath:    getEnv("WEBHOOK_TLS_KEY_PATH", "/etc/webhook/certs/tls.key"),
+		PCESchedulerEnabled:  getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
+		PCESchedulerInterval: parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
 	}
 
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",
@@ -77,6 +84,17 @@ func parseInt(s string) int {
 		result = 24 // default
 	}
 	return result
+}
+
+func parseDuration(s string) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 6 * time.Hour
+	}
+	if d <= 0 {
+		return 6 * time.Hour
+	}
+	return d
 }
 
 func getEnv(key, defaultValue string) string {

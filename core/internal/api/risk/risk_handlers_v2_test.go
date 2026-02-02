@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/driver/postgres"
@@ -47,11 +48,16 @@ func TestCalculateRiskScore_V2(t *testing.T) {
 
 	// Create test insight
 	insight := models.Insight{
-		Type:              "security",
+		ResourceType:      "Pod",
+		ResourceNamespace: "default",
+		ResourceName:      "test-pod",
+		ResourceUID:       "test-uid-api",
+		InsightType:       "security",
 		Severity:          "critical",
-		Status:            "active",
-		AffectedResources: `[{"uid":"test-uid-api","name":"test-pod","namespace":"default","type":"Pod"}]`,
+		Title:             "Test critical security issue",
 		Description:       "Test critical security issue",
+		Status:            "active",
+		DetectedAt:        time.Now(),
 	}
 	db.Create(&insight)
 

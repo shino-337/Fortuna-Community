@@ -48,8 +48,8 @@ func (s *FortunaServiceServer) SyncData(ctx context.Context, req interface{}) (i
 		return nil, status.Error(codes.InvalidArgument, "data is required")
 	}
 
-	// Sync data
-	if err := s.agentService.SyncData(clusterID, data); err != nil {
+	// gRPC path: cluster_id only; mutable fields (name, source, etc.) left empty so Core keeps existing or uses id as name
+	if err := s.agentService.SyncData(clusterID, "", "", "", "", data); err != nil {
 		return map[string]interface{}{
 			"success": false,
 			"message": err.Error(),

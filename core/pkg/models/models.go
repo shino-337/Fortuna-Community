@@ -6,18 +6,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// Cluster represents a Kubernetes cluster
+// Cluster represents a Kubernetes cluster (SSOT from agent).
+// ID is immutable; Name, Source, K8sVersion, Distribution are mutable (updated on sync).
 type Cluster struct {
-	ID         string         `gorm:"primaryKey" json:"id"`
-	Name       string         `gorm:"not null" json:"name"`
-	Region     string         `json:"region"`                      // Region field from IMPLEMENTATION_GUIDE
-	Endpoint   string         `json:"endpoint"`
-	Kubeconfig string         `gorm:"type:text" json:"-"`           // Kubeconfig content (not exposed in JSON for security)
-	Status     string         `gorm:"default:active" json:"status"` // active, inactive, error
-	LastSync   time.Time      `json:"lastSync"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	UpdatedAt  time.Time      `json:"updatedAt"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
+	ID           string         `gorm:"primaryKey" json:"id"`
+	Name         string         `gorm:"not null" json:"name"`
+	Source       string         `json:"source"`        // "auto" | "env"
+	K8sVersion   string         `json:"k8sVersion,omitempty"`
+	Distribution string         `json:"distribution,omitempty"` // "eks" | "gke" | "aks" | "kubeadm" | "unknown"
+	Region       string         `json:"region"`
+	Endpoint     string         `json:"endpoint"`
+	Kubeconfig   string         `gorm:"type:text" json:"-"`
+	Status       string         `gorm:"default:active" json:"status"`
+	LastSync     time.Time      `json:"lastSync"`
+	CreatedAt    time.Time      `json:"createdAt"`
+	UpdatedAt    time.Time      `json:"updatedAt"`
+	DeletedAt    gorm.DeletedAt `gorm:"index" json:"-"`
 
 	ServiceAccounts     []ServiceAccount     `gorm:"foreignKey:ClusterID" json:"serviceAccounts,omitempty"`
 	RoleBindings        []RoleBinding        `gorm:"foreignKey:ClusterID" json:"roleBindings,omitempty"`
@@ -116,6 +120,17 @@ type Pod struct {
 	UID            string         `gorm:"not null;index" json:"uid"`
 	Containers     string         `gorm:"type:jsonb" json:"containers"`     // JSON array of container info
 	ImageDigests   string         `gorm:"type:jsonb" json:"imageDigests"` // JSON array of image digests
+	PodSecurityContext      string         `gorm:"type:jsonb" json:"podSecurityContext"`
+	ContainerSecurityContexts string       `gorm:"type:jsonb" json:"containerSecurityContexts"`
+	VolumeMounts            string         `gorm:"type:jsonb" json:"volumeMounts"`
+	Volumes                 string         `gorm:"type:jsonb" json:"volumes"`
+	Tolerations             string         `gorm:"type:jsonb" json:"tolerations"`
+	Affinity                string         `gorm:"type:jsonb" json:"affinity"`
+	HostNetwork             bool           `gorm:"default:false;column:host_network" json:"hostNetwork"`
+	HostPID                 bool           `gorm:"default:false;column:host_pid" json:"hostPID"`
+	HostIPC                 bool           `gorm:"default:false;column:host_ipc" json:"hostIPC"`
+	AutomountServiceAccountToken *bool     `gorm:"column:automount_service_account_token" json:"automountServiceAccountToken"`
+	NodeName                string         `gorm:"type:varchar(255);index" json:"nodeName"`
 	NodeID         *uint          `gorm:"index" json:"nodeId"`            // Reference to nodes table
 	CreatedAt      time.Time      `json:"createdAt"`
 	UpdatedAt      time.Time      `json:"updatedAt"`

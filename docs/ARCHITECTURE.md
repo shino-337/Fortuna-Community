@@ -8,7 +8,7 @@
 
 ## Overview
 
-Fortuna (formerly KSAM) is a comprehensive security and risk management platform for Kubernetes clusters. It provides real-time vulnerability detection, SBOM (Software Bill of Materials) extraction, CVE matching, and security insights generation.
+Fortuna is a comprehensive security and risk management platform for Kubernetes clusters. It provides real-time vulnerability detection, SBOM (Software Bill of Materials) extraction, CVE matching, security insights generation, Pod Capability Engine (PCE), and attack path analysis.
 
 ### Key Capabilities
 
@@ -17,6 +17,9 @@ Fortuna (formerly KSAM) is a comprehensive security and risk management platform
 - **Security Insights**: Automated generation of security insights and recommendations
 - **Policy Engine**: Configurable security policies and enforcement
 - **Risk Scoring**: Comprehensive risk assessment for workloads
+- **Pod Capability Engine (PCE)**: Runtime capability detection and attack step inference
+- **Attack Path Analysis**: Graph-based attack path visualization and analysis
+- **Runtime Signals**: Real-time security signal detection and correlation
 
 ---
 
@@ -42,6 +45,9 @@ Fortuna (formerly KSAM) is a comprehensive security and risk management platform
   - CVE matching and vulnerability detection
   - Insight generation
   - Policy evaluation
+  - Pod Capability Engine (PCE)
+  - Attack path analysis
+  - Runtime signal processing
   - API services
   - Database management
 
@@ -49,13 +55,30 @@ Fortuna (formerly KSAM) is a comprehensive security and risk management platform
 - **NATS JetStream**: Event-driven architecture
 - **PostgreSQL**: Persistent storage
 - **gRPC Server**: Agent communication
-- **REST API**: External access
+- **REST API**: External access (51+ endpoints)
 - **Workers**: Asynchronous processing
+- **PCE Scheduler**: Periodic capability evaluation
+- **Admission Webhook**: Policy enforcement
 
-### 3. Infrastructure
-- **PostgreSQL**: Database for SBOMs, CVEs, insights, policies
-- **NATS JetStream**: Message queue for event processing
-- **Prometheus**: Metrics collection
+### 3. Dashboard (Deployment)
+- **Purpose**: Web-based user interface
+- **Responsibilities**:
+  - Security dashboard and visualization
+  - Risk center and insights management
+  - SBOM analysis and vulnerability browsing
+  - Attack path visualization
+  - Pod capabilities and runtime signals monitoring
+  - Capability metadata browser
+
+**Key Features**:
+- **React + TypeScript**: Modern frontend framework
+- **Real-time Updates**: API-driven data refresh
+- **Multiple Views**: Dashboard, Risks, SBOM, Attack Paths, Capabilities
+
+### 4. Infrastructure
+- **PostgreSQL**: Database for SBOMs, CVEs, insights, policies, capabilities, attack steps
+- **NATS JetStream**: Message queue for event processing (3-replica cluster)
+- **Metrics**: Core service exposes `/metrics` endpoint (Prometheus format)
 
 ---
 
@@ -134,6 +157,40 @@ Fortuna (formerly KSAM) is a comprehensive security and risk management platform
   - `cve_id`, `affected_component`, `affected_version`
   - `cvss` (real), `status` (active, resolved, dismissed)
   - **Unique Constraint**: `(resource_uid, cve_id, insight_type)`
+
+#### `pod_capabilities`
+- **Purpose**: Store pod capabilities detected by PCE
+- **Key Columns**:
+  - `pod_uid`, `namespace`, `capability_id`
+  - `severity`, `state` (detected, confirmed, exploited, chained)
+  - `confidence`, `evidence` (JSONB), `mitre_techniques`
+  - `first_seen_at`, `last_seen_at`
+
+#### `capability_metadata`
+- **Purpose**: Semantic metadata for capabilities
+- **Key Columns**:
+  - `capability_id`, `domain`, `category`, `description`
+  - `severity_base`, `confidence_base`
+  - `preconditions` (JSONB), `produces_attack_steps` (JSONB)
+  - `expires_with_instance`, `supports_runtime_promotion`
+
+#### `pod_attack_steps`
+- **Purpose**: Store attack steps inferred from capabilities
+- **Key Columns**:
+  - `pod_uid`, `step_id`, `category`, `confidence`
+  - `description`, `evidence` (JSONB)
+
+#### `runtime_signals`
+- **Purpose**: Semantic runtime security signals
+- **Key Columns**:
+  - `pod_uid`, `signal_type`, `category`, `confidence`
+  - `evidence` (JSONB)
+
+#### `promotion_rules`
+- **Purpose**: Rules for promoting capability states based on signals
+- **Key Columns**:
+  - `capability_id`, `signal_type`, `min_occurrences`
+  - `required_capabilities` (JSONB), `promote_to`, `confidence_boost`
 
 #### `cves`
 - **Purpose**: Store CVE metadata
@@ -372,27 +429,65 @@ cmp := v1.Compare(v2) // -1, 0, or 1
 
 ---
 
-## Recent Changes (2025-12-28)
+## Pod Capability Engine (PCE)
 
-### Version Comparison Fix
-- **Issue**: Complex Debian versions not parsed correctly
-- **Fix**: Integrated `go-deb-version` library
-- **Impact**: Accurate CVE matching for Debian packages
+### Overview
 
-### Insight Worker Fix
-- **Issue**: Insights not generated due to re-query timing issues
-- **Fix**: Use matches directly, removed re-query
-- **Impact**: Reliable insight generation
+The Pod Capability Engine (PCE) is a core component that detects, tracks, and analyzes security capabilities of Kubernetes pods. It provides a foundation for attack path analysis and runtime security assessment.
 
-### Schema Fixes
-- **Issue**: SQL queries referenced non-existent columns
-- **Fix**: Removed `fixed_version` from insights table operations
-- **Impact**: No SQL errors, correct data storage
+### Capability Detection
 
-### Deduplication
-- **Issue**: Duplicate insights causing ON CONFLICT errors
-- **Fix**: Deduplicate before batch insert
-- **Impact**: Reliable batch processing
+**Static Capabilities** (from PodSpec):
+- Privileged containers (`ESC_PRIV_POD`)
+- Host namespace access (`ESC_HOSTPID_POD`, `ESC_HOSTIPC_POD`)
+- HostPath mounts (`ESC_HOSTPATH_NODE`)
+- HostNetwork (`NET_HOSTNETWORK`)
+- ServiceAccount token access (`ID_TOKEN_POD`)
+- RBAC permissions (`API_RBAC_WRITE_CLUSTER`)
+- Control plane namespace (`CTRL_CONTROL_PLANE_POD`)
+
+**Runtime Capabilities** (from runtime signals):
+- Container escape attempts (`ESC_RUNTIME_PROC_ROOT`)
+- Active escape confirmation (`ESC_RUNTIME_ACTIVE`)
+- Runtime probe detection (`ESC_RUNTIME_PROBE`)
+
+### Capability States
+
+1. **detected**: Initial state from static PodSpec analysis
+2. **confirmed**: Promoted when runtime signals match promotion rules
+3. **exploited**: Active exploitation detected via runtime signals
+4. **chained**: Multiple capabilities combined for attack path
+
+### State Promotion
+
+Promotion rules define how capabilities move between states:
+- **Signal-based**: Runtime signals trigger state promotion
+- **Occurrence-based**: Minimum signal occurrences required
+- **Prerequisite-based**: Required capabilities must exist
+- **Confidence boost**: Confidence increases with promotion
+
+### Attack Step Inference
+
+When capabilities reach `exploited` state, attack steps are automatically inferred:
+- Query `capability_metadata.produces_attack_steps`
+- Create `PodAttackStep` records with evidence
+- Link steps to form attack paths
+
+### Runtime Signals
+
+Runtime signals provide semantic layer for runtime events:
+- **Signal Types**: `PROC_ROOT_PIVOT`, `NETWORK_SNIFFING`, `RBAC_ABUSE`, etc.
+- **Categories**: Container Escape, Network, Credential Access, etc.
+- **Confidence**: Signal confidence score (0.0-1.0)
+- **Evidence**: JSONB evidence payload
+
+### PCE Scheduler
+
+Periodic evaluation (default: 6h) to:
+- Re-evaluate pod capabilities
+- Update capability states
+- Generate attack steps
+- Clean up terminated pod instances
 
 ---
 
@@ -401,22 +496,33 @@ cmp := v1.Compare(v2) // -1, 0, or 1
 ### Kubernetes Resources
 
 1. **Agent (DaemonSet)**
-   - Runs on each node
-   - Memory: 4Gi
-   - Node selector: `kubernetes.io/hostname: minikube`
+   - Runs on all nodes (including control-plane)
+   - Resources: 256Mi-1Gi memory, 100m-500m CPU
+   - Containerd socket access
+   - mTLS client certificates
 
 2. **Core (Deployment)**
-   - Centralized processing
+   - Runs on control-plane nodes
    - Replicas: 1 (configurable)
-   - Resources: Configurable
+   - Resources: 256Mi-1Gi memory, 100m-1000m CPU
+   - mTLS server certificates
+   - Webhook TLS certificates
+   - Containerd socket access
 
-3. **PostgreSQL (StatefulSet)**
+3. **Dashboard (Deployment)**
+   - Runs on control-plane nodes
+   - Resources: 64Mi-128Mi memory, 50m-100m CPU
+   - Nginx-based static serving
+
+4. **PostgreSQL (StatefulSet)**
    - Persistent storage
    - Configurable resources
+   - Automatic migrations
 
-4. **NATS (StatefulSet)**
-   - Message queue
-   - Replicas: 1 (development), 3 (production)
+5. **NATS (StatefulSet)**
+   - Message queue (JetStream)
+   - Replicas: 3 (production)
+   - High availability cluster
 
 ---
 
@@ -447,24 +553,49 @@ cmp := v1.Compare(v2) // -1, 0, or 1
 
 ---
 
-## Future Enhancements
+## API Endpoints Summary
 
-1. **Policy Engine Integration**
-   - CEL-based evaluation
-   - Template-instance pattern
-   - Violation sampling
+### Core APIs
 
-2. **Additional Ecosystems**
-   - RPM version comparison library
-   - Alpine version comparison library
+**SBOM & CVE**:
+- `GET /api/v1/sbom` - List SBOMs
+- `GET /api/v1/sbom/:podId` - Get SBOM detail
+- `GET /api/v1/risks` - List security risks/insights
 
-3. **Real-time Alerts**
-   - Webhook notifications
-   - Email alerts
-   - Slack integration
+**Pod Capabilities (PCE)**:
+- `GET /api/v1/pod-capabilities` - List pod capabilities
+- `GET /api/v1/pods/:podUid/capabilities` - Get pod capabilities
+- `GET /api/v1/pod-capabilities/summary/*` - Summary endpoints (cluster, capability, namespace, severity)
+- `GET /api/v1/pod-capabilities/trends` - Capability trends
+
+**Capability Metadata**:
+- `GET /api/v1/capability-metadata` - List capability metadata
+- `GET /api/v1/capability-metadata/:capabilityId` - Get metadata
+
+**Attack Steps**:
+- `GET /api/v1/attack-steps/pods/:podUid` - Get pod attack steps
+- `GET /api/v1/attack-steps/summary` - Attack step summary
+
+**Runtime Signals**:
+- `GET /api/v1/runtime-signals` - List runtime signals
+- `GET /api/v1/runtime-signals/pods/:podUid` - Get pod signals
+
+**Promotion Rules**:
+- `GET /api/v1/promotion-rules` - List promotion rules
+- `GET /api/v1/promotion-rules/capability/:capabilityId` - Rules by capability
+- `GET /api/v1/promotion-rules/signal/:signalType` - Rules by signal type
+
+**Attack Paths**:
+- `GET /api/v1/attack-paths/graph` - Attack path graph
+
+**Dashboard**:
+- `GET /api/v1/dashboard/stats` - Dashboard statistics
+- `GET /api/v1/dashboard/metrics/threat-velocity` - Threat velocity metrics
+
+See [API Reference](API_REFERENCE.md) for complete documentation.
 
 ---
 
-**Document Version**: 2.0  
-**Last Updated**: $(date)
+**Document Version**: 2.1  
+**Last Updated**: 2026-01-29
 

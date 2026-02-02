@@ -66,7 +66,7 @@ core:
     url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
   
   nats:
-    endpoint: "nats://nats.fortuna.svc.cluster.local:4222"
+    endpoint: "nats://nats-client.fortuna.svc.cluster.local:4222"
   
   tls:
     enabled: true

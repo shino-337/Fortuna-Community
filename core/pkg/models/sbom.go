@@ -12,7 +12,7 @@ type SBOM struct {
 	ID               uint           `gorm:"primaryKey" json:"id"`
 	ImageName        string         `gorm:"type:varchar(255);not null;index" json:"imageName"`
 	ImageTag         string         `gorm:"type:varchar(255);not null;index" json:"imageTag"`
-	ImageDigest      string         `gorm:"type:varchar(255);not null;uniqueIndex" json:"imageDigest"` // SHA256, immutable!
+	ImageDigest      string         `gorm:"type:varchar(255);not null;index" json:"imageDigest"` // SHA256; one row per pod (multiple pods can share same image)
 	PodUID           string         `gorm:"type:varchar(255);index" json:"podUid"`
 	PodName          string         `gorm:"type:varchar(255)" json:"podName"`
 	Namespace        string         `gorm:"type:varchar(255);index" json:"namespace"`

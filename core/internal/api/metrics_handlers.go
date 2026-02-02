@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -10,94 +11,109 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-// GetWorkerMetrics returns worker metrics
+// GetWorkerMetrics returns worker metrics. Requires Prometheus integration; until then returns unsupported.
+// Dashboard must not display fake healthy/queue values. See GET /health/dashboard-data-integrity.
 func GetWorkerMetrics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get metrics from Prometheus registry
-		// For now, return structured data that can be queried from /metrics endpoint
-		// In production, you'd query Prometheus API
-
-		workers := []map[string]interface{}{
-			{
-				"type":     "normalizer",
-				"status":   "healthy",
-				"queueDepth": 0, // Would query from metrics
-			},
-			{
-				"type":     "correlator",
-				"status":   "healthy",
-				"queueDepth": 0,
-			},
-			{
-				"type":     "risk",
-				"status":   "healthy",
-				"queueDepth": 0,
-			},
-		}
-
 		c.JSON(http.StatusOK, gin.H{
-			"workers": workers,
+			"_dataSource": "unsupported",
+			"message":     "Worker metrics require Prometheus integration",
+			"workers":     []map[string]interface{}{},
 		})
 	}
 }
 
-// GetQueueMetrics returns queue depth metrics
+// GetQueueMetrics returns queue depth metrics. Requires Prometheus; until then returns unsupported.
+// Dashboard must not display fake zeros as real data. See GET /health/dashboard-data-integrity.
 func GetQueueMetrics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Query Prometheus for queue depth metrics
-		// For now, return placeholder structure
-
 		c.JSON(http.StatusOK, gin.H{
-			"normalizer": 0,
-			"correlator": 0,
-			"risk":       0,
-			"timestamp":  time.Now(),
+			"_dataSource": "unsupported",
+			"message":     "Queue metrics require Prometheus integration",
+			"timestamp":   time.Now(),
 		})
 	}
 }
 
-// GetAgentStatus returns agent status
+// GetAgentStatus returns agent status from the agents table (real data).
 func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Query database for agent heartbeats
-		// For now, return cluster-based status
+		if !db.Migrator().HasTable("agents") {
+			c.JSON(http.StatusOK, gin.H{
+				"agents": []map[string]interface{}{}, "total": 0, "healthy": 0, "slow": 0, "disconnected": 0,
+			})
+			return
+		}
 
-		var clusters []models.Cluster
-		db.Find(&clusters)
+		tenMinutesAgo := time.Now().Add(-10 * time.Minute)
+		var agentsList []models.Agent
+		db.Where("deleted_at IS NULL AND status = ? AND (last_seen_at > ? OR last_seen_at IS NULL)", "ready", tenMinutesAgo).
+			Find(&agentsList)
 
-		agents := []map[string]interface{}{}
-		for _, cluster := range clusters {
-			// Get last sync time as heartbeat indicator
+		// Resolve cluster display name from clusters table (most recently synced)
+		var displayClusterID, displayClusterName string
+		var latestCluster models.Cluster
+		if err := db.Order("last_sync DESC").First(&latestCluster).Error; err == nil {
+			displayClusterID = latestCluster.ID
+			displayClusterName = latestCluster.Name
+			if displayClusterName == "" {
+				displayClusterName = displayClusterID
+			}
+		} else {
+			// From environment only; no hardcoded cluster name
+			displayClusterID = os.Getenv("DEFAULT_CLUSTER_ID")
+			displayClusterName = os.Getenv("DEFAULT_CLUSTER_NAME")
+			if displayClusterName == "" {
+				displayClusterName = displayClusterID
+			}
+			if displayClusterID == "" {
+				displayClusterID = "unknown"
+				displayClusterName = "unknown"
+			}
+		}
+
+		agents := make([]map[string]interface{}, 0, len(agentsList))
+		healthyCount := 0
+		for _, a := range agentsList {
 			status := "healthy"
-			if time.Since(cluster.LastSync) > 5*time.Minute {
+			if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 5*time.Minute {
 				status = "slow"
-			}
-			if time.Since(cluster.LastSync) > 15*time.Minute {
+			} else if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 15*time.Minute {
 				status = "disconnected"
+			} else {
+				healthyCount++
 			}
-
+			lastHB := time.Time{}
+			if a.LastSeenAt != nil {
+				lastHB = *a.LastSeenAt
+			}
 			agents = append(agents, map[string]interface{}{
-				"clusterId":   cluster.ID,
-				"clusterName": cluster.Name,
-				"status":      status,
-				"lastHeartbeat": cluster.LastSync,
-				"nodeName":    "unknown", // Would come from agent_status table
+				"agentId":       a.AgentID,
+				"clusterId":     displayClusterID,
+				"clusterName":   displayClusterName,
+				"nodeName":      a.NodeName,
+				"status":        status,
+				"lastHeartbeat": lastHB,
+				"version":       a.Version,
 			})
 		}
 
-		healthyCount := 0
-		for _, agent := range agents {
-			if agent["status"] == "healthy" {
-				healthyCount++
+		slow := 0
+		disconnected := 0
+		for _, ag := range agents {
+			if ag["status"] == "slow" {
+				slow++
+			} else if ag["status"] == "disconnected" {
+				disconnected++
 			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"agents":      agents,
-			"total":       len(agents),
-			"healthy":     healthyCount,
-			"slow":        len(agents) - healthyCount,
-			"disconnected": 0,
+			"agents":       agents,
+			"total":        len(agents),
+			"healthy":      healthyCount,
+			"slow":         slow,
+			"disconnected": disconnected,
 		})
 	}
 }
@@ -105,9 +121,10 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 // GetSystemMetrics returns system health metrics
 func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get cluster stats
+		// Count active clusters only (same definition as GetClusters / dashboard stats)
 		var clusterCount int64
-		db.Model(&models.Cluster{}).Count(&clusterCount)
+		cutoff := time.Now().Add(-ActiveClusterCutoff)
+		db.Model(&models.Cluster{}).Where("last_sync >= ?", cutoff).Count(&clusterCount)
 
 		// Count distinct pods by UID to avoid duplicates
 		var podCount int64
@@ -136,13 +153,12 @@ func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 			},
 			"resources": map[string]interface{}{
 				"clusters":        clusterCount,
-				"pods":           podCount,
+				"pods":            podCount,
 				"serviceAccounts": saCount,
 				"insights":        insightCount,
 			},
 			"api": map[string]interface{}{
 				"status": "healthy",
-				"avgLatency": "234ms", // Would come from metrics
 			},
 		})
 	}
@@ -167,23 +183,30 @@ func QueryPrometheusMetrics(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetPolicyEvaluationCost returns policy evaluation cost metrics
+// GetErrorLogs returns error logs. No backend aggregation yet; returns unsupported.
+// Dashboard must not display fake entries. See GET /health/dashboard-data-integrity.
+func GetErrorLogs(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"_dataSource": "unsupported",
+			"message":     "Error log aggregation not yet implemented",
+			"logs":        []map[string]interface{}{},
+		})
+	}
+}
+
+// GetPolicyEvaluationCost returns policy evaluation cost metrics.
+// Only DB-derived totalEvaluations is real; other fields require metrics and are omitted.
 func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Get total insights count as proxy for evaluations
 		var totalInsights int64
 		db.Model(&models.Insight{}).Count(&totalInsights)
-
-		// Estimate evaluations per day (rough estimate)
-		evaluationsPerDay := totalInsights * 10 // Rough estimate
+		evaluationsPerDay := totalInsights * 10
 
 		c.JSON(http.StatusOK, gin.H{
 			"totalEvaluations": evaluationsPerDay,
-			"avgPerRule":      "12μs", // Would come from actual metrics
-			"peak":            "18μs",
-			"totalCPU":        "0.5 cores",
-			"memory":          "2.1 GB",
-			"costPerEvaluation": "10ns",
+			"_dataSource":      "partial",
+			"message":          "avgPerRule/peak/CPU/memory require Prometheus",
 		})
 	}
 }

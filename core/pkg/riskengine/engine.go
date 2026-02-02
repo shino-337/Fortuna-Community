@@ -311,7 +311,11 @@ func (e *Engine) createInsight(rule Rule, resourceType string, resourceData map[
 	// Extract resource identifiers
 	clusterID, _ := resourceData["cluster_id"].(string)
 	if clusterID == "" {
-		clusterID = "default"
+		if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
+			clusterID = v
+		} else {
+			clusterID = "unknown"
+		}
 	}
 
 	name, _ := resourceData["name"].(string)

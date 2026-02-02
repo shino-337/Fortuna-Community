@@ -18,16 +18,16 @@ core:
       memory: "256Mi"
       cpu: "100m"
     limits:
-      memory: "512Mi"
-      cpu: "500m"
+      memory: "1Gi"
+      cpu: "1000m"
   
   database:
-    url: "postgres://postgres:postgres123@postgres:5432/fortuna?sslmode=disable"
+    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
     host: postgres
     port: 5432
     name: fortuna
     user: postgres
-    password: postgres123
+    password: postgres
   
   auth:
     enabled: true
@@ -50,11 +50,11 @@ agent:
   
   resources:
     requests:
-      memory: "50Mi"
-      cpu: "50m"
-    limits:
-      memory: "100Mi"
+      memory: "256Mi"
       cpu: "100m"
+    limits:
+      memory: "1Gi"
+      cpu: "500m"
 
 dashboard:
   name: fortuna-dashboard

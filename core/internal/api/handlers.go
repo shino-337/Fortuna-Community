@@ -14,11 +14,31 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-// GetClusters returns all clusters
+// ActiveClusterCutoff is how long since last sync to consider a cluster "active" for dashboard display.
+// Clusters not synced within this window are excluded from /clusters and dashboard stats (stale data).
+const ActiveClusterCutoff = 7 * 24 * time.Hour
+
+// getClustersForAPI returns clusters for API responses (active by default; optional includeStale).
+// Single source for cluster list query so GetClusters and GetClustersStats stay in sync.
+func getClustersForAPI(db *gorm.DB, c *gin.Context) ([]models.Cluster, error) {
+	var clusters []models.Cluster
+	query := db.Model(&models.Cluster{})
+	if c.Query("includeStale") != "true" {
+		cutoff := time.Now().Add(-ActiveClusterCutoff)
+		query = query.Where("last_sync >= ?", cutoff)
+	}
+	if err := query.Order("last_sync DESC").Find(&clusters).Error; err != nil {
+		return nil, err
+	}
+	return clusters, nil
+}
+
+// GetClusters returns clusters that have synced recently (within ActiveClusterCutoff).
+// Stale clusters (no sync in 7 days) are excluded so dashboard only shows current environment.
 func GetClusters(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var clusters []models.Cluster
-		if err := db.Find(&clusters).Error; err != nil {
+		clusters, err := getClustersForAPI(db, c)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -57,33 +77,33 @@ type ClusterStats struct {
 	AgentVersion            string `json:"agentVersion,omitempty"`
 }
 
-// GetClustersStats returns all clusters with detailed statistics and connection status
+// GetClustersStats returns clusters (with recent sync by default) and their statistics.
 func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var clusters []models.Cluster
-		if err := db.Find(&clusters).Error; err != nil {
+		clusters, err := getClustersForAPI(db, c)
+		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		stats := make([]ClusterStats, 0, len(clusters))
-		
+
 		for _, cluster := range clusters {
 			stat := ClusterStats{
 				Cluster: cluster,
 			}
 
-		// Count resources for this cluster (GORM automatically filters deleted_at IS NULL)
-		db.Model(&models.ServiceAccount{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ServiceAccountCount)
-		db.Model(&models.Role{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleCount)
-		db.Model(&models.ClusterRole{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleCount)
-		db.Model(&models.RoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleBindingCount)
-		db.Model(&models.ClusterRoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleBindingCount)
-		// Count distinct UIDs to avoid duplicates (GORM automatically filters deleted_at IS NULL)
-		var podCount int64
-		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", cluster.ID).Scan(&podCount)
-		stat.PodCount = podCount
-		db.Model(&models.Deployment{}).Where("cluster_id = ?", cluster.ID).Count(&stat.DeploymentCount)
+			// Count resources for this cluster (GORM automatically filters deleted_at IS NULL)
+			db.Model(&models.ServiceAccount{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ServiceAccountCount)
+			db.Model(&models.Role{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleCount)
+			db.Model(&models.ClusterRole{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleCount)
+			db.Model(&models.RoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.RoleBindingCount)
+			db.Model(&models.ClusterRoleBinding{}).Where("cluster_id = ?", cluster.ID).Count(&stat.ClusterRoleBindingCount)
+			// Count distinct UIDs to avoid duplicates (GORM automatically filters deleted_at IS NULL)
+			var podCount int64
+			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", cluster.ID).Scan(&podCount)
+			stat.PodCount = podCount
+			db.Model(&models.Deployment{}).Where("cluster_id = ?", cluster.ID).Count(&stat.DeploymentCount)
 
 			// Determine connection status based on LastSync time
 			// If lastSync is within last 5 minutes, consider connected
@@ -134,17 +154,17 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSizeParam, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
-		
+
 		// Special handling: pageSize=-1 means return all records
 		// For security, set a maximum limit (1000) when fetching all
 		// Note: pageSize=0 is not supported as GORM treats Limit(0) specially
 		fetchAll := pageSizeParam == -1
-		
+
 		var pageSize int
 		var responsePageSize int
 		if fetchAll {
 			// When fetching all, use a large limit (1000) but don't apply offset
-			pageSize = 1000 // Max limit for "all" requests
+			pageSize = 1000      // Max limit for "all" requests
 			responsePageSize = 0 // Will be set to actual count later
 		} else {
 			pageSize = pageSizeParam
@@ -158,7 +178,7 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 			}
 			responsePageSize = pageSize
 		}
-		
+
 		offset := (page - 1) * pageSize
 
 		var total int64
@@ -285,24 +305,24 @@ func GetDeployment(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		response := gin.H{
-			"id":                    deployment.ID,
-			"clusterId":             deployment.ClusterID,
-			"uid":                   deployment.UID,
-			"name":                  deployment.Name,
-			"namespace":             deployment.Namespace,
-			"replicasDesired":       deployment.Replicas,
-			"replicasReady":         deployment.ReadyReplicas,
-			"replicasAvailable":     deployment.AvailableReplicas,
-			"replicasUnavailable":   deployment.UnavailableReplicas,
-			"replicasUpdated":       deployment.UpdatedReplicas,
-			"strategy":              deployment.Strategy,
-			"containers":            containers,
-			"labels":                labels,
-			"annotations":           annotations,
-			"selector":              selector,
-			"conditions":            conditions,
-			"createdAt":             deployment.CreatedAt,
-			"updatedAt":             deployment.UpdatedAt,
+			"id":                  deployment.ID,
+			"clusterId":           deployment.ClusterID,
+			"uid":                 deployment.UID,
+			"name":                deployment.Name,
+			"namespace":           deployment.Namespace,
+			"replicasDesired":     deployment.Replicas,
+			"replicasReady":       deployment.ReadyReplicas,
+			"replicasAvailable":   deployment.AvailableReplicas,
+			"replicasUnavailable": deployment.UnavailableReplicas,
+			"replicasUpdated":     deployment.UpdatedReplicas,
+			"strategy":            deployment.Strategy,
+			"containers":          containers,
+			"labels":              labels,
+			"annotations":         annotations,
+			"selector":            selector,
+			"conditions":          conditions,
+			"createdAt":           deployment.CreatedAt,
+			"updatedAt":           deployment.UpdatedAt,
 		}
 
 		c.JSON(http.StatusOK, response)
@@ -392,25 +412,25 @@ func GetReplicaSet(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		response := gin.H{
-			"id":                    replicaset.ID,
-			"clusterId":             replicaset.ClusterID,
-			"uid":                   replicaset.UID,
-			"name":                  replicaset.Name,
-			"namespace":             replicaset.Namespace,
-			"replicas":              replicaset.Replicas,
-			"readyReplicas":         replicaset.ReadyReplicas,
-			"availableReplicas":     replicaset.AvailableReplicas,
-			"fullyLabeledReplicas":  replicaset.FullyLabeledReplicas,
-			"ownerKind":             replicaset.OwnerKind,
-			"ownerName":             replicaset.OwnerName,
-			"ownerUid":              replicaset.OwnerUID,
-			"containers":            containers,
-			"labels":                labels,
-			"annotations":           annotations,
-			"selector":              selector,
-			"conditions":            conditions,
-			"createdAt":             replicaset.CreatedAt,
-			"updatedAt":             replicaset.UpdatedAt,
+			"id":                   replicaset.ID,
+			"clusterId":            replicaset.ClusterID,
+			"uid":                  replicaset.UID,
+			"name":                 replicaset.Name,
+			"namespace":            replicaset.Namespace,
+			"replicas":             replicaset.Replicas,
+			"readyReplicas":        replicaset.ReadyReplicas,
+			"availableReplicas":    replicaset.AvailableReplicas,
+			"fullyLabeledReplicas": replicaset.FullyLabeledReplicas,
+			"ownerKind":            replicaset.OwnerKind,
+			"ownerName":            replicaset.OwnerName,
+			"ownerUid":             replicaset.OwnerUID,
+			"containers":           containers,
+			"labels":               labels,
+			"annotations":          annotations,
+			"selector":             selector,
+			"conditions":           conditions,
+			"createdAt":            replicaset.CreatedAt,
+			"updatedAt":            replicaset.UpdatedAt,
 		}
 
 		c.JSON(http.StatusOK, response)
@@ -502,7 +522,7 @@ func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
 			User:       username.(string),
 			IP:         c.ClientIP(),
 		}
-		
+
 		// Add K8s deletion result to audit details
 		if k8sErr != nil {
 			auditLog.Details = fmt.Sprintf(`{"k8s_deletion":"failed","error":"%s"}`, k8sErr.Error())
@@ -611,9 +631,9 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"pods":    pods,
-			"total":   total,
-			"page":    page,
+			"pods":     pods,
+			"total":    total,
+			"page":     page,
 			"pageSize": pageSize,
 		})
 	}
@@ -646,7 +666,7 @@ func GetAuditReports(db *gorm.DB) gin.HandlerFunc {
 			Count    int64  `json:"count"`
 		}
 
-		var reports []Report
+		reports := make([]Report, 0)
 		if err := db.Model(&models.AuditLog{}).
 			Select("resource, action, COUNT(*) as count").
 			Group("resource, action").
@@ -658,4 +678,3 @@ func GetAuditReports(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"reports": reports})
 	}
 }
-

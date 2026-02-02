@@ -1,12 +1,65 @@
 # Fortuna Scripts Reference
 
-**Last Updated**: 2025-12-29
+**Last Updated**: 2026-01-31
 
 ---
 
 ## Overview
 
-This directory contains scripts for building, deploying, and managing Fortuna components.
+Scripts for building, deploying, testing, and cleaning Fortuna components.
+
+---
+
+## Pipeline (Clean / Rebuild / Deploy)
+
+### `full-clean-rebuild-redeploy.sh` (recommended for full reset)
+Full clean (all images, cache, port-forwards, optional DB E2E data) → Rebuild (core, agent, dashboard) → Redeploy.
+
+```bash
+NO_CACHE=true ./scripts/full-clean-rebuild-redeploy.sh        # no-cache rebuild
+NO_CACHE=true ./scripts/full-clean-rebuild-redeploy.sh --db    # also clean E2E data from Postgres
+# Options: --skip-clean | --skip-rebuild | --skip-deploy | --db
+```
+
+After a long run, if Core deployment was removed during cleanup, re-apply Core manually:
+`kubectl apply -f deploy/fortuna-core-deployment.yaml` then `kubectl rollout status deployment/fortuna-core -n fortuna`.
+
+### `full-clean-rebuild-deploy.sh`
+Uses `cleanup-environment.sh` (keeps latest 3 images per component) and `build-and-load-containerd.sh` with optional `NO_CACHE=true`.
+
+```bash
+NO_CACHE=true ./scripts/full-clean-rebuild-deploy.sh
+# Options: --skip-clean | --skip-rebuild | --skip-deploy | --db
+```
+
+### `cleanup-environment.sh`
+Clean K8s: port-forward, E2E/test namespaces, completed/failed pods, old images (keeps latest 3 per component), build cache.
+
+```bash
+./scripts/cleanup-environment.sh
+./scripts/cleanup-environment.sh --db   # also remove E2E test data from Postgres
+```
+
+### `check-full-deployment.sh`
+Verify cluster, namespace, workloads, pods, services, Core health, dashboard, agent DaemonSet.
+
+```bash
+./scripts/check-full-deployment.sh
+```
+
+### `test-priority1-apis.sh`
+Calls Core APIs from inside the Core pod (promotion-rules, runtime-signals). Uses pod selector `app.kubernetes.io/component=core`. When Core has `AUTH_ENABLED=true`, API responses may require an `Authorization` header; call from dashboard or with a bearer token for full pass.
+
+```bash
+./scripts/test-priority1-apis.sh
+```
+
+### `run-e2e-full.sh`
+E2E run with detailed report: cluster/pods, Core API (health and API responses; APIs may return 401 when auth is enabled), DB row counts, dashboard. Output: `docs/test-results/E2E-FULL-<timestamp>.md`.
+
+```bash
+./scripts/run-e2e-full.sh
+```
 
 ---
 
@@ -14,19 +67,13 @@ This directory contains scripts for building, deploying, and managing Fortuna co
 
 ### Primary Build Scripts
 
-#### `build-with-containerd.sh`
-**Purpose**: Build Fortuna images using nerdctl and import to containerd
+#### `build-and-load-containerd.sh`
+**Purpose**: Build Fortuna images (core, agent) with nerdctl and load into containerd (namespace k8s.io)
 
 **Usage**:
 ```bash
-# Standard build
-./scripts/build-with-containerd.sh
-
-# Build with version
-VERSION=v1.0.0 ./scripts/build-with-containerd.sh
-
-# Export images for distribution
-EXPORT_IMAGES=true ./scripts/build-with-containerd.sh
+./scripts/build-and-load-containerd.sh
+# Optional: VERSION=v1.0.0; EXPORT_IMAGES=true for export
 ```
 
 **Output**: Images in containerd namespace `k8s.io`

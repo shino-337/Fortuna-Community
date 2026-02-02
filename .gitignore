@@ -134,6 +134,7 @@ yarn-error.log*
 # Backup files
 *.bak
 *.backup
+*.OLD
 *~
 
 # OS files
@@ -180,8 +181,9 @@ PROJECT_CLEANUP_ANALYSIS.md
 docker-compose.prod.yml
 docker-compose.override.yml.example
 
-# Archive directory (old scripts)
+# Archive directories (old scripts, old migrations)
 scripts/archive/
+core/migrations/archive/
 
 # Test documentation (development)
 tests/BUILD_AND_TEST_STATUS.md
@@ -236,9 +238,8 @@ docs/02-architecture/KSAM_ADR_FULL.md
 !docs/ARCHITECTURE.md
 !docs/MIGRATIONS.md
 !docs/API_REFERENCE.md
-!docs/End-to-end-testcase-verify-05012026.md
-!docs/DOCUMENTATION_STRUCTURE.md
-!docs/PRODUCTION_READINESS_SUMMARY.md
-!docs/DATABASE_SCHEMA_UPDATED.md
+!docs/PENDING_TASKS_SUMMARY.md
+!docs/TODO_LIST.md
+!docs/UI_AND_PENDING_TASKS.md
 
 !scripts/cleanup-repo.sh

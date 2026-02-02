@@ -36,6 +36,9 @@ spec:
       labels:
         app: postgres
     spec:
+      # Schedule PostgreSQL on master node to avoid network routing issues
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
       containers:
       - name: postgres
         image: postgres:15-alpine

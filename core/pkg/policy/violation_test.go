@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -46,7 +46,7 @@ func setupTestDBViolation(t *testing.T) *gorm.DB {
 			UNIQUE(template_id, version)
 		)
 	`)
-	
+
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS policy_instances (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -69,7 +69,7 @@ func setupTestDBViolation(t *testing.T) *gorm.DB {
 			exemptions TEXT
 		)
 	`)
-	
+
 	db.Exec(`
 		CREATE TABLE IF NOT EXISTS policy_violations (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -114,11 +114,11 @@ func TestViolationService_RecordViolation(t *testing.T) {
 	db.Create(template)
 
 	instance := &models.PolicyInstance{
-		ID:             1,
-		InstanceName:   "test-instance",
-		TemplateID:     "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
-		Severity:       "critical",
+		Severity:        "critical",
 	}
 
 	violation, err := service.RecordViolation(
@@ -158,9 +158,9 @@ func TestViolationService_RecordViolation_ContextCancellation(t *testing.T) {
 	service := NewViolationService(db)
 
 	instance := &models.PolicyInstance{
-		ID:           1,
-		InstanceName: "test-instance",
-		TemplateID:   "test-template",
+		ID:              1,
+		InstanceName:    "test-instance",
+		TemplateID:      "test-template",
 		TemplateVersion: "1.0.0",
 	}
 
@@ -325,4 +325,3 @@ func TestViolationService_UpdateViolationTimestamp(t *testing.T) {
 		t.Error("UpdateViolationTimestamp() should update UpdatedAt")
 	}
 }
-

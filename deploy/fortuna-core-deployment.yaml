@@ -56,12 +56,25 @@ spec:
         - key: node-role.kubernetes.io/master
           operator: Exists
           effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
       
       volumes:
         # mTLS certificates
         - name: fortuna-core-server-tls
           secret:
-            secretName: fortuna-core-server-tls
+            secretName: fortuna-core-tls
+        - name: fortuna-ca-cert
+          secret:
+            secretName: fortuna-ca-cert
+        - name: webhook-certs
+          secret:
+            secretName: fortuna-webhook-tls
+        - name: containerd-sock
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
       
       containers:
         - name: core
@@ -88,7 +101,7 @@ spec:
             
             # NATS
             - name: NATS_ENDPOINT
-              value: "nats://nats.fortuna.svc.cluster.local:4222"
+              value: "nats://nats-client.fortuna.svc.cluster.local:4222"
             
             # Ports
             - name: HTTP_PORT
@@ -104,20 +117,53 @@ spec:
             - name: TLS_KEY_PATH
               value: "/etc/fortuna/tls/server/tls.key"
             - name: TLS_CA_CERT_PATH
-              value: "/etc/fortuna/tls/server/ca.crt"
+              value: "/etc/fortuna/ca-cert/ca.crt"
+            
+            # Webhook TLS Configuration
+            - name: WEBHOOK_TLS_CERT_PATH
+              value: "/etc/webhook/certs/tls.crt"
+            - name: WEBHOOK_TLS_KEY_PATH
+              value: "/etc/webhook/certs/tls.key"
             
             # Logging
             - name: LOG_LEVEL
               value: "info"
             
-            # Auth (optional)
+            # Auth
             - name: AUTH_ENABLED
-              value: "false"
+              value: "true"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: jwt-secret
+                  optional: true
+            # Default admin for E2E / test scripts (migrations create user when set). Override with secret in production.
+            - name: FORTUNA_ADMIN_USERNAME
+              value: "admin"
+            - name: FORTUNA_ADMIN_PASSWORD
+              value: "admin123"
+            - name: FORTUNA_ADMIN_EMAIL
+              value: "admin@fortuna.local"
+            
+            # PCE Scheduler
+            - name: PCE_SCHEDULER_ENABLED
+              value: "true"
+            - name: PCE_SCHEDULER_INTERVAL
+              value: "6h"
           
           volumeMounts:
             - name: fortuna-core-server-tls
               mountPath: /etc/fortuna/tls/server
               readOnly: true
+            - name: fortuna-ca-cert
+              mountPath: /etc/fortuna/ca-cert
+              readOnly: true
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
           
           # Production-ready resource limits
           resources:
@@ -141,8 +187,8 @@ spec:
           
           livenessProbe:
             httpGet:
-              path: /health
-              port: 8080
+              path: /healthz
+              port: http
             initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
@@ -150,8 +196,8 @@ spec:
           
           readinessProbe:
             httpGet:
-              path: /health
-              port: 8080
+              path: /ready
+              port: http
             initialDelaySeconds: 10
             periodSeconds: 5
             timeoutSeconds: 3

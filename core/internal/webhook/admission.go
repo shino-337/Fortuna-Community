@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -205,11 +206,10 @@ func (w *AdmissionWebhook) parseResource(req *admissionv1.AdmissionRequest) (*po
 		return nil, fmt.Errorf("unsupported object type: %T", obj)
 	}
 
-	// Extract cluster ID from request (if available in annotations or labels)
-	clusterID := "default"
-	if req.UID != "" {
-		// Use request UID as cluster identifier (can be enhanced)
-		clusterID = string(req.UID)[:8] // Use first 8 chars
+	// Cluster ID from environment only (e.g. set from kubectl config get-clusters); no hardcoded default
+	clusterID := os.Getenv("DEFAULT_CLUSTER_ID")
+	if clusterID == "" {
+		clusterID = "unknown"
 	}
 
 	return &policy.Resource{

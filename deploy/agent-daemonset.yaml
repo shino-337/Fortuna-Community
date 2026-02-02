@@ -27,9 +27,9 @@ spec:
         - name: "ndots"
           value: "5"
         - name: "timeout"
-          value: "2"
+          value: "5"
         - name: "attempts"
-          value: "3"
+          value: "5"
       containers:
       - name: agent
         # Production: Use versioned tag (e.g., fortuna/agent:v1.0.0)
@@ -38,12 +38,13 @@ spec:
         image: fortuna/agent:latest
         imagePullPolicy: IfNotPresent  # For containerd local images. Change to IfNotPresent or Always for production registry
         env:
-        - name: FORTUNA_CORE_ENDPOINT
+        - name: CORE_GRPC_ENDPOINT
           value: "fortuna-core.fortuna.svc.cluster.local:9090"
-        - name: FORTUNA_CLUSTER_ID
-          value: "minikube"
-        - name: FORTUNA_SYNC_INTERVAL
-          value: "30s"
+        - name: CORE_HTTP_ENDPOINT
+          value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
+        # Cluster: set from env/ConfigMap (e.g. kubectl config get-clusters); no hardcoded value
+        - name: SYNC_INTERVAL
+          value: "5m"
         - name: NODE_NAME
           valueFrom:
             fieldRef:
@@ -56,12 +57,19 @@ spec:
           value: "/etc/fortuna/certs/tls.crt"
         - name: TLS_KEY_PATH
           value: "/etc/fortuna/certs/tls.key"
+        - name: CONTAINERD_SOCKET
+          value: "/run/containerd/containerd.sock"
+        - name: CONTAINERD_NAMESPACE
+          value: "k8s.io"
         volumeMounts:
         - name: tls-certs
           mountPath: /etc/fortuna/certs
           readOnly: true
         - name: ca-cert
           mountPath: /etc/fortuna/ca-cert
+          readOnly: true
+        - name: containerd-socket
+          mountPath: /run/containerd/containerd.sock
           readOnly: true
         resources:
           requests:
@@ -71,8 +79,8 @@ spec:
             memory: "1Gi"   # Reduced from 2Gi to prevent OOM
             cpu: "500m"     # Reduced from 1000m
         securityContext:
-          runAsNonRoot: true
-          runAsUser: 1000
+          runAsNonRoot: false
+          runAsUser: 0
           allowPrivilegeEscalation: false
           readOnlyRootFilesystem: false
           capabilities:
@@ -93,4 +101,8 @@ spec:
           items:
           - key: ca.crt
             path: ca.crt
+      - name: containerd-socket
+        hostPath:
+          path: /run/containerd/containerd.sock
+          type: Socket
 

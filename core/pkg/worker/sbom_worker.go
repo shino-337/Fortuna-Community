@@ -65,7 +65,11 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 
 	clusterID, _ := normalized["cluster_id"].(string)
 	if clusterID == "" {
-		clusterID = "default"
+		if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
+			clusterID = v
+		} else {
+			clusterID = "unknown"
+		}
 	}
 
 	rawJSON, _ := normalized["raw_json"].(string)

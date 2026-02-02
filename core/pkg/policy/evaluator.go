@@ -18,11 +18,11 @@ import (
 type Resource struct {
 	Type      string                 `json:"type"`      // Pod, Deployment, etc.
 	UID       string                 `json:"uid"`       // Resource UID
-	Name      string                 `json:"name"`       // Resource name
+	Name      string                 `json:"name"`      // Resource name
 	Namespace string                 `json:"namespace"` // Namespace
-	ClusterID string                 `json:"clusterId"`  // Cluster ID
-	Spec      map[string]interface{} `json:"spec"`       // Resource spec (for CEL evaluation)
-	Labels    map[string]string     `json:"labels"`     // Resource labels
+	ClusterID string                 `json:"clusterId"` // Cluster ID
+	Spec      map[string]interface{} `json:"spec"`      // Resource spec (for CEL evaluation)
+	Labels    map[string]string      `json:"labels"`    // Resource labels
 }
 
 // Violation represents a policy violation
@@ -92,11 +92,7 @@ func NewEvaluator(db *gorm.DB) (*Evaluator, error) {
 
 	// Load instances
 	// Check if policy_instances table exists before loading
-	var tableExists bool
-	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')").Scan(&tableExists).Error; err != nil {
-		return nil, fmt.Errorf("failed to check policy_instances table: %w", err)
-	}
-	
+	tableExists := e.db.Migrator().HasTable(&models.PolicyInstance{})
 	if tableExists {
 		if err := e.loadInstances(); err != nil {
 			log.Printf("Warning: Failed to load policy instances: %v (continuing with empty instances)", err)
@@ -409,12 +405,12 @@ func (e *Evaluator) ReloadInstances() error {
 	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='policy_instances')").Scan(&tableExists).Error; err != nil {
 		return fmt.Errorf("failed to check policy_instances table: %w", err)
 	}
-	
+
 	if !tableExists {
 		log.Printf("[PolicyEvaluator] policy_instances table does not exist, skipping reload")
 		return nil
 	}
-	
+
 	return e.loadInstances()
 }
 
@@ -448,7 +444,6 @@ func (e *Evaluator) Shutdown() {
 	close(e.stopRefresh)
 }
 
-
 // Helper functions for scope matching
 func matchesPatterns(patterns []string, value string) bool {
 	for _, pattern := range patterns {
@@ -476,4 +471,3 @@ func contains(slice []string, value string) bool {
 	}
 	return false
 }
-

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"os"
 	"sync"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 
+	"github.com/fortuna/core/pkg/lifecycle"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -70,8 +72,12 @@ func (w *CorrelatorWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	name, _ := normalizedData["name"].(string)
 	namespace, _ := normalizedData["namespace"].(string)
 	clusterID, _ := normalizedData["cluster_id"].(string)
-	if clusterID == "" {
-		clusterID = "default"
+	if clusterID == "" || clusterID == "default" {
+		// From environment only (e.g. set from kubectl config get-clusters); no hardcoded default
+		if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
+			clusterID = v
+		}
+		// else leave as "" or "default" so downstream can handle
 	}
 	
 	// Layer 1: Extract eventType
@@ -117,6 +123,16 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 		result := w.db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", uid).Update("deleted_at", time.Now())
 		if result.Error != nil {
 			return fmt.Errorf("failed to soft delete pod: %w", result.Error)
+		}
+		
+		// Terminate pod instance if pod_instances table exists
+		if w.db.Migrator().HasTable(&models.PodInstance{}) {
+			lifecycleManager := lifecycle.NewPodInstanceManager(w.db)
+			if err := lifecycleManager.TerminateInstance(context.Background(), uid); err != nil {
+				log.Printf("[CorrelatorWorker] Failed to terminate pod instance %s: %v", uid, err)
+			} else {
+				log.Printf("[CorrelatorWorker] Terminated pod instance %s/%s (UID: %s)", namespace, name, uid)
+			}
 		}
 		
 		if result.RowsAffected > 0 {

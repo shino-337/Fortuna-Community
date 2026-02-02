@@ -30,7 +30,19 @@ spec:
         - name: fortuna-core-server-tls
           secret:
             secretName: {{ .Values.core.tls.certSecret }}
+        - name: fortuna-ca-cert
+          secret:
+            secretName: fortuna-ca-cert
         {{- end }}
+        {{- if .Values.core.webhookTls.enabled }}
+        - name: webhook-certs
+          secret:
+            secretName: {{ .Values.core.webhookTls.certSecret }}
+        {{- end }}
+        - name: containerd-sock
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
       containers:
         - name: core
           image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
@@ -61,16 +73,32 @@ spec:
             - name: TLS_CA_CERT_PATH
               value: {{ .Values.core.tls.caCertPath | quote }}
             {{- end }}
+            {{- if .Values.core.webhookTls.enabled }}
+            - name: WEBHOOK_TLS_CERT_PATH
+              value: {{ .Values.core.webhookTls.certPath | quote }}
+            - name: WEBHOOK_TLS_KEY_PATH
+              value: {{ .Values.core.webhookTls.keyPath | quote }}
+            {{- end }}
             {{- range $key, $value := .Values.core.env }}
             - name: {{ $key }}
               value: {{ $value | quote }}
             {{- end }}
-          {{- if .Values.core.tls.enabled }}
           volumeMounts:
+            {{- if .Values.core.tls.enabled }}
             - name: fortuna-core-server-tls
               mountPath: /etc/fortuna/tls/server
               readOnly: true
-          {{- end }}
+            - name: fortuna-ca-cert
+              mountPath: /etc/fortuna/ca-cert
+              readOnly: true
+            {{- end }}
+            {{- if .Values.core.webhookTls.enabled }}
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+            {{- end }}
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
           resources:
             {{- toYaml .Values.core.resources | nindent 12 }}
           securityContext:

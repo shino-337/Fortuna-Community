@@ -38,15 +38,21 @@ core:
   
   # NATS configuration
   nats:
-    endpoint: "nats://nats.fortuna.svc.cluster.local:4222"
+    endpoint: "nats://nats-client.fortuna.svc.cluster.local:4222"
   
   # mTLS configuration
   tls:
     enabled: true
-    certSecret: fortuna-core-server-tls
+    certSecret: fortuna-core-tls
     certPath: /etc/fortuna/tls/server/tls.crt
     keyPath: /etc/fortuna/tls/server/tls.key
-    caCertPath: /etc/fortuna/tls/server/ca.crt
+    caCertPath: /etc/fortuna/ca-cert/ca.crt
+  # Webhook TLS configuration
+  webhookTls:
+    enabled: true
+    certSecret: fortuna-webhook-tls
+    certPath: /etc/webhook/certs/tls.crt
+    keyPath: /etc/webhook/certs/tls.key
   
   # Node placement
   nodeSelector:
@@ -83,8 +89,8 @@ core:
   # Health checks
   livenessProbe:
     httpGet:
-      path: /health
-      port: 8080
+      path: /healthz
+      port: http
     initialDelaySeconds: 30
     periodSeconds: 10
     timeoutSeconds: 5
@@ -92,8 +98,8 @@ core:
   
   readinessProbe:
     httpGet:
-      path: /health
-      port: 8080
+      path: /ready
+      port: http
     initialDelaySeconds: 10
     periodSeconds: 5
     timeoutSeconds: 3
@@ -102,7 +108,9 @@ core:
   # Environment variables
   env:
     LOG_LEVEL: "info"
-    AUTH_ENABLED: "false"
+    AUTH_ENABLED: "true"
+    PCE_SCHEDULER_ENABLED: "true"
+    PCE_SCHEDULER_INTERVAL: "6h"
 
 # Agent component configuration
 agent:
@@ -142,31 +150,29 @@ agent:
   # Resource limits
   resources:
     requests:
-      cpu: 50m
+      cpu: 100m
       memory: 256Mi
     limits:
       cpu: 500m
-      memory: 2Gi
+      memory: 1Gi
   
   # Security context (root required for containerd socket)
   securityContext:
-    privileged: false
-    runAsNonRoot: false  # Required for containerd socket access
-    readOnlyRootFilesystem: true
+    runAsNonRoot: false
+    runAsUser: 0
     allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: false
     capabilities:
       drop:
         - ALL
-      add:
-        - CHOWN
-        - SETGID
-        - SETUID
   
-  # Environment variables
+  # Environment variables (set CLUSTER_ID/CLUSTER_NAME per environment, e.g. from kubectl config get-clusters)
   env:
     LOG_LEVEL: "info"
-    BATCH_SIZE: "50"
-    BATCH_TIMEOUT_MS: "5000"
+    # CLUSTER_ID and CLUSTER_NAME: set via --set agent.env.CLUSTER_ID=<name> or from your values; agent falls back to kubeconfig or code default
+    SYNC_INTERVAL: "5m"
+    CONTAINERD_SOCKET: "/run/containerd/containerd.sock"
+    CONTAINERD_NAMESPACE: "k8s.io"
 
 # RBAC configuration
 rbac:

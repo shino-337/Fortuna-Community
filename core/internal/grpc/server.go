@@ -90,10 +90,14 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 
 	// Register SBOM service (Phase 1: Agent→Core SBOM ingestion)
 	// Import the new proto package
+	// Note: db can be nil initially - service will handle it gracefully
 	sbomServiceServer := NewSBOMServiceServer(db, natsClient)
 	agentpb.RegisterAgentServiceServer(grpcServer, sbomServiceServer)
 
 	log.Printf("[gRPC] ✅ Registered AgentService (SBOM ingestion)")
+	if db == nil {
+		log.Printf("[gRPC] ⚠️  WARNING: Database is nil - SBOM service will be in degraded mode")
+	}
 
 	return &Server{
 		config:      cfg,

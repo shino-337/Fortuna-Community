@@ -126,8 +126,7 @@ func TestCriticalRules(t *testing.T) {
 			matched := false
 			for _, insight := range insights {
 				// Check if any insight matches the expected rule
-				// Note: We check description or type to identify the rule
-				if insight.Type == "rbac" {
+				if insight.InsightType == "rbac" {
 					matched = true
 					break
 				}

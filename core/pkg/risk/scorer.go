@@ -48,13 +48,10 @@ type RiskScoreV2 struct {
 // CalculateScore calculates risk score for a resource using V2 formula
 func (s *Scorer) CalculateScore(ctx context.Context, resourceUID string) (*RiskScoreV2, error) {
 	// Step 1: Get all active insights for resource
-	// Use efficient JSONB @> operator with GIN index instead of text LIKE
 	var insights []models.Insight
-	// Query using JSONB contains operator (100-1000x faster than text LIKE)
-	uidJSON := fmt.Sprintf(`[{"uid":"%s"}]`, resourceUID)
 	err := s.db.WithContext(ctx).
-		Where("affected_resources @> ?::jsonb AND status IN (?) AND deleted_at IS NULL",
-			uidJSON,
+		Where("resource_uid = ? AND status IN (?) AND deleted_at IS NULL",
+			resourceUID,
 			[]string{"active", "acknowledged"}).
 		Find(&insights).Error
 	if err != nil {

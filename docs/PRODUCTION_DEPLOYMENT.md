@@ -55,10 +55,16 @@ kubectl apply -f deploy/agent-rbac.yaml
 kubectl apply -f deploy/core-service.yaml
 kubectl apply -f deploy/core-deployment.yaml
 
-# 8. Deploy Agent
+# 8. Configure DNS (required for multi-node clusters)
+bash scripts/fix-dns-config.sh
+
+# 9. Fix Flannel VXLAN (required for multi-node clusters)
+bash scripts/fix-flannel-vxlan.sh
+
+# 10. Deploy Agent
 kubectl apply -f deploy/agent-daemonset.yaml
 
-# 9. Wait for readiness
+# 11. Wait for readiness
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=core -n fortuna --timeout=300s
 kubectl wait --for=condition=ready pod -l app=fortuna-agent -n fortuna --timeout=300s
 ```
@@ -323,7 +329,125 @@ This script:
 
 **Skip if**: CVE data is not available or CVE matching is not required immediately.
 
-### 6. Deploy Agent
+### 6. Configure DNS (Required for Multi-Node Clusters)
+
+**Important**: DNS configuration is critical for Agent-Core communication, especially in multi-node clusters. Run the automated DNS fix script:
+
+```bash
+bash scripts/fix-dns-config.sh
+```
+
+### 7. Fix Flannel VXLAN (Required for Multi-Node Clusters)
+
+**Critical**: For multi-node clusters, Flannel VXLAN tunnel must be properly configured to enable pod-to-pod communication between nodes. Run the automated fix script:
+
+```bash
+bash scripts/fix-flannel-vxlan.sh
+```
+
+This script automatically:
+- Verifies Flannel ConfigMap (Network: 10.244.0.0/16, Backend: vxlan)
+- Checks Node PodCIDR assignments
+- Restarts Flannel DaemonSet to reinitialize VXLAN
+- Verifies VXLAN interfaces have IPv4 addresses
+- Verifies routes between subnets are created
+- Tests pod-to-pod connectivity
+
+**Manual Fix** (if script fails):
+
+1. **Verify Flannel ConfigMap**:
+```bash
+kubectl get configmap kube-flannel-cfg -n kube-flannel -o yaml | grep -A 5 "net-conf.json"
+```
+
+Must have:
+- `Network: "10.244.0.0/16"`
+- `Backend.Type: "vxlan"`
+
+2. **Verify Node PodCIDR**:
+```bash
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.podCIDR}{"\n"}{end}'
+```
+
+Each node must have a PodCIDR assigned (e.g., `10.244.0.0/24`, `10.244.1.0/24`).
+
+3. **Restart Flannel**:
+```bash
+kubectl rollout restart daemonset kube-flannel-ds -n kube-flannel
+kubectl wait --for=condition=ready pod -l app=flannel -n kube-flannel --timeout=60s
+```
+
+4. **Verify VXLAN Interfaces** (on each node):
+```bash
+# On master node
+ip addr show flannel.1
+# Should show: inet 10.244.0.0/32 (not just inet6)
+
+# On worker node
+ip addr show flannel.1
+# Should show: inet 10.244.1.0/32 (not just inet6)
+```
+
+5. **Verify Routes** (on each node):
+```bash
+# On master node
+ip route | grep 10.244
+# Should show: 10.244.1.0/24 via 10.244.1.0 dev flannel.1
+
+# On worker node
+ip route | grep 10.244
+# Should show: 10.244.0.0/24 via 10.244.0.0 dev flannel.1
+```
+
+**Expected Result**:
+- VXLAN interfaces have IPv4 addresses
+- Routes between subnets exist via `flannel.1`
+- Pod-to-pod connectivity works between nodes
+- Agent on worker node can connect to Core on master node
+
+**Troubleshooting**: See [Troubleshooting - Agent Cannot Connect to Core](#agent-cannot-connect-to-core) section.
+
+This script automatically:
+- Updates CoreDNS ConfigMap with `except` clauses for internal domains
+- Verifies Agent DNS configuration (timeout: 5s, attempts: 5)
+- Restarts CoreDNS pods to apply changes
+- Restarts Agent pods to apply DNS config
+- Tests DNS resolution
+
+**Manual DNS Configuration** (if script fails):
+
+1. **Update CoreDNS ConfigMap**:
+```bash
+kubectl get configmap coredns -n kube-system -o yaml > /tmp/coredns.yaml
+# Edit /tmp/coredns.yaml to add except clauses in forward section:
+# forward . /etc/resolv.conf {
+#    except cluster.local
+#    except svc.cluster.local
+#    except fortuna.svc.cluster.local
+#    max_concurrent 1000
+# }
+kubectl apply -f /tmp/coredns.yaml
+kubectl rollout restart deployment coredns -n kube-system
+```
+
+2. **Verify Agent DNS Config** in `deploy/agent-daemonset.yaml`:
+   - `timeout`: Should be `5` (not `2`)
+   - `attempts`: Should be `5` (not `3`)
+
+3. **Restart Agent**:
+```bash
+kubectl rollout restart daemonset -n fortuna fortuna-agent
+```
+
+**Verify DNS Resolution**:
+```bash
+# Test from Agent pod
+kubectl run dns-test --image=busybox:1.35 --restart=Never -n fortuna --rm -i -- nslookup fortuna-core.fortuna.svc.cluster.local
+```
+
+**Expected**: Should resolve to Core service IP (e.g., `10.100.74.197`).
+
+### 8. Deploy Agent
 
 ```bash
 kubectl apply -f deploy/agent-daemonset.yaml
@@ -480,7 +604,7 @@ Key environment variables in `deploy/agent-daemonset.yaml`:
    - NATS: 3 replicas (already configured)
    - PostgreSQL: Consider HA setup for production
 4. **Storage**: Use production-grade storage (e.g., EBS, Azure Disk) instead of local-path
-5. **Monitoring**: Deploy Prometheus and Grafana for metrics
+5. **Monitoring**: Core service exposes `/metrics` endpoint (Prometheus format). Deploy Prometheus if metrics collection is needed.
 6. **Logging**: Configure centralized logging (e.g., ELK, Loki)
 
 ---
@@ -488,6 +612,8 @@ Key environment variables in `deploy/agent-daemonset.yaml`:
 ## Troubleshooting
 
 ### Agent Cannot Connect to Core
+
+#### Error 1: Certificate Error
 
 **Error**: `x509: certificate relies on legacy Common Name field, use SANs instead`
 
@@ -498,6 +624,69 @@ bash scripts/create_mtls_secret.sh
 kubectl delete pod -n fortuna -l app.kubernetes.io/component=core
 kubectl delete pod -n fortuna -l app=fortuna-agent
 ```
+
+#### Error 2: DNS Resolution Failure
+
+**Error**: `dial tcp: lookup fortuna-core.fortuna.svc.cluster.local: i/o timeout`
+
+**Solution**: Run DNS fix script:
+
+```bash
+bash scripts/fix-dns-config.sh
+```
+
+**Manual Fix**:
+1. Update CoreDNS ConfigMap (see [Configure DNS](#6-configure-dns-required-for-multi-node-clusters))
+2. Verify Agent DNS config in `deploy/agent-daemonset.yaml`:
+   - `timeout: "5"` (not `2`)
+   - `attempts: "5"` (not `3`)
+3. Restart CoreDNS and Agent pods
+
+#### Error 3: Connection Timeout After DNS Resolution
+
+**Error**: `dial tcp 10.100.74.197:9090: i/o timeout` or `connect: connection timed out` (DNS resolves but connection fails)
+
+**Root Cause**: Flannel VXLAN tunnel not properly configured, causing network routing issues between worker and master nodes.
+
+**Solution**: Run the automated Flannel VXLAN fix script:
+
+```bash
+bash scripts/fix-flannel-vxlan.sh
+```
+
+**Manual Fix**:
+
+1. **Verify Flannel ConfigMap**:
+```bash
+kubectl get configmap kube-flannel-cfg -n kube-flannel -o jsonpath='{.data.net-conf\.json}' | jq .
+```
+
+Must have:
+- `Network: "10.244.0.0/16"`
+- `Backend.Type: "vxlan"`
+
+2. **Verify Node PodCIDR**:
+```bash
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.podCIDR}{"\n"}{end}'
+```
+
+3. **Restart Flannel**:
+```bash
+kubectl rollout restart daemonset kube-flannel-ds -n kube-flannel
+```
+
+4. **Wait 30-60 seconds**, then verify:
+   - VXLAN interfaces have IPv4 addresses: `ip addr show flannel.1`
+   - Routes exist: `ip route | grep 10.244`
+   - Routes use `flannel.1`, not physical network
+
+**Expected Routes**:
+- Master: `10.244.1.0/24 via 10.244.1.0 dev flannel.1`
+- Worker: `10.244.0.0/24 via 10.244.0.0 dev flannel.1`
+
+**Alternative Solutions** (if Flannel fix doesn't work):
+- **Option 1**: Allow Core to run on worker nodes by removing `nodeSelector` from Core deployment
+- **Option 2**: Use Core pod IP directly (workaround, less reliable)
 
 ### SBOM Tables Missing
 
@@ -578,6 +767,8 @@ resources:
 - [Migration Guide](MIGRATIONS.md)
 - [API Reference](API_REFERENCE.md)
 - [Operations Guide](OPERATIONS.md)
+- [DNS Configuration Guide](DNS_CONFIGURATION.md) - DNS setup and troubleshooting
+- [Flannel VXLAN Fix Guide](FLANNEL_VXLAN_FIX.md) - **NEW**: Flannel VXLAN configuration and troubleshooting
 
 ---
 

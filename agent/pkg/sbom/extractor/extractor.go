@@ -4,13 +4,17 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
+	"github.com/containerd/containerd"
+	"github.com/containerd/containerd/images/archive"
+	"github.com/containerd/containerd/namespaces"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
-	"github.com/google/go-containerregistry/pkg/v1/daemon"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 )
 
 // Extractor extracts SBOM from container images using custom parsers
@@ -151,48 +155,91 @@ func (e *Extractor) ResolveDigest(ctx context.Context, imageRef string) (string,
 // 1. Try local Docker daemon first (fast, no rate limits)
 // 2. Fall back to remote registry if not found locally
 func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image, error) {
-	// Try local daemon first (containerd/Docker)
-	// Convert reference to tag for daemon
-	e.logger.Printf("🔍 Attempting to load image from local daemon: %s", ref.Name())
-	
-	// Convert reference to tag if it's not already a tag
-	var tagRef name.Tag
-	if tag, ok := ref.(name.Tag); ok {
-		tagRef = tag
-	} else {
-		// Try to parse as tag
-		if parsedTag, err := name.NewTag(ref.Name()); err == nil {
-			tagRef = parsedTag
-		} else {
-			// If we can't convert to tag, skip daemon and go straight to remote
-			e.logger.Printf("⚠️  Cannot convert reference to tag for daemon, using remote: %v", err)
-			img, err := remote.Image(ref, remote.WithContext(ctx))
-			if err != nil {
-				return nil, fmt.Errorf("failed to fetch from remote registry: %w", err)
-			}
-			e.logger.Printf("✅ Fetched image from remote registry")
-			return img, nil
-		}
-	}
-	
-	img, err := daemon.Image(tagRef, daemon.WithContext(ctx))
-	if err == nil {
-		e.logger.Printf("✅ Found image in local daemon (no remote fetch needed)")
+	// Try containerd first (Kubernetes default runtime)
+	if img, err := e.getImageFromContainerd(ctx, ref); err == nil {
 		return img, nil
+	} else {
+		e.logger.Printf("⚠️  Containerd fetch failed: %v", err)
 	}
-
-	// Log daemon error but continue to remote fallback
-	e.logger.Printf("⚠️  Image not in local daemon (%v), falling back to remote registry", err)
 
 	// Fall back to remote registry
 	e.logger.Printf("🔍 Fetching image from remote registry: %s", ref.Name())
-	img, err = remote.Image(ref, remote.WithContext(ctx))
+	img, err := remote.Image(ref, remote.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch from remote registry: %w", err)
 	}
 
 	e.logger.Printf("✅ Fetched image from remote registry")
 	return img, nil
+}
+
+func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Reference) (v1.Image, error) {
+	socket := getEnv("CONTAINERD_SOCKET", "/run/containerd/containerd.sock")
+	if _, err := os.Stat(socket); err != nil {
+		return nil, fmt.Errorf("containerd socket not available: %w", err)
+	}
+
+	namespace := getEnv("CONTAINERD_NAMESPACE", "k8s.io")
+	client, err := containerd.New(socket)
+	if err != nil {
+		return nil, fmt.Errorf("containerd client error: %w", err)
+	}
+	defer client.Close()
+
+	cctx := namespaces.WithNamespace(ctx, namespace)
+	candidates := containerdImageNames(ref.Name())
+
+	var selected string
+	for _, name := range candidates {
+		if _, err := client.ImageService().Get(cctx, name); err == nil {
+			selected = name
+			break
+		}
+	}
+	if selected == "" {
+		return nil, fmt.Errorf("image not found in containerd: %s", ref.Name())
+	}
+
+	tmp, err := os.CreateTemp("", "fortuna-image-*.tar")
+	if err != nil {
+		return nil, fmt.Errorf("temp file error: %w", err)
+	}
+	defer func() {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+	}()
+
+	if err := archive.Export(cctx, client.ContentStore(), tmp, archive.WithImage(client.ImageService(), selected)); err != nil {
+		return nil, fmt.Errorf("containerd export error: %w", err)
+	}
+	if _, err := tmp.Seek(0, 0); err != nil {
+		return nil, fmt.Errorf("containerd export seek error: %w", err)
+	}
+
+	img, err := tarball.ImageFromPath(tmp.Name(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("tarball parse error: %w", err)
+	}
+	e.logger.Printf("✅ Found image in containerd: %s", selected)
+	return img, nil
+}
+
+func containerdImageNames(refName string) []string {
+	names := []string{refName}
+	if strings.HasPrefix(refName, "index.docker.io/") {
+		names = append(names, strings.Replace(refName, "index.docker.io", "docker.io", 1))
+	}
+	if strings.HasPrefix(refName, "docker.io/") {
+		names = append(names, strings.Replace(refName, "docker.io", "index.docker.io", 1))
+	}
+	return names
+}
+
+func getEnv(key, defaultValue string) string {
+	if value := os.Getenv(key); value != "" {
+		return value
+	}
+	return defaultValue
 }
 
 // buildFilesystem builds a virtual filesystem from image layers
@@ -258,8 +305,8 @@ func (e *Extractor) selectParsersForOS(osName string) []string {
 
 	// RHEL/CentOS/Fedora
 	if strings.Contains(osLower, "rhel") || strings.Contains(osLower, "centos") ||
-	   strings.Contains(osLower, "fedora") || strings.Contains(osLower, "rocky") ||
-	   strings.Contains(osLower, "alma") {
+		strings.Contains(osLower, "fedora") || strings.Contains(osLower, "rocky") ||
+		strings.Contains(osLower, "alma") {
 		osParsers = append(osParsers, "rpm")
 	}
 
@@ -338,4 +385,3 @@ type OSInfo struct {
 type Parser interface {
 	Parse(fs *Filesystem) ([]Package, error)
 }
-

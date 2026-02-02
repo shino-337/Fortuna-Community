@@ -117,9 +117,57 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.POST("/serviceaccounts/bulk/delete", middleware.RequireAdmin(), BulkDeleteServiceAccounts(db))
 		v1.POST("/serviceaccounts/disable-inactive", middleware.RequireAdmin(), DisableInactiveServiceAccounts(db))
 
+		// Attack Steps (Phase 2) - Register BEFORE /pods/:id to avoid route conflict
+		v1.GET("/attack-steps/pods/:podUid", GetPodAttackSteps(db))
+		v1.GET("/attack-steps/summary", GetAttackStepsSummary(db))
+
+		// Capability Metadata (Phase 2)
+		v1.GET("/capability-metadata", GetCapabilityMetadataList(db))
+		v1.GET("/capability-metadata/:capabilityId", GetCapabilityMetadata(db))
+
+		// Promotion Rules (Phase 2.3)
+		v1.GET("/promotion-rules", GetPromotionRulesList(db))
+		v1.GET("/promotion-rules/capability/:capabilityId", GetPromotionRulesByCapability(db))
+		v1.GET("/promotion-rules/signal/:signalType", GetPromotionRulesBySignalType(db))
+
+		// Runtime Signals (Phase 2.3)
+		v1.GET("/runtime-signals", GetRuntimeSignalsList(db))
+		v1.GET("/runtime-signals/pods/:podUid", GetRuntimeSignalsByPod(db))
+
 		// Pods
 		v1.GET("/pods", GetPods(db))
 		v1.GET("/pods/:id", GetPod(db))
+		v1.GET("/pods/:id/capabilities", GetPodCapabilities(db))
+		v1.POST("/runtime-events", PostRuntimeEvents(db))
+		v1.GET("/pod-capabilities", GetPodCapabilitiesList(db))
+		v1.GET("/pod-capabilities/summary", GetPodCapabilitiesSummary(db))
+		v1.GET("/pod-capabilities/summary/cluster", GetPodCapabilitiesSummaryByCluster(db))
+		v1.GET("/pod-capabilities/summary/capability", GetPodCapabilitiesSummaryByCapability(db))
+		v1.GET("/pod-capabilities/summary/namespace", GetPodCapabilitiesSummaryByNamespace(db))
+		v1.GET("/pod-capabilities/summary/severity", GetPodCapabilitiesSummaryBySeverity(db))
+		v1.GET("/pod-capabilities/trends", GetPodCapabilitiesTrend(db))
+
+		// Runtime Risk Profiles
+		v1.GET("/runtime-risk/pods/:podUid", GetPodRiskProfile(db))
+		v1.GET("/runtime-risk/pods/:podUid/events", GetPodRuntimeEvents(db))
+		v1.GET("/runtime-risk/summary", GetRuntimeRiskSummary(db))
+		v1.GET("/runtime-risk/top", GetTopRuntimeRisks(db))
+
+		// SBOM Analysis dashboards
+		v1.GET("/sbom", GetSBOMList(db))
+		v1.GET("/sbom/:podId", GetSBOMDetail(db))
+
+		// Dashboard summaries
+		v1.GET("/dashboard/stats", GetDashboardStats(db))
+		v1.GET("/dashboard/metrics/threat-velocity", GetThreatVelocity(db))
+
+		// RisK management
+		v1.GET("/risks", GetInsightsList(db))
+		v1.PATCH("/risks/:riskId", UpdateInsightStatus(db))
+		v1.GET("/risks/pods/:podUid/report", GetPodRiskReport(db))
+
+		// Attack path visualization
+		v1.GET("/attack-paths/graph", AttackPathsGraph(db))
 
 		// Deployments
 		v1.GET("/deployments", GetDeployments(db))
@@ -141,6 +189,8 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		// Audit
 		v1.GET("/audit", GetAuditLogs(db))
 		v1.GET("/audit/reports", GetAuditReports(db))
+		v1.GET("/audit-logs", GetAuditLogs(db))
+		v1.GET("/reports", GetAuditReports(db))
 
 		// Insights
 		v1.GET("/insights", GetInsights(db))
@@ -210,7 +260,13 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.GET("/metrics/queue", GetQueueMetrics(db))
 		v1.GET("/metrics/system", GetSystemMetrics(db))
 		v1.GET("/metrics/policy-evaluation-cost", GetPolicyEvaluationCost(db))
+		v1.GET("/error-logs", GetErrorLogs(db))
 		v1.GET("/agents/status", GetAgentStatus(db))
+
+		// Dashboard support
+		v1.GET("/resources", GetResources(db))
+		v1.GET("/notifications", GetNotifications())
+		v1.GET("/monitoring/agents", GetAgentStatus(db))
 	}
 
 	// Agent endpoints (no auth required for now, can add token-based auth later)
