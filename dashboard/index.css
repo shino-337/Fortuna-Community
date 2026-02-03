@@ -2,6 +2,32 @@
 @tailwind components;
 @tailwind utilities;
 
+:root {
+  --color-base: 9 11 15;
+  --color-surface: 15 23 42;
+  --color-surface-2: 30 41 59;
+  --color-border: 51 65 85;
+  --color-text: 226 232 240;
+  --color-muted: 148 163 184;
+  --color-muted-2: 100 116 139;
+
+  --color-brand: 236 72 153;
+  --color-brand-strong: 219 39 119;
+
+  --color-critical: 239 68 68;
+  --color-high: 249 115 22;
+  --color-medium: 234 179 8;
+  --color-low: 59 130 246;
+  --color-success: 16 185 129;
+  --color-warning: 245 158 11;
+  --color-info: 59 130 246;
+}
+
+body {
+  background: rgb(var(--color-base));
+  color: rgb(var(--color-text));
+}
+
 /* Custom scrollbar for webkit */
 ::-webkit-scrollbar {
   width: 6px;

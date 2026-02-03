@@ -11,7 +11,26 @@ export default {
     './constants/**/*.{ts,tsx}',
   ],
   theme: {
-    extend: {},
+    extend: {
+      colors: {
+        base: 'rgb(var(--color-base) / <alpha-value>)',
+        surface: 'rgb(var(--color-surface) / <alpha-value>)',
+        'surface-2': 'rgb(var(--color-surface-2) / <alpha-value>)',
+        border: 'rgb(var(--color-border) / <alpha-value>)',
+        text: 'rgb(var(--color-text) / <alpha-value>)',
+        muted: 'rgb(var(--color-muted) / <alpha-value>)',
+        'muted-2': 'rgb(var(--color-muted-2) / <alpha-value>)',
+        brand: 'rgb(var(--color-brand) / <alpha-value>)',
+        'brand-strong': 'rgb(var(--color-brand-strong) / <alpha-value>)',
+        critical: 'rgb(var(--color-critical) / <alpha-value>)',
+        high: 'rgb(var(--color-high) / <alpha-value>)',
+        medium: 'rgb(var(--color-medium) / <alpha-value>)',
+        low: 'rgb(var(--color-low) / <alpha-value>)',
+        success: 'rgb(var(--color-success) / <alpha-value>)',
+        warning: 'rgb(var(--color-warning) / <alpha-value>)',
+        info: 'rgb(var(--color-info) / <alpha-value>)',
+      },
+    },
   },
   plugins: [],
 };

@@ -2,41 +2,41 @@ export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low';
 
 const severityStyles: Record<SeverityLevel, { badge: string; text: string; border: string }> = {
   critical: {
-    badge: 'bg-red-500/10 text-red-400 border-red-500/20',
-    text: 'text-red-500',
-    border: 'border-l-red-500',
+    badge: 'bg-critical/10 text-critical border-critical/20',
+    text: 'text-critical',
+    border: 'border-l-critical',
   },
   high: {
-    badge: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-    text: 'text-orange-500',
-    border: 'border-l-orange-500',
+    badge: 'bg-high/10 text-high border-high/20',
+    text: 'text-high',
+    border: 'border-l-high',
   },
   medium: {
-    badge: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-    text: 'text-yellow-500',
-    border: 'border-l-yellow-500',
+    badge: 'bg-medium/10 text-medium border-medium/20',
+    text: 'text-medium',
+    border: 'border-l-medium',
   },
   low: {
-    badge: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    text: 'text-blue-500',
-    border: 'border-l-blue-500',
+    badge: 'bg-low/10 text-low border-low/20',
+    text: 'text-low',
+    border: 'border-l-low',
   },
 };
 
 export const getSeverityBadgeClass = (severity?: string) => {
-  if (!severity) return 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+  if (!severity) return 'bg-muted-2/20 text-muted border-muted-2/30';
   const key = severity.toLowerCase() as SeverityLevel;
-  return severityStyles[key]?.badge || 'bg-slate-500/10 text-slate-400 border-slate-500/20';
+  return severityStyles[key]?.badge || 'bg-muted-2/20 text-muted border-muted-2/30';
 };
 
 export const getSeverityTextClass = (severity?: string) => {
-  if (!severity) return 'text-slate-400';
+  if (!severity) return 'text-muted';
   const key = severity.toLowerCase() as SeverityLevel;
-  return severityStyles[key]?.text || 'text-slate-400';
+  return severityStyles[key]?.text || 'text-muted';
 };
 
 export const getSeverityBorderClass = (severity?: string) => {
-  if (!severity) return 'border-l-slate-700';
+  if (!severity) return 'border-l-border';
   const key = severity.toLowerCase() as SeverityLevel;
-  return severityStyles[key]?.border || 'border-l-slate-700';
+  return severityStyles[key]?.border || 'border-l-border';
 };
