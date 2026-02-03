@@ -3,7 +3,8 @@
 # ============================================================================
 # Build and Load Dashboard Image to Containerd
 # ============================================================================
-# Standalone script for dashboard build (also integrated in build-and-load-containerd.sh)
+# Dashboard is built ONLY inside the container (Dockerfile). Host needs nerdctl
+# and containerd only. Do NOT require npm or Node.js on host.
 # ============================================================================
 
 set -euo pipefail
@@ -50,11 +51,7 @@ check_prerequisites() {
         log_success "ctr found"
     fi
     
-    if ! command -v node >/dev/null 2>&1 && ! command -v npm >/dev/null 2>&1; then
-        log_warning "node/npm not found - build will run inside Docker container"
-    else
-        log_success "node/npm found (optional - build runs in container)"
-    fi
+    # No npm/node required on host; build runs inside container (Dockerfile)
     
     if [ $missing -eq 1 ]; then
         exit 1
@@ -94,21 +91,28 @@ build_dashboard() {
     fi
 }
 
-# Verify image
+# Verify image (ctr may list as docker.io/library/IMAGE:TAG)
 verify_dashboard() {
     local image_name="${IMAGE_PREFIX}-dashboard:${VERSION}"
     
     log_info "Verifying dashboard image in containerd..."
     
-    if ctr -n "${NAMESPACE}" images ls | grep -q "${image_name}"; then
+    local list
+    list=$(ctr -n "${NAMESPACE}" images ls 2>/dev/null) || true
+    if echo "${list}" | grep -q "${image_name}"; then
         log_success "Image ${image_name} found in containerd"
-        ctr -n "${NAMESPACE}" images ls | grep "${image_name}" | head -1
+        echo "${list}" | grep "${image_name}" | head -1
         echo ""
         return 0
-    else
-        log_error "Image ${image_name} not found in containerd"
-        return 1
     fi
+    if echo "${list}" | grep -q "${IMAGE_PREFIX}-dashboard"; then
+        log_success "Image ${IMAGE_PREFIX}-dashboard found in containerd"
+        echo "${list}" | grep "${IMAGE_PREFIX}-dashboard" | head -2
+        echo ""
+        return 0
+    fi
+    log_error "Image ${image_name} not found in containerd"
+    return 1
 }
 
 # Main

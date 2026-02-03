@@ -12,12 +12,13 @@ import (
 )
 
 type DashboardStatsDTO struct {
-	TotalClusters  int64 `json:"totalClusters"`
-	ActiveAgents   int64 `json:"activeAgents"`
-	RunningPods    int64 `json:"runningPods"`
-	TotalRisks     int64 `json:"totalRisks"`
-	CriticalRisks  int64 `json:"criticalRisks"`
-	Resolved24h   int64 `json:"resolved24h"` // Insights resolved in last 24h
+	TotalClusters     int64 `json:"totalClusters"`
+	ActiveAgents      int64 `json:"activeAgents"`
+	RunningPods       int64 `json:"runningPods"`
+	TotalRisks        int64 `json:"totalRisks"`
+	CriticalRisks     int64 `json:"criticalRisks"`
+	Resolved24h       int64 `json:"resolved24h"`       // Insights resolved in last 24h
+	AffectedPodCount  int64 `json:"affectedPodCount"`  // Distinct pods with at least one active insight (Affected Workloads)
 }
 
 type ThreatVelocityPoint struct {
@@ -30,57 +31,156 @@ type ThreatVelocityPoint struct {
 
 // GetDashboardStats returns totals for active clusters, pods, agents, critical risks.
 // Clusters not synced in 7 days are excluded so dashboard reflects current environment.
+// Query param clusterId: when set, all counts are scoped to that cluster (sync with global cluster selector).
+// Query param sinceMinutes: when > 0, insight counts (totalRisks, criticalRisks, affectedPodCount) are limited to detected_at >= now - sinceMinutes.
 func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		clusterID := strings.TrimSpace(c.Query("clusterId"))
+		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
+		var since time.Time
+		if sinceMinutes > 0 {
+			since = time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
+		}
+		detectedSinceClause := ""
+		if sinceMinutes > 0 {
+			detectedSinceClause = " AND i.detected_at >= ?"
+		}
+
 		var clusters int64
-		if db.Migrator().HasTable("clusters") {
-			// Only count clusters that have synced recently (same cutoff as GetClusters / GetClustersStats)
-			cutoff := time.Now().Add(-ActiveClusterCutoff)
-			db.Table("clusters").Where("last_sync >= ?", cutoff).Count(&clusters)
-		} else {
-			db.Table("insights").Distinct("resource_namespace").Count(&clusters)
-		}
-
 		var pods int64
-		db.Table("pods").Where("deleted_at IS NULL").Count(&pods)
-
 		var agents int64
-		if db.Migrator().HasTable("agents") {
-			// Only count agents that have been seen recently (within last 10 minutes)
-			// This ensures we only count active agents, not stale entries
-			tenMinutesAgo := time.Now().Add(-10 * time.Minute)
-			db.Table("agents").
-				Where("deleted_at IS NULL AND status = ? AND (last_seen_at > ? OR last_seen_at IS NULL)", "ready", tenMinutesAgo).
-				Count(&agents)
-		} else {
-			agents = 0
-		}
-
 		var critical int64
-		db.Table("insights").
-			Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL", "vulnerability", "critical").
-			Count(&critical)
-
 		var totalRisks int64
-		db.Table("insights").
-			Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").
-			Count(&totalRisks)
-
 		var resolved24h int64
-		if db.Migrator().HasTable("insights") {
+		var affectedPodCount int64
+
+		if clusterID != "" {
+			// Verify cluster exists (and is active if we care)
+			var exists int64
+			if db.Migrator().HasTable("clusters") {
+				db.Table("clusters").Where("id = ?", clusterID).Count(&exists)
+			}
+			if exists == 0 {
+				c.JSON(http.StatusOK, DashboardStatsDTO{
+					TotalClusters:    0,
+					ActiveAgents:     0,
+					RunningPods:      0,
+					TotalRisks:       0,
+					CriticalRisks:    0,
+					Resolved24h:      0,
+					AffectedPodCount: 0,
+				})
+				return
+			}
+			clusters = 1
+
+			db.Table("pods").Where("cluster_id = ? AND deleted_at IS NULL", clusterID).Count(&pods)
+
+			if db.Migrator().HasTable("agents") {
+				db.Raw(`
+					SELECT COUNT(*) FROM agents a
+					WHERE a.deleted_at IS NULL AND (a.status = ? OR a.status IS NULL)
+					AND a.node_name IN (
+						SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''
+					)
+				`, "ready", clusterID).Scan(&agents)
+			}
+
+			// Risks: insights for Pods in this cluster (join on resource_uid = pods.uid); optional time window
+			criticalArgs := []interface{}{clusterID, "vulnerability", "critical"}
+			if sinceMinutes > 0 {
+				criticalArgs = append(criticalArgs, since)
+			}
+			db.Raw(`
+				SELECT COUNT(*) FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+				WHERE i.insight_type = ? AND LOWER(i.severity) = ? AND i.deleted_at IS NULL`+detectedSinceClause,
+				criticalArgs...).Scan(&critical)
+			totalArgs := []interface{}{clusterID, "vulnerability"}
+			if sinceMinutes > 0 {
+				totalArgs = append(totalArgs, since)
+			}
+			db.Raw(`
+				SELECT COUNT(*) FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+				WHERE i.insight_type = ? AND i.deleted_at IS NULL`+detectedSinceClause,
+				totalArgs...).Scan(&totalRisks)
+
 			twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
-			db.Table("insights").
-				Where("deleted_at IS NULL AND status = ? AND updated_at > ?", "resolved", twentyFourHoursAgo).
-				Count(&resolved24h)
+			db.Raw(`
+				SELECT COUNT(*) FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+				WHERE i.deleted_at IS NULL AND i.status = ? AND i.updated_at > ?
+			`, clusterID, "resolved", twentyFourHoursAgo).Scan(&resolved24h)
+
+			affectedArgs := []interface{}{clusterID}
+			if sinceMinutes > 0 {
+				affectedArgs = append(affectedArgs, since)
+			}
+			db.Raw(`
+				SELECT COUNT(DISTINCT i.resource_uid) FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND i.resource_type = 'Pod'`+detectedSinceClause,
+				affectedArgs...).Scan(&affectedPodCount)
+		} else {
+			if db.Migrator().HasTable("clusters") {
+				cutoff := time.Now().Add(-ActiveClusterCutoff)
+				db.Table("clusters").Where("last_sync >= ?", cutoff).Count(&clusters)
+			} else {
+				db.Table("insights").Distinct("resource_namespace").Count(&clusters)
+			}
+			db.Table("pods").Where("deleted_at IS NULL").Count(&pods)
+			if db.Migrator().HasTable("agents") {
+				db.Table("agents").
+					Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
+					Count(&agents)
+			}
+			if sinceMinutes > 0 {
+				db.Table("insights").
+					Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL AND detected_at >= ?", "vulnerability", "critical", since).
+					Count(&critical)
+				db.Table("insights").
+					Where("insight_type = ? AND deleted_at IS NULL AND detected_at >= ?", "vulnerability", since).
+					Count(&totalRisks)
+			} else {
+				db.Table("insights").
+					Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL", "vulnerability", "critical").
+					Count(&critical)
+				db.Table("insights").
+					Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").
+					Count(&totalRisks)
+			}
+			if db.Migrator().HasTable("insights") {
+				twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
+				db.Table("insights").
+					Where("deleted_at IS NULL AND status = ? AND updated_at > ?", "resolved", twentyFourHoursAgo).
+					Count(&resolved24h)
+			}
+			if db.Migrator().HasTable("insights") {
+				if sinceMinutes > 0 {
+					db.Raw(`
+						SELECT COUNT(DISTINCT resource_uid) FROM insights
+						WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
+						AND resource_type = 'Pod' AND detected_at >= ?
+					`, since).Scan(&affectedPodCount)
+				} else {
+					db.Raw(`
+						SELECT COUNT(DISTINCT resource_uid) FROM insights
+						WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
+						AND resource_type = 'Pod'
+					`).Scan(&affectedPodCount)
+				}
+			}
 		}
 
 		c.JSON(http.StatusOK, DashboardStatsDTO{
-			TotalClusters:  clusters,
-			ActiveAgents:   agents,
-			RunningPods:    pods,
-			TotalRisks:     totalRisks,
-			CriticalRisks:  critical,
-			Resolved24h:    resolved24h,
+			TotalClusters:    clusters,
+			ActiveAgents:     agents,
+			RunningPods:      pods,
+			TotalRisks:       totalRisks,
+			CriticalRisks:    critical,
+			Resolved24h:      resolved24h,
+			AffectedPodCount: affectedPodCount,
 		})
 	}
 }
@@ -105,7 +205,7 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 
 		db.Model(&models.Insight{}).
 			Select("date_trunc('day', detected_at) as date, LOWER(severity) as severity, COUNT(*) as count").
-			Where("insight_type = ? AND detected_at >= ?", "vulnerability", start).
+			Where("insight_type = ? AND detected_at >= ? AND deleted_at IS NULL", "vulnerability", start).
 			Group("date_trunc('day', detected_at), LOWER(severity)").
 			Order("date_trunc('day', detected_at)").
 			Scan(&rows)
@@ -148,14 +248,17 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 }
 
 type RiskFilter struct {
-	Severity string `form:"severity"`
-	Status   string `form:"status"`
-	Search   string `form:"search"`
-	Type     string `form:"type"`
+	Severity      string `form:"severity"`
+	Status        string `form:"status"`
+	Search        string `form:"search"`
+	Type          string `form:"type"`
+	ClusterID     string `form:"clusterId"`
+	SinceMinutes  int    `form:"sinceMinutes"` // when > 0: only insights with detected_at >= now - sinceMinutes
 }
 
 // GetInsightsList is reused for /risks (with filters).
 // Default to vulnerability insights so counts match dashboard/stats (totalRisks).
+// Query param clusterId: when set, only insights for Pods in that cluster are returned (sync with global cluster selector).
 func GetInsightsList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var filter RiskFilter
@@ -169,6 +272,12 @@ func GetInsightsList(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Model(&models.Insight{})
 
+		if strings.TrimSpace(filter.ClusterID) != "" {
+			query = query.Where(
+				"resource_type = ? AND resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)",
+				"Pod", strings.TrimSpace(filter.ClusterID),
+			)
+		}
 		if filter.Severity != "" {
 			query = query.Where("LOWER(severity) = ?", filter.Severity)
 		}
@@ -184,6 +293,10 @@ func GetInsightsList(db *gorm.DB) gin.HandlerFunc {
 				"LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(resource_name) LIKE ?",
 				search, search, search,
 			)
+		}
+		if filter.SinceMinutes > 0 {
+			since := time.Now().Add(-time.Duration(filter.SinceMinutes) * time.Minute)
+			query = query.Where("detected_at >= ?", since)
 		}
 
 		var total int64

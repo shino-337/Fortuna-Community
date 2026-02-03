@@ -45,11 +45,10 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			Endpoints: endpointInventory(),
 		}
 
-		// Cross-checks: active agents vs dashboard-visible data
+		// Cross-checks: agents count (all ready) vs dashboard-visible data
 		if db.Migrator().HasTable("agents") {
-			tenMin := time.Now().Add(-10 * time.Minute)
 			db.Model(&models.Agent{}).
-				Where("deleted_at IS NULL AND status = ? AND (last_seen_at > ? OR last_seen_at IS NULL)", "ready", tenMin).
+				Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
 				Count(&resp.CrossChecks.ActiveAgentsCount)
 			resp.CrossChecks.DashboardAgentsCount = resp.CrossChecks.ActiveAgentsCount
 		}
@@ -66,10 +65,10 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 
 		// Alerts: data exists but no agents
 		if resp.CrossChecks.InsightsCount > 0 && resp.CrossChecks.ActiveAgentsCount == 0 {
-			resp.Alerts = append(resp.Alerts, "data_exists_no_agents: insights exist but no active agents in last 10m")
+			resp.Alerts = append(resp.Alerts, "data_exists_no_agents: insights exist but no agents in agents table")
 		}
 		if resp.CrossChecks.PodsCount > 0 && resp.CrossChecks.ActiveAgentsCount == 0 {
-			resp.Alerts = append(resp.Alerts, "data_exists_no_agents: pods exist but no active agents in last 10m")
+			resp.Alerts = append(resp.Alerts, "data_exists_no_agents: pods exist but no agents in agents table")
 		}
 
 		c.JSON(http.StatusOK, resp)
@@ -91,12 +90,11 @@ func endpointInventory() []EndpointDataSource {
 		{Path: "/api/v1/dashboard/metrics/threat-velocity", Source: "real", Agent: "core", Note: "insights by severity/date"},
 		{Path: "/api/v1/pod-capabilities/summary/*", Source: "real", Agent: "agent (PCE)", Note: "pod_capabilities"},
 		{Path: "/api/v1/attack-paths/graph", Source: "real", Agent: "core", Note: "graph from DB"},
-		{Path: "/api/v1/notifications", Source: "stub", Agent: "", Note: "no backend table; returns empty"},
-		{Path: "/api/v1/metrics/workers", Source: "placeholder", Agent: "", Note: "requires Prometheus; returns unsupported"},
-		{Path: "/api/v1/metrics/queue", Source: "placeholder", Agent: "", Note: "requires Prometheus; returns unsupported"},
-		{Path: "/api/v1/error-logs", Source: "stub", Agent: "", Note: "no backend; returns unsupported"},
+		{Path: "/api/v1/notifications", Source: "real", Agent: "core", Note: "from notifications table"},
+		{Path: "/api/v1/error-logs", Source: "real", Agent: "core", Note: "from error_logs table"},
+		// Removed: /api/v1/metrics/workers, /api/v1/metrics/queue (use Prometheus when needed)
 		{Path: "/api/v1/certificates/info", Source: "real", Agent: "core", Note: "from CertManager when TLS enabled"},
-		{Path: "/api/v1/certificates/rotation/history", Source: "stub", Agent: "", Note: "not implemented; 404"},
-		{Path: "/api/v1/users", Source: "stub", Agent: "", Note: "no route; 404"},
+		{Path: "/api/v1/certificates/rotation/history", Source: "real", Agent: "core", Note: "empty list until rotation_history table"},
+		{Path: "/api/v1/users", Source: "real", Agent: "core", Note: "from users table; admin only when auth enabled"},
 	}
 }

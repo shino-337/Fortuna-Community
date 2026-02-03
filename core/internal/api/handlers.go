@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 
@@ -17,6 +18,17 @@ import (
 // ActiveClusterCutoff is how long since last sync to consider a cluster "active" for dashboard display.
 // Clusters not synced within this window are excluded from /clusters and dashboard stats (stale data).
 const ActiveClusterCutoff = 7 * 24 * time.Hour
+
+// getActiveAgentCutoff returns how long since last_seen_at to consider an agent "active" for dashboard.
+// Configurable via ACTIVE_AGENT_CUTOFF_MINUTES (default 15). Ensures dashboard shows agents that ping regularly.
+func getActiveAgentCutoff() time.Duration {
+	if m := os.Getenv("ACTIVE_AGENT_CUTOFF_MINUTES"); m != "" {
+		if n, err := strconv.Atoi(m); err == nil && n > 0 {
+			return time.Duration(n) * time.Minute
+		}
+	}
+	return 15 * time.Minute
+}
 
 // getClustersForAPI returns clusters for API responses (active by default; optional includeStale).
 // Single source for cluster list query so GetClusters and GetClustersStats stay in sync.
@@ -63,6 +75,245 @@ func GetCluster(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// ClusterOverviewResponse for GET /clusters/:id/overview
+type ClusterOverviewResponse struct {
+	PodCount       int64 `json:"podCount"`
+	NodeCount      int64 `json:"nodeCount"`
+	NamespaceCount int64 `json:"namespaceCount"`
+}
+
+// GetClusterOverview returns node count, namespace count, pod count for a cluster (from pods table).
+func GetClusterOverview(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var cluster models.Cluster
+		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var podCount int64
+		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", id).Scan(&podCount)
+		var nodeCount int64
+		db.Raw("SELECT COUNT(DISTINCT node_name) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Scan(&nodeCount)
+		var namespaceCount int64
+		db.Raw("SELECT COUNT(DISTINCT namespace) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", id).Scan(&namespaceCount)
+		c.JSON(http.StatusOK, ClusterOverviewResponse{PodCount: podCount, NodeCount: nodeCount, NamespaceCount: namespaceCount})
+	}
+}
+
+// ClusterInventoryResponse for GET /clusters/:id/inventory
+type ClusterInventoryResponse struct {
+	Nodes      []string `json:"nodes"`
+	Namespaces []string `json:"namespaces"`
+}
+
+// GetClusterInventory returns distinct node names and namespaces from pods for the cluster.
+func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var cluster models.Cluster
+		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var nodes []string
+		db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Distinct("node_name").Pluck("node_name", &nodes)
+		var namespaces []string
+		db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL", id).Distinct("namespace").Pluck("namespace", &namespaces)
+		c.JSON(http.StatusOK, ClusterInventoryResponse{Nodes: nodes, Namespaces: namespaces})
+	}
+}
+
+// GetClusterAgents returns agents whose node_name appears in pods of the given cluster.
+func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var cluster models.Cluster
+		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if !db.Migrator().HasTable("agents") {
+			c.JSON(http.StatusOK, gin.H{"agents": []map[string]interface{}{}, "total": 0})
+			return
+		}
+		var nodeNames []string
+		db.Raw("SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Scan(&nodeNames)
+		if len(nodeNames) == 0 {
+			c.JSON(http.StatusOK, gin.H{"agents": []map[string]interface{}{}, "total": 0})
+			return
+		}
+		var agents []models.Agent
+		db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND node_name IN ?", "ready", nodeNames).Order("last_seen_at DESC NULLS LAST").Find(&agents)
+		list := make([]map[string]interface{}, 0, len(agents))
+		for _, a := range agents {
+			status := "healthy"
+			if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 5*time.Minute {
+				status = "slow"
+			} else if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 15*time.Minute {
+				status = "disconnected"
+			}
+			lastHB := time.Time{}
+			if a.LastSeenAt != nil {
+				lastHB = *a.LastSeenAt
+			}
+			list = append(list, map[string]interface{}{
+				"agentId":       a.AgentID,
+				"nodeName":      a.NodeName,
+				"status":        status,
+				"lastHeartbeat": lastHB,
+				"version":       a.Version,
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"agents": list, "total": len(list)})
+	}
+}
+
+// ClusterSecuritySummaryResponse for GET /clusters/:id/security-summary
+type ClusterSecuritySummaryResponse struct {
+	RiskBySeverity   map[string]int64 `json:"riskBySeverity"`
+	CapabilityCount  int64            `json:"capabilityCount"`
+	CriticalCount    int64            `json:"criticalCount"`
+	HighCount        int64            `json:"highCount"`
+	MediumCount      int64            `json:"mediumCount"`
+	LowCount         int64            `json:"lowCount"`
+}
+
+// GetClusterSecuritySummary returns risk counts by severity and capability exposure for the cluster.
+func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var cluster models.Cluster
+		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var severityRows []struct {
+			Severity string
+			Count    int64
+		}
+		db.Raw(`
+			SELECT LOWER(i.severity) as severity, COUNT(*) as count
+			FROM insights i
+			INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+			WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+			GROUP BY LOWER(i.severity)
+		`, id).Scan(&severityRows)
+		riskBySeverity := make(map[string]int64)
+		var critical, high, medium, low int64
+		for _, r := range severityRows {
+			riskBySeverity[r.Severity] = r.Count
+			switch r.Severity {
+			case "critical": critical = r.Count
+			case "high": high = r.Count
+			case "medium": medium = r.Count
+			case "low": low = r.Count
+			}
+		}
+		var capabilityCount int64
+		if db.Migrator().HasTable("pod_capabilities") {
+			db.Raw(`
+				SELECT COUNT(DISTINCT pc.id) FROM pod_capabilities pc
+				INNER JOIN pods p ON p.uid = pc.pod_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+				WHERE pc.deleted_at IS NULL
+			`, id).Scan(&capabilityCount)
+		}
+		c.JSON(http.StatusOK, ClusterSecuritySummaryResponse{
+			RiskBySeverity:  riskBySeverity,
+			CapabilityCount: capabilityCount,
+			CriticalCount:   critical,
+			HighCount:       high,
+			MediumCount:     medium,
+			LowCount:        low,
+		})
+	}
+}
+
+// NodeDetailResponse for GET /clusters/:id/nodes/:nodeName (Node Detail page).
+// When node exists in nodes table: full metadata; otherwise derived from pods (nodeName, podCount, pods).
+type NodeDetailResponse struct {
+	ClusterID      string                 `json:"clusterId"`
+	NodeName       string                 `json:"nodeName"`
+	IP             string                 `json:"ip,omitempty"`
+	KubeletVersion string                 `json:"kubeletVersion,omitempty"`
+	Role           string                 `json:"role,omitempty"`
+	OS             string                 `json:"os,omitempty"`
+	Runtime        string                 `json:"runtime,omitempty"`
+	LastSeen       *time.Time             `json:"lastSeen,omitempty"`
+	PodCount       int64                  `json:"podCount"`
+	Pods           []map[string]interface{} `json:"pods,omitempty"` // List of pods on this node (for Node Detail Workloads tab)
+}
+
+// GetClusterNode returns node metadata and pod list for Node Detail page.
+// If node exists in nodes table (agent sync), returns metadata; otherwise derives from pods (node_name).
+func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Param("id")
+		nodeName := c.Param("nodeName")
+		if clusterID == "" || nodeName == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "cluster id and node name required"})
+			return
+		}
+		var cluster models.Cluster
+		if err := db.First(&cluster, "id = ?", clusterID).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		resp := NodeDetailResponse{ClusterID: clusterID, NodeName: nodeName}
+		var node models.Node
+		err := db.Where("cluster_id = ? AND node_name = ?", clusterID, nodeName).First(&node).Error
+		if err == nil {
+			resp.IP = node.IP
+			resp.KubeletVersion = node.KubeletVersion
+			resp.Role = node.Role
+			resp.OS = node.OS
+			resp.Runtime = node.Runtime
+			resp.LastSeen = node.LastSeen
+		}
+		var podCount int64
+		db.Model(&models.Pod{}).Where("cluster_id = ? AND node_name = ? AND deleted_at IS NULL", clusterID, nodeName).Count(&podCount)
+		resp.PodCount = podCount
+		includePods := c.Query("pods") == "true" || c.Query("pods") == "1"
+		if includePods && podCount > 0 {
+			var pods []models.Pod
+			db.Where("cluster_id = ? AND node_name = ? AND deleted_at IS NULL", clusterID, nodeName).Find(&pods)
+			resp.Pods = make([]map[string]interface{}, 0, len(pods))
+			for _, p := range pods {
+				var riskCount int64
+				db.Model(&models.Insight{}).Where("resource_type = ? AND resource_uid = ? AND deleted_at IS NULL AND (status = 'active' OR status IS NULL)", "Pod", p.UID).Count(&riskCount)
+				resp.Pods = append(resp.Pods, map[string]interface{}{
+					"id":        p.ID,
+					"uid":       p.UID,
+					"name":      p.Name,
+					"namespace": p.Namespace,
+					"riskCount": riskCount,
+				})
+			}
+		}
+		c.JSON(http.StatusOK, resp)
+	}
+}
+
 // ClusterStats represents cluster statistics and status
 type ClusterStats struct {
 	models.Cluster
@@ -73,6 +324,8 @@ type ClusterStats struct {
 	ClusterRoleBindingCount int64  `json:"clusterRoleBindingCount"`
 	PodCount                int64  `json:"podCount"`
 	DeploymentCount         int64  `json:"deploymentCount"`
+	RiskCount               int64  `json:"riskCount"`   // Active insights for resources in this cluster
+	AgentCount              int64  `json:"agentCount"`  // Agents on nodes belonging to this cluster
 	ConnectionStatus        string `json:"connectionStatus"` // connected, disconnected, unknown
 	AgentVersion            string `json:"agentVersion,omitempty"`
 }
@@ -104,6 +357,21 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", cluster.ID).Scan(&podCount)
 			stat.PodCount = podCount
 			db.Model(&models.Deployment{}).Where("cluster_id = ?", cluster.ID).Count(&stat.DeploymentCount)
+
+			// Risk count: active insights whose resource_uid is a pod in this cluster
+			db.Raw(`
+				SELECT COUNT(*) FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+			`, cluster.ID).Scan(&stat.RiskCount)
+			// Agent count: agents whose node_name appears in pods of this cluster
+			if db.Migrator().HasTable("agents") {
+				db.Raw(`
+					SELECT COUNT(*) FROM agents a
+					WHERE a.deleted_at IS NULL AND (a.status = 'ready' OR a.status IS NULL)
+					AND a.node_name IN (SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != '')
+				`, cluster.ID).Scan(&stat.AgentCount)
+			}
 
 			// Determine connection status based on LastSync time
 			// If lastSync is within last 5 minutes, consider connected
@@ -219,6 +487,27 @@ func GetServiceAccount(db *gorm.DB) gin.HandlerFunc {
 		id := c.Param("id")
 		var sa models.ServiceAccount
 		if err := db.Preload("Cluster").First(&sa, id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, sa)
+	}
+}
+
+// GetServiceAccountByUID returns a service account by UID (for Risk Detail → Identity link).
+func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.Param("uid")
+		if uid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+			return
+		}
+		var sa models.ServiceAccount
+		if err := db.Preload("Cluster").Where("uid = ?", uid).First(&sa).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
 				return
@@ -616,6 +905,11 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("service_account = ?", serviceAccount)
 		}
 
+		// Filter by node name (for Node "detail" view: pods on a specific node)
+		if nodeName := c.Query("node"); nodeName != "" {
+			query = query.Where("node_name = ?", nodeName)
+		}
+
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
@@ -630,8 +924,37 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Risk count per pod (active insights where resource_uid = pod.uid)
+		riskByUID := make(map[string]int64)
+		if len(pods) > 0 && db.Migrator().HasTable("insights") {
+			uids := make([]string, 0, len(pods))
+			for _, p := range pods {
+				uids = append(uids, p.UID)
+			}
+			var rows []struct {
+				ResourceUID string `gorm:"column:resource_uid"`
+				Count      int64  `gorm:"column:count"`
+			}
+			db.Raw(`
+				SELECT resource_uid, COUNT(*) as count FROM insights
+				WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?
+				GROUP BY resource_uid
+			`, uids).Scan(&rows)
+			for _, r := range rows {
+				riskByUID[r.ResourceUID] = r.Count
+			}
+		}
+		type podWithRisk struct {
+			models.Pod
+			RiskCount int64 `json:"riskCount"`
+		}
+		out := make([]podWithRisk, 0, len(pods))
+		for _, p := range pods {
+			out = append(out, podWithRisk{Pod: p, RiskCount: riskByUID[p.UID]})
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"pods":     pods,
+			"pods":     out,
 			"total":    total,
 			"page":     page,
 			"pageSize": pageSize,
@@ -639,7 +962,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetPod returns a specific pod by ID
+// GetPod returns a specific pod by ID, with riskCount (active insights for this pod UID).
 func GetPod(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -653,7 +976,50 @@ func GetPod(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, pod)
+		var riskCount int64
+		if db.Migrator().HasTable("insights") {
+			db.Raw(`
+				SELECT COUNT(*) FROM insights
+				WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid = ?
+			`, pod.UID).Scan(&riskCount)
+		}
+		type podWithRisk struct {
+			models.Pod
+			RiskCount int64 `json:"riskCount"`
+		}
+		c.JSON(http.StatusOK, podWithRisk{Pod: pod, RiskCount: riskCount})
+	}
+}
+
+// GetPodByUID returns a pod by UID (for Risk Detail → Pod Detail link). Same response shape as GetPod.
+func GetPodByUID(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.Param("uid")
+		if uid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+			return
+		}
+		var pod models.Pod
+		if err := db.Preload("Cluster").Where("uid = ?", uid).First(&pod).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Pod not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var riskCount int64
+		if db.Migrator().HasTable("insights") {
+			db.Raw(`
+				SELECT COUNT(*) FROM insights
+				WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid = ?
+			`, pod.UID).Scan(&riskCount)
+		}
+		type podWithRisk struct {
+			models.Pod
+			RiskCount int64 `json:"riskCount"`
+		}
+		c.JSON(http.StatusOK, podWithRisk{Pod: pod, RiskCount: riskCount})
 	}
 }
 

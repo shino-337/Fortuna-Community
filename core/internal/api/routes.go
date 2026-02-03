@@ -99,14 +99,26 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		// Current user
 		v1.GET("/me", GetCurrentUser())
 		v1.POST("/change-password", ChangePassword(db))
+		// Users list (admin only)
+		if cfg.AuthEnabled {
+			v1.GET("/users", middleware.RequireAdmin(), GetUsers(db))
+		} else {
+			v1.GET("/users", GetUsers(db))
+		}
 
 		// Clusters
 		v1.GET("/clusters", GetClusters(db))
 		v1.GET("/clusters/stats", GetClustersStats(db))
+		v1.GET("/clusters/:id/overview", GetClusterOverview(db))
+		v1.GET("/clusters/:id/inventory", GetClusterInventory(db))
+		v1.GET("/clusters/:id/agents", GetClusterAgents(db))
+		v1.GET("/clusters/:id/security-summary", GetClusterSecuritySummary(db))
+		v1.GET("/clusters/:id/nodes/:nodeName", GetClusterNode(db))
 		v1.GET("/clusters/:id", GetCluster(db))
 
 		// ServiceAccounts
 		v1.GET("/serviceaccounts", GetServiceAccounts(db))
+		v1.GET("/serviceaccounts/by-uid/:uid", GetServiceAccountByUID(db))
 		v1.GET("/serviceaccounts/:id", GetServiceAccount(db))
 		v1.GET("/serviceaccounts/:id/permissions", GetServiceAccountPermissions(db))
 		v1.PUT("/serviceaccounts/:id", UpdateServiceAccount(db))
@@ -136,6 +148,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 		// Pods
 		v1.GET("/pods", GetPods(db))
+		v1.GET("/pods/by-uid/:uid", GetPodByUID(db))
 		v1.GET("/pods/:id", GetPod(db))
 		v1.GET("/pods/:id/capabilities", GetPodCapabilities(db))
 		v1.POST("/runtime-events", PostRuntimeEvents(db))
@@ -255,9 +268,10 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 			log.Printf("[API]   TLS_ENABLED: %v", cfg.TLSEnabled)
 		}
 
-		// Metrics
-		v1.GET("/metrics/workers", GetWorkerMetrics(db))
-		v1.GET("/metrics/queue", GetQueueMetrics(db))
+		// Certificate rotation history (empty until rotation_history table; real API, no mock)
+		v1.GET("/certificates/rotation/history", GetCertificateRotationHistory(db))
+
+		// Metrics (Workers/Queue/API Latency removed – use Prometheus when needed)
 		v1.GET("/metrics/system", GetSystemMetrics(db))
 		v1.GET("/metrics/policy-evaluation-cost", GetPolicyEvaluationCost(db))
 		v1.GET("/error-logs", GetErrorLogs(db))
@@ -265,7 +279,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 		// Dashboard support
 		v1.GET("/resources", GetResources(db))
-		v1.GET("/notifications", GetNotifications())
+		v1.GET("/notifications", GetNotifications(db))
 		v1.GET("/monitoring/agents", GetAgentStatus(db))
 	}
 

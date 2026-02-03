@@ -1,6 +1,7 @@
 package api
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -11,31 +12,8 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-// GetWorkerMetrics returns worker metrics. Requires Prometheus integration; until then returns unsupported.
-// Dashboard must not display fake healthy/queue values. See GET /health/dashboard-data-integrity.
-func GetWorkerMetrics(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"_dataSource": "unsupported",
-			"message":     "Worker metrics require Prometheus integration",
-			"workers":     []map[string]interface{}{},
-		})
-	}
-}
-
-// GetQueueMetrics returns queue depth metrics. Requires Prometheus; until then returns unsupported.
-// Dashboard must not display fake zeros as real data. See GET /health/dashboard-data-integrity.
-func GetQueueMetrics(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"_dataSource": "unsupported",
-			"message":     "Queue metrics require Prometheus integration",
-			"timestamp":   time.Now(),
-		})
-	}
-}
-
 // GetAgentStatus returns agent status from the agents table (real data).
+// Returns all ready agents (no cutoff) so dashboard always shows latest; status per agent is healthy/slow/disconnected from last_seen_at.
 func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !db.Migrator().HasTable("agents") {
@@ -45,10 +23,8 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		tenMinutesAgo := time.Now().Add(-10 * time.Minute)
 		var agentsList []models.Agent
-		db.Where("deleted_at IS NULL AND status = ? AND (last_seen_at > ? OR last_seen_at IS NULL)", "ready", tenMinutesAgo).
-			Find(&agentsList)
+		db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").Order("last_seen_at DESC NULLS LAST").Find(&agentsList)
 
 		// Resolve cluster display name from clusters table (most recently synced)
 		var displayClusterID, displayClusterName string
@@ -183,16 +159,77 @@ func QueryPrometheusMetrics(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetErrorLogs returns error logs. No backend aggregation yet; returns unsupported.
-// Dashboard must not display fake entries. See GET /health/dashboard-data-integrity.
+// GetErrorLogs returns error logs from the error_logs table (real data) with pagination.
+// Query: page (default 1), pageSize (default 20, max 200), level (optional), source (optional).
 func GetErrorLogs(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"_dataSource": "unsupported",
-			"message":     "Error log aggregation not yet implemented",
-			"logs":        []map[string]interface{}{},
-		})
+		if !db.Migrator().HasTable("error_logs") {
+			c.JSON(http.StatusOK, gin.H{"logs": []map[string]interface{}{}, "total": 0})
+			return
+		}
+		page, _ := parseIntDefault(c.Query("page"), 1)
+		pageSize, _ := parseIntDefault(c.Query("pageSize"), 20)
+		if page < 1 {
+			page = 1
+		}
+		if pageSize < 1 {
+			pageSize = 20
+		}
+		if pageSize > 200 {
+			pageSize = 200
+		}
+		level := c.Query("level")
+		source := c.Query("source")
+
+		q := db.Model(&models.ErrorLog{}).Where("deleted_at IS NULL")
+		if level != "" {
+			q = q.Where("level = ?", level)
+		}
+		if source != "" {
+			q = q.Where("source = ?", source)
+		}
+		var total int64
+		if err := q.Count(&total).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		offset := (page - 1) * pageSize
+		var list []models.ErrorLog
+		findQ := db.Where("deleted_at IS NULL")
+		if level != "" {
+			findQ = findQ.Where("level = ?", level)
+		}
+		if source != "" {
+			findQ = findQ.Where("source = ?", source)
+		}
+		if err := findQ.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&list).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		logs := make([]map[string]interface{}, 0, len(list))
+		for _, e := range list {
+			logs = append(logs, map[string]interface{}{
+				"id":      e.ID,
+				"time":    e.CreatedAt.Format(time.RFC3339),
+				"level":   e.Level,
+				"message": e.Message,
+				"source":  e.Source,
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"logs": logs, "total": total})
 	}
+}
+
+func parseIntDefault(s string, defaultVal int) (int, bool) {
+	if s == "" {
+		return defaultVal, false
+	}
+	var n int
+	_, err := fmt.Sscanf(s, "%d", &n)
+	if err != nil {
+		return defaultVal, false
+	}
+	return n, true
 }
 
 // GetPolicyEvaluationCost returns policy evaluation cost metrics.
@@ -205,8 +242,6 @@ func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"totalEvaluations": evaluationsPerDay,
-			"_dataSource":      "partial",
-			"message":          "avgPerRule/peak/CPU/memory require Prometheus",
 		})
 	}
 }

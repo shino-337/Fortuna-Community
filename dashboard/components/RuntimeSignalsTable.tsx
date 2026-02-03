@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { RuntimeSignal } from '../types';
+import { useTimeWindowStore } from '../store/timeWindowStore';
 import { Card } from './ui/Card';
 import { Search, Filter, AlertTriangle, Clock, TrendingUp, Shield } from 'lucide-react';
 
@@ -18,6 +19,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   podUid, 
   initialFilters 
 }) => {
+  const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
   const [signals, setSignals] = useState<RuntimeSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
@@ -35,11 +37,13 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     const fetchSignals = async () => {
       try {
         setLoading(true);
-        const params: any = {
+        const params: Record<string, string | number> = {
           limit: pageSize,
           offset: (currentPage - 1) * pageSize,
         };
-
+        if (timeWindowMinutes > 0) {
+          params.sinceMinutes = timeWindowMinutes;
+        }
         if (podUid) {
           params.podUid = podUid;
         }
@@ -69,7 +73,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     };
 
     fetchSignals();
-  }, [podUid, filters, currentPage, pageSize]);
+  }, [podUid, filters, currentPage, pageSize, timeWindowMinutes]);
 
   const getCategoryColor = (category: string) => {
     const colors: Record<string, string> = {
@@ -174,7 +178,10 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
 
       {/* Summary */}
       <div className="flex items-center justify-between text-sm text-slate-400">
-        <span>Showing {filteredSignals.length} of {total} signals</span>
+        <span>
+          Showing {filteredSignals.length} of {total} signals
+          {timeWindowMinutes > 0 && <span className="ml-2 text-amber-500/80">(last {timeWindowMinutes}m)</span>}
+        </span>
         {totalPages > 1 && (
           <span>Page {currentPage} of {totalPages}</span>
         )}

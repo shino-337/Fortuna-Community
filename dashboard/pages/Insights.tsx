@@ -7,7 +7,10 @@ import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { Pagination } from '../components/Pagination';
 import { Shield, AlertTriangle, Info, CheckCircle, Search, Box, User, ArrowRight } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams, Link } from 'react-router-dom';
+import { useClusterStore } from '../store/clusterStore';
+import { useTimeWindowStore } from '../store/timeWindowStore';
+import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { getSeverityBadgeClass, getSeverityTextClass } from '../lib/severity';
 import { RISK_CENTER_DESCRIPTION } from '../constants/labels';
 import { CapabilityMetadataBrowser } from '../components/CapabilityMetadataBrowser';
@@ -17,6 +20,9 @@ type TabId = 'risks' | 'pce' | 'reference';
 
 export const RiskCenter: React.FC = () => {
   const navigate = useNavigate();
+  const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
+  const [searchParams] = useSearchParams();
+  const severityFromUrl = searchParams.get('severity');
   const [activeTab, setActiveTab] = useState<TabId>('risks');
   const [risks, setRisks] = useState<Insight[]>([]);
   const [risksTotal, setRisksTotal] = useState(0);
@@ -27,27 +33,43 @@ export const RiskCenter: React.FC = () => {
   const [pceNamespace, setPceNamespace] = useState('');
   const [pceCapabilityId, setPceCapabilityId] = useState('');
   const [pcePodName, setPcePodName] = useState('');
-  const [filter, setFilter] = useState('all');
+  const [filter, setFilter] = useState<'all' | string>(severityFromUrl && ['critical', 'high', 'medium', 'low'].includes(severityFromUrl) ? severityFromUrl : 'all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'resolved' | 'acknowledged'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRisk, setSelectedRisk] = useState<Insight | null>(null);
   const [resolved24h, setResolved24h] = useState<number>(0);
   const [loading, setLoading] = useState(true);
   const [risksPage, setRisksPage] = useState(1);
   const [risksPageSize, setRisksPageSize] = useState(20);
+  const [runtimeSignalsTotal, setRuntimeSignalsTotal] = useState(0);
+  const [runtimeSignalsRecent, setRuntimeSignalsRecent] = useState<Array<{ id: number; podUid: string; signalType: string; category: string; createdAt: string }>>([]);
+  const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
+
+  // Sync filter from URL when severity param changes
+  React.useEffect(() => {
+    if (severityFromUrl && ['critical', 'high', 'medium', 'low'].includes(severityFromUrl)) {
+      setFilter(severityFromUrl);
+    }
+  }, [severityFromUrl]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
-    const [risksData, pceData, pceList, clusterList, stats] = await Promise.all([
+    const sinceMinutes = timeWindowMinutes > 0 ? timeWindowMinutes : undefined;
+    const [risksData, pceData, pceList, clusterList, stats, runtimeData] = await Promise.all([
       api.getRisks({
         page: risksPage,
         pageSize: risksPageSize,
         severity: filter !== 'all' ? filter : undefined,
+        status: statusFilter !== 'all' ? statusFilter : undefined,
         search: searchTerm.trim() || undefined,
+        clusterId: selectedClusterId ?? undefined,
+        sinceMinutes,
       }),
       api.getPceSummaryBySeverity(),
       api.getPceCapabilities({ limit: 50 }),
       api.getClusters(),
-      api.getStats(),
+      api.getStats(selectedClusterId ?? undefined),
+      api.getRuntimeSignals({ limit: 50, sinceMinutes }).catch(() => ({ signals: [], total: 0 })),
     ]);
     setRisks(risksData.insights);
     setRisksTotal(risksData.total);
@@ -55,11 +77,20 @@ export const RiskCenter: React.FC = () => {
     setPceDetails(pceList);
     setClusters(clusterList);
     setResolved24h((stats as { resolved24h?: number }).resolved24h ?? 0);
+    setRuntimeSignalsTotal(runtimeData.total ?? runtimeData.signals?.length ?? 0);
+    setRuntimeSignalsRecent((runtimeData.signals ?? []).slice(0, 5).map((s: { id: number; podUid: string; signalType: string; category: string; createdAt: string }) => ({
+      id: s.id,
+      podUid: s.podUid ?? '',
+      signalType: s.signalType ?? '',
+      category: s.category ?? '',
+      createdAt: s.createdAt ?? '',
+    })));
     setLoading(false);
-  }, [risksPage, risksPageSize, filter, searchTerm]);
+  }, [risksPage, risksPageSize, filter, statusFilter, searchTerm, selectedClusterId, timeWindowMinutes]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.SBOM_RISK_LIST));
-  usePolling(fetchData, intervalMs);
+  const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  usePolling(fetchData, intervalMs, { refreshTrigger });
   const isFirstFetch = React.useRef(true);
   React.useEffect(() => {
     if (isFirstFetch.current) {
@@ -69,7 +100,7 @@ export const RiskCenter: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  React.useEffect(() => { setRisksPage(1); }, [filter, searchTerm]);
+  React.useEffect(() => { setRisksPage(1); }, [filter, statusFilter, searchTerm, timeWindowMinutes]);
 
   const getSeverityIcon = (severity: Insight['severity']) => {
     switch (severity) {
@@ -152,9 +183,10 @@ export const RiskCenter: React.FC = () => {
             </div>
           </div>
 
-          {/* Filters */}
+          {/* Filters: Severity, Status (spec), Search */}
           <div className="flex flex-col md:flex-row gap-4 md:items-center md:justify-between">
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
+              <span className="text-xs text-slate-500 uppercase tracking-wider mr-1">Severity:</span>
               {['all', 'critical', 'high', 'medium', 'low'].map((sev) => (
                 <button
                   key={sev}
@@ -166,6 +198,20 @@ export const RiskCenter: React.FC = () => {
                   }`}
                 >
                   {sev}
+                </button>
+              ))}
+              <span className="text-xs text-slate-500 uppercase tracking-wider ml-2 mr-1">Status:</span>
+              {(['all', 'active', 'resolved', 'acknowledged'] as const).map((st) => (
+                <button
+                  key={st}
+                  onClick={() => setStatusFilter(st)}
+                  className={`px-3 py-1.5 rounded-full text-sm font-medium capitalize transition-colors whitespace-nowrap ${
+                    statusFilter === st
+                      ? 'bg-pink-600 text-white shadow-md'
+                      : 'bg-slate-900 text-slate-400 hover:bg-slate-800 border border-slate-700'
+                  }`}
+                >
+                  {st === 'all' ? 'All' : st}
                 </button>
               ))}
             </div>
@@ -181,6 +227,55 @@ export const RiskCenter: React.FC = () => {
             </div>
           </div>
 
+          {/* Runtime / Escape signals – show on Risk Center so escape info is visible */}
+          <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 mb-4">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider flex items-center gap-2">
+                <AlertTriangle size={16} className="text-amber-400" />
+                Runtime / Escape signals
+              </h2>
+              <button
+                type="button"
+                onClick={() => setActiveTab('reference')}
+                className="text-pink-400 hover:text-pink-300 text-sm font-medium"
+              >
+                View all →
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">Real-time escape and capability misuse signals from pods.</p>
+            {runtimeSignalsTotal === 0 && runtimeSignalsRecent.length === 0 ? (
+              <p className="text-sm text-slate-500">No runtime signals. Events appear when agents send runtime-events (e.g. PROC_ROOT_PIVOT, FS_ESCAPE_ATTEMPT).</p>
+            ) : (
+              <div className="space-y-2">
+                <p className="text-sm text-slate-300"><span className="font-semibold text-white">{runtimeSignalsTotal}</span> signal(s) total</p>
+                {runtimeSignalsRecent.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-slate-500 border-b border-slate-800">
+                          <th className="text-left py-2">Signal</th>
+                          <th className="text-left py-2">Category</th>
+                          <th className="text-left py-2">Pod UID</th>
+                          <th className="text-left py-2">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {runtimeSignalsRecent.map((s) => (
+                          <tr key={s.id} className="border-b border-slate-800/50">
+                            <td className="py-1.5 font-medium text-amber-400">{s.signalType}</td>
+                            <td className="py-1.5 text-slate-400">{s.category}</td>
+                            <td className="py-1.5 text-slate-500 font-mono truncate max-w-[120px]" title={s.podUid}>{s.podUid ? `${s.podUid.slice(0, 8)}…` : '—'}</td>
+                            <td className="py-1.5 text-slate-500">{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Risk list – compact table with pagination */}
           <div className="bg-slate-900 border border-slate-800 rounded-t-lg overflow-hidden">
             <div className="overflow-x-auto max-h-[calc(100vh-22rem)] overflow-y-auto">
@@ -188,8 +283,10 @@ export const RiskCenter: React.FC = () => {
                 <thead className="bg-slate-950 text-slate-400 border-b border-slate-800">
                   <tr>
                     <th className="text-left px-4 py-3 w-10">Severity</th>
-                    <th className="text-left px-4 py-3">Title</th>
-                    <th className="text-left px-4 py-3 w-20">Score</th>
+                    <th className="text-left px-4 py-3">Title / Risk ID</th>
+                    <th className="text-left px-4 py-3 w-20 hidden sm:table-cell">Type</th>
+                    <th className="text-left px-4 py-3 w-20">Assets</th>
+                    <th className="text-left px-4 py-3 w-16">Score</th>
                     <th className="text-left px-4 py-3 hidden lg:table-cell">Namespace</th>
                     <th className="text-left px-4 py-3 w-24">Status</th>
                     <th className="text-left px-4 py-3 hidden md:table-cell w-28">Date</th>
@@ -199,7 +296,7 @@ export const RiskCenter: React.FC = () => {
                 <tbody>
                   {paginatedRisks.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                         No risks match the current filters.
                       </td>
                     </tr>
@@ -207,14 +304,45 @@ export const RiskCenter: React.FC = () => {
                     paginatedRisks.map((risk) => (
                       <tr
                         key={risk.id}
-                        className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors"
+                        className="border-b border-slate-800 hover:bg-slate-800/50 transition-colors cursor-pointer"
+                        onClick={() => navigate(`/risks/${risk.id}`)}
                       >
                         <td className="px-4 py-3">{getSeverityIcon(risk.severity)}</td>
                         <td className="px-4 py-3">
                           <span className="text-white font-medium">{risk.title}</span>
-                          <span className="text-slate-500 ml-1 text-xs">({risk.id})</span>
+                          <span className="text-slate-500 ml-1 text-xs">({risk.cveId ?? risk.id})</span>
                         </td>
-                        <td className="px-4 py-3 text-slate-300">{risk.score}/100</td>
+                        <td className="px-4 py-3 text-slate-400 hidden sm:table-cell capitalize text-xs">
+                          {risk.insightType ?? risk.category ?? 'vulnerability'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-400 text-xs" onClick={(e) => e.stopPropagation()}>
+                          {risk.affectedResources?.length
+                            ? risk.affectedResources.length === 1 && risk.affectedResources[0]?.kind && risk.affectedResources[0]?.id
+                              ? risk.affectedResources[0].kind === 'Pod'
+                                ? (
+                                    <Link
+                                      to={`/resources/pods/uid/${encodeURIComponent(risk.affectedResources[0].id)}`}
+                                      className="text-pink-400 hover:text-pink-300 hover:underline font-medium"
+                                      title="View pod in Resources"
+                                    >
+                                      1 Pod →
+                                    </Link>
+                                  )
+                                : risk.affectedResources[0].kind === 'ServiceAccount'
+                                  ? (
+                                      <Link
+                                        to={`/identities/uid/${encodeURIComponent(risk.affectedResources[0].id)}`}
+                                        className="text-pink-400 hover:text-pink-300 hover:underline font-medium"
+                                        title="View identity"
+                                      >
+                                        1 ServiceAccount →
+                                      </Link>
+                                    )
+                                  : `1 ${risk.affectedResources[0].kind}`
+                              : `${risk.affectedResources.length} resources`
+                            : '—'}
+                        </td>
+                        <td className="px-4 py-3 text-slate-300">{risk.score ?? '—'}/100</td>
                         <td className="px-4 py-3 text-slate-400 hidden lg:table-cell truncate max-w-[140px]" title={risk.affectedResources?.[0]?.namespace ?? risk.clusterId}>
                           {risk.affectedResources?.[0]?.namespace ?? risk.clusterName ?? risk.clusterId ?? '—'}
                         </td>
@@ -224,11 +352,11 @@ export const RiskCenter: React.FC = () => {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-slate-500 hidden md:table-cell">
-                          {new Date(risk.timestamp).toLocaleDateString()}
+                          {risk.timestamp ? new Date(risk.timestamp).toLocaleDateString() : '—'}
                         </td>
-                        <td className="px-4 py-3 text-right">
+                        <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <button
-                            onClick={() => setSelectedRisk(risk)}
+                            onClick={() => navigate(`/risks/${risk.id}`)}
                             className="text-pink-400 hover:text-pink-300 text-sm font-medium mr-3"
                           >
                             Details

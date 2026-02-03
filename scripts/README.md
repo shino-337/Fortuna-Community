@@ -1,352 +1,314 @@
 # Fortuna Scripts Reference
 
-**Last Updated**: 2026-01-31
+**Last Updated**: 2026-02-02
 
 ---
 
 ## Overview
 
-Scripts for building, deploying, testing, and cleaning Fortuna components.
+Scripts dùng cho build (nerdctl/containerd), deploy, test và verify Fortuna. Đã loại bỏ script cũ/trùng/bị lỗi; chỉ giữ bản đầy đủ và thống nhất.
 
 ---
 
 ## Pipeline (Clean / Rebuild / Deploy)
 
-### `full-clean-rebuild-redeploy.sh` (recommended for full reset)
-Full clean (all images, cache, port-forwards, optional DB E2E data) → Rebuild (core, agent, dashboard) → Redeploy.
+### `full-clean-database-rebuild-deploy.sh` **(script chính – full reset)**
+
+Clean toàn bộ image fortuna (nerdctl), tùy chọn clean DB, rebuild (core, agent, dashboard), deploy.
 
 ```bash
-NO_CACHE=true ./scripts/full-clean-rebuild-redeploy.sh        # no-cache rebuild
-NO_CACHE=true ./scripts/full-clean-rebuild-redeploy.sh --db    # also clean E2E data from Postgres
-# Options: --skip-clean | --skip-rebuild | --skip-deploy | --db
+# Clean images + rebuild + deploy (không đụng DB)
+./scripts/full-clean-database-rebuild-deploy.sh
+
+# Thêm: xóa dữ liệu DB (DELETE, giữ schema)
+./scripts/full-clean-database-rebuild-deploy.sh --db
+
+# Thêm: full reset DB (DROP tables; Core chạy lại migrations khi start)
+./scripts/full-clean-database-rebuild-deploy.sh --db-reset
+
+# Chỉ clean + deploy (dùng lại image hiện có)
+./scripts/full-clean-database-rebuild-deploy.sh --skip-rebuild
+
+# Chỉ clean + rebuild (không deploy)
+./scripts/full-clean-database-rebuild-deploy.sh --skip-deploy
 ```
 
-After a long run, if Core deployment was removed during cleanup, re-apply Core manually:
-`kubectl apply -f deploy/fortuna-core-deployment.yaml` then `kubectl rollout status deployment/fortuna-core -n fortuna`.
+Chi tiết build/deploy containerd: **`docs/DEPLOYMENT_CONTAINERD.md`**.
 
-### `full-clean-rebuild-deploy.sh`
-Uses `cleanup-environment.sh` (keeps latest 3 images per component) and `build-and-load-containerd.sh` with optional `NO_CACHE=true`.
+### `clean-rebuild-redeploy-and-test.sh`
+
+Clean → Rebuild → Deploy → Chạy test + monitor. Gọi `full-clean-database-rebuild-deploy.sh` rồi chạy check-full-deployment, test-priority1-apis, verify-dashboard-api, v.v.
 
 ```bash
-NO_CACHE=true ./scripts/full-clean-rebuild-deploy.sh
-# Options: --skip-clean | --skip-rebuild | --skip-deploy | --db
+./scripts/clean-rebuild-redeploy-and-test.sh              # full run
+./scripts/clean-rebuild-redeploy-and-test.sh --db         # + DB clean
+./scripts/clean-rebuild-redeploy-and-test.sh --skip-rebuild --skip-deploy   # chỉ test + monitor
 ```
 
-### `cleanup-environment.sh`
-Clean K8s: port-forward, E2E/test namespaces, completed/failed pods, old images (keeps latest 3 per component), build cache.
+### `deploy-fortuna-robust.sh`
+
+Chỉ deploy (không clean/rebuild): namespace, postgres, nats, RBAC, core, agent, dashboard. Có pre-deployment checks, DNS fallback, verification.
 
 ```bash
-./scripts/cleanup-environment.sh
-./scripts/cleanup-environment.sh --db   # also remove E2E test data from Postgres
+./scripts/deploy-fortuna-robust.sh
+USE_IP_FALLBACK=false ./scripts/deploy-fortuna-robust.sh
 ```
 
-### `check-full-deployment.sh`
-Verify cluster, namespace, workloads, pods, services, Core health, dashboard, agent DaemonSet.
+### `pre-deployment-checks.sh`
+
+Kiểm tra cluster trước khi deploy: kubectl, containerd/nerdctl, DNS, CoreDNS, network.
 
 ```bash
-./scripts/check-full-deployment.sh
-```
-
-### `test-priority1-apis.sh`
-Calls Core APIs from inside the Core pod (promotion-rules, runtime-signals). Uses pod selector `app.kubernetes.io/component=core`. When Core has `AUTH_ENABLED=true`, API responses may require an `Authorization` header; call from dashboard or with a bearer token for full pass.
-
-```bash
-./scripts/test-priority1-apis.sh
-```
-
-### `run-e2e-full.sh`
-E2E run with detailed report: cluster/pods, Core API (health and API responses; APIs may return 401 when auth is enabled), DB row counts, dashboard. Output: `docs/test-results/E2E-FULL-<timestamp>.md`.
-
-```bash
-./scripts/run-e2e-full.sh
+./scripts/pre-deployment-checks.sh
 ```
 
 ---
 
-## Build Scripts
+## Build
 
-### Primary Build Scripts
+### `build-and-load-containerd.sh` **(build chính)**
 
-#### `build-and-load-containerd.sh`
-**Purpose**: Build Fortuna images (core, agent) with nerdctl and load into containerd (namespace k8s.io)
+Build core, agent, dashboard bằng nerdctl và load vào containerd (namespace `k8s.io`).
 
-**Usage**:
 ```bash
 ./scripts/build-and-load-containerd.sh
-# Optional: VERSION=v1.0.0; EXPORT_IMAGES=true for export
+SKIP_DASHBOARD=true ./scripts/build-and-load-containerd.sh   # bỏ qua dashboard
+NO_CACHE=true ./scripts/build-and-load-containerd.sh        # build không cache
+EXPORT_IMAGES=true ./scripts/build-and-load-containerd.sh    # export tar sau khi build
 ```
 
-**Output**: Images in containerd namespace `k8s.io`
+### `build-dashboard-containerd.sh`
 
----
+Chỉ build image dashboard (nerdctl → containerd). Dùng khi chỉ sửa dashboard.
 
-#### `build-and-import-containerd.sh`
-**Purpose**: Complete workflow - build and import to containerd
-
-**Usage**:
 ```bash
-./scripts/build-and-import-containerd.sh
+./scripts/build-dashboard-containerd.sh
 ```
 
----
+### `build-production.sh`
 
-#### `build-production.sh`
-**Purpose**: Build images for production registry (Docker)
+Build image cho production registry (Docker), có thể push.
 
-**Usage**:
 ```bash
-# Build only
 ./scripts/build-production.sh
-
-# Build and push
 PUSH_IMAGES=true ./scripts/build-production.sh
 ```
 
 ---
 
-#### `import-to-containerd.sh`
-**Purpose**: Import images from tar files to containerd
+## Verify & Check
 
-**Usage**:
+### `check-full-deployment.sh`
+
+Kiểm tra cluster, namespace, workload, pod, service, Core health, dashboard, agent DaemonSet.
+
 ```bash
-# Import from tar file
-./scripts/import-to-containerd.sh /path/to/image.tar
+./scripts/check-full-deployment.sh
+```
 
-# Import using nerdctl
-./scripts/import-to-containerd.sh -m nerdctl /path/to/image.tar
+### `verify-dashboard-api.sh`
 
-# Import from registry
-./scripts/import-to-containerd.sh -m nerdctl docker.io/fortuna/core:v1.0.0
+Verify API Dashboard qua port-forward: login + gọi các endpoint chính. Cần `CORE_URL` (mặc định localhost:8080).
+
+```bash
+kubectl port-forward -n fortuna svc/fortuna-core 8080:8080 &
+./scripts/verify-dashboard-api.sh
+```
+
+### `verify-dashboard-apis.sh`
+
+Verify tất cả API mà Dashboard dùng, gọi từ trong Core pod (không cần port-forward).
+
+```bash
+./scripts/verify-dashboard-apis.sh
+```
+
+### `verify-dashboard-issues.sh`
+
+Kiểm tra tổng hợp: image pod vs latest, Risk Center API, SBOM API, DB, UI.
+
+```bash
+./scripts/verify-dashboard-issues.sh
+```
+
+### `verify-database-schema.sh`
+
+Kiểm tra schema DB (migrations, bảng).
+
+```bash
+./scripts/verify-database-schema.sh
 ```
 
 ---
 
-## Deployment Scripts
+## E2E & Test
 
-### Primary Deployment Scripts
+### `run-e2e-full.sh`
 
-#### `deploy-fortuna-robust.sh`
-**Purpose**: Comprehensive deployment with DNS fallback and verification
+E2E đầy đủ: cluster/pods, Core API (health + responses), DB, dashboard. Ghi report: `docs/test-results/E2E-FULL-<timestamp>.md`.
 
-**Usage**:
 ```bash
-# Standard deployment
-./scripts/deploy-fortuna-robust.sh
-
-# Without IP fallback
-USE_IP_FALLBACK=false ./scripts/deploy-fortuna-robust.sh
+./scripts/run-e2e-full.sh
 ```
 
-**Features**:
-- Pre-deployment checks
-- Comprehensive cleanup
-- DNS testing with IP fallback
-- Sequential deployment
-- Verification at each step
+### `run-e2e-tests.sh`
 
----
+E2E test cases (SBOM injector, test pods, API). Output: `docs/test-results/E2E-TEST-EXECUTION-<timestamp>.md`.
 
-#### `quick-deploy-containerd.sh`
-**Purpose**: Quick deploy for containerd environments
-
-**Usage**:
 ```bash
-./scripts/quick-deploy-containerd.sh
+./scripts/run-e2e-tests.sh
 ```
 
----
+### `test-priority1-apis.sh`
 
-#### `pre-deployment-checks.sh`
-**Purpose**: Validate cluster readiness before deployment
+Gọi Core API từ trong Core pod: promotion-rules, runtime-signals, v.v.
 
-**Usage**:
 ```bash
-./scripts/pre-deployment-checks.sh
+./scripts/test-priority1-apis.sh
 ```
 
-**Checks**:
-- Kubernetes cluster accessibility
-- Namespace existence
-- CoreDNS health
-- DNS resolution
-- Network connectivity
-- Node labels
+### `e2e-sbom-verify.sh`
 
----
+Verify pod xuất hiện trong API SBOM; tùy chọn chạy full SBOM flow.
 
-## Cleanup Scripts
-
-#### `clean-containerd-images.sh`
-**Purpose**: Remove old Fortuna images from containerd
-
-**Usage**:
 ```bash
-# Dry run
-./scripts/clean-containerd-images.sh --dry-run
-
-# Clean all fortuna images
-./scripts/clean-containerd-images.sh
-
-# Clean with custom prefix
-./scripts/clean-containerd-images.sh --prefix ksam
+./scripts/e2e-sbom-verify.sh
+./scripts/e2e-sbom-verify.sh my-pod default
+./scripts/e2e-sbom-verify.sh --full
 ```
 
----
+### `test-sbom-pod-flow.sh`
 
-#### `clean-all-containerd-images.sh`
-**Purpose**: Quick cleanup of all Fortuna images
+Tạo pod test, đợi agent gửi SBOM, verify API /sbom và /sbom/:podId.
 
-**Usage**:
 ```bash
-./scripts/clean-all-containerd-images.sh
+./scripts/test-sbom-pod-flow.sh
+./scripts/test-sbom-pod-flow.sh --cleanup
+```
+
+### `test-runtime-signals-e2e.sh`
+
+E2E runtime signals: POST runtime-events, kiểm tra DB, GET runtime-signals.
+
+```bash
+./scripts/test-runtime-signals-e2e.sh
+```
+
+### `run-dashboard-data-tests.sh` **(E2E dữ liệu cho Dashboard)**
+
+Chạy chuỗi test để có dữ liệu cho biểu đồ Dashboard (Threat Velocity, PCE Trend) và Risk Center (Runtime / Escape). Gồm: load CVE (nếu có), deploy E2E vuln pod (optional), **e2e-dashboard-data.sh**, **test-pce-e2e.sh**, test-sbom-pod-flow, verify-dashboard-apis.
+
+```bash
+./scripts/run-dashboard-data-tests.sh
+```
+
+### `e2e-dashboard-data.sh`
+
+E2E riêng cho dữ liệu Dashboard: tạo privileged pod, chờ sync Core (agent), POST runtime-events (PROC_ROOT_PIVOT, FS_ESCAPE_ATTEMPT), gọi insights/evaluate/historical, kiểm tra GET threat-velocity và GET pod-capabilities/trends (7 điểm, tổng risks/capabilities).
+
+```bash
+./scripts/e2e-dashboard-data.sh
+```
+
+### `test-pce-e2e.sh`
+
+E2E PCE + Runtime: tạo privileged pod, **chờ pod xuất hiện trong Core (agent sync)**, chờ PCE evaluation, gửi runtime event, kiểm tra pod_capabilities và runtime_signals trong DB.
+
+```bash
+./scripts/test-pce-e2e.sh
 ```
 
 ---
 
-## Utility Scripts
+## Monitor & Utility
 
-#### `create-mtls-secrets.sh`
-**Purpose**: Generate mTLS certificates for Core and Agent
+### `monitor-agent-core.sh`
 
-**Usage**:
-```bash
-./scripts/create-mtls-secrets.sh
-```
-
----
-
-#### `fix-dns-issues.sh`
-**Purpose**: Troubleshoot and fix DNS resolution issues
-
-**Usage**:
-```bash
-./scripts/fix-dns-issues.sh
-```
-
----
-
-#### `copy-containerd-images-to-nodes.sh`
-**Purpose**: Distribute images to all cluster nodes
-
-**Usage**:
-```bash
-./scripts/copy-containerd-images-to-nodes.sh
-```
-
----
-
-## Special Purpose Scripts
-
-#### `load-cve-database.sh`
-**Purpose**: Load CVE data into database
-
-**Usage**:
-```bash
-./scripts/load-cve-database.sh
-```
-
----
-
-#### `apply-core-master-only.sh`
-**Purpose**: Deploy Core only on master node
-
-**Usage**:
-```bash
-./scripts/apply-core-master-only.sh
-```
-
----
-
-#### `apply-nats-single-replica.sh`
-**Purpose**: Configure NATS for single replica mode
-
-**Usage**:
-```bash
-./scripts/apply-nats-single-replica.sh
-```
-
----
-
-## Migration Scripts (Archive)
-
-These scripts are archived as they were one-time migrations:
-
-- `migrate-imports.sh`
-- `cleanup-orphaned-migrations.sh`
-- `validate-migrations.sh`
-
----
-
-## Workflow Examples
-
-### Complete Build and Deploy
+Xem trạng thái pod, health, log gần đây của Agent và Core.
 
 ```bash
-# 1. Clean old images
-./scripts/clean-containerd-images.sh
-
-# 2. Build images
-./scripts/build-with-containerd.sh
-
-# 3. Deploy
-./scripts/deploy-fortuna-robust.sh
+./scripts/monitor-agent-core.sh
+./scripts/monitor-agent-core.sh --follow --logs 50
 ```
 
-### Multi-Node Deployment
+### `monitor-runtime-signals.sh`
+
+Monitor runtime signals: Agent reader, Core ingest, DB counts, API.
 
 ```bash
-# 1. Build on master
-./scripts/build-with-containerd.sh
-
-# 2. Distribute to all nodes
-./scripts/copy-containerd-images-to-nodes.sh
-
-# 3. Deploy
-./scripts/deploy-fortuna-robust.sh
+./scripts/monitor-runtime-signals.sh
+./scripts/monitor-runtime-signals.sh --follow
 ```
 
-### Troubleshooting
+### `manage-port-forwards.sh`
+
+Quản lý port-forward (Core, Dashboard).
 
 ```bash
-# 1. Pre-deployment checks
-./scripts/pre-deployment-checks.sh
-
-# 2. Fix DNS if needed
-./scripts/fix-dns-issues.sh
-
-# 3. Deploy
-./scripts/deploy-fortuna-robust.sh
+./scripts/manage-port-forwards.sh
 ```
 
+### `port-forward-dashboard.sh`
+
+Port-forward Dashboard (và có thể Core) để test từ local.
+
+```bash
+./scripts/port-forward-dashboard.sh
+```
+
+### `load-cve-data.sh`
+
+Load dữ liệu CVE vào DB.
+
+```bash
+./scripts/load-cve-data.sh
+```
+
+### `create_mtls_secret.sh` / `create-mtls-secret.sh`
+
+Tạo secret mTLS cho Core/Agent (nếu có).
+
+```bash
+./scripts/create_mtls_secret.sh
+```
+
+### `push-images-to-workers.sh`
+
+Đẩy image từ node master sang worker (multi-node).
+
+```bash
+./scripts/push-images-to-workers.sh
+```
+
+### `sync-k8s-data.sh`, `reset-worker-node.sh`, `reset-worker-remote.sh`
+
+Đồng bộ dữ liệu K8s, reset worker (dev/test).
+
 ---
 
-## Script Organization
+## Script đã xóa (obsolete / duplicate)
 
-### Active Scripts
-- Build scripts (4)
-- Deployment scripts (3)
-- Cleanup scripts (2)
-- Utility scripts (6)
-- Special purpose (3)
-
-### Archived Scripts
-- Obsolete scripts moved to `scripts/archive/`
-- See `PROJECT_CLEANUP_ANALYSIS.md` for details
+- **build-and-import-containerd.sh** – gọi script không tồn tại (`build-with-containerd.sh`)
+- **full-clean-rebuild-deploy.sh** – gọi `cleanup-environment.sh` (không tồn tại)
+- **full-clean-rebuild-redeploy.sh** – thay bằng `full-clean-database-rebuild-deploy.sh` (có thêm --db-reset)
+- **quick-deploy-containerd.sh** – gọi `build-with-containerd.sh` (không tồn tại)
+- **cleanup-repo.sh** – script git untrack cũ, tham chiếu script đã xóa
+- **build-dashboard.sh** – trùng chức năng với `build-dashboard-containerd.sh` và `build-and-load-containerd.sh`
+- **run-e2e-comprehensive.sh** – trùng với `run-e2e-full.sh` (báo cáo E2E đầy đủ)
 
 ---
 
-## Best Practices
+## Tổ chức
 
-1. **Always run pre-deployment checks** before deploying
-2. **Clean old images** before building new ones
-3. **Use robust deployment script** for production
-4. **Verify images** after building
-5. **Check logs** if deployment fails
+| Nhóm        | Script chính |
+|------------|--------------|
+| Pipeline   | full-clean-database-rebuild-deploy.sh, deploy-fortuna-robust.sh, clean-rebuild-redeploy-and-test.sh |
+| Build      | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
+| Verify     | check-full-deployment.sh, verify-dashboard-api.sh, verify-dashboard-apis.sh, verify-dashboard-issues.sh, verify-database-schema.sh |
+| E2E / Test | run-e2e-full.sh, run-e2e-tests.sh, test-priority1-apis.sh, e2e-sbom-verify.sh, test-sbom-pod-flow.sh, test-runtime-signals-e2e.sh |
+| Monitor    | monitor-agent-core.sh, monitor-runtime-signals.sh |
+| Utility    | pre-deployment-checks.sh, manage-port-forwards.sh, port-forward-dashboard.sh, load-cve-data.sh, create_mtls_secret.sh, push-images-to-workers.sh, sync-k8s-data.sh, reset-worker-*.sh |
 
 ---
 
-**For detailed documentation, see**:
-- `docs/05-operations/CONTAINERD_BUILD_GUIDE.md`
-- `docs/05-operations/DEPLOYMENT_ISSUES_COMPREHENSIVE.md`
-- `docs/01-getting-started/DEPLOYMENT_QUICK_START.md`
-
+**Tài liệu chi tiết**: `docs/DEPLOYMENT_CONTAINERD.md`, `deploy/README.md`.

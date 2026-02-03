@@ -1,13 +1,18 @@
 
 import {
   Cluster,
+  ClusterOverview,
+  ClusterInventory,
+  ClusterAgent,
+  ClusterSecuritySummary,
+  NodeDetailResponse,
+  PodWithRisk,
   Insight,
   User,
   K8sResource,
   SecurityRule,
   Certificate,
   Agent,
-  QueueMetric,
   Notification,
   RotationEvent,
   AuditLog,
@@ -17,6 +22,7 @@ import {
   PodSbom,
   PodSbomSummary,
   DashboardStats,
+  InsightsSummary,
   ThreatVelocityPoint,
   PodCapabilitySummaryCluster,
   PodCapabilitySummaryCapability,
@@ -90,14 +96,13 @@ const request = async <T>(path: string, options: RequestInit = {}): Promise<T> =
 // - MOCK_RESOURCES: getResources() uses real API
 // - MOCK_RULES: getRules() uses real API
 // - MOCK_CERTS: getCertificates() uses real API
-// - MOCK_AGENTS: getAgents() uses real API
-// - MOCK_QUEUE_METRICS: getQueueMetrics() uses real API
-// - MOCK_NOTIFICATIONS: getNotifications() uses real API
+// - MOCK_AGENTS: getAgents() uses real API (agents table)
+// - MOCK_NOTIFICATIONS: getNotifications() uses real API (notifications table)
 // - MOCK_AUDIT_LOGS: getAuditLogs() uses real API
 // - MOCK_REPORTS: getReports() uses real API
 // - MOCK_SYNC_STATUS: getSyncStatus() uses real API
-// - MOCK_USERS: getUsers() - TODO: implement API endpoint
-// - MOCK_ROTATION_HISTORY: getRotationHistory() - TODO: implement API endpoint
+// - getUsers(): GET /users (from users table; admin only when auth enabled)
+// - getRotationHistory(): GET /certificates/rotation/history (stub [] until rotation_history table)
 
 export const api = {
   login: async (username: string, password: string): Promise<{ user: User; token: string }> => {
@@ -108,8 +113,13 @@ export const api = {
     return { user: resp.user, token: resp.token };
   },
 
-  getStats: async () => {
-    const stats = await request<DashboardStats>('/dashboard/stats');
+  /** GET /api/v1/dashboard/stats – optional clusterId, sinceMinutes (time range: last N minutes). */
+  getStats: async (clusterId?: string | null, sinceMinutes?: number) => {
+    const params = new URLSearchParams();
+    if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
+    if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const stats = await request<DashboardStats>(`/dashboard/stats${qs}`);
     const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
     return {
       clusters: num(stats.totalClusters),
@@ -118,7 +128,95 @@ export const api = {
       pods: num(stats.runningPods),
       agents: num(stats.activeAgents),
       resolved24h: num(stats.resolved24h ?? 0),
+      affectedPodCount: num(stats.affectedPodCount ?? 0),
     };
+  },
+
+  /** GET /api/v1/insights/summary – severity breakdown. Optional clusterId, sinceMinutes (time range). */
+  getInsightsSummary: async (clusterId?: string | null, sinceMinutes?: number): Promise<InsightsSummary> => {
+    const params = new URLSearchParams();
+    if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
+    if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const data = await request<InsightsSummary>(`/insights/summary${qs}`);
+    return data;
+  },
+
+  /** GET /api/v1/clusters/:id/overview */
+  getClusterOverview: async (id: string): Promise<ClusterOverview | null> => {
+    try {
+      return await request<ClusterOverview>(`/clusters/${id}/overview`);
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/clusters/:id/inventory */
+  getClusterInventory: async (id: string): Promise<ClusterInventory | null> => {
+    try {
+      return await request<ClusterInventory>(`/clusters/${id}/inventory`);
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/clusters/:id/agents */
+  getClusterAgents: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
+    try {
+      const data = await request<{ agents: ClusterAgent[]; total: number }>(`/clusters/${id}/agents`);
+      const agents = (data.agents || []).map((a: Record<string, unknown>) => ({
+        agentId: String(a.agentId ?? ''),
+        nodeName: a.nodeName != null ? String(a.nodeName) : undefined,
+        status: String(a.status ?? ''),
+        lastHeartbeat: a.lastHeartbeat != null ? String(a.lastHeartbeat) : '',
+        version: a.version != null ? String(a.version) : undefined,
+      }));
+      return { agents, total: Number(data.total) ?? agents.length };
+    } catch {
+      return { agents: [], total: 0 };
+    }
+  },
+
+  /** GET /api/v1/clusters/:id/security-summary */
+  getClusterSecuritySummary: async (id: string): Promise<ClusterSecuritySummary | null> => {
+    try {
+      return await request<ClusterSecuritySummary>(`/clusters/${id}/security-summary`);
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/clusters/:id/nodes/:nodeName – Node Detail (metadata + optional ?pods=true for workloads) */
+  getClusterNode: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse | null> => {
+    try {
+      const qs = opts?.pods ? '?pods=true' : '';
+      const data = await request<NodeDetailResponse>(`/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
+      return data;
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/clusters/:id – single cluster for Cluster Detail */
+  getCluster: async (id: string): Promise<Cluster | null> => {
+    try {
+      const c = await request<Record<string, unknown>>(`/clusters/${id}`);
+      const name = String(c.name ?? c.id ?? '').trim() || String(id);
+      return {
+        id: String(c.id ?? id),
+        name,
+        region: c.region != null ? String(c.region) : undefined,
+        endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
+        status: c.status != null ? String(c.status) : 'unknown',
+        lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
+        version: c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined,
+        k8sVersion: c.k8sVersion != null ? String(c.k8sVersion) : undefined,
+        source: c.source != null ? String(c.source) : undefined,
+        distribution: c.distribution != null ? String(c.distribution) : undefined,
+      } as Cluster;
+    } catch {
+      return null;
+    }
   },
 
   /** GET /api/v1/clusters – active clusters only (cutoff), SSOT from DB */
@@ -174,6 +272,8 @@ export const api = {
           distribution: c.distribution != null ? String(c.distribution) : undefined,
           podCount: typeof c.podCount === 'number' ? c.podCount : undefined,
           deploymentCount: typeof c.deploymentCount === 'number' ? c.deploymentCount : undefined,
+          riskCount: typeof c.riskCount === 'number' ? c.riskCount : undefined,
+          agentCount: typeof c.agentCount === 'number' ? c.agentCount : undefined,
           connectionStatus,
           healthScore: connectionStatus === 'connected' ? 90 : connectionStatus === 'degraded' ? 60 : 40,
         } as Cluster;
@@ -183,8 +283,50 @@ export const api = {
     }
   },
 
-  /** GET /api/v1/risks – default type=vulnerability so count matches dashboard/stats (totalRisks). Optional pagination, severity, search. */
-  getRisks: async (params?: { page?: number; pageSize?: number; type?: string; severity?: string; status?: string; search?: string }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number }> => {
+  /** GET /api/v1/insights/:id – single insight for Risk Detail */
+  getInsight: async (id: string): Promise<Insight | null> => {
+    try {
+      const insight = await request<Record<string, unknown>>(`/insights/${id}`);
+      const severity = (insight.severity || 'medium').toLowerCase();
+      const cvss = Number(insight.cvss) || (severity === 'critical' ? 9 : severity === 'high' ? 7 : severity === 'medium' ? 5 : 3);
+      return {
+        id: String(insight.id ?? id),
+        cveId: insight.cveId != null ? String(insight.cveId) : undefined,
+        title: String(insight.title ?? ''),
+        description: insight.description != null ? String(insight.description) : undefined,
+        severity,
+        score: Math.round(cvss * 10),
+        status: insight.status === 'active' ? 'new' : insight.status === 'resolved' ? 'resolved' : 'acknowledged',
+        timestamp: (insight.detectedAt ?? insight.createdAt) != null ? String(insight.detectedAt ?? insight.createdAt) : undefined,
+        affectedResources: [
+          {
+            id: String(insight.resourceUid ?? insight.id),
+            name: insight.resourceName != null ? String(insight.resourceName) : undefined,
+            kind: insight.resourceType != null ? String(insight.resourceType) : undefined,
+            namespace: insight.resourceNamespace != null ? String(insight.resourceNamespace) : undefined,
+          },
+        ],
+        impact: insight.recommendation != null ? String(insight.recommendation) : undefined,
+        resolvedAt: insight.resolvedAt != null ? String(insight.resolvedAt) : undefined,
+        updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
+        evidence: insight.evidence,
+        violatedRules: insight.violatedRules,
+      } as Insight;
+    } catch {
+      return null;
+    }
+  },
+
+  /** POST /api/v1/insights/:id/resolve – mark insight as resolved */
+  resolveInsight: async (id: string, resolution?: string): Promise<void> => {
+    await request(`/insights/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({ resolution: resolution ?? '' }),
+    });
+  },
+
+  /** GET /api/v1/risks – default type=vulnerability. Optional clusterId, pagination, severity, status, search, sinceMinutes (last N minutes). */
+  getRisks: async (params?: { page?: number; pageSize?: number; type?: string; severity?: string; status?: string; search?: string; clusterId?: string | null; sinceMinutes?: number }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number }> => {
     try {
       const query = new URLSearchParams();
       query.set('type', params?.type ?? 'vulnerability');
@@ -193,6 +335,8 @@ export const api = {
       if (params?.severity) query.set('severity', params.severity);
       if (params?.status) query.set('status', params.status);
       if (params?.search?.trim()) query.set('search', params.search.trim());
+      if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+      if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
       const qs = query.toString();
       const url = qs ? `/risks?${qs}` : '/risks';
       const data = await request<{ total: number; page?: number; pageSize?: number; insights: any[] }>(url);
@@ -206,12 +350,14 @@ export const api = {
         };
         const cvss = insight.cvss || severityScore[severity] || 5;
         return {
-          id: insight.cveId || String(insight.id),
+          id: String(insight.id),
+          cveId: insight.cveId ? String(insight.cveId) : undefined,
           title: insight.title,
           description: insight.description,
           severity,
           score: Math.round(cvss * 10),
           category: insight.insightType === 'vulnerability' ? 'sbom' : 'security',
+          insightType: (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string,
           status: insight.status === 'active' ? 'new' : insight.status === 'resolved' ? 'resolved' : 'acknowledged',
           timestamp: insight.detectedAt || insight.createdAt,
           clusterId: (insight.clusterId ?? insight.resourceNamespace) ?? '',
@@ -225,6 +371,8 @@ export const api = {
             },
           ],
           impact: insight.recommendation,
+          evidence: insight.evidence,
+          violatedRules: insight.violatedRules,
         } as Insight;
       });
       return {
@@ -235,6 +383,76 @@ export const api = {
       };
     } catch (err) {
       return { insights: [], total: 0, page: 1, pageSize: 20 };
+    }
+  },
+
+  /** GET /api/v1/pods/by-uid/:uid – single pod by UID (for Risk Detail → Pod link) */
+  getPodByUid: async (uid: string): Promise<PodWithRisk | null> => {
+    try {
+      const p = await request<Record<string, unknown>>(`/pods/by-uid/${encodeURIComponent(uid)}`);
+      return {
+        id: Number(p.id ?? 0),
+        clusterId: String(p.clusterId ?? ''),
+        name: String(p.name ?? ''),
+        namespace: String(p.namespace ?? ''),
+        uid: String(p.uid ?? ''),
+        nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
+        serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
+        riskCount: Number((p as any).riskCount ?? 0),
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/pods/:id – single pod for Pod Detail */
+  getPod: async (id: string | number): Promise<PodWithRisk | null> => {
+    try {
+      const p = await request<Record<string, unknown>>(`/pods/${id}`);
+      return {
+        id: Number(p.id ?? 0),
+        clusterId: String(p.clusterId ?? ''),
+        name: String(p.name ?? ''),
+        namespace: String(p.namespace ?? ''),
+        uid: String(p.uid ?? ''),
+        nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
+        serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
+        riskCount: Number((p as any).riskCount ?? 0),
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/pods – list pods with riskCount (for Resources Pod tab, Node view) */
+  getPods: async (params?: { cluster?: string; namespace?: string; node?: string; page?: number; pageSize?: number }): Promise<{ pods: PodWithRisk[]; total: number; page: number; pageSize: number }> => {
+    try {
+      const q = new URLSearchParams();
+      if (params?.cluster) q.set('cluster', params.cluster);
+      if (params?.namespace) q.set('namespace', params.namespace);
+      if (params?.node) q.set('node', params.node);
+      if (params?.page != null) q.set('page', String(params.page));
+      if (params?.pageSize != null) q.set('pageSize', String(params.pageSize));
+      const qs = q.toString();
+      const data = await request<{ pods: Array<Record<string, unknown>>; total: number; page?: number; pageSize?: number }>(qs ? `/pods?${qs}` : '/pods');
+      const pods = (data.pods || []).map((p: Record<string, unknown>) => ({
+        id: Number(p.id ?? 0),
+        clusterId: String(p.clusterId ?? ''),
+        name: String(p.name ?? ''),
+        namespace: String(p.namespace ?? ''),
+        uid: String(p.uid ?? ''),
+        nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
+        serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
+        riskCount: Number(p.riskCount ?? 0),
+      }));
+      return {
+        pods,
+        total: Number(data.total) ?? pods.length,
+        page: Number(data.page) ?? 1,
+        pageSize: Number(data.pageSize) ?? 50,
+      };
+    } catch {
+      return { pods: [], total: 0, page: 1, pageSize: 50 };
     }
   },
 
@@ -264,6 +482,58 @@ export const api = {
     }
   },
 
+  /** GET /api/v1/rules/:id – single rule + matchCount + recentMatches */
+  getRule: async (id: string): Promise<{ rule: SecurityRule & { description?: string }; matchCount: number; recentMatches: Insight[] } | null> => {
+    try {
+      const data = await request<{ rule: unknown; matchCount?: number; recentMatches?: unknown[] }>(`/rules/${id}`);
+      const rule = (data.rule ?? {}) as SecurityRule & { description?: string };
+      const recentMatches = (data.recentMatches || []).map((m: unknown) => {
+        const x = m as Record<string, unknown>;
+        return {
+          id: String(x.id ?? ''),
+          title: (x.title ?? '') as string,
+          severity: String(x.severity ?? 'medium').toLowerCase(),
+          status: x.status as string,
+          timestamp: (x.detectedAt ?? x.createdAt) as string | undefined,
+        } as Insight;
+      });
+      return {
+        rule,
+        matchCount: Number(data.matchCount) ?? 0,
+        recentMatches,
+      };
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/serviceaccounts/:id */
+  getServiceAccount: async (id: string): Promise<Record<string, unknown> | null> => {
+    try {
+      return await request<Record<string, unknown>>(`/serviceaccounts/${id}`);
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/serviceaccounts/by-uid/:uid – for Risk Detail → Identity link */
+  getServiceAccountByUid: async (uid: string): Promise<Record<string, unknown> | null> => {
+    try {
+      return await request<Record<string, unknown>>(`/serviceaccounts/by-uid/${encodeURIComponent(uid)}`);
+    } catch {
+      return null;
+    }
+  },
+
+  /** GET /api/v1/serviceaccounts/:id/permissions */
+  getServiceAccountPermissions: async (id: string): Promise<{ permissions?: Array<Record<string, unknown>> }> => {
+    try {
+      return await request<{ permissions?: Array<Record<string, unknown>> }>(`/serviceaccounts/${id}/permissions`);
+    } catch {
+      return { permissions: [] };
+    }
+  },
+
   getCertificates: async (): Promise<Certificate[]> => {
     try {
       const data = await request<{ certificates?: Certificate[] }>('/certificates/info');
@@ -278,36 +548,31 @@ export const api = {
 
   getAgents: async (): Promise<Agent[]> => {
     try {
-      const data = await request<{ agents: Agent[] }>('/agents/status');
-      return data.agents || [];
-    } catch (err) {
-      return [];
-    }
-  },
-
-  getQueueMetrics: async (): Promise<QueueMetric[]> => {
-    try {
-      const data = await request<{ _dataSource?: string; normalizer?: number; correlator?: number; risk?: number; timestamp?: string }>('/metrics/queue');
-      if (data._dataSource === 'unsupported') return [];
-      return [{
-        timestamp: data.timestamp ?? '',
-        normalizer: data.normalizer ?? 0,
-        correlator: data.correlator ?? 0,
-        risk: data.risk ?? 0,
-      }];
+      const data = await request<{
+        agents: Array<{
+          agentId: string;
+          nodeName: string;
+          status: string;
+          lastHeartbeat: string;
+        }>;
+      }>('/agents/status');
+      const raw = data.agents || [];
+      return raw.map((a) => ({
+        id: a.agentId,
+        node: a.nodeName,
+        status: a.status === 'healthy' ? 'up' : a.status === 'slow' ? 'slow' : a.status === 'disconnected' ? 'down' : a.status,
+        lastHeartbeat: typeof a.lastHeartbeat === 'string' ? a.lastHeartbeat : a.lastHeartbeat ? new Date(a.lastHeartbeat as unknown as string).toISOString() : '',
+      }));
     } catch (err) {
       return [];
     }
   },
 
   getUsers: async (): Promise<User[]> => {
-    // TODO: Implement API endpoint /users when available
-    // For now, return empty array - no mock data
     try {
       const data = await request<{ users: User[] }>('/users');
       return data.users || [];
     } catch (err) {
-      // API endpoint not available yet, return empty array
       return [];
     }
   },
@@ -322,13 +587,10 @@ export const api = {
   },
   
   getRotationHistory: async (): Promise<RotationEvent[]> => {
-    // TODO: Implement API endpoint /certificates/rotation/history when available
-    // For now, return empty array - no mock data
     try {
       const data = await request<{ history: RotationEvent[] }>('/certificates/rotation/history');
       return data.history || [];
     } catch (err) {
-      // API endpoint not available yet, return empty array
       return [];
     }
   },
@@ -361,13 +623,19 @@ export const api = {
     }
   },
 
-  getErrorLogs: async (): Promise<ErrorLog[]> => {
+  getErrorLogs: async (params?: { page?: number; pageSize?: number; level?: string; source?: string }): Promise<{ logs: ErrorLog[]; total: number }> => {
     try {
-      const data = await request<{ _dataSource?: string; logs?: ErrorLog[] }>('/error-logs');
-      if (data._dataSource === 'unsupported') return [];
-      return data.logs ?? [];
+      const query = new URLSearchParams();
+      if (params?.page != null) query.set('page', String(params.page));
+      if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
+      if (params?.level) query.set('level', params.level);
+      if (params?.source) query.set('source', params.source);
+      const qs = query.toString();
+      const url = qs ? `/error-logs?${qs}` : '/error-logs';
+      const data = await request<{ logs?: ErrorLog[]; total?: number }>(url);
+      return { logs: data.logs ?? [], total: data.total ?? 0 };
     } catch (err) {
-      return [];
+      return { logs: [], total: 0 };
     }
   },
 
@@ -418,17 +686,48 @@ export const api = {
 
   getPodSbom: async (podId: string): Promise<PodSbom | undefined> => {
     try {
-      return await request<PodSbom>(`/sbom/${podId}`);
+      return await request<PodSbom>(`/sbom/${encodeURIComponent(podId)}`);
     } catch (err) {
       return undefined;
     }
   },
 
+  /** GET /api/v1/risks/pods/:podUid/report – risk report for pod (insights, bindings, roles) */
+  getPodRiskReport: async (podUid: string): Promise<{ insights: Insight[]; summary?: Record<string, unknown> }> => {
+    try {
+      const data = await request<{ insights?: unknown[]; summary?: Record<string, unknown> }>(`/risks/pods/${encodeURIComponent(podUid)}/report`);
+      const insights = (data.insights || []).map((i: any) => ({
+        id: String(i.id ?? ''),
+        cveId: i.cveId != null ? String(i.cveId) : undefined,
+        title: String(i.title ?? ''),
+        description: i.description != null ? String(i.description) : undefined,
+        severity: (i.severity || 'medium').toLowerCase(),
+        score: i.cvss != null ? Math.round(Number(i.cvss) * 10) : undefined,
+        status: i.status === 'active' ? 'new' : i.status === 'resolved' ? 'resolved' : 'acknowledged',
+        timestamp: i.detectedAt ?? i.createdAt,
+        affectedResources: [{ id: i.resourceUid ?? '', name: i.resourceName, kind: i.resourceType, namespace: i.resourceNamespace }],
+      })) as Insight[];
+      return { insights, summary: data.summary };
+    } catch {
+      return { insights: [] };
+    }
+  },
+
   getThreatVelocity: async (days = 7): Promise<ThreatVelocityPoint[]> => {
     try {
-      const data = await request<{ trend: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?days=${days}`);
-      return data.trend;
-    } catch (err) {
+      const data = await request<{ trend?: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?days=${days}`);
+      const raw = Array.isArray(data)
+        ? data
+        : (Array.isArray((data as any)?.trend) ? (data as any).trend : Array.isArray((data as any)?.Trend) ? (data as any).Trend : []);
+      const out = (raw || []).map((p: any) => ({
+        date: String(p.date ?? p.Date ?? ''),
+        critical: Number(p.critical ?? p.CriticalCount ?? 0),
+        high: Number(p.high ?? p.HighCount ?? 0),
+        medium: Number(p.medium ?? p.MediumCount ?? 0),
+        low: Number(p.low ?? p.LowCount ?? 0),
+      })).filter((p: { date: string }) => p.date);
+      return out;
+    } catch {
       return [];
     }
   },
@@ -485,9 +784,19 @@ export const api = {
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
       if (params?.podUid) query.set('podUid', params.podUid);
       if (params?.clusterId) query.set('clusterId', params.clusterId);
-      const data = await request<{ points: PodCapabilityTrendPoint[] }>(`/pod-capabilities/trends?${query.toString()}`);
-      return data.points || [];
-    } catch (err) {
+      const data = await request<{ points?: PodCapabilityTrendPoint[] }>(`/pod-capabilities/trends?${query.toString()}`);
+      const raw = Array.isArray(data)
+        ? data
+        : (Array.isArray((data as any)?.points) ? (data as any).points : Array.isArray((data as any)?.Points) ? (data as any).Points : []);
+      const out = (raw || []).map((p: any) => ({
+        date: String(p.date ?? p.Date ?? ''),
+        critical: Number(p.critical ?? 0),
+        high: Number(p.high ?? 0),
+        medium: Number(p.medium ?? 0),
+        low: Number(p.low ?? 0),
+      })).filter((p: { date: string }) => p.date);
+      return out;
+    } catch {
       return [];
     }
   },
@@ -591,12 +900,13 @@ export const api = {
   },
 
   // Phase 2.3: Runtime Signals
-  getRuntimeSignals: async (params?: { podUid?: string; signalType?: string; category?: string; startDate?: string; endDate?: string; limit?: number; offset?: number }): Promise<{ signals: RuntimeSignal[]; count: number; total: number }> => {
+  getRuntimeSignals: async (params?: { podUid?: string; signalType?: string; category?: string; startDate?: string; endDate?: string; sinceMinutes?: number; limit?: number; offset?: number }): Promise<{ signals: RuntimeSignal[]; count: number; total: number }> => {
     try {
       const queryParams = new URLSearchParams();
       if (params?.podUid) queryParams.append('podUid', params.podUid);
       if (params?.signalType) queryParams.append('signalType', params.signalType);
       if (params?.category) queryParams.append('category', params.category);
+      if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
       if (params?.startDate) queryParams.append('startDate', params.startDate);
       if (params?.endDate) queryParams.append('endDate', params.endDate);
       if (params?.limit) queryParams.append('limit', params.limit.toString());
@@ -611,9 +921,10 @@ export const api = {
     }
   },
 
-  getRuntimeSignalsByPod: async (podUid: string, params?: { signalType?: string; category?: string; limit?: number }): Promise<RuntimeSignal[]> => {
+  getRuntimeSignalsByPod: async (podUid: string, params?: { signalType?: string; category?: string; sinceMinutes?: number; limit?: number }): Promise<RuntimeSignal[]> => {
     try {
       const queryParams = new URLSearchParams();
+      if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
       if (params?.signalType) queryParams.append('signalType', params.signalType);
       if (params?.category) queryParams.append('category', params.category);
       if (params?.limit) queryParams.append('limit', params.limit.toString());

@@ -203,3 +203,32 @@ func ChangePassword(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// GetUsers returns list of users (admin only). Password is never exposed.
+func GetUsers(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !db.Migrator().HasTable("users") {
+			c.JSON(http.StatusOK, gin.H{"users": []map[string]interface{}{}, "total": 0})
+			return
+		}
+		var users []models.User
+		if err := db.Where("deleted_at IS NULL").Order("created_at DESC").Find(&users).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		list := make([]map[string]interface{}, 0, len(users))
+		for _, u := range users {
+			list = append(list, map[string]interface{}{
+				"id":         u.ID,
+				"username":   u.Username,
+				"email":      u.Email,
+				"role":       u.Role,
+				"active":     u.Active,
+				"lastLogin":  u.LastLogin,
+				"createdAt":  u.CreatedAt,
+				"updatedAt":  u.UpdatedAt,
+			})
+		}
+		c.JSON(http.StatusOK, gin.H{"users": list, "total": len(list)})
+	}
+}
+

@@ -154,10 +154,15 @@ func main() {
 		log.Printf("✅ Initial pod processing complete")
 	}
 
-	// Start heartbeat goroutine
+	// Start heartbeat goroutine so Core updates last_seen_at and dashboard shows agents in time
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		interval := cfg.HeartbeatInterval
+		if interval < 5*time.Second {
+			interval = 5 * time.Second
+		}
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
+		successCount := 0
 
 		for {
 			select {
@@ -167,9 +172,11 @@ func main() {
 				if err := pingCore(ctx, grpcClient, cfg); err != nil {
 					log.Printf("⚠️  Heartbeat failed: %v", err)
 				} else {
-					// Log successful heartbeat periodically (every 10th heartbeat = 5 minutes)
-					// This helps verify heartbeat is working without flooding logs
-					log.Printf("✅ Heartbeat successful")
+					successCount++
+					// Log only every 20th success (~5 min at 15s) to avoid flooding
+					if successCount%20 == 1 {
+						log.Printf("✅ Heartbeat OK (interval=%s)", interval)
+					}
 				}
 			}
 		}
@@ -225,9 +232,14 @@ func registerAgent(ctx context.Context, grpcClient client.GRPCClient, cfg *confi
 }
 
 func pingCore(ctx context.Context, grpcClient client.GRPCClient, cfg *config.Config) error {
-	// PingRequest fields may vary - check proto definition
-	// For now, use minimal request
-	req := &pb.PingRequest{}
+	agentID := cfg.AgentID
+	if agentID == "" {
+		agentID = cfg.NodeName + "-agent"
+	}
+	req := &pb.PingRequest{
+		AgentId:  agentID,
+		NodeName: cfg.NodeName,
+	}
 
 	resp, err := grpcClient.Ping(ctx, req)
 	if err != nil {

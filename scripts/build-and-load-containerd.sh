@@ -3,8 +3,8 @@
 # ============================================================================
 # Build and Load Images to Containerd
 # ============================================================================
-# Production-ready script to build Fortuna images with nerdctl and load
-# them into containerd for Kubernetes deployment
+# Builds core (go), agent (go), dashboard (build inside Dockerfile via node/npm).
+# Host: nerdctl + containerd + go only. Do NOT require npm or Node.js on host.
 # ============================================================================
 
 set -euo pipefail
@@ -103,7 +103,7 @@ build_image() {
     
     cd "${PROJECT_ROOT}"
     
-    # Build args - dashboard doesn't need FORTUNA build args
+    # Build args - dashboard doesn't need FORTUNA build args (npm runs in Dockerfile)
     local build_args=""
     if [ "${component}" != "dashboard" ]; then
         build_args="--build-arg FORTUNA_BUILD_VERSION=${VERSION} --build-arg FORTUNA_BUILD_COMMIT=${BUILD_COMMIT} --build-arg FORTUNA_BUILD_TIME=${BUILD_TIME}"

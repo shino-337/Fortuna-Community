@@ -10,12 +10,10 @@
 |-----|--------|------------|
 | Resolved (24h) | `/dashboard/stats` đã trả về `resolved24h` từ bảng insights (status=resolved, updated_at 24h). | ✅ Done |
 | GetAgentStatus | Đã lấy từ bảng `agents` (node_name, status, last_seen_at). | ✅ Done |
-| GetWorkerMetrics | Thay hardcode 3/3 bằng dữ liệu thật (NATS/Prometheus) hoặc trả về "unknown". | ⬜ TODO |
-| GetQueueMetrics | Hiện trả về 0,0,0. Thay bằng queue depth thật (NATS/worker) hoặc giữ 0 và ghi rõ. | ⬜ TODO |
-| API Latency | GetSystemMetrics có avgLatency hardcode "234ms". Thay bằng metrics thật hoặc bỏ. | ⬜ TODO |
-| GetNotifications | Hiện stub `{ notifications: [], total: 0 }`. Khi có bảng notifications → trả về từ DB. | ⬜ TODO |
-| GET /users | Chưa có route. Implement khi có bảng users. | ⬜ TODO |
-| GET /certificates/rotation/history | Chưa có route. Implement khi có bảng rotation history. | ⬜ TODO |
+| GetWorkerMetrics / GetQueueMetrics / API Latency | Đã loại bỏ tạm thời (route + UI). | ✅ Removed |
+| GetNotifications | Đã từ bảng notifications (migration 056). | ✅ Done |
+| GET /users | Đã có route; từ bảng users (admin only khi auth). | ✅ Done |
+| GET /certificates/rotation/history | Đã có route; stub trả về [] cho đến khi có bảng rotation_history. | ✅ Done |
 | Error logs API | Dashboard gọi getErrorLogs; endpoint chưa có. Thêm endpoint lấy error logs (bảng hoặc log aggregation). | ⬜ TODO |
 
 ---
@@ -26,9 +24,9 @@
 |------------|--------|------------|
 | agents | Đã có (migration 038). | ✅ Done |
 | insights | Có status, resolved_at, updated_at. Dùng cho resolved24h. | ✅ Done |
-| notifications | Chưa có. Migration tạo bảng nếu product cần notifications. | ⬜ TODO |
+| notifications | Đã có (migration 056). | ✅ Done |
 | rotation_history | Nếu cần lịch sử xoay cert → migration. | ⬜ TODO |
-| error_logs | Bảng hoặc view cho error logs nếu API cần. | ⬜ TODO |
+| error_logs | Đã có (migration 057); API trả về từ DB. | ✅ Done |
 
 ---
 
@@ -52,7 +50,7 @@
 
 ## 5. Scripts
 
-- **Full clean + rebuild + redeploy**: `./scripts/full-clean-rebuild-redeploy.sh`  
+- **Full clean + rebuild + redeploy**: `./scripts/full-clean-database-rebuild-deploy.sh` (--db hoặc --db-reset tùy chọn)  
   - Clean: xóa toàn bộ image fortuna, cache, port-forwards.  
   - Rebuild: core, agent, dashboard.  
   - Redeploy: infra, core, agent, dashboard.  

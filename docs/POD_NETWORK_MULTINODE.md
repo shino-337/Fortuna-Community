@@ -27,7 +27,7 @@ Sau khi chạy xong, đợi 30–60 giây rồi kiểm tra Agent logs (Heartbeat
 
 ### 2. Tích hợp vào deploy
 
-Khi deploy bằng `./scripts/full-clean-rebuild-deploy.sh` (gọi `deploy-fortuna-robust.sh`), nếu cluster có **hơn 1 node**, script sẽ **tự chạy** `fix-flannel-vxlan.sh` (Step 4b) sau bước deploy infrastructure (PostgreSQL, NATS) và trước khi deploy Core/Agent. Nhờ đó deploy mới trên multi-node sẽ ít gặp lỗi “Agent trên worker không kết nối được Core”.
+Khi deploy bằng `./scripts/full-clean-database-rebuild-deploy.sh` (hoặc `deploy-fortuna-robust.sh`), nếu cluster có **hơn 1 node**, script sẽ **tự chạy** `fix-flannel-vxlan.sh` (Step 4b) sau bước deploy infrastructure (PostgreSQL, NATS) và trước khi deploy Core/Agent. Nhờ đó deploy mới trên multi-node sẽ ít gặp lỗi “Agent trên worker không kết nối được Core”.
 
 ### 3. Kiểm tra thủ công
 

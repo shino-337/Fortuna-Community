@@ -1,32 +1,66 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Card } from '../components/ui/Card';
 import { api } from '../lib/api';
-import { K8sResource } from '../types';
-import { Box, UserCog, Scroll, Key, RefreshCw, Download, Plus, Search, Filter } from 'lucide-react';
+import { useClusterStore } from '../store/clusterStore';
+import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
+import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
+import { K8sResource, PodWithRisk } from '../types';
+import { Box, UserCog, Scroll, Key, RefreshCw, Plus, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { Pagination } from '../components/Pagination';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
+const TAB_IDS = ['Pod', 'ServiceAccount', 'Role', 'RoleBinding'] as const;
+type TabId = (typeof TAB_IDS)[number];
 
 export const Resources: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'Pod' | 'ServiceAccount' | 'Role' | 'RoleBinding'>('Pod');
+  const navigate = useNavigate();
+  const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
+  const [searchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const initialTab: TabId = tabParam && TAB_IDS.includes(tabParam as TabId) ? (tabParam as TabId) : 'Pod';
+  const [activeTab, setActiveTab] = useState<TabId>(initialTab);
   const [resources, setResources] = useState<K8sResource[]>([]);
+  const [pods, setPods] = useState<PodWithRisk[]>([]);
+  const [podsTotal, setPodsTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
 
   useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t && TAB_IDS.includes(t as TabId)) setActiveTab(t as TabId);
+  }, [searchParams]);
+
+  const fetchResources = useCallback(async () => {
+    setLoading(true);
+    if (activeTab === 'Pod') {
+      const data = await api.getPods({
+        page,
+        pageSize,
+        cluster: selectedClusterId ?? undefined,
+      });
+      setPods(data.pods);
+      setPodsTotal(data.total);
+    } else {
+      const data = await api.getResources(activeTab);
+      setResources(data);
+    }
+    setLoading(false);
+  }, [activeTab, page, pageSize, selectedClusterId]);
+
+  useEffect(() => {
     setPage(1);
-    fetchResources();
   }, [activeTab]);
 
-  const fetchResources = async () => {
-    setLoading(true);
-    const data = await api.getResources(activeTab);
-    setResources(data);
-    setLoading(false);
-  };
+  useEffect(() => {
+    fetchResources();
+  }, [fetchResources]);
+
+  const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
+  usePolling(fetchResources, intervalMs);
 
   const tabs = [
     { id: 'Pod', label: 'Pods', icon: <Box size={16} /> },
@@ -46,13 +80,23 @@ export const Resources: React.FC = () => {
   };
 
   const renderTableHead = () => {
-    // Simplified logic for brevity, expands based on tab
+    if (activeTab === 'Pod') {
+      return (
+        <tr>
+          <th className="px-6 py-4 font-medium">Name</th>
+          <th className="px-6 py-4 font-medium">Namespace</th>
+          <th className="px-6 py-4 font-medium">Node</th>
+          <th className="px-6 py-4 font-medium">Risk Count</th>
+          <th className="px-6 py-4 font-medium text-right">Actions</th>
+        </tr>
+      );
+    }
     return (
       <tr>
         <th className="px-6 py-4 font-medium">Name</th>
         <th className="px-6 py-4 font-medium">Namespace</th>
         <th className="px-6 py-4 font-medium">
-            {activeTab === 'Pod' ? 'Service Account' : activeTab === 'ServiceAccount' ? 'Pods' : 'Rules/Ref'}
+            {activeTab === 'ServiceAccount' ? 'Pods' : 'Rules/Ref'}
         </th>
         <th className="px-6 py-4 font-medium">Status</th>
         <th className="px-6 py-4 font-medium">Risk</th>
@@ -62,9 +106,12 @@ export const Resources: React.FC = () => {
   };
 
   const paginatedResources = useMemo(() => {
+    if (activeTab === 'Pod') return pods;
     const start = (page - 1) * pageSize;
     return resources.slice(start, start + pageSize);
-  }, [resources, page, pageSize]);
+  }, [activeTab, resources, pods, page, pageSize]);
+
+  const totalForPagination = activeTab === 'Pod' ? podsTotal : resources.length;
 
   const renderTableRow = (resource: K8sResource) => (
     <tr key={resource.id} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0">
@@ -82,6 +129,20 @@ export const Resources: React.FC = () => {
         <td className="px-6 py-4 text-right">
             <button className="text-pink-500 hover:text-pink-400 text-xs font-medium">View</button>
         </td>
+    </tr>
+  );
+
+  const renderPodRow = (pod: PodWithRisk) => (
+    <tr key={pod.uid} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 cursor-pointer" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
+      <td className="px-6 py-4 font-medium text-white">{pod.name}</td>
+      <td className="px-6 py-4 text-slate-400">{pod.namespace}</td>
+      <td className="px-6 py-4 text-slate-400 font-mono text-xs">{pod.nodeName ?? '—'}</td>
+      <td className="px-6 py-4">
+        <span className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-slate-500'}>{pod.riskCount}</span>
+      </td>
+      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+        <button className="text-pink-500 hover:text-pink-400 text-xs font-medium" onClick={() => navigate(`/resources/pods/${pod.id}`)}>View</button>
+      </td>
     </tr>
   );
 
@@ -139,22 +200,27 @@ export const Resources: React.FC = () => {
               {renderTableHead()}
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {paginatedResources.length > 0 ? paginatedResources.map(renderTableRow) : (
-                <tr><td colSpan={6} className="p-8 text-center text-slate-500">No resources found</td></tr>
-              )}
+              {activeTab === 'Pod'
+                ? (paginatedResources.length > 0 ? (paginatedResources as PodWithRisk[]).map(renderPodRow) : (
+                    <tr><td colSpan={5} className="p-8 text-center text-slate-500">No pods found. Ensure Core and agents are syncing.</td></tr>
+                  ))
+                : (paginatedResources.length > 0 ? (paginatedResources as K8sResource[]).map(renderTableRow) : (
+                    <tr><td colSpan={6} className="p-8 text-center text-slate-500">No resources found</td></tr>
+                  ))
+              }
             </tbody>
           </table>
         </div>
       </Card>
-      {resources.length > 0 && (
+      {(activeTab === 'Pod' ? podsTotal > 0 : resources.length > 0) && (
         <Pagination
           page={page}
           pageSize={pageSize}
-          total={resources.length}
+          total={totalForPagination}
           onPageChange={setPage}
           onPageSizeChange={(size) => { setPageSize(size); setPage(1); }}
           pageSizeOptions={PAGE_SIZE_OPTIONS}
-          itemLabel="resources"
+          itemLabel={activeTab === 'Pod' ? 'pods' : 'resources'}
         />
       )}
     </PageLayout>

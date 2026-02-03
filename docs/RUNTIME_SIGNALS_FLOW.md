@@ -98,7 +98,7 @@
 ## 4. Clean / Rebuild / Redeploy và xác nhận luồng
 
 1. **Clean + Rebuild + Redeploy:**  
-   - `scripts/full-clean-rebuild-redeploy.sh` [--skip-clean] [--skip-rebuild] [--skip-deploy] [--db]  
+   - `scripts/full-clean-database-rebuild-deploy.sh` [--skip-clean] [--skip-rebuild] [--skip-deploy] [--db] [--db-reset]  
    - Hoặc `scripts/clean-rebuild-redeploy-and-test.sh` (gồm clean/rebuild/deploy + test, trong đó có **test-runtime-signals-e2e**).
 2. **Sau khi Core/Agent chạy:**
    - **Test E2E Runtime Signals:** `./scripts/test-runtime-signals-e2e.sh`  

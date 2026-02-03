@@ -85,12 +85,18 @@ spec:
             #       optional: true
             - name: SYNC_INTERVAL
               value: "5m"
+            # Heartbeat interval (Ping to Core); default 15s so last_seen_at stays fresh for dashboard
+            - name: HEARTBEAT_INTERVAL
+              value: "15s"
             
-            # Node info
+            # Node info (AgentID defaults to NODE_NAME-agent in agent config if AGENT_ID unset)
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            # Optional: override agent id (default: NODE_NAME-agent, unique per node)
+            # - name: AGENT_ID
+            #   value: "my-agent-1"
             
             # mTLS Configuration
             - name: TLS_ENABLED

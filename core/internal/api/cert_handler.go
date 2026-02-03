@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+
 	"github.com/fortuna/core/pkg/security"
 )
 
@@ -56,6 +58,17 @@ func (h *CertHandler) RotateCertificate(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Certificate rotated successfully",
 	})
+}
+
+// GetCertificateRotationHistory returns certificate rotation history.
+// Returns empty list until rotation_history table exists; no mock data.
+func GetCertificateRotationHistory(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"history": []map[string]interface{}{},
+			"total":   0,
+		})
+	}
 }
 
 

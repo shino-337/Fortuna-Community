@@ -255,8 +255,60 @@ func (s *SBOMServiceServer) BatchSendSBOMFindings(stream pb.AgentService_BatchSe
 	return stream.SendAndClose(resp)
 }
 
-// Ping handles health check from agent
+// Ping handles health check from agent; updates last_seen_at so dashboard shows agents in time.
+// Upserts agent by agent_id so dashboard updates even if Register failed or ran after first Ping.
+// Prefer agent_id; if empty (old agent image), fallback to node_name (update first matching agent).
 func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
+	agentID := ""
+	nodeName := ""
+	if req != nil {
+		agentID = req.AgentId
+		nodeName = req.NodeName
+	}
+	now := time.Now()
+	if s.db == nil {
+		return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
+	}
+
+	updated := false
+	if agentID != "" {
+		// Use raw Exec so last_seen_at is always updated (avoids GORM scope/zero-value issues)
+		res := s.db.Exec(
+			"UPDATE agents SET last_seen_at = ?, node_name = ?, status = ?, updated_at = ?, deleted_at = NULL WHERE agent_id = ?",
+			now, nodeName, "ready", now, agentID,
+		)
+		if res.Error != nil {
+			log.Printf("[Agent] Ping: failed to update agent_id=%s: %v", agentID, res.Error)
+		} else if res.RowsAffected > 0 {
+			updated = true
+		} else {
+			// No row: create from Ping so dashboard shows agent without waiting for Register
+			agent := models.Agent{
+				AgentID:    agentID,
+				NodeName:   nodeName,
+				Version:    "",
+				Status:     "ready",
+				LastSeenAt: &now,
+			}
+			if err := s.db.Create(&agent).Error; err != nil {
+				log.Printf("[Agent] Ping: failed to create agent from Ping agent_id=%s: %v", agentID, err)
+			} else {
+				log.Printf("[Agent] Ping: created agent from Ping agent_id=%s node=%s", agentID, nodeName)
+				updated = true
+			}
+		}
+	}
+	if !updated && nodeName != "" {
+		// Fallback: old agent may not send agent_id; update first matching row by node_name (PostgreSQL: subquery for LIMIT)
+		res := s.db.Exec(
+			"UPDATE agents SET last_seen_at = ?, updated_at = ? WHERE id = (SELECT id FROM agents WHERE node_name = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL LIMIT 1)",
+			now, now, nodeName, "ready",
+		)
+		if res.Error != nil {
+			log.Printf("[Agent] Ping: fallback update by node_name=%s failed: %v", nodeName, res.Error)
+		}
+	}
+
 	return &pb.PingResponse{
 		Status:  "healthy",
 		Version: "1.0.0", // TODO: Get from build info

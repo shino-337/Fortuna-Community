@@ -83,8 +83,11 @@ message CombinedFindingResponse {
   string insights_created = 4;
 }
 
-// PingRequest for health check
-message PingRequest {}
+// PingRequest for health check (agent_id/node_name optional; when set, Core updates last_seen_at)
+message PingRequest {
+  string agent_id = 1;
+  string node_name = 2;
+}
 
 // PingResponse for health check
 message PingResponse {

@@ -8,12 +8,10 @@
 
 | Task | Mô tả | Nguồn |
 |------|--------|--------|
-| GetWorkerMetrics | Thay hardcode 3/3 bằng dữ liệu thật (NATS/Prometheus) hoặc trả về "unknown". | TODO_LIST |
-| GetQueueMetrics | Hiện trả về 0,0,0. Thay bằng queue depth thật (NATS/worker) hoặc giữ 0 và ghi rõ. | TODO_LIST |
-| API Latency | GetSystemMetrics có avgLatency hardcode "234ms". Thay bằng metrics thật hoặc bỏ. | TODO_LIST |
-| GetNotifications | Hiện stub `{ notifications: [], total: 0 }`. Khi có bảng notifications → trả về từ DB. | TODO_LIST |
-| GET /api/v1/users | Chưa có route. Implement khi có bảng users. | TODO_LIST |
-| GET /api/v1/certificates/rotation/history | Chưa có route. Implement khi có bảng rotation history. | TODO_LIST |
+| GetWorkerMetrics / GetQueueMetrics / API Latency | Đã loại bỏ tạm thời (route + UI). Dùng Prometheus khi cần. | ✅ Removed |
+| GetNotifications | Đã lấy từ bảng `notifications` (migration 056). | ✅ Done |
+| GET /api/v1/users | Đã có route; lấy từ bảng users (admin only khi auth). | ✅ Done |
+| GET /api/v1/certificates/rotation/history | Đã có route; stub trả về [] cho đến khi có bảng rotation_history. | ✅ Done |
 | Error logs API | Dashboard gọi getErrorLogs; endpoint chưa có. Thêm endpoint (bảng hoặc log aggregation). | TODO_LIST |
 | gRPC handler | Replace placeholder với actual proto types sau khi generate từ proto file. | core/internal/grpc/handler.go |
 | gRPC SBOM version | Get version từ build info thay vì hardcode "1.0.0". | core/internal/grpc/handler_sbom.go |
@@ -31,9 +29,9 @@
 
 | Task | Mô tả | Trạng thái |
 |------|--------|------------|
-| notifications | Bảng notifications nếu product cần. | ⬜ TODO |
+| notifications | Đã có bảng (migration 056); API GetNotifications trả về từ DB. | ✅ Done |
 | rotation_history | Migration cho lịch sử xoay cert nếu cần. | ⬜ TODO |
-| error_logs | Bảng hoặc view cho error logs nếu API cần. | ⬜ TODO |
+| error_logs | Đã có bảng (migration 057); API GetErrorLogs trả về từ DB. Core/Agent có thể ghi lỗi vào bảng khi cần. | ✅ Done |
 
 ---
 
@@ -41,7 +39,7 @@
 
 | Task | Mô tả | Trạng thái |
 |------|--------|------------|
-| Heartbeat / registration | Đảm bảo agent gửi heartbeat/register vào bảng `agents` (last_seen_at, status). | ⬜ Verify |
+| Heartbeat / registration | Core đã implement RegisterAgent (handler_sbom); cập nhật `agents` (last_seen_at, status). Agent gọi gRPC RegisterAgent. | ✅ Verified |
 | Workers/queue metrics | (Tùy chọn) Agent gửi metrics workers/queue nếu agent quản lý queue. | ⬜ TODO |
 | SBOM processor | Handle registry URLs đúng (e.g. registry.io/namespace/image:tag). | agent/internal/sbom/processor.go |
 | RPM parsing | Implement full RPM database parsing. | agent/pkg/sbom/extractor/rpm.go, parsers/rpm.go |
@@ -58,9 +56,10 @@
 
 ---
 
-## 5. API stub / chưa implement (dashboard_data_integrity)
+## 5. API đã bổ sung (2026-02-02)
 
-- `/api/v1/certificates/rotation/history` – stub, not implemented; 404
+- `GET /api/v1/users` – từ bảng users (admin only khi AUTH_ENABLED).
+- `GET /api/v1/certificates/rotation/history` – stub trả về `{ history: [], total: 0 }` cho đến khi có bảng rotation_history.
 
 ---
 
@@ -74,7 +73,7 @@
 
 - **TODO_LIST.md** – Chi tiết Core/DB/Agent/Dashboard.
 - **UI_AND_PENDING_TASKS.md** – Kiểm tra UI và đồng bộ API.
-- Script chính: `./scripts/full-clean-rebuild-redeploy.sh` cho clean + rebuild + redeploy.
+- Script chính: `./scripts/full-clean-database-rebuild-deploy.sh` cho clean + rebuild + redeploy (--db / --db-reset tùy chọn).
 
 ---
 

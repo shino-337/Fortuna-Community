@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -120,9 +121,26 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetInsightsSummary returns summary statistics of insights
+// GetInsightsSummary returns summary statistics of insights.
+// Query param clusterId: when set, counts are scoped to insights for Pods in that cluster (sync with global cluster selector).
+// Query param sinceMinutes: when > 0, counts are limited to insights with detected_at >= now - sinceMinutes.
 func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		clusterID := strings.TrimSpace(c.Query("clusterId"))
+		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
+		var since time.Time
+		if sinceMinutes > 0 {
+			since = time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
+		}
+		detectedSinceClause := ""
+		if sinceMinutes > 0 {
+			detectedSinceClause = " AND i.detected_at >= ?"
+		}
+		detectedSinceClauseNoAlias := ""
+		if sinceMinutes > 0 {
+			detectedSinceClauseNoAlias = " AND detected_at >= ?"
+		}
+
 		var summary struct {
 			Total    int64            `json:"total"`
 			Critical int64            `json:"critical"`
@@ -131,55 +149,121 @@ func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 			Low      int64            `json:"low"`
 			ByType   map[string]int64 `json:"byType"`
 		}
-
-		// Count total - only active insights (not soft-deleted, status = 'active')
-		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
-		query := db.Model(&models.Insight{}).Where("status = ? OR status IS NULL", "active")
-		query.Count(&summary.Total)
-
-		// Count by severity (case-insensitive using Raw SQL for PostgreSQL)
-		// Use a single GROUP BY query to get all counts at once
-		var severityCounts []struct {
-			Severity string `gorm:"column:severity"`
-			Count    int64  `gorm:"column:count"`
-		}
-		// Only count active insights (not soft-deleted, status = 'active')
-		db.Raw(`
-			SELECT LOWER(severity) as severity, COUNT(*) as count 
-			FROM insights 
-			WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
-			GROUP BY LOWER(severity)
-		`).Scan(&severityCounts)
-
-		// Map results to summary
-		for _, sc := range severityCounts {
-			switch sc.Severity {
-			case "critical":
-				summary.Critical = sc.Count
-			case "high":
-				summary.High = sc.Count
-			case "medium":
-				summary.Medium = sc.Count
-			case "low":
-				summary.Low = sc.Count
-			}
-		}
-
-		// Count by type
 		summary.ByType = make(map[string]int64)
-		var typeCounts []struct {
-			Type  string
-			Count int64
-		}
-		// Only count active insights
-		db.Model(&models.Insight{}).
-			Where("deleted_at IS NULL AND (status = 'active' OR status IS NULL)").
-			Select("type, COUNT(*) as count").
-			Group("type").
-			Scan(&typeCounts)
 
-		for _, tc := range typeCounts {
-			summary.ByType[tc.Type] = tc.Count
+		if clusterID != "" {
+			// Scope to insights for Pods in this cluster (join pods on resource_uid = pods.uid)
+			joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL AND i.resource_type = 'Pod'"
+			totalArgs := []interface{}{clusterID}
+			if sinceMinutes > 0 {
+				totalArgs = append(totalArgs, since)
+			}
+			db.Raw(`
+				SELECT COUNT(*) FROM insights i
+				`+joinCond+`
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause,
+				totalArgs...).Scan(&summary.Total)
+
+			var severityCounts []struct {
+				Severity string `gorm:"column:severity"`
+				Count    int64  `gorm:"column:count"`
+			}
+			sevArgs := []interface{}{clusterID}
+			if sinceMinutes > 0 {
+				sevArgs = append(sevArgs, since)
+			}
+			db.Raw(`
+				SELECT LOWER(i.severity) as severity, COUNT(*) as count 
+				FROM insights i
+				`+joinCond+`
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause+`
+				GROUP BY LOWER(i.severity)`,
+				sevArgs...).Scan(&severityCounts)
+			for _, sc := range severityCounts {
+				switch sc.Severity {
+				case "critical":
+					summary.Critical = sc.Count
+				case "high":
+					summary.High = sc.Count
+				case "medium":
+					summary.Medium = sc.Count
+				case "low":
+					summary.Low = sc.Count
+				}
+			}
+
+			var typeCounts []struct {
+				Type  string `gorm:"column:insight_type"`
+				Count int64  `gorm:"column:count"`
+			}
+			typeArgs := []interface{}{clusterID}
+			if sinceMinutes > 0 {
+				typeArgs = append(typeArgs, since)
+			}
+			db.Raw(`
+				SELECT i.insight_type, COUNT(*) as count 
+				FROM insights i
+				`+joinCond+`
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause+`
+				GROUP BY i.insight_type`,
+				typeArgs...).Scan(&typeCounts)
+			for _, tc := range typeCounts {
+				summary.ByType[tc.Type] = tc.Count
+			}
+		} else {
+			query := db.Model(&models.Insight{}).Where("status = ? OR status IS NULL", "active")
+			if sinceMinutes > 0 {
+				query = query.Where("detected_at >= ?", since)
+			}
+			query.Count(&summary.Total)
+
+			var severityCounts []struct {
+				Severity string `gorm:"column:severity"`
+				Count    int64  `gorm:"column:count"`
+			}
+			if sinceMinutes > 0 {
+				db.Raw(`
+					SELECT LOWER(severity) as severity, COUNT(*) as count 
+					FROM insights 
+					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)`+detectedSinceClauseNoAlias+`
+					GROUP BY LOWER(severity)`, since).Scan(&severityCounts)
+			} else {
+				db.Raw(`
+					SELECT LOWER(severity) as severity, COUNT(*) as count 
+					FROM insights 
+					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
+					GROUP BY LOWER(severity)
+				`).Scan(&severityCounts)
+			}
+			for _, sc := range severityCounts {
+				switch sc.Severity {
+				case "critical":
+					summary.Critical = sc.Count
+				case "high":
+					summary.High = sc.Count
+				case "medium":
+					summary.Medium = sc.Count
+				case "low":
+					summary.Low = sc.Count
+				}
+			}
+
+			var typeCounts []struct {
+				Type  string `gorm:"column:insight_type"`
+				Count int64  `gorm:"column:count"`
+			}
+			summaryQuery := db.Model(&models.Insight{}).
+				Where("deleted_at IS NULL AND (status = 'active' OR status IS NULL)")
+			if sinceMinutes > 0 {
+				summaryQuery = summaryQuery.Where("detected_at >= ?", since)
+			}
+			summaryQuery.
+				Select("insight_type, COUNT(*) as count").
+				Group("insight_type").
+				Scan(&typeCounts)
+			for _, tc := range typeCounts {
+				summary.ByType[tc.Type] = tc.Count
+			}
 		}
 
 		c.JSON(http.StatusOK, summary)

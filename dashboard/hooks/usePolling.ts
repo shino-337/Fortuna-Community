@@ -13,15 +13,25 @@ export const REFRESH_INTERVALS = {
   METRICS: 30 * 1000,          // 30s
 } as const;
 
+export type UsePollingOptions = {
+  enabled?: boolean;
+  /** When this value changes (e.g. manual refresh bump), run fetch once. */
+  refreshTrigger?: number;
+};
+
 /**
  * Runs a fetch function on mount and then at the given interval.
- * Ensures data stays fresh (SBOM, Risk, stats, etc.) without hard refresh.
+ * If refreshTrigger is provided and changes (e.g. user clicked Manual Refresh), runs fetch once.
  */
 export function usePolling(
   fetchFn: () => void | Promise<void>,
   intervalMs: number,
-  enabled = true
+  options: boolean | UsePollingOptions = true
 ): void {
+  const opts = typeof options === 'boolean' ? { enabled: options } : options;
+  const enabled = opts?.enabled !== false;
+  const refreshTrigger = opts?.refreshTrigger ?? 0;
+
   const savedFn = useRef(fetchFn);
   const enabledRef = useRef(enabled);
   savedFn.current = fetchFn;
@@ -39,4 +49,8 @@ export function usePolling(
     const id = setInterval(stableFetch, intervalMs);
     return () => clearInterval(id);
   }, [enabled, intervalMs, stableFetch]);
+
+  useEffect(() => {
+    if (refreshTrigger > 0) stableFetch();
+  }, [refreshTrigger, stableFetch]);
 }

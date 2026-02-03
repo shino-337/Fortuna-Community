@@ -11,11 +11,17 @@ import { Rules } from './pages/Rules';
 import { Settings } from './pages/Settings';
 import { Certificates } from './pages/Certificates';
 import { Audit } from './pages/Audit';
+import { ErrorLogs } from './pages/ErrorLogs';
 import { Reports } from './pages/Reports';
 import { Notifications } from './pages/Notifications';
-import { Sbom } from './pages/Sbom';
 import { Capabilities } from './pages/Capabilities';
 import { Clusters } from './pages/Clusters';
+import { ClusterDetail } from './pages/ClusterDetail';
+import { RiskDetail } from './pages/RiskDetail';
+import { PodDetail } from './pages/PodDetail';
+import { NodeDetail } from './pages/NodeDetail';
+import { IdentityDetail } from './pages/IdentityDetail';
+import { RuleDetail } from './pages/RuleDetail';
 import { useAuthStore } from './store/authStore';
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -50,20 +56,30 @@ const App: React.FC = () => {
           </ProtectedRoute>
         }>
           <Route index element={<Dashboard />} />
-          <Route path="risks" element={<RiskCenter />} />
-          <Route path="sbom" element={<Sbom />} />
+          <Route path="clusters" element={<Clusters />} />
+          <Route path="clusters/:id" element={<ClusterDetail />} />
+          <Route path="clusters/:clusterId/nodes/:nodeName" element={<NodeDetail />} />
           <Route path="resources" element={<Resources />} />
-          <Route path="attack-paths" element={<AttackPaths />} />
+          <Route path="resources/pods/uid/:uid" element={<PodDetail />} />
+          <Route path="resources/pods/:id" element={<PodDetail />} />
+          <Route path="risks" element={<RiskCenter />} />
+          <Route path="risks/:id" element={<RiskDetail />} />
+          <Route path="capabilities" element={<Capabilities />} />
+          <Route path="identities" element={<Navigate to="/resources?tab=ServiceAccount" replace />} />
+          <Route path="identities/uid/:uid" element={<IdentityDetail />} />
+          <Route path="identities/:id" element={<IdentityDetail />} />
           <Route path="rules" element={<Rules />} />
+          <Route path="rules/:id" element={<RuleDetail />} />
+          <Route path="attack-paths" element={<AttackPaths />} />
           <Route path="monitoring" element={<Monitoring />} />
+          <Route path="settings" element={<Settings />} />
+          {/* Secondary: reachable from Monitoring or direct URL */}
           <Route path="certificates" element={<Certificates />} />
           <Route path="audit" element={<Audit />} />
+          <Route path="error-logs" element={<ErrorLogs />} />
           <Route path="reports" element={<Reports />} />
           <Route path="notifications" element={<Notifications />} />
-          <Route path="settings" element={<Settings />} />
-          <Route path="capabilities" element={<Capabilities />} />
-          <Route path="clusters" element={<Clusters />} />
-          
+          <Route path="sbom" element={<Navigate to="/resources" replace />} />
           <Route path="insights" element={<Navigate to="/risks" replace />} />
           <Route path="metrics" element={<Navigate to="/monitoring" replace />} />
         </Route>

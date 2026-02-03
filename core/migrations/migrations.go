@@ -70,6 +70,8 @@ var (
 	_ = Migration053_FixMinikubeClusterDisplayName
 	_ = Migration054_AddClusterMetadataColumns
 	_ = Migration055_DropClustersNameUnique
+	_ = Migration056_AddNotificationsTable
+	_ = Migration057_AddErrorLogsTable
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -145,6 +147,10 @@ func RunMigrations(db *gorm.DB) error {
 		Migration053_FixMinikubeClusterDisplayName, // Cluster display name from env only (CLUSTER_ID_TO_UPDATE, CLUSTER_DISPLAY_NAME)
 		Migration054_AddClusterMetadataColumns,     // Cluster SSOT: source, k8s_version, distribution
 		Migration055_DropClustersNameUnique,        // Cluster SSOT: allow same display name for multiple clusters (id is identity)
+		Migration056_AddNotificationsTable,        // Dashboard: notifications table (real data)
+		Migration057_AddErrorLogsTable,             // Dashboard: error_logs table (real data)
+		Migration058_AddInsightsEvidenceViolatedRules, // Risk Detail: evidence + violated_rules on insights
+		Migration059_AddNodeMetadataColumns,       // Node Detail: role, os, runtime on nodes
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

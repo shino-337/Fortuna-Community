@@ -42,9 +42,27 @@ POD_UID=$(kubectl -n ${NAMESPACE} get pod ${TEST_POD_NAME} -o jsonpath='{.metada
 echo "✅ Pod UID: ${POD_UID}"
 echo ""
 
-# Step 3: Wait for agent sync (capabilities should be evaluated)
-echo "Step 3: Waiting for PCE evaluation (10s)..."
-sleep 10
+# Step 2b: Wait for pod to appear in Core (agent sync) so PCE can run
+echo "Step 2b: Waiting for pod in Core (agent sync, up to 90s)..."
+DB_POD=$(kubectl -n ${NAMESPACE} get pods -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+WAIT_POD=0
+while [ $WAIT_POD -lt 90 ] && [ -n "$DB_POD" ]; do
+  FOUND=$(kubectl -n ${NAMESPACE} exec ${DB_POD} -- psql -U postgres -d fortuna -t -A -c "SELECT 1 FROM pods WHERE uid = '${POD_UID}' AND deleted_at IS NULL;" 2>/dev/null | tr -d ' ' || echo "")
+  if [ "$FOUND" = "1" ]; then
+    echo "✅ Pod found in Core after ${WAIT_POD}s"
+    break
+  fi
+  sleep 5
+  WAIT_POD=$((WAIT_POD + 5))
+done
+if [ -z "$DB_POD" ]; then
+  echo "⚠️  Postgres pod not found; skipping wait for Core sync"
+fi
+echo ""
+
+# Step 3: Wait for PCE evaluation (capabilities written after sync)
+echo "Step 3: Waiting for PCE evaluation (15s)..."
+sleep 15
 
 # Step 4: Check capabilities in database
 echo "Step 4: Checking capabilities in database..."

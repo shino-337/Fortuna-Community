@@ -14,6 +14,9 @@ type Node struct {
 	IP             string     `json:"ip"`
 	KubeletVersion string     `json:"kubeletVersion"`
 	LastSeen       *time.Time `json:"lastSeen"`
+	Role           string     `json:"role,omitempty"`    // control-plane, worker, etc.
+	OS             string     `json:"os,omitempty"`      // OS image (e.g. Ubuntu 22.04)
+	Runtime        string     `json:"runtime,omitempty"` // containerd, docker, etc.
 	CreatedAt      time.Time  `json:"createdAt"`
 	UpdatedAt      time.Time  `json:"updatedAt"`
 
@@ -59,6 +62,10 @@ type Insight struct {
 	AffectedVersion   string  `gorm:"type:varchar(100)" json:"affectedVersion,omitempty"`
 	FixedVersion      string  `gorm:"type:varchar(100)" json:"fixedVersion,omitempty"`
 	CVSS              float32 `gorm:"type:decimal(4,1)" json:"cvss,omitempty"` // Changed from *float64
+
+	// Risk Detail: evidence and violated rules (optional; populated by risk engine when available)
+	Evidence      string `gorm:"type:jsonb" json:"evidence,omitempty"`
+	ViolatedRules string `gorm:"type:jsonb" json:"violatedRules,omitempty"`
 
 	// Status & Timestamps
 	Status     string         `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed

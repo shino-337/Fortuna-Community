@@ -7,7 +7,7 @@
 set -euo pipefail
 
 NAMESPACE="${NAMESPACE:-fortuna}"
-CORE_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fortuna-core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+CORE_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 
 if [ -z "$CORE_POD" ]; then
   echo "ERROR: Core pod not found in namespace $NAMESPACE"

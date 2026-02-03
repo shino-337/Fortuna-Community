@@ -1,33 +1,31 @@
 import React, { useCallback, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { Card } from '../components/ui/Card';
-import { Certificate, Agent, QueueMetric, ErrorLog, SyncStatus } from '../types';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
-import { Lock, Radio, Activity, AlertCircle, RefreshCw, CheckCircle, Clock, Server, Download, List } from 'lucide-react';
+import { Certificate, Agent, ErrorLog, SyncStatus } from '../types';
+import { Lock, Radio, RefreshCw, CheckCircle, Clock, Download, List, History, AlertCircle, FileText } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
 export const Monitoring: React.FC = () => {
+  const navigate = useNavigate();
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
-  const [queueMetrics, setQueueMetrics] = useState<QueueMetric[]>([]);
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchData = useCallback(async () => {
-    const [certData, agentData, queueData, logData, syncData] = await Promise.all([
+    const [certData, agentData, logData, syncData] = await Promise.all([
       api.getCertificates(),
       api.getAgents(),
-      api.getQueueMetrics(),
-      api.getErrorLogs(),
+      api.getErrorLogs({ page: 1, pageSize: 10 }),
       api.getSyncStatus()
     ]);
     setCerts(certData);
     setAgents(agentData);
-    setQueueMetrics(queueData);
-    setErrorLogs(logData);
+    setErrorLogs(logData.logs);
     setSyncStatus(syncData);
     setLoading(false);
   }, []);
@@ -39,10 +37,24 @@ export const Monitoring: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-center flex-wrap gap-4">
         <div>
-           <h1 className="text-2xl font-bold text-white">System Monitoring</h1>
-           <p className="text-slate-400">Operations center for health, performance, and infrastructure.</p>
+           <h1 className="text-2xl font-bold text-white">Monitoring (Agent & System Health)</h1>
+           <p className="text-slate-400">Operations center for health, agents, and infrastructure.</p>
+        </div>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/audit')}>
+            <History className="w-4 h-4 mr-1.5" /> Audit Logs
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/error-logs')}>
+            <AlertCircle className="w-4 h-4 mr-1.5" /> Error Logs
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/certificates')}>
+            <Lock className="w-4 h-4 mr-1.5" /> Certificates
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/reports')}>
+            <FileText className="w-4 h-4 mr-1.5" /> Reports
+          </Button>
         </div>
         <div className="flex items-center space-x-3">
              <div className="flex items-center bg-slate-900 px-3 py-1.5 rounded-lg border border-slate-800 text-sm text-slate-400">
@@ -57,81 +69,29 @@ export const Monitoring: React.FC = () => {
         </div>
       </div>
       
-      {/* System Health Overview Cards - all from API or "—" when not available */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-           <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg">
-               <div className="flex justify-between items-start mb-2">
-                   <div className="text-slate-400 text-sm font-medium">Workers</div>
-                   <Server className="w-5 h-5 text-slate-500" />
-               </div>
-               <div className="text-2xl font-bold text-white">—</div>
-               <div className="text-xs text-slate-500 mt-1">API not yet available</div>
-           </div>
-           <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg">
-               <div className="flex justify-between items-start mb-2">
-                   <div className="text-slate-400 text-sm font-medium">Queue Depth</div>
-                   <Activity className="w-5 h-5 text-blue-500" />
-               </div>
-               <div className="text-2xl font-bold text-white">
-                 {queueMetrics.length > 0
-                   ? (() => {
-                       const m = queueMetrics[queueMetrics.length - 1] as { normalizer?: number; correlator?: number; risk?: number };
-                       const total = (m.normalizer ?? 0) + (m.correlator ?? 0) + (m.risk ?? 0);
-                       return total;
-                     })()
-                   : '—'}
-               </div>
-               <div className="text-xs text-slate-500 mt-1">{queueMetrics.length > 0 ? 'From API' : 'No data'}</div>
-           </div>
+      {/* System Health Overview – all from real API (Agents, Sync from DB) */}
+      <div className="grid grid-cols-2 md:grid-cols-2 gap-4">
            <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg">
                <div className="flex justify-between items-start mb-2">
                    <div className="text-slate-400 text-sm font-medium">Agents</div>
                    <Radio className="w-5 h-5 text-emerald-500" />
                </div>
                <div className="text-2xl font-bold text-white">{agents.length}</div>
-               <div className="text-xs text-emerald-400 mt-1">From API</div>
+               <div className="text-xs text-emerald-400 mt-1">From API (agents table)</div>
            </div>
            <div className="bg-slate-900 border border-slate-800 p-4 rounded-lg">
                <div className="flex justify-between items-start mb-2">
-                   <div className="text-slate-400 text-sm font-medium">API Latency</div>
-                   <Activity className="w-5 h-5 text-slate-500" />
+                   <div className="text-slate-400 text-sm font-medium">Sync</div>
+                   <CheckCircle className="w-5 h-5 text-emerald-500" />
                </div>
-               <div className="text-2xl font-bold text-white">—</div>
-               <div className="text-xs text-slate-500 mt-1">API not yet available</div>
+               <div className="text-2xl font-bold text-white">{syncStatus?.resources.pods ?? 0}</div>
+               <div className="text-xs text-slate-400 mt-1">Pods synced (from DB)</div>
            </div>
       </div>
 
       <div className="grid lg:grid-cols-5 gap-6">
-           {/* Left Column: Metrics & Graphs (60% visually, using col-span-3) */}
+           {/* Left Column: Sync Status (no Workers/Queue/Latency – removed) */}
            <div className="lg:col-span-3 space-y-6">
-                <Card title="Queue Processing Metrics">
-                    <div className="h-64 w-full">
-                        <ResponsiveContainer width="100%" height="100%">
-                        <AreaChart data={queueMetrics}>
-                            <defs>
-                                <linearGradient id="colorNorm" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#3b82f6" stopOpacity={0.8}/>
-                                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0}/>
-                                </linearGradient>
-                                <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
-                                    <stop offset="5%" stopColor="#ef4444" stopOpacity={0.8}/>
-                                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                                </linearGradient>
-                            </defs>
-                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                            <XAxis dataKey="timestamp" axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                            <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8'}} />
-                            <Tooltip 
-                            contentStyle={{ backgroundColor: '#0f172a', borderRadius: '8px', border: '1px solid #1e293b', color: '#f8fafc' }}
-                            />
-                            <Legend />
-                            <Area type="monotone" dataKey="normalizer" stackId="1" stroke="#3b82f6" fill="url(#colorNorm)" name="Normalizer" />
-                            <Area type="monotone" dataKey="risk" stackId="1" stroke="#ef4444" fill="url(#colorRisk)" name="Risk Engine" />
-                        </AreaChart>
-                        </ResponsiveContainer>
-                    </div>
-                </Card>
-
                 <Card title="Sync Status & Performance">
                     <div className="grid sm:grid-cols-2 gap-6">
                          <div className="space-y-4">
@@ -217,10 +177,10 @@ export const Monitoring: React.FC = () => {
                             </div>
                         </div>
                    ))}
-                   <Button variant="secondary" size="sm" className="w-full mt-2">Manage Certificates</Button>
+                   <Button variant="secondary" size="sm" className="w-full mt-2" onClick={() => navigate('/certificates')}>View Certificates</Button>
                </Card>
 
-               <Card title="Error Logs (Last 1h)">
+               <Card title="Error Logs" actions={<Link to="/error-logs" className="text-xs text-pink-500 hover:text-pink-400">View All</Link>}>
                    <div className="space-y-2">
                        {errorLogs.length > 0 ? (
                          <>
@@ -228,17 +188,18 @@ export const Monitoring: React.FC = () => {
                                <div key={log.id} className="p-2 border-l-2 border-slate-700 pl-3 bg-slate-900/50">
                                    <div className="flex items-center justify-between text-xs mb-1">
                                        <span className="font-mono text-slate-500">{log.time}</span>
-                                       <span className={`font-bold ${log.level === 'ERROR' ? 'text-red-500' : 'text-yellow-500'}`}>{log.level}</span>
+                                       <span className={`font-bold ${log.level === 'ERROR' ? 'text-red-500' : log.level === 'WARN' ? 'text-yellow-500' : 'text-sky-500'}`}>{log.level}</span>
                                    </div>
                                    <p className="text-xs text-slate-300 line-clamp-2">{log.message}</p>
+                                   {log.source && <span className="text-xs text-slate-500 mt-1 block">{log.source}</span>}
                                </div>
                            ))}
-                           <button className="w-full text-center text-xs text-slate-500 hover:text-white mt-2 flex items-center justify-center">
+                           <Link to="/error-logs" className="w-full text-center text-xs text-slate-500 hover:text-white mt-2 flex items-center justify-center">
                                <List className="w-3 h-3 mr-1" /> View Full Logs
-                           </button>
+                           </Link>
                          </>
                        ) : (
-                         <p className="text-slate-500 text-sm">Error log aggregation not yet available.</p>
+                         <p className="text-slate-500 text-sm">No error logs. View <Link to="/error-logs" className="text-pink-500 hover:underline">Error Logs</Link> for full list.</p>
                        )}
                    </div>
                </Card>

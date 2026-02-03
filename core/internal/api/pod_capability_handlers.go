@@ -309,6 +309,7 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 }
 
 // GetPodCapabilitiesTrend returns time-series counts by severity.
+// Always returns one point per day for the last `days` (fill missing days with zeros) so dashboard chart renders.
 func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		type row struct {
@@ -356,9 +357,26 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Fill all days so chart always has 7 points (missing days = zeros)
+		byDate := make(map[string]*row)
+		for i := 0; i < days; i++ {
+			d := time.Now().AddDate(0, 0, -days+1+i).Truncate(24 * time.Hour)
+			key := d.Format("2006-01-02")
+			byDate[key] = &row{Date: key}
+		}
+		for i := range rows {
+			byDate[rows[i].Date] = &rows[i]
+		}
+		result := make([]row, 0, days)
+		for i := 0; i < days; i++ {
+			d := time.Now().AddDate(0, 0, -days+1+i).Truncate(24 * time.Hour)
+			key := d.Format("2006-01-02")
+			result = append(result, *byDate[key])
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"points": rows,
-			"total":  len(rows),
+			"points": result,
+			"total":  len(result),
 		})
 	}
 }

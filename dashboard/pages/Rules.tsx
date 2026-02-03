@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { SecurityRule } from '../types';
 import { Card } from '../components/ui/Card';
@@ -7,6 +8,7 @@ import { RefreshCw, Upload, Search, Filter, PlayCircle, Edit3, AlertTriangle, Li
 import clsx from 'clsx';
 
 export const Rules: React.FC = () => {
+  const navigate = useNavigate();
   const [rules, setRules] = useState<SecurityRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'active' | 'disabled' | 'templates'>('active');
@@ -129,7 +131,7 @@ export const Rules: React.FC = () => {
                 <tbody className="divide-y divide-slate-800">
                     {filteredRules.map(rule => (
                         <React.Fragment key={rule.id}>
-                        <tr className={clsx("hover:bg-slate-800/50 transition-colors cursor-pointer", expandedRule === rule.id ? "bg-slate-800/50" : "")} onClick={() => toggleExpand(rule.id)}>
+                        <tr className={clsx("hover:bg-slate-800/50 transition-colors cursor-pointer", expandedRule === rule.id ? "bg-slate-800/50" : "")} onClick={() => navigate(`/rules/${rule.id}`)}>
                             <td className="px-6 py-4 font-mono text-xs text-slate-500">{rule.id}</td>
                             <td className="px-6 py-4">
                                 <div className="font-medium text-white">{rule.name}</div>
@@ -153,9 +155,9 @@ export const Rules: React.FC = () => {
                                     )}
                                 </div>
                             </td>
-                            <td className="px-6 py-4 text-right">
+                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
                                 <div className="flex justify-end space-x-2">
-                                    <button className="text-pink-500 hover:text-pink-400 text-xs font-medium border border-pink-500/20 bg-pink-500/10 px-2 py-1 rounded">View</button>
+                                    <button className="text-pink-500 hover:text-pink-400 text-xs font-medium border border-pink-500/20 bg-pink-500/10 px-2 py-1 rounded" onClick={() => navigate(`/rules/${rule.id}`)}>View</button>
                                 </div>
                             </td>
                         </tr>

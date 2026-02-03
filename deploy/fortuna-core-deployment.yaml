@@ -128,6 +128,9 @@ spec:
             # Logging
             - name: LOG_LEVEL
               value: "info"
+            # Active agent cutoff (minutes) for dashboard; agents with last_seen_at within this window are shown (default 15)
+            # - name: ACTIVE_AGENT_CUTOFF_MINUTES
+            #   value: "15"
             
             # Auth
             - name: AUTH_ENABLED

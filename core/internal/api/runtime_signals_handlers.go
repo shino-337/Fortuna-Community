@@ -31,17 +31,24 @@ func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("category = ?", category)
 		}
 
-		// Filter by date range
-		if startDate := c.Query("startDate"); startDate != "" {
-			if t, err := time.Parse("2006-01-02", startDate); err == nil {
-				query = query.Where("created_at >= ?", t)
+		// Filter by last N minutes (takes precedence over date range for recent data)
+		if sinceStr := c.Query("sinceMinutes"); sinceStr != "" {
+			if sinceMin, err := strconv.Atoi(sinceStr); err == nil && sinceMin > 0 && sinceMin <= 43200 {
+				since := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
+				query = query.Where("created_at >= ?", since)
 			}
-		}
-		if endDate := c.Query("endDate"); endDate != "" {
-			if t, err := time.Parse("2006-01-02", endDate); err == nil {
-				// Add 1 day to include the entire end date
-				t = t.Add(24 * time.Hour)
-				query = query.Where("created_at < ?", t)
+		} else {
+			// Filter by date range (when sinceMinutes not set)
+			if startDate := c.Query("startDate"); startDate != "" {
+				if t, err := time.Parse("2006-01-02", startDate); err == nil {
+					query = query.Where("created_at >= ?", t)
+				}
+			}
+			if endDate := c.Query("endDate"); endDate != "" {
+				if t, err := time.Parse("2006-01-02", endDate); err == nil {
+					t = t.Add(24 * time.Hour)
+					query = query.Where("created_at < ?", t)
+				}
 			}
 		}
 
@@ -99,10 +106,15 @@ func GetRuntimeSignalsByPod(db *gorm.DB) gin.HandlerFunc {
 		// Optional filters
 		query := db.Where("pod_uid = ?", podUID)
 
+		if sinceStr := c.Query("sinceMinutes"); sinceStr != "" {
+			if sinceMin, err := strconv.Atoi(sinceStr); err == nil && sinceMin > 0 && sinceMin <= 43200 {
+				since := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
+				query = query.Where("created_at >= ?", since)
+			}
+		}
 		if signalType := c.Query("signalType"); signalType != "" {
 			query = query.Where("signal_type = ?", signalType)
 		}
-
 		if category := c.Query("category"); category != "" {
 			query = query.Where("category = ?", category)
 		}

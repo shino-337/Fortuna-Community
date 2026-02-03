@@ -64,6 +64,8 @@ export interface Cluster {
   /** From GET /clusters/stats */
   podCount?: number;
   deploymentCount?: number;
+  riskCount?: number;   // Active insights for this cluster
+  agentCount?: number;  // Agents on nodes in this cluster
   connectionStatus?: string; // "connected" | "degraded" | "disconnected"
   healthScore?: number; // derived on frontend if not from API
 }
@@ -86,6 +88,64 @@ export interface ClusterStatsItem extends Cluster {
   agentVersion?: string;
 }
 
+/** GET /clusters/:id/overview */
+export interface ClusterOverview {
+  podCount: number;
+  nodeCount: number;
+  namespaceCount: number;
+}
+
+/** GET /clusters/:id/inventory */
+export interface ClusterInventory {
+  nodes: string[];
+  namespaces: string[];
+}
+
+/** GET /clusters/:id/agents – agent item */
+export interface ClusterAgent {
+  agentId: string;
+  nodeName?: string;
+  status: string;
+  lastHeartbeat: string;
+  version?: string;
+}
+
+/** GET /clusters/:id/security-summary */
+export interface ClusterSecuritySummary {
+  riskBySeverity: Record<string, number>;
+  capabilityCount: number;
+  criticalCount: number;
+  highCount: number;
+  mediumCount: number;
+  lowCount: number;
+}
+
+/** GET /clusters/:id/nodes/:nodeName – Node Detail (metadata + optional pods) */
+export interface NodeDetailResponse {
+  clusterId: string;
+  nodeName: string;
+  ip?: string;
+  kubeletVersion?: string;
+  role?: string;
+  os?: string;
+  runtime?: string;
+  lastSeen?: string;
+  podCount: number;
+  pods?: Array<{ id: number; uid: string; name: string; namespace: string; riskCount: number }>;
+}
+
+/** GET /pods – pod with riskCount */
+export interface PodWithRisk {
+  id: number;
+  clusterId: string;
+  name: string;
+  namespace: string;
+  uid: string;
+  nodeName?: string;
+  serviceAccount?: string;
+  riskCount: number;
+}
+
 export interface DashboardStats {
   totalClusters: number;
   activeAgents: number;
@@ -93,6 +153,17 @@ export interface DashboardStats {
   totalRisks: number;
   criticalRisks: number;
   resolved24h?: number;
+  affectedPodCount?: number; // Affected Workloads: distinct pods with active insight
+}
+
+/** GET /api/v1/insights/summary – severity breakdown for dashboard cards */
+export interface InsightsSummary {
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  byType?: Record<string, number>;
 }
 
 export interface ThreatVelocityPoint {
@@ -213,12 +284,13 @@ export interface CapabilityStateHistory {
   timestamp: string;
 }
 
-// Operations / monitoring (from API or stub)
+// Operations / monitoring (from API – real data)
 export interface ErrorLog {
   id: string;
   time: string;
   level: string;
   message: string;
+  source?: string;
 }
 
 export interface Certificate {
@@ -299,16 +371,25 @@ export interface RotationEvent {
 }
 
 export interface Insight {
-  id: string;
+  id: string;           // PK from API (used for GET /insights/:id and route /risks/:id)
+  cveId?: string;       // CVE identifier for display (e.g. CVE-2024-123)
   title: string;
   description?: string;
   severity: string;
   score?: number;
   category?: string;
+  /** Insight type from API (e.g. vulnerability, rbac) – for Risk Center Type column */
+  insightType?: string;
   status?: string;
   timestamp?: string;
   clusterId?: string;
   clusterName?: string;
   affectedResources?: Array<{ id: string; name?: string; kind?: string; namespace?: string }>;
   impact?: string;
+  resolvedAt?: string;
+  updatedAt?: string;
+  /** Risk Detail: evidence (JSON from backend insights.evidence) */
+  evidence?: Record<string, unknown> | string;
+  /** Risk Detail: violated rules (JSON from backend insights.violated_rules) */
+  violatedRules?: unknown[] | Record<string, unknown> | string;
 }

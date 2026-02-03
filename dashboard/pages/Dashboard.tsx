@@ -8,14 +8,20 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { Server, ShieldAlert, Boxes, Radio, ArrowRight, Shield, AlertTriangle, Bell, Info } from 'lucide-react';
-import { Cluster, Insight, Notification, PodCapabilitySummaryCapability, PodCapabilityTrendPoint } from '../types';
+import { Cluster, Insight, InsightsSummary, Notification, PodCapabilitySummaryCapability, PodCapabilityTrendPoint } from '../types';
+import { useClusterStore } from '../store/clusterStore';
+import { useTimeWindowStore } from '../store/timeWindowStore';
 import { getSeverityTextClass } from '../lib/severity';
 import { STAT_LABELS } from '../constants/labels';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
-  const [stats, setStats] = useState({ clusters: 0, insights: 0, critical: 0, pods: 0, agents: 0 });
+  const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
+  const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
+  const sinceMinutes = timeWindowMinutes > 0 ? timeWindowMinutes : undefined;
+  const [stats, setStats] = useState({ clusters: 0, insights: 0, critical: 0, pods: 0, agents: 0, affectedPodCount: 0 });
+  const [insightsSummary, setInsightsSummary] = useState<InsightsSummary | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [topRisks, setTopRisks] = useState<Insight[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -28,14 +34,18 @@ export const Dashboard: React.FC = () => {
   const fetchData = useCallback(async () => {
     setError(null);
     try {
-      // Stats first – required for main metrics; fail fast if auth/API wrong
-      const statsData = await api.getStats();
+      // Stats + insights/summary for severity breakdown and affected workloads (scoped by selected cluster when set)
+      const [statsData, summaryResult] = await Promise.all([
+        api.getStats(selectedClusterId ?? undefined, sinceMinutes),
+        api.getInsightsSummary(selectedClusterId ?? undefined, sinceMinutes).catch(() => null),
+      ]);
       setStats(statsData);
+      if (summaryResult) setInsightsSummary(summaryResult);
 
       // Rest in parallel – partial failure OK so dashboard still shows stats
       const [clustersResult, risksResult, notesResult, threatResult, pceResult, pceTrendResult] = await Promise.allSettled([
         api.getClusters(),
-        api.getRisks({ page: 1, pageSize: 50 }),
+        api.getRisks({ page: 1, pageSize: 50, clusterId: selectedClusterId ?? undefined, sinceMinutes }),
         api.getNotifications(),
         api.getThreatVelocity(7),
         api.getPceSummaryByCapability(),
@@ -56,30 +66,57 @@ export const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [selectedClusterId, sinceMinutes]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   usePolling(fetchData, intervalMs);
 
-  const chartData = useMemo(() => {
-    if (threatVelocity.length === 0) {
-      return [];
+  // Build 7-day labels for fallback when API returns empty (chart still shows axis)
+  const last7Days = useMemo(() => {
+    const out: string[] = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      out.push(d.toISOString().slice(0, 10));
     }
-    return threatVelocity.map((point) => ({
-      name: point.date,
-      risk: point.critical + point.high + point.medium + point.low,
-    }));
-  }, [threatVelocity]);
+    return out;
+  }, []);
+
+  const chartData = useMemo(() => {
+    let points: { name: string; risk: number }[];
+    if (threatVelocity.length > 0) {
+      points = threatVelocity.map((point) => ({
+        name: point.date,
+        risk: (point.critical ?? 0) + (point.high ?? 0) + (point.medium ?? 0) + (point.low ?? 0),
+      }));
+    } else {
+      points = last7Days.map((date) => ({ name: date, risk: 0 }));
+    }
+    return points.slice().sort((a, b) => a.name.localeCompare(b.name));
+  }, [threatVelocity, last7Days]);
+
+  const chartYDomain = useMemo(() => {
+    const maxRisk = chartData.length ? Math.max(...chartData.map((d) => d.risk), 1) : 1;
+    return [0, maxRisk] as [number, number];
+  }, [chartData]);
 
   const pceChartData = useMemo(() => {
-    if (pceTrend.length === 0) {
-      return [];
+    let points: { name: string; total: number }[];
+    if (pceTrend.length > 0) {
+      points = pceTrend.map((point) => ({
+        name: point.date,
+        total: (point.critical ?? 0) + (point.high ?? 0) + (point.medium ?? 0) + (point.low ?? 0),
+      }));
+    } else {
+      points = last7Days.map((date) => ({ name: date, total: 0 }));
     }
-    return pceTrend.map((point) => ({
-      name: point.date,
-      total: point.critical + point.high + point.medium + point.low,
-    }));
-  }, [pceTrend]);
+    return points.slice().sort((a, b) => a.name.localeCompare(b.name));
+  }, [pceTrend, last7Days]);
+
+  const pceChartYDomain = useMemo(() => {
+    const maxTotal = pceChartData.length ? Math.max(...pceChartData.map((d) => d.total), 1) : 1;
+    return [0, maxTotal] as [number, number];
+  }, [pceChartData]);
 
   if (loading) return <div className="flex flex-col justify-center items-center h-[60vh] space-y-4">
     <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
@@ -102,40 +139,74 @@ export const Dashboard: React.FC = () => {
     <PageLayout
       title="Dashboard"
       description="Real-time security posture across your infrastructure."
-      actions={
-        <>
-          <Button variant="secondary" onClick={() => navigate('/risks')}>View All Risks</Button>
-          <Button onClick={() => navigate('/reports')}>Generate Report</Button>
-        </>
-      }
+      actions={<Button variant="secondary" onClick={() => navigate('/risks')}>View All Risks</Button>}
     >
-      {/* Key Metrics */}
+      {/* Key Metrics – spec: Total Risks (C/H/M/L), Exposed Capabilities, Affected Workloads; click severity → Risk Center (pre-filtered) */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <StatCard
-          title={STAT_LABELS.CLUSTERS}
-          value={stats.clusters}
-          icon={<Server className="w-6 h-6" />}
-          color="bg-blue-500/10 text-blue-400"
-        />
-        <StatCard
-          title={STAT_LABELS.SECURITY_RISKS}
-          value={stats.insights}
-          icon={<ShieldAlert className="w-6 h-6" />}
-          color="bg-amber-500/10 text-amber-400"
-          subtitle={stats.critical > 0 ? `${stats.critical} critical` : undefined}
-        />
-        <StatCard
-          title={STAT_LABELS.PODS}
-          value={stats.pods}
-          icon={<Boxes className="w-6 h-6" />}
-          color="bg-emerald-500/10 text-emerald-400"
-        />
-        <StatCard
-          title={STAT_LABELS.AGENTS}
-          value={stats.agents.toString()}
-          icon={<Radio className="w-6 h-6" />}
-          color="bg-purple-500/10 text-purple-400"
-        />
+        <div onClick={() => navigate('/clusters')} className="cursor-pointer">
+          <StatCard
+            title={STAT_LABELS.CLUSTERS}
+            value={stats.clusters}
+            icon={<Server className="w-6 h-6" />}
+            color="bg-blue-500/10 text-blue-400"
+          />
+        </div>
+        <div onClick={() => navigate('/risks?severity=critical')} className="cursor-pointer">
+          <StatCard
+            title="Critical"
+            value={insightsSummary?.critical ?? stats.critical}
+            icon={<ShieldAlert className="w-6 h-6" />}
+            color="bg-red-500/10 text-red-400"
+          />
+        </div>
+        <div onClick={() => navigate('/risks?severity=high')} className="cursor-pointer">
+          <StatCard
+            title="High"
+            value={insightsSummary?.high ?? 0}
+            icon={<ShieldAlert className="w-6 h-6" />}
+            color="bg-orange-500/10 text-orange-400"
+          />
+        </div>
+        <div onClick={() => navigate('/risks?severity=medium')} className="cursor-pointer">
+          <StatCard
+            title="Medium"
+            value={insightsSummary?.medium ?? 0}
+            icon={<ShieldAlert className="w-6 h-6" />}
+            color="bg-amber-500/10 text-amber-400"
+          />
+        </div>
+        <div onClick={() => navigate('/risks?severity=low')} className="cursor-pointer">
+          <StatCard
+            title="Low"
+            value={insightsSummary?.low ?? 0}
+            icon={<ShieldAlert className="w-6 h-6" />}
+            color="bg-slate-500/10 text-slate-400"
+          />
+        </div>
+        <div onClick={() => navigate('/risks')} className="cursor-pointer">
+          <StatCard
+            title="Affected Workloads"
+            value={stats.affectedPodCount ?? 0}
+            icon={<Boxes className="w-6 h-6" />}
+            color="bg-rose-500/10 text-rose-400"
+          />
+        </div>
+        <div onClick={() => navigate('/resources')} className="cursor-pointer">
+          <StatCard
+            title={STAT_LABELS.PODS}
+            value={stats.pods}
+            icon={<Boxes className="w-6 h-6" />}
+            color="bg-emerald-500/10 text-emerald-400"
+          />
+        </div>
+        <div onClick={() => navigate('/monitoring')} className="cursor-pointer">
+          <StatCard
+            title={STAT_LABELS.AGENTS}
+            value={stats.agents.toString()}
+            icon={<Radio className="w-6 h-6" />}
+            color="bg-purple-500/10 text-purple-400"
+          />
+        </div>
       </div>
 
       {stats.clusters === 0 && stats.pods === 0 && stats.insights === 0 && (
@@ -186,56 +257,70 @@ export const Dashboard: React.FC = () => {
                 ))}
             </div>
             
-            <Card title="Threat Velocity (7 Days)" className="h-[300px]">
-                 <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }} 
-                      itemStyle={{ color: '#ef4444' }}
-                    />
-                    <Area type="monotone" dataKey="risk" stroke="#ef4444" strokeWidth={3} fillOpacity={1} fill="url(#colorRisk)" />
-                    </AreaChart>
-                </ResponsiveContainer>
+            <Card title="Threat Velocity (7 Days)">
+                 <div className="w-full min-w-[280px] bg-slate-800/30 rounded-md border border-slate-700/50" style={{ width: '100%', height: 260, minHeight: 260 }}>
+                   <ResponsiveContainer width="100%" height="100%">
+                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
+                       <defs>
+                         <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
+                           <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
+                           <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
+                         </linearGradient>
+                       </defs>
+                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                       <YAxis domain={chartYDomain} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={28} />
+                       <Tooltip
+                         contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }}
+                         itemStyle={{ color: '#ef4444' }}
+                         formatter={(value: number) => [value, 'Risks']}
+                         labelFormatter={(label) => `Date: ${label}`}
+                       />
+                       <Area type="monotone" dataKey="risk" name="Risks" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorRisk)" isAnimationActive={true} />
+                     </AreaChart>
+                   </ResponsiveContainer>
+                 </div>
+                 {chartData.every((d) => d.risk === 0) && (
+                   <p className="text-xs text-slate-500 mt-2 px-1">No risks in last 7 days. Log in (admin/admin123); run <code className="text-slate-400">scripts/run-dashboard-data-tests.sh</code> to populate.</p>
+                 )}
             </Card>
 
-            <Card title="PCE Trend (7 Days)" className="h-[280px]">
-                 <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={pceChartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <defs>
-                        <linearGradient id="colorPce" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3}/>
-                        <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
-                        </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#1e293b" />
-                    <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
-                    <YAxis axisLine={false} tickLine={false} tick={{fill: '#94a3b8', fontSize: 11}} />
-                    <Tooltip 
-                      contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }} 
-                      itemStyle={{ color: '#22d3ee' }}
-                    />
-                    <Area type="monotone" dataKey="total" stroke="#22d3ee" strokeWidth={3} fillOpacity={1} fill="url(#colorPce)" />
-                    </AreaChart>
-                </ResponsiveContainer>
+            <Card title="PCE Trend (7 Days)">
+                 <div className="w-full min-w-[280px] bg-slate-800/30 rounded-md border border-slate-700/50" style={{ width: '100%', height: 260, minHeight: 260 }}>
+                   <ResponsiveContainer width="100%" height="100%">
+                     <AreaChart data={pceChartData} margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
+                       <defs>
+                         <linearGradient id="colorPce" x1="0" y1="0" x2="0" y2="1">
+                           <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3}/>
+                           <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
+                         </linearGradient>
+                       </defs>
+                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
+                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                       <YAxis domain={pceChartYDomain} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={28} />
+                       <Tooltip
+                         contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }}
+                         itemStyle={{ color: '#22d3ee' }}
+                         formatter={(value: number) => [value, 'Capabilities']}
+                         labelFormatter={(label) => `Date: ${label}`}
+                       />
+                       <Area type="monotone" dataKey="total" name="Capabilities" stroke="#22d3ee" strokeWidth={2} fillOpacity={1} fill="url(#colorPce)" isAnimationActive={true} />
+                     </AreaChart>
+                   </ResponsiveContainer>
+                 </div>
+                 {pceChartData.every((d) => d.total === 0) && (
+                   <p className="text-xs text-slate-500 mt-2 px-1">No PCE data in last 7 days. Run <code className="text-slate-400">scripts/run-dashboard-data-tests.sh</code> or ensure agents sync capabilities.</p>
+                 )}
             </Card>
         </div>
 
-        {/* Sidebar Info */}
+        {/* Sidebar Info – filter by global cluster when set */}
         <div className="space-y-6">
             <h2 className="text-xl font-bold text-white">Cluster Health</h2>
             <Card className="p-0 overflow-hidden shadow-xl shadow-black/20">
                 <div className="divide-y divide-slate-800">
-                    {clusters.map(cluster => (
-                        <div key={cluster.id} className="p-5 hover:bg-slate-800/50 transition-colors group">
+                    {(selectedClusterId ? clusters.filter((c) => c.id === selectedClusterId) : clusters).map(cluster => (
+                        <div key={cluster.id} className="p-5 hover:bg-slate-800/50 transition-colors group cursor-pointer" onClick={() => navigate(`/clusters/${cluster.id}`)}>
                             <div className="flex justify-between items-center mb-3">
                                 <div className="flex items-center">
                                   <div className={`w-2 h-2 rounded-full mr-3 animate-pulse ${
@@ -278,7 +363,9 @@ export const Dashboard: React.FC = () => {
                                     <div className="text-sm font-semibold text-white">{row.capabilityId}</div>
                                     <div className={`text-xs ${getSeverityTextClass(row.severity)}`}>{row.severity}</div>
                                 </div>
-                                <div className="text-sm font-bold text-pink-400">{row.count}</div>
+                                <button type="button" onClick={(e) => { e.stopPropagation(); navigate('/capabilities'); }} className="text-sm font-bold text-pink-400 hover:underline">
+                                  {row.count}
+                                </button>
                             </div>
                         ))}
                     </div>

@@ -32,6 +32,9 @@ type Config struct {
 	// Sync interval
 	SyncInterval time.Duration
 
+	// Heartbeat interval (Ping to Core); shorter = last_seen_at updated more often for dashboard
+	HeartbeatInterval time.Duration
+
 	// Kubeconfig path (optional, uses in-cluster config if empty)
 	Kubeconfig string
 
@@ -64,8 +67,9 @@ func LoadConfig() *Config {
 		TLSCACertPath:    getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/client/ca.crt"),
 		BatchSize:        parseInt(getEnv("BATCH_SIZE", "50")),
 		BatchTimeoutMS:   parseInt(getEnv("BATCH_TIMEOUT_MS", "5000")),
-		SyncInterval:     parseDuration(getEnv("SYNC_INTERVAL", "30s")),
-		Kubeconfig:       getEnv("KUBECONFIG", ""),
+		SyncInterval:      parseDuration(getEnv("SYNC_INTERVAL", "30s")),
+		HeartbeatInterval: parseDuration(getEnv("HEARTBEAT_INTERVAL", "15s")),
+		Kubeconfig:        getEnv("KUBECONFIG", ""),
 		WatchNamespace:   getEnv("WATCH_NAMESPACE", ""),
 		RuntimeEventsEnabled: getEnv("RUNTIME_EVENTS_ENABLED", "false") == "true",
 		RuntimeEventsPath:    getEnv("RUNTIME_EVENTS_PATH", "/var/log/fortuna/runtime-events.log"),

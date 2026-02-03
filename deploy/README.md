@@ -59,10 +59,20 @@ The following monitoring components have been removed as they were not in use:
 
 ## Full pipeline (clean + rebuild + redeploy)
 
-From repo root, for a full reset (clean all data/cache/images, rebuild no-cache, redeploy):
+Build và deploy dùng **containerd / nerdctl**: xem **`docs/DEPLOYMENT_CONTAINERD.md`**.
+
+Từ thư mục gốc repo:
 
 ```bash
-NO_CACHE=true ./scripts/full-clean-rebuild-redeploy.sh --db
+# Clean toàn bộ image cũ + rebuild (nerdctl) + deploy
+./scripts/full-clean-database-rebuild-deploy.sh
+
+# Thêm: xóa dữ liệu DB (DELETE, giữ schema) rồi rebuild + deploy
+./scripts/full-clean-database-rebuild-deploy.sh --db
+
+# Clean images + DB + rebuild + deploy (script cũ, tùy chọn)
+./scripts/full-clean-database-rebuild-deploy.sh --db
+# Hoặc full reset DB: ./scripts/full-clean-database-rebuild-deploy.sh --db-reset
 ```
 
 If the script times out during deploy (e.g. Flannel step), ensure Core is deployed:

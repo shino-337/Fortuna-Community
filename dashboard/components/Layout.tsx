@@ -2,8 +2,9 @@
 import React, { useState, useEffect } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
+import { useClusterStore } from '../store/clusterStore';
 import { api } from '../lib/api';
-import { RefreshIntervalSelector } from './RefreshIntervalSelector';
+import { DataControlBar } from './DataControlBar';
 import { 
   LayoutDashboard, 
   ShieldAlert, 
@@ -17,26 +18,25 @@ import {
   X,
   UserCircle,
   ScrollText,
-  FileText,
-  History,
-  Lock,
-  Bell,
   Search,
-  PackageSearch,
-  Globe
+  Globe,
+  UserCog,
+  ChevronDown
 } from 'lucide-react';
+import { Cluster } from '../types';
 
+// Nav aligned to Dashboard-UX-Specification: Dashboard → Clusters → Resources → Risk Center → Capabilities → Identities → Rules → Attack Paths → Monitoring. Settings at end.
 export const Layout: React.FC = () => {
   const { user, logout } = useAuthStore();
+  const { selectedClusterId, setSelectedClusterId } = useClusterStore();
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
 
   useEffect(() => {
-    api.getNotifications().then(notes => {
-      setUnreadCount(notes.filter(n => !n.read).length);
-    });
+    api.getClusters().then(setClusters).catch(() => setClusters([]));
   }, []);
 
   const handleLogout = () => {
@@ -46,17 +46,14 @@ export const Layout: React.FC = () => {
 
   const navItems = [
     { icon: <LayoutDashboard size={18} />, label: 'Dashboard', path: '/' },
-    { icon: <ShieldAlert size={18} />, label: 'Risk Center', path: '/risks' },
-    { icon: <Shield size={18} />, label: 'Capabilities', path: '/capabilities' },
-    { icon: <PackageSearch size={18} />, label: 'SBOM Analysis', path: '/sbom' },
-    { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths' },
     { icon: <Globe size={18} />, label: 'Clusters', path: '/clusters' },
     { icon: <Layers size={18} />, label: 'Resources', path: '/resources' },
-    { icon: <ScrollText size={18} />, label: 'Rules', path: '/rules' },
-    { icon: <Lock size={18} />, label: 'Certificates', path: '/certificates' },
-    { icon: <FileText size={18} />, label: 'Reports', path: '/reports' },
+    { icon: <ShieldAlert size={18} />, label: 'Risk Center', path: '/risks' },
+    { icon: <Shield size={18} />, label: 'Capabilities', path: '/capabilities' },
+    { icon: <UserCog size={18} />, label: 'Identities (RBAC)', path: '/identities' },
+    { icon: <ScrollText size={18} />, label: 'Rules & Policies', path: '/rules' },
+    { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths' },
     { icon: <Activity size={18} />, label: 'Monitoring', path: '/monitoring' },
-    { icon: <History size={18} />, label: 'Audit Logs', path: '/audit' },
     { icon: <Settings size={18} />, label: 'Settings', path: '/settings' },
   ];
 
@@ -144,8 +141,51 @@ export const Layout: React.FC = () => {
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Desktop Header */}
         <header className="hidden lg:flex h-16 bg-slate-950/50 backdrop-blur-md border-b border-slate-800 items-center px-8 justify-between z-10">
-          <div className="flex items-center">
-            <h2 className="text-lg font-semibold text-white mr-8">{currentTitle}</h2>
+          <div className="flex items-center gap-4">
+            <h2 className="text-lg font-semibold text-white">{currentTitle}</h2>
+            {/* Global Cluster Selector */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setClusterDropdownOpen((o) => !o)}
+                className="flex items-center gap-2 px-3 py-1.5 bg-slate-900/50 border border-slate-800 rounded-lg text-sm text-slate-300 hover:border-slate-700 transition-colors min-w-[180px]"
+              >
+                <Globe className="w-4 h-4 text-pink-500 shrink-0" />
+                <span className="truncate">
+                  {selectedClusterId
+                    ? (clusters.find((c) => c.id === selectedClusterId)?.name ?? selectedClusterId)
+                    : 'All clusters'}
+                </span>
+                <ChevronDown className="w-4 h-4 shrink-0 ml-auto text-slate-500" />
+              </button>
+              {clusterDropdownOpen && (
+                <>
+                  <div className="fixed inset-0 z-20" onClick={() => setClusterDropdownOpen(false)} />
+                  <div className="absolute top-full left-0 mt-1 w-64 max-h-72 overflow-y-auto bg-slate-900 border border-slate-800 rounded-lg shadow-xl z-30 py-1">
+                    <button
+                      type="button"
+                      onClick={() => { setSelectedClusterId(null); setClusterDropdownOpen(false); }}
+                      className={`w-full text-left px-4 py-2 text-sm ${!selectedClusterId ? 'bg-pink-600/20 text-pink-400' : 'text-slate-300 hover:bg-slate-800'}`}
+                    >
+                      All clusters
+                    </button>
+                    {clusters.map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => { setSelectedClusterId(c.id); setClusterDropdownOpen(false); }}
+                        className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === c.id ? 'bg-pink-600/20 text-pink-400' : 'text-slate-300 hover:bg-slate-800'}`}
+                      >
+                        {c.name || c.id}
+                      </button>
+                    ))}
+                    {clusters.length === 0 && (
+                      <div className="px-4 py-2 text-slate-500 text-sm">No clusters</div>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
             <div className="relative group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4 group-focus-within:text-pink-500 transition-colors" />
               <input 
@@ -156,24 +196,13 @@ export const Layout: React.FC = () => {
             </div>
           </div>
           <div className="flex items-center space-x-4">
-            <RefreshIntervalSelector />
-            <button 
-              onClick={() => navigate('/notifications')}
-              className="relative p-2 text-slate-400 hover:text-white hover:bg-slate-800 rounded-full transition-all"
-            >
-              <Bell size={20} />
-              {unreadCount > 0 && (
-                <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-pink-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full border-2 border-slate-950">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+            <DataControlBar />
             <div className="h-6 w-px bg-slate-800"></div>
             <div className="flex items-center space-x-2 px-2 py-1 bg-slate-900 border border-slate-800 rounded-lg cursor-pointer hover:border-slate-700 transition-colors">
               <div className="w-6 h-6 rounded-full bg-pink-600/20 text-pink-500 flex items-center justify-center text-[10px] font-bold">
                 {user?.name?.charAt(0) || 'A'}
               </div>
-              <span className="text-xs font-medium text-slate-300">Production</span>
+              <span className="text-xs font-medium text-slate-300">{user?.name ?? 'User'}</span>
             </div>
           </div>
         </header>
@@ -193,18 +222,7 @@ export const Layout: React.FC = () => {
             <span className="font-bold text-white tracking-tight">Fortuna</span>
           </div>
           <div className="flex items-center gap-2">
-            <RefreshIntervalSelector />
-            <button 
-              onClick={() => navigate('/notifications')}
-              className="relative p-2 text-slate-400"
-            >
-            <Bell size={22} />
-            {unreadCount > 0 && (
-              <span className="absolute top-1.5 right-1.5 w-4 h-4 bg-pink-600 text-white text-[10px] font-bold flex items-center justify-center rounded-full">
-                {unreadCount}
-              </span>
-            )}
-          </button>
+            <DataControlBar />
           </div>
         </header>
 
