@@ -2,8 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { RuntimeSignal } from '../types';
 import { useTimeWindowStore } from '../store/timeWindowStore';
-import { Card } from './ui/Card';
-import { Search, Filter, AlertTriangle, Clock, TrendingUp, Shield } from 'lucide-react';
+import { Search, AlertTriangle, Clock, TrendingUp, Shield, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
+import { Pagination } from './Pagination';
 
 interface RuntimeSignalsTableProps {
   podUid?: string;
@@ -31,7 +31,9 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     search: '',
   });
   const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize] = useState(20);
+  const [pageSize, setPageSize] = useState(20);
+  const [expandedEvidence, setExpandedEvidence] = useState<Record<number, boolean>>({});
+  const [copiedId, setCopiedId] = useState<number | null>(null);
 
   useEffect(() => {
     const fetchSignals = async () => {
@@ -111,12 +113,20 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     );
   });
 
-  const totalPages = Math.ceil(total / pageSize);
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const toggleEvidence = (id: number) => setExpandedEvidence((prev) => ({ ...prev, [id]: !prev[id] }));
+  const copyEvidence = (id: number, text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      setCopiedId(id);
+      setTimeout(() => setCopiedId(null), 2000);
+    });
+  };
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="w-10 h-10 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
+      <div className="flex flex-col items-center justify-center gap-3 py-12">
+        <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
+        <p className="text-sm text-muted">Loading runtime signals…</p>
       </div>
     );
   }
@@ -176,15 +186,12 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
         />
       </div>
 
-      {/* Summary */}
-      <div className="flex items-center justify-between text-sm text-slate-400">
+      {/* Summary: time window hint only; pagination below table */}
+      <div className="flex items-center text-sm text-slate-400">
         <span>
-          Showing {filteredSignals.length} of {total} signals
+          {total} signal{total !== 1 ? 's' : ''}
           {timeWindowMinutes > 0 && <span className="ml-2 text-amber-500/80">(last {timeWindowMinutes}m)</span>}
         </span>
-        {totalPages > 1 && (
-          <span>Page {currentPage} of {totalPages}</span>
-        )}
       </div>
 
       {/* Signals Table */}
@@ -227,44 +234,56 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
                 </div>
               </div>
 
-              {/* Evidence */}
-              {signal.evidence && typeof signal.evidence === 'object' && Object.keys(signal.evidence).length > 0 && (
-                <div className="mt-3 pt-3 border-t border-slate-800">
-                  <div className="text-xs font-semibold text-slate-400 mb-2 flex items-center gap-1">
-                    <TrendingUp size={12} />
-                    Evidence:
+              {/* Evidence: expand/collapse + copy */}
+              {signal.evidence && typeof signal.evidence === 'object' && Object.keys(signal.evidence).length > 0 && (() => {
+                const evidenceStr = JSON.stringify(signal.evidence, null, 2);
+                const isExpanded = expandedEvidence[signal.id];
+                return (
+                  <div className="mt-3 pt-3 border-t border-slate-800">
+                    <div className="flex items-center justify-between gap-2 mb-2">
+                      <button
+                        type="button"
+                        onClick={() => toggleEvidence(signal.id)}
+                        className="flex items-center gap-1 text-xs font-semibold text-slate-400 hover:text-slate-300"
+                      >
+                        {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        <TrendingUp size={12} />
+                        Evidence
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => copyEvidence(signal.id, evidenceStr)}
+                        className="flex items-center gap-1 px-2 py-1 text-xs text-muted hover:text-text bg-surface/50 border border-border rounded"
+                        title="Copy JSON"
+                      >
+                        {copiedId === signal.id ? <Check size={12} /> : <Copy size={12} />}
+                        {copiedId === signal.id ? 'Copied' : 'Copy'}
+                      </button>
+                    </div>
+                    {isExpanded && (
+                      <pre className="text-xs text-slate-500 font-mono bg-slate-950/50 p-3 rounded border border-slate-800 overflow-x-auto max-h-48 overflow-y-auto whitespace-pre-wrap break-words">
+                        {evidenceStr}
+                      </pre>
+                    )}
                   </div>
-                  <div className="text-xs text-slate-500 font-mono bg-slate-950/50 p-2 rounded border border-slate-800">
-                    {JSON.stringify(signal.evidence, null, 2)}
-                  </div>
-                </div>
-              )}
+                );
+              })()}
             </div>
           ))}
         </div>
       )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-center gap-2">
-          <button
-            onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed hover:border-pink-500/50"
-          >
-            Previous
-          </button>
-          <span className="text-sm text-slate-400">
-            Page {currentPage} of {totalPages}
-          </span>
-          <button
-            onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white disabled:opacity-50 disabled:cursor-not-allowed hover:border-pink-500/50"
-          >
-            Next
-          </button>
-        </div>
+      {/* Pagination: use shared component for consistency */}
+      {total > 0 && (
+        <Pagination
+          page={currentPage}
+          pageSize={pageSize}
+          total={total}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
+          pageSizeOptions={[10, 20, 50]}
+          itemLabel="signals"
+        />
       )}
     </div>
   );

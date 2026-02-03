@@ -34,10 +34,19 @@ export const Layout: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
+  const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
   useEffect(() => {
     api.getClusters().then(setClusters).catch(() => setClusters([]));
   }, []);
+
+  const handleGlobalSearch = () => {
+    const q = globalSearchQuery.trim();
+    if (q) {
+      navigate(`/risks?search=${encodeURIComponent(q)}`);
+      setGlobalSearchQuery('');
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -58,7 +67,7 @@ export const Layout: React.FC = () => {
       items: [
         { icon: <ShieldAlert size={18} />, label: 'Risk Center', path: '/risks' },
         { icon: <Shield size={18} />, label: 'Capabilities', path: '/capabilities' },
-        { icon: <UserCog size={18} />, label: 'Identities (RBAC)', path: '/identities' },
+        { icon: <UserCog size={18} />, label: 'Service Accounts', path: '/resources', search: '?tab=ServiceAccount' },
         { icon: <ScrollText size={18} />, label: 'Rules & Policies', path: '/rules' },
         { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths' },
       ],
@@ -77,8 +86,12 @@ export const Layout: React.FC = () => {
     },
   ];
 
-  const navItemsFlat = navSections.flatMap((section) => section.items);
-  const currentTitle = navItemsFlat.find(i => i.path === location.pathname)?.label || 'Dashboard';
+  const navItemsFlat = navSections.flatMap((s) => s.items);
+  const currentTitle = navItemsFlat.find((i) => {
+    if (i.path !== location.pathname) return false;
+    if (i.search && location.search !== i.search) return false;
+    return true;
+  })?.label || navItemsFlat.find((i) => i.path === location.pathname)?.label || 'Dashboard';
 
   return (
     <div className="min-h-screen bg-base flex">
@@ -119,24 +132,30 @@ export const Layout: React.FC = () => {
             <div key={section.title}>
               <p className="px-3 text-[10px] font-bold text-muted-2 uppercase tracking-widest mb-2">{section.title}</p>
               <div className="space-y-1">
-                {section.items.map((item) => (
-                  <NavLink
-                    key={item.path}
-                    to={item.path}
-                    onClick={() => setIsMobileMenuOpen(false)}
-                    className={({ isActive }) => `
-                      flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200
-                      ${isActive 
-                        ? 'bg-brand/10 text-brand border border-brand/30 shadow-sm' 
-                        : 'text-muted hover:text-text hover:bg-surface-2 border border-transparent'}
-                    `}
-                  >
-                    <span className={`mr-3 ${location.pathname === item.path ? 'text-brand' : 'text-muted-2 group-hover:text-text'}`}>
-                      {item.icon}
-                    </span>
-                    {item.label}
-                  </NavLink>
-                ))}
+                {section.items.map((item) => {
+                  const to = (item as { path: string; search?: string }).search
+                    ? { pathname: (item as { path: string; search?: string }).path, search: (item as { path: string; search?: string }).search }
+                    : item.path;
+                  const isActive = location.pathname === item.path && (!(item as { search?: string }).search || location.search === (item as { search?: string }).search);
+                  return (
+                    <NavLink
+                      key={item.path + ((item as { search?: string }).search || '')}
+                      to={to}
+                      onClick={() => setIsMobileMenuOpen(false)}
+                      className={({ isActive: linkActive }) => `
+                        flex items-center px-3 py-2 rounded-lg text-sm font-medium transition-all duration-200
+                        ${(linkActive || isActive)
+                          ? 'bg-brand/10 text-brand border border-brand/30 shadow-sm'
+                          : 'text-muted hover:text-text hover:bg-surface-2 border border-transparent'}
+                      `}
+                    >
+                      <span className={`mr-3 ${isActive || location.pathname === item.path ? 'text-brand' : 'text-muted-2 group-hover:text-text'}`}>
+                        {item.icon}
+                      </span>
+                      {item.label}
+                    </NavLink>
+                  );
+                })}
               </div>
             </div>
           ))}
@@ -213,15 +232,25 @@ export const Layout: React.FC = () => {
                 </>
               )}
             </div>
-            <div className="relative group">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-2 w-4 h-4 group-focus-within:text-brand transition-colors" />
-              <input 
-                type="text" 
-                placeholder="Global search (coming soon)" 
-                className="bg-surface/70 border border-border rounded-full pl-9 pr-4 py-1.5 text-sm text-muted focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand w-64 transition-all disabled:opacity-60"
-                disabled
-                title="Global search is not connected yet."
+            <div className="relative group flex items-center">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-2 w-4 h-4 group-focus-within:text-brand transition-colors pointer-events-none" />
+              <input
+                type="text"
+                value={globalSearchQuery}
+                onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
+                placeholder="Search risks (Enter)"
+                className="bg-surface/70 border border-border rounded-full pl-9 pr-4 py-1.5 text-sm text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand w-64 transition-all"
+                title="Search risks: type and press Enter to open Risk Center with results."
               />
+              <button
+                type="button"
+                onClick={handleGlobalSearch}
+                className="ml-1 p-1.5 rounded-full text-muted-2 hover:text-brand hover:bg-brand/10 transition-colors"
+                title="Search risks"
+              >
+                <Search size={16} />
+              </button>
             </div>
           </div>
           <div className="flex items-center space-x-4">
@@ -236,22 +265,23 @@ export const Layout: React.FC = () => {
           </div>
         </header>
 
-        {/* Mobile Header */}
-        <header className="lg:hidden h-16 bg-surface border-b border-border flex items-center px-4 justify-between shrink-0 z-10">
-          <button
-            onClick={() => setIsMobileMenuOpen(true)}
-            className="p-2 text-muted hover:text-text"
-          >
-            <Menu size={24} />
-          </button>
-          <div className="flex items-center space-x-2">
-            <div className="w-6 h-6 bg-brand rounded flex items-center justify-center">
-               <ShieldAlert className="text-white w-4 h-4" />
+        {/* Mobile Header: menu, logo, cluster + search + DataControlBar */}
+        <header className="lg:hidden min-h-[3.5rem] bg-surface border-b border-border flex flex-col gap-2 px-4 py-2 shrink-0 z-10">
+          <div className="flex items-center justify-between h-12">
+            <button
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="p-2 text-muted hover:text-text"
+            >
+              <Menu size={24} />
+            </button>
+            <div className="flex items-center space-x-2">
+              <div className="w-6 h-6 bg-brand rounded flex items-center justify-center">
+                <ShieldAlert className="text-white w-4 h-4" />
+              </div>
+              <span className="font-bold text-text tracking-tight">Fortuna</span>
             </div>
-            <span className="font-bold text-text tracking-tight">Fortuna</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="relative">
+            <div className="flex items-center gap-1.5">
+              <div className="relative">
               <button
                 type="button"
                 onClick={() => setClusterDropdownOpen((o) => !o)}
@@ -292,6 +322,19 @@ export const Layout: React.FC = () => {
                   </div>
                 </>
               )}
+              </div>
+            </div>
+            <div className="relative flex-1 min-w-0 max-w-[140px]">
+              <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-2 w-3.5 h-3.5 pointer-events-none" />
+              <input
+                type="text"
+                value={globalSearchQuery}
+                onChange={(e) => setGlobalSearchQuery(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && (handleGlobalSearch(), e.currentTarget.blur())}
+                placeholder="Search risks"
+                className="w-full pl-7 pr-2 py-1.5 bg-surface/80 border border-border rounded-md text-xs text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand"
+                title="Search risks (Enter)"
+              />
             </div>
             <DataControlBar />
           </div>

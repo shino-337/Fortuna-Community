@@ -15,6 +15,7 @@ import { getSeverityBadgeClass, getSeverityTextClass } from '../lib/severity';
 import { RISK_CENTER_DESCRIPTION } from '../constants/labels';
 import { CapabilityMetadataBrowser } from '../components/CapabilityMetadataBrowser';
 import { RuntimeSignalsTable } from '../components/RuntimeSignalsTable';
+import { PageLoading } from '../components/PageLoading';
 
 type TabId = 'risks' | 'pce' | 'reference';
 
@@ -23,6 +24,7 @@ export const RiskCenter: React.FC = () => {
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
   const [searchParams] = useSearchParams();
   const severityFromUrl = searchParams.get('severity');
+  const searchFromUrl = searchParams.get('search') ?? '';
   const [activeTab, setActiveTab] = useState<TabId>('risks');
   const [risks, setRisks] = useState<Insight[]>([]);
   const [risksTotal, setRisksTotal] = useState(0);
@@ -39,52 +41,107 @@ export const RiskCenter: React.FC = () => {
   const [selectedRisk, setSelectedRisk] = useState<Insight | null>(null);
   const [resolved24h, setResolved24h] = useState<number>(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [risksPage, setRisksPage] = useState(1);
   const [risksPageSize, setRisksPageSize] = useState(20);
   const [runtimeSignalsTotal, setRuntimeSignalsTotal] = useState(0);
   const [runtimeSignalsRecent, setRuntimeSignalsRecent] = useState<Array<{ id: number; podUid: string; signalType: string; category: string; createdAt: string }>>([]);
   const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
 
-  // Sync filter from URL when severity param changes
+  // Sync filter and search from URL (e.g. from global search or deep links)
   React.useEffect(() => {
     if (severityFromUrl && ['critical', 'high', 'medium', 'low'].includes(severityFromUrl)) {
       setFilter(severityFromUrl);
     }
   }, [severityFromUrl]);
+  React.useEffect(() => {
+    if (searchFromUrl) setSearchTerm(searchFromUrl);
+  }, [searchFromUrl]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
+    setError(null);
     const sinceMinutes = timeWindowMinutes > 0 ? timeWindowMinutes : undefined;
-    const [risksData, pceData, pceList, clusterList, stats, runtimeData] = await Promise.all([
-      api.getRisks({
-        page: risksPage,
-        pageSize: risksPageSize,
-        severity: filter !== 'all' ? filter : undefined,
-        status: statusFilter !== 'all' ? statusFilter : undefined,
-        search: searchTerm.trim() || undefined,
-        clusterId: selectedClusterId ?? undefined,
-        sinceMinutes,
-      }),
-      api.getPceSummaryBySeverity(),
-      api.getPceCapabilities({ limit: 50 }),
-      api.getClusters(),
-      api.getStats(selectedClusterId ?? undefined),
-      api.getRuntimeSignals({ limit: 50, sinceMinutes }).catch(() => ({ signals: [], total: 0 })),
+    const risksPromise = api.getRisks({
+      page: risksPage,
+      pageSize: risksPageSize,
+      severity: filter !== 'all' ? filter : undefined,
+      status: statusFilter !== 'all' ? statusFilter : undefined,
+      search: searchTerm.trim() || undefined,
+      clusterId: selectedClusterId ?? undefined,
+      sinceMinutes,
+    });
+    const pceSummaryPromise = api.getPceSummaryBySeverity();
+    const pceListPromise = api.getPceCapabilities({ limit: 50 });
+    const clustersPromise = api.getClusters();
+    const statsPromise = api.getStats(selectedClusterId ?? undefined);
+    const runtimePromise = api.getRuntimeSignals({ limit: 50, sinceMinutes }).catch(() => ({ signals: [], total: 0 }));
+
+    const results = await Promise.allSettled([
+      risksPromise,
+      pceSummaryPromise,
+      pceListPromise,
+      clustersPromise,
+      statsPromise,
+      runtimePromise,
     ]);
-    setRisks(risksData.insights);
-    setRisksTotal(risksData.total);
-    setPceSummary(pceData);
-    setPceDetails(pceList);
-    setClusters(clusterList);
-    setResolved24h((stats as { resolved24h?: number }).resolved24h ?? 0);
-    setRuntimeSignalsTotal(runtimeData.total ?? runtimeData.signals?.length ?? 0);
-    setRuntimeSignalsRecent((runtimeData.signals ?? []).slice(0, 5).map((s: { id: number; podUid: string; signalType: string; category: string; createdAt: string }) => ({
-      id: s.id,
-      podUid: s.podUid ?? '',
-      signalType: s.signalType ?? '',
-      category: s.category ?? '',
-      createdAt: s.createdAt ?? '',
-    })));
+
+    const [risksResult, pceSummaryResult, pceListResult, clustersResult, statsResult, runtimeResult] = results;
+    const errors: string[] = [];
+
+    if (risksResult.status === 'fulfilled') {
+      setRisks(risksResult.value.insights);
+      setRisksTotal(risksResult.value.total);
+    } else {
+      setRisks([]);
+      setRisksTotal(0);
+      errors.push('Risks: ' + (risksResult.reason?.message || String(risksResult.reason)));
+    }
+
+    if (pceSummaryResult.status === 'fulfilled') {
+      setPceSummary(pceSummaryResult.value);
+    } else {
+      setPceSummary([]);
+      errors.push('PCE summary: ' + (pceSummaryResult.reason?.message || String(pceSummaryResult.reason)));
+    }
+
+    if (pceListResult.status === 'fulfilled') {
+      setPceDetails(pceListResult.value);
+    } else {
+      setPceDetails([]);
+    }
+
+    if (clustersResult.status === 'fulfilled') {
+      setClusters(clustersResult.value);
+    } else {
+      setClusters([]);
+    }
+
+    if (statsResult.status === 'fulfilled') {
+      const st = statsResult.value as { resolved24h?: number };
+      setResolved24h(st?.resolved24h ?? 0);
+    } else {
+      setResolved24h(0);
+    }
+
+    if (runtimeResult.status === 'fulfilled') {
+      const rt = runtimeResult.value;
+      setRuntimeSignalsTotal(rt?.total ?? rt?.signals?.length ?? 0);
+      setRuntimeSignalsRecent((rt?.signals ?? []).slice(0, 5).map((s: { id: number; podUid?: string; signalType?: string; category?: string; createdAt?: string }) => ({
+        id: s.id,
+        podUid: s.podUid ?? '',
+        signalType: s.signalType ?? '',
+        category: s.category ?? '',
+        createdAt: s.createdAt ?? '',
+      })));
+    } else {
+      setRuntimeSignalsTotal(0);
+      setRuntimeSignalsRecent([]);
+    }
+
+    if (errors.length > 0) {
+      setError(errors.join('; '));
+    }
     setLoading(false);
   }, [risksPage, risksPageSize, filter, statusFilter, searchTerm, selectedClusterId, timeWindowMinutes]);
 
@@ -121,7 +178,7 @@ export const RiskCenter: React.FC = () => {
 
   const paginatedRisks = risks;
 
-  if (loading) return <div className="text-slate-500 p-8">Loading Risk Center...</div>;
+  if (loading) return <PageLoading message="Loading Risk Center…" />;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'risks', label: 'Risks' },
@@ -134,6 +191,19 @@ export const RiskCenter: React.FC = () => {
       title="Risk Center"
       description={RISK_CENTER_DESCRIPTION}
     >
+      {/* Error banner when some APIs failed */}
+      {error && (
+        <div className="flex items-center justify-between gap-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-200">
+          <div className="flex items-center gap-2 min-w-0">
+            <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
+            <span className="text-sm truncate" title={error}>{error}</span>
+          </div>
+          <Button variant="secondary" size="sm" onClick={() => { setError(null); fetchData(); }}>
+            Retry
+          </Button>
+        </div>
+      )}
+
       {/* Tabs */}
       <div className="flex gap-1 p-1 bg-slate-900/80 rounded-lg border border-slate-800 w-fit">
           {tabs.map(({ id, label }) => (

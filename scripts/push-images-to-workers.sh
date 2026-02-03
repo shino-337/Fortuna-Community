@@ -88,18 +88,18 @@ export_image() {
     fi
 }
 
-# Copy file to worker node
+# Copy file to worker node (logs to stderr so caller can capture only remote_path)
 copy_to_worker() {
     local file=$1
     local worker=$2
     local remote_path="/tmp/$(basename $file)"
     
-    log_info "Copying $file to $worker:$remote_path"
+    log_info "Copying $file to $worker:$remote_path" >&2
     
     # Try with sshpass if available, otherwise use SSH keys
     if command -v sshpass &> /dev/null && [ -n "$SSH_PASS" ]; then
         if sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no "$file" "$SSH_USER@$worker:$remote_path" 2>/dev/null; then
-            log_success "File copied to $worker"
+            log_success "File copied to $worker" >&2
             echo "$remote_path"
             return 0
         fi
@@ -107,11 +107,11 @@ copy_to_worker() {
     
     # Fallback to SSH keys
     if scp -o StrictHostKeyChecking=no "$file" "$SSH_USER@$worker:$remote_path" 2>/dev/null; then
-        log_success "File copied to $worker"
+        log_success "File copied to $worker" >&2
         echo "$remote_path"
         return 0
     else
-        log_error "Failed to copy file to $worker"
+        log_error "Failed to copy file to $worker" >&2
         return 1
     fi
 }
@@ -122,18 +122,19 @@ import_on_worker() {
     local remote_file=$2
     local image_name=$3
     
-    log_info "Importing image on $worker: $image_name"
+    # remote_file must be a single path (no newlines); strip whitespace
+    remote_file=$(echo "$remote_file" | tr -d '\n' | xargs)
+    
+    log_info "Importing image on $worker: $image_name (file: $remote_file)"
     
     # Try with sshpass if available, otherwise use SSH keys
     if command -v sshpass &> /dev/null && [ -n "$SSH_PASS" ]; then
-        if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images import $remote_file 2>&1 && echo '$SSH_PASS' | sudo -S ctr -n k8s.io images tag $(ctr -n k8s.io images import --help 2>&1 | head -1 || echo $image_name) $image_name 2>&1 || true" 2>&1; then
-            # Verify import
-            if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images ls | grep -q '$image_name'" 2>/dev/null; then
+        if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images import $remote_file" 2>/dev/null; then
+            if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images ls | grep -q 'fortuna'" 2>/dev/null; then
                 log_success "Image imported on $worker"
                 return 0
             fi
         fi
-        # Retry with simpler approach
         if sshpass -p "$SSH_PASS" ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "echo '$SSH_PASS' | sudo -S ctr -n k8s.io images import $remote_file" 2>&1 | grep -v "password"; then
             log_success "Image imported on $worker"
             return 0
@@ -141,7 +142,7 @@ import_on_worker() {
     fi
     
     # Fallback to SSH keys
-    if ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "sudo ctr -n k8s.io images import $remote_file && sudo ctr -n k8s.io images tag $image_name $image_name" 2>/dev/null; then
+    if ssh -o StrictHostKeyChecking=no "$SSH_USER@$worker" "sudo ctr -n k8s.io images import $remote_file" 2>/dev/null; then
         log_success "Image imported on $worker"
         return 0
     else

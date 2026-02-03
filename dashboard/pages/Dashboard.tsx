@@ -7,6 +7,7 @@ import { StatCard } from '../components/StatCard';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
+import { PageLoading } from '../components/PageLoading';
 import { Server, ShieldAlert, Boxes, Radio, ArrowRight, Shield, AlertTriangle, Bell, Info } from 'lucide-react';
 import { Cluster, Insight, InsightsSummary, Notification, PodCapabilitySummaryCapability, PodCapabilityTrendPoint } from '../types';
 import { useClusterStore } from '../store/clusterStore';
@@ -118,10 +119,7 @@ export const Dashboard: React.FC = () => {
     return [0, maxTotal] as [number, number];
   }, [pceChartData]);
 
-  if (loading) return <div className="flex flex-col justify-center items-center h-[60vh] space-y-4">
-    <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin"></div>
-    <span className="text-slate-500 font-medium">Initializing Dashboard...</span>
-  </div>;
+  if (loading) return <PageLoading message="Initializing Dashboard…" className="min-h-[60vh]" />;
 
   if (error) return (
     <div className="flex flex-col justify-center items-center h-[60vh] space-y-4">
@@ -141,73 +139,87 @@ export const Dashboard: React.FC = () => {
       description="Real-time security posture across your infrastructure."
       actions={<Button variant="secondary" onClick={() => navigate('/risks')}>View All Risks</Button>}
     >
-      {/* Key Metrics – spec: Total Risks (C/H/M/L), Exposed Capabilities, Affected Workloads; click severity → Risk Center (pre-filtered) */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div onClick={() => navigate('/clusters')} className="cursor-pointer">
-          <StatCard
-            title={STAT_LABELS.CLUSTERS}
-            value={stats.clusters}
-            icon={<Server className="w-6 h-6" />}
-            color="bg-blue-500/10 text-blue-400"
-          />
+      {/* Section 1: Infrastructure – clusters, pods, agents */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
+          Infrastructure
+        </h2>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+          <div onClick={() => navigate('/clusters')} className="cursor-pointer">
+            <StatCard
+              title={STAT_LABELS.CLUSTERS}
+              value={stats.clusters}
+              icon={<Server className="w-5 h-5" />}
+              color="bg-blue-500/15 text-blue-400"
+            />
+          </div>
+          <div onClick={() => navigate('/resources')} className="cursor-pointer">
+            <StatCard
+              title={STAT_LABELS.PODS}
+              value={stats.pods}
+              icon={<Boxes className="w-5 h-5" />}
+              color="bg-emerald-500/15 text-emerald-400"
+            />
+          </div>
+          <div onClick={() => navigate('/monitoring')} className="cursor-pointer">
+            <StatCard
+              title={STAT_LABELS.AGENTS}
+              value={stats.agents.toString()}
+              icon={<Radio className="w-5 h-5" />}
+              color="bg-violet-500/15 text-violet-400"
+            />
+          </div>
         </div>
-        <div onClick={() => navigate('/risks?severity=critical')} className="cursor-pointer">
-          <StatCard
-            title="Critical"
-            value={insightsSummary?.critical ?? stats.critical}
-            icon={<ShieldAlert className="w-6 h-6" />}
-            color="bg-red-500/10 text-red-400"
-          />
+      </section>
+
+      {/* Section 2: Security Risks – severity breakdown + affected workloads */}
+      <section className="space-y-3">
+        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
+          Security Risks
+        </h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+          <div onClick={() => navigate('/risks?severity=critical')} className="cursor-pointer">
+            <StatCard
+              title="Critical"
+              value={insightsSummary?.critical ?? stats.critical}
+              icon={<ShieldAlert className="w-5 h-5" />}
+              color="bg-red-500/15 text-red-400"
+            />
+          </div>
+          <div onClick={() => navigate('/risks?severity=high')} className="cursor-pointer">
+            <StatCard
+              title="High"
+              value={insightsSummary?.high ?? 0}
+              icon={<ShieldAlert className="w-5 h-5" />}
+              color="bg-orange-500/15 text-orange-400"
+            />
+          </div>
+          <div onClick={() => navigate('/risks?severity=medium')} className="cursor-pointer">
+            <StatCard
+              title="Medium"
+              value={insightsSummary?.medium ?? 0}
+              icon={<ShieldAlert className="w-5 h-5" />}
+              color="bg-amber-500/15 text-amber-400"
+            />
+          </div>
+          <div onClick={() => navigate('/risks?severity=low')} className="cursor-pointer">
+            <StatCard
+              title="Low"
+              value={insightsSummary?.low ?? 0}
+              icon={<ShieldAlert className="w-5 h-5" />}
+              color="bg-sky-500/15 text-sky-400"
+            />
+          </div>
+          <div onClick={() => navigate('/risks')} className="cursor-pointer sm:col-span-2">
+            <StatCard
+              title="Affected Workloads"
+              value={stats.affectedPodCount ?? 0}
+              icon={<Boxes className="w-5 h-5" />}
+              color="bg-rose-500/15 text-rose-400"
+            />
+          </div>
         </div>
-        <div onClick={() => navigate('/risks?severity=high')} className="cursor-pointer">
-          <StatCard
-            title="High"
-            value={insightsSummary?.high ?? 0}
-            icon={<ShieldAlert className="w-6 h-6" />}
-            color="bg-orange-500/10 text-orange-400"
-          />
-        </div>
-        <div onClick={() => navigate('/risks?severity=medium')} className="cursor-pointer">
-          <StatCard
-            title="Medium"
-            value={insightsSummary?.medium ?? 0}
-            icon={<ShieldAlert className="w-6 h-6" />}
-            color="bg-amber-500/10 text-amber-400"
-          />
-        </div>
-        <div onClick={() => navigate('/risks?severity=low')} className="cursor-pointer">
-          <StatCard
-            title="Low"
-            value={insightsSummary?.low ?? 0}
-            icon={<ShieldAlert className="w-6 h-6" />}
-            color="bg-slate-500/10 text-slate-400"
-          />
-        </div>
-        <div onClick={() => navigate('/risks')} className="cursor-pointer">
-          <StatCard
-            title="Affected Workloads"
-            value={stats.affectedPodCount ?? 0}
-            icon={<Boxes className="w-6 h-6" />}
-            color="bg-rose-500/10 text-rose-400"
-          />
-        </div>
-        <div onClick={() => navigate('/resources')} className="cursor-pointer">
-          <StatCard
-            title={STAT_LABELS.PODS}
-            value={stats.pods}
-            icon={<Boxes className="w-6 h-6" />}
-            color="bg-emerald-500/10 text-emerald-400"
-          />
-        </div>
-        <div onClick={() => navigate('/monitoring')} className="cursor-pointer">
-          <StatCard
-            title={STAT_LABELS.AGENTS}
-            value={stats.agents.toString()}
-            icon={<Radio className="w-6 h-6" />}
-            color="bg-purple-500/10 text-purple-400"
-          />
-        </div>
-      </div>
+      </section>
 
       {stats.clusters === 0 && stats.pods === 0 && stats.insights === 0 && (
         <div className="rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-3 text-sm text-slate-400">
@@ -215,13 +227,17 @@ export const Dashboard: React.FC = () => {
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Top Critical Risks */}
+      {/* Section 3: Main content – risks, charts, sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-8">
+        {/* Left: Risks & Trends */}
         <div className="lg:col-span-2 space-y-6">
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
+              Risks & Trends
+            </h2>
             <div className="flex items-center justify-between">
-              <h2 className="text-xl font-bold text-white flex items-center">
-                  <Shield className="w-5 h-5 mr-3 text-red-500" /> Critical Risks
-              </h2>
+              <h3 className="text-base font-bold text-white flex items-center">
+                  <Shield className="w-4 h-4 mr-2 text-red-500" /> Critical Risks
+              </h3>
               <button onClick={() => navigate('/risks')} className="text-pink-500 text-sm font-medium hover:underline flex items-center">
                 View all <ArrowRight size={14} className="ml-1" />
               </button>
@@ -314,9 +330,12 @@ export const Dashboard: React.FC = () => {
             </Card>
         </div>
 
-        {/* Sidebar Info – filter by global cluster when set */}
+        {/* Right: Cluster & Activity */}
         <div className="space-y-6">
-            <h2 className="text-xl font-bold text-white">Cluster Health</h2>
+            <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
+              Cluster & Activity
+            </h2>
+            <h3 className="text-sm font-bold text-slate-300 mt-4">Cluster Health</h3>
             <Card className="p-0 overflow-hidden shadow-xl shadow-black/20">
                 <div className="divide-y divide-slate-800">
                     {(selectedClusterId ? clusters.filter((c) => c.id === selectedClusterId) : clusters).map(cluster => (
@@ -351,8 +370,8 @@ export const Dashboard: React.FC = () => {
                 </div>
             </Card>
 
-            <h2 className="text-xl font-bold text-white">Pod Capabilities</h2>
-            <Card className="p-5">
+            <h3 className="text-sm font-bold text-slate-300 mt-6">Pod Capabilities</h3>
+            <Card className="p-4">
                 {pceSummary.length === 0 ? (
                     <div className="text-sm text-slate-500">No capability data available.</div>
                 ) : (
@@ -372,7 +391,7 @@ export const Dashboard: React.FC = () => {
                 )}
             </Card>
 
-            <h2 className="text-xl font-bold text-white">Recent Activity</h2>
+            <h3 className="text-sm font-bold text-slate-300 mt-6">Recent Activity</h3>
             <div className="space-y-3">
                 {notifications.map(note => (
                   <div key={note.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-start space-x-3">
@@ -392,13 +411,13 @@ export const Dashboard: React.FC = () => {
                 ))}
             </div>
 
-            <div className="bg-gradient-to-br from-pink-600/20 to-purple-600/20 border border-pink-500/30 rounded-xl p-5 relative overflow-hidden">
+            <div className="bg-gradient-to-br from-violet-600/15 to-fuchsia-600/15 border border-violet-500/25 rounded-xl p-4 relative overflow-hidden mt-6">
                 <div className="relative z-10">
-                    <h3 className="text-white font-bold text-sm">Automated Triage Active</h3>
+                    <h3 className="text-slate-200 font-bold text-sm">Automated Triage Active</h3>
                     <p className="text-slate-300 text-xs mt-2">
                         System is currently monitoring for anomalous RBAC patterns. 
                     </p>
-                    <button onClick={() => navigate('/monitoring')} className="mt-4 text-xs font-bold text-pink-400 flex items-center hover:text-pink-300">
+                    <button onClick={() => navigate('/monitoring')} className="mt-3 text-xs font-bold text-violet-400 flex items-center hover:text-violet-300">
                       Check Worker Status <ArrowRight size={12} className="ml-1" />
                     </button>
                 </div>
