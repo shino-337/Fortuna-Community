@@ -34,7 +34,7 @@ func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetAttackStepsSummary returns summary of attack steps across all pods
+// GetAttackStepsSummary returns summary of attack steps across active pods only.
 func GetAttackStepsSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		type Summary struct {
@@ -46,6 +46,7 @@ func GetAttackStepsSummary(db *gorm.DB) gin.HandlerFunc {
 
 		var summaries []Summary
 		if err := db.Model(&models.PodAttackStep{}).
+			Where("pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").
 			Select("step_id, category, COUNT(*) as count, AVG(confidence) as avg_confidence").
 			Group("step_id, category").
 			Order("count DESC").

@@ -59,20 +59,20 @@ The following monitoring components have been removed as they were not in use:
 
 ## Full pipeline (clean + rebuild + redeploy)
 
-Build và deploy dùng **containerd / nerdctl**: xem **`docs/DEPLOYMENT_CONTAINERD.md`**.
+Build và deploy dùng **containerd / nerdctl**: xem **`docs/05-operations/DEPLOYMENT_CONTAINERD.md`**.
 
 Từ thư mục gốc repo:
 
 ```bash
 # Clean toàn bộ image cũ + rebuild (nerdctl) + deploy
-./scripts/full-clean-database-rebuild-deploy.sh
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh
 
 # Thêm: xóa dữ liệu DB (DELETE, giữ schema) rồi rebuild + deploy
-./scripts/full-clean-database-rebuild-deploy.sh --db
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db
 
 # Clean images + DB + rebuild + deploy (script cũ, tùy chọn)
-./scripts/full-clean-database-rebuild-deploy.sh --db
-# Hoặc full reset DB: ./scripts/full-clean-database-rebuild-deploy.sh --db-reset
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db
+# Hoặc full reset DB: ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset
 ```
 
 If the script times out during deploy (e.g. Flannel step), ensure Core is deployed:
@@ -82,7 +82,7 @@ kubectl apply -f deploy/fortuna-core-deployment.yaml
 kubectl rollout status deployment/fortuna-core -n fortuna
 ```
 
-Then run verification: `./scripts/check-full-deployment.sh`, `./scripts/run-e2e-full.sh`.
+Then run verification: `./scripts/verify/check-full-deployment.sh`, `./scripts/e2e/run-e2e-full.sh`.
 
 ## Cluster identity (auto-discovery & SSOT)
 

@@ -39,6 +39,7 @@ spec:
       labels:
         app: nats
     spec:
+      # No nodeSelector: schedule where PVCs are bound (worker01). Worker01 has sufficient disk after resize.
       containers:
       - name: nats
         image: nats:2.10-alpine

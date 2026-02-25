@@ -7,6 +7,10 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, Globe, Layers, Server, Shield } from 'lucide-react';
 import clsx from 'clsx';
+import { getClusterDisplayName } from '../lib/clusterDisplay';
+import { PageLoading } from '../components/PageLoading';
+import { PageEmpty } from '../components/PageEmpty';
+import { formatDateTime, getAgentStatusLabel, getConnectionStatusClass, getConnectionStatusLabel } from '../lib/display';
 
 type TabId = 'overview' | 'inventory' | 'agents' | 'security';
 
@@ -68,12 +72,7 @@ export const ClusterDetail: React.FC = () => {
   }, [id, activeTab, fetchTabData]);
 
   if (loading || !id) {
-    return (
-      <div className="flex flex-col justify-center items-center h-[40vh]">
-        <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-slate-500 mt-4">Loading cluster...</span>
-      </div>
-    );
+    return <PageLoading message="Loading cluster detail..." className="min-h-[40vh]" />;
   }
 
   if (!cluster) {
@@ -95,7 +94,7 @@ export const ClusterDetail: React.FC = () => {
 
   return (
     <PageLayout
-      title={cluster.name || cluster.id}
+      title={getClusterDisplayName(cluster)}
       description={cluster.distribution ? `${cluster.distribution} · ${cluster.version ?? cluster.k8sVersion ?? ''}` : cluster.version ?? cluster.k8sVersion ?? undefined}
       actions={
         <Button variant="secondary" onClick={() => navigate('/clusters')}>
@@ -103,6 +102,13 @@ export const ClusterDetail: React.FC = () => {
         </Button>
       }
     >
+      <div className="mb-4 flex flex-wrap items-center gap-2 text-xs">
+        <span className={`px-2.5 py-1 rounded-full font-medium ${getConnectionStatusClass(cluster.connectionStatus)}`}>
+          {getConnectionStatusLabel(cluster.connectionStatus)}
+        </span>
+        <span className="text-slate-500">Cluster ID:</span>
+        <span className="text-slate-300 font-mono">{cluster.id}</span>
+      </div>
       {/* Context summary – core metrics */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <Card className="p-4">
@@ -155,7 +161,7 @@ export const ClusterDetail: React.FC = () => {
             </div>
             <div>
               <dt className="text-slate-500">Last sync</dt>
-              <dd className="text-slate-300">{cluster.lastSync ? new Date(cluster.lastSync).toLocaleString() : '—'}</dd>
+              <dd className="text-slate-300">{formatDateTime(cluster.lastSync)}</dd>
             </div>
             <div>
               <dt className="text-slate-500">Version</dt>
@@ -185,7 +191,7 @@ export const ClusterDetail: React.FC = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Inventory</h3>
           {tabLoading ? (
-            <p className="text-slate-500 text-sm">Loading...</p>
+            <PageLoading message="Loading inventory..." className="py-8" />
           ) : inventory ? (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
@@ -211,12 +217,18 @@ export const ClusterDetail: React.FC = () => {
               <div>
                 <h4 className="text-slate-400 text-sm font-medium mb-2">Namespaces ({inventory.namespaces.length})</h4>
                 <ul className="space-y-1 text-sm text-slate-300 font-mono max-h-48 overflow-y-auto">
-                  {inventory.namespaces.length === 0 ? <li className="text-slate-500">No namespaces</li> : inventory.namespaces.map((ns) => <li key={ns}>{ns}</li>)}
+                  {inventory.namespaces.length === 0 ? <li className="text-slate-500">No namespaces</li> : inventory.namespaces.map((ns) => (
+                    <li key={ns}>
+                      <button type="button" className="hover:text-pink-400 hover:underline text-left w-full" onClick={() => navigate(`/resources?tab=Pod&namespace=${encodeURIComponent(ns)}`)}>
+                        {ns}
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               </div>
             </div>
           ) : (
-            <p className="text-slate-500 text-sm">No inventory data.</p>
+            <PageEmpty title="No inventory data" description="No nodes or namespaces returned for this cluster." className="py-8" />
           )}
         </Card>
       )}
@@ -225,7 +237,7 @@ export const ClusterDetail: React.FC = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Agents ({agents.length})</h3>
           {tabLoading ? (
-            <p className="text-slate-500 text-sm">Loading...</p>
+            <PageLoading message="Loading agents..." className="py-8" />
           ) : agents.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -242,9 +254,11 @@ export const ClusterDetail: React.FC = () => {
                     <tr key={a.agentId}>
                       <td className="py-2 font-mono text-white">{a.nodeName ?? '—'}</td>
                       <td className="py-2">
-                        <span className={a.status === 'healthy' ? 'text-emerald-400' : a.status === 'slow' ? 'text-amber-400' : 'text-red-400'}>{a.status}</span>
+                        <span className={a.status === 'healthy' ? 'text-emerald-400' : a.status === 'slow' ? 'text-amber-400' : 'text-red-400'}>
+                          {getAgentStatusLabel(a.status)}
+                        </span>
                       </td>
-                      <td className="py-2 text-slate-400">{a.lastHeartbeat ? new Date(a.lastHeartbeat).toLocaleString() : '—'}</td>
+                      <td className="py-2 text-slate-400">{formatDateTime(a.lastHeartbeat)}</td>
                       <td className="py-2 text-slate-400">{a.version ?? '—'}</td>
                     </tr>
                   ))}
@@ -266,7 +280,7 @@ export const ClusterDetail: React.FC = () => {
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-white mb-4">Security Summary</h3>
           {tabLoading ? (
-            <p className="text-slate-500 text-sm">Loading...</p>
+            <PageLoading message="Loading security summary..." className="py-8" />
           ) : securitySummary ? (
             <div className="space-y-4">
               <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -297,7 +311,7 @@ export const ClusterDetail: React.FC = () => {
             </div>
           ) : (
             <div>
-              <p className="text-slate-500 text-sm">No security summary data.</p>
+              <PageEmpty title="No security summary data" description="Severity totals are unavailable for this cluster scope." className="py-2" />
               <Button variant="secondary" className="mt-4" onClick={() => navigate('/risks')}>
                 View all risks
               </Button>

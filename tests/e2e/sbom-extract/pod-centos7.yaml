@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: test-sbom-vuln-pod
+spec:
+  containers:
+  - name: vuln
+    image: centos:7   # nerdctl sẽ resolve local image
+    command: ["sleep", "infinity"]

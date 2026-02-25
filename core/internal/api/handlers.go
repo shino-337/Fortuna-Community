@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -31,10 +32,14 @@ func getActiveAgentCutoff() time.Duration {
 }
 
 // getClustersForAPI returns clusters for API responses (active by default; optional includeStale).
+// Only clusters with source IN ('auto','env') are returned so the dashboard shows agent-synced
+// clusters only; legacy rows (e.g. id=kubernetes with empty source) are excluded to avoid duplicate display.
 // Single source for cluster list query so GetClusters and GetClustersStats stay in sync.
 func getClustersForAPI(db *gorm.DB, c *gin.Context) ([]models.Cluster, error) {
 	var clusters []models.Cluster
-	query := db.Model(&models.Cluster{})
+	query := db.Model(&models.Cluster{}).
+		Where("source IN ?", []string{"auto", "env"}).
+		Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = clusters.id AND p.deleted_at IS NULL)")
 	if c.Query("includeStale") != "true" {
 		cutoff := time.Now().Add(-ActiveClusterCutoff)
 		query = query.Where("last_sync >= ?", cutoff)
@@ -183,12 +188,12 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 
 // ClusterSecuritySummaryResponse for GET /clusters/:id/security-summary
 type ClusterSecuritySummaryResponse struct {
-	RiskBySeverity   map[string]int64 `json:"riskBySeverity"`
-	CapabilityCount  int64            `json:"capabilityCount"`
-	CriticalCount    int64            `json:"criticalCount"`
-	HighCount        int64            `json:"highCount"`
-	MediumCount      int64            `json:"mediumCount"`
-	LowCount         int64            `json:"lowCount"`
+	RiskBySeverity  map[string]int64 `json:"riskBySeverity"`
+	CapabilityCount int64            `json:"capabilityCount"`
+	CriticalCount   int64            `json:"criticalCount"`
+	HighCount       int64            `json:"highCount"`
+	MediumCount     int64            `json:"mediumCount"`
+	LowCount        int64            `json:"lowCount"`
 }
 
 // GetClusterSecuritySummary returns risk counts by severity and capability exposure for the cluster.
@@ -220,10 +225,14 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 		for _, r := range severityRows {
 			riskBySeverity[r.Severity] = r.Count
 			switch r.Severity {
-			case "critical": critical = r.Count
-			case "high": high = r.Count
-			case "medium": medium = r.Count
-			case "low": low = r.Count
+			case "critical":
+				critical = r.Count
+			case "high":
+				high = r.Count
+			case "medium":
+				medium = r.Count
+			case "low":
+				low = r.Count
 			}
 		}
 		var capabilityCount int64
@@ -248,15 +257,15 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 // NodeDetailResponse for GET /clusters/:id/nodes/:nodeName (Node Detail page).
 // When node exists in nodes table: full metadata; otherwise derived from pods (nodeName, podCount, pods).
 type NodeDetailResponse struct {
-	ClusterID      string                 `json:"clusterId"`
-	NodeName       string                 `json:"nodeName"`
-	IP             string                 `json:"ip,omitempty"`
-	KubeletVersion string                 `json:"kubeletVersion,omitempty"`
-	Role           string                 `json:"role,omitempty"`
-	OS             string                 `json:"os,omitempty"`
-	Runtime        string                 `json:"runtime,omitempty"`
-	LastSeen       *time.Time             `json:"lastSeen,omitempty"`
-	PodCount       int64                  `json:"podCount"`
+	ClusterID      string                   `json:"clusterId"`
+	NodeName       string                   `json:"nodeName"`
+	IP             string                   `json:"ip,omitempty"`
+	KubeletVersion string                   `json:"kubeletVersion,omitempty"`
+	Role           string                   `json:"role,omitempty"`
+	OS             string                   `json:"os,omitempty"`
+	Runtime        string                   `json:"runtime,omitempty"`
+	LastSeen       *time.Time               `json:"lastSeen,omitempty"`
+	PodCount       int64                    `json:"podCount"`
 	Pods           []map[string]interface{} `json:"pods,omitempty"` // List of pods on this node (for Node Detail Workloads tab)
 }
 
@@ -324,8 +333,8 @@ type ClusterStats struct {
 	ClusterRoleBindingCount int64  `json:"clusterRoleBindingCount"`
 	PodCount                int64  `json:"podCount"`
 	DeploymentCount         int64  `json:"deploymentCount"`
-	RiskCount               int64  `json:"riskCount"`   // Active insights for resources in this cluster
-	AgentCount              int64  `json:"agentCount"`  // Agents on nodes belonging to this cluster
+	RiskCount               int64  `json:"riskCount"`        // Active insights for resources in this cluster
+	AgentCount              int64  `json:"agentCount"`       // Agents on nodes belonging to this cluster
 	ConnectionStatus        string `json:"connectionStatus"` // connected, disconnected, unknown
 	AgentVersion            string `json:"agentVersion,omitempty"`
 }
@@ -366,26 +375,49 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 			`, cluster.ID).Scan(&stat.RiskCount)
 			// Agent count: agents whose node_name appears in pods of this cluster
 			if db.Migrator().HasTable("agents") {
-				db.Raw(`
+				if errAgent := db.Raw(`
 					SELECT COUNT(*) FROM agents a
 					WHERE a.deleted_at IS NULL AND (a.status = 'ready' OR a.status IS NULL)
 					AND a.node_name IN (SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != '')
-				`, cluster.ID).Scan(&stat.AgentCount)
+				`, cluster.ID).Scan(&stat.AgentCount).Error; errAgent != nil {
+					log.Printf("[GetClustersStats] agent count query failed for cluster %q: %v", cluster.ID, errAgent)
+					stat.AgentCount = 0
+				}
 			}
 
-			// Determine connection status based on LastSync time
-			// If lastSync is within last 5 minutes, consider connected
-			// If status is "error", mark as disconnected
-			// Otherwise unknown
-			timeSinceSync := time.Since(cluster.LastSync)
+			// Determine connection status: LastSync (cluster sync from agent) and optionally latest agent heartbeat.
+			// Use wider windows so clusters that sync every 5–15 min stay "connected".
 			if cluster.Status == "error" {
 				stat.ConnectionStatus = "disconnected"
-			} else if timeSinceSync < 5*time.Minute {
-				stat.ConnectionStatus = "connected"
-			} else if timeSinceSync < 30*time.Minute {
-				stat.ConnectionStatus = "degraded"
 			} else {
-				stat.ConnectionStatus = "disconnected"
+				timeSinceSync := time.Since(cluster.LastSync)
+				var statusFromSync string
+				if cluster.LastSync.IsZero() {
+					statusFromSync = "disconnected"
+				} else if timeSinceSync < 15*time.Minute {
+					statusFromSync = "connected"
+				} else if timeSinceSync < 2*time.Hour {
+					statusFromSync = "degraded"
+				} else {
+					statusFromSync = "disconnected"
+				}
+				stat.ConnectionStatus = statusFromSync
+				// If cluster sync is stale but an agent for this cluster was seen recently, upgrade to connected
+				if statusFromSync != "connected" && db.Migrator().HasTable("agents") {
+					var latestAgentSeen *time.Time
+					errAgent := db.Raw(`
+						SELECT MAX(a.last_seen_at) FROM agents a
+						WHERE a.deleted_at IS NULL
+						AND a.node_name IN (SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != '')
+					`, cluster.ID).Scan(&latestAgentSeen).Error
+					if errAgent == nil && latestAgentSeen != nil {
+						if time.Since(*latestAgentSeen) < 15*time.Minute {
+							stat.ConnectionStatus = "connected"
+						} else if time.Since(*latestAgentSeen) < 2*time.Hour && stat.ConnectionStatus == "disconnected" {
+							stat.ConnectionStatus = "degraded"
+						}
+					}
+				}
 			}
 
 			// Agent version could be stored in cluster metadata in future
@@ -933,7 +965,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			}
 			var rows []struct {
 				ResourceUID string `gorm:"column:resource_uid"`
-				Count      int64  `gorm:"column:count"`
+				Count       int64  `gorm:"column:count"`
 			}
 			db.Raw(`
 				SELECT resource_uid, COUNT(*) as count FROM insights

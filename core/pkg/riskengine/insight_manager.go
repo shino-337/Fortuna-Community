@@ -32,7 +32,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 	// For vulnerability insights, use more precise deduplication: resource_uid + cve_id
 	if insight.InsightType == "vulnerability" && insight.CVEID != "" {
 		var existingVuln models.Insight
-		
+
 		// Use efficient composite index query
 		query := tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL",
 			"vulnerability", insight.ResourceUID, insight.CVEID, "active")
@@ -94,53 +94,70 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		}
 	}
 
-	// For non-vulnerability insights, use resource_uid + insight_type + severity
-	var existing models.Insight
-	query := tx.Where("resource_uid = ? AND insight_type = ? AND severity = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL",
-		insight.ResourceUID, insight.InsightType, insight.Severity, "active")
-
-	// Try exact description match first
-	var existingByDesc models.Insight
-	if query.Where("description = ?", insight.Description).First(&existingByDesc).Error == nil {
-		// Same resource, same description - update if needed
-		needsUpdate := false
-		if existingByDesc.Recommendation != insight.Recommendation {
-			existingByDesc.Recommendation = insight.Recommendation
-			needsUpdate = true
-		}
-		if needsUpdate {
-			existingByDesc.UpdatedAt = time.Now()
-			if err := tx.Save(&existingByDesc).Error; err != nil {
-				return fmt.Errorf("failed to update insight: %w", err)
+	// For capability insights with CVEID set (capability ID used as logical key), deduplicate by resource_uid + insight_type + cve_id
+	// to match DB unique constraint and avoid duplicate key on INSERT.
+	if insight.InsightType == "capability" && strings.TrimSpace(insight.CVEID) != "" {
+		var existingCap models.Insight
+		capQuery := tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL",
+			"capability", insight.ResourceUID, insight.CVEID, "active")
+		if capQuery.First(&existingCap).Error == nil {
+			needsUpdate := false
+			if existingCap.Description != insight.Description {
+				existingCap.Description = insight.Description
+				needsUpdate = true
 			}
-			log.Printf("[InsightManager] Updated insight ID=%d for %s/%s/%s",
-				existingByDesc.ID, insight.ResourceType, insight.ResourceNamespace, insight.ResourceName)
-		} else {
-			log.Printf("[InsightManager] Insight already exists (ID=%d), no update needed", existingByDesc.ID)
+			if existingCap.Recommendation != insight.Recommendation {
+				existingCap.Recommendation = insight.Recommendation
+				needsUpdate = true
+			}
+			if existingCap.Severity != insight.Severity {
+				existingCap.Severity = insight.Severity
+				needsUpdate = true
+			}
+			if existingCap.Title != insight.Title {
+				existingCap.Title = insight.Title
+				needsUpdate = true
+			}
+			if needsUpdate {
+				existingCap.UpdatedAt = time.Now()
+				if err := tx.Save(&existingCap).Error; err != nil {
+					return fmt.Errorf("failed to update insight: %w", err)
+				}
+				log.Printf("[InsightManager] Updated capability insight ID=%d (resource_uid=%s, cve_id=%s)",
+					existingCap.ID, insight.ResourceUID, insight.CVEID)
+			} else {
+				log.Printf("[InsightManager] Capability insight already exists (ID=%d), no update needed", existingCap.ID)
+			}
+			return nil
 		}
-		return nil
+		var resolvedCap models.Insight
+		if tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND status IN (?, ?) AND deleted_at IS NULL",
+			"capability", insight.ResourceUID, insight.CVEID, "resolved", "dismissed").First(&resolvedCap).Error == nil {
+			resolvedCap.Status = "active"
+			resolvedCap.Severity = insight.Severity
+			resolvedCap.Description = insight.Description
+			resolvedCap.Recommendation = insight.Recommendation
+			resolvedCap.Title = insight.Title
+			resolvedCap.UpdatedAt = time.Now()
+			resolvedCap.DetectedAt = time.Now()
+			if err := tx.Save(&resolvedCap).Error; err != nil {
+				return fmt.Errorf("failed to re-activate insight: %w", err)
+			}
+			log.Printf("[InsightManager] Re-activated capability insight ID=%d (was %s, now active)",
+				resolvedCap.ID, resolvedCap.Status)
+			return nil
+		}
+		// Fall through to createInsightTx
 	}
 
-	// Check for resolved/dismissed insights with same description
-	queryByDescResolved := tx.Where("resource_uid = ? AND insight_type = ? AND description = ? AND status IN (?, ?) AND deleted_at IS NULL",
-		insight.ResourceUID, insight.InsightType, insight.Description, "resolved", "dismissed")
-	if queryByDescResolved.First(&existingByDesc).Error == nil {
-		existingByDesc.Status = "active"
-		existingByDesc.Recommendation = insight.Recommendation
-		existingByDesc.UpdatedAt = time.Now()
-		existingByDesc.DetectedAt = time.Now()
-		if err := tx.Save(&existingByDesc).Error; err != nil {
-			return fmt.Errorf("failed to re-activate insight: %w", err)
-		}
-		log.Printf("[InsightManager] Re-activated insight ID=%d (was %s, now active)",
-			existingByDesc.ID, existingByDesc.Status)
-		return nil
-	}
+	// For other non-vulnerability insights, deduplicate by resource_uid + insight_type + title.
+	keyQuery := tx.Where(
+		"resource_uid = ? AND insight_type = ? AND title = ? AND deleted_at IS NULL",
+		insight.ResourceUID, insight.InsightType, insight.Title,
+	)
 
-	// No existing insight found, create new one
-	if query.First(&existing).Error == nil {
-		// Same resource, same type, same severity, but different description
-		// Update existing
+	var existing models.Insight
+	if keyQuery.Where("status = ? OR status IS NULL", "active").First(&existing).Error == nil {
 		needsUpdate := false
 		if existing.Description != insight.Description {
 			existing.Description = insight.Description
@@ -148,6 +165,10 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		}
 		if existing.Recommendation != insight.Recommendation {
 			existing.Recommendation = insight.Recommendation
+			needsUpdate = true
+		}
+		if existing.Severity != insight.Severity {
+			existing.Severity = insight.Severity
 			needsUpdate = true
 		}
 		if needsUpdate {
@@ -163,12 +184,34 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		return nil
 	}
 
-	// Create new insight
+	var resolved models.Insight
+	if keyQuery.Where("status IN (?, ?)", "resolved", "dismissed").First(&resolved).Error == nil {
+		resolved.Status = "active"
+		resolved.Severity = insight.Severity
+		resolved.Description = insight.Description
+		resolved.Recommendation = insight.Recommendation
+		resolved.UpdatedAt = time.Now()
+		resolved.DetectedAt = time.Now()
+		if err := tx.Save(&resolved).Error; err != nil {
+			return fmt.Errorf("failed to re-activate insight: %w", err)
+		}
+		log.Printf("[InsightManager] Re-activated insight ID=%d (was %s, now active)",
+			resolved.ID, resolved.Status)
+		return nil
+	}
+
 	return m.createInsightTx(tx, insight)
 }
 
 // createInsightTx creates a new insight within a transaction
 func (m *InsightManager) createInsightTx(tx *gorm.DB, insight *models.Insight) error {
+	// Ensure JSONB fields always contain valid JSON.
+	if strings.TrimSpace(insight.Evidence) == "" {
+		insight.Evidence = "{}"
+	}
+	if strings.TrimSpace(insight.ViolatedRules) == "" {
+		insight.ViolatedRules = "[]"
+	}
 	if err := tx.Create(insight).Error; err != nil {
 		return fmt.Errorf("failed to create insight: %w", err)
 	}
@@ -266,7 +309,7 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			seen[key] = insight
 		}
 	}
-	
+
 	// Convert map back to slice
 	deduplicated := make([]*models.Insight, 0, len(seen))
 	for _, insight := range seen {
@@ -368,4 +411,3 @@ func (m *InsightManager) GetInsightsByType(insightType string) ([]models.Insight
 	}
 	return insights, nil
 }
-

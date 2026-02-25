@@ -1,0 +1,61 @@
+=== Core (last 50 lines) ===
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/api/dashboard_handlers.go:335
+[0m[33m[2.220ms] [34;1m[rows:0][0m SELECT * FROM "insights" WHERE (resource_type = 'Pod' AND resource_uid IN (SELECT uid FROM pods WHERE cluster_id = 'manual-sync-cluster' AND deleted_at IS NULL)) AND status = 'active' AND insight_type = 'vulnerability' AND "insights"."deleted_at" IS NULL ORDER BY detected_at DESC LIMIT 5
+[GIN] 2026/02/23 - 07:52:33 | 200 |    9.382119ms |       127.0.0.1 | GET      "/api/v1/risks?page=1&pageSize=5&clusterId=manual-sync-cluster"
+
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/middleware/auth.go:45
+[0m[33m[1.443ms] [34;1m[rows:1][0m SELECT * FROM "users" WHERE "users"."id" = 1 AND "users"."deleted_at" IS NULL ORDER BY "users"."id" LIMIT 1
+
+2026/02/23 07:52:33 [31;1mgithub.com/fortuna/core/internal/api/cluster_id.go:33 [35;1mrecord not found
+[0m[33m[1.227ms] [34;1m[rows:0][0m SELECT * FROM "clusters" WHERE (name = 'manual-sync-cluster' AND id LIKE 'sha256-%') AND "clusters"."deleted_at" IS NULL ORDER BY "clusters"."id" LIMIT 1
+
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/api/insights_handlers.go:178
+[0m[33m[1.591ms] [34;1m[rows:1][0m SELECT COUNT(*) FROM pods WHERE cluster_id = 'manual-sync-cluster' AND deleted_at IS NULL
+
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/api/insights_handlers.go:179
+[0m[33m[2.041ms] [34;1m[rows:1][0m SELECT count(*) FROM "insights" WHERE (deleted_at IS NULL AND (status = 'active' OR status IS NULL)) AND "insights"."deleted_at" IS NULL
+2026/02/23 07:52:33.980021 [InsightsSummary] clusterId="manual-sync-cluster" normalized; pods_in_cluster=0, insights_global=0
+
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/api/insights_handlers.go:189
+[0m[33m[2.309ms] [34;1m[rows:1][0m 
+				SELECT COUNT(*) FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = 'manual-sync-cluster' AND p.deleted_at IS NULL
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+2026/02/23 07:52:33.982424 [InsightsSummary] clusterId="manual-sync-cluster" join result total=0
+
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/api/insights_handlers.go:215
+[0m[33m[4.303ms] [34;1m[rows:0][0m 
+				SELECT LOWER(i.severity) as severity, COUNT(*) as count 
+				FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = 'manual-sync-cluster' AND p.deleted_at IS NULL
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+				GROUP BY LOWER(i.severity)
+
+2026/02/23 07:52:33 [32mgithub.com/fortuna/core/internal/api/insights_handlers.go:243
+[0m[33m[2.101ms] [34;1m[rows:0][0m 
+				SELECT i.insight_type, COUNT(*) as count 
+				FROM insights i
+				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = 'manual-sync-cluster' AND p.deleted_at IS NULL
+				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+				GROUP BY i.insight_type
+[GIN] 2026/02/23 - 07:52:33 | 200 |   15.643122ms |       127.0.0.1 | GET      "/api/v1/insights/summary?clusterId=manual-sync-cluster"
+
+2026/02/23 07:52:34 [32mgithub.com/fortuna/core/internal/middleware/auth.go:45
+[0m[33m[1.359ms] [34;1m[rows:1][0m SELECT * FROM "users" WHERE "users"."id" = 1 AND "users"."deleted_at" IS NULL ORDER BY "users"."id" LIMIT 1
+
+2026/02/23 07:52:34 [32mgithub.com/fortuna/core/internal/api/runtime_signals_handlers.go:73
+[0m[33m[1.781ms] [34;1m[rows:1][0m SELECT count(*) FROM "runtime_signals"
+
+2026/02/23 07:52:34 [32mgithub.com/fortuna/core/internal/api/runtime_signals_handlers.go:82
+[0m[33m[1.631ms] [34;1m[rows:4][0m SELECT * FROM "runtime_signals" ORDER BY created_at DESC LIMIT 10
+[GIN] 2026/02/23 - 07:52:34 | 200 |    5.155164ms |       127.0.0.1 | GET      "/api/v1/runtime-signals?limit=10"
+
+=== Agent (last 60 lines, sync/heartbeat) ===
+[SBOMExtractor] 2026/02/23 07:47:49 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:53bec469a42df1e193889862235aec83f7dcc0a063cb861343926d3301e140be: not found
+[SBOMExtractor] 2026/02/23 07:47:50 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:4397c18a33dce22f6f6cd4cb37836285a4f81d74c033054f6cdcb41c5dc4181a: not found
+2026/02/23 07:52:18.036096 [Syncer] ✅ Full sync completed
+2026/02/23 07:52:29.349802 ✅ Heartbeat OK (interval=15s)
+[LocalPodWatcher] 2026/02/23 07:51:45    → Queued pod fortuna/e2e-dashboard-pod-1771833102 for async processing (transitioned to Running)
+[SBOMExtractor] 2026/02/23 07:51:45 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:fe2385f276937dcf780967a5385767fd34b34580c8ed8d303a0cd1485a692635: not found
+2026/02/23 07:52:15.417125 [Syncer] ✅ Full sync completed
+2026/02/23 07:52:26.765169 ✅ Heartbeat OK (interval=15s)

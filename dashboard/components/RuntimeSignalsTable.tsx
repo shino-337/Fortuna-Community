@@ -34,6 +34,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   const [pageSize, setPageSize] = useState(20);
   const [expandedEvidence, setExpandedEvidence] = useState<Record<number, boolean>>({});
   const [copiedId, setCopiedId] = useState<number | null>(null);
+  const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'confidence_desc' | 'confidence_asc' | 'signal_asc'>('newest');
 
   useEffect(() => {
     const fetchSignals = async () => {
@@ -113,7 +114,22 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     );
   });
 
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const sortedSignals = [...filteredSignals].sort((a, b) => {
+    switch (sortBy) {
+      case 'oldest':
+        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+      case 'confidence_desc':
+        return (b.confidence ?? 0) - (a.confidence ?? 0);
+      case 'confidence_asc':
+        return (a.confidence ?? 0) - (b.confidence ?? 0);
+      case 'signal_asc':
+        return (a.signalType || '').localeCompare(b.signalType || '');
+      case 'newest':
+      default:
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    }
+  });
+
   const toggleEvidence = (id: number) => setExpandedEvidence((prev) => ({ ...prev, [id]: !prev[id] }));
   const copyEvidence = (id: number, text: string) => {
     navigator.clipboard.writeText(text).then(() => {
@@ -126,7 +142,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     return (
       <div className="flex flex-col items-center justify-center gap-3 py-12">
         <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
-        <p className="text-sm text-muted">Loading runtime signals…</p>
+        <p className="text-sm text-muted">Loading runtime evidence...</p>
       </div>
     );
   }
@@ -139,7 +155,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-slate-400" size={16} />
           <input
             type="text"
-            placeholder="Search signals..."
+            placeholder="Search by signal, category, or pod UID..."
             value={filters.search}
             onChange={(e) => setFilters({ ...filters, search: e.target.value })}
             className="w-full pl-10 pr-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:border-pink-500/50"
@@ -150,7 +166,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
           onChange={(e) => setFilters({ ...filters, signalType: e.target.value })}
           className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-pink-500/50"
         >
-          <option value="">All Signal Types</option>
+          <option value="">All Evidence Types</option>
           <option value="PROC_ROOT_PIVOT">PROC_ROOT_PIVOT</option>
           <option value="FS_ESCAPE_ATTEMPT">FS_ESCAPE_ATTEMPT</option>
           <option value="NAMESPACE_ESCAPE">NAMESPACE_ESCAPE</option>
@@ -161,7 +177,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
           onChange={(e) => setFilters({ ...filters, category: e.target.value })}
           className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-pink-500/50"
         >
-          <option value="">All Categories</option>
+          <option value="">All Evidence Categories</option>
           <option value="ESCAPE">ESCAPE</option>
           <option value="FILESYSTEM">FILESYSTEM</option>
           <option value="KERNEL">KERNEL</option>
@@ -184,26 +200,37 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
           className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-pink-500/50"
           placeholder="End Date"
         />
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+          className="px-4 py-2 bg-slate-900/50 border border-slate-800 rounded-lg text-white focus:outline-none focus:border-pink-500/50"
+        >
+          <option value="newest">Sort: Newest first</option>
+          <option value="oldest">Sort: Oldest first</option>
+          <option value="confidence_desc">Sort: Confidence high to low</option>
+          <option value="confidence_asc">Sort: Confidence low to high</option>
+          <option value="signal_asc">Sort: Event type A-Z</option>
+        </select>
       </div>
 
-      {/* Summary: time window hint only; pagination below table */}
+      {/* Summary: total evidence and selected time window */}
       <div className="flex items-center text-sm text-slate-400">
         <span>
-          {total} signal{total !== 1 ? 's' : ''}
+          {total} runtime event{total !== 1 ? 's' : ''}
           {timeWindowMinutes > 0 && <span className="ml-2 text-amber-500/80">(last {timeWindowMinutes}m)</span>}
         </span>
       </div>
 
-      {/* Signals Table */}
+      {/* Runtime evidence list */}
       {filteredSignals.length === 0 ? (
         <div className="text-center py-12 text-slate-500">
           <AlertTriangle size={24} className="mx-auto mb-2 opacity-50" />
-          <p className="text-sm">No runtime signals found.</p>
-          <p className="text-xs mt-1 opacity-75">Runtime signals appear here when detected by the agent.</p>
+          <p className="text-sm">No runtime evidence found.</p>
+          <p className="text-xs mt-1 opacity-75">Runtime events appear here when agents detect suspicious behavior.</p>
         </div>
       ) : (
         <div className="space-y-3">
-          {filteredSignals.map((signal) => (
+          {sortedSignals.map((signal) => (
             <div
               key={signal.id}
               className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 hover:border-slate-700 transition-colors"
@@ -248,7 +275,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
                       >
                         {isExpanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
                         <TrendingUp size={12} />
-                        Evidence
+                        Technical evidence
                       </button>
                       <button
                         type="button"
@@ -282,7 +309,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
           onPageChange={setCurrentPage}
           onPageSizeChange={(size) => { setPageSize(size); setCurrentPage(1); }}
           pageSizeOptions={[10, 20, 50]}
-          itemLabel="signals"
+          itemLabel="events"
         />
       )}
     </div>

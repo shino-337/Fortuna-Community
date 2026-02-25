@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fortuna-e2e
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: fortuna-e2e-vuln-alpine
+  namespace: fortuna-e2e
+  labels:
+    app: fortuna-e2e-vuln
+    test: e2e-cve-sbom
+spec:
+  restartPolicy: Never
+  nodeSelector:
+    kubernetes.io/hostname: k8s-master
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: app
+      image: fortuna-e2e-vuln-alpine:latest
+      imagePullPolicy: IfNotPresent
+      command: ["sleep", "3600"]

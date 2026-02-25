@@ -55,13 +55,9 @@ spec:
       
       containers:
         - name: agent
-          # Production: Use versioned image tag
-          # For local development: Use 'fortuna-agent:latest' with imagePullPolicy: Never
-          # For production: Use 'fortuna-agent:v1.0.0' with imagePullPolicy: IfNotPresent
+          # Use :latest after build (BUILD_TAG=latest). IfNotPresent: use local image when present; multi-node: push script loads on each node.
           image: fortuna-agent:latest
-          # For local development: Never (use local image, don't pull from registry)
-          # For production: IfNotPresent or Always
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           
           env:
             # Core endpoints
@@ -70,7 +66,8 @@ spec:
             - name: CORE_HTTP_ENDPOINT
               value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
             
-            # Cluster: auto-discovered from K8s API (kube-system UID hash + kubeconfig name). Optional override via ConfigMap (see deploy README).
+            # Cluster: name is discovered from cluster (kubeadm-config, node labels, default API service, or cluster-<shortID>).
+            # Optional override: set CLUSTER_ID/CLUSTER_NAME to force a specific id/name.
             # - name: CLUSTER_ID
             #   valueFrom:
             #     configMapKeyRef:

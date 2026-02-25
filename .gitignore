@@ -163,8 +163,6 @@ scripts/apply-core-master-only.sh
 scripts/apply-nats-single-replica.sh
 scripts/fix_dns_isues.sh
 scripts/fix_nats_storage.sh
-scripts/create-mtls-secrets.sh
-
 # Test Results (generated files)
 tests/results/
 tests/e2e/results/
@@ -181,8 +179,7 @@ PROJECT_CLEANUP_ANALYSIS.md
 docker-compose.prod.yml
 docker-compose.override.yml.example
 
-# Archive directories (old scripts, old migrations)
-scripts/archive/
+# Archive directories (old migrations; scripts/archive/ removed - obsolete scripts deleted)
 core/migrations/archive/
 
 # Test documentation (development)

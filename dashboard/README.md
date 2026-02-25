@@ -14,9 +14,9 @@ SBOM analysis, threat velocity, and risk insights.
 From repo root:
 
 ```bash
-./scripts/build-and-load-containerd.sh
+./scripts/build/build-and-load-containerd.sh
 # or dashboard only:
-./scripts/build-dashboard-containerd.sh
+./scripts/build/build-dashboard-containerd.sh
 ```
 
 Or with nerdctl directly:

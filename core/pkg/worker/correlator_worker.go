@@ -134,6 +134,83 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 				log.Printf("[CorrelatorWorker] Terminated pod instance %s/%s (UID: %s)", namespace, name, uid)
 			}
 		}
+
+		// Delete PCE data (pod_capabilities) for this pod so counts stay correct
+		if w.db.Migrator().HasTable(&models.PodCapability{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodCapability{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to delete pod_capabilities for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Deleted %d pod_capabilities for pod %s/%s (UID: %s)", del.RowsAffected, namespace, name, uid)
+			}
+		}
+
+		// Delete risk profile for this pod
+		if w.db.Migrator().HasTable(&models.PodRiskProfile{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodRiskProfile{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to delete pod_risk_profiles for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Deleted %d pod_risk_profiles for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+
+		// Soft-delete insights for this pod (resource_uid = pod UID)
+		if w.db.Migrator().HasTable(&models.Insight{}) {
+			if del := w.db.Where("resource_type = ? AND resource_uid = ?", "Pod", uid).Delete(&models.Insight{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to soft-delete insights for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Soft-deleted %d insights for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+
+		// Soft-delete CVE matches (per-pod) so CVE/SBOM counts stay correct
+		if w.db.Migrator().HasTable(&models.CVEMatch{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.CVEMatch{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to soft-delete cve_matches for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Soft-deleted %d cve_matches for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+
+		// Soft-delete SBOMs for this pod
+		if w.db.Migrator().HasTable(&models.SBOM{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.SBOM{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to soft-delete sboms for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Soft-deleted %d sboms for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+
+		// Delete runtime-related rows (no soft-delete on these tables)
+		if w.db.Migrator().HasTable(&models.RuntimeSignal{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.RuntimeSignal{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to delete runtime_signals for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Deleted %d runtime_signals for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+		if w.db.Migrator().HasTable(&models.PodAttackStep{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodAttackStep{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to delete pod_attack_steps for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Deleted %d pod_attack_steps for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+		if w.db.Migrator().HasTable(&models.RuntimeEvent{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.RuntimeEvent{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to delete runtime_events for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Deleted %d runtime_events for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
+
+		// Soft-delete pod_image_scans for this pod
+		if w.db.Migrator().HasTable(&models.PodImageScan{}) {
+			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodImageScan{}); del.Error != nil {
+				log.Printf("[CorrelatorWorker] Failed to soft-delete pod_image_scans for pod %s: %v", uid, del.Error)
+			} else if del.RowsAffected > 0 {
+				log.Printf("[CorrelatorWorker] Soft-deleted %d pod_image_scans for pod %s/%s", del.RowsAffected, namespace, name)
+			}
+		}
 		
 		if result.RowsAffected > 0 {
 			log.Printf("[CorrelatorWorker] Soft-deleted pod %s/%s (UID: %s) from DELETE event (Layer 1: Prevention)", 

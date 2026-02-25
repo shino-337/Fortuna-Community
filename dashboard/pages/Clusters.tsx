@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
+import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { Cluster } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -11,6 +12,9 @@ import { Pagination } from '../components/Pagination';
 import { RefreshCw, MoreHorizontal, Globe, Search } from 'lucide-react';
 import clsx from 'clsx';
 import { STAT_LABELS } from '../constants/labels';
+import { getClusterDisplayName } from '../lib/clusterDisplay';
+import { PageEmpty } from '../components/PageEmpty';
+import { getConnectionStatusClass, getConnectionStatusLabel } from '../lib/display';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const HEALTH_FILTER_OPTIONS = ['all', 'connected', 'degraded', 'disconnected'] as const;
@@ -23,6 +27,7 @@ export const Clusters: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
   const [searchName, setSearchName] = useState('');
   const [healthFilter, setHealthFilter] = useState<'all' | 'connected' | 'degraded' | 'disconnected'>('all');
+  const [sortBy, setSortBy] = useState<'name_asc' | 'risk_desc' | 'agents_desc' | 'pods_desc'>('risk_desc');
 
   const fetchClusters = useCallback(async () => {
     setLoading(true);
@@ -32,29 +37,33 @@ export const Clusters: React.FC = () => {
   }, []);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
-  usePolling(fetchClusters, intervalMs);
-
-  const getStatusColor = (status: Cluster['status']) => {
-    switch (status) {
-      case 'active': return 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20';
-      case 'warning': return 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20';
-      case 'critical': return 'bg-red-500/10 text-red-400 border border-red-500/20';
-      case 'offline': return 'bg-slate-800 text-slate-400 border border-slate-700';
-      default: return 'bg-slate-800 text-slate-400';
-    }
-  };
+  const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  usePolling(fetchClusters, intervalMs, { refreshTrigger });
 
   const filteredClusters = useMemo(() => {
     let out = clusters;
     if (searchName.trim()) {
       const q = searchName.trim().toLowerCase();
-      out = out.filter((c) => (c.name || c.id || '').toLowerCase().includes(q));
+      out = out.filter((c) => getClusterDisplayName(c).toLowerCase().includes(q));
     }
     if (healthFilter !== 'all') {
       out = out.filter((c) => (c.connectionStatus || '').toLowerCase() === healthFilter);
     }
+    out = [...out].sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc':
+          return getClusterDisplayName(a).localeCompare(getClusterDisplayName(b));
+        case 'agents_desc':
+          return (b.agentCount ?? -1) - (a.agentCount ?? -1);
+        case 'pods_desc':
+          return (b.podCount ?? b.pods ?? -1) - (a.podCount ?? a.pods ?? -1);
+        case 'risk_desc':
+        default:
+          return (b.riskCount ?? -1) - (a.riskCount ?? -1);
+      }
+    });
     return out;
-  }, [clusters, searchName, healthFilter]);
+  }, [clusters, searchName, healthFilter, sortBy]);
 
   const paginatedClusters = useMemo(() => {
     const start = (page - 1) * pageSize;
@@ -93,6 +102,16 @@ export const Clusters: React.FC = () => {
             <option value="degraded">Degraded</option>
             <option value="disconnected">Disconnected</option>
           </select>
+          <select
+            value={sortBy}
+            onChange={(e) => { setSortBy(e.target.value as typeof sortBy); setPage(1); }}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300 focus:outline-none focus:border-pink-500"
+          >
+            <option value="risk_desc">Sort: Risk high to low</option>
+            <option value="agents_desc">Sort: Agents high to low</option>
+            <option value="pods_desc">Sort: Pods high to low</option>
+            <option value="name_asc">Sort: Name A-Z</option>
+          </select>
         </div>
       }
     >
@@ -111,7 +130,17 @@ export const Clusters: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {paginatedClusters.map((cluster) => (
+              {paginatedClusters.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-6 py-8">
+                    <PageEmpty
+                      title="No clusters match current filters"
+                      description="Try clearing search text or health filter."
+                      className="py-6"
+                    />
+                  </td>
+                </tr>
+              ) : paginatedClusters.map((cluster) => (
                 <tr
                   key={cluster.id}
                   className="hover:bg-slate-800/50 transition-colors cursor-pointer"
@@ -123,8 +152,8 @@ export const Clusters: React.FC = () => {
                             <Globe className="w-4 h-4" />
                         </div>
                         <div>
-                          <div>{cluster.name || cluster.id}</div>
-                          {cluster.name && cluster.name !== cluster.id && (
+                          <div>{getClusterDisplayName(cluster)}</div>
+                          {(cluster.id?.startsWith('sha256-') || (cluster.name && cluster.name !== cluster.id)) && (
                             <div className="text-xs font-mono text-slate-500 mt-0.5">{cluster.id}</div>
                           )}
                         </div>
@@ -133,11 +162,9 @@ export const Clusters: React.FC = () => {
                   <td className="px-6 py-4">
                     <span className={clsx(
                       "px-2.5 py-0.5 rounded-full text-xs font-medium capitalize",
-                      cluster.connectionStatus === 'connected' ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' :
-                      cluster.connectionStatus === 'degraded' ? 'bg-yellow-500/10 text-yellow-400 border border-yellow-500/20' :
-                      cluster.connectionStatus === 'disconnected' ? 'bg-red-500/10 text-red-400 border border-red-500/20' : 'bg-slate-800 text-slate-400'
+                      getConnectionStatusClass(cluster.connectionStatus)
                     )}>
-                      {cluster.connectionStatus ?? '—'}
+                      {getConnectionStatusLabel(cluster.connectionStatus)}
                     </span>
                   </td>
                   <td className="px-6 py-4 text-slate-300">

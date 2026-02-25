@@ -17,25 +17,25 @@ import (
 )
 
 type PodPayload struct {
-	Name               string `json:"name"`
-	Namespace          string `json:"namespace"`
-	UID                string `json:"uid"`
-	ServiceAccountName string `json:"serviceAccountName"`
-	NodeName           string `json:"nodeName"`
-	HostNetwork        bool   `json:"hostNetwork"`
-	HostPID            bool   `json:"hostPID"`
-	HostIPC            bool   `json:"hostIPC"`
-	AutomountServiceAccountToken bool `json:"automountServiceAccountToken"`
-	PodSecurityContext interface{} `json:"podSecurityContext,omitempty"`
-	Containers         []ContainerPayload `json:"containers,omitempty"`
-	Volumes            []VolumePayload `json:"volumes,omitempty"`
-	Tolerations        []map[string]interface{} `json:"tolerations,omitempty"`
-	Affinity           interface{} `json:"affinity,omitempty"`
+	Name                         string                   `json:"name"`
+	Namespace                    string                   `json:"namespace"`
+	UID                          string                   `json:"uid"`
+	ServiceAccountName           string                   `json:"serviceAccountName"`
+	NodeName                     string                   `json:"nodeName"`
+	HostNetwork                  bool                     `json:"hostNetwork"`
+	HostPID                      bool                     `json:"hostPID"`
+	HostIPC                      bool                     `json:"hostIPC"`
+	AutomountServiceAccountToken bool                     `json:"automountServiceAccountToken"`
+	PodSecurityContext           interface{}              `json:"podSecurityContext,omitempty"`
+	Containers                   []ContainerPayload       `json:"containers,omitempty"`
+	Volumes                      []VolumePayload          `json:"volumes,omitempty"`
+	Tolerations                  []map[string]interface{} `json:"tolerations,omitempty"`
+	Affinity                     interface{}              `json:"affinity,omitempty"`
 }
 
 type ContainerPayload struct {
-	Name            string                 `json:"name"`
-	SecurityContext interface{}            `json:"securityContext,omitempty"`
+	Name            string                   `json:"name"`
+	SecurityContext interface{}              `json:"securityContext,omitempty"`
 	VolumeMounts    []map[string]interface{} `json:"volumeMounts,omitempty"`
 }
 
@@ -54,18 +54,18 @@ type ServiceAccountPayload struct {
 }
 
 type RolePayload struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	UID       string            `json:"uid"`
+	Name      string              `json:"name"`
+	Namespace string              `json:"namespace"`
+	UID       string              `json:"uid"`
 	Rules     []rbacv1.PolicyRule `json:"rules"`
 }
 
 type RoleBindingPayload struct {
-	Name      string                 `json:"name"`
-	Namespace string                 `json:"namespace"`
-	UID       string                 `json:"uid"`
-	RoleRef   rbacv1.RoleRef          `json:"roleRef"`
-	Subjects  []rbacv1.Subject        `json:"subjects"`
+	Name      string           `json:"name"`
+	Namespace string           `json:"namespace"`
+	UID       string           `json:"uid"`
+	RoleRef   rbacv1.RoleRef   `json:"roleRef"`
+	Subjects  []rbacv1.Subject `json:"subjects"`
 }
 
 type ClusterRolePayload struct {
@@ -75,20 +75,20 @@ type ClusterRolePayload struct {
 }
 
 type ClusterRoleBindingPayload struct {
-	Name     string          `json:"name"`
-	UID      string          `json:"uid"`
+	Name     string           `json:"name"`
+	UID      string           `json:"uid"`
 	RoleRef  rbacv1.RoleRef   `json:"roleRef"`
 	Subjects []rbacv1.Subject `json:"subjects"`
 }
 
 type SyncData struct {
-	IsFullSync          bool                      `json:"isFullSync"`
-	IsDeltaSync         bool                      `json:"isDeltaSync"`
-	Pods                []PodPayload              `json:"pods"`
-	ServiceAccounts     []ServiceAccountPayload   `json:"serviceAccounts"`
-	Roles               []RolePayload             `json:"roles"`
-	RoleBindings        []RoleBindingPayload      `json:"roleBindings"`
-	ClusterRoles        []ClusterRolePayload      `json:"clusterRoles"`
+	IsFullSync          bool                        `json:"isFullSync"`
+	IsDeltaSync         bool                        `json:"isDeltaSync"`
+	Pods                []PodPayload                `json:"pods"`
+	ServiceAccounts     []ServiceAccountPayload     `json:"serviceAccounts"`
+	Roles               []RolePayload               `json:"roles"`
+	RoleBindings        []RoleBindingPayload        `json:"roleBindings"`
+	ClusterRoles        []ClusterRolePayload        `json:"clusterRoles"`
 	ClusterRoleBindings []ClusterRoleBindingPayload `json:"clusterRoleBindings"`
 }
 
@@ -96,16 +96,23 @@ type SyncData struct {
 type ClusterPayload struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	Source       string `json:"source"`        // "auto" | "env"
+	Source       string `json:"source"` // "auto" | "env"
 	K8sVersion   string `json:"k8s_version,omitempty"`
 	Distribution string `json:"distribution,omitempty"` // "eks" | "gke" | "aks" | "kubeadm" | "unknown"
 }
 
 type SyncPayload struct {
-	ClusterID   string        `json:"clusterId"`             // backward compat
-	ClusterName string        `json:"clusterName,omitempty"` // backward compat
-	Cluster     *ClusterPayload `json:"cluster,omitempty"`   // full contract for Core SSOT
-	Data        SyncData      `json:"data"`
+	ClusterID   string          `json:"clusterId"`             // backward compat; must be from cluster.Discover (s.clusterInfo.ID) only
+	ClusterName string          `json:"clusterName,omitempty"` // backward compat
+	Cluster     *ClusterPayload `json:"cluster,omitempty"`     // full contract for Core SSOT
+	Agent       *AgentPayload   `json:"agent,omitempty"`
+	Data        SyncData        `json:"data"`
+}
+
+type AgentPayload struct {
+	AgentID  string `json:"agentId"`
+	NodeName string `json:"nodeName"`
+	Version  string `json:"version,omitempty"`
 }
 
 type Syncer struct {
@@ -114,16 +121,22 @@ type Syncer struct {
 	clusterInfo *cluster.Info
 	interval    time.Duration
 	namespace   string
+	agentID     string
+	nodeName    string
+	version     string
 	httpClient  *http.Client
 }
 
-func NewSyncer(client kubernetes.Interface, endpoint string, clusterInfo *cluster.Info, interval time.Duration, namespace string) *Syncer {
+func NewSyncer(client kubernetes.Interface, endpoint string, clusterInfo *cluster.Info, interval time.Duration, namespace, agentID, nodeName, version string) *Syncer {
 	return &Syncer{
 		client:      client,
 		endpoint:    endpoint,
 		clusterInfo: clusterInfo,
 		interval:    interval,
 		namespace:   namespace,
+		agentID:     agentID,
+		nodeName:    nodeName,
+		version:     version,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -289,20 +302,20 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 			linkedPodsBySA[key] = append(linkedPodsBySA[key], string(p.UID))
 		}
 		podPayloads = append(podPayloads, PodPayload{
-			Name:               p.Name,
-			Namespace:          p.Namespace,
-			UID:                string(p.UID),
-			ServiceAccountName: saName,
-			NodeName:           p.Spec.NodeName,
-			HostNetwork:        p.Spec.HostNetwork,
-			HostPID:            p.Spec.HostPID,
-			HostIPC:            p.Spec.HostIPC,
+			Name:                         p.Name,
+			Namespace:                    p.Namespace,
+			UID:                          string(p.UID),
+			ServiceAccountName:           saName,
+			NodeName:                     p.Spec.NodeName,
+			HostNetwork:                  p.Spec.HostNetwork,
+			HostPID:                      p.Spec.HostPID,
+			HostIPC:                      p.Spec.HostIPC,
 			AutomountServiceAccountToken: automount,
-			PodSecurityContext: p.Spec.SecurityContext,
-			Containers:         containers,
-			Volumes:            volumes,
-			Tolerations:        tolerations,
-			Affinity:           p.Spec.Affinity,
+			PodSecurityContext:           p.Spec.SecurityContext,
+			Containers:                   containers,
+			Volumes:                      volumes,
+			Tolerations:                  tolerations,
+			Affinity:                     p.Spec.Affinity,
 		})
 	}
 
@@ -391,6 +404,11 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 		ClusterID:   s.clusterInfo.ID,
 		ClusterName: s.clusterInfo.Name,
 		Cluster:     cp,
-		Data:        data,
+		Agent: &AgentPayload{
+			AgentID:  s.agentID,
+			NodeName: s.nodeName,
+			Version:  s.version,
+		},
+		Data: data,
 	}, nil
 }

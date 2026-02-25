@@ -5,11 +5,13 @@ import { api } from '../lib/api';
 import { useClusterStore } from '../store/clusterStore';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
+import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { K8sResource, PodWithRisk } from '../types';
-import { Box, UserCog, Scroll, Key, RefreshCw, Plus, Search } from 'lucide-react';
+import { Box, UserCog, Scroll, Key, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { Pagination } from '../components/Pagination';
+import { PageEmpty } from '../components/PageEmpty';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 const TAB_IDS = ['Pod', 'ServiceAccount', 'Role', 'RoleBinding'] as const;
@@ -18,20 +20,25 @@ type TabId = (typeof TAB_IDS)[number];
 export const Resources: React.FC = () => {
   const navigate = useNavigate();
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab');
+  const namespaceParam = searchParams.get('namespace') ?? '';
   const initialTab: TabId = tabParam && TAB_IDS.includes(tabParam as TabId) ? (tabParam as TabId) : 'Pod';
   const [activeTab, setActiveTab] = useState<TabId>(initialTab);
+  const [namespaceFilter, setNamespaceFilter] = useState(namespaceParam);
   const [resources, setResources] = useState<K8sResource[]>([]);
   const [pods, setPods] = useState<PodWithRisk[]>([]);
   const [podsTotal, setPodsTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'name_asc' | 'namespace_asc' | 'risk_desc'>('name_asc');
 
   useEffect(() => {
     const t = searchParams.get('tab');
     if (t && TAB_IDS.includes(t as TabId)) setActiveTab(t as TabId);
+    setNamespaceFilter(searchParams.get('namespace') ?? '');
   }, [searchParams]);
 
   const fetchResources = useCallback(async () => {
@@ -41,26 +48,35 @@ export const Resources: React.FC = () => {
         page,
         pageSize,
         cluster: selectedClusterId ?? undefined,
+        namespace: namespaceFilter || undefined,
       });
       setPods(data.pods);
       setPodsTotal(data.total);
     } else {
-      const data = await api.getResources(activeTab);
+      const data = await api.getResources(activeTab, {
+        cluster: selectedClusterId ?? undefined,
+        namespace: namespaceFilter || undefined,
+      });
       setResources(data);
     }
     setLoading(false);
-  }, [activeTab, page, pageSize, selectedClusterId]);
+  }, [activeTab, page, pageSize, selectedClusterId, namespaceFilter]);
 
   useEffect(() => {
     setPage(1);
   }, [activeTab]);
 
   useEffect(() => {
+    setPage(1);
+  }, [searchTerm]);
+
+  useEffect(() => {
     fetchResources();
   }, [fetchResources]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
-  usePolling(fetchResources, intervalMs);
+  const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  usePolling(fetchResources, intervalMs, { refreshTrigger });
 
   const tabs = [
     { id: 'Pod', label: 'Pods', icon: <Box size={16} /> },
@@ -68,16 +84,6 @@ export const Resources: React.FC = () => {
     { id: 'Role', label: 'Roles', icon: <Scroll size={16} /> },
     { id: 'RoleBinding', label: 'Role Bindings', icon: <Key size={16} /> },
   ];
-
-  const getRiskBadge = (level?: string, score?: number) => {
-    const scoreElement = score !== undefined ? <span className="ml-1 opacity-75">({score})</span> : null;
-    switch (level) {
-      case 'critical': return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-500/10 text-red-400 border border-red-500/20">🔴 CRITICAL{scoreElement}</span>;
-      case 'high': return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-500/10 text-orange-400 border border-orange-500/20">🟡 HIGH{scoreElement}</span>;
-      case 'medium': return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">🟡 MEDIUM{scoreElement}</span>;
-      default: return <span className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">🟢 LOW{scoreElement}</span>;
-    }
-  };
 
   const renderTableHead = () => {
     if (activeTab === 'Pod') {
@@ -95,42 +101,111 @@ export const Resources: React.FC = () => {
       <tr>
         <th className="px-6 py-4 font-medium">Name</th>
         <th className="px-6 py-4 font-medium">Namespace</th>
-        <th className="px-6 py-4 font-medium">
-            {activeTab === 'ServiceAccount' ? 'Pods' : 'Rules/Ref'}
-        </th>
+        <th className="px-6 py-4 font-medium">Kind</th>
         <th className="px-6 py-4 font-medium">Status</th>
-        <th className="px-6 py-4 font-medium">Risk</th>
         <th className="px-6 py-4 font-medium text-right">Actions</th>
       </tr>
     );
   };
 
+  const filteredPods = useMemo(() => {
+    if (activeTab !== 'Pod' || !searchTerm.trim()) return pods;
+    const q = searchTerm.trim().toLowerCase();
+    return pods.filter((p) =>
+      p.name.toLowerCase().includes(q) ||
+      p.namespace.toLowerCase().includes(q) ||
+      (p.nodeName || '').toLowerCase().includes(q) ||
+      p.uid.toLowerCase().includes(q)
+    );
+  }, [activeTab, pods, searchTerm]);
+
+  const filteredResources = useMemo(() => {
+    if (activeTab === 'Pod') return resources;
+    if (!searchTerm.trim()) return resources;
+    const q = searchTerm.trim().toLowerCase();
+    return resources.filter((r) =>
+      r.name.toLowerCase().includes(q) ||
+      (r.namespace || '').toLowerCase().includes(q) ||
+      (r.kind || '').toLowerCase().includes(q)
+    );
+  }, [activeTab, resources, searchTerm]);
+
+  const sortedPods = useMemo(() => {
+    const out = [...filteredPods];
+    out.sort((a, b) => {
+      switch (sortBy) {
+        case 'namespace_asc':
+          return a.namespace.localeCompare(b.namespace);
+        case 'risk_desc':
+          return b.riskCount - a.riskCount;
+        case 'name_asc':
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
+    return out;
+  }, [filteredPods, sortBy]);
+
+  const sortedResources = useMemo(() => {
+    const out = [...filteredResources];
+    out.sort((a, b) => {
+      switch (sortBy) {
+        case 'namespace_asc':
+          return (a.namespace || '').localeCompare(b.namespace || '');
+        case 'risk_desc':
+          return (b.kind || '').localeCompare(a.kind || '');
+        case 'name_asc':
+        default:
+          return a.name.localeCompare(b.name);
+      }
+    });
+    return out;
+  }, [filteredResources, sortBy]);
+
   const paginatedResources = useMemo(() => {
-    if (activeTab === 'Pod') return pods;
+    if (activeTab === 'Pod') return sortedPods;
     const start = (page - 1) * pageSize;
-    return resources.slice(start, start + pageSize);
-  }, [activeTab, resources, pods, page, pageSize]);
+    return sortedResources.slice(start, start + pageSize);
+  }, [activeTab, sortedResources, sortedPods, page, pageSize]);
 
-  const totalForPagination = activeTab === 'Pod' ? podsTotal : resources.length;
+  const totalForPagination = activeTab === 'Pod' ? (searchTerm.trim() ? sortedPods.length : podsTotal) : sortedResources.length;
 
-  const renderTableRow = (resource: K8sResource) => (
-    <tr key={resource.id} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0">
+  const handleResourceView = (resource: K8sResource) => {
+    if (resource.kind === 'ServiceAccount') {
+      navigate(`/identities/uid/${encodeURIComponent(resource.id)}`);
+    } else if ((resource.kind === 'Role' || resource.kind === 'RoleBinding' || resource.kind === 'ClusterRole' || resource.kind === 'ClusterRoleBinding') && resource.clusterId) {
+      navigate(`/clusters/${resource.clusterId}`);
+    }
+  };
+
+  const renderTableRow = (resource: K8sResource) => {
+    const canView = resource.kind === 'ServiceAccount' || (resource.clusterId && ['Role', 'RoleBinding', 'ClusterRole', 'ClusterRoleBinding'].includes(resource.kind));
+    return (
+      <tr
+        key={resource.id}
+        className={`hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 ${canView ? 'cursor-pointer' : ''}`}
+        onClick={canView ? () => handleResourceView(resource) : undefined}
+      >
         <td className="px-6 py-4 font-medium text-white">{resource.name}</td>
         <td className="px-6 py-4 text-slate-400">{resource.namespace}</td>
-        <td className="px-6 py-4 text-slate-400 font-mono text-xs">
-            {resource.saName || resource.podsCount || resource.rulesCount || resource.roleRef || '-'}
-        </td>
+        <td className="px-6 py-4 text-slate-400">{resource.kind}</td>
         <td className="px-6 py-4">
-            <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${resource.status === 'Active' || resource.status === 'Running' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-slate-400 bg-slate-800 border-slate-700'}`}>
-                {resource.status}
-            </span>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${resource.status === 'Active' || resource.status === 'Running' ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-slate-400 bg-slate-800 border-slate-700'}`}>
+            {resource.status ?? 'Active'}
+          </span>
         </td>
-        <td className="px-6 py-4">{getRiskBadge(resource.riskLevel, resource.riskScore)}</td>
-        <td className="px-6 py-4 text-right">
-            <button className="text-pink-500 hover:text-pink-400 text-xs font-medium">View</button>
+        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+          {canView ? (
+            <button className="text-pink-500 hover:text-pink-400 text-xs font-medium" onClick={() => handleResourceView(resource)}>
+              {resource.kind === 'ServiceAccount' ? 'View identity' : 'View cluster'}
+            </button>
+          ) : (
+            <span className="text-slate-500 text-xs">—</span>
+          )}
         </td>
-    </tr>
-  );
+      </tr>
+    );
+  };
 
   const renderPodRow = (pod: PodWithRisk) => (
     <tr key={pod.uid} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 cursor-pointer" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
@@ -155,19 +230,45 @@ export const Resources: React.FC = () => {
           <Button variant="secondary" onClick={fetchResources} isLoading={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
-          <Button><Plus className="w-4 h-4 mr-2" /> Add</Button>
         </>
       }
       toolbar={
         <div className="flex flex-col sm:flex-row gap-3 justify-between items-stretch sm:items-center">
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
-            <input type="text" placeholder="Search..." className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-pink-500" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder={activeTab === 'Pod' ? 'Search pods in current page...' : 'Search resources...'}
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:outline-none focus:border-pink-500"
+            />
           </div>
-          <select className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300 focus:outline-none focus:border-pink-500 sm:w-48">
-            <option>All Namespaces</option>
-            <option>default</option>
-            <option>kube-system</option>
+          <select
+            value={namespaceFilter}
+            onChange={(e) => {
+              const v = e.target.value;
+              setNamespaceFilter(v);
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                if (v) next.set('namespace', v); else next.delete('namespace');
+                return next;
+              });
+            }}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300 focus:outline-none focus:border-pink-500 sm:w-48"
+          >
+            <option value="">All Namespaces</option>
+            <option value="default">default</option>
+            <option value="kube-system">kube-system</option>
+          </select>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-4 py-2 text-sm text-slate-300 focus:outline-none focus:border-pink-500 sm:w-56"
+          >
+            <option value="name_asc">Sort: Name A-Z</option>
+            <option value="namespace_asc">Sort: Namespace A-Z</option>
+            <option value="risk_desc">{activeTab === 'Pod' ? 'Sort: Risk high to low' : 'Sort: Kind Z-A'}</option>
           </select>
         </div>
       }
@@ -178,7 +279,14 @@ export const Resources: React.FC = () => {
             {tabs.map((tab) => (
               <button
                 key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
+                onClick={() => {
+                  setActiveTab(tab.id as any);
+                  setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set('tab', tab.id);
+                    return next;
+                  });
+                }}
                 className={`
                   flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                   ${activeTab === tab.id
@@ -200,18 +308,34 @@ export const Resources: React.FC = () => {
               {renderTableHead()}
             </thead>
             <tbody className="divide-y divide-slate-800">
-              {activeTab === 'Pod'
-                ? (paginatedResources.length > 0 ? (paginatedResources as PodWithRisk[]).map(renderPodRow) : (
-                    <tr><td colSpan={5} className="p-8 text-center text-slate-500">No pods found. Ensure Core and agents are syncing.</td></tr>
-                  ))
-                : (paginatedResources.length > 0 ? (paginatedResources as K8sResource[]).map(renderTableRow) : (
-                    <tr><td colSpan={6} className="p-8 text-center text-slate-500">No resources found</td></tr>
-                  ))
-              }
+              {activeTab === 'Pod' ? (
+                paginatedResources.length > 0 ? (
+                  (paginatedResources as PodWithRisk[]).map(renderPodRow)
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8">
+                      <PageEmpty title="No pods found" description="Ensure Core and agents are syncing for the selected scope." className="py-6" />
+                    </td>
+                  </tr>
+                )
+              ) : (
+                paginatedResources.length > 0 ? (
+                  (paginatedResources as K8sResource[]).map(renderTableRow)
+                ) : (
+                  <tr>
+                    <td colSpan={5} className="px-4 py-8">
+                      <PageEmpty title="No resources found" description="Try adjusting tab, namespace, or search filters." className="py-6" />
+                    </td>
+                  </tr>
+                )
+              )}
             </tbody>
           </table>
         </div>
       </Card>
+      {activeTab === 'Pod' && searchTerm.trim() && (
+        <p className="text-xs text-slate-500 mt-2">Pod search applies to current loaded page.</p>
+      )}
       {(activeTab === 'Pod' ? podsTotal > 0 : resources.length > 0) && (
         <Pagination
           page={page}

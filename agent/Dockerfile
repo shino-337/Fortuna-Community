@@ -83,9 +83,9 @@ RUN for i in 1 2 3 4 5; do \
     tzdata \
     docker.io \
     && \
-    # Create non-root user (but we'll run as root for docker socket access)
-    groupadd -r -g 1000 fortuna && \
-    useradd -r -m -u 1000 -g fortuna fortuna && \
+    # Create non-root user (UID/GID 500 to avoid SYS_UID_MAX warning and conflict with existing 100)
+    groupadd -r -g 500 fortuna && \
+    useradd -r -m -u 500 -g fortuna fortuna && \
     # Clean up
     apt-get clean && \
     rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*

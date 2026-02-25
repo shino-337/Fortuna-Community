@@ -2,14 +2,16 @@ package api
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/fortuna/core/internal/service"
 	"github.com/fortuna/core/pkg/capability"
+	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/worker"
+	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
@@ -17,9 +19,15 @@ import (
 type ClusterPayload struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
-	Source       string `json:"source"`        // "auto" | "env"
+	Source       string `json:"source"` // "auto" | "env"
 	K8sVersion   string `json:"k8s_version,omitempty"`
 	Distribution string `json:"distribution,omitempty"`
+}
+
+type AgentPayload struct {
+	AgentID  string `json:"agentId"`
+	NodeName string `json:"nodeName"`
+	Version  string `json:"version,omitempty"`
 }
 
 // SyncDataFromAgent handles data sync from agent via HTTP.
@@ -30,6 +38,7 @@ func SyncDataFromAgent(db *gorm.DB) gin.HandlerFunc {
 			ClusterID   string                 `json:"clusterId"`
 			ClusterName string                 `json:"clusterName"`
 			Cluster     *ClusterPayload        `json:"cluster"`
+			Agent       *AgentPayload          `json:"agent"`
 			Data        map[string]interface{} `json:"data" binding:"required"`
 		}
 
@@ -57,11 +66,36 @@ func SyncDataFromAgent(db *gorm.DB) gin.HandlerFunc {
 		if clusterName == "" {
 			clusterName = clusterID
 		}
+		// Normalize cluster_id so sync always uses canonical id (avoids duplicate cluster_id for same physical cluster).
+		clusterID = NormalizeClusterID(db, clusterID)
 
 		_, hasDelta := req.Data["isDeltaSync"]
 		_, hasFull := req.Data["isFullSync"]
 		log.Printf("[AgentAPI] cluster=%s name=%s source=%s hasDelta=%v hasFull=%v",
 			clusterID, clusterName, source, hasDelta, hasFull)
+
+		// Keep agents table alive even if gRPC Register/Ping is unavailable.
+		if req.Agent != nil && req.Agent.AgentID != "" {
+			now := time.Now()
+			var existing models.Agent
+			if err := db.Where("agent_id = ?", req.Agent.AgentID).First(&existing).Error; err == nil {
+				_ = db.Model(&existing).Updates(map[string]interface{}{
+					"node_name":    req.Agent.NodeName,
+					"version":      req.Agent.Version,
+					"status":       "ready",
+					"last_seen_at": now,
+					"deleted_at":   nil,
+				}).Error
+			} else if errors.Is(err, gorm.ErrRecordNotFound) {
+				_ = db.Create(&models.Agent{
+					AgentID:    req.Agent.AgentID,
+					NodeName:   req.Agent.NodeName,
+					Version:    req.Agent.Version,
+					Status:     "ready",
+					LastSeenAt: &now,
+				}).Error
+			}
+		}
 
 		agentService := service.NewAgentService(db)
 		if err := agentService.SyncData(clusterID, clusterName, source, k8sVersion, distribution, req.Data); err != nil {

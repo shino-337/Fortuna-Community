@@ -92,11 +92,16 @@ export const RiskDetail: React.FC = () => {
   }
 
   const severityClass = getSeverityBadgeClass(insight.severity);
+  const statusLabelMap: Record<string, string> = {
+    new: 'Active',
+    acknowledged: 'In review',
+    resolved: 'Resolved',
+  };
 
   return (
     <PageLayout
       title={insight.title}
-      description={insight.id !== insight.title ? `ID: ${insight.id}` : undefined}
+      description={insight.id !== insight.title ? `Finding ID: ${insight.id}` : undefined}
       actions={
         <div className="flex items-center gap-2">
           {insight.status !== 'resolved' && (
@@ -116,9 +121,9 @@ export const RiskDetail: React.FC = () => {
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${severityClass}`}>
             {insight.severity}
           </span>
-          <span className="text-slate-400 text-sm uppercase">{insight.status ?? 'active'}</span>
+          <span className="text-slate-400 text-sm uppercase">{statusLabelMap[insight.status ?? ''] ?? (insight.status ?? 'Active')}</span>
           {insight.score != null && (
-            <span className="text-slate-400 text-sm">Score: {insight.score}/100</span>
+            <span className="text-slate-400 text-sm">Risk score: {insight.score}/100</span>
           )}
         </div>
         {insight.description && (
@@ -126,7 +131,7 @@ export const RiskDetail: React.FC = () => {
         )}
         {insight.impact && (
           <div className="mt-4 pt-4 border-t border-slate-800">
-            <h4 className="text-slate-400 text-xs uppercase mb-1">Recommendation</h4>
+            <h4 className="text-slate-400 text-xs uppercase mb-1">Recommended action</h4>
             <p className="text-slate-300 text-sm">{insight.impact}</p>
           </div>
         )}
@@ -136,7 +141,7 @@ export const RiskDetail: React.FC = () => {
         {/* Affected Assets */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Box className="w-5 h-5 text-pink-500" /> Affected Assets
+            <Box className="w-5 h-5 text-pink-500" /> Impacted Resources
           </h3>
           {insight.affectedResources?.length ? (
             <ul className="space-y-2">
@@ -162,14 +167,14 @@ export const RiskDetail: React.FC = () => {
               ))}
             </ul>
           ) : (
-            <p className="text-slate-500 text-sm">No affected assets linked.</p>
+            <p className="text-slate-500 text-sm">No impacted resources linked.</p>
           )}
         </Card>
 
         {/* Timeline */}
         <Card className="p-6">
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Calendar className="w-5 h-5 text-pink-500" /> Timeline
+            <Calendar className="w-5 h-5 text-pink-500" /> Investigation Timeline
           </h3>
           <dl className="space-y-3 text-sm">
             {insight.timestamp && (
@@ -201,17 +206,17 @@ export const RiskDetail: React.FC = () => {
       {(insight.affectedResources?.some((r) => r.kind === 'Pod') || podRuntimeSignals.length > 0) && (
         <Card className="p-6 mt-6">
           <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5 text-amber-500" /> Runtime / Escape signals
+            <AlertTriangle className="w-5 h-5 text-amber-500" /> Runtime Evidence
           </h3>
-          <p className="text-slate-500 text-sm mb-4">Signals from affected pods (e.g. PROC_ROOT_PIVOT, FS_ESCAPE_ATTEMPT).</p>
+          <p className="text-slate-500 text-sm mb-4">Runtime events linked to impacted pods (e.g. PROC_ROOT_PIVOT, FS_ESCAPE_ATTEMPT).</p>
           {podRuntimeSignals.length === 0 ? (
-            <p className="text-slate-500 text-sm">No runtime signals for affected pods. Events appear when agents send runtime-events.</p>
+            <p className="text-slate-500 text-sm">No runtime evidence for impacted pods in selected time window.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-slate-500 border-b border-slate-800">
-                    <th className="text-left py-2">Signal</th>
+                    <th className="text-left py-2">Event</th>
                     <th className="text-left py-2">Category</th>
                     <th className="text-left py-2">Pod UID</th>
                     <th className="text-left py-2">Date</th>
@@ -239,7 +244,7 @@ export const RiskDetail: React.FC = () => {
       {(insight.evidence != null || insight.violatedRules != null) && (
         <Card className="p-6 mt-6">
           <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-pink-500" /> Evidence & Violated Rules
+            <FileText className="w-5 h-5 text-pink-500" /> Technical Evidence & Violated Rules
           </h3>
           {insight.evidence != null && (
             <div className="mb-4">

@@ -5,7 +5,10 @@ import { NodeDetailResponse } from '../types';
 import { PageLayout } from '../components/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
+import { PageLoading } from '../components/PageLoading';
+import { PageEmpty } from '../components/PageEmpty';
 import { ArrowLeft, Server, Box } from 'lucide-react';
+import { formatDateTime } from '../lib/display';
 
 export const NodeDetail: React.FC = () => {
   const { clusterId, nodeName } = useParams<{ clusterId: string; nodeName: string }>();
@@ -26,12 +29,7 @@ export const NodeDetail: React.FC = () => {
   }, [fetchNode]);
 
   if (loading || !clusterId || !nodeName) {
-    return (
-      <div className="flex flex-col justify-center items-center h-[40vh]">
-        <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-slate-500 mt-4">Loading node...</span>
-      </div>
-    );
+    return <PageLoading message="Loading node detail..." className="min-h-[40vh]" />;
   }
 
   const displayName = decodeURIComponent(nodeName);
@@ -84,6 +82,12 @@ export const NodeDetail: React.FC = () => {
                 <p className="text-white font-medium">{node.kubeletVersion}</p>
               </div>
             )}
+            {node.lastSeen && (
+              <div>
+                <span className="text-slate-500">Last Seen</span>
+                <p className="text-white font-medium">{formatDateTime(node.lastSeen)}</p>
+              </div>
+            )}
           </div>
         </Card>
       )}
@@ -120,9 +124,7 @@ export const NodeDetail: React.FC = () => {
               </tbody>
             </table>
           </div>
-        ) : (
-          <p className="text-slate-500 text-sm">No pods on this node.</p>
-        )}
+        ) : <PageEmpty title="No workloads on this node" description="No pods are currently associated with this node." className="py-8" />}
       </Card>
     </PageLayout>
   );

@@ -154,6 +154,8 @@ export interface DashboardStats {
   criticalRisks: number;
   resolved24h?: number;
   affectedPodCount?: number; // Affected Workloads: distinct pods with active insight
+  /** When clusterId filter is set: display name from K8s (via agent sync). Use for labels, not hash. */
+  clusterName?: string;
 }
 
 /** GET /api/v1/insights/summary – severity breakdown for dashboard cards */
@@ -219,7 +221,7 @@ export interface PodCapabilityDetail {
   updatedAt?: string;
 }
 
-// Phase 2.2: Capability Metadata
+// Phase 2.2: Capability Metadata (extended per Capability Specification – MITRE ATT&CK)
 export interface CapabilityMetadata {
   capabilityId: string;
   domain: string;
@@ -231,6 +233,19 @@ export interface CapabilityMetadata {
   producesAttackSteps?: string[];
   expiresWithInstance: boolean;
   supportsRuntimePromotion: boolean;
+  // Extended (spec)
+  name?: string;
+  summary?: string;
+  fullDescription?: string;
+  mitreTactic?: string;
+  mitreTechnique?: string;
+  mitreSubtechnique?: string;
+  killChainStage?: string;
+  technicalIndicators?: string[];
+  impact?: string[];
+  recommendedMitigations?: string[];
+  falsePositiveConsiderations?: string[];
+  references?: string[];
 }
 
 // Phase 2.2: Attack Steps
@@ -297,6 +312,12 @@ export interface Certificate {
   id: string;
   name: string;
   daysRemaining?: number;
+  status?: 'valid' | 'warning' | 'expired' | string;
+  issuer?: string;
+  subject?: string;
+  serialNumber?: string;
+  expiryDate?: string;
+  usage?: string[];
 }
 
 export interface Agent {
@@ -322,8 +343,12 @@ export interface SyncStatus {
 
 export interface User {
   id: string;
+  name?: string;
   username: string;
+  email?: string;
   role?: string;
+  active?: boolean;
+  status?: 'active' | 'disabled' | string;
 }
 
 export interface Notification {
@@ -331,6 +356,10 @@ export interface Notification {
   title: string;
   message: string;
   severity?: string;
+  type?: string;
+  source?: string;
+  read?: boolean;
+  readAt?: string;
   timestamp?: string;
 }
 
@@ -340,12 +369,21 @@ export interface AuditLog {
   resource: string;
   timestamp: string;
   user?: string;
+  actor?: string;
+  status?: 'success' | 'failure' | 'denied' | string;
+  details?: string;
 }
 
 export interface Report {
   id: string;
   name: string;
   generatedAt: string;
+  resource?: string;
+  action?: string;
+  count?: number;
+  title?: string;
+  type?: string;
+  status?: string;
 }
 
 export interface SecurityRule {
@@ -353,13 +391,21 @@ export interface SecurityRule {
   name: string;
   severity: string;
   enabled: boolean;
+  category?: string;
+  type?: string;
+  description?: string;
+  logic?: string;
+  evalTime?: string;
+  lastUpdated?: string;
+  matches?: number;
 }
 
 export interface K8sResource {
-  id: string;
+  id: string;   // UID from API (used for Identity/Role links)
   name: string;
   namespace: string;
   kind: string;
+  clusterId?: string;
   age?: string;
   status?: string;
 }

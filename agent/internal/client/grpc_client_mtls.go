@@ -15,16 +15,23 @@ import (
 	"google.golang.org/grpc/keepalive"
 
 	pb "github.com/fortuna/api/proto/agent"
+
+	"github.com/fortuna/agent/internal/config"
 )
 
 // GRPCClient interface for Agent→Core communication
 type GRPCClient interface {
 	Connect(ctx context.Context) error
 	Close() error
+	Reconnect(ctx context.Context) error // Close then Connect; use after transient DNS/connection failure
 	SendSBOMFinding(ctx context.Context, finding *pb.SBOMFinding) (*pb.SBOMFindingResponse, error)
 	SendCombinedFinding(ctx context.Context, finding *pb.CombinedFinding) (*pb.CombinedFindingResponse, error)
 	RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error)
 	Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error)
+	// StreamInventory streams inventory items to Core (no-op in current Core; collector uses HTTP syncer in main path)
+	StreamInventory(ctx context.Context, items interface{}) error
+	// Heartbeat sends periodic health status to Core
+	Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error)
 }
 
 // MTLSClient implements GRPCClient with mTLS support
@@ -119,13 +126,21 @@ func (c *MTLSClient) Connect(ctx context.Context) error {
 	return nil
 }
 
-// Close closes the gRPC connection
+// Close closes the gRPC connection and clears client so Connect can be called again
 func (c *MTLSClient) Close() error {
 	if c.conn != nil {
 		c.logger.Printf("Closing gRPC connection")
-		return c.conn.Close()
+		_ = c.conn.Close()
+		c.conn = nil
+		c.client = nil
 	}
 	return nil
+}
+
+// Reconnect closes the current connection and establishes a new one (e.g. after DNS/connection recovery)
+func (c *MTLSClient) Reconnect(ctx context.Context) error {
+	c.Close()
+	return c.Connect(ctx)
 }
 
 // SendSBOMFinding sends a single SBOM finding to Core
@@ -189,5 +204,35 @@ func (c *MTLSClient) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRes
 	}
 
 	return resp, nil
+}
+
+// StreamInventory is a no-op: current Core does not expose StreamInventory RPC; agent uses HTTP syncer for inventory.
+func (c *MTLSClient) StreamInventory(ctx context.Context, items interface{}) error {
+	return nil
+}
+
+// Heartbeat sends periodic health status to Core.
+func (c *MTLSClient) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
+	if c.client == nil {
+		return nil, fmt.Errorf("client not connected")
+	}
+	return c.client.Heartbeat(ctx, req)
+}
+
+// NewNewGRPCClient creates a GRPCClient from config (MTLS client) and connects. Used by collector when instantiated.
+func NewNewGRPCClient(cfg *config.Config) (GRPCClient, error) {
+	cli := NewMTLSClient(
+		cfg.CoreGRPCEndpoint,
+		cfg.TLSEnabled,
+		cfg.TLSCertPath,
+		cfg.TLSKeyPath,
+		cfg.TLSCACertPath,
+	)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := cli.Connect(ctx); err != nil {
+		return nil, err
+	}
+	return cli, nil
 }
 

@@ -59,6 +59,18 @@ func (SBOMComponent) TableName() string {
 	return "sbom_components"
 }
 
+// CVE is a minimal CVE reference for agent-side CVEMatch relation.
+// Full CVE data lives in Core; this is only for GORM relation/foreign key.
+type CVE struct {
+	ID     uint   `gorm:"primaryKey" json:"id"`
+	CVEID  string `gorm:"type:varchar(100);uniqueIndex;not null" json:"cveId"`
+}
+
+// TableName specifies the table name for CVE
+func (CVE) TableName() string {
+	return "cves"
+}
+
 // CVEMatch represents a CVE matched to an SBOM component
 type CVEMatch struct {
 	ID            uint           `gorm:"primaryKey" json:"id"`
@@ -79,7 +91,7 @@ type CVEMatch struct {
 	// Relationships
 	SBOM      SBOM          `gorm:"foreignKey:SBOMID" json:"sbom,omitempty"`
 	Component SBOMComponent `gorm:"foreignKey:ComponentID" json:"component,omitempty"`
-	CVE       CVE          `gorm:"foreignKey:CVEID;references:CVEID" json:"cve,omitempty"`
+	CVE       CVE           `gorm:"foreignKey:CVEID;references:CVEID" json:"cve,omitempty"`
 }
 
 // TableName specifies the table name for CVEMatch

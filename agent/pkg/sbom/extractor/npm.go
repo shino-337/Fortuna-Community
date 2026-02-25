@@ -14,30 +14,60 @@ func NewNpmParser() *NpmParser {
 	return &NpmParser{}
 }
 
-// Parse parses npm packages
+// commonNodeRoots are typical WORKDIRs in Node images (npm parser checks these)
+var commonNodeRoots = []string{"", "/app", "/usr/src/app", "/home/node/app", "/opt/app"}
+
+// Parse parses npm packages from package-lock.json and node_modules/*/package.json
 func (p *NpmParser) Parse(fs *Filesystem) ([]Package, error) {
 	packages := make([]Package, 0)
+	seen := make(map[string]bool)
 
-	// Strategy 1: Parse package-lock.json
-	if lockContent, err := fs.ReadFile("/package-lock.json"); err == nil {
-		pkgs, _ := p.parsePackageLock(lockContent)
-		packages = append(packages, pkgs...)
+	// Strategy 1: Parse package-lock.json from common roots
+	for _, root := range commonNodeRoots {
+		path := root + "/package-lock.json"
+		if root == "" {
+			path = "/package-lock.json"
+		}
+		if lockContent, err := fs.ReadFile(path); err == nil {
+			pkgs, _ := p.parsePackageLock(lockContent)
+			for _, pkg := range pkgs {
+				key := pkg.Name + "@" + pkg.Version
+				if !seen[key] {
+					seen[key] = true
+					packages = append(packages, pkg)
+				}
+			}
+			break // one lock file is enough
+		}
 	}
 
-	// Strategy 2: Find all package.json in node_modules
-	moduleDirs := fs.Glob("/node_modules/*/package.json")
-	for _, path := range moduleDirs {
-		content, err := fs.ReadFile(path)
-		if err != nil {
-			continue
+	// Strategy 2: Find all package.json in node_modules under common roots
+	for _, root := range commonNodeRoots {
+		var pattern string
+		if root == "" {
+			pattern = "/node_modules/*/package.json"
+		} else {
+			if !strings.HasPrefix(root, "/") {
+				root = "/" + root
+			}
+			pattern = root + "/node_modules/*/package.json"
 		}
-
-		pkg, err := p.parsePackageJson(content)
-		if err != nil {
-			continue
+		moduleDirs := fs.Glob(pattern)
+		for _, path := range moduleDirs {
+			content, err := fs.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			pkg, err := p.parsePackageJson(content)
+			if err != nil || pkg.Name == "" {
+				continue
+			}
+			key := pkg.Name + "@" + pkg.Version
+			if !seen[key] {
+				seen[key] = true
+				packages = append(packages, pkg)
+			}
 		}
-
-		packages = append(packages, pkg)
 	}
 
 	return packages, nil

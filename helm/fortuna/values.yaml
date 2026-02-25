@@ -111,6 +111,8 @@ core:
     AUTH_ENABLED: "true"
     PCE_SCHEDULER_ENABLED: "true"
     PCE_SCHEDULER_INTERVAL: "6h"
+    # Seed capability_metadata + promotion_rules (Capability Catalog & PCE)
+    FORTUNA_ENABLE_SEED_DATA: "true"
 
 # Agent component configuration
 agent:
@@ -193,7 +195,7 @@ serviceAccountAnnotations: {}
 # Secrets configuration
 secrets:
   create: false  # Set to true if you want Helm to create secrets
-  # Secrets should be created using create-mtls-secrets.sh script
+  # Secrets should be created using create_mtls_secret.sh script
 
 # PostgreSQL (optional - can use external database)
 postgresql:

@@ -1,0 +1,57 @@
+=== Core (last 40 lines) ===
+[0m[33m[2.954ms] [34;1m[rows:1][0m INSERT INTO "pod_capabilities" ("pod_uid","namespace","capability_id","capability_group","severity","state","confidence","first_seen_at","last_seen_at","evidence","mitre","created_at","updated_at") VALUES ('926489f3-dbba-46aa-97be-3c482d4fb0ea','fortuna','ESC_HOSTPATH_NODE','ESC','CRITICAL','detected',0.8,'2026-02-22 14:02:42.571','2026-02-22 14:02:42.571','{"hostPath":true}','{}','2026-02-22 14:02:42.571','2026-02-22 14:02:42.571') ON CONFLICT ("pod_uid","capability_id") DO UPDATE SET "capability_group"="excluded"."capability_group","severity"="excluded"."severity","evidence"="excluded"."evidence","updated_at"="excluded"."updated_at" RETURNING "id"
+
+2026/02/22 14:02:42 [32mgithub.com/fortuna/core/pkg/capability/state_controller.go:183
+[0m[33m[0.838ms] [34;1m[rows:1][0m SELECT * FROM "capability_metadata" WHERE capability_id = 'ESC_RUNTIME_PROBE' ORDER BY "capability_metadata"."capability_id" LIMIT 1
+
+2026/02/22 14:02:42 [32mgithub.com/fortuna/core/pkg/capability/state_controller.go:215
+[0m[33m[2.858ms] [34;1m[rows:1][0m INSERT INTO "pod_capabilities" ("pod_uid","namespace","capability_id","capability_group","severity","state","confidence","first_seen_at","last_seen_at","evidence","mitre","created_at","updated_at") VALUES ('926489f3-dbba-46aa-97be-3c482d4fb0ea','fortuna','ESC_RUNTIME_PROBE','ESC','HIGH','detected',0.5,'2026-02-22 14:02:42.575','2026-02-22 14:02:42.575','{"hostIPC":false,"hostPID":false,"hostPathMatches":[{"hostPath":"/run/containerd/containerd.sock","mountPath":"/run/containerd/containerd.sock","readOnly":true,"volume":"containerd-socket"}]}','{}','2026-02-22 14:02:42.575','2026-02-22 14:02:42.575') ON CONFLICT ("pod_uid","capability_id") DO UPDATE SET "capability_group"="excluded"."capability_group","severity"="excluded"."severity","evidence"="excluded"."evidence","updated_at"="excluded"."updated_at" RETURNING "id"
+
+2026/02/22 14:02:42 [32mgithub.com/fortuna/core/pkg/capability/state_controller.go:183
+[0m[33m[0.865ms] [34;1m[rows:1][0m SELECT * FROM "capability_metadata" WHERE capability_id = 'ID_TOKEN_POD' ORDER BY "capability_metadata"."capability_id" LIMIT 1
+
+2026/02/22 14:02:42 [32mgithub.com/fortuna/core/pkg/capability/state_controller.go:215
+[0m[33m[2.605ms] [34;1m[rows:1][0m INSERT INTO "pod_capabilities" ("pod_uid","namespace","capability_id","capability_group","severity","state","confidence","first_seen_at","last_seen_at","evidence","mitre","created_at","updated_at") VALUES ('926489f3-dbba-46aa-97be-3c482d4fb0ea','fortuna','ID_TOKEN_POD','ID','MEDIUM','detected',0.5,'2026-02-22 14:02:42.579','2026-02-22 14:02:42.579','{"automountServiceAccountToken":true}','{}','2026-02-22 14:02:42.579','2026-02-22 14:02:42.579') ON CONFLICT ("pod_uid","capability_id") DO UPDATE SET "capability_group"="excluded"."capability_group","severity"="excluded"."severity","evidence"="excluded"."evidence","updated_at"="excluded"."updated_at" RETURNING "id"
+[GIN] 2026/02/22 - 14:02:46 | 200 |    2.932821ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:02:51 | 200 |      86.331µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:02:51 | 200 |    2.486965ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:02:56 | 200 |    2.529376ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:01 | 200 |      112.08µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:03:01 | 200 |    3.483001ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:06 | 200 |    3.026185ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:11 | 200 |     241.512µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:03:11 | 200 |    2.677802ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:16 | 200 |    2.345091ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:21 | 200 |      98.505µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:03:21 | 200 |     2.53259ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:26 | 200 |    2.568648ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:31 | 200 |      85.419µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:03:31 | 200 |     3.50949ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:36 | 200 |    2.487647ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:41 | 200 |      85.651µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:03:41 | 200 |    2.720363ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:46 | 200 |    3.640224ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:51 | 200 |      58.089µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:03:51 | 200 |    3.294997ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:03:56 | 200 |    2.914846ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:04:01 | 200 |     278.301µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:04:01 | 200 |    2.625694ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:04:06 | 200 |    2.194688ms |      10.244.0.1 | GET      "/ready"
+[GIN] 2026/02/22 - 14:04:11 | 200 |      96.952µs |      10.244.0.1 | GET      "/healthz"
+[GIN] 2026/02/22 - 14:04:11 | 200 |     2.57542ms |      10.244.0.1 | GET      "/ready"
+
+=== Agent (last 50 lines, sync/heartbeat) ===
+[SBOMExtractor] 2026/02/22 13:48:11 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:4397c18a33dce22f6f6cd4cb37836285a4f81d74c033054f6cdcb41c5dc4181a: not found
+2026/02/22 13:52:42.269375 [Syncer] ✅ Full sync completed
+2026/02/22 13:52:52.804564 ✅ Heartbeat OK (interval=15s)
+2026/02/22 13:57:42.319883 [Syncer] ✅ Full sync completed
+2026/02/22 13:57:52.800939 ✅ Heartbeat OK (interval=15s)
+2026/02/22 14:02:42.268701 [Syncer] ✅ Full sync completed
+2026/02/22 14:02:52.802594 ✅ Heartbeat OK (interval=15s)
+[SBOMExtractor] 2026/02/22 13:48:11 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:7e55d1d0d2c095cecd55022878b8e64d88176157c6ed49a89e2ced129d26465e: not found
+2026/02/22 13:52:39.423664 [Syncer] ✅ Full sync completed
+2026/02/22 13:52:50.529450 ✅ Heartbeat OK (interval=15s)
+2026/02/22 13:57:39.321707 [Syncer] ✅ Full sync completed
+2026/02/22 13:57:50.531905 ✅ Heartbeat OK (interval=15s)
+2026/02/22 14:02:39.383766 [Syncer] ✅ Full sync completed
+2026/02/22 14:02:50.528337 ✅ Heartbeat OK (interval=15s)

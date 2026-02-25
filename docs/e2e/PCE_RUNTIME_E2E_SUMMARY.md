@@ -68,7 +68,7 @@ Kết quả sau khi POST:
   - Nhận `POST /api/v1/runtime-events` → `ProcessRuntimeEvent` → ghi `runtime_events`, tạo `runtime_signals` (SignalAdapter), có thể promote capability (CSC).  
   - API: `GET /api/v1/runtime-signals`, `GET /api/v1/runtime-signals/pods/:podUid` trả đúng signals của pod test.
 
-Luồng chi tiết: `docs/RUNTIME_SIGNALS_FLOW.md`.
+Luồng chi tiết: `docs/03-components/RUNTIME_SIGNALS_FLOW.md`.
 
 ---
 

@@ -1,10 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import { Card } from '../components/ui/Card';
 import { RefreshCw, Info } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { api } from '../lib/api';
+import { useNavigate } from 'react-router-dom';
+import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
+import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
+import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 
 // Types for D3 Graph
 interface Node extends d3.SimulationNodeDatum {
@@ -22,6 +26,7 @@ interface Link extends d3.SimulationLinkDatum<Node> {
 }
 
 export const AttackPaths: React.FC = () => {
+  const navigate = useNavigate();
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const [version, setVersion] = useState(0); // Trigger re-render
@@ -29,35 +34,42 @@ export const AttackPaths: React.FC = () => {
   const [graphData, setGraphData] = useState<{ nodes: Node[]; links: Link[] }>({ nodes: [], links: [] });
   const [loading, setLoading] = useState(true);
 
+  const fetchGraphData = useCallback(async () => {
+    try {
+      setLoading(true);
+      const data = await api.getAttackPathsGraph();
+      // Transform API data to D3 format with groups
+      const nodes: Node[] = data.nodes.map((node, idx) => ({
+        id: node.id,
+        label: node.label,
+        type: node.type as Node['type'],
+        risk: node.risk as Node['risk'],
+        group: idx % 5 + 1, // Simple grouping based on index
+      }));
+      const links: Link[] = data.links.map(link => ({
+        source: link.source,
+        target: link.target,
+        value: link.value,
+      }));
+      setGraphData({ nodes, links });
+    } catch (err) {
+      console.error('Failed to fetch attack paths graph:', err);
+      setGraphData({ nodes: [], links: [] });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   // Fetch attack paths graph from API
   useEffect(() => {
-    const fetchGraphData = async () => {
-      try {
-        setLoading(true);
-        const data = await api.getAttackPathsGraph();
-        // Transform API data to D3 format with groups
-        const nodes: Node[] = data.nodes.map((node, idx) => ({
-          id: node.id,
-          label: node.label,
-          type: node.type as Node['type'],
-          risk: node.risk as Node['risk'],
-          group: idx % 5 + 1, // Simple grouping based on index
-        }));
-        const links: Link[] = data.links.map(link => ({
-          source: link.source,
-          target: link.target,
-          value: link.value,
-        }));
-        setGraphData({ nodes, links });
-      } catch (err) {
-        console.error('Failed to fetch attack paths graph:', err);
-        setGraphData({ nodes: [], links: [] });
-      } finally {
-        setLoading(false);
-      }
-    };
     fetchGraphData();
-  }, []);
+  }, [fetchGraphData]);
+
+  const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.RUNTIME_SIGNALS));
+  const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  usePolling(fetchGraphData, intervalMs, { refreshTrigger });
+
+  const riskNodeCount = graphData.nodes.filter((n) => n.risk === 'critical' || n.risk === 'high').length;
 
   useEffect(() => {
     if (!svgRef.current || !containerRef.current || loading || graphData.nodes.length === 0) return;
@@ -195,6 +207,17 @@ export const AttackPaths: React.FC = () => {
           link.transition().duration(200).attr("stroke-opacity", 0.6).attr("stroke", "#475569");
           node.transition().duration(200).attr("opacity", 1);
           setTooltip(null);
+      })
+      .on("click", (event, d) => {
+        if (d.type === 'pod') {
+          navigate(`/resources/pods/uid/${encodeURIComponent(d.id)}`);
+          return;
+        }
+        if (d.type === 'service') {
+          navigate('/resources?tab=ServiceAccount');
+          return;
+        }
+        navigate('/resources');
       });
 
     simulation.on("tick", () => {
@@ -236,19 +259,39 @@ export const AttackPaths: React.FC = () => {
     return () => {
       simulation.stop();
     };
-  }, [version, loading, graphData]);
+  }, [version, loading, graphData, navigate]);
 
   return (
     <PageLayout
       title="Attack Path Visualization"
       description="Interactive graph of potential vulnerability chains."
       actions={
-        <Button variant="secondary" onClick={() => setVersion(v => v + 1)}>
+        <Button
+          variant="secondary"
+          onClick={async () => {
+            await fetchGraphData();
+            setVersion(v => v + 1);
+          }}
+        >
           <RefreshCw className="w-4 h-4 mr-2" />
-          Reset Layout
+          Reload graph
         </Button>
       }
     >
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+          <div className="text-xs text-slate-500 uppercase">Nodes</div>
+          <div className="text-xl font-bold text-white">{graphData.nodes.length}</div>
+        </div>
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+          <div className="text-xs text-slate-500 uppercase">Links</div>
+          <div className="text-xl font-bold text-white">{graphData.links.length}</div>
+        </div>
+        <div className="rounded-lg border border-slate-800 bg-slate-900 p-3">
+          <div className="text-xs text-slate-500 uppercase">High/Critical Nodes</div>
+          <div className="text-xl font-bold text-amber-400">{riskNodeCount}</div>
+        </div>
+      </div>
       <Card className="p-0 overflow-hidden bg-slate-900 border-slate-800">
         <div ref={containerRef} className="w-full h-[600px] border-b border-slate-800 relative bg-slate-950/50">
           {loading ? (
@@ -297,7 +340,7 @@ export const AttackPaths: React.FC = () => {
                       <div className="text-xs text-slate-400 capitalize mb-2">{tooltip.data.type}</div>
                       <div className="text-xs text-slate-500 border-t border-slate-800 pt-2 flex items-start">
                           <Info className="w-3 h-3 mr-1 mt-0.5" />
-                          <span>Click to view detailed node analysis.</span>
+                          <span>Click to open related view.</span>
                       </div>
                   </div>
                   {/* Arrow */}

@@ -1,260 +1,219 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { SecurityRule } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { RefreshCw, Upload, Search, Filter, PlayCircle, Edit3, AlertTriangle, Lightbulb, CheckCircle } from 'lucide-react';
-import clsx from 'clsx';
+import { PageLayout } from '../components/PageLayout';
+import { PageLoading } from '../components/PageLoading';
+import { PageEmpty } from '../components/PageEmpty';
+import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
+import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
+import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
+import { RefreshCw, Search, FlaskConical } from 'lucide-react';
+import { getSeverityBadgeClass } from '../lib/severity';
 
 export const Rules: React.FC = () => {
   const navigate = useNavigate();
   const [rules, setRules] = useState<SecurityRule[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'active' | 'disabled' | 'templates'>('active');
-  const [expandedRule, setExpandedRule] = useState<string | null>(null);
-  const [testMode, setTestMode] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'disabled'>('enabled');
+  const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState<'name_asc' | 'severity_desc' | 'status'>('severity_desc');
+  const [reloadingRules, setReloadingRules] = useState(false);
+  const [testingRuleId, setTestingRuleId] = useState<string | null>(null);
 
-  useEffect(() => {
-    loadRules();
+  const loadRules = useCallback(async () => {
+    setError(null);
+    setLoading(true);
+    try {
+      const data = await api.getRules();
+      setRules(data);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load rules');
+      setRules([]);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
-  const loadRules = async () => {
-    setLoading(true);
-    const data = await api.getRules();
-    setRules(data);
-    setLoading(false);
+  const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.SBOM_RISK_LIST));
+  const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  usePolling(loadRules, intervalMs, { refreshTrigger });
+  useEffect(() => { loadRules(); }, [loadRules]);
+
+  const filteredRules = useMemo(() => {
+    let out = [...rules];
+    if (statusFilter !== 'all') out = out.filter((r) => (statusFilter === 'enabled' ? r.enabled : !r.enabled));
+    if (severityFilter !== 'all') out = out.filter((r) => (r.severity || '').toLowerCase() === severityFilter);
+    if (searchTerm.trim()) {
+      const q = searchTerm.trim().toLowerCase();
+      out = out.filter((r) => [r.id, r.name, r.category, r.type, r.description].some((v) => (v || '').toLowerCase().includes(q)));
+    }
+    const sevRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
+    out.sort((a, b) => {
+      switch (sortBy) {
+        case 'name_asc':
+          return (a.name || '').localeCompare(b.name || '');
+        case 'status':
+          return Number(b.enabled) - Number(a.enabled);
+        case 'severity_desc':
+        default:
+          return (sevRank[(b.severity || '').toLowerCase()] ?? 0) - (sevRank[(a.severity || '').toLowerCase()] ?? 0);
+      }
+    });
+    return out;
+  }, [rules, statusFilter, severityFilter, searchTerm, sortBy]);
+
+  const handleReloadRules = async () => {
+    setReloadingRules(true);
+    try {
+      await api.reloadRules();
+      await loadRules();
+    } finally {
+      setReloadingRules(false);
+    }
   };
 
-  const getSeverityBadge = (severity: string) => {
-    const styles = {
-      critical: 'bg-red-500/10 text-red-400 border-red-500/20',
-      high: 'bg-orange-500/10 text-orange-400 border-orange-500/20',
-      medium: 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20',
-      low: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    };
-    return <span className={`px-2 py-0.5 text-xs font-medium rounded border uppercase ${styles[severity as keyof typeof styles] || styles.low}`}>{severity}</span>;
+  const handleQuickTest = async (ruleId: string) => {
+    setTestingRuleId(ruleId);
+    try {
+      await api.testRule(ruleId, {
+        apiVersion: 'v1',
+        kind: 'Pod',
+        metadata: { name: 'quick-test-pod', namespace: 'default' },
+      });
+    } finally {
+      setTestingRuleId(null);
+    }
   };
 
-  const filteredRules = rules.filter(rule => {
-      if (activeTab === 'active') return rule.enabled;
-      if (activeTab === 'disabled') return !rule.enabled;
-      return true; // templates
-  });
-
-  const toggleExpand = (id: string) => {
-      setExpandedRule(expandedRule === id ? null : id);
-      setTestMode(false);
-  };
+  if (loading) return <PageLoading message="Loading policy rules..." className="min-h-[40vh]" />;
 
   return (
-    <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <div>
-          <h1 className="text-2xl font-bold text-white">Rules Management</h1>
-          <p className="text-slate-400">Policy-as-Code detection rule configuration.</p>
+    <PageLayout
+      title="Policy Rules"
+      description="Production rule catalog for detections and policy enforcement."
+      actions={
+        <div className="flex items-center gap-2">
+          <Button variant="secondary" isLoading={loading} onClick={loadRules}>
+            <RefreshCw className="w-4 h-4 mr-2" /> Refresh
+          </Button>
+          <Button variant="secondary" isLoading={reloadingRules} onClick={handleReloadRules}>
+            Reload Rules Engine
+          </Button>
         </div>
-        <div className="flex space-x-2">
-            <Button variant="secondary" isLoading={loading} onClick={loadRules}>
-                <RefreshCw className="w-4 h-4 mr-2" /> Reload
-            </Button>
-            <Button variant="secondary">
-                <Upload className="w-4 h-4 mr-2" /> Upload YAML
-            </Button>
-            <Button>+ New Rule</Button>
+      }
+      toolbar={
+        <div className="flex flex-wrap items-center gap-3">
+          <div className="relative min-w-[220px]">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
+            <input
+              type="text"
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              placeholder="Search id, name, category..."
+              className="w-full bg-slate-950 border border-slate-700 rounded-lg pl-9 pr-4 py-2 text-sm text-white focus:ring-2 focus:ring-pink-500 outline-none"
+            />
+          </div>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300"
+          >
+            <option value="all">All status</option>
+            <option value="enabled">Enabled</option>
+            <option value="disabled">Disabled</option>
+          </select>
+          <select
+            value={severityFilter}
+            onChange={(e) => setSeverityFilter(e.target.value as typeof severityFilter)}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300"
+          >
+            <option value="all">All severity</option>
+            <option value="critical">Critical</option>
+            <option value="high">High</option>
+            <option value="medium">Medium</option>
+            <option value="low">Low</option>
+          </select>
+          <select
+            value={sortBy}
+            onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+            className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-sm text-slate-300"
+          >
+            <option value="severity_desc">Sort: Severity high to low</option>
+            <option value="name_asc">Sort: Name A-Z</option>
+            <option value="status">Sort: Enabled first</option>
+          </select>
         </div>
-      </div>
+      }
+    >
+      {error && (
+        <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
+          {error}
+        </div>
+      )}
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-           <div className="bg-slate-900 border border-slate-800 p-3 rounded-lg text-center">
-               <div className="text-slate-400 text-xs uppercase font-medium">Active</div>
-               <div className="text-white font-bold text-xl">{rules.filter(r => r.enabled).length}</div>
-           </div>
-           <div className="bg-slate-900 border border-slate-800 p-3 rounded-lg text-center">
-               <div className="text-slate-400 text-xs uppercase font-medium">Disabled</div>
-               <div className="text-white font-bold text-xl">{rules.filter(r => !r.enabled).length}</div>
-           </div>
-           <div className="bg-slate-900 border border-slate-800 p-3 rounded-lg text-center">
-               <div className="text-slate-400 text-xs uppercase font-medium">Eval/Sec</div>
-               <div className="text-emerald-400 font-bold text-xl">1,250</div>
-           </div>
-           <div className="bg-slate-900 border border-slate-800 p-3 rounded-lg text-center">
-               <div className="text-slate-400 text-xs uppercase font-medium">Avg Latency</div>
-               <div className="text-blue-400 font-bold text-xl">12μs</div>
-           </div>
-      </div>
-
-      <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 justify-between items-center">
-          <div className="flex bg-slate-900 p-1 rounded-lg border border-slate-800">
-              {(['active', 'disabled', 'templates'] as const).map(tab => (
-                  <button
-                      key={tab}
-                      onClick={() => setActiveTab(tab)}
-                      className={`px-4 py-2 rounded-md text-sm font-medium capitalize transition-colors ${
-                          activeTab === tab ? 'bg-slate-800 text-white shadow-sm' : 'text-slate-400 hover:text-slate-200'
-                      }`}
-                  >
-                      {tab}
-                  </button>
-              ))}
-          </div>
-          
-          <div className="flex space-x-2 w-full sm:w-auto">
-             <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500 w-4 h-4" />
-                <input 
-                    type="text" 
-                    placeholder="Search rules..." 
-                    className="pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:ring-2 focus:ring-pink-500 outline-none w-full"
-                />
-             </div>
-             <button className="p-2 border border-slate-700 rounded-lg bg-slate-900 text-slate-400 hover:text-white">
-                 <Filter className="w-4 h-4" />
-             </button>
-          </div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Total</div><div className="text-xl font-bold text-white">{rules.length}</div></Card>
+        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Enabled</div><div className="text-xl font-bold text-emerald-400">{rules.filter((r) => r.enabled).length}</div></Card>
+        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Disabled</div><div className="text-xl font-bold text-slate-300">{rules.filter((r) => !r.enabled).length}</div></Card>
       </div>
 
       <Card className="overflow-hidden p-0">
         <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
-                    <tr>
-                        <th className="px-6 py-4 font-medium">ID</th>
-                        <th className="px-6 py-4 font-medium">Name</th>
-                        <th className="px-6 py-4 font-medium">Type</th>
-                        <th className="px-6 py-4 font-medium">Severity</th>
-                        <th className="px-6 py-4 font-medium">Matches</th>
-                        <th className="px-6 py-4 font-medium">Status</th>
-                        <th className="px-6 py-4 font-medium text-right">Actions</th>
-                    </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                    {filteredRules.map(rule => (
-                        <React.Fragment key={rule.id}>
-                        <tr className={clsx("hover:bg-slate-800/50 transition-colors cursor-pointer", expandedRule === rule.id ? "bg-slate-800/50" : "")} onClick={() => navigate(`/rules/${rule.id}`)}>
-                            <td className="px-6 py-4 font-mono text-xs text-slate-500">{rule.id}</td>
-                            <td className="px-6 py-4">
-                                <div className="font-medium text-white">{rule.name}</div>
-                                <div className="text-xs text-slate-500 mt-0.5">{rule.category}</div>
-                            </td>
-                            <td className="px-6 py-4 text-slate-400">{rule.type}</td>
-                            <td className="px-6 py-4">{getSeverityBadge(rule.severity)}</td>
-                            <td className="px-6 py-4 text-slate-300 font-mono">{rule.matches}</td>
-                            <td className="px-6 py-4">
-                                <div className="flex items-center">
-                                    {rule.enabled ? (
-                                        <span className="flex items-center text-emerald-400 text-xs font-medium">
-                                            <span className="w-2 h-2 rounded-full bg-emerald-500 mr-2"></span>
-                                            On
-                                        </span>
-                                    ) : (
-                                        <span className="flex items-center text-slate-500 text-xs font-medium">
-                                            <span className="w-2 h-2 rounded-full bg-slate-600 mr-2"></span>
-                                            Off
-                                        </span>
-                                    )}
-                                </div>
-                            </td>
-                            <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-                                <div className="flex justify-end space-x-2">
-                                    <button className="text-pink-500 hover:text-pink-400 text-xs font-medium border border-pink-500/20 bg-pink-500/10 px-2 py-1 rounded" onClick={() => navigate(`/rules/${rule.id}`)}>View</button>
-                                </div>
-                            </td>
-                        </tr>
-                        {expandedRule === rule.id && (
-                            <tr>
-                                <td colSpan={7} className="bg-slate-950 p-6 border-b border-slate-800 shadow-inner">
-                                    <div className="grid lg:grid-cols-2 gap-8">
-                                        <div className="space-y-6">
-                                            <div>
-                                                <h3 className="text-lg font-bold text-white mb-1">{rule.id}: {rule.name}</h3>
-                                                <p className="text-slate-400 text-sm">{rule.description}</p>
-                                            </div>
-                                            
-                                            <div className="space-y-2">
-                                                <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Detection Logic (CEL)</h4>
-                                                <div className="bg-slate-900 border border-slate-800 rounded-lg p-3 font-mono text-xs text-slate-300 overflow-x-auto">
-                                                    <pre>{rule.logic || "// No logic defined for this rule"}</pre>
-                                                </div>
-                                            </div>
-
-                                            <div className="grid grid-cols-2 gap-4">
-                                                <div className="bg-slate-900 p-3 rounded border border-slate-800">
-                                                    <div className="text-xs text-slate-500 uppercase">Eval Time</div>
-                                                    <div className="text-white font-mono">{rule.evalTime || '10μs'}</div>
-                                                </div>
-                                                <div className="bg-slate-900 p-3 rounded border border-slate-800">
-                                                    <div className="text-xs text-slate-500 uppercase">Last Updated</div>
-                                                    <div className="text-white font-mono">{rule.lastUpdated || '2023-11-01'}</div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="space-y-6">
-                                            {/* Impact Preview */}
-                                            <div className="bg-slate-900 border border-slate-800 rounded-lg overflow-hidden">
-                                                <div className="px-4 py-3 border-b border-slate-800 bg-slate-800/30 flex items-center justify-between">
-                                                    <div className="flex items-center text-sm font-semibold text-white">
-                                                        <Lightbulb className="w-4 h-4 text-yellow-500 mr-2" />
-                                                        Impact Preview
-                                                    </div>
-                                                    <span className="text-xs text-slate-500">If disabled</span>
-                                                </div>
-                                                <div className="p-4 space-y-4">
-                                                     <div className="flex items-center justify-between text-sm">
-                                                         <span className="text-slate-400">Current Risks Detected</span>
-                                                         <span className="text-white font-mono">{rule.matches}</span>
-                                                     </div>
-                                                     <div className="flex items-center justify-between text-sm">
-                                                         <span className="text-slate-400">Affected Resources</span>
-                                                         <span className="text-white font-mono">{rule.matches}</span>
-                                                     </div>
-                                                     <div className="p-3 bg-red-900/10 border border-red-900/30 rounded text-xs text-red-300">
-                                                         <strong className="block mb-1 flex items-center"><AlertTriangle className="w-3 h-3 mr-1"/> Consequence:</strong>
-                                                         Disabling this rule will hide {rule.matches} critical risks. Cluster risk score will improve artificially (-13 pts) but security posture will degrade.
-                                                     </div>
-                                                </div>
-                                            </div>
-
-                                            {/* Test Interface (Toggle) */}
-                                            {testMode ? (
-                                                <div className="bg-slate-900 border border-slate-800 rounded-lg p-4 animate-in fade-in slide-in-from-top-2">
-                                                    <div className="flex justify-between items-center mb-3">
-                                                        <h4 className="text-sm font-semibold text-white">Test Rule</h4>
-                                                        <button onClick={() => setTestMode(false)} className="text-xs text-slate-500 hover:text-white">Close</button>
-                                                    </div>
-                                                    <textarea 
-                                                        className="w-full h-32 bg-slate-950 border border-slate-700 rounded p-2 text-xs font-mono text-slate-300 mb-3"
-                                                        defaultValue={`apiVersion: v1\nkind: Pod\nmetadata:\n  name: test-pod`}
-                                                    />
-                                                    <div className="flex justify-between items-center">
-                                                        <div className="text-xs text-emerald-400 font-medium flex items-center">
-                                                            <CheckCircle className="w-3 h-3 mr-1" /> Match Expected
-                                                        </div>
-                                                        <Button size="sm">Run Test</Button>
-                                                    </div>
-                                                </div>
-                                            ) : (
-                                                 <div className="flex space-x-3">
-                                                    <Button variant="secondary" className="flex-1" onClick={() => setTestMode(true)}>
-                                                        <PlayCircle className="w-4 h-4 mr-2" /> Test Rule
-                                                    </Button>
-                                                    <Button variant="secondary" className="flex-1">
-                                                        <Edit3 className="w-4 h-4 mr-2" /> Edit
-                                                    </Button>
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
-                        )}
-                        </React.Fragment>
-                    ))}
-                </tbody>
-            </table>
+          <table className="w-full text-sm text-left">
+            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
+              <tr>
+                <th className="px-6 py-4 font-medium">Rule</th>
+                <th className="px-6 py-4 font-medium">Category / Type</th>
+                <th className="px-6 py-4 font-medium">Severity</th>
+                <th className="px-6 py-4 font-medium">Status</th>
+                <th className="px-6 py-4 font-medium text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-800">
+              {filteredRules.length === 0 ? (
+                <tr>
+                  <td colSpan={5} className="px-6 py-8">
+                    <PageEmpty title="No rules match current filters" description="Adjust search or filter conditions." className="py-6" />
+                  </td>
+                </tr>
+              ) : (
+                filteredRules.map((rule) => (
+                  <tr key={rule.id} className="hover:bg-slate-800/50 transition-colors">
+                    <td className="px-6 py-4">
+                      <div className="font-medium text-white">{rule.name}</div>
+                      <div className="text-xs text-slate-500 font-mono">{rule.id}</div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-400">
+                      {(rule.category || 'uncategorized')}{rule.type ? ` / ${rule.type}` : ''}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium ${getSeverityBadgeClass(rule.severity)}`}>{rule.severity}</span>
+                    </td>
+                    <td className="px-6 py-4">
+                      <span className={`px-2 py-0.5 rounded text-xs font-medium border ${rule.enabled ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-slate-400 bg-slate-800 border-slate-700'}`}>
+                        {rule.enabled ? 'Enabled' : 'Disabled'}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      <div className="flex items-center justify-end gap-2">
+                        <Button size="sm" variant="secondary" onClick={() => handleQuickTest(rule.id)} disabled={testingRuleId === rule.id}>
+                          <FlaskConical className="w-4 h-4 mr-1" /> Test
+                        </Button>
+                        <Button size="sm" onClick={() => navigate(`/rules/${rule.id}`)}>Open</Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </Card>
-    </div>
+    </PageLayout>
   );
 };

@@ -72,11 +72,11 @@ func main() {
 	if !ok {
 		log.Fatalf("❌ Failed to cast Clientset to *kubernetes.Clientset")
 	}
-	autoSyncer := syncer.NewSyncer(syncClientset, cfg.CoreHTTPEndpoint, clusterInfo, cfg.SyncInterval, cfg.WatchNamespace)
+	autoSyncer := syncer.NewSyncer(syncClientset, cfg.CoreHTTPEndpoint, clusterInfo, cfg.SyncInterval, cfg.WatchNamespace, cfg.AgentID, cfg.NodeName, BuildVersion)
 	autoSyncer.Start(ctx)
 
-	// Initialize gRPC client with mTLS
-	grpcClient := client.NewMTLSClient(
+	// Initialize gRPC client with mTLS (use interface so Reconnect can be called from heartbeat)
+	var grpcClient client.GRPCClient = client.NewMTLSClient(
 		cfg.CoreGRPCEndpoint,
 		cfg.TLSEnabled,
 		cfg.TLSCertPath,
@@ -84,10 +84,26 @@ func main() {
 		cfg.TLSCACertPath,
 	)
 
-	// Connect to Core
-	log.Printf("🔗 Connecting to Core at %s...", cfg.CoreGRPCEndpoint)
-	if err := grpcClient.Connect(ctx); err != nil {
-		log.Fatalf("❌ Failed to connect to Core: %v", err)
+	// Connect to Core with retry (DNS may be briefly unavailable after deploy/restart)
+	const connectRetries = 12
+	const connectBackoff = 10 * time.Second
+	var lastConnectErr error
+	for attempt := 1; attempt <= connectRetries; attempt++ {
+		log.Printf("🔗 Connecting to Core at %s (attempt %d/%d)...", cfg.CoreGRPCEndpoint, attempt, connectRetries)
+		if err := grpcClient.Connect(ctx); err != nil {
+			lastConnectErr = err
+			log.Printf("⚠️  Connect failed: %v", err)
+			if attempt < connectRetries {
+				log.Printf("   Retrying in %v...", connectBackoff)
+				time.Sleep(connectBackoff)
+			}
+			continue
+		}
+		lastConnectErr = nil
+		break
+	}
+	if lastConnectErr != nil {
+		log.Fatalf("❌ Failed to connect to Core after %d attempts: %v", connectRetries, lastConnectErr)
 	}
 	defer grpcClient.Close()
 	log.Printf("✅ Connected to Core")
@@ -154,7 +170,8 @@ func main() {
 		log.Printf("✅ Initial pod processing complete")
 	}
 
-	// Start heartbeat goroutine so Core updates last_seen_at and dashboard shows agents in time
+	// Start heartbeat goroutine so Core updates last_seen_at and dashboard shows agents in time.
+	// On 3 consecutive Ping failures (e.g. DNS "no such host" after Core restart), reconnect and re-register.
 	go func() {
 		interval := cfg.HeartbeatInterval
 		if interval < 5*time.Second {
@@ -163,6 +180,8 @@ func main() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		successCount := 0
+		failCount := 0
+		const reconnectAfterFailures = 3
 
 		for {
 			select {
@@ -170,8 +189,23 @@ func main() {
 				return
 			case <-ticker.C:
 				if err := pingCore(ctx, grpcClient, cfg); err != nil {
+					failCount++
 					log.Printf("⚠️  Heartbeat failed: %v", err)
+					if failCount >= reconnectAfterFailures {
+						log.Printf("🔄 Reconnecting to Core after %d consecutive failures...", failCount)
+						if reconnErr := grpcClient.Reconnect(ctx); reconnErr != nil {
+							log.Printf("⚠️  Reconnect failed: %v", reconnErr)
+						} else {
+							if regErr := registerAgent(ctx, grpcClient, cfg); regErr != nil {
+								log.Printf("⚠️  Re-register after reconnect failed: %v", regErr)
+							} else {
+								log.Printf("✅ Reconnected and re-registered")
+							}
+							failCount = 0
+						}
+					}
 				} else {
+					failCount = 0
 					successCount++
 					// Log only every 20th success (~5 min at 15s) to avoid flooding
 					if successCount%20 == 1 {

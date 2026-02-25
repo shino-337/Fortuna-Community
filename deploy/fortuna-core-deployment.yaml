@@ -78,13 +78,9 @@ spec:
       
       containers:
         - name: core
-          # Production: Use versioned image tag
-          # For local development: Use 'fortuna-core:latest' with imagePullPolicy: Never
-          # For production: Use 'fortuna-core:v1.0.0' with imagePullPolicy: IfNotPresent
+          # Use :latest after build (BUILD_TAG=latest)
           image: fortuna-core:latest
-          # For local development: Never (use local image, don't pull from registry)
-          # For production: IfNotPresent or Always
-          imagePullPolicy: Never
+          imagePullPolicy: IfNotPresent
           
           ports:
             - name: http
@@ -128,6 +124,9 @@ spec:
             # Logging
             - name: LOG_LEVEL
               value: "info"
+            # Seed capability_metadata + promotion_rules (Capability Catalog & PCE). Required for catalog to show data.
+            - name: FORTUNA_ENABLE_SEED_DATA
+              value: "true"
             # Active agent cutoff (minutes) for dashboard; agents with last_seen_at within this window are shown (default 15)
             # - name: ACTIVE_AGENT_CUTOFF_MINUTES
             #   value: "15"

@@ -8,12 +8,15 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { PageLoading } from '../components/PageLoading';
+import { PageEmpty } from '../components/PageEmpty';
 import { Server, ShieldAlert, Boxes, Radio, ArrowRight, Shield, AlertTriangle, Bell, Info } from 'lucide-react';
 import { Cluster, Insight, InsightsSummary, Notification, PodCapabilitySummaryCapability, PodCapabilityTrendPoint } from '../types';
 import { useClusterStore } from '../store/clusterStore';
 import { useTimeWindowStore } from '../store/timeWindowStore';
+import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { getSeverityTextClass } from '../lib/severity';
 import { STAT_LABELS } from '../constants/labels';
+import { getClusterDisplayName } from '../lib/clusterDisplay';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 export const Dashboard: React.FC = () => {
@@ -45,7 +48,7 @@ export const Dashboard: React.FC = () => {
 
       // Rest in parallel – partial failure OK so dashboard still shows stats
       const [clustersResult, risksResult, notesResult, threatResult, pceResult, pceTrendResult] = await Promise.allSettled([
-        api.getClusters(),
+        api.getClustersStats(),
         api.getRisks({ page: 1, pageSize: 50, clusterId: selectedClusterId ?? undefined, sinceMinutes }),
         api.getNotifications(),
         api.getThreatVelocity(7),
@@ -55,8 +58,23 @@ export const Dashboard: React.FC = () => {
 
       if (clustersResult.status === 'fulfilled') setClusters(clustersResult.value);
       if (risksResult.status === 'fulfilled') {
-        const { insights } = risksResult.value;
+        const { insights, total } = risksResult.value;
         setTopRisks(insights.filter((r: Insight) => r.severity === 'critical').slice(0, 4));
+        // Fallback: when insights/summary failed, derive severity counts from first page so Security Risks cards still show numbers
+        if (!summaryResult) {
+          const bySev = { critical: 0, high: 0, medium: 0, low: 0 };
+          insights.forEach((r: Insight) => {
+            const s = (r.severity || '').toLowerCase();
+            if (s in bySev) (bySev as Record<string, number>)[s]++;
+          });
+          setInsightsSummary({
+            total: total ?? 0,
+            critical: bySev.critical,
+            high: bySev.high,
+            medium: bySev.medium,
+            low: bySev.low,
+          });
+        }
       }
       if (notesResult.status === 'fulfilled') setNotifications(notesResult.value.slice(0, 3));
       if (threatResult.status === 'fulfilled') setThreatVelocity(threatResult.value);
@@ -70,7 +88,17 @@ export const Dashboard: React.FC = () => {
   }, [selectedClusterId, sinceMinutes]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
-  usePolling(fetchData, intervalMs);
+  const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  usePolling(fetchData, intervalMs, { refreshTrigger });
+
+  /** Build /risks URL with current scope (cluster + time) so Risk Center shows same data as Dashboard Security Risks. */
+  const risksUrl = useMemo(() => {
+    const params = new URLSearchParams();
+    if (selectedClusterId?.trim()) params.set('clusterId', selectedClusterId.trim());
+    if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+    const qs = params.toString();
+    return qs ? `/risks?${qs}` : '/risks';
+  }, [selectedClusterId, sinceMinutes]);
 
   // Build 7-day labels for fallback when API returns empty (chart still shows axis)
   const last7Days = useMemo(() => {
@@ -137,8 +165,13 @@ export const Dashboard: React.FC = () => {
     <PageLayout
       title="Dashboard"
       description="Real-time security posture across your infrastructure."
-      actions={<Button variant="secondary" onClick={() => navigate('/risks')}>View All Risks</Button>}
+      actions={<Button variant="secondary" onClick={() => navigate(risksUrl)}>View All Risks</Button>}
     >
+      <div className="mb-4 p-3 bg-slate-900/40 border border-slate-800 rounded-lg text-xs text-slate-400 flex flex-wrap gap-x-4 gap-y-1">
+        <span>Scope: <span className="text-slate-200 font-medium">{selectedClusterId ? (stats.clusterName ?? selectedClusterId) : 'all clusters'}</span></span>
+        <span>Time range: <span className="text-slate-200 font-medium">{sinceMinutes ? `last ${sinceMinutes} minutes` : 'all time'}</span></span>
+        <span>Auto refresh: <span className="text-slate-200 font-medium">enabled</span></span>
+      </div>
       {/* Section 1: Infrastructure – clusters, pods, agents */}
       <section className="space-y-3">
         <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
@@ -155,7 +188,7 @@ export const Dashboard: React.FC = () => {
           </div>
           <div onClick={() => navigate('/resources')} className="cursor-pointer">
             <StatCard
-              title={STAT_LABELS.PODS}
+              title={selectedClusterId ? `${STAT_LABELS.PODS} (${stats.clusterName ?? 'selected cluster'})` : STAT_LABELS.PODS}
               value={stats.pods}
               icon={<Boxes className="w-5 h-5" />}
               color="bg-emerald-500/15 text-emerald-400"
@@ -172,48 +205,57 @@ export const Dashboard: React.FC = () => {
         </div>
       </section>
 
-      {/* Section 2: Security Risks – severity breakdown + affected workloads */}
+      {/* Section 2: Security Risks – severity breakdown + affected workloads (same source as Risk Center insights/summary) */}
       <section className="space-y-3">
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
-          Security Risks
-        </h2>
+        <div className="flex flex-wrap items-baseline gap-x-2 border-b border-slate-800 pb-2">
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
+            Security Risks
+          </h2>
+          {(selectedClusterId || sinceMinutes) && (
+            <span className="text-[11px] text-slate-500">
+              Active risks
+              {selectedClusterId && stats.clusterName && ` · ${stats.clusterName}`}
+              {sinceMinutes && sinceMinutes > 0 && ` · Last ${sinceMinutes >= 60 ? `${Math.round(sinceMinutes / 60)}h` : `${sinceMinutes}m`}`}
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-          <div onClick={() => navigate('/risks?severity=critical')} className="cursor-pointer">
+          <div onClick={() => navigate(risksUrl + (risksUrl.includes('?') ? '&' : '?') + 'severity=critical')} className="cursor-pointer">
             <StatCard
               title="Critical"
-              value={insightsSummary?.critical ?? stats.critical}
+              value={Number(insightsSummary?.critical ?? stats.critical ?? 0)}
               icon={<ShieldAlert className="w-5 h-5" />}
               color="bg-red-500/15 text-red-400"
             />
           </div>
-          <div onClick={() => navigate('/risks?severity=high')} className="cursor-pointer">
+          <div onClick={() => navigate(risksUrl + (risksUrl.includes('?') ? '&' : '?') + 'severity=high')} className="cursor-pointer">
             <StatCard
               title="High"
-              value={insightsSummary?.high ?? 0}
+              value={Number(insightsSummary?.high ?? 0)}
               icon={<ShieldAlert className="w-5 h-5" />}
               color="bg-orange-500/15 text-orange-400"
             />
           </div>
-          <div onClick={() => navigate('/risks?severity=medium')} className="cursor-pointer">
+          <div onClick={() => navigate(risksUrl + (risksUrl.includes('?') ? '&' : '?') + 'severity=medium')} className="cursor-pointer">
             <StatCard
               title="Medium"
-              value={insightsSummary?.medium ?? 0}
+              value={Number(insightsSummary?.medium ?? 0)}
               icon={<ShieldAlert className="w-5 h-5" />}
               color="bg-amber-500/15 text-amber-400"
             />
           </div>
-          <div onClick={() => navigate('/risks?severity=low')} className="cursor-pointer">
+          <div onClick={() => navigate(risksUrl + (risksUrl.includes('?') ? '&' : '?') + 'severity=low')} className="cursor-pointer">
             <StatCard
               title="Low"
-              value={insightsSummary?.low ?? 0}
+              value={Number(insightsSummary?.low ?? 0)}
               icon={<ShieldAlert className="w-5 h-5" />}
               color="bg-sky-500/15 text-sky-400"
             />
           </div>
-          <div onClick={() => navigate('/risks')} className="cursor-pointer sm:col-span-2">
+          <div onClick={() => navigate(risksUrl)} className="cursor-pointer sm:col-span-2">
             <StatCard
               title="Affected Workloads"
-              value={stats.affectedPodCount ?? 0}
+              value={Number(stats.affectedPodCount ?? 0)}
               icon={<Boxes className="w-5 h-5" />}
               color="bg-rose-500/15 text-rose-400"
             />
@@ -238,23 +280,31 @@ export const Dashboard: React.FC = () => {
               <h3 className="text-base font-bold text-white flex items-center">
                   <Shield className="w-4 h-4 mr-2 text-red-500" /> Critical Risks
               </h3>
-              <button onClick={() => navigate('/risks')} className="text-pink-500 text-sm font-medium hover:underline flex items-center">
+              <button onClick={() => navigate(risksUrl)} className="text-pink-500 text-sm font-medium hover:underline flex items-center">
                 View all <ArrowRight size={14} className="ml-1" />
               </button>
             </div>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {topRisks.map(risk => (
+                {topRisks.length === 0 ? (
+                  <div className="sm:col-span-2">
+                    <PageEmpty
+                      title="No critical findings in current scope"
+                      description="Critical findings will appear here when detected."
+                      className="py-10 border border-slate-800 rounded-xl bg-slate-900/40"
+                    />
+                  </div>
+                ) : topRisks.map(risk => (
                     <div 
                       key={risk.id} 
                       className="bg-slate-900 border border-slate-800 p-5 rounded-xl hover:border-pink-500/30 hover:bg-slate-800/50 transition-all cursor-pointer group relative overflow-hidden" 
-                      onClick={() => navigate('/risks')}
+                      onClick={() => navigate(`/risks/${risk.id}`)}
                     >
                         <div className="absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity">
                           <ShieldAlert size={60} />
                         </div>
                         <div className="flex justify-between items-start mb-3">
-                            <span className="text-red-500 font-bold text-lg">{risk.score}</span>
+                            <span className="text-red-500 font-bold text-lg" title="Risk score (0–100) from severity/CVSS">{risk.score}<span className="text-slate-500 font-normal text-xs ml-1">/100</span></span>
                             <span className="text-[10px] uppercase font-bold text-slate-500 border border-slate-700 px-2 py-0.5 rounded">Critical</span>
                         </div>
                         <h3 className="text-white font-bold mb-2 group-hover:text-pink-400 transition-colors line-clamp-1">{risk.title}</h3>
@@ -297,7 +347,7 @@ export const Dashboard: React.FC = () => {
                    </ResponsiveContainer>
                  </div>
                  {chartData.every((d) => d.risk === 0) && (
-                   <p className="text-xs text-slate-500 mt-2 px-1">No risks in last 7 days. Log in (admin/admin123); run <code className="text-slate-400">scripts/run-dashboard-data-tests.sh</code> to populate.</p>
+                   <p className="text-xs text-slate-500 mt-2 px-1">No risks in last 7 days. Log in (admin/admin123); run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> to populate.</p>
                  )}
             </Card>
 
@@ -325,7 +375,7 @@ export const Dashboard: React.FC = () => {
                    </ResponsiveContainer>
                  </div>
                  {pceChartData.every((d) => d.total === 0) && (
-                   <p className="text-xs text-slate-500 mt-2 px-1">No PCE data in last 7 days. Run <code className="text-slate-400">scripts/run-dashboard-data-tests.sh</code> or ensure agents sync capabilities.</p>
+                   <p className="text-xs text-slate-500 mt-2 px-1">No PCE data in last 7 days. Run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> or ensure agents sync capabilities.</p>
                  )}
             </Card>
         </div>
@@ -338,6 +388,11 @@ export const Dashboard: React.FC = () => {
             <h3 className="text-sm font-bold text-slate-300 mt-4">Cluster Health</h3>
             <Card className="p-0 overflow-hidden shadow-xl shadow-black/20">
                 <div className="divide-y divide-slate-800">
+                    {((selectedClusterId ? clusters.filter((c) => c.id === selectedClusterId) : clusters).length === 0) && (
+                      <div className="p-4">
+                        <PageEmpty title="No clusters available" description="Cluster health appears when cluster sync is available." className="py-6" />
+                      </div>
+                    )}
                     {(selectedClusterId ? clusters.filter((c) => c.id === selectedClusterId) : clusters).map(cluster => (
                         <div key={cluster.id} className="p-5 hover:bg-slate-800/50 transition-colors group cursor-pointer" onClick={() => navigate(`/clusters/${cluster.id}`)}>
                             <div className="flex justify-between items-center mb-3">
@@ -346,7 +401,7 @@ export const Dashboard: React.FC = () => {
                                     cluster.healthScore > 80 ? 'bg-emerald-500' :
                                     cluster.healthScore > 50 ? 'bg-yellow-500' : 'bg-red-500'
                                   }`}></div>
-                                  <span className="font-bold text-white group-hover:text-pink-400 transition-colors">{cluster.name || cluster.id}</span>
+                                  <span className="font-bold text-white group-hover:text-pink-400 transition-colors">{getClusterDisplayName(cluster)}</span>
                                 </div>
                                 <span className={`text-[10px] px-2 py-0.5 rounded-full uppercase font-bold ${
                                     cluster.healthScore > 80 ? 'text-emerald-400 bg-emerald-500/10' :
@@ -393,7 +448,9 @@ export const Dashboard: React.FC = () => {
 
             <h3 className="text-sm font-bold text-slate-300 mt-6">Recent Activity</h3>
             <div className="space-y-3">
-                {notifications.map(note => (
+                {notifications.length === 0 ? (
+                  <PageEmpty title="No recent activity" description="System events and notifications will appear here." className="py-6 border border-slate-800 rounded-xl bg-slate-900/30" />
+                ) : notifications.map(note => (
                   <div key={note.id} className="bg-slate-900/50 border border-slate-800 rounded-xl p-4 flex items-start space-x-3">
                     <div className={`p-2 rounded-lg shrink-0 ${
                       note.type === 'error' ? 'bg-red-500/10 text-red-400' :

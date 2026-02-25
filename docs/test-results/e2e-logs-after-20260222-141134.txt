@@ -1,0 +1,78 @@
+=== Core (last 50 lines) ===
+ERROR: <input>:1:90: Syntax error: extraneous input ']' expecting {'[', '{', '(', '.', '-', '!', '?', 'true', 'false', 'null', NUM_FLOAT, NUM_INT, NUM_UINT, STRING, BYTES, IDENTIFIER}
+ | rules[].resources contains 'secrets' || rules[].resources contains 'configmaps' || rules[].resources contains 'pods'
+ | .........................................................................................^
+ERROR: <input>:1:102: Syntax error: mismatched input 'contains' expecting ']'
+ | rules[].resources contains 'secrets' || rules[].resources contains 'configmaps' || rules[].resources contains 'pods'
+ | .....................................................................................................^
+2026/02/22 14:12:55.443973 [YAMLEngine] WARNING: Failed to compile CEL for rule overprivileged-binding, condition 0: CEL compilation error: ERROR: <input>:1:1: undeclared reference to 'roleRef' (in container '')
+ | roleRef.kind == 'Role' || roleRef.kind == 'ClusterRole'
+ | ^
+ERROR: <input>:1:27: undeclared reference to 'roleRef' (in container '')
+ | roleRef.kind == 'Role' || roleRef.kind == 'ClusterRole'
+ | ..........................^
+2026/02/22 14:12:55.444031 [YAMLEngine] WARNING: Failed to compile CEL for rule cluster-admin-pod, condition 0: CEL compilation error: ERROR: <input>:1:1: undeclared reference to 'resource' (in container '')
+ | resource.kind == "Pod" &&
+ | ^
+ERROR: <input>:2:1: undeclared reference to 'resource' (in container '')
+ | resource.service_account_name != "" &&
+ | ^
+ERROR: <input>:3:1: undeclared reference to 'resource' (in container '')
+ | resource.service_account_name != "default"
+ | ^
+2026/02/22 14:12:55.444269 [YAMLEngine] Compiled 1 CEL expressions
+2026/02/22 14:12:55.444275 [RiskEngine] ✅ Using YAML engine with 7 rules (YAML + hardcoded fallback)
+2026/02/22 14:12:55.444277 [InsightStatusUpdater] Starting status update for resolved risks...
+
+2026/02/22 14:12:55 [32mgithub.com/fortuna/core/pkg/worker/insight_status_updater.go:41
+[0m[33m[0.943ms] [34;1m[rows:0][0m SELECT * FROM "insights" WHERE (status = 'active' OR status IS NULL) AND "insights"."deleted_at" IS NULL
+2026/02/22 14:12:55.445342 [InsightStatusUpdater] Found 0 active insights to check
+2026/02/22 14:12:55.445440 [InsightStatusUpdater] Status update completed in 1.160781ms: 0 insights auto-resolved
+[GIN] 2026/02/22 - 14:12:55 | 200 |   42.657622ms |       127.0.0.1 | POST     "/api/v1/insights/evaluate/historical"
+
+2026/02/22 14:12:55 [32mgithub.com/fortuna/core/internal/middleware/auth.go:45
+[0m[33m[6.536ms] [34;1m[rows:1][0m SELECT * FROM "users" WHERE "users"."id" = 1 AND "users"."deleted_at" IS NULL ORDER BY "users"."id" LIMIT 1
+
+2026/02/22 14:12:55 [32mgithub.com/fortuna/core/internal/api/dashboard_handlers.go:224
+[0m[33m[1.086ms] [34;1m[rows:0][0m SELECT date_trunc('day', detected_at) as date, LOWER(severity) as severity, COUNT(*) as count FROM "insights" WHERE (insight_type = 'vulnerability' AND detected_at >= '2026-02-16 00:00:00' AND deleted_at IS NULL) AND "insights"."deleted_at" IS NULL GROUP BY date_trunc('day', detected_at), LOWER(severity) ORDER BY date_trunc('day', detected_at)
+[GIN] 2026/02/22 - 14:12:55 | 200 |    7.868619ms |       127.0.0.1 | GET      "/api/v1/dashboard/metrics/threat-velocity?days=7"
+
+2026/02/22 14:12:55 [32mgithub.com/fortuna/core/internal/middleware/auth.go:45
+[0m[33m[1.237ms] [34;1m[rows:1][0m SELECT * FROM "users" WHERE "users"."id" = 1 AND "users"."deleted_at" IS NULL ORDER BY "users"."id" LIMIT 1
+
+2026/02/22 14:12:55 [32mgithub.com/fortuna/core/internal/api/pod_capability_handlers.go:355
+[0m[33m[1.284ms] [34;1m[rows:1][0m SELECT 
+				TO_CHAR(pc.created_at::date, 'YYYY-MM-DD') AS date,
+				SUM(CASE WHEN LOWER(pc.severity) = 'critical' THEN 1 ELSE 0 END) AS critical,
+				SUM(CASE WHEN LOWER(pc.severity) = 'high' THEN 1 ELSE 0 END) AS high,
+				SUM(CASE WHEN LOWER(pc.severity) = 'medium' THEN 1 ELSE 0 END) AS medium,
+				SUM(CASE WHEN LOWER(pc.severity) = 'low' THEN 1 ELSE 0 END) AS low
+			 FROM pod_capabilities AS pc WHERE pc.created_at >= NOW() - (7 * INTERVAL '1 day') GROUP BY pc.created_at::date ORDER BY pc.created_at::date
+[GIN] 2026/02/22 - 14:12:55 | 200 |    2.853768ms |       127.0.0.1 | GET      "/api/v1/pod-capabilities/trends?days=7"
+
+=== Agent (last 60 lines, sync/heartbeat) ===
+[SBOMExtractor] 2026/02/22 13:48:11 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:4397c18a33dce22f6f6cd4cb37836285a4f81d74c033054f6cdcb41c5dc4181a: not found
+2026/02/22 13:52:42.269375 [Syncer] ✅ Full sync completed
+2026/02/22 13:52:52.804564 ✅ Heartbeat OK (interval=15s)
+2026/02/22 13:57:42.319883 [Syncer] ✅ Full sync completed
+2026/02/22 13:57:52.800939 ✅ Heartbeat OK (interval=15s)
+2026/02/22 14:02:42.268701 [Syncer] ✅ Full sync completed
+2026/02/22 14:02:52.802594 ✅ Heartbeat OK (interval=15s)
+2026/02/22 14:07:42.291568 [Syncer] ✅ Full sync completed
+2026/02/22 14:07:52.802194 ✅ Heartbeat OK (interval=15s)
+2026/02/22 14:12:42.413503 [Syncer] ✅ Full sync completed
+2026/02/22 14:12:52.800795 ✅ Heartbeat OK (interval=15s)
+2026/02/22 13:52:39.423664 [Syncer] ✅ Full sync completed
+2026/02/22 13:52:50.529450 ✅ Heartbeat OK (interval=15s)
+2026/02/22 13:57:39.321707 [Syncer] ✅ Full sync completed
+2026/02/22 13:57:50.531905 ✅ Heartbeat OK (interval=15s)
+2026/02/22 14:02:39.383766 [Syncer] ✅ Full sync completed
+2026/02/22 14:02:50.528337 ✅ Heartbeat OK (interval=15s)
+[LocalPodWatcher] 2026/02/22 14:04:29    → Queued pod fortuna/e2e-dashboard-pod-1771769061 for async processing (transitioned to Running)
+[SBOMExtractor] 2026/02/22 14:04:29 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:fe2385f276937dcf780967a5385767fd34b34580c8ed8d303a0cd1485a692635: not found
+2026/02/22 14:07:39.265174 [Syncer] ✅ Full sync completed
+2026/02/22 14:07:50.528380 ✅ Heartbeat OK (interval=15s)
+[LocalPodWatcher] 2026/02/22 14:11:48    → Queued pod fortuna/e2e-dashboard-pod-1771769500 for async processing (transitioned to Running)
+[SBOMExtractor] 2026/02/22 14:11:48 ⚠️  Containerd fetch failed: containerd export error: content digest sha256:fe2385f276937dcf780967a5385767fd34b34580c8ed8d303a0cd1485a692635: not found
+2026/02/22 14:12:39.552066 [Syncer] ✅ Full sync completed
+2026/02/22 14:12:50.528966 ✅ Heartbeat OK (interval=15s)

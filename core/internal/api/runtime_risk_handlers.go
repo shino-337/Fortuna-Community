@@ -130,30 +130,33 @@ func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 			MediumCount         int64 `json:"mediumCount"`
 		}
 
-		db.Model(&models.PodRiskProfile{}).Count(&stats.TotalPods)
-		db.Model(&models.PodRiskProfile{}).Where("runtime_score > 0").Count(&stats.PodsWithRuntimeRisk)
+		db.Model(&models.PodRiskProfile{}).Where("pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").Count(&stats.TotalPods)
+		db.Model(&models.PodRiskProfile{}).Where("runtime_score > 0 AND pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").Count(&stats.PodsWithRuntimeRisk)
 		
-		// Count by severity from pod_capabilities with runtime capabilities
+		// Count by severity from pod_capabilities with runtime capabilities (active pods only)
 		db.Model(&models.PodCapability{}).
-			Where("capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
-			Where("severity = ?", "CRITICAL").
+			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL").
+			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
+			Where("pod_capabilities.severity = ?", "CRITICAL").
 			Count(&stats.CriticalCount)
 		
 		db.Model(&models.PodCapability{}).
-			Where("capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
-			Where("severity = ?", "HIGH").
+			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL").
+			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
+			Where("pod_capabilities.severity = ?", "HIGH").
 			Count(&stats.HighCount)
 		
 		db.Model(&models.PodCapability{}).
-			Where("capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
-			Where("severity = ?", "MEDIUM").
+			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL").
+			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
+			Where("pod_capabilities.severity = ?", "MEDIUM").
 			Count(&stats.MediumCount)
 
 		c.JSON(http.StatusOK, stats)
 	}
 }
 
-// GetTopRuntimeRisks returns pods with highest runtime scores.
+// GetTopRuntimeRisks returns pods with highest runtime scores (active pods only).
 func GetTopRuntimeRisks(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		limit := 10
@@ -164,7 +167,7 @@ func GetTopRuntimeRisks(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var profiles []models.PodRiskProfile
-		if err := db.Where("runtime_score > 0").
+		if err := db.Where("runtime_score > 0 AND pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").
 			Order("runtime_score DESC, updated_at DESC").
 			Limit(limit).
 			Find(&profiles).Error; err != nil {

@@ -12,7 +12,7 @@ export const Capabilities: React.FC = () => {
           Capability Catalog
         </h1>
         <p className="text-slate-400 mt-1">
-          Browse capability metadata: definitions, severity, preconditions, and attack steps.
+          Definitions, severity, preconditions, MITRE mapping, and attack steps.
         </p>
       </div>
       <Card className="p-6">

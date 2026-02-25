@@ -5,9 +5,12 @@ import { PodWithRisk, PodSbom, Insight } from '../types';
 import { PageLayout } from '../components/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, Box, Package, ShieldAlert } from 'lucide-react';
+import { PageLoading } from '../components/PageLoading';
+import { PageEmpty } from '../components/PageEmpty';
+import { ArrowLeft, Box, Package, ShieldAlert, Globe } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass } from '../lib/severity';
+import { formatDateTime } from '../lib/display';
 
 type TabId = 'overview' | 'sbom' | 'risks';
 
@@ -59,20 +62,18 @@ export const PodDetail: React.FC = () => {
   }, [pod, activeTab, fetchTabData]);
 
   if (loading || !idOrUid) {
-    return (
-      <div className="flex flex-col justify-center items-center h-[40vh]">
-        <div className="w-12 h-12 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
-        <span className="text-slate-500 mt-4">Loading pod...</span>
-      </div>
-    );
+    return <PageLoading message="Loading pod detail..." className="min-h-[40vh]" />;
   }
 
   if (!pod) {
     return (
       <PageLayout title="Pod not found" description="The pod may have been removed or you lack access.">
-        <Button variant="secondary" onClick={() => navigate('/resources')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
-        </Button>
+        <PageEmpty title="Pod not found" description="The pod may have been removed or is outside current data scope." />
+        <div className="mt-4">
+          <Button variant="secondary" onClick={() => navigate('/resources')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+          </Button>
+        </div>
       </PageLayout>
     );
   }
@@ -122,7 +123,15 @@ export const PodDetail: React.FC = () => {
               </div>
               <div>
                 <dt className="text-slate-500">Node</dt>
-                <dd className="text-slate-300 font-mono">{pod.nodeName ?? '—'}</dd>
+                <dd className="text-slate-300 font-mono">
+                  {pod.nodeName && pod.clusterId ? (
+                    <button type="button" className="text-pink-400 hover:underline" onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName!)}`)}>
+                      {pod.nodeName}
+                    </button>
+                  ) : (
+                    pod.nodeName ?? '—'
+                  )}
+                </dd>
               </div>
               <div>
                 <dt className="text-slate-500">Service Account</dt>
@@ -136,6 +145,12 @@ export const PodDetail: React.FC = () => {
                 <dt className="text-slate-500">Risk Count</dt>
                 <dd className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-slate-400'}>{pod.riskCount}</dd>
               </div>
+              {'lastSeen' in (pod as unknown as Record<string, unknown>) && (
+                <div>
+                  <dt className="text-slate-500">Last Seen</dt>
+                  <dd className="text-slate-300">{formatDateTime((pod as unknown as Record<string, unknown>).lastSeen as string | undefined)}</dd>
+                </div>
+              )}
             </dl>
           </Card>
         </div>
@@ -212,12 +227,25 @@ export const PodDetail: React.FC = () => {
 
       <Card className="p-6 mt-6">
         <h3 className="text-lg font-semibold text-white mb-2">Related</h3>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {pod.clusterId && (
+            <Button variant="secondary" size="sm" onClick={() => navigate(`/clusters/${pod.clusterId}`)}>
+              <Globe className="w-4 h-4 mr-1" /> View cluster
+            </Button>
+          )}
+          {pod.nodeName && pod.clusterId && (
+            <Button variant="secondary" size="sm" onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName)}`)}>
+              View node
+            </Button>
+          )}
           <Button variant="secondary" size="sm" onClick={() => navigate('/risks')}>
             View all risks
           </Button>
           <Button variant="secondary" size="sm" onClick={() => navigate('/capabilities')}>
             Capabilities
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/resources?tab=Pod')}>
+            Back to Resources
           </Button>
         </div>
       </Card>

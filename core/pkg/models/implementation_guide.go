@@ -57,7 +57,7 @@ type Insight struct {
 	Recommendation string `gorm:"type:text" json:"recommendation"`
 
 	// CVE-specific fields (nullable, only for vulnerability insights)
-	CVEID             string  `gorm:"type:varchar(20);index" json:"cveId,omitempty"`
+	CVEID             string  `gorm:"type:varchar(100);index" json:"cveId,omitempty"`
 	AffectedComponent string  `gorm:"type:varchar(255);index" json:"affectedComponent,omitempty"` // Package name
 	AffectedVersion   string  `gorm:"type:varchar(100)" json:"affectedVersion,omitempty"`
 	FixedVersion      string  `gorm:"type:varchar(100)" json:"fixedVersion,omitempty"`

@@ -111,7 +111,7 @@ N/A - Initial release.
 
 ## Known Issues
 
-See [Troubleshooting Guide](docs/PRODUCTION_DEPLOYMENT.md#troubleshooting) for known issues and solutions.
+See [Troubleshooting Guide](docs/05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting) for known issues and solutions.
 
 ---
 
@@ -124,9 +124,9 @@ Fortuna Development Team
 ## Links
 
 - [Documentation](docs/README.md)
-- [API Reference](docs/API_REFERENCE.md)
-- [Deployment Guide](docs/PRODUCTION_DEPLOYMENT.md)
-- [Architecture](docs/ARCHITECTURE.md)
+- [API Reference](docs/06-reference/API_REFERENCE.md)
+- [Deployment Guide](docs/05-operations/PRODUCTION_DEPLOYMENT.md)
+- [Architecture](docs/02-architecture/ARCHITECTURE.md)
 
 ---
 

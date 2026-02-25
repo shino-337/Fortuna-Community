@@ -15,5 +15,5 @@ export const STAT_LABELS = {
   AGENTS: 'Agents',
 } as const;
 
-/** Risk Center – same as STAT_LABELS.SECURITY_RISKS (vulnerability findings) */
-export const RISK_CENTER_DESCRIPTION = 'Vulnerability findings (same count as Dashboard Security Risks). Triage, investigate, and remediate.';
+/** Risk Center – aligned terms for Findings, Capability Exposure (PCE), and Evidence */
+export const RISK_CENTER_DESCRIPTION = 'Unified workspace for risk findings, capability exposure (PCE), and supporting evidence.';

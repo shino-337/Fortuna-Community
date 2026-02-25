@@ -142,7 +142,7 @@ Comprehensive REST API with 50+ endpoints:
 - **Policy**: `/api/v1/policy`
 - **Metrics**: `/metrics` (Prometheus)
 
-See [API Reference](../../docs/API_REFERENCE.md) for complete documentation.
+See [API Reference](../../docs/06-reference/API_REFERENCE.md) for complete documentation.
 
 ### 6. gRPC API
 
@@ -251,7 +251,7 @@ Or using binary:
 
 ### Kubernetes Deployment
 
-See [Production Deployment Guide](../../docs/PRODUCTION_DEPLOYMENT.md) for complete deployment instructions.
+See [Production Deployment Guide](../../docs/05-operations/PRODUCTION_DEPLOYMENT.md) for complete deployment instructions.
 
 ---
 
@@ -270,7 +270,7 @@ See [Production Deployment Guide](../../docs/PRODUCTION_DEPLOYMENT.md) for compl
 - **`service_accounts`**: Service account data
 - **`audit_logs`**: Audit log entries
 
-See [Migrations Guide](../../docs/MIGRATIONS.md) for complete schema documentation.
+See [Migrations Guide](../../docs/04-development/MIGRATIONS.md) for complete schema documentation.
 
 ---
 
@@ -363,10 +363,10 @@ go test ./...
 
 ## Related Documentation
 
-- [Architecture](../../docs/ARCHITECTURE.md)
-- [API Reference](../../docs/API_REFERENCE.md)
-- [Production Deployment](../../docs/PRODUCTION_DEPLOYMENT.md)
-- [Migrations](../../docs/MIGRATIONS.md)
+- [Architecture](../../docs/02-architecture/ARCHITECTURE.md)
+- [API Reference](../../docs/06-reference/API_REFERENCE.md)
+- [Production Deployment](../../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
+- [Migrations](../../docs/04-development/MIGRATIONS.md)
 
 ---
 

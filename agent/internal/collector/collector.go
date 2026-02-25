@@ -18,7 +18,8 @@ import (
 	"github.com/fortuna/agent/internal/client"
 	"github.com/fortuna/agent/internal/converter"
 	"github.com/fortuna/agent/internal/watcher"
-	fortuna "github.com/fortuna/api/proto/agent"
+	pb "github.com/fortuna/api/proto/agent"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 // WatcherInterface for all watchers
@@ -91,18 +92,19 @@ func (c *Collector) Start() error {
 func (c *Collector) register() error {
 	log.Printf("[Collector] Registering agent with core...")
 
-	req := &fortuna.RegisterRequest{
-		ClusterId: c.clusterID,
-		NodeName:  getNodeName(),
-		Version:   "1.0.0",
+	req := &pb.RegisterAgentRequest{
+		AgentId:  getNodeName(),
+		Hostname: getNodeName(),
+		NodeName: getNodeName(),
+		Version:  "1.0.0",
 	}
 
-	resp, err := c.grpcClient.Register(context.Background(), req)
+	resp, err := c.grpcClient.RegisterAgent(context.Background(), req)
 	if err != nil {
 		return fmt.Errorf("registration failed: %w", err)
 	}
 
-	if !resp.Ok {
+	if !resp.Success {
 		return fmt.Errorf("registration failed: %s", resp.Message)
 	}
 
@@ -290,9 +292,9 @@ func (c *Collector) handleClusterRoleBinding(crb *rbacv1.ClusterRoleBinding, eve
 	return c.sendInventoryItem(item)
 }
 
-// sendInventoryItem sends an inventory item to the core
-func (c *Collector) sendInventoryItem(item *fortuna.InventoryItem) error {
-	items := []*fortuna.InventoryItem{item}
+// sendInventoryItem sends an inventory item to the core (no-op when using MTLS client; Core uses HTTP syncer)
+func (c *Collector) sendInventoryItem(item *converter.InventoryItem) error {
+	items := []*converter.InventoryItem{item}
 	return c.grpcClient.StreamInventory(context.Background(), items)
 }
 
@@ -307,13 +309,12 @@ func (c *Collector) heartbeat() {
 		case <-c.ctx.Done():
 			return
 		case <-ticker.C:
-			req := &fortuna.RegisterRequest{
-				ClusterId: c.clusterID,
-				NodeName:  getNodeName(),
-				Version:   "1.0.0",
-				AgentId:   getNodeName(),
+			req := &pb.HeartbeatRequest{
+				AgentId:  getNodeName(),
+				Status:   "ok",
+				Timestamp: timestamppb.Now(),
 			}
-			if err := c.grpcClient.Heartbeat(context.Background(), req); err != nil {
+			if _, err := c.grpcClient.Heartbeat(context.Background(), req); err != nil {
 				log.Printf("[Collector] Heartbeat error: %v", err)
 			}
 		}

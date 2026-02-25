@@ -69,7 +69,7 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: agent
 ---
-# ClusterRole for Agent (read pods + access container runtime)
+# ClusterRole for Agent (read pods, SAs, RBAC for sync + container runtime)
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -78,7 +78,7 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: agent
 rules:
-# Watch pods on local node only
+# Watch pods (sync payload)
 - apiGroups: [""]
   resources:
     - pods
@@ -95,6 +95,21 @@ rules:
   resources:
     - namespaces
   verbs: ["get", "list"]
+
+# ServiceAccounts (sync payload – required for cluster sync; was missing, caused "serviceaccounts is forbidden")
+- apiGroups: [""]
+  resources:
+    - serviceaccounts
+  verbs: ["get", "list", "watch"]
+
+# RBAC resources (sync payload – roles, rolebindings, clusterroles, clusterrolebindings)
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
 ---
 # ClusterRoleBinding for Agent
 apiVersion: rbac.authorization.k8s.io/v1

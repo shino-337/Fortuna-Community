@@ -28,12 +28,22 @@ const (
 	auditLogTTL = 90 * 24 * time.Hour
 )
 
+func getStalePodCutoff() time.Duration {
+	if m := os.Getenv("STALE_POD_CUTOFF_MINUTES"); m != "" {
+		if n, err := strconv.Atoi(m); err == nil && n > 0 {
+			return time.Duration(n) * time.Minute
+		}
+	}
+	// Default with buffer for SYNC_INTERVAL=5m to avoid accidental pruning.
+	return 30 * time.Minute
+}
+
 // AgentService handles data from agents
 type AgentService struct {
-	db                *gorm.DB
-	logger            *log.Logger
-	systemUserID      uint
-	systemUserOnce    sync.Once
+	db                 *gorm.DB
+	logger             *log.Logger
+	systemUserID       uint
+	systemUserOnce     sync.Once
 	podInstanceManager *lifecycle.PodInstanceManager
 }
 
@@ -195,10 +205,10 @@ func (s *AgentService) SyncData(clusterID string, clusterName string, source, k8
 	} else {
 		// Update only mutable fields (never create new cluster just because name/source changed)
 		updates := map[string]interface{}{
-			"name":         displayName,
-			"status":       "active",
-			"last_sync":    now,
-			"updated_at":   now,
+			"name":       displayName,
+			"status":     "active",
+			"last_sync":  now,
+			"updated_at": now,
 		}
 		if source != "" {
 			updates["source"] = source
@@ -257,6 +267,8 @@ func (s *AgentService) SyncData(clusterID string, clusterName string, source, k8
 		if err := s.processSyncedPods(clusterID, data, isFullSync); err != nil {
 			s.logger.Printf("❌ Error processing pods: %v", err)
 		}
+		// Fallback reconciliation for missed delete events.
+		go s.cleanupStalePods(clusterID)
 		if err := s.processSyncedDeployments(clusterID, data); err != nil {
 			s.logger.Printf("❌ Error processing deployments: %v", err)
 		}
@@ -378,10 +390,10 @@ func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[s
 			if changed {
 				// Update SA
 				s.db.Model(&existingSA).Updates(map[string]interface{}{
-					"name":      sa.Name,
-					"namespace": sa.Namespace,
-					"labels":    sa.Labels,
-					"secrets":   sa.Secrets,
+					"name":        sa.Name,
+					"namespace":   sa.Namespace,
+					"labels":      sa.Labels,
+					"secrets":     sa.Secrets,
 					"linked_pods": sa.LinkedPods,
 				})
 
@@ -902,95 +914,95 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			serviceAccount = sa
 		}
 
-	nodeName, _ := podMap["nodeName"].(string)
-	hostNetwork, _ := podMap["hostNetwork"].(bool)
-	hostPID, _ := podMap["hostPID"].(bool)
-	hostIPC, _ := podMap["hostIPC"].(bool)
-	automountPtr := (*bool)(nil)
-	if v, ok := podMap["automountServiceAccountToken"].(bool); ok {
-		automountPtr = &v
-	}
-
-	containersJSON := "[]"
-	volumeMountsJSON := "[]"
-	containerSecurityJSON := "{}"
-	if containers, ok := podMap["containers"].([]interface{}); ok {
-		if b, err := json.Marshal(containers); err == nil {
-			containersJSON = string(b)
+		nodeName, _ := podMap["nodeName"].(string)
+		hostNetwork, _ := podMap["hostNetwork"].(bool)
+		hostPID, _ := podMap["hostPID"].(bool)
+		hostIPC, _ := podMap["hostIPC"].(bool)
+		automountPtr := (*bool)(nil)
+		if v, ok := podMap["automountServiceAccountToken"].(bool); ok {
+			automountPtr = &v
 		}
 
-		volumeMounts := make([]interface{}, 0)
-		securityContexts := make(map[string]interface{})
-		for _, c := range containers {
-			cm, ok := c.(map[string]interface{})
-			if !ok {
-				continue
+		containersJSON := "[]"
+		volumeMountsJSON := "[]"
+		containerSecurityJSON := "{}"
+		if containers, ok := podMap["containers"].([]interface{}); ok {
+			if b, err := json.Marshal(containers); err == nil {
+				containersJSON = string(b)
 			}
-			name, _ := cm["name"].(string)
-			if sc, ok := cm["securityContext"]; ok && name != "" {
-				securityContexts[name] = sc
-			}
-			if vms, ok := cm["volumeMounts"].([]interface{}); ok {
-				for _, vm := range vms {
-					volumeMounts = append(volumeMounts, vm)
+
+			volumeMounts := make([]interface{}, 0)
+			securityContexts := make(map[string]interface{})
+			for _, c := range containers {
+				cm, ok := c.(map[string]interface{})
+				if !ok {
+					continue
+				}
+				name, _ := cm["name"].(string)
+				if sc, ok := cm["securityContext"]; ok && name != "" {
+					securityContexts[name] = sc
+				}
+				if vms, ok := cm["volumeMounts"].([]interface{}); ok {
+					for _, vm := range vms {
+						volumeMounts = append(volumeMounts, vm)
+					}
 				}
 			}
+			if b, err := json.Marshal(volumeMounts); err == nil {
+				volumeMountsJSON = string(b)
+			}
+			if b, err := json.Marshal(securityContexts); err == nil {
+				containerSecurityJSON = string(b)
+			}
 		}
-		if b, err := json.Marshal(volumeMounts); err == nil {
-			volumeMountsJSON = string(b)
-		}
-		if b, err := json.Marshal(securityContexts); err == nil {
-			containerSecurityJSON = string(b)
-		}
-	}
 
-	volumesJSON := "[]"
-	if volumes, ok := podMap["volumes"].([]interface{}); ok {
-		if b, err := json.Marshal(volumes); err == nil {
-			volumesJSON = string(b)
+		volumesJSON := "[]"
+		if volumes, ok := podMap["volumes"].([]interface{}); ok {
+			if b, err := json.Marshal(volumes); err == nil {
+				volumesJSON = string(b)
+			}
 		}
-	}
 
-	tolerationsJSON := "[]"
-	if tolerations, ok := podMap["tolerations"].([]interface{}); ok {
-		if b, err := json.Marshal(tolerations); err == nil {
-			tolerationsJSON = string(b)
+		tolerationsJSON := "[]"
+		if tolerations, ok := podMap["tolerations"].([]interface{}); ok {
+			if b, err := json.Marshal(tolerations); err == nil {
+				tolerationsJSON = string(b)
+			}
 		}
-	}
 
-	affinityJSON := "{}"
-	if affinity, ok := podMap["affinity"]; ok && affinity != nil {
-		if b, err := json.Marshal(affinity); err == nil {
-			affinityJSON = string(b)
+		affinityJSON := "{}"
+		if affinity, ok := podMap["affinity"]; ok && affinity != nil {
+			if b, err := json.Marshal(affinity); err == nil {
+				affinityJSON = string(b)
+			}
 		}
-	}
 
-	podSecurityContextJSON := "{}"
-	if psc, ok := podMap["podSecurityContext"]; ok && psc != nil {
-		if b, err := json.Marshal(psc); err == nil {
-			podSecurityContextJSON = string(b)
+		podSecurityContextJSON := "{}"
+		if psc, ok := podMap["podSecurityContext"]; ok && psc != nil {
+			if b, err := json.Marshal(psc); err == nil {
+				podSecurityContextJSON = string(b)
+			}
 		}
-	}
 
 		pod := models.Pod{
-			ClusterID:      clusterID,
-			UID:            uid,
-			Name:           name,
-			Namespace:      namespace,
-			ServiceAccount: serviceAccount,
-		Containers:     containersJSON,
-		ImageDigests:   "[]",
-		PodSecurityContext:      podSecurityContextJSON,
-		ContainerSecurityContexts: containerSecurityJSON,
-		VolumeMounts:            volumeMountsJSON,
-		Volumes:                 volumesJSON,
-		Tolerations:             tolerationsJSON,
-		Affinity:                affinityJSON,
-		HostNetwork:             hostNetwork,
-		HostPID:                 hostPID,
-		HostIPC:                 hostIPC,
-		AutomountServiceAccountToken: automountPtr,
-		NodeName:                nodeName,
+			ClusterID:                    clusterID,
+			UID:                          uid,
+			Name:                         name,
+			Namespace:                    namespace,
+			ServiceAccount:               serviceAccount,
+			Containers:                   containersJSON,
+			ImageDigests:                 "[]",
+			PodSecurityContext:           podSecurityContextJSON,
+			ContainerSecurityContexts:    containerSecurityJSON,
+			VolumeMounts:                 volumeMountsJSON,
+			Volumes:                      volumesJSON,
+			Tolerations:                  tolerationsJSON,
+			Affinity:                     affinityJSON,
+			HostNetwork:                  hostNetwork,
+			HostPID:                      hostPID,
+			HostIPC:                      hostIPC,
+			AutomountServiceAccountToken: automountPtr,
+			NodeName:                     nodeName,
 		}
 
 		// Upsert pod - use UID as unique identifier
@@ -998,38 +1010,38 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
 		if err == nil {
 			// Update existing pod (avoid duplicates)
-		changed := existing.Name != pod.Name ||
+			changed := existing.Name != pod.Name ||
 				existing.Namespace != pod.Namespace ||
-			existing.ServiceAccount != pod.ServiceAccount ||
-			existing.Containers != pod.Containers ||
-			existing.PodSecurityContext != pod.PodSecurityContext ||
-			existing.ContainerSecurityContexts != pod.ContainerSecurityContexts ||
-			existing.VolumeMounts != pod.VolumeMounts ||
-			existing.Volumes != pod.Volumes ||
-			existing.Tolerations != pod.Tolerations ||
-			existing.Affinity != pod.Affinity ||
-			existing.HostNetwork != pod.HostNetwork ||
-			existing.HostPID != pod.HostPID ||
-			existing.HostIPC != pod.HostIPC ||
-			existing.NodeName != pod.NodeName
+				existing.ServiceAccount != pod.ServiceAccount ||
+				existing.Containers != pod.Containers ||
+				existing.PodSecurityContext != pod.PodSecurityContext ||
+				existing.ContainerSecurityContexts != pod.ContainerSecurityContexts ||
+				existing.VolumeMounts != pod.VolumeMounts ||
+				existing.Volumes != pod.Volumes ||
+				existing.Tolerations != pod.Tolerations ||
+				existing.Affinity != pod.Affinity ||
+				existing.HostNetwork != pod.HostNetwork ||
+				existing.HostPID != pod.HostPID ||
+				existing.HostIPC != pod.HostIPC ||
+				existing.NodeName != pod.NodeName
 
 			if changed {
 				s.db.Model(&existing).Updates(map[string]interface{}{
-					"name":            pod.Name,
-					"namespace":       pod.Namespace,
-					"service_account": pod.ServiceAccount,
-				"containers":      pod.Containers,
-				"pod_security_context": pod.PodSecurityContext,
-				"container_security_contexts": pod.ContainerSecurityContexts,
-				"volume_mounts":   pod.VolumeMounts,
-				"volumes":         pod.Volumes,
-				"tolerations":     pod.Tolerations,
-				"affinity":        pod.Affinity,
-				"host_network":    pod.HostNetwork,
-				"host_pid":        pod.HostPID,
-				"host_ipc":        pod.HostIPC,
-				"automount_service_account_token": pod.AutomountServiceAccountToken,
-				"node_name":       pod.NodeName,
+					"name":                            pod.Name,
+					"namespace":                       pod.Namespace,
+					"service_account":                 pod.ServiceAccount,
+					"containers":                      pod.Containers,
+					"pod_security_context":            pod.PodSecurityContext,
+					"container_security_contexts":     pod.ContainerSecurityContexts,
+					"volume_mounts":                   pod.VolumeMounts,
+					"volumes":                         pod.Volumes,
+					"tolerations":                     pod.Tolerations,
+					"affinity":                        pod.Affinity,
+					"host_network":                    pod.HostNetwork,
+					"host_pid":                        pod.HostPID,
+					"host_ipc":                        pod.HostIPC,
+					"automount_service_account_token": pod.AutomountServiceAccountToken,
+					"node_name":                       pod.NodeName,
 				})
 				s.logger.Printf("🔄 Updated Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
 				// Ensure pod instance is active
@@ -1038,6 +1050,9 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
 				s.evaluatePodCapabilities(clusterID, uid)
+			} else if isFullSync {
+				// Touch unchanged pods so stale cleanup can rely on updated_at as last-seen.
+				s.db.Model(&existing).Update("updated_at", time.Now())
 			}
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Check if soft-deleted pod exists
@@ -1559,6 +1574,25 @@ func (s *AgentService) cleanupStaleClusters() {
 			continue
 		}
 		s.logger.Printf("🧹 Soft-deleted stale cluster %s (last_sync %v)", c.ID, c.LastSync)
+	}
+}
+
+func (s *AgentService) cleanupStalePods(clusterID string) {
+	cutoff := time.Now().Add(-getStalePodCutoff())
+	var stale []models.Pod
+	if err := s.db.Where("cluster_id = ? AND deleted_at IS NULL AND updated_at < ?", clusterID, cutoff).Find(&stale).Error; err != nil {
+		s.logger.Printf("❌ Failed to list stale pods for cluster %s: %v", clusterID, err)
+		return
+	}
+	if len(stale) == 0 {
+		return
+	}
+	for _, p := range stale {
+		if err := s.db.Delete(&p).Error; err != nil {
+			s.logger.Printf("❌ Failed to soft-delete stale pod %s/%s (%s): %v", p.Namespace, p.Name, p.UID, err)
+			continue
+		}
+		s.logger.Printf("🧹 Soft-deleted stale pod %s/%s (%s), updated_at=%s", p.Namespace, p.Name, p.UID, p.UpdatedAt.Format(time.RFC3339))
 	}
 }
 

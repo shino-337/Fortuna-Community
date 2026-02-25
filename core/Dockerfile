@@ -96,7 +96,7 @@ RUN for i in 1 2 3 4 5; do \
     tzdata \
     curl \
     && \
-    # Create non-root user
+    # Create non-root user (UID/GID 1000 to avoid conflict with system GID 100 in debian)
     groupadd -r -g 1000 fortuna && \
     useradd -r -m -u 1000 -g fortuna fortuna && \
     # Clean up

@@ -10,6 +10,10 @@ import (
 // Migration051_SeedPromotionRules seeds initial promotion rules
 func Migration051_SeedPromotionRules(db *gorm.DB) error {
 	log.Println("Running migration 051: Seed promotion_rules")
+	if !shouldRunSeedMigrations() {
+		log.Println("[Migration 051] seed disabled (FORTUNA_ENABLE_SEED_DATA not set); set FORTUNA_ENABLE_SEED_DATA=true for PCE promotion rules")
+		return nil
+	}
 
 	// Check if table exists
 	if !db.Migrator().HasTable("promotion_rules") {
@@ -20,83 +24,83 @@ func Migration051_SeedPromotionRules(db *gorm.DB) error {
 	rules := []map[string]interface{}{
 		// PROC_ROOT_PIVOT → ESC_HOSTPATH_NODE (confirmed)
 		{
-			"capability_id":        "ESC_HOSTPATH_NODE",
-			"signal_type":          "PROC_ROOT_PIVOT",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_HOSTPATH_NODE",
+			"signal_type":           "PROC_ROOT_PIVOT",
+			"min_occurrences":       1,
 			"required_capabilities": []string{},
-			"promote_to":           "confirmed",
-			"confidence_boost":     0.2,
+			"promote_to":            "confirmed",
+			"confidence_boost":      0.2,
 		},
 		// PROC_ROOT_PIVOT + SYS_ADMIN → ESC_HOSTPATH_NODE (exploited)
 		{
-			"capability_id":        "ESC_HOSTPATH_NODE",
-			"signal_type":          "PROC_ROOT_PIVOT",
-			"min_occurrences":      2,
+			"capability_id":         "ESC_HOSTPATH_NODE",
+			"signal_type":           "PROC_ROOT_PIVOT",
+			"min_occurrences":       2,
 			"required_capabilities": []string{"SYS_ADMIN"},
-			"promote_to":           "exploited",
-			"confidence_boost":     0.3,
+			"promote_to":            "exploited",
+			"confidence_boost":      0.3,
 		},
 		// FS_ESCAPE_ATTEMPT → ESC_HOSTPATH_NODE (exploited)
 		{
-			"capability_id":        "ESC_HOSTPATH_NODE",
-			"signal_type":          "FS_ESCAPE_ATTEMPT",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_HOSTPATH_NODE",
+			"signal_type":           "FS_ESCAPE_ATTEMPT",
+			"min_occurrences":       1,
 			"required_capabilities": []string{},
-			"promote_to":           "exploited",
-			"confidence_boost":     0.3,
+			"promote_to":            "exploited",
+			"confidence_boost":      0.3,
 		},
 		// NAMESPACE_ESCAPE → ESC_HOSTPID_POD or ESC_HOSTIPC_POD (confirmed)
 		{
-			"capability_id":        "ESC_HOSTPID_POD",
-			"signal_type":          "NAMESPACE_ESCAPE",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_HOSTPID_POD",
+			"signal_type":           "NAMESPACE_ESCAPE",
+			"min_occurrences":       1,
 			"required_capabilities": []string{},
-			"promote_to":           "confirmed",
-			"confidence_boost":     0.2,
+			"promote_to":            "confirmed",
+			"confidence_boost":      0.2,
 		},
 		{
-			"capability_id":        "ESC_HOSTIPC_POD",
-			"signal_type":          "NAMESPACE_ESCAPE",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_HOSTIPC_POD",
+			"signal_type":           "NAMESPACE_ESCAPE",
+			"min_occurrences":       1,
 			"required_capabilities": []string{},
-			"promote_to":           "confirmed",
-			"confidence_boost":     0.2,
+			"promote_to":            "confirmed",
+			"confidence_boost":      0.2,
 		},
 		// CAPABILITY_MISUSE → ESC_PRIV_POD (confirmed)
 		{
-			"capability_id":        "ESC_PRIV_POD",
-			"signal_type":          "CAPABILITY_MISUSE",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_PRIV_POD",
+			"signal_type":           "CAPABILITY_MISUSE",
+			"min_occurrences":       1,
 			"required_capabilities": []string{"SYS_ADMIN"},
-			"promote_to":           "confirmed",
-			"confidence_boost":     0.2,
+			"promote_to":            "confirmed",
+			"confidence_boost":      0.2,
 		},
 		// PROC_ROOT_PIVOT → ESC_RUNTIME_PROBE (confirmed)
 		{
-			"capability_id":        "ESC_RUNTIME_PROBE",
-			"signal_type":          "PROC_ROOT_PIVOT",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_RUNTIME_PROBE",
+			"signal_type":           "PROC_ROOT_PIVOT",
+			"min_occurrences":       1,
 			"required_capabilities": []string{},
-			"promote_to":           "confirmed",
-			"confidence_boost":     0.2,
+			"promote_to":            "confirmed",
+			"confidence_boost":      0.2,
 		},
 		// Multiple PROC_ROOT_PIVOT → ESC_RUNTIME_ACTIVE (exploited)
 		{
-			"capability_id":        "ESC_RUNTIME_ACTIVE",
-			"signal_type":          "PROC_ROOT_PIVOT",
-			"min_occurrences":      3,
+			"capability_id":         "ESC_RUNTIME_ACTIVE",
+			"signal_type":           "PROC_ROOT_PIVOT",
+			"min_occurrences":       3,
 			"required_capabilities": []string{},
-			"promote_to":           "exploited",
-			"confidence_boost":     0.3,
+			"promote_to":            "exploited",
+			"confidence_boost":      0.3,
 		},
 		// FS_ESCAPE_ATTEMPT → ESC_RUNTIME_ACTIVE (exploited)
 		{
-			"capability_id":        "ESC_RUNTIME_ACTIVE",
-			"signal_type":          "FS_ESCAPE_ATTEMPT",
-			"min_occurrences":      1,
+			"capability_id":         "ESC_RUNTIME_ACTIVE",
+			"signal_type":           "FS_ESCAPE_ATTEMPT",
+			"min_occurrences":       1,
 			"required_capabilities": []string{},
-			"promote_to":           "exploited",
-			"confidence_boost":     0.3,
+			"promote_to":            "exploited",
+			"confidence_boost":      0.3,
 		},
 	}
 
@@ -108,7 +112,7 @@ func Migration051_SeedPromotionRules(db *gorm.DB) error {
 				r["capability_id"], r["signal_type"], err)
 			continue
 		}
-		
+
 		sql := `
 			INSERT INTO promotion_rules (
 				capability_id, signal_type, min_occurrences, 
@@ -120,7 +124,7 @@ func Migration051_SeedPromotionRules(db *gorm.DB) error {
 				confidence_boost = EXCLUDED.confidence_boost,
 				updated_at = CURRENT_TIMESTAMP
 		`
-		
+
 		if err := db.Exec(sql,
 			r["capability_id"],
 			r["signal_type"],
@@ -129,7 +133,7 @@ func Migration051_SeedPromotionRules(db *gorm.DB) error {
 			r["promote_to"],
 			r["confidence_boost"],
 		).Error; err != nil {
-			log.Printf("[Migration 051] Failed to seed promotion rule %s + %s: %v", 
+			log.Printf("[Migration 051] Failed to seed promotion rule %s + %s: %v",
 				r["capability_id"], r["signal_type"], err)
 			continue
 		}

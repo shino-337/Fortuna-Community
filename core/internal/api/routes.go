@@ -96,6 +96,9 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		fmt.Fprintf(os.Stdout, "[API] ========================================\n")
 		log.Printf("[API] ========================================")
 
+		// Health / data integrity (same handler as root /health/dashboard-data-integrity, for /api/v1 callers)
+		v1.GET("/health/dashboard-data-integrity", DashboardDataIntegrity(db))
+
 		// Current user
 		v1.GET("/me", GetCurrentUser())
 		v1.POST("/change-password", ChangePassword(db))

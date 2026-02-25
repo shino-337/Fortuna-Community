@@ -9,7 +9,7 @@ Helm chart để deploy Fortuna - Kubernetes Security and Compliance Platform.
 - Containerd runtime (for Agent)
 - PostgreSQL database (can be deployed with chart or external)
 - NATS (can be deployed with chart or external)
-- mTLS certificates (see `scripts/create-mtls-secrets.sh`)
+- mTLS certificates (see `scripts/utils/create_mtls_secret.sh`)
 
 ## Installation
 
@@ -100,7 +100,7 @@ Before installing, create mTLS certificates:
 
 ```bash
 # Generate certificates
-./scripts/create-mtls-secrets.sh
+./scripts/utils/create_mtls_secret.sh
 
 # Or manually create secrets
 kubectl create secret tls fortuna-core-server-tls \

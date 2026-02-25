@@ -24,6 +24,7 @@ import {
   ChevronDown
 } from 'lucide-react';
 import { Cluster } from '../types';
+import { getClusterDisplayName } from '../lib/clusterDisplay';
 
 // Nav aligned to Dashboard-UX-Specification: Dashboard → Clusters → Resources → Risk Center → Capabilities → Identities → Rules → Attack Paths → Monitoring. Settings at end.
 export const Layout: React.FC = () => {
@@ -199,7 +200,7 @@ export const Layout: React.FC = () => {
                 <Globe className="w-4 h-4 text-brand shrink-0" />
                 <span className="truncate">
                   {selectedClusterId
-                    ? (clusters.find((c) => c.id === selectedClusterId)?.name ?? selectedClusterId)
+                    ? getClusterDisplayName(clusters.find((c) => c.id === selectedClusterId) ?? { id: selectedClusterId })
                     : 'All clusters'}
                 </span>
                 <ChevronDown className="w-4 h-4 shrink-0 ml-auto text-muted-2" />
@@ -220,9 +221,9 @@ export const Layout: React.FC = () => {
                         key={c.id}
                         type="button"
                         onClick={() => { setSelectedClusterId(c.id); setClusterDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === c.id ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
-                      >
-                        {c.name || c.id}
+className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === c.id ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
+                    >
+                        {getClusterDisplayName(c)}
                       </button>
                     ))}
                     {clusters.length === 0 && (
@@ -239,15 +240,15 @@ export const Layout: React.FC = () => {
                 value={globalSearchQuery}
                 onChange={(e) => setGlobalSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
-                placeholder="Search risks (Enter)"
+                placeholder="Search findings (Enter)"
                 className="bg-surface/70 border border-border rounded-full pl-9 pr-4 py-1.5 text-sm text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand w-64 transition-all"
-                title="Search risks: type and press Enter to open Risk Center with results."
+                title="Search findings: type and press Enter to open Risk Center with results."
               />
               <button
                 type="button"
                 onClick={handleGlobalSearch}
                 className="ml-1 p-1.5 rounded-full text-muted-2 hover:text-brand hover:bg-brand/10 transition-colors"
-                title="Search risks"
+                title="Search findings"
               >
                 <Search size={16} />
               </button>
@@ -290,7 +291,7 @@ export const Layout: React.FC = () => {
                 <Globe className="w-3.5 h-3.5 text-brand" />
                 <span className="max-w-[110px] truncate">
                   {selectedClusterId
-                    ? (clusters.find((c) => c.id === selectedClusterId)?.name ?? selectedClusterId)
+                    ? getClusterDisplayName(clusters.find((c) => c.id === selectedClusterId) ?? { id: selectedClusterId })
                     : 'All clusters'}
                 </span>
                 <ChevronDown className="w-3.5 h-3.5 text-muted-2" />
@@ -313,7 +314,7 @@ export const Layout: React.FC = () => {
                         onClick={() => { setSelectedClusterId(c.id); setClusterDropdownOpen(false); }}
                         className={`w-full text-left px-4 py-2 text-xs truncate ${selectedClusterId === c.id ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
                       >
-                        {c.name || c.id}
+                        {getClusterDisplayName(c)}
                       </button>
                     ))}
                     {clusters.length === 0 && (
@@ -331,9 +332,9 @@ export const Layout: React.FC = () => {
                 value={globalSearchQuery}
                 onChange={(e) => setGlobalSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (handleGlobalSearch(), e.currentTarget.blur())}
-                placeholder="Search risks"
+                placeholder="Search findings"
                 className="w-full pl-7 pr-2 py-1.5 bg-surface/80 border border-border rounded-md text-xs text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand"
-                title="Search risks (Enter)"
+                title="Search findings (Enter)"
               />
             </div>
             <DataControlBar />

@@ -9,26 +9,26 @@ import (
 
 // CVE represents a Common Vulnerability and Exposure record
 type CVE struct {
-	ID                uint           `gorm:"primaryKey" json:"id"`
-	CVEID             string         `gorm:"type:varchar(20);uniqueIndex;not null" json:"cveId"`
-	CVSSScore         float64        `gorm:"type:decimal(3,1)" json:"cvssScore"`
-	CVSSVector        string         `gorm:"type:text" json:"cvssVector"`
-	CVSSVersion       string         `gorm:"type:varchar(10)" json:"cvssVersion"`
-	Severity          string         `gorm:"type:varchar(20);not null;index" json:"severity"` // CRITICAL, HIGH, MEDIUM, LOW
-	Title             string         `gorm:"type:text" json:"title"`
-	Description       string         `gorm:"type:text" json:"description"`
-	PublishedDate     *time.Time     `json:"publishedDate"`
-	LastModifiedDate  *time.Time     `json:"lastModifiedDate"`
-	ExploitAvailable  bool           `gorm:"default:false;index" json:"exploitAvailable"`
-	ExploitMaturity   string         `gorm:"type:varchar(20)" json:"exploitMaturity"` // poc, functional, high
-	ExploitSources    string         `gorm:"type:text[]" json:"exploitSources"`        // Array of sources
-	References        string         `gorm:"type:jsonb;column:cve_references" json:"references"`            // JSON array
-	CWEIDs            string         `gorm:"type:text[]" json:"cweIds"`                // Array of CWE IDs
-	Source            string         `gorm:"type:varchar(50);not null;default:'nvd'" json:"source"` // nvd, trivy, github
-	SourceURL         string         `gorm:"type:text" json:"sourceUrl"`
-	CreatedAt         time.Time      `json:"createdAt"`
-	UpdatedAt         time.Time      `json:"updatedAt"`
-	DeletedAt         gorm.DeletedAt `gorm:"index" json:"-"`
+	ID               uint           `gorm:"primaryKey" json:"id"`
+	CVEID            string         `gorm:"type:varchar(100);uniqueIndex;not null" json:"cveId"`
+	CVSSScore        float64        `gorm:"type:decimal(3,1)" json:"cvssScore"`
+	CVSSVector       string         `gorm:"type:text" json:"cvssVector"`
+	CVSSVersion      string         `gorm:"type:varchar(10)" json:"cvssVersion"`
+	Severity         string         `gorm:"type:varchar(20);not null;index" json:"severity"` // CRITICAL, HIGH, MEDIUM, LOW
+	Title            string         `gorm:"type:text" json:"title"`
+	Description      string         `gorm:"type:text" json:"description"`
+	PublishedDate    *time.Time     `json:"publishedDate"`
+	LastModifiedDate *time.Time     `json:"lastModifiedDate"`
+	ExploitAvailable bool           `gorm:"default:false;index" json:"exploitAvailable"`
+	ExploitMaturity  string         `gorm:"type:varchar(20)" json:"exploitMaturity"`               // poc, functional, high
+	ExploitSources   string         `gorm:"type:text[]" json:"exploitSources"`                     // Array of sources
+	References       string         `gorm:"type:jsonb;column:cve_references" json:"references"`    // JSON array
+	CWEIDs           string         `gorm:"type:text[]" json:"cweIds"`                             // Array of CWE IDs
+	Source           string         `gorm:"type:varchar(50);not null;default:'nvd'" json:"source"` // nvd, trivy, github
+	SourceURL        string         `gorm:"type:text" json:"sourceUrl"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Relationships
 	PackageVulnerabilities []PackageVulnerability `gorm:"foreignKey:CVEID;references:CVEID" json:"packageVulnerabilities,omitempty"`
@@ -42,11 +42,11 @@ func (CVE) TableName() string {
 // PackageVulnerability links CVEs to packages and version ranges
 type PackageVulnerability struct {
 	ID                    uint           `gorm:"primaryKey" json:"id"`
-	CVEID                 string         `gorm:"type:varchar(20);not null;index" json:"cveId"`
+	CVEID                 string         `gorm:"type:varchar(100);not null;index" json:"cveId"`
 	PackageName           string         `gorm:"type:varchar(255);not null;index" json:"packageName"`
-	PackageType           string         `gorm:"type:varchar(50)" json:"packageType"` // deb, rpm, apk, etc.
+	PackageType           string         `gorm:"type:varchar(50)" json:"packageType"`     // deb, rpm, apk, etc.
 	Ecosystem             string         `gorm:"type:varchar(50);index" json:"ecosystem"` // debian, alpine, ubuntu, etc.
-	AffectedRange         string         `gorm:"type:text" json:"affectedRange"`         // e.g., ">=0.6.18,<1.20.1"
+	AffectedRange         string         `gorm:"type:text" json:"affectedRange"`          // e.g., ">=0.6.18,<1.20.1"
 	VersionStartIncluding string         `gorm:"type:varchar(50)" json:"versionStartIncluding"`
 	VersionStartExcluding string         `gorm:"type:varchar(50)" json:"versionStartExcluding"`
 	VersionEndIncluding   string         `gorm:"type:varchar(50)" json:"versionEndIncluding"`
@@ -70,34 +70,34 @@ func (PackageVulnerability) TableName() string {
 
 // ImageScanResult stores scan results from Trivy or other scanners
 type ImageScanResult struct {
-	ID                    uint           `gorm:"primaryKey" json:"id"`
-	ImageName             string         `gorm:"type:varchar(255);not null;index" json:"imageName"`
-	ImageTag              string         `gorm:"type:varchar(50);not null;index" json:"imageTag"`
-	ImageDigest           string         `gorm:"type:varchar(71);index" json:"imageDigest"`
-	Registry              string         `gorm:"type:varchar(255)" json:"registry"`
-	FullImageRef          string         `gorm:"type:text" json:"fullImageRef"`
-	ScannedAt             time.Time      `gorm:"index" json:"scannedAt"`
-	ScannerName           string         `gorm:"type:varchar(50);default:'trivy'" json:"scannerName"`
-	ScannerVersion        string         `gorm:"type:varchar(50)" json:"scannerVersion"`
-	ScanDurationSeconds   float64        `gorm:"type:decimal(10,2)" json:"scanDurationSeconds"`
-	OSFamily              string         `gorm:"type:varchar(50)" json:"osFamily"`
-	OSName                string         `gorm:"type:varchar(100)" json:"osName"`
-	OSVersion             string         `gorm:"type:varchar(50)" json:"osVersion"`
-	TotalVulnerabilities  int            `gorm:"default:0" json:"totalVulnerabilities"`
-	CriticalCount         int            `gorm:"default:0;index" json:"criticalCount"`
-	HighCount             int            `gorm:"default:0;index" json:"highCount"`
-	MediumCount           int            `gorm:"default:0" json:"mediumCount"`
-	LowCount              int            `gorm:"default:0" json:"lowCount"`
-	UnknownCount          int            `gorm:"default:0" json:"unknownCount"`
-	Vulnerabilities       string         `gorm:"type:jsonb" json:"vulnerabilities"` // Full JSON array
-	Packages              string         `gorm:"type:jsonb" json:"packages"`        // All packages found
-	Status                string         `gorm:"type:varchar(20);default:'in_progress';index" json:"status"` // in_progress, completed, failed
-	ErrorMessage          string         `gorm:"type:text" json:"errorMessage"`
-	CacheKey              string         `gorm:"type:varchar(100);index" json:"cacheKey"`
-	ExpiresAt             *time.Time     `gorm:"index" json:"expiresAt"`
-	CreatedAt             time.Time      `json:"createdAt"`
-	UpdatedAt             time.Time      `json:"updatedAt"`
-	DeletedAt             gorm.DeletedAt `gorm:"index" json:"-"`
+	ID                   uint           `gorm:"primaryKey" json:"id"`
+	ImageName            string         `gorm:"type:varchar(255);not null;index" json:"imageName"`
+	ImageTag             string         `gorm:"type:varchar(50);not null;index" json:"imageTag"`
+	ImageDigest          string         `gorm:"type:varchar(71);index" json:"imageDigest"`
+	Registry             string         `gorm:"type:varchar(255)" json:"registry"`
+	FullImageRef         string         `gorm:"type:text" json:"fullImageRef"`
+	ScannedAt            time.Time      `gorm:"index" json:"scannedAt"`
+	ScannerName          string         `gorm:"type:varchar(50);default:'trivy'" json:"scannerName"`
+	ScannerVersion       string         `gorm:"type:varchar(50)" json:"scannerVersion"`
+	ScanDurationSeconds  float64        `gorm:"type:decimal(10,2)" json:"scanDurationSeconds"`
+	OSFamily             string         `gorm:"type:varchar(50)" json:"osFamily"`
+	OSName               string         `gorm:"type:varchar(100)" json:"osName"`
+	OSVersion            string         `gorm:"type:varchar(50)" json:"osVersion"`
+	TotalVulnerabilities int            `gorm:"default:0" json:"totalVulnerabilities"`
+	CriticalCount        int            `gorm:"default:0;index" json:"criticalCount"`
+	HighCount            int            `gorm:"default:0;index" json:"highCount"`
+	MediumCount          int            `gorm:"default:0" json:"mediumCount"`
+	LowCount             int            `gorm:"default:0" json:"lowCount"`
+	UnknownCount         int            `gorm:"default:0" json:"unknownCount"`
+	Vulnerabilities      string         `gorm:"type:jsonb" json:"vulnerabilities"`                          // Full JSON array
+	Packages             string         `gorm:"type:jsonb" json:"packages"`                                 // All packages found
+	Status               string         `gorm:"type:varchar(20);default:'in_progress';index" json:"status"` // in_progress, completed, failed
+	ErrorMessage         string         `gorm:"type:text" json:"errorMessage"`
+	CacheKey             string         `gorm:"type:varchar(100);index" json:"cacheKey"`
+	ExpiresAt            *time.Time     `gorm:"index" json:"expiresAt"`
+	CreatedAt            time.Time      `json:"createdAt"`
+	UpdatedAt            time.Time      `json:"updatedAt"`
+	DeletedAt            gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Relationships
 	PodImageScans []PodImageScan `gorm:"foreignKey:ScanResultID" json:"podImageScans,omitempty"`
@@ -146,4 +146,3 @@ type PodImageScan struct {
 func (PodImageScan) TableName() string {
 	return "pod_image_scans"
 }
-

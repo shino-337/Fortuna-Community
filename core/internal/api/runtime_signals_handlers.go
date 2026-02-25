@@ -11,7 +11,7 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-// GetRuntimeSignalsList returns runtime signals with optional filters
+// GetRuntimeSignalsList returns runtime signals with optional filters (active pods only when no podUid filter).
 func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		query := db.Model(&models.RuntimeSignal{})
@@ -19,6 +19,9 @@ func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 		// Filter by pod_uid
 		if podUID := c.Query("podUid"); podUID != "" {
 			query = query.Where("pod_uid = ?", podUID)
+		} else {
+			// Only show signals for pods that still exist (not soft-deleted)
+			query = query.Where("pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)")
 		}
 
 		// Filter by signal_type

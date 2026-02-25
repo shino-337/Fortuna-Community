@@ -1,7 +1,9 @@
 package api
 
 import (
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -41,10 +43,15 @@ func Login(db *gorm.DB, jwtSecret string, tokenExpirationHours int) gin.HandlerF
 			return
 		}
 
+		if err := ensureUsersDeletedAtColumn(db); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate users schema"})
+			return
+		}
+
 		// Find user
 		var user models.User
 		if err := db.Where("username = ? OR email = ?", req.Username, req.Username).First(&user).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid credentials"})
 				return
 			}
@@ -91,6 +98,11 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		var req RegisterRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := ensureUsersDeletedAtColumn(db); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate users schema"})
 			return
 		}
 
@@ -210,6 +222,10 @@ func GetUsers(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"users": []map[string]interface{}{}, "total": 0})
 			return
 		}
+		if err := ensureUsersDeletedAtColumn(db); err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate users schema"})
+			return
+		}
 		var users []models.User
 		if err := db.Where("deleted_at IS NULL").Order("created_at DESC").Find(&users).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -218,17 +234,49 @@ func GetUsers(db *gorm.DB) gin.HandlerFunc {
 		list := make([]map[string]interface{}, 0, len(users))
 		for _, u := range users {
 			list = append(list, map[string]interface{}{
-				"id":         u.ID,
-				"username":   u.Username,
-				"email":      u.Email,
-				"role":       u.Role,
-				"active":     u.Active,
-				"lastLogin":  u.LastLogin,
-				"createdAt":  u.CreatedAt,
-				"updatedAt":  u.UpdatedAt,
+				"id":        u.ID,
+				"username":  u.Username,
+				"email":     u.Email,
+				"role":      u.Role,
+				"active":    u.Active,
+				"lastLogin": u.LastLogin,
+				"createdAt": u.CreatedAt,
+				"updatedAt": u.UpdatedAt,
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{"users": list, "total": len(list)})
 	}
 }
 
+func ensureUsersDeletedAtColumn(db *gorm.DB) error {
+	if !db.Migrator().HasTable("users") {
+		return nil
+	}
+
+	var exists bool
+	if err := db.Raw(`
+		SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = CURRENT_SCHEMA()
+			  AND table_name = 'users'
+			  AND column_name = 'deleted_at'
+		)
+	`).Scan(&exists).Error; err != nil {
+		return err
+	}
+	if exists {
+		return nil
+	}
+
+	if err := db.Exec("ALTER TABLE users ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE").Error; err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "already exists") {
+			return nil
+		}
+		return err
+	}
+	if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_users_deleted_at ON users(deleted_at)").Error; err != nil {
+		return err
+	}
+	return nil
+}

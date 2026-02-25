@@ -61,14 +61,14 @@ func GetRulesManager(db *gorm.DB) *RulesManager {
 func GetRules(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		manager := GetRulesManager(db)
-		
-		var rules []riskengine.Rule
-		if manager.yamlEngine != nil {
-			rules = manager.yamlEngine.GetRules()
-		} else {
-			// Fallback to hardcoded rules
-			rules = riskengine.GetBuiltInRules()
+		if manager.yamlEngine == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "rules engine not initialized from YAML directory",
+			})
+			return
 		}
+
+		rules := manager.yamlEngine.GetRules()
 
 		// Filter by status
 		status := c.Query("status")
@@ -115,11 +115,11 @@ func GetRules(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"rules":        filteredRules,
-			"total":        len(filteredRules),
-			"active":       activeCount,
-			"disabled":     disabledCount,
-			"totalAll":     len(rules),
+			"rules":    filteredRules,
+			"total":    len(filteredRules),
+			"active":   activeCount,
+			"disabled": disabledCount,
+			"totalAll": len(rules),
 		})
 	}
 }
@@ -129,24 +129,19 @@ func GetRule(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("id")
 		manager := GetRulesManager(db)
+		if manager.yamlEngine == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "rules engine not initialized from YAML directory",
+			})
+			return
+		}
 
 		var rule *riskengine.Rule
-		if manager.yamlEngine != nil {
-			rules := manager.yamlEngine.GetRules()
-			for _, r := range rules {
-				if r.ID == ruleID {
-					rule = &r
-					break
-				}
-			}
-		} else {
-			// Fallback to hardcoded rules
-			rules := riskengine.GetBuiltInRules()
-			for _, r := range rules {
-				if r.ID == ruleID {
-					rule = &r
-					break
-				}
+		rules := manager.yamlEngine.GetRules()
+		for _, r := range rules {
+			if r.ID == ruleID {
+				rule = &r
+				break
 			}
 		}
 
@@ -167,8 +162,8 @@ func GetRule(db *gorm.DB) gin.HandlerFunc {
 			Find(&recentMatches)
 
 		c.JSON(http.StatusOK, gin.H{
-			"rule":         rule,
-			"matchCount":   matchCount,
+			"rule":          rule,
+			"matchCount":    matchCount,
 			"recentMatches": recentMatches,
 		})
 	}
@@ -236,6 +231,12 @@ func UpdateRule(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := c.Param("id")
 		manager := GetRulesManager(db)
+		if manager.yamlEngine == nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": "rules engine not initialized from YAML directory",
+			})
+			return
+		}
 
 		var request struct {
 			Enabled *bool   `json:"enabled"`
@@ -253,7 +254,7 @@ func UpdateRule(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		filename := filepath.Join(manager.rulesDir, ruleID+".yaml")
-		
+
 		// If YAML provided, update file
 		if request.YAML != nil {
 			if err := os.WriteFile(filename, []byte(*request.YAML), 0644); err != nil {
@@ -353,21 +354,11 @@ func TestRule(db *gorm.DB) gin.HandlerFunc {
 
 		// Find rule
 		var rule *riskengine.Rule
-		if manager.yamlEngine != nil {
-			rules := manager.yamlEngine.GetRules()
-			for _, r := range rules {
-				if r.ID == ruleID {
-					rule = &r
-					break
-				}
-			}
-		} else {
-			rules := riskengine.GetBuiltInRules()
-			for _, r := range rules {
-				if r.ID == ruleID {
-					rule = &r
-					break
-				}
+		rules := manager.yamlEngine.GetRules()
+		for _, r := range rules {
+			if r.ID == ruleID {
+				rule = &r
+				break
 			}
 		}
 
@@ -423,7 +414,7 @@ func ReloadRules(db *gorm.DB) gin.HandlerFunc {
 		start := time.Now()
 		if err := manager.yamlEngine.Reload(); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   err.Error(),
+				"error":    err.Error(),
 				"reloaded": false,
 			})
 			return
@@ -431,9 +422,9 @@ func ReloadRules(db *gorm.DB) gin.HandlerFunc {
 
 		rules := manager.yamlEngine.GetRules()
 		c.JSON(http.StatusOK, gin.H{
-			"message":   "Rules reloaded successfully",
-			"reloaded":  true,
-			"count":     len(rules),
+			"message":  "Rules reloaded successfully",
+			"reloaded": true,
+			"count":    len(rules),
 			"duration": time.Since(start).String(),
 		})
 	}
@@ -481,7 +472,7 @@ func GetRuleMatches(db *gorm.DB) gin.HandlerFunc {
 			Find(&matches)
 
 		c.JSON(http.StatusOK, gin.H{
-			"ruleId": ruleID,
+			"ruleId":  ruleID,
 			"matches": matches,
 			"count":   len(matches),
 		})
@@ -505,4 +496,3 @@ func getNestedField(obj map[string]interface{}, path string) interface{} {
 	}
 	return nil
 }
-

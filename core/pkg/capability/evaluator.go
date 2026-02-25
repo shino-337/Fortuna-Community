@@ -3,6 +3,7 @@ package capability
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/riskengine"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -62,23 +64,24 @@ func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod) err
 	if err != nil {
 		return err
 	}
-	
-	// Use CSC to initialize capabilities
-	csc := NewCapabilityStateController(db)
-	for _, c := range caps {
-		if err := csc.InitializeCapability(ctx, pod.UID, pod.Namespace, c.ID, c.Group, c.Severity, c.Evidence); err != nil {
-			log.Printf("[PCE] Failed to initialize capability %s for pod %s/%s: %v", c.ID, pod.Namespace, pod.Name, err)
-		}
+
+	if err := syncPodCapabilities(ctx, db, pod, caps); err != nil {
+		return err
 	}
-	
-	return upsertPodRiskProfile(db, *pod, caps)
+	if err := upsertPodRiskProfile(db, *pod, caps); err != nil {
+		return err
+	}
+	if err := syncCapabilityInsights(ctx, db, pod, caps); err != nil {
+		return err
+	}
+	return nil
 }
 
 // EvaluateAllPods evaluates capabilities for all active pods and upserts results.
 // Only processes pods with active pod_instances (if table exists).
 func EvaluateAllPods(ctx context.Context, db *gorm.DB) error {
 	var pods []models.Pod
-	
+
 	// Filter by active pod instances if table exists
 	if db.Migrator().HasTable(&models.PodInstance{}) {
 		if err := db.Table("pods").
@@ -95,21 +98,111 @@ func EvaluateAllPods(ctx context.Context, db *gorm.DB) error {
 	}
 
 	log.Printf("[PCE] Evaluating %d active pods", len(pods))
-	
-	csc := NewCapabilityStateController(db)
+
 	for _, pod := range pods {
-		caps, err := EvaluatePod(ctx, db, &pod)
-		if err != nil {
-			log.Printf("[PCE] Failed to evaluate pod %s/%s: %v", pod.Namespace, pod.Name, err)
+		if err := EvaluateAndUpsertPod(ctx, db, &pod); err != nil {
+			log.Printf("[PCE] Failed to evaluate/upsert pod %s/%s: %v", pod.Namespace, pod.Name, err)
 			continue
 		}
-		
-		// Use CSC to initialize capabilities
-		for _, c := range caps {
-			if err := csc.InitializeCapability(ctx, pod.UID, pod.Namespace, c.ID, c.Group, c.Severity, c.Evidence); err != nil {
-				log.Printf("[PCE] Failed to initialize capability %s for pod %s/%s: %v", c.ID, pod.Namespace, pod.Name, err)
-			}
+	}
+	return nil
+}
+
+func syncPodCapabilities(ctx context.Context, db *gorm.DB, pod *models.Pod, caps []Capability) error {
+	csc := NewCapabilityStateController(db)
+	capIDs := make([]string, 0, len(caps))
+	for _, c := range caps {
+		capIDs = append(capIDs, c.ID)
+		if err := csc.InitializeCapability(ctx, pod.UID, pod.Namespace, c.ID, c.Group, c.Severity, c.Evidence); err != nil {
+			log.Printf("[PCE] Failed to initialize capability %s for pod %s/%s: %v", c.ID, pod.Namespace, pod.Name, err)
 		}
+	}
+
+	staleQuery := db.WithContext(ctx).Where("pod_uid = ?", pod.UID)
+	if len(capIDs) > 0 {
+		staleQuery = staleQuery.Where("capability_id NOT IN ?", capIDs)
+	}
+	if err := staleQuery.Delete(&models.PodCapability{}).Error; err != nil {
+		return fmt.Errorf("delete stale pod_capabilities for pod %s: %w", pod.UID, err)
+	}
+	return nil
+}
+
+func syncCapabilityInsights(ctx context.Context, db *gorm.DB, pod *models.Pod, caps []Capability) error {
+	insightMgr := riskengine.NewInsightManager(db)
+
+	capabilityIDs := make([]string, 0, len(caps))
+	for _, c := range caps {
+		capabilityIDs = append(capabilityIDs, c.ID)
+	}
+
+	metadataByID := map[string]models.CapabilityMetadata{}
+	if len(capabilityIDs) > 0 {
+		var metadataRows []models.CapabilityMetadata
+		if err := db.WithContext(ctx).Where("capability_id IN ?", capabilityIDs).Find(&metadataRows).Error; err != nil {
+			return fmt.Errorf("load capability metadata: %w", err)
+		}
+		for _, md := range metadataRows {
+			metadataByID[md.CapabilityID] = md
+		}
+	}
+
+	activeTitles := make([]string, 0, len(caps))
+	for _, c := range caps {
+		md, hasMetadata := metadataByID[c.ID]
+		title := fmt.Sprintf("Capability %s detected", c.ID)
+		if hasMetadata && strings.TrimSpace(md.Name) != "" {
+			title = fmt.Sprintf("%s detected", strings.TrimSpace(md.Name))
+		}
+		activeTitles = append(activeTitles, title)
+
+		recommendation := "Review pod security context and harden configuration to remove unnecessary privileges."
+		if hasMetadata && len(md.RecommendedMitigations) > 0 && strings.TrimSpace(md.RecommendedMitigations[0]) != "" {
+			recommendation = strings.TrimSpace(md.RecommendedMitigations[0])
+		}
+
+		description := fmt.Sprintf("Capability %s is detected on pod %s/%s.", c.ID, pod.Namespace, pod.Name)
+		if hasMetadata && strings.TrimSpace(md.Description) != "" {
+			description = fmt.Sprintf("%s Detected on pod %s/%s.", strings.TrimSpace(md.Description), pod.Namespace, pod.Name)
+		}
+		evidenceJSON, _ := json.Marshal(c.Evidence)
+
+		insight := &models.Insight{
+			ResourceType:      "Pod",
+			ResourceNamespace: pod.Namespace,
+			ResourceName:      pod.Name,
+			ResourceUID:       pod.UID,
+			InsightType:       "capability",
+			Severity:          strings.ToLower(strings.TrimSpace(c.Severity)),
+			Title:             title,
+			Description:       description,
+			Recommendation:    recommendation,
+			AffectedComponent: c.ID,
+			Evidence:          string(evidenceJSON),
+			ViolatedRules:     "[]",
+			Status:            "active",
+			DetectedAt:        time.Now(),
+			// CVEID used as logical key for DB unique constraint (resource_uid, cve_id, insight_type)
+			// so multiple capability insights per pod are allowed (one per capability ID).
+			CVEID: c.ID,
+		}
+		if err := insightMgr.CreateOrUpdateInsight(insight); err != nil {
+			return fmt.Errorf("create/update capability insight for %s on pod %s: %w", c.ID, pod.UID, err)
+		}
+	}
+
+	resolveQuery := db.WithContext(ctx).
+		Model(&models.Insight{}).
+		Where("resource_uid = ? AND insight_type = ? AND deleted_at IS NULL AND (status = ? OR status IS NULL)",
+			pod.UID, "capability", "active")
+	if len(activeTitles) > 0 {
+		resolveQuery = resolveQuery.Where("title NOT IN ?", activeTitles)
+	}
+	if err := resolveQuery.Updates(map[string]interface{}{
+		"status":     "resolved",
+		"updated_at": time.Now(),
+	}).Error; err != nil {
+		return fmt.Errorf("resolve stale capability insights for pod %s: %w", pod.UID, err)
 	}
 	return nil
 }

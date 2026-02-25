@@ -152,6 +152,17 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		// This is more complex - for now, we'll just check if the resource exists
 		// A more sophisticated check would evaluate the binding against rules
 		return true, nil // Assume risk still exists if we can't determine
+	case "Pod":
+		// Pod insight: if no active pod exists with this uid, risk is resolved (pod deleted or never synced)
+		var podCount int64
+		if err := u.db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).Count(&podCount).Error; err != nil {
+			return true, err // On error, assume risk still exists
+		}
+		if podCount == 0 {
+			log.Printf("[InsightStatusUpdater] Pod with uid=%s not found in DB - risk resolved (orphan insight)", insight.ResourceUID)
+			return false, nil
+		}
+		return true, nil // Pod still exists, risk may still exist (no re-eval for Pod insights here)
 	default:
 		// Unknown resource type - assume risk still exists
 		return true, nil

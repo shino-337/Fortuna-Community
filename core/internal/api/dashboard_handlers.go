@@ -12,13 +12,14 @@ import (
 )
 
 type DashboardStatsDTO struct {
-	TotalClusters     int64 `json:"totalClusters"`
-	ActiveAgents      int64 `json:"activeAgents"`
-	RunningPods       int64 `json:"runningPods"`
-	TotalRisks        int64 `json:"totalRisks"`
-	CriticalRisks     int64 `json:"criticalRisks"`
-	Resolved24h       int64 `json:"resolved24h"`       // Insights resolved in last 24h
-	AffectedPodCount  int64 `json:"affectedPodCount"`  // Distinct pods with at least one active insight (Affected Workloads)
+	TotalClusters    int64  `json:"totalClusters"`
+	ActiveAgents     int64  `json:"activeAgents"`
+	RunningPods      int64  `json:"runningPods"`
+	TotalRisks       int64  `json:"totalRisks"`
+	CriticalRisks    int64  `json:"criticalRisks"`
+	Resolved24h      int64  `json:"resolved24h"`           // Insights resolved in last 24h
+	AffectedPodCount int64  `json:"affectedPodCount"`      // Distinct pods with at least one active insight (Affected Workloads)
+	ClusterName      string `json:"clusterName,omitempty"` // When clusterId filter is set: display name from K8s (via agent sync)
 }
 
 type ThreatVelocityPoint struct {
@@ -36,6 +37,9 @@ type ThreatVelocityPoint struct {
 func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := strings.TrimSpace(c.Query("clusterId"))
+		if clusterID != "" {
+			clusterID = NormalizeClusterID(db, clusterID)
+		}
 		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
 		var since time.Time
 		if sinceMinutes > 0 {
@@ -54,13 +58,11 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 		var resolved24h int64
 		var affectedPodCount int64
 
+		var clusterName string
 		if clusterID != "" {
-			// Verify cluster exists (and is active if we care)
-			var exists int64
-			if db.Migrator().HasTable("clusters") {
-				db.Table("clusters").Where("id = ?", clusterID).Count(&exists)
-			}
-			if exists == 0 {
+			// Verify cluster exists and load display name (from K8s via agent sync) for dashboard labels
+			var cluster models.Cluster
+			if err := db.First(&cluster, "id = ?", clusterID).Error; err != nil || cluster.ID == "" {
 				c.JSON(http.StatusOK, DashboardStatsDTO{
 					TotalClusters:    0,
 					ActiveAgents:     0,
@@ -73,8 +75,10 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			clusters = 1
+			clusterName = cluster.Name
 
-			db.Table("pods").Where("cluster_id = ? AND deleted_at IS NULL", clusterID).Count(&pods)
+			// Same as GetClustersStats: count distinct pod UIDs so dashboard and cluster cards match
+			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", clusterID).Scan(&pods)
 
 			if db.Migrator().HasTable("agents") {
 				db.Raw(`
@@ -123,17 +127,32 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND i.resource_type = 'Pod'`+detectedSinceClause,
 				affectedArgs...).Scan(&affectedPodCount)
 		} else {
+			cutoff := time.Now().Add(-ActiveClusterCutoff)
 			if db.Migrator().HasTable("clusters") {
-				cutoff := time.Now().Add(-ActiveClusterCutoff)
-				db.Table("clusters").Where("last_sync >= ?", cutoff).Count(&clusters)
+				db.Raw(`
+					SELECT COUNT(*) FROM clusters c
+					WHERE c.source IN (?, ?) AND c.last_sync >= ?
+					AND EXISTS (
+						SELECT 1 FROM pods p
+						WHERE p.cluster_id = c.id AND p.deleted_at IS NULL
+					)
+				`, "auto", "env", cutoff).Scan(&clusters)
 			} else {
 				db.Table("insights").Distinct("resource_namespace").Count(&clusters)
 			}
-			db.Table("pods").Where("deleted_at IS NULL").Count(&pods)
+			// Global pod count: all pods in DB (same scope as GET /pods) so Dashboard and Resources show the same total and match cluster reality.
+			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE deleted_at IS NULL").Scan(&pods)
 			if db.Migrator().HasTable("agents") {
-				db.Table("agents").
-					Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
-					Count(&agents)
+				// Only agents whose node is in a pod of an active cluster (same definition as GetClustersStats)
+				db.Raw(`
+					SELECT COUNT(*) FROM agents a
+					WHERE a.deleted_at IS NULL AND (a.status = ? OR a.status IS NULL)
+					AND a.node_name IN (
+						SELECT DISTINCT p.node_name FROM pods p
+						INNER JOIN clusters c ON c.id = p.cluster_id AND c.source IN (?, ?) AND c.last_sync >= ?
+						WHERE p.deleted_at IS NULL AND p.node_name IS NOT NULL AND p.node_name != ''
+					)
+				`, "ready", "auto", "env", cutoff).Scan(&agents)
 			}
 			if sinceMinutes > 0 {
 				db.Table("insights").
@@ -181,11 +200,14 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			CriticalRisks:    critical,
 			Resolved24h:      resolved24h,
 			AffectedPodCount: affectedPodCount,
+			ClusterName:      clusterName,
 		})
 	}
 }
 
 // GetThreatVelocity returns daily counts of insights grouped by severity.
+// Query param days: 1–30 (default 7). Query param clusterId: optional; when set, only insights for pods in that cluster (same scope as insights/summary).
+// Pod filter: only count Pod insights when pod exists (deleted_at IS NULL) so trend matches Total findings.
 func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		days := 7
@@ -193,6 +215,10 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 			if parsed, err := strconv.Atoi(d); err == nil && parsed > 0 && parsed <= 30 {
 				days = parsed
 			}
+		}
+		clusterID := strings.TrimSpace(c.Query("clusterId"))
+		if clusterID != "" {
+			clusterID = NormalizeClusterID(db, clusterID)
 		}
 
 		start := time.Now().AddDate(0, 0, -days+1).Truncate(24 * time.Hour)
@@ -203,9 +229,15 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 			Count    int64
 		}
 
-		db.Model(&models.Insight{}).
-			Select("date_trunc('day', detected_at) as date, LOWER(severity) as severity, COUNT(*) as count").
+		// Pod filter: same as insights/summary – only count Pod insights when pod still exists
+		baseQuery := db.Model(&models.Insight{}).
 			Where("insight_type = ? AND detected_at >= ? AND deleted_at IS NULL", "vulnerability", start).
+			Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+		if clusterID != "" {
+			baseQuery = baseQuery.Where("resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)", clusterID)
+		}
+		baseQuery.
+			Select("date_trunc('day', detected_at) as date, LOWER(severity) as severity, COUNT(*) as count").
 			Group("date_trunc('day', detected_at), LOWER(severity)").
 			Order("date_trunc('day', detected_at)").
 			Scan(&rows)
@@ -248,16 +280,16 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 }
 
 type RiskFilter struct {
-	Severity      string `form:"severity"`
-	Status        string `form:"status"`
-	Search        string `form:"search"`
-	Type          string `form:"type"`
-	ClusterID     string `form:"clusterId"`
-	SinceMinutes  int    `form:"sinceMinutes"` // when > 0: only insights with detected_at >= now - sinceMinutes
+	Severity     string `form:"severity"`
+	Status       string `form:"status"`
+	Search       string `form:"search"`
+	Type         string `form:"type"`
+	ClusterID    string `form:"clusterId"`
+	SinceMinutes int    `form:"sinceMinutes"` // when > 0: only insights with detected_at >= now - sinceMinutes
 }
 
 // GetInsightsList is reused for /risks (with filters).
-// Default to vulnerability insights so counts match dashboard/stats (totalRisks).
+// Default to all insight types and active status so capability/runtime risks are visible by default.
 // Query param clusterId: when set, only insights for Pods in that cluster are returned (sync with global cluster selector).
 func GetInsightsList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -266,23 +298,29 @@ func GetInsightsList(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
-		if filter.Type == "" {
-			filter.Type = "vulnerability"
+		// Default to active so list total matches dashboard Security Risks and insights/summary
+		statusFilter := strings.TrimSpace(filter.Status)
+		if statusFilter == "" {
+			statusFilter = "active" // default so list matches dashboard/summary
 		}
 
 		query := db.Model(&models.Insight{})
 
 		if strings.TrimSpace(filter.ClusterID) != "" {
+			clusterID := NormalizeClusterID(db, strings.TrimSpace(filter.ClusterID))
 			query = query.Where(
 				"resource_type = ? AND resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)",
-				"Pod", strings.TrimSpace(filter.ClusterID),
+				"Pod", clusterID,
 			)
+		} else {
+			// No cluster: only show Pod insights whose pod still exists (so Total findings matches list)
+			query = query.Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
 		}
 		if filter.Severity != "" {
 			query = query.Where("LOWER(severity) = ?", filter.Severity)
 		}
-		if filter.Status != "" {
-			query = query.Where("status = ?", filter.Status)
+		if statusFilter != "" && statusFilter != "all" {
+			query = query.Where("status = ?", statusFilter)
 		}
 		if filter.Type != "" {
 			query = query.Where("insight_type = ?", filter.Type)

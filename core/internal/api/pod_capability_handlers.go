@@ -67,7 +67,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Model(&models.PodCapability{}).
 			Select("pod_capabilities.*, p.name as pod_name").
-			Joins("LEFT JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL")
 		if podUID := c.Query("podUid"); podUID != "" {
 			query = query.Where("pod_capabilities.pod_uid = ?", podUID)
 		}
@@ -208,7 +208,7 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetPodCapabilitiesSummaryByCapability returns aggregated counts by capability only.
+// GetPodCapabilitiesSummaryByCapability returns aggregated counts by capability only (active pods only).
 func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		type row struct {
@@ -218,13 +218,17 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		query := db.Table("pod_capabilities AS pc").
-			Select("pc.capability_id AS capability_id, pc.severity AS severity, COUNT(*) AS count")
+			Select("pc.capability_id AS capability_id, pc.severity AS severity, COUNT(*) AS count").
+			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		if capabilityID := c.Query("capabilityId"); capabilityID != "" {
 			query = query.Where("pc.capability_id = ?", capabilityID)
 		}
 		if severity := c.Query("severity"); severity != "" {
 			query = query.Where("pc.severity = ?", severity)
+		}
+		if clusterID := c.Query("clusterId"); clusterID != "" {
+			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
 		var rows []row
@@ -241,7 +245,7 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetPodCapabilitiesSummaryByNamespace returns aggregated counts by namespace and severity.
+// GetPodCapabilitiesSummaryByNamespace returns aggregated counts by namespace and severity (active pods only).
 func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		type row struct {
@@ -251,7 +255,8 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		query := db.Table("pod_capabilities AS pc").
-			Select("pc.namespace AS namespace, pc.severity AS severity, COUNT(*) AS count")
+			Select("pc.namespace AS namespace, pc.severity AS severity, COUNT(*) AS count").
+			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		if namespace := c.Query("namespace"); namespace != "" {
 			query = query.Where("pc.namespace = ?", namespace)
@@ -261,6 +266,9 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 		}
 		if capabilityID := c.Query("capabilityId"); capabilityID != "" {
 			query = query.Where("pc.capability_id = ?", capabilityID)
+		}
+		if clusterID := c.Query("clusterId"); clusterID != "" {
+			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
 		var rows []row
@@ -277,7 +285,7 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetPodCapabilitiesSummaryBySeverity returns aggregated counts by severity only.
+// GetPodCapabilitiesSummaryBySeverity returns aggregated counts by severity only (active pods only).
 func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		type row struct {
@@ -286,13 +294,17 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		query := db.Table("pod_capabilities AS pc").
-			Select("pc.severity AS severity, COUNT(*) AS count")
+			Select("pc.severity AS severity, COUNT(*) AS count").
+			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		if severity := c.Query("severity"); severity != "" {
 			query = query.Where("pc.severity = ?", severity)
 		}
 		if capabilityID := c.Query("capabilityId"); capabilityID != "" {
 			query = query.Where("pc.capability_id = ?", capabilityID)
+		}
+		if clusterID := c.Query("clusterId"); clusterID != "" {
+			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
 		var rows []row
@@ -335,6 +347,7 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 				SUM(CASE WHEN LOWER(pc.severity) = 'medium' THEN 1 ELSE 0 END) AS medium,
 				SUM(CASE WHEN LOWER(pc.severity) = 'low' THEN 1 ELSE 0 END) AS low
 			`).
+			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL").
 			Where("pc.created_at >= NOW() - (? * INTERVAL '1 day')", days)
 
 		if namespace := c.Query("namespace"); namespace != "" {
@@ -347,8 +360,7 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("pc.pod_uid = ?", podUID)
 		}
 		if clusterID := c.Query("clusterId"); clusterID != "" {
-			query = query.Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL").
-				Where("p.cluster_id = ?", clusterID)
+			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
 		var rows []row

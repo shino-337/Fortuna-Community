@@ -335,8 +335,8 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 
 ## Related Documentation
 
-- [Architecture](../../docs/ARCHITECTURE.md)
-- [Production Deployment](../../docs/PRODUCTION_DEPLOYMENT.md)
+- [Architecture](../../docs/02-architecture/ARCHITECTURE.md)
+- [Production Deployment](../../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
 - [Core README](../core/README.md)
 
 ---

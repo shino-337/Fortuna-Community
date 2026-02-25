@@ -129,6 +129,7 @@ export const api = {
       agents: num(stats.activeAgents),
       resolved24h: num(stats.resolved24h ?? 0),
       affectedPodCount: num(stats.affectedPodCount ?? 0),
+      clusterName: stats.clusterName != null ? String(stats.clusterName).trim() || undefined : undefined,
     };
   },
 
@@ -138,8 +139,16 @@ export const api = {
     if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
     if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
     const qs = params.toString() ? `?${params.toString()}` : '';
-    const data = await request<InsightsSummary>(`/insights/summary${qs}`);
-    return data;
+    const data = await request<InsightsSummary & Record<string, unknown>>(`/insights/summary${qs}`);
+    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+    return {
+      total: num(data.total),
+      critical: num(data.critical),
+      high: num(data.high),
+      medium: num(data.medium),
+      low: num(data.low),
+      byType: data.byType,
+    };
   },
 
   /** GET /api/v1/clusters/:id/overview */
@@ -325,15 +334,15 @@ export const api = {
     });
   },
 
-  /** GET /api/v1/risks – default type=vulnerability. Optional clusterId, pagination, severity, status, search, sinceMinutes (last N minutes). */
+  /** GET /api/v1/risks – defaults to all insight types. Optional type, clusterId, pagination, severity, status, search, sinceMinutes (last N minutes). */
   getRisks: async (params?: { page?: number; pageSize?: number; type?: string; severity?: string; status?: string; search?: string; clusterId?: string | null; sinceMinutes?: number }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number }> => {
     try {
       const query = new URLSearchParams();
-      query.set('type', params?.type ?? 'vulnerability');
+      if (params?.type) query.set('type', params.type);
       if (params?.page != null) query.set('page', String(params.page));
       if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
       if (params?.severity) query.set('severity', params.severity);
-      if (params?.status) query.set('status', params.status);
+      if (params?.status != null) query.set('status', params.status);
       if (params?.search?.trim()) query.set('search', params.search.trim());
       if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
       if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
@@ -348,14 +357,16 @@ export const api = {
           medium: 5,
           low: 3,
         };
-        const cvss = insight.cvss || severityScore[severity] || 5;
+        // Score 0–100: use backend cvss (0–10) * 10 when present, else severity default (critical=9 -> 90, high=7 -> 70, etc.)
+        const cvss = insight.cvss ?? severityScore[severity] ?? 5;
+        const score = Math.round(Number(cvss) * 10);
         return {
           id: String(insight.id),
           cveId: insight.cveId ? String(insight.cveId) : undefined,
           title: insight.title,
           description: insight.description,
           severity,
-          score: Math.round(cvss * 10),
+          score: Math.min(100, Math.max(0, score)),
           category: insight.insightType === 'vulnerability' ? 'sbom' : 'security',
           insightType: (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string,
           status: insight.status === 'active' ? 'new' : insight.status === 'resolved' ? 'resolved' : 'acknowledged',
@@ -456,15 +467,20 @@ export const api = {
     }
   },
 
-  getResources: async (type?: string): Promise<K8sResource[]> => {
+  getResources: async (type?: string, params?: { cluster?: string; namespace?: string }): Promise<K8sResource[]> => {
     try {
-      const kind = type ? `?kind=${encodeURIComponent(type)}` : '';
-      const data = await request<{ resources: Array<{ kind: string; name: string; namespace?: string; uid: string; clusterId: string }> }>(`/resources${kind}`);
+      const q = new URLSearchParams();
+      if (type) q.set('kind', type);
+      if (params?.cluster) q.set('cluster', params.cluster);
+      if (params?.namespace) q.set('namespace', params.namespace);
+      const qs = q.toString();
+      const data = await request<{ resources: Array<{ kind: string; name: string; namespace?: string; uid: string; clusterId: string }> }>(`/resources${qs ? `?${qs}` : ''}`);
       return (data.resources || []).map((res) => ({
         id: res.uid,
         name: res.name,
         namespace: res.namespace || '-',
         kind: res.kind as K8sResource['kind'],
+        clusterId: res.clusterId || undefined,
         age: '-',
         status: 'Active',
       }));
@@ -475,11 +491,60 @@ export const api = {
 
   getRules: async (): Promise<SecurityRule[]> => {
     try {
-      const data = await request<{ rules: SecurityRule[] }>('/rules');
-      return data.rules || [];
+      const data = await request<{ rules: Array<Record<string, unknown>>; total?: number; active?: number; disabled?: number }>('/rules');
+      const raw = data.rules || [];
+      return raw.map((r) => ({
+        id: String(r.id ?? ''),
+        name: String(r.name ?? r.id ?? ''),
+        severity: String(r.severity ?? 'medium').toLowerCase(),
+        enabled: Boolean(r.enabled),
+        category: r.category != null ? String(r.category) : undefined,
+        type: r.type != null ? String(r.type) : undefined,
+        description: r.description != null ? String(r.description) : undefined,
+        logic: r.logic != null ? String(r.logic) : undefined,
+        evalTime: r.evalTime != null ? String(r.evalTime) : undefined,
+        lastUpdated: r.lastUpdated != null ? String(r.lastUpdated) : undefined,
+        matches: r.matches != null ? Number(r.matches) : undefined,
+      })) as SecurityRule[];
     } catch (err) {
       return [];
     }
+  },
+
+  /** POST /api/v1/rules/reload */
+  reloadRules: async (): Promise<{ reloaded: boolean; count?: number; duration?: string }> => {
+    return await request<{ reloaded: boolean; count?: number; duration?: string }>('/rules/reload', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
+  },
+
+  /** GET /api/v1/rules/:id/metrics */
+  getRuleMetrics: async (id: string): Promise<{ totalMatches: number; recentMatches: Insight[] }> => {
+    try {
+      const data = await request<{ totalMatches?: number; recentMatches?: unknown[] }>(`/rules/${id}/metrics`);
+      const recentMatches = (data.recentMatches || []).map((m: unknown) => {
+        const x = m as Record<string, unknown>;
+        return {
+          id: String(x.id ?? ''),
+          title: String(x.title ?? ''),
+          severity: String(x.severity ?? 'medium').toLowerCase(),
+          status: x.status as string,
+          timestamp: (x.detectedAt ?? x.createdAt) as string | undefined,
+        } as Insight;
+      });
+      return { totalMatches: Number(data.totalMatches ?? 0), recentMatches };
+    } catch {
+      return { totalMatches: 0, recentMatches: [] };
+    }
+  },
+
+  /** POST /api/v1/rules/:id/test */
+  testRule: async (id: string, resource: Record<string, unknown>): Promise<{ match: boolean; details?: Record<string, unknown> }> => {
+    return await request<{ match: boolean; details?: Record<string, unknown> }>(`/rules/${id}/test`, {
+      method: 'POST',
+      body: JSON.stringify({ resource }),
+    });
   },
 
   /** GET /api/v1/rules/:id – single rule + matchCount + recentMatches */
@@ -536,11 +601,29 @@ export const api = {
 
   getCertificates: async (): Promise<Certificate[]> => {
     try {
-      const data = await request<{ certificates?: Certificate[] }>('/certificates/info');
-      if (Array.isArray(data)) {
-        return data as unknown as Certificate[];
+      const data = await request<Record<string, unknown> & { certificates?: Certificate[] }>('/certificates/info');
+      if (Array.isArray(data?.certificates)) {
+        return data.certificates;
       }
-      return data.certificates || [];
+      // CertManager API returns a single certificate object
+      if (data && (data.subject || data.not_after || data.issuer)) {
+        const notAfter = String(data.not_after ?? '');
+        const days = Number(data.days_until_expiry ?? 0);
+        const expired = Boolean(data.is_expired);
+        const status: Certificate['status'] = expired ? 'expired' : days <= 30 ? 'warning' : 'valid';
+        return [{
+          id: String(data.serial_number ?? 'core-cert'),
+          name: 'Fortuna Core Certificate',
+          subject: String(data.subject ?? ''),
+          issuer: String(data.issuer ?? ''),
+          serialNumber: String(data.serial_number ?? ''),
+          daysRemaining: Number.isFinite(days) ? days : undefined,
+          expiryDate: notAfter,
+          status,
+          usage: Array.isArray(data.dns_names) ? (data.dns_names as string[]) : [],
+        }];
+      }
+      return [];
     } catch (err) {
       return [];
     }
@@ -570,8 +653,16 @@ export const api = {
 
   getUsers: async (): Promise<User[]> => {
     try {
-      const data = await request<{ users: User[] }>('/users');
-      return data.users || [];
+      const data = await request<{ users: Array<Record<string, unknown>> }>('/users');
+      return (data.users || []).map((u) => ({
+        id: String(u.id ?? ''),
+        username: String(u.username ?? ''),
+        name: String(u.username ?? ''),
+        email: u.email ? String(u.email) : undefined,
+        role: u.role ? String(u.role) : undefined,
+        active: typeof u.active === 'boolean' ? u.active : undefined,
+        status: typeof u.active === 'boolean' ? (u.active ? 'active' : 'disabled') : undefined,
+      }));
     } catch (err) {
       return [];
     }
@@ -579,8 +670,23 @@ export const api = {
 
   getNotifications: async (): Promise<Notification[]> => {
     try {
-      const data = await request<{ notifications: Notification[] }>('/notifications');
-      return data.notifications || [];
+      const data = await request<{ notifications: Array<Record<string, unknown>> }>('/notifications');
+      return (data.notifications || []).map((n) => {
+        const severity = String(n.severity ?? 'info').toLowerCase();
+        const readAt = n.readAt ? String(n.readAt) : undefined;
+        const type = severity === 'critical' ? 'error' : severity === 'warning' ? 'warning' : severity === 'error' ? 'error' : 'info';
+        return {
+          id: String(n.id ?? ''),
+          title: String(n.title ?? ''),
+          message: String(n.message ?? ''),
+          severity,
+          type,
+          source: n.source ? String(n.source) : undefined,
+          readAt,
+          read: Boolean(readAt),
+          timestamp: n.timestamp ? String(n.timestamp) : undefined,
+        } as Notification;
+      });
     } catch (err) {
       return [];
     }
@@ -588,11 +694,22 @@ export const api = {
   
   getRotationHistory: async (): Promise<RotationEvent[]> => {
     try {
-      const data = await request<{ history: RotationEvent[] }>('/certificates/rotation/history');
-      return data.history || [];
+      const data = await request<{ history: Array<Record<string, unknown>> }>('/certificates/rotation/history');
+      return (data.history || []).map((h) => ({
+        id: String(h.id ?? ''),
+        timestamp: String(h.timestamp ?? h.time ?? ''),
+        success: Boolean(h.success),
+      }));
     } catch (err) {
       return [];
     }
+  },
+
+  rotateCertificate: async (): Promise<{ message?: string }> => {
+    return await request<{ message?: string }>('/certificates/rotate', {
+      method: 'POST',
+      body: JSON.stringify({}),
+    });
   },
   
   getAuditLogs: async (params?: { page?: number; pageSize?: number }): Promise<{ logs: AuditLog[]; total: number; page: number; pageSize: number }> => {
@@ -602,9 +719,24 @@ export const api = {
       if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
       const qs = query.toString();
       const url = qs ? `/audit?${qs}` : '/audit';
-      const data = await request<{ logs: AuditLog[]; total?: number; page?: number; pageSize?: number }>(url);
+      const data = await request<{ logs: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }>(url);
+      const logs = (data.logs || []).map((l) => {
+        const detailsRaw = l.details;
+        let status: AuditLog['status'] = 'success';
+        if (typeof detailsRaw === 'string' && detailsRaw.toLowerCase().includes('failed')) status = 'failure';
+        return {
+          id: String(l.id ?? ''),
+          action: String(l.action ?? ''),
+          resource: String(l.resource ?? ''),
+          timestamp: String(l.createdAt ?? l.timestamp ?? ''),
+          user: l.user ? String(l.user) : undefined,
+          actor: String(l.user ?? l.userId ?? 'system'),
+          details: typeof detailsRaw === 'string' ? detailsRaw : detailsRaw ? JSON.stringify(detailsRaw) : '',
+          status,
+        } as AuditLog;
+      });
       return {
-        logs: data.logs || [],
+        logs,
         total: Number(data.total) ?? 0,
         page: Number(data.page) ?? 1,
         pageSize: Number(data.pageSize) ?? 50,
@@ -616,8 +748,18 @@ export const api = {
   
   getReports: async (): Promise<Report[]> => {
     try {
-      const data = await request<{ reports: Report[] }>('/reports');
-      return data.reports || [];
+      const data = await request<{ reports: Array<Record<string, unknown>> }>('/reports');
+      return (data.reports || []).map((r, idx) => ({
+        id: `${r.resource ?? 'resource'}-${r.action ?? 'action'}-${idx}`,
+        name: `${String(r.resource ?? 'resource')} / ${String(r.action ?? 'action')}`,
+        title: `${String(r.resource ?? 'resource')} / ${String(r.action ?? 'action')}`,
+        type: String(r.resource ?? ''),
+        action: String(r.action ?? ''),
+        resource: String(r.resource ?? ''),
+        count: Number(r.count ?? 0),
+        status: 'ready',
+        generatedAt: new Date().toISOString(),
+      }));
     } catch (err) {
       return [];
     }
@@ -713,9 +855,12 @@ export const api = {
     }
   },
 
-  getThreatVelocity: async (days = 7): Promise<ThreatVelocityPoint[]> => {
+  getThreatVelocity: async (days = 7, clusterId?: string | null): Promise<ThreatVelocityPoint[]> => {
     try {
-      const data = await request<{ trend?: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?days=${days}`);
+      const params = new URLSearchParams({ days: String(days) });
+      if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
+      const qs = params.toString();
+      const data = await request<{ trend?: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?${qs}`);
       const raw = Array.isArray(data)
         ? data
         : (Array.isArray((data as any)?.trend) ? (data as any).trend : Array.isArray((data as any)?.Trend) ? (data as any).Trend : []);

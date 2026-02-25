@@ -7,13 +7,11 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/watch"
-
-	fortuna "github.com/fortuna/api/proto/agent"
 )
 
 // PodToInventoryItem converts a Pod to InventoryItem
 // Layer 1: Agent Prevention - Add timestamp and eventType
-func PodToInventoryItem(pod *corev1.Pod, clusterID string, eventType watch.EventType) *fortuna.InventoryItem {
+func PodToInventoryItem(pod *corev1.Pod, clusterID string, eventType watch.EventType) *InventoryItem {
 	labels := make(map[string]string)
 	for k, v := range pod.Labels {
 		labels[k] = v
@@ -50,7 +48,7 @@ func PodToInventoryItem(pod *corev1.Pod, clusterID string, eventType watch.Event
 		}
 	}
 
-	return &fortuna.InventoryItem{
+	return &InventoryItem{
 		Kind:      "Pod",
 		Uid:       string(pod.UID),
 		Name:      pod.Name,
@@ -63,7 +61,7 @@ func PodToInventoryItem(pod *corev1.Pod, clusterID string, eventType watch.Event
 
 // ServiceAccountToInventoryItem converts a ServiceAccount to InventoryItem
 // Bug 5 Fix: Use eventType like PodToInventoryItem
-func ServiceAccountToInventoryItem(sa *corev1.ServiceAccount, clusterID string, eventType watch.EventType) *fortuna.InventoryItem {
+func ServiceAccountToInventoryItem(sa *corev1.ServiceAccount, clusterID string, eventType watch.EventType) *InventoryItem {
 	labels := make(map[string]string)
 	for k, v := range sa.Labels {
 		labels[k] = v
@@ -95,7 +93,7 @@ func ServiceAccountToInventoryItem(sa *corev1.ServiceAccount, clusterID string, 
 		}
 	}
 
-	return &fortuna.InventoryItem{
+	return &InventoryItem{
 		Kind:      "ServiceAccount",
 		Uid:       string(sa.UID),
 		Name:      sa.Name,
@@ -108,7 +106,7 @@ func ServiceAccountToInventoryItem(sa *corev1.ServiceAccount, clusterID string, 
 
 // RoleToInventoryItem converts a Role to InventoryItem
 // Bug 5 Fix: Use eventType like PodToInventoryItem
-func RoleToInventoryItem(role *rbacv1.Role, clusterID string, eventType watch.EventType) *fortuna.InventoryItem {
+func RoleToInventoryItem(role *rbacv1.Role, clusterID string, eventType watch.EventType) *InventoryItem {
 	labels := make(map[string]string)
 	for k, v := range role.Labels {
 		labels[k] = v
@@ -140,7 +138,7 @@ func RoleToInventoryItem(role *rbacv1.Role, clusterID string, eventType watch.Ev
 		}
 	}
 
-	return &fortuna.InventoryItem{
+	return &InventoryItem{
 		Kind:      "Role",
 		Uid:       string(role.UID),
 		Name:      role.Name,
@@ -153,7 +151,7 @@ func RoleToInventoryItem(role *rbacv1.Role, clusterID string, eventType watch.Ev
 
 // RoleBindingToInventoryItem converts a RoleBinding to InventoryItem
 // Bug 5 Fix: Use eventType like PodToInventoryItem
-func RoleBindingToInventoryItem(rb *rbacv1.RoleBinding, clusterID string, eventType watch.EventType) *fortuna.InventoryItem {
+func RoleBindingToInventoryItem(rb *rbacv1.RoleBinding, clusterID string, eventType watch.EventType) *InventoryItem {
 	labels := make(map[string]string)
 	for k, v := range rb.Labels {
 		labels[k] = v
@@ -185,7 +183,7 @@ func RoleBindingToInventoryItem(rb *rbacv1.RoleBinding, clusterID string, eventT
 		}
 	}
 
-	return &fortuna.InventoryItem{
+	return &InventoryItem{
 		Kind:      "RoleBinding",
 		Uid:       string(rb.UID),
 		Name:      rb.Name,
@@ -198,7 +196,7 @@ func RoleBindingToInventoryItem(rb *rbacv1.RoleBinding, clusterID string, eventT
 
 // ClusterRoleToInventoryItem converts a ClusterRole to InventoryItem
 // Bug 5 Fix: Use eventType like PodToInventoryItem
-func ClusterRoleToInventoryItem(cr *rbacv1.ClusterRole, clusterID string, eventType watch.EventType) *fortuna.InventoryItem {
+func ClusterRoleToInventoryItem(cr *rbacv1.ClusterRole, clusterID string, eventType watch.EventType) *InventoryItem {
 	labels := make(map[string]string)
 	for k, v := range cr.Labels {
 		labels[k] = v
@@ -230,7 +228,7 @@ func ClusterRoleToInventoryItem(cr *rbacv1.ClusterRole, clusterID string, eventT
 		}
 	}
 
-	return &fortuna.InventoryItem{
+	return &InventoryItem{
 		Kind:      "ClusterRole",
 		Uid:       string(cr.UID),
 		Name:      cr.Name,
@@ -243,7 +241,7 @@ func ClusterRoleToInventoryItem(cr *rbacv1.ClusterRole, clusterID string, eventT
 
 // ClusterRoleBindingToInventoryItem converts a ClusterRoleBinding to InventoryItem
 // Bug 5 Fix: Use eventType like PodToInventoryItem
-func ClusterRoleBindingToInventoryItem(crb *rbacv1.ClusterRoleBinding, clusterID string, eventType watch.EventType) *fortuna.InventoryItem {
+func ClusterRoleBindingToInventoryItem(crb *rbacv1.ClusterRoleBinding, clusterID string, eventType watch.EventType) *InventoryItem {
 	labels := make(map[string]string)
 	for k, v := range crb.Labels {
 		labels[k] = v
@@ -275,7 +273,7 @@ func ClusterRoleBindingToInventoryItem(crb *rbacv1.ClusterRoleBinding, clusterID
 		}
 	}
 
-	return &fortuna.InventoryItem{
+	return &InventoryItem{
 		Kind:      "ClusterRoleBinding",
 		Uid:       string(crb.UID),
 		Name:      crb.Name,

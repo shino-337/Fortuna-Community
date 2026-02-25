@@ -1,0 +1,4 @@
+* { box-sizing: border-box; }
+body { font-family: system-ui, sans-serif; max-width: 640px; margin: 2rem auto; padding: 0 1rem; }
+header { border-bottom: 1px solid #ccc; padding-bottom: 1rem; }
+code { background: #f0f0f0; padding: 0.2em 0.4em; border-radius: 4px; }

@@ -82,6 +82,9 @@ func GetInsights(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("affected_resources::text LIKE ?", "%"+clusterID+"%")
 		}
 
+		// Exclude Pod insights whose pod no longer exists (so list matches summary and Risk Center is consistent)
+		query = query.Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
@@ -104,7 +107,14 @@ func GetInsights(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetInsight returns a specific insight by ID
+// insightWithResourceExists is used by GetInsight to add resourceExists when resource is Pod.
+type insightWithResourceExists struct {
+	models.Insight
+	ResourceExists *bool `json:"resourceExists,omitempty"`
+}
+
+// GetInsight returns a specific insight by ID.
+// When resource_type is Pod, adds resourceExists: true/false so UI can show "Resource no longer exists" for deleted pods.
 func GetInsight(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -117,7 +127,14 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, insight)
+		resp := insightWithResourceExists{Insight: insight}
+		if insight.ResourceType == "Pod" && insight.ResourceUID != "" {
+			var podExists int64
+			db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).Count(&podExists)
+			exists := podExists > 0
+			resp.ResourceExists = &exists
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 
@@ -127,6 +144,9 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := strings.TrimSpace(c.Query("clusterId"))
+		if clusterID != "" {
+			clusterID = NormalizeClusterID(db, clusterID)
+		}
 		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
 		var since time.Time
 		if sinceMinutes > 0 {
@@ -152,8 +172,15 @@ func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 		summary.ByType = make(map[string]int64)
 
 		if clusterID != "" {
-			// Scope to insights for Pods in this cluster (join pods on resource_uid = pods.uid)
-			joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL AND i.resource_type = 'Pod'"
+			// Scope to insights whose resource_uid matches a pod in this cluster (same join as GetDashboardStats).
+			// Join: pods.uid = insights.resource_uid (no resource_type filter to avoid case/format mismatch).
+			// Count all insight types so summary returns risk data when any risks exist for the cluster.
+			joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL"
+			// Diagnostic: why summary might be 0 — log pod count, global insight count, and join result
+			var podCount, insightGlobal int64
+			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", clusterID).Scan(&podCount)
+			db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "active").Count(&insightGlobal)
+			log.Printf("[InsightsSummary] clusterId=%q normalized; pods_in_cluster=%d, insights_global=%d", clusterID, podCount, insightGlobal)
 			totalArgs := []interface{}{clusterID}
 			if sinceMinutes > 0 {
 				totalArgs = append(totalArgs, since)
@@ -163,6 +190,16 @@ func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 				`+joinCond+`
 				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause,
 				totalArgs...).Scan(&summary.Total)
+			log.Printf("[InsightsSummary] clusterId=%q join result total=%d", clusterID, summary.Total)
+			if summary.Total == 0 && podCount > 0 && insightGlobal > 0 {
+				var matchCount int64
+				db.Raw(`
+					SELECT COUNT(*) FROM insights i
+					WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+					AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)`,
+					clusterID).Scan(&matchCount)
+				log.Printf("[InsightsSummary] clusterId=%q uid-match check: insights_with_resource_uid_in_cluster_pods=%d (if 0, resource_uid format may not match pods.uid)", clusterID, matchCount)
+			}
 
 			var severityCounts []struct {
 				Severity string `gorm:"column:severity"`
@@ -211,7 +248,9 @@ func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 				summary.ByType[tc.Type] = tc.Count
 			}
 		} else {
-			query := db.Model(&models.Insight{}).Where("status = ? OR status IS NULL", "active")
+			// Global scope: only count insights for existing resources (Pod insights only when pod exists)
+			podFilter := "(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))"
+			query := db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "active").Where(podFilter)
 			if sinceMinutes > 0 {
 				query = query.Where("detected_at >= ?", since)
 			}
@@ -225,13 +264,13 @@ func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 				db.Raw(`
 					SELECT LOWER(severity) as severity, COUNT(*) as count 
 					FROM insights 
-					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)`+detectedSinceClauseNoAlias+`
+					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND `+podFilter+detectedSinceClauseNoAlias+`
 					GROUP BY LOWER(severity)`, since).Scan(&severityCounts)
 			} else {
 				db.Raw(`
 					SELECT LOWER(severity) as severity, COUNT(*) as count 
 					FROM insights 
-					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
+					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND `+podFilter+`
 					GROUP BY LOWER(severity)
 				`).Scan(&severityCounts)
 			}
@@ -253,7 +292,7 @@ func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
 				Count int64  `gorm:"column:count"`
 			}
 			summaryQuery := db.Model(&models.Insight{}).
-				Where("deleted_at IS NULL AND (status = 'active' OR status IS NULL)")
+				Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND "+podFilter)
 			if sinceMinutes > 0 {
 				summaryQuery = summaryQuery.Where("detected_at >= ?", since)
 			}

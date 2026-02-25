@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -14,6 +15,11 @@ import (
 
 // Force reference to migration functions to prevent dead code elimination
 // Note: Some migrations are defined in mvp2_migrations.go
+//
+// Classification (see docs/04-development/migrations/classification.md):
+//   - Schema: DDL only (CREATE/ALTER, ADD COLUMN, INDEX, CONSTRAINT).
+//   - Data/Seed: 050, 051, 061 — INSERT reference data; gated by FORTUNA_ENABLE_SEED_DATA.
+//   - Data/Config: 053 — UPDATE clusters from env (one-time).
 //
 // Migration Numbering:
 //   - 001-003: Core schema (clusters, users, audit logs)
@@ -72,6 +78,14 @@ var (
 	_ = Migration055_DropClustersNameUnique
 	_ = Migration056_AddNotificationsTable
 	_ = Migration057_AddErrorLogsTable
+	_ = Migration058_AddInsightsEvidenceViolatedRules
+	_ = Migration059_AddNodeMetadataColumns
+	_ = Migration060_AddCapabilityMetadataExtendedColumns
+	_ = Migration061_SeedCapabilityMetadataExtended
+	_ = Migration062_AddClustersRegionEndpointKubeconfig
+	_ = Migration063_AddPodsLastSeenCleanupIndex
+	_ = Migration064_ExpandAdvisoryIDColumns
+	_ = Migration065_EnsureUsersDeletedAt
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -121,36 +135,42 @@ func RunMigrations(db *gorm.DB) error {
 		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
 		Migration029_AddInsightsUniqueConstraint,       // Performance: Unique constraint for insights batch UPSERT
 		// Schema migrations and cleanup (030-036)
-		Migration030_MigrateInsightsSchemaComplete, // Schema Migration: Complete insights schema migration (combines old 030+031+038)
-		Migration031_CleanupDuplicateIndexes,       // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
-		Migration032_MigrateCVEMatchesComplete,     // Schema Migration: Complete cve_matches migration (combines old 037+039)
-		Migration033_AddUniqueConstraints,          // Schema Integrity: Add proper unique constraints for data integrity
-		Migration034_StandardizeCVSSType,           // Schema Standardization: Standardize CVSS column types to REAL
-		Migration035_EvaluateTrivyTables,           // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
-		Migration036_AddMissingSBOMColumns,         // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
-		Migration037_AddSoftDeleteToResources,      // Schema Update: Add deleted_at to resource tables
-		Migration038_AddAgentsTable,                // Schema Update: Add agents table for dashboard metrics
-		Migration039_AddDeletedAtToClusters,        // Schema Update: Add deleted_at to clusters
-		Migration040_AddMissingInsightColumns,      // Schema Update: Ensure insights columns exist (fixed_version, resolved_at)
-		Migration041_AddPodCapabilitiesTable,       // Schema Update: Add pod_capabilities table (PCE)
-		Migration042_AddPodFactColumns,             // Schema Update: Add pod security fact columns
-		Migration043_AddREPTables,                  // Schema Update: Add REP tables (pod_risk_profiles, runtime_events)
-		Migration044_AddPodInstancesTable,          // PCE Phase 1.5: Pod lifecycle normalization (pod_instances)
-		Migration045_AddRuntimeSignalsTable,        // PCE Phase 1.5: Runtime signals semantic layer
-		Migration046_AddCapabilityStateMachine,     // PCE Phase 1.5: Capability state machine (detected/confirmed/exploited/chained)
-		Migration047_AddCapabilityMetadataTable,    // PCE Phase 1.5 Adjustment: Capability metadata (semantic layer)
-		Migration048_AddPromotionRulesTable,        // PCE Phase 1.5 Adjustment: Promotion rules (signal → state)
-		Migration049_AddPodAttackStepsTable,        // PCE Phase 1.5 Adjustment: Minimal AttackStep model
-		Migration050_SeedCapabilityMetadata,        // PCE Phase 1.5 Adjustment: Seed capability metadata
-		Migration051_SeedPromotionRules,            // PCE Phase 1.5 Adjustment: Seed promotion rules
-		Migration052_SBOMOneRowPerPod,              // SBOM: one row per pod (drop unique on image_digest)
-		Migration053_FixMinikubeClusterDisplayName, // Cluster display name from env only (CLUSTER_ID_TO_UPDATE, CLUSTER_DISPLAY_NAME)
-		Migration054_AddClusterMetadataColumns,     // Cluster SSOT: source, k8s_version, distribution
-		Migration055_DropClustersNameUnique,        // Cluster SSOT: allow same display name for multiple clusters (id is identity)
-		Migration056_AddNotificationsTable,        // Dashboard: notifications table (real data)
-		Migration057_AddErrorLogsTable,             // Dashboard: error_logs table (real data)
-		Migration058_AddInsightsEvidenceViolatedRules, // Risk Detail: evidence + violated_rules on insights
-		Migration059_AddNodeMetadataColumns,       // Node Detail: role, os, runtime on nodes
+		Migration030_MigrateInsightsSchemaComplete,        // Schema Migration: Complete insights schema migration (combines old 030+031+038)
+		Migration031_CleanupDuplicateIndexes,              // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
+		Migration032_MigrateCVEMatchesComplete,            // Schema Migration: Complete cve_matches migration (combines old 037+039)
+		Migration033_AddUniqueConstraints,                 // Schema Integrity: Add proper unique constraints for data integrity
+		Migration034_StandardizeCVSSType,                  // Schema Standardization: Standardize CVSS column types to REAL
+		Migration035_EvaluateTrivyTables,                  // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
+		Migration036_AddMissingSBOMColumns,                // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
+		Migration037_AddSoftDeleteToResources,             // Schema Update: Add deleted_at to resource tables
+		Migration038_AddAgentsTable,                       // Schema Update: Add agents table for dashboard metrics
+		Migration039_AddDeletedAtToClusters,               // Schema Update: Add deleted_at to clusters
+		Migration040_AddMissingInsightColumns,             // Schema Update: Ensure insights columns exist (fixed_version, resolved_at)
+		Migration041_AddPodCapabilitiesTable,              // Schema Update: Add pod_capabilities table (PCE)
+		Migration042_AddPodFactColumns,                    // Schema Update: Add pod security fact columns
+		Migration043_AddREPTables,                         // Schema Update: Add REP tables (pod_risk_profiles, runtime_events)
+		Migration044_AddPodInstancesTable,                 // PCE Phase 1.5: Pod lifecycle normalization (pod_instances)
+		Migration045_AddRuntimeSignalsTable,               // PCE Phase 1.5: Runtime signals semantic layer
+		Migration046_AddCapabilityStateMachine,            // PCE Phase 1.5: Capability state machine (detected/confirmed/exploited/chained)
+		Migration047_AddCapabilityMetadataTable,           // PCE Phase 1.5 Adjustment: Capability metadata (semantic layer)
+		Migration048_AddPromotionRulesTable,               // PCE Phase 1.5 Adjustment: Promotion rules (signal → state)
+		Migration049_AddPodAttackStepsTable,               // PCE Phase 1.5 Adjustment: Minimal AttackStep model
+		Migration050_SeedCapabilityMetadata,               // PCE Phase 1.5 Adjustment: Seed capability metadata
+		Migration051_SeedPromotionRules,                   // PCE Phase 1.5 Adjustment: Seed promotion rules
+		Migration052_SBOMOneRowPerPod,                     // SBOM: one row per pod (drop unique on image_digest)
+		Migration053_FixMinikubeClusterDisplayName,        // Cluster display name from env only (CLUSTER_ID_TO_UPDATE, CLUSTER_DISPLAY_NAME)
+		Migration054_AddClusterMetadataColumns,            // Cluster SSOT: source, k8s_version, distribution
+		Migration055_DropClustersNameUnique,               // Cluster SSOT: allow same display name for multiple clusters (id is identity)
+		Migration056_AddNotificationsTable,                // Dashboard: notifications table (real data)
+		Migration057_AddErrorLogsTable,                    // Dashboard: error_logs table (real data)
+		Migration058_AddInsightsEvidenceViolatedRules,     // Risk Detail: evidence + violated_rules on insights
+		Migration059_AddNodeMetadataColumns,               // Node Detail: role, os, runtime on nodes
+		Migration060_AddCapabilityMetadataExtendedColumns, // Capability Spec: extended metadata (name, summary, mitre, impact, etc.)
+		Migration061_SeedCapabilityMetadataExtended,       // Capability Spec: seed extended metadata from spec
+		Migration062_AddClustersRegionEndpointKubeconfig,  // Cluster: region, endpoint, kubeconfig (fix agent sync 500)
+		Migration063_AddPodsLastSeenCleanupIndex,          // Ops: index for stale pod cleanup and pod-count queries
+		Migration064_ExpandAdvisoryIDColumns,              // CVE/SBOM: support non-CVE advisory IDs for richer package vulnerability coverage
+		Migration065_EnsureUsersDeletedAt,                 // Auth schema hardening: ensure users.deleted_at exists for soft-delete queries
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))
@@ -526,18 +546,21 @@ func Migration003_AddUserToAuditLogs(db *gorm.DB) error {
 	return nil
 }
 
-// CreateDefaultAdmin creates a default admin user if it doesn't exist
+// CreateDefaultAdmin creates a default admin user if it doesn't exist, or syncs password from env if it exists
 func CreateDefaultAdmin(db *gorm.DB, username, password, email string) error {
 	var user models.User
 	result := db.Where("username = ?", username).First(&user)
 
-	if result.Error == gorm.ErrRecordNotFound {
-		// User doesn't exist, create it
-		hashedPassword, err := auth.HashPassword(password)
-		if err != nil {
-			return fmt.Errorf("failed to hash password: %w", err)
-		}
+	if result.Error != nil && !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("failed to check for admin user: %w", result.Error)
+	}
 
+	hashedPassword, err := auth.HashPassword(password)
+	if err != nil {
+		return fmt.Errorf("failed to hash password: %w", err)
+	}
+
+	if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		user = models.User{
 			Username: username,
 			Email:    email,
@@ -545,18 +568,23 @@ func CreateDefaultAdmin(db *gorm.DB, username, password, email string) error {
 			Role:     models.RoleAdmin,
 			Active:   true,
 		}
-
 		if err := db.Create(&user).Error; err != nil {
 			return fmt.Errorf("failed to create admin user: %w", err)
 		}
-
 		log.Printf("Created default admin user: %s", username)
-	} else if result.Error != nil {
-		return fmt.Errorf("failed to check for admin user: %w", result.Error)
+		return nil
+	}
+
+	// User exists: sync password from env so admin/admin123 stays usable after DB recreate or env change
+	if user.Password != hashedPassword {
+		user.Password = hashedPassword
+		if err := db.Save(&user).Error; err != nil {
+			return fmt.Errorf("failed to sync admin password: %w", err)
+		}
+		log.Printf("Synced default admin password for user: %s", username)
 	} else {
 		log.Printf("Admin user already exists: %s", username)
 	}
-
 	return nil
 }
 
@@ -844,7 +872,14 @@ func Migration009_AddReplicaSets(db *gorm.DB) error {
 
 // RunPostMigrations runs migrations that should run after schema migrations
 func RunPostMigrations(db *gorm.DB) error {
-	// Create default admin user if environment variables are set
+	// Ensure users.deleted_at exists so CreateDefaultAdmin and auth queries do not fail
+	if db.Migrator().HasTable("users") {
+		if err := Migration065_EnsureUsersDeletedAt(db); err != nil {
+			log.Printf("Warning: Ensure users.deleted_at failed: %v", err)
+		}
+	}
+
+	// Create or sync default admin user from environment
 	adminUsername := os.Getenv("FORTUNA_ADMIN_USERNAME")
 	adminPassword := os.Getenv("FORTUNA_ADMIN_PASSWORD")
 	adminEmail := os.Getenv("FORTUNA_ADMIN_EMAIL")

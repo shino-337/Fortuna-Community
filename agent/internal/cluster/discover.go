@@ -6,8 +6,10 @@ import (
 	"encoding/hex"
 	"log"
 	"os"
+	"regexp"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
@@ -20,8 +22,9 @@ const (
 )
 
 // Info holds discovered or overridden cluster identity (SSOT from agent).
+// ID must always be from discovery (kube-system UID hash, "sha256-...") or env CLUSTER_ID; never use display name as ID.
 type Info struct {
-	ID           string // stable, immutable (hash or env override)
+	ID           string // stable, immutable (hash or env override); never set to Name
 	Name         string // display name, mutable
 	Source       string // "auto" | "env"
 	K8sVersion  string
@@ -67,6 +70,7 @@ func Discover(ctx context.Context, client kubernetes.Interface, kubeconfigPath s
 }
 
 // discoverFromAPI derives stable cluster_id and display name from K8s API (no node/pod UID).
+// Cluster name is taken from real cluster data when possible: kubeadm-config, node labels, default API service, or derived from clusterID.
 func discoverFromAPI(ctx context.Context, client kubernetes.Interface, kubeconfigPath string) (clusterID, clusterName string, err error) {
 	// 1. kube-system namespace UID = stable cluster identity
 	ns, err := client.CoreV1().Namespaces().Get(ctx, "kube-system", metav1.GetOptions{})
@@ -77,12 +81,79 @@ func discoverFromAPI(ctx context.Context, client kubernetes.Interface, kubeconfi
 	hash := sha256.Sum256([]byte(uid))
 	clusterID = "sha256-" + hex.EncodeToString(hash[:])[:16] // short stable id
 
-	// 2. Display name: kubeconfig context.cluster if available, else inferred
+	// 2. Display name: from kubeconfig if available (e.g. agent runs with KUBECONFIG), else from cluster API
 	clusterName = inferClusterName(kubeconfigPath)
 	if clusterName == "" {
-		clusterName = "inferred-k8s-cluster"
+		clusterName = inferClusterNameFromAPI(ctx, client, clusterID)
 	}
 	return clusterID, clusterName, nil
+}
+
+// inferClusterNameFromAPI derives cluster display name from cluster resources (in-cluster; no kubeconfig).
+// Order: kubeadm-config ClusterConfiguration.clusterName → node labels (EKS/K3s) → default API service name → cluster-<shortID>.
+func inferClusterNameFromAPI(ctx context.Context, client kubernetes.Interface, clusterID string) string {
+	// 1. kubeadm-config ConfigMap (kube-system): ClusterConfiguration may contain clusterName
+	if name := clusterNameFromKubeadmConfig(ctx, client); name != "" {
+		return name
+	}
+	// 2. Node labels (EKS: eks.amazonaws.com/cluster-name, K3s: k3s.io/cluster, etc.)
+	if name := clusterNameFromNodeLabels(ctx, client); name != "" {
+		return name
+	}
+	// 3. Default API server Service name in default namespace (every cluster has "kubernetes")
+	if name := clusterNameFromDefaultAPIService(ctx, client); name != "" {
+		return name
+	}
+	// 4. Fallback: derive from cluster ID (real, stable id from kube-system UID)
+	if len(clusterID) > 7 {
+		return "cluster-" + clusterID[7:15] // e.g. cluster-4016171f
+	}
+	return "cluster-" + clusterID
+}
+
+var kubeadmClusterNameRE = regexp.MustCompile(`clusterName:\s*["']?([^"'\s\n\r]+)`)
+
+func clusterNameFromKubeadmConfig(ctx context.Context, client kubernetes.Interface) string {
+	cm, err := client.CoreV1().ConfigMaps("kube-system").Get(ctx, "kubeadm-config", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	// ClusterConfiguration is often under key "ClusterConfiguration" (YAML block)
+	for _, data := range cm.Data {
+		if m := kubeadmClusterNameRE.FindStringSubmatch(data); len(m) >= 2 && strings.TrimSpace(m[1]) != "" {
+			return strings.TrimSpace(m[1])
+		}
+	}
+	return ""
+}
+
+func clusterNameFromNodeLabels(ctx context.Context, client kubernetes.Interface) string {
+	nodeList, err := client.CoreV1().Nodes().List(ctx, metav1.ListOptions{Limit: 1})
+	if err != nil || len(nodeList.Items) == 0 {
+		return ""
+	}
+	node := nodeList.Items[0]
+	// EKS: eks.amazonaws.com/cluster-name
+	if v, ok := node.Labels["eks.amazonaws.com/cluster-name"]; ok && v != "" {
+		return v
+	}
+	// K3s: k3s.io/cluster (or similar)
+	if v, ok := node.Labels["k3s.io/cluster"]; ok && v != "" {
+		return v
+	}
+	return ""
+}
+
+func clusterNameFromDefaultAPIService(ctx context.Context, client kubernetes.Interface) string {
+	svc, err := client.CoreV1().Services(corev1.NamespaceDefault).Get(ctx, "kubernetes", metav1.GetOptions{})
+	if err != nil {
+		return ""
+	}
+	// Every cluster has the default "kubernetes" Service for the API server; use its name as display
+	if svc.Name != "" {
+		return svc.Name
+	}
+	return ""
 }
 
 func inferClusterName(kubeconfigPath string) string {
