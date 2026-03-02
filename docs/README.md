@@ -99,23 +99,26 @@ Node-level component that:
 ## Architecture Overview
 
 ```
-┌─────────────┐
-│   Agent     │ (DaemonSet - one per node)
-│  - Pod Watch│
-│  - SBOM Ext │
-└──────┬──────┘
-       │ gRPC (mTLS)
-       ▼
-┌─────────────┐
-│    Core     │ (Deployment)
-│  - Storage  │
-│  - CVE Match│
-│  - Insights │
-└──────┬──────┘
-       │
-       ├──► PostgreSQL (Database)
-       └──► NATS JetStream (Events)
+┌─────────────┐     HTTP /api      ┌─────────────┐
+│  Dashboard  │ ◄────────────────► │    Core     │ (Deployment, control-plane)
+│ (React/Vite)│                    │  - Storage  │
+│ Risk Center │                    │  - CVE Match│
+│ SBOM, PCE   │                    │  - Insights │
+└─────────────┘                    │  - REST API │
+                                   └──────┬──────┘
+                                          │
+┌─────────────┐     gRPC (mTLS)           ├──► PostgreSQL (Database)
+│   Agent     │ ─────────────────────────►│
+│ (DaemonSet  │                           └──► NATS JetStream (Events)
+│  per node)  │
+│ - Pod Watch │
+│ - SBOM Ext  │
+└─────────────┘
 ```
+
+- **Dashboard** talks to Core via HTTP (proxy `/api` to Core). Shows Risk Center, SBOM, threat velocity, pod capabilities, runtime signals.
+- **Agent** sends SBOM and pod sync to Core over gRPC (mTLS). One pod per node.
+- **Core** stores data in PostgreSQL, uses NATS for events, and serves REST API and gRPC.
 
 ---
 
@@ -169,18 +172,19 @@ See repository root for license information.
 
 ## Documentation Structure
 
-The documentation is organized into the following structure:
+| Directory | Contents |
+|-----------|----------|
+| **docs/** (root) | README.md (this file), [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md), [AGENT_CORE_ERRORS_MONITOR.md](AGENT_CORE_ERRORS_MONITOR.md), [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md) |
+| **01-getting-started/** | Environment prep, build guide, quickstart, deployment basics |
+| **02-architecture/** | System architecture, components, repository structure |
+| **03-components/** | Core, Agent, PCE, SBOM, CVE, runtime signals, data sync |
+| **04-development/** | Migrations, seed data, development logic |
+| **05-operations/** | Production deployment, checklist, containerd build, clean rebuild, port-forward, network |
+| **06-reference/** | API reference |
+| **07-guides/** | UI/UX, dashboard (features, filters, clusters), risk center — [Risk Center logic](07-guides/RISK_CENTER_TOTAL_FINDINGS_LOGIC.md), [Threat Velocity](07-guides/THREAT_VELOCITY.md), [Dashboard charts & E2E](07-guides/DASHBOARD_CHARTS_AND_E2E.md) |
+| **08-tutorials/** | Step-by-step tutorials |
+| **test-results/** | Test results (README); see [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md) for verify/E2E script list |
+| **e2e/** | E2E scenarios and summaries |
+| **archive/** | Outdated or one-off docs |
 
-- **Root**: README.md, [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md)
-- **01-getting-started/**: Environment, build, quickstart
-- **02-architecture/**: Architecture, components, repository structure
-- **03-components/**: Core, Agent, PCE, SBOM, runtime signals
-- **04-development/**: Migrations, seed data, development logic
-- **05-operations/**: Deployment, checklist, clean rebuild, port-forward, network
-- **06-reference/**: API reference, script paths
-- **07-guides/**: UI/UX, dashboard, risk center — [Risk Center Total findings logic](07-guides/RISK_CENTER_TOTAL_FINDINGS_LOGIC.md); [Threat Velocity](07-guides/THREAT_VELOCITY.md); [Dashboard charts & E2E](07-guides/DASHBOARD_CHARTS_AND_E2E.md) (why velocity/risk charts may not change after E2E)
-- **08-tutorials/**: Tutorials
-- **test-results/**: Current test results (README)
-- **archive/**: Outdated or one-off docs
-
-For detailed structure, see [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md).
+See [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md) for conventions and archive layout.
