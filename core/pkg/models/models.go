@@ -132,6 +132,7 @@ type Pod struct {
 	AutomountServiceAccountToken *bool     `gorm:"column:automount_service_account_token" json:"automountServiceAccountToken"`
 	NodeName                string         `gorm:"type:varchar(255);index" json:"nodeName"`
 	NodeID         *uint          `gorm:"index" json:"nodeId"`            // Reference to nodes table
+	Phase                   string         `gorm:"type:varchar(32);default:''" json:"phase"` // Kubernetes pod status: Running, Pending, Succeeded, Failed, Unknown
 	CreatedAt      time.Time      `json:"createdAt"`
 	UpdatedAt      time.Time      `json:"updatedAt"`
 	DeletedAt      gorm.DeletedAt `gorm:"index" json:"-"`

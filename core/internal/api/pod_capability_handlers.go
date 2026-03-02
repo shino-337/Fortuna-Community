@@ -25,9 +25,18 @@ type PodCapabilityDTO struct {
 	UpdatedAt       string                 `json:"updatedAt"`
 }
 
+// hasPodCapabilitiesTable returns true if pod_capabilities table exists (migration 041 has run).
+func hasPodCapabilitiesTable(db *gorm.DB) bool {
+	return db.Migrator().HasTable("pod_capabilities")
+}
+
 // GetPodCapabilities returns capabilities for a specific pod UID.
 func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"podUid": c.Param("id"), "capabilities": []PodCapabilityDTO{}, "total": 0})
+			return
+		}
 		podUID := c.Param("id")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
@@ -52,6 +61,10 @@ func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesList returns paginated pod capabilities with filters.
 func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"items": []interface{}{}, "total": 0, "limit": 50, "offset": 0})
+			return
+		}
 		limit := 50
 		if l := c.Query("limit"); l != "" {
 			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
@@ -142,6 +155,10 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 			Count        int    `json:"count"`
 		}
 
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			return
+		}
 		clusterID := c.Query("clusterId")
 		namespace := c.Query("namespace")
 		capabilityID := c.Query("capabilityId")
@@ -182,6 +199,10 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryByCluster returns aggregated counts by cluster only.
 func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			return
+		}
 		type row struct {
 			ClusterID string `json:"clusterId"`
 			Count     int    `json:"count"`
@@ -211,6 +232,10 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryByCapability returns aggregated counts by capability only (active pods only).
 func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			return
+		}
 		type row struct {
 			CapabilityID string `json:"capabilityId"`
 			Severity     string `json:"severity"`
@@ -248,6 +273,10 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryByNamespace returns aggregated counts by namespace and severity (active pods only).
 func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			return
+		}
 		type row struct {
 			Namespace string `json:"namespace"`
 			Severity  string `json:"severity"`
@@ -288,6 +317,10 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryBySeverity returns aggregated counts by severity only (active pods only).
 func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			return
+		}
 		type row struct {
 			Severity string `json:"severity"`
 			Count    int    `json:"count"`
@@ -324,6 +357,10 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 // Always returns one point per day for the last `days` (fill missing days with zeros) so dashboard chart renders.
 func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !hasPodCapabilitiesTable(db) {
+			c.JSON(http.StatusOK, gin.H{"points": []interface{}{}, "total": 0})
+			return
+		}
 		type row struct {
 			Date     string `json:"date"`
 			Critical int    `json:"critical"`

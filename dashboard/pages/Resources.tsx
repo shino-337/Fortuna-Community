@@ -12,6 +12,7 @@ import { Button } from '../components/ui/Button';
 import { PageLayout } from '../components/PageLayout';
 import { Pagination } from '../components/Pagination';
 import { PageEmpty } from '../components/PageEmpty';
+import { getSeverityBadgeClass, getPodStatusBadgeClass } from '../lib/severity';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 const TAB_IDS = ['Pod', 'ServiceAccount', 'Role', 'RoleBinding'] as const;
@@ -85,6 +86,14 @@ export const Resources: React.FC = () => {
     { id: 'RoleBinding', label: 'Role Bindings', icon: <Key size={16} /> },
   ];
 
+  /** Risk level from count for badge (real data only) */
+  const podRiskLevel = (count: number): 'critical' | 'high' | 'medium' | 'low' => {
+    if (count >= 10) return 'critical';
+    if (count >= 4) return 'high';
+    if (count >= 1) return 'medium';
+    return 'low';
+  };
+
   const renderTableHead = () => {
     if (activeTab === 'Pod') {
       return (
@@ -92,7 +101,8 @@ export const Resources: React.FC = () => {
           <th className="px-6 py-4 font-medium">Name</th>
           <th className="px-6 py-4 font-medium">Namespace</th>
           <th className="px-6 py-4 font-medium">Node</th>
-          <th className="px-6 py-4 font-medium">Risk Count</th>
+          <th className="px-6 py-4 font-medium">Status</th>
+          <th className="px-6 py-4 font-medium">Risk</th>
           <th className="px-6 py-4 font-medium text-right">Actions</th>
         </tr>
       );
@@ -207,19 +217,28 @@ export const Resources: React.FC = () => {
     );
   };
 
-  const renderPodRow = (pod: PodWithRisk) => (
-    <tr key={pod.uid} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 cursor-pointer" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
-      <td className="px-6 py-4 font-medium text-white">{pod.name}</td>
-      <td className="px-6 py-4 text-slate-400">{pod.namespace}</td>
-      <td className="px-6 py-4 text-slate-400 font-mono text-xs">{pod.nodeName ?? '—'}</td>
-      <td className="px-6 py-4">
-        <span className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-slate-500'}>{pod.riskCount}</span>
-      </td>
-      <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-        <button className="text-pink-500 hover:text-pink-400 text-xs font-medium" onClick={() => navigate(`/resources/pods/${pod.id}`)}>View</button>
-      </td>
-    </tr>
-  );
+  const renderPodRow = (pod: PodWithRisk) => {
+    const level = podRiskLevel(pod.riskCount);
+    return (
+      <tr key={pod.uid} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 cursor-pointer" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
+        <td className="px-6 py-4 font-medium text-white">{pod.name}</td>
+        <td className="px-6 py-4 text-slate-400">{pod.namespace}</td>
+        <td className="px-6 py-4 text-slate-400 font-mono text-xs">{pod.nodeName ?? '—'}</td>
+        <td className="px-6 py-4">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getPodStatusBadgeClass(pod.status)}`}>{pod.status ?? '—'}</span>
+        </td>
+        <td className="px-6 py-4">
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border capitalize ${getSeverityBadgeClass(level)}`}>
+            {level}
+            {pod.riskCount > 0 && <span className="ml-1 opacity-90">({pod.riskCount})</span>}
+          </span>
+        </td>
+        <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
+          <button className="text-pink-500 hover:text-pink-400 text-xs font-medium" onClick={() => navigate(`/resources/pods/${pod.id}`)}>View</button>
+        </td>
+      </tr>
+    );
+  };
 
   return (
     <PageLayout
@@ -313,7 +332,7 @@ export const Resources: React.FC = () => {
                   (paginatedResources as PodWithRisk[]).map(renderPodRow)
                 ) : (
                   <tr>
-                    <td colSpan={5} className="px-4 py-8">
+                    <td colSpan={6} className="px-4 py-8">
                       <PageEmpty title="No pods found" description="Ensure Core and agents are syncing for the selected scope." className="py-6" />
                     </td>
                   </tr>

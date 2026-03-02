@@ -1,63 +1,48 @@
-# Default values for Fortuna
-# This is a YAML-formatted file.
+# Fortuna Helm Chart – default values
+# Override with -f custom.yaml or --set key=value
 
 nameOverride: ""
 fullnameOverride: ""
 
-# Global settings
-global:
-  namespace: fortuna
-  imageRegistry: ""
-  imagePullSecrets: []
+# Namespace (used in templates; prefer installing with -n fortuna)
+namespaceOverride: "fortuna"
 
-# Core component configuration
+# Image settings (common)
+image:
+  registry: ""
+  pullPolicy: IfNotPresent
+  tag: "latest"
+
+# Core
 core:
-  name: fortuna-core
-  enabled: true
-  
+  replicaCount: 1
   image:
     repository: fortuna-core
-    tag: latest
-    pullPolicy: IfNotPresent  # Never for local, IfNotPresent/Always for production
-  
-  replicaCount: 1
-  
-  service:
-    type: ClusterIP
-    httpPort: 8080
-    grpcPort: 9090
-  
-  # Database configuration
-  database:
-    url: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
-    host: postgres
-    port: 5432
-    name: fortuna
-    user: postgres
-    password: postgres
-  
-  # NATS configuration
-  nats:
-    endpoint: "nats://nats-client.fortuna.svc.cluster.local:4222"
-  
-  # mTLS configuration
-  tls:
-    enabled: true
-    certSecret: fortuna-core-tls
-    certPath: /etc/fortuna/tls/server/tls.crt
-    keyPath: /etc/fortuna/tls/server/tls.key
-    caCertPath: /etc/fortuna/ca-cert/ca.crt
-  # Webhook TLS configuration
-  webhookTls:
-    enabled: true
-    certSecret: fortuna-webhook-tls
-    certPath: /etc/webhook/certs/tls.crt
-    keyPath: /etc/webhook/certs/tls.key
-  
-  # Node placement
+    # registry from global image.registry
+  env:
+    databaseUrl: "postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
+    natsEndpoint: "nats://nats-client.fortuna.svc.cluster.local:4222"
+    httpPort: "8080"
+    grpcPort: "9090"
+    tlsEnabled: "true"
+    authEnabled: "true"
+    pceSchedulerEnabled: "true"
+    pceSchedulerInterval: "6h"
+    logLevel: "info"
+    fortunaEnableSeedData: "true"
+    # Admin (override in production via secret)
+    fortunaAdminUsername: "admin"
+    fortunaAdminPassword: "admin123"
+    fortunaAdminEmail: "admin@fortuna.local"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
   nodeSelector:
     node-role.kubernetes.io/control-plane: ""
-  
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
@@ -65,82 +50,30 @@ core:
     - key: node-role.kubernetes.io/master
       operator: Exists
       effect: NoSchedule
-  
-  # Resource limits
-  resources:
-    requests:
-      cpu: 100m
-      memory: 256Mi
-    limits:
-      cpu: 1000m
-      memory: 1Gi
-  
-  # Security context
-  securityContext:
-    runAsNonRoot: true
-    runAsUser: 1000
-    runAsGroup: 1000
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
-    capabilities:
-      drop:
-        - ALL
-  
-  # Health checks
-  livenessProbe:
-    httpGet:
-      path: /healthz
-      port: http
-    initialDelaySeconds: 30
-    periodSeconds: 10
-    timeoutSeconds: 5
-    failureThreshold: 3
-  
-  readinessProbe:
-    httpGet:
-      path: /ready
-      port: http
-    initialDelaySeconds: 10
-    periodSeconds: 5
-    timeoutSeconds: 3
-    failureThreshold: 3
-  
-  # Environment variables
-  env:
-    LOG_LEVEL: "info"
-    AUTH_ENABLED: "true"
-    PCE_SCHEDULER_ENABLED: "true"
-    PCE_SCHEDULER_INTERVAL: "6h"
-    # Seed capability_metadata + promotion_rules (Capability Catalog & PCE)
-    FORTUNA_ENABLE_SEED_DATA: "true"
+    - key: node.kubernetes.io/disk-pressure
+      operator: Exists
+      effect: NoSchedule
+  # Optional: use existing secret for JWT / admin (keys: jwt-secret, admin-password)
+  existingSecret: ""
 
-# Agent component configuration
+# Agent (CORE_GRPC/HTTP_ENDPOINT set from release namespace in template)
 agent:
-  name: fortuna-agent
-  enabled: true
-  
   image:
     repository: fortuna-agent
-    tag: latest
-    pullPolicy: IfNotPresent  # Never for local, IfNotPresent/Always for production
-  
-  # Core endpoint
-  coreEndpoint: "fortuna-core.fortuna.svc.cluster.local:9090"
-  
-  # mTLS configuration
-  tls:
-    enabled: true
-    certSecret: fortuna-agent-client-tls
-    certPath: /etc/fortuna/tls/client/tls.crt
-    keyPath: /etc/fortuna/tls/client/tls.key
-    caCertPath: /etc/fortuna/tls/client/ca.crt
-  
-  # Containerd socket
-  containerdSocket:
-    enabled: true
-    path: /run/containerd/containerd.sock
-  
-  # Tolerations (allow on all nodes including master)
+  env:
+    syncInterval: "5m"
+    heartbeatInterval: "15s"
+    tlsEnabled: "true"
+    containerdSocket: "/run/containerd/containerd.sock"
+    containerdNamespace: "k8s.io"
+    logLevel: "info"
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 500m
+      memory: 2Gi
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
@@ -148,63 +81,31 @@ agent:
     - key: node-role.kubernetes.io/master
       operator: Exists
       effect: NoSchedule
-  
-  # Resource limits
+
+# Dashboard
+dashboard:
+  replicaCount: 1
+  image:
+    repository: fortuna-dashboard
+  service:
+    type: LoadBalancer
+    port: 80
   resources:
     requests:
-      cpu: 100m
-      memory: 256Mi
+      memory: "64Mi"
+      cpu: "50m"
     limits:
-      cpu: 500m
-      memory: 1Gi
-  
-  # Security context (root required for containerd socket)
-  securityContext:
-    runAsNonRoot: false
-    runAsUser: 0
-    allowPrivilegeEscalation: false
-    readOnlyRootFilesystem: false
-    capabilities:
-      drop:
-        - ALL
-  
-  # Environment variables (set CLUSTER_ID/CLUSTER_NAME per environment, e.g. from kubectl config get-clusters)
-  env:
-    LOG_LEVEL: "info"
-    # CLUSTER_ID and CLUSTER_NAME: set via --set agent.env.CLUSTER_ID=<name> or from your values; agent falls back to kubeconfig or code default
-    SYNC_INTERVAL: "5m"
-    CONTAINERD_SOCKET: "/run/containerd/containerd.sock"
-    CONTAINERD_NAMESPACE: "k8s.io"
+      memory: "128Mi"
+      cpu: "100m"
+  nodeSelector: {}
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
 
-# RBAC configuration
-rbac:
-  create: true
-  serviceAccount:
-    core:
-      create: true
-      name: fortuna-core
-      annotations: {}
-    agent:
-      create: true
-      name: fortuna-agent
-      annotations: {}
-
-# Service account annotations (for IRSA, Workload Identity, etc.)
-serviceAccountAnnotations: {}
-
-# Secrets configuration
-secrets:
-  create: false  # Set to true if you want Helm to create secrets
-  # Secrets should be created using create_mtls_secret.sh script
-
-# PostgreSQL (optional - can use external database)
-postgresql:
-  enabled: false
-  auth:
-    postgresPassword: postgres
-    database: fortuna
-
-# NATS (optional - can use external NATS)
-nats:
-  enabled: false
-
+# mTLS / Webhook secret names (must exist before install)
+tls:
+  coreSecretName: fortuna-core-tls
+  agentSecretName: fortuna-agent-tls
+  caSecretName: fortuna-ca-cert
+  webhookSecretName: fortuna-webhook-tls

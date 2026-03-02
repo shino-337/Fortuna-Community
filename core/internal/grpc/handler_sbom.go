@@ -14,6 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/core/pkg/messaging"
@@ -126,10 +127,17 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		return nil, status.Errorf(codes.Internal, "database error: %v", err)
 	}
 
-	// Insert SBOM components (for new row or after deleting old for updated row)
+	// Insert SBOM components (for new row or after deleting old for updated row).
+	// Deduplicate by purl within this request; use ON CONFLICT DO NOTHING to avoid duplicate key errors (race or re-send).
+	seenPURL := make(map[string]bool)
+	var components []*models.SBOMComponent
 	for _, pkg := range req.Packages {
 		purl := fmt.Sprintf("pkg:%s/%s@%s", pkg.Type.String(), pkg.Name, pkg.Version)
-		component := &models.SBOMComponent{
+		if seenPURL[purl] {
+			continue
+		}
+		seenPURL[purl] = true
+		components = append(components, &models.SBOMComponent{
 			SBOMID:           sbom.ID,
 			ComponentType:    mapComponentType(pkg.Type),
 			ComponentName:    pkg.Name,
@@ -140,11 +148,16 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			Description:      pkg.Description,
 			Homepage:         pkg.Homepage,
 			Maintainer:       pkg.Maintainer,
-		}
-		if err := tx.Where("sbom_id = ? AND purl = ?", sbom.ID, purl).FirstOrCreate(component).Error; err != nil {
+		})
+	}
+	if len(components) > 0 {
+		if err := tx.Clauses(clause.OnConflict{
+			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "purl"}},
+			DoNothing: true,
+		}).Create(components).Error; err != nil {
 			tx.Rollback()
-			log.Printf("[SBOM] Failed to insert component %s: %v", pkg.Name, err)
-			return nil, status.Errorf(codes.Internal, "failed to insert component: %v", err)
+			log.Printf("[SBOM] Failed to insert components: %v", err)
+			return nil, status.Errorf(codes.Internal, "failed to insert components: %v", err)
 		}
 	}
 

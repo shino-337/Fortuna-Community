@@ -17,7 +17,7 @@ import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { getSeverityTextClass } from '../lib/severity';
 import { STAT_LABELS } from '../constants/labels';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
 
 export const Dashboard: React.FC = () => {
   const navigate = useNavigate();
@@ -111,41 +111,31 @@ export const Dashboard: React.FC = () => {
     return out;
   }, []);
 
-  const chartData = useMemo(() => {
-    let points: { name: string; risk: number }[];
-    if (threatVelocity.length > 0) {
-      points = threatVelocity.map((point) => ({
-        name: point.date,
-        risk: (point.critical ?? 0) + (point.high ?? 0) + (point.medium ?? 0) + (point.low ?? 0),
-      }));
-    } else {
-      points = last7Days.map((date) => ({ name: date, risk: 0 }));
-    }
-    return points.slice().sort((a, b) => a.name.localeCompare(b.name));
-  }, [threatVelocity, last7Days]);
+  /** Merged data for Velocity (risks) + PCE trend: one chart, two lines by date */
+  const trendChartData = useMemo(() => {
+    const byDate: Record<string, { risk: number; pce: number }> = {};
+    last7Days.forEach((d) => { byDate[d] = { risk: 0, pce: 0 }; });
+    threatVelocity.forEach((p) => {
+      const d = p.date;
+      if (!byDate[d]) byDate[d] = { risk: 0, pce: 0 };
+      byDate[d].risk = (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0);
+    });
+    pceTrend.forEach((p) => {
+      const d = p.date;
+      if (!byDate[d]) byDate[d] = { risk: 0, pce: 0 };
+      byDate[d].pce = (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0);
+    });
+    return last7Days.map((date) => ({ name: date, ...byDate[date] })).sort((a, b) => a.name.localeCompare(b.name));
+  }, [last7Days, threatVelocity, pceTrend]);
 
-  const chartYDomain = useMemo(() => {
-    const maxRisk = chartData.length ? Math.max(...chartData.map((d) => d.risk), 1) : 1;
-    return [0, maxRisk] as [number, number];
-  }, [chartData]);
-
-  const pceChartData = useMemo(() => {
-    let points: { name: string; total: number }[];
-    if (pceTrend.length > 0) {
-      points = pceTrend.map((point) => ({
-        name: point.date,
-        total: (point.critical ?? 0) + (point.high ?? 0) + (point.medium ?? 0) + (point.low ?? 0),
-      }));
-    } else {
-      points = last7Days.map((date) => ({ name: date, total: 0 }));
-    }
-    return points.slice().sort((a, b) => a.name.localeCompare(b.name));
-  }, [pceTrend, last7Days]);
-
-  const pceChartYDomain = useMemo(() => {
-    const maxTotal = pceChartData.length ? Math.max(...pceChartData.map((d) => d.total), 1) : 1;
-    return [0, maxTotal] as [number, number];
-  }, [pceChartData]);
+  const trendChartYDomain = useMemo(() => {
+    if (!trendChartData.length) return [0, 1] as [number, number];
+    const maxVal = Math.max(
+      ...trendChartData.map((d) => Math.max(d.risk, d.pce)),
+      1
+    );
+    return [0, maxVal] as [number, number];
+  }, [trendChartData]);
 
   if (loading) return <PageLoading message="Initializing Dashboard…" className="min-h-[60vh]" />;
 
@@ -323,59 +313,32 @@ export const Dashboard: React.FC = () => {
                 ))}
             </div>
             
-            <Card title="Threat Velocity (7 Days)">
+            <Card title="Velocity & PCE Trend (7 Days)">
                  <div className="w-full min-w-[280px] bg-slate-800/30 rounded-md border border-slate-700/50" style={{ width: '100%', height: 260, minHeight: 260 }}>
                    <ResponsiveContainer width="100%" height="100%">
-                     <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
-                       <defs>
-                         <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
-                           <stop offset="5%" stopColor="#ef4444" stopOpacity={0.3}/>
-                           <stop offset="95%" stopColor="#ef4444" stopOpacity={0}/>
-                         </linearGradient>
-                       </defs>
+                     <LineChart data={trendChartData} margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
                        <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                       <YAxis domain={chartYDomain} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={28} />
+                       <YAxis domain={trendChartYDomain} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={28} />
                        <Tooltip
                          contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }}
-                         itemStyle={{ color: '#ef4444' }}
-                         formatter={(value: number) => [value, 'Risks']}
                          labelFormatter={(label) => `Date: ${label}`}
+                         formatter={(value: number, name: string) => [value, name === 'risk' ? 'Threat Velocity (Risks)' : 'PCE (Capabilities)']}
                        />
-                       <Area type="monotone" dataKey="risk" name="Risks" stroke="#ef4444" strokeWidth={2} fillOpacity={1} fill="url(#colorRisk)" isAnimationActive={true} />
-                     </AreaChart>
+                       <Legend
+                         wrapperStyle={{ paddingTop: 8 }}
+                         formatter={(value) => (value === 'risk' ? 'Threat Velocity' : 'PCE Trend')}
+                         iconType="line"
+                         iconSize={10}
+                         style={{ fontSize: 11 }}
+                       />
+                       <Line type="monotone" dataKey="risk" name="risk" stroke="#ef4444" strokeWidth={2} dot={{ fill: '#ef4444', r: 3 }} activeDot={{ r: 4 }} isAnimationActive />
+                       <Line type="monotone" dataKey="pce" name="pce" stroke="#22d3ee" strokeWidth={2} dot={{ fill: '#22d3ee', r: 3 }} activeDot={{ r: 4 }} isAnimationActive />
+                     </LineChart>
                    </ResponsiveContainer>
                  </div>
-                 {chartData.every((d) => d.risk === 0) && (
-                   <p className="text-xs text-slate-500 mt-2 px-1">No risks in last 7 days. Log in (admin/admin123); run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> to populate.</p>
-                 )}
-            </Card>
-
-            <Card title="PCE Trend (7 Days)">
-                 <div className="w-full min-w-[280px] bg-slate-800/30 rounded-md border border-slate-700/50" style={{ width: '100%', height: 260, minHeight: 260 }}>
-                   <ResponsiveContainer width="100%" height="100%">
-                     <AreaChart data={pceChartData} margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
-                       <defs>
-                         <linearGradient id="colorPce" x1="0" y1="0" x2="0" y2="1">
-                           <stop offset="5%" stopColor="#22d3ee" stopOpacity={0.3}/>
-                           <stop offset="95%" stopColor="#22d3ee" stopOpacity={0}/>
-                         </linearGradient>
-                       </defs>
-                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#334155" />
-                       <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} />
-                       <YAxis domain={pceChartYDomain} axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} width={28} />
-                       <Tooltip
-                         contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }}
-                         itemStyle={{ color: '#22d3ee' }}
-                         formatter={(value: number) => [value, 'Capabilities']}
-                         labelFormatter={(label) => `Date: ${label}`}
-                       />
-                       <Area type="monotone" dataKey="total" name="Capabilities" stroke="#22d3ee" strokeWidth={2} fillOpacity={1} fill="url(#colorPce)" isAnimationActive={true} />
-                     </AreaChart>
-                   </ResponsiveContainer>
-                 </div>
-                 {pceChartData.every((d) => d.total === 0) && (
-                   <p className="text-xs text-slate-500 mt-2 px-1">No PCE data in last 7 days. Run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> or ensure agents sync capabilities.</p>
+                 {trendChartData.every((d) => d.risk === 0 && d.pce === 0) && (
+                   <p className="text-xs text-slate-500 mt-2 px-1">No data in last 7 days. Log in (admin/admin123); run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> to populate.</p>
                  )}
             </Card>
         </div>

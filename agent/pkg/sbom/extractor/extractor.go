@@ -3,6 +3,7 @@ package extractor
 import (
 	"context"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -100,14 +101,14 @@ func (e *Extractor) ExtractSBOM(
 		parser := e.parsers[parserName]
 		packages, err := parser.Parse(fs)
 		if err != nil {
-			// Debug level - file not found is expected for wrong OS type
 			e.logger.Printf("   Parser %s: not applicable (OS: %s)", parserName, osInfo.Name)
 			continue
 		}
-
 		if len(packages) > 0 {
 			e.logger.Printf("✅ Parser %s found %d packages", parserName, len(packages))
 			allPackages = append(allPackages, packages...)
+		} else if parserName == "npm" || parserName == "pip" || parserName == "gomod" {
+			e.logger.Printf("   Parser %s: 0 packages (no matching files in image)", parserName)
 		}
 	}
 
@@ -159,17 +160,18 @@ func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image,
 	if img, err := e.getImageFromContainerd(ctx, ref); err == nil {
 		return img, nil
 	} else {
-		e.logger.Printf("⚠️  Containerd fetch failed: %v", err)
+		if os.Getenv("SBOM_DEBUG") == "1" || os.Getenv("SBOM_DEBUG") == "true" {
+			e.logger.Printf("⚠️  Containerd fetch failed (image/layer may be missing on this node): %v", err)
+		}
+		e.logger.Printf("Using remote registry for image: %s", ref.Name())
 	}
 
 	// Fall back to remote registry
-	e.logger.Printf("🔍 Fetching image from remote registry: %s", ref.Name())
 	img, err := remote.Image(ref, remote.WithContext(ctx))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch from remote registry: %w", err)
 	}
-
-	e.logger.Printf("✅ Fetched image from remote registry")
+	e.logger.Printf("Fetched image from remote registry: %s", ref.Name())
 	return img, nil
 }
 
@@ -220,8 +222,45 @@ func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Referen
 	if err != nil {
 		return nil, fmt.Errorf("tarball parse error: %w", err)
 	}
-	e.logger.Printf("✅ Found image in containerd: %s", selected)
-	return img, nil
+
+	// Materialize image into memory so we can close/remove the temp file.
+	// Otherwise layer.Uncompressed() would read from the deleted file and fail.
+	digest, _ := img.Digest()
+	configFile, _ := img.ConfigFile()
+	rawConfig, _ := img.RawConfigFile()
+	manifest, _ := img.Manifest()
+	rawManifest, _ := img.RawManifest()
+	layers, err := img.Layers()
+	if err != nil {
+		return nil, fmt.Errorf("image layers: %w", err)
+	}
+	memLayers := make([]*memLayer, 0, len(layers))
+	for _, layer := range layers {
+		diffID, _ := layer.DiffID()
+		layerDigest, _ := layer.Digest()
+		rc, err := layer.Uncompressed()
+		if err != nil {
+			e.logger.Printf("⚠️  Layer Uncompressed failed (materialize): %v", err)
+			continue
+		}
+		blob, err := io.ReadAll(rc)
+		_ = rc.Close()
+		if err != nil {
+			e.logger.Printf("⚠️  Layer read failed: %v", err)
+			continue
+		}
+		memLayers = append(memLayers, &memLayer{diffID: diffID, digest: layerDigest, blob: blob})
+	}
+
+	e.logger.Printf("✅ Found image in containerd: %s (materialized %d layers)", selected, len(memLayers))
+	return &materializedImage{
+		configFile:  configFile,
+		rawConfig:   rawConfig,
+		digest:      digest,
+		manifest:    manifest,
+		rawManifest: rawManifest,
+		layers:      memLayers,
+	}, nil
 }
 
 func containerdImageNames(refName string) []string {
@@ -242,22 +281,33 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
-// buildFilesystem builds a virtual filesystem from image layers
+// buildFilesystem builds a virtual filesystem from image layers (base → top; overlay semantics).
 func (e *Extractor) buildFilesystem(ctx context.Context, layers []v1.Layer) (*Filesystem, error) {
 	fs := NewFilesystem()
 
-	for _, layer := range layers {
+	for i, layer := range layers {
 		uncompressed, err := layer.Uncompressed()
 		if err != nil {
+			e.logger.Printf("⚠️  Layer %d Uncompressed failed: %v", i, err)
 			continue
 		}
 
-		// Extract tar archive
 		if err := fs.ExtractTar(ctx, uncompressed); err != nil {
-			e.logger.Printf("⚠️  Failed to extract layer: %v", err)
+			_ = uncompressed.Close()
+			e.logger.Printf("⚠️  Layer %d ExtractTar failed: %v", i, err)
 			continue
 		}
+		_ = uncompressed.Close()
 	}
+
+	// Debug: count paths that matter for npm/SBOM
+	n := 0
+	for path := range fs.files {
+		if strings.Contains(path, "package.json") {
+			n++
+		}
+	}
+	e.logger.Printf("   Virtual FS: %d files total, %d paths containing package.json", len(fs.files), n)
 
 	return fs, nil
 }

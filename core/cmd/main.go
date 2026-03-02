@@ -460,7 +460,7 @@ func main() {
 	router.GET("/healthz", health.LivenessCheck())
 	router.GET("/health", health.HealthCheck(db)) // Legacy endpoint
 	router.GET("/health/dashboard-data-integrity", api.DashboardDataIntegrity(db)) // Dashboard data traceability
-	router.GET("/ready", health.ReadinessCheck(db)) // Readiness: only checks HTTP/gRPC servers
+	router.GET("/ready", health.ReadinessCheck(db, cfg.GRPCPort)) // Readiness: HTTP + gRPC listening (avoids Agent "connection refused" on 9090)
 	router.GET("/live", health.LivenessCheck()) // Alias for /healthz
 	router.GET("/status", health.StatusCheck(db)) // Full status: includes DB, NATS
 

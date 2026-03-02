@@ -24,7 +24,8 @@ func NewFilesystem() *Filesystem {
 	}
 }
 
-// ExtractTar extracts a tar archive into the filesystem
+// ExtractTar extracts a tar archive into the filesystem (OCI overlay semantics).
+// Handles whiteout (.wh.filename, .wh..wh..opq) so layer N can remove files from layer N-1.
 func (fs *Filesystem) ExtractTar(ctx context.Context, r io.Reader) error {
 	tr := tar.NewReader(r)
 
@@ -43,21 +44,51 @@ func (fs *Filesystem) ExtractTar(ctx context.Context, r io.Reader) error {
 			return err
 		}
 
-		// Only extract regular files (skip directories, symlinks, etc.)
+		// Normalize path once (used for whiteout and for storing)
+		path := filepath.Clean(header.Name)
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		dir := filepath.Dir(path)
+		base := filepath.Base(path)
+
+		// OCI whiteout: .wh.<name> means remove <name> from lower layers
+		if strings.HasPrefix(base, ".wh.") {
+			if base == ".wh..wh..opq" {
+				// Opaque dir: remove all files under dir from lower layers
+				prefix := dir + "/"
+				for p := range fs.files {
+					if strings.HasPrefix(p, prefix) || p == dir {
+						delete(fs.files, p)
+					}
+				}
+			} else {
+				// Remove single file/dir: target = dir + name without .wh.
+				target := filepath.Join(dir, strings.TrimPrefix(base, ".wh."))
+				if !strings.HasPrefix(target, "/") {
+					target = "/" + target
+				}
+				delete(fs.files, target)
+			}
+			// Consume body so next header is valid
+			if header.Size > 0 {
+				_, _ = io.CopyN(io.Discard, tr, header.Size)
+			}
+			continue
+		}
+
+		// Only store regular files (symlinks/dirs skipped for SBOM file-level scan)
 		if header.Typeflag != tar.TypeReg {
+			if header.Size > 0 {
+				_, _ = io.CopyN(io.Discard, tr, header.Size)
+			}
 			continue
 		}
 
 		// Read file content
 		content := make([]byte, header.Size)
 		if _, err := io.ReadFull(tr, content); err != nil {
-			continue // Skip files that can't be read
-		}
-
-		// Normalize path
-		path := filepath.Clean(header.Name)
-		if !strings.HasPrefix(path, "/") {
-			path = "/" + path
+			continue
 		}
 
 		fs.files[path] = content
@@ -82,10 +113,9 @@ func (fs *Filesystem) ReadFile(path string) ([]byte, error) {
 	return content, nil
 }
 
-// Glob finds files matching a pattern
+// Glob finds files matching a pattern (single * per component; no **).
 func (fs *Filesystem) Glob(pattern string) []string {
 	matches := make([]string, 0)
-
 	for path := range fs.files {
 		matched, err := filepath.Match(pattern, path)
 		if err != nil {
@@ -95,8 +125,31 @@ func (fs *Filesystem) Glob(pattern string) []string {
 			matches = append(matches, path)
 		}
 	}
-
 	return matches
+}
+
+// FindPathsBySuffix returns all stored paths ending with suffix (e.g. "package-lock.json").
+// Used by npm parser to discover lock files anywhere in the image.
+func (fs *Filesystem) FindPathsBySuffix(suffix string) []string {
+	out := make([]string, 0)
+	for path := range fs.files {
+		if strings.HasSuffix(path, suffix) {
+			out = append(out, path)
+		}
+	}
+	return out
+}
+
+// FindPathsContaining returns all stored paths that contain sub and end with end (e.g. "node_modules", "package.json").
+// Used by npm parser to discover node_modules/*/package.json anywhere in the image.
+func (fs *Filesystem) FindPathsContaining(sub, end string) []string {
+	out := make([]string, 0)
+	for path := range fs.files {
+		if strings.Contains(path, sub) && strings.HasSuffix(path, end) {
+			out = append(out, path)
+		}
+	}
+	return out
 }
 
 // FileExists checks if a file exists

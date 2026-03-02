@@ -20,6 +20,7 @@ type PodPayload struct {
 	Name                         string                   `json:"name"`
 	Namespace                    string                   `json:"namespace"`
 	UID                          string                   `json:"uid"`
+	Phase                        string                   `json:"phase"` // Kubernetes pod status: Running, Pending, Succeeded, Failed, Unknown
 	ServiceAccountName           string                   `json:"serviceAccountName"`
 	NodeName                     string                   `json:"nodeName"`
 	HostNetwork                  bool                     `json:"hostNetwork"`
@@ -301,10 +302,12 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 		if saName != "" {
 			linkedPodsBySA[key] = append(linkedPodsBySA[key], string(p.UID))
 		}
+		phase := string(p.Status.Phase)
 		podPayloads = append(podPayloads, PodPayload{
 			Name:                         p.Name,
 			Namespace:                    p.Namespace,
 			UID:                          string(p.UID),
+			Phase:                        phase,
 			ServiceAccountName:           saName,
 			NodeName:                     p.Spec.NodeName,
 			HostNetwork:                  p.Spec.HostNetwork,

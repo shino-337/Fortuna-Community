@@ -5,7 +5,8 @@ import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { PodSbom, PodSbomSummary } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { Package, Search, Filter, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { Package, Search, Filter, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
+import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
 import { getSeverityBadgeClass, getSeverityBorderClass } from '../lib/severity';
 import { PageLayout } from '../components/PageLayout';
 
@@ -190,7 +191,18 @@ export const Sbom: React.FC = () => {
                   selectedPod.podCreatedAt ? `Created: ${new Date(selectedPod.podCreatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })}` : '',
                   selectedPod.podStatus?.trim() ? `Status: ${selectedPod.podStatus}` : '',
                 ].filter(Boolean).join(' · ')}
-                actions={<Button size="sm" variant="secondary"><Filter size={14} className="mr-2"/> Export SBOM</Button>}
+                actions={
+                  selectedDetail && (selectedDetail.components?.length ?? 0) > 0 ? (
+                    <div className="flex items-center gap-2">
+                      <Button size="sm" variant="secondary" onClick={() => exportSbomAsCsv(selectedDetail)} title="Download SBOM as CSV">
+                        <Download size={14} className="mr-2" /> Export CSV
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => exportSbomAsJson(selectedDetail)} title="Download SBOM as JSON">
+                        <Download size={14} className="mr-2" /> Export JSON
+                      </Button>
+                    </div>
+                  ) : null
+                }
               >
                 {detailLoading && (
                   <div className="flex items-center text-sm text-slate-500 mb-4">

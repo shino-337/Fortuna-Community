@@ -227,6 +227,23 @@ check_coredns
 # Check kube-proxy
 check_kube_proxy
 
+# Check CNI (Flannel or other) so pod network works; avoids subnet.env / ContainerCreating stuck
+check_cni() {
+    echo ""
+    echo "=== Checking CNI (pod network) ==="
+    local flannel_pods=$(kubectl get pods -n kube-flannel --no-headers 2>/dev/null | wc -l)
+    local other_cni=$(kubectl get pods -A --no-headers 2>/dev/null | grep -cE 'calico|cilium|weave' || true)
+    if [ "${flannel_pods:-0}" -ge 1 ]; then
+        echo -e "${GREEN}✅${NC} Flannel CNI running ($flannel_pods pod(s) in kube-flannel)"
+    elif [ "${other_cni:-0}" -ge 1 ]; then
+        echo -e "${GREEN}✅${NC} Other CNI detected (Calico/Cilium/Weave)"
+    else
+        echo -e "${YELLOW}⚠️${NC}  No CNI pods found. Pods may stay ContainerCreating (subnet.env missing). Run: ./scripts/deploy/ensure-flannel.sh"
+        WARNINGS=$((WARNINGS+1))
+    fi
+}
+check_cni
+
 # Check StorageClass (required for PostgreSQL/NATS PVCs)
 check_storage_class() {
     echo ""

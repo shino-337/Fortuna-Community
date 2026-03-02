@@ -8,9 +8,9 @@
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
 # 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl → containerd k8s.io).
 #    Does NOT update image tag in deploy/*.yaml; use full-rebuild-sync-deploy-and-e2e.sh for tag sync.
-# 4. Deploy: Phase 2a ensure cluster addons (kube-proxy, CoreDNS); Phase 2c ensure StorageClass (local-path);
-#    Phase 3a CNI (Flannel) check/fix for multi-node; deploy-fortuna-robust.sh (infra, RBAC, core, agent, dashboard);
-#    Phase 3b rollout restart Core/Dashboard/Agent and wait for rollout.
+# 4. Deploy: Phase 2a addons (kube-proxy, CoreDNS); Phase 2a2 ensure Flannel CNI (install if missing);
+#    Phase 2c ensure StorageClass (local-path); Phase 3a CNI fix for multi-node (optional);
+#    deploy-fortuna-robust.sh (infra, RBAC, core, agent, dashboard); Phase 3b rollout restart.
 #
 # Usage:
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh              # clean images + rebuild + deploy
@@ -145,7 +145,7 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$SKIP_REBUILD" = false ] && [ "$PUSH_IMAGES_
     if "$SCRIPTS/utils/push-images-to-workers.sh" 2>&1; then
       log_success "Images pushed to all nodes"
     else
-      log_warn "Push to nodes failed (SSH or node list). If Core shows ErrImageNeverPull, run: ./scripts/utils/push-images-to-workers.sh"
+      log_warn "Push to nodes failed (SSH or node list). Add scripts/utils/push-images.config (see push-images.config.example) or set SSH_USER/SSH_PASS; if Core shows ErrImageNeverPull run: ./scripts/utils/push-images-to-workers.sh"
     fi
   else
     log_warn "push-images-to-workers.sh not found; if Core shows ErrImageNeverPull, run it after build to copy images to the node that runs Core."
@@ -166,6 +166,23 @@ if [ "$SKIP_DEPLOY" = false ]; then
     sleep 15
   else
     log_warn "ensure-cluster-addons.sh not found; if ClusterIP/DNS fail, install kube-proxy and CoreDNS (kubeadm phase addon)"
+  fi
+  echo ""
+fi
+
+# ---- Phase 2a2: Ensure Flannel CNI so pod network works (avoids subnet.env / local-path-provisioner stuck) ----
+if [ "$SKIP_DEPLOY" = false ]; then
+  log_info "Phase 2a2: Ensure Flannel CNI (install if missing)..."
+  if [ -x "$SCRIPTS/deploy/ensure-flannel.sh" ]; then
+    if "$SCRIPTS/deploy/ensure-flannel.sh" 2>/dev/null; then
+      log_success "Flannel CNI ready"
+    else
+      log_warn "ensure-flannel.sh had warnings; if pods stay ContainerCreating (subnet.env), install Flannel: kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/v0.26.0/Documentation/kube-flannel.yml"
+    fi
+    log_info "Sleep 10s for Flannel to stabilize..."
+    sleep 10
+  else
+    log_warn "ensure-flannel.sh not found; if pod network fails, install Flannel before StorageClass"
   fi
   echo ""
 fi
@@ -240,4 +257,6 @@ echo "  If agent shows [Syncer] Sync failed: status=500, check Core logs for 'co
 echo "    fix: run with --db-reset and redeploy, or add clusters.kubeconfig (migration 062) and restart Core."
 echo "  If Core pod shows ErrImageNeverPull: image must be on the node that runs Core (control-plane)."
 echo "    fix: ./scripts/utils/push-images-to-workers.sh (pushes to all nodes including master; set SSH_USER/SSH_PASS or use keys)."
+echo "  If Agent CrashLoopBackOff (OOMKilled): daemonset has memory limit 2Gi; optional SBOM_WORKERS=1 and rebuild agent."
+echo "  Monitor errors: ./scripts/monitor/monitor-agent-core-errors.sh (or --follow). Full troubleshooting: docs/AGENT_CORE_ERRORS_MONITOR.md"
 echo ""

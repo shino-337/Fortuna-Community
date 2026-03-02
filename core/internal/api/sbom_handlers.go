@@ -36,27 +36,38 @@ type SBOMComponentDTO struct {
 	Type            string             `json:"type"`
 	PURL            string             `json:"purl,omitempty"`
 	Vulnerabilities []VulnerabilityDTO `json:"vulnerabilities"`
+	CveCount        int                `json:"cveCount"`        // len(Vulnerabilities)
+	MaxSeverity     string             `json:"maxSeverity"`     // highest severity in list
+	MaxCVSS         float32            `json:"maxCvss"`         // highest CVSS in list
+	FixVersion      string             `json:"fixVersion"`      // first fixed version if any
+	Status          string             `json:"status,omitempty"` // active | allowed | fixed (default active)
 }
 
 // VulnerabilityDTO is the payload for each CVE
 type VulnerabilityDTO struct {
-	ID           string  `json:"id"`
-	Severity     string  `json:"severity"`
-	CVSSScore    float32 `json:"cvssScore"`
-	Description  string  `json:"description,omitempty"`
-	FixedVersion string  `json:"fixedVersion,omitempty"`
+	ID            string  `json:"id"`
+	Severity      string  `json:"severity"`
+	CVSSScore     float32 `json:"cvssScore"`
+	Description   string  `json:"description,omitempty"`
+	FixedVersion  string  `json:"fixedVersion,omitempty"`
+	Status        string  `json:"status,omitempty"`        // active | allowed | fixed
+	ExploitKnown  bool    `json:"exploitKnown,omitempty"` // public exploit available
+	ExploitMaturity string `json:"exploitMaturity,omitempty"` // poc | functional | high
+	Allowed       bool    `json:"allowed,omitempty"`      // allowed by policy
 }
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
 type SBOMDetailDTO struct {
-	PodID        string             `json:"podId"`
-	Image        string             `json:"image"`
-	Namespace    string             `json:"namespace"`
-	PodName      string             `json:"podName"`
-	Container    string             `json:"container"`
-	GeneratedAt  time.Time          `json:"generatedAt"`
-	PackageCount int                `json:"packageCount"`
-	Components   []SBOMComponentDTO `json:"components"`
+	PodID                 string               `json:"podId"`
+	Image                 string               `json:"image"`
+	Namespace             string               `json:"namespace"`
+	PodName               string               `json:"podName"`
+	Container             string               `json:"container"`
+	GeneratedAt           time.Time            `json:"generatedAt"`
+	PackageCount          int                  `json:"packageCount"`
+	VulnerablePackageCount int                 `json:"vulnerablePackageCount"` // packages with ≥1 CVE
+	VulnerabilitySummary  vulnerabilitySummary `json:"vulnerabilitySummary"`   // critical/high/medium/low counts
+	Components            []SBOMComponentDTO   `json:"components"`
 }
 
 // GetSBOMList returns paginated SBOM summaries (pod-level) with vulnerability counts.
@@ -219,47 +230,85 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var matches []models.CVEMatch
-		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Order("severity DESC").Find(&matches).Error; err != nil {
+		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Preload("CVE").Order("severity DESC").Find(&matches).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
 		byName := make(map[string][]models.CVEMatch)
+		summary := vulnerabilitySummary{"critical": 0, "high": 0, "medium": 0, "low": 0}
 		for _, match := range matches {
 			byName[match.PackageName] = append(byName[match.PackageName], match)
+			sev := strings.ToLower(match.Severity)
+			if _, ok := summary[sev]; ok {
+				summary[sev]++
+			}
 		}
+		vulnerablePackageCount := len(byName)
 
 		dto := SBOMDetailDTO{
-			PodID:        sbom.PodUID,
-			Image:        fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
-			Namespace:    sbom.Namespace,
-			PodName:      sbom.PodName,
-			Container:    sbom.ContainerName,
-			GeneratedAt:  sbom.GeneratedAt,
-			PackageCount: sbom.PackageCount,
-			Components:   make([]SBOMComponentDTO, 0, len(components)),
+			PodID:                   sbom.PodUID,
+			Image:                   fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
+			Namespace:               sbom.Namespace,
+			PodName:                 sbom.PodName,
+			Container:               sbom.ContainerName,
+			GeneratedAt:             sbom.GeneratedAt,
+			PackageCount:            sbom.PackageCount,
+			VulnerablePackageCount:  vulnerablePackageCount,
+			VulnerabilitySummary:    summary,
+			Components:              make([]SBOMComponentDTO, 0, len(components)),
 		}
 
+		severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}
 		for _, comp := range components {
+			compMatches := byName[comp.ComponentName]
 			compDTO := SBOMComponentDTO{
 				ID:              comp.ID,
 				Name:            comp.ComponentName,
 				Version:         comp.ComponentVersion,
 				Type:            comp.ComponentType,
 				PURL:            comp.PURL,
-				Vulnerabilities: make([]VulnerabilityDTO, 0),
+				Vulnerabilities: make([]VulnerabilityDTO, 0, len(compMatches)),
+				CveCount:        len(compMatches),
+				Status:          "active",
 			}
-
-			for _, match := range byName[comp.ComponentName] {
+			var maxSev string
+			var maxCVSS float32
+			var fixVer string
+			for _, match := range compMatches {
+				sev := strings.ToLower(match.Severity)
+				if maxSev == "" || severityOrder[sev] < severityOrder[maxSev] {
+					maxSev = sev
+				}
+				if match.CVSS > maxCVSS {
+					maxCVSS = match.CVSS
+				}
+				if match.FixedVersion != "" && fixVer == "" {
+					fixVer = match.FixedVersion
+				}
+				desc := ""
+				exploitKnown := false
+				exploitMaturity := ""
+				if match.CVE.ID != 0 {
+					desc = match.CVE.Description
+					exploitKnown = match.CVE.ExploitAvailable
+					exploitMaturity = match.CVE.ExploitMaturity
+				}
 				compDTO.Vulnerabilities = append(compDTO.Vulnerabilities, VulnerabilityDTO{
-					ID:           match.CVEID,
-					Severity:     strings.ToLower(match.Severity),
-					CVSSScore:    match.CVSS,
-					Description:  match.CVE.Description,
-					FixedVersion: match.FixedVersion,
+					ID:              match.CVEID,
+					Severity:        sev,
+					CVSSScore:       match.CVSS,
+					Description:     desc,
+					FixedVersion:    match.FixedVersion,
+					Status:          "active",
+					ExploitKnown:    exploitKnown,
+					ExploitMaturity: exploitMaturity,
+					Allowed:         false,
 				})
 			}
-
+			compDTO.MaxSeverity = maxSev
+			compDTO.MaxCVSS = maxCVSS
+			compDTO.FixVersion = fixVer
 			dto.Components = append(dto.Components, compDTO)
 		}
 

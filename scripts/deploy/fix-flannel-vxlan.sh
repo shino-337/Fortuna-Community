@@ -4,16 +4,16 @@
 # Flannel VXLAN Configuration Fix Script
 # ============================================================================
 # This script fixes Flannel VXLAN tunnel issues for multi-node Kubernetes
-# clusters by:
+# clusters. If Flannel is not installed (no kube-flannel-cfg ConfigMap),
+# the script exits successfully (cluster may use Calico, Cilium, or other CNI).
+#
+# Steps when Flannel is present:
 # 1. Verifying Flannel ConfigMap configuration
 # 2. Checking Node PodCIDR assignments
 # 3. Restarting Flannel DaemonSet to reinitialize VXLAN
-# 4. Verifying VXLAN interfaces have IPv4 addresses
-# 5. Verifying routes between subnets are created
-# 6. Testing pod-to-pod connectivity
+# 4. Verifying VXLAN interfaces and routes
 #
 # Env: CNI_WAIT_SECONDS – seconds to wait after Flannel restart (default 30).
-#      Set to 10 when called from deploy/rebuild scripts to avoid long blocks.
 # ============================================================================
 
 set -euo pipefail
@@ -62,12 +62,13 @@ check_prerequisites() {
 }
 
 # Step 1: Verify Flannel ConfigMap
+# Returns: 0 = OK, 1 = error (wrong config), 2 = Flannel not installed (caller may skip)
 verify_flannel_configmap() {
     log_info "Step 1: Verifying Flannel ConfigMap..."
     
     if ! kubectl get configmap kube-flannel-cfg -n kube-flannel &> /dev/null; then
-        log_error "Flannel ConfigMap not found. Is Flannel installed?"
-        return 1
+        log_warning "Flannel ConfigMap not found. Cluster may use another CNI (Calico, Cilium, etc.). Skipping."
+        return 2
     fi
     
     local network=$(kubectl get configmap kube-flannel-cfg -n kube-flannel -o jsonpath='{.data.net-conf\.json}' | grep -o '"Network":\s*"[^"]*"' | cut -d'"' -f4)
@@ -292,8 +293,14 @@ main() {
     log_info "Starting Flannel VXLAN configuration fixes..."
     echo ""
     
-    # Step 1: Verify ConfigMap
-    if ! verify_flannel_configmap; then
+    # Step 1: Verify ConfigMap (skip entire script if Flannel not installed)
+    verify_flannel_configmap
+    r=$?
+    if [ $r -eq 2 ]; then
+        log_info "Flannel not installed; skipping (optional for non-Flannel clusters)"
+        exit 0
+    fi
+    if [ $r -ne 0 ]; then
         log_error "Flannel ConfigMap verification failed"
         exit 1
     fi

@@ -8,7 +8,7 @@
 
 | Thư mục | Nội dung |
 |---------|----------|
-| **docs/** (root) | README.md (điểm vào), DOCS_STRUCTURE.md |
+| **docs/** (root) | README.md (điểm vào), DOCS_STRUCTURE.md, **AGENT_CORE_ERRORS_MONITOR.md** (monitor & xử lý lỗi Agent/Core) |
 | **01-getting-started/** | Chuẩn bị môi trường, build, quickstart, deployment cơ bản |
 | **02-architecture/** | Kiến trúc hệ thống, ADR, policy engine, migration design |
 | **03-components/** | Core, Agent, PCE, SBOM, CVE, runtime signals, data sync |

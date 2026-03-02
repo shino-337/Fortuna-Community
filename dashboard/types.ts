@@ -4,6 +4,10 @@ export interface Vulnerability {
   description: string;
   fixedVersion?: string;
   cvssScore: number;
+  status?: 'active' | 'allowed' | 'fixed';
+  exploitKnown?: boolean;
+  exploitMaturity?: string;
+  allowed?: boolean;
 }
 
 export interface SbomComponent {
@@ -15,6 +19,11 @@ export interface SbomComponent {
   license?: string;
   purl?: string;
   vulnerabilities: Vulnerability[];
+  cveCount?: number;
+  maxSeverity?: string;
+  maxCvss?: number;
+  fixVersion?: string;
+  status?: string;
 }
 
 export interface PodSbomSummary {
@@ -43,6 +52,8 @@ export interface PodSbom {
   container?: string;
   generatedAt?: string;
   packageCount?: number;
+  vulnerablePackageCount?: number;
+  vulnerabilitySummary?: { critical: number; high: number; medium: number; low: number };
   components: SbomComponent[];
 }
 
@@ -134,7 +145,7 @@ export interface NodeDetailResponse {
   pods?: Array<{ id: number; uid: string; name: string; namespace: string; riskCount: number }>;
 }
 
-/** GET /pods – pod with riskCount */
+/** GET /pods – pod with riskCount (createdAt from backend when available) */
 export interface PodWithRisk {
   id: number;
   clusterId: string;
@@ -143,7 +154,10 @@ export interface PodWithRisk {
   uid: string;
   nodeName?: string;
   serviceAccount?: string;
+  /** Pod phase from API (phase): Running, Pending, Succeeded, Failed, Unknown */
+  status?: string;
   riskCount: number;
+  createdAt?: string;
 }
 
 export interface DashboardStats {

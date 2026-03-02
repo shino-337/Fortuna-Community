@@ -44,14 +44,14 @@ type PackageVulnerability struct {
 	ID                    uint           `gorm:"primaryKey" json:"id"`
 	CVEID                 string         `gorm:"type:varchar(100);not null;index" json:"cveId"`
 	PackageName           string         `gorm:"type:varchar(255);not null;index" json:"packageName"`
-	PackageType           string         `gorm:"type:varchar(50)" json:"packageType"`     // deb, rpm, apk, etc.
-	Ecosystem             string         `gorm:"type:varchar(50);index" json:"ecosystem"` // debian, alpine, ubuntu, etc.
+	PackageType           string         `gorm:"type:varchar(255)" json:"packageType"`     // deb, rpm, apk, etc.
+	Ecosystem             string         `gorm:"type:varchar(255);index" json:"ecosystem"` // debian, alpine, ubuntu, almalinux:8, etc.
 	AffectedRange         string         `gorm:"type:text" json:"affectedRange"`          // e.g., ">=0.6.18,<1.20.1"
-	VersionStartIncluding string         `gorm:"type:varchar(50)" json:"versionStartIncluding"`
-	VersionStartExcluding string         `gorm:"type:varchar(50)" json:"versionStartExcluding"`
-	VersionEndIncluding   string         `gorm:"type:varchar(50)" json:"versionEndIncluding"`
-	VersionEndExcluding   string         `gorm:"type:varchar(50);index" json:"versionEndExcluding"` // Most common: fixed version
-	FixedVersion          string         `gorm:"type:varchar(50)" json:"fixedVersion"`
+	VersionStartIncluding string         `gorm:"type:varchar(255)" json:"versionStartIncluding"`
+	VersionStartExcluding string         `gorm:"type:varchar(255)" json:"versionStartExcluding"`
+	VersionEndIncluding   string         `gorm:"type:varchar(255)" json:"versionEndIncluding"`
+	VersionEndExcluding   string         `gorm:"type:varchar(255);index" json:"versionEndExcluding"` // Most common: fixed version
+	FixedVersion          string         `gorm:"type:varchar(255)" json:"fixedVersion"`
 	FixedInVersions       string         `gorm:"type:text[]" json:"fixedInVersions"` // Array of fixed versions
 	Vendor                string         `gorm:"type:varchar(100)" json:"vendor"`
 	Product               string         `gorm:"type:varchar(100)" json:"product"`

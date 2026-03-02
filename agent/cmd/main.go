@@ -6,6 +6,8 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -29,6 +31,28 @@ var (
 	BuildCommit  = "none"
 	BuildTime    = "unknown"
 )
+
+// coreConnectHint returns a short diagnostic hint for Core connection failures.
+func coreConnectHint(err error) string {
+	if err == nil {
+		return "ok"
+	}
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "connection refused"):
+		return "Core pod may not be Ready yet or gRPC not listening on 9090; check: kubectl get pods -n fortuna -l app.kubernetes.io/component=core && kubectl get endpoints -n fortuna fortuna-core"
+	case strings.Contains(s, "connection reset"), strings.Contains(s, "EOF"):
+		return "Core may have restarted; retry will reconnect"
+	case strings.Contains(s, "i/o timeout"), strings.Contains(s, "deadline exceeded"):
+		return "Network/DNS issue; from agent pod try: nslookup fortuna-core.fortuna.svc.cluster.local"
+	case strings.Contains(s, "no such host"), strings.Contains(s, "Temporary failure in name resolution"):
+		return "DNS cannot resolve Core service; ensure Core Service exists in namespace fortuna"
+	case strings.Contains(s, "tls:"), strings.Contains(s, "handshake"), strings.Contains(s, "certificate"), strings.Contains(s, "x509"):
+		return "mTLS failure; ensure fortuna-agent-tls and fortuna-core-tls are signed by same CA (fortuna-ca-cert)"
+	default:
+		return "Check Core logs and Service/Endpoints; Agent will retry."
+	}
+}
 
 func main() {
 	log.SetOutput(os.Stdout)
@@ -84,26 +108,21 @@ func main() {
 		cfg.TLSCACertPath,
 	)
 
-	// Connect to Core with retry (DNS may be briefly unavailable after deploy/restart)
-	const connectRetries = 12
-	const connectBackoff = 10 * time.Second
-	var lastConnectErr error
-	for attempt := 1; attempt <= connectRetries; attempt++ {
-		log.Printf("🔗 Connecting to Core at %s (attempt %d/%d)...", cfg.CoreGRPCEndpoint, attempt, connectRetries)
+	// Connect to Core with retry (never exit: DNS/network may be slow after deploy/restart)
+	const connectBackoff = 15 * time.Second
+	for {
+		log.Printf("🔗 Connecting to Core at %s...", cfg.CoreGRPCEndpoint)
 		if err := grpcClient.Connect(ctx); err != nil {
-			lastConnectErr = err
 			log.Printf("⚠️  Connect failed: %v", err)
-			if attempt < connectRetries {
-				log.Printf("   Retrying in %v...", connectBackoff)
-				time.Sleep(connectBackoff)
+			log.Printf("   Diagnostic: %s (retrying in %v)", coreConnectHint(err), connectBackoff)
+			select {
+			case <-ctx.Done():
+				log.Fatalf("❌ Context cancelled before Core connection")
+			case <-time.After(connectBackoff):
+				continue
 			}
-			continue
 		}
-		lastConnectErr = nil
 		break
-	}
-	if lastConnectErr != nil {
-		log.Fatalf("❌ Failed to connect to Core after %d attempts: %v", connectRetries, lastConnectErr)
 	}
 	defer grpcClient.Close()
 	log.Printf("✅ Connected to Core")
@@ -129,9 +148,13 @@ func main() {
 
 	// Create SBOM work queue for async processing
 	// This prevents blocking the informer during slow SBOM extraction (2-3 min per pod)
-	// Workers: Use 2 workers to reduce memory usage (reduced from 3)
-	// Queue buffer: 30 pods (reduced from 100 to prevent memory buildup)
+	// Workers: default 2; set SBOM_WORKERS=1 to reduce peak memory (e.g. avoid OOM when limit is low)
 	workers := 2
+	if w := os.Getenv("SBOM_WORKERS"); w != "" {
+		if n, err := strconv.Atoi(w); err == nil && n >= 1 && n <= 4 {
+			workers = n
+		}
+	}
 	sbomQueue := sbom.NewWorkQueue(sbomProcessor, workers)
 	sbomQueue.Start()
 	log.Printf("✅ SBOM work queue started with %d workers", workers)

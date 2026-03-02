@@ -9,6 +9,8 @@
 
 Fortuna is a comprehensive security and risk management platform for Kubernetes clusters. It provides real-time vulnerability detection, SBOM extraction, CVE matching, and security insights generation.
 
+**Tài liệu production & deploy:** [docs-prod/](../docs-prod/README.md) (giới thiệu, kiến trúc, vận hành) · [deploy/README.md](../deploy/README.md) (manifest, Helm, lưu ý deploy).
+
 ---
 
 ## Quick Start
@@ -42,6 +44,7 @@ Fortuna is a comprehensive security and risk management platform for Kubernetes 
 - [Deployment Checklist](05-operations/DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment
 - [Clean Rebuild & Verify](05-operations/CLEAN_REBUILD_REDEPLOY_AND_VERIFY.md) - Clean rebuild and E2E verify
 - [Troubleshooting](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting) - Common issues and solutions
+- **[Agent/Core: Monitor & xử lý lỗi](AGENT_CORE_ERRORS_MONITOR.md)** - Lệnh monitor (monitor-agent-core-errors.sh), phân tích lỗi (OOM, secret, containerd digest, Sync 500, DNS), cách xử lý
 
 ### Components (03-components/)
 
@@ -142,9 +145,11 @@ Fortuna is production-ready with:
 ## Support
 
 For issues and questions:
-1. Check [Troubleshooting Guide](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting)
-2. Review logs: `kubectl logs -n fortuna -l app.kubernetes.io/component=core`
-3. Check [Architecture Documentation](02-architecture/ARCHITECTURE.md) for system design
+1. **[Agent/Core errors & monitoring](AGENT_CORE_ERRORS_MONITOR.md)** — lệnh monitor, phân tích lỗi (OOM, secret, containerd digest, Sync 500), cách xử lý
+2. Check [Troubleshooting Guide](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting)
+3. Monitor errors: `./scripts/monitor/monitor-agent-core-errors.sh` or `--follow`
+4. Review logs: `kubectl logs -n fortuna -l app.kubernetes.io/component=core` / `component=agent`
+5. Check [Architecture Documentation](02-architecture/ARCHITECTURE.md) for system design
 
 ---
 

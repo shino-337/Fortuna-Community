@@ -1,6 +1,6 @@
 # Fortuna Scripts Reference
 
-**Last Updated**: 2026-02-21
+**Last Updated**: 2026-03-02
 
 ---
 
@@ -16,7 +16,7 @@ Scripts được sắp xếp theo nhóm trong thư mục con. **Luôn gọi theo
 | **build/**    | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
 | **verify/**   | check-full-deployment.sh, verify-dashboard-*.sh, verify-database-schema.sh, verify-agent-availability.sh, verify-pod-data.sh, verify-test-data.sh, check-pod-risk.sh |
 | **e2e/**      | run-e2e-full.sh, run-e2e-with-capability-report.sh, run-e2e-tests.sh, run-dashboard-data-tests.sh, e2e-dashboard-data.sh, e2e-sbom-verify.sh, test-*.sh |
-| **monitor/**  | monitor-agent-core.sh, monitor-runtime-signals.sh |
+| **monitor/**  | monitor-agent-core.sh, monitor-agent-core-errors.sh, monitor-testcases.sh, monitor-runtime-signals.sh |
 | **utils/**    | push-images-to-workers.sh, load-cve-data.sh, create_mtls_secret.sh, manage-port-forwards.sh, port-forward-dashboard.sh, sync-k8s-data.sh, reset-worker-*.sh, fix-dns-issues.sh, import-to-containerd.sh, validate-migrations.sh, ... |
 
 **Ví dụ:** `./scripts/pipeline/full-clean-database-rebuild-deploy.sh`, `./scripts/build/build-and-load-containerd.sh`, `./scripts/clean/cleanup-orphaned-migrations.sh`.
@@ -27,7 +27,7 @@ Scripts được sắp xếp theo nhóm trong thư mục con. **Luôn gọi theo
 
 ## Hiện trạng
 
-- **Deploy YAML**: Chỉ dùng `deploy/fortuna-core-deployment.yaml`, `deploy/fortuna-agent-daemonset.yaml`, `deploy/dashboard-deployment.yaml`. Các file cũ `core-deployment.yaml`, `agent-daemonset.yaml` đã xóa.
+- **Deploy YAML**: Dùng `deploy/fortuna-core-deployment.yaml` (gồm Service + Deployment Core), `deploy/fortuna-agent-daemonset.yaml`, `deploy/dashboard-deployment.yaml`, `deploy/fortuna-rbac.yaml` (RBAC cho core + agent). File trùng/lặp đã loại: `core-service.yaml`, `agent-rbac.yaml`.
 - **Image prefix**: `fortuna` (core, agent, dashboard). Namespace containerd: `k8s.io`.
 - **Namespace K8s**: `fortuna`.
 
@@ -73,11 +73,20 @@ Clean → Rebuild → Deploy → Chạy test + monitor. Gọi `full-clean-databa
 
 ### `deploy-fortuna-robust.sh`
 
-Chỉ deploy (không clean/rebuild): namespace, postgres, nats, RBAC, core, agent, dashboard. Có pre-deployment checks, DNS fallback, verification. Dùng file: `deploy/fortuna-core-deployment.yaml`, `deploy/fortuna-agent-daemonset.yaml`, `deploy/dashboard-deployment.yaml`.
+Chỉ deploy (không clean/rebuild). Thứ tự: pre-checks → namespace → cleanup → **Step 3a: ensure Flannel CNI** → **Step 3b: ensure StorageClass** → postgres, nats → **Step 7: RBAC** → **Step 7b: ensure control-plane label** → **Step 7c: ensure mTLS secrets** (tạo fortuna-core-tls, fortuna-agent-tls, fortuna-ca-cert, fortuna-webhook-tls để Core/Agent không kẹt ContainerCreating) → core → agent → dashboard. Có DNS fallback, verification.
 
 ```bash
 ./scripts/deploy/deploy-fortuna-robust.sh
 USE_IP_FALLBACK=false ./scripts/deploy/deploy-fortuna-robust.sh
+```
+
+### `ensure-flannel.sh`
+
+Đảm bảo Flannel CNI đã cài. Nếu chưa có (namespace kube-flannel trống), apply manifest chính thức và chờ pods Ready. Tránh lỗi `subnet.env: no such file or directory` và pods kẹt ContainerCreating. Được gọi tự động trong deploy-fortuna-robust.sh (Step 3a) và pipeline (Phase 2a2). Nếu cluster dùng Calico/Cilium/Weave thì skip cài Flannel.
+
+```bash
+./scripts/deploy/ensure-flannel.sh
+# SKIP_FLANNEL_INSTALL=1 để chỉ kiểm tra, không cài
 ```
 
 ### `pre-deployment-checks.sh`
@@ -119,6 +128,12 @@ Chỉ clean image dashboard + rebuild dashboard + apply `deploy/dashboard-deploy
 ```bash
 ./scripts/clean/clean-rebuild-dashboard.sh
 ```
+
+**Kết quả lần chạy gần nhất (2026-02-26):**
+- Port-forwards dừng → Xóa toàn bộ image fortuna-dashboard cũ → Prune build cache (6.3 GiB) → Xóa deployment → Build dashboard (Vite build ~10s) → Apply deployment.
+- Image: `fortuna-dashboard:latest` (54.6 MB, blob 20.71 MB). Pod `fortuna-dashboard-*` Running.
+- Đã xóa tag thừa `fortuna-dashboard:v1.0.0-34-gca3e66179-dirty` để giảm dung lượng; chỉ giữ `latest`.
+- Truy cập: `kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80` → http://localhost:8081
 
 ### `cleanup-orphaned-migrations.sh`
 
@@ -259,9 +274,10 @@ Chuỗi test dữ liệu Dashboard (Threat Velocity, PCE Trend). **Risk Center**
 
 Tất cả nằm trong `scripts/monitor/` hoặc `scripts/utils/`. Gọi đầy đủ: `./scripts/monitor/...`, `./scripts/utils/...`.
 
-### `monitor-agent-core.sh`, `monitor-runtime-signals.sh` (monitor/)
+### `monitor-agent-core.sh`, `monitor-agent-core-errors.sh`, `monitor-testcases.sh`, `monitor-runtime-signals.sh` (monitor/)
 
-Xem trạng thái pod, health, log Agent/Core; monitor runtime signals.
+- **Trạng thái pod, health, log:** `monitor-agent-core.sh`; **chỉ lỗi/warning:** `monitor-agent-core-errors.sh` (hoặc `--follow`); phân tích lỗi: **`docs/AGENT_CORE_ERRORS_MONITOR.md`**.
+- **Monitor chi tiết testcase:** `./scripts/monitor/monitor-testcases.sh` chạy lần lượt check-full-deployment, test-priority1-apis, test-runtime-signals-e2e, e2e-risk-center-verify, verify-dashboard-api, verify-agent-core-connectivity và in kết quả từng bước. Ghi report: `--report <file>`. Danh sách đầy đủ testcase: **`docs/TESTCASE_MONITOR.md`**.
 
 ### `manage-port-forwards.sh`, `port-forward-dashboard.sh` (utils/)
 
@@ -281,11 +297,32 @@ Tạo secret mTLS cho Core/Agent (cert với SANs). **Chỉ dùng script này** 
 
 ### `push-images-to-workers.sh`
 
-Đẩy image từ node master sang worker (multi-node). Đọc image tag từ `deploy/fortuna-core-deployment.yaml`, `deploy/fortuna-agent-daemonset.yaml`.
+Đẩy image từ node master sang worker (multi-node). Đọc image tag từ `deploy/fortuna-core-deployment.yaml`, `deploy/fortuna-agent-daemonset.yaml`. Mặc định ghi file tạm trên remote vào **/var/tmp/fortuna-images** (tránh lỗi "Permission denied" khi /tmp trên node bị giới hạn quyền).
+
+**Cấu hình theo file (khuyến nghị khi master và worker dùng user/pass khác nhau):** Tạo `scripts/utils/push-images.config` (copy từ `push-images.config.example`), khai báo `MASTER_NODE`, `MASTER_SSH_USER`, `MASTER_SSH_PASS`, `WORKER_NODES`, `WORKER_SSH_USER`, `WORKER_SSH_PASS`. Script sẽ đẩy lên cả master và worker với đúng credential từng node. File `push-images.config` đã được thêm vào `.gitignore` (không commit mật khẩu).
 
 ```bash
+cp scripts/utils/push-images.config.example scripts/utils/push-images.config
+# Chỉnh sửa IP, user, pass trong push-images.config
 ./scripts/utils/push-images-to-workers.sh
+# Hoặc dùng biến môi trường: export SSH_USER=root SSH_PASS=... WORKER_NODES="192.168.56.101"
+# Nếu lỗi Permission denied trên remote: export REMOTE_TEMP_DIR=/root/fortuna-images
 ```
+
+**Clean image cũ rồi push mới:** Xóa image fortuna cũ trên máy local và trên từng node, rebuild rồi push.
+
+```bash
+# 1) Xóa image fortuna cũ trên máy local (containerd k8s.io)
+./scripts/clean/clean-containerd-images.sh
+
+# 2) Rebuild và load vào containerd
+./scripts/build/build-and-load-containerd.sh
+
+# 3) Xóa image cũ trên tất cả node rồi push image mới (dùng config hoặc SSH_USER/SSH_PASS)
+./scripts/utils/push-images-to-workers.sh --clean-remote
+```
+
+Chỉ xóa image cũ trên các node (không push): `./scripts/utils/push-images-to-workers.sh --clean-only`
 
 ### `sync-k8s-data.sh`, `reset-worker-node.sh`, `reset-worker-remote.sh`, `apply-core-master-only.sh`, `fix-dns-config.sh`
 
@@ -302,8 +339,34 @@ Tạo secret mTLS cho Core/Agent (cert với SANs). **Chỉ dùng script này** 
 | Build      | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
 | Verify     | check-full-deployment.sh, verify-dashboard-api.sh, verify-dashboard-apis.sh, verify-dashboard-issues.sh, verify-database-schema.sh |
 | E2E / Test | run-e2e-full.sh, run-e2e-complete-with-monitor.sh, run-e2e-with-capability-report.sh, test-priority1-apis.sh, e2e-dashboard-data.sh, e2e-risk-center-verify.sh, test-runtime-signals-e2e.sh, e2e-sbom-verify.sh, test-sbom-pod-flow.sh |
-| Monitor    | monitor-agent-core.sh, monitor-runtime-signals.sh |
+| Monitor    | monitor-agent-core.sh, monitor-agent-core-errors.sh, monitor-testcases.sh (chi tiết testcase), monitor-runtime-signals.sh |
 | Utility    | pre-deployment-checks.sh, manage-port-forwards.sh, port-forward-dashboard.sh, load-cve-data.sh, create_mtls_secret.sh, push-images-to-workers.sh |
+
+---
+
+## Vận hành và xử lý lỗi
+
+### Lệnh monitor
+
+| Mục đích | Lệnh |
+|----------|------|
+| Trạng thái pod, health, log Core/Agent | `./scripts/monitor/monitor-agent-core.sh` |
+| Chỉ lỗi/warning (Core + tất cả Agent) | `./scripts/monitor/monitor-agent-core-errors.sh` |
+| Theo dõi lỗi liên tục | `./scripts/monitor/monitor-agent-core-errors.sh --follow` |
+| Ghi lỗi ra file | `./scripts/monitor/monitor-agent-core-errors.sh --save /tmp/fortuna-errors.log` |
+
+### Xử lý lỗi thường gặp
+
+| Lỗi | Cách xử lý |
+|-----|------------|
+| Core/Agent **ContainerCreating** (secret not found) | `./scripts/utils/create_mtls_secret.sh` |
+| Core **Pending** (node affinity / 0 nodes available) | `./scripts/deploy/ensure-control-plane-label.sh` |
+| Agent **CrashLoopBackOff** (OOMKilled, Exit 137) | Daemonset đã limit 2Gi; tùy chọn env `SBOM_WORKERS=1` + rebuild agent |
+| **ErrImageNeverPull** | `./scripts/utils/push-images-to-workers.sh` (config: `scripts/utils/push-images.config`) |
+| Agent **Sync failed: status=500** | Chạy pipeline với `--db-reset` rồi deploy lại |
+| Agent không kết nối Core (no such host) | `./scripts/verify/verify-agent-core-connectivity.sh` |
+
+**Tài liệu chi tiết:** **`docs/AGENT_CORE_ERRORS_MONITOR.md`** — phân tích từng lỗi (containerd digest not found, duplicate key, OOM, secret, DNS), lệnh monitor, giảm log.
 
 ---
 
@@ -320,6 +383,6 @@ Tạo secret mTLS cho Core/Agent (cert với SANs). **Chỉ dùng script này** 
 
 ---
 
-**Tài liệu chi tiết**: `docs/05-operations/DEPLOYMENT_CONTAINERD.md`, `deploy/README.md`. **Tra cứu đường dẫn script**: `docs/05-operations/SCRIPT_PATHS_REFERENCE.md`.
+**Tài liệu chi tiết**: `docs/05-operations/DEPLOYMENT_CONTAINERD.md`, `deploy/README.md`, **`docs/AGENT_CORE_ERRORS_MONITOR.md`** (monitor & xử lý lỗi Agent/Core). **Tra cứu đường dẫn script**: `docs/05-operations/SCRIPT_PATHS_REFERENCE.md`.
 
 **Lưu ý**: Mọi script gọi theo đường dẫn đầy đủ từ repo root, ví dụ: `./scripts/pipeline/full-clean-database-rebuild-deploy.sh`, `./scripts/e2e/run-e2e-complete-with-monitor.sh`, `./scripts/utils/load-cve-data.sh`. Không còn script tại `scripts/*.sh` (root).

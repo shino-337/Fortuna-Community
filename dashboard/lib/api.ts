@@ -410,6 +410,8 @@ export const api = {
         nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
         serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
         riskCount: Number((p as any).riskCount ?? 0),
+        status: (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined,
+        createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
       };
     } catch {
       return null;
@@ -429,6 +431,8 @@ export const api = {
         nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
         serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
         riskCount: Number((p as any).riskCount ?? 0),
+        status: (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined,
+        createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
       };
     } catch {
       return null;
@@ -455,6 +459,8 @@ export const api = {
         nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
         serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
         riskCount: Number(p.riskCount ?? 0),
+        status: (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined,
+        createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
       }));
       return {
         pods,

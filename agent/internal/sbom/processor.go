@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -83,6 +84,11 @@ func (p *Processor) processContainer(ctx context.Context, pod *corev1.Pod, conta
 	// Send SBOM to Core (Core will match CVEs)
 	resp, err := p.grpcClient.SendSBOMFinding(ctx, sbomFinding)
 	if err != nil {
+		// Treat duplicate key as non-fatal (Core uses ON CONFLICT; old Core may still return this)
+		if strings.Contains(err.Error(), "duplicate key") {
+			p.logger.Printf("⚠️  Core reported duplicate component (already stored); skipping: %v", err)
+			return nil
+		}
 		return fmt.Errorf("failed to send SBOM to Core: %w", err)
 	}
 

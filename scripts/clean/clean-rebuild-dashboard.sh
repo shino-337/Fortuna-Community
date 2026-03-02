@@ -96,11 +96,13 @@ else
   exit 1
 fi
 
-# 7. Restart deployment
+# 7. Restart deployment (ensure image tag = latest to match build)
 log_info "Step 7/7: Recreating dashboard deployment..."
 if [ -f "${PROJECT_ROOT}/deploy/dashboard-deployment.yaml" ]; then
+  # Sync deployment image to fortuna-dashboard:latest (same as build script tag)
+  sed -i 's|image: fortuna-dashboard:[^[:space:]]*|image: fortuna-dashboard:latest|g' "${PROJECT_ROOT}/deploy/dashboard-deployment.yaml"
   kubectl apply -f "${PROJECT_ROOT}/deploy/dashboard-deployment.yaml"
-  log_success "Deployment recreated"
+  log_success "Deployment recreated (image: fortuna-dashboard:latest)"
   
   log_info "Waiting for deployment to be ready..."
   kubectl wait --for=condition=available --timeout=120s deployment/fortuna-dashboard -n "${NAMESPACE}" || {

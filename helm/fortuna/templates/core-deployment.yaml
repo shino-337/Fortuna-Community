@@ -1,111 +1,134 @@
-{{- if .Values.core.enabled }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ .Values.core.name }}
+  name: fortuna-core
   namespace: {{ include "fortuna.namespace" . }}
   labels:
-    {{- include "fortuna.core.labels" . | nindent 4 }}
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
 spec:
   replicas: {{ .Values.core.replicaCount }}
   selector:
     matchLabels:
-      {{- include "fortuna.core.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/name: fortuna
+      app.kubernetes.io/component: core
   template:
     metadata:
       labels:
-        {{- include "fortuna.core.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/name: fortuna
+        app.kubernetes.io/component: core
     spec:
-      serviceAccountName: {{ .Values.rbac.serviceAccount.core.name }}
-      {{- with .Values.core.nodeSelector }}
+      serviceAccountName: fortuna-core
       nodeSelector:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
-      {{- with .Values.core.tolerations }}
+        {{- toYaml .Values.core.nodeSelector | nindent 8 }}
       tolerations:
-        {{- toYaml . | nindent 8 }}
-      {{- end }}
+        {{- toYaml .Values.core.tolerations | nindent 8 }}
       volumes:
-        {{- if .Values.core.tls.enabled }}
         - name: fortuna-core-server-tls
           secret:
-            secretName: {{ .Values.core.tls.certSecret }}
+            secretName: {{ .Values.tls.coreSecretName }}
         - name: fortuna-ca-cert
           secret:
-            secretName: fortuna-ca-cert
-        {{- end }}
-        {{- if .Values.core.webhookTls.enabled }}
+            secretName: {{ .Values.tls.caSecretName }}
         - name: webhook-certs
           secret:
-            secretName: {{ .Values.core.webhookTls.certSecret }}
-        {{- end }}
+            secretName: {{ .Values.tls.webhookSecretName }}
         - name: containerd-sock
           hostPath:
             path: /run/containerd/containerd.sock
             type: Socket
       containers:
         - name: core
-          image: "{{ .Values.core.image.repository }}:{{ .Values.core.image.tag }}"
-          imagePullPolicy: {{ .Values.core.image.pullPolicy }}
+          image: {{ include "fortuna.coreImage" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
-              containerPort: {{ .Values.core.service.httpPort }}
+              containerPort: 8080
               protocol: TCP
             - name: grpc
-              containerPort: {{ .Values.core.service.grpcPort }}
+              containerPort: 9090
               protocol: TCP
           env:
             - name: DATABASE_URL
-              value: {{ .Values.core.database.url | quote }}
+              value: {{ .Values.core.env.databaseUrl | quote }}
             - name: NATS_ENDPOINT
-              value: {{ .Values.core.nats.endpoint | quote }}
+              value: {{ .Values.core.env.natsEndpoint | quote }}
             - name: HTTP_PORT
-              value: {{ .Values.core.service.httpPort | quote }}
+              value: {{ .Values.core.env.httpPort | quote }}
             - name: GRPC_PORT
-              value: {{ .Values.core.service.grpcPort | quote }}
-            {{- if .Values.core.tls.enabled }}
+              value: {{ .Values.core.env.grpcPort | quote }}
             - name: TLS_ENABLED
-              value: "true"
+              value: {{ .Values.core.env.tlsEnabled | quote }}
             - name: TLS_CERT_PATH
-              value: {{ .Values.core.tls.certPath | quote }}
+              value: "/etc/fortuna/tls/server/tls.crt"
             - name: TLS_KEY_PATH
-              value: {{ .Values.core.tls.keyPath | quote }}
+              value: "/etc/fortuna/tls/server/tls.key"
             - name: TLS_CA_CERT_PATH
-              value: {{ .Values.core.tls.caCertPath | quote }}
-            {{- end }}
-            {{- if .Values.core.webhookTls.enabled }}
+              value: "/etc/fortuna/ca-cert/ca.crt"
             - name: WEBHOOK_TLS_CERT_PATH
-              value: {{ .Values.core.webhookTls.certPath | quote }}
+              value: "/etc/webhook/certs/tls.crt"
             - name: WEBHOOK_TLS_KEY_PATH
-              value: {{ .Values.core.webhookTls.keyPath | quote }}
-            {{- end }}
-            {{- range $key, $value := .Values.core.env }}
-            - name: {{ $key }}
-              value: {{ $value | quote }}
+              value: "/etc/webhook/certs/tls.key"
+            - name: LOG_LEVEL
+              value: {{ .Values.core.env.logLevel | quote }}
+            - name: FORTUNA_ENABLE_SEED_DATA
+              value: {{ .Values.core.env.fortunaEnableSeedData | quote }}
+            - name: AUTH_ENABLED
+              value: {{ .Values.core.env.authEnabled | quote }}
+            - name: FORTUNA_ADMIN_USERNAME
+              value: {{ .Values.core.env.fortunaAdminUsername | quote }}
+            - name: FORTUNA_ADMIN_PASSWORD
+              value: {{ .Values.core.env.fortunaAdminPassword | quote }}
+            - name: FORTUNA_ADMIN_EMAIL
+              value: {{ .Values.core.env.fortunaAdminEmail | quote }}
+            - name: PCE_SCHEDULER_ENABLED
+              value: {{ .Values.core.env.pceSchedulerEnabled | quote }}
+            - name: PCE_SCHEDULER_INTERVAL
+              value: {{ .Values.core.env.pceSchedulerInterval | quote }}
+            {{- if .Values.core.existingSecret }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.core.existingSecret }}
+                  key: jwt-secret
+                  optional: true
             {{- end }}
           volumeMounts:
-            {{- if .Values.core.tls.enabled }}
             - name: fortuna-core-server-tls
               mountPath: /etc/fortuna/tls/server
               readOnly: true
             - name: fortuna-ca-cert
               mountPath: /etc/fortuna/ca-cert
               readOnly: true
-            {{- end }}
-            {{- if .Values.core.webhookTls.enabled }}
             - name: webhook-certs
               mountPath: /etc/webhook/certs
               readOnly: true
-            {{- end }}
             - name: containerd-sock
               mountPath: /run/containerd/containerd.sock
           resources:
             {{- toYaml .Values.core.resources | nindent 12 }}
           securityContext:
-            {{- toYaml .Values.core.securityContext | nindent 12 }}
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
           livenessProbe:
-            {{- toYaml .Values.core.livenessProbe | nindent 12 }}
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
           readinessProbe:
-            {{- toYaml .Values.core.readinessProbe | nindent 12 }}
-{{- end }}
-
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3

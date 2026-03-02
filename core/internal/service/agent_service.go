@@ -914,6 +914,10 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			serviceAccount = sa
 		}
 
+		phase, _ := podMap["phase"].(string)
+		if phase != "" && name != "" {
+			s.logger.Printf("📦 Pod phase from agent: %s/%s phase=%s", namespace, name, phase)
+		}
 		nodeName, _ := podMap["nodeName"].(string)
 		hostNetwork, _ := podMap["hostNetwork"].(bool)
 		hostPID, _ := podMap["hostPID"].(bool)
@@ -989,6 +993,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			UID:                          uid,
 			Name:                         name,
 			Namespace:                    namespace,
+			Phase:                        phase,
 			ServiceAccount:               serviceAccount,
 			Containers:                   containersJSON,
 			ImageDigests:                 "[]",
@@ -1012,6 +1017,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			// Update existing pod (avoid duplicates)
 			changed := existing.Name != pod.Name ||
 				existing.Namespace != pod.Namespace ||
+				existing.Phase != pod.Phase ||
 				existing.ServiceAccount != pod.ServiceAccount ||
 				existing.Containers != pod.Containers ||
 				existing.PodSecurityContext != pod.PodSecurityContext ||
@@ -1029,6 +1035,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				s.db.Model(&existing).Updates(map[string]interface{}{
 					"name":                            pod.Name,
 					"namespace":                       pod.Namespace,
+					"phase":                           pod.Phase,
 					"service_account":                 pod.ServiceAccount,
 					"containers":                      pod.Containers,
 					"pod_security_context":            pod.PodSecurityContext,
@@ -1063,6 +1070,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				// Restore soft-deleted pod
 				deletedPod.Name = pod.Name
 				deletedPod.Namespace = pod.Namespace
+				deletedPod.Phase = pod.Phase
 				deletedPod.ServiceAccount = pod.ServiceAccount
 				deletedPod.Containers = pod.Containers
 				deletedPod.PodSecurityContext = pod.PodSecurityContext

@@ -1,12 +1,24 @@
 #!/bin/bash
 
 # Push Images to Worker Nodes Script
-# Exports fortuna-core and fortuna-agent from local containerd and imports on WORKER_NODES
-# so that all nodes (including workers) have the image (Agent DaemonSet, Core on master).
+# Exports fortuna-core and fortuna-agent from local containerd and imports on all nodes
+# (master + workers) so Core and Agent have the image.
 #
-# SSH: Set SSH_USER (e.g. root, k8s) and optionally SSH_PASS for sshpass.
-#      If SSH_USER is empty, tries SSH_TRY_USERS (default: $USER root k8s).
-#      WORKER_NODES defaults to all node IPs from kubectl; set to limit (e.g. "192.168.56.101").
+# Config file: Set PUSH_CONFIG_FILE to path of a file with per-node credentials, or place
+#   push-images.config in this directory (see push-images.config.example). Format:
+#   MASTER_NODE=192.168.56.100
+#   MASTER_SSH_USER=root
+#   MASTER_SSH_PASS=123456
+#   WORKER_NODES=192.168.56.101
+#   WORKER_SSH_USER=k8s
+#   WORKER_SSH_PASS=k8s
+# If no config file, uses env SSH_USER, SSH_PASS, WORKER_NODES (single credential for all nodes).
+#
+# REMOTE_TEMP_DIR: default /var/tmp/fortuna-images (avoids /tmp Permission denied).
+#
+# Options:
+#   --clean-remote   On each node, remove existing fortuna* images from ctr -n k8s.io before pushing.
+#   --clean-only     Only clean fortuna* images on all nodes (no export/push). Use after cleaning local and before rebuild+push.
 #
 # Called automatically by: full-clean-database-rebuild-deploy.sh (Phase 2b), deploy-fortuna-robust.sh (Step 5b when multi-node).
 
@@ -14,6 +26,19 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+# Load config file if present (per-node master/worker user and pass)
+PUSH_CONFIG_FILE="${PUSH_CONFIG_FILE:-$SCRIPT_DIR/push-images.config}"
+if [ -f "$PUSH_CONFIG_FILE" ]; then
+    set -a
+    # shellcheck source=/dev/null
+    source "$PUSH_CONFIG_FILE" 2>/dev/null || true
+    set +a
+    # Build full node list: master + workers (so we push to all nodes with their own creds)
+    if [ -n "${MASTER_NODE:-}" ] && [ -n "${WORKER_NODES:-}" ]; then
+        case " $WORKER_NODES " in *" $MASTER_NODE "*) ;; *) WORKER_NODES="$MASTER_NODE $WORKER_NODES"; esac
+    fi
+fi
 
 # Colors
 RED='\033[0;31m'
@@ -37,7 +62,8 @@ detect_all_node_ips() {
     kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null | tr ' ' '\n' | sort -u
 }
 
-# Configuration (defaults match deploy YAML and all nodes so Core on master gets image)
+# Configuration (defaults match deploy YAML and all nodes so Core on master gets image).
+# Default SSH_USER is 'k8s' (non-root); sudo is used remotely for ctr commands.
 _detected_core=$(detect_core_image)
 _detected_agent=$(detect_agent_image)
 _detected_nodes=$(detect_all_node_ips)
@@ -45,12 +71,50 @@ CORE_IMAGE="${CORE_IMAGE:-${_detected_core:-fortuna-core:latest}}"
 AGENT_IMAGE="${AGENT_IMAGE:-${_detected_agent:-fortuna-agent:latest}}"
 # Include all nodes (master + workers); Core runs on control-plane and needs the image there
 WORKER_NODES="${WORKER_NODES:-${_detected_nodes:-192.168.56.100 192.168.56.101}}"
-# SSH_USER: set to root, k8s, or leave empty to try current user ($USER). SSH_PASS for sshpass (optional).
-SSH_USER="${SSH_USER:-}"
+# SSH_USER: set to k8s, root, or leave empty to try SSH_TRY_USERS. SSH_PASS for sshpass (optional).
+SSH_USER="${SSH_USER:-k8s}"
 SSH_PASS="${SSH_PASS:-}"
 # Try these users in order if SSH_USER is empty and connection fails
-SSH_TRY_USERS="${SSH_TRY_USERS:-$USER root k8s}"
+SSH_TRY_USERS="${SSH_TRY_USERS:-k8s $USER root}"
 TEMP_DIR="${TEMP_DIR:-/tmp/fortuna-images}"
+# Remote node: where to put tar files (default /var/tmp to avoid /tmp Permission denied on some nodes)
+REMOTE_TEMP_DIR="${REMOTE_TEMP_DIR:-/var/tmp/fortuna-images}"
+
+# Parse flags (before main)
+CLEAN_REMOTE_IMAGES="${CLEAN_REMOTE_IMAGES:-false}"
+CLEAN_ONLY="${CLEAN_ONLY:-false}"
+for arg in "$@"; do
+    case "$arg" in
+        --clean-remote) CLEAN_REMOTE_IMAGES=true ;;
+        --clean-only)   CLEAN_ONLY=true ;;
+    esac
+done
+
+# Per-node credentials when config file sets MASTER_NODE + MASTER_SSH_USER
+get_ssh_user_for_node() {
+    local node="$1"
+    if [ -n "${MASTER_NODE:-}" ] && [ -n "${MASTER_SSH_USER:-}" ]; then
+        if [ "$node" = "$MASTER_NODE" ]; then
+            echo "${MASTER_SSH_USER}"
+        else
+            echo "${WORKER_SSH_USER:-$SSH_USER}"
+        fi
+    else
+        echo "${SSH_USER}"
+    fi
+}
+get_ssh_pass_for_node() {
+    local node="$1"
+    if [ -n "${MASTER_NODE:-}" ] && [ -n "${MASTER_SSH_USER:-}" ]; then
+        if [ "$node" = "$MASTER_NODE" ]; then
+            echo "${MASTER_SSH_PASS:-}"
+        else
+            echo "${WORKER_SSH_PASS:-$SSH_PASS}"
+        fi
+    else
+        echo "${SSH_PASS}"
+    fi
+}
 
 # Functions
 log_info() {
@@ -141,21 +205,43 @@ _ssh_target() {
 }
 
 # Copy file to worker node (logs to stderr so caller can capture only remote_path)
-# Tries SSH_USER, then if empty tries SSH_TRY_USERS. Shows actual error on failure.
+# With config file: uses per-node user/pass (get_ssh_user_for_node, get_ssh_pass_for_node).
+# Otherwise tries SSH_USER, then SSH_TRY_USERS. Ensures REMOTE_TEMP_DIR exists before SCP.
 copy_to_worker() {
     local file=$1
     local worker=$2
-    local remote_path="/tmp/$(basename $file)"
+    local remote_path="$REMOTE_TEMP_DIR/$(basename "$file")"
     local target err
+    local node_user node_pass
+    node_user=$(get_ssh_user_for_node "$worker")
+    node_pass=$(get_ssh_pass_for_node "$worker")
 
     _do_scp() {
         local tgt=$1
-        if command -v sshpass &> /dev/null && [ -n "$SSH_PASS" ]; then
-            sshpass -p "$SSH_PASS" scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$file" "$tgt:$remote_path" 2>/dev/null
+        local p=${2:-$SSH_PASS}
+        if command -v sshpass &> /dev/null && [ -n "$p" ]; then
+            sshpass -p "$p" scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$file" "$tgt:$remote_path" 2>/dev/null
         else
             scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$file" "$tgt:$remote_path" 2>/dev/null
         fi
     }
+
+    # Ensure remote directory exists (avoids Permission denied when /tmp is restricted)
+    _ssh_run "$worker" "mkdir -p $REMOTE_TEMP_DIR" 2>/dev/null || true
+
+    # Per-node config: single attempt with node_user/node_pass
+    if [ -n "${MASTER_NODE:-}" ] && [ -n "${MASTER_SSH_USER:-}" ]; then
+        target=$(_ssh_target "$worker" "$node_user")
+        log_info "Copying $file to $target:$remote_path" >&2
+        if _do_scp "$target" "$node_pass"; then
+            log_success "File copied to $worker" >&2
+            echo "$remote_path"
+            return 0
+        fi
+        err=$(command -v sshpass &>/dev/null && [ -n "$node_pass" ] && sshpass -p "$node_pass" scp -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$file" "$target:$remote_path" 2>&1 || scp -o StrictHostKeyChecking=no -o ConnectTimeout=5 "$file" "$target:$remote_path" 2>&1)
+        log_error "SCP failed for $target: ${err:-connection or permission denied}" >&2
+        return 1
+    fi
 
     if [ -n "$SSH_USER" ]; then
         target=$(_ssh_target "$worker" "$SSH_USER")
@@ -185,17 +271,30 @@ copy_to_worker() {
     return 1
 }
 
-# Run command on worker via SSH (tries SSH_USER then SSH_TRY_USERS)
-# If SSH_PASS is set and cmd contains "sudo", wrap as: echo SSH_PASS | sudo -S ...
+# Run command on worker via SSH. With config file uses per-node user/pass; else SSH_USER then SSH_TRY_USERS.
+# If pass is set and cmd contains "sudo", wrap as: echo pass | sudo -S ...
 _ssh_run() {
     local worker=$1
     shift
     local cmd="$*"
     local target run_cmd
-    if [ -n "$SSH_PASS" ] && echo "$cmd" | grep -q "sudo"; then
-        run_cmd="echo '$SSH_PASS' | sudo -S $(echo "$cmd" | sed 's/^sudo //')"
+    local node_user node_pass
+    node_user=$(get_ssh_user_for_node "$worker")
+    node_pass=$(get_ssh_pass_for_node "$worker")
+    if [ -n "$node_pass" ] && echo "$cmd" | grep -q "sudo"; then
+        run_cmd="echo '$node_pass' | sudo -S $(echo "$cmd" | sed 's/^sudo //')"
     else
         run_cmd="$cmd"
+    fi
+    # Per-node config: single attempt
+    if [ -n "${MASTER_NODE:-}" ] && [ -n "${MASTER_SSH_USER:-}" ]; then
+        target=$(_ssh_target "$worker" "$node_user")
+        if command -v sshpass &>/dev/null && [ -n "$node_pass" ]; then
+            sshpass -p "$node_pass" ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$target" "$run_cmd" 2>/dev/null
+        else
+            ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "$target" "$run_cmd" 2>/dev/null
+        fi
+        return $?
     fi
     if [ -n "$SSH_USER" ]; then
         target=$(_ssh_target "$worker" "$SSH_USER")
@@ -246,6 +345,18 @@ cleanup_remote() {
     local remote_file=$2
     log_info "Cleaning up $remote_file on $worker"
     _ssh_run "$worker" "rm -f $remote_file" || true
+}
+
+# Remove fortuna* images from containerd k8s.io on a remote node (avoids old layers/tags).
+clean_remote_fortuna_images() {
+    local worker=$1
+    log_info "Cleaning old fortuna images on $worker (ctr -n k8s.io)..."
+    # List and remove; xargs -r (GNU) skips if no input; fallback to true so we don't fail when no images
+    if _ssh_run "$worker" "sudo ctr -n k8s.io images ls -q 2>/dev/null | grep -E 'fortuna|ksam' | xargs -r -I {} sudo ctr -n k8s.io images rm {} 2>/dev/null; true"; then
+        log_success "Cleaned fortuna images on $worker"
+    else
+        log_warning "Clean on $worker had errors (continuing)"
+    fi
 }
 
 # Process single worker node
@@ -305,14 +416,27 @@ process_worker() {
 main() {
     echo ""
     echo "=========================================="
-    echo "Push Images to All Nodes (master + workers)"
+    if [ "$CLEAN_ONLY" = "true" ]; then
+        echo "Clean Old Fortuna Images on All Nodes"
+    else
+        echo "Push Images to All Nodes (master + workers)"
+    fi
     echo "=========================================="
-    echo "  CORE_IMAGE:  $CORE_IMAGE"
-    echo "  AGENT_IMAGE: $AGENT_IMAGE"
-    echo "  NODES:       $WORKER_NODES"
+    echo "  NODES:            $WORKER_NODES"
+    [ "$CLEAN_ONLY" = "false" ] && echo "  CORE_IMAGE:       $CORE_IMAGE" && echo "  AGENT_IMAGE:      $AGENT_IMAGE"
+    echo "  CLEAN_REMOTE:     $CLEAN_REMOTE_IMAGES"
+    echo "  CLEAN_ONLY:       $CLEAN_ONLY"
     echo ""
     
-    # Check prerequisites
+    if [ "$CLEAN_ONLY" = "true" ]; then
+        for worker in $WORKER_NODES; do
+            clean_remote_fortuna_images "$worker"
+        done
+        log_success "Remote clean done. Rebuild and push: ./scripts/build/build-and-load-containerd.sh && $SCRIPT_DIR/push-images-to-workers.sh"
+        return 0
+    fi
+    
+    # Check prerequisites (images must exist locally to push)
     if ! check_prerequisites; then
         exit 1
     fi
@@ -324,6 +448,9 @@ main() {
     
     for worker in $WORKER_NODES; do
         total_count=$((total_count + 1))
+        if [ "$CLEAN_REMOTE_IMAGES" = "true" ]; then
+            clean_remote_fortuna_images "$worker"
+        fi
         if process_worker "$worker"; then
             success_count=$((success_count + 1))
         else
@@ -358,6 +485,7 @@ main() {
         echo "  export SSH_USER=root   # or k8s, or leave unset to try \$USER, root, k8s"
         echo "  export SSH_PASS=yourpassword   # optional, for sshpass"
         echo "  export WORKER_NODES=\"192.168.56.101\"   # or omit to use all node IPs from kubectl"
+        echo "  export REMOTE_TEMP_DIR=/var/tmp/fortuna-images   # if SCP fails with 'Permission denied' on /tmp"
         echo "  $SCRIPT_DIR/push-images-to-workers.sh"
         return 1
     fi

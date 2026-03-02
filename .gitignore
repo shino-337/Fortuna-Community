@@ -37,6 +37,10 @@ go.work.sum
 *.csr
 *.srl
 
+# Production script local config and logs
+script-prod/config.env
+script-prod/logs/
+
 # Secrets
 *.secret
 .env
@@ -143,6 +147,7 @@ Thumbs.db
 
 # Project specific
 cve-data/.gitkeep
+cve-data/.cve-load-marker
 *.old
 
 # Development/Debug Scripts (keep local only)
@@ -240,3 +245,6 @@ docs/02-architecture/KSAM_ADR_FULL.md
 !docs/UI_AND_PENDING_TASKS.md
 
 !scripts/cleanup-repo.sh
+/docs/
+/tests/
+/helm/

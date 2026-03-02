@@ -74,6 +74,36 @@ sleep 8
 
 echo -e "${GREEN}✅${NC} Cleanup completed"
 
+# Step 3a: Ensure Flannel CNI so pod network works (avoids subnet.env missing; required for local-path-provisioner and all pods)
+echo ""
+echo -e "${BLUE}Step 3a: Ensuring Flannel CNI (install if missing)...${NC}"
+if [ -x "$SCRIPTS/deploy/ensure-flannel.sh" ]; then
+    if bash "$SCRIPTS/deploy/ensure-flannel.sh"; then
+        echo -e "${GREEN}✅${NC} Flannel CNI ready"
+    else
+        echo -e "${YELLOW}⚠️${NC}  Flannel check/install had issues; if pods stay ContainerCreating, run: ./scripts/deploy/ensure-flannel.sh"
+    fi
+    echo "Sleep 5s for Flannel to stabilize..."
+    sleep 5
+else
+    echo -e "${YELLOW}⚠️${NC}  ensure-flannel.sh not found; if pod network fails (subnet.env), install Flannel before deploying infra"
+fi
+
+# Step 3b: Ensure StorageClass (local-path) so PostgreSQL/NATS PVCs can bind
+echo ""
+echo -e "${BLUE}Step 3b: Ensuring StorageClass (local-path) for PVCs...${NC}"
+if [ -x "$SCRIPTS/deploy/ensure-storage-class.sh" ]; then
+    if bash "$SCRIPTS/deploy/ensure-storage-class.sh"; then
+        echo -e "${GREEN}✅${NC} StorageClass ready"
+    else
+        echo -e "${YELLOW}⚠️${NC}  StorageClass check/install had issues; PVCs may stay Pending. Install manually: kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.24/deploy/local-path-storage.yaml"
+    fi
+    echo "Sleep 5s for provisioner to be ready..."
+    sleep 5
+else
+    echo -e "${YELLOW}⚠️${NC}  ensure-storage-class.sh not found; if PVCs stay Pending, run: ./scripts/deploy/ensure-storage-class.sh"
+fi
+
 # Step 4: Deploy/update infrastructure (apply so spec updates e.g. nodeSelector changes)
 echo ""
 echo -e "${BLUE}Step 4: Deploying/updating infrastructure...${NC}"
@@ -132,7 +162,7 @@ if [ "${NODE_COUNT:-0}" -gt 1 ] && [ -x "$SCRIPTS/utils/push-images-to-workers.s
     if bash "$SCRIPTS/utils/push-images-to-workers.sh" 2>&1; then
         echo -e "${GREEN}✅${NC} Images pushed to all nodes"
     else
-        echo -e "${YELLOW}⚠️${NC}  Push to workers failed (SSH or keys). Set SSH_USER/SSH_PASS or run: $SCRIPTS/utils/push-images-to-workers.sh"
+        echo -e "${YELLOW}⚠️${NC}  Push to workers failed (SSH or keys). Add scripts/utils/push-images.config (see push-images.config.example) or set SSH_USER/SSH_PASS; then run: $SCRIPTS/utils/push-images-to-workers.sh"
     fi
 fi
 
@@ -162,6 +192,33 @@ kubectl apply -f "${PROJECT_ROOT}/deploy/fortuna-rbac.yaml"
 echo "Sleep 5s for API server to apply RBAC..."
 sleep 5
 echo -e "${GREEN}✅${NC} RBAC deployed"
+
+# Step 7b: Ensure at least one node has control-plane label so Core can schedule (avoids Pending / 0 nodes available)
+echo ""
+echo -e "${BLUE}Step 7b: Ensuring control-plane node label...${NC}"
+if [ -x "$SCRIPTS/deploy/ensure-control-plane-label.sh" ]; then
+    if bash "$SCRIPTS/deploy/ensure-control-plane-label.sh"; then
+        echo -e "${GREEN}✅${NC} Control-plane label OK"
+    else
+        echo -e "${YELLOW}⚠️${NC}  ensure-control-plane-label.sh had issues; if Core stays Pending, run: kubectl label node <master-node> node-role.kubernetes.io/control-plane= --overwrite"
+    fi
+else
+    echo -e "${YELLOW}⚠️${NC}  ensure-control-plane-label.sh not found; if Core pod stays Pending (node affinity), label master: kubectl label node <node> node-role.kubernetes.io/control-plane= --overwrite"
+fi
+
+# Step 7c: Ensure mTLS secrets (Core and Agent need fortuna-core-tls, fortuna-agent-tls, fortuna-ca-cert, fortuna-webhook-tls)
+echo ""
+echo -e "${BLUE}Step 7c: Ensuring mTLS secrets (Core/Agent TLS)...${NC}"
+if [ -x "$SCRIPTS/utils/create_mtls_secret.sh" ]; then
+    if NAMESPACE="$NAMESPACE" bash "$SCRIPTS/utils/create_mtls_secret.sh"; then
+        echo -e "${GREEN}✅${NC} mTLS secrets ready"
+    else
+        echo -e "${RED}❌${NC} mTLS secret creation failed; Core/Agent pods will stay ContainerCreating until secrets exist"
+        echo "  Run manually: NAMESPACE=$NAMESPACE $SCRIPTS/utils/create_mtls_secret.sh"
+    fi
+else
+    echo -e "${YELLOW}⚠️${NC}  create_mtls_secret.sh not found; if Core/Agent stay ContainerCreating (secret not found), run: ./scripts/utils/create_mtls_secret.sh"
+fi
 
 # Step 8: Deploy Core
 echo ""

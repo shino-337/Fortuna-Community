@@ -1,23 +1,22 @@
-{{- if .Values.core.enabled }}
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ .Values.core.name }}
+  name: fortuna-core
   namespace: {{ include "fortuna.namespace" . }}
   labels:
-    {{- include "fortuna.core.labels" . | nindent 4 }}
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
 spec:
-  type: {{ .Values.core.service.type }}
-  selector:
-    {{- include "fortuna.core.selectorLabels" . | nindent 4 }}
+  type: ClusterIP
   ports:
     - name: http
-      port: {{ .Values.core.service.httpPort }}
-      targetPort: http
+      port: 8080
+      targetPort: 8080
       protocol: TCP
     - name: grpc
-      port: {{ .Values.core.service.grpcPort }}
-      targetPort: grpc
+      port: 9090
+      targetPort: 9090
       protocol: TCP
-{{- end }}
-
+  selector:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core

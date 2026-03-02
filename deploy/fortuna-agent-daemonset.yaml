@@ -126,14 +126,14 @@ spec:
               mountPath: /run/containerd/containerd.sock
               readOnly: true
           
-          # Production-ready resource limits
+          # Production-ready resource limits (SBOM extraction materializes image layers in memory; 1Gi was causing OOMKilled)
           resources:
             requests:
               cpu: 100m
-              memory: 256Mi
+              memory: 512Mi
             limits:
               cpu: 500m
-              memory: 1Gi
+              memory: 2Gi
           
           # Security context - root required for containerd socket access
           securityContext:

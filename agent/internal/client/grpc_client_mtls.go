@@ -113,10 +113,16 @@ func (c *MTLSClient) Connect(ctx context.Context) error {
 		PermitWithoutStream: true,
 	}))
 
-	// Dial
-	conn, err := grpc.DialContext(ctx, c.endpoint, opts...)
+	// Block until connection is established (or timeout) so we surface real errors:
+	// connection refused (Core not ready), TLS handshake failure (certs), timeout (network/DNS).
+	const dialTimeout = 15 * time.Second
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	defer cancel()
+	opts = append(opts, grpc.WithBlock())
+
+	conn, err := grpc.DialContext(dialCtx, c.endpoint, opts...)
 	if err != nil {
-		return fmt.Errorf("failed to dial Core: %w", err)
+		return fmt.Errorf("dial Core: %w (hint: check Core pod Ready, Service endpoints, DNS, mTLS certs)", err)
 	}
 
 	c.conn = conn
@@ -235,4 +241,3 @@ func NewNewGRPCClient(cfg *config.Config) (GRPCClient, error) {
 	}
 	return cli, nil
 }
-

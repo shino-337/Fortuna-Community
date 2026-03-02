@@ -29,20 +29,32 @@ echo "Dashboard Issues Verification"
 echo "=========================================="
 echo ""
 
-# 1. Check pod image
+# 1. Check pod image vs latest (compare by digest when possible)
 info "1. Checking pod image..."
 POD_IMAGE_ID=$(kubectl get pods -n "$NAMESPACE" -l app=fortuna-dashboard -o jsonpath='{.items[0].status.containerStatuses[0].imageID}' 2>/dev/null || echo "")
-LATEST_IMAGE_ID=$(nerdctl --namespace k8s.io images | grep "fortuna-dashboard.*latest" | head -1 | awk '{print $3}' || echo "")
+# Prefer digest (sha256:...) from nerdctl for reliable comparison with pod's imageID
+LATEST_DIGEST=$(nerdctl --namespace k8s.io images --format '{{.Repository}} {{.Tag}} {{.Digest}}' 2>/dev/null | grep "fortuna-dashboard latest" | head -1 | awk '{print $3}')
+LATEST_IMAGE_ID=$(nerdctl --namespace k8s.io images 2>/dev/null | grep "fortuna-dashboard.*latest" | head -1 | awk '{print $3}' || echo "")
 
-if [ -n "$POD_IMAGE_ID" ] && [ -n "$LATEST_IMAGE_ID" ]; then
-  if echo "$POD_IMAGE_ID" | grep -q "$LATEST_IMAGE_ID"; then
-    ok "Pod is using latest image"
+POD_SHA=$(echo "$POD_IMAGE_ID" | sed -n 's/.*\(sha256:[a-f0-9]\{64\}\).*/\1/p')
+if [ -n "$POD_IMAGE_ID" ]; then
+  if [ -n "$LATEST_DIGEST" ] && [ -n "$POD_SHA" ]; then
+    if [ "$LATEST_DIGEST" = "$POD_SHA" ] || echo "$POD_IMAGE_ID" | grep -qF "$LATEST_DIGEST"; then
+      ok "Pod is using latest image (digest match)"
+    else
+      fail "Pod image differs from local. Expected digest: $LATEST_DIGEST, Pod: $POD_IMAGE_ID"
+      warn "To use latest: kubectl rollout restart deployment/fortuna-dashboard -n $NAMESPACE"
+    fi
+  elif [ -n "$LATEST_IMAGE_ID" ] && echo "$POD_IMAGE_ID" | grep -q "$LATEST_IMAGE_ID"; then
+    ok "Pod is using latest image (ID match)"
+  elif [ -n "$LATEST_IMAGE_ID" ]; then
+    fail "Pod image differs from local. Expected (ID): $LATEST_IMAGE_ID, Pod: $POD_IMAGE_ID"
+    warn "To use latest: kubectl rollout restart deployment/fortuna-dashboard -n $NAMESPACE"
   else
-    fail "Pod is using OLD image! Expected: $LATEST_IMAGE_ID, Got: $POD_IMAGE_ID"
-    warn "Need to force pod recreation"
+    warn "Cannot get local image (nerdctl?); pod imageID: $POD_IMAGE_ID"
   fi
 else
-  warn "Cannot determine image IDs"
+  warn "No dashboard pod found"
 fi
 echo ""
 
@@ -140,7 +152,7 @@ echo "Summary"
 echo "=========================================="
 echo ""
 echo "Next steps:"
-echo "  1. If pod uses old image: kubectl delete pod -n $NAMESPACE -l app=fortuna-dashboard"
+echo "  1. If pod uses old image: kubectl rollout restart deployment/fortuna-dashboard -n $NAMESPACE"
 echo "  2. Check UI: kubectl port-forward -n $NAMESPACE svc/fortuna-dashboard 8081:80"
 echo "  3. Verify Risk Center -> PCE Drill-down has podName filter"
 echo "  4. Verify Risk List has search/filter functionality"

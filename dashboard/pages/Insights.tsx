@@ -269,10 +269,10 @@ export const RiskCenter: React.FC = () => {
 
   const getSeverityIcon = (severity: Insight['severity']) => {
     switch (severity) {
-      case 'critical': return <Shield className="w-5 h-5 text-red-500" />;
-      case 'high': return <AlertTriangle className="w-5 h-5 text-orange-500" />;
-      case 'medium': return <Info className="w-5 h-5 text-yellow-500" />;
-      case 'low': return <CheckCircle className="w-5 h-5 text-blue-500" />;
+      case 'critical': return <Shield className="w-5 h-5 text-[#B42318]" />;
+      case 'high': return <AlertTriangle className="w-5 h-5 text-[#F79009]" />;
+      case 'medium': return <Info className="w-5 h-5 text-[#FDB022]" />;
+      case 'low': return <CheckCircle className="w-5 h-5 text-[#667085]" />;
     }
   };
 

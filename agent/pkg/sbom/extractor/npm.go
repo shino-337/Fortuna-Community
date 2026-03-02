@@ -2,8 +2,8 @@ package extractor
 
 import (
 	"encoding/json"
+	"log"
 	"strings"
-
 )
 
 // NpmParser parses Node.js packages from package-lock.json or package.json
@@ -47,10 +47,11 @@ func (p *NpmParser) Parse(fs *Filesystem) ([]Package, error) {
 		if root == "" {
 			pattern = "/node_modules/*/package.json"
 		} else {
-			if !strings.HasPrefix(root, "/") {
-				root = "/" + root
+			r := root
+			if !strings.HasPrefix(r, "/") {
+				r = "/" + r
 			}
-			pattern = root + "/node_modules/*/package.json"
+			pattern = r + "/node_modules/*/package.json"
 		}
 		moduleDirs := fs.Glob(pattern)
 		for _, path := range moduleDirs {
@@ -70,42 +71,92 @@ func (p *NpmParser) Parse(fs *Filesystem) ([]Package, error) {
 		}
 	}
 
+	// Strategy 3 (fallback): discover package-lock.json and node_modules/*/package.json anywhere in image
+	if len(packages) == 0 {
+		lockPaths := fs.FindPathsBySuffix("package-lock.json")
+		nodePaths := fs.FindPathsContaining("node_modules", "package.json")
+		log.Printf("[SBOMExtractor] npm fallback: found %d package-lock.json, %d node_modules/.../package.json", len(lockPaths), len(nodePaths))
+		for _, path := range lockPaths {
+			lockContent, err := fs.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			pkgs, _ := p.parsePackageLock(lockContent)
+			for _, pkg := range pkgs {
+				key := pkg.Name + "@" + pkg.Version
+				if !seen[key] {
+					seen[key] = true
+					packages = append(packages, pkg)
+				}
+			}
+			if len(pkgs) > 0 {
+				log.Printf("[SBOMExtractor] npm: parsed %d packages from %s", len(pkgs), path)
+			}
+			break
+		}
+		for _, path := range nodePaths {
+			content, err := fs.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			pkg, err := p.parsePackageJson(content)
+			if err != nil || pkg.Name == "" {
+				continue
+			}
+			key := pkg.Name + "@" + pkg.Version
+			if !seen[key] {
+				seen[key] = true
+				packages = append(packages, pkg)
+			}
+		}
+	}
+
 	return packages, nil
 }
 
-// parsePackageLock parses package-lock.json
+// parsePackageLock parses package-lock.json (v1: dependencies, v2+: packages)
 func (p *NpmParser) parsePackageLock(content []byte) ([]Package, error) {
-	var lockFile struct {
+	packages := make([]Package, 0)
+
+	// v2+ format: "packages": { "": { "version": "..." }, "node_modules/foo": { "version": "..." } }
+	var v2 struct {
 		Packages map[string]struct {
 			Version string `json:"version"`
 		} `json:"packages"`
 	}
+	if err := json.Unmarshal(content, &v2); err == nil && len(v2.Packages) > 0 {
+		for path, pkg := range v2.Packages {
+			if pkg.Version == "" {
+				continue
+			}
+			parts := strings.Split(path, "/")
+			name := parts[len(parts)-1]
+			if name == "" && len(parts) > 1 {
+				name = parts[len(parts)-2]
+			}
+			if name == "" {
+				name = "root"
+			}
+			packages = append(packages, Package{Name: name, Version: pkg.Version, Type: "npm"})
+		}
+		return packages, nil
+	}
 
-	if err := json.Unmarshal(content, &lockFile); err != nil {
+	// v1 format: "dependencies": { "lodash": { "version": "4.17.19" } }
+	var v1 struct {
+		Dependencies map[string]struct {
+			Version string `json:"version"`
+		} `json:"dependencies"`
+	}
+	if err := json.Unmarshal(content, &v1); err != nil {
 		return nil, err
 	}
-
-	packages := make([]Package, 0)
-	for path, pkg := range lockFile.Packages {
-		if pkg.Version == "" {
+	for name, dep := range v1.Dependencies {
+		if dep.Version == "" {
 			continue
 		}
-
-		// Extract package name from path
-		// node_modules/package-name -> package-name
-		parts := strings.Split(path, "/")
-		name := parts[len(parts)-1]
-		if name == "" && len(parts) > 1 {
-			name = parts[len(parts)-2]
-		}
-
-		packages = append(packages, Package{
-			Name:    name,
-			Version: pkg.Version,
-			Type:    "npm",
-		})
+		packages = append(packages, Package{Name: name, Version: dep.Version, Type: "npm"})
 	}
-
 	return packages, nil
 }
 

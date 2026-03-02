@@ -86,6 +86,8 @@ var (
 	_ = Migration063_AddPodsLastSeenCleanupIndex
 	_ = Migration064_ExpandAdvisoryIDColumns
 	_ = Migration065_EnsureUsersDeletedAt
+	_ = Migration066_AddPodsPhase
+	_ = Migration067_ExpandPackageVulnerabilitiesVersionColumns
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -171,6 +173,8 @@ func RunMigrations(db *gorm.DB) error {
 		Migration063_AddPodsLastSeenCleanupIndex,          // Ops: index for stale pod cleanup and pod-count queries
 		Migration064_ExpandAdvisoryIDColumns,              // CVE/SBOM: support non-CVE advisory IDs for richer package vulnerability coverage
 		Migration065_EnsureUsersDeletedAt,                 // Auth schema hardening: ensure users.deleted_at exists for soft-delete queries
+		Migration066_AddPodsPhase,                         // Pods: phase (Running, Pending, etc.) for UI
+		Migration067_ExpandPackageVulnerabilitiesVersionColumns, // CVE: package_vulnerabilities version columns to 255 for OSV data
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))
@@ -218,7 +222,14 @@ func RunMigrations(db *gorm.DB) error {
 		}
 	}
 
-	log.Printf("All %d migrations completed successfully", len(migrations))
+	log.Printf("All %d migrations completed", len(migrations))
+
+	// Mandatory post-migration validation: core tables must exist or Core cannot serve traffic.
+	requiredCoreTables := []string{"clusters", "pods", "namespaces", "nodes", "service_accounts", "roles", "cluster_roles", "role_bindings", "cluster_role_bindings", "audit_logs"}
+	if err := validateMigrationResult(db, 0, requiredCoreTables); err != nil {
+		return fmt.Errorf("post-migration validation failed (core tables missing): %w", err)
+	}
+	log.Printf("Post-migration validation: all required core tables exist")
 	return nil
 }
 
@@ -319,11 +330,8 @@ func Migration001_InitialSchema(db *gorm.DB) error {
 		return nil
 	}
 
-	// For migration 001, always continue even if error (known GORM/PostgreSQL issue)
-	// Tables may be created by subsequent migrations or may need manual creation
-	log.Println("Migration 001: Continuing despite error (known GORM/PostgreSQL compatibility issue)")
-	log.Println("Migration 001: If tables don't exist, they may need manual creation or will be created by subsequent migrations")
-	return nil
+	// Fail fast: clusters is required for Core to function. Do not start with broken schema.
+	return fmt.Errorf("migration 001: clusters table was not created (SQL file not found or AutoMigrate failed); ensure /app/migrations/001_initial_schema.sql exists in the image and DB is writable")
 }
 
 // Migration002_AddUsers creates users table

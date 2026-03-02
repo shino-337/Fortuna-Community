@@ -1,6 +1,7 @@
 package health
 
 import (
+	"net"
 	"net/http"
 	"time"
 
@@ -46,11 +47,11 @@ func HealthCheck(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// ReadinessCheck performs readiness checks
-// IMPORTANT: Readiness only checks if the service can accept requests (HTTP/gRPC servers are listening)
-// It does NOT check database, NATS, or external dependencies
-// This ensures the pod can be marked as ready even if external dependencies are temporarily unavailable
-func ReadinessCheck(db *gorm.DB) gin.HandlerFunc {
+// ReadinessCheck performs readiness checks.
+// If grpcPort is non-empty, it verifies the gRPC server is listening on 127.0.0.1:grpcPort
+// so that the pod is not marked Ready until Agents can connect (avoids "connection refused" on 9090).
+// It does NOT fail readiness on database/NATS so the pod can accept traffic once HTTP+gRPC are up.
+func ReadinessCheck(db *gorm.DB, grpcPort string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		status := HealthStatus{
 			Status:    "ready",
@@ -58,13 +59,23 @@ func ReadinessCheck(db *gorm.DB) gin.HandlerFunc {
 			Checks:    make(map[string]string),
 		}
 
-		// Readiness check: Only verify that HTTP and gRPC servers are listening
-		// If this endpoint is reachable, it means HTTP server is running
 		status.Checks["http"] = "ok"
-		status.Checks["grpc"] = "ok" // gRPC server is started in main.go, assume it's running if HTTP is
 
-		// Optional: Check database status (but don't fail readiness if it's down)
-		// This provides observability without blocking service routing
+		// Verify gRPC is actually listening so Service endpoints don't get traffic before 9090 is ready
+		if grpcPort != "" {
+			conn, err := net.DialTimeout("tcp", "127.0.0.1:"+grpcPort, 1*time.Second)
+			if err != nil {
+				status.Status = "not_ready"
+				status.Checks["grpc"] = "not listening: " + err.Error()
+				c.JSON(http.StatusServiceUnavailable, status)
+				return
+			}
+			conn.Close()
+			status.Checks["grpc"] = "ok"
+		} else {
+			status.Checks["grpc"] = "ok"
+		}
+
 		if db != nil {
 			sqlDB, err := db.DB()
 			if err == nil {
@@ -80,7 +91,6 @@ func ReadinessCheck(db *gorm.DB) gin.HandlerFunc {
 			status.Checks["database"] = "degraded: database connection not initialized"
 		}
 
-		// Always return ready if HTTP server is responding
 		c.JSON(http.StatusOK, status)
 	}
 }

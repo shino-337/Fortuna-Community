@@ -1,15 +1,16 @@
 apiVersion: v2
 name: fortuna
-description: Fortuna - Kubernetes Security and Compliance Platform
+description: Fortuna – Kubernetes security and risk management platform (SBOM, CVE, PCE, Runtime Signals)
 type: application
 version: 1.0.0
 appVersion: "1.0.0"
 keywords:
   - security
-  - compliance
-  - kubernetes
-  - cve
   - sbom
-maintainers:
-  - name: Fortuna Team
-
+  - cve
+  - kubernetes
+  - risk
+home: https://github.com/your-org/KSAM
+sources: []
+maintainers: []
+dependencies: []
