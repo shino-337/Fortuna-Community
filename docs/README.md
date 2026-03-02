@@ -1,15 +1,15 @@
 # Fortuna Platform Documentation
 
-**Version**: 2.0  
-**Last Updated**: 2026-01-29
+**Version**: 2.1  
+**Last Updated**: 2026-03-02
 
 ---
 
 ## Welcome to Fortuna
 
-Fortuna is a comprehensive security and risk management platform for Kubernetes clusters. It provides real-time vulnerability detection, SBOM extraction, CVE matching, and security insights generation.
+Fortuna is a security and risk management platform for Kubernetes. It provides SBOM extraction, CVE matching, security insights, Pod Capability Engine (PCE), runtime signals, and a web dashboard.
 
-**Tài liệu production & deploy:** [docs-prod/](../docs-prod/README.md) (giới thiệu, kiến trúc, vận hành) · [deploy/README.md](../deploy/README.md) (manifest, Helm, lưu ý deploy).
+**Production:** [docs-prod/](../docs-prod/README.md) (overview, architecture, operations) · [deploy/README.md](../deploy/README.md) (manifests, Helm, deploy checklist).
 
 ---
 
@@ -44,7 +44,7 @@ Fortuna is a comprehensive security and risk management platform for Kubernetes 
 - [Deployment Checklist](05-operations/DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment
 - [Clean Rebuild & Verify](05-operations/CLEAN_REBUILD_REDEPLOY_AND_VERIFY.md) - Clean rebuild and E2E verify
 - [Troubleshooting](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting) - Common issues and solutions
-- **[Agent/Core: Monitor & xử lý lỗi](AGENT_CORE_ERRORS_MONITOR.md)** - Lệnh monitor (monitor-agent-core-errors.sh), phân tích lỗi (OOM, secret, containerd digest, Sync 500, DNS), cách xử lý
+- **[Agent/Core: Monitor & troubleshooting](AGENT_CORE_ERRORS_MONITOR.md)** – Monitor commands (monitor-agent-core-errors.sh), error analysis (OOM, secrets, containerd digest, Sync 500, DNS)
 
 ### Components (03-components/)
 
@@ -58,7 +58,7 @@ Fortuna is a comprehensive security and risk management platform for Kubernetes 
 
 ### Testing
 
-- [Test Results](test-results/) - Latest test execution results (older reports in [archive/test-results/](archive/test-results/))
+- [Test Results](test-results/) – Latest test results (see [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md) for script list)
 
 ---
 
@@ -73,7 +73,7 @@ Central processing component that handles:
 - Policy evaluation
 - API services
 
-**Deployment**: Kubernetes Deployment (runs on master node)
+**Deployment**: Kubernetes Deployment (control-plane node)
 
 ### Agent
 
@@ -84,11 +84,15 @@ Node-level component that:
 
 **Deployment**: Kubernetes DaemonSet (runs on all nodes)
 
+### Dashboard
+
+- **React/Vite** web UI: Risk Center, SBOM browser, threat velocity, pod capabilities, runtime signals. Proxies `/api` to Core.
+
 ### Infrastructure
 
 - **PostgreSQL**: Database for SBOMs, CVEs, insights, capabilities, attack steps
 - **NATS JetStream**: Message queue for event processing (3-replica cluster)
-- **Metrics**: Core service exposes `/metrics` endpoint (Prometheus format)
+- **Metrics**: Core exposes `/metrics` (Prometheus)
 
 ---
 
@@ -134,10 +138,10 @@ Node-level component that:
 ## Production Readiness
 
 Fortuna is production-ready with:
-- ✅ Comprehensive test coverage (80% pass rate)
+- ✅ Test coverage and E2E verification (see [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md))
 - ✅ High availability (NATS cluster, multiple replicas)
 - ✅ Security (mTLS, RBAC, secure defaults)
-- ✅ Observability (Prometheus metrics endpoint)
+- ✅ Observability (Prometheus metrics at `/metrics`)
 - ✅ Documentation and operational guides
 
 ---
@@ -145,21 +149,21 @@ Fortuna is production-ready with:
 ## Support
 
 For issues and questions:
-1. **[Agent/Core errors & monitoring](AGENT_CORE_ERRORS_MONITOR.md)** — lệnh monitor, phân tích lỗi (OOM, secret, containerd digest, Sync 500), cách xử lý
-2. Check [Troubleshooting Guide](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting)
+1. **[Agent/Core errors & monitoring](AGENT_CORE_ERRORS_MONITOR.md)** – Monitor commands and error analysis (OOM, secrets, Sync 500, DNS)
+2. [Troubleshooting](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting)
 3. Monitor errors: `./scripts/monitor/monitor-agent-core-errors.sh` or `--follow`
-4. Review logs: `kubectl logs -n fortuna -l app.kubernetes.io/component=core` / `component=agent`
-5. Check [Architecture Documentation](02-architecture/ARCHITECTURE.md) for system design
+4. Logs: `kubectl logs -n fortuna -l app.kubernetes.io/component=core` / `component=agent`
+5. [Architecture](02-architecture/ARCHITECTURE.md)
 
 ---
 
 ## License
 
-[Add your license information here]
+See repository root for license information.
 
 ---
 
-**Last Updated**: 2026-01-29
+**Last Updated**: 2026-03-02
 
 ---
 
@@ -176,7 +180,7 @@ The documentation is organized into the following structure:
 - **06-reference/**: API reference, script paths
 - **07-guides/**: UI/UX, dashboard, risk center — [Risk Center Total findings logic](07-guides/RISK_CENTER_TOTAL_FINDINGS_LOGIC.md); [Threat Velocity](07-guides/THREAT_VELOCITY.md); [Dashboard charts & E2E](07-guides/DASHBOARD_CHARTS_AND_E2E.md) (why velocity/risk charts may not change after E2E)
 - **08-tutorials/**: Tutorials
-- **test-results/**: Current test results (README); older reports in **archive/test-results/**
-- **archive/**: Outdated / one-off docs (fixes, task-lists, analysis, test-results)
+- **test-results/**: Current test results (README)
+- **archive/**: Outdated or one-off docs
 
 For detailed structure, see [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md).
