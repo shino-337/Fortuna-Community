@@ -55,7 +55,7 @@ echo -e "${BLUE}Step 3: Cleaning up old resources...${NC}"
 
 # Delete by labels
 kubectl delete deployment -n "$NAMESPACE" -l app.kubernetes.io/name=fortuna --ignore-not-found=true
-kubectl delete deployment -n "$NAMESPACE" -l app=fortuna-core --ignore-not-found=true
+kubectl delete deployment -n "$NAMESPACE" -l app.kubernetes.io/component=core --ignore-not-found=true
 kubectl delete deployment -n "$NAMESPACE" -l app=ksam-core --ignore-not-found=true
 
 # Delete by name patterns
@@ -66,7 +66,7 @@ kubectl delete service -n "$NAMESPACE" fortuna-core ksam-core --ignore-not-found
 
 # Delete pods (orphaned)
 kubectl delete pods -n "$NAMESPACE" -l app.kubernetes.io/component=core --ignore-not-found=true
-kubectl delete pods -n "$NAMESPACE" -l app=fortuna-core --ignore-not-found=true
+kubectl delete pods -n "$NAMESPACE" -l app.kubernetes.io/component=core --ignore-not-found=true
 
 # Wait for cleanup so next apply does not conflict
 echo "Waiting for resources to be deleted (8s)..."

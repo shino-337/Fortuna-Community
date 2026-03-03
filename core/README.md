@@ -3,13 +3,13 @@
 **Version**: 1.0.0  
 **Status**: Production Ready
 
-Fortuna Core is the central processing and storage component of the Fortuna security platform. It provides SBOM management, CVE matching, security insights generation, policy evaluation, and comprehensive REST/gRPC APIs.
+Fortuna Core is the central processing and storage component of **FortunaK8s** (K8S Security & Risk Management Platform). It provides SBOM management, CVE matching, security insights generation, policy evaluation, and comprehensive REST/gRPC APIs.
 
 ---
 
 ## Overview
 
-Fortuna Core serves as the brain of the Fortuna platform, orchestrating security analysis across Kubernetes clusters. It receives SBOM data from Agents, performs CVE matching, generates security insights, and exposes data via REST and gRPC APIs.
+Fortuna Core serves as the brain of FortunaK8s, orchestrating security analysis across Kubernetes clusters. It receives SBOM data from Agents, performs CVE matching, generates security insights, and exposes data via REST and gRPC APIs.
 
 ### Key Responsibilities
 

@@ -89,6 +89,31 @@ const request = async <T>(path: string, options: RequestInit = {}): Promise<T> =
   return res.json();
 };
 
+/** Map API pod object to PodWithRisk (includes POD_DETAIL_SPEC: podIP, startTime, restartCount, owner*, qosClass). */
+function mapApiPodToPodWithRisk(p: Record<string, unknown>): PodWithRisk {
+  const phase = (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined;
+  return {
+    id: Number(p.id ?? 0),
+    clusterId: String(p.clusterId ?? ''),
+    name: String(p.name ?? ''),
+    namespace: String(p.namespace ?? ''),
+    uid: String(p.uid ?? ''),
+    nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
+    serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
+    riskCount: Number((p as any).riskCount ?? 0),
+    status: phase,
+    phase: phase,
+    createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
+    podIP: p.podIP != null && p.podIP !== '' ? String(p.podIP) : undefined,
+    startTime: p.startTime != null ? String(p.startTime) : undefined,
+    restartCount: typeof p.restartCount === 'number' ? p.restartCount : undefined,
+    ownerKind: p.ownerKind != null && p.ownerKind !== '' ? String(p.ownerKind) : undefined,
+    ownerName: p.ownerName != null && p.ownerName !== '' ? String(p.ownerName) : undefined,
+    replicaSetName: p.replicaSetName != null && p.replicaSetName !== '' ? String(p.replicaSetName) : undefined,
+    qosClass: p.qosClass != null && p.qosClass !== '' ? String(p.qosClass) : undefined,
+  };
+}
+
 // REMOVED: All MOCK data constants - replaced with real API calls
 // - MOCK_SBOM: getSbomList() uses real API
 // - MOCK_CLUSTERS: getClusters() uses real API
@@ -401,18 +426,7 @@ export const api = {
   getPodByUid: async (uid: string): Promise<PodWithRisk | null> => {
     try {
       const p = await request<Record<string, unknown>>(`/pods/by-uid/${encodeURIComponent(uid)}`);
-      return {
-        id: Number(p.id ?? 0),
-        clusterId: String(p.clusterId ?? ''),
-        name: String(p.name ?? ''),
-        namespace: String(p.namespace ?? ''),
-        uid: String(p.uid ?? ''),
-        nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
-        serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
-        riskCount: Number((p as any).riskCount ?? 0),
-        status: (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined,
-        createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
-      };
+      return mapApiPodToPodWithRisk(p);
     } catch {
       return null;
     }
@@ -422,18 +436,7 @@ export const api = {
   getPod: async (id: string | number): Promise<PodWithRisk | null> => {
     try {
       const p = await request<Record<string, unknown>>(`/pods/${id}`);
-      return {
-        id: Number(p.id ?? 0),
-        clusterId: String(p.clusterId ?? ''),
-        name: String(p.name ?? ''),
-        namespace: String(p.namespace ?? ''),
-        uid: String(p.uid ?? ''),
-        nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
-        serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
-        riskCount: Number((p as any).riskCount ?? 0),
-        status: (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined,
-        createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
-      };
+      return mapApiPodToPodWithRisk(p);
     } catch {
       return null;
     }
@@ -450,18 +453,7 @@ export const api = {
       if (params?.pageSize != null) q.set('pageSize', String(params.pageSize));
       const qs = q.toString();
       const data = await request<{ pods: Array<Record<string, unknown>>; total: number; page?: number; pageSize?: number }>(qs ? `/pods?${qs}` : '/pods');
-      const pods = (data.pods || []).map((p: Record<string, unknown>) => ({
-        id: Number(p.id ?? 0),
-        clusterId: String(p.clusterId ?? ''),
-        name: String(p.name ?? ''),
-        namespace: String(p.namespace ?? ''),
-        uid: String(p.uid ?? ''),
-        nodeName: p.nodeName != null ? String(p.nodeName) : undefined,
-        serviceAccount: p.serviceAccount != null ? String(p.serviceAccount) : undefined,
-        riskCount: Number(p.riskCount ?? 0),
-        status: (p as any).phase != null && String((p as any).phase).trim() ? String((p as any).phase).trim() : undefined,
-        createdAt: p.createdAt != null ? String(p.createdAt) : undefined,
-      }));
+      const pods = (data.pods || []).map((p: Record<string, unknown>) => mapApiPodToPodWithRisk(p));
       return {
         pods,
         total: Number(data.total) ?? pods.length,

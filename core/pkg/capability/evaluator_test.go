@@ -30,6 +30,24 @@ func capabilityIDs(caps []Capability) map[string]struct{} {
 	return out
 }
 
+// TestEvaluateAndUpsertPod_SkipsWhenSpecHashMismatch ensures async PCE discards when spec_hash changed (race protection).
+func TestEvaluateAndUpsertPod_SkipsWhenSpecHashMismatch(t *testing.T) {
+	db := newTestDB(t)
+	ctx := context.Background()
+	pod := &models.Pod{
+		ClusterID: "c1",
+		UID:       "u1",
+		Name:      "p",
+		Namespace: "default",
+		SpecHash:  "hashA",
+	}
+	err := EvaluateAndUpsertPod(ctx, db, pod, "hashB")
+	if err != nil {
+		t.Fatalf("expected nil (skip): %v", err)
+	}
+	// Should have returned early without writing (no pod_capabilities table etc.)
+}
+
 func TestEvaluatePod_PrivilegedHostPathNetworkKernelAutomount(t *testing.T) {
 	db := newTestDB(t)
 	ctx := context.Background()

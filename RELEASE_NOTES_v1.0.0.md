@@ -1,4 +1,4 @@
-# Fortuna Platform v1.0.0 Release
+# FortunaK8s v1.0.0 Release
 
 **Release Date**: 2026-01-06  
 **Status**: Production Ready
@@ -7,7 +7,7 @@
 
 ## Overview
 
-Fortuna Platform v1.0.0 is the first stable production release. This release includes Core and Agent components with comprehensive security features, SBOM extraction, CVE matching, and insights generation.
+FortunaK8s (K8S Security & Risk Management Platform) v1.0.0 is the first stable production release. This release includes Core and Agent components with comprehensive security features, SBOM extraction, CVE matching, and insights generation.
 
 ---
 

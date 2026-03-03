@@ -1,15 +1,16 @@
-# Fortuna Platform Documentation
+# FortunaK8s Documentation
 
 **Version**: 2.1  
-**Last Updated**: 2026-03-02
+**Last Updated**: 2026-03-03
 
 ---
 
-## Welcome to Fortuna
+## Welcome to FortunaK8s
 
-Fortuna is a security and risk management platform for Kubernetes. It provides SBOM extraction, CVE matching, security insights, Pod Capability Engine (PCE), runtime signals, and a web dashboard.
+**FortunaK8s** – K8S Security & Risk Management Platform. Cung cấp SBOM extraction, CVE matching, security insights, Pod Capability Engine (PCE), runtime signals, và web dashboard.
 
-**Production:** [docs-prod/](../docs-prod/README.md) (overview, architecture, operations) · [deploy/README.md](../deploy/README.md) (manifests, Helm, deploy checklist).
+**Production docs:** [docs-prod/](../docs-prod/README.md) – overview, architecture, features, user guide, operations, configuration. Dùng cho vận hành production và onboarding.  
+**Deploy:** [deploy/README.md](../deploy/README.md) (manifests, Helm, deploy checklist).
 
 ---
 
@@ -51,6 +52,7 @@ Fortuna is a security and risk management platform for Kubernetes. It provides S
 - [Core Components Analysis](03-components/CORE_COMPONENTS_ANALYSIS.md) - Core component breakdown
 - [Agent Components Analysis](03-components/AGENT_COMPONENTS_ANALYSIS.md) - Agent component breakdown
 - [Agent-Core Flow](03-components/AGENT_CORE_FLOW.md) - Data flow between Agent and Core
+- **Pod Detail:** [POD_DETAIL_SPEC](03-components/podDetail/POD_DETAIL_SPEC.md) (UI spec), [POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC](03-components/podDetail/POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC.md) (spec hash, PCE), [testSuite.md](03-components/podDetail/testSuite.md) (integration tests)
 
 ### Reference (06-reference/)
 
@@ -140,7 +142,7 @@ Node-level component that:
 
 ## Production Readiness
 
-Fortuna is production-ready with:
+FortunaK8s is production-ready with:
 - ✅ Test coverage and E2E verification (see [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md))
 - ✅ High availability (NATS cluster, multiple replicas)
 - ✅ Security (mTLS, RBAC, secure defaults)
@@ -166,7 +168,7 @@ See repository root for license information.
 
 ---
 
-**Last Updated**: 2026-03-02
+**Last Updated**: 2026-03-03
 
 ---
 
@@ -174,7 +176,7 @@ See repository root for license information.
 
 | Directory | Contents |
 |-----------|----------|
-| **docs/** (root) | README.md (this file), [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md), [AGENT_CORE_ERRORS_MONITOR.md](AGENT_CORE_ERRORS_MONITOR.md), [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md) |
+| **docs/** (root) | README.md (this file), [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md), [AGENT_CORE_ERRORS_MONITOR.md](AGENT_CORE_ERRORS_MONITOR.md), [TESTCASE_MONITOR.md](TESTCASE_MONITOR.md). **Production:** [docs-prod/](../docs-prod/README.md) (01–06: overview, architecture, features, user guide, operations, configuration). |
 | **01-getting-started/** | Environment prep, build guide, quickstart, deployment basics |
 | **02-architecture/** | System architecture, components, repository structure |
 | **03-components/** | Core, Agent, PCE, SBOM, CVE, runtime signals, data sync |
@@ -188,3 +190,7 @@ See repository root for license information.
 | **archive/** | Outdated or one-off docs |
 
 See [DOCS_STRUCTURE.md](DOCS_STRUCTURE.md) for conventions and archive layout.
+
+---
+
+**Tài liệu production (vận hành, cấu hình, hướng dẫn sử dụng):** [docs-prod/](../docs-prod/README.md).

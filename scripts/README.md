@@ -1,69 +1,67 @@
-# Fortuna Scripts Reference
+# FortunaK8s Scripts Reference
 
-**Last Updated**: 2026-03-02
+**Last Updated**: 2026-03-03
 
 ---
 
-## Cấu trúc thư mục
+## Directory structure
 
-Scripts được sắp xếp theo nhóm trong thư mục con. **Luôn gọi theo đường dẫn đầy đủ** `./scripts/<thư mục>/<script>.sh` (không còn file/symlink tại `scripts/` root).
+Scripts are grouped in subdirectories. **Always invoke by full path** `./scripts/<dir>/<script>.sh` (no scripts at `scripts/` root).
 
-| Thư mục    | Nội dung |
-|------------|----------|
+| Directory | Contents |
+|-----------|----------|
 | **pipeline/** | full-clean-database-rebuild-deploy.sh, full-rebuild-sync-deploy-and-e2e.sh, clean-rebuild-redeploy-and-test.sh |
-| **deploy/**   | deploy-fortuna-robust.sh, pre-deployment-checks.sh, apply-core-master-only.sh, fix-flannel-vxlan.sh, fix-dns-config.sh |
+| **deploy/**   | deploy-fortuna-robust.sh, pre-deployment-checks.sh, ensure-flannel.sh, ensure-storage-class.sh, ensure-control-plane-label.sh, fix-flannel-vxlan.sh, fix-dns-config.sh |
 | **clean/**    | cleanup-environment.sh, clean-containerd-images.sh, clean-rebuild-dashboard.sh, cleanup-orphaned-migrations.sh |
 | **build/**    | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
-| **verify/**   | check-full-deployment.sh, verify-dashboard-*.sh, verify-database-schema.sh, verify-agent-availability.sh, verify-pod-data.sh, verify-test-data.sh, check-pod-risk.sh |
-| **e2e/**      | run-e2e-full.sh, run-e2e-with-capability-report.sh, run-e2e-tests.sh, run-dashboard-data-tests.sh, e2e-dashboard-data.sh, e2e-sbom-verify.sh, test-*.sh |
+| **verify/**   | check-full-deployment.sh, verify-dashboard-*.sh, verify-database-schema.sh, verify-agent-availability.sh, verify-agent-core-connectivity.sh, verify-pod-data.sh, verify-test-data.sh, check-pod-risk.sh |
+| **e2e/**      | run-e2e-full.sh, run-e2e-all-verify.sh, run-e2e-with-capability-report.sh, run-e2e-tests.sh, run-dashboard-data-tests.sh, e2e-dashboard-data.sh, e2e-sbom-verify.sh, test-*.sh |
 | **monitor/**  | monitor-agent-core.sh, monitor-agent-core-errors.sh, monitor-testcases.sh, monitor-runtime-signals.sh |
 | **utils/**    | push-images-to-workers.sh, load-cve-data.sh, create_mtls_secret.sh, manage-port-forwards.sh, port-forward-dashboard.sh, sync-k8s-data.sh, reset-worker-*.sh, fix-dns-issues.sh, import-to-containerd.sh, validate-migrations.sh, ... |
 
-**Ví dụ:** `./scripts/pipeline/full-clean-database-rebuild-deploy.sh`, `./scripts/build/build-and-load-containerd.sh`, `./scripts/clean/cleanup-orphaned-migrations.sh`.
-
-**Đã xóa:** Thư mục `scripts/archive/` (24 script cũ/outdate) đã được xóa hoàn toàn để tránh noise. Script đang dùng nằm trong 8 thư mục trên.
+**Examples:** `./scripts/pipeline/full-clean-database-rebuild-deploy.sh`, `./scripts/build/build-and-load-containerd.sh`, `./scripts/clean/cleanup-orphaned-migrations.sh`.
 
 ---
 
-## Hiện trạng
+## Current state
 
-- **Deploy YAML**: Dùng `deploy/fortuna-core-deployment.yaml` (gồm Service + Deployment Core), `deploy/fortuna-agent-daemonset.yaml`, `deploy/dashboard-deployment.yaml`, `deploy/fortuna-rbac.yaml` (RBAC cho core + agent). File trùng/lặp đã loại: `core-service.yaml`, `agent-rbac.yaml`.
-- **Image prefix**: `fortuna` (core, agent, dashboard). Namespace containerd: `k8s.io`.
-- **Namespace K8s**: `fortuna`.
+- **Deploy YAML:** Use `deploy/fortuna-core-deployment.yaml` (Service + Deployment), `deploy/fortuna-agent-daemonset.yaml`, `deploy/dashboard-deployment.yaml`, `deploy/fortuna-rbac.yaml` (RBAC for core + agent). Redundant files removed: `core-service.yaml`, `agent-rbac.yaml`.
+- **Image prefix:** `fortuna` (core, agent, dashboard). Containerd namespace: `k8s.io`.
+- **K8s namespace:** `fortuna`.
 
 ---
 
 ## Pipeline (Clean / Rebuild / Deploy)
 
-### `full-clean-database-rebuild-deploy.sh` **(script chính – full reset)**
+### `full-clean-database-rebuild-deploy.sh` **(main pipeline – full reset)**
 
-Clean toàn bộ image fortuna (nerdctl), tùy chọn clean DB, rebuild (core, agent, dashboard), deploy. **Không** cập nhật image tag trong `deploy/*.yaml` (dùng tag sẵn có trong file).
+Cleans all fortuna images (nerdctl), optionally cleans DB, rebuilds (core, agent, dashboard), deploys. Does **not** update image tag in `deploy/*.yaml` (uses tag already in the file).
 
 ```bash
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh              # clean images + rebuild + deploy
-./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db         # + xóa dữ liệu DB (DELETE, giữ schema)
-./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full reset DB (DROP tables; Core chạy lại migrations)
-./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # chỉ clean + deploy
-./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy    # chỉ clean + rebuild
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db         # + clear DB data (DELETE, keep schema)
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB reset (DROP tables; Core reruns migrations)
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
+./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy    # clean + rebuild only
 ```
 
-**Database & Agent sync:** Core chạy migrations khi khởi động. Nếu agent log `[Syncer] Sync failed: status=500` và Core log `column "kubeconfig" of relation "clusters" does not exist`, chạy với `--db-reset` rồi deploy lại.
+**Database & Agent sync:** Core runs migrations on startup. If agent logs `[Syncer] Sync failed: status=500` and Core logs `column "kubeconfig" of relation "clusters" does not exist`, run with `--db-reset` then redeploy.
 
-Chi tiết: **`docs/05-operations/DEPLOYMENT_CONTAINERD.md`**.
+See **`docs/05-operations/DEPLOYMENT_CONTAINERD.md`**.
 
 ### `full-rebuild-sync-deploy-and-e2e.sh`
 
-Clean → Rebuild (NO_CACHE) → **đồng bộ image tag vào deploy YAMLs** → Deploy → (tùy chọn push images lên worker) → E2E (run-e2e-with-capability-report.sh hoặc run-e2e-full.sh).
+Clean → Rebuild (NO_CACHE) → **sync image tag into deploy YAMLs** → Deploy → (optional push images to workers) → E2E (run-e2e-with-capability-report.sh or run-e2e-full.sh).
 
 ```bash
 ./scripts/pipeline/full-rebuild-sync-deploy-and-e2e.sh              # full run
 ./scripts/pipeline/full-rebuild-sync-deploy-and-e2e.sh --skip-push-workers
-./scripts/pipeline/full-rebuild-sync-deploy-and-e2e.sh --skip-e2e   # bỏ E2E report
+./scripts/pipeline/full-rebuild-sync-deploy-and-e2e.sh --skip-e2e   # skip E2E report
 ```
 
 ### `clean-rebuild-redeploy-and-test.sh`
 
-Clean → Rebuild → Deploy → Chạy test + monitor. Gọi `full-clean-database-rebuild-deploy.sh` rồi check-full-deployment, test-priority1-apis, verify-dashboard-api, v.v.
+Clean → Rebuild → Deploy → run tests + monitor. Calls `full-clean-database-rebuild-deploy.sh` then check-full-deployment, test-priority1-apis, verify-dashboard-api, etc.
 
 ```bash
 ./scripts/pipeline/clean-rebuild-redeploy-and-test.sh
@@ -73,7 +71,7 @@ Clean → Rebuild → Deploy → Chạy test + monitor. Gọi `full-clean-databa
 
 ### `deploy-fortuna-robust.sh`
 
-Chỉ deploy (không clean/rebuild). Thứ tự: pre-checks → namespace → cleanup → **Step 3a: ensure Flannel CNI** → **Step 3b: ensure StorageClass** → postgres, nats → **Step 7: RBAC** → **Step 7b: ensure control-plane label** → **Step 7c: ensure mTLS secrets** (tạo fortuna-core-tls, fortuna-agent-tls, fortuna-ca-cert, fortuna-webhook-tls để Core/Agent không kẹt ContainerCreating) → core → agent → dashboard. Có DNS fallback, verification.
+Deploy only (no clean/rebuild). Order: pre-checks → namespace → cleanup → **Step 3a: ensure Flannel CNI** → **Step 3b: ensure StorageClass** → postgres, nats → **Step 7: RBAC** → **Step 7b: ensure control-plane label** → **Step 7c: ensure mTLS secrets** (creates fortuna-core-tls, fortuna-agent-tls, fortuna-ca-cert, fortuna-webhook-tls so Core/Agent do not stay ContainerCreating) → core → agent → dashboard. Includes DNS fallback and verification.
 
 ```bash
 ./scripts/deploy/deploy-fortuna-robust.sh
@@ -82,16 +80,16 @@ USE_IP_FALLBACK=false ./scripts/deploy/deploy-fortuna-robust.sh
 
 ### `ensure-flannel.sh`
 
-Đảm bảo Flannel CNI đã cài. Nếu chưa có (namespace kube-flannel trống), apply manifest chính thức và chờ pods Ready. Tránh lỗi `subnet.env: no such file or directory` và pods kẹt ContainerCreating. Được gọi tự động trong deploy-fortuna-robust.sh (Step 3a) và pipeline (Phase 2a2). Nếu cluster dùng Calico/Cilium/Weave thì skip cài Flannel.
+Ensures Flannel CNI is installed. If missing (empty kube-flannel namespace), applies the official manifest and waits for pods Ready. Avoids `subnet.env: no such file or directory` and pods stuck in ContainerCreating. Called automatically by deploy-fortuna-robust.sh (Step 3a) and pipeline (Phase 2a2). Skips install if cluster uses Calico/Cilium/Weave.
 
 ```bash
 ./scripts/deploy/ensure-flannel.sh
-# SKIP_FLANNEL_INSTALL=1 để chỉ kiểm tra, không cài
+# SKIP_FLANNEL_INSTALL=1 to only check, not install
 ```
 
 ### `pre-deployment-checks.sh`
 
-Kiểm tra cluster trước khi deploy: kubectl, containerd/nerdctl, DNS, CoreDNS, network.
+Checks cluster before deploy: kubectl, containerd/nerdctl, DNS, CoreDNS, network.
 
 ```bash
 ./scripts/deploy/pre-deployment-checks.sh
@@ -99,11 +97,11 @@ Kiểm tra cluster trước khi deploy: kubectl, containerd/nerdctl, DNS, CoreDN
 
 ---
 
-## Clean (dọn môi trường)
+## Clean (environment cleanup)
 
-### `cleanup-environment.sh` **(script chính – clean env)**
+### `cleanup-environment.sh` **(main clean script)**
 
-Dọn port-forward, E2E/test namespaces, completed/failed/evicted pods, old images (giữ 3 mới nhất hoặc aggressive), build cache. **Không** rebuild/deploy.
+Cleans port-forwards, E2E/test namespaces, completed/failed/evicted pods, old images (keep 3 latest or aggressive), build cache. Does **not** rebuild or deploy.
 
 ```bash
 ./scripts/clean/cleanup-environment.sh                # clean mặc định (giữ 3 image mới nhất)

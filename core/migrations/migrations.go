@@ -88,6 +88,9 @@ var (
 	_ = Migration065_EnsureUsersDeletedAt
 	_ = Migration066_AddPodsPhase
 	_ = Migration067_ExpandPackageVulnerabilitiesVersionColumns
+	_ = Migration068_AddPodDetailColumns
+	_ = Migration069_AddPodSpecHash
+	_ = Migration070_AddPodLastEvaluatedHash
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -175,6 +178,9 @@ func RunMigrations(db *gorm.DB) error {
 		Migration065_EnsureUsersDeletedAt,                 // Auth schema hardening: ensure users.deleted_at exists for soft-delete queries
 		Migration066_AddPodsPhase,                         // Pods: phase (Running, Pending, etc.) for UI
 		Migration067_ExpandPackageVulnerabilitiesVersionColumns, // CVE: package_vulnerabilities version columns to 255 for OSV data
+		Migration068_AddPodDetailColumns,                  // Pod Detail (POD_DETAIL_SPEC): pod_ip, start_time, restart_count, owner_*, qos_class
+		Migration069_AddPodSpecHash,                       // POD_SYNC_ARCHITECTURE §4.3: spec_hash for conditional PCE
+		Migration070_AddPodLastEvaluatedHash,             // last_evaluated_hash after PCE success; race protection
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

@@ -1,118 +1,118 @@
-# Script Production – Fortuna (KSAM)
+# Fortuna Production Scripts
 
-Script vận hành chuẩn production: **build**, **deploy**, **clean**, **verify**. Dùng cấu hình qua file `config.env` (copy từ `config.env.example`).
-
----
-
-## Yêu cầu
-
-- **kubectl** trỏ tới cluster đích.
-- **nerdctl** (hoặc **docker**) để build image; **containerd** namespace `k8s.io` nếu chạy K8s bằng containerd.
-- **Bash** 4+ (set -euo pipefail).
+Production scripts: **build**, **deploy**, **clean**, **verify**. Configure via `config.env` (copy from `config.env.example`).
 
 ---
 
-## Cấu hình
+## Requirements
+
+- **kubectl** pointing at the target cluster
+- **nerdctl** or **docker** to build images; **containerd** namespace `k8s.io` if K8s uses containerd
+- **Bash** 4+ (scripts use `set -euo pipefail`)
+
+---
+
+## Configuration
 
 ```bash
 cp config.env.example config.env
-# Chỉnh: VERSION, REGISTRY, NAMESPACE, ...
+# Edit: VERSION, REGISTRY, NAMESPACE, ...
 ```
 
-| Biến | Mô tả | Ví dụ |
-|------|--------|--------|
-| `VERSION` | Tag image (bắt buộc cho production) | `v1.0.0` |
-| `REGISTRY` | Registry (để trống = chỉ build local) | `registry.company.com/fortuna` |
-| `NAMESPACE` | Namespace Kubernetes | `fortuna` |
-| `CONTAINERD_NAMESPACE` | Namespace containerd (nerdctl) | `k8s.io` |
-| `SKIP_BUILD_CORE` | Bỏ qua build Core | `0` hoặc `1` |
-| `SKIP_BUILD_AGENT` | Bỏ qua build Agent | `0` hoặc `1` |
-| `SKIP_BUILD_DASHBOARD` | Bỏ qua build Dashboard | `0` hoặc `1` |
-| `PUSH_IMAGES` | Push lên registry sau build | `0` hoặc `1` |
-| `LOG_DIR` | Thư mục log script | `./logs` (tạo tự động) |
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `VERSION` | Image tag (use a version for production) | `v1.0.0` |
+| `REGISTRY` | Registry (leave empty for local-only build) | `registry.company.com/fortuna` |
+| `NAMESPACE` | Kubernetes namespace | `fortuna` |
+| `CONTAINERD_NAMESPACE` | Containerd namespace (nerdctl) | `k8s.io` |
+| `SKIP_BUILD_CORE` | Skip Core build | `0` or `1` |
+| `SKIP_BUILD_AGENT` | Skip Agent build | `0` or `1` |
+| `SKIP_BUILD_DASHBOARD` | Skip Dashboard build | `0` or `1` |
+| `PUSH_IMAGES` | Push to registry after build | `0` or `1` |
+| `LOG_DIR` | Script log directory | `./logs` (created if missing) |
 
 ---
 
-## Script
+## Scripts
 
 ### build.sh
 
-Build image Core, Agent, Dashboard với tag **VERSION**. Ghi log vào `$LOG_DIR/build.log`.
+Builds Core, Agent, and Dashboard images with tag **VERSION**. Logs to `$LOG_DIR/build.log`.
 
 ```bash
 ./script-prod/build.sh
-# Hoặc với config đã load:
+# Or with config loaded:
 source config.env 2>/dev/null || true
 VERSION=v1.0.0 ./script-prod/build.sh
 ```
 
-- Build bằng **nerdctl** (ưu tiên) hoặc **docker**.
-- Image: `fortuna-core:$VERSION`, `fortuna-agent:$VERSION`, `fortuna-dashboard:$VERSION`.
-- Nếu `PUSH_IMAGES=1` và `REGISTRY` set: tag và push lên registry.
+- Uses **nerdctl** (preferred) or **docker**.
+- Images: `fortuna-core:$VERSION`, `fortuna-agent:$VERSION`, `fortuna-dashboard:$VERSION`.
+- If `PUSH_IMAGES=1` and `REGISTRY` is set, tags and pushes to the registry.
 
 ### deploy.sh
 
-Deploy lên cluster: namespace, hạ tầng (PostgreSQL, NATS), mTLS (nếu cần), RBAC, Core, Agent, Dashboard. Dùng image tag **VERSION**.
+Deploys to the cluster: namespace, infra (PostgreSQL, NATS), mTLS (if needed), RBAC, Core, Agent, Dashboard. Uses image tag **VERSION**.
 
 ```bash
 ./script-prod/deploy.sh
 ```
 
-- Đọc `config.env` nếu có.
-- Gọi script sẵn có: ensure-flannel, ensure-storage-class, deploy-fortuna-robust (hoặc apply manifest với image tag từ env).
+- Reads `config.env` if present.
+- Calls existing scripts: ensure-flannel, ensure-storage-class, deploy-fortuna-robust; then sets deployment images to VERSION.
 - Log: `$LOG_DIR/deploy.log`.
 
 ### clean.sh
 
-Dọn tài nguyên: xóa deployment/daemonset/service trong namespace, tùy chọn xóa image local và/hoặc dữ liệu DB. **Có xác nhận** trước khi xóa.
+Removes workloads; optionally removes local images and/or DB data. **Prompts for confirmation** unless `-y` / `--yes`.
 
 ```bash
 ./script-prod/clean.sh
-# Tùy chọn:
-#   --images     Xóa image fortuna-* khỏi containerd/docker
-#   --db         Clear DB (DELETE data, giữ schema)
-#   --db-reset   Full reset DB (DROP tables)
-#   -y / --yes   Bỏ qua xác nhận (dùng trong CI cẩn thận)
+# Options:
+#   --images     Remove fortuna-* images from containerd/docker
+#   --db         Clear DB (DELETE data, keep schema)
+#   --db-reset   Full DB reset (DROP tables)
+#   -y / --yes   Skip confirmation (use with care in CI)
 ```
 
-- Mặc định chỉ xóa workload trong namespace (Core, Agent, Dashboard); không xóa infra (PostgreSQL, NATS) trừ khi chỉ định.
+- By default only removes Core, Agent, and Dashboard in the namespace; does not remove PostgreSQL/NATS unless requested.
 - Log: `$LOG_DIR/clean.log`.
 
 ### verify.sh
 
-Kiểm tra health và trạng thái sau deploy: namespace, pod Running, Core /health, Dashboard HTTP, Agent DaemonSet.
+Checks health and status after deploy: namespace, pods Running, Core /health, Dashboard HTTP, Agent DaemonSet.
 
 ```bash
 ./script-prod/verify.sh
 ```
 
-- Exit 0 nếu tất cả check pass; ngược lại exit 1 và in lỗi.
-- Có thể gọi `scripts/verify/check-full-deployment.sh` bên trong.
+- Exit 0 if all checks pass; otherwise exit 1 and print errors.
+- Uses `scripts/verify/check-full-deployment.sh` when available.
 
 ---
 
-## Thứ tự vận hành điển hình
+## Typical workflow
 
-1. **Lần đầu / sau khi đổi code:**
+1. **First run or after code changes:**
    ```bash
    ./script-prod/build.sh
    ./script-prod/deploy.sh
    ./script-prod/verify.sh
    ```
-2. **Chỉ nâng cấp image:** Cập nhật VERSION trong config → build → deploy → verify.
-3. **Dọn môi trường:** `./script-prod/clean.sh` (rồi chọn có xóa images/DB hay không).
+2. **Image upgrade only:** Update VERSION in config → build → deploy → verify.
+3. **Cleanup:** Run `./script-prod/clean.sh` and choose whether to remove images/DB.
 
 ---
 
-## Log
+## Logs
 
-- Mặc định: `./script-prod/logs/` (build.log, deploy.log, clean.log, verify.log).
-- Set `LOG_DIR` trong config để đổi thư mục.
+- Default directory: `./script-prod/logs/` (build.log, deploy.log, clean.log, verify.log).
+- Override with `LOG_DIR` in config.
 
 ---
 
-## Liên kết
+## See also
 
-- **Tài liệu production:** [docs-prod/README.md](../docs-prod/README.md)
-- **Deploy manifests:** [deploy/README.md](../deploy/README.md)
-- **Pipeline dev (clean+rebuild+deploy):** [scripts/pipeline/full-clean-database-rebuild-deploy.sh](../scripts/pipeline/full-clean-database-rebuild-deploy.sh)
+- [docs-prod/README.md](../docs-prod/README.md)
+- [deploy/README.md](../deploy/README.md)
+- [scripts/pipeline/full-clean-database-rebuild-deploy.sh](../scripts/pipeline/full-clean-database-rebuild-deploy.sh) (dev pipeline)

@@ -40,8 +40,15 @@ type policyRule struct {
 }
 
 // EvaluateAndUpsertPod evaluates capabilities for a single pod and persists results.
-// Uses CapabilityStateController (CSC) to initialize capabilities with detected state.
-func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod) error {
+// expectedSpecHash: when non-empty, used for race protection — only persist if pod.spec_hash still matches;
+// after success, set last_evaluated_hash so risk reflects the evaluated spec. Pass "" for legacy (e.g. EvaluateAllPods).
+func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod, expectedSpecHash string) error {
+	// Race protection: if caller passed expectedSpecHash, pod must still match (another sync may have updated spec)
+	if expectedSpecHash != "" && pod.SpecHash != expectedSpecHash {
+		log.Printf("[PCE] Skip stale evaluation for pod %s/%s (spec_hash changed)", pod.Namespace, pod.Name)
+		return nil
+	}
+
 	// Check if pod instance is active (if pod_instances table exists)
 	var isActive bool
 	if db.Migrator().HasTable(&models.PodInstance{}) {
@@ -65,6 +72,19 @@ func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod) err
 		return err
 	}
 
+	// Before writing: re-read pod so we don't overwrite with stale result if spec changed meanwhile
+	if expectedSpecHash != "" {
+		var current models.Pod
+		if err := db.WithContext(ctx).Where("cluster_id = ? AND uid = ?", pod.ClusterID, pod.UID).First(&current).Error; err != nil {
+			return err
+		}
+		if current.SpecHash != expectedSpecHash {
+			log.Printf("[PCE] Discard result for pod %s/%s (spec_hash changed before write)", pod.Namespace, pod.Name)
+			return nil
+		}
+		pod = &current
+	}
+
 	if err := syncPodCapabilities(ctx, db, pod, caps); err != nil {
 		return err
 	}
@@ -73,6 +93,12 @@ func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod) err
 	}
 	if err := syncCapabilityInsights(ctx, db, pod, caps); err != nil {
 		return err
+	}
+
+	// Only set last_evaluated_hash when spec_hash still matches (atomic; avoids overwriting after newer sync)
+	if expectedSpecHash != "" {
+		db.Model(&models.Pod{}).Where("cluster_id = ? AND uid = ? AND spec_hash = ?", pod.ClusterID, pod.UID, expectedSpecHash).
+			Update("last_evaluated_hash", expectedSpecHash)
 	}
 	return nil
 }
@@ -100,7 +126,7 @@ func EvaluateAllPods(ctx context.Context, db *gorm.DB) error {
 	log.Printf("[PCE] Evaluating %d active pods", len(pods))
 
 	for _, pod := range pods {
-		if err := EvaluateAndUpsertPod(ctx, db, &pod); err != nil {
+		if err := EvaluateAndUpsertPod(ctx, db, &pod, ""); err != nil {
 			log.Printf("[PCE] Failed to evaluate/upsert pod %s/%s: %v", pod.Namespace, pod.Name, err)
 			continue
 		}

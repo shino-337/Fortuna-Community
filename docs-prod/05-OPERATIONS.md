@@ -1,4 +1,4 @@
-# Vận hành Fortuna (Production)
+# Vận hành FortunaK8s (Production)
 
 ## 1. Deploy
 
@@ -23,7 +23,16 @@ cp script-prod/config.env.example script-prod/config.env
 
 Chi tiết từng bước: [script-prod/README.md](../script-prod/README.md).
 
-### 1.2 Thủ công (tham khảo)
+### 1.2 Pipeline (scripts/ – dev / đa node)
+
+- **Clean + Rebuild + Deploy:** `./scripts/pipeline/full-clean-database-rebuild-deploy.sh` (clean images, rebuild core/agent/dashboard, deploy). Tùy chọn `--db` (xóa dữ liệu DB, giữ schema) hoặc `--db-reset` (DROP tables, Core chạy lại migrations).
+- **Deploy only:** `./scripts/deploy/deploy-fortuna-robust.sh` (không build; dùng image sẵn có).
+- **Push image lên worker (multi-node):** `./scripts/utils/push-images-to-workers.sh` (cần SSH tới từng node hoặc cấu hình `scripts/utils/push-images.config` / `SSH_USER`/`SSH_PASS`). Nếu không push được, Agent/Core trên node có thể chạy image cũ.
+- **Clean + Rebuild + Deploy + Test:** `./scripts/pipeline/clean-rebuild-redeploy-and-test.sh`; dùng `--skip-clean --skip-rebuild --skip-deploy` để chỉ chạy test/verify.
+
+Chi tiết: [scripts/README.md](../scripts/README.md).
+
+### 1.3 Thủ công (tham khảo)
 
 - Namespace → Flannel CNI (nếu cần) → StorageClass (local-path) → Infrastructure (PostgreSQL, NATS) → Certificates (mTLS) → Secrets → RBAC → Core → Agent → Dashboard.
 - Đầy đủ: [deploy/README.md](../deploy/README.md).
@@ -63,6 +72,8 @@ Chi tiết từng bước: [script-prod/README.md](../script-prod/README.md).
 
 - **Full deployment check:** `./scripts/verify/check-full-deployment.sh`
 - **Agent–Core connectivity:** `./scripts/verify/verify-agent-core-connectivity.sh`
+- **DB schema (gồm pod detail columns):** `./scripts/verify/verify-database-schema.sh`
+- **Pod detail: schema + dữ liệu + API:** `./scripts/verify/verify-pod-detail-api-and-db.sh` (kiểm tra migration 068, mẫu dữ liệu pods, response API)
 - **Production verify:** `./script-prod/verify.sh`
 
 ---
@@ -75,8 +86,9 @@ Chi tiết từng bước: [script-prod/README.md](../script-prod/README.md).
 | Core pod **Pending** (0 nodes available) | Gắn label control-plane: `./scripts/deploy/ensure-control-plane-label.sh`. |
 | Agent **CrashLoopBackOff** / **OOMKilled** | Giảm tải: set env `SBOM_WORKERS=1`, tăng memory limit nếu cần; rollout restart DaemonSet. |
 | **ErrImageNeverPull** | Đẩy image tới tất cả node: `./scripts/utils/push-images-to-workers.sh` (hoặc dùng registry). |
-| Agent **Sync 500** / Core log column missing | Chạy migrations: DB reset hoặc deploy Core mới (migrations tự chạy). |
+| Agent **Sync 500** / Core log column missing | Chạy migrations: DB reset hoặc deploy Core mới (migrations tự chạy). Dùng `--db-reset` trong pipeline nếu cần. |
 | Agent không kết nối Core | Kiểm tra DNS/endpoint: `./scripts/verify/verify-agent-core-connectivity.sh`. |
+| **Pod detail trống** trên Dashboard | DB đã có cột (migration 068) nhưng dữ liệu rỗng: deploy Agent bản mới (có gửi podIP, startTime, owner*, qosClass), push image lên node rồi `kubectl rollout restart daemonset/fortuna-agent -n fortuna`. Kiểm tra: `./scripts/verify/verify-pod-detail-api-and-db.sh`. |
 
 Chi tiết: [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md).
 

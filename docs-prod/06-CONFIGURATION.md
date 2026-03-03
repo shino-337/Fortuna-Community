@@ -1,4 +1,4 @@
-# Cấu hình Fortuna (Production)
+# Cấu hình FortunaK8s (Production)
 
 ## 1. Biến môi trường chính
 
@@ -13,6 +13,7 @@
 | `PCE_SCHEDULER_ENABLED` | Bật PCE scheduler | `true` |
 | `PCE_SCHEDULER_INTERVAL` | Chu kỳ scheduler | `6h` |
 | `DEFAULT_CLUSTER_ID` / `DEFAULT_CLUSTER_NAME` | Fallback khi chưa có cluster | (tùy chọn) |
+| `FORTUNA_ENABLE_SEED_DATA` | Bật seed capability metadata, promotion rules (migration 050, 051) | (tùy môi trường) |
 
 ### 1.2 Agent
 
@@ -75,6 +76,15 @@ File **`script-prod/config.env`** (từ `config.env.example`):
 - `LOG_DIR`: Thư mục ghi log script.
 
 Chi tiết từng biến: [script-prod/README.md](../script-prod/README.md).
+
+---
+
+## 7. Database & migrations
+
+- **Schema:** Do Core quản lý qua migrations (core/migrations/). Core chạy tất cả migrations khi khởi động.
+- **Pod detail (068):** Thêm cột `pod_ip`, `start_time`, `restart_count`, `owner_kind`, `owner_name`, `replica_set_name`, `qos_class` vào bảng `pods`.
+- **Spec hash (069, 070):** `spec_hash`, `last_evaluated_hash` cho PCE điều kiện và race protection.
+- **Reset DB (dev):** Dùng script pipeline với `--db-reset` hoặc chạy SQL trong deploy/e2e/reset_database_full.sql (sau đó restart Core để chạy lại migrations).
 
 ---
 

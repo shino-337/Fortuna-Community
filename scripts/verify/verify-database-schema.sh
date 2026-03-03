@@ -168,8 +168,19 @@ verify_columns() {
         "insights:cvss"
     )
     
+    # Pod Detail (POD_DETAIL_SPEC, migration 068)
+    local pod_detail_columns=(
+        "pods:pod_ip"
+        "pods:start_time"
+        "pods:restart_count"
+        "pods:owner_kind"
+        "pods:owner_name"
+        "pods:replica_set_name"
+        "pods:qos_class"
+    )
+    
     # Verify all columns
-    local all_columns=("${sbom_columns[@]}" "${component_columns[@]}" "${cve_match_columns[@]}" "${insight_columns[@]}")
+    local all_columns=("${sbom_columns[@]}" "${component_columns[@]}" "${cve_match_columns[@]}" "${insight_columns[@]}" "${pod_detail_columns[@]}")
     
     for col_spec in "${all_columns[@]}"; do
         IFS=':' read -r table column <<< "$col_spec"

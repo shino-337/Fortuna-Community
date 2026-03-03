@@ -145,7 +145,7 @@ export interface NodeDetailResponse {
   pods?: Array<{ id: number; uid: string; name: string; namespace: string; riskCount: number }>;
 }
 
-/** GET /pods – pod with riskCount (createdAt from backend when available) */
+/** GET /pods, GET /pods/:id, GET /pods/by-uid/:uid – pod with riskCount (POD_DETAIL_SPEC fields when available) */
 export interface PodWithRisk {
   id: number;
   clusterId: string;
@@ -156,8 +156,17 @@ export interface PodWithRisk {
   serviceAccount?: string;
   /** Pod phase from API (phase): Running, Pending, Succeeded, Failed, Unknown */
   status?: string;
+  phase?: string;
   riskCount: number;
   createdAt?: string;
+  /** Pod Detail (POD_DETAIL_SPEC): header and overview */
+  podIP?: string;
+  startTime?: string | null;
+  restartCount?: number;
+  ownerKind?: string;
+  ownerName?: string;
+  replicaSetName?: string;
+  qosClass?: string;
 }
 
 export interface DashboardStats {

@@ -1,4 +1,6 @@
-# Chức năng Fortuna (Production)
+# Chức năng FortunaK8s (Production)
+
+FortunaK8s – K8S Security & Risk Management Platform.
 
 ## 1. SBOM (Software Bill of Materials)
 
@@ -50,7 +52,10 @@
 - **Tổng quan:** Số cluster, agent, pod, risk; biểu đồ Threat Velocity, PCE trends.
 - **Risk Center:** Danh sách risks, filter theo cluster/severity, chi tiết insight; tab Runtime Signals.
 - **SBOM:** Duyệt SBOM theo pod/image, tìm kiếm package, export.
-- **Resources / Pod detail:** Pod list, chi tiết pod (capabilities, signals, SBOM).
+- **Resources / Pod detail:** Pod list; trang Pod Detail hiển thị:
+  - **Header:** Status, Pod IP, Start Time, Uptime, Restart Count, QoS Class, Risk Count, Service Account, Created.
+  - **Overview:** Namespace, Node, Pod IP, Service Account, UID; block **Identity & Ownership** (Owner Type, Owner Name, ReplicaSet, QoS Class) khi có dữ liệu.
+  - Tab SBOM, Related Risks. Dữ liệu pod detail (pod_ip, start_time, owner_*, qos_class) từ Core API; cần Agent bản mới sync đầy đủ (xem [04-USER_GUIDE](04-USER_GUIDE.md)).
 - **Đăng nhập:** JWT (mặc định admin/admin123); production nên đổi password và dùng secret.
 
 ---
@@ -63,11 +68,19 @@
 
 ---
 
-## 8. Khác
+## 8. Pod Detail (POD_DETAIL_SPEC)
+
+- **Cột DB (migration 068):** `pod_ip`, `start_time`, `restart_count`, `owner_kind`, `owner_name`, `replica_set_name`, `qos_class`.
+- **API:** GET `/api/v1/pods`, `/pods/:id`, `/pods/by-uid/:uid` trả về các trường trên (camelCase: podIP, startTime, ownerKind, qosClass, …).
+- **Spec hash (069, 070):** Agent gửi `specHash`; Core chỉ trigger PCE khi spec thay đổi; `last_evaluated_hash` tránh ghi đè kết quả cũ khi race. Chi tiết: [POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC](../docs/03-components/podDetail/POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC.md).
+
+---
+
+## 9. Khác
 
 - **Cluster identity:** Tự phát hiện cluster (kube-system UID) hoặc override ConfigMap/env; Core là SSOT cho cluster.
 - **Stale cleanup:** Cluster không sync &gt; 90 ngày có thể bị soft-delete; Dashboard mặc định chỉ hiển thị cluster active (7 ngày).
-- **Migrations:** Core chạy migrations khi start; schema do code quản lý (thư mục core/migrations).
+- **Migrations:** Core chạy migrations khi start; schema do code quản lý (thư mục core/migrations). Migration 068: pod detail columns; 069/070: spec_hash, last_evaluated_hash.
 - **Admission Webhook:** Tùy chọn; dùng để enforce policy khi tạo/sửa resource.
 
 ---

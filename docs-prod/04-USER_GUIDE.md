@@ -1,4 +1,4 @@
-# Hướng dẫn sử dụng Fortuna (Production)
+# Hướng dẫn sử dụng FortunaK8s (Production)
 
 ## 1. Truy cập Dashboard
 
@@ -53,10 +53,14 @@ Mở trình duyệt: **http://localhost:8081**
 
 ---
 
-## 5. Resources / Pod
+## 5. Resources / Pod Detail
 
-- **Pod list:** Danh sách pod đồng bộ từ Agent.
-- **Pod detail:** Chi tiết pod (namespace, node, capabilities, runtime signals, SBOM link).
+- **Pod list:** Danh sách pod đồng bộ từ Agent (Resources tab).
+- **Pod Detail (trang chi tiết pod):**
+  - **Header cards:** Status, **Pod IP**, **Start Time**, **Uptime**, **Restart Count**, **QoS Class**, Risk Count, Service Account, Created.
+  - **Overview tab:** Namespace, Node, Pod IP, Service Account, UID; **Identity & Ownership** (Owner Type, Owner Name, ReplicaSet, QoS Class) khi có dữ liệu.
+  - Tab **SBOM**, **Related Risks**.
+- Dữ liệu Pod IP / Start Time / Owner / QoS do Agent gửi lên Core; nếu thấy "—" là Agent chưa sync bản mới hoặc pod chưa được sync lại. Kiểm tra: `./scripts/verify/verify-pod-detail-api-and-db.sh`.
 - Dùng để điều hướng từ Risk Center hoặc kiểm tra SBOM theo pod.
 
 ---

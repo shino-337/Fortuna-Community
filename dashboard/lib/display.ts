@@ -5,6 +5,24 @@ export const formatDateTime = (value?: string): string => {
   return d.toLocaleString();
 };
 
+/** Format startTime as relative uptime (e.g. "2h 15m" or "3d 1h"). */
+export const formatUptime = (startTime?: string | null): string => {
+  if (!startTime) return '—';
+  const start = new Date(startTime);
+  if (Number.isNaN(start.getTime())) return '—';
+  const now = Date.now();
+  const ms = now - start.getTime();
+  if (ms < 0) return '—';
+  const s = Math.floor(ms / 1000);
+  const m = Math.floor(s / 60);
+  const h = Math.floor(m / 60);
+  const d = Math.floor(h / 24);
+  if (d > 0) return `${d}d ${h % 24}h`;
+  if (h > 0) return `${h}h ${m % 60}m`;
+  if (m > 0) return `${m}m ${s % 60}s`;
+  return `${s}s`;
+};
+
 export const getConnectionStatusLabel = (status?: string): string => {
   const s = (status || '').toLowerCase();
   if (s === 'connected') return 'Connected';

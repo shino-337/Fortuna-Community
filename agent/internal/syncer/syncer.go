@@ -3,12 +3,16 @@ package syncer
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -32,6 +36,16 @@ type PodPayload struct {
 	Volumes                      []VolumePayload          `json:"volumes,omitempty"`
 	Tolerations                  []map[string]interface{} `json:"tolerations,omitempty"`
 	Affinity                     interface{}              `json:"affinity,omitempty"`
+	// Pod Detail (POD_DETAIL_SPEC): header and overview
+	PodIP          string `json:"podIP,omitempty"`
+	StartTime      string `json:"startTime,omitempty"`      // RFC3339 from status.startTime
+	RestartCount   int    `json:"restartCount"`             // Total container restarts
+	OwnerKind      string `json:"ownerKind,omitempty"`      // Deployment / StatefulSet / Job / CronJob
+	OwnerName      string `json:"ownerName,omitempty"`
+	ReplicaSetName string `json:"replicaSetName,omitempty"` // If from Deployment
+	QoSClass       string `json:"qosClass,omitempty"`      // Guaranteed / Burstable / BestEffort
+	// SpecHash: SHA256 hex of canonical spec (POD_SYNC_ARCHITECTURE §4.3). Core uses it to trigger PCE only when spec changed.
+	SpecHash string `json:"specHash,omitempty"`
 }
 
 type ContainerPayload struct {
@@ -303,7 +317,7 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 			linkedPodsBySA[key] = append(linkedPodsBySA[key], string(p.UID))
 		}
 		phase := string(p.Status.Phase)
-		podPayloads = append(podPayloads, PodPayload{
+		payload := PodPayload{
 			Name:                         p.Name,
 			Namespace:                    p.Namespace,
 			UID:                          string(p.UID),
@@ -319,7 +333,19 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 			Volumes:                      volumes,
 			Tolerations:                  tolerations,
 			Affinity:                     p.Spec.Affinity,
-		})
+		}
+		// Pod Detail (POD_DETAIL_SPEC): header and overview fields
+		payload.PodIP = p.Status.PodIP
+		if p.Status.StartTime != nil {
+			payload.StartTime = p.Status.StartTime.Format(time.RFC3339)
+		}
+		for _, cs := range p.Status.ContainerStatuses {
+			payload.RestartCount += int(cs.RestartCount)
+		}
+		payload.OwnerKind, payload.OwnerName, payload.ReplicaSetName = ownerRefsFromPod(&p)
+		payload.QoSClass = qosClassFromPod(&p)
+		payload.SpecHash = computePodSpecHash(&p)
+		podPayloads = append(podPayloads, payload)
 	}
 
 	saPayloads := make([]ServiceAccountPayload, 0, len(serviceAccounts.Items))
@@ -414,4 +440,117 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 		},
 		Data: data,
 	}, nil
+}
+
+// ownerRefsFromPod returns owner kind, name, and replicaset name (if owner is ReplicaSet) from the pod's controller ref.
+func ownerRefsFromPod(p *corev1.Pod) (kind, name, replicaSetName string) {
+	for _, ref := range p.OwnerReferences {
+		if ref.Controller == nil || !*ref.Controller {
+			continue
+		}
+		kind = ref.Kind
+		name = ref.Name
+		if kind == "ReplicaSet" {
+			replicaSetName = ref.Name
+		}
+		return
+	}
+	return "", "", ""
+}
+
+// podSpecForHash is a deterministic struct for hashing. Slices are canonicalized (sorted) so that
+// reordering containers/volumes/env does not change the hash (avoids false-positive PCE triggers).
+type podSpecForHash struct {
+	ServiceAccountName string                      `json:"serviceAccountName"`
+	HostNetwork        bool                        `json:"hostNetwork"`
+	HostPID            bool                        `json:"hostPID"`
+	HostIPC            bool                        `json:"hostIPC"`
+	SecurityContext    *corev1.PodSecurityContext  `json:"securityContext,omitempty"`
+	Containers         []corev1.Container          `json:"containers"`
+	Volumes            []corev1.Volume             `json:"volumes"`
+	Tolerations        []corev1.Toleration         `json:"tolerations"`
+	Affinity           *corev1.Affinity            `json:"affinity,omitempty"`
+}
+
+// computePodSpecHash returns SHA256 hex of canonical pod spec (POD_SYNC_ARCHITECTURE §4.3).
+// Canonicalization: containers by name, volumes by name, env by name per container, tolerations by key+value+effect.
+func computePodSpecHash(p *corev1.Pod) string {
+	containers := make([]corev1.Container, len(p.Spec.Containers))
+	copy(containers, p.Spec.Containers)
+	sort.Slice(containers, func(i, j int) bool { return containers[i].Name < containers[j].Name })
+	for i := range containers {
+		if len(containers[i].Env) > 0 {
+			env := make([]corev1.EnvVar, len(containers[i].Env))
+			copy(env, containers[i].Env)
+			sort.Slice(env, func(a, b int) bool { return env[a].Name < env[b].Name })
+			containers[i].Env = env
+		}
+	}
+
+	volumes := make([]corev1.Volume, len(p.Spec.Volumes))
+	copy(volumes, p.Spec.Volumes)
+	sort.Slice(volumes, func(i, j int) bool { return volumes[i].Name < volumes[j].Name })
+
+	tolerations := make([]corev1.Toleration, len(p.Spec.Tolerations))
+	copy(tolerations, p.Spec.Tolerations)
+	sort.Slice(tolerations, func(i, j int) bool {
+		a, b := tolerations[i], tolerations[j]
+		if a.Key != b.Key {
+			return a.Key < b.Key
+		}
+		if a.Value != b.Value {
+			return a.Value < b.Value
+		}
+		return string(a.Effect) < string(b.Effect)
+	})
+
+	s := podSpecForHash{
+		ServiceAccountName: p.Spec.ServiceAccountName,
+		HostNetwork:        p.Spec.HostNetwork,
+		HostPID:            p.Spec.HostPID,
+		HostIPC:            p.Spec.HostIPC,
+		SecurityContext:    p.Spec.SecurityContext,
+		Containers:         containers,
+		Volumes:            volumes,
+		Tolerations:        tolerations,
+		Affinity:           p.Spec.Affinity,
+	}
+	data, err := json.Marshal(s)
+	if err != nil {
+		return ""
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+// qosClassFromPod computes Kubernetes QoS class: Guaranteed, Burstable, or BestEffort.
+func qosClassFromPod(p *corev1.Pod) string {
+	if len(p.Spec.Containers) == 0 {
+		return "BestEffort"
+	}
+	allGuaranteed := true
+	hasAnyResource := false
+	for _, c := range p.Spec.Containers {
+		req := c.Resources.Requests
+		lim := c.Resources.Limits
+		if len(req) == 0 && len(lim) == 0 {
+			allGuaranteed = false
+			continue
+		}
+		hasAnyResource = true
+		cpuReq, rCPU := req[corev1.ResourceCPU]
+		cpuLim, lCPU := lim[corev1.ResourceCPU]
+		memReq, rMem := req[corev1.ResourceMemory]
+		memLim, lMem := lim[corev1.ResourceMemory]
+		if !rCPU || !lCPU || !rMem || !lMem || cpuReq.Cmp(cpuLim) != 0 || memReq.Cmp(memLim) != 0 {
+			allGuaranteed = false
+		}
+	}
+	if !hasAnyResource {
+		return "BestEffort"
+	}
+	if allGuaranteed {
+		return "Guaranteed"
+	}
+	return "Burstable"
 }

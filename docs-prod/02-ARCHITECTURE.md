@@ -1,4 +1,6 @@
-# Kiến trúc Fortuna (Production)
+# Kiến trúc FortunaK8s (Production)
+
+**FortunaK8s** – K8S Security & Risk Management Platform.
 
 ## 1. Tổng quan kiến trúc
 
@@ -24,7 +26,7 @@
 
 ## 2. Thành phần chính
 
-### 2.1 Core (Deployment)
+### 2.1 Fortuna Core (Deployment)
 
 - **Vai trò:** Trung tâm xử lý, lưu trữ, API.
 - **Chạy trên:** Node control-plane (nodeSelector + tolerations).
@@ -32,14 +34,14 @@
 - **Tính năng:** SBOM lưu DB, CVE matching, tạo insights, PCE scheduler, runtime signals, REST API (51+ endpoint), migrations DB khi khởi động.
 - **Phụ thuộc:** PostgreSQL, NATS JetStream.
 
-### 2.2 Agent (DaemonSet)
+### 2.2 Fortuna Agent (DaemonSet)
 
 - **Vai trò:** Mỗi node một pod; theo dõi pod, trích xuất SBOM, đồng bộ với Core.
 - **Giao tiếp:** gRPC (mTLS) tới Core.
 - **Cluster identity:** Tự phát hiện từ K8s API (kube-system UID) hoặc override qua ConfigMap/env.
 - **SBOM:** Nhiều parser (dpkg, apk, rpm, npm, pip, gomod), hàng đợi xử lý bất đồng bộ.
 
-### 2.3 Dashboard (Deployment)
+### 2.3 Fortuna Dashboard (Deployment)
 
 - **Vai trò:** Giao diện web (React + TypeScript).
 - **Dữ liệu:** Gọi API Core (proxy /api tới Core), hiển thị Dashboard, Risk Center, SBOM, PCE, runtime signals.
@@ -59,6 +61,7 @@
 4. **Tạo insights** (critical/high/medium) → Lưu DB → API phục vụ Dashboard/Risk Center.
 5. **PCE:** Scheduler đánh giá capability, promotion rules; runtime events → runtime_signals.
 6. **Dashboard:** Gọi REST API (stats, clusters, risks, insights, SBOM, pod-capabilities, runtime-signals).
+7. **Pod Detail & spec hash:** Agent gửi pod payload có `podIP`, `startTime`, `restartCount`, `ownerKind`, `ownerName`, `qosClass`, `specHash`. Core lưu vào bảng `pods` (migration 068); PCE chỉ chạy khi `spec_hash` thay đổi (tránh flood). Chi tiết: [POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC](../docs/03-components/podDetail/POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC.md).
 
 ---
 

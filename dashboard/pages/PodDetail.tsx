@@ -10,7 +10,7 @@ import { PageEmpty } from '../components/PageEmpty';
 import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
-import { formatDateTime } from '../lib/display';
+import { formatDateTime, formatUptime } from '../lib/display';
 import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
 import type { SbomComponent as SbomComponentType } from '../types';
 
@@ -166,10 +166,30 @@ export const PodDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
         <Card className="p-4 bg-slate-900/50">
           <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</p>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getPodStatusBadgeClass(pod.status)}`}>{pod.status ?? '—'}</span>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getPodStatusBadgeClass(pod.status ?? pod.phase)}`}>{pod.status ?? pod.phase ?? '—'}</span>
+        </Card>
+        <Card className="p-4 bg-slate-900/50">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Pod IP</p>
+          <p className="text-sm font-medium text-slate-300 font-mono">{pod.podIP ?? '—'}</p>
+        </Card>
+        <Card className="p-4 bg-slate-900/50">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Start Time</p>
+          <p className="text-sm font-medium text-slate-300">{pod.startTime ? formatDateTime(pod.startTime) : '—'}</p>
+        </Card>
+        <Card className="p-4 bg-slate-900/50">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Uptime</p>
+          <p className="text-sm font-medium text-slate-300">{formatUptime(pod.startTime ?? undefined)}</p>
+        </Card>
+        <Card className="p-4 bg-slate-900/50">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Restart Count</p>
+          <p className="text-lg font-bold text-white">{pod.restartCount ?? 0}</p>
+        </Card>
+        <Card className="p-4 bg-slate-900/50">
+          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">QoS Class</p>
+          <p className="text-sm font-medium text-slate-300">{pod.qosClass ?? '—'}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
           <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Risk Count</p>
@@ -225,6 +245,10 @@ export const PodDetail: React.FC = () => {
                 </dd>
               </div>
               <div>
+                <dt className="text-slate-500">Pod IP</dt>
+                <dd className="text-slate-300 font-mono">{pod.podIP ?? '—'}</dd>
+              </div>
+              <div>
                 <dt className="text-slate-500">Service Account</dt>
                 <dd className="text-slate-300 font-mono">{pod.serviceAccount ?? '—'}</dd>
               </div>
@@ -233,6 +257,37 @@ export const PodDetail: React.FC = () => {
                 <dd className="text-slate-400 font-mono text-xs break-all">{pod.uid}</dd>
               </div>
             </dl>
+            {(pod.ownerKind ?? pod.ownerName ?? pod.replicaSetName ?? pod.qosClass) && (
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <h4 className="text-sm font-semibold text-slate-300 mb-3">Identity &amp; Ownership</h4>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  {pod.ownerKind && (
+                    <div>
+                      <dt className="text-slate-500">Owner Type</dt>
+                      <dd className="text-slate-300 font-medium">{pod.ownerKind}</dd>
+                    </div>
+                  )}
+                  {pod.ownerName && (
+                    <div>
+                      <dt className="text-slate-500">Owner Name</dt>
+                      <dd className="text-slate-300 font-mono">{pod.ownerName}</dd>
+                    </div>
+                  )}
+                  {pod.replicaSetName && (
+                    <div>
+                      <dt className="text-slate-500">ReplicaSet</dt>
+                      <dd className="text-slate-300 font-mono">{pod.replicaSetName}</dd>
+                    </div>
+                  )}
+                  {pod.qosClass && (
+                    <div>
+                      <dt className="text-slate-500">QoS Class</dt>
+                      <dd className="text-slate-300 font-medium">{pod.qosClass}</dd>
+                    </div>
+                  )}
+                </dl>
+              </div>
+            )}
             {sbom && (
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <h4 className="text-sm font-semibold text-slate-300 mb-3">Security</h4>

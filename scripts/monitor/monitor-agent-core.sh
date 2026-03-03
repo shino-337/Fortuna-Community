@@ -38,8 +38,8 @@ section "Pods status (fortuna)"
 kubectl get pods -n "$NAMESPACE" -o wide 2>/dev/null || true
 
 section "Core deployment"
-kubectl get deployment -n "$NAMESPACE" -l app=fortuna-core 2>/dev/null || true
-CORE_POD=$(kubectl get pods -n "$NAMESPACE" -l app=fortuna-core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+kubectl get deployment -n "$NAMESPACE" -l app.kubernetes.io/component=core 2>/dev/null || true
+CORE_POD=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=core -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 if [ -n "$CORE_POD" ]; then
   ok "Core pod: $CORE_POD"
   kubectl get pod -n "$NAMESPACE" "$CORE_POD" -o jsonpath='  Ready: {.status.conditions[?(@.type=="Ready")].status} | Restarts: {.status.containerStatuses[0].restartCount}{"\n"}' 2>/dev/null || true

@@ -72,7 +72,7 @@ fi
 
 # Wait for pods
 section "Waiting for Core and Agent pods..."
-kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app=fortuna-core --timeout=120s 2>/dev/null || warn "Core not ready in 120s"
+kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app.kubernetes.io/component=core --timeout=120s 2>/dev/null || warn "Core not ready in 120s"
 kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app.kubernetes.io/component=agent --timeout=60s 2>/dev/null || warn "Some agents not ready in 60s"
 sleep 5
 
@@ -109,10 +109,10 @@ FAIL=0
 if run_test "check-full-deployment" "$SCRIPTS/verify/check-full-deployment.sh"; then ((PASS++)); else ((FAIL++)); fi
 if run_test "test-priority1-apis" "$SCRIPTS/e2e/test-priority1-apis.sh"; then ((PASS++)); else ((FAIL++)); fi
 if run_test "test-runtime-signals-e2e" "$SCRIPTS/e2e/test-runtime-signals-e2e.sh"; then ((PASS++)); else ((FAIL++)); fi
-if run_test "verify-dashboard-api" "CORE_URL= bash -c 'CORE_POD=\$(kubectl get pods -n fortuna -l app=fortuna-core -o jsonpath={.items[0].metadata.name}); CORE_URL=http://localhost:8080; kubectl port-forward -n fortuna svc/fortuna-core 8080:8080 &'; sleep 3; $SCRIPTS/verify/verify-dashboard-api.sh; pkill -f 'port-forward.*fortuna-core' 2>/dev/null || true"; then ((PASS++)); else ((FAIL++)); fi
+if run_test "verify-dashboard-api" "CORE_URL= bash -c 'CORE_POD=\$(kubectl get pods -n fortuna -l app.kubernetes.io/component=core -o jsonpath={.items[0].metadata.name}); CORE_URL=http://localhost:8080; kubectl port-forward -n fortuna svc/fortuna-core 8080:8080 &'; sleep 3; $SCRIPTS/verify/verify-dashboard-api.sh; pkill -f 'port-forward.*fortuna-core' 2>/dev/null || true"; then ((PASS++)); else ((FAIL++)); fi
 
 # Verify dashboard API via exec (no port-forward)
-run_test "verify-dashboard-api (via exec)" "CORE_POD=\$(kubectl get pods -n fortuna -l app=fortuna-core -o jsonpath='{.items[0].metadata.name}'); TOKEN=\$(kubectl -n fortuna exec \$CORE_POD -- curl -s -X POST http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}' | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"token\",\"\") or \"\")'); kubectl -n fortuna exec \$CORE_POD -- curl -s -H \"Authorization: Bearer \$TOKEN\" http://localhost:8080/api/v1/dashboard/stats | grep -q totalClusters && echo OK || echo FAIL" 2>&1 | tee -a "$REPORT_FILE"
+run_test "verify-dashboard-api (via exec)" "CORE_POD=\$(kubectl get pods -n fortuna -l app.kubernetes.io/component=core -o jsonpath='{.items[0].metadata.name}'); TOKEN=\$(kubectl -n fortuna exec \$CORE_POD -- curl -s -X POST http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}' | python3 -c 'import sys,json; print(json.load(sys.stdin).get(\"token\",\"\") or \"\")'); kubectl -n fortuna exec \$CORE_POD -- curl -s -H \"Authorization: Bearer \$TOKEN\" http://localhost:8080/api/v1/dashboard/stats | grep -q totalClusters && echo OK || echo FAIL" 2>&1 | tee -a "$REPORT_FILE"
 [ $? -eq 0 ] && ((PASS++)) || ((FAIL++))
 
 # Pod có risk critical trên clusterId hiện tại + kiểm tra API với clusterId active

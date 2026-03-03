@@ -1,8 +1,8 @@
-# Giới thiệu dự án Fortuna (KSAM)
+# Giới thiệu sản phẩm FortunaK8s
 
 ## 1. Tổng quan
 
-**Fortuna** (mã nguồn KSAM) là nền tảng bảo mật và quản lý rủi ro cho Kubernetes, cung cấp:
+**FortunaK8s** là nền tảng **K8S Security & Risk Management**, cung cấp:
 
 - **SBOM (Software Bill of Materials):** Trích xuất SBOM từ image container trên từng node.
 - **CVE:** Ghép nối CVE với package trong SBOM, đánh giá mức độ nghiêm trọng.
@@ -11,7 +11,7 @@
 - **Runtime Signals:** Thu thập và tương quan tín hiệu bảo mật theo thời gian thực.
 - **Dashboard:** Giao diện web thống kê, Risk Center, SBOM, PCE, runtime signals.
 
-Hệ thống gồm **Core** (trung tâm xử lý + API), **Agent** (DaemonSet trên mỗi node), **Dashboard** (React), và hạ tầng **PostgreSQL**, **NATS JetStream**.
+Hệ thống gồm **Fortuna Core** (trung tâm xử lý + API), **Fortuna Agent** (DaemonSet trên mỗi node), **Fortuna Dashboard** (React), và hạ tầng **PostgreSQL**, **NATS JetStream**.
 
 ---
 
@@ -44,11 +44,24 @@ Hệ thống gồm **Core** (trung tâm xử lý + API), **Agent** (DaemonSet tr
 
 ## 5. Thuật ngữ
 
-- **Core:** Service trung tâm (Go), API REST + gRPC, CVE matching, PCE, insights.
-- **Agent:** DaemonSet (Go), theo dõi pod, trích xuất SBOM, gửi dữ liệu lên Core qua gRPC (mTLS).
+- **FortunaK8s:** Tên sản phẩm – K8S Security & Risk Management Platform.
+- **Core (Fortuna Core):** Service trung tâm (Go), API REST + gRPC, CVE matching, PCE, insights.
+- **Agent (Fortuna Agent):** DaemonSet (Go), theo dõi pod, trích xuất SBOM, gửi dữ liệu lên Core qua gRPC (mTLS).
 - **PCE:** Pod Capability Engine – động cơ đánh giá capability và promotion rules.
 - **SBOM:** Software Bill of Materials – danh sách package/version trong image.
 - **Insight:** Bản ghi rủi ro/khuyến nghị (critical/high/medium) gắn với resource (pod/cluster).
+- **Pod Detail:** Thông tin chi tiết pod (Pod IP, Start Time, Uptime, Restart Count, Owner, QoS Class) theo [POD_DETAIL_SPEC](../docs/03-components/podDetail/POD_DETAIL_SPEC.md).
+
+---
+
+## 6. Tài liệu kỹ thuật (specs) và test
+
+| Tài liệu | Mô tả |
+|----------|--------|
+| [POD_DETAIL_SPEC](../docs/03-components/podDetail/POD_DETAIL_SPEC.md) | Spec trang Pod Detail (header, overview, tabs). |
+| [POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC](../docs/03-components/podDetail/POD_SYNC_ARCHITECTURE_AND_DATA_MODEL_SPEC.md) | Spec hash, PCE bất đồng bộ, race protection. |
+| [testSuite.md](../docs/03-components/podDetail/testSuite.md) | Test suite integration (spec hash, PCE, race). |
+| [docs/README.md](../docs/README.md) | Chỉ mục đầy đủ tài liệu dev (migrations, API, E2E). |
 
 ---
 

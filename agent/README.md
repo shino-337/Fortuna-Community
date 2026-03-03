@@ -3,7 +3,7 @@
 **Version**: 1.0.0  
 **Status**: Production Ready
 
-Fortuna Agent is a lightweight DaemonSet that runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
+Fortuna Agent is a lightweight DaemonSet of **FortunaK8s** (K8S Security & Risk Management Platform). It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
 
 ---
 
@@ -163,24 +163,16 @@ nerdctl build -t fortuna-agent:latest -f Dockerfile .
 
 The Agent is deployed as a DaemonSet to run on every node.
 
-#### 1. Deploy RBAC
+**Recommended (repo root):** Use the manifests in the repository root. From repo root:
 
 ```bash
-kubectl apply -f deploy/rbac.yaml
+kubectl apply -f deploy/fortuna-rbac.yaml    # RBAC for core + agent
+kubectl apply -f deploy/fortuna-agent-daemonset.yaml
 ```
 
-This creates:
-- ServiceAccount: `fortuna-agent`
-- ClusterRole: `fortuna-agent-reader`
-- ClusterRoleBinding: `fortuna-agent-reader`
+The `agent/deploy/` directory (rbac.yaml, daemonset.yaml) is for reference; the canonical deployment is `deploy/fortuna-agent-daemonset.yaml` and `deploy/fortuna-rbac.yaml` at repo root. See [deploy/README.md](../../deploy/README.md).
 
-#### 2. Deploy DaemonSet
-
-```bash
-kubectl apply -f deploy/daemonset.yaml
-```
-
-#### 3. Verify Deployment
+#### Verify deployment
 
 ```bash
 # Check pods
@@ -247,12 +239,7 @@ go run cmd/main.go
 
 ### RBAC Permissions
 
-Agent requires **read-only** permissions:
-
-- `get`, `list`, `watch` on `pods`
-- `get`, `list`, `watch` on `nodes`
-
-See `deploy/rbac.yaml` for complete RBAC configuration.
+Agent requires **read-only** permissions (pods, nodes, namespaces, serviceaccounts, RBAC resources). See `deploy/fortuna-rbac.yaml` at repo root for the full RBAC used in deployment.
 
 ### mTLS
 

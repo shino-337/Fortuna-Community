@@ -1,41 +1,41 @@
-# Fortuna Deployment Files
+# FortunaK8s Deployment
 
-Thư mục chứa Kubernetes manifests cho Fortuna (Core, Agent, Dashboard, hạ tầng). Có thể deploy bằng **kubectl apply** hoặc **Helm** (xem [Helm](#helm)).
-
----
-
-## Cần lưu ý khi deploy
-
-### Trước khi deploy
-
-| Nội dung | Lưu ý |
-|----------|--------|
-| **mTLS** | Core và Agent **bắt buộc** có secret: `fortuna-core-tls`, `fortuna-agent-tls`, `fortuna-ca-cert`, `fortuna-webhook-tls`. Tạo bằng: `NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh` (từ thư mục gốc repo). Script sinh cert vào `.certs/` (đã gitignore), rồi tạo Secret trong cluster. **Helm/kubectl** đều cần bước này trước. |
-| **Thứ tự** | CNI (Flannel) → StorageClass (`local-path`) → PostgreSQL + NATS → mTLS secrets → RBAC → label control-plane → Core → Agent → Dashboard. Đảo thứ tự dễ gây pod Pending hoặc ContainerCreating. |
-| **Namespace** | Mặc định `fortuna`. Nếu đổi namespace thì phải đổi trong mọi manifest (hoặc dùng Helm với `-n <ns>` và values `namespaceOverride`). |
-| **PostgreSQL / NATS** | Phải chạy trong cùng namespace (hoặc sửa `DATABASE_URL` / `NATS_ENDPOINT` trong Core trỏ tới đúng host/port). Helm chart **không** deploy infra; cần `kubectl apply -f deploy/infrastructure/...` trước. |
-
-### Khi deploy
-
-| Nội dung | Lưu ý |
-|----------|--------|
-| **Core** | Chỉ schedule trên node **control-plane** (nodeSelector + tolerations). Nếu không có node nào có label `node-role.kubernetes.io/control-plane`, Core sẽ **Pending**. Chạy: `./scripts/deploy/ensure-control-plane-label.sh`. |
-| **Agent** | DaemonSet chạy trên **mọi node**; cần quyền đọc containerd socket. Giới hạn memory 2Gi; nếu OOM thì set env `SBOM_WORKERS=1` (cần rebuild image). |
-| **Dashboard** | Service type **LoadBalancer**; có thể đổi thành NodePort/ClusterIP hoặc dùng Ingress tùy môi trường. ConfigMap `fortuna-dashboard-nginx` phải apply **trước** Dashboard deployment (proxy `/api` tới Core). |
-| **Image** | Dev/local: `imagePullPolicy: Never` và build image trên node (nerdctl/containerd). Production: dùng tag có version (vd. `v1.0.0`), `imagePullPolicy: IfNotPresent` hoặc `Always`, và registry. Multi-node: dùng `./scripts/utils/push-images-to-workers.sh` để đẩy image tới tất cả node (hoặc dùng registry). |
-| **Auth** | Mặc định admin `admin` / `admin123` (trong manifest). **Production:** đổi password và/hoặc dùng Secret (vd. `fortuna-secrets` với key `jwt-secret`, `admin-password`); Core hỗ trợ `secretKeyRef` cho JWT. |
-
-### Sau khi deploy
-
-| Nội dung | Lưu ý |
-|----------|--------|
-| **Verify** | Chạy `./scripts/verify/check-full-deployment.sh` (đặt `NAMESPACE` nếu khác `fortuna`). |
-| **Lỗi thường gặp** | Xem bảng [Xử lý lỗi thường gặp](#xử-lý-lỗi-thường-gặp) và tài liệu [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md). |
-| **Truy cập** | Dashboard: `kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80` → http://localhost:8081. Core API: `kubectl port-forward -n fortuna svc/fortuna-core 8080:8080` → http://localhost:8080/health. |
+Kubernetes manifests for **FortunaK8s** (Core, Agent, Dashboard, infrastructure). Deploy with **kubectl apply** or **Helm** (see [Helm](#helm)).
 
 ---
 
-## Cấu trúc thư mục
+## Deploy checklist
+
+### Before deploy
+
+| Item | Notes |
+|------|--------|
+| **mTLS** | Required secrets: `fortuna-core-tls`, `fortuna-agent-tls`, `fortuna-ca-cert`, `fortuna-webhook-tls`. Create with: `NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh` (from repo root). Certificates are written to `.certs/` (gitignored), then created in the cluster. Both Helm and kubectl need this step first. |
+| **Order** | CNI (Flannel) → StorageClass (`local-path`) → PostgreSQL + NATS → mTLS secrets → RBAC → control-plane label → Core → Agent → Dashboard. Wrong order can leave pods Pending or ContainerCreating. |
+| **Namespace** | Default `fortuna`. If you use another namespace, update all manifests or use Helm with `-n <ns>` and `namespaceOverride`. |
+| **PostgreSQL / NATS** | Must run in the same namespace (or set Core `DATABASE_URL` / `NATS_ENDPOINT` accordingly). The Helm chart does **not** deploy infra; run `kubectl apply -f deploy/infrastructure/...` first. |
+
+### During deploy
+
+| Item | Notes |
+|------|--------|
+| **Core** | Schedules only on **control-plane** nodes (nodeSelector + tolerations). If no node has `node-role.kubernetes.io/control-plane`, Core stays **Pending**. Run: `./scripts/deploy/ensure-control-plane-label.sh`. |
+| **Agent** | DaemonSet on all nodes; needs containerd socket. Memory limit 2Gi; if OOM, set env `SBOM_WORKERS=1` (requires image rebuild). |
+| **Dashboard** | Service type **LoadBalancer**; change to NodePort/ClusterIP or use Ingress as needed. Apply ConfigMap `fortuna-dashboard-nginx` **before** the Dashboard deployment (proxies `/api` to Core). |
+| **Images** | Dev/local: `imagePullPolicy: Never` and build on node (nerdctl/containerd). Production: use a versioned tag (e.g. `v1.0.0`), `IfNotPresent` or `Always`, and a registry. Multi-node: use `./scripts/utils/push-images-to-workers.sh` or a registry. |
+| **Auth** | Default admin `admin` / `admin123` in manifests. **Production:** change password and/or use a Secret (e.g. `fortuna-secrets` with `jwt-secret`, `admin-password`); Core supports `secretKeyRef` for JWT. |
+
+### After deploy
+
+| Item | Notes |
+|------|--------|
+| **Verify** | Run `./scripts/verify/check-full-deployment.sh` (set `NAMESPACE` if not `fortuna`). |
+| **Troubleshooting** | See [Troubleshooting](#troubleshooting) table and [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md). |
+| **Access** | Dashboard: `kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80` → http://localhost:8081. Core API: `kubectl port-forward -n fortuna svc/fortuna-core 8080:8080` → http://localhost:8080/health. |
+
+---
+
+## Directory structure
 
 ```
 deploy/
@@ -78,25 +78,17 @@ deploy/
   - mTLS client certificates
   - Resource limits optimized
 
-### Legacy (Deprecated)
+### Legacy (deprecated)
 
-- `core-deployment.yaml`, `agent-daemonset.yaml`: Không còn trong repo; dùng `fortuna-core-deployment.yaml` và `fortuna-agent-daemonset.yaml`.
+- `core-deployment.yaml`, `agent-daemonset.yaml` are no longer in the repo; use `fortuna-core-deployment.yaml` and `fortuna-agent-daemonset.yaml`.
 
-## Removed Components
+### Monitoring
 
-The following monitoring components have been removed as they were not in use:
-
-- `grafana/` - Grafana dashboards (not deployed)
-- `monitoring/` - Prometheus alerts (not deployed)
-- `prometheus/` - Prometheus rules (not deployed)
-
-**Note**: Core service exposes `/metrics` endpoint for Prometheus scraping, but no Prometheus deployment is included.
+No monitoring stack (Grafana, Prometheus) is included. Core exposes `/metrics` for Prometheus scraping.
 
 ## Full pipeline (clean + rebuild + redeploy)
 
-Build và deploy dùng **containerd / nerdctl**: xem **`docs/05-operations/DEPLOYMENT_CONTAINERD.md`**.
-
-Từ thư mục gốc repo:
+Build and deploy use **containerd / nerdctl**. See **`docs/05-operations/DEPLOYMENT_CONTAINERD.md`**. From repo root:
 
 ```bash
 # Clean toàn bộ image cũ + rebuild (nerdctl) + deploy
@@ -123,19 +115,18 @@ Then run verification: `./scripts/verify/check-full-deployment.sh`, `./scripts/e
 
 - **Agent:** Cluster identity (id/name) auto-discovered from K8s API (kube-system UID, `/version`). Optional override via ConfigMap `fortuna-cluster-config` (keys `cluster_id`, `cluster_name`) or env `CLUSTER_ID`/`CLUSTER_NAME`. Do **not** hardcode cluster id/name in deployments.
 - **Core:** Single source of truth: creates cluster by id when missing, updates only mutable fields (name, source, k8s_version, distribution, last_sync) when id exists.
-- **Migrations:** 054 adds cluster metadata columns; 055 drops UNIQUE on `clusters(name)` so multiple clusters can share a display name. Optional one-time rename: set Core env `CLUSTER_ID_TO_UPDATE` and `CLUSTER_DISPLAY_NAME` before starting (migration 053).
-- Chi tiết: `docs/03-components/dashboad/CLUSTER_IDENTITY_FLOW.md`.
+- **Migrations:** 054 adds cluster metadata columns; 055 drops UNIQUE on `clusters(name)` so multiple clusters can share a display name. Optional one-time rename: set Core env `CLUSTER_ID_TO_UPDATE` and `CLUSTER_DISPLAY_NAME` before starting (migration 053). See `docs/03-components/dashboad/CLUSTER_IDENTITY_FLOW.md`.
 
 ## Prerequisites and auto-handled steps
 
-- **CNI (Flannel)**: Cần có pod network để mọi pod (kể cả local-path-provisioner) chạy được. Nếu cluster dùng Flannel nhưng chưa cài (namespace `kube-flannel` trống), pods sẽ kẹt **ContainerCreating** với lỗi `open /run/flannel/subnet.env: no such file or directory`, và PVC không bao giờ bind.
-  - **Tự động**: `deploy-fortuna-robust.sh` (Step 3a) và pipeline (Phase 2a2) gọi `ensure-flannel.sh` **trước** StorageClass. Script cài [Flannel](https://github.com/flannel-io/flannel) nếu chưa có (không cài nếu đã có Calico/Cilium/Weave).
-  - **Thủ công**: `./scripts/deploy/ensure-flannel.sh` hoặc `kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/v0.26.0/Documentation/kube-flannel.yml`
-- **StorageClass `local-path`**: Required for PostgreSQL and NATS PVCs. If missing, PVCs stay **Pending** and pods never start.
-  - **Tự động**: Script gọi `ensure-storage-class.sh` **sau** Flannel (Step 3b / Phase 2c). Script cài [Rancher local-path-provisioner](https://github.com/rancher/local-path-provisioner) nếu chưa có StorageClass.
-  - **Thủ công**: `./scripts/deploy/ensure-storage-class.sh` hoặc `kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.24/deploy/local-path-storage.yaml`
-- **Thứ tự**: Addons (kube-proxy, CoreDNS) → **Flannel CNI** → StorageClass → Deploy infra. Không đảo thứ tự.
-- **Cluster addons (kube-proxy, CoreDNS)**: Pipeline đảm bảo addons trước khi deploy (Phase 2a). Deploy standalone vẫn chạy được nếu cluster đã có addons.
+- **CNI (Flannel):** Pod network required (including for local-path-provisioner). If the cluster uses Flannel but it is not installed (empty `kube-flannel` namespace), pods stay **ContainerCreating** with `open /run/flannel/subnet.env: no such file or directory` and PVCs never bind.
+  - **Auto:** `deploy-fortuna-robust.sh` (Step 3a) and pipeline (Phase 2a2) run `ensure-flannel.sh` **before** StorageClass. They install [Flannel](https://github.com/flannel-io/flannel) if missing (skipped if Calico/Cilium/Weave exist).
+  - **Manual:** `./scripts/deploy/ensure-flannel.sh` or `kubectl apply -f https://raw.githubusercontent.com/flannel-io/flannel/v0.26.0/Documentation/kube-flannel.yml`
+- **StorageClass `local-path`:** Required for PostgreSQL and NATS PVCs. If missing, PVCs stay **Pending**.
+  - **Auto:** Scripts run `ensure-storage-class.sh` **after** Flannel (Step 3b / Phase 2c). They install [Rancher local-path-provisioner](https://github.com/rancher/local-path-provisioner) if needed.
+  - **Manual:** `./scripts/deploy/ensure-storage-class.sh` or `kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.24/deploy/local-path-storage.yaml`
+- **Order:** Addons (kube-proxy, CoreDNS) → **Flannel CNI** → StorageClass → Deploy infra. Do not reorder.
+- **Cluster addons:** Pipeline ensures addons before deploy (Phase 2a). Standalone deploy works if the cluster already has addons.
 
 ## Helm
 
@@ -151,49 +142,49 @@ helm upgrade --install fortuna ./helm/fortuna -n fortuna --create-namespace \
   --set image.registry=registry.company.com/fortuna
 ```
 
-**Lưu ý Helm:**
-- Chart **không** deploy PostgreSQL/NATS. Cần deploy hạ tầng trước: `kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml` và `deploy/infrastructure/nats.yaml` (cùng namespace).
-- mTLS secrets (fortuna-core-tls, fortuna-agent-tls, fortuna-ca-cert, fortuna-webhook-tls) cần tạo trước: `./scripts/utils/create_mtls_secret.sh`. Xem [helm/fortuna/README.md](../helm/fortuna/README.md).
+**Helm notes:**
+- Chart does **not** deploy PostgreSQL/NATS. Deploy infra first: `kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml` and `deploy/infrastructure/nats.yaml` (same namespace).
+- Create mTLS secrets first: `./scripts/utils/create_mtls_secret.sh`. See [helm/fortuna/README.md](../helm/fortuna/README.md).
 
 ---
 
-## Quick Deploy (kubectl)
+## Quick deploy (kubectl)
 
-**Khuyến nghị**: Dùng script deploy để tự động đảm bảo StorageClass, Flannel, **mTLS secrets (Step 7c)**, **control-plane label (Step 7b)** và thứ tự đúng:
+**Recommended:** Use the deploy script so StorageClass, Flannel, **mTLS secrets (Step 7c)**, and **control-plane label (Step 7b)** are applied in the correct order:
 
 ```bash
 ./scripts/deploy/deploy-fortuna-robust.sh
 ```
 
-Thủ công (cần có sẵn StorageClass `local-path`):
+Manual (requires StorageClass `local-path`):
 
 ```bash
 # 1. Create namespace
 kubectl create namespace fortuna
 
-# 2. Ensure StorageClass (nếu chưa có)
+# 2. Ensure StorageClass (if missing)
 ./scripts/deploy/ensure-storage-class.sh
 
 # 3. Deploy infrastructure
 kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
 kubectl apply -f deploy/infrastructure/nats.yaml
 
-# 4. Deploy certificates (hoặc tạo mTLS: ./scripts/utils/create_mtls_secret.sh)
+# 4. Deploy certificates (or create mTLS: ./scripts/utils/create_mtls_secret.sh)
 kubectl apply -f deploy/certs/
 
-# 5. Deploy secrets (nếu dùng core-secrets)
+# 5. Deploy secrets (if using core-secrets)
 kubectl apply -f deploy/core-secrets.yaml
 
 # 6. Deploy RBAC
 kubectl apply -f deploy/fortuna-rbac.yaml
 
-# 7. Deploy Core (file này đã gồm Service + Deployment)
+# 7. Deploy Core (file includes Service + Deployment)
 kubectl apply -f deploy/fortuna-core-deployment.yaml
 
 # 8. Deploy Agent
 kubectl apply -f deploy/fortuna-agent-daemonset.yaml
 
-# 9. Deploy Dashboard (cần ConfigMap nginx trước)
+# 9. Deploy Dashboard (apply nginx ConfigMap first)
 kubectl apply -f deploy/dashboard-nginx-configmap.yaml
 kubectl apply -f deploy/dashboard-deployment.yaml
 
@@ -256,32 +247,32 @@ Then wait for Agent sync (or trigger by restarting agent pods). API `/api/v1/clu
 
 ### Monitor
 
-| Mục đích | Lệnh |
-|----------|------|
-| Trạng thái pod + health + log gần nhất | `./scripts/monitor/monitor-agent-core.sh` |
-| Chỉ lỗi/warning Core + Agent | `./scripts/monitor/monitor-agent-core-errors.sh` |
-| Theo dõi lỗi liên tục | `./scripts/monitor/monitor-agent-core-errors.sh --follow` |
-| Log Core | `kubectl logs -n fortuna -l app.kubernetes.io/component=core -f --tail=300` |
-| Log Agent (một pod) | `kubectl logs -n fortuna <agent-pod> -f --tail=300` |
+| Purpose | Command |
+|---------|--------|
+| Pod status + health + recent logs | `./scripts/monitor/monitor-agent-core.sh` |
+| Core/Agent errors and warnings only | `./scripts/monitor/monitor-agent-core-errors.sh` |
+| Follow errors continuously | `./scripts/monitor/monitor-agent-core-errors.sh --follow` |
+| Core logs | `kubectl logs -n fortuna -l app.kubernetes.io/component=core -f --tail=300` |
+| Agent logs (one pod) | `kubectl logs -n fortuna <agent-pod> -f --tail=300` |
 
-### Xử lý lỗi thường gặp
+### Troubleshooting
 
-| Triệu chứng | Cách xử lý |
-|-------------|------------|
-| Core/Agent **ContainerCreating** (secret not found) | Tạo mTLS: `./scripts/utils/create_mtls_secret.sh` (deploy script đã có Step 7c) |
-| Core pod **Pending** (0 nodes available, node affinity) | Gắn label control-plane: `./scripts/deploy/ensure-control-plane-label.sh` hoặc `kubectl label node <master> node-role.kubernetes.io/control-plane=` |
-| Agent **CrashLoopBackOff**, Last State **OOMKilled** (Exit 137) | Daemonset đã set limit 2Gi; nếu vẫn OOM: thêm env `SBOM_WORKERS=1` (cần rebuild agent) rồi `kubectl rollout restart daemonset/fortuna-agent -n fortuna` |
-| **ErrImageNeverPull** (Core/Agent) | Push image lên tất cả node: `./scripts/utils/push-images-to-workers.sh` (dùng `scripts/utils/push-images.config` hoặc SSH_USER/SSH_PASS) |
-| Agent **Sync failed: status=500** / Core log `column "kubeconfig" does not exist` | Chạy pipeline với `--db-reset` rồi deploy lại (Core chạy migrations) |
-| Agent **no such host** / không kết nối Core | Kiểm tra DNS và endpoint: `./scripts/verify/verify-agent-core-connectivity.sh` |
+| Symptom | Action |
+|---------|--------|
+| Core/Agent **ContainerCreating** (secret not found) | Create mTLS: `./scripts/utils/create_mtls_secret.sh` (deploy script Step 7c does this) |
+| Core pod **Pending** (0 nodes available, node affinity) | Add control-plane label: `./scripts/deploy/ensure-control-plane-label.sh` or `kubectl label node <master> node-role.kubernetes.io/control-plane=` |
+| Agent **CrashLoopBackOff**, **OOMKilled** (Exit 137) | DaemonSet has 2Gi limit; if still OOM set env `SBOM_WORKERS=1` (rebuild agent) then `kubectl rollout restart daemonset/fortuna-agent -n fortuna` |
+| **ErrImageNeverPull** (Core/Agent) | Push images to all nodes: `./scripts/utils/push-images-to-workers.sh` (use `scripts/utils/push-images.config` or SSH_USER/SSH_PASS) |
+| Agent **Sync failed: status=500** / Core log `column "kubeconfig" does not exist` | Run pipeline with `--db-reset` then redeploy (Core runs migrations) |
+| Agent **no such host** / cannot reach Core | Check DNS and endpoint: `./scripts/verify/verify-agent-core-connectivity.sh` |
 
-**Tài liệu đầy đủ:** [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md) — phân tích từng lỗi, lệnh monitor, giảm log containerd digest.
+Full details: [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md).
 
-## Notes (tóm tắt)
+## Notes
 
-- **Core:** Bắt buộc node control-plane (nodeSelector + tolerations). Thiếu label → pod Pending.
-- **Agent:** DaemonSet mọi node; limit memory 2Gi; giảm tải bằng `SBOM_WORKERS=1` nếu OOM.
-- **Dashboard:** Service LoadBalancer (có thể đổi NodePort/Ingress). Cần ConfigMap nginx trước khi deploy.
-- **mTLS:** Mọi giao tiếp Core–Agent dùng mTLS; không bỏ qua bước tạo secret.
-- **Thứ tự:** Flannel → StorageClass → Infra (Postgres, NATS) → mTLS → RBAC → control-plane label → Core → Agent → Dashboard.
-- **Chi tiết lỗi và monitor:** [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md).
+- **Core:** Requires control-plane node (nodeSelector + tolerations). Missing label → pod Pending.
+- **Agent:** DaemonSet on all nodes; memory limit 2Gi; use `SBOM_WORKERS=1` if OOM.
+- **Dashboard:** Service LoadBalancer (can use NodePort/Ingress). Apply nginx ConfigMap before deploy.
+- **mTLS:** All Core–Agent communication uses mTLS; do not skip creating secrets.
+- **Order:** Flannel → StorageClass → Infra (Postgres, NATS) → mTLS → RBAC → control-plane label → Core → Agent → Dashboard.
+- **Troubleshooting:** [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md).

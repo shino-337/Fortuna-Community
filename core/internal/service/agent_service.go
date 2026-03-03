@@ -146,6 +146,17 @@ func extractBoolFlag(data map[string]interface{}, key string) (bool, bool) {
 	}
 }
 
+// equalTimePtr returns true if both time pointers are nil or point to equal times.
+func equalTimePtr(a, b *time.Time) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return a.Equal(*b)
+}
+
 // createAuditLog creates an audit log entry directly (no buffering, no throttling)
 func (s *AgentService) createAuditLog(clusterID, action, resource, resourceID, namespace, name string) {
 	systemUserID := s.getSystemUserID()
@@ -988,6 +999,24 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			}
 		}
 
+		// Pod Detail (POD_DETAIL_SPEC): header and overview
+		podIP, _ := podMap["podIP"].(string)
+		var startTimeVal models.NullTime
+		if st, ok := podMap["startTime"].(string); ok && st != "" {
+			if t, err := time.Parse(time.RFC3339, st); err == nil {
+				startTimeVal = models.NullTime{Time: &t}
+			}
+		}
+		restartCount := 0
+		if rc, ok := podMap["restartCount"].(float64); ok {
+			restartCount = int(rc)
+		}
+		ownerKind, _ := podMap["ownerKind"].(string)
+		ownerName, _ := podMap["ownerName"].(string)
+		replicaSetName, _ := podMap["replicaSetName"].(string)
+		qosClass, _ := podMap["qosClass"].(string)
+		specHash, _ := podMap["specHash"].(string)
+
 		pod := models.Pod{
 			ClusterID:                    clusterID,
 			UID:                          uid,
@@ -1008,6 +1037,14 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			HostIPC:                      hostIPC,
 			AutomountServiceAccountToken: automountPtr,
 			NodeName:                     nodeName,
+			PodIP:                        podIP,
+			StartTime:                    startTimeVal,
+			RestartCount:                 restartCount,
+			OwnerKind:                    ownerKind,
+			OwnerName:                    ownerName,
+			ReplicaSetName:               replicaSetName,
+			QoSClass:                     qosClass,
+			SpecHash:                     specHash,
 		}
 
 		// Upsert pod - use UID as unique identifier
@@ -1029,10 +1066,20 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				existing.HostNetwork != pod.HostNetwork ||
 				existing.HostPID != pod.HostPID ||
 				existing.HostIPC != pod.HostIPC ||
-				existing.NodeName != pod.NodeName
+				existing.NodeName != pod.NodeName ||
+				existing.PodIP != pod.PodIP ||
+				existing.RestartCount != pod.RestartCount ||
+				existing.OwnerKind != pod.OwnerKind ||
+				existing.OwnerName != pod.OwnerName ||
+				existing.ReplicaSetName != pod.ReplicaSetName ||
+				existing.QoSClass != pod.QoSClass ||
+				existing.SpecHash != pod.SpecHash ||
+				!equalTimePtr(existing.StartTime.Time, pod.StartTime.Time)
+			// Trigger PCE when: no hash yet (old agent) or hash changed (backward compat: empty != empty is false, so use explicit existing == "" or different)
+			specHashChanged := existing.SpecHash == "" || existing.SpecHash != pod.SpecHash
 
 			if changed {
-				s.db.Model(&existing).Updates(map[string]interface{}{
+				upd := map[string]interface{}{
 					"name":                            pod.Name,
 					"namespace":                       pod.Namespace,
 					"phase":                           pod.Phase,
@@ -1049,14 +1096,26 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 					"host_ipc":                        pod.HostIPC,
 					"automount_service_account_token": pod.AutomountServiceAccountToken,
 					"node_name":                       pod.NodeName,
-				})
+					"pod_ip":                          pod.PodIP,
+					"start_time":                      pod.StartTime,
+					"restart_count":                   pod.RestartCount,
+					"owner_kind":                      pod.OwnerKind,
+					"owner_name":                      pod.OwnerName,
+					"replica_set_name":                pod.ReplicaSetName,
+					"qos_class":                       pod.QoSClass,
+					"spec_hash":                       pod.SpecHash,
+				}
+				s.db.Model(&existing).Updates(upd)
 				s.logger.Printf("🔄 Updated Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
 				// Ensure pod instance is active
 				ctx := context.Background()
 				if err := s.podInstanceManager.EnsureActiveInstance(ctx, uid, namespace, name); err != nil {
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
-				s.evaluatePodCapabilities(clusterID, uid)
+				// PCE only when spec_hash changed or agent didn't send hash (existing.SpecHash == ""); run async to not block sync
+				if specHashChanged {
+					go s.evaluatePodCapabilities(clusterID, uid, pod.SpecHash)
+				}
 			} else if isFullSync {
 				// Touch unchanged pods so stale cleanup can rely on updated_at as last-seen.
 				s.db.Model(&existing).Update("updated_at", time.Now())
@@ -1084,6 +1143,14 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				deletedPod.HostIPC = pod.HostIPC
 				deletedPod.AutomountServiceAccountToken = pod.AutomountServiceAccountToken
 				deletedPod.NodeName = pod.NodeName
+				deletedPod.PodIP = pod.PodIP
+				deletedPod.StartTime = pod.StartTime // NullTime
+				deletedPod.RestartCount = pod.RestartCount
+				deletedPod.OwnerKind = pod.OwnerKind
+				deletedPod.OwnerName = pod.OwnerName
+				deletedPod.ReplicaSetName = pod.ReplicaSetName
+				deletedPod.QoSClass = pod.QoSClass
+				deletedPod.SpecHash = pod.SpecHash
 				deletedPod.DeletedAt = gorm.DeletedAt{}
 				s.db.Save(&deletedPod)
 				s.logger.Printf("🔄 Restored Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
@@ -1092,7 +1159,8 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				if err := s.podInstanceManager.EnsureActiveInstance(ctx, uid, namespace, name); err != nil {
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
-				s.evaluatePodCapabilities(clusterID, uid)
+				// Restore: always run PCE (risk may be stale); pass current specHash for race protection
+				go s.evaluatePodCapabilities(clusterID, uid, pod.SpecHash)
 			} else {
 				// Create new pod
 				if err := s.db.Create(&pod).Error; err != nil {
@@ -1105,7 +1173,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				if err := s.podInstanceManager.EnsureActiveInstance(ctx, uid, namespace, name); err != nil {
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
-				s.evaluatePodCapabilities(clusterID, uid)
+				go s.evaluatePodCapabilities(clusterID, uid, pod.SpecHash)
 			}
 		} else {
 			// Database error
@@ -1165,7 +1233,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 	return nil
 }
 
-func (s *AgentService) evaluatePodCapabilities(clusterID, uid string) {
+func (s *AgentService) evaluatePodCapabilities(clusterID, uid, specHash string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -1174,7 +1242,7 @@ func (s *AgentService) evaluatePodCapabilities(clusterID, uid string) {
 		s.logger.Printf("⚠️  PCE skipped: pod not found (cluster=%s uid=%s): %v", clusterID, uid, err)
 		return
 	}
-	if err := capability.EvaluateAndUpsertPod(ctx, s.db, &pod); err != nil {
+	if err := capability.EvaluateAndUpsertPod(ctx, s.db, &pod, specHash); err != nil {
 		s.logger.Printf("❌ PCE evaluation failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
 	}
 }
