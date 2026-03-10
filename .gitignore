@@ -204,7 +204,6 @@ docs/04-development/
 docs/05-operations/
 docs/08-tutorials/
 docs/01-getting-started/
-docs/03-components/
 docs/07-guides/
 docs/02-architecture/archive/
 docs/02-architecture/migration-*.md
@@ -245,7 +244,7 @@ docs/02-architecture/KSAM_ADR_FULL.md
 !docs/UI_AND_PENDING_TASKS.md
 
 !scripts/cleanup-repo.sh
-/docs/
 /tests/
 /helm/
 /scripts/utils/push-images.config
+/cve-data/all/
