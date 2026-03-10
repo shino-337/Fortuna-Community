@@ -7,14 +7,14 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
-import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info } from 'lucide-react';
+import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
 import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
-import type { SbomComponent as SbomComponentType } from '../types';
+import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
 
-type TabId = 'overview' | 'sbom' | 'risks';
+type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'spec';
 
 /** Short type label for SBOM (os-package -> os, library -> lib, etc.) */
 function sbomTypeLabel(type: string | undefined): string {
@@ -49,8 +49,14 @@ export const PodDetail: React.FC = () => {
   const [sbomOnlyVulnerable, setSbomOnlyVulnerable] = useState(false);
   const [sbomExpandedId, setSbomExpandedId] = useState<string | null>(null);
   const [selectedVulnerability, setSelectedVulnerability] = useState<Vulnerability | null>(null);
+  const [runtimeMetrics, setRuntimeMetrics] = useState<PodRuntimeMetric[]>([]);
+  const [processes, setProcesses] = useState<PodProcessItem[]>([]);
+  const [networkConnections, setNetworkConnections] = useState<PodNetworkConnectionItem[]>([]);
+  const [podEvents, setPodEvents] = useState<PodK8sEventItem[]>([]);
+  const [specYaml, setSpecYaml] = useState<string>('');
 
   const idOrUid = uid ?? id;
+  const podIdOrUid = pod ? (pod.id ?? pod.uid) : null;
 
   const podRiskLevel = (count: number): 'critical' | 'high' | 'medium' | 'low' => {
     if (count >= 10) return 'critical';
@@ -69,7 +75,7 @@ export const PodDetail: React.FC = () => {
 
   const fetchTabData = useCallback(
     async (tab: TabId) => {
-      if (!pod) return;
+      if (!pod || !podIdOrUid) return;
       setTabLoading(true);
       try {
         if (tab === 'sbom') {
@@ -78,12 +84,24 @@ export const PodDetail: React.FC = () => {
         } else if (tab === 'risks') {
           const { insights } = await api.getPodRiskReport(pod.uid);
           setRelatedRisks(insights);
+        } else if (tab === 'processes') {
+          const data = await api.getPodProcesses(podIdOrUid);
+          setProcesses(data);
+        } else if (tab === 'network') {
+          const data = await api.getPodNetworkConnections(podIdOrUid);
+          setNetworkConnections(data);
+        } else if (tab === 'events') {
+          const data = await api.getPodEvents(podIdOrUid);
+          setPodEvents(data);
+        } else if (tab === 'spec') {
+          const yaml = await api.getPodSpecYaml(podIdOrUid);
+          setSpecYaml(yaml);
         }
       } finally {
         setTabLoading(false);
       }
     },
-    [pod]
+    [pod, podIdOrUid]
   );
 
   useEffect(() => {
@@ -99,9 +117,42 @@ export const PodDetail: React.FC = () => {
     }
   }, [pod?.uid]);
 
+  // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data
+  useEffect(() => {
+    if (!pod || !podIdOrUid) return;
+    api.getPodRuntimeMetrics(podIdOrUid).then(setRuntimeMetrics).catch(() => []);
+    api.getPodProcesses(podIdOrUid).then(setProcesses).catch(() => []);
+    api.getPodNetworkConnections(podIdOrUid).then(setNetworkConnections).catch(() => []);
+    api.getPodEvents(podIdOrUid).then(setPodEvents).catch(() => []);
+  }, [pod?.uid, podIdOrUid]);
+
   useEffect(() => {
     if (pod && activeTab !== 'overview') fetchTabData(activeTab);
   }, [pod, activeTab, fetchTabData]);
+
+  // Phase 5.1: WebSocket for live pod detail updates (metrics, processes, network, events)
+  const wsUid = pod?.uid ?? uid ?? null;
+  useEffect(() => {
+    if (!wsUid || !podIdOrUid) return;
+    const wsUrl = api.getPodDetailWsUrl(wsUid);
+    let ws: WebSocket | null = null;
+    try {
+      ws = new WebSocket(wsUrl);
+      ws.onmessage = () => {
+        // Refetch pod detail data for the updated type (or all); use message.type to refetch only that tab
+        if (!podIdOrUid) return;
+        api.getPodProcesses(podIdOrUid).then(setProcesses).catch(() => {});
+        api.getPodNetworkConnections(podIdOrUid).then(setNetworkConnections).catch(() => {});
+        api.getPodEvents(podIdOrUid).then(setPodEvents).catch(() => {});
+        api.getPodRuntimeMetrics(podIdOrUid).then(setRuntimeMetrics).catch(() => {});
+      };
+    } catch {
+      // ignore WS connect errors (e.g. no token)
+    }
+    return () => {
+      if (ws != null) ws.close();
+    };
+  }, [wsUid, podIdOrUid]);
 
   if (loading || !idOrUid) {
     return <PageLoading message="Loading pod detail..." className="min-h-[40vh]" />;
@@ -124,6 +175,11 @@ export const PodDetail: React.FC = () => {
     { id: 'overview', label: 'Overview', icon: <Box className="w-4 h-4" /> },
     { id: 'sbom', label: 'SBOM', icon: <Package className="w-4 h-4" /> },
     { id: 'risks', label: 'Related Risks', icon: <ShieldAlert className="w-4 h-4" /> },
+    { id: 'metrics', label: 'Runtime metrics', icon: <BarChart2 className="w-4 h-4" /> },
+    { id: 'processes', label: 'Processes', icon: <Cpu className="w-4 h-4" /> },
+    { id: 'network', label: 'Network', icon: <Network className="w-4 h-4" /> },
+    { id: 'events', label: 'Events', icon: <Activity className="w-4 h-4" /> },
+    { id: 'spec', label: 'Spec', icon: <FileCode className="w-4 h-4" /> },
   ];
 
   return (
@@ -337,6 +393,32 @@ export const PodDetail: React.FC = () => {
                 <p className="text-slate-500 text-sm">Security summary loading…</p>
               </div>
             )}
+            <div className="mt-4 pt-4 border-t border-slate-800">
+              <h4 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                <BarChart2 className="w-4 h-4" /> Pod detail (agent)
+              </h4>
+              {(runtimeMetrics.length > 0 || processes.length > 0 || networkConnections.length > 0) ? (
+                <div className="flex flex-wrap gap-3 text-sm">
+                  {runtimeMetrics.length > 0 && (
+                    <button type="button" onClick={() => setActiveTab('metrics')} className="text-pink-400 hover:underline">
+                      {runtimeMetrics.length} runtime metric(s)
+                    </button>
+                  )}
+                  {processes.length > 0 && (
+                    <button type="button" onClick={() => setActiveTab('processes')} className="text-pink-400 hover:underline">
+                      {processes.length} process(es)
+                    </button>
+                  )}
+                  {networkConnections.length > 0 && (
+                    <button type="button" onClick={() => setActiveTab('network')} className="text-pink-400 hover:underline">
+                      {networkConnections.length} connection(s)
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="text-slate-500 text-sm">Open the Runtime metrics, Processes, or Network tab to load data from the agent (or wait for live updates).</p>
+              )}
+            </div>
             {pod.createdAt && (
               <dl className="grid grid-cols-1 gap-3 text-sm mt-4">
                 <div>
@@ -623,6 +705,221 @@ export const PodDetail: React.FC = () => {
             </div>
           ) : (
             <p className="text-slate-500 text-sm">No related risks for this pod.</p>
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'metrics' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <BarChart2 className="w-5 h-5 text-pink-500" /> Runtime metrics
+          </h3>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : runtimeMetrics.length > 0 ? (
+            <div className="overflow-x-auto border border-slate-800 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800/80 text-slate-300 text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Container</th>
+                    <th className="px-3 py-2 font-medium">CPU (m)</th>
+                    <th className="px-3 py-2 font-medium">Memory</th>
+                    <th className="px-3 py-2 font-medium">Limit</th>
+                    <th className="px-3 py-2 font-medium">Restarts</th>
+                    <th className="px-3 py-2 font-medium">State</th>
+                    <th className="px-3 py-2 font-medium">Last observed</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {runtimeMetrics.map((m, i) => (
+                    <tr key={m.id ?? i} className="hover:bg-slate-800/30">
+                      <td className="px-3 py-2 font-mono text-slate-300">{m.containerName ?? '—'}</td>
+                      <td className="px-3 py-2 tabular-nums">{m.cpuUsageMillicore != null ? m.cpuUsageMillicore : '—'}</td>
+                      <td className="px-3 py-2 tabular-nums font-mono text-slate-400">
+                        {m.memoryUsageBytes != null && m.memoryUsageBytes > 0
+                          ? (m.memoryUsageBytes >= 1024 * 1024 ? `${(m.memoryUsageBytes / 1024 / 1024).toFixed(1)} MB` : `${(m.memoryUsageBytes / 1024).toFixed(1)} KB`)
+                          : '—'}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums font-mono text-slate-400">
+                        {m.memoryLimitBytes != null && m.memoryLimitBytes > 0
+                          ? (m.memoryLimitBytes >= 1024 * 1024 ? `${(m.memoryLimitBytes / 1024 / 1024).toFixed(1)} MB` : `${(m.memoryLimitBytes / 1024).toFixed(1)} KB`)
+                          : '—'}
+                      </td>
+                      <td className="px-3 py-2 tabular-nums">{m.restartCount ?? 0}</td>
+                      <td className="px-3 py-2">
+                        <span className={clsx('px-2 py-0.5 rounded text-xs', m.state === 'Running' ? 'bg-emerald-600/80 text-white' : 'bg-slate-600 text-slate-200')}>
+                          {m.state ?? '—'}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-slate-500 text-xs">{m.lastObservedAt ? formatDateTime(m.lastObservedAt) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <PageEmpty title="No runtime metrics" description="Per-container CPU/memory metrics are reported by the agent. Ensure the agent is running on the pod's node." className="py-6" />
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'processes' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Cpu className="w-5 h-5 text-pink-500" /> Processes
+          </h3>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : processes.length > 0 ? (
+            <div className="overflow-x-auto border border-slate-800 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800/80 text-slate-300 text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">PID</th>
+                    <th className="px-3 py-2 font-medium">User</th>
+                    <th className="px-3 py-2 font-medium">CPU %</th>
+                    <th className="px-3 py-2 font-medium">Mem %</th>
+                    <th className="px-3 py-2 font-medium">Command</th>
+                    <th className="px-3 py-2 font-medium">Start time</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {processes.map((proc, i) => (
+                    <tr key={proc.id ?? i} className="hover:bg-slate-800/30">
+                      <td className="px-3 py-2 tabular-nums font-mono">{proc.pid}</td>
+                      <td className="px-3 py-2 text-slate-300">{proc.userName ?? '—'}</td>
+                      <td className="px-3 py-2 tabular-nums">{proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '—'}</td>
+                      <td className="px-3 py-2 tabular-nums">{proc.memoryPercent != null ? proc.memoryPercent.toFixed(1) : '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-400 truncate max-w-[280px]" title={proc.command}>{proc.command ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs">{proc.startedAt ? formatDateTime(proc.startedAt) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <PageEmpty title="No process data" description="Process list is collected by the agent. Ensure the agent is running on the pod's node and Pod Detail collection is enabled." className="py-6" />
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'network' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Network className="w-5 h-5 text-pink-500" /> Network connections
+          </h3>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : networkConnections.length > 0 ? (
+            <div className="overflow-x-auto border border-slate-800 rounded-lg">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-800/80 text-slate-300 text-left">
+                  <tr>
+                    <th className="px-3 py-2 font-medium">Direction</th>
+                    <th className="px-3 py-2 font-medium">Remote address</th>
+                    <th className="px-3 py-2 font-medium">Local port</th>
+                    <th className="px-3 py-2 font-medium">Protocol</th>
+                    <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">Timestamp</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {networkConnections.map((conn, i) => {
+                    const podIP = (pod?.podIP ?? '').trim();
+                    const isListen = (conn.state ?? '').toUpperCase() === 'LISTEN';
+                    const srcIsPod = podIP && (conn.sourceIp === podIP || conn.sourceIp === '0.0.0.0' || conn.sourceIp === '::');
+                    const dstIsPod = podIP && (conn.destIp === podIP || conn.destIp === '0.0.0.0' || conn.destIp === '::');
+                    const isOutbound = isListen ? false : srcIsPod;
+                    const direction = isOutbound ? 'Outbound' : 'Inbound';
+                    const remoteAddr = isOutbound ? `${conn.destIp ?? '—'}:${conn.destPort ?? 0}` : `${conn.sourceIp ?? '—'}:${conn.sourcePort ?? 0}`;
+                    const localPort = isOutbound ? (conn.sourcePort ?? 0) : (conn.destPort ?? 0);
+                    return (
+                      <tr key={conn.id ?? i} className="hover:bg-slate-800/30">
+                        <td className="px-3 py-2">
+                          <span className={clsx('px-2 py-0.5 rounded text-xs', direction === 'Outbound' ? 'bg-sky-600/80 text-white' : 'bg-slate-600 text-slate-200')}>
+                            {direction}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2 font-mono">{remoteAddr}</td>
+                        <td className="px-3 py-2 tabular-nums">{localPort || '—'}</td>
+                        <td className="px-3 py-2">{conn.protocol ?? '—'}</td>
+                        <td className="px-3 py-2 text-slate-400">{conn.state ?? '—'}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs">{conn.observedAt ? formatDateTime(conn.observedAt) : '—'}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <PageEmpty title="No network data" description="Network connections are collected by the agent. Enable network collection on the agent." className="py-6" />
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'spec' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <FileCode className="w-5 h-5 text-pink-500" /> Pod Specification (YAML)
+          </h3>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : (
+            <>
+              <div className="flex justify-end mb-3">
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={async () => {
+                    if (!podIdOrUid) return;
+                    try {
+                      const blob = await api.getPodSpecYamlBlob(podIdOrUid);
+                      const a = document.createElement('a');
+                      a.href = URL.createObjectURL(blob);
+                      a.download = `pod-${pod?.name ?? 'spec'}.yaml`;
+                      a.click();
+                      URL.revokeObjectURL(a.href);
+                    } catch (e) {
+                      console.error(e);
+                    }
+                  }}
+                >
+                  <Download className="w-4 h-4 mr-2" /> Download YAML
+                </Button>
+              </div>
+              <pre className="overflow-auto max-h-[70vh] p-4 rounded-lg bg-slate-900 border border-slate-800 text-sm font-mono text-slate-300 whitespace-pre-wrap break-all">
+                {specYaml || 'No spec data.'}
+              </pre>
+            </>
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'events' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-pink-500" /> Kubernetes events
+          </h3>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : podEvents.length > 0 ? (
+            <div className="space-y-2">
+              {podEvents.map((ev, i) => (
+                <div key={ev.id ?? i} className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 flex flex-col gap-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className={clsx('px-2 py-0.5 rounded text-xs font-medium', ev.eventType === 'Warning' ? 'bg-amber-600/80 text-white' : 'bg-slate-600 text-slate-200')}>
+                      {ev.eventType ?? 'Normal'}
+                    </span>
+                    <span className="font-medium text-white">{ev.reason ?? '—'}</span>
+                    {ev.lastTimestamp && <span className="text-slate-500 text-xs">{formatDateTime(ev.lastTimestamp)}</span>}
+                  </div>
+                  {ev.message && <p className="text-slate-400 text-sm">{ev.message}</p>}
+                  {ev.involvedName && <p className="text-slate-500 text-xs">Object: {ev.involvedName}</p>}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <PageEmpty title="No events" description="Kubernetes events for this pod are collected by the agent." className="py-6" />
           )}
         </Card>
       )}

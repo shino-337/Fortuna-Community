@@ -18,6 +18,7 @@ import (
 	"github.com/fortuna/agent/internal/cluster"
 	"github.com/fortuna/agent/internal/config"
 	"github.com/fortuna/agent/internal/k8s"
+	"github.com/fortuna/agent/internal/poddetail"
 	"github.com/fortuna/agent/internal/runtime"
 	"github.com/fortuna/agent/internal/sbom"
 	"github.com/fortuna/agent/internal/syncer"
@@ -98,6 +99,20 @@ func main() {
 	}
 	autoSyncer := syncer.NewSyncer(syncClientset, cfg.CoreHTTPEndpoint, clusterInfo, cfg.SyncInterval, cfg.WatchNamespace, cfg.AgentID, cfg.NodeName, BuildVersion)
 	autoSyncer.Start(ctx)
+
+	// Pod Detail reporter: runtime metrics + process snapshots to Core
+	podDetailInterval := 2 * time.Minute
+	if d := os.Getenv("POD_DETAIL_REPORT_INTERVAL"); d != "" {
+		if dur, err := time.ParseDuration(d); err == nil && dur > 0 {
+			podDetailInterval = dur
+		}
+	}
+	podDetailReporter := poddetail.NewReporter(syncClientset, k8sClient.Config, cfg.CoreHTTPEndpoint, clusterInfo.ID, cfg.NodeName, podDetailInterval)
+	go podDetailReporter.Start(ctx)
+
+	// K8s Events collector: informer → batch POST to Core (Phase 2.1)
+	eventsCollector := poddetail.NewEventsCollector(syncClientset, cfg.CoreHTTPEndpoint, clusterInfo.ID)
+	go eventsCollector.Start(ctx)
 
 	// Initialize gRPC client with mTLS (use interface so Reconnect can be called from heartbeat)
 	var grpcClient client.GRPCClient = client.NewMTLSClient(

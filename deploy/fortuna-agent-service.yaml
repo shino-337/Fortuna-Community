@@ -1,0 +1,20 @@
+---
+# Service for Fortuna Agent (DaemonSet) - metrics port for port-forward / debugging
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortuna-agent
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+  ports:
+    - name: metrics
+      port: 81
+      targetPort: 81
+      protocol: TCP

@@ -40,6 +40,10 @@ type Config struct {
 	// PCE Scheduler
 	PCESchedulerEnabled  bool
 	PCESchedulerInterval time.Duration
+
+	// Pod Detail – encryption at-rest for process command/binary_path (Phase 4.2).
+	// Base64-encoded 32-byte key. Empty = no encryption. Set POD_DETAIL_ENCRYPTION_KEY (env) or in config file before deploy.
+	PodDetailEncryptionKey string
 }
 
 func Load(configPath string) (*Config, error) {
@@ -67,8 +71,9 @@ func Load(configPath string) (*Config, error) {
 		TLSKeyPath:           getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/server/tls.key"),
 		WebhookTLSCertPath:   getEnv("WEBHOOK_TLS_CERT_PATH", "/etc/webhook/certs/tls.crt"),
 		WebhookTLSKeyPath:    getEnv("WEBHOOK_TLS_KEY_PATH", "/etc/webhook/certs/tls.key"),
-		PCESchedulerEnabled:  getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
-		PCESchedulerInterval: parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
+		PCESchedulerEnabled:      getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
+		PCESchedulerInterval:     parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
+		PodDetailEncryptionKey:   getEnv("POD_DETAIL_ENCRYPTION_KEY", ""),
 	}
 
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",

@@ -35,6 +35,10 @@ import {
   AttackStepSummary,
   PromotionRule,
   RuntimeSignal,
+  PodRuntimeMetric,
+  PodProcessItem,
+  PodNetworkConnectionItem,
+  PodK8sEventItem,
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 
@@ -87,6 +91,20 @@ const request = async <T>(path: string, options: RequestInit = {}): Promise<T> =
     throw new Error(text || `Request failed: ${res.status}`);
   }
   return res.json();
+};
+
+/** Fetch response as text (e.g. for YAML). Uses same auth as request(). */
+const requestText = async (path: string): Promise<string> => {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(buildUrl(path), { headers });
+  if (res.status === 401) {
+    useAuthStore.getState().logout();
+    throw new Error('Session expired. Please log in again.');
+  }
+  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  return res.text();
 };
 
 /** Map API pod object to PodWithRisk (includes POD_DETAIL_SPEC: podIP, startTime, restartCount, owner*, qosClass). */
@@ -440,6 +458,66 @@ export const api = {
     } catch {
       return null;
     }
+  },
+
+  /** Pod Detail: use id (numeric) or uid for by-uid path */
+  _podDetailPath: (idOrUid: string | number): string => {
+    const s = String(idOrUid);
+    return /^\d+$/.test(s) ? `/pods/${s}` : `/pods/by-uid/${encodeURIComponent(s)}`;
+  },
+
+  /** WebSocket URL for pod detail live updates (Phase 5.1). Pass uid; token is appended as query for auth. */
+  getPodDetailWsUrl: (uid: string): string => {
+    const path = `/api/v1/ws/pod/${encodeURIComponent(uid)}`;
+    const base = CORE_API_URL ? CORE_API_URL.replace(/\/$/, '') : window.location.origin;
+    const protocol = base.startsWith('https') ? 'wss:' : 'ws:';
+    const host = base.startsWith('http') ? new URL(base).host : window.location.host;
+    const token = getToken();
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${protocol}//${host}${path}${qs}`;
+  },
+
+  getPodRuntimeMetrics: async (idOrUid: string | number): Promise<PodRuntimeMetric[]> => {
+    try {
+      const data = await request<{ items?: PodRuntimeMetric[] }>(`${api._podDetailPath(idOrUid)}/runtime-metrics`);
+      return data.items ?? [];
+    } catch {
+      return [];
+    }
+  },
+  getPodProcesses: async (idOrUid: string | number): Promise<PodProcessItem[]> => {
+    try {
+      const data = await request<{ items?: PodProcessItem[] }>(`${api._podDetailPath(idOrUid)}/processes`);
+      return data.items ?? [];
+    } catch {
+      return [];
+    }
+  },
+  getPodNetworkConnections: async (idOrUid: string | number): Promise<PodNetworkConnectionItem[]> => {
+    try {
+      const data = await request<{ items?: PodNetworkConnectionItem[] }>(`${api._podDetailPath(idOrUid)}/network-connections`);
+      return data.items ?? [];
+    } catch {
+      return [];
+    }
+  },
+  getPodEvents: async (idOrUid: string | number): Promise<PodK8sEventItem[]> => {
+    try {
+      const data = await request<{ items?: PodK8sEventItem[] }>(`${api._podDetailPath(idOrUid)}/events`);
+      return data.items ?? [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** GET pod spec as YAML (view). Use same path + ?download=1 for attachment. */
+  getPodSpecYaml: async (idOrUid: string | number): Promise<string> => {
+    return requestText(`${api._podDetailPath(idOrUid)}/spec`);
+  },
+
+  /** GET pod spec as blob for download (adds ?download=1). */
+  getPodSpecYamlBlob: async (idOrUid: string | number): Promise<Blob> => {
+    return requestBlob(`${api._podDetailPath(idOrUid)}/spec?download=1`);
   },
 
   /** GET /api/v1/pods – list pods with riskCount (for Resources Pod tab, Node view) */

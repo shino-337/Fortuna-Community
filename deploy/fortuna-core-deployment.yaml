@@ -140,6 +140,14 @@ spec:
                   name: fortuna-secrets
                   key: jwt-secret
                   optional: true
+            # Pod Detail encryption at-rest (Phase 4.2): base64-encoded 32-byte key. Optional; leave unset to disable.
+            # Option A: set value before deploy. Option B: use secret (e.g. fortuna-secrets, key: pod-detail-encryption-key).
+            - name: POD_DETAIL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: pod-detail-encryption-key
+                  optional: true
             # Default admin for E2E / test scripts (migrations create user when set). Override with secret in production.
             - name: FORTUNA_ADMIN_USERNAME
               value: "admin"

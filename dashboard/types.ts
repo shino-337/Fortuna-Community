@@ -271,6 +271,64 @@ export interface CapabilityMetadata {
   references?: string[];
 }
 
+// Pod Detail services (runtime-metrics, processes, network-connections, events)
+export interface PodRuntimeMetric {
+  id?: number;
+  podUid?: string;
+  containerName: string;
+  cpuUsageMillicore?: number;
+  memoryUsageBytes?: number;
+  memoryLimitBytes?: number;
+  restartCount?: number;
+  state?: string;
+  lastObservedAt?: string;
+}
+
+export interface PodProcessItem {
+  id?: number;
+  podUid?: string;
+  containerName: string;
+  pid: number;
+  ppid?: number;
+  userName?: string;
+  cpuPercent?: number;
+  memoryPercent?: number;
+  command?: string;
+  binaryPath?: string;
+  startedAt?: string;
+  observedAt?: string;
+}
+
+export interface PodNetworkConnectionItem {
+  id?: number;
+  podUid?: string;
+  containerName?: string;
+  sourceIp?: string;
+  sourcePort?: number;
+  destIp?: string;
+  destPort?: number;
+  protocol?: string;
+  state?: string;
+  bytesSent?: number;
+  bytesRecv?: number;
+  observedAt?: string;
+}
+
+export interface PodK8sEventItem {
+  id?: number;
+  eventUid?: string;
+  namespace: string;
+  eventName?: string;
+  involvedKind?: string;
+  involvedUid?: string;
+  involvedName?: string;
+  reason?: string;
+  message?: string;
+  eventType?: string;
+  count?: number;
+  lastTimestamp?: string;
+}
+
 // Phase 2.2: Attack Steps
 export interface PodAttackStep {
   podUid: string;

@@ -20,7 +20,6 @@ import {
   ScrollText,
   Search,
   Globe,
-  UserCog,
   ChevronDown
 } from 'lucide-react';
 import { Cluster } from '../types';
@@ -68,7 +67,6 @@ export const Layout: React.FC = () => {
       items: [
         { icon: <ShieldAlert size={18} />, label: 'Risk Center', path: '/risks' },
         { icon: <Shield size={18} />, label: 'Capabilities', path: '/capabilities' },
-        { icon: <UserCog size={18} />, label: 'Service Accounts', path: '/resources', search: '?tab=ServiceAccount' },
         { icon: <ScrollText size={18} />, label: 'Rules & Policies', path: '/rules' },
         { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths' },
       ],

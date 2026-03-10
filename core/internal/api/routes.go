@@ -32,6 +32,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, cfg *config.Config) {
 
 // SetupRoutesWithCertManager sets up routes with certificate manager
 func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager) {
+	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey)
 	log.Printf("[API] ========================================")
 	log.Printf("[API] SetupRoutesWithCertManager CALLED")
 	log.Printf("[API] Setting up routes with CertManager")
@@ -151,7 +152,21 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 		// Pods
 		v1.GET("/pods", GetPods(db))
+		// Pod Detail WebSocket (Phase 5.1) – push on ingest; register before other pod routes
+		v1.GET("/ws/pod/:uid", PodDetailWS())
+		// Pod Detail by-uid (register before /pods/:id so "by-uid" is not captured as id)
+		v1.GET("/pods/by-uid/:uid/runtime-metrics", GetPodRuntimeMetricsByUID(db))
+		v1.GET("/pods/by-uid/:uid/processes", GetPodProcessesByUID(db))
+		v1.GET("/pods/by-uid/:uid/network-connections", GetPodNetworkConnectionsByUID(db))
+		v1.GET("/pods/by-uid/:uid/events", GetPodEventsByUID(db))
+		v1.GET("/pods/by-uid/:uid/spec", GetPodSpecYAMLByUID(db))
 		v1.GET("/pods/by-uid/:uid", GetPodByUID(db))
+		// Pod Detail by id (numeric)
+		v1.GET("/pods/:id/runtime-metrics", GetPodRuntimeMetrics(db))
+		v1.GET("/pods/:id/processes", GetPodProcesses(db))
+		v1.GET("/pods/:id/network-connections", GetPodNetworkConnections(db))
+		v1.GET("/pods/:id/events", GetPodEvents(db))
+		v1.GET("/pods/:id/spec", GetPodSpecYAML(db))
 		v1.GET("/pods/:id", GetPod(db))
 		v1.GET("/pods/:id/capabilities", GetPodCapabilities(db))
 		v1.POST("/runtime-events", PostRuntimeEvents(db))
@@ -290,5 +305,10 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	agent := router.Group("/api/v1/agent")
 	{
 		agent.POST("/sync", SyncDataFromAgent(db))
+		// Pod Detail ingest (metrics, processes, network, events)
+		agent.POST("/pod-runtime-metrics", IngestPodRuntimeMetricsPayload(db))
+		agent.POST("/pod-processes", IngestPodProcessesPayload(db))
+		agent.POST("/pod-network-connections", IngestPodNetworkConnectionsPayload(db))
+		agent.POST("/pod-events", IngestPodEventsPayload(db))
 	}
 }

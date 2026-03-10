@@ -1196,6 +1196,10 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 
 		for _, pod := range toDelete {
 			s.db.Delete(&pod) // Soft delete
+			// Clean Pod Detail data so DB does not keep orphaned process/metrics/network rows
+			s.db.Where("pod_uid = ?", pod.UID).Delete(&models.PodProcess{})
+			s.db.Where("pod_uid = ?", pod.UID).Delete(&models.PodRuntimeMetrics{})
+			s.db.Where("pod_uid = ?", pod.UID).Delete(&models.PodNetworkConnection{})
 			s.logger.Printf("🗑️  Soft-deleted Pod %s/%s (UID: %s) - not in full sync", pod.Namespace, pod.Name, pod.UID)
 		}
 

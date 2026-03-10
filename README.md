@@ -39,6 +39,8 @@
 Dashboard: `kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80` → http://localhost:8081  
 Core API: `kubectl port-forward -n fortuna svc/fortuna-core 8080:8080` → http://localhost:8080/health  
 
+Nếu port-forward dashboard báo **address already in use**: cổng 8081 đang bị chiếm (có thể đã chạy port-forward trước đó). Mở http://localhost:8081 hoặc dừng tiến trình cũ: `pkill -f 'port-forward.*fortuna-dashboard'`, hoặc dùng cổng khác (vd. 8082:80).  
+
 Default login: `admin` / `admin123` (change in production).
 
 ---

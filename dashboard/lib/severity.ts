@@ -1,67 +1,71 @@
 export type SeverityLevel = 'critical' | 'high' | 'medium' | 'low';
 
-// Enterprise severity palette (hex-true):
-// Critical: #B42318, High: #F79009, Medium: #FDB022, Low: #667085
+// Risk level colors (Very High=red, High=orange, Medium=yellow, Low=green)
 const severityStyles: Record<SeverityLevel, { badge: string; text: string; border: string; bar: string }> = {
   critical: {
-    badge: 'bg-[#B42318] text-white border-[#B42318] font-semibold',
-    text: 'text-[#B42318]',
-    border: 'border-l-[#B42318]',
-    bar: 'bg-[#B42318]',
+    badge: 'bg-red-600 text-white border-red-600 font-semibold',
+    text: 'text-red-500',
+    border: 'border-l-red-600',
+    bar: 'bg-red-600',
   },
   high: {
-    badge: 'bg-[#F79009] text-white border-[#F79009] font-semibold',
-    text: 'text-[#F79009]',
-    border: 'border-l-[#F79009]',
-    bar: 'bg-[#F79009]',
+    badge: 'bg-orange-500 text-white border-orange-500 font-semibold',
+    text: 'text-orange-500',
+    border: 'border-l-orange-500',
+    bar: 'bg-orange-500',
   },
   medium: {
-    badge: 'bg-[#FDB022] text-slate-900 border-[#FDB022] font-semibold',
-    text: 'text-[#FDB022]',
-    border: 'border-l-[#FDB022]',
-    bar: 'bg-[#FDB022]',
+    badge: 'bg-yellow-500 text-slate-900 border-yellow-500 font-semibold',
+    text: 'text-yellow-500',
+    border: 'border-l-yellow-500',
+    bar: 'bg-yellow-500',
   },
   low: {
-    badge: 'bg-[#667085] text-white border-[#667085] font-medium',
-    text: 'text-[#667085]',
-    border: 'border-l-[#667085]',
-    bar: 'bg-[#667085]',
+    badge: 'bg-green-500 text-white border-green-500 font-medium',
+    text: 'text-green-500',
+    border: 'border-l-green-500',
+    bar: 'bg-green-500',
   },
 };
 
 export const getSeverityBadgeClass = (severity?: string) => {
   if (!severity) return 'bg-muted-2/20 text-muted border-muted-2/30';
-  const key = severity.toLowerCase() as SeverityLevel;
+  const s = severity.toLowerCase();
+  const key = (s === 'very high' || s === 'veryhigh' ? 'critical' : s) as SeverityLevel;
   return severityStyles[key]?.badge || 'bg-muted-2/20 text-muted border-muted-2/30';
 };
 
 export const getSeverityTextClass = (severity?: string) => {
   if (!severity) return 'text-muted';
-  const key = severity.toLowerCase() as SeverityLevel;
+  const s = severity.toLowerCase();
+  const key = (s === 'very high' || s === 'veryhigh' ? 'critical' : s) as SeverityLevel;
   return severityStyles[key]?.text || 'text-muted';
 };
 
 export const getSeverityBorderClass = (severity?: string) => {
   if (!severity) return 'border-l-border';
-  const key = severity.toLowerCase() as SeverityLevel;
+  const s = severity.toLowerCase();
+  const key = (s === 'very high' || s === 'veryhigh' ? 'critical' : s) as SeverityLevel;
   return severityStyles[key]?.border || 'border-l-border';
 };
 
 export const getSeverityBarClass = (severity?: string) => {
   if (!severity) return 'bg-slate-600';
-  const key = severity.toLowerCase() as SeverityLevel;
+  const s = severity.toLowerCase();
+  const key = (s === 'very high' || s === 'veryhigh' ? 'critical' : s) as SeverityLevel;
   return severityStyles[key]?.bar || 'bg-slate-600';
 };
 
-/** Industry-standard severity icon for quick scan (Critical=red dot, etc.) */
+/** Industry-standard severity icon (Very High=red, High=orange, Medium=yellow, Low=green) */
 export const getSeverityIcon = (severity?: string) => {
   if (!severity) return '—';
-  const key = severity.toLowerCase() as SeverityLevel;
+  const s = severity.toLowerCase();
+  const key = (s === 'very high' || s === 'veryhigh' ? 'critical' : s) as SeverityLevel;
   const icons: Record<SeverityLevel, string> = {
     critical: '🔴',
     high: '🟠',
     medium: '🟡',
-    low: '⚪',
+    low: '🟢',
   };
   return icons[key] ?? '—';
 };

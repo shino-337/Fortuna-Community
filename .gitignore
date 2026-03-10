@@ -248,3 +248,4 @@ docs/02-architecture/KSAM_ADR_FULL.md
 /docs/
 /tests/
 /helm/
+/scripts/utils/push-images.config

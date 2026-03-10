@@ -14,6 +14,8 @@ kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80
 
 Mở trình duyệt: **http://localhost:8081**
 
+**Nếu báo lỗi "address already in use" (cổng 8081 đã dùng):** Đã có port-forward đang chạy → mở trực tiếp http://localhost:8081; hoặc dừng tiến trình cũ: `pkill -f 'port-forward.*fortuna-dashboard'` rồi chạy lại; hoặc dùng cổng khác: `kubectl port-forward -n fortuna svc/fortuna-dashboard 8082:80` → http://localhost:8082.
+
 ### 1.2 Production (LoadBalancer / Ingress)
 
 - Nếu Dashboard dùng Service type **LoadBalancer:** lấy EXTERNAL-IP hoặc hostname từ `kubectl get svc -n fortuna fortuna-dashboard`.
