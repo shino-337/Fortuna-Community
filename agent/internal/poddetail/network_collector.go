@@ -38,7 +38,9 @@ func CollectNetworkFromPod(ctx context.Context, clientset kubernetes.Interface, 
 	for _, c := range pod.Spec.Containers {
 		list, err := execSsInContainer(ctx, clientset, restConfig, pod.Namespace, pod.Name, c.Name)
 		if err != nil {
-			if !isExecToolNotFound(err) {
+			if isExecToolNotFound(err) {
+				logExecToolNotFoundDebug(pod.Namespace, pod.Name, c.Name, "network")
+			} else {
 				log.Printf("[PodDetail] network collect %s/%s/%s: %v (skipping)", pod.Namespace, pod.Name, c.Name, err)
 			}
 			continue

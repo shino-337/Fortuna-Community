@@ -29,7 +29,9 @@ func CollectProcessesFromPod(ctx context.Context, clientset kubernetes.Interface
 	for _, c := range pod.Spec.Containers {
 		list, err := execPsInContainer(ctx, clientset, restConfig, pod.Namespace, pod.Name, c.Name, observedAt)
 		if err != nil {
-			if !isExecToolNotFound(err) {
+			if isExecToolNotFound(err) {
+				logExecToolNotFoundDebug(pod.Namespace, pod.Name, c.Name, "process")
+			} else {
 				log.Printf("[PodDetail] process collect %s/%s/%s: %v (skipping container)", pod.Namespace, pod.Name, c.Name, err)
 			}
 			continue

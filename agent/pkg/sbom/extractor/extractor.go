@@ -153,17 +153,25 @@ func (e *Extractor) ResolveDigest(ctx context.Context, imageRef string) (string,
 }
 
 // getImage retrieves an image using local-first approach
-// 1. Try local Docker daemon first (fast, no rate limits)
-// 2. Fall back to remote registry if not found locally
+// 1. Try containerd first (Kubernetes default runtime; fast, no rate limits)
+// 2. Fall back to remote registry if not found or content missing locally
+//
+// Containerd can fail with "content digest ... not found" when the image
+// metadata exists but layer blobs are missing on this node (e.g. agent runs
+// on a different node, or content was GC'd). Set SBOM_PREFER_REGISTRY=1 to
+// skip containerd and always use the registry.
 func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image, error) {
-	// Try containerd first (Kubernetes default runtime)
-	if img, err := e.getImageFromContainerd(ctx, ref); err == nil {
-		return img, nil
-	} else {
-		if os.Getenv("SBOM_DEBUG") == "1" || os.Getenv("SBOM_DEBUG") == "true" {
+	useRegistry := os.Getenv("SBOM_PREFER_REGISTRY") == "1" || os.Getenv("SBOM_PREFER_REGISTRY") == "true"
+
+	if !useRegistry {
+		if img, err := e.getImageFromContainerd(ctx, ref); err == nil {
+			return img, nil
+		} else {
 			e.logger.Printf("⚠️  Containerd fetch failed (image/layer may be missing on this node): %v", err)
+			e.logger.Printf("🔍 Falling back to remote registry: %s", ref.Name())
 		}
-		e.logger.Printf("Using remote registry for image: %s", ref.Name())
+	} else {
+		e.logger.Printf("Using remote registry (SBOM_PREFER_REGISTRY): %s", ref.Name())
 	}
 
 	// Fall back to remote registry
