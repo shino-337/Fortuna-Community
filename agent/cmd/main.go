@@ -121,6 +121,7 @@ func main() {
 		cfg.TLSCertPath,
 		cfg.TLSKeyPath,
 		cfg.TLSCACertPath,
+		clusterInfo.ID, // for Core per-cluster rate limit (Finding #6)
 	)
 
 	// Connect to Core with retry (never exit: DNS/network may be slow after deploy/restart)

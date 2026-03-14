@@ -2,6 +2,8 @@ package grpc
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,35 +13,80 @@ import (
 	"time"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	pb "github.com/fortuna/api/proto/agent"
+	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/models"
 )
 
 // SBOMServiceServer implements the SBOM-related RPCs from AgentService
 type SBOMServiceServer struct {
-	db         *gorm.DB
-	natsClient *messaging.NATSClient
+	db              *gorm.DB
+	natsClient      *messaging.NATSClient
+	clusterLimiter  *ingest.ClusterRateLimiter
 	pb.UnimplementedAgentServiceServer
 }
 
 // NewSBOMServiceServer creates a new SBOM service server
-func NewSBOMServiceServer(db *gorm.DB, natsClient *messaging.NATSClient) *SBOMServiceServer {
+func NewSBOMServiceServer(db *gorm.DB, natsClient *messaging.NATSClient, clusterLimiter *ingest.ClusterRateLimiter) *SBOMServiceServer {
 	return &SBOMServiceServer{
-		db:         db,
-		natsClient: natsClient,
+		db:             db,
+		natsClient:     natsClient,
+		clusterLimiter: clusterLimiter,
 	}
+}
+
+// correlationIDFromContext returns x-correlation-id from gRPC metadata or generates one (Finding #1.2).
+func correlationIDFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		if vals := md.Get("x-correlation-id"); len(vals) > 0 && vals[0] != "" {
+			return vals[0]
+		}
+	}
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+	return fmt.Sprintf("core-%d", time.Now().UnixNano())
+}
+
+// clusterIDFromContext returns x-cluster-id from gRPC metadata or empty (Finding #6).
+func clusterIDFromContext(ctx context.Context) string {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		if vals := md.Get("x-cluster-id"); len(vals) > 0 && vals[0] != "" {
+			return vals[0]
+		}
+	}
+	return ""
 }
 
 // SendSBOMFinding handles a single SBOM finding from Agent
 func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
-	log.Printf("[SBOM] Received SBOM from agent=%s, pod=%s, image=%s",
-		req.AgentId, req.PodName, req.ImageDigest)
+	correlationID := correlationIDFromContext(ctx)
+	clusterID := clusterIDFromContext(ctx)
+	if clusterID == "" && s.db != nil {
+		var pod models.Pod
+		if err := s.db.Where("uid = ? AND deleted_at IS NULL", req.PodUid).First(&pod).Error; err == nil {
+			clusterID = pod.ClusterID
+		}
+	}
+	if clusterID == "" {
+		clusterID = "unknown"
+	}
+	if s.clusterLimiter != nil && !s.clusterLimiter.AllowSBOM(clusterID) {
+		log.Printf("[SBOM] correlation_id=%s rate limit exceeded for cluster_id=%s", correlationID, clusterID)
+		return nil, status.Errorf(codes.ResourceExhausted, "rate limit exceeded for cluster %s", clusterID)
+	}
+	log.Printf("[SBOM] correlation_id=%s received SBOM from agent=%s, pod=%s, image=%s",
+		correlationID, req.AgentId, req.PodName, req.ImageDigest)
 
 	// Check if database is available
 	if s.db == nil {
@@ -215,13 +262,13 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 				log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED event: %v", err)
 				// Non-fatal, continue
 			} else {
-				log.Printf("[SBOM] Published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)",
-					sbom.ID, podUID, !isNewSBOM)
+				log.Printf("[SBOM] correlation_id=%s published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)",
+					correlationID, sbom.ID, podUID, !isNewSBOM)
 			}
 		}
 	}
 
-	log.Printf("[SBOM] Successfully stored SBOM id=%d with %d components", sbom.ID, len(req.Packages))
+	log.Printf("[SBOM] correlation_id=%s successfully stored SBOM id=%d with %d components", correlationID, sbom.ID, len(req.Packages))
 
 	return &pb.SBOMFindingResponse{
 		Success:    true,

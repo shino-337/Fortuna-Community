@@ -15,6 +15,7 @@ import (
 
 	agentpb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/security"
 )
@@ -26,7 +27,7 @@ type Server struct {
 	certManager *security.CertManager
 }
 
-func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient) (*Server, error) {
+func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient, clusterLimiter *ingest.ClusterRateLimiter) (*Server, error) {
 	var opts []grpc.ServerOption
 
 	log.Printf("========================================")
@@ -88,10 +89,8 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 
 	grpcServer := grpc.NewServer(opts...)
 
-	// Register SBOM service (Phase 1: Agent→Core SBOM ingestion)
-	// Import the new proto package
-	// Note: db can be nil initially - service will handle it gracefully
-	sbomServiceServer := NewSBOMServiceServer(db, natsClient)
+	// Register SBOM service (Phase 1: Agent→Core SBOM ingestion); per-cluster rate limit (Finding #6)
+	sbomServiceServer := NewSBOMServiceServer(db, natsClient, clusterLimiter)
 	agentpb.RegisterAgentServiceServer(grpcServer, sbomServiceServer)
 
 	log.Printf("[gRPC] ✅ Registered AgentService (SBOM ingestion)")

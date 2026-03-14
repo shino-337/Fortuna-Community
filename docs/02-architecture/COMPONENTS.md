@@ -72,6 +72,7 @@ Fortuna consists of three main components: **Agent**, **Core**, and **Dashboard*
 - **Workers**: Asynchronous processing (CVE matcher, correlator, risk)
 - **Admission Webhook**: Policy enforcement at admission time
 - **Metrics**: Prometheus metrics endpoint (`/metrics`)
+- **WebSocket & dedup**: In-memory per process; not shared across Core replicas. For multi-replica deployments, sticky session (LB or cookie) is recommended for stable WebSocket and consistent dedup (see DEPLOYMENT_AND_ARCHITECTURE_FAQ).
 
 **Configuration**:
 - `DATABASE_URL`: PostgreSQL connection string

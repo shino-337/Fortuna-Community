@@ -21,6 +21,7 @@ import (
 	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/internal/grpc"
 	"github.com/fortuna/core/internal/health"
+	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/internal/scheduler"
 	"github.com/fortuna/core/internal/storage"
@@ -451,9 +452,19 @@ func main() {
 		}()
 	}
 
+	// Per-cluster rate limiter for sync and SBOM ingest (Finding #6)
+	clusterLimiter := ingest.NewClusterRateLimiter(ingest.ClusterLimitConfig{
+		SyncRPS:   cfg.RateLimitSyncPerClusterRPS,
+		SyncBurst: cfg.RateLimitSyncPerClusterBurst,
+		SBOMRPS:   cfg.RateLimitSBOMPerClusterRPS,
+		SBOMBurst: cfg.RateLimitSBOMPerClusterBurst,
+		Enabled:   cfg.RateLimitPerClusterEnabled,
+	})
+	log.Printf("[Main] Per-cluster rate limit: enabled=%v sync_rps=%.0f sbom_rps=%.0f", cfg.RateLimitPerClusterEnabled, cfg.RateLimitSyncPerClusterRPS, cfg.RateLimitSBOMPerClusterRPS)
+
 	// Initialize gRPC server
 	log.Printf("[Main] Creating gRPC server with TLS_ENABLED=%v", cfg.TLSEnabled)
-	grpcServer, err := grpc.NewServer(cfg, db, natsClient)
+	grpcServer, err := grpc.NewServer(cfg, db, natsClient, clusterLimiter)
 	if err != nil {
 		log.Fatalf("Failed to create gRPC server: %v", err)
 	}
@@ -531,7 +542,7 @@ func main() {
 	} else {
 		log.Printf("[Main] ⚠️  gRPC server is nil - certificate routes will NOT be registered")
 	}
-	api.SetupRoutesWithCertManager(router, db, cfg, certManager)
+	api.SetupRoutesWithCertManager(router, db, cfg, certManager, clusterLimiter)
 
 	// Phase 2.7: Dedicated HTTPS server for admission webhook
 	log.Printf("[Main] ========================================")

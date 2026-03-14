@@ -65,39 +65,42 @@ func (q *WorkQueue) Queue() chan *corev1.Pod {
 	return q.queue
 }
 
+// podKey returns the queue key for a pod (UID so recycled pods with same name get processed).
+func podKey(pod *corev1.Pod) string {
+	if pod == nil {
+		return ""
+	}
+	return string(pod.UID)
+}
+
 // Enqueue adds a pod to the work queue
 // Returns true if pod was queued, false if already queued/processing
-// Note: This method is kept for backward compatibility, but the watcher
-// now writes directly to the queue channel returned by Queue()
+// Key is pod UID so that recycled pods (same namespace/name, new UID) are processed.
 func (q *WorkQueue) Enqueue(pod *corev1.Pod) bool {
 	if pod == nil {
 		return false
 	}
 
-	// Create unique key for pod
-	key := pod.Namespace + "/" + pod.Name
+	key := podKey(pod)
+	label := pod.Namespace + "/" + pod.Name
 
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	// Check if pod is already queued or being processed
 	if q.active[key] {
-		q.logger.Printf("Pod %s already queued/processing, skipping", key)
+		q.logger.Printf("Pod %s (uid=%s) already queued/processing, skipping", label, key)
 		return false
 	}
 
-	// Mark as active
 	q.active[key] = true
 
-	// Try to enqueue (non-blocking)
 	select {
 	case q.queue <- pod:
-		q.logger.Printf("✅ Queued pod %s for SBOM extraction", key)
+		q.logger.Printf("✅ Queued pod %s (uid=%s) for SBOM extraction", label, key)
 		return true
 	default:
-		// Queue is full, remove from active and log warning
 		delete(q.active, key)
-		q.logger.Printf("⚠️  Queue full, dropping pod %s", key)
+		q.logger.Printf("⚠️  Queue full, dropping pod %s (uid=%s)", label, key)
 		return false
 	}
 }
@@ -130,23 +133,23 @@ func (q *WorkQueue) worker(id int) {
 				continue
 			}
 
-			key := pod.Namespace + "/" + pod.Name
+			key := podKey(pod)
+			label := pod.Namespace + "/" + pod.Name
 
-			// Mark as active (if not already marked by Enqueue)
 			q.mu.Lock()
 			if !q.active[key] {
 				q.active[key] = true
 			}
 			q.mu.Unlock()
 
-			q.logger.Printf("[Worker %d] Processing pod %s", id, key)
+			q.logger.Printf("[Worker %d] Processing pod %s (uid=%s)", id, label, key)
 
 			// Process pod (this is the slow SBOM extraction - 2-3 minutes)
 			// This runs asynchronously, so it doesn't block the informer
 			start := time.Now()
 			err := q.processor.ProcessPod(q.ctx, pod)
 			if err != nil {
-				q.logger.Printf("[Worker %d] ⚠️  Failed to process pod %s: %v", id, key, err)
+				q.logger.Printf("[Worker %d] ⚠️  Failed to process pod %s: %v", id, label, err)
 				// On transient send failure (e.g. Core restart), re-queue so we retry after Core is back
 				if isTransientSendError(err) {
 					q.mu.Lock()
@@ -154,7 +157,7 @@ func (q *WorkQueue) worker(id int) {
 					q.retryCount[key] = n
 					q.mu.Unlock()
 					if n <= maxSendRetries {
-						q.logger.Printf("[Worker %d] 🔄 Re-queuing pod %s for retry %d/%d in %v (Core may have restarted)", id, key, n, maxSendRetries, sendRetryDelay)
+						q.logger.Printf("[Worker %d] 🔄 Re-queuing pod %s (uid=%s) for retry %d/%d in %v (Core may have restarted)", id, label, key, n, maxSendRetries, sendRetryDelay)
 						go func(p *corev1.Pod) {
 							select {
 							case <-q.ctx.Done():
@@ -168,7 +171,7 @@ func (q *WorkQueue) worker(id int) {
 									delete(q.retryCount, key)
 									delete(q.active, key)
 									q.mu.Unlock()
-									q.logger.Printf("[Worker] ⚠️  Queue full, gave up retry for pod %s", key)
+									q.logger.Printf("[Worker] ⚠️  Queue full, gave up retry for pod %s (uid=%s)", label, key)
 								}
 							}
 						}(pod)
@@ -177,11 +180,11 @@ func (q *WorkQueue) worker(id int) {
 					q.mu.Lock()
 					delete(q.retryCount, key)
 					q.mu.Unlock()
-					q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s after %d send retries", id, key, maxSendRetries)
+					q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s (uid=%s) after %d send retries", id, label, key, maxSendRetries)
 				}
 			} else {
 				duration := time.Since(start)
-				q.logger.Printf("[Worker %d] ✅ Completed pod %s in %v", id, key, duration)
+				q.logger.Printf("[Worker %d] ✅ Completed pod %s (uid=%s) in %v", id, label, key, duration)
 				q.mu.Lock()
 				delete(q.retryCount, key)
 				q.mu.Unlock()

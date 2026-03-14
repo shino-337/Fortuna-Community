@@ -77,20 +77,26 @@ func (e *Extractor) ExtractSBOM(
 		}
 	}
 
-	// 2. Get image layers
+	// 2. OCI config for labels (ref name, distroless hint – Finding #8.1)
+	var imageConfig *v1.ConfigFile
+	if cfg, err := img.ConfigFile(); err == nil {
+		imageConfig = cfg
+	}
+
+	// 3. Get image layers
 	layers, err := img.Layers()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get layers: %w", err)
 	}
 
-	// 3. Extract filesystem
+	// 4. Extract filesystem
 	fs, err := e.buildFilesystem(ctx, layers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build filesystem: %w", err)
 	}
 
-	// 4. Detect OS
-	osInfo := e.detectOS(fs)
+	// 5. Detect OS (filesystem + optional OCI labels)
+	osInfo := e.detectOS(fs, imageConfig)
 	e.logger.Printf("Detected OS: %s %s", osInfo.Name, osInfo.Version)
 
 	// 5. Run OS-specific parsers (skip parsers that won't work for this OS)
@@ -114,6 +120,14 @@ func (e *Extractor) ExtractSBOM(
 
 	// 6. Deduplicate
 	deduped := e.deduplicate(allPackages)
+
+	// 8. Distroless/system fallback (Finding #8): when no package manager found (CoreDNS, agent, core, scratch),
+	// emit one synthetic component; use OCI labels for version when available (Finding #8.1).
+	if len(deduped) == 0 {
+		synthetic := e.syntheticPackageFromImage(imageRef, imageConfig)
+		deduped = append(deduped, synthetic)
+		e.logger.Printf("   No packages from parsers; added synthetic component for distroless/system image: %s@%s", synthetic.Name, synthetic.Version)
+	}
 
 	sbom := &RawSBOM{
 		ImageName:   imageRef,
@@ -320,26 +334,56 @@ func (e *Extractor) buildFilesystem(ctx context.Context, layers []v1.Layer) (*Fi
 	return fs, nil
 }
 
-// detectOS detects the operating system from filesystem
-func (e *Extractor) detectOS(fs *Filesystem) OSInfo {
-	// Try to detect OS from common files
-	// /etc/os-release (most Linux distros)
-	if content, err := fs.ReadFile("/etc/os-release"); err == nil {
-		return parseOSRelease(string(content))
-	}
+// OCI label keys (Finding #8.1)
+const (
+	labelRefName = "org.opencontainers.image.ref.name"
+)
 
-	// /etc/debian_version (Debian)
+// detectOS detects the operating system from filesystem and optionally OCI image config labels (Finding #8.1).
+// Distroless is identified by: (1) /etc/os-release with PRETTY_NAME or NAME containing "Distroless", or
+// (2) OCI image config labels with key/value containing "distroless".
+func (e *Extractor) detectOS(fs *Filesystem, imageConfig *v1.ConfigFile) OSInfo {
+	// 1. /etc/os-release (most Linux distros; Google distroless sets PRETTY_NAME="Distroless")
+	if content, err := fs.ReadFile("/etc/os-release"); err == nil {
+		osInfo := parseOSRelease(string(content))
+		if isDistrolessFromOSRelease(string(content)) {
+			osInfo.Name = "distroless"
+			e.logger.Printf("   /etc/os-release suggests distroless (PRETTY_NAME or NAME)")
+		}
+		return osInfo
+	}
 	if content, err := fs.ReadFile("/etc/debian_version"); err == nil {
 		return OSInfo{Name: "debian", Version: strings.TrimSpace(string(content))}
 	}
-
-	// /etc/alpine-release (Alpine)
 	if content, err := fs.ReadFile("/etc/alpine-release"); err == nil {
 		return OSInfo{Name: "alpine", Version: strings.TrimSpace(string(content))}
 	}
 
-	// Default
+	// 2. No os-release: use OCI labels for distroless hint and version
+	if imageConfig != nil && imageConfig.Config.Labels != nil {
+		labels := imageConfig.Config.Labels
+		version := labels[labelRefName]
+		if version == "" {
+			version = "unknown"
+		}
+		for k, v := range labels {
+			if strings.Contains(strings.ToLower(k), "distroless") || strings.Contains(strings.ToLower(v), "distroless") {
+				e.logger.Printf("   OCI label suggests distroless: %s=%s", k, v)
+				return OSInfo{Name: "distroless", Version: version}
+			}
+		}
+		return OSInfo{Name: "unknown", Version: version}
+	}
 	return OSInfo{Name: "unknown", Version: "unknown"}
+}
+
+// isDistrolessFromOSRelease returns true if os-release content indicates distroless (e.g. PRETTY_NAME="Distroless").
+func isDistrolessFromOSRelease(content string) bool {
+	lower := strings.ToLower(content)
+	return strings.Contains(lower, "pretty_name=\"distroless\"") ||
+		strings.Contains(lower, "name=\"distroless\"") ||
+		strings.Contains(lower, "pretty_name=distroless") ||
+		strings.Contains(lower, "name=distroless")
 }
 
 // selectParsersForOS selects parsers based on detected OS
@@ -371,10 +415,9 @@ func (e *Extractor) selectParsersForOS(osName string) []string {
 	// Language package managers (run for all OS types)
 	languageParsers := []string{"npm", "pip", "gomod"}
 
-	// If OS is unknown or no OS parsers matched, try all parsers
-	// (safer approach for unknown distros)
-	if len(osParsers) == 0 || osLower == "unknown" {
-		e.logger.Printf("   Unknown OS '%s', trying all parsers", osName)
+	// If OS is unknown/distroless or no OS parsers matched, try all parsers
+	if len(osParsers) == 0 || osLower == "unknown" || osLower == "distroless" {
+		e.logger.Printf("   OS '%s', trying all parsers", osName)
 		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod"}
 	}
 
@@ -400,10 +443,40 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 	return deduped
 }
 
-// parseOSRelease parses /etc/os-release file
+// syntheticPackageFromImage returns one synthetic package for distroless/system images (0 packages).
+// Uses OCI config label org.opencontainers.image.ref.name for version when available (Finding #8.1).
+func (e *Extractor) syntheticPackageFromImage(imageRef string, imageConfig *v1.ConfigFile) Package {
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return Package{Name: "unknown-image", Version: "unknown", Type: "generic"}
+	}
+	fullName := ref.Context().Name()
+	parts := strings.Split(fullName, "/")
+	namePart := "unknown-image"
+	if len(parts) > 0 {
+		namePart = parts[len(parts)-1]
+	}
+	version := ref.Identifier()
+	if version == "" {
+		version = "unknown"
+	}
+	// Prefer OCI label when present (e.g. tag from build)
+	if imageConfig != nil && imageConfig.Config.Labels != nil {
+		if v := imageConfig.Config.Labels[labelRefName]; v != "" {
+			// May be "tag" or "repo:tag"; use last segment after ":" for version
+			if idx := strings.LastIndex(v, ":"); idx >= 0 && idx < len(v)-1 {
+				version = v[idx+1:]
+			} else {
+				version = v
+			}
+		}
+	}
+	return Package{Name: namePart, Version: version, Type: "generic"}
+}
+
+// parseOSRelease parses /etc/os-release (ID=, VERSION_ID=). Distroless override is done in detectOS via isDistrolessFromOSRelease.
 func parseOSRelease(content string) OSInfo {
 	osInfo := OSInfo{Name: "unknown", Version: "unknown"}
-
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(line, "ID=") {
@@ -412,7 +485,6 @@ func parseOSRelease(content string) OSInfo {
 			osInfo.Version = strings.Trim(strings.TrimPrefix(line, "VERSION_ID="), "\"")
 		}
 	}
-
 	return osInfo
 }
 

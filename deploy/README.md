@@ -204,6 +204,7 @@ kubectl apply -f webhook-config.yaml
 - `AUTH_ENABLED`: Enable JWT auth (default: `true`)
 - `PCE_SCHEDULER_ENABLED`: Enable PCE scheduler (default: `true`)
 - `PCE_SCHEDULER_INTERVAL`: Scheduler interval (default: `6h`)
+- **Per-cluster rate limit (Finding #6):** `RATE_LIMIT_PER_CLUSTER_ENABLED` (default: `true`), `RATE_LIMIT_SYNC_PER_CLUSTER_RPS` (default: `10`), `RATE_LIMIT_SYNC_PER_CLUSTER_BURST` (default: `20`), `RATE_LIMIT_SBOM_PER_CLUSTER_RPS` (default: `50`), `RATE_LIMIT_SBOM_PER_CLUSTER_BURST` (default: `100`). When enabled, sync and SBOM ingest are limited per `cluster_id` to avoid one noisy cluster impacting others. See `docs/02-architecture/DEPLOYMENT_AND_ARCHITECTURE_FAQ.md`.
 
 **Agent**:
 - `CORE_GRPC_ENDPOINT`: Core gRPC endpoint
@@ -267,6 +268,31 @@ Then wait for Agent sync (or trigger by restarting agent pods). API `/api/v1/clu
 | Agent **no such host** / cannot reach Core | Check DNS and endpoint: `./scripts/verify/verify-agent-core-connectivity.sh` |
 
 Full details: [docs/AGENT_CORE_ERRORS_MONITOR.md](../docs/AGENT_CORE_ERRORS_MONITOR.md).
+
+## mTLS certificate rotation (Finding #4.1)
+
+Certificates from `create_mtls_secret.sh` are valid **365 days**. Rotate **before expiry** (e.g. within 30 days of expiration) to avoid connection failures.
+
+**Steps:**
+
+1. **Generate new certs** (from repo root):  
+   `NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh`  
+   This writes to `.certs/` and creates/updates K8s secrets.
+
+2. **Update secrets in cluster:**  
+   `kubectl apply -f .certs/` (or use the script’s `kubectl create secret ... --dry-run=client -o yaml | kubectl apply -f -` if it outputs to stdout).
+
+3. **Rollout Core** so it loads new server cert (Core uses file-based reload; restart ensures clean load):  
+   `kubectl rollout restart deployment/fortuna-core -n fortuna`
+
+4. **Rollout Agent** so it loads new client cert (Agent loads certs at connect time):  
+   `kubectl rollout restart daemonset/fortuna-agent -n fortuna`
+
+5. **Verify:** Core and Agent logs should show successful gRPC connection; no TLS handshake or “certificate expired” errors.
+
+**Optional:** Use cert-manager (Certificate + Issuer) for automatic renewal; see `docs/02-architecture/Architecture_Finding_Remediation_Plan.md` Finding #4.2.
+
+---
 
 ## Notes
 

@@ -316,21 +316,12 @@ func (s *AgentService) SyncData(clusterID string, clusterName string, source, k8
 	return nil
 }
 
-// processSyncedServiceAccounts handles ServiceAccount sync
+// processSyncedServiceAccounts handles ServiceAccount sync.
+// When payload is missing or empty we do NOT delete existing SAs (transient collection failure could wipe data).
 func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[string]interface{}, isFullSync, isDeltaSync bool) error {
 	sas, ok := data["serviceAccounts"].([]interface{})
 	if !ok || len(sas) == 0 {
-		s.logger.Printf("ℹ️  No serviceAccounts in payload")
-		// For full sync with no SAs, delete all existing SAs
-		if isFullSync {
-			var existingSAs []models.ServiceAccount
-			s.db.Where("cluster_id = ?", clusterID).Find(&existingSAs)
-			for _, sa := range existingSAs {
-				resourceID := strconv.Itoa(int(sa.ID))
-				s.createAuditLog(clusterID, "delete", "serviceaccount", resourceID, sa.Namespace, sa.Name)
-				s.db.Delete(&sa)
-			}
-		}
+		s.logger.Printf("WARN full sync missing key 'serviceAccounts' for cluster %q, skipping delete (transient collection failure?)", clusterID)
 		return nil
 	}
 
@@ -487,12 +478,12 @@ func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[s
 	return nil
 }
 
-// processSyncedRoles handles Role sync (full sync only)
+// processSyncedRoles handles Role sync (full sync only).
+// When payload is missing or empty we do NOT delete existing roles (transient collection failure could wipe data).
 func (s *AgentService) processSyncedRoles(clusterID string, data map[string]interface{}) error {
 	roles, ok := data["roles"].([]interface{})
 	if !ok || len(roles) == 0 {
-		s.logger.Printf("ℹ️  No roles in payload, clearing existing roles")
-		s.db.Where("cluster_id = ?", clusterID).Delete(&models.Role{})
+		s.logger.Printf("WARN full sync missing key 'roles' for cluster %q, skipping delete (transient collection failure?)", clusterID)
 		return nil
 	}
 
@@ -601,12 +592,12 @@ func (s *AgentService) processSyncedRoles(clusterID string, data map[string]inte
 	return nil
 }
 
-// processSyncedClusterRoles handles ClusterRole sync (full sync only)
+// processSyncedClusterRoles handles ClusterRole sync (full sync only).
+// When payload is missing or empty we do NOT delete existing cluster roles (transient collection failure could wipe data).
 func (s *AgentService) processSyncedClusterRoles(clusterID string, data map[string]interface{}) error {
 	clusterRoles, ok := data["clusterRoles"].([]interface{})
 	if !ok || len(clusterRoles) == 0 {
-		s.logger.Printf("ℹ️  No cluster roles in payload, clearing existing cluster roles")
-		s.db.Where("cluster_id = ?", clusterID).Delete(&models.ClusterRole{})
+		s.logger.Printf("WARN full sync missing key 'clusterRoles' for cluster %q, skipping delete (transient collection failure?)", clusterID)
 		return nil
 	}
 
@@ -693,12 +684,12 @@ func (s *AgentService) processSyncedClusterRoles(clusterID string, data map[stri
 	return nil
 }
 
-// processSyncedRoleBindings handles RoleBinding sync (full sync only)
+// processSyncedRoleBindings handles RoleBinding sync (full sync only).
+// When payload is missing or empty we do NOT delete existing role bindings (transient collection failure could wipe data).
 func (s *AgentService) processSyncedRoleBindings(clusterID string, data map[string]interface{}) error {
 	roleBindings, ok := data["roleBindings"].([]interface{})
 	if !ok || len(roleBindings) == 0 {
-		s.logger.Printf("ℹ️  No role bindings in payload, clearing existing role bindings")
-		s.db.Where("cluster_id = ?", clusterID).Delete(&models.RoleBinding{})
+		s.logger.Printf("WARN full sync missing key 'roleBindings' for cluster %q, skipping delete (transient collection failure?)", clusterID)
 		return nil
 	}
 
@@ -800,12 +791,12 @@ func (s *AgentService) processSyncedRoleBindings(clusterID string, data map[stri
 	return nil
 }
 
-// processSyncedClusterRoleBindings handles ClusterRoleBinding sync (full sync only)
+// processSyncedClusterRoleBindings handles ClusterRoleBinding sync (full sync only).
+// When payload is missing or empty we do NOT delete existing cluster role bindings (transient collection failure could wipe data).
 func (s *AgentService) processSyncedClusterRoleBindings(clusterID string, data map[string]interface{}) error {
 	clusterRoleBindings, ok := data["clusterRoleBindings"].([]interface{})
 	if !ok || len(clusterRoleBindings) == 0 {
-		s.logger.Printf("ℹ️  No cluster role bindings in payload, clearing existing cluster role bindings")
-		s.db.Where("cluster_id = ?", clusterID).Delete(&models.ClusterRoleBinding{})
+		s.logger.Printf("WARN full sync missing key 'clusterRoleBindings' for cluster %q, skipping delete (transient collection failure?)", clusterID)
 		return nil
 	}
 
@@ -903,12 +894,12 @@ func (s *AgentService) processSyncedClusterRoleBindings(clusterID string, data m
 	return nil
 }
 
-// processSyncedPods handles Pod sync (full sync only)
+// processSyncedPods handles Pod sync (full sync only).
+// When payload is missing or empty we do NOT delete existing pods (transient collection failure could wipe data).
 func (s *AgentService) processSyncedPods(clusterID string, data map[string]interface{}, isFullSync bool) error {
 	pods, ok := data["pods"].([]interface{})
 	if !ok || len(pods) == 0 {
-		s.logger.Printf("ℹ️  No pods in payload, clearing existing pods")
-		s.db.Where("cluster_id = ?", clusterID).Delete(&models.Pod{})
+		s.logger.Printf("WARN full sync missing key 'pods' for cluster %q, skipping delete (transient collection failure?)", clusterID)
 		return nil
 	}
 

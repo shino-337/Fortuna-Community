@@ -11,6 +11,7 @@ import (
 	"github.com/fortuna/core/internal/api/policy"
 	"github.com/fortuna/core/internal/api/risk"
 	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/security"
 )
@@ -26,11 +27,11 @@ var (
 )
 
 func SetupRoutes(router *gin.Engine, db *gorm.DB, cfg *config.Config) {
-	SetupRoutesWithCertManager(router, db, cfg, nil)
+	SetupRoutesWithCertManager(router, db, cfg, nil, nil)
 }
 
-// SetupRoutesWithCertManager sets up routes with certificate manager
-func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager) {
+// SetupRoutesWithCertManager sets up routes with certificate manager and optional per-cluster rate limiter (Finding #6).
+func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter) {
 	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey)
 	// Phase 2.1: in-memory cache for GET /risks and GET /insights/summary (TTL 60s)
 	defaultRisksCache = NewMemoryRisksCache(60 * time.Second)
@@ -58,7 +59,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	// Agent ingest routes (no auth) – register before v1 so /api/v1/agent/* is unambiguous
 	agent := router.Group("/api/v1/agent")
 	{
-		agent.POST("/sync", SyncDataFromAgent(db))
+		agent.POST("/sync", SyncDataFromAgent(db, clusterLimiter))
 		agent.POST("/pod-runtime-metrics", IngestPodRuntimeMetricsPayload(db))
 		agent.POST("/pod-processes", IngestPodProcessesPayload(db))
 		agent.POST("/pod-network-connections", IngestPodNetworkConnectionsPayload(db))

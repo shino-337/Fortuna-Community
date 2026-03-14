@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/service"
 	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/models"
@@ -32,7 +33,8 @@ type AgentPayload struct {
 
 // SyncDataFromAgent handles data sync from agent via HTTP.
 // Accepts cluster object (id, name, source, k8s_version, distribution) or legacy clusterId/clusterName.
-func SyncDataFromAgent(db *gorm.DB) gin.HandlerFunc {
+// When clusterLimiter is non-nil, enforces per-cluster rate limit (Finding #6).
+func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
 			ClusterID   string                 `json:"clusterId"`
@@ -68,6 +70,12 @@ func SyncDataFromAgent(db *gorm.DB) gin.HandlerFunc {
 		}
 		// Normalize cluster_id so sync always uses canonical id (avoids duplicate cluster_id for same physical cluster).
 		clusterID = NormalizeClusterID(db, clusterID)
+
+		if clusterLimiter != nil && !clusterLimiter.AllowSync(clusterID) {
+			log.Printf("[AgentAPI] rate limit exceeded for cluster=%s", clusterID)
+			c.JSON(http.StatusTooManyRequests, gin.H{"error": "rate limit exceeded for cluster", "cluster_id": clusterID})
+			return
+		}
 
 		_, hasDelta := req.Data["isDeltaSync"]
 		_, hasFull := req.Data["isFullSync"]

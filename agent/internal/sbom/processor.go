@@ -10,6 +10,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
+	"github.com/google/go-containerregistry/pkg/name"
 	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/agent/internal/client"
 	"github.com/fortuna/agent/pkg/sbom/extractor"
@@ -147,25 +148,20 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 	}
 }
 
-// Helper functions
-func parseImageRef(imageRef string) (string, string) {
-	// Simple parser: split by ':'
-	// TODO: Handle registry URLs properly (e.g., registry.io/namespace/image:tag)
-	lastColon := -1
-	for i := len(imageRef) - 1; i >= 0; i-- {
-		if imageRef[i] == ':' {
-			lastColon = i
-			break
-		}
-		if imageRef[i] == '/' {
-			break // Hit a slash before colon, no tag
-		}
+// parseImageRef parses an image reference (registry:port/ns/img:tag or img@sha256:...) into
+// repository name and tag/digest identifier using go-containerregistry so registry:5000 and
+// digest refs are handled correctly (Finding #2).
+func parseImageRef(imageRef string) (imageName, imageTag string) {
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return imageRef, "latest"
 	}
-
-	if lastColon > 0 {
-		return imageRef[:lastColon], imageRef[lastColon+1:]
+	imageName = ref.Context().Name()
+	imageTag = ref.Identifier()
+	if imageTag == "" {
+		imageTag = "latest"
 	}
-	return imageRef, "latest"
+	return imageName, imageTag
 }
 
 func mapPackageType(pkgType string) pb.PackageType {

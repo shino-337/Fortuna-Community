@@ -9,10 +9,12 @@ import (
 	"os"
 	"time"
 
+	"github.com/google/uuid"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/metadata"
 
 	pb "github.com/fortuna/api/proto/agent"
 
@@ -36,24 +38,26 @@ type GRPCClient interface {
 
 // MTLSClient implements GRPCClient with mTLS support
 type MTLSClient struct {
-	endpoint    string
-	tlsEnabled  bool
-	certPath    string
-	keyPath     string
-	caPath      string
-	conn        *grpc.ClientConn
-	client      pb.AgentServiceClient
-	logger      *log.Logger
+	endpoint   string
+	tlsEnabled bool
+	certPath   string
+	keyPath    string
+	caPath     string
+	clusterID  string // optional; sent as x-cluster-id for per-cluster rate limit (Finding #6)
+	conn       *grpc.ClientConn
+	client     pb.AgentServiceClient
+	logger     *log.Logger
 }
 
-// NewMTLSClient creates a new mTLS-enabled gRPC client
-func NewMTLSClient(endpoint string, tlsEnabled bool, certPath, keyPath, caPath string) *MTLSClient {
+// NewMTLSClient creates a new mTLS-enabled gRPC client. clusterID is optional (for Core per-cluster rate limit).
+func NewMTLSClient(endpoint string, tlsEnabled bool, certPath, keyPath, caPath string, clusterID string) *MTLSClient {
 	return &MTLSClient{
 		endpoint:   endpoint,
 		tlsEnabled: tlsEnabled,
 		certPath:   certPath,
 		keyPath:    keyPath,
 		caPath:     caPath,
+		clusterID:  clusterID,
 		logger:     log.New(log.Writer(), "[gRPCClient] ", log.LstdFlags),
 	}
 }
@@ -149,13 +153,19 @@ func (c *MTLSClient) Reconnect(ctx context.Context) error {
 	return c.Connect(ctx)
 }
 
-// SendSBOMFinding sends a single SBOM finding to Core
+// SendSBOMFinding sends a single SBOM finding to Core (Finding #1.2: correlation ID in metadata).
 func (c *MTLSClient) SendSBOMFinding(ctx context.Context, finding *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
 	if c.client == nil {
 		return nil, fmt.Errorf("client not connected")
 	}
 
-	c.logger.Printf("Sending SBOM: pod=%s/%s image=%s", finding.Namespace, finding.PodName, finding.ImageDigest)
+	correlationID := uuid.New().String()
+	pairs := []string{"x-correlation-id", correlationID}
+	if c.clusterID != "" {
+		pairs = append(pairs, "x-cluster-id", c.clusterID)
+	}
+	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs(pairs...))
+	c.logger.Printf("Sending SBOM: pod=%s/%s image=%s correlation_id=%s", finding.Namespace, finding.PodName, finding.ImageDigest, correlationID)
 
 	resp, err := c.client.SendSBOMFinding(ctx, finding)
 	if err != nil {
@@ -227,12 +237,17 @@ func (c *MTLSClient) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*
 
 // NewNewGRPCClient creates a GRPCClient from config (MTLS client) and connects. Used by collector when instantiated.
 func NewNewGRPCClient(cfg *config.Config) (GRPCClient, error) {
+	clusterID := ""
+	if cfg != nil {
+		clusterID = cfg.ClusterID
+	}
 	cli := NewMTLSClient(
 		cfg.CoreGRPCEndpoint,
 		cfg.TLSEnabled,
 		cfg.TLSCertPath,
 		cfg.TLSKeyPath,
 		cfg.TLSCACertPath,
+		clusterID,
 	)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()

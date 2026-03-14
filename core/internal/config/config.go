@@ -44,6 +44,13 @@ type Config struct {
 	// Pod Detail – encryption at-rest for process command/binary_path (Phase 4.2).
 	// Base64-encoded 32-byte key. Empty = no encryption. Set POD_DETAIL_ENCRYPTION_KEY (env) or in config file before deploy.
 	PodDetailEncryptionKey string
+
+	// Per-cluster rate limit (Finding #6). When enabled, sync and SBOM ingest are limited per cluster_id.
+	RateLimitPerClusterEnabled   bool
+	RateLimitSyncPerClusterRPS   float64
+	RateLimitSyncPerClusterBurst int
+	RateLimitSBOMPerClusterRPS   float64
+	RateLimitSBOMPerClusterBurst int
 }
 
 func Load(configPath string) (*Config, error) {
@@ -74,6 +81,11 @@ func Load(configPath string) (*Config, error) {
 		PCESchedulerEnabled:      getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
 		PCESchedulerInterval:     parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
 		PodDetailEncryptionKey:   getEnv("POD_DETAIL_ENCRYPTION_KEY", ""),
+		RateLimitPerClusterEnabled:   getEnv("RATE_LIMIT_PER_CLUSTER_ENABLED", "true") == "true",
+		RateLimitSyncPerClusterRPS:   parseFloat(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_RPS", "10"), 10),
+		RateLimitSyncPerClusterBurst: parseIntEnv(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_BURST", "20"), 20),
+		RateLimitSBOMPerClusterRPS:   parseFloat(getEnv("RATE_LIMIT_SBOM_PER_CLUSTER_RPS", "50"), 50),
+		RateLimitSBOMPerClusterBurst: parseIntEnv(getEnv("RATE_LIMIT_SBOM_PER_CLUSTER_BURST", "100"), 100),
 	}
 
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",
@@ -90,6 +102,22 @@ func parseInt(s string) int {
 	fmt.Sscanf(s, "%d", &result)
 	if result == 0 {
 		result = 24 // default
+	}
+	return result
+}
+
+func parseIntEnv(s string, defaultVal int) int {
+	var result int
+	if _, err := fmt.Sscanf(s, "%d", &result); err != nil || result <= 0 {
+		return defaultVal
+	}
+	return result
+}
+
+func parseFloat(s string, defaultVal float64) float64 {
+	var result float64
+	if _, err := fmt.Sscanf(s, "%f", &result); err != nil || result < 0 {
+		return defaultVal
 	}
 	return result
 }
