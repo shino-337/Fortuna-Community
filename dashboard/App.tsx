@@ -63,6 +63,9 @@ const App: React.FC = () => {
           <Route path="resources/pods/uid/:uid" element={<PodDetail />} />
           <Route path="resources/pods/:id" element={<PodDetail />} />
           <Route path="risks" element={<RiskCenter />} />
+          <Route path="risks/findings" element={<RiskCenter />} />
+          <Route path="risks/pce" element={<RiskCenter />} />
+          <Route path="risks/evidence" element={<RiskCenter />} />
           <Route path="risks/:id" element={<RiskDetail />} />
           <Route path="capabilities" element={<Capabilities />} />
           <Route path="identities" element={<Navigate to="/resources?tab=ServiceAccount" replace />} />

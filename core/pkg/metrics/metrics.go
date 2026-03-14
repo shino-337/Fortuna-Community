@@ -168,6 +168,22 @@ var (
 		[]string{"insight_type", "severity"},
 	)
 
+	// Risk/insights batch metrics (Phase 3)
+	RiskEvaluationDuration = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "fortuna_risk_evaluation_duration_seconds",
+			Help:    "Risk/insights batch evaluation duration in seconds",
+			Buckets: []float64{.01, .05, .1, .25, .5, 1, 2.5, 5, 10, 30},
+		},
+	)
+	InsightsBatchSize = promauto.NewHistogram(
+		prometheus.HistogramOpts{
+			Name:    "fortuna_insights_batch_size",
+			Help:    "Number of insights in a single batch (create/update or list)",
+			Buckets: []float64{1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000},
+		},
+	)
+
 	// Risk scoring metrics
 	RiskScoresCalculatedTotal = promauto.NewCounter(
 		prometheus.CounterOpts{

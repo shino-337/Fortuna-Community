@@ -98,13 +98,19 @@ func (r *SBOMReconciler) Reconcile(ctx context.Context) error {
 	return nil
 }
 
-// cleanupOrphanedSBOMs soft-deletes SBOMs for pods that have been deleted
+// orphanGracePeriod: do not delete SBOM when pod is missing from DB if SBOM is newer than this
+// (avoids race where SBOM arrives before pod sync)
+const orphanGracePeriod = 2 * time.Hour
+
+// cleanupOrphanedSBOMs soft-deletes SBOMs for pods that have been deleted (or missing for too long)
+// Only treats SBOM as orphaned when: (1) pod exists in DB and is soft-deleted, or
+// (2) pod is not in DB at all AND SBOM is older than orphanGracePeriod (avoids deleting SBOM when pod sync simply hasn't arrived yet)
 func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *ReconciliationStats) error {
-	// Find all active SBOMs (non-deleted)
+	// Find all active SBOMs (non-deleted), need created_at for grace period
 	var activeSBOMs []models.SBOM
 	if err := r.db.WithContext(ctx).
 		Where("deleted_at IS NULL").
-		Select("id, pod_uid, pod_name, namespace").
+		Select("id, pod_uid, pod_name, namespace, created_at").
 		Find(&activeSBOMs).Error; err != nil {
 		return fmt.Errorf("query active SBOMs: %w", err)
 	}
@@ -115,14 +121,17 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 		return nil
 	}
 
-	// Collect all pod UIDs from SBOMs
-	podUIDs := make([]string, 0, len(activeSBOMs))
-	sbomByPodUID := make(map[string]uint)
+	// Collect pod_uid -> sbom (id + created_at)
+	type sbomInfo struct{ id uint; createdAt time.Time }
+	sbomByPodUID := make(map[string]sbomInfo)
 	for _, sbom := range activeSBOMs {
 		if sbom.PodUID != "" {
-			podUIDs = append(podUIDs, sbom.PodUID)
-			sbomByPodUID[sbom.PodUID] = sbom.ID
+			sbomByPodUID[sbom.PodUID] = sbomInfo{id: sbom.ID, createdAt: sbom.CreatedAt}
 		}
+	}
+	podUIDs := make([]string, 0, len(sbomByPodUID))
+	for uid := range sbomByPodUID {
+		podUIDs = append(podUIDs, uid)
 	}
 
 	// Check if pods table exists first
@@ -133,16 +142,12 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 	
 	var orphanedSBOMIDs []uint
 	if !tableExists {
-		// If pods table doesn't exist, mark all SBOMs as orphaned (they can't be verified)
-		r.logger.Printf("⚠️  Pods table does not exist, marking all SBOMs as potentially orphaned")
-		for _, sbom := range activeSBOMs {
-			orphanedSBOMIDs = append(orphanedSBOMIDs, sbom.ID)
-		}
-		stats.OrphanedSBOMs = len(orphanedSBOMIDs)
+		r.logger.Printf("⚠️  Pods table does not exist, skipping orphan SBOM cleanup")
+		stats.OrphanedSBOMs = 0
 		return nil
 	}
 	
-	// Query database for existing pods
+	// Active pod UIDs
 	var existingPods []models.Pod
 	if err := r.db.WithContext(ctx).
 		Where("uid IN ? AND deleted_at IS NULL", podUIDs).
@@ -150,18 +155,39 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 		Find(&existingPods).Error; err != nil {
 		return fmt.Errorf("query existing pods: %w", err)
 	}
-
-	// Build set of existing pod UIDs
 	existingPodUIDs := make(map[string]bool)
 	for _, pod := range existingPods {
 		existingPodUIDs[pod.UID] = true
 	}
 
-	// Identify orphaned SBOMs (pods that don't exist)
+	// Pods that exist but are soft-deleted (explicitly deleted → SBOM can be removed)
+	var deletedPods []struct{ UID string }
+	if err := r.db.WithContext(ctx).Unscoped().
+		Where("uid IN ? AND deleted_at IS NOT NULL", podUIDs).
+		Model(&models.Pod{}).
+		Select("uid").
+		Find(&deletedPods).Error; err != nil {
+		return fmt.Errorf("query deleted pods: %w", err)
+	}
+	deletedPodUIDs := make(map[string]bool)
+	for _, p := range deletedPods {
+		deletedPodUIDs[p.UID] = true
+	}
+
+	now := time.Now()
 	orphanedSBOMIDs = make([]uint, 0)
-	for podUID, sbomID := range sbomByPodUID {
-		if !existingPodUIDs[podUID] {
-			orphanedSBOMIDs = append(orphanedSBOMIDs, sbomID)
+	for podUID, info := range sbomByPodUID {
+		if existingPodUIDs[podUID] {
+			continue // pod is active, keep SBOM
+		}
+		if deletedPodUIDs[podUID] {
+			// Pod was explicitly soft-deleted → SBOM is orphaned
+			orphanedSBOMIDs = append(orphanedSBOMIDs, info.id)
+			continue
+		}
+		// Pod not in DB at all: avoid race with pod sync — only treat as orphan if SBOM is old enough
+		if now.Sub(info.createdAt) > orphanGracePeriod {
+			orphanedSBOMIDs = append(orphanedSBOMIDs, info.id)
 		}
 	}
 

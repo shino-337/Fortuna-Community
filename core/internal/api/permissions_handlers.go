@@ -39,21 +39,9 @@ type Rule struct {
 	NonResourceURLs []string `json:"nonResourceURLs"`
 }
 
-// GetServiceAccountPermissions returns permissions for a specific ServiceAccount
-func GetServiceAccountPermissions(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		permissions := ServiceAccountPermissions{
+// buildServiceAccountPermissions builds the permissions struct for a ServiceAccount (shared by Get by id and by uid).
+func buildServiceAccountPermissions(db *gorm.DB, sa *models.ServiceAccount) ServiceAccountPermissions {
+	permissions := ServiceAccountPermissions{
 			ServiceAccountID: sa.ID,
 			RoleBindings:     []RoleBindingPermission{},
 			ClusterRoleBindings: []ClusterRoleBindingPermission{},
@@ -223,10 +211,47 @@ func GetServiceAccountPermissions(db *gorm.DB) gin.HandlerFunc {
 						}
 					}
 				}
-			}
 		}
+	}
 
-		c.JSON(http.StatusOK, permissions)
+	return permissions
+}
+
+// GetServiceAccountPermissions returns permissions for a specific ServiceAccount (by DB id).
+func GetServiceAccountPermissions(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var sa models.ServiceAccount
+		if err := db.First(&sa, id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, buildServiceAccountPermissions(db, &sa))
+	}
+}
+
+// GetServiceAccountPermissionsByUID returns permissions for a ServiceAccount by Kubernetes UID (inventory domain).
+func GetServiceAccountPermissionsByUID(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.Param("uid")
+		if uid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+			return
+		}
+		var sa models.ServiceAccount
+		if err := db.Where("uid = ?", uid).First(&sa).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, buildServiceAccountPermissions(db, &sa))
 	}
 }
 

@@ -99,7 +99,7 @@ fi
 
 section "Kết thúc"
 echo "Chi tiết tất cả testcase: docs/TESTCASE_MONITOR.md"
-echo "Chạy toàn bộ E2E + báo cáo: ./scripts/e2e/run-e2e-all-verify.sh"
+echo "Chạy toàn bộ E2E + báo cáo: ./scripts/e2e/run-e2e.sh (hoặc --suite=full-report)"
 if [ -n "$REPORT_FILE" ]; then
   echo "Đã ghi: $REPORT_FILE"
 fi

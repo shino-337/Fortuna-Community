@@ -73,7 +73,7 @@ CORE_POD="$(require_core_pod)"
 TOKEN="$(require_jwt_token "$CORE_POD")"
 
 echo "Fetching runtime signals for pod $POD_UID..."
-EVENTS_RESP="$(core_api_get "runtime-signals/pods/$POD_UID" "$TOKEN" "$CORE_POD" || echo "{}")"
+EVENTS_RESP="$(core_api_get "runtime/pods/$POD_UID/signals" "$TOKEN" "$CORE_POD" || echo "{}")"
 EVENT_COUNT=$(echo "$EVENTS_RESP" | python3 -c 'import sys,json
 try:
  d=json.load(sys.stdin)
@@ -101,7 +101,7 @@ EOF
     POST_RESP="$(core_api_post_json "runtime-events" "$TOKEN" "$CORE_POD" "$SYNTH_PAYLOAD" || echo "{}")"
     echo "Synthetic event response: $POST_RESP"
     sleep 3
-    EVENTS_RESP="$(core_api_get "runtime-signals/pods/$POD_UID" "$TOKEN" "$CORE_POD" || echo "{}")"
+    EVENTS_RESP="$(core_api_get "runtime/pods/$POD_UID/signals" "$TOKEN" "$CORE_POD" || echo "{}")"
     EVENT_COUNT=$(echo "$EVENTS_RESP" | python3 -c 'import sys,json
 try:
  d=json.load(sys.stdin)

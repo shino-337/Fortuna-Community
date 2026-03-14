@@ -12,3 +12,6 @@ declare module 'react-router-dom';
 declare module 'lucide-react';
 declare module 'recharts';
 declare module 'd3';
+
+/** Injected at build time by Vite (vite.config.ts define). */
+declare const __BUILD_TIME__: string | undefined;

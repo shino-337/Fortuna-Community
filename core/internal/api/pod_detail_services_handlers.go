@@ -44,12 +44,12 @@ func GetPodRuntimeMetrics(db *gorm.DB) gin.HandlerFunc {
 
 func GetPodRuntimeMetricsByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+		podUID := c.Param("uid")
+		if podUID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
-		getPodRuntimeMetricsByUID(c, db, uid)
+		getPodRuntimeMetricsByUID(c, db, podUID)
 	}
 }
 
@@ -82,12 +82,12 @@ func GetPodProcesses(db *gorm.DB) gin.HandlerFunc {
 
 func GetPodProcessesByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+		podUID := c.Param("uid")
+		if podUID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
-		getPodProcessesByUID(c, db, uid)
+		getPodProcessesByUID(c, db, podUID)
 	}
 }
 
@@ -121,12 +121,12 @@ func GetPodNetworkConnections(db *gorm.DB) gin.HandlerFunc {
 
 func GetPodNetworkConnectionsByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+		podUID := c.Param("uid")
+		if podUID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
-		getPodNetworkConnectionsByUID(c, db, uid)
+		getPodNetworkConnectionsByUID(c, db, podUID)
 	}
 }
 
@@ -159,12 +159,12 @@ func GetPodEvents(db *gorm.DB) gin.HandlerFunc {
 
 func GetPodEventsByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+		podUID := c.Param("uid")
+		if podUID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
-		getPodEventsByUID(c, db, uid)
+		getPodEventsByUID(c, db, podUID)
 	}
 }
 
@@ -224,10 +224,11 @@ func IngestPodRuntimeMetricsPayload(db *gorm.DB) gin.HandlerFunc {
 func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			PodUID    string         `json:"podUid" binding:"required"`
-			ClusterID string         `json:"clusterId" binding:"required"`
-			Namespace string         `json:"namespace" binding:"required"`
-			Processes []models.PodProcess `json:"processes"`
+			PodUID        string               `json:"podUid" binding:"required"`
+			ClusterID     string               `json:"clusterId" binding:"required"`
+			Namespace     string               `json:"namespace" binding:"required"`
+			RuntimeSource string               `json:"runtimeSource"` // optional: "host" | "exec" for UI indicator
+			Processes     []models.PodProcess  `json:"processes"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -237,6 +238,10 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid required and must not be 0 or empty"})
 			return
 		}
+		runtimeSource := req.RuntimeSource
+		if runtimeSource != "host" && runtimeSource != "exec" {
+			runtimeSource = "exec"
+		}
 		now := time.Now()
 		for i := range req.Processes {
 			req.Processes[i].PodUID = req.PodUID
@@ -244,6 +249,7 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 			req.Processes[i].Namespace = req.Namespace
 			req.Processes[i].ObservedAt = now
 			req.Processes[i].CreatedAt = now
+			req.Processes[i].RuntimeSource = runtimeSource
 			// Phase 4.2: encrypt sensitive fields at-rest when POD_DETAIL_ENCRYPTION_KEY is set
 			req.Processes[i].Command = EncryptSensitive(req.Processes[i].Command)
 			req.Processes[i].BinaryPath = EncryptSensitive(req.Processes[i].BinaryPath)
@@ -263,10 +269,11 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
-			PodUID      string                         `json:"podUid" binding:"required"`
-			ClusterID   string                         `json:"clusterId" binding:"required"`
-			Namespace   string                         `json:"namespace" binding:"required"`
-			Connections []models.PodNetworkConnection  `json:"connections"`
+			PodUID        string                        `json:"podUid" binding:"required"`
+			ClusterID     string                        `json:"clusterId" binding:"required"`
+			Namespace     string                        `json:"namespace" binding:"required"`
+			RuntimeSource string                        `json:"runtimeSource"` // optional: "host" | "exec" for UI indicator
+			Connections   []models.PodNetworkConnection `json:"connections"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -276,6 +283,10 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid required and must not be 0 or empty"})
 			return
 		}
+		runtimeSource := req.RuntimeSource
+		if runtimeSource != "host" && runtimeSource != "exec" {
+			runtimeSource = "exec"
+		}
 		now := time.Now()
 		for i := range req.Connections {
 			req.Connections[i].PodUID = req.PodUID
@@ -283,9 +294,16 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 			req.Connections[i].Namespace = req.Namespace
 			req.Connections[i].ObservedAt = now
 			req.Connections[i].CreatedAt = now
+			req.Connections[i].RuntimeSource = runtimeSource
 		}
 		if len(req.Connections) > 0 {
-			if err := dbIngestWithRetry(db, func(tx *gorm.DB) error { return tx.CreateInBatches(req.Connections, 100).Error }); err != nil {
+			// Use PrepareStmt to reuse INSERT plan; smaller batch (50) to reduce per-statement time and stay under PG param limit.
+			session := db.Session(&gorm.Session{PrepareStmt: true})
+			if err := dbIngestWithRetry(session, func(tx *gorm.DB) error {
+				return tx.Transaction(func(tx2 *gorm.DB) error {
+					return tx2.CreateInBatches(req.Connections, 50).Error
+				})
+			}); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}

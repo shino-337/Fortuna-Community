@@ -35,7 +35,7 @@ func GetGraph(db *gorm.DB) gin.HandlerFunc {
 // GetBlastRadius returns blast radius for a resource
 func GetBlastRadius(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		resourceID := c.Param("id")
+		resourceID := c.Param("uid")
 		maxDepthStr := c.DefaultQuery("max_depth", "3")
 		maxDepth, _ := strconv.Atoi(maxDepthStr)
 
@@ -108,7 +108,7 @@ func GetShortestPath(db *gorm.DB) gin.HandlerFunc {
 // GetAccessibleResources returns resources accessible by a ServiceAccount
 func GetAccessibleResources(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		saID := c.Param("id")
+		saID := c.Param("uid")
 		resourceType := c.DefaultQuery("type", "secrets")
 
 		graphEngine, err := graph.NewAgeGraphEngine(db)

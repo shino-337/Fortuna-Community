@@ -9,8 +9,9 @@ description: "Role or ClusterRole contains wildcard (*) permissions"
 enabled: true
 
 conditions:
+  # CEL: input is "object" (Role/ClusterRole). rules is list; check resources/verbs membership.
   - type: expression
-    expression: "rules[].resources contains '*' || rules[].verbs contains '*'"
+    expression: "object.rules.exists(r, '*' in r.resources) || object.rules.exists(r, '*' in r.verbs)"
 
 aggregation: OR
 base_score: 8.0

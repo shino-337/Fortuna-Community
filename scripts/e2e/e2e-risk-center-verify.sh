@@ -7,9 +7,9 @@
 # 1. Lấy cluster_id và một pod uid từ DB (pod thuộc cluster).
 # 2. Xóa insight E2E cũ (cve_id = 'E2E-RISK-CENTER') nếu có.
 # 3. Insert 1 insight vulnerability (active, high) cho pod đó.
-# 4. Gọi GET /api/v1/risks?clusterId=... và GET /api/v1/insights/summary?clusterId=...
+# 4. Gọi GET /api/v1/risk/insights?clusterId=... và GET /api/v1/risk/insights/summary?clusterId=...
 # 5. Assert total >= 1 và summary high hoặc critical >= 1.
-# 6. Gọi GET /api/v1/runtime-signals (tab Reference) và ghi kết quả.
+# 6. Gọi GET /api/v1/runtime/signals (tab Reference) và ghi kết quả.
 # ============================================================================
 
 set -euo pipefail
@@ -88,9 +88,9 @@ else
 fi
 echo ""
 
-# 4. GET /risks (Risk Center list)
-info "GET /api/v1/risks (clusterId=$CLUSTER_ID)..."
-RISKS_RESP=$(api_get "risks?page=1&pageSize=5&clusterId=${CLUSTER_ID}")
+# 4. GET /risk/insights (Risk Center list)
+info "GET /api/v1/risk/insights (clusterId=$CLUSTER_ID)..."
+RISKS_RESP=$(api_get "risk/insights?page=1&pageSize=5&clusterId=${CLUSTER_ID}")
 RISKS_TOTAL=$(echo "$RISKS_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "0")
 RISKS_LEN=$(echo "$RISKS_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('insights',[])))" 2>/dev/null || echo "0")
 if [ "${RISKS_TOTAL:-0}" -ge 1 ]; then
@@ -100,9 +100,9 @@ else
 fi
 echo ""
 
-# 5. GET /insights/summary (severity bar)
-info "GET /api/v1/insights/summary (clusterId=$CLUSTER_ID)..."
-SUMMARY_RESP=$(api_get "insights/summary?clusterId=${CLUSTER_ID}")
+# 5. GET /risk/insights/summary (severity bar)
+info "GET /api/v1/risk/insights/summary (clusterId=$CLUSTER_ID)..."
+SUMMARY_RESP=$(api_get "risk/insights/summary?clusterId=${CLUSTER_ID}")
 SUM_TOTAL=$(echo "$SUMMARY_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "0")
 SUM_CRIT=$(echo "$SUMMARY_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('critical',0))" 2>/dev/null || echo "0")
 SUM_HIGH=$(echo "$SUMMARY_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('high',0))" 2>/dev/null || echo "0")
@@ -113,12 +113,12 @@ else
 fi
 echo ""
 
-# 6. GET /runtime-signals (Risk Center tab Reference / block Runtime signals)
-info "GET /api/v1/runtime-signals (Risk Center Reference tab)..."
-RT_RESP=$(api_get "runtime-signals?limit=10")
+# 6. GET /runtime/signals (Risk Center tab Reference / block Runtime signals)
+info "GET /api/v1/runtime/signals (Risk Center Reference tab)..."
+RT_RESP=$(api_get "runtime/signals?limit=10")
 RT_TOTAL=$(echo "$RT_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total',0))" 2>/dev/null || echo "0")
 RT_COUNT=$(echo "$RT_RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('signals',[])))" 2>/dev/null || echo "0")
-ok "GET /runtime-signals: total=$RT_TOTAL, count=$RT_COUNT"
+ok "GET /runtime/signals: total=$RT_TOTAL, count=$RT_COUNT"
 echo ""
 
 # Summary

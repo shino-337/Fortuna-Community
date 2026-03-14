@@ -23,6 +23,7 @@ type PodCapabilityDTO struct {
 	MitreTechniques []string               `json:"mitreTechniques"`
 	CreatedAt       string                 `json:"createdAt"`
 	UpdatedAt       string                 `json:"updatedAt"`
+	LastSeenAt      string                 `json:"lastSeenAt,omitempty"` // RFC3339; for PCE drill-down "Last Seen" column
 }
 
 // hasPodCapabilitiesTable returns true if pod_capabilities table exists (migration 041 has run).
@@ -30,31 +31,33 @@ func hasPodCapabilitiesTable(db *gorm.DB) bool {
 	return db.Migrator().HasTable("pod_capabilities")
 }
 
-// GetPodCapabilities returns capabilities for a specific pod UID.
+func getPodCapabilitiesByUID(c *gin.Context, db *gorm.DB, podUID string) {
+	if !hasPodCapabilitiesTable(db) {
+		c.JSON(http.StatusOK, gin.H{"podUid": podUID, "capabilities": []PodCapabilityDTO{}, "total": 0})
+		return
+	}
+	var caps []models.PodCapability
+	if err := db.Where("pod_uid = ?", podUID).Order("created_at DESC").Find(&caps).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	dtos := mapPodCapabilities(caps)
+	c.JSON(http.StatusOK, gin.H{
+		"podUid":       podUID,
+		"capabilities": dtos,
+		"total":        len(dtos),
+	})
+}
+
+// GetPodCapabilities returns capabilities for a specific pod (by UID). Used by /pods/:podUid/capabilities.
 func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"podUid": c.Param("id"), "capabilities": []PodCapabilityDTO{}, "total": 0})
-			return
-		}
-		podUID := c.Param("id")
+		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
-
-		var caps []models.PodCapability
-		if err := db.Where("pod_uid = ?", podUID).Order("created_at DESC").Find(&caps).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		dtos := mapPodCapabilities(caps)
-		c.JSON(http.StatusOK, gin.H{
-			"podUid":       podUID,
-			"capabilities": dtos,
-			"total":        len(dtos),
-		})
+		getPodCapabilitiesByUID(c, db, podUID)
 	}
 }
 
@@ -121,6 +124,10 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 			if cap.Evidence != "" {
 				_ = json.Unmarshal([]byte(cap.Evidence), &evidence)
 			}
+			lastSeenAt := ""
+			if cap.LastSeenAt != nil {
+				lastSeenAt = cap.LastSeenAt.Format(time.RFC3339)
+			}
 			dtos = append(dtos, PodCapabilityDTO{
 				PodUID:          cap.PodUID,
 				PodName:         cap.PodName,
@@ -132,6 +139,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 				MitreTechniques: []string(cap.MitreTechniques),
 				CreatedAt:       cap.CreatedAt.Format(time.RFC3339),
 				UpdatedAt:       cap.UpdatedAt.Format(time.RFC3339),
+				LastSeenAt:      lastSeenAt,
 			})
 		}
 
@@ -437,6 +445,10 @@ func mapPodCapabilities(caps []models.PodCapability) []PodCapabilityDTO {
 		if cap.Evidence != "" {
 			_ = json.Unmarshal([]byte(cap.Evidence), &evidence)
 		}
+		lastSeenAt := ""
+		if cap.LastSeenAt != nil {
+			lastSeenAt = cap.LastSeenAt.Format(time.RFC3339)
+		}
 		dtos = append(dtos, PodCapabilityDTO{
 			PodUID:          cap.PodUID,
 			Namespace:       cap.Namespace,
@@ -447,6 +459,7 @@ func mapPodCapabilities(caps []models.PodCapability) []PodCapabilityDTO {
 			MitreTechniques: []string(cap.MitreTechniques),
 			CreatedAt:       cap.CreatedAt.Format(time.RFC3339),
 			UpdatedAt:       cap.UpdatedAt.Format(time.RFC3339),
+			LastSeenAt:      lastSeenAt,
 		})
 	}
 	return dtos

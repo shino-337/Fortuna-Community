@@ -1,14 +1,16 @@
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Certificate, RotationEvent } from '../types';
 import { Card } from '../components/ui/Card';
-import { Lock, AlertCircle, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
+import { Lock, AlertCircle, CheckCircle, XCircle, RefreshCw, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty } from '../components/PageEmpty';
 import { formatDateTime } from '../lib/display';
 
 export const Certificates: React.FC = () => {
+  const navigate = useNavigate();
   const [certs, setCerts] = useState<Certificate[]>([]);
   const [history, setHistory] = useState<RotationEvent[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,10 @@ export const Certificates: React.FC = () => {
       title="Certificates"
       description="Core TLS certificate status and rotation history."
       actions={
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
+          </Button>
           <Button variant="secondary" onClick={fetchData} isLoading={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
           </Button>
@@ -109,22 +114,22 @@ export const Certificates: React.FC = () => {
         </div>
       )}
 
-      <Card className="mt-6" title="Rotation History">
+      <Card className="mt-6 p-0 overflow-hidden" title="Rotation History">
         {history.length === 0 ? (
           <PageEmpty title="No rotation history records" description="Rotation history table is not populated yet." className="py-8" />
         ) : (
-          <div className="overflow-x-auto">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
             <table className="w-full text-sm text-left">
-              <thead className="text-xs text-slate-400 uppercase border-b border-slate-800">
+              <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                 <tr>
                   <th className="px-4 py-3 font-medium">Time</th>
                   <th className="px-4 py-3 font-medium text-right">Status</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-border">
                 {history.map((event) => (
-                  <tr key={event.id} className="hover:bg-slate-800/50">
-                    <td className="px-4 py-3 text-white font-mono">{formatDateTime(event.timestamp)}</td>
+                  <tr key={event.id} className="hover:bg-muted/30">
+                    <td className="px-4 py-3 text-text font-mono">{formatDateTime(event.timestamp)}</td>
                     <td className="px-4 py-3 text-right">
                       <span className={`inline-flex items-center text-xs font-medium px-2 py-0.5 rounded border ${event.success ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-red-400 bg-red-500/10 border-red-500/20'}`}>
                         {event.success ? 'success' : 'failed'}

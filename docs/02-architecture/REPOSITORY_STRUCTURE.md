@@ -36,7 +36,7 @@ Kubernetes deployment manifests:
 - `push-images-to-workers.sh` - Multi-node image distribution
 - `verify-database-schema.sh` - Schema verification
 - `pre-deployment-checks.sh` - Pre-deployment validation
-- `run-e2e-tests.sh` - End-to-end testing
+- `run-e2e.sh` - E2E entry point (--suite=full|risk-center|…)
 - `build-production.sh` - Production builds
 - `create-github-release.sh` - Release management
 
@@ -63,7 +63,7 @@ Kubernetes deployment manifests:
 
 **In Git:**
 - Test specifications and test cases
-- `run-e2e-tests.sh` script
+- `run-e2e.sh` script
 
 **Local Only (excluded):**
 - `results/` - All test results

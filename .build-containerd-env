@@ -1,0 +1,2 @@
+export NERDCTL_BIN=nerdctl
+export CONTAINERD_NAMESPACE=k8s.io

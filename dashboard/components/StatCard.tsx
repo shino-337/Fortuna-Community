@@ -21,26 +21,31 @@ export const StatCard: React.FC<StatCardProps> = ({
   trend,
   trendLabel = 'vs last month',
   trendDirection = 'neutral',
-  color = 'bg-slate-800 text-slate-400'
+  color = 'bg-slate-800 text-slate-400',
 }) => {
   return (
-    <div className="bg-slate-900 rounded-xl border border-slate-800 p-6 shadow-sm hover:shadow-md transition-shadow">
+    <div className="bg-surface rounded-lg border border-border p-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-400">{title}</p>
-          <h4 className="text-2xl font-bold text-white mt-2">{value}</h4>
+          <p className="text-xs md:text-sm font-medium text-muted-2">{title}</p>
+          <h4 className="text-xl md:text-2xl font-bold text-text mt-1.5">{value}</h4>
         </div>
-        <div className={`p-3 rounded-lg ${color}`}>
+        <div className={`p-2.5 rounded-lg ${color}`}>
           {icon}
         </div>
       </div>
 
       {trend !== undefined && (
-        <div className="mt-4 flex items-center text-sm">
-          <span className={`flex items-center font-medium ${
-            trendDirection === 'up' ? 'text-emerald-400' :
-            trendDirection === 'down' ? 'text-red-400' : 'text-slate-400'
-          }`}>
+        <div className="mt-3 flex items-center text-xs md:text-sm">
+          <span
+            className={`flex items-center font-medium ${
+              trendDirection === 'up'
+                ? 'text-emerald-400'
+                : trendDirection === 'down'
+                ? 'text-red-400'
+                : 'text-slate-400'
+            }`}
+          >
             {trendDirection === 'up' && <ArrowUp className="w-3 h-3 mr-1" />}
             {trendDirection === 'down' && <ArrowDown className="w-3 h-3 mr-1" />}
             {trendDirection === 'neutral' && <Minus className="w-3 h-3 mr-1" />}
@@ -50,7 +55,7 @@ export const StatCard: React.FC<StatCardProps> = ({
         </div>
       )}
       {trend === undefined && subtitle && (
-        <p className="mt-2 text-sm text-slate-500">{subtitle}</p>
+        <p className="mt-1.5 text-xs md:text-sm text-slate-500">{subtitle}</p>
       )}
     </div>
   );

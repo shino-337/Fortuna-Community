@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Cluster, ClusterOverview, ClusterInventory, ClusterAgent, ClusterSecuritySummary } from '../types';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
+import { Tabs } from '../design-system/components/Tabs';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, Globe, Layers, Server, Shield } from 'lucide-react';
@@ -130,21 +131,7 @@ export const ClusterDetail: React.FC = () => {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 p-1 bg-slate-900/80 rounded-lg border border-slate-800 w-fit mb-6">
-        {tabs.map(({ id: tabId, label, icon }) => (
-          <button
-            key={tabId}
-            onClick={() => setActiveTab(tabId)}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
-              activeTab === tabId ? 'bg-pink-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            )}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs items={tabs} value={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
 
       {/* Tab content – real data from Core APIs */}
       {activeTab === 'overview' && (
@@ -239,9 +226,9 @@ export const ClusterDetail: React.FC = () => {
           {tabLoading ? (
             <PageLoading message="Loading agents..." className="py-8" />
           ) : agents.length > 0 ? (
-            <div className="overflow-x-auto">
+            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
               <table className="w-full text-sm">
-                <thead className="text-slate-400 border-b border-slate-800">
+                <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                   <tr>
                     <th className="text-left py-2">Node</th>
                     <th className="text-left py-2">Status</th>
@@ -249,17 +236,17 @@ export const ClusterDetail: React.FC = () => {
                     <th className="text-left py-2">Version</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {agents.map((a) => (
-                    <tr key={a.agentId}>
-                      <td className="py-2 font-mono text-white">{a.nodeName ?? '—'}</td>
+                    <tr key={a.agentId} className="hover:bg-muted/30">
+                      <td className="py-2 font-mono text-text">{a.nodeName ?? '—'}</td>
                       <td className="py-2">
                         <span className={a.status === 'healthy' ? 'text-emerald-400' : a.status === 'slow' ? 'text-amber-400' : 'text-red-400'}>
                           {getAgentStatusLabel(a.status)}
                         </span>
                       </td>
-                      <td className="py-2 text-slate-400">{formatDateTime(a.lastHeartbeat)}</td>
-                      <td className="py-2 text-slate-400">{a.version ?? '—'}</td>
+                      <td className="py-2 text-muted">{formatDateTime(a.lastHeartbeat)}</td>
+                      <td className="py-2 text-muted">{a.version ?? '—'}</td>
                     </tr>
                   ))}
                 </tbody>

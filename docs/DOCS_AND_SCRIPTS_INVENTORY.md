@@ -43,8 +43,7 @@
 
 ### clean/
 - cleanup-environment.sh, clean-containerd-images.sh, clean-rebuild-dashboard.sh
-- clean-host-images-and-junk.sh, clean-e2e-test-images.sh, cleanup-orphaned-migrations.sh
-- **Đã xóa trong working tree:** clean-evicted-completed-pods.sh
+- clean-host-images-and-junk.sh, clean-e2e-test-images.sh, cleanup-orphaned-migrations.sh, **clean-evicted-completed-pods.sh**
 
 ### build/
 - build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh
@@ -58,11 +57,11 @@
 - expand-disk-worker01-remote.sh
 
 ### e2e/
-- run-e2e-full.sh, run-e2e-all-verify.sh, run-e2e-with-capability-report.sh
-- run-e2e-complete-with-monitor.sh, run-pod-detail-test-suite.sh, run-dashboard-data-tests.sh
+- run-e2e.sh (entry point), run-e2e-full.sh, run-e2e-with-capability-report.sh
+- run-pod-detail-test-suite.sh, run-dashboard-data-tests.sh
 - e2e-sbom-verify.sh, e2e-risk-center-verify.sh, e2e-pod-delete-cleanup-verify.sh
 - test-priority1-apis.sh, test-sbom-pod-flow.sh, test-pod-*.sh, test-pod-detail-ping-flow.sh, test-pod-detail-lodash-network.sh, test-pce-api.sh, ...
-- **Đã xóa trong working tree:** run-e2e-tests.sh, e2e-dashboard-data.sh, test-pce-e2e.sh, test-runtime-signals-e2e.sh
+- **Đã xóa / thay thế:** run-e2e-tests.sh, run-e2e-complete-with-monitor.sh, run-e2e-all-verify.sh (thay bằng run-e2e.sh --suite=…); e2e-dashboard-data.sh, test-pce-e2e.sh, test-runtime-signals-e2e.sh vẫn giữ nếu có trong repo
 
 ### monitor/
 - monitor-testcases.sh, monitor-runtime-signals.sh, monitor-agent-core.sh, monitor-agent-core-errors.sh

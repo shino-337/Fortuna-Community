@@ -2,7 +2,7 @@
 # Build context: repository root
 # Usage: docker build -f agent/Dockerfile -t fortuna-agent:latest .
 FROM golang:1.24 AS builder
-
+ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
 
 # Build metadata
@@ -63,12 +63,16 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
 # Verify Agent binary exists
 RUN test -f /fortuna-agent || (echo "ERROR: /fortuna-agent not found after build" && exit 1)
 
+# Build identifier for verifying image in pod (same pattern as dashboard)
+RUN echo "build=$(date -Iseconds) utc" > /build-version.txt
+
 # Clean up Go caches to free disk space (after verifying binary exists)
 RUN go clean -cache -modcache -testcache && \
     rm -rf /tmp/go-build-cache /tmp/go-mod-cache /root/.cache/go-build 2>/dev/null || true
 
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install only runtime dependencies
 # Note: docker-cli is needed for SBOM extraction
@@ -92,8 +96,9 @@ RUN for i in 1 2 3 4 5; do \
 
 WORKDIR /app
 
-# Copy binary from builder with proper ownership
+# Copy binary and version file from builder
 COPY --from=builder --chown=fortuna:fortuna /fortuna-agent /app/fortuna-agent
+COPY --from=builder /build-version.txt /app/version.txt
 
 # Ensure all files are owned by fortuna user
 RUN chown -R fortuna:fortuna /app

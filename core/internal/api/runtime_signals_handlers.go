@@ -100,7 +100,7 @@ func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 // GetRuntimeSignalsByPod returns runtime signals for a specific pod
 func GetRuntimeSignalsByPod(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		podUID := c.Param("podUid")
+		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
 			return

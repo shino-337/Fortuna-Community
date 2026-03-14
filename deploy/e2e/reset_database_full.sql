@@ -34,12 +34,21 @@ DROP TABLE IF EXISTS cluster_role_bindings CASCADE;
 DROP TABLE IF EXISTS nodes CASCADE;
 DROP TABLE IF EXISTS namespaces CASCADE;
 DROP TABLE IF EXISTS clusters CASCADE;
+-- risk_rules (075); pod detail / metrics (071); promotion/capability (048,047); cve_file_metadata (027); cve_matches (mvp2)
+DROP TABLE IF EXISTS risk_rules CASCADE;
+DROP TABLE IF EXISTS pod_runtime_metrics CASCADE;
+DROP TABLE IF EXISTS pod_processes CASCADE;
+DROP TABLE IF EXISTS pod_network_connections CASCADE;
+DROP TABLE IF EXISTS k8s_events CASCADE;
+DROP TABLE IF EXISTS promotion_rules CASCADE;
+DROP TABLE IF EXISTS capability_metadata CASCADE;
+DROP TABLE IF EXISTS cve_file_metadata CASCADE;
+DROP TABLE IF EXISTS cve_matches CASCADE;
 DROP TABLE IF EXISTS sbom_components CASCADE;
 DROP TABLE IF EXISTS sboms CASCADE;
 DROP TABLE IF EXISTS image_scan_results CASCADE;
 DROP TABLE IF EXISTS notifications CASCADE;
 DROP TABLE IF EXISTS error_logs CASCADE;
--- Add other Fortuna tables if migrations create more
 DROP TABLE IF EXISTS policy_evaluation_costs CASCADE;
 DROP TABLE IF EXISTS certificate_rotation_history CASCADE;
 

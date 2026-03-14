@@ -85,8 +85,8 @@ Reporter.reportOnce()
 
 | # | Hạng mục | Chi tiết | Trạng thái |
 |---|----------|----------|------------|
-| 0.1 | hostPID | DaemonSet: `hostPID: true` để đọc /proc của các process trên node | Chưa |
-| 0.2 | Mount /proc | Volume hostPath `/proc` → mount trong agent (readOnly) | Chưa |
+| 0.1 | hostPID | DaemonSet: `hostPID: true` để đọc /proc của các process trên node | ✅ Đã làm |
+| 0.2 | Mount /proc | Volume hostPath `/proc` → mount trong agent (readOnly) tại `/host/proc` | ✅ Đã làm |
 | 0.3 | Mount /sys (optional) | Có thể cần cho cgroup v2 hoặc cpu/memory (phase sau) | Tùy chọn |
 | 0.4 | Bỏ exec permission | Sau khi host pipeline ổn định: có thể thu hồi `pods/exec` khỏi ClusterRole (tùy chọn) | Sau |
 
@@ -100,11 +100,11 @@ Reporter.reportOnce()
 
 | # | Hạng mục | Chi tiết | File / gói dự kiến |
 |---|----------|----------|--------------------|
-| 1.1 | ContainerID → Pod map | Hàm build từ `[]corev1.Pod` (Status.ContainerStatuses) → map containerID short → (podUID, namespace, containerName). Xử lý prefix `containerd://`, `cri-o://`. | `agent/internal/poddetail/host_map.go` (mới) |
-| 1.2 | Đọc cgroup từ /proc | Đọc `/proc/<pid>/cgroup`, parse cgroup v1 và v2, trích containerID (containerd/cri-o). Trả về (containerIDShort, nil) hoặc ("", err) nếu không phải container. | `agent/internal/poddetail/cgroup.go` (mới) |
-| 1.3 | List PID từ /proc | Duyệt thư mục /proc, lấy các tên là số (PID); bỏ qua lỗi đọc. | `agent/internal/poddetail/proc_scan.go` (mới) |
-| 1.4 | Process từ /proc | Với mỗi PID: đọc cgroup → containerID; nếu có trong map → đọc `/proc/<pid>/comm`, `/proc/<pid>/stat` (ppid, comm). Tạo processPayload(containerName, pid, ppid, comm, ...); userName/cpuPercent/memoryPercent có thể để ""/0. | `agent/internal/poddetail/host_process.go` (mới) |
-| 1.5 | Tích hợp Reporter | Thêm mode: env `POD_DETAIL_RUNTIME_SOURCE=host` (hoặc auto-detect: nếu hostPID và có /proc thì dùng host). Khi mode host: gọi CollectProcessesFromHost thay vì CollectProcessesFromPod; vẫn gửi theo từng pod (group process theo podUid). | `agent/internal/poddetail/reporter.go`, `host_process.go` |
+| 1.1 | ContainerID → Pod map | Hàm build từ `[]corev1.Pod` (Status.ContainerStatuses) → map containerID short → (podUID, namespace, containerName). Xử lý prefix `containerd://`, `cri-o://`. | ✅ `host_map.go` |
+| 1.2 | Đọc cgroup từ /proc | Đọc `/proc/<pid>/cgroup`, parse cgroup v1 và v2, trích containerID (containerd/cri-o). | ✅ `cgroup.go` |
+| 1.3 | List PID từ /proc | Duyệt thư mục /proc, lấy các tên là số (PID); bỏ qua lỗi đọc. | ✅ `proc_scan.go` |
+| 1.4 | Process từ /proc | Với mỗi PID: cgroup → containerID; map → đọc comm/stat; tạo processPayload. | ✅ `host_process.go` |
+| 1.5 | Tích hợp Reporter | Env `POD_DETAIL_RUNTIME_SOURCE=host` → CollectProcessesFromHost, group theo podUid, sendProcessSnapshotsForPod. | ✅ `reporter.go` |
 
 **Deliverable Phase 1:** Process list lấy từ host; không exec; Dashboard vẫn hiển thị process theo pod/container. Payload và API Core không đổi.
 
@@ -169,7 +169,20 @@ Reporter.reportOnce()
 
 ---
 
-## 5. Thứ tự thực hiện đề xuất
+## 5. Luồng dữ liệu (Core / Agent / DB / Dashboard)
+
+| Bước | Thành phần | Mô tả |
+|------|------------|--------|
+| 1 | Agent | `reportOnce()`: listPodsOnNode → (khi host) BuildContainerIDToPodMap, CollectProcessesFromHost, CollectNetworkFromHost; group theo podUID. |
+| 2 | Agent | POST `/api/v1/agent/pod-processes` (podUid, clusterId, namespace, **runtimeSource**, processes[]); POST `/api/v1/agent/pod-network-connections` (tương tự + connections[]). |
+| 3 | Core | IngestPodProcessesPayload / IngestPodNetworkConnectionsPayload: bind JSON, set RuntimeSource trên từng row, db.CreateInBatches; BroadcastPodDetailUpdate(podUid, "processes"|"network"). |
+| 4 | DB | `pod_processes`, `pod_network_connections` (cột `runtime_source` VARCHAR(32) DEFAULT 'exec'). |
+| 5 | Core | GET `/api/v1/pods/:id/processes`, `by-uid/:uid/processes` → getPodProcessesByUID; GET network-connections tương tự; decrypt process list; JSON { podUid, items: [...] } (mỗi item có runtimeSource). |
+| 6 | Dashboard | getPodProcesses / getPodNetworkConnections → hiển thị bảng; badge "Runtime: Host Inspection" khi items[0].runtimeSource === 'host', ngược lại "Container Exec". |
+
+---
+
+## 6. Thứ tự thực hiện đề xuất
 
 | Thứ tự | Phase | Nội dung |
 |--------|--------|----------|
@@ -181,7 +194,7 @@ Reporter.reportOnce()
 
 ---
 
-## 6. Rủi ro và giảm thiểu
+## 7. Rủi ro và giảm thiểu
 
 | Rủi ro | Giảm thiểu |
 |--------|------------|
@@ -192,13 +205,14 @@ Reporter.reportOnce()
 
 ---
 
-## 7. Checklist triển khai
+## 8. Checklist triển khai
 
-- [ ] Phase 0: DaemonSet hostPID + mount /proc
-- [ ] Phase 1.1–1.4: host_map, cgroup, proc_scan, host_process
-- [ ] Phase 1.5: Reporter tích hợp host process
-- [ ] Phase 2.1–2.3: proc_net, host_network, Reporter network host
-- [ ] Phase 3: Env POD_DETAIL_RUNTIME_SOURCE, fallback
-- [ ] Phase 4: UI Runtime Source (và optional Core field)
-- [ ] Test: distroless pod có process/network từ host; so sánh với exec (khi có) về số process/connection
-- [ ] Doc: cập nhật Runtime_Monitoring_Architecture.md và Pod_Detail_Implementation_Plan.md khi hoàn thành từng phase
+- [x] Phase 0: DaemonSet hostPID + mount /proc — **Đã làm:** `deploy/fortuna-agent-daemonset.yaml` (hostPID: true, volume host-proc /proc → /host/proc, env POD_DETAIL_RUNTIME_SOURCE commented)
+- [x] Phase 1.1–1.4: host_map, cgroup, proc_scan, host_process — **Đã làm:** `agent/internal/poddetail/host_map.go`, `cgroup.go`, `proc_scan.go`, `host_process.go`
+- [x] Phase 1.5: Reporter tích hợp host process — **Đã làm:** `reporter.go` (useHostRuntime(), hostProcRoot(), CollectProcessesFromHost, sendProcessSnapshotsForPod; env POD_DETAIL_RUNTIME_SOURCE=host, POD_DETAIL_PROC_ROOT)
+- [x] Phase 2.1–2.3: proc_net, host_network, Reporter network host — **Đã làm:** `proc_net.go`, `host_network.go`, Reporter gọi CollectNetworkFromHost và sendNetworkConnectionsForPod
+- [x] Phase 3: Env POD_DETAIL_RUNTIME_SOURCE=auto + fallback — **Đã làm:** `useHostRuntime()` hỗ trợ host|exec|auto; `canUseHostProc(procRoot)` khi auto
+- [x] Phase 4: UI Runtime Source — **Đã làm:** Migration 074 (runtime_source), Core models + ingest; Agent gửi runtimeSource: "host"; Dashboard badge "Runtime: Host Inspection | Container Exec"
+- [ ] Test E2E: distroless pod có process/network từ host; so sánh với exec (khi có) về số process/connection
+- [x] Unit test: host_map_test, cgroup_test, proc_scan_test, host_process_test, proc_net_test
+- [ ] Doc: cập nhật Runtime_Monitoring_Architecture.md khi cần

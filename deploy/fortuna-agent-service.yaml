@@ -1,5 +1,9 @@
 ---
-# Service for Fortuna Agent (DaemonSet) - metrics port for port-forward / debugging
+# Service for Fortuna Agent (DaemonSet).
+# Note: Agent does not expose an HTTP/gRPC server; it only connects outbound to Core.
+# Port-forward to this Service will fail (connection refused) until we add a health/metrics listener.
+# Use: kubectl logs -n fortuna -l app.kubernetes.io/component=agent
+#      kubectl exec -n fortuna -it <agent-pod> -- /app/fortuna-agent (if needed)
 apiVersion: v1
 kind: Service
 metadata:
@@ -13,8 +17,9 @@ spec:
   selector:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: agent
-  ports:
-    - name: metrics
-      port: 81
-      targetPort: 81
-      protocol: TCP
+  # No ports: agent has no incoming listener. Uncomment when/if agent exposes health on 81:
+  # ports:
+  #   - name: metrics
+  #     port: 81
+  #     targetPort: 81
+  #     protocol: TCP

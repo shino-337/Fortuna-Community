@@ -1,15 +1,17 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { AuditLog } from '../types';
 import { Card } from '../components/ui/Card';
-import { Download } from 'lucide-react';
+import { Download, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
 export const Audit: React.FC = () => {
+  const navigate = useNavigate();
   const [logs, setLogs] = useState<AuditLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -33,16 +35,21 @@ export const Audit: React.FC = () => {
       title="Audit Logs"
       description="Track system activities and user actions."
       actions={
-        <Button variant="secondary">
-          <Download className="w-4 h-4 mr-2" />
-          Export CSV
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
+          </Button>
+          <Button variant="secondary">
+            <Download className="w-4 h-4 mr-2" />
+            Export CSV
+          </Button>
+        </div>
       }
     >
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-18rem)] overflow-y-auto">
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
+            <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
               <tr>
                 <th className="px-6 py-4 font-medium">Timestamp</th>
                 <th className="px-6 py-4 font-medium">Actor</th>
@@ -52,20 +59,20 @@ export const Audit: React.FC = () => {
                 <th className="px-6 py-4 font-medium">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-6 py-8 text-center text-slate-500">Loading...</td>
+                  <td colSpan={6} className="px-6 py-8 text-center text-muted">Loading...</td>
                 </tr>
               ) : (
               logs.map((log) => (
-                <tr key={log.id} className="hover:bg-slate-800/50 transition-colors">
-                  <td className="px-6 py-4 font-mono text-slate-500 whitespace-nowrap">
+                <tr key={log.id} className="hover:bg-muted/30 transition-colors">
+                  <td className="px-6 py-4 font-mono text-muted whitespace-nowrap">
                     {log.timestamp}
                   </td>
-                  <td className="px-6 py-4 font-medium text-white">{log.actor}</td>
-                  <td className="px-6 py-4 text-slate-300">{log.action}</td>
-                  <td className="px-6 py-4 text-slate-400 font-mono text-xs">{log.resource}</td>
+                  <td className="px-6 py-4 font-medium text-text">{log.actor}</td>
+                  <td className="px-6 py-4 text-muted">{log.action}</td>
+                  <td className="px-6 py-4 text-muted font-mono text-xs">{log.resource}</td>
                   <td className="px-6 py-4">
                     <span className={`
                       inline-flex items-center px-2 py-0.5 rounded text-xs font-medium capitalize
@@ -76,7 +83,7 @@ export const Audit: React.FC = () => {
                       {log.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 text-slate-500 truncate max-w-xs" title={log.details}>
+                  <td className="px-6 py-4 text-muted truncate max-w-xs" title={log.details}>
                     {log.details}
                   </td>
                 </tr>

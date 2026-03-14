@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"path"
+	"strings"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -84,7 +86,10 @@ func BroadcastPodDetailUpdate(uid string, dataType string) {
 	defaultPodDetailHub.Broadcast(uid, msg)
 }
 
+const wsPodPathPrefix = "/ws/pod/"
+
 // PodDetailWS handles GET /api/v1/ws/pod/:uid — upgrades to WebSocket and pushes updates when ingest completes for that UID.
+// UID is taken from the path after "/ws/pod/" so it works even when the proxy or router does not set :uid.
 func PodDetailWS() gin.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
@@ -94,14 +99,38 @@ func PodDetailWS() gin.HandlerFunc {
 		},
 	}
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
+		pathRaw := c.Request.URL.Path
+		// Prefer uid from path: /api/v1/ws/pod/<uid> or /ws/pod/<uid> so proxies that strip or alter path still work.
+		uid := ""
+		if idx := strings.Index(pathRaw, wsPodPathPrefix); idx >= 0 {
+			uid = strings.TrimSpace(pathRaw[idx+len(wsPodPathPrefix):])
+			if i := strings.Index(uid, "?"); i >= 0 {
+				uid = strings.TrimSpace(uid[:i])
+			}
+			uid = strings.Trim(uid, "/")
+		}
 		if uid == "" {
+			uid = strings.TrimSpace(c.Param("uid"))
+		}
+		if uid == "" && c.Request.URL != nil {
+			base := strings.TrimSuffix(pathRaw, "/")
+			uid = path.Base(base)
+		}
+		if uid == "" || uid == "pod" {
+			log.Printf("[PodDetail WS] 400: uid empty; path=%q", pathRaw)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid required"})
+			return
+		}
+		// Require WebSocket upgrade headers so we return JSON 400 instead of Upgrader's plain 400.
+		upgrade := c.GetHeader("Upgrade")
+		if !strings.EqualFold(strings.TrimSpace(upgrade), "websocket") {
+			log.Printf("[PodDetail WS] 400: not a WebSocket request; path=%q Upgrade=%q", pathRaw, upgrade)
+			c.JSON(http.StatusBadRequest, gin.H{"error": "WebSocket upgrade required (Upgrade: websocket)"})
 			return
 		}
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
-			log.Printf("[PodDetail WS] upgrade error: %v", err)
+			log.Printf("[PodDetail WS] upgrade error: %v (path=%q Upgrade=%q Connection=%q)", err, pathRaw, c.GetHeader("Upgrade"), c.GetHeader("Connection"))
 			return
 		}
 		wc := &podDetailWSConn{send: make(chan []byte, 8), conn: conn}

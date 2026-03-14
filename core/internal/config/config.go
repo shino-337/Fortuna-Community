@@ -78,6 +78,9 @@ func Load(configPath string) (*Config, error) {
 
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",
 		cfg.TLSEnabled, cfg.TLSCertPath, cfg.TLSCACertPath)
+	if cfg.JWTSecret == "your-secret-key-change-in-production" {
+		log.Printf("[Config] ⚠️  JWT_SECRET is default; set JWT_SECRET (and FORTUNA_ADMIN_* in migrations) in production")
+	}
 
 	return cfg, nil
 }

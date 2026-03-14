@@ -379,7 +379,7 @@ Without these, this is not considered a security-ready Pod Detail view.
 
 - **Database:** Migration 068 adds to `pods` table: `pod_ip`, `start_time`, `restart_count`, `owner_kind`, `owner_name`, `replica_set_name`, `qos_class`. Core model `Pod` and type `NullTime` (for `start_time`) in `core/pkg/models`.
 - **Agent:** Syncer sends Pod Detail fields in sync payload: `podIP`, `startTime` (RFC3339), `restartCount`, `ownerKind`, `ownerName`, `replicaSetName`, `qosClass`. QoS and owner refs derived from `corev1.Pod` in `agent/internal/syncer`.
-- **API:** `GET /api/v1/pods/:id` and `GET /api/v1/pods/by-uid/:uid` return these fields; dashboard type `PodWithRisk` includes them.
+- **API:** `GET /api/v1/pods/:id` and `GET /api/v1/pods/:podUid` return these fields; dashboard type `PodWithRisk` includes them.
 
 ---
 
@@ -453,7 +453,7 @@ End-to-end flow of pod information from Kubernetes to the Dashboard.
 │    riskCount per UID (from insights), paginated                                           │
 │  • GET /api/v1/pods/:id         → GetPod: one Pod by primary key, Preload(Cluster),      │
 │    riskCount                                                                              │
-│  • GET /api/v1/pods/by-uid/:uid → GetPodByUID: one Pod by uid, same shape                 │
+│  • GET /api/v1/pods/:podUid → GetPodByUID: one Pod by uid, same shape                 │
 │  • GET /api/v1/resources?kind=&namespace=&cluster= → GetResources: normalized list       │
 │    (kind, name, namespace, uid, clusterId); for Pod reads from pods table                 │
 └───────────────────────────────────┬─────────────────────────────────────────────────────┘
@@ -485,7 +485,7 @@ End-to-end flow of pod information from Kubernetes to the Dashboard.
 | 5 | Core | `processSyncedPods` iterates `data["pods"]`, parses each into `models.Pod` (including podIP, startTime, restartCount, owner*, qosClass), upserts by (cluster_id, uid); full sync then soft-deletes pods not in payload. |
 | 6 | DB | Rows in `pods` (and related tables) updated/created. |
 | 7 | Dashboard | User opens Resources → Pod tab: `getPods()` → `GET /api/v1/pods` → Core `GetPods` → query pods + riskCount → JSON. |
-| 8 | Dashboard | User clicks pod: navigate to `/resources/pods/:id` or `/resources/pods/uid/:uid` → PodDetail loads `getPod(id)` or `getPodByUid(uid)` → `GET /api/v1/pods/:id` or `GET /api/v1/pods/by-uid/:uid` → Core returns full Pod (with Cluster preload) + riskCount. |
+| 8 | Dashboard | User clicks pod: navigate to `/resources/pods/:id` or `/resources/pods/uid/:uid` → PodDetail loads `getPod(id)` or `getPodByUid(uid)` → `GET /api/v1/pods/:id` or `GET /api/v1/pods/:podUid` → Core returns full Pod (with Cluster preload) + riskCount. |
 | 9 | Dashboard | PodDetail renders header, status (phase), riskCount, serviceAccount, nodeName, Overview; SBOM and Risks tabs call getPodSbom / getPodRiskReport. |
 
 ## 20.3 Data Sources for Pod Detail View

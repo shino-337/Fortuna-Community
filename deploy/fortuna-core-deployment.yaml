@@ -80,7 +80,8 @@ spec:
         - name: core
           # Use :latest after build (BUILD_TAG=latest)
           image: fortuna-core:latest
-          imagePullPolicy: IfNotPresent
+          # Never pull: image must be built/loaded on node (e.g. build-and-load-containerd.sh on control-plane node)
+          imagePullPolicy: Never
           
           ports:
             - name: http

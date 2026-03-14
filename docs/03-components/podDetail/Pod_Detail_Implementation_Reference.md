@@ -26,13 +26,13 @@
 | Endpoint | Mô tả |
 |----------|--------|
 | `GET /pods/:id/runtime-metrics` | Metrics theo id (số). |
-| `GET /pods/by-uid/:uid/runtime-metrics` | Metrics theo uid. |
+| `GET /pods/:podUid/runtime-metrics` | Metrics theo uid. |
 | `GET /pods/:id/processes` | Process list theo id. |
-| `GET /pods/by-uid/:uid/processes` | Process list theo uid. |
+| `GET /pods/:podUid/processes` | Process list theo uid. |
 | `GET /pods/:id/network-connections` | Network connections theo id. |
-| `GET /pods/by-uid/:uid/network-connections` | Network connections theo uid. |
+| `GET /pods/:podUid/network-connections` | Network connections theo uid. |
 | `GET /pods/:id/events` | K8s events (involved_uid = pod) theo id. |
-| `GET /pods/by-uid/:uid/events` | K8s events theo uid. |
+| `GET /pods/:podUid/events` | K8s events theo uid. |
 
 ### 1.2 Response shape (GET)
 

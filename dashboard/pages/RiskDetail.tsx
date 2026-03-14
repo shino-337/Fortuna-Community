@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Insight, RuntimeSignal } from '../types';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle } from 'lucide-react';
@@ -121,17 +121,35 @@ export const RiskDetail: React.FC = () => {
           <span className={`px-3 py-1 rounded-full text-sm font-medium ${severityClass}`}>
             {insight.severity}
           </span>
-          <span className="text-slate-400 text-sm uppercase">{statusLabelMap[insight.status ?? ''] ?? (insight.status ?? 'Active')}</span>
+          <span className="text-slate-400 text-sm uppercase">
+            {statusLabelMap[insight.status ?? ''] ?? (insight.status ?? 'Active')}
+          </span>
           {insight.score != null && (
-            <span className="text-slate-400 text-sm">Risk score: {insight.score}/100</span>
+            <span className="text-slate-400 text-sm">
+              Risk score: <span className="text-slate-100 font-semibold">{insight.score}</span>/100
+            </span>
+          )}
+          {insight.priorityLevel && (
+            <span className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full border border-slate-700 text-slate-300">
+              Priority {insight.priorityLevel}
+            </span>
           )}
         </div>
         {insight.description && (
-          <p className="mt-4 text-slate-300 text-sm">{insight.description}</p>
+          <div className="mt-4">
+            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+              Why this risk matters
+            </h4>
+            <p className="text-slate-300 text-sm">
+              {insight.description}
+            </p>
+          </div>
         )}
         {insight.impact && (
           <div className="mt-4 pt-4 border-t border-slate-800">
-            <h4 className="text-slate-400 text-xs uppercase mb-1">Recommended action</h4>
+            <h4 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-1">
+              Remediation
+            </h4>
             <p className="text-slate-300 text-sm">{insight.impact}</p>
           </div>
         )}
@@ -228,9 +246,19 @@ export const RiskDetail: React.FC = () => {
                       <td className="py-1.5 font-medium text-amber-400">{s.signalType}</td>
                       <td className="py-1.5 text-slate-400">{s.category}</td>
                       <td className="py-1.5 text-slate-500 font-mono truncate max-w-[120px]" title={s.podUid}>
-                        {s.podUid ? `${s.podUid.slice(0, 8)}…` : '—'}
+                        {s.podUid ? (
+                          <button
+                            type="button"
+                            onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(s.podUid)}`)}
+                            className="text-pink-400 hover:text-pink-300 hover:underline"
+                          >
+                            {`${s.podUid.slice(0, 8)}…`}
+                          </button>
+                        ) : (
+                          '—'
+                        )}
                       </td>
-                      <td className="py-1.5 text-slate-500">{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
+                      <td className="py-1.5 text-muted">{s.createdAt ? new Date(s.createdAt).toLocaleString() : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -244,11 +272,11 @@ export const RiskDetail: React.FC = () => {
       {(insight.evidence != null || insight.violatedRules != null) && (
         <Card className="p-6 mt-6">
           <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-            <FileText className="w-5 h-5 text-pink-500" /> Technical Evidence & Violated Rules
+            <FileText className="w-5 h-5 text-pink-500" /> Evidence & Violated Rules
           </h3>
           {insight.evidence != null && (
             <div className="mb-4">
-              <h4 className="text-slate-400 text-sm uppercase mb-2">Evidence</h4>
+              <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-2">Evidence</h4>
               <pre className="p-3 bg-slate-900/50 rounded border border-slate-800 text-slate-300 text-xs overflow-x-auto">
                 {typeof insight.evidence === 'string'
                   ? insight.evidence
@@ -258,7 +286,7 @@ export const RiskDetail: React.FC = () => {
           )}
           {insight.violatedRules != null && (
             <div>
-              <h4 className="text-slate-400 text-sm uppercase mb-2">Violated Rules</h4>
+              <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-2">Violated Rules</h4>
               <pre className="p-3 bg-slate-900/50 rounded border border-slate-800 text-slate-300 text-xs overflow-x-auto">
                 {typeof insight.violatedRules === 'string'
                   ? insight.violatedRules

@@ -61,12 +61,12 @@ fi
 echo ""
 
 # --- API quick check ---
-section "API: GET /runtime-signals?limit=3"
+section "API: GET /runtime/signals?limit=3"
 if [ -n "$CORE_POD" ]; then
   TOKEN=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -X POST http://localhost:8080/api/v1/auth/login \
     -H "Content-Type: application/json" -d '{"username":"admin","password":"admin123"}' 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('token',''))" 2>/dev/null || echo "")
   if [ -n "$TOKEN" ]; then
-    RESP=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/runtime-signals?limit=3" 2>/dev/null || echo "{}")
+    RESP=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/runtime/signals?limit=3" 2>/dev/null || echo "{}")
     if echo "$RESP" | grep -q '"signals"'; then
       TOTAL=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total', 0))" 2>/dev/null || echo "?")
       ok "API total signals: $TOTAL"

@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"time"
 
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
@@ -55,6 +57,7 @@ func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB) *RiskWorker {
 		engine = riskengine.NewEngine(db)
 	}
 
+	riskengine.RegisterEngine(engine)
 	return &RiskWorker{
 		js:         js,
 		db:         db,
@@ -93,6 +96,7 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 
 	// Create or update insights (use batch processing for efficiency)
 	if len(insights) > 0 {
+		start := time.Now()
 		if err := w.insightMgr.BatchCreateOrUpdateInsights(insights); err != nil {
 			log.Printf("[RiskWorker] Failed to batch create/update insights: %v", err)
 			// Fallback to individual processing
@@ -106,9 +110,19 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			}
 			log.Printf("[RiskWorker] Created %d insights for %s/%s (total evaluated: %d)",
 				createdCount, namespace, name, len(insights))
+			if createdCount > 0 && w.js != nil {
+				_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
+				PublishSIEMEvents(w.js, insights)
+			}
 		} else {
+			metrics.RiskEvaluationDuration.Observe(time.Since(start).Seconds())
+			metrics.InsightsBatchSize.Observe(float64(len(insights)))
 			log.Printf("[RiskWorker] Batch created/updated %d insights for %s/%s",
 				len(insights), namespace, name)
+			if w.js != nil {
+				_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
+				PublishSIEMEvents(w.js, insights)
+			}
 		}
 	}
 

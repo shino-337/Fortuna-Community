@@ -183,6 +183,16 @@ See [API Reference](../../docs/06-reference/API_REFERENCE.md) for complete docum
 **NATS Durables**:
 - `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)
 
+**Risk Center – Insights retention** (cleanup job chạy mỗi 24h):
+- `INSIGHTS_RESOLVED_RETENTION_DAYS`: Số ngày giữ insights đã resolved trước khi soft-delete (default: `30`). Ví dụ: `14`, `90`.
+- `INSIGHTS_ACTIVE_RETENTION_DAYS`: Số ngày giữ insights active không cập nhật trước khi soft-delete (default: `90`). Ví dụ: `180`.
+
+**Risk Center – PCE cleanup** (job chạy mỗi 24h):
+- `PCE_CLEANUP_RETENTION_DAYS`: Số ngày giữ bản ghi `pod_capabilities` (xóa bản ghi có `last_seen_at` cũ hơn; default: `30`).
+
+**Risk Center – WebSocket**:
+- `RISKS_WS_MAX_CONNS_PER_IP`: Số kết nối WebSocket `/ws/risks` tối đa mỗi IP (default: `10`). Tránh abuse.
+
 ---
 
 ## Build

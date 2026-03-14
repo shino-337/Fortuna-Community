@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { NodeDetailResponse } from '../types';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
@@ -96,9 +96,9 @@ export const NodeDetail: React.FC = () => {
           <Box className="w-5 h-5 text-pink-500" /> Workloads on this node
         </h3>
         {pods.length > 0 ? (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
             <table className="w-full text-sm">
-              <thead className="text-slate-400 border-b border-slate-800">
+              <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                 <tr>
                   <th className="text-left py-2">Pod</th>
                   <th className="text-left py-2">Namespace</th>
@@ -106,16 +106,16 @@ export const NodeDetail: React.FC = () => {
                   <th className="text-right py-2">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-border">
                 {pods.map((pod) => (
-                  <tr key={pod.uid} className="hover:bg-slate-800/50 cursor-pointer" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
-                    <td className="py-2 font-medium text-white">{pod.name}</td>
-                    <td className="py-2 text-slate-400">{pod.namespace}</td>
+                  <tr key={pod.uid} className="hover:bg-muted/30 cursor-pointer" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}>
+                    <td className="py-2 font-medium text-text">{pod.name}</td>
+                    <td className="py-2 text-muted">{pod.namespace}</td>
                     <td className="py-2">
-                      <span className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-slate-500'}>{pod.riskCount}</span>
+                      <span className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-muted'}>{pod.riskCount}</span>
                     </td>
                     <td className="py-2 text-right" onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" variant="secondary" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
+                      <Button size="sm" variant="secondary" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}>
                         View
                       </Button>
                     </td>

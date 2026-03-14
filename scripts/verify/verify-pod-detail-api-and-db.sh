@@ -76,7 +76,7 @@ section_db_sample() {
   echo ""
 }
 
-# --- 3. Core API: GET /pods and GET /pods/:id ---
+# --- 3. Core API: GET /inventory/pods and GET /inventory/pods/:uid ---
 section_api() {
   if [ -z "$CORE_POD" ]; then
     warn "Skipping API check (no Core pod)"

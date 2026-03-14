@@ -9,7 +9,7 @@ import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { K8sResource, PodWithRisk } from '../types';
 import { Box, UserCog, Scroll, Key, RefreshCw, Search } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
 import { PageEmpty } from '../components/PageEmpty';
 import { getSeverityBadgeClass, getPodStatusBadgeClass } from '../lib/severity';
@@ -193,7 +193,7 @@ export const Resources: React.FC = () => {
     return (
       <tr
         key={resource.id}
-        className={`hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 ${canView ? 'cursor-pointer' : ''}`}
+        className={`hover:bg-muted/30 transition-colors border-b border-border last:border-0 ${canView ? 'cursor-pointer' : ''}`}
         onClick={canView ? () => handleResourceView(resource) : undefined}
       >
         <td className="px-6 py-4 font-medium text-white">{resource.name}</td>
@@ -220,7 +220,7 @@ export const Resources: React.FC = () => {
   const renderPodRow = (pod: PodWithRisk) => {
     const level = podRiskLevel(pod.riskCount);
     return (
-      <tr key={pod.uid} className="hover:bg-slate-800/50 transition-colors border-b border-slate-800 last:border-0 cursor-pointer" onClick={() => navigate(`/resources/pods/${pod.id}`)}>
+      <tr key={pod.uid} className="hover:bg-muted/30 transition-colors border-b border-border last:border-0 cursor-pointer" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}>
         <td className="px-6 py-4 font-medium text-white">{pod.name}</td>
         <td className="px-6 py-4 text-slate-400">{pod.namespace}</td>
         <td className="px-6 py-4 text-slate-400 font-mono text-xs">{pod.nodeName ?? '—'}</td>
@@ -234,7 +234,7 @@ export const Resources: React.FC = () => {
           </span>
         </td>
         <td className="px-6 py-4 text-right" onClick={(e) => e.stopPropagation()}>
-          <button className="text-pink-500 hover:text-pink-400 text-xs font-medium" onClick={() => navigate(`/resources/pods/${pod.id}`)}>View</button>
+          <button className="text-pink-500 hover:text-pink-400 text-xs font-medium" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}>View</button>
         </td>
       </tr>
     );
@@ -293,7 +293,7 @@ export const Resources: React.FC = () => {
       }
     >
       <Card className="p-0 overflow-hidden">
-        <div className="border-b border-slate-800 bg-slate-900/50">
+        <div className="border-b border-border bg-surface/50">
           <nav className="flex overflow-x-auto">
             {tabs.map((tab) => (
               <button
@@ -309,8 +309,8 @@ export const Resources: React.FC = () => {
                 className={`
                   flex items-center px-6 py-4 text-sm font-medium border-b-2 transition-colors whitespace-nowrap
                   ${activeTab === tab.id
-                    ? 'border-pink-500 text-pink-500 bg-slate-900'
-                    : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                    ? 'border-pink-500 text-pink-500 bg-surface'
+                    : 'border-transparent text-muted hover:text-text hover:bg-muted/30'
                   }
                 `}
               >
@@ -321,12 +321,12 @@ export const Resources: React.FC = () => {
           </nav>
         </div>
 
-        <div className="overflow-x-auto max-h-[calc(100vh-22rem)] overflow-y-auto">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800 sticky top-0 z-10">
+            <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
               {renderTableHead()}
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-border">
               {activeTab === 'Pod' ? (
                 paginatedResources.length > 0 ? (
                   (paginatedResources as PodWithRisk[]).map(renderPodRow)

@@ -3,7 +3,7 @@
 # Pod Detail network connection test using the lodash website pod.
 # - Pod runs "serve" on TCP 3000 → LISTEN socket visible to ss -tunap.
 # - Deploy website-vuln-lodash if not present, wait for reporter, verify
-#   GET /pods/by-uid/:uid/network-connections returns >= 1 item (LISTEN on 3000).
+#   GET /runtime/pods/:uid/network returns >= 1 item (LISTEN on 3000).
 # =============================================================================
 # Prerequisites:
 #   - Image built: nerdctl build -t website-vuln-lodash:latest -f deploy/e2e/images/website-vuln-lodash/Dockerfile deploy/e2e/images/website-vuln-lodash
@@ -86,8 +86,8 @@ kubectl -n "$NAMESPACE" exec "$PG_POD" -- psql -U postgres -d fortuna -c \
   "SELECT pod_uid, container_name, source_ip, source_port, dest_ip, dest_port, protocol, state, observed_at FROM pod_network_connections WHERE pod_uid = '$POD_UID' ORDER BY observed_at DESC LIMIT 10;"
 
 echo ""
-echo "--- API: GET /pods/by-uid/:uid/network-connections ---"
-NETWORK_RESPONSE="$(core_api_get "pods/by-uid/${POD_UID}/network-connections" "$TOKEN" "$CORE_POD")"
+echo "--- API: GET /runtime/pods/:uid/network ---"
+NETWORK_RESPONSE="$(core_api_get "runtime/pods/${POD_UID}/network" "$TOKEN" "$CORE_POD")"
 echo "$NETWORK_RESPONSE" | python3 -m json.tool | head -50
 
 # Assert: response has items (array) and podUid
@@ -102,7 +102,7 @@ try:
 except (json.JSONDecodeError, Exception):
     sys.exit(3)
 " 2>/dev/null; then
-  echo "❌ FAIL: network-connections API must return JSON with 'items' and 'podUid'."
+  echo "❌ FAIL: runtime/pods/:uid/network API must return JSON with 'items' and 'podUid'."
   exit 1
 fi
 

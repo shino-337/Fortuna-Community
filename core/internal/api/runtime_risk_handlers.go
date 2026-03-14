@@ -36,7 +36,7 @@ type RuntimeEventDTO struct {
 // GetPodRiskProfile returns risk profile for a specific pod UID.
 func GetPodRiskProfile(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		podUID := c.Param("podUid")
+		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
@@ -76,7 +76,7 @@ func GetPodRiskProfile(db *gorm.DB) gin.HandlerFunc {
 // GetPodRuntimeEvents returns runtime events for a specific pod UID.
 func GetPodRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		podUID := c.Param("podUid")
+		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return

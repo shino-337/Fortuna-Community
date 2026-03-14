@@ -6,7 +6,9 @@ import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { StatCard } from '../components/StatCard';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
+import { Section } from '../design-system/layouts/Section';
+import { Badge } from '../design-system/components/Badge';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
 import { Server, ShieldAlert, Boxes, Radio, ArrowRight, Shield, AlertTriangle, Bell, Info } from 'lucide-react';
@@ -31,6 +33,7 @@ export const Dashboard: React.FC = () => {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [pceSummary, setPceSummary] = useState<PodCapabilitySummaryCapability[]>([]);
   const [pceTrend, setPceTrend] = useState<PodCapabilityTrendPoint[]>([]);
+  const [trendDays, setTrendDays] = useState<number>(7);
   const [threatVelocity, setThreatVelocity] = useState<{ date: string; critical: number; high: number; medium: number; low: number }[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,9 +54,9 @@ export const Dashboard: React.FC = () => {
         api.getClustersStats(),
         api.getRisks({ page: 1, pageSize: 50, clusterId: selectedClusterId ?? undefined, sinceMinutes }),
         api.getNotifications(),
-        api.getThreatVelocity(7),
+        api.getThreatVelocity(trendDays),
         api.getPceSummaryByCapability(),
-        api.getPceTrend(7),
+        api.getPceTrend(trendDays),
       ]);
 
       if (clustersResult.status === 'fulfilled') setClusters(clustersResult.value);
@@ -85,7 +88,7 @@ export const Dashboard: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedClusterId, sinceMinutes]);
+  }, [selectedClusterId, sinceMinutes, trendDays]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
@@ -145,7 +148,7 @@ export const Dashboard: React.FC = () => {
       <span className="text-slate-300 font-medium">Dashboard data unavailable</span>
       <p className="text-slate-500 text-sm max-w-md text-center">{error}</p>
       <p className="text-slate-500 text-xs max-w-md text-center">
-        Ensure you are logged in (admin / admin123). If using port-forward, run both: Core 8080 and Dashboard 8081.
+        Ensure you are logged in. If using port-forward, run both: Core 8080 and Dashboard 8081.
       </p>
       <Button variant="secondary" onClick={() => window.location.reload()}>Retry</Button>
     </div>
@@ -162,11 +165,8 @@ export const Dashboard: React.FC = () => {
         <span>Time range: <span className="text-slate-200 font-medium">{sinceMinutes ? `last ${sinceMinutes} minutes` : 'all time'}</span></span>
         <span>Auto refresh: <span className="text-slate-200 font-medium">enabled</span></span>
       </div>
-      {/* Section 1: Infrastructure – clusters, pods, agents */}
-      <section className="space-y-3">
-        <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider border-b border-slate-800 pb-2">
-          Infrastructure
-        </h2>
+      {/* Section 1: Infrastructure – design-system Section */}
+      <Section title="Infrastructure">
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div onClick={() => navigate('/clusters')} className="cursor-pointer">
             <StatCard
@@ -193,22 +193,13 @@ export const Dashboard: React.FC = () => {
             />
           </div>
         </div>
-      </section>
+      </Section>
 
-      {/* Section 2: Security Risks – severity breakdown + affected workloads (same source as Risk Center insights/summary) */}
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-baseline gap-x-2 border-b border-slate-800 pb-2">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Security Risks
-          </h2>
-          {(selectedClusterId || sinceMinutes) && (
-            <span className="text-[11px] text-slate-500">
-              Active risks
-              {selectedClusterId && stats.clusterName && ` · ${stats.clusterName}`}
-              {sinceMinutes && sinceMinutes > 0 && ` · Last ${sinceMinutes >= 60 ? `${Math.round(sinceMinutes / 60)}h` : `${sinceMinutes}m`}`}
-            </span>
-          )}
-        </div>
+      {/* Section 2: Security Risks – design-system Section */}
+      <Section
+        title="Security Risks"
+        description={selectedClusterId && stats.clusterName ? stats.clusterName : sinceMinutes && sinceMinutes > 0 ? `Last ${sinceMinutes >= 60 ? `${Math.round(sinceMinutes / 60)}h` : `${sinceMinutes}m`}` : undefined}
+      >
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
           <div onClick={() => navigate(risksUrl + (risksUrl.includes('?') ? '&' : '?') + 'severity=critical')} className="cursor-pointer">
             <StatCard
@@ -251,11 +242,11 @@ export const Dashboard: React.FC = () => {
             />
           </div>
         </div>
-      </section>
+      </Section>
 
       {stats.clusters === 0 && stats.pods === 0 && stats.insights === 0 && (
         <div className="rounded-lg border border-slate-700 bg-slate-900/50 px-4 py-3 text-sm text-slate-400">
-          <span className="font-medium text-slate-300">No data yet.</span> Ensure you are logged in (admin / admin123), Core is running, and the dashboard can reach the API (same origin or port-forward to Dashboard so /api/ proxies to Core).
+          <span className="font-medium text-slate-300">No data yet.</span> Ensure you are logged in, Core is running, and the dashboard can reach the API (same origin or port-forward to Dashboard so /api/ proxies to Core).
         </div>
       )}
 
@@ -295,7 +286,7 @@ export const Dashboard: React.FC = () => {
                         </div>
                         <div className="flex justify-between items-start mb-3">
                             <span className="text-red-500 font-bold text-lg" title="Risk score (0–100) from severity/CVSS">{risk.score}<span className="text-slate-500 font-normal text-xs ml-1">/100</span></span>
-                            <span className="text-[10px] uppercase font-bold text-slate-500 border border-slate-700 px-2 py-0.5 rounded">Critical</span>
+                            <Badge severity="critical">Critical</Badge>
                         </div>
                         <h3 className="text-white font-bold mb-2 group-hover:text-pink-400 transition-colors line-clamp-1">{risk.title}</h3>
                         <p className="text-xs text-slate-400 line-clamp-2 mb-4 h-8">{risk.description}</p>
@@ -313,7 +304,24 @@ export const Dashboard: React.FC = () => {
                 ))}
             </div>
             
-            <Card title="Velocity & PCE Trend (7 Days)">
+            <Card variant="primary" title={`Velocity & PCE Trend (${trendDays} Days)`}>
+                 <div className="flex items-center justify-end gap-2 mb-2 text-xs text-slate-400">
+                   <span>Range:</span>
+                   {[7, 30].map((d) => (
+                     <button
+                       key={d}
+                       type="button"
+                       onClick={() => setTrendDays(d)}
+                       className={`px-2 py-0.5 rounded-full border text-[11px] ${
+                         trendDays === d
+                           ? 'border-pink-500 text-pink-300 bg-pink-500/10'
+                           : 'border-slate-700 text-slate-400 hover:border-slate-500'
+                       }`}
+                     >
+                       {d === 7 ? '7d' : '30d'}
+                     </button>
+                   ))}
+                 </div>
                  <div className="w-full min-w-[280px] bg-slate-800/30 rounded-md border border-slate-700/50" style={{ width: '100%', height: 260, minHeight: 260 }}>
                    <ResponsiveContainer width="100%" height="100%">
                      <LineChart data={trendChartData} margin={{ top: 10, right: 10, left: 5, bottom: 0 }}>
@@ -338,7 +346,7 @@ export const Dashboard: React.FC = () => {
                    </ResponsiveContainer>
                  </div>
                  {trendChartData.every((d) => d.risk === 0 && d.pce === 0) && (
-                   <p className="text-xs text-slate-500 mt-2 px-1">No data in last 7 days. Log in (admin/admin123); run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> to populate.</p>
+                   <p className="text-xs text-slate-500 mt-2 px-1">No data in last 7 days. Log in and run <code className="text-slate-400">scripts/e2e/run-dashboard-data-tests.sh</code> to populate.</p>
                  )}
             </Card>
         </div>
@@ -389,7 +397,7 @@ export const Dashboard: React.FC = () => {
             </Card>
 
             <h3 className="text-sm font-bold text-slate-300 mt-6">Pod Capabilities</h3>
-            <Card className="p-4">
+            <Card variant="secondary" className="p-4">
                 {pceSummary.length === 0 ? (
                     <div className="text-sm text-slate-500">No capability data available.</div>
                 ) : (

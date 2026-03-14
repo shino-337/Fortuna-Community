@@ -57,6 +57,16 @@ func NewYAMLEngine(db *gorm.DB, rulesDir string) (*YAMLEngine, error) {
 		ye.compileRuleCELs()
 	}
 
+	// DB rules override when present (risk rules CRUD)
+	if db != nil {
+		if dbRules, err := LoadRulesFromDB(db); err == nil && len(dbRules) > 0 {
+			ye.mu.Lock()
+			ye.rules = dbRules
+			ye.mu.Unlock()
+			log.Printf("[YAMLEngine] Using %d rules from DB (risk_rules)", len(dbRules))
+		}
+	}
+
 	return ye, nil
 }
 
@@ -167,9 +177,13 @@ func (ye *YAMLEngine) validateRule(rule *Rule) error {
 
 // mergeRules merges YAML rules with hardcoded rules (YAML takes precedence)
 func (ye *YAMLEngine) mergeRules() {
-	ye.mu.RLock()
-	defer ye.mu.RUnlock()
+	ye.mu.Lock()
+	defer ye.mu.Unlock()
+	ye.mergeRulesUnlocked()
+}
 
+// mergeRulesUnlocked does the merge; caller must hold ye.mu Lock (writes to ye.rules).
+func (ye *YAMLEngine) mergeRulesUnlocked() {
 	// Start with hardcoded rules as fallback
 	ruleMap := make(map[string]Rule)
 	for _, rule := range ye.rules {
@@ -192,6 +206,26 @@ func (ye *YAMLEngine) mergeRules() {
 
 	log.Printf("[YAMLEngine] Merged rules: %d total (%d YAML + %d hardcoded fallback)",
 		len(ye.rules), len(ye.yamlRules), len(ye.rules)-len(ye.yamlRules))
+}
+
+// ReloadFromDB reloads rules from DB. If DB has rules, they replace current; else YAML+hardcoded merge is restored.
+func (ye *YAMLEngine) ReloadFromDB() error {
+	ye.mu.Lock()
+	defer ye.mu.Unlock()
+	if ye.db != nil {
+		dbRules, err := LoadRulesFromDB(ye.db)
+		if err != nil {
+			return err
+		}
+		if len(dbRules) > 0 {
+			ye.rules = dbRules
+			log.Printf("[YAMLEngine] Reloaded %d rules from DB", len(dbRules))
+			return nil
+		}
+	}
+	// No DB rules: restore YAML + hardcoded merge
+	ye.mergeRulesUnlocked()
+	return nil
 }
 
 // Reload reloads YAML rules and recompiles CEL expressions

@@ -7,7 +7,7 @@ import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { Cluster } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
 import { RefreshCw, MoreHorizontal, Globe, Search } from 'lucide-react';
 import clsx from 'clsx';
@@ -115,10 +115,10 @@ export const Clusters: React.FC = () => {
         </div>
       }
     >
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-18rem)] overflow-y-auto">
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
+            <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border">
               <tr>
                 <th className="px-6 py-4 font-medium">Cluster (id / name)</th>
                 <th className="px-6 py-4 font-medium">Connection</th>
@@ -143,7 +143,7 @@ export const Clusters: React.FC = () => {
               ) : paginatedClusters.map((cluster) => (
                 <tr
                   key={cluster.id}
-                  className="hover:bg-slate-800/50 transition-colors cursor-pointer"
+                  className="hover:bg-muted/30 transition-colors cursor-pointer"
                   onClick={() => navigate(`/clusters/${cluster.id}`)}
                 >
                   <td className="px-6 py-4 font-medium text-white">

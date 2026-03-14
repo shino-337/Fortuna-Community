@@ -3,36 +3,60 @@ package sbom
 import (
 	"context"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
 )
 
+const (
+	maxSendRetries = 3
+	sendRetryDelay = 30 * time.Second
+)
+
+// isTransientSendError returns true if the error indicates SendSBOMFinding failed due to
+// Core unreachable (restart, network, DNS). Retrying later may succeed.
+func isTransientSendError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "client not connected") ||
+		strings.Contains(s, "connection refused") ||
+		strings.Contains(s, "connection reset") ||
+		strings.Contains(s, "unavailable") ||
+		strings.Contains(s, "deadline exceeded") ||
+		strings.Contains(s, "no such host") ||
+		strings.Contains(s, "dial tcp") && (strings.Contains(s, "i/o timeout") || strings.Contains(s, "refused"))
+}
+
 // WorkQueue manages a queue of pods to process for SBOM extraction
 type WorkQueue struct {
-	queue     chan *corev1.Pod
-	workers   int
-	processor *Processor
-	wg        sync.WaitGroup
-	ctx       context.Context
-	cancel    context.CancelFunc
-	logger    *log.Logger
-	mu        sync.RWMutex
-	active    map[string]bool // Track active pods to prevent duplicates
+	queue      chan *corev1.Pod
+	workers    int
+	processor  *Processor
+	wg         sync.WaitGroup
+	ctx        context.Context
+	cancel     context.CancelFunc
+	logger     *log.Logger
+	mu         sync.RWMutex
+	active     map[string]bool    // Track active pods to prevent duplicates
+	retryCount map[string]int     // Per-pod send retry count (transient failures)
 }
 
 // NewWorkQueue creates a new SBOM work queue
 func NewWorkQueue(processor *Processor, workers int) *WorkQueue {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &WorkQueue{
-		queue:     make(chan *corev1.Pod, 30), // Buffer up to 30 pods (reduced from 100 to prevent memory buildup)
-		workers:   workers,
-		processor: processor,
-		ctx:       ctx,
-		cancel:    cancel,
-		logger:    log.New(log.Writer(), "[SBOMQueue] ", log.LstdFlags),
-		active:    make(map[string]bool),
+		queue:      make(chan *corev1.Pod, 30), // Buffer up to 30 pods (reduced from 100 to prevent memory buildup)
+		workers:    workers,
+		processor:  processor,
+		ctx:        ctx,
+		cancel:     cancel,
+		logger:     log.New(log.Writer(), "[SBOMQueue] ", log.LstdFlags),
+		active:     make(map[string]bool),
+		retryCount: make(map[string]int),
 	}
 }
 
@@ -120,11 +144,47 @@ func (q *WorkQueue) worker(id int) {
 			// Process pod (this is the slow SBOM extraction - 2-3 minutes)
 			// This runs asynchronously, so it doesn't block the informer
 			start := time.Now()
-			if err := q.processor.ProcessPod(q.ctx, pod); err != nil {
+			err := q.processor.ProcessPod(q.ctx, pod)
+			if err != nil {
 				q.logger.Printf("[Worker %d] ⚠️  Failed to process pod %s: %v", id, key, err)
+				// On transient send failure (e.g. Core restart), re-queue so we retry after Core is back
+				if isTransientSendError(err) {
+					q.mu.Lock()
+					n := q.retryCount[key] + 1
+					q.retryCount[key] = n
+					q.mu.Unlock()
+					if n <= maxSendRetries {
+						q.logger.Printf("[Worker %d] 🔄 Re-queuing pod %s for retry %d/%d in %v (Core may have restarted)", id, key, n, maxSendRetries, sendRetryDelay)
+						go func(p *corev1.Pod) {
+							select {
+							case <-q.ctx.Done():
+								return
+							case <-time.After(sendRetryDelay):
+								select {
+								case q.queue <- p:
+									// re-queued
+								default:
+									q.mu.Lock()
+									delete(q.retryCount, key)
+									delete(q.active, key)
+									q.mu.Unlock()
+									q.logger.Printf("[Worker] ⚠️  Queue full, gave up retry for pod %s", key)
+								}
+							}
+						}(pod)
+						continue // do not remove from active; pod will be processed again
+					}
+					q.mu.Lock()
+					delete(q.retryCount, key)
+					q.mu.Unlock()
+					q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s after %d send retries", id, key, maxSendRetries)
+				}
 			} else {
 				duration := time.Since(start)
 				q.logger.Printf("[Worker %d] ✅ Completed pod %s in %v", id, key, duration)
+				q.mu.Lock()
+				delete(q.retryCount, key)
+				q.mu.Unlock()
 			}
 
 			// Remove from active set

@@ -150,6 +150,50 @@ func CalculateRiskScore(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// SyncRiskScores recalculates and saves risk_scores for all resources that have active/acknowledged insights.
+// Runs in background; returns 202 Accepted with the number of resources queued. Use for backfill or after bulk import.
+func SyncRiskScores(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var uids []string
+		err := db.Model(&models.Insight{}).
+			Where("status IN (?) AND deleted_at IS NULL", []string{"active", "acknowledged"}).
+			Distinct("resource_uid").
+			Pluck("resource_uid", &uids).Error
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		// Filter empty UIDs
+		filtered := make([]string, 0, len(uids))
+		for _, u := range uids {
+			if strings.TrimSpace(u) != "" {
+				filtered = append(filtered, u)
+			}
+		}
+		count := len(filtered)
+		if count == 0 {
+			c.JSON(http.StatusOK, gin.H{"message": "No resources with active insights to sync", "resources": 0})
+			return
+		}
+		scorer := risk.NewScorer(db)
+		go func() {
+			ctx := context.Background()
+			for _, uid := range filtered {
+				score, err := scorer.CalculateScore(ctx, uid)
+				if err != nil {
+					log.Printf("[SyncRiskScores] Calculate failed for %s: %v", uid, err)
+					continue
+				}
+				if err := scorer.SaveScore(ctx, score); err != nil {
+					log.Printf("[SyncRiskScores] Save failed for %s: %v", uid, err)
+				}
+			}
+			log.Printf("[SyncRiskScores] Completed sync for %d resources", count)
+		}()
+		c.JSON(http.StatusAccepted, gin.H{"message": "Risk score sync started", "resources": count})
+	}
+}
+
 // GetRiskTrends returns risk trends over time
 // ✅ FIXED: Uses GORM Query Builder instead of Raw() to avoid SELECT clause stripping
 func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {

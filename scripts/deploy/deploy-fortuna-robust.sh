@@ -273,16 +273,18 @@ else
     echo -e "${YELLOW}⚠️${NC}  DNS lookup for $CORE_FQDN failed (Agent may log 'no such host' until DNS propagates; Agent will retry/reconnect)"
 fi
 
-# Step 8c: Ensure package_vulnerabilities reference source is loaded
+# Step 8c: Load package_vulnerabilities from existing cve-data/all if present (no OSV sync during deploy).
+# During deploy we skip the heavy OSV sync (AUTO_SYNC_CVE_SOURCE=false). To sync and load manually:
+#   AUTO_SYNC_CVE_SOURCE=true ./scripts/utils/load-cve-data.sh
 echo ""
-echo -e "${BLUE}Step 8c: Loading package vulnerability references...${NC}"
+echo -e "${BLUE}Step 8c: Loading package vulnerability references (if CVE data present)...${NC}"
 if [ "$AUTO_LOAD_CVE_ON_DEPLOY" = "true" ] && [ -x "$SCRIPTS/utils/load-cve-data.sh" ]; then
     if NAMESPACE="$NAMESPACE" PROJECT_ROOT="$PROJECT_ROOT" \
-       AUTO_SYNC_CVE_SOURCE="${AUTO_SYNC_CVE_SOURCE:-true}" \
+       AUTO_SYNC_CVE_SOURCE="${AUTO_SYNC_CVE_SOURCE:-false}" \
        RESET_CVE_TABLES="${RESET_CVE_TABLES:-false}" \
        CVE_DATA_DIR="${CVE_DATA_DIR:-$PROJECT_ROOT/cve-data}" \
        bash "$SCRIPTS/utils/load-cve-data.sh"; then
-        echo -e "${GREEN}✅${NC} package_vulnerabilities source ready"
+        echo -e "${GREEN}✅${NC} package_vulnerabilities source ready or skipped (no CVE data dir)"
     else
         echo -e "${YELLOW}⚠️${NC}  Failed to auto-load package_vulnerabilities source (continuing deploy)"
     fi

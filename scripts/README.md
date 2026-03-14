@@ -15,7 +15,7 @@ Scripts are grouped in subdirectories. **Always invoke by full path** `./scripts
 | **clean/**    | cleanup-environment.sh, clean-containerd-images.sh, clean-rebuild-dashboard.sh, cleanup-orphaned-migrations.sh |
 | **build/**    | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
 | **verify/**   | check-full-deployment.sh, verify-dashboard-*.sh, verify-database-schema.sh, verify-agent-availability.sh, verify-agent-core-connectivity.sh, verify-pod-data.sh, verify-test-data.sh, check-pod-risk.sh |
-| **e2e/**      | run-e2e-full.sh, run-e2e-all-verify.sh, run-e2e-with-capability-report.sh, run-e2e-tests.sh, run-dashboard-data-tests.sh, e2e-dashboard-data.sh, e2e-sbom-verify.sh, test-*.sh |
+| **e2e/**      | **run-e2e.sh** (entry point), e2e-risk-center-full.sh, run-e2e-full.sh, run-e2e-with-capability-report.sh, run-dashboard-data-tests.sh, e2e-dashboard-data.sh, e2e-sbom-verify.sh, test-*.sh |
 | **monitor/**  | monitor-agent-core.sh, monitor-agent-core-errors.sh, monitor-testcases.sh, monitor-runtime-signals.sh |
 | **utils/**    | push-images-to-workers.sh, load-cve-data.sh, create_mtls_secret.sh, manage-port-forwards.sh, port-forward-dashboard.sh, sync-k8s-data.sh, reset-worker-*.sh, fix-dns-issues.sh, import-to-containerd.sh, validate-migrations.sh, ... |
 
@@ -242,13 +242,18 @@ E2E + capability report. Được gọi bởi `full-rebuild-sync-deploy-and-e2e.
 ./scripts/e2e/run-e2e-with-capability-report.sh
 ```
 
-### `run-e2e-tests.sh`
+### `run-e2e.sh` (E2E entry point)
 
-E2E test cases (SBOM injector, test pods, API). Output: `docs/test-results/E2E-TEST-EXECUTION-<timestamp>.md`.
+Entry point duy nhất cho E2E. Chi tiết test case và luồng code: **`docs/e2e/E2E-TestCases-And-Runner.md`**.
 
 ```bash
-./scripts/e2e/run-e2e-tests.sh
+./scripts/e2e/run-e2e.sh                     # default: --suite=full
+./scripts/e2e/run-e2e.sh --suite=risk-center # 17 TCs Risk Center
+./scripts/e2e/run-e2e.sh --suite=priority1
+NAMESPACE=my-ns ./scripts/e2e/run-e2e.sh --suite=full-report
 ```
+
+Suites: `risk-center` | `full` | `priority1` | `runtime` | `pce` | `dashboard` | `sbom` | `full-report`.
 
 ### `test-priority1-apis.sh`
 
@@ -262,9 +267,9 @@ Gọi Core API từ trong Core pod: promotion-rules, runtime-signals, v.v.
 
 Verify SBOM, flow SBOM pod, E2E runtime signals.
 
-### `run-dashboard-data-tests.sh`, `e2e-dashboard-data.sh`, `e2e-risk-center-verify.sh`, `test-pce-e2e.sh`
+### `run-dashboard-data-tests.sh`, `e2e-dashboard-data.sh`, `e2e-risk-center-full.sh`, `test-pce-e2e.sh`
 
-Chuỗi test dữ liệu Dashboard (Threat Velocity, PCE Trend). **Risk Center**: `e2e-risk-center-verify.sh` seed 1 insight + verify `/risks`, `/insights/summary`, `/runtime-signals`; được gọi trong `run-e2e-complete-with-monitor.sh`.
+Chuỗi test dữ liệu Dashboard (Threat Velocity, PCE Trend). **Risk Center**: `e2e-risk-center-full.sh` (17 TCs) verify API `/risks`, `/insights/summary`, risk-rules, v.v.; gọi qua `run-e2e.sh --suite=risk-center` hoặc `--suite=full`.
 
 ---
 
@@ -336,7 +341,7 @@ Chỉ xóa image cũ trên các node (không push): `./scripts/utils/push-images
 | Clean      | cleanup-environment.sh, clean-containerd-images.sh, clean-rebuild-dashboard.sh, cleanup-orphaned-migrations.sh |
 | Build      | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
 | Verify     | check-full-deployment.sh, verify-dashboard-api.sh, verify-dashboard-apis.sh, verify-dashboard-issues.sh, verify-database-schema.sh |
-| E2E / Test | run-e2e-full.sh, run-e2e-complete-with-monitor.sh, run-e2e-with-capability-report.sh, test-priority1-apis.sh, e2e-dashboard-data.sh, e2e-risk-center-verify.sh, test-runtime-signals-e2e.sh, e2e-sbom-verify.sh, test-sbom-pod-flow.sh |
+| E2E / Test | **run-e2e.sh** (entry), run-e2e-full.sh, run-e2e-with-capability-report.sh, e2e-risk-center-full.sh, test-priority1-apis.sh, e2e-dashboard-data.sh, test-runtime-signals-e2e.sh, e2e-sbom-verify.sh, test-sbom-pod-flow.sh |
 | Monitor    | monitor-agent-core.sh, monitor-agent-core-errors.sh, monitor-testcases.sh (chi tiết testcase), monitor-runtime-signals.sh |
 | Utility    | pre-deployment-checks.sh, manage-port-forwards.sh, port-forward-dashboard.sh, load-cve-data.sh, create_mtls_secret.sh, push-images-to-workers.sh |
 
@@ -383,4 +388,4 @@ Chỉ xóa image cũ trên các node (không push): `./scripts/utils/push-images
 
 **Tài liệu chi tiết**: `docs/05-operations/DEPLOYMENT_CONTAINERD.md`, `deploy/README.md`, **`docs/AGENT_CORE_ERRORS_MONITOR.md`** (monitor & xử lý lỗi Agent/Core). **Tra cứu đường dẫn script**: `docs/05-operations/SCRIPT_PATHS_REFERENCE.md`.
 
-**Lưu ý**: Mọi script gọi theo đường dẫn đầy đủ từ repo root, ví dụ: `./scripts/pipeline/full-clean-database-rebuild-deploy.sh`, `./scripts/e2e/run-e2e-complete-with-monitor.sh`, `./scripts/utils/load-cve-data.sh`. Không còn script tại `scripts/*.sh` (root).
+**Lưu ý**: Mọi script gọi theo đường dẫn đầy đủ từ repo root, ví dụ: `./scripts/pipeline/full-clean-database-rebuild-deploy.sh`, `./scripts/e2e/run-e2e.sh`, `./scripts/utils/load-cve-data.sh`. Không còn script tại `scripts/*.sh` (root).

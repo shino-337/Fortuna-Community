@@ -67,6 +67,10 @@ type Insight struct {
 	Evidence      string `gorm:"type:jsonb" json:"evidence,omitempty"`
 	ViolatedRules string `gorm:"type:jsonb" json:"violatedRules,omitempty"`
 
+	// Risk explanation & remediation (optional, for UI guidance)
+	RiskExplanation string `gorm:"type:text" json:"riskExplanation,omitempty"`
+	Remediation     string `gorm:"type:jsonb" json:"remediation,omitempty"`
+
 	// Status & Timestamps
 	Status     string         `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed
 	DetectedAt time.Time      `gorm:"not null;index" json:"detectedAt"`

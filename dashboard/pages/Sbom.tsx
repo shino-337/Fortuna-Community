@@ -8,9 +8,11 @@ import { Button } from '../components/ui/Button';
 import { Package, Search, Filter, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
 import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
 import { getSeverityBadgeClass, getSeverityBorderClass } from '../lib/severity';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
+import { useNavigate } from 'react-router-dom';
 
 export const Sbom: React.FC = () => {
+  const navigate = useNavigate();
   const [sbomList, setSbomList] = useState<PodSbomSummary[]>([]);
   const [selectedPod, setSelectedPod] = useState<PodSbomSummary | null>(null);
   const [selectedDetail, setSelectedDetail] = useState<PodSbom | null>(null);
@@ -199,6 +201,21 @@ export const Sbom: React.FC = () => {
                       </Button>
                       <Button size="sm" variant="secondary" onClick={() => exportSbomAsJson(selectedDetail)} title="Download SBOM as JSON">
                         <Download size={14} className="mr-2" /> Export JSON
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => {
+                          const ns = selectedPod.namespace || '';
+                          const name = selectedPod.podName || '';
+                          const params = new URLSearchParams();
+                          if (ns) params.set('resourceNamespace', ns);
+                          if (name) params.set('search', name);
+                          navigate(`/risks?${params.toString()}`);
+                        }}
+                        title="Open related risks in Risk Center"
+                      >
+                        View related risks
                       </Button>
                     </div>
                   ) : null

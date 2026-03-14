@@ -159,7 +159,7 @@ type AuditLog struct {
 	Resource   string    `gorm:"not null;index" json:"resource"` // serviceaccount, rolebinding, etc.
 	ResourceID string    `gorm:"index" json:"resourceId"`
 	Details    string    `gorm:"type:jsonb" json:"details"` // JSON
-	User       string    `json:"user"`                      // Username for backward compatibility
+	User       string    `gorm:"column:username" json:"user"` // Username for backward compatibility (DB column: username)
 	IP         string    `json:"ip"`
 	CreatedAt  time.Time `json:"createdAt"`
 

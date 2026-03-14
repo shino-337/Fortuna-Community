@@ -80,6 +80,54 @@ func GetCluster(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// ClusterInfoResponse for GET /cluster/info (cluster domain: list of clusters with basic info).
+func ClusterInfoResponseFrom(clusters []models.Cluster) gin.H {
+	list := make([]map[string]interface{}, 0, len(clusters))
+	for _, c := range clusters {
+		list = append(list, map[string]interface{}{
+			"id":         c.ID,
+			"name":       c.Name,
+			"lastSync":   c.LastSync,
+			"source":     c.Source,
+		})
+	}
+	return gin.H{"clusters": list}
+}
+
+// GetClusterInfo returns cluster list with basic info for GET /cluster/info (infrastructure domain).
+func GetClusterInfo(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusters, err := getClustersForAPI(db, c)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, ClusterInfoResponseFrom(clusters))
+	}
+}
+
+// GetClusterNodes returns node names for a cluster for GET /cluster/:id/nodes (infrastructure domain).
+func GetClusterNodes(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.Param("id")
+		var cluster models.Cluster
+		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		var nodes []string
+		db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Distinct("node_name").Pluck("node_name", &nodes)
+		if nodes == nil {
+			nodes = []string{}
+		}
+		c.JSON(http.StatusOK, gin.H{"nodes": nodes})
+	}
+}
+
 // ClusterOverviewResponse for GET /clusters/:id/overview
 type ClusterOverviewResponse struct {
 	PodCount       int64 `json:"podCount"`
@@ -530,16 +578,16 @@ func GetServiceAccount(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetServiceAccountByUID returns a service account by UID (for Risk Detail → Identity link).
+// GetServiceAccountByUID returns a service account by UID (inventory domain).
 func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
+		saUID := c.Param("uid")
+		if saUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
 		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").Where("uid = ?", uid).First(&sa).Error; err != nil {
+		if err := db.Preload("Cluster").Where("uid = ?", saUID).First(&sa).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
 				return
@@ -870,6 +918,116 @@ func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// UpdateServiceAccountByUID updates a service account by Kubernetes UID (inventory domain).
+func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.Param("uid")
+		if uid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+			return
+		}
+		var sa models.ServiceAccount
+		if err := db.Where("uid = ?", uid).First(&sa).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		var updateData map[string]interface{}
+		if err := c.ShouldBindJSON(&updateData); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			return
+		}
+
+		if err := db.Model(&sa).Updates(updateData).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		userID, _ := c.Get("userID")
+		username, _ := c.Get("username")
+		auditLog := models.AuditLog{
+			ClusterID:  sa.ClusterID,
+			UserID:     userID.(uint),
+			Action:     "update",
+			Resource:   "serviceaccount",
+			ResourceID: strconv.Itoa(int(sa.ID)),
+			User:       username.(string),
+			IP:         c.ClientIP(),
+		}
+		db.Create(&auditLog)
+
+		c.JSON(http.StatusOK, sa)
+	}
+}
+
+// DeleteServiceAccountByUID deletes a service account by Kubernetes UID (inventory domain).
+func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		uid := c.Param("uid")
+		if uid == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+			return
+		}
+		var sa models.ServiceAccount
+		if err := db.Preload("Cluster").Where("uid = ?", uid).First(&sa).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		var k8sErr error
+		if sa.Cluster.Kubeconfig != "" {
+			k8sClient, err := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
+			if err == nil {
+				k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
+			}
+		} else {
+			k8sClient, err := k8s.NewClientFromPath("")
+			if err == nil {
+				k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
+			}
+		}
+
+		userID, _ := c.Get("userID")
+		username, _ := c.Get("username")
+		auditLog := models.AuditLog{
+			ClusterID:  sa.ClusterID,
+			UserID:     userID.(uint),
+			Action:     "delete",
+			Resource:   "serviceaccount",
+			ResourceID: strconv.Itoa(int(sa.ID)),
+			User:       username.(string),
+			IP:         c.ClientIP(),
+		}
+		if k8sErr != nil {
+			auditLog.Details = fmt.Sprintf(`{"k8s_deletion":"failed","error":"%s"}`, k8sErr.Error())
+		} else {
+			auditLog.Details = `{"k8s_deletion":"success"}`
+		}
+		db.Create(&auditLog)
+
+		if err := db.Delete(&sa).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
+		message := "ServiceAccount deleted from database"
+		if k8sErr == nil {
+			message = "ServiceAccount deleted from Kubernetes cluster and database"
+		} else {
+			message = fmt.Sprintf("ServiceAccount deleted from database, but failed to delete from Kubernetes: %v", k8sErr)
+		}
+		c.JSON(http.StatusOK, gin.H{"message": message})
+	}
+}
+
 // GetGraph is now in graph_handlers.go
 
 // GetAuditLogs returns audit logs
@@ -891,6 +1049,11 @@ func GetAuditLogs(db *gorm.DB) gin.HandlerFunc {
 		// Filter by action
 		if action := c.Query("action"); action != "" {
 			query = query.Where("action = ?", action)
+		}
+
+		// Filter by resource_id (e.g. insight ID for Risk Center audit trail)
+		if resourceID := c.Query("resource_id"); resourceID != "" {
+			query = query.Where("resource_id = ?", resourceID)
 		}
 
 		// Pagination

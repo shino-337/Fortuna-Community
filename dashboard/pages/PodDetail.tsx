@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { PodWithRisk, PodSbom, Insight, Vulnerability } from '../types';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
+import { Tabs } from '../design-system/components/Tabs';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
@@ -12,6 +13,7 @@ import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
 import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
+import { useAuthStore } from '../store/authStore';
 import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
 
 type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'spec';
@@ -47,6 +49,8 @@ export const PodDetail: React.FC = () => {
   const [sbomSeverityFilter, setSbomSeverityFilter] = useState<string>('all');
   const [sbomStatusFilter, setSbomStatusFilter] = useState<string>('all');
   const [sbomOnlyVulnerable, setSbomOnlyVulnerable] = useState(false);
+  const [sbomSearch, setSbomSearch] = useState<string>('');
+  const [sbomSort, setSbomSort] = useState<'name' | 'severity' | 'cve' | 'none'>('none');
   const [sbomExpandedId, setSbomExpandedId] = useState<string | null>(null);
   const [selectedVulnerability, setSelectedVulnerability] = useState<Vulnerability | null>(null);
   const [runtimeMetrics, setRuntimeMetrics] = useState<PodRuntimeMetric[]>([]);
@@ -56,7 +60,6 @@ export const PodDetail: React.FC = () => {
   const [specYaml, setSpecYaml] = useState<string>('');
 
   const idOrUid = uid ?? id;
-  const podIdOrUid = pod ? (pod.id ?? pod.uid) : null;
 
   const podRiskLevel = (count: number): 'critical' | 'high' | 'medium' | 'low' => {
     if (count >= 10) return 'critical';
@@ -68,14 +71,15 @@ export const PodDetail: React.FC = () => {
   const fetchPod = useCallback(async () => {
     if (!idOrUid) return;
     setLoading(true);
-    const data = uid ? await api.getPodByUid(idOrUid) : await api.getPod(idOrUid!);
+    // API only supports lookup by uid (Kubernetes UID). Legacy numeric id in URL causes 404.
+    const data = await api.getPodByUid(idOrUid);
     setPod(data);
     setLoading(false);
-  }, [idOrUid, uid]);
+  }, [idOrUid]);
 
   const fetchTabData = useCallback(
     async (tab: TabId) => {
-      if (!pod || !podIdOrUid) return;
+      if (!pod?.uid) return;
       setTabLoading(true);
       try {
         if (tab === 'sbom') {
@@ -85,23 +89,23 @@ export const PodDetail: React.FC = () => {
           const { insights } = await api.getPodRiskReport(pod.uid);
           setRelatedRisks(insights);
         } else if (tab === 'processes') {
-          const data = await api.getPodProcesses(podIdOrUid);
+          const data = await api.getPodProcesses(pod.uid);
           setProcesses(data);
         } else if (tab === 'network') {
-          const data = await api.getPodNetworkConnections(podIdOrUid);
+          const data = await api.getPodNetworkConnections(pod.uid);
           setNetworkConnections(data);
         } else if (tab === 'events') {
-          const data = await api.getPodEvents(podIdOrUid);
+          const data = await api.getPodEvents(pod.uid);
           setPodEvents(data);
         } else if (tab === 'spec') {
-          const yaml = await api.getPodSpecYaml(podIdOrUid);
+          const yaml = await api.getPodSpecYaml(pod.uid);
           setSpecYaml(yaml);
         }
       } finally {
         setTabLoading(false);
       }
     },
-    [pod, podIdOrUid]
+    [pod]
   );
 
   useEffect(() => {
@@ -117,51 +121,81 @@ export const PodDetail: React.FC = () => {
     }
   }, [pod?.uid]);
 
-  // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data
+  // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data. All use pod UID.
   useEffect(() => {
-    if (!pod || !podIdOrUid) return;
-    api.getPodRuntimeMetrics(podIdOrUid).then(setRuntimeMetrics).catch(() => []);
-    api.getPodProcesses(podIdOrUid).then(setProcesses).catch(() => []);
-    api.getPodNetworkConnections(podIdOrUid).then(setNetworkConnections).catch(() => []);
-    api.getPodEvents(podIdOrUid).then(setPodEvents).catch(() => []);
-  }, [pod?.uid, podIdOrUid]);
+    if (!pod?.uid) return;
+    api.getPodRuntimeMetrics(pod.uid).then(setRuntimeMetrics).catch(() => []);
+    api.getPodProcesses(pod.uid).then(setProcesses).catch(() => []);
+    api.getPodNetworkConnections(pod.uid).then(setNetworkConnections).catch(() => []);
+    api.getPodEvents(pod.uid).then(setPodEvents).catch(() => []);
+  }, [pod?.uid]);
 
   useEffect(() => {
     if (pod && activeTab !== 'overview') fetchTabData(activeTab);
   }, [pod, activeTab, fetchTabData]);
 
-  // Phase 5.1: WebSocket for live pod detail updates (metrics, processes, network, events)
+  // Phase 5.1: WebSocket for live pod detail updates (metrics, processes, network, events). All APIs use pod UID.
   const wsUid = pod?.uid ?? uid ?? null;
+  const hasToken = Boolean(useAuthStore((s) => s.token));
+  const podUidRef = React.useRef(pod?.uid);
+  podUidRef.current = pod?.uid;
   useEffect(() => {
-    if (!wsUid || !podIdOrUid) return;
+    if (!wsUid || !pod?.uid || !hasToken) return;
     const wsUrl = api.getPodDetailWsUrl(wsUid);
     let ws: WebSocket | null = null;
     try {
       ws = new WebSocket(wsUrl);
-      ws.onmessage = () => {
-        // Refetch pod detail data for the updated type (or all); use message.type to refetch only that tab
-        if (!podIdOrUid) return;
-        api.getPodProcesses(podIdOrUid).then(setProcesses).catch(() => {});
-        api.getPodNetworkConnections(podIdOrUid).then(setNetworkConnections).catch(() => {});
-        api.getPodEvents(podIdOrUid).then(setPodEvents).catch(() => {});
-        api.getPodRuntimeMetrics(podIdOrUid).then(setRuntimeMetrics).catch(() => {});
+      ws.onmessage = (e) => {
+        const currentUid = podUidRef.current;
+        if (!currentUid) return;
+        try {
+          const d = JSON.parse(e.data as string) as { type?: string };
+          const t = d?.type;
+          if (t === 'metrics') {
+            api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
+          } else if (t === 'processes') {
+            api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
+          } else if (t === 'network') {
+            api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
+          } else if (t === 'events') {
+            api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
+          } else {
+            api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
+            api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
+            api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
+            api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
+          }
+        } catch {
+          api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
+          api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
+          api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
+          api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
+        }
       };
     } catch {
-      // ignore WS connect errors (e.g. no token)
+      // ignore WS connect errors
     }
     return () => {
       if (ws != null) ws.close();
     };
-  }, [wsUid, podIdOrUid]);
+  }, [wsUid, pod?.uid, hasToken]);
 
   if (loading || !idOrUid) {
     return <PageLoading message="Loading pod detail..." className="min-h-[40vh]" />;
   }
 
   if (!pod) {
+    const looksLikeLegacyId = idOrUid != null && /^[0-9]+$/.test(String(idOrUid));
     return (
       <PageLayout title="Pod not found" description="The pod may have been removed or you lack access.">
-        <PageEmpty title="Pod not found" description="The pod may have been removed or is outside current data scope." />
+        <PageEmpty
+          title="Pod not found"
+          description={
+            looksLikeLegacyId
+              ? 'This link used an old pod ID. Pods are now identified by UID. Open the pod from Resources (Pods list).'
+              : 'The pod may have been removed or is outside current data scope.'
+          }
+        />
         <div className="mt-4">
           <Button variant="secondary" onClick={() => navigate('/resources')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
@@ -184,7 +218,7 @@ export const PodDetail: React.FC = () => {
 
   return (
     <PageLayout
-      title=""
+      title="Pod Detail"
       description=""
       actions={
         <Button variant="secondary" onClick={() => navigate('/resources')}>
@@ -192,10 +226,6 @@ export const PodDetail: React.FC = () => {
         </Button>
       }
     >
-      <button type="button" onClick={() => navigate('/resources')} className="flex items-center text-sm text-slate-400 hover:text-white transition-colors mb-4">
-        <ArrowLeft className="w-4 h-4 mr-1" /> Back to Resources
-      </button>
-
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
         <div className="flex items-center gap-4">
           <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl">
@@ -222,6 +252,12 @@ export const PodDetail: React.FC = () => {
         </div>
       </div>
 
+      {/* Hint when pod IP / start time are missing (filled by agent sync; wait for next sync or restart agent) */}
+      {(!pod.podIP || !pod.startTime) && (
+        <p className="text-slate-500 text-xs mb-2">
+          Pod IP and Start time come from agent sync. If empty, wait for the next sync (~2 min) or restart the agent: <code className="bg-slate-800 px-1 rounded">kubectl rollout restart daemonset/fortuna-agent -n fortuna</code>
+        </p>
+      )}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
         <Card className="p-4 bg-slate-900/50">
           <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</p>
@@ -233,7 +269,7 @@ export const PodDetail: React.FC = () => {
         </Card>
         <Card className="p-4 bg-slate-900/50">
           <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Start Time</p>
-          <p className="text-sm font-medium text-slate-300">{pod.startTime ? formatDateTime(pod.startTime) : '—'}</p>
+          <p className="text-sm font-medium text-slate-300">{pod.startTime ? formatDateTime(pod.startTime) : (runtimeMetrics.length > 0 && runtimeMetrics[0].lastObservedAt ? `Last reported: ${formatDateTime(runtimeMetrics[0].lastObservedAt)}` : '—')}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
           <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Uptime</p>
@@ -261,29 +297,15 @@ export const PodDetail: React.FC = () => {
         </Card>
       </div>
 
-      <div className="flex gap-1 p-1 bg-slate-900/80 rounded-lg border border-slate-800 w-fit mb-6">
-        {tabs.map(({ id: tabId, label, icon }) => (
-          <button
-            key={tabId}
-            onClick={() => setActiveTab(tabId)}
-            className={clsx(
-              'flex items-center gap-2 px-4 py-2 rounded-md text-sm font-medium transition-colors',
-              activeTab === tabId ? 'bg-pink-600 text-white shadow' : 'text-slate-400 hover:bg-slate-800 hover:text-white'
-            )}
-          >
-            {icon}
-            {label}
-          </button>
-        ))}
-      </div>
+      <Tabs items={tabs} value={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
 
       {activeTab === 'overview' && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="p-6">
-            <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <div className="space-y-6">
+        <Card className="p-5 md:p-6" variant="secondary">
+            <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
               <Box className="w-5 h-5 text-pink-500" /> Overview
             </h3>
-            <dl className="grid grid-cols-1 gap-3 text-sm">
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <dt className="text-slate-500">Namespace</dt>
                 <dd className="text-white font-mono">{pod.namespace}</dd>
@@ -418,6 +440,22 @@ export const PodDetail: React.FC = () => {
               ) : (
                 <p className="text-slate-500 text-sm">Open the Runtime metrics, Processes, or Network tab to load data from the agent (or wait for live updates).</p>
               )}
+              <div className="mt-3 flex flex-wrap gap-3 text-sm">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const ns = pod.namespace || '';
+                    const name = pod.name || '';
+                    const params = new URLSearchParams();
+                    if (ns) params.set('resourceNamespace', ns);
+                    if (name) params.set('search', name);
+                    navigate(`/risks?${params.toString()}`);
+                  }}
+                  className="inline-flex items-center px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:border-pink-500"
+                >
+                  View related risks in Risk Center
+                </button>
+              </div>
             </div>
             {pod.createdAt && (
               <dl className="grid grid-cols-1 gap-3 text-sm mt-4">
@@ -472,14 +510,39 @@ export const PodDetail: React.FC = () => {
                 const comps = (sbom.components || []) as SbomComponentType[];
                 const severityOpts = ['all', 'critical', 'high', 'medium', 'low'] as const;
                 const statusOpts = ['all', 'active', 'allowed', 'fixed'] as const;
-                const filtered = comps.filter((c) => {
-                  if (sbomOnlyVulnerable && (c.cveCount ?? c.vulnerabilities?.length ?? 0) === 0) return false;
-                  const maxSev = (c.maxSeverity ?? '').toLowerCase();
-                  if (sbomSeverityFilter !== 'all' && maxSev !== sbomSeverityFilter) return false;
-                  const status = (c.status ?? 'active').toLowerCase();
-                  if (sbomStatusFilter !== 'all' && status !== sbomStatusFilter) return false;
-                  return true;
-                });
+                const filtered = comps
+                  .filter((c) => {
+                    if (sbomOnlyVulnerable && (c.cveCount ?? c.vulnerabilities?.length ?? 0) === 0) return false;
+                    const maxSev = (c.maxSeverity ?? '').toLowerCase();
+                    if (sbomSeverityFilter !== 'all' && maxSev !== sbomSeverityFilter) return false;
+                    const status = (c.status ?? 'active').toLowerCase();
+                    if (sbomStatusFilter !== 'all' && status !== sbomStatusFilter) return false;
+                    if (sbomSearch.trim()) {
+                      const q = sbomSearch.trim().toLowerCase();
+                      const name = (c.name ?? '').toLowerCase();
+                      const version = (c.version ?? '').toLowerCase();
+                      if (!name.includes(q) && !version.includes(q)) return false;
+                    }
+                    return true;
+                  })
+                  .sort((a, b) => {
+                    if (sbomSort === 'none') return 0;
+                    if (sbomSort === 'name') {
+                      return (a.name ?? '').localeCompare(b.name ?? '');
+                    }
+                    if (sbomSort === 'severity') {
+                      const order: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1, '': 0 };
+                      const sa = order[(a.maxSeverity ?? '').toLowerCase()] ?? 0;
+                      const sb = order[(b.maxSeverity ?? '').toLowerCase()] ?? 0;
+                      return sb - sa;
+                    }
+                    if (sbomSort === 'cve') {
+                      const ca = a.cveCount ?? a.vulnerabilities?.length ?? 0;
+                      const cb = b.cveCount ?? b.vulnerabilities?.length ?? 0;
+                      return cb - ca;
+                    }
+                    return 0;
+                  });
                 return (
                   <>
                     <div className="flex flex-wrap items-center gap-4 py-2 border-y border-slate-800">
@@ -524,6 +587,49 @@ export const PodDetail: React.FC = () => {
                         />
                         Show only vulnerable packages
                       </label>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 text-sm">Search:</span>
+                        <input
+                          type="text"
+                          value={sbomSearch}
+                          onChange={(e) => setSbomSearch(e.target.value)}
+                          placeholder="Package or version..."
+                          className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 w-40"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-500 text-sm">Sort:</span>
+                        <button
+                          type="button"
+                          onClick={() => setSbomSort(sbomSort === 'name' ? 'none' : 'name')}
+                          className={clsx(
+                            'px-2 py-1 rounded text-xs font-medium',
+                            sbomSort === 'name' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                          )}
+                        >
+                          Name
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSbomSort(sbomSort === 'severity' ? 'none' : 'severity')}
+                          className={clsx(
+                            'px-2 py-1 rounded text-xs font-medium',
+                            sbomSort === 'severity' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                          )}
+                        >
+                          Severity
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSbomSort(sbomSort === 'cve' ? 'none' : 'cve')}
+                          className={clsx(
+                            'px-2 py-1 rounded text-xs font-medium',
+                            sbomSort === 'cve' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                          )}
+                        >
+                          CVE count
+                        </button>
+                      </div>
                     </div>
                     <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
                       <table className="w-full text-sm">
@@ -681,8 +787,15 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'risks' && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-4">Related Risks</h3>
+        <Card className="p-6 space-y-4">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Related Risks</h3>
+            {relatedRisks.length > 0 && (
+              <span className="text-xs text-slate-400">
+                {relatedRisks.length} finding{relatedRisks.length !== 1 ? 's' : ''} for this pod
+              </span>
+            )}
+          </div>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : relatedRisks.length > 0 ? (
@@ -690,16 +803,16 @@ export const PodDetail: React.FC = () => {
               {relatedRisks.map((risk) => (
                 <div
                   key={risk.id}
-                  className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:border-pink-500/30 cursor-pointer"
+                  className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 hover:border-pink-500/30 cursor-pointer flex flex-col gap-1"
                   onClick={() => navigate(`/risks/${risk.id}`)}
                 >
-                  <div className="flex items-center justify-between">
-                    <span className="font-medium text-white">{risk.title}</span>
-                    <span className={clsx('px-2 py-0.5 rounded text-xs font-medium', getSeverityBadgeClass(risk.severity))}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="font-medium text-white text-sm line-clamp-1">{risk.title}</span>
+                    <span className={clsx('px-2 py-0.5 rounded text-[11px] font-medium uppercase', getSeverityBadgeClass(risk.severity))}>
                       {risk.severity}
                     </span>
                   </div>
-                  {risk.description && <p className="text-slate-500 text-sm mt-1 line-clamp-2">{risk.description}</p>}
+                  {risk.description && <p className="text-slate-500 text-xs mt-0.5 line-clamp-2">{risk.description}</p>}
                 </div>
               ))}
             </div>
@@ -717,7 +830,7 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : runtimeMetrics.length > 0 ? (
-            <div className="overflow-x-auto border border-slate-800 rounded-lg">
+            <div className="overflow-x-auto border border-slate-800 rounded-lg max-h-[60vh] overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-800/80 text-slate-300 text-left">
                   <tr>
@@ -730,9 +843,9 @@ export const PodDetail: React.FC = () => {
                     <th className="px-3 py-2 font-medium">Last observed</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {runtimeMetrics.map((m, i) => (
-                    <tr key={m.id ?? i} className="hover:bg-slate-800/30">
+                    <tr key={m.id ?? i} className="hover:bg-muted/30">
                       <td className="px-3 py-2 font-mono text-slate-300">{m.containerName ?? '—'}</td>
                       <td className="px-3 py-2 tabular-nums">{m.cpuUsageMillicore != null ? m.cpuUsageMillicore : '—'}</td>
                       <td className="px-3 py-2 tabular-nums font-mono text-slate-400">
@@ -765,13 +878,18 @@ export const PodDetail: React.FC = () => {
 
       {activeTab === 'processes' && (
         <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
             <Cpu className="w-5 h-5 text-pink-500" /> Processes
+            {processes.length > 0 && (
+              <span className="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-slate-800">
+                Runtime: {processes[0]?.runtimeSource === 'host' ? 'Host Inspection' : 'Container Exec'}
+              </span>
+            )}
           </h3>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : processes.length > 0 ? (
-            <div className="overflow-x-auto border border-slate-800 rounded-lg">
+            <div className="overflow-x-auto border border-slate-800 rounded-lg max-h-[60vh] overflow-y-auto">
               <table className="w-full text-sm">
                 <thead className="bg-slate-800/80 text-slate-300 text-left">
                   <tr>
@@ -783,9 +901,9 @@ export const PodDetail: React.FC = () => {
                     <th className="px-3 py-2 font-medium">Start time</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {processes.map((proc, i) => (
-                    <tr key={proc.id ?? i} className="hover:bg-slate-800/30">
+                    <tr key={proc.id ?? i} className="hover:bg-muted/30">
                       <td className="px-3 py-2 tabular-nums font-mono">{proc.pid}</td>
                       <td className="px-3 py-2 text-slate-300">{proc.userName ?? '—'}</td>
                       <td className="px-3 py-2 tabular-nums">{proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '—'}</td>
@@ -805,15 +923,20 @@ export const PodDetail: React.FC = () => {
 
       {activeTab === 'network' && (
         <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
             <Network className="w-5 h-5 text-pink-500" /> Network connections
+            {networkConnections.length > 0 && (
+              <span className="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-slate-800">
+                Runtime: {networkConnections[0]?.runtimeSource === 'host' ? 'Host Inspection' : 'Container Exec'}
+              </span>
+            )}
           </h3>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : networkConnections.length > 0 ? (
-            <div className="overflow-x-auto border border-slate-800 rounded-lg">
+            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
               <table className="w-full text-sm">
-                <thead className="bg-slate-800/80 text-slate-300 text-left">
+                <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                   <tr>
                     <th className="px-3 py-2 font-medium">Direction</th>
                     <th className="px-3 py-2 font-medium">Remote address</th>
@@ -823,7 +946,7 @@ export const PodDetail: React.FC = () => {
                     <th className="px-3 py-2 font-medium">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-border">
                   {networkConnections.map((conn, i) => {
                     const podIP = (pod?.podIP ?? '').trim();
                     const isListen = (conn.state ?? '').toUpperCase() === 'LISTEN';
@@ -834,7 +957,7 @@ export const PodDetail: React.FC = () => {
                     const remoteAddr = isOutbound ? `${conn.destIp ?? '—'}:${conn.destPort ?? 0}` : `${conn.sourceIp ?? '—'}:${conn.sourcePort ?? 0}`;
                     const localPort = isOutbound ? (conn.sourcePort ?? 0) : (conn.destPort ?? 0);
                     return (
-                      <tr key={conn.id ?? i} className="hover:bg-slate-800/30">
+                      <tr key={conn.id ?? i} className="hover:bg-muted/30">
                         <td className="px-3 py-2">
                           <span className={clsx('px-2 py-0.5 rounded text-xs', direction === 'Outbound' ? 'bg-sky-600/80 text-white' : 'bg-slate-600 text-slate-200')}>
                             {direction}
@@ -871,9 +994,9 @@ export const PodDetail: React.FC = () => {
                   variant="secondary"
                   size="sm"
                   onClick={async () => {
-                    if (!podIdOrUid) return;
+                    if (!pod?.uid) return;
                     try {
-                      const blob = await api.getPodSpecYamlBlob(podIdOrUid);
+                      const blob = await api.getPodSpecYamlBlob(pod.uid);
                       const a = document.createElement('a');
                       a.href = URL.createObjectURL(blob);
                       a.download = `pod-${pod?.name ?? 'spec'}.yaml`;
@@ -991,8 +1114,10 @@ export const PodDetail: React.FC = () => {
         </div>
       )}
 
-      <Card className="p-6 mt-6">
-        <h3 className="text-lg font-semibold text-white mb-2">Related</h3>
+      <Card className="mt-8" variant="secondary">
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Related navigation</h3>
+        </div>
         <div className="flex flex-wrap gap-2">
           {pod.clusterId && (
             <Button variant="secondary" size="sm" onClick={() => navigate(`/clusters/${pod.clusterId}`)}>

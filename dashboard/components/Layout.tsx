@@ -16,7 +16,6 @@ import {
   LogOut,
   Menu,
   X,
-  UserCircle,
   ScrollText,
   Search,
   Globe,
@@ -68,7 +67,7 @@ export const Layout: React.FC = () => {
         { icon: <ShieldAlert size={18} />, label: 'Risk Center', path: '/risks' },
         { icon: <Shield size={18} />, label: 'Capabilities', path: '/capabilities' },
         { icon: <ScrollText size={18} />, label: 'Rules & Policies', path: '/rules' },
-        { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths' },
+        { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths', comingSoon: true },
       ],
     },
     {
@@ -112,9 +111,7 @@ export const Layout: React.FC = () => {
         {/* Logo */}
         <div className="h-16 flex items-center px-6 border-b border-border shrink-0">
           <div className="flex items-center space-x-3">
-            <div className="w-8 h-8 bg-brand rounded-lg flex items-center justify-center shadow-lg shadow-brand/20">
-              <ShieldAlert className="text-white w-5 h-5" />
-            </div>
+            <img src="/logo.png" alt="Fortuna" className="w-8 h-8 shrink-0" />
             <span className="text-xl font-bold tracking-tight text-text">Fortuna</span>
           </div>
           <button 
@@ -151,7 +148,10 @@ export const Layout: React.FC = () => {
                       <span className={`mr-3 ${isActive || location.pathname === item.path ? 'text-brand' : 'text-muted-2 group-hover:text-text'}`}>
                         {item.icon}
                       </span>
-                      {item.label}
+                      <span className="flex-1 truncate">{item.label}</span>
+                      {(item as { comingSoon?: boolean }).comingSoon && (
+                        <span className="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded bg-muted-2/50 text-muted text-xs">Soon</span>
+                      )}
                     </NavLink>
                   );
                 })}
@@ -159,27 +159,6 @@ export const Layout: React.FC = () => {
             </div>
           ))}
         </nav>
-
-        {/* User Profile */}
-        <div className="p-4 border-t border-border shrink-0 bg-surface/60">
-          <div className="flex items-center mb-4 px-2">
-            <div className="relative">
-              <UserCircle className="w-9 h-9 text-muted" />
-              <div className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-success border-2 border-surface rounded-full"></div>
-            </div>
-            <div className="ml-3 min-w-0">
-              <p className="text-sm font-semibold text-text truncate">{user?.name}</p>
-              <p className="text-xs text-muted-2 truncate capitalize">{user?.role}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="w-full flex items-center px-3 py-2 rounded-lg text-sm font-medium text-muted hover:text-critical hover:bg-critical/10 transition-all duration-200"
-          >
-            <LogOut size={16} className="mr-3" />
-            Sign Out
-          </button>
-        </div>
       </aside>
 
       {/* Main Content Area */}
@@ -254,12 +233,28 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
           </div>
           <div className="flex items-center space-x-4">
             <DataControlBar />
-            <div className="h-6 w-px bg-border"></div>
-            <div className="flex items-center space-x-2 px-2 py-1 bg-surface border border-border rounded-lg cursor-pointer hover:border-surface-2 transition-colors">
-              <div className="w-6 h-6 rounded-full bg-brand/20 text-brand flex items-center justify-center text-[10px] font-bold">
+            <div className="h-6 w-px bg-border" />
+            <div className="flex items-center space-x-2 px-2 py-1 bg-surface border border-border rounded-lg">
+              <div className="w-7 h-7 rounded-full bg-brand/20 text-brand flex items-center justify-center text-[10px] font-bold">
                 {user?.name?.charAt(0) || 'A'}
               </div>
-              <span className="text-xs font-medium text-muted">{user?.name ?? 'User'}</span>
+              <div className="flex flex-col min-w-0">
+                <span className="text-xs font-medium text-text truncate">
+                  {user?.name ?? 'User'}
+                </span>
+                <span className="text-[10px] text-muted-2 capitalize truncate">
+                  {user?.role ?? 'admin'}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="ml-1 inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-muted hover:text-critical hover:bg-critical/10 transition-colors"
+                title="Sign out"
+              >
+                <LogOut size={14} className="mr-1" />
+                Sign Out
+              </button>
             </div>
           </div>
         </header>
@@ -345,6 +340,9 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
             <Outlet />
           </div>
         </main>
+        <footer className="shrink-0 px-4 py-2 border-t border-border bg-surface/50 text-center text-[10px] text-muted-2" title="Build time (UTC). Use this to confirm which dashboard image is running.">
+          Fortuna Dashboard · build {typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}
+        </footer>
       </div>
     </div>
   );

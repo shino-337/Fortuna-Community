@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Runtime Signals E2E – test cases thực tế
-# 1. POST /api/v1/runtime-events (ingest event)
+# 1. POST /api/v1/runtime/events (ingest event)
 # 2. Kiểm tra DB: runtime_events, runtime_signals
-# 3. GET /api/v1/runtime-signals
-# 4. GET /api/v1/runtime-signals/pods/:podUid
+# 3. GET /api/v1/runtime/signals
+# 4. GET /api/v1/runtime/pods/:uid/signals
 # Chạy từ repo root; cần kubectl, namespace fortuna, Core + Postgres chạy.
 # =============================================================================
 set -euo pipefail
@@ -88,7 +88,7 @@ echo "--- Test 1: POST /api/v1/runtime-events ---"
 TEST_POD_UID="e2e-test-pod-$(date +%s)"
 TS=$(date +%s)
 PAYLOAD="[{\"event_type\":\"escape_attempt\",\"mitre_technique\":\"T1611.001\",\"signal\":\"PROC_ROOT_PIVOT\",\"severity\":\"high\",\"pod\":{\"name\":\"e2e-pod\",\"namespace\":\"default\",\"uid\":\"$TEST_POD_UID\"},\"syscall\":\"openat\",\"target\":\"/proc/1/root\",\"timestamp\":$TS}]"
-RESP=$(api_post "http://localhost:8080/api/v1/runtime-events" "$PAYLOAD")
+RESP=$(api_post "http://localhost:8080/api/v1/runtime/events" "$PAYLOAD")
 if echo "$RESP" | grep -q "processed"; then
   PROCESSED=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('processed', 0))" 2>/dev/null || echo "0")
   ok "POST /runtime-events returned processed=$PROCESSED"
@@ -112,9 +112,9 @@ else
 fi
 echo ""
 
-# --- Test 3: GET /api/v1/runtime-signals ---
-echo "--- Test 3: GET /api/v1/runtime-signals?limit=5 ---"
-RESP=$(api_get "http://localhost:8080/api/v1/runtime-signals?limit=5")
+# --- Test 3: GET /api/v1/runtime/signals ---
+echo "--- Test 3: GET /api/v1/runtime/signals?limit=5 ---"
+RESP=$(api_get "http://localhost:8080/api/v1/runtime/signals?limit=5")
 if echo "$RESP" | grep -q '"signals"'; then
   TOTAL=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total', 0))" 2>/dev/null || echo "0")
   ok "GET /runtime-signals total=$TOTAL"
@@ -123,8 +123,8 @@ else
 fi
 echo ""
 
-# --- Test 4: GET /api/v1/runtime-signals/pods/:podUid ---
-echo "--- Test 4: GET /api/v1/runtime-signals/pods/:podUid ---"
+# --- Test 4: GET /api/v1/runtime/pods/:uid/signals ---
+echo "--- Test 4: GET /api/v1/runtime/pods/:uid/signals ---"
 POD_UID_FROM_API=$(echo "$RESP" | python3 -c "
 import sys, json
 try:
@@ -135,12 +135,12 @@ try:
 except: pass
 " 2>/dev/null || echo "")
 if [ -n "$POD_UID_FROM_API" ]; then
-  RESP2=$(api_get "http://localhost:8080/api/v1/runtime-signals/pods/$POD_UID_FROM_API")
+  RESP2=$(api_get "http://localhost:8080/api/v1/runtime/pods/$POD_UID_FROM_API/signals")
   if echo "$RESP2" | grep -q '"signals"'; then
     CNT=$(echo "$RESP2" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('signals', [])))" 2>/dev/null || echo "0")
-    ok "GET /runtime-signals/pods/$POD_UID_FROM_API signals count: $CNT"
+    ok "GET /runtime/pods/$POD_UID_FROM_API/signals count: $CNT"
   else
-    fail "GET /runtime-signals/pods/:uid failed"
+    fail "GET /runtime/pods/:uid/signals failed"
   fi
 else
   warn "No pod_uid from API; skipped Test 4 (try Test 1 first)"
@@ -148,8 +148,8 @@ fi
 echo ""
 
 # --- Test 5: GET by test pod UID (we just posted) ---
-echo "--- Test 5: GET /runtime-signals/pods/$TEST_POD_UID ---"
-RESP3=$(api_get "http://localhost:8080/api/v1/runtime-signals/pods/$TEST_POD_UID")
+echo "--- Test 5: GET /runtime/pods/$TEST_POD_UID/signals ---"
+RESP3=$(api_get "http://localhost:8080/api/v1/runtime/pods/$TEST_POD_UID/signals")
 if echo "$RESP3" | grep -q '"signals"'; then
   CNT3=$(echo "$RESP3" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('signals', [])))" 2>/dev/null || echo "0")
   ok "Signals for test pod: $CNT3"

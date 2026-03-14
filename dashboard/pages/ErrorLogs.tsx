@@ -1,10 +1,11 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { ErrorLog } from '../types';
 import { Card } from '../components/ui/Card';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
-import { AlertCircle, RefreshCw, Filter } from 'lucide-react';
+import { AlertCircle, RefreshCw, Filter, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -12,6 +13,7 @@ const LEVEL_OPTIONS = ['', 'ERROR', 'WARN', 'INFO'];
 const SOURCE_OPTIONS = ['', 'core', 'agent', 'worker'];
 
 export const ErrorLogs: React.FC = () => {
+  const navigate = useNavigate();
   const [logs, setLogs] = useState<ErrorLog[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
@@ -64,10 +66,15 @@ export const ErrorLogs: React.FC = () => {
       title="Error Logs"
       description="System and application error logs from Core and Agent (error_logs table)."
       actions={
-        <Button variant="secondary" onClick={fetchLogs} disabled={loading}>
-          <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
+          </Button>
+          <Button variant="secondary" onClick={fetchLogs} disabled={loading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </Button>
+        </div>
       }
     >
       {/* Filters */}
@@ -100,10 +107,10 @@ export const ErrorLogs: React.FC = () => {
         </select>
       </div>
 
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto max-h-[calc(100vh-20rem)] overflow-y-auto">
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800 sticky top-0 z-10">
+            <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
               <tr>
                 <th className="px-6 py-4 font-medium whitespace-nowrap">Time</th>
                 <th className="px-6 py-4 font-medium whitespace-nowrap">Level</th>
@@ -111,25 +118,25 @@ export const ErrorLogs: React.FC = () => {
                 <th className="px-6 py-4 font-medium">Message</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-border">
               {loading ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={4} className="px-6 py-12 text-center text-muted">
                     Loading...
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-12 text-center text-slate-500">
-                    <AlertCircle className="w-10 h-10 mx-auto mb-2 text-slate-600" />
+                  <td colSpan={4} className="px-6 py-12 text-center text-muted">
+                    <AlertCircle className="w-10 h-10 mx-auto mb-2 text-muted" />
                     <p>No error logs found.</p>
                     <p className="text-xs mt-1">Logs are written by Core/Agent when errors occur.</p>
                   </td>
                 </tr>
               ) : (
                 logs.map((log) => (
-                  <tr key={log.id} className="hover:bg-slate-800/50 transition-colors">
-                    <td className="px-6 py-4 font-mono text-slate-500 whitespace-nowrap text-xs">
+                  <tr key={log.id} className="hover:bg-muted/30 transition-colors">
+                    <td className="px-6 py-4 font-mono text-muted whitespace-nowrap text-xs">
                       {formatTime(log.time)}
                     </td>
                     <td className="px-6 py-4">

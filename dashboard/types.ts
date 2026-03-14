@@ -145,7 +145,7 @@ export interface NodeDetailResponse {
   pods?: Array<{ id: number; uid: string; name: string; namespace: string; riskCount: number }>;
 }
 
-/** GET /pods, GET /pods/:id, GET /pods/by-uid/:uid – pod with riskCount (POD_DETAIL_SPEC fields when available) */
+/** GET /pods, GET /pods/by-id/:id, GET /pods/by-uid/:uid – pod with riskCount (POD_DETAIL_SPEC fields when available) */
 export interface PodWithRisk {
   id: number;
   clusterId: string;
@@ -182,6 +182,16 @@ export interface DashboardStats {
 }
 
 /** GET /api/v1/insights/summary – severity breakdown for dashboard cards */
+export interface InsightsSummaryByClusterItem {
+  clusterId: string;
+  clusterName?: string;
+  total: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
 export interface InsightsSummary {
   total: number;
   critical: number;
@@ -197,6 +207,25 @@ export interface ThreatVelocityPoint {
   high: number;
   medium: number;
   low: number;
+}
+
+/** GET /risk/histogram – Risk Score Distribution (bins 0–100) for histogram chart */
+export interface RiskHistogramBin {
+  bin: number;
+  count: number;
+  percent: number;
+  severityBreakdown: { critical: number; high: number; medium: number; low: number };
+  critical_count: number;
+  high_count: number;
+  medium_count: number;
+  low_count: number;
+}
+
+export interface RiskHistogramResponse {
+  bins: RiskHistogramBin[];
+  totalFindings: number;
+  averageScore: number;
+  p0Count: number;
 }
 
 export interface PodCapabilitySummaryCluster {
@@ -242,6 +271,8 @@ export interface PodCapabilityDetail {
   mitreTechniques?: string[];
   createdAt?: string;
   updatedAt?: string;
+  /** RFC3339; for PCE drill-down "Last Seen" column (backend last_seen_at) */
+  lastSeenAt?: string;
 }
 
 // Phase 2.2: Capability Metadata (extended per Capability Specification – MITRE ATT&CK)
@@ -297,6 +328,8 @@ export interface PodProcessItem {
   binaryPath?: string;
   startedAt?: string;
   observedAt?: string;
+  /** "host" | "exec" - Runtime Source indicator (Host Inspection vs Container Exec) */
+  runtimeSource?: string;
 }
 
 export interface PodNetworkConnectionItem {
@@ -312,6 +345,8 @@ export interface PodNetworkConnectionItem {
   bytesSent?: number;
   bytesRecv?: number;
   observedAt?: string;
+  /** "host" | "exec" - Runtime Source indicator */
+  runtimeSource?: string;
 }
 
 export interface PodK8sEventItem {
@@ -448,9 +483,11 @@ export interface AuditLog {
   id: string;
   action: string;
   resource: string;
+  resourceId?: string;
   timestamp: string;
   user?: string;
   actor?: string;
+  ip?: string;
   status?: 'success' | 'failure' | 'denied' | string;
   details?: string;
 }
@@ -479,6 +516,40 @@ export interface SecurityRule {
   evalTime?: string;
   lastUpdated?: string;
   matches?: number;
+}
+
+/** Risk rule from DB (GET /risk-rules CRUD). */
+export interface RiskRuleItem {
+  id: string;
+  name: string;
+  severity: string;
+  description?: string;
+  category?: string;
+  enabled: boolean;
+  file?: string;
+}
+
+/** Condition inside a risk rule. */
+export interface RiskRuleCondition {
+  type?: string;
+  field?: string;
+  operator?: string;
+  value?: unknown;
+  expression?: string;
+}
+
+/** Full risk rule for create/update (POST/PUT /risk-rules). */
+export interface RiskRuleFull {
+  id: string;
+  name: string;
+  severity: string;
+  description?: string;
+  category?: string;
+  enabled: boolean;
+  conditions: RiskRuleCondition[];
+  aggregation?: string;
+  base_score?: number;
+  tags?: string[];
 }
 
 export interface K8sResource {
@@ -519,4 +590,15 @@ export interface Insight {
   evidence?: Record<string, unknown> | string;
   /** Risk Detail: violated rules (JSON from backend insights.violated_rules) */
   violatedRules?: unknown[] | Record<string, unknown> | string;
+  /** Risk Detail: structured explanation text from backend insights.risk_explanation */
+  riskExplanation?: string;
+  /** Risk Detail: structured remediation JSON from backend insights.remediation */
+  remediation?: unknown[] | Record<string, unknown> | string;
+  /** Phase 3.1: from risk_scores when GET /risks?withScores=1 */
+  totalScore?: number;
+  priorityLevel?: string;
+  /** Phase 3.2: V2 scoring breakdown from risk_scores (when withScores=1) */
+  exploitabilityScore?: number;
+  businessImpactScore?: number;
+  timeDecay?: number;
 }

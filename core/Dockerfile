@@ -2,7 +2,7 @@
 # Build context: repository root
 # Usage: docker build -f core/Dockerfile -t fortuna-core:latest .
 FROM golang:1.24 AS builder
-
+ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
 
 # Build metadata
@@ -44,10 +44,9 @@ COPY core/ ./
 # Verify dependencies
 RUN go mod verify
 
-# Build Core binary
-# Note: Go 1.24 requires build cache to be enabled (cannot use GOCACHE=off)
-# Use -a flag to rebuild all packages, then cleanup cache immediately
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+# Build Core binary into WORKDIR (/build/core/fortuna-core); final stage COPY from this path
+RUN set -e && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
     -X main.BuildVersion=${FORTUNA_BUILD_VERSION} \
     -X main.BuildCommit=${FORTUNA_BUILD_COMMIT} \
@@ -55,13 +54,10 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -trimpath \
     -buildvcs=false \
     -a \
-    -o /fortuna-core ./cmd/main.go && \
-    # Clean build cache immediately after build to save disk space
+    -o fortuna-core ./cmd/main.go && \
+    test -f fortuna-core && \
     go clean -cache && \
     rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
-
-# Verify Core binary exists
-RUN test -f /fortuna-core || (echo "ERROR: /fortuna-core not found after build" && exit 1)
 
 # Build CVE loader binary (if exists) - cleanup cache after
 RUN if [ -f "./cmd/cve-loader/main.go" ]; then \
@@ -83,6 +79,7 @@ RUN go clean -cache -modcache -testcache && \
 
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install only runtime dependencies
 # Retry apt-get update in case of network issues (up to 5 retries)
@@ -105,9 +102,9 @@ RUN for i in 1 2 3 4 5; do \
 
 WORKDIR /app
 
-# Copy binaries from builder with proper ownership
-COPY --from=builder --chown=fortuna:fortuna /fortuna-core /app/fortuna-core
-# Copy CVE loader if it exists and has content
+# Copy binaries from builder (paths under builder WORKDIR /build/core)
+COPY --from=builder --chown=fortuna:fortuna /build/core/fortuna-core /app/fortuna-core
+# Copy CVE loader if it exists and has content (built to /cve-loader in builder)
 COPY --from=builder /cve-loader /tmp/cve-loader
 RUN if [ -s /tmp/cve-loader ]; then \
         mv /tmp/cve-loader /app/cve-loader && \

@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 import { SecurityRule } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
@@ -157,15 +157,15 @@ export const Rules: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Total</div><div className="text-xl font-bold text-white">{rules.length}</div></Card>
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Enabled</div><div className="text-xl font-bold text-emerald-400">{rules.filter((r) => r.enabled).length}</div></Card>
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Disabled</div><div className="text-xl font-bold text-slate-300">{rules.filter((r) => !r.enabled).length}</div></Card>
+        <Card variant="panel"><div className="text-muted text-[10px] uppercase tracking-wide">Total</div><div className="text-xl font-bold text-text mt-1">{rules.length}</div></Card>
+        <Card variant="panel"><div className="text-muted text-[10px] uppercase tracking-wide">Enabled</div><div className="text-xl font-bold text-emerald-400 mt-1">{rules.filter((r) => r.enabled).length}</div></Card>
+        <Card variant="panel"><div className="text-muted text-[10px] uppercase tracking-wide">Disabled</div><div className="text-xl font-bold text-muted mt-1">{rules.filter((r) => !r.enabled).length}</div></Card>
       </div>
 
-      <Card className="overflow-hidden p-0">
-        <div className="overflow-x-auto">
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
+            <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border">
               <tr>
                 <th className="px-6 py-4 font-medium">Rule</th>
                 <th className="px-6 py-4 font-medium">Category / Type</th>
@@ -183,7 +183,7 @@ export const Rules: React.FC = () => {
                 </tr>
               ) : (
                 filteredRules.map((rule) => (
-                  <tr key={rule.id} className="hover:bg-slate-800/50 transition-colors">
+                  <tr key={rule.id} className="hover:bg-muted/30 transition-colors">
                     <td className="px-6 py-4">
                       <div className="font-medium text-white">{rule.name}</div>
                       <div className="text-xs text-slate-500 font-mono">{rule.id}</div>

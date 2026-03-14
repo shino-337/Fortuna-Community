@@ -92,43 +92,35 @@ else
 
     FAILS=0
     api_get "/api/v1/me" || ((FAILS+=1))
-    api_get "/api/v1/clusters" || ((FAILS+=1))
-    api_get "/api/v1/clusters/stats" || ((FAILS+=1))
-    api_get "/api/v1/pods?limit=10" || ((FAILS+=1))
+    api_get "/api/v1/inventory/clusters" || ((FAILS+=1))
+    api_get "/api/v1/inventory/clusters/stats" || ((FAILS+=1))
+    api_get "/api/v1/inventory/pods?limit=10" || ((FAILS+=1))
 
-    # First pod id for detail endpoints
-    PODS_JSON=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/pods?limit=5" 2>/dev/null || echo "{}")
-    POD_ID=$(echo "$PODS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('pods',[]); print(str(p[0].get('id',''))) if p else print('')" 2>/dev/null || echo "")
+    # First pod UID for detail endpoints (domain API uses UID only; by-id removed)
+    PODS_JSON=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/inventory/pods?limit=5" 2>/dev/null || echo "{}")
     POD_UID=$(echo "$PODS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('pods',[]); print(p[0].get('uid','') or '') if p else print('')" 2>/dev/null || echo "")
 
-    if [ -n "$POD_ID" ]; then
-      api_get "/api/v1/pods/$POD_ID" || ((FAILS+=1))
-      api_get "/api/v1/pods/$POD_ID/capabilities" || ((FAILS+=1))
-      api_get "/api/v1/pods/$POD_ID/runtime-metrics" || ((FAILS+=1))
-      api_get "/api/v1/pods/$POD_ID/processes" || ((FAILS+=1))
-      api_get "/api/v1/pods/$POD_ID/network-connections" || ((FAILS+=1))
-      api_get "/api/v1/pods/$POD_ID/events" || ((FAILS+=1))
-      if [ -n "$POD_UID" ]; then
-        api_get "/api/v1/pods/by-uid/$POD_UID" || ((FAILS+=1))
-        api_get "/api/v1/pods/by-uid/$POD_UID/runtime-metrics" || ((FAILS+=1))
-        api_get "/api/v1/pods/by-uid/$POD_UID/processes" || ((FAILS+=1))
-        api_get "/api/v1/pods/by-uid/$POD_UID/network-connections" || ((FAILS+=1))
-        api_get "/api/v1/pods/by-uid/$POD_UID/events" || ((FAILS+=1))
-      fi
+    if [ -n "$POD_UID" ]; then
+      api_get "/api/v1/inventory/pods/$POD_UID" || ((FAILS+=1))
+      api_get "/api/v1/inventory/pods/$POD_UID/capabilities" || ((FAILS+=1))
+      api_get "/api/v1/runtime/pods/$POD_UID/metrics" || ((FAILS+=1))
+      api_get "/api/v1/runtime/pods/$POD_UID/processes" || ((FAILS+=1))
+      api_get "/api/v1/runtime/pods/$POD_UID/network" || ((FAILS+=1))
+      api_get "/api/v1/runtime/pods/$POD_UID/events" || ((FAILS+=1))
     else
       warn "No pods in API; skipping pod-detail endpoints"
-      echo "- No pod id; pod-detail endpoints skipped" >> "$REPORT"
+      echo "- No pod uid; pod-detail endpoints skipped" >> "$REPORT"
     fi
 
     api_get "/api/v1/dashboard/stats" || ((FAILS+=1))
-    api_get "/api/v1/insights?limit=5" || ((FAILS+=1))
-    api_get "/api/v1/sbom?limit=5" || ((FAILS+=1))
+    api_get "/api/v1/risk/insights?limit=5" || ((FAILS+=1))
+    api_get "/api/v1/inventory/sbom?limit=5" || ((FAILS+=1))
     api_get "/api/v1/health/dashboard-data-integrity" || ((FAILS+=1))
     api_get "/api/v1/agents/status" || api_get "/api/v1/monitoring/agents" || ((FAILS+=1))
-    api_get "/api/v1/runtime-signals?limit=5" || ((FAILS+=1))
-    api_get "/api/v1/pod-capabilities/summary" || ((FAILS+=1))
-    api_get "/api/v1/risks?limit=5" || ((FAILS+=1))
-    api_get "/api/v1/deployments?limit=5" || ((FAILS+=1))
+    api_get "/api/v1/runtime/signals?limit=5" || ((FAILS+=1))
+    api_get "/api/v1/inventory/pod-capabilities/summary" || ((FAILS+=1))
+    api_get "/api/v1/risk/insights?limit=5" || ((FAILS+=1))
+    api_get "/api/v1/inventory/deployments?limit=5" || ((FAILS+=1))
     api_get "/api/v1/resources" || ((FAILS+=1))
 
     if [ "${FAILS:-0}" -gt 0 ]; then

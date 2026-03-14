@@ -9,6 +9,23 @@ import (
 	"gorm.io/gorm"
 )
 
+// openTestDB opens an in-memory SQLite DB with a single connection so that async PCE goroutines
+// see the same data as the test (SQLite :memory: is per-connection otherwise).
+func openTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("get sql.DB: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+	return db
+}
+
 func TestEqualTimePtr(t *testing.T) {
 	t1 := time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)
 	t2 := time.Date(2026, 3, 2, 12, 0, 0, 0, time.UTC)
@@ -29,10 +46,7 @@ func TestEqualTimePtr(t *testing.T) {
 }
 
 func TestProcessSyncedPods_PodDetailFields(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestDB(t)
 	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.PodInstance{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -102,11 +116,48 @@ func TestProcessSyncedPods_PodDetailFields(t *testing.T) {
 	}
 }
 
-func TestProcessSyncedPods_SpecHashStoredAndConditionalPCE(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
+// TestProcessSyncedPods_PodDetailFields_SnakeCaseKeys ensures pod_ip/start_time (snake_case) in payload are parsed and stored.
+func TestProcessSyncedPods_PodDetailFields_SnakeCaseKeys(t *testing.T) {
+	db := openTestDB(t)
+	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.PodInstance{}); err != nil {
+		t.Fatalf("migrate: %v", err)
 	}
+	clusterID := "test-cluster-snake"
+	if err := db.Create(&models.Cluster{ID: clusterID, Name: "test"}).Error; err != nil {
+		t.Fatalf("create cluster: %v", err)
+	}
+
+	svc := NewAgentService(db)
+	data := map[string]interface{}{
+		"pods": []interface{}{
+			map[string]interface{}{
+				"name": "p2", "namespace": "default", "uid": "pod-uid-snake",
+				"phase": "Running", "serviceAccountName": "default", "nodeName": "node-1",
+				"hostNetwork": false, "hostPID": false, "hostIPC": false,
+				"pod_ip":   "10.244.1.100",
+				"start_time": "2026-03-10T08:00:00Z",
+				"restartCount": float64(0),
+				"containers": []interface{}{}, "volumes": []interface{}{},
+			},
+		},
+	}
+	if err := svc.processSyncedPods(clusterID, data, true); err != nil {
+		t.Fatalf("processSyncedPods: %v", err)
+	}
+	var pod models.Pod
+	if err := db.Where("cluster_id = ? AND uid = ?", clusterID, "pod-uid-snake").First(&pod).Error; err != nil {
+		t.Fatalf("find pod: %v", err)
+	}
+	if pod.PodIP != "10.244.1.100" {
+		t.Errorf("PodIP from pod_ip: got %q", pod.PodIP)
+	}
+	if pod.StartTime.Time == nil {
+		t.Error("StartTime from start_time should be set")
+	}
+}
+
+func TestProcessSyncedPods_SpecHashStoredAndConditionalPCE(t *testing.T) {
+	db := openTestDB(t)
 	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.PodInstance{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -185,10 +236,7 @@ func TestProcessSyncedPods_SpecHashStoredAndConditionalPCE(t *testing.T) {
 
 // TestProcessSyncedPods_NullToNonNullSpecHash ensures agent upgrade (no specHash -> with specHash) triggers PCE.
 func TestProcessSyncedPods_NullToNonNullSpecHash(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestDB(t)
 	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.PodInstance{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -242,10 +290,7 @@ func TestProcessSyncedPods_NullToNonNullSpecHash(t *testing.T) {
 }
 
 func TestProcessSyncedPods_UpdatePodDetailFields(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
+	db := openTestDB(t)
 	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.PodInstance{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}

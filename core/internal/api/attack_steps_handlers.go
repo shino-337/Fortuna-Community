@@ -12,7 +12,7 @@ import (
 // GetPodAttackSteps returns attack steps for a specific pod
 func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		podUID := c.Param("podUid")
+		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
 			return

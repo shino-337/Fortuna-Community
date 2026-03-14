@@ -76,9 +76,9 @@ fi
 echo ""
 
 # Test Runtime Signals API
-echo "Test 4: GET /api/v1/runtime-signals"
+echo "Test 4: GET /api/v1/runtime/signals"
 echo "----------------------------------------"
-RESPONSE=$(api_get "http://localhost:8080/api/v1/runtime-signals?limit=10")
+RESPONSE=$(api_get "http://localhost:8080/api/v1/runtime/signals?limit=10")
 if echo "$RESPONSE" | grep -q "signals"; then
     COUNT=$(echo "$RESPONSE" | grep -o '"count":[0-9]*' | grep -o '[0-9]*' || echo "0")
     TOTAL=$(echo "$RESPONSE" | grep -o '"total":[0-9]*' | grep -o '[0-9]*' || echo "0")
@@ -97,9 +97,9 @@ POD_UID=$([ -n "$PG_POD" ] && kubectl -n fortuna exec "$PG_POD" -- psql -U postg
 if [ -n "$POD_UID" ]; then
     echo "Found pod UID: $POD_UID"
     echo ""
-    echo "Test 5: GET /api/v1/runtime-signals/pods/$POD_UID"
+    echo "Test 5: GET /api/v1/runtime/pods/$POD_UID/signals"
     echo "----------------------------------------"
-    RESPONSE=$(api_get "http://localhost:8080/api/v1/runtime-signals/pods/$POD_UID")
+    RESPONSE=$(api_get "http://localhost:8080/api/v1/runtime/pods/$POD_UID/signals")
     if echo "$RESPONSE" | grep -q "signals"; then
         COUNT=$(echo "$RESPONSE" | grep -o '"count":[0-9]*' | grep -o '[0-9]*' || echo "0")
         echo "✅ Status: 200"

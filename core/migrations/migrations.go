@@ -91,6 +91,13 @@ var (
 	_ = Migration068_AddPodDetailColumns
 	_ = Migration069_AddPodSpecHash
 	_ = Migration070_AddPodLastEvaluatedHash
+	_ = Migration071_AddPodDetailServicesTables
+	_ = Migration072_PodProcessesGormColumns
+	_ = Migration073_PodProcessesHistoryIndex
+	_ = Migration074_AddRuntimeSourcePodDetail
+	_ = Migration075_AddRiskRulesTable
+	_ = Migration076_AddRiskRulesHistoryTable
+	_ = Migration077_AddInsightExplanationRemediation
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -181,6 +188,13 @@ func RunMigrations(db *gorm.DB) error {
 		Migration068_AddPodDetailColumns,                  // Pod Detail (POD_DETAIL_SPEC): pod_ip, start_time, restart_count, owner_*, qos_class
 		Migration069_AddPodSpecHash,                       // POD_SYNC_ARCHITECTURE §4.3: spec_hash for conditional PCE
 		Migration070_AddPodLastEvaluatedHash,             // last_evaluated_hash after PCE success; race protection
+		Migration071_AddPodDetailServicesTables,           // Pod Detail: pod_runtime_metrics, pod_processes, pod_network_connections, k8s_events
+		Migration072_PodProcessesGormColumns,              // Pod Detail: pid->p_id, ppid->pp_id for GORM
+		Migration073_PodProcessesHistoryIndex,             // Pod Detail: index (pod_uid, observed_at)
+		Migration074_AddRuntimeSourcePodDetail,            // Pod Detail: runtime_source (host|exec) for UI
+		Migration075_AddRiskRulesTable,                    // Risk rules CRUD: table for engine-loaded rules
+		Migration076_AddRiskRulesHistoryTable,             // Risk rules versioning: risk_rules_history (Phase 3)
+		Migration077_AddInsightExplanationRemediation,     // Risk Detail: explanation (TEXT) + remediation (JSONB) on insights
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

@@ -21,20 +21,19 @@ RESPONSE=$(curl -s "${CORE_URL}/promotion-rules" || echo '{"error":"API not avai
 echo "${RESPONSE}" | python3 -m json.tool 2>/dev/null || echo "${RESPONSE}"
 echo ""
 
-# 2. Check Runtime Signals API
+# 2. Check Runtime Signals API (domain: /runtime/signals)
 echo "=== 2. Runtime Signals API ==="
-echo "GET ${CORE_URL}/runtime-signals?limit=5"
-RESPONSE=$(curl -s "${CORE_URL}/runtime-signals?limit=5" || echo '{"error":"API not available"}')
+echo "GET ${CORE_URL}/runtime/signals?limit=5"
+RESPONSE=$(curl -s "${CORE_URL}/runtime/signals?limit=5" || echo '{"error":"API not available"}')
 echo "${RESPONSE}" | python3 -m json.tool 2>/dev/null || echo "${RESPONSE}"
 echo ""
 
-# 3. Check Pod Capabilities (if we have a pod)
+# 3. Check Pod Capabilities (domain: /inventory/pods/:uid/capabilities)
 echo "=== 3. Pod Capabilities API ==="
-# Try to get a pod UID from database or API
-POD_UID=$(curl -s "${CORE_URL}/pods?limit=1" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('pods', [{}])[0].get('uid', ''))" 2>/dev/null || echo "")
+POD_UID=$(curl -s "${CORE_URL}/inventory/pods?limit=1" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data.get('pods', [{}])[0].get('uid', ''))" 2>/dev/null || echo "")
 if [ -n "$POD_UID" ] && [ "$POD_UID" != "None" ]; then
-  echo "GET ${CORE_URL}/pods/${POD_UID}/capabilities"
-  RESPONSE=$(curl -s "${CORE_URL}/pods/${POD_UID}/capabilities" || echo '{"error":"API not available"}')
+  echo "GET ${CORE_URL}/inventory/pods/${POD_UID}/capabilities"
+  RESPONSE=$(curl -s "${CORE_URL}/inventory/pods/${POD_UID}/capabilities" || echo '{"error":"API not available"}')
   echo "${RESPONSE}" | python3 -m json.tool 2>/dev/null || echo "${RESPONSE}"
 else
   echo "No pods found to query capabilities"

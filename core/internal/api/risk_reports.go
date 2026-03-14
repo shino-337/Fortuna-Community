@@ -53,7 +53,7 @@ type PodRiskReport struct {
 // GetPodRiskReport builds a detailed RBAC risk report for a pod.
 func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		podUID := c.Param("podUid")
+		podUID := c.Param("uid")
 		var pod models.Pod
 		if err := db.Where("uid = ? AND deleted_at IS NULL", podUID).First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {

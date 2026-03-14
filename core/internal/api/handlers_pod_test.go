@@ -28,7 +28,7 @@ func setupPodTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// TestGetPod_ReturnsPodDetailFields verifies GET /pods/:id returns POD_DETAIL_SPEC fields.
+// TestGetPod_ReturnsPodDetailFields verifies GET /pods/by-id/:id returns POD_DETAIL_SPEC fields.
 func TestGetPod_ReturnsPodDetailFields(t *testing.T) {
 	db := setupPodTestDB(t)
 	clusterID := "c1"
@@ -57,9 +57,9 @@ func TestGetPod_ReturnsPodDetailFields(t *testing.T) {
 
 	router := gin.New()
 	v1 := router.Group("/api/v1")
-	v1.GET("/pods/:id", GetPod(db))
+	v1.GET("/pods/by-id/:id", GetPod(db))
 
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/pods/"+fmt.Sprint(pod.ID), nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/pods/by-id/"+fmt.Sprint(pod.ID), nil)
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 

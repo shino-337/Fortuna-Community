@@ -10,6 +10,9 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
+// Dashboard endpoints (GET /dashboard/stats, GET /dashboard/metrics/*) are aggregate APIs:
+// they compose multiple sources and may use cache; not stable for external clients (see docs/02-architecture/API_ARCHITECTURE_RECOMMENDATIONS.md §6.2).
+
 // DashboardDataIntegrityResponse is the response for GET /health/dashboard-data-integrity.
 // It allows operators to verify that dashboard data is traceable and identifies stubs/placeholders.
 type DashboardDataIntegrityResponse struct {
@@ -94,23 +97,25 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 func endpointInventory() []EndpointDataSource {
 	return []EndpointDataSource{
 		{Path: "/api/v1/dashboard/stats", Source: "real", Agent: "agent (sync)", Note: "clusters/pods/agents/insights from DB"},
-		{Path: "/api/v1/clusters", Source: "real", Agent: "agent (sync)", Note: "clusters from DB, filtered by last_sync"},
+		{Path: "/api/v1/inventory/clusters", Source: "real", Agent: "agent (sync)", Note: "clusters from DB, filtered by last_sync"},
 		{Path: "/api/v1/agents/status", Source: "real", Agent: "agent (heartbeat)", Note: "agents table"},
-		{Path: "/api/v1/risks", Source: "real", Agent: "core (insights)", Note: "insights table"},
-		{Path: "/api/v1/sbom", Source: "real", Agent: "agent (SBOM)", Note: "sbom from agent"},
+		{Path: "/api/v1/risk/insights", Source: "real", Agent: "core (insights)", Note: "insights table"},
+		{Path: "/api/v1/inventory/sbom", Source: "real", Agent: "agent (SBOM)", Note: "sbom from agent"},
 		{Path: "/api/v1/resources", Source: "real", Agent: "agent (sync)", Note: "resources from sync"},
-		{Path: "/api/v1/rules", Source: "real", Agent: "core", Note: "rules from DB"},
-		{Path: "/api/v1/audit", Source: "real", Agent: "core", Note: "audit_logs table"},
-		{Path: "/api/v1/reports", Source: "real", Agent: "core", Note: "aggregated from audit_logs"},
+		{Path: "/api/v1/policy/rules", Source: "real", Agent: "core", Note: "rules from DB"},
+		{Path: "/api/v1/audit/logs", Source: "real", Agent: "core", Note: "audit_logs table"},
+		{Path: "/api/v1/audit/reports", Source: "real", Agent: "core", Note: "aggregated from audit_logs"},
 		{Path: "/api/v1/metrics/system", Source: "real", Agent: "core", Note: "DB aggregates"},
 		{Path: "/api/v1/dashboard/metrics/threat-velocity", Source: "real", Agent: "core", Note: "insights by severity/date"},
-		{Path: "/api/v1/pod-capabilities/summary/*", Source: "real", Agent: "agent (PCE)", Note: "pod_capabilities"},
-		{Path: "/api/v1/attack-paths/graph", Source: "real", Agent: "core", Note: "graph from DB"},
+		{Path: "/api/v1/inventory/pod-capabilities/summary/*", Source: "real", Agent: "agent (PCE)", Note: "pod_capabilities"},
+		{Path: "/api/v1/graph/attack-paths/graph", Source: "real", Agent: "core", Note: "graph from DB"},
 		{Path: "/api/v1/notifications", Source: "real", Agent: "core", Note: "from notifications table"},
 		{Path: "/api/v1/error-logs", Source: "real", Agent: "core", Note: "from error_logs table"},
 		// Removed: /api/v1/metrics/workers, /api/v1/metrics/queue (use Prometheus when needed)
-		{Path: "/api/v1/certificates/info", Source: "real", Agent: "core", Note: "from CertManager when TLS enabled"},
-		{Path: "/api/v1/certificates/rotation/history", Source: "real", Agent: "core", Note: "empty list until rotation_history table"},
+		{Path: "/api/v1/cluster/info", Source: "real", Agent: "agent (sync)", Note: "cluster list (infrastructure domain)"},
+		{Path: "/api/v1/cluster/:id/nodes", Source: "real", Agent: "agent (sync)", Note: "node names for cluster"},
+		{Path: "/api/v1/cluster/certificates/info", Source: "real", Agent: "core", Note: "from CertManager when TLS enabled"},
+		{Path: "/api/v1/cluster/certificates/rotation/history", Source: "real", Agent: "core", Note: "empty list until rotation_history table"},
 		{Path: "/api/v1/users", Source: "real", Agent: "core", Note: "from users table; admin only when auth enabled"},
 	}
 }

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, UserCog, Key } from 'lucide-react';
@@ -22,9 +22,14 @@ export const IdentityDetail: React.FC = () => {
       ? await api.getServiceAccountByUid(idOrUid)
       : await api.getServiceAccount(idOrUid);
     setSa(saData ?? null);
-    if (saData && (saData as any).id != null) {
-      const permData = await api.getServiceAccountPermissions(String((saData as any).id));
-      setPermissions(permData.permissions ?? []);
+    if (saData) {
+      const uidForPermissions = (saData as any).uid ?? (saData as any).id;
+      if (uidForPermissions != null) {
+        const permData = await api.getServiceAccountPermissions(String(uidForPermissions));
+        setPermissions(permData.permissions ?? []);
+      } else {
+        setPermissions([]);
+      }
     } else {
       setPermissions([]);
     }
@@ -89,19 +94,19 @@ export const IdentityDetail: React.FC = () => {
           <Key className="w-5 h-5 text-pink-500" /> Permissions
         </h3>
         {permissions.length > 0 ? (
-          <div className="overflow-x-auto max-h-96 overflow-y-auto">
+          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
             <table className="w-full text-sm">
-              <thead className="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900">
+              <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                 <tr>
                   <th className="text-left py-2">Resource</th>
                   <th className="text-left py-2">Verbs / Details</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-border">
                 {permissions.slice(0, 100).map((p, i) => (
-                  <tr key={i}>
-                    <td className="py-2 font-mono text-white">{String(p.resource ?? p.apiGroups ?? '—')}</td>
-                    <td className="py-2 text-slate-400 font-mono text-xs">{JSON.stringify(p.verbs ?? p.resources ?? p)}</td>
+                  <tr key={i} className="hover:bg-muted/30">
+                    <td className="py-2 font-mono text-text">{String(p.resource ?? p.apiGroups ?? '—')}</td>
+                    <td className="py-2 text-muted font-mono text-xs">{JSON.stringify(p.verbs ?? p.resources ?? p)}</td>
                   </tr>
                 ))}
               </tbody>

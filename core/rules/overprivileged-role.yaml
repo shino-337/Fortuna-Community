@@ -9,8 +9,9 @@ description: "Role grants permissions to sensitive resources (secrets, configmap
 enabled: true
 
 conditions:
+  # CEL: input is "object" (Role/ClusterRole). rules is list of policy rules; check resources list membership.
   - type: expression
-    expression: "rules[].resources contains 'secrets' || rules[].resources contains 'configmaps' || rules[].resources contains 'pods'"
+    expression: "object.rules.exists(r, 'secrets' in r.resources) || object.rules.exists(r, 'configmaps' in r.resources) || object.rules.exists(r, 'pods' in r.resources)"
 
 aggregation: OR
 base_score: 7.0

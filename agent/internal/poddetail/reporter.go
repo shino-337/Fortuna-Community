@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -69,11 +71,68 @@ func (r *Reporter) Start(ctx context.Context) {
 	}
 }
 
+// useHostRuntime returns true when runtime collection should use host (/proc) instead of exec.
+// - "host" or "1" or "true": always host.
+// - "exec": always exec (skip host).
+// - "auto" or unset: use host if hostProcRoot() is readable (e.g. DaemonSet with hostPID + /proc mount), else exec.
+func useHostRuntime() bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv("POD_DETAIL_RUNTIME_SOURCE")))
+	if v == "exec" || v == "0" || v == "false" {
+		return false
+	}
+	if v == "host" || v == "1" || v == "true" {
+		return true
+	}
+	// auto or empty: try host if proc root is available
+	return canUseHostProc(hostProcRoot())
+}
+
+// canUseHostProc returns true if procRoot exists and we can read it (e.g. /host/proc when mounted).
+func canUseHostProc(procRoot string) bool {
+	if procRoot == "" {
+		return false
+	}
+	f, err := os.Open(procRoot)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	_, err = f.Readdirnames(1)
+	return err == nil
+}
+
+// hostProcRoot returns the path to host /proc (e.g. /host/proc when mounted in DaemonSet).
+func hostProcRoot() string {
+	if p := os.Getenv("POD_DETAIL_PROC_ROOT"); p != "" {
+		return p
+	}
+	return "/host/proc"
+}
+
 func (r *Reporter) reportOnce(ctx context.Context) error {
 	pods, err := r.listPodsOnNode(ctx)
 	if err != nil {
 		return fmt.Errorf("list pods: %w", err)
 	}
+
+	var processesByPod map[string][]processPayload
+	var connectionsByPod map[string][]connectionPayload
+	if useHostRuntime() {
+		procRoot := hostProcRoot()
+		containerMap := BuildContainerIDToPodMap(pods)
+		observedAt := time.Now().Format(time.RFC3339)
+		procItems := CollectProcessesFromHost(procRoot, containerMap, observedAt)
+		processesByPod = make(map[string][]processPayload)
+		for _, it := range procItems {
+			processesByPod[it.PodUID] = append(processesByPod[it.PodUID], it.Process)
+		}
+		netItems := CollectNetworkFromHost(procRoot, containerMap)
+		connectionsByPod = make(map[string][]connectionPayload)
+		for _, it := range netItems {
+			connectionsByPod[it.PodUID] = append(connectionsByPod[it.PodUID], it.Connection)
+		}
+	}
+
 	for i := range pods {
 		pod := &pods[i]
 		uid := string(pod.UID)
@@ -84,12 +143,12 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 		if err := r.sendRuntimeMetrics(ctx, pod); err != nil {
 			log.Printf("[PodDetail] send metrics for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
-		// Process snapshot (real via exec when restConfig set)
-		if err := r.sendProcessSnapshots(ctx, pod); err != nil {
+		// Process snapshot: host (from /proc) or exec
+		if err := r.sendProcessSnapshotsForPod(ctx, pod, processesByPod[uid]); err != nil {
 			log.Printf("[PodDetail] send processes for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
-		// Network connections (real via exec when restConfig set)
-		if err := r.sendNetworkConnections(ctx, pod); err != nil {
+		// Network: host (from /proc/<pid>/net/*) or exec
+		if err := r.sendNetworkConnectionsForPod(ctx, pod, connectionsByPod[uid]); err != nil {
 			log.Printf("[PodDetail] send network for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
 	}
@@ -165,14 +224,17 @@ type processPayload struct {
 	ObservedAt    string   `json:"observedAt"`
 }
 
-func (r *Reporter) sendProcessSnapshots(ctx context.Context, pod *corev1.Pod) error {
+// sendProcessSnapshotsForPod sends process list for one pod. When hostProcesses is non-nil (host mode)
+// it uses that; otherwise collects via exec when restConfig is set.
+func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.Pod, hostProcesses []processPayload) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
 	}
-	// Real data: collect process list via exec when restConfig is set; otherwise send empty (no mock).
 	var processes []processPayload
-	if r.restConfig != nil {
+	if hostProcesses != nil {
+		processes = hostProcesses
+	} else if r.restConfig != nil {
 		var err error
 		processes, err = CollectProcessesFromPod(ctx, r.client, r.restConfig, pod)
 		if err != nil {
@@ -184,6 +246,9 @@ func (r *Reporter) sendProcessSnapshots(ctx context.Context, pod *corev1.Pod) er
 		"clusterId": r.clusterID,
 		"namespace": pod.Namespace,
 		"processes": processes,
+	}
+	if hostProcesses != nil {
+		body["runtimeSource"] = "host"
 	}
 	return r.post(ctx, "/api/v1/agent/pod-processes", body)
 }
@@ -233,13 +298,17 @@ func (r *Reporter) postWithRetry(ctx context.Context, path string, body interfac
 	return nil
 }
 
-func (r *Reporter) sendNetworkConnections(ctx context.Context, pod *corev1.Pod) error {
+// sendNetworkConnectionsForPod sends network connections for one pod. When hostConnections is non-nil (host mode)
+// uses that; otherwise collects via exec when restConfig is set.
+func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1.Pod, hostConnections []connectionPayload) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
 	}
 	var connections []connectionPayload
-	if r.restConfig != nil {
+	if hostConnections != nil {
+		connections = hostConnections
+	} else if r.restConfig != nil {
 		var err error
 		connections, err = CollectNetworkFromPod(ctx, r.client, r.restConfig, pod)
 		if err != nil {
@@ -251,6 +320,9 @@ func (r *Reporter) sendNetworkConnections(ctx context.Context, pod *corev1.Pod) 
 		"clusterId":   r.clusterID,
 		"namespace":   pod.Namespace,
 		"connections": connections,
+	}
+	if hostConnections != nil {
+		body["runtimeSource"] = "host"
 	}
 	return r.postWithRetry(ctx, "/api/v1/agent/pod-network-connections", body)
 }

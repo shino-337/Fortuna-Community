@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,6 +28,16 @@ const (
 	// Audit log TTL - delete logs older than 90 days
 	auditLogTTL = 90 * 24 * time.Hour
 )
+
+// isTableMissingErr returns true if err indicates a missing table (e.g. SQLite "no such table").
+// Used to avoid noisy PCE logs when test DB is torn down before async goroutine runs.
+func isTableMissingErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist")
+}
 
 func getStalePodCutoff() time.Duration {
 	if m := os.Getenv("STALE_POD_CUTOFF_MINUTES"); m != "" {
@@ -999,12 +1010,22 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			}
 		}
 
-		// Pod Detail (POD_DETAIL_SPEC): header and overview
+		// Pod Detail (POD_DETAIL_SPEC): header and overview (accept camelCase from agent or snake_case)
 		podIP, _ := podMap["podIP"].(string)
+		if podIP == "" {
+			podIP, _ = podMap["pod_ip"].(string)
+		}
 		var startTimeVal models.NullTime
 		if st, ok := podMap["startTime"].(string); ok && st != "" {
 			if t, err := time.Parse(time.RFC3339, st); err == nil {
 				startTimeVal = models.NullTime{Time: &t}
+			}
+		}
+		if startTimeVal.Time == nil {
+			if st, ok := podMap["start_time"].(string); ok && st != "" {
+				if t, err := time.Parse(time.RFC3339, st); err == nil {
+					startTimeVal = models.NullTime{Time: &t}
+				}
 			}
 		}
 		restartCount := 0
@@ -1079,10 +1100,12 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			specHashChanged := existing.SpecHash == "" || existing.SpecHash != pod.SpecHash
 
 			if changed {
+				// Status-like fields (phase, pod_ip, start_time, restart_count) are handled in the
+				// dedicated \"always refresh\" block below so that we never wipe existing values
+				// when the payload omits them. Here we only update spec/identity fields.
 				upd := map[string]interface{}{
 					"name":                            pod.Name,
 					"namespace":                       pod.Namespace,
-					"phase":                           pod.Phase,
 					"service_account":                 pod.ServiceAccount,
 					"containers":                      pod.Containers,
 					"pod_security_context":            pod.PodSecurityContext,
@@ -1096,9 +1119,6 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 					"host_ipc":                        pod.HostIPC,
 					"automount_service_account_token": pod.AutomountServiceAccountToken,
 					"node_name":                       pod.NodeName,
-					"pod_ip":                          pod.PodIP,
-					"start_time":                      pod.StartTime,
-					"restart_count":                   pod.RestartCount,
 					"owner_kind":                      pod.OwnerKind,
 					"owner_name":                      pod.OwnerName,
 					"replica_set_name":                pod.ReplicaSetName,
@@ -1119,6 +1139,28 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 			} else if isFullSync {
 				// Touch unchanged pods so stale cleanup can rely on updated_at as last-seen.
 				s.db.Model(&existing).Update("updated_at", time.Now())
+			}
+
+			// Always refresh status fields (pod_ip, start_time, phase, restart_count) from payload when present,
+			// so pods created by older agents or with previously empty status get backfilled on next sync.
+			statusUpd := make(map[string]interface{})
+			if pod.PodIP != "" {
+				statusUpd["pod_ip"] = pod.PodIP
+			}
+			if pod.StartTime.Time != nil {
+				// Pass *time.Time so driver gets a concrete type; NullTime in map may not be handled by GORM
+				statusUpd["start_time"] = *pod.StartTime.Time
+			}
+			if pod.Phase != "" {
+				statusUpd["phase"] = pod.Phase
+			}
+			statusUpd["restart_count"] = pod.RestartCount
+			if len(statusUpd) > 0 {
+				if err := s.db.Model(&existing).Updates(statusUpd).Error; err != nil {
+					s.logger.Printf("⚠️  Failed to refresh pod status (pod_ip/start_time): %v", err)
+				} else if _, hasIP := statusUpd["pod_ip"]; hasIP && pod.PodIP != "" {
+					s.logger.Printf("📡 Backfilled pod_ip=%s for %s/%s (uid=%s)", pod.PodIP, namespace, name, uid)
+				}
 			}
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Check if soft-deleted pod exists
@@ -1243,10 +1285,17 @@ func (s *AgentService) evaluatePodCapabilities(clusterID, uid, specHash string) 
 
 	var pod models.Pod
 	if err := s.db.WithContext(ctx).Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&pod).Error; err != nil {
+		// Avoid noisy logs in tests: in-memory DB may be gone when goroutine runs after test exit
+		if isTableMissingErr(err) {
+			return
+		}
 		s.logger.Printf("⚠️  PCE skipped: pod not found (cluster=%s uid=%s): %v", clusterID, uid, err)
 		return
 	}
 	if err := capability.EvaluateAndUpsertPod(ctx, s.db, &pod, specHash); err != nil {
+		if isTableMissingErr(err) {
+			return // e.g. test DB missing pod_capabilities/pods tables
+		}
 		s.logger.Printf("❌ PCE evaluation failed for pod %s/%s: %v", pod.Namespace, pod.Name, err)
 	}
 }

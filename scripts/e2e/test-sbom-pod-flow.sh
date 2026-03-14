@@ -119,12 +119,12 @@ echo ""
 
 # 4. Call /sbom and /sbom/:podId
 echo "[4/4] Verifying API..."
-echo "  GET /api/v1/sbom (list):"
-curl -s "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/sbom?limit=20" | head -c 500
+echo "  GET /api/v1/inventory/sbom (list):"
+curl -s "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/inventory/sbom?limit=20" | head -c 500
 echo ""
 echo ""
-echo "  GET /api/v1/sbom/$POD_UID (detail):"
-HTTP=$(curl -s -o /tmp/sbom_detail.json -w "%{http_code}" "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/sbom/${POD_UID}")
+echo "  GET /api/v1/inventory/pods/$POD_UID/sbom (detail):"
+HTTP=$(curl -s -o /tmp/sbom_detail.json -w "%{http_code}" "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/inventory/pods/${POD_UID}/sbom")
 if [ "$HTTP" = "200" ]; then
   echo "  HTTP 200 OK"
   head -c 400 /tmp/sbom_detail.json

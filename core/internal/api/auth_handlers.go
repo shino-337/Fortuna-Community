@@ -142,7 +142,7 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		}
 
 		if err := db.Create(&user).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 			return
 		}
 

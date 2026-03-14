@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -28,6 +29,7 @@ import (
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/policy"
 	"github.com/fortuna/core/pkg/reconciler"
+	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/security"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/nats-io/nats.go"
@@ -108,6 +110,12 @@ func main() {
 
 	if err := migrations.RunPostMigrations(tempDB); err != nil {
 		log.Printf("[MAIN] ⚠️  Warning: Failed to run post-migrations: %v", err)
+	}
+
+	if n, err := riskengine.SeedRiskRulesFromExportDir(tempDB); err != nil {
+		log.Printf("[MAIN] ⚠️  Risk rules seed from folder failed: %v", err)
+	} else if n > 0 {
+		log.Printf("[MAIN] ✅ Seeded %d risk rules from %s (DB was empty)", n, riskengine.GetRiskRulesExportDir())
 	}
 
 	dbMutex.Lock()
@@ -322,7 +330,7 @@ func main() {
 		}
 
 		// db may be nil initially - worker will handle it gracefully
-		cveWorker := worker.NewCVEMatcherWorker(db)
+		cveWorker := worker.NewCVEMatcherWorker(js, db)
 		cveOpts := []nats.SubOpt{
 			nats.ManualAck(),
 			nats.DeliverAll(), // Changed from DeliverNew() to process all messages, including those published before subscription
@@ -344,6 +352,22 @@ func main() {
 		} else {
 			log.Printf("[Main] ✅ CVEMatcherWorker subscribed to %s", cveWorker.Subject())
 			defer cveSub.Unsubscribe()
+		}
+
+		// Risk Center: broadcast to WebSocket clients when insights are created/updated (optional delta payload)
+		insightsSub, err := js.Subscribe(worker.SubjectInsightsUpdated, func(msg *nats.Msg) {
+			var payload api.RisksUpdatePayload
+			if len(msg.Data) > 0 && json.Valid(msg.Data) {
+				_ = json.Unmarshal(msg.Data, &payload)
+			}
+			api.BroadcastRisksUpdateWithPayload(&payload)
+			msg.Ack()
+		}, nats.ManualAck(), nats.Durable("risks-broadcast"))
+		if err != nil {
+			log.Printf("[Main] Warning: Failed to subscribe to %s: %v", worker.SubjectInsightsUpdated, err)
+		} else {
+			log.Printf("[Main] ✅ Subscribed to %s (Risk Center broadcast)", worker.SubjectInsightsUpdated)
+			defer insightsSub.Unsubscribe()
 		}
 	} else {
 		log.Printf("[Main] ⚠️  WARNING: Skipping SBOM/CVE pipeline setup (NATS unavailable)")
@@ -396,6 +420,15 @@ func main() {
 		defer insightsCleanupJob.Stop()
 		log.Printf("Insights cleanup job started (interval: 24 hours)")
 
+		// PCE cleanup job: delete stale pod_capabilities (Phase 3, env PCE_CLEANUP_RETENTION_DAYS)
+		pceCleanupJob := scheduler.NewPCECleanupJob(db)
+		go func() {
+			log.Printf("[Main] Starting PCE cleanup job in goroutine...")
+			pceCleanupJob.Start()
+		}()
+		defer pceCleanupJob.Stop()
+		log.Printf("PCE cleanup job started (interval: 24 hours)")
+
 		// Start SBOM reconciliation loop (runs every hour)
 		// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
 		sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)
@@ -447,10 +480,11 @@ func main() {
 	router.Use(gin.Logger())
 
 	// Add middleware - CORS must be first to handle preflight
-	// IMPORTANT: Order matters! CORS must be first, then SecurityHeaders
 	router.Use(middleware.CORS())
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.MetricsMiddleware())
+	// Sanitize 5xx responses so internal error details are not sent to clients (log server-side only)
+	router.Use(middleware.ErrorSanitize())
 
 	// Health endpoints (no auth required)
 	// /healthz: Liveness probe (process alive)

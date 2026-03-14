@@ -9,8 +9,9 @@ description: "ServiceAccount is bound to a role with excessive permissions"
 enabled: true
 
 conditions:
+  # CEL: input is "object" (RoleBinding/ClusterRoleBinding). roleRef is under object.
   - type: expression
-    expression: "roleRef.kind == 'Role' || roleRef.kind == 'ClusterRole'"
+    expression: "object.roleRef.kind == 'Role' || object.roleRef.kind == 'ClusterRole'"
 
 aggregation: AND
 base_score: 6.0

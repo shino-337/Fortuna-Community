@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -15,18 +16,28 @@ import (
 
 // Engine is the risk evaluation engine
 type Engine struct {
+	mu    sync.RWMutex
 	db    *gorm.DB
 	rules []Rule
 }
 
 // NewEngine creates a new risk engine
-// It now prioritizes YAML rules over hardcoded rules
+// Priority: DB rules (risk_rules table) > YAML (FORTUNA_RULES_DIR) > hardcoded
 func NewEngine(db *gorm.DB) *Engine {
 	engine := &Engine{
 		db: db,
 	}
 
-	// Try to load YAML rules first (primary source)
+	// Try DB first (risk rules CRUD)
+	if db != nil {
+		if rules, err := LoadRulesFromDB(db); err == nil && len(rules) > 0 {
+			engine.rules = rules
+			log.Printf("[RiskEngine] ✅ Loaded %d rules from DB (risk_rules)", len(rules))
+			return engine
+		}
+	}
+
+	// Try to load YAML rules (primary source when no DB rules)
 	rulesDir := getRulesDirectory()
 	if rulesDir != "" {
 		if yamlEngine, err := NewYAMLEngine(nil, rulesDir); err == nil {
@@ -71,6 +82,24 @@ func getRulesDirectory() string {
 	return ""
 }
 
+// ReloadFromDB reloads rules from the risk_rules table. Safe to call from API after create/update/delete.
+func (e *Engine) ReloadFromDB() error {
+	if e.db == nil {
+		return nil
+	}
+	rules, err := LoadRulesFromDB(e.db)
+	if err != nil {
+		return err
+	}
+	e.mu.Lock()
+	e.rules = rules
+	e.mu.Unlock()
+	if len(rules) > 0 {
+		log.Printf("[RiskEngine] Reloaded %d rules from DB", len(rules))
+	}
+	return nil
+}
+
 // EvaluateResource evaluates a resource against all rules
 func (e *Engine) EvaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
 	var insights []*models.Insight
@@ -78,8 +107,9 @@ func (e *Engine) EvaluateResource(ctx context.Context, resourceType string, reso
 	// Parse raw_json and merge with resourceData
 	enrichedData := e.enrichResourceData(resourceData)
 
-	// Get applicable rules for this resource type
+	e.mu.RLock()
 	applicableRules := e.getApplicableRules(resourceType)
+	e.mu.RUnlock()
 
 	for _, rule := range applicableRules {
 		if !rule.Enabled {
@@ -446,7 +476,7 @@ func indexOf(s string, c byte) int {
 	return -1
 }
 
-// getApplicableRules returns rules applicable to a resource type
+// getApplicableRules returns rules applicable to a resource type. Caller must hold e.mu at least RLock.
 func (e *Engine) getApplicableRules(resourceType string) []Rule {
 	var applicable []Rule
 

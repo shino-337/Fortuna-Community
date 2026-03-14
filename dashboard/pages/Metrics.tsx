@@ -8,7 +8,7 @@ import { Card } from '../components/ui/Card';
 import { Certificate, Agent, ErrorLog, SyncStatus } from '../types';
 import { Lock, Radio, RefreshCw, Download, History, AlertCircle, FileText } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
 import { formatDateTime } from '../lib/display';
@@ -105,10 +105,30 @@ export const Monitoring: React.FC = () => {
       }
     >
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Agents</div><div className="text-xl font-bold text-white">{agents.length}</div></Card>
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Pods Synced</div><div className="text-xl font-bold text-white">{syncStatus?.resources.pods ?? 0}</div></Card>
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Service Accounts Synced</div><div className="text-xl font-bold text-white">{syncStatus?.resources.sas ?? 0}</div></Card>
-        <Card className="p-4"><div className="text-slate-500 text-xs uppercase">Latest Agent Heartbeat</div><div className="text-sm font-medium text-slate-200">{lastHeartbeat ? formatDateTime(lastHeartbeat) : 'N/A'}</div></Card>
+        <Card variant="panel">
+          <div className="space-y-1">
+            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Agents</div>
+            <div className="text-2xl font-bold text-white">{agents.length}</div>
+          </div>
+        </Card>
+        <Card variant="panel">
+          <div className="space-y-1">
+            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Pods synced</div>
+            <div className="text-2xl font-bold text-white">{syncStatus?.resources.pods ?? 0}</div>
+          </div>
+        </Card>
+        <Card variant="panel">
+          <div className="space-y-1">
+            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Service accounts synced</div>
+            <div className="text-2xl font-bold text-white">{syncStatus?.resources.sas ?? 0}</div>
+          </div>
+        </Card>
+        <Card variant="panel">
+          <div className="space-y-1">
+            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Latest agent heartbeat</div>
+            <div className="text-sm font-medium text-slate-200">{lastHeartbeat ? formatDateTime(lastHeartbeat) : 'N/A'}</div>
+          </div>
+        </Card>
       </div>
 
       <div className="grid lg:grid-cols-5 gap-6">

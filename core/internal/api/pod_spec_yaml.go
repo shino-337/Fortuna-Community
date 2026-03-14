@@ -97,13 +97,13 @@ func GetPodSpecYAML(db *gorm.DB) gin.HandlerFunc {
 // GetPodSpecYAMLByUID returns the pod specification as YAML by UID.
 func GetPodSpecYAMLByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
+		podUID := c.Param("uid")
+		if podUID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
 		var pod models.Pod
-		if err := db.Where("uid = ?", uid).First(&pod).Error; err != nil {
+		if err := db.Where("uid = ?", podUID).First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Pod not found"})
 				return

@@ -113,22 +113,21 @@ if [ -n "$CORE_POD" ]; then
   if [ -n "$TOKEN" ]; then
     ok "Login OK"
     echo "### API checks" >> "$REPORT"
-    # GET pods
-    PODS_JSON=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/pods?limit=5" 2>/dev/null || echo "{}")
-    POD_ID=$(echo "$PODS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('pods',[]); print(p[0].get('id','')) if p else print('')" 2>/dev/null || echo "")
-    if [ -n "$POD_ID" ]; then
-      ok "GET /pods: got pod id=$POD_ID"
-      echo "- GET /pods: pod id=$POD_ID" >> "$REPORT"
-      # GET pod detail
-      kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/pods/$POD_ID" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('podIP:', d.get('podIP'), '| startTime:', d.get('startTime'), '| riskCount:', d.get('riskCount'))" 2>/dev/null >> "$REPORT" || true
-      # New endpoints (may return empty arrays)
-      for path in "runtime-metrics" "processes" "network-connections" "events"; do
-        CODE=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/pods/$POD_ID/$path" 2>/dev/null || echo "000")
-        if [ "$CODE" = "200" ]; then ok "GET /pods/$POD_ID/$path -> 200"; echo "- GET /pods/$POD_ID/$path: $CODE" >> "$REPORT"; else echo "- GET /pods/$POD_ID/$path: $CODE" >> "$REPORT"; warn "GET /pods/$POD_ID/$path -> $CODE"; fi
+    # GET pods (domain: inventory/pods)
+    PODS_JSON=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/inventory/pods?limit=5" 2>/dev/null || echo "{}")
+    POD_UID=$(echo "$PODS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('pods',[]); print(p[0].get('uid', p[0].get('id',''))) if p else print('')" 2>/dev/null || echo "")
+    if [ -n "$POD_UID" ]; then
+      ok "GET /inventory/pods: got pod uid=$POD_UID"
+      echo "- GET /inventory/pods: pod uid=$POD_UID" >> "$REPORT"
+      # GET pod detail (inventory) and runtime sub-resources
+      kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/inventory/pods/$POD_UID" 2>/dev/null | python3 -c "import sys,json; d=json.load(sys.stdin); print('podIP:', d.get('podIP'), '| startTime:', d.get('startTime'), '| riskCount:', d.get('riskCount'))" 2>/dev/null >> "$REPORT" || true
+      for path in "metrics" "processes" "network" "events"; do
+        CODE=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer $TOKEN" "http://localhost:8080/api/v1/runtime/pods/$POD_UID/$path" 2>/dev/null || echo "000")
+        if [ "$CODE" = "200" ]; then ok "GET /runtime/pods/$POD_UID/$path -> 200"; echo "- GET /runtime/pods/$POD_UID/$path: $CODE" >> "$REPORT"; else echo "- GET /runtime/pods/$POD_UID/$path: $CODE" >> "$REPORT"; warn "GET /runtime/pods/$POD_UID/$path -> $CODE"; fi
       done
     else
       warn "No pods in API (agent sync may not have run yet)"
-      echo "- GET /pods: no pods" >> "$REPORT"
+      echo "- GET /inventory/pods: no pods" >> "$REPORT"
     fi
   else
     warn "Login failed (check Core auth)"

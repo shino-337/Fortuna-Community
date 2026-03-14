@@ -105,7 +105,7 @@ func (r *Reader) readAndSend() {
 
 func (r *Reader) send(events []Event) error {
 	body, _ := json.Marshal(events)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/runtime-events", r.coreURL), bytes.NewReader(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/runtime/events", r.coreURL), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

@@ -19,6 +19,7 @@ type PodNetworkConnection struct {
 	BytesRecv     int64     `gorm:"default:0" json:"bytesRecv"`
 	ObservedAt    time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"observedAt"`
 	CreatedAt     time.Time `json:"createdAt"`
+	RuntimeSource string    `gorm:"type:varchar(32);default:exec" json:"runtimeSource,omitempty"` // "host" | "exec" for UI indicator
 }
 
 // TableName overrides table name.

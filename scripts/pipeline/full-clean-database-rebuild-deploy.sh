@@ -2,23 +2,27 @@
 # ============================================================================
 # Full Clean (images + optional DB) → Rebuild (nerdctl/containerd) → Deploy
 # ============================================================================
-# 1. Clean: port-forwards, E2E namespaces, fortuna images (nerdctl), prune.
+# Ensures all code changes are applied: clean removes ALL fortuna images + build
+# cache; rebuild uses NO_CACHE when clean was run; deploy rollout restarts core,
+# dashboard, agent so pods use the new images. See docs/FULL_CLEAN_REBUILD_DEPLOY_VERIFICATION.md
+#
+# 1. Clean: port-forwards, E2E namespaces, fortuna images by tag and by ID, system/builder prune.
 # 2. Optional DB: run clear_all_cluster_data.sql (--db) or reset_database_full.sql (--db-reset).
 #    Core runs all migrations on startup; --db-reset (DROP tables) ensures fresh schema
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
 # 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl → containerd k8s.io).
-#    Does NOT update image tag in deploy/*.yaml; use full-rebuild-sync-deploy-and-e2e.sh for tag sync.
-# 4. Deploy: Phase 2a addons (kube-proxy, CoreDNS); Phase 2a2 ensure Flannel CNI (install if missing);
-#    Phase 2c ensure StorageClass (local-path); Phase 3a CNI fix for multi-node (optional);
-#    deploy-fortuna-robust.sh (infra, RBAC, core, agent, dashboard); Phase 3b rollout restart.
+# 4. Deploy: addons, Flannel, StorageClass, deploy-fortuna-robust.sh; Phase 3b rollout restart (Core, Dashboard, Agent).
 #
 # Usage:
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh              # clean images + rebuild + deploy
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh              # interactive menu (no args)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --menu       # force interactive menu
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full      # clean + rebuild + deploy
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db         # + clear DB data (DELETE, keep schema)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset    # + full DB reset (DROP tables; Core will re-run migrations)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only (use existing images)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB reset (DROP tables)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy    # clean + rebuild only
-#   RUN_ASYNC=1 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh    # run in background (avoids IDE/timeout; log in /tmp/clean-rebuild-deploy.log)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-db-reset  # DB full reset only (no clean/rebuild/deploy)
+#   RUN_ASYNC=1 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh  # run in background
 # ============================================================================
 
 set -euo pipefail
@@ -45,15 +49,73 @@ SKIP_REBUILD=false
 SKIP_DEPLOY=false
 CLEAN_DB=false
 DB_RESET=false
+SHOW_MENU=false
+
 for arg in "$@"; do
   case "$arg" in
     --skip-clean)    SKIP_CLEAN=true ;;
-    --skip-rebuild) SKIP_REBUILD=true ;;
-    --skip-deploy)  SKIP_DEPLOY=true ;;
-    --db)           CLEAN_DB=true ;;
-    --db-reset)     DB_RESET=true ;;
+    --skip-rebuild)  SKIP_REBUILD=true ;;
+    --skip-deploy)   SKIP_DEPLOY=true ;;
+    --db)            CLEAN_DB=true ;;
+    --db-reset)       DB_RESET=true ;;
+    --only-db-reset)  SKIP_CLEAN=true; SKIP_REBUILD=true; SKIP_DEPLOY=true; DB_RESET=true ;;
+    --menu|-i)        SHOW_MENU=true ;;
+    --full)           ;;  # no-extra flags = full pipeline
   esac
 done
+
+# ---- Interactive menu when no options given or --menu requested ----
+if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
+  # Menu mode: choices override any flags (e.g. --menu --db → menu choice wins)
+  SKIP_CLEAN=false
+  SKIP_REBUILD=false
+  SKIP_DEPLOY=false
+  CLEAN_DB=false
+  DB_RESET=false
+  RED='\033[0;31m'
+  GREEN='\033[0;32m'
+  YELLOW='\033[1;33m'
+  BLUE='\033[0;34m'
+  CYAN='\033[0;36m'
+  NC='\033[0m'
+  echo ""
+  echo -e "${CYAN}=========================================="
+  echo "  Full Clean → Rebuild → Deploy (options)"
+  echo "==========================================${NC}"
+  echo ""
+  echo "  1) Full pipeline          Clean images + Rebuild + Deploy (+ rollout restart)"
+  echo "  2) Full + Clear DB        Same as 1 + clear DB data (DELETE, keep schema)"
+  echo "  3) Full + Reset DB        Same as 1 + full DB reset (DROP tables, migrations on start)"
+  echo "  4) Clean + Deploy only    Skip rebuild (use existing images, rollout restart)"
+  echo "  5) Clean + Rebuild only   Skip deploy"
+  echo "  6) Run in background      Same as 1, log to /tmp/clean-rebuild-deploy.log"
+  echo "  7) Only reset DB          DB full reset only (DROP tables; no clean/rebuild/deploy)"
+  echo "  0) Cancel"
+  echo ""
+  printf "  Select [1-7, 0]: "
+  read -r choice
+  choice="${choice:-0}"
+  case "$choice" in
+    1)  # full
+        ;;
+    2)  CLEAN_DB=true ;;
+    3)  DB_RESET=true ;;
+    4)  SKIP_REBUILD=true ;;
+    5)  SKIP_DEPLOY=true ;;
+    6)  RUN_ASYNC=1 "$0" --full
+        exit 0
+        ;;
+    7)  SKIP_CLEAN=true; SKIP_REBUILD=true; SKIP_DEPLOY=true; DB_RESET=true ;;
+    0|q|Q)
+        echo "Cancelled."
+        exit 0
+        ;;
+    *)
+        echo "Invalid choice. Exiting."
+        exit 1
+        ;;
+  esac
+fi
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -80,7 +142,15 @@ if [ "$SKIP_CLEAN" = false ]; then
     kubectl get namespace "$ns" 2>/dev/null && kubectl delete namespace "$ns" --timeout=60s 2>/dev/null || true
   done
   log_info "Removing ALL fortuna images from containerd (namespace=$CONTAINERD_NS)..."
-  nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep fortuna | awk '{print $3}' | xargs -r nerdctl --namespace "$CONTAINERD_NS" rmi --force 2>/dev/null || true
+  # Remove by tag first (so :latest and any VERSION tag are dropped)
+  for img in fortuna-core:latest fortuna-agent:latest fortuna-dashboard:latest; do
+    nerdctl --namespace "$CONTAINERD_NS" rmi --force "$img" 2>/dev/null || true
+  done
+  # Remove any remaining fortuna images by image ID (handles old/dangling refs)
+  nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep -E 'fortuna-(core|agent|dashboard)' | awk '{print $3}' | sort -u | while read -r id; do
+    [ -n "$id" ] && [ "$id" != "ID" ] && nerdctl --namespace "$CONTAINERD_NS" rmi --force "$id" 2>/dev/null || true
+  done
+  log_info "Pruning containerd system and build cache..."
   nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
   nerdctl builder prune --namespace "$CONTAINERD_NS" -a -f 2>/dev/null || true
   log_success "Clean complete"
@@ -92,27 +162,54 @@ echo ""
 # ---- Phase 1b: Database clean (optional) ----
 if [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; then
   log_info "Phase 1b: Database clean..."
-  POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  POD=""
+  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+    POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    [ -z "$POD" ] && sleep 5 && continue
+    PHASE=$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [ "$PHASE" = "Running" ]; then
+      break
+    fi
+    log_info "Postgres pod $POD phase=$PHASE (waiting for Running)..."
+    sleep 5
+  done
   if [ -z "$POD" ]; then
     log_warn "Postgres pod not found in namespace $NAMESPACE; skip DB clean. Deploy infra first."
+  elif [ "$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null)" != "Running" ]; then
+    log_error "Postgres pod $POD is not Running (no host assigned). Wait for cluster/node then re-run with --db-reset, or run DB reset after deploy."
+    exit 1
   else
     if [ "$DB_RESET" = true ]; then
       SQL_FILE="$PROJECT_ROOT/deploy/e2e/reset_database_full.sql"
       if [ -f "$SQL_FILE" ]; then
-        kubectl cp "$SQL_FILE" "$NAMESPACE/$POD:/tmp/reset_db.sql" 2>/dev/null || true
-        kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql 2>/dev/null || true
+        if ! kubectl cp "$SQL_FILE" "$NAMESPACE/$POD:/tmp/reset_db.sql"; then
+          log_error "kubectl cp reset_database_full.sql failed"
+          exit 1
+        fi
+        if ! kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql; then
+          log_error "psql reset_database_full.sql failed"
+          exit 1
+        fi
         log_success "DB full reset (DROP tables) done. Core will re-run migrations on next start."
       else
         log_error "File not found: $SQL_FILE"
+        exit 1
       fi
     else
       SQL_FILE="$PROJECT_ROOT/deploy/e2e/clear_all_cluster_data.sql"
       if [ -f "$SQL_FILE" ]; then
-        kubectl cp "$SQL_FILE" "$NAMESPACE/$POD:/tmp/clear_db.sql" 2>/dev/null || true
-        kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/clear_db.sql 2>/dev/null || true
+        if ! kubectl cp "$SQL_FILE" "$NAMESPACE/$POD:/tmp/clear_db.sql"; then
+          log_error "kubectl cp clear_all_cluster_data.sql failed"
+          exit 1
+        fi
+        if ! kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/clear_db.sql; then
+          log_error "psql clear_all_cluster_data.sql failed"
+          exit 1
+        fi
         log_success "DB data cleared (DELETE, schema kept)"
       else
         log_error "File not found: $SQL_FILE"
+        exit 1
       fi
     fi
   fi
@@ -123,8 +220,14 @@ fi
 if [ "$SKIP_REBUILD" = false ]; then
   log_info "Phase 2: Rebuild (core, agent, dashboard) with nerdctl..."
   cd "$PROJECT_ROOT"
+  # After full clean (images + builder prune), force no cache so all layers rebuild from current source
+  export NO_CACHE="${NO_CACHE:-false}"
+  if [ "$SKIP_CLEAN" = false ]; then
+    NO_CACHE=true
+    log_info "NO_CACHE=true (clean was run; ensure fresh build)"
+  fi
   if [ -x "$SCRIPTS/build/build-and-load-containerd.sh" ]; then
-    SKIP_DASHBOARD="${SKIP_DASHBOARD:-false}" "$SCRIPTS/build/build-and-load-containerd.sh" || {
+    SKIP_DASHBOARD="${SKIP_DASHBOARD:-false}" NO_CACHE="$NO_CACHE" "$SCRIPTS/build/build-and-load-containerd.sh" || {
       log_warn "Build script had errors (e.g. agent build may fail). Continuing deploy with existing images."
     }
   else
@@ -238,6 +341,19 @@ if [ "$SKIP_DEPLOY" = false ]; then
   kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
   log_info "Waiting for Core rollout (max 120s)..."
   kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Core rollout status check failed or timed out"
+  log_info "Waiting for Dashboard rollout (max 90s)..."
+  kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || log_warn "Dashboard rollout status check failed or timed out"
+  log_info "Waiting for Agent DaemonSet rollout (max 120s)..."
+  kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Agent DaemonSet rollout status check failed or timed out"
+  log_info "Phase 3c: Verify rollout (core, dashboard, agent)..."
+  CORE_OK=false; DASH_OK=false; AGENT_OK=false
+  # Short timeout: if already complete, returns 0 immediately; else wait up to 5s
+  kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=5s 2>/dev/null && CORE_OK=true || true
+  kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=5s 2>/dev/null && DASH_OK=true || true
+  kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=5s 2>/dev/null && AGENT_OK=true || true
+  if [ "$CORE_OK" = true ]; then log_success "  Core: rolled out"; else log_warn "  Core: not rolled out or still updating"; fi
+  if [ "$DASH_OK" = true ]; then log_success "  Dashboard: rolled out"; else log_warn "  Dashboard: not rolled out or still updating"; fi
+  if [ "$AGENT_OK" = true ]; then log_success "  Agent: rolled out"; else log_warn "  Agent: not rolled out or still updating"; fi
   log_info "Sleep 10s for Agent sync to run..."
   sleep 10
   log_success "Deploy complete"
@@ -250,6 +366,7 @@ echo "=========================================="
 log_success "Full clean / rebuild / deploy finished."
 echo "=========================================="
 echo "  Verify: kubectl get pods -n $NAMESPACE"
+echo "  Rollout status: ./scripts/pipeline/verify-rollout.sh   (or: kubectl rollout status deployment/fortuna-core deployment/fortuna-dashboard daemonset/fortuna-agent -n $NAMESPACE)"
 echo "  Core API: kubectl port-forward -n $NAMESPACE svc/fortuna-core 8080:8080"
 echo "  Dashboard: kubectl port-forward -n $NAMESPACE svc/fortuna-dashboard 8081:80"
 echo "  Agents: wait 1–2 min; GET /api/v1/agents/status"

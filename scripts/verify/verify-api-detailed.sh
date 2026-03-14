@@ -94,39 +94,32 @@ echo "## Kết quả từng endpoint" >> "$REPORT"
 echo "| Endpoint | HTTP | Mô tả |" >> "$REPORT"
 echo "|----------|------|-------|" >> "$REPORT"
 
-# Lấy một pod id và uid để test pod detail
-PODS_JSON=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/pods?limit=1" 2>/dev/null || echo "{}")
-POD_ID=$(echo "$PODS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('pods',[]); print(str(p[0].get('id',''))) if p else print('')" 2>/dev/null || echo "")
+# Lấy một pod UID để test pod detail (domain API chỉ dùng UID)
+PODS_JSON=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $TOKEN" "$BASE/api/v1/inventory/pods?limit=1" 2>/dev/null || echo "{}")
 POD_UID=$(echo "$PODS_JSON" | python3 -c "import sys,json; d=json.load(sys.stdin); p=d.get('pods',[]); print(p[0].get('uid','') or '') if p else print('')" 2>/dev/null || echo "")
 
 api_get "/api/v1/me" "Current user"
-api_get "/api/v1/clusters" "Clusters"
-api_get "/api/v1/clusters/stats" "Cluster stats"
-api_get "/api/v1/pods?limit=5" "Pods list"
+api_get "/api/v1/inventory/clusters" "Clusters"
+api_get "/api/v1/inventory/clusters/stats" "Cluster stats"
+api_get "/api/v1/inventory/pods?limit=5" "Pods list"
 api_get "/api/v1/dashboard/stats" "Dashboard stats"
-api_get "/api/v1/insights?limit=5" "Insights"
-api_get "/api/v1/sbom?limit=5" "SBOM list"
+api_get "/api/v1/risk/insights?limit=5" "Insights"
+api_get "/api/v1/inventory/sbom?limit=5" "SBOM list"
 api_get "/api/v1/health/dashboard-data-integrity" "Health"
 api_get "/api/v1/agents/status" "Agents status"
-api_get "/api/v1/risks?limit=5" "Risks"
-api_get "/api/v1/deployments?limit=5" "Deployments"
+api_get "/api/v1/risk/insights?limit=5" "Risks"
+api_get "/api/v1/inventory/deployments?limit=5" "Deployments"
 api_get "/api/v1/resources" "Resources"
-api_get "/api/v1/runtime-signals?limit=5" "Runtime signals"
-api_get "/api/v1/pod-capabilities/summary" "Pod capabilities summary"
+api_get "/api/v1/runtime/signals?limit=5" "Runtime signals"
+api_get "/api/v1/inventory/pod-capabilities/summary" "Pod capabilities summary"
 
-if [ -n "$POD_ID" ]; then
-  api_get "/api/v1/pods/$POD_ID" "Pod detail by id"
-  api_get "/api/v1/pods/$POD_ID/capabilities" "Pod capabilities"
-  api_get "/api/v1/pods/$POD_ID/runtime-metrics" "Runtime metrics"
-  api_get "/api/v1/pods/$POD_ID/processes" "Processes"
-  api_get "/api/v1/pods/$POD_ID/network-connections" "Network connections"
-  api_get "/api/v1/pods/$POD_ID/events" "K8s events"
-fi
 if [ -n "$POD_UID" ]; then
-  api_get "/api/v1/pods/by-uid/$POD_UID" "Pod by UID"
-  api_get "/api/v1/pods/by-uid/$POD_UID/runtime-metrics" "Runtime metrics by UID"
-  api_get "/api/v1/pods/by-uid/$POD_UID/processes" "Processes by UID"
-  api_get "/api/v1/pods/by-uid/$POD_UID/events" "Events by UID"
+  api_get "/api/v1/inventory/pods/$POD_UID" "Pod by UID"
+  api_get "/api/v1/runtime/pods/$POD_UID/metrics" "Runtime metrics"
+  api_get "/api/v1/runtime/pods/$POD_UID/processes" "Processes"
+  api_get "/api/v1/runtime/pods/$POD_UID/network" "Network connections"
+  api_get "/api/v1/runtime/pods/$POD_UID/events" "K8s events"
+  api_get "/api/v1/inventory/pods/$POD_UID/capabilities" "Pod capabilities"
 fi
 
 echo ""
@@ -138,4 +131,4 @@ echo "## Lưu ý" >> "$REPORT"
 echo "" >> "$REPORT"
 echo "- **Dashboard:** Cần đăng nhập (admin/admin123) thì mọi API mới hoạt động. Token lưu trong store và gửi qua header \`Authorization: Bearer <token>\`. Nếu chưa đăng nhập, API trả **401**." >> "$REPORT"
 echo "- **Pod detail phụ (runtime-metrics, processes, events):** Trả 200 nhưng mảng rỗng cho đến khi Agent gửi dữ liệu lên Core (các endpoint POST tương ứng)." >> "$REPORT"
-echo "- **Kiểm tra từ máy ngoài:** \`kubectl port-forward -n fortuna svc/fortuna-core 8080:8080\` rồi \`curl -X POST http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}'\` để lấy token, sau đó gọi \`curl -H \"Authorization: Bearer <token>\" http://localhost:8080/api/v1/pods\`." >> "$REPORT"
+echo "- **Kiểm tra từ máy ngoài:** \`kubectl port-forward -n fortuna svc/fortuna-core 8080:8080\` rồi \`curl -X POST http://localhost:8080/api/v1/auth/login -H 'Content-Type: application/json' -d '{\"username\":\"admin\",\"password\":\"admin123\"}'\` để lấy token, sau đó gọi \`curl -H \"Authorization: Bearer <token>\" http://localhost:8080/api/v1/inventory/pods\`." >> "$REPORT"

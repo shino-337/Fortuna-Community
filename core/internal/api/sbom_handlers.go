@@ -204,22 +204,33 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetSBOMDetail returns the component + CVE detail for a specific pod UID.
+// GetSBOMDetail returns the component + CVE detail for a specific pod by pod UID (K8s uid).
+// Contract: :podUid must be the pod UID string; dashboard and list API use this consistently.
 func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		podUID := c.Param("podId")
+		podUID := c.Param("uid")
 		if podUID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "podId is required"})
+			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
 
 		var sbom models.SBOM
-		if err := db.Where("pod_uid = ? AND deleted_at IS NULL", podUID).Order("created_at DESC").First(&sbom).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "sbom not found for pod"})
-				return
-			}
+		if err := db.Where("pod_uid = ? AND deleted_at IS NULL", podUID).Order("created_at DESC").Limit(1).Find(&sbom).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if sbom.ID == 0 {
+			c.JSON(http.StatusNotFound, gin.H{
+				"error":  "sbom not found for pod",
+				"podUid": podUID,
+				"hint":   "Ensure Agent has sent SBOM for this pod (pod watcher → SBOM queue → Core gRPC SendSBOMFinding).",
+				"checks": []string{
+					"Pod must run on a node where Fortuna Agent is running (DaemonSet).",
+					"Agent logs: look for [SBOMProcessor] or [SBOMQueue] for this pod; check for 'Queue full' or 'SBOM extraction failed' or 'SendSBOMFinding RPC failed'.",
+					"Core logs: look for [SBOM] Received SBOM / Created new SBOM for this pod_uid.",
+					"See docs/03-components/sbom/SBOM-Not-Loading-Checklist.md for full checklist.",
+				},
+			})
 			return
 		}
 

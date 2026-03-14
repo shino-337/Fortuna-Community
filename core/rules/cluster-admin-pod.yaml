@@ -9,11 +9,13 @@ description: "Pod is using a ServiceAccount that is bound to cluster-admin Clust
 enabled: true
 
 conditions:
+  # CEL: input is "object" (Pod). spec.serviceAccountName is the K8s field.
   - type: expression
     expression: |
-      resource.kind == "Pod" &&
-      resource.service_account_name != "" &&
-      resource.service_account_name != "default"
+      object.kind == "Pod" &&
+      object.spec != null &&
+      object.spec.serviceAccountName != "" &&
+      object.spec.serviceAccountName != "default"
 
 # Note: This rule will match pods, but the actual cluster-admin binding
 # detection should be done via RoleBinding/ClusterRoleBinding evaluation

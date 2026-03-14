@@ -3,11 +3,18 @@ package scheduler
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+)
+
+const (
+	defaultResolvedRetentionDays = 30
+	defaultActiveRetentionDays   = 90
 )
 
 // InsightsCleanupJob periodically cleans up old or resolved insights
@@ -54,32 +61,55 @@ func (j *InsightsCleanupJob) Stop() {
 	j.cancel()
 }
 
+// getResolvedRetentionDays returns resolved insights retention in days (env INSIGHTS_RESOLVED_RETENTION_DAYS, default 30).
+func getResolvedRetentionDays() int {
+	if v := os.Getenv("INSIGHTS_RESOLVED_RETENTION_DAYS"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultResolvedRetentionDays
+}
+
+// getActiveRetentionDays returns active insights retention in days (env INSIGHTS_ACTIVE_RETENTION_DAYS, default 90).
+func getActiveRetentionDays() int {
+	if v := os.Getenv("INSIGHTS_ACTIVE_RETENTION_DAYS"); v != "" {
+		if d, err := strconv.Atoi(v); err == nil && d > 0 {
+			return d
+		}
+	}
+	return defaultActiveRetentionDays
+}
+
 // run executes the cleanup
 func (j *InsightsCleanupJob) run() {
-	log.Printf("[InsightsCleanupJob] Running cleanup...")
+	resolvedDays := getResolvedRetentionDays()
+	activeDays := getActiveRetentionDays()
+	log.Printf("[InsightsCleanupJob] Running cleanup... (resolved_retention=%dd, active_retention=%dd)", resolvedDays, activeDays)
 
-	// 1. Soft delete resolved insights older than 30 days
+	// 1. Soft delete resolved insights older than configured days
+	resolvedCutoff := time.Now().Add(-time.Duration(resolvedDays) * 24 * time.Hour)
 	result := j.db.Model(&models.Insight{}).
-		Where("status = ? AND updated_at < ?", "resolved", time.Now().Add(-30*24*time.Hour)).
+		Where("status = ? AND updated_at < ?", "resolved", resolvedCutoff).
 		Update("deleted_at", time.Now())
 
 	if result.Error != nil {
 		log.Printf("[InsightsCleanupJob] Error soft-deleting resolved insights: %v", result.Error)
 	} else if result.RowsAffected > 0 {
-		log.Printf("[InsightsCleanupJob] Soft-deleted %d resolved insights (older than 30 days)", result.RowsAffected)
+		log.Printf("[InsightsCleanupJob] Soft-deleted %d resolved insights (older than %d days)", result.RowsAffected, resolvedDays)
 	}
 
-	// 2. Soft delete old active insights that haven't been updated in 90 days
-	// (likely no longer relevant)
+	// 2. Soft delete old active insights that haven't been updated in configured days
+	activeCutoff := time.Now().Add(-time.Duration(activeDays) * 24 * time.Hour)
 	result2 := j.db.Model(&models.Insight{}).
-		Where("(status = ? OR status IS NULL) AND updated_at < ? AND deleted_at IS NULL", 
-			"active", time.Now().Add(-90*24*time.Hour)).
+		Where("(status = ? OR status IS NULL) AND updated_at < ? AND deleted_at IS NULL",
+			"active", activeCutoff).
 		Update("deleted_at", time.Now())
 
 	if result2.Error != nil {
 		log.Printf("[InsightsCleanupJob] Error soft-deleting old active insights: %v", result2.Error)
 	} else if result2.RowsAffected > 0 {
-		log.Printf("[InsightsCleanupJob] Soft-deleted %d old active insights (not updated in 90 days)", result2.RowsAffected)
+		log.Printf("[InsightsCleanupJob] Soft-deleted %d old active insights (not updated in %d days)", result2.RowsAffected, activeDays)
 	}
 
 	// 3. Clean up duplicate insights (same description, type, severity)

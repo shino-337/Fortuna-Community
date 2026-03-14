@@ -1,6 +1,10 @@
 # Push Images config: master and worker nodes with per-node SSH user/password
 # Copy to push-images.config (or set PUSH_CONFIG_FILE) and edit.
 # Used by: scripts/utils/push-images-to-workers.sh
+#
+# Requirements when using passwords:
+#   - Install sshpass: sudo apt-get install sshpass (or use SSH keys and leave *_SSH_PASS empty)
+# - File must use Unix line endings (LF). If edited on Windows, run: sed -i 's/\r$//' push-images.config
 
 # Master node (Core runs here; image must be present)
 MASTER_NODE=192.168.56.100

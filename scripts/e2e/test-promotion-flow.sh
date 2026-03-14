@@ -34,7 +34,7 @@ core_api_get "pods/${POD_UID}/capabilities" "$TOKEN" "$CORE_POD" | python3 -m js
 echo ""
 
 echo "=== 2. Check Runtime Signals for Pod ==="
-core_api_get "runtime-signals/pods/${POD_UID}" "$TOKEN" "$CORE_POD" | python3 -m json.tool 2>/dev/null | head -40 || true
+core_api_get "runtime/pods/${POD_UID}/signals" "$TOKEN" "$CORE_POD" | python3 -m json.tool 2>/dev/null | head -40 || true
 echo ""
 
 echo "=== 3. Check Promotion Rules for Signal ==="

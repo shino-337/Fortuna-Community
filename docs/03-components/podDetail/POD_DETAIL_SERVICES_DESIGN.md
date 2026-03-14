@@ -66,7 +66,7 @@ Scope: Logic & flow cho Pod Service, Runtime Service, Process Service, Security 
 
 **Core**
 - Handler `PostPodRuntimeMetrics` upsert `pod_runtime_metrics` (theo pod_uid + container_name).
-- API đọc: `GET /api/v1/pods/:id/runtime-metrics` hoặc `GET /api/v1/pods/by-uid/:uid/runtime-metrics` trả về list container metrics.
+- API đọc: `GET /api/v1/pods/:id/runtime-metrics` hoặc `GET /api/v1/pods/:podUid/runtime-metrics` trả về list container metrics.
 
 ### 3.4 Flow
 ```
@@ -101,7 +101,7 @@ Dashboard Pod Detail (Runtime tab)
 
 **Core**
 - Handler `PostPodProcesses`: replace snapshot cho pod_uid (xóa cũ theo pod_uid, insert batch mới) hoặc append với observed_at.
-- API đọc: `GET /api/v1/pods/:id/processes` hoặc `GET /api/v1/pods/by-uid/:uid/processes` (filter theo observed_at gần nhất hoặc time range).
+- API đọc: `GET /api/v1/pods/:id/processes` hoặc `GET /api/v1/pods/:podUid/processes` (filter theo observed_at gần nhất hoặc time range).
 
 ### 4.4 Flow
 ```
@@ -156,7 +156,7 @@ Dashboard (Runtime Process tab)
 
 **Core**
 - Handler `PostPodNetworkConnections`: replace snapshot theo pod_uid (hoặc append theo observed_at).
-- API: `GET /api/v1/pods/:id/network-connections` hoặc `GET /api/v1/pods/by-uid/:uid/network-connections`.
+- API: `GET /api/v1/pods/:id/network-connections` hoặc `GET /api/v1/pods/:podUid/network-connections`.
 
 ### 6.4 Flow
 ```
@@ -226,7 +226,7 @@ Dashboard (Events tab)
 | POST | /api/v1/k8s-events | Agent gửi K8s events |
 | GET  | /api/v1/pods/:id/events | Lấy K8s events liên quan pod |
 
-(Có thể dùng `/api/v1/pods/by-uid/:uid/...` thay cho `:id` cho các GET nếu ưu tiên tra cứu theo UID.)
+(Có thể dùng `/api/v1/pods/:podUid/...` thay cho `:id` cho các GET nếu ưu tiên tra cứu theo UID.)
 
 ---
 

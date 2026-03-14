@@ -20,7 +20,8 @@ spec:
     spec:
       serviceAccountName: fortuna-agent
       hostNetwork: false
-      hostPID: false
+      # hostPID: true required for host inspection (read /proc/<pid>/cgroup to map PID → container)
+      hostPID: true
       
       # Allow Agent to run on all nodes including master (if master has taints)
       tolerations:
@@ -52,6 +53,11 @@ spec:
           hostPath:
             path: /run/containerd/containerd.sock
             type: Socket
+        # Host /proc for host inspection (process/network from node, no exec)
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
       
       containers:
         - name: agent
@@ -114,6 +120,9 @@ spec:
             # Logging
             - name: LOG_LEVEL
               value: "info"
+            # Pod Detail: host = collect from /proc (no exec); exec = current exec ps/ss (default when unset)
+            # - name: POD_DETAIL_RUNTIME_SOURCE
+            #   value: "host"
           
           volumeMounts:
             - name: tls-certs
@@ -124,6 +133,9 @@ spec:
               readOnly: true
             - name: containerd-socket
               mountPath: /run/containerd/containerd.sock
+              readOnly: true
+            - name: host-proc
+              mountPath: /host/proc
               readOnly: true
           
           # Production-ready resource limits (SBOM extraction materializes image layers in memory; 1Gi was causing OOMKilled)

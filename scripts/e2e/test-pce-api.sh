@@ -67,12 +67,12 @@ else
 fi
 echo ""
 
-# Test 3: GET /api/v1/attack-steps/summary
-echo "Test 3: GET /api/v1/attack-steps/summary"
+# Test 3: GET /api/v1/risk/attack-steps/summary
+echo "Test 3: GET /api/v1/risk/attack-steps/summary"
 echo "----------------------------------------"
 RESPONSE=$(kubectl -n "${NAMESPACE}" exec "${CORE_POD}" -- curl -s -w "\nHTTP_CODE:%{http_code}" \
   -H "Authorization: Bearer ${TOKEN}" \
-  http://localhost:8080/api/v1/attack-steps/summary 2>&1)
+  http://localhost:8080/api/v1/risk/attack-steps/summary 2>&1)
 HTTP_CODE=$(echo "$RESPONSE" | awk -F: '/HTTP_CODE/{print $2}')
 BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE/d')
 
@@ -96,11 +96,11 @@ POD_UID=$(kubectl -n "${NAMESPACE}" exec "${DB_POD}" -- psql -U postgres -d fort
 if [ -n "$POD_UID" ] && [ "$POD_UID" != "" ]; then
   echo "Found pod UID: $POD_UID"
   echo ""
-  echo "Test 4: GET /api/v1/attack-steps/pods/${POD_UID}"
+  echo "Test 4: GET /api/v1/risk/pods/${POD_UID}/attack-steps"
   echo "----------------------------------------"
   RESPONSE=$(kubectl -n "${NAMESPACE}" exec "${CORE_POD}" -- curl -s -w "\nHTTP_CODE:%{http_code}" \
     -H "Authorization: Bearer ${TOKEN}" \
-    "http://localhost:8080/api/v1/attack-steps/pods/${POD_UID}" 2>&1)
+    "http://localhost:8080/api/v1/risk/pods/${POD_UID}/attack-steps" 2>&1)
   HTTP_CODE=$(echo "$RESPONSE" | awk -F: '/HTTP_CODE/{print $2}')
   BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE/d')
 

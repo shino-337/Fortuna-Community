@@ -11,7 +11,7 @@
   - `scripts/deploy/deploy-fortuna-robust.sh`
   - `scripts/pipeline/full-rebuild-sync-deploy-and-e2e.sh`
   - `scripts/clean/clean-evicted-completed-pods.sh`
-  - `scripts/e2e/run-e2e-tests.sh`, `e2e-dashboard-data.sh`, `test-pce-e2e.sh`, `test-runtime-signals-e2e.sh`
+  - E2E entry: `scripts/e2e/run-e2e.sh` (--suite=full|risk-center|…); các script đơn lẻ: e2e-risk-center-full.sh, test-priority1-apis.sh, e2e-dashboard-data.sh, test-pce-e2e.sh, test-runtime-signals-e2e.sh, v.v.
   - `scripts/utils/load-cve-data.sh`, `sync-image-tag-and-clean.sh`, `sync-k8s-data.sh`
 - **Tổng số script .sh hiện có:** **91** (trong `scripts/`).
 
@@ -98,7 +98,7 @@
 | **clean/** | 7 | cleanup-environment.sh, clean-containerd-images.sh, clean-rebuild-dashboard.sh, clean-host-images-and-junk.sh, clean-e2e-test-images.sh, cleanup-orphaned-migrations.sh, clean-evicted-completed-pods.sh |
 | **build/** | 4 | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh, export-agent-image-for-workers.sh |
 | **verify/** | 19 | check-full-deployment.sh, check-env-rebuild-deploy.sh, verify-dashboard-*.sh, verify-database-schema.sh, verify-agent-*.sh, verify-pod-data.sh, verify-api-detailed.sh, verify-via-api-only.sh, … |
-| **e2e/** | 24 | run-e2e-full.sh, run-e2e-all-verify.sh, run-e2e-with-capability-report.sh, run-e2e-tests.sh, e2e-sbom-verify.sh, e2e-risk-center-verify.sh, test-priority1-apis.sh, test-sbom-pod-flow.sh, test-pod-*.sh, … |
+| **e2e/** | 22 | run-e2e.sh (entry), run-e2e-full.sh, run-e2e-with-capability-report.sh, e2e-risk-center-full.sh, e2e-sbom-verify.sh, test-priority1-apis.sh, test-sbom-pod-flow.sh, test-pod-*.sh, … |
 | **monitor/** | 4 | monitor-testcases.sh, monitor-runtime-signals.sh, monitor-agent-core.sh, monitor-agent-core-errors.sh |
 | **utils/** | 20 | push-images-to-workers.sh, port-forward-dashboard.sh, manage-port-forwards.sh, create_mtls_secret.sh, import-to-containerd.sh, fix-k8s-swap-for-kubelet.sh, load-cve-data.sh, sync-k8s-data.sh, … |
 

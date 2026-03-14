@@ -1,6 +1,8 @@
 package riskengine
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -8,7 +10,9 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/pkg/evidence"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/risk"
 )
 
 // InsightManager manages insight creation and updates
@@ -95,59 +99,30 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 	}
 
 	// For capability insights with CVEID set (capability ID used as logical key), deduplicate by resource_uid + insight_type + cve_id
-	// to match DB unique constraint and avoid duplicate key on INSERT.
+	// to match DB unique constraint (idx_insights_unique_resource_cve_type_all). Find ANY existing row regardless of status
+	// to avoid duplicate key on INSERT (e.g. status empty or other value not in active/resolved/dismissed).
 	if insight.InsightType == "capability" && strings.TrimSpace(insight.CVEID) != "" {
 		var existingCap models.Insight
-		capQuery := tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL",
-			"capability", insight.ResourceUID, insight.CVEID, "active")
-		if capQuery.First(&existingCap).Error == nil {
-			needsUpdate := false
-			if existingCap.Description != insight.Description {
-				existingCap.Description = insight.Description
-				needsUpdate = true
+		if tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND deleted_at IS NULL",
+			"capability", insight.ResourceUID, insight.CVEID).First(&existingCap).Error == nil {
+			wasResolvedOrDismissed := existingCap.Status == "resolved" || existingCap.Status == "dismissed"
+			existingCap.Status = "active"
+			existingCap.Severity = insight.Severity
+			existingCap.Description = insight.Description
+			existingCap.Recommendation = insight.Recommendation
+			existingCap.Title = insight.Title
+			existingCap.UpdatedAt = time.Now()
+			if wasResolvedOrDismissed {
+				existingCap.DetectedAt = time.Now()
 			}
-			if existingCap.Recommendation != insight.Recommendation {
-				existingCap.Recommendation = insight.Recommendation
-				needsUpdate = true
+			if err := tx.Save(&existingCap).Error; err != nil {
+				return fmt.Errorf("failed to update capability insight: %w", err)
 			}
-			if existingCap.Severity != insight.Severity {
-				existingCap.Severity = insight.Severity
-				needsUpdate = true
-			}
-			if existingCap.Title != insight.Title {
-				existingCap.Title = insight.Title
-				needsUpdate = true
-			}
-			if needsUpdate {
-				existingCap.UpdatedAt = time.Now()
-				if err := tx.Save(&existingCap).Error; err != nil {
-					return fmt.Errorf("failed to update insight: %w", err)
-				}
-				log.Printf("[InsightManager] Updated capability insight ID=%d (resource_uid=%s, cve_id=%s)",
-					existingCap.ID, insight.ResourceUID, insight.CVEID)
-			} else {
-				log.Printf("[InsightManager] Capability insight already exists (ID=%d), no update needed", existingCap.ID)
-			}
+			log.Printf("[InsightManager] Updated capability insight ID=%d (resource_uid=%s, cve_id=%s)",
+				existingCap.ID, insight.ResourceUID, insight.CVEID)
 			return nil
 		}
-		var resolvedCap models.Insight
-		if tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND status IN (?, ?) AND deleted_at IS NULL",
-			"capability", insight.ResourceUID, insight.CVEID, "resolved", "dismissed").First(&resolvedCap).Error == nil {
-			resolvedCap.Status = "active"
-			resolvedCap.Severity = insight.Severity
-			resolvedCap.Description = insight.Description
-			resolvedCap.Recommendation = insight.Recommendation
-			resolvedCap.Title = insight.Title
-			resolvedCap.UpdatedAt = time.Now()
-			resolvedCap.DetectedAt = time.Now()
-			if err := tx.Save(&resolvedCap).Error; err != nil {
-				return fmt.Errorf("failed to re-activate insight: %w", err)
-			}
-			log.Printf("[InsightManager] Re-activated capability insight ID=%d (was %s, now active)",
-				resolvedCap.ID, resolvedCap.Status)
-			return nil
-		}
-		// Fall through to createInsightTx
+		// No existing row: fall through to createInsightTx
 	}
 
 	// For other non-vulnerability insights, deduplicate by resource_uid + insight_type + title.
@@ -205,12 +180,22 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 
 // createInsightTx creates a new insight within a transaction
 func (m *InsightManager) createInsightTx(tx *gorm.DB, insight *models.Insight) error {
-	// Ensure JSONB fields always contain valid JSON.
+	// Ensure JSONB fields always contain valid JSON; mask sensitive keys (Phase 3 evidence masking).
 	if strings.TrimSpace(insight.Evidence) == "" {
 		insight.Evidence = "{}"
+	} else {
+		insight.Evidence = evidence.MaskSensitiveInJSON(insight.Evidence)
 	}
 	if strings.TrimSpace(insight.ViolatedRules) == "" {
 		insight.ViolatedRules = "[]"
+	} else {
+		insight.ViolatedRules = evidence.MaskSensitiveInJSON(insight.ViolatedRules)
+	}
+	// Remediation is JSONB; empty or invalid string causes PostgreSQL "invalid input syntax for type json".
+	if strings.TrimSpace(insight.Remediation) == "" {
+		insight.Remediation = "{}"
+	} else if !json.Valid([]byte(insight.Remediation)) {
+		insight.Remediation = "{}"
 	}
 	if err := tx.Create(insight).Error; err != nil {
 		return fmt.Errorf("failed to create insight: %w", err)
@@ -221,24 +206,43 @@ func (m *InsightManager) createInsightTx(tx *gorm.DB, insight *models.Insight) e
 	return nil
 }
 
-// scheduleRiskScoreCalculation schedules risk score calculation for affected resources
-// UPDATED: Uses direct resource fields instead of JSONB parsing
-func (m *InsightManager) scheduleRiskScoreCalculation(insight *models.Insight) {
-	// Use direct resource fields (no JSONB parsing)
-	if insight.ResourceUID == "" {
+// runRiskScoreCalculation calculates and saves risk score for one resource (blocking).
+// Used from scheduleRiskScoreCalculation in a goroutine so API is not blocked.
+func (m *InsightManager) runRiskScoreCalculation(ctx context.Context, resourceUID string) {
+	if resourceUID == "" {
 		return
 	}
+	scorer := risk.NewScorer(m.db)
+	score, err := scorer.CalculateScore(ctx, resourceUID)
+	if err != nil {
+		log.Printf("[InsightManager] Risk score calculation failed for resource_uid=%s: %v", resourceUID, err)
+		return
+	}
+	if err := scorer.SaveScore(ctx, score); err != nil {
+		log.Printf("[InsightManager] Risk score save failed for resource_uid=%s: %v", resourceUID, err)
+		return
+	}
+	log.Printf("[InsightManager] Risk score updated for resource_uid=%s total=%.1f priority=%s", resourceUID, score.TotalScore, score.PriorityLevel)
+}
 
-	// Schedule risk score calculation for the resource
-	// This is a placeholder - actual implementation depends on risk engine architecture
-	log.Printf("[InsightManager] Scheduling risk score calculation for resource_uid=%s", insight.ResourceUID)
+// scheduleRiskScoreCalculation schedules risk score calculation for the resource of the given insight.
+// Runs in a goroutine so insight create/update API response is not blocked.
+func (m *InsightManager) scheduleRiskScoreCalculation(insight *models.Insight) {
+	if insight == nil || insight.ResourceUID == "" {
+		return
+	}
+	go m.runRiskScoreCalculation(context.Background(), insight.ResourceUID)
 }
 
 // CreateOrUpdateInsight creates or updates an insight (public API)
 func (m *InsightManager) CreateOrUpdateInsight(insight *models.Insight) error {
-	return m.db.Transaction(func(tx *gorm.DB) error {
+	err := m.db.Transaction(func(tx *gorm.DB) error {
 		return m.createOrUpdateInsightTx(tx, insight)
 	})
+	if err == nil && insight != nil && insight.ResourceUID != "" {
+		m.scheduleRiskScoreCalculation(insight)
+	}
+	return err
 }
 
 // BatchCreateOrUpdateInsights processes multiple insights in batch using PostgreSQL UPSERT
@@ -247,7 +251,7 @@ func (m *InsightManager) BatchCreateOrUpdateInsights(insights []*models.Insight)
 		return nil
 	}
 
-	return m.db.Transaction(func(tx *gorm.DB) error {
+	err := m.db.Transaction(func(tx *gorm.DB) error {
 		// Separate vulnerability insights from other types for different upsert strategies
 		vulnInsights := make([]*models.Insight, 0)
 		otherInsights := make([]*models.Insight, 0)
@@ -288,6 +292,24 @@ func (m *InsightManager) BatchCreateOrUpdateInsights(insights []*models.Insight)
 
 		return nil
 	})
+	if err != nil {
+		return err
+	}
+
+	// Schedule risk score calculation for all affected resources (after commit)
+	seen := make(map[string]struct{})
+	for _, insight := range insights {
+		if insight != nil && insight.ResourceUID != "" {
+			seen[insight.ResourceUID] = struct{}{}
+		}
+	}
+	for uid := range seen {
+		go m.runRiskScoreCalculation(context.Background(), uid)
+	}
+	if n := len(seen); n > 0 {
+		log.Printf("[InsightManager] Scheduled risk score calculation for %d unique resources", n)
+	}
+	return nil
 }
 
 // batchUpsertVulnerabilityInsights performs efficient batch UPSERT for vulnerability insights

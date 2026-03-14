@@ -10,6 +10,7 @@ import (
 
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/cve/matcher"
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/sbom"
@@ -18,8 +19,15 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+// SubjectInsightsUpdated is published after insights are created/updated so Risk Center WS can broadcast.
+const SubjectInsightsUpdated = "fortuna.insights.updated"
+
+// SubjectSIEMEvents is published for critical/high insights so SIEM adapters can forward to webhooks.
+const SubjectSIEMEvents = "fortuna.siem.events"
+
 // CVEMatcherWorker implements: SBOM_CREATED -> CVE Matching -> Persist cve_matches -> Vulnerability Insights.
 type CVEMatcherWorker struct {
+	js             nats.JetStreamContext
 	db             *gorm.DB
 	dbManager      *database.Manager
 	matcher        *matcher.Matcher
@@ -28,10 +36,11 @@ type CVEMatcherWorker struct {
 	onlySeverities map[string]bool
 }
 
-func NewCVEMatcherWorker(db *gorm.DB) *CVEMatcherWorker {
+func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB) *CVEMatcherWorker {
 	dbMgr := database.NewPostgresManager(db)
 	m := matcher.NewMatcher(dbMgr, db)
 	return &CVEMatcherWorker{
+		js:         js,
 		db:         db,
 		dbManager:  dbMgr,
 		matcher:    m,
@@ -138,11 +147,18 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 
 	// Batch create/update insights (single transaction)
 	if len(insights) > 0 {
+		start := time.Now()
 		if err := w.insightMgr.BatchCreateOrUpdateInsights(insights); err != nil {
 			w.logger.Printf("⚠️  Failed to batch create/update insights: %v", err)
 			return fmt.Errorf("batch create insights: %w", err)
 		}
+		metrics.RiskEvaluationDuration.Observe(time.Since(start).Seconds())
+		metrics.InsightsBatchSize.Observe(float64(len(insights)))
 		w.logger.Printf("✅ Created/updated %d vulnerability insights for pod %s/%s", len(insights), ev.PodNamespace, ev.PodName)
+		if w.js != nil {
+			_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
+			PublishSIEMEvents(w.js, insights)
+		}
 	}
 
 	return nil

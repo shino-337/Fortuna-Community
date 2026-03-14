@@ -26,16 +26,16 @@ export const Users: React.FC = () => {
         </Button>
       </div>
 
-      <div className="border-b border-slate-800">
+      <div className="border-b border-border bg-surface/50">
           <nav className="flex space-x-6">
               {['users', 'roles', 'api keys'].map(tab => (
                   <button
                       key={tab}
                       onClick={() => setActiveTab(tab)}
-                      className={`pb-4 text-sm font-medium border-b-2 transition-colors capitalize ${
+                      className={`pb-4 pt-1 text-sm font-medium border-b-2 transition-colors capitalize ${
                           activeTab === tab 
                           ? 'border-pink-500 text-pink-500' 
-                          : 'border-transparent text-slate-400 hover:text-slate-200 hover:border-slate-700'
+                          : 'border-transparent text-muted hover:text-text hover:border-border'
                       }`}
                   >
                       {tab}
@@ -45,10 +45,10 @@ export const Users: React.FC = () => {
       </div>
 
       {activeTab === 'users' && (
-      <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
+      <Card className="p-0 overflow-hidden">
+        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
           <table className="w-full text-sm text-left">
-            <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
+            <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
               <tr>
                 <th className="px-6 py-4 font-medium">User</th>
                 <th className="px-6 py-4 font-medium">Role</th>
@@ -57,9 +57,9 @@ export const Users: React.FC = () => {
                 <th className="px-6 py-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-800">
+            <tbody className="divide-y divide-border">
               {users.map((user) => (
-                <tr key={user.id} className="hover:bg-slate-800/50 transition-colors">
+                <tr key={user.id} className="hover:bg-muted/30 transition-colors">
                   <td className="px-6 py-4">
                     <div className="flex items-center">
                       <div className="w-10 h-10 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 mr-3 font-semibold border border-slate-700">

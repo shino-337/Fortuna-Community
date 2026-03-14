@@ -91,11 +91,15 @@ func (c *NATSClient) SetupStreams() error {
 		},
 		{
 			name:     "fortuna-insights",
-			subjects: []string{"fortuna.insights.created"},
+			subjects: []string{"fortuna.insights.created", "fortuna.insights.updated"},
 		},
 		{
 			name:     "fortuna-normalized",
 			subjects: []string{"fortuna.normalized.>"},
+		},
+		{
+			name:     "fortuna-siem",
+			subjects: []string{"fortuna.siem.events"},
 		},
 	}
 
@@ -163,39 +167,19 @@ func (c *NATSClient) SetupStreams() error {
 				lastErr = nil
 				break
 			} else if err == nats.ErrStreamNameAlreadyInUse {
-				// Stream already exists - check if we need to update it
-				// Note: Retention policy cannot be changed after stream creation
-				// So we just log and continue if stream exists
-				info, infoErr := c.js.StreamInfo(stream.name)
-				if infoErr == nil {
-					log.Printf("[NATS] Stream %s already exists (retention: %v), skipping update", stream.name, info.Config.Retention)
-					lastErr = nil
-					break
-				} else {
-					// If we can't get stream info, try to update (but it may fail)
-					// For cluster mode, update requires quorum
-					_, updateErr := c.js.UpdateStream(cfg)
-					if updateErr != nil {
-						// If update fails due to retention policy change, just log and continue
-						if strings.Contains(updateErr.Error(), "retention policy") {
-							log.Printf("[NATS] Stream %s exists with different retention policy, using existing configuration", stream.name)
-							lastErr = nil
-							break
-						}
-						// For cluster mode, may need quorum - log warning but continue
-						if strings.Contains(updateErr.Error(), "quorum") || strings.Contains(updateErr.Error(), "replica") {
-							log.Printf("[NATS] Warning: Stream %s update may require cluster quorum, using existing configuration", stream.name)
-							lastErr = nil
-							break
-						}
-						log.Printf("[NATS] Warning: Failed to update stream %s: %v", stream.name, updateErr)
-						lastErr = updateErr
+				// Stream already exists - try to update to add new subjects (e.g. fortuna.insights.updated)
+				_, updateErr := c.js.UpdateStream(cfg)
+				if updateErr != nil {
+					if strings.Contains(updateErr.Error(), "retention policy") {
+						log.Printf("[NATS] Stream %s exists with different retention policy, using existing configuration", stream.name)
 					} else {
-						log.Printf("[NATS] Updated stream %s (replicas: %d, retention: %v)", stream.name, cfg.Replicas, maxAge)
-						lastErr = nil
-						break
+						log.Printf("[NATS] Stream %s already exists; update (new subjects): %v", stream.name, updateErr)
 					}
+				} else {
+					log.Printf("[NATS] Updated stream %s with subjects %v", stream.name, cfg.Subjects)
 				}
+				lastErr = nil
+				break
 			} else {
 				lastErr = err
 				if i < maxRetries-1 {
@@ -241,4 +225,9 @@ func (c *NATSClient) Close() {
 // JetStream returns the JetStream context
 func (c *NATSClient) JetStream() nats.JetStreamContext {
 	return c.js
+}
+
+// Conn returns the core NATS connection (for non-JetStream pub/sub, e.g. fortuna.insights.updated → Risk Center WS).
+func (c *NATSClient) Conn() *nats.Conn {
+	return c.conn
 }

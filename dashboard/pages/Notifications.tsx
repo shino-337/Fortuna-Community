@@ -1,14 +1,16 @@
 
 import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Notification } from '../types';
-import { Bell, Check, Info, AlertTriangle, XCircle, CheckCircle } from 'lucide-react';
+import { Bell, Check, Info, AlertTriangle, XCircle, CheckCircle, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
-import { PageLayout } from '../components/PageLayout';
+import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty } from '../components/PageEmpty';
 import { formatDateTime } from '../lib/display';
 
 export const Notifications: React.FC = () => {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -33,9 +35,14 @@ export const Notifications: React.FC = () => {
       title="Notifications"
       description="System events from database-backed notifications."
       actions={
-        <Button variant="secondary" onClick={() => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))}>
-          Mark all read
-        </Button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
+          </Button>
+          <Button variant="secondary" onClick={() => setNotifications((prev) => prev.map((n) => ({ ...n, read: true })))}>
+            Mark all read
+          </Button>
+        </div>
       }
     >
       {loading ? (

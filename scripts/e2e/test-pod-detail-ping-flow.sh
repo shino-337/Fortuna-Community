@@ -80,16 +80,16 @@ kubectl -n "$NAMESPACE" exec "$PG_POD" -- psql -U postgres -d fortuna -c \
   "SELECT pod_uid, container_name, source_ip, source_port, dest_ip, dest_port, protocol, state, observed_at FROM pod_network_connections WHERE pod_uid = '$POD_UID' ORDER BY observed_at DESC LIMIT 10;"
 
 echo ""
-echo "--- API: GET /pods/by-uid/:uid/runtime-metrics ---"
-core_api_get "pods/by-uid/${POD_UID}/runtime-metrics" "$TOKEN" "$CORE_POD" | python3 -m json.tool | head -40
+echo "--- API: GET /runtime/pods/:uid/metrics ---"
+core_api_get "runtime/pods/${POD_UID}/metrics" "$TOKEN" "$CORE_POD" | python3 -m json.tool | head -40
 
 echo ""
-echo "--- API: GET /pods/by-uid/:uid/processes ---"
-core_api_get "pods/by-uid/${POD_UID}/processes" "$TOKEN" "$CORE_POD" | python3 -m json.tool | head -40
+echo "--- API: GET /runtime/pods/:uid/processes ---"
+core_api_get "runtime/pods/${POD_UID}/processes" "$TOKEN" "$CORE_POD" | python3 -m json.tool | head -40
 
 echo ""
-echo "--- API: GET /pods/by-uid/:uid/network-connections (Dashboard Network tab uses this) ---"
-NETWORK_RESPONSE="$(core_api_get "pods/by-uid/${POD_UID}/network-connections" "$TOKEN" "$CORE_POD")"
+echo "--- API: GET /runtime/pods/:uid/network (Dashboard Network tab uses this) ---"
+NETWORK_RESPONSE="$(core_api_get "runtime/pods/${POD_UID}/network" "$TOKEN" "$CORE_POD")"
 echo "$NETWORK_RESPONSE" | python3 -m json.tool | head -40
 
 # Assert network-connections API returns valid JSON with items array (dashboard expects this)
@@ -107,7 +107,7 @@ try:
 except (json.JSONDecodeError, Exception):
     sys.exit(3)
 " 2>/dev/null; then
-  echo "❌ FAIL: GET /pods/by-uid/:uid/network-connections must return JSON with 'items' (array) and 'podUid'; dashboard Network tab depends on it."
+  echo "❌ FAIL: GET /runtime/pods/:uid/network must return JSON with 'items' (array) and 'podUid'; dashboard Network tab depends on it."
   exit 1
 fi
 echo "✅ Network-connections API: valid response (items + podUid); Dashboard Network tab can display data."

@@ -3,7 +3,6 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { api } from '../lib/api';
-import { ShieldAlert } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 
 export const Login: React.FC = () => {
@@ -23,8 +22,8 @@ export const Login: React.FC = () => {
       const { user, token } = await api.login(username, password);
       login(user, token);
       navigate('/');
-    } catch (err) {
-      setError('Invalid credentials. Try any email not containing "error".');
+    } catch {
+      setError('Invalid credentials. Please try again.');
     } finally {
       setIsLoading(false);
     }
@@ -34,9 +33,7 @@ export const Login: React.FC = () => {
     <div className="min-h-screen bg-slate-950 flex flex-col items-center justify-center p-4">
       <div className="w-full max-w-md bg-slate-900 rounded-2xl shadow-xl p-8 border border-slate-800">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 bg-pink-600 rounded-xl flex items-center justify-center mb-4">
-            <ShieldAlert className="text-white w-7 h-7" />
-          </div>
+          <img src="/logo.png" alt="Fortuna" className="w-12 h-12 mb-4" />
           <h1 className="text-2xl font-bold text-white">Welcome back</h1>
           <p className="text-slate-400 mt-2">Sign in to access Fortuna</p>
         </div>
@@ -58,7 +55,7 @@ export const Login: React.FC = () => {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full px-4 py-2 bg-slate-950 border border-slate-700 rounded-lg text-white focus:ring-2 focus:ring-pink-500 focus:border-pink-500 outline-none transition-all placeholder:text-slate-600"
-              placeholder="admin"
+              placeholder="Username or email"
             />
           </div>
 

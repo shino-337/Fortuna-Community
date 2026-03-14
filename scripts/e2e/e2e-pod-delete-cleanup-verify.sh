@@ -155,7 +155,7 @@ print(len([p for p in items if p.get('uid')]))
     PASS=$((PASS+1))
   fi
   # Verify risk profile for deleted pod is gone (404 or empty)
-  RISK_RESP=$(api_get "runtime-risk/pods/${POD_UID}" 2>/dev/null || echo "{}")
+  RISK_RESP=$(api_get "risk/pods/${POD_UID}/runtime" 2>/dev/null || echo "{}")
   if echo "$RISK_RESP" | grep -q "not found\|404\|error"; then
     log_ok "Runtime risk for deleted pod UID returns 404/error (cleanup worked)"
     PASS=$((PASS+1))

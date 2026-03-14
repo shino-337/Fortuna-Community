@@ -58,14 +58,14 @@ check_key "$BODY" "runningPods"
 check_key "$BODY" "activeAgents"
 echo ""
 
-echo "=== 2. GET /api/v1/clusters (Cluster Health list) ==="
-BODY=$(api_get "clusters")
+echo "=== 2. GET /api/v1/inventory/clusters (Cluster Health list) ==="
+BODY=$(api_get "inventory/clusters")
 COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('clusters',[])))" 2>/dev/null || echo "0")
 echo "  clusters count: $COUNT"
 echo ""
 
-echo "=== 3. GET /api/v1/risks (Critical Risks / Risk Center) ==="
-BODY=$(api_get "risks")
+echo "=== 3. GET /api/v1/risk/insights (Critical Risks / Risk Center) ==="
+BODY=$(api_get "risk/insights")
 COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('insights',[])))" 2>/dev/null || echo "0")
 echo "  insights count: $COUNT"
 echo ""
@@ -82,14 +82,14 @@ COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); prin
 echo "  trend points: $COUNT"
 echo ""
 
-echo "=== 6. GET /api/v1/pod-capabilities/summary/capability (Pod Capabilities list) ==="
-BODY=$(api_get "pod-capabilities/summary/capability")
+echo "=== 6. GET /api/v1/inventory/pod-capabilities/summary/capability (Pod Capabilities list) ==="
+BODY=$(api_get "inventory/pod-capabilities/summary/capability")
 COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('summary',[])))" 2>/dev/null || echo "0")
 echo "  summary count: $COUNT"
 echo ""
 
-echo "=== 7. GET /api/v1/pod-capabilities/trends?days=7 (PCE Trend chart) ==="
-BODY=$(api_get "pod-capabilities/trends?days=7")
+echo "=== 7. GET /api/v1/inventory/pod-capabilities/trends?days=7 (PCE Trend chart) ==="
+BODY=$(api_get "inventory/pod-capabilities/trends?days=7")
 COUNT=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('points',[])))" 2>/dev/null || echo "0")
 echo "  points count: $COUNT"
 echo ""

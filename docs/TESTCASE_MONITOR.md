@@ -28,14 +28,15 @@ Danh sách testcase verify/E2E: script, mục đích, lệnh chạy, tiêu chí 
 
 ## 2. E2E (scripts/e2e/)
 
-### 2.1 Chạy tổng hợp
+### 2.1 Chạy tổng hợp (entry point: run-e2e.sh)
+
+**Chi tiết test case và luồng code:** [docs/e2e/E2E-TestCases-And-Runner.md](e2e/E2E-TestCases-And-Runner.md).
 
 | # | Script | Mục đích | Lệnh | Tiêu chí pass | Monitor |
 |---|--------|----------|------|----------------|---------|
-| 1 | run-e2e-all-verify.sh | Toàn bộ: check-full-deployment → run-e2e-full → priority1 → runtime-signals → dashboard-data → risk-center → (tùy chọn) capability-report | `./scripts/e2e/run-e2e-all-verify.sh` hoặc `--skip-capability-report` | Bảng tóm tắt trong E2E-ALL-VERIFY-*.md: các bước PASS | File `docs/test-results/E2E-ALL-VERIFY-<timestamp>.md` |
-| 2 | run-e2e-complete-with-monitor.sh | E2E full + snapshot log Agent/Core trước/sau + priority1 + runtime-signals + dashboard-data + risk-center + API results | `./scripts/e2e/run-e2e-complete-with-monitor.sh` | Report E2E-COMPLETE-WITH-MONITOR-*.md có API results và log | File report + e2e-api-results-*.txt, e2e-logs-before/after-*.txt |
-| 3 | run-e2e-full.sh | Cluster, pods, Core API (health, capability-metadata, promotion-rules, runtime-signals, attack-steps, pod capabilities), DB row counts, Dashboard URL, test-pce-api, test-priority1-apis, Core unit tests | `./scripts/e2e/run-e2e-full.sh` | File E2E-FULL-*.md có đủ section, HTTP 200 cho API (hoặc 401 nếu chưa login) | File `docs/test-results/E2E-FULL-<timestamp>.md` |
-| 4 | run-e2e-with-capability-report.sh | Full luồng + capability: metadata, promotion rules, pod capabilities, runtime signals, attack steps, test-pce-e2e, test-promotion-flow, test-runtime-signals-e2e | `./scripts/e2e/run-e2e-with-capability-report.sh` | File E2E-WITH-CAPABILITY-*.md, các API test PASS | File `docs/test-results/E2E-WITH-CAPABILITY-<timestamp>.md` |
+| 1 | **run-e2e.sh** | Entry point E2E: chạy theo suite (risk-center \| full \| priority1 \| runtime \| pce \| dashboard \| sbom \| full-report) | `./scripts/e2e/run-e2e.sh` hoặc `--suite=risk-center` | Các suite chạy đúng script tương ứng, báo PASS/FAIL | Stdout + file report từng script con |
+| 2 | run-e2e-full.sh | Cluster, pods, Core API (health, capability-metadata, promotion-rules, runtime-signals, attack-steps, pod capabilities), DB row counts, Dashboard URL, test-pce-api, test-priority1-apis, Core unit tests | `./scripts/e2e/run-e2e-full.sh` hoặc `run-e2e.sh --suite=full` | File E2E-FULL-*.md có đủ section, HTTP 200 cho API (hoặc 401 nếu chưa login) | File `docs/test-results/E2E-FULL-<timestamp>.md` |
+| 3 | run-e2e-with-capability-report.sh | Full luồng + capability: metadata, promotion rules, pod capabilities, runtime signals, attack steps, test-pce-e2e, test-promotion-flow, test-runtime-signals-e2e | `./scripts/e2e/run-e2e-with-capability-report.sh` hoặc `run-e2e.sh --suite=full-report` | File E2E-WITH-CAPABILITY-*.md, các API test PASS | File `docs/test-results/E2E-WITH-CAPABILITY-<timestamp>.md` |
 
 ### 2.2 Testcase đơn lẻ (API / luồng)
 
@@ -47,7 +48,7 @@ Danh sách testcase verify/E2E: script, mục đích, lệnh chạy, tiêu chí 
 | 8 | test-pce-e2e.sh | E2E PCE: privileged pod → sync → pod_capabilities + runtime_signals | `./scripts/e2e/test-pce-e2e.sh` | Pod tạo, Core sync, capabilities/signals có trong DB/API | In từng giai đoạn |
 | 9 | test-promotion-flow.sh | Luồng promotion (rules → capabilities → promotion logic) | `./scripts/e2e/test-promotion-flow.sh` | Các bước promotion đúng | In kết quả từng bước |
 | 10 | e2e-dashboard-data.sh | Pod + Core sync + runtime-events + insights/evaluate/historical → verify threat-velocity & PCE trends API | `NAMESPACE=fortuna ./scripts/e2e/e2e-dashboard-data.sh` | API threat-velocity, PCE trends trả data | In [OK]/[FAIL] |
-| 11 | e2e-risk-center-verify.sh | Seed 1 insight (E2E-RISK-CENTER) → GET /risks, /insights/summary → assert total >= 1, high/critical >= 1; GET runtime-signals | `NAMESPACE=fortuna ./scripts/e2e/e2e-risk-center-verify.sh` | risks/summary có ít nhất 1, runtime-signals 200 | In [OK]/[FAIL] từng API |
+| 11 | e2e-risk-center-full.sh | 17 TCs Risk Center: /risks, /insights/summary, risk-rules CRUD, global summary, runtime-signals, v.v. (chi tiết: docs/e2e/E2E-TestCases-And-Runner.md) | `NAMESPACE=fortuna ./scripts/e2e/e2e-risk-center-full.sh` hoặc `run-e2e.sh --suite=risk-center` | 17/17 TCs PASS, report risk-center-e2e-*.md | In [OK]/[FAIL] từng TC + file report |
 | 12 | e2e-sbom-verify.sh | SBOM: pod → Agent extract → Core lưu → API/DB có SBOM | `./scripts/e2e/e2e-sbom-verify.sh` | SBOM xuất hiện trong Core/DB | In kết quả từng bước |
 | 13 | test-sbom-pod-flow.sh | Luồng pod → SBOM → CVE match → insights | `./scripts/e2e/test-sbom-pod-flow.sh` | Pod, SBOM, insight có trong hệ thống | In từng bước |
 | 14 | test-pod-sync-flow.sh | Pod sync: tạo pod → Agent sync → Core có pod | `./scripts/e2e/test-pod-sync-flow.sh` | Pod xuất hiện trong Core/DB | In sync result |
@@ -57,8 +58,7 @@ Danh sách testcase verify/E2E: script, mục đích, lệnh chạy, tiêu chí 
 | 18 | test-dashboard-consistency-e2e.sh | Nhất quán dữ liệu dashboard (clusters, agents, insights) | `./scripts/e2e/test-dashboard-consistency-e2e.sh` | Số liệu nhất quán giữa các API | In so sánh |
 | 19 | test-runtime-probe-e2e.sh | Runtime probe E2E | `./scripts/e2e/test-runtime-probe-e2e.sh` | Probe gửi/nhận đúng | In probe result |
 | 20 | run-dashboard-data-tests.sh | Tổ hợp: CVE load (optional), e2e-dashboard-data, test-pce-e2e, test-sbom-pod-flow (optional), verify dashboard APIs | `./scripts/e2e/run-dashboard-data-tests.sh` | Các script con pass hoặc warn | In từng step |
-| 21 | run-e2e-tests.sh | E2E theo testcase document (SBOM injector, nhiều API) | `./scripts/e2e/run-e2e-tests.sh` | Report E2E-TEST-EXECUTION-*.md, test count pass | File `docs/test-results/E2E-TEST-EXECUTION-<timestamp>.md` |
-| 22 | test-pod-recreate-storage.sh | Pod recreate: cùng UID / xóa rồi tạo lại (new UID) → kiểm tra storage/DB | `NAMESPACE=fortuna ./scripts/e2e/test-pod-recreate-storage.sh` | DB lưu đúng, không trùng bản ghi | In từng phase |
+| 21 | test-pod-recreate-storage.sh | Pod recreate: cùng UID / xóa rồi tạo lại (new UID) → kiểm tra storage/DB | `NAMESPACE=fortuna ./scripts/e2e/test-pod-recreate-storage.sh` | DB lưu đúng, không trùng bản ghi | In từng phase |
 
 ---
 

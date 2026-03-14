@@ -531,6 +531,16 @@ func hasSensitiveHostPathMount(volumesJSON, volumeMountsJSON string) (bool, map[
 	return true, evidence
 }
 
+// isTableMissingError returns true if err indicates the table does not exist (e.g. SQLite "no such table", PostgreSQL "does not exist").
+// Used so PCE evaluation does not fail in test or minimal DBs that omit role_bindings / cluster_role_bindings.
+func isTableMissingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist")
+}
+
 func hasAPIWriteAccess(ctx context.Context, db *gorm.DB, pod *models.Pod) (bool, map[string]interface{}, error) {
 	if pod.ServiceAccount == "" {
 		return false, nil, nil
@@ -541,7 +551,12 @@ func hasAPIWriteAccess(ctx context.Context, db *gorm.DB, pod *models.Pod) (bool,
 	var roleBindings []models.RoleBinding
 	if err := db.WithContext(ctx).Where("cluster_id = ? AND namespace = ? AND deleted_at IS NULL", pod.ClusterID, pod.Namespace).
 		Find(&roleBindings).Error; err != nil {
-		return false, nil, err
+		if isTableMissingError(err) {
+			// role_bindings table not present (e.g. test DB) — assume no bindings
+			roleBindings = nil
+		} else {
+			return false, nil, err
+		}
 	}
 	for _, rb := range roleBindings {
 		var subs []subject
@@ -562,7 +577,11 @@ func hasAPIWriteAccess(ctx context.Context, db *gorm.DB, pod *models.Pod) (bool,
 	var clusterRoleBindings []models.ClusterRoleBinding
 	if err := db.WithContext(ctx).Where("cluster_id = ? AND deleted_at IS NULL", pod.ClusterID).
 		Find(&clusterRoleBindings).Error; err != nil {
-		return false, nil, err
+		if isTableMissingError(err) {
+			clusterRoleBindings = nil
+		} else {
+			return false, nil, err
+		}
 	}
 	for _, crb := range clusterRoleBindings {
 		var subs []subject

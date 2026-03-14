@@ -22,7 +22,8 @@ spec:
       containers:
       - name: dashboard
         image: fortuna-dashboard:latest
-        imagePullPolicy: IfNotPresent
+        # Never pull: image must be built/loaded on node (e.g. nerdctl build on k8s-master)
+        imagePullPolicy: Never
         ports:
         - containerPort: 80
         volumeMounts:

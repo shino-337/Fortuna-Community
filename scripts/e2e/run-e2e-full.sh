@@ -106,23 +106,23 @@ core_api GET "promotion-rules/capability/ESC_HOSTPATH_NODE" | python3 -m json.to
 echo ""
 echo ""
 
-step "2.5 GET /api/v1/runtime-signals?limit=5"
-core_api GET "runtime-signals?limit=5" | python3 -m json.tool 2>/dev/null || core_api GET "runtime-signals?limit=5" | head -c 600
+step "2.5 GET /api/v1/runtime/signals?limit=5"
+core_api GET "runtime/signals?limit=5" | python3 -m json.tool 2>/dev/null || core_api GET "runtime/signals?limit=5" | head -c 600
 echo ""
 echo ""
 
-step "2.6 GET /api/v1/attack-steps/summary"
-core_api GET "attack-steps/summary" | python3 -m json.tool 2>/dev/null || core_api GET "attack-steps/summary"
+step "2.6 GET /api/v1/risk/attack-steps/summary"
+core_api GET "risk/attack-steps/summary" | python3 -m json.tool 2>/dev/null || core_api GET "risk/attack-steps/summary"
 echo ""
 echo ""
 
-# Get a pod UID for pod capabilities test
+# Get a pod UID for pod capabilities test (domain: /inventory/pods/:uid/capabilities)
 PG_POD_FULL=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 POD_UID=$([ -n "$PG_POD_FULL" ] && kubectl exec -n "$NAMESPACE" "$PG_POD_FULL" -- psql -U postgres -d fortuna -t -c "SELECT pod_uid FROM pod_capabilities LIMIT 1;" 2>/dev/null | tr -d ' ' | head -1 || echo "")
 if [ -n "$POD_UID" ] && [ "$POD_UID" != "" ]; then
-  step "2.7 GET /api/v1/pods/${POD_UID}/capabilities"
+  step "2.7 GET /api/v1/inventory/pods/${POD_UID}/capabilities"
   echo "Pod UID: $POD_UID"
-  core_api GET "pods/${POD_UID}/capabilities" | python3 -m json.tool 2>/dev/null | head -50 || core_api GET "pods/${POD_UID}/capabilities" | head -c 800
+  core_api GET "inventory/pods/${POD_UID}/capabilities" | python3 -m json.tool 2>/dev/null | head -50 || core_api GET "inventory/pods/${POD_UID}/capabilities" | head -c 800
   echo ""
   echo ""
 fi

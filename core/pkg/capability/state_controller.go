@@ -206,11 +206,11 @@ func (csc *CapabilityStateController) InitializeCapability(ctx context.Context, 
 		UpdatedAt:       now,
 	}
 
-	// Upsert capability
+	// Upsert capability (Phase 3: update last_seen_at on conflict)
 	return csc.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "pod_uid"}, {Name: "capability_id"}},
-			DoUpdates: clause.AssignmentColumns([]string{"capability_group", "severity", "evidence", "updated_at"}),
+			DoUpdates: clause.AssignmentColumns([]string{"capability_group", "severity", "evidence", "last_seen_at", "updated_at"}),
 		}).
 		Create(&cap).Error
 }

@@ -23,7 +23,9 @@ import {
   PodSbomSummary,
   DashboardStats,
   InsightsSummary,
+  InsightsSummaryByClusterItem,
   ThreatVelocityPoint,
+  RiskHistogramResponse,
   PodCapabilitySummaryCluster,
   PodCapabilitySummaryCapability,
   PodCapabilitySummaryNamespace,
@@ -39,6 +41,8 @@ import {
   PodProcessItem,
   PodNetworkConnectionItem,
   PodK8sEventItem,
+  RiskRuleItem,
+  RiskRuleFull,
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 
@@ -87,8 +91,8 @@ const request = async <T>(path: string, options: RequestInit = {}): Promise<T> =
   }
 
   if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text || `Request failed: ${res.status}`);
+    const text = await res.text().catch(() => '');
+    throw new Error(getErrorMessage(res.status, text || undefined));
   }
   return res.json();
 };
@@ -103,9 +107,28 @@ const requestText = async (path: string): Promise<string> => {
     useAuthStore.getState().logout();
     throw new Error('Session expired. Please log in again.');
   }
-  if (!res.ok) throw new Error(`Request failed: ${res.status}`);
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(getErrorMessage(res.status, text || undefined));
+  }
   return res.text();
 };
+
+/** Safe message for non-OK responses (no raw body to avoid leaking details). */
+function getErrorMessage(status: number, bodyText?: string): string {
+  if (status === 401) return 'Session expired. Please log in again.';
+  if (status === 403) return 'Access denied.';
+  if (status >= 500) return 'Something went wrong. Please try again.';
+  if (bodyText) {
+    try {
+      const o = JSON.parse(bodyText) as { error?: string };
+      if (typeof o?.error === 'string' && o.error.length < 150) return o.error;
+    } catch {
+      // ignore
+    }
+  }
+  return `Request failed: ${status}`;
+}
 
 /** Map API pod object to PodWithRisk (includes POD_DETAIL_SPEC: podIP, startTime, restartCount, owner*, qosClass). */
 function mapApiPodToPodWithRisk(p: Record<string, unknown>): PodWithRisk {
@@ -156,11 +179,12 @@ export const api = {
     return { user: resp.user, token: resp.token };
   },
 
-  /** GET /api/v1/dashboard/stats – optional clusterId, sinceMinutes (time range: last N minutes). */
-  getStats: async (clusterId?: string | null, sinceMinutes?: number) => {
+  /** GET /api/v1/dashboard/stats – optional clusterId, sinceMinutes, byType ('all' = all insight types; default 'vulnerability'). */
+  getStats: async (clusterId?: string | null, sinceMinutes?: number, byType?: 'all' | 'vulnerability') => {
     const params = new URLSearchParams();
     if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
     if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+    if (byType === 'all') params.set('byType', 'all');
     const qs = params.toString() ? `?${params.toString()}` : '';
     const stats = await request<DashboardStats>(`/dashboard/stats${qs}`);
     const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
@@ -182,7 +206,33 @@ export const api = {
     if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
     if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
     const qs = params.toString() ? `?${params.toString()}` : '';
-    const data = await request<InsightsSummary & Record<string, unknown>>(`/insights/summary${qs}`);
+    const data = await request<InsightsSummary & Record<string, unknown>>(`/risk/insights/summary${qs}`);
+    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+    return {
+      total: num(data.total),
+      critical: num(data.critical),
+      high: num(data.high),
+      medium: num(data.medium),
+      low: num(data.low),
+      byType: data.byType,
+    };
+  },
+
+  /** GET /api/v1/insights/summary/by-cluster – summary per cluster (for global view). Optional sinceMinutes. */
+  getInsightsSummaryByCluster: async (sinceMinutes?: number): Promise<InsightsSummaryByClusterItem[]> => {
+    const params = new URLSearchParams();
+    if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const data = await request<{ byCluster?: InsightsSummaryByClusterItem[] }>(`/risk/insights/summary/by-cluster${qs}`);
+    return Array.isArray(data?.byCluster) ? data.byCluster : [];
+  },
+
+  /** GET /api/v1/insights/summary/global – global (all-clusters) summary. Optional sinceMinutes. Same shape as getInsightsSummary. */
+  getInsightsSummaryGlobal: async (sinceMinutes?: number): Promise<InsightsSummary> => {
+    const params = new URLSearchParams();
+    if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    const data = await request<InsightsSummary & Record<string, unknown>>(`/risk/insights/summary/global${qs}`);
     const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
     return {
       total: num(data.total),
@@ -197,16 +247,16 @@ export const api = {
   /** GET /api/v1/clusters/:id/overview */
   getClusterOverview: async (id: string): Promise<ClusterOverview | null> => {
     try {
-      return await request<ClusterOverview>(`/clusters/${id}/overview`);
+      return await request<ClusterOverview>(`/inventory/clusters/${id}/overview`);
     } catch {
       return null;
     }
   },
 
-  /** GET /api/v1/clusters/:id/inventory */
+  /** GET /api/v1/inventory/clusters/:id/inventory */
   getClusterInventory: async (id: string): Promise<ClusterInventory | null> => {
     try {
-      return await request<ClusterInventory>(`/clusters/${id}/inventory`);
+      return await request<ClusterInventory>(`/inventory/clusters/${id}/inventory`);
     } catch {
       return null;
     }
@@ -215,7 +265,7 @@ export const api = {
   /** GET /api/v1/clusters/:id/agents */
   getClusterAgents: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
     try {
-      const data = await request<{ agents: ClusterAgent[]; total: number }>(`/clusters/${id}/agents`);
+      const data = await request<{ agents: ClusterAgent[]; total: number }>(`/inventory/clusters/${id}/agents`);
       const agents = (data.agents || []).map((a: Record<string, unknown>) => ({
         agentId: String(a.agentId ?? ''),
         nodeName: a.nodeName != null ? String(a.nodeName) : undefined,
@@ -232,7 +282,7 @@ export const api = {
   /** GET /api/v1/clusters/:id/security-summary */
   getClusterSecuritySummary: async (id: string): Promise<ClusterSecuritySummary | null> => {
     try {
-      return await request<ClusterSecuritySummary>(`/clusters/${id}/security-summary`);
+      return await request<ClusterSecuritySummary>(`/inventory/clusters/${id}/security-summary`);
     } catch {
       return null;
     }
@@ -242,7 +292,7 @@ export const api = {
   getClusterNode: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse | null> => {
     try {
       const qs = opts?.pods ? '?pods=true' : '';
-      const data = await request<NodeDetailResponse>(`/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
+      const data = await request<NodeDetailResponse>(`/inventory/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
       return data;
     } catch {
       return null;
@@ -252,7 +302,7 @@ export const api = {
   /** GET /api/v1/clusters/:id – single cluster for Cluster Detail */
   getCluster: async (id: string): Promise<Cluster | null> => {
     try {
-      const c = await request<Record<string, unknown>>(`/clusters/${id}`);
+      const c = await request<Record<string, unknown>>(`/inventory/clusters/${id}`);
       const name = String(c.name ?? c.id ?? '').trim() || String(id);
       return {
         id: String(c.id ?? id),
@@ -274,7 +324,7 @@ export const api = {
   /** GET /api/v1/clusters – active clusters only (cutoff), SSOT from DB */
   getClusters: async (): Promise<Cluster[]> => {
     try {
-      const data = await request<{ clusters: Array<Record<string, unknown>> }>('/clusters');
+      const data = await request<{ clusters: Array<Record<string, unknown>> }>('/inventory/clusters');
       const list = data.clusters || [];
       return list.map((c: Record<string, unknown>) => {
         const id = String(c.id ?? '');
@@ -304,7 +354,7 @@ export const api = {
   /** GET /api/v1/clusters/stats – same list + podCount, deploymentCount, connectionStatus (same cutoff as API) */
   getClustersStats: async (): Promise<Cluster[]> => {
     try {
-      const data = await request<{ clusters: Array<Record<string, unknown>>; total?: number }>('/clusters/stats');
+      const data = await request<{ clusters: Array<Record<string, unknown>>; total?: number }>('/inventory/clusters/stats');
       const list = data.clusters || [];
       return list.map((c: Record<string, unknown>) => {
         const id = String(c.id ?? '');
@@ -338,7 +388,7 @@ export const api = {
   /** GET /api/v1/insights/:id – single insight for Risk Detail */
   getInsight: async (id: string): Promise<Insight | null> => {
     try {
-      const insight = await request<Record<string, unknown>>(`/insights/${id}`);
+      const insight = await request<Record<string, unknown>>(`/risk/insights/${id}`);
       const severity = (insight.severity || 'medium').toLowerCase();
       const cvss = Number(insight.cvss) || (severity === 'critical' ? 9 : severity === 'high' ? 7 : severity === 'medium' ? 5 : 3);
       return {
@@ -359,6 +409,8 @@ export const api = {
           },
         ],
         impact: insight.recommendation != null ? String(insight.recommendation) : undefined,
+      riskExplanation: insight.riskExplanation != null ? String(insight.riskExplanation) : undefined,
+      remediation: insight.remediation ?? undefined,
         resolvedAt: insight.resolvedAt != null ? String(insight.resolvedAt) : undefined,
         updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
         evidence: insight.evidence,
@@ -369,16 +421,59 @@ export const api = {
     }
   },
 
+  /** GET /api/v1/risk/insights/:id/context – cross-resource context for a single insight (pods, cluster, rules). */
+  getInsightContext: async (
+    id: string,
+  ): Promise<{ insight: Record<string, unknown>; pods: any[]; cluster?: any; rules: any[] } | null> => {
+    try {
+      return await request<{ insight: Record<string, unknown>; pods: any[]; cluster?: any; rules: any[] }>(
+        `/risk/insights/${id}/context`,
+      );
+    } catch {
+      return null;
+    }
+  },
+
   /** POST /api/v1/insights/:id/resolve – mark insight as resolved */
   resolveInsight: async (id: string, resolution?: string): Promise<void> => {
-    await request(`/insights/${id}/resolve`, {
+    await request(`/risk/insights/${id}/resolve`, {
       method: 'POST',
       body: JSON.stringify({ resolution: resolution ?? '' }),
     });
   },
 
-  /** GET /api/v1/risks – defaults to all insight types. Optional type, clusterId, pagination, severity, status, search, sinceMinutes (last N minutes). */
-  getRisks: async (params?: { page?: number; pageSize?: number; type?: string; severity?: string; status?: string; search?: string; clusterId?: string | null; sinceMinutes?: number }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number }> => {
+  /** GET /api/v1/risks – defaults to all insight types. Optional type, clusterId, pagination, severity, status, search, namespace, sinceMinutes, withScores (1 = include totalScore/priorityLevel from risk_scores). */
+  /** GET /api/v1/risk/histogram – score distribution for Risk Center histogram chart (cached 30s) */
+  getRiskHistogram: async (params?: { clusterId?: string | null; sinceMinutes?: number }): Promise<RiskHistogramResponse> => {
+    const query = new URLSearchParams();
+    if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+    const sinceMinutes = params?.sinceMinutes != null && params.sinceMinutes > 0 ? params.sinceMinutes : 30;
+    query.set('sinceMinutes', String(sinceMinutes));
+    const qs = query.toString();
+    const url = `/risk/histogram?${qs}`;
+    return request<RiskHistogramResponse>(url);
+  },
+
+  /** POST /api/v1/risk/scores/sync – recalculate risk_scores for all resources with active insights (202 Accepted, runs in background) */
+  syncRiskScores: async (): Promise<{ message: string; resources: number }> => {
+    return request<{ message: string; resources: number }>('/risk/scores/sync', { method: 'POST' });
+  },
+
+  /** GET /api/v1/risks – defaults to all insight types. Optional type, clusterId, pagination, severity, status, search, namespace, sinceMinutes, withScores (1 = include totalScore/priorityLevel from risk_scores). scoreBin: 0|10|...|90 to filter by score range [bin, bin+10). */
+  getRisks: async (params?: {
+    page?: number;
+    pageSize?: number;
+    type?: string;
+    severity?: string;
+    status?: string;
+    search?: string;
+    clusterId?: string | null;
+    namespace?: string;
+    sinceMinutes?: number;
+    withScores?: number;
+    priorityLevel?: string;
+    scoreBin?: number;
+  }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number }> => {
     try {
       const query = new URLSearchParams();
       if (params?.type) query.set('type', params.type);
@@ -388,9 +483,13 @@ export const api = {
       if (params?.status != null) query.set('status', params.status);
       if (params?.search?.trim()) query.set('search', params.search.trim());
       if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+      if (params?.namespace?.trim()) query.set('resourceNamespace', params.namespace.trim());
       if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
+      if (params?.withScores === 1) query.set('withScores', '1');
+      if (params?.priorityLevel?.trim()) query.set('priorityLevel', params.priorityLevel.trim());
+      if (params?.scoreBin != null && params.scoreBin >= 0 && params.scoreBin <= 90 && params.scoreBin % 10 === 0) query.set('scoreBin', String(params.scoreBin));
       const qs = query.toString();
-      const url = qs ? `/risks?${qs}` : '/risks';
+      const url = qs ? `/risk/insights?${qs}` : '/risk/insights';
       const data = await request<{ total: number; page?: number; pageSize?: number; insights: any[] }>(url);
       const insights = (data.insights || []).map((insight) => {
         const severity = (insight.severity || 'medium').toLowerCase();
@@ -400,9 +499,15 @@ export const api = {
           medium: 5,
           low: 3,
         };
-        // Score 0–100: use backend cvss (0–10) * 10 when present, else severity default (critical=9 -> 90, high=7 -> 70, etc.)
+        // Score 0–100: use backend totalScore when withScores=1, else cvss*10 or severity default
+        const totalScoreFromApi = insight.totalScore != null ? Number(insight.totalScore) : null;
         const cvss = insight.cvss ?? severityScore[severity] ?? 5;
-        const score = Math.round(Number(cvss) * 10);
+        const score = totalScoreFromApi != null ? Math.round(totalScoreFromApi) : Math.round(Number(cvss) * 10);
+        const exploitabilityScore =
+          insight.exploitabilityScore != null ? Number(insight.exploitabilityScore) : undefined;
+        const businessImpactScore =
+          insight.businessImpactScore != null ? Number(insight.businessImpactScore) : undefined;
+        const timeDecay = insight.timeDecay != null ? Number(insight.timeDecay) : undefined;
         return {
           id: String(insight.id),
           cveId: insight.cveId ? String(insight.cveId) : undefined,
@@ -427,6 +532,11 @@ export const api = {
           impact: insight.recommendation,
           evidence: insight.evidence,
           violatedRules: insight.violatedRules,
+          totalScore: totalScoreFromApi ?? undefined,
+          priorityLevel: insight.priorityLevel ? String(insight.priorityLevel) : undefined,
+          exploitabilityScore,
+          businessImpactScore,
+          timeDecay,
         } as Insight;
       });
       return {
@@ -440,30 +550,79 @@ export const api = {
     }
   },
 
-  /** GET /api/v1/pods/by-uid/:uid – single pod by UID (for Risk Detail → Pod link) */
+  /** GET /api/v1/risks/export – download risks as CSV (same filters as getRisks). Triggers browser download. */
+  exportRisksCSV: async (params?: { clusterId?: string | null; severity?: string; status?: string; search?: string; sinceMinutes?: number }): Promise<void> => {
+    const query = new URLSearchParams();
+    if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+    if (params?.severity) query.set('severity', params.severity);
+    if (params?.status != null) query.set('status', params.status);
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
+    const qs = query.toString();
+    const path = qs ? `/risk/insights/export?${qs}` : '/risk/insights/export';
+    const url = buildUrl(path);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `Export failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'risks-export.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
+  /** GET /api/v1/risks/export?format=pdf – download risks as print-optimized HTML (open and use Print → Save as PDF). */
+  exportRisksPDF: async (params?: { clusterId?: string | null; severity?: string; status?: string; search?: string; sinceMinutes?: number }): Promise<void> => {
+    const query = new URLSearchParams();
+    query.set('format', 'pdf');
+    if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+    if (params?.severity) query.set('severity', params.severity);
+    if (params?.status != null) query.set('status', params.status);
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
+    const qs = query.toString();
+    const path = `/risk/insights/export?${qs}`;
+    const url = buildUrl(path);
+    const headers: Record<string, string> = {};
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+    const res = await fetch(url, { headers });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || `Export failed: ${res.status}`);
+    }
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'risks-export.html';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  },
+
+  /** GET /api/v1/inventory/pods/:uid – single pod by UID (domain route) */
   getPodByUid: async (uid: string): Promise<PodWithRisk | null> => {
     try {
-      const p = await request<Record<string, unknown>>(`/pods/by-uid/${encodeURIComponent(uid)}`);
+      const p = await request<Record<string, unknown>>(`/inventory/pods/${encodeURIComponent(uid)}`);
       return mapApiPodToPodWithRisk(p);
     } catch {
       return null;
     }
   },
 
-  /** GET /api/v1/pods/:id – single pod for Pod Detail */
+  /** GET /api/v1/inventory/pods/:uid – single pod (uid only; DB id no longer exposed) */
   getPod: async (id: string | number): Promise<PodWithRisk | null> => {
     try {
-      const p = await request<Record<string, unknown>>(`/pods/${id}`);
+      const p = await request<Record<string, unknown>>(`/inventory/pods/${encodeURIComponent(String(id))}`);
       return mapApiPodToPodWithRisk(p);
     } catch {
       return null;
     }
-  },
-
-  /** Pod Detail: use id (numeric) or uid for by-uid path */
-  _podDetailPath: (idOrUid: string | number): string => {
-    const s = String(idOrUid);
-    return /^\d+$/.test(s) ? `/pods/${s}` : `/pods/by-uid/${encodeURIComponent(s)}`;
   },
 
   /** WebSocket URL for pod detail live updates (Phase 5.1). Pass uid; token is appended as query for auth. */
@@ -477,50 +636,60 @@ export const api = {
     return `${protocol}//${host}${path}${qs}`;
   },
 
-  getPodRuntimeMetrics: async (idOrUid: string | number): Promise<PodRuntimeMetric[]> => {
+  /** WebSocket URL for Risk Center live updates (Phase 2.3). Server pushes insights_updated when data changes. */
+  getRisksWsUrl: (): string => {
+    const path = '/api/v1/ws/risks';
+    const base = CORE_API_URL ? CORE_API_URL.replace(/\/$/, '') : window.location.origin;
+    const protocol = base.startsWith('https') ? 'wss:' : 'ws:';
+    const host = base.startsWith('http') ? new URL(base).host : window.location.host;
+    const token = getToken();
+    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
+    return `${protocol}//${host}${path}${qs}`;
+  },
+
+  /** Runtime domain: pod-scoped APIs use /api/v1/runtime/pods/:uid/... */
+  getPodRuntimeMetrics: async (podUid: string): Promise<PodRuntimeMetric[]> => {
     try {
-      const data = await request<{ items?: PodRuntimeMetric[] }>(`${api._podDetailPath(idOrUid)}/runtime-metrics`);
+      const data = await request<{ items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
       return data.items ?? [];
     } catch {
       return [];
     }
   },
-  getPodProcesses: async (idOrUid: string | number): Promise<PodProcessItem[]> => {
+  getPodProcesses: async (podUid: string): Promise<PodProcessItem[]> => {
     try {
-      const data = await request<{ items?: PodProcessItem[] }>(`${api._podDetailPath(idOrUid)}/processes`);
+      const data = await request<{ items?: PodProcessItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/processes`);
       return data.items ?? [];
     } catch {
       return [];
     }
   },
-  getPodNetworkConnections: async (idOrUid: string | number): Promise<PodNetworkConnectionItem[]> => {
+  getPodNetworkConnections: async (podUid: string): Promise<PodNetworkConnectionItem[]> => {
     try {
-      const data = await request<{ items?: PodNetworkConnectionItem[] }>(`${api._podDetailPath(idOrUid)}/network-connections`);
+      const data = await request<{ items?: PodNetworkConnectionItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/network`);
       return data.items ?? [];
     } catch {
       return [];
     }
   },
-  getPodEvents: async (idOrUid: string | number): Promise<PodK8sEventItem[]> => {
+  getPodEvents: async (podUid: string): Promise<PodK8sEventItem[]> => {
     try {
-      const data = await request<{ items?: PodK8sEventItem[] }>(`${api._podDetailPath(idOrUid)}/events`);
+      const data = await request<{ items?: PodK8sEventItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/events`);
       return data.items ?? [];
     } catch {
       return [];
     }
   },
 
-  /** GET pod spec as YAML (view). Use same path + ?download=1 for attachment. */
-  getPodSpecYaml: async (idOrUid: string | number): Promise<string> => {
-    return requestText(`${api._podDetailPath(idOrUid)}/spec`);
+  getPodSpecYaml: async (podUid: string): Promise<string> => {
+    return requestText(`/inventory/pods/${encodeURIComponent(podUid)}/spec`);
   },
 
-  /** GET pod spec as blob for download (adds ?download=1). */
-  getPodSpecYamlBlob: async (idOrUid: string | number): Promise<Blob> => {
-    return requestBlob(`${api._podDetailPath(idOrUid)}/spec?download=1`);
+  getPodSpecYamlBlob: async (podUid: string): Promise<Blob> => {
+    return requestBlob(`/inventory/pods/${encodeURIComponent(podUid)}/spec?download=1`);
   },
 
-  /** GET /api/v1/pods – list pods with riskCount (for Resources Pod tab, Node view) */
+  /** GET /api/v1/inventory/pods – list pods with riskCount */
   getPods: async (params?: { cluster?: string; namespace?: string; node?: string; page?: number; pageSize?: number }): Promise<{ pods: PodWithRisk[]; total: number; page: number; pageSize: number }> => {
     try {
       const q = new URLSearchParams();
@@ -530,7 +699,7 @@ export const api = {
       if (params?.page != null) q.set('page', String(params.page));
       if (params?.pageSize != null) q.set('pageSize', String(params.pageSize));
       const qs = q.toString();
-      const data = await request<{ pods: Array<Record<string, unknown>>; total: number; page?: number; pageSize?: number }>(qs ? `/pods?${qs}` : '/pods');
+      const data = await request<{ pods: Array<Record<string, unknown>>; total: number; page?: number; pageSize?: number }>(qs ? `/inventory/pods?${qs}` : '/inventory/pods');
       const pods = (data.pods || []).map((p: Record<string, unknown>) => mapApiPodToPodWithRisk(p));
       return {
         pods,
@@ -567,7 +736,7 @@ export const api = {
 
   getRules: async (): Promise<SecurityRule[]> => {
     try {
-      const data = await request<{ rules: Array<Record<string, unknown>>; total?: number; active?: number; disabled?: number }>('/rules');
+      const data = await request<{ rules: Array<Record<string, unknown>>; total?: number; active?: number; disabled?: number }>('/policy/rules');
       const raw = data.rules || [];
       return raw.map((r) => ({
         id: String(r.id ?? ''),
@@ -589,7 +758,7 @@ export const api = {
 
   /** POST /api/v1/rules/reload */
   reloadRules: async (): Promise<{ reloaded: boolean; count?: number; duration?: string }> => {
-    return await request<{ reloaded: boolean; count?: number; duration?: string }>('/rules/reload', {
+    return await request<{ reloaded: boolean; count?: number; duration?: string }>('/policy/rules/reload', {
       method: 'POST',
       body: JSON.stringify({}),
     });
@@ -598,7 +767,7 @@ export const api = {
   /** GET /api/v1/rules/:id/metrics */
   getRuleMetrics: async (id: string): Promise<{ totalMatches: number; recentMatches: Insight[] }> => {
     try {
-      const data = await request<{ totalMatches?: number; recentMatches?: unknown[] }>(`/rules/${id}/metrics`);
+      const data = await request<{ totalMatches?: number; recentMatches?: unknown[] }>(`/policy/rules/${id}/metrics`);
       const recentMatches = (data.recentMatches || []).map((m: unknown) => {
         const x = m as Record<string, unknown>;
         return {
@@ -617,16 +786,156 @@ export const api = {
 
   /** POST /api/v1/rules/:id/test */
   testRule: async (id: string, resource: Record<string, unknown>): Promise<{ match: boolean; details?: Record<string, unknown> }> => {
-    return await request<{ match: boolean; details?: Record<string, unknown> }>(`/rules/${id}/test`, {
+    return await request<{ match: boolean; details?: Record<string, unknown> }>(`/policy/rules/${id}/test`, {
       method: 'POST',
       body: JSON.stringify({ resource }),
     });
   },
 
+  /** GET /api/v1/risk-rules – list from DB (or files when DB empty) */
+  getRiskRules: async (): Promise<{ rules: RiskRuleItem[]; total: number; source: string }> => {
+    const data = await request<{ rules: RiskRuleItem[]; total: number; source?: string }>('/risk/rules');
+    return {
+      rules: data.rules ?? [],
+      total: data.total ?? 0,
+      source: data.source ?? 'db',
+    };
+  },
+
+  /** GET /api/v1/risk-rules/:id – single rule (DB) */
+  getRiskRule: async (id: string): Promise<RiskRuleFull | null> => {
+    try {
+      return await request<RiskRuleFull>(`/risk/rules/${encodeURIComponent(id)}`);
+    } catch {
+      return null;
+    }
+  },
+
+  /** POST /api/v1/risk-rules – create rule (DB). On 400, throws Error with .errors: string[] if present. */
+  createRiskRule: async (rule: RiskRuleFull): Promise<RiskRuleFull> => {
+    const res = await fetch(buildUrl('/risk/rules'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+      body: JSON.stringify(rule),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const err = new Error(res.status === 400 ? 'Validation failed' : getErrorMessage(res.status, text || undefined)) as Error & { errors?: string[] };
+      if (res.status === 400) {
+        try {
+          const data = JSON.parse(text) as { errors?: string[] };
+          if (Array.isArray(data.errors)) err.errors = data.errors;
+        } catch {
+          // ignore
+        }
+      }
+      throw err;
+    }
+    return JSON.parse(text) as RiskRuleFull;
+  },
+
+  /** PUT /api/v1/risk-rules/:id – update rule (DB). On 400, throws Error with .errors: string[] if present. */
+  updateRiskRule: async (id: string, rule: RiskRuleFull): Promise<RiskRuleFull> => {
+    const res = await fetch(buildUrl(`/risk/rules/${encodeURIComponent(id)}`), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+      body: JSON.stringify(rule),
+    });
+    const text = await res.text();
+    if (!res.ok) {
+      const err = new Error(res.status === 400 ? 'Validation failed' : getErrorMessage(res.status, text || undefined)) as Error & { errors?: string[] };
+      if (res.status === 400) {
+        try {
+          const data = JSON.parse(text) as { errors?: string[] };
+          if (Array.isArray(data.errors)) err.errors = data.errors;
+        } catch {
+          // ignore
+        }
+      }
+      throw err;
+    }
+    return JSON.parse(text) as RiskRuleFull;
+  },
+
+  /** DELETE /api/v1/risk-rules/:id – delete rule (DB) */
+  deleteRiskRule: async (id: string): Promise<void> => {
+    await request(`/risk/rules/${encodeURIComponent(id)}`, { method: 'DELETE' });
+  },
+
+  /** POST /api/v1/risk/rules/validate – validate rule payload (no save). Accepts JSON or YAML. */
+  validateRiskRule: async (rule: RiskRuleFull): Promise<{ valid: boolean; errors: string[] }> => {
+    const data = await request<{ valid?: boolean; errors?: string[] }>('/risk/rules/validate', {
+      method: 'POST',
+      body: JSON.stringify(rule),
+    });
+    return { valid: data.valid === true, errors: data.errors ?? [] };
+  },
+
+  /** POST /api/v1/risk/rules/validate – validate rule from YAML (server parses and validates). */
+  validateRiskRuleYaml: async (yaml: string): Promise<{ valid: boolean; errors: string[] }> => {
+    const res = await fetch(buildUrl('/risk/rules/validate'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-yaml', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+      body: yaml,
+    });
+    const text = await res.text();
+    if (res.status === 401) {
+      useAuthStore.getState().logout();
+      throw new Error('Session expired.');
+    }
+    let data: { valid?: boolean; errors?: string[] };
+    try {
+      data = JSON.parse(text);
+    } catch {
+      throw new Error(text || 'Validate failed');
+    }
+    return { valid: data.valid === true, errors: data.errors ?? [] };
+  },
+
+  /** POST /api/v1/risk/rules/import – create rule from YAML. Verify first with validateRiskRuleYaml. */
+  importRiskRuleYaml: async (yaml: string): Promise<RiskRuleFull> => {
+    const res = await fetch(buildUrl('/risk/rules/import'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-yaml', ...(getToken() ? { Authorization: `Bearer ${getToken()}` } : {}) },
+      body: yaml,
+    });
+    const text = await res.text();
+    if (res.status === 401) {
+      useAuthStore.getState().logout();
+      throw new Error('Session expired.');
+    }
+    if (!res.ok) {
+      const err = new Error(res.status === 400 ? 'Validation failed' : getErrorMessage(res.status, text)) as Error & { errors?: string[] };
+      if (res.status === 400) {
+        try {
+          const data = JSON.parse(text) as { errors?: string[] };
+          if (Array.isArray(data.errors)) err.errors = data.errors;
+        } catch {
+          // ignore
+        }
+      }
+      throw err;
+    }
+    return JSON.parse(text) as RiskRuleFull;
+  },
+
+  /** GET /api/v1/risk/rules/export – returns YAML (all rules or one if ?id=). */
+  getRiskRulesExportYaml: async (ruleId?: string): Promise<string> => {
+    const url = ruleId ? buildUrl(`/risk/rules/export?id=${encodeURIComponent(ruleId)}`) : buildUrl('/risk/rules/export');
+    const res = await fetch(url, {
+      headers: getToken() ? { Authorization: `Bearer ${getToken()}` } : {},
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(getErrorMessage(res.status, text));
+    }
+    return res.text();
+  },
+
   /** GET /api/v1/rules/:id – single rule + matchCount + recentMatches */
   getRule: async (id: string): Promise<{ rule: SecurityRule & { description?: string }; matchCount: number; recentMatches: Insight[] } | null> => {
     try {
-      const data = await request<{ rule: unknown; matchCount?: number; recentMatches?: unknown[] }>(`/rules/${id}`);
+      const data = await request<{ rule: unknown; matchCount?: number; recentMatches?: unknown[] }>(`/policy/rules/${id}`);
       const rule = (data.rule ?? {}) as SecurityRule & { description?: string };
       const recentMatches = (data.recentMatches || []).map((m: unknown) => {
         const x = m as Record<string, unknown>;
@@ -648,28 +957,28 @@ export const api = {
     }
   },
 
-  /** GET /api/v1/serviceaccounts/:id */
-  getServiceAccount: async (id: string): Promise<Record<string, unknown> | null> => {
+  /** GET /api/v1/inventory/serviceaccounts/:uid (uid = K8s ServiceAccount UID) */
+  getServiceAccount: async (uid: string): Promise<Record<string, unknown> | null> => {
     try {
-      return await request<Record<string, unknown>>(`/serviceaccounts/${id}`);
+      return await request<Record<string, unknown>>(`/inventory/serviceaccounts/${encodeURIComponent(uid)}`);
     } catch {
       return null;
     }
   },
 
-  /** GET /api/v1/serviceaccounts/by-uid/:uid – for Risk Detail → Identity link */
+  /** GET /api/v1/inventory/serviceaccounts/:uid */
   getServiceAccountByUid: async (uid: string): Promise<Record<string, unknown> | null> => {
     try {
-      return await request<Record<string, unknown>>(`/serviceaccounts/by-uid/${encodeURIComponent(uid)}`);
+      return await request<Record<string, unknown>>(`/inventory/serviceaccounts/${encodeURIComponent(uid)}`);
     } catch {
       return null;
     }
   },
 
-  /** GET /api/v1/serviceaccounts/:id/permissions */
-  getServiceAccountPermissions: async (id: string): Promise<{ permissions?: Array<Record<string, unknown>> }> => {
+  /** GET /api/v1/inventory/serviceaccounts/:uid/permissions */
+  getServiceAccountPermissions: async (uid: string): Promise<{ permissions?: Array<Record<string, unknown>> }> => {
     try {
-      return await request<{ permissions?: Array<Record<string, unknown>> }>(`/serviceaccounts/${id}/permissions`);
+      return await request<{ permissions?: Array<Record<string, unknown>> }>(`/inventory/serviceaccounts/${encodeURIComponent(uid)}/permissions`);
     } catch {
       return { permissions: [] };
     }
@@ -677,7 +986,7 @@ export const api = {
 
   getCertificates: async (): Promise<Certificate[]> => {
     try {
-      const data = await request<Record<string, unknown> & { certificates?: Certificate[] }>('/certificates/info');
+      const data = await request<Record<string, unknown> & { certificates?: Certificate[] }>('/cluster/certificates/info');
       if (Array.isArray(data?.certificates)) {
         return data.certificates;
       }
@@ -770,7 +1079,7 @@ export const api = {
   
   getRotationHistory: async (): Promise<RotationEvent[]> => {
     try {
-      const data = await request<{ history: Array<Record<string, unknown>> }>('/certificates/rotation/history');
+      const data = await request<{ history: Array<Record<string, unknown>> }>('/cluster/certificates/rotation/history');
       return (data.history || []).map((h) => ({
         id: String(h.id ?? ''),
         timestamp: String(h.timestamp ?? h.time ?? ''),
@@ -782,19 +1091,28 @@ export const api = {
   },
 
   rotateCertificate: async (): Promise<{ message?: string }> => {
-    return await request<{ message?: string }>('/certificates/rotate', {
+    return await request<{ message?: string }>('/cluster/certificates/rotate', {
       method: 'POST',
       body: JSON.stringify({}),
     });
   },
   
-  getAuditLogs: async (params?: { page?: number; pageSize?: number }): Promise<{ logs: AuditLog[]; total: number; page: number; pageSize: number }> => {
+  getAuditLogs: async (params?: {
+    page?: number;
+    pageSize?: number;
+    resource?: string;
+    resourceId?: string;
+    action?: string;
+  }): Promise<{ logs: AuditLog[]; total: number; page: number; pageSize: number }> => {
     try {
       const query = new URLSearchParams();
       if (params?.page != null) query.set('page', String(params.page));
       if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
+      if (params?.resource?.trim()) query.set('resource', params.resource.trim());
+      if (params?.resourceId?.trim()) query.set('resource_id', params.resourceId.trim());
+      if (params?.action?.trim()) query.set('action', params.action.trim());
       const qs = query.toString();
-      const url = qs ? `/audit?${qs}` : '/audit';
+      const url = qs ? `/audit/logs?${qs}` : '/audit/logs';
       const data = await request<{ logs: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }>(url);
       const logs = (data.logs || []).map((l) => {
         const detailsRaw = l.details;
@@ -804,9 +1122,11 @@ export const api = {
           id: String(l.id ?? ''),
           action: String(l.action ?? ''),
           resource: String(l.resource ?? ''),
+          resourceId: l.resourceId != null ? String(l.resourceId) : undefined,
           timestamp: String(l.createdAt ?? l.timestamp ?? ''),
           user: l.user ? String(l.user) : undefined,
           actor: String(l.user ?? l.userId ?? 'system'),
+          ip: l.ip != null ? String(l.ip) : undefined,
           details: typeof detailsRaw === 'string' ? detailsRaw : detailsRaw ? JSON.stringify(detailsRaw) : '',
           status,
         } as AuditLog;
@@ -821,10 +1141,33 @@ export const api = {
       return { logs: [], total: 0, page: 1, pageSize: 50 };
     }
   },
+
+  /** POST /api/v1/risk/insights/bulk – bulk acknowledge/resolve/dismiss insights. */
+  bulkInsightsAction: async (params: {
+    action: 'acknowledge' | 'resolve' | 'dismiss';
+    insightIds: string[];
+    resolution?: string;
+    reason?: string;
+  }): Promise<{ success_count: number; failed_count: number; action: string; errors?: Array<{ id: string; error: string }> }> => {
+    const body: Record<string, unknown> = {
+      action: params.action,
+      insight_ids: params.insightIds,
+    };
+    if (params.action === 'resolve' && params.resolution != null) {
+      body.resolution = params.resolution;
+    }
+    if (params.action === 'dismiss' && params.reason != null) {
+      body.reason = params.reason;
+    }
+    return await request('/risk/insights/bulk', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+  },
   
   getReports: async (): Promise<Report[]> => {
     try {
-      const data = await request<{ reports: Array<Record<string, unknown>> }>('/reports');
+      const data = await request<{ reports: Array<Record<string, unknown>> }>('/audit/reports');
       return (data.reports || []).map((r, idx) => ({
         id: `${r.resource ?? 'resource'}-${r.action ?? 'action'}-${idx}`,
         name: `${String(r.resource ?? 'resource')} / ${String(r.action ?? 'action')}`,
@@ -888,7 +1231,7 @@ export const api = {
       if (params?.podName?.trim()) query.set('podName', params.podName.trim());
       if (params?.namespace?.trim()) query.set('namespace', params.namespace.trim());
       const qs = query.toString();
-      const url = `/sbom?${qs}`;
+      const url = `/inventory/sbom?${qs}`;
       const data = await request<{ sboms: PodSbomSummary[] }>(url);
       const list = data.sboms || [];
       return list.map((s: Record<string, unknown>) => ({
@@ -902,18 +1245,19 @@ export const api = {
     }
   },
 
-  getPodSbom: async (podId: string): Promise<PodSbom | undefined> => {
+  /** GET /api/v1/inventory/pods/:uid/sbom – SBOM detail by pod UID */
+  getPodSbom: async (podUid: string): Promise<PodSbom | undefined> => {
     try {
-      return await request<PodSbom>(`/sbom/${encodeURIComponent(podId)}`);
+      return await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
     } catch (err) {
       return undefined;
     }
   },
 
-  /** GET /api/v1/risks/pods/:podUid/report – risk report for pod (insights, bindings, roles) */
+  /** GET /api/v1/risk/pods/:uid/report – risk report for pod */
   getPodRiskReport: async (podUid: string): Promise<{ insights: Insight[]; summary?: Record<string, unknown> }> => {
     try {
-      const data = await request<{ insights?: unknown[]; summary?: Record<string, unknown> }>(`/risks/pods/${encodeURIComponent(podUid)}/report`);
+      const data = await request<{ insights?: unknown[]; summary?: Record<string, unknown> }>(`/risk/pods/${encodeURIComponent(podUid)}/report`);
       const insights = (data.insights || []).map((i: any) => ({
         id: String(i.id ?? ''),
         cveId: i.cveId != null ? String(i.cveId) : undefined,
@@ -931,10 +1275,12 @@ export const api = {
     }
   },
 
-  getThreatVelocity: async (days = 7, clusterId?: string | null): Promise<ThreatVelocityPoint[]> => {
+  /** byType 'all' = all insight types (default 'vulnerability' = CVE only). */
+  getThreatVelocity: async (days = 7, clusterId?: string | null, byType?: 'all' | 'vulnerability'): Promise<ThreatVelocityPoint[]> => {
     try {
       const params = new URLSearchParams({ days: String(days) });
       if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
+      if (byType === 'all') params.set('byType', 'all');
       const qs = params.toString();
       const data = await request<{ trend?: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?${qs}`);
       const raw = Array.isArray(data)
@@ -955,7 +1301,7 @@ export const api = {
 
   getPceSummaryByCluster: async (): Promise<PodCapabilitySummaryCluster[]> => {
     try {
-      const data = await request<{ summary: PodCapabilitySummaryCluster[] }>('/pod-capabilities/summary/cluster');
+      const data = await request<{ summary: PodCapabilitySummaryCluster[] }>('/inventory/pod-capabilities/summary/cluster');
       return data.summary || [];
     } catch (err) {
       return [];
@@ -964,21 +1310,22 @@ export const api = {
 
   getPceSummaryByCapability: async (): Promise<PodCapabilitySummaryCapability[]> => {
     try {
-      const data = await request<{ summary: PodCapabilitySummaryCapability[] }>('/pod-capabilities/summary/capability');
+      const data = await request<{ summary: PodCapabilitySummaryCapability[] }>('/inventory/pod-capabilities/summary/capability');
       return data.summary || [];
     } catch (err) {
       return [];
     }
   },
 
-  getPceSummaryByNamespace: async (params?: { namespace?: string; severity?: string; capabilityId?: string }): Promise<PodCapabilitySummaryNamespace[]> => {
+  getPceSummaryByNamespace: async (params?: { namespace?: string; severity?: string; capabilityId?: string; clusterId?: string }): Promise<PodCapabilitySummaryNamespace[]> => {
     try {
       const query = new URLSearchParams();
       if (params?.namespace) query.set('namespace', params.namespace);
       if (params?.severity) query.set('severity', params.severity);
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
+      if (params?.clusterId) query.set('clusterId', params.clusterId);
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ summary: PodCapabilitySummaryNamespace[] }>(`/pod-capabilities/summary/namespace${suffix}`);
+      const data = await request<{ summary: PodCapabilitySummaryNamespace[] }>(`/inventory/pod-capabilities/summary/namespace${suffix}`);
       return data.summary || [];
     } catch (err) {
       return [];
@@ -991,7 +1338,7 @@ export const api = {
       if (params?.severity) query.set('severity', params.severity);
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ summary: PodCapabilitySummarySeverity[] }>(`/pod-capabilities/summary/severity${suffix}`);
+      const data = await request<{ summary: PodCapabilitySummarySeverity[] }>(`/inventory/pod-capabilities/summary/severity${suffix}`);
       return data.summary || [];
     } catch (err) {
       return [];
@@ -1005,7 +1352,7 @@ export const api = {
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
       if (params?.podUid) query.set('podUid', params.podUid);
       if (params?.clusterId) query.set('clusterId', params.clusterId);
-      const data = await request<{ points?: PodCapabilityTrendPoint[] }>(`/pod-capabilities/trends?${query.toString()}`);
+      const data = await request<{ points?: PodCapabilityTrendPoint[] }>(`/inventory/pod-capabilities/trends?${query.toString()}`);
       const raw = Array.isArray(data)
         ? data
         : (Array.isArray((data as any)?.points) ? (data as any).points : Array.isArray((data as any)?.Points) ? (data as any).Points : []);
@@ -1033,7 +1380,7 @@ export const api = {
       if (params?.limit) query.set('limit', String(params.limit));
       if (params?.offset) query.set('offset', String(params.offset));
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ capabilities: Array<PodCapabilityDetail & { pod_name?: string }> }>(`/pod-capabilities${suffix}`);
+      const data = await request<{ capabilities: Array<PodCapabilityDetail & { pod_name?: string }> }>(`/inventory/pod-capabilities${suffix}`);
       const raw = data.capabilities || [];
       return raw.map((c) => ({
         ...c,
@@ -1046,7 +1393,7 @@ export const api = {
   getPodCapabilities: async (podUid: string): Promise<PodCapabilityDetail[]> => {
     if (!podUid) return [];
     try {
-      const data = await request<{ capabilities: PodCapabilityDetail[] }>(`/pods/${podUid}/capabilities`);
+      const data = await request<{ capabilities: PodCapabilityDetail[] }>(`/inventory/pods/${encodeURIComponent(podUid)}/capabilities`);
       return data.capabilities || [];
     } catch (err) {
       return [];
@@ -1076,7 +1423,7 @@ export const api = {
   getPodAttackSteps: async (podUid: string): Promise<PodAttackStep[]> => {
     if (!podUid) return [];
     try {
-      const data = await request<{ podUid: string; steps: PodAttackStep[]; count: number }>(`/attack-steps/pods/${podUid}`);
+      const data = await request<{ podUid: string; steps: PodAttackStep[]; count: number }>(`/risk/pods/${encodeURIComponent(podUid)}/attack-steps`);
       return data.steps || [];
     } catch (err) {
       return [];
@@ -1085,7 +1432,7 @@ export const api = {
 
   getAttackStepsSummary: async (): Promise<AttackStepSummary[]> => {
     try {
-      const data = await request<{ summary: AttackStepSummary[]; count: number }>('/attack-steps/summary');
+      const data = await request<{ summary: AttackStepSummary[]; count: number }>('/risk/attack-steps/summary');
       return data.summary || [];
     } catch (err) {
       return [];
@@ -1134,7 +1481,7 @@ export const api = {
       if (params?.offset) queryParams.append('offset', params.offset.toString());
       
       const query = queryParams.toString();
-      const url = query ? `/runtime-signals?${query}` : '/runtime-signals';
+      const url = query ? `/runtime/signals?${query}` : '/runtime/signals';
       const data = await request<{ signals: RuntimeSignal[]; count: number; total: number; limit: number; offset: number }>(url);
       return { signals: data.signals || [], count: data.count || 0, total: data.total || 0 };
     } catch (err) {
@@ -1151,7 +1498,7 @@ export const api = {
       if (params?.limit) queryParams.append('limit', params.limit.toString());
       
       const query = queryParams.toString();
-      const url = query ? `/runtime-signals/pods/${podUid}?${query}` : `/runtime-signals/pods/${podUid}`;
+      const url = query ? `/runtime/pods/${encodeURIComponent(podUid)}/signals?${query}` : `/runtime/pods/${encodeURIComponent(podUid)}/signals`;
       const data = await request<{ podUid: string; signals: RuntimeSignal[]; count: number }>(url);
       return data.signals || [];
     } catch (err) {
@@ -1162,7 +1509,7 @@ export const api = {
   // Attack Paths Graph
   getAttackPathsGraph: async (): Promise<{ nodes: Array<{ id: string; label: string; type: string; risk?: string }>; links: Array<{ source: string; target: string; value: number }> }> => {
     try {
-      const data = await request<{ data: { nodes: any[]; links: any[] } }>('/attack-paths/graph');
+      const data = await request<{ data: { nodes: any[]; links: any[] } }>('/graph/attack-paths/graph');
       // Transform API response to match component format
       const nodes = (data.data?.nodes || []).map((node: any) => ({
         id: node.id || node.uid || String(node.name),
