@@ -16,16 +16,17 @@ import (
 
 // RiskWorker evaluates risks and creates insights
 type RiskWorker struct {
-	js         nats.JetStreamContext
-	db         *gorm.DB
-	riskEngine *riskengine.Engine
-	insightMgr *riskengine.InsightManager
-	yamlEngine *riskengine.YAMLEngine
-	watcher    *riskengine.RuleWatcher
+	js                     nats.JetStreamContext
+	db                     *gorm.DB
+	riskEngine             *riskengine.Engine
+	insightMgr             *riskengine.InsightManager
+	yamlEngine             *riskengine.YAMLEngine
+	watcher                *riskengine.RuleWatcher
+	publishInsightsUpdated PublishInsightsUpdatedFunc
 }
 
-// NewRiskWorker creates a new risk worker
-func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB) *RiskWorker {
+// NewRiskWorker creates a new risk worker. publishInsightsUpdated (Finding #1.3) is optional; when set, used for fan-out to all Core replicas.
+func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB, publishInsightsUpdated PublishInsightsUpdatedFunc) *RiskWorker {
 	log.Printf("[RiskWorker] Creating new RiskWorker...")
 	// Try to create YAML engine if rules directory is configured
 	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
@@ -59,12 +60,13 @@ func NewRiskWorker(js nats.JetStreamContext, db *gorm.DB) *RiskWorker {
 
 	riskengine.RegisterEngine(engine)
 	return &RiskWorker{
-		js:         js,
-		db:         db,
-		riskEngine: engine,
-		insightMgr: riskengine.NewInsightManager(db),
-		yamlEngine: yamlEngine,
-		watcher:    watcher,
+		js:                     js,
+		db:                     db,
+		riskEngine:             engine,
+		insightMgr:             riskengine.NewInsightManager(db),
+		yamlEngine:             yamlEngine,
+		watcher:                watcher,
+		publishInsightsUpdated: publishInsightsUpdated,
 	}
 }
 
@@ -110,8 +112,12 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			}
 			log.Printf("[RiskWorker] Created %d insights for %s/%s (total evaluated: %d)",
 				createdCount, namespace, name, len(insights))
-			if createdCount > 0 && w.js != nil {
-				_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
+			if createdCount > 0 {
+				if w.publishInsightsUpdated != nil {
+					_ = w.publishInsightsUpdated([]byte("{}"))
+				} else if w.js != nil {
+					_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
+				}
 				PublishSIEMEvents(w.js, insights)
 			}
 		} else {
@@ -119,10 +125,12 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			metrics.InsightsBatchSize.Observe(float64(len(insights)))
 			log.Printf("[RiskWorker] Batch created/updated %d insights for %s/%s",
 				len(insights), namespace, name)
-			if w.js != nil {
+			if w.publishInsightsUpdated != nil {
+				_ = w.publishInsightsUpdated([]byte("{}"))
+			} else if w.js != nil {
 				_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
-				PublishSIEMEvents(w.js, insights)
 			}
+			PublishSIEMEvents(w.js, insights)
 		}
 	}
 

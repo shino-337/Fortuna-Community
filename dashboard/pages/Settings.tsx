@@ -452,20 +452,21 @@ export const Settings: React.FC = () => {
                 className="py-8"
               />
             ) : (
-              <table className="w-full text-sm text-left">
-                <thead className="text-xs text-slate-400 uppercase bg-slate-950/30 border-b border-slate-800">
-                  <tr>
-                    <th className="px-6 py-4">ID</th>
-                    <th className="px-6 py-4">Name</th>
-                    <th className="px-6 py-4">Severity</th>
-                    <th className="px-6 py-4">Category</th>
-                    <th className="px-6 py-4">Status</th>
-                    {riskRulesSource === 'db' && <th className="px-6 py-4 text-right">Actions</th>}
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {riskRules.map((r) => (
-                    <tr key={r.id} className="hover:bg-slate-800/50">
+              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
+                    <tr>
+                      <th className="px-6 py-4">ID</th>
+                      <th className="px-6 py-4">Name</th>
+                      <th className="px-6 py-4">Severity</th>
+                      <th className="px-6 py-4">Category</th>
+                      <th className="px-6 py-4">Status</th>
+                      {riskRulesSource === 'db' && <th className="px-6 py-4 text-right">Actions</th>}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-border">
+                    {riskRules.map((r) => (
+                      <tr key={r.id} className="hover:bg-muted/30">
                       <td className="px-6 py-4 font-mono text-slate-300">{r.id}</td>
                       <td className="px-6 py-4 text-white font-medium">{r.name}</td>
                       <td className="px-6 py-4">

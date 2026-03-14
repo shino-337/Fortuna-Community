@@ -14,6 +14,7 @@ type NATSClient struct {
 	conn    *nats.Conn
 	js      nats.JetStreamContext
 	servers string
+	kv      nats.KeyValue // optional; for shared dedup (Finding #1.4)
 }
 
 // NewNATSClient creates a new NATS client
@@ -69,6 +70,11 @@ func NewNATSClient(servers string) (*NATSClient, error) {
 	if err := client.SetupStreams(); err != nil {
 		conn.Close()
 		return nil, fmt.Errorf("failed to setup streams: %w", err)
+	}
+
+	// Optional: KV bucket for shared dedup (Finding #1.4)
+	if err := client.SetupDedupKV(); err != nil {
+		log.Printf("[NATS] Warning: Dedup KV setup failed (shared dedup disabled): %v", err)
 	}
 
 	log.Printf("[NATS] Connected to %s", servers)
@@ -197,13 +203,22 @@ func (c *NATSClient) SetupStreams() error {
 	return nil
 }
 
-// Publish publishes a message to a subject
+// Publish publishes a message to a subject (JetStream; for work-queue semantics).
 func (c *NATSClient) Publish(subject string, data []byte) error {
 	_, err := c.js.Publish(subject, data)
 	if err != nil {
 		return fmt.Errorf("failed to publish to %s: %w", subject, err)
 	}
 	return nil
+}
+
+// PublishCore publishes to a subject using the core NATS connection (non-JetStream).
+// Use for fan-out so every subscriber receives the message (e.g. fortuna.insights.updated → all Core replicas for Risk Center WS). Finding #1.3.
+func (c *NATSClient) PublishCore(subject string, data []byte) error {
+	if c.conn == nil {
+		return fmt.Errorf("core NATS connection is nil")
+	}
+	return c.conn.Publish(subject, data)
 }
 
 // Subscribe creates a subscription to a subject
@@ -230,4 +245,44 @@ func (c *NATSClient) JetStream() nats.JetStreamContext {
 // Conn returns the core NATS connection (for non-JetStream pub/sub, e.g. fortuna.insights.updated → Risk Center WS).
 func (c *NATSClient) Conn() *nats.Conn {
 	return c.conn
+}
+
+const dedupKVBucket = "FORTUNA_DEDUP"
+const dedupKVTTL = 24 * time.Hour
+
+// SetupDedupKV creates a KV bucket for shared dedup (Finding #1.4). Keys expire after dedupKVTTL.
+func (c *NATSClient) SetupDedupKV() error {
+	kv, err := c.js.CreateKeyValue(&nats.KeyValueConfig{
+		Bucket:      dedupKVBucket,
+		Description: "Idempotency keys for pod detail ingest (shared across Core replicas)",
+		TTL:         dedupKVTTL,
+		History:     1,
+		Storage:     nats.FileStorage,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "already in use") || strings.Contains(err.Error(), "already exists") {
+			kv, err = c.js.KeyValue(dedupKVBucket)
+		}
+	}
+	if err != nil {
+		return err
+	}
+	c.kv = kv
+	log.Printf("[NATS] Dedup KV bucket %s ready (TTL %v)", dedupKVBucket, dedupKVTTL)
+	return nil
+}
+
+// DedupSeen returns true if key was already seen (another replica or earlier request processed it). Returns false if we just stored the key (caller should process). Finding #1.4.
+func (c *NATSClient) DedupSeen(key string) (seen bool, err error) {
+	if c.kv == nil {
+		return false, nil
+	}
+	_, err = c.kv.Create("dedup:"+key, []byte("1"))
+	if err == nats.ErrKeyExists {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return false, nil
 }

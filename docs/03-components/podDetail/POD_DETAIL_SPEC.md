@@ -158,6 +158,20 @@ Flag visually if:
   - Low
 - Fix version available (yes/no)
 
+## 6.2.1 SBOM provenance (source, confidence, badge)
+
+When SBOM data is present (e.g. from Agent → Core pipeline), the Supply Chain / SBOM section must expose:
+
+| Field | Description |
+|-------|-------------|
+| **SBOM source** | `parsers` \| `distroless-heuristic` \| `label-metadata`. Indicates how the SBOM was produced (package managers vs inferred from image ref/labels). |
+| **Confidence** | `low` \| `medium` \| `high`. Higher when version comes from OCI labels; lower when only tag/digest. |
+| **Badge** | When `sbomSource === 'distroless-heuristic'`, display badge **"Distroless SBOM (heuristic)"** with tooltip explaining that the SBOM was inferred (no package DB in image); CVE matching may use NVD API fallback. |
+
+- API: `GET /api/v1/inventory/pods/:uid/sbom` returns `sbomSource` and `confidence` in the response body.
+- UI: Pod Detail tab "SBOM" shows the badge next to the section title when the SBOM is heuristic; tooltip or panel can explain inference level using `confidence`.
+- Reference: `docs/03-components/sbom/DISTROLESS_SBOM_SPEC.md`, Finding #8 in `docs/02-architecture/Architecture_Finding_Remediation_Plan.md`.
+
 ## 6.3 Provenance (if available)
 
 - Build system

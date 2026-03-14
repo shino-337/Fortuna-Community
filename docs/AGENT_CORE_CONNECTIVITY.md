@@ -27,6 +27,22 @@ Agent connects to Core over **gRPC (port 9090)** with **mTLS**. After `rollout r
 
 - After Core restart, Core is Not Ready for 1–2 min. Agent **retries every 15s** and does not exit; once Core is Ready, Agent connects.
 
+## SBOM payload (Agent → Core)
+
+Agent sends SBOM findings via gRPC (`SendSBOMFinding`). The payload includes:
+
+- **Pod/image identity:** pod_uid, namespace, container name, image name/digest/tag.
+- **Packages:** each with `name`, `version`, `type` (e.g. deb, npm, generic), and **PURL** (e.g. `pkg:generic/coredns@1.11.0` for distroless images).
+- **SBOM-level metadata (Finding #8.4):**
+  - **sbom_source:** `parsers` | `distroless-heuristic` | `label-metadata` — how the SBOM was produced.
+  - **confidence:** `low` | `medium` | `high` — inference reliability (e.g. medium when version from OCI labels).
+
+Core persists these to `sboms` and `sbom_components` (including `sbom_source`, `confidence`, `purl`). The CVE matcher uses **sbom_source** and **confidence**: for `distroless-heuristic` or `label-metadata` with confidence &lt; high, when the OSV/Postgres dataset has no match, Core tries the **NVD API** fallback so heuristic SBOMs still get CVE coverage. See `docs/03-components/sbom/DISTROLESS_SBOM_SPEC.md` and Remediation Plan Finding #8.
+
+## Trace from Agent to insight (Finding #5.2)
+
+Agent can send **X-Correlation-ID** (HTTP sync) or **x-correlation-id** (gRPC metadata). Core stores it in **audit_logs.trace_id** for every audit entry created during that sync (create/update/delete of SAs, Roles, Pods, etc.). This links a single Agent request to all audit logs produced by that sync, so you can trace from Agent → Core sync → audit log (and later to insight/CVE worker when they log the same ID). API: `GET /api/v1/audit/logs` returns `traceId` in each log entry when present.
+
 ## Commands
 
 ```bash

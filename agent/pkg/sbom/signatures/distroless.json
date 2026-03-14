@@ -1,0 +1,5 @@
+{
+  "version": "1",
+  "description": "Signature DB for distroless/minimal images (Finding #8.3 / B1). Bump version when rules or binary list change to invalidate SBOM cache.",
+  "binaries": []
+}

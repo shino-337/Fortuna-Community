@@ -162,3 +162,17 @@ func (fs *Filesystem) FileExists(path string) bool {
 	return exists
 }
 
+// PathsUnder returns all stored paths that have the given prefix (e.g. "/bin/").
+// Used by distroless parser to discover binaries under /bin, /usr/bin, /usr/lib.
+func (fs *Filesystem) PathsUnder(prefix string) []string {
+	if prefix != "" && !strings.HasSuffix(prefix, "/") {
+		prefix = prefix + "/"
+	}
+	out := make([]string, 0)
+	for path := range fs.files {
+		if strings.HasPrefix(path, prefix) {
+			out = append(out, path)
+		}
+	}
+	return out
+}

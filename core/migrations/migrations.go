@@ -98,6 +98,8 @@ var (
 	_ = Migration075_AddRiskRulesTable
 	_ = Migration076_AddRiskRulesHistoryTable
 	_ = Migration077_AddInsightExplanationRemediation
+	_ = Migration078_AddSBOMSourceConfidence
+	_ = Migration079_AddAuditTraceID
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -195,6 +197,8 @@ func RunMigrations(db *gorm.DB) error {
 		Migration075_AddRiskRulesTable,                    // Risk rules CRUD: table for engine-loaded rules
 		Migration076_AddRiskRulesHistoryTable,             // Risk rules versioning: risk_rules_history (Phase 3)
 		Migration077_AddInsightExplanationRemediation,     // Risk Detail: explanation (TEXT) + remediation (JSONB) on insights
+		Migration078_AddSBOMSourceConfidence,              // SBOM (Finding #8.4): sbom_source, confidence for distroless/heuristic
+		Migration079_AddAuditTraceID,                      // Finding #5.2: trace_id on audit_logs (Agent → sync → insight)
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

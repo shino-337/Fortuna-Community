@@ -94,8 +94,8 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		return nil, status.Errorf(codes.Unavailable, "database not available")
 	}
 
-	// Convert proto to internal model
-	// Initialize all JSONB fields properly to avoid PostgreSQL errors
+	// Convert proto to internal model (Finding #8.4: sbom_source, confidence)
+	sbomSource, confidence := protoSBOMSourceAndConfidence(req)
 	sbom := &models.SBOM{
 		PodUID:        req.PodUid,
 		PodName:       req.PodName,
@@ -109,11 +109,13 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		NodeID:        req.NodeId,
 		PackageCount:  len(req.Packages),
 		SBOMFormat:    "fortuna-agent",
-		SBOMContent:   "{}",                    // Initialize as empty JSON object string for jsonb column
-		Labels:        make(map[string]string), // Initialize empty map to avoid JSONB serialization error
-		Annotations:   make(map[string]string), // Initialize empty map to avoid JSONB serialization error
+		SBOMContent:   "{}",
+		Labels:        make(map[string]string),
+		Annotations:   make(map[string]string),
 		LastUsedAt:    time.Now(),
 		UseCount:      1,
+		SbomSource:    sbomSource,
+		Confidence:    confidence,
 	}
 
 	// Start transaction
@@ -146,6 +148,8 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			"generated_at":   sbom.GeneratedAt,
 			"last_used_at":   sbom.LastUsedAt,
 			"use_count":      sbom.UseCount,
+			"sbom_source":    sbom.SbomSource,
+			"confidence":     sbom.Confidence,
 		}).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[SBOM] Failed to update existing SBOM: %v", err)
@@ -174,12 +178,15 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		return nil, status.Errorf(codes.Internal, "database error: %v", err)
 	}
 
-	// Insert SBOM components (for new row or after deleting old for updated row).
-	// Deduplicate by purl within this request; use ON CONFLICT DO NOTHING to avoid duplicate key errors (race or re-send).
+	// Insert SBOM components. Use agent-provided PURL when set (Finding #8.2 generic/distroless).
 	seenPURL := make(map[string]bool)
 	var components []*models.SBOMComponent
 	for _, pkg := range req.Packages {
-		purl := fmt.Sprintf("pkg:%s/%s@%s", pkg.Type.String(), pkg.Name, pkg.Version)
+		purl := pkg.GetPurl()
+		if purl == "" {
+			ecosystem := purlEcosystem(pkg.Type)
+			purl = fmt.Sprintf("pkg:%s/%s@%s", ecosystem, pkg.Name, pkg.Version)
+		}
 		if seenPURL[purl] {
 			continue
 		}
@@ -429,7 +436,59 @@ func (s *SBOMServiceServer) RegisterAgent(ctx context.Context, req *pb.RegisterA
 	}, nil
 }
 
-// Helper function
+// purlEcosystem returns PURL ecosystem name for package type (Finding #8.2).
+func purlEcosystem(t pb.PackageType) string {
+	switch t {
+	case pb.PackageType_PACKAGE_TYPE_DEB:
+		return "deb"
+	case pb.PackageType_PACKAGE_TYPE_RPM:
+		return "rpm"
+	case pb.PackageType_PACKAGE_TYPE_APK:
+		return "apk"
+	case pb.PackageType_PACKAGE_TYPE_NPM:
+		return "npm"
+	case pb.PackageType_PACKAGE_TYPE_PYPI:
+		return "pypi"
+	case pb.PackageType_PACKAGE_TYPE_GEM:
+		return "gem"
+	case pb.PackageType_PACKAGE_TYPE_GO_MOD:
+		return "golang"
+	case pb.PackageType_PACKAGE_TYPE_MAVEN:
+		return "maven"
+	case pb.PackageType_PACKAGE_TYPE_CARGO:
+		return "cargo"
+	case pb.PackageType_PACKAGE_TYPE_GENERIC:
+		return "generic"
+	default:
+		return "generic"
+	}
+}
+
+// protoSBOMSourceAndConfidence maps proto enums to stored strings (Finding #8.4).
+func protoSBOMSourceAndConfidence(req *pb.SBOMFinding) (sbomSource, confidence string) {
+	switch req.GetSbomSource() {
+	case pb.SBOMSource_SBOM_SOURCE_PARSERS:
+		sbomSource = "parsers"
+	case pb.SBOMSource_SBOM_SOURCE_DISTROLLESS_HEURISTIC:
+		sbomSource = "distroless-heuristic"
+	case pb.SBOMSource_SBOM_SOURCE_LABEL_METADATA:
+		sbomSource = "label-metadata"
+	default:
+		sbomSource = ""
+	}
+	switch req.GetConfidence() {
+	case pb.Confidence_CONFIDENCE_HIGH:
+		confidence = "high"
+	case pb.Confidence_CONFIDENCE_MEDIUM:
+		confidence = "medium"
+	case pb.Confidence_CONFIDENCE_LOW:
+		confidence = "low"
+	default:
+		confidence = ""
+	}
+	return sbomSource, confidence
+}
+
 func mapComponentType(t pb.PackageType) string {
 	switch t {
 	case pb.PackageType_PACKAGE_TYPE_DEB, pb.PackageType_PACKAGE_TYPE_RPM, pb.PackageType_PACKAGE_TYPE_APK:
@@ -437,6 +496,8 @@ func mapComponentType(t pb.PackageType) string {
 	case pb.PackageType_PACKAGE_TYPE_NPM, pb.PackageType_PACKAGE_TYPE_PYPI, pb.PackageType_PACKAGE_TYPE_GEM,
 		pb.PackageType_PACKAGE_TYPE_GO_MOD, pb.PackageType_PACKAGE_TYPE_MAVEN, pb.PackageType_PACKAGE_TYPE_CARGO:
 		return "language-package"
+	case pb.PackageType_PACKAGE_TYPE_GENERIC:
+		return "application" // distroless/system heuristic component
 	default:
 		return "unknown"
 	}

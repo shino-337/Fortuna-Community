@@ -472,7 +472,15 @@ export const PodDetail: React.FC = () => {
       {activeTab === 'sbom' && (
         <Card className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <h3 className="text-lg font-semibold text-white">SBOM</h3>
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-lg font-semibold text-white">SBOM</h3>
+              {sbom?.sbomSource === 'distroless-heuristic' && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/40" title="SBOM inferred from image ref/labels (no package DB). CVE match uses NVD fallback.">
+                  <Info className="w-3.5 h-3.5" />
+                  Distroless SBOM (heuristic)
+                </span>
+              )}
+            </div>
             {sbom && (sbom.components?.length ?? 0) > 0 && (
               <div className="flex items-center gap-2">
                 <Button

@@ -30,6 +30,8 @@ type SBOM struct {
 	Annotations    map[string]string `gorm:"type:jsonb;serializer:json" json:"annotations"`
 	LastUsedAt     time.Time         `gorm:"index" json:"lastUsedAt"`
 	UseCount       int               `gorm:"default:1" json:"useCount"`
+	SbomSource     string            `gorm:"type:varchar(64)" json:"sbomSource"`     // Finding #8.4: parsers | distroless-heuristic | label-metadata
+	Confidence     string            `gorm:"type:varchar(32)" json:"confidence"`    // Finding #8.4: low | medium | high
 	CreatedAt      time.Time         `json:"createdAt"`
 	UpdatedAt      time.Time         `json:"updatedAt"`
 	DeletedAt      gorm.DeletedAt    `gorm:"index" json:"-"`

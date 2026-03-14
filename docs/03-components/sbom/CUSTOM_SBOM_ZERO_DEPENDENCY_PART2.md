@@ -5,6 +5,16 @@
 
 ---
 
+## Distroless & system pods (Fortuna implementation)
+
+Images without package managers (distroless, scratch, minimal system) are handled by the Agent extractor with **heuristic/synthetic** SBOM entries: one generic package per image (name from image ref, version from tag/digest or OCI label), **PURL** `pkg:generic/<name>@<version>`, and **source** / **confidence** metadata. Core persists these and uses **NVD API fallback** when the OSV/Postgres dataset has no match for heuristic SBOMs. Implementation status: **on-disk cache** (by image digest + signature version, `SBOM_CACHE_DIR`), **distroless parser** (walking `/bin`, `/usr/bin`, `/usr/lib`, etc.), and **signature version** in RawSBOM are implemented (Finding #8 Phase B/C).
+
+- **Spec:** [DISTROLESS_SBOM_SPEC.md](./DISTROLESS_SBOM_SPEC.md) – requirements, data flow, cache, testing.
+- **Remediation plan:** [Architecture_Finding_Remediation_Plan.md](../../02-architecture/Architecture_Finding_Remediation_Plan.md) § Finding #8 – steps 8.1–8.8, Phase A/B/C. (A4 = this section in CUSTOM_SBOM_ZERO_DEPENDENCY_PART2.)
+- **Implementation:** `agent/pkg/sbom/extractor/extractor.go` (synthetic, distroless parser, PURL, SBOMSource, Confidence, cache); `agent/pkg/sbom/extractor/distroless.go` (parser); `agent/pkg/sbom/extractor/cache.go` (disk cache); `agent/pkg/sbom/signatures/` (version); `core/pkg/cve/database/manager.go` (NVD fallback when `sbom_source` is distroless-heuristic); Dashboard Pod Detail badge "Distroless SBOM (heuristic)". E2E: `scripts/e2e/test-sbom-distroless-hello.sh`.
+
+---
+
 ## PART 2: SBOM NORMALIZER
 
 ### **2.1 CycloneDX-like Format**

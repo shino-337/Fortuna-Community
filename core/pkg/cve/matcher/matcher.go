@@ -137,8 +137,62 @@ func (m *Matcher) MatchSBOM(
 		}
 	}
 
+	// 2b. NVD fallback for heuristic SBOMs when postgres/OSV returned 0 (Finding #8.4 / DISTROLESS_SBOM_SPEC)
+	if useNVDFallbackForHeuristic(sbom) {
+		matchedNames := make(map[string]bool)
+		for _, match := range matches {
+			matchedNames[match.PackageName] = true
+		}
+		for i := range components {
+			component := &components[i]
+			if matchedNames[component.ComponentName] {
+				continue
+			}
+			purl := purlsByName[component.ComponentName]
+			if purl == nil {
+				continue
+			}
+			queryEco := normalizeQueryEcosystem(purl)
+			cves, err := m.dbManager.GetVulnerabilitiesForPackageWithOptions(ctx, queryEco, component.ComponentName, component.ComponentVersion, &database.QueryOptions{TryNVDFallback: true})
+			if err != nil || len(cves) == 0 {
+				continue
+			}
+			for _, cveData := range cves {
+				vulnerable, err := m.comparator.IsVulnerable(component.ComponentVersion, cveData.Constraint, purl.Ecosystem)
+				if err != nil || !vulnerable {
+					continue
+				}
+				matches = append(matches, &models.CVEMatch{
+					SBOMID:         sbom.ID,
+					PodUID:         sbom.PodUID,
+					ContainerName:  sbom.ContainerName,
+					CVEID:          cveData.ID,
+					PackageName:    component.ComponentName,
+					PackageVersion: component.ComponentVersion,
+					PURL:           component.PURL,
+					Severity:       strings.ToUpper(cveData.Severity),
+					CVSS:           float32(cveData.CVSSScore),
+					FixedVersion:   cveData.FixedVersion,
+					MatchedBy:      "fortuna-core-cve-matcher",
+					MatchedAt:      component.CreatedAt,
+				})
+			}
+		}
+	}
+
 	m.logger.Printf("✅ Found %d CVE matches for SBOM ID %d", len(matches), sbom.ID)
 	return matches, nil
+}
+
+// useNVDFallbackForHeuristic returns true when SBOM is from distroless/heuristic and
+// confidence is not high, so we should try NVD API when postgres/OSV has no match (Finding #8.4).
+func useNVDFallbackForHeuristic(sbom *models.SBOM) bool {
+	src := strings.ToLower(strings.TrimSpace(sbom.SbomSource))
+	conf := strings.ToLower(strings.TrimSpace(sbom.Confidence))
+	if src != "distroless-heuristic" && src != "label-metadata" {
+		return false
+	}
+	return conf != "high"
 }
 
 // normalizeQueryEcosystem maps PURL ecosystem/namespace into the ecosystem values

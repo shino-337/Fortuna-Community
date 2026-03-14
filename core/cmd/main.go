@@ -181,12 +181,18 @@ func main() {
 		log.Printf("[Main] About to add workers to pool...")
 		log.Printf("[Main] WorkerPool check: workerPool == nil: %v", workerPool == nil)
 		log.Printf("[Main] Adding workers to pool...")
+		// Finding #1.3: publish insight updates via core NATS (fan-out) so all Core replicas can broadcast to their WS clients
+		var publishInsightsUpdated worker.PublishInsightsUpdatedFunc
+		if natsClient != nil {
+			publishInsightsUpdated = func(data []byte) error {
+				return natsClient.PublishCore(worker.SubjectInsightsUpdated, data)
+			}
+		}
 		// NormalizerWorker removed - normalization done in handlers
-		// workerPool.AddWorker(worker.NewNormalizerWorker(js, db))
 		log.Printf("[Main] ✅ NormalizerWorker skipped (handled in handlers)")
 		workerPool.AddWorker(worker.NewCorrelatorWorker(js, db))
 		log.Printf("[Main] ✅ Added CorrelatorWorker")
-		workerPool.AddWorker(worker.NewRiskWorker(js, db)) // Add Risk Engine worker
+		workerPool.AddWorker(worker.NewRiskWorker(js, db, publishInsightsUpdated))
 		log.Printf("[Main] ✅ Added RiskWorker")
 		log.Printf("[Main] ✅ Added 3 workers to pool (normalizer, correlator, risk)")
 		log.Printf("[Main] ========================================")
@@ -330,8 +336,14 @@ func main() {
 			defer sbomSub.Unsubscribe()
 		}
 
-		// db may be nil initially - worker will handle it gracefully
-		cveWorker := worker.NewCVEMatcherWorker(js, db)
+		// db may be nil initially - worker will handle it gracefully. Finding #1.3: pass core NATS publisher for WS fan-out.
+		var cvePublishInsights worker.PublishInsightsUpdatedFunc
+		if natsClient != nil {
+			cvePublishInsights = func(data []byte) error {
+				return natsClient.PublishCore(worker.SubjectInsightsUpdated, data)
+			}
+		}
+		cveWorker := worker.NewCVEMatcherWorker(js, db, cvePublishInsights)
 		cveOpts := []nats.SubOpt{
 			nats.ManualAck(),
 			nats.DeliverAll(), // Changed from DeliverNew() to process all messages, including those published before subscription
@@ -355,20 +367,24 @@ func main() {
 			defer cveSub.Unsubscribe()
 		}
 
-		// Risk Center: broadcast to WebSocket clients when insights are created/updated (optional delta payload)
-		insightsSub, err := js.Subscribe(worker.SubjectInsightsUpdated, func(msg *nats.Msg) {
-			var payload api.RisksUpdatePayload
-			if len(msg.Data) > 0 && json.Valid(msg.Data) {
-				_ = json.Unmarshal(msg.Data, &payload)
+		// Risk Center (Finding #1.3): subscribe via core NATS so every Core replica receives the message and broadcasts to its local WS clients (fan-out).
+		if natsClient != nil {
+			nc := natsClient.Conn()
+			if nc != nil {
+				insightsSub, err := nc.Subscribe(worker.SubjectInsightsUpdated, func(msg *nats.Msg) {
+					var payload api.RisksUpdatePayload
+					if len(msg.Data) > 0 && json.Valid(msg.Data) {
+						_ = json.Unmarshal(msg.Data, &payload)
+					}
+					api.BroadcastRisksUpdateWithPayload(&payload)
+				})
+				if err != nil {
+					log.Printf("[Main] Warning: Failed to subscribe to %s (core NATS): %v", worker.SubjectInsightsUpdated, err)
+				} else {
+					log.Printf("[Main] ✅ Subscribed to %s (Risk Center broadcast, core NATS fan-out)", worker.SubjectInsightsUpdated)
+					defer insightsSub.Unsubscribe()
+				}
 			}
-			api.BroadcastRisksUpdateWithPayload(&payload)
-			msg.Ack()
-		}, nats.ManualAck(), nats.Durable("risks-broadcast"))
-		if err != nil {
-			log.Printf("[Main] Warning: Failed to subscribe to %s: %v", worker.SubjectInsightsUpdated, err)
-		} else {
-			log.Printf("[Main] ✅ Subscribed to %s (Risk Center broadcast)", worker.SubjectInsightsUpdated)
-			defer insightsSub.Unsubscribe()
 		}
 	} else {
 		log.Printf("[Main] ⚠️  WARNING: Skipping SBOM/CVE pipeline setup (NATS unavailable)")
@@ -541,6 +557,10 @@ func main() {
 		}
 	} else {
 		log.Printf("[Main] ⚠️  gRPC server is nil - certificate routes will NOT be registered")
+	}
+	// Finding #1.4: shared dedup for pod detail ingest (X-Idempotency-Key → NATS KV)
+	if natsClient != nil {
+		api.SetPodDetailDedupChecker(natsClient)
 	}
 	api.SetupRoutesWithCertManager(router, db, cfg, certManager, clusterLimiter)
 

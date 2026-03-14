@@ -58,16 +58,19 @@ type VulnerabilityDTO struct {
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
 type SBOMDetailDTO struct {
-	PodID                 string               `json:"podId"`
-	Image                 string               `json:"image"`
-	Namespace             string               `json:"namespace"`
-	PodName               string               `json:"podName"`
-	Container             string               `json:"container"`
-	GeneratedAt           time.Time            `json:"generatedAt"`
-	PackageCount          int                  `json:"packageCount"`
-	VulnerablePackageCount int                 `json:"vulnerablePackageCount"` // packages with ≥1 CVE
-	VulnerabilitySummary  vulnerabilitySummary `json:"vulnerabilitySummary"`   // critical/high/medium/low counts
-	Components            []SBOMComponentDTO   `json:"components"`
+	PodID                  string               `json:"podId"`
+	Image                  string               `json:"image"`
+	Namespace              string               `json:"namespace"`
+	PodName                string               `json:"podName"`
+	Container              string               `json:"container"`
+	GeneratedAt            time.Time            `json:"generatedAt"`
+	PackageCount           int                  `json:"packageCount"`
+	VulnerablePackageCount int                  `json:"vulnerablePackageCount"` // packages with ≥1 CVE
+	VulnerabilitySummary   vulnerabilitySummary `json:"vulnerabilitySummary"`   // critical/high/medium/low counts
+	Components             []SBOMComponentDTO   `json:"components"`
+	// Finding #8.4: distroless/heuristic SBOM – for dashboard badge and audit
+	SbomSource  string `json:"sbomSource,omitempty"`  // parsers | distroless-heuristic | label-metadata
+	Confidence  string `json:"confidence,omitempty"`  // low | medium | high
 }
 
 // GetSBOMList returns paginated SBOM summaries (pod-level) with vulnerability counts.
@@ -268,6 +271,8 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			VulnerablePackageCount:  vulnerablePackageCount,
 			VulnerabilitySummary:    summary,
 			Components:              make([]SBOMComponentDTO, 0, len(components)),
+			SbomSource:              sbom.SbomSource,
+			Confidence:              sbom.Confidence,
 		}
 
 		severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}

@@ -215,9 +215,23 @@ if [ -x "$SCRIPTS/utils/create_mtls_secret.sh" ]; then
     else
         echo -e "${RED}❌${NC} mTLS secret creation failed; Core/Agent pods will stay ContainerCreating until secrets exist"
         echo "  Run manually: NAMESPACE=$NAMESPACE $SCRIPTS/utils/create_mtls_secret.sh"
+        exit 1
     fi
 else
     echo -e "${YELLOW}⚠️${NC}  create_mtls_secret.sh not found; if Core/Agent stay ContainerCreating (secret not found), run: ./scripts/utils/create_mtls_secret.sh"
+    exit 1
+fi
+
+# Step 7d: Prerequisites check before Core/Agent (Finding #7.2 – fail fast)
+echo ""
+echo -e "${BLUE}Step 7d: Prerequisites check (secrets + postgres + nats)...${NC}"
+if [ -x "$SCRIPTS/deploy/check-prerequisites-core-agent.sh" ]; then
+    if ! NAMESPACE="$NAMESPACE" bash "$SCRIPTS/deploy/check-prerequisites-core-agent.sh"; then
+        echo -e "${RED}❌${NC} Prerequisites check failed. Fix the errors above before deploying Core/Agent."
+        exit 1
+    fi
+else
+    echo -e "${YELLOW}⚠️${NC}  check-prerequisites-core-agent.sh not found; continuing without strict check"
 fi
 
 # Step 8: Deploy Core

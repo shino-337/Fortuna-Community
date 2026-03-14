@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"strings"
 	"testing"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
@@ -33,6 +34,13 @@ func TestSyntheticPackageFromImageRef(t *testing.T) {
 			if p.Type != tt.wantType {
 				t.Errorf("Type = %q, want %q", p.Type, tt.wantType)
 			}
+			// Finding #8.2: synthetic must have PURL and source
+			if p.PURL == "" || !strings.HasPrefix(p.PURL, "pkg:generic/") {
+				t.Errorf("PURL = %q, want pkg:generic/...", p.PURL)
+			}
+			if p.Source != "distroless-heuristic" {
+				t.Errorf("Source = %q, want distroless-heuristic", p.Source)
+			}
 		})
 	}
 }
@@ -42,6 +50,9 @@ func TestSyntheticPackageFromImageRef_Invalid(t *testing.T) {
 	p := e.syntheticPackageFromImage("", nil)
 	if p.Name != "unknown-image" || p.Version != "unknown" || p.Type != "generic" {
 		t.Errorf("empty ref should yield unknown-image@unknown: got %s@%s type=%s", p.Name, p.Version, p.Type)
+	}
+	if p.PURL != "pkg:generic/unknown-image@unknown" || p.Source != "distroless-heuristic" {
+		t.Errorf("invalid ref: PURL=%q Source=%q", p.PURL, p.Source)
 	}
 }
 
@@ -60,6 +71,12 @@ func TestSyntheticPackageFromImage_OCILabel(t *testing.T) {
 	}
 	if p.Name != "coredns" {
 		t.Errorf("name: got %q, want coredns", p.Name)
+	}
+	if p.PURL != "pkg:generic/coredns@v1.10.0" {
+		t.Errorf("PURL from OCI label version: got %q", p.PURL)
+	}
+	if p.Confidence != "medium" {
+		t.Errorf("confidence when version from label: got %q, want medium", p.Confidence)
 	}
 }
 
@@ -124,5 +141,35 @@ VERSION_ID="12"
 	}
 	if osInfo.Version != "12" {
 		t.Errorf("Version = %q, want 12", osInfo.Version)
+	}
+}
+
+// TestDistrolessParser verifies the distroless parser emits one Package per binary under /bin, /usr/bin, etc. (C1)
+func TestDistrolessParser(t *testing.T) {
+	fs := NewFilesystem()
+	fs.files["/bin/busybox"] = []byte{}
+	fs.files["/usr/bin/nginx"] = []byte{}
+	fs.files["/usr/lib/libc.so"] = []byte{}
+	fs.files["/etc/os-release"] = []byte{} // should be ignored (not under bin/lib)
+
+	p := NewDistrolessParser()
+	packages, err := p.Parse(fs)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(packages) != 3 {
+		t.Errorf("got %d packages, want 3 (busybox, nginx, libc.so)", len(packages))
+	}
+	names := make(map[string]bool)
+	for _, pkg := range packages {
+		names[pkg.Name] = true
+		if pkg.Type != "generic" || pkg.Source != "distroless-heuristic" || !strings.HasPrefix(pkg.PURL, "pkg:generic/") {
+			t.Errorf("package %s: Type=%q Source=%q PURL=%q", pkg.Name, pkg.Type, pkg.Source, pkg.PURL)
+		}
+	}
+	for _, want := range []string{"busybox", "nginx", "libc.so"} {
+		if !names[want] {
+			t.Errorf("missing package %q", want)
+		}
 	}
 }

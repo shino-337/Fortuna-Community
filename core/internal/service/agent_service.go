@@ -56,6 +56,8 @@ type AgentService struct {
 	systemUserID       uint
 	systemUserOnce     sync.Once
 	podInstanceManager *lifecycle.PodInstanceManager
+	mu                 sync.Mutex   // guards currentTraceID for audit (Finding #5.2)
+	currentTraceID     string       // set for duration of SyncData so createAuditLog can attach it
 }
 
 // NewAgentService creates a new agent service
@@ -168,13 +170,17 @@ func equalTimePtr(a, b *time.Time) bool {
 	return a.Equal(*b)
 }
 
-// createAuditLog creates an audit log entry directly (no buffering, no throttling)
+// createAuditLog creates an audit log entry directly (no buffering, no throttling).
+// TraceID is taken from current sync context (Finding #5.2) when set via SyncData.
 func (s *AgentService) createAuditLog(clusterID, action, resource, resourceID, namespace, name string) {
 	systemUserID := s.getSystemUserID()
 	if systemUserID == 0 {
 		s.logger.Printf("Cannot create audit log: system user not available")
 		return
 	}
+	s.mu.Lock()
+	traceID := s.currentTraceID
+	s.mu.Unlock()
 
 	auditLog := models.AuditLog{
 		ClusterID:  clusterID,
@@ -184,6 +190,7 @@ func (s *AgentService) createAuditLog(clusterID, action, resource, resourceID, n
 		ResourceID: resourceID,
 		User:       "system",
 		IP:         "agent-sync",
+		TraceID:    traceID,
 		Details:    `{"source":"agent-sync","namespace":"` + namespace + `","name":"` + name + `"}`,
 	}
 
@@ -195,7 +202,17 @@ func (s *AgentService) createAuditLog(clusterID, action, resource, resourceID, n
 }
 
 // SyncData syncs collected data from agent. SSOT: cluster_id immutable; only mutable fields updated when cluster exists.
-func (s *AgentService) SyncData(clusterID string, clusterName string, source, k8sVersion, distribution string, data map[string]interface{}) error {
+// traceID (e.g. X-Correlation-ID from Agent) is stored in audit logs for this sync (Finding #5.2).
+func (s *AgentService) SyncData(clusterID string, clusterName string, source, k8sVersion, distribution string, data map[string]interface{}, traceID string) error {
+	s.mu.Lock()
+	s.currentTraceID = traceID
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		s.currentTraceID = ""
+		s.mu.Unlock()
+	}()
+
 	displayName := clusterName
 	if displayName == "" {
 		displayName = clusterID
@@ -1736,7 +1753,7 @@ func GetAgentHandler(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if err := service.SyncData(req.ClusterID, req.ClusterName, "", "", "", req.Data); err != nil {
+		if err := service.SyncData(req.ClusterID, req.ClusterName, "", "", "", req.Data, ""); err != nil {
 			c.JSON(500, gin.H{"error": "Failed to sync data", "details": err.Error()})
 			return
 		}

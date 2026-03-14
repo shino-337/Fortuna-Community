@@ -150,11 +150,19 @@ helm upgrade --install fortuna ./helm/fortuna -n fortuna --create-namespace \
 
 ## Quick deploy (kubectl)
 
-**Recommended:** Use the deploy script so StorageClass, Flannel, **mTLS secrets (Step 7c)**, and **control-plane label (Step 7b)** are applied in the correct order:
+**Recommended:** Use the single entrypoint so CNI, StorageClass, infra, mTLS, RBAC, control-plane label, and **prerequisites check** (secrets + postgres + nats) run in order; the script exits on first failure (Finding #7.1–7.2):
+
+```bash
+./scripts/deploy/deploy-full.sh
+```
+
+Or run the robust deploy script directly (same sequence, including Step 7d prerequisites check before Core/Agent):
 
 ```bash
 ./scripts/deploy/deploy-fortuna-robust.sh
 ```
+
+Standalone prerequisites check (before deploying Core/Agent manually): `./scripts/deploy/check-prerequisites-core-agent.sh` — verifies `fortuna-core-tls`, `fortuna-agent-tls`, PostgreSQL and NATS endpoints; fails fast with instructions if something is missing.
 
 Manual (requires StorageClass `local-path`):
 
@@ -212,6 +220,7 @@ kubectl apply -f webhook-config.yaml
 - `CLUSTER_ID` / `CLUSTER_NAME`: Optional. If set (e.g. from ConfigMap), agent uses them and logs `source=env_override`; else auto-discovery and logs `source=auto`.
 - `SYNC_INTERVAL`: Sync interval (default: `5m`)
 - `TLS_ENABLED`: Enable mTLS (default: `true`)
+- **SBOM cache (Finding #8.5):** `SBOM_CACHE_DIR`: Directory for on-disk SBOM cache by image digest + signature version (default: `/var/lib/fortuna/sbom-cache`). When set and writable, agent reuses cached SBOM for the same digest to avoid re-scanning. Set to `0`, `off`, or `disabled` to disable cache.
 
 ## Image Pull Policy
 
@@ -289,6 +298,8 @@ Certificates from `create_mtls_secret.sh` are valid **365 days**. Rotate **befor
    `kubectl rollout restart daemonset/fortuna-agent -n fortuna`
 
 5. **Verify:** Core and Agent logs should show successful gRPC connection; no TLS handshake or “certificate expired” errors.
+
+**One-liner (Finding #4.3):** `NAMESPACE=fortuna ./scripts/utils/rotate_mtls_secret.sh` — generates new certs, applies secrets, and rollout restarts Core + Agent.
 
 **Optional:** Use cert-manager (Certificate + Issuer) for automatic renewal; see `docs/02-architecture/Architecture_Finding_Remediation_Plan.md` Finding #4.2.
 

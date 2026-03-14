@@ -105,8 +105,12 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			}
 		}
 
+		traceID := c.GetHeader("X-Correlation-ID")
+		if traceID == "" {
+			traceID = c.GetHeader("x-correlation-id")
+		}
 		agentService := service.NewAgentService(db)
-		if err := agentService.SyncData(clusterID, clusterName, source, k8sVersion, distribution, req.Data); err != nil {
+		if err := agentService.SyncData(clusterID, clusterName, source, k8sVersion, distribution, req.Data, traceID); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

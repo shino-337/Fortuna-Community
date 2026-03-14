@@ -107,3 +107,23 @@ message SBOMFinding {
 2. Deploy agent update; ensure caches expire by bumping signature version.
 3. Monitor Core logs for `distroless-heuristic` entries and CVE matching via fallback.
 4. Update docs (`docs/AGENT_CORE_CONNECTIVITY.md`, Pod Detail spec, SBOM custom plan) to describe new metadata and workflows.
+
+---
+
+## Implementation checklist (aligned with Remediation Plan Finding #8)
+
+**Master plan:** `docs/02-architecture/Architecture_Finding_Remediation_Plan.md` § Finding #8 + table "Kế hoạch thực hiện tiếp".
+
+| Done | Item | Spec section | Plan ref |
+|------|------|--------------|----------|
+| ✅ | Enhanced detection (OCI labels, detectOS → distroless) | Agent extractor §1 | 8.1 |
+| ✅ | Synthetic fallback with PURL + source/confidence | Agent extractor §3 | 8.2 partial, 8.4 |
+| ✅ | Proto SBOMFinding source/confidence; Package purl | Agent → Core payload | 8.4 |
+| ✅ | Core schema sbom_source, confidence; components.purl | Core ingest §1 | 8.4, 8.6 |
+| ✅ | Dashboard badge "Distroless SBOM (heuristic)" | Core ingest §3 | 8.6 |
+| ⬜ | CVE manager: use source/confidence for OSV vs NVD | Core ingest §2 | A1 |
+| ⬜ | Docs: Pod Detail spec, AGENT_CORE_CONNECTIVITY, SBOM plan | Rollout §4 | A2–A4 |
+| ⬜ | Signature DB `signatures/*.json` + version | Agent extractor §4 | B1, B3 |
+| ⬜ | Cache on-disk by digest + signature version | Agent extractor §5 | B2, 8.5 |
+| ⬜ | Distroless cataloger parser (walk bin/lib) | Agent extractor §2 | C1, 8.2 |
+| ⬜ | E2E: coredns + distroless image, assert SBOM + badge | Testing §1–3 | C2, 8.8 |

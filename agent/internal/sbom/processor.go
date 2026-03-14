@@ -107,16 +107,19 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 	// Parse image reference
 	imageName, imageTag := parseImageRef(container.Image)
 
-	// Convert packages
+	// Convert packages (Finding #8.2, 8.4: PURL, generic type)
 	packages := make([]*pb.Package, 0, len(rawSBOM.Packages))
 	for _, pkg := range rawSBOM.Packages {
-		packages = append(packages, &pb.Package{
+		pp := &pb.Package{
 			Name:         pkg.Name,
 			Version:      pkg.Version,
 			Type:         mapPackageType(pkg.Type),
 			Architecture: pkg.Arch,
-			// Note: Licenses, Source, Description, Homepage, Maintainer not available in current extractor
-		})
+		}
+		if pkg.PURL != "" {
+			pp.Purl = pkg.PURL
+		}
+		packages = append(packages, pp)
 	}
 
 	// Convert OS info
@@ -129,7 +132,7 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 		}
 	}
 
-	return &pb.SBOMFinding{
+	out := &pb.SBOMFinding{
 		SchemaVersion: 1,
 		PodUid:        string(pod.UID),
 		PodName:       pod.Name,
@@ -146,6 +149,10 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 		Labels:        pod.Labels,
 		Annotations:   pod.Annotations,
 	}
+	// Finding #8.4: SBOM-level source and confidence for Core (Trivy vs NVD fallback)
+	out.SbomSource = mapSBOMSource(rawSBOM.SBOMSource)
+	out.Confidence = mapConfidence(rawSBOM.Confidence)
+	return out
 }
 
 // parseImageRef parses an image reference (registry:port/ns/img:tag or img@sha256:...) into
@@ -184,7 +191,35 @@ func mapPackageType(pkgType string) pb.PackageType {
 		return pb.PackageType_PACKAGE_TYPE_MAVEN
 	case "cargo":
 		return pb.PackageType_PACKAGE_TYPE_CARGO
+	case "generic":
+		return pb.PackageType_PACKAGE_TYPE_GENERIC
 	default:
 		return pb.PackageType_PACKAGE_TYPE_UNKNOWN
+	}
+}
+
+func mapSBOMSource(s string) pb.SBOMSource {
+	switch s {
+	case "distroless-heuristic":
+		return pb.SBOMSource_SBOM_SOURCE_DISTROLLESS_HEURISTIC
+	case "label-metadata":
+		return pb.SBOMSource_SBOM_SOURCE_LABEL_METADATA
+	case "parsers":
+		return pb.SBOMSource_SBOM_SOURCE_PARSERS
+	default:
+		return pb.SBOMSource_SBOM_SOURCE_UNKNOWN
+	}
+}
+
+func mapConfidence(s string) pb.Confidence {
+	switch s {
+	case "high":
+		return pb.Confidence_CONFIDENCE_HIGH
+	case "medium":
+		return pb.Confidence_CONFIDENCE_MEDIUM
+	case "low":
+		return pb.Confidence_CONFIDENCE_LOW
+	default:
+		return pb.Confidence_CONFIDENCE_UNKNOWN
 	}
 }

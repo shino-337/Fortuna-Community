@@ -168,7 +168,7 @@ CURL_AUTH=()
 [ -n "$AUTH_HEADER" ] && CURL_AUTH=(-H "$AUTH_HEADER")
 echo ""
 
-echo "[3/4] Waiting for SBOM to appear in API..."
+echo "[3/5] Waiting for SBOM to appear in API..."
 MAX_WAIT=300
 INTERVAL=15
 elapsed=0
@@ -198,7 +198,7 @@ if [ $elapsed -ge $MAX_WAIT ]; then
 fi
 echo ""
 
-echo "[4/4] Verifying SBOM detail API for this pod..."
+echo "[4/5] Verifying SBOM detail API for this pod..."
 echo "  GET /api/v1/inventory/pods/$POD_UID/sbom"
 HTTP=$(curl -s -o /tmp/sbom_distroless_detail.json -w "%{http_code}" "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/inventory/pods/${POD_UID}/sbom")
 if [ "$HTTP" = "200" ]; then
@@ -212,7 +212,45 @@ else
   if [ "$HTTP" = "401" ]; then
     echo "  Tip: Set API_USER and API_PASS (e.g. export API_USER=admin API_PASS=yourpassword)"
   fi
+  exit 1
 fi
+echo ""
+
+# C2 (Finding 8.8): Assert distroless SBOM: sbom_source, non-empty components, purl pkg:generic/...
+echo "[5/5] Asserting distroless SBOM (sbom_source, components, purl)..."
+if ! command -v jq >/dev/null 2>&1; then
+  echo "  SKIP: jq not installed – cannot assert sbomSource/components/purl. Install jq to enable C2 assertions."
+else
+  FAIL=0
+  SOURCE=$(jq -r '.sbomSource // empty' /tmp/sbom_distroless_detail.json)
+  if [ "$SOURCE" != "distroless-heuristic" ]; then
+    echo "  FAIL: sbomSource = \"$SOURCE\", expected distroless-heuristic"
+    FAIL=1
+  else
+    echo "  OK: sbomSource = distroless-heuristic"
+  fi
+  COMP_COUNT=$(jq '.components | length' /tmp/sbom_distroless_detail.json 2>/dev/null || echo "0")
+  if [ "${COMP_COUNT:-0}" -lt 1 ]; then
+    echo "  FAIL: components count = ${COMP_COUNT:-0}, expected >= 1"
+    FAIL=1
+  else
+    echo "  OK: components count = $COMP_COUNT"
+  fi
+  HAS_PURL=$(jq '[.components[]? | select(.purl != null and (.purl | startswith("pkg:generic/")))] | length' /tmp/sbom_distroless_detail.json 2>/dev/null || echo "0")
+  if [ "${HAS_PURL:-0}" -lt 1 ]; then
+    echo "  FAIL: no component with purl pkg:generic/... (found: $HAS_PURL)"
+    FAIL=1
+  else
+    echo "  OK: at least one component has purl pkg:generic/..."
+  fi
+  if [ "$FAIL" -eq 1 ]; then
+    echo "  C2 E2E assertions failed. Detail (first 600 chars):"
+    head -c 600 /tmp/sbom_distroless_detail.json
+    echo ""
+    exit 1
+  fi
+fi
+echo "  Dashboard: open Pod Detail for this pod and confirm badge \"Distroless SBOM (heuristic)\"."
 echo ""
 
 if [[ "${1:-}" == "--cleanup" ]]; then

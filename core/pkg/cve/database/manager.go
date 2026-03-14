@@ -67,12 +67,46 @@ func NewPostgresManager(db *gorm.DB) *Manager {
 	}
 }
 
-// GetVulnerabilitiesForPackage gets CVEs for a package
+// NewPostgresManagerWithNVD creates a postgres-backed manager with optional NVD API fallback
+// for heuristic SBOMs (distroless-heuristic, label-metadata) when OSV/postgres has no match.
+func NewPostgresManagerWithNVD(db *gorm.DB, nvdClient *nvd.Client) *Manager {
+	m := NewPostgresManager(db)
+	m.nvdAPI = nvdClient
+	return m
+}
+
+// NewNVDClientForManager returns an NVD API client for use with NewPostgresManagerWithNVD.
+// Returns nil if NVD is disabled (e.g. env FORTUNA_NVD_DISABLED=1).
+func NewNVDClientForManager() *nvd.Client {
+	if os.Getenv("FORTUNA_NVD_DISABLED") == "1" || os.Getenv("FORTUNA_NVD_DISABLED") == "true" {
+		return nil
+	}
+	return nvd.NewClient()
+}
+
+// QueryOptions optionally influence CVE lookup (e.g. NVD fallback for heuristic SBOMs).
+type QueryOptions struct {
+	TryNVDFallback bool // When true and postgres returns 0, try NVD API (Finding #8.4 / DISTROLESS_SBOM_SPEC).
+}
+
+// GetVulnerabilitiesForPackage gets CVEs for a package (no options).
 func (m *Manager) GetVulnerabilitiesForPackage(
 	ctx context.Context,
 	ecosystem string,
 	name string,
 	version string,
+) ([]*cve.CVE, error) {
+	return m.GetVulnerabilitiesForPackageWithOptions(ctx, ecosystem, name, version, nil)
+}
+
+// GetVulnerabilitiesForPackageWithOptions gets CVEs for a package, with optional NVD fallback
+// when opts.TryNVDFallback is true and postgres returns 0 (used for distroless/heuristic SBOMs).
+func (m *Manager) GetVulnerabilitiesForPackageWithOptions(
+	ctx context.Context,
+	ecosystem string,
+	name string,
+	version string,
+	opts *QueryOptions,
 ) ([]*cve.CVE, error) {
 	// 1. Check cache first
 	cacheKey := fmt.Sprintf("%s:%s:%s", ecosystem, name, version)
@@ -80,6 +114,8 @@ func (m *Manager) GetVulnerabilitiesForPackage(
 		m.logger.Printf("✅ Cache hit for %s:%s@%s", ecosystem, name, version)
 		return cached, nil
 	}
+
+	tryNVDFallback := opts != nil && opts.TryNVDFallback
 
 	// If configured, query PostgreSQL as primary source
 	if m.source == "postgres" && m.postgresDB != nil {
@@ -89,7 +125,17 @@ func (m *Manager) GetVulnerabilitiesForPackage(
 			return nil, err
 		}
 
-		// Cache result
+		// NVD fallback for heuristic SBOMs when OSV/postgres has no match (Finding #8.4)
+		if len(cves) == 0 && tryNVDFallback && m.nvdAPI != nil {
+			m.logger.Printf("🔄 Postgres returned 0 CVEs for %s:%s@%s, trying NVD API (heuristic SBOM)...", ecosystem, name, version)
+			cves, err = m.nvdAPI.Query(ctx, ecosystem, name, version)
+			if err != nil {
+				m.logger.Printf("⚠️  NVD API fallback failed: %v", err)
+			} else {
+				m.logger.Printf("✅ NVD API returned %d CVEs for %s:%s@%s", len(cves), ecosystem, name, version)
+			}
+		}
+
 		m.cache.Set(cacheKey, cves)
 		m.logger.Printf("✅ Found %d candidate CVEs (postgres) for %s:%s@%s", len(cves), ecosystem, name, version)
 		return cves, nil

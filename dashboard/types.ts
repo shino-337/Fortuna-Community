@@ -55,6 +55,10 @@ export interface PodSbom {
   vulnerablePackageCount?: number;
   vulnerabilitySummary?: { critical: number; high: number; medium: number; low: number };
   components: SbomComponent[];
+  /** Finding #8.4: parsers | distroless-heuristic | label-metadata – for badge "Distroless SBOM (heuristic)" */
+  sbomSource?: string;
+  /** low | medium | high */
+  confidence?: string;
 }
 
 // Cluster (from /api/v1/clusters or /api/v1/clusters/stats) – SSOT from DB, no hardcoded fallback

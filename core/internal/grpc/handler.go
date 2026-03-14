@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/fortuna/core/internal/service"
@@ -48,8 +49,18 @@ func (s *FortunaServiceServer) SyncData(ctx context.Context, req interface{}) (i
 		return nil, status.Error(codes.InvalidArgument, "data is required")
 	}
 
+	traceID := ""
+	if md, ok := metadata.FromIncomingContext(ctx); ok {
+		if v := md.Get("x-correlation-id"); len(v) > 0 {
+			traceID = v[0]
+		}
+		if traceID == "" && len(md.Get("X-Correlation-ID")) > 0 {
+			traceID = md.Get("X-Correlation-ID")[0]
+		}
+	}
+
 	// gRPC path: cluster_id only; mutable fields (name, source, etc.) left empty so Core keeps existing or uses id as name
-	if err := s.agentService.SyncData(clusterID, "", "", "", "", data); err != nil {
+	if err := s.agentService.SyncData(clusterID, "", "", "", "", data, traceID); err != nil {
 		return map[string]interface{}{
 			"success": false,
 			"message": err.Error(),

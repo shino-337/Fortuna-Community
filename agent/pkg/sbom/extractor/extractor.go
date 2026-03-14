@@ -16,26 +16,40 @@ import (
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
+
+	"github.com/fortuna/agent/pkg/sbom/signatures"
 )
 
 // Extractor extracts SBOM from container images using custom parsers
 type Extractor struct {
 	parsers map[string]Parser
 	logger  *log.Logger
+	cache   *DiskCache // optional on-disk cache (Finding #8.5 / B2)
 }
 
-// NewExtractor creates a new custom SBOM extractor
+// NewExtractor creates a new custom SBOM extractor.
+// If SBOM_CACHE_DIR is set, enables on-disk cache for SBOM by digest + signature version.
 func NewExtractor() *Extractor {
+	logger := log.New(log.Writer(), "[SBOMExtractor] ", log.LstdFlags)
+	cacheDir := strings.TrimSpace(os.Getenv("SBOM_CACHE_DIR"))
+	if cacheDir == "" {
+		cacheDir = "/var/lib/fortuna/sbom-cache"
+	}
+	if cacheDir == "0" || cacheDir == "disabled" || cacheDir == "off" {
+		cacheDir = ""
+	}
 	return &Extractor{
 		parsers: map[string]Parser{
-			"dpkg":  NewDpkgParser(),
-			"apk":   NewApkParser(),
-			"rpm":   NewRpmParser(),
-			"npm":   NewNpmParser(),
-			"pip":   NewPipParser(),
-			"gomod": NewGoModParser(),
+			"dpkg":      NewDpkgParser(),
+			"apk":       NewApkParser(),
+			"rpm":       NewRpmParser(),
+			"npm":       NewNpmParser(),
+			"pip":       NewPipParser(),
+			"gomod":     NewGoModParser(),
+			"distroless": NewDistrolessParser(), // Finding #8.2 / C1: walk /bin, /usr/bin, /usr/lib
 		},
-		logger: log.New(log.Writer(), "[SBOMExtractor] ", log.LstdFlags),
+		logger: logger,
+		cache:  NewDiskCache(cacheDir, logger),
 	}
 }
 
@@ -77,6 +91,16 @@ func (e *Extractor) ExtractSBOM(
 		}
 	}
 
+	// 1b. Cache lookup (Finding #8.5 / B2): skip extract if we have a valid cached SBOM
+	sigVersion := signatures.Version()
+	if e.cache != nil {
+		if cached, err := e.cache.Get(imageDigest, sigVersion); err == nil && cached != nil {
+			cached.ImageName = imageRef
+			cached.SignatureVersion = sigVersion
+			return cached, nil
+		}
+	}
+
 	// 2. OCI config for labels (ref name, distroless hint – Finding #8.1)
 	var imageConfig *v1.ConfigFile
 	if cfg, err := img.ConfigFile(); err == nil {
@@ -113,7 +137,7 @@ func (e *Extractor) ExtractSBOM(
 		if len(packages) > 0 {
 			e.logger.Printf("✅ Parser %s found %d packages", parserName, len(packages))
 			allPackages = append(allPackages, packages...)
-		} else if parserName == "npm" || parserName == "pip" || parserName == "gomod" {
+		} else if parserName == "npm" || parserName == "pip" || parserName == "gomod" || parserName == "distroless" {
 			e.logger.Printf("   Parser %s: 0 packages (no matching files in image)", parserName)
 		}
 	}
@@ -121,20 +145,43 @@ func (e *Extractor) ExtractSBOM(
 	// 6. Deduplicate
 	deduped := e.deduplicate(allPackages)
 
-	// 8. Distroless/system fallback (Finding #8): when no package manager found (CoreDNS, agent, core, scratch),
-	// emit one synthetic component; use OCI labels for version when available (Finding #8.1).
+	// 7. SBOM-level source/confidence: if any package is from distroless-heuristic, mark SBOM accordingly
+	sbomSource := "parsers"
+	confidence := "high"
+	for _, pkg := range deduped {
+		if pkg.Source == "distroless-heuristic" {
+			sbomSource = "distroless-heuristic"
+			if pkg.Confidence == "medium" {
+				confidence = "medium"
+			} else if confidence != "medium" {
+				confidence = "low"
+			}
+			break
+		}
+	}
+
+	// 8. Distroless/system fallback (Finding #8): when no package manager found, emit one synthetic component
 	if len(deduped) == 0 {
 		synthetic := e.syntheticPackageFromImage(imageRef, imageConfig)
 		deduped = append(deduped, synthetic)
-		e.logger.Printf("   No packages from parsers; added synthetic component for distroless/system image: %s@%s", synthetic.Name, synthetic.Version)
+		sbomSource = "distroless-heuristic"
+		confidence = synthetic.Confidence
+		e.logger.Printf("   No packages from parsers; added synthetic component for distroless/system image: %s (PURL=%s)", synthetic.Name, synthetic.PURL)
 	}
 
 	sbom := &RawSBOM{
-		ImageName:   imageRef,
-		ImageDigest: imageDigest, // Include digest for caching
-		OS:          osInfo,
-		Packages:    deduped,
-		ExtractedAt: time.Now(),
+		ImageName:        imageRef,
+		ImageDigest:      imageDigest,
+		OS:               osInfo,
+		Packages:         deduped,
+		ExtractedAt:      time.Now(),
+		SBOMSource:       sbomSource,
+		Confidence:       confidence,
+		SignatureVersion: sigVersion,
+	}
+
+	if e.cache != nil {
+		_ = e.cache.Set(imageDigest, sigVersion, sbom)
 	}
 
 	e.logger.Printf("✅ Extracted %d unique packages in %v", len(deduped), time.Since(start))
@@ -415,10 +462,10 @@ func (e *Extractor) selectParsersForOS(osName string) []string {
 	// Language package managers (run for all OS types)
 	languageParsers := []string{"npm", "pip", "gomod"}
 
-	// If OS is unknown/distroless or no OS parsers matched, try all parsers
+	// If OS is unknown/distroless or no OS parsers matched, try all parsers + distroless (C1)
 	if len(osParsers) == 0 || osLower == "unknown" || osLower == "distroless" {
-		e.logger.Printf("   OS '%s', trying all parsers", osName)
-		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod"}
+		e.logger.Printf("   OS '%s', trying all parsers including distroless", osName)
+		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod", "distroless"}
 	}
 
 	// Combine OS parsers + language parsers
@@ -445,10 +492,13 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 
 // syntheticPackageFromImage returns one synthetic package for distroless/system images (0 packages).
 // Uses OCI config label org.opencontainers.image.ref.name for version when available (Finding #8.1).
+// Sets PURL pkg:generic/name@version and Source/Confidence for Core CVE matching (Finding #8.2, 8.4).
 func (e *Extractor) syntheticPackageFromImage(imageRef string, imageConfig *v1.ConfigFile) Package {
 	ref, err := name.ParseReference(imageRef)
 	if err != nil {
-		return Package{Name: "unknown-image", Version: "unknown", Type: "generic"}
+		p := Package{Name: "unknown-image", Version: "unknown", Type: "generic", Source: "distroless-heuristic", Confidence: "low"}
+		p.PURL = "pkg:generic/unknown-image@unknown"
+		return p
 	}
 	fullName := ref.Context().Name()
 	parts := strings.Split(fullName, "/")
@@ -461,17 +511,27 @@ func (e *Extractor) syntheticPackageFromImage(imageRef string, imageConfig *v1.C
 		version = "unknown"
 	}
 	// Prefer OCI label when present (e.g. tag from build)
+	confidence := "low"
 	if imageConfig != nil && imageConfig.Config.Labels != nil {
 		if v := imageConfig.Config.Labels[labelRefName]; v != "" {
-			// May be "tag" or "repo:tag"; use last segment after ":" for version
 			if idx := strings.LastIndex(v, ":"); idx >= 0 && idx < len(v)-1 {
 				version = v[idx+1:]
 			} else {
 				version = v
 			}
+			confidence = "medium" // version from OCI label is more reliable
 		}
 	}
-	return Package{Name: namePart, Version: version, Type: "generic"}
+	// PURL per Finding #8.2: pkg:generic/name@version for NVD/join
+	purl := fmt.Sprintf("pkg:generic/%s@%s", namePart, version)
+	return Package{
+		Name:       namePart,
+		Version:    version,
+		Type:       "generic",
+		PURL:       purl,
+		Source:     "distroless-heuristic",
+		Confidence: confidence,
+	}
 }
 
 // parseOSRelease parses /etc/os-release (ID=, VERSION_ID=). Distroless override is done in detectOS via isDistrolessFromOSRelease.
@@ -490,10 +550,13 @@ func parseOSRelease(content string) OSInfo {
 
 // Package represents a package found in the image
 type Package struct {
-	Name    string
-	Version string
-	Type    string // deb, apk, rpm, npm, pypi, go
-	Arch    string
+	Name       string
+	Version    string
+	Type       string // deb, apk, rpm, npm, pypi, go, generic
+	Arch       string
+	PURL       string // Canonical Package URL e.g. pkg:generic/coredns@1.11.0 (Finding #8.2)
+	Source     string // "parsers" | "distroless-heuristic" | "label-metadata" (Finding #8.4)
+	Confidence string // "low" | "medium" | "high"
 }
 
 // RawSBOM represents the raw extracted SBOM
@@ -503,6 +566,11 @@ type RawSBOM struct {
 	OS          OSInfo
 	Packages    []Package
 	ExtractedAt time.Time
+	// SBOM-level provenance (Finding #8.4) – set when synthetic/heuristic is used
+	SBOMSource  string // "parsers" | "distroless-heuristic" | "label-metadata"
+	Confidence  string // "low" | "medium" | "high"
+	// SignatureVersion (B3): version of signature DB for cache invalidation
+	SignatureVersion string
 }
 
 // OSInfo represents OS information

@@ -25,27 +25,34 @@ const SubjectInsightsUpdated = "fortuna.insights.updated"
 // SubjectSIEMEvents is published for critical/high insights so SIEM adapters can forward to webhooks.
 const SubjectSIEMEvents = "fortuna.siem.events"
 
+// PublishInsightsUpdatedFunc publishes insight-update notification (e.g. via core NATS for fan-out to all Core replicas). Finding #1.3.
+// When nil, worker falls back to JetStream publish (single-replica broadcast).
+type PublishInsightsUpdatedFunc func(data []byte) error
+
 // CVEMatcherWorker implements: SBOM_CREATED -> CVE Matching -> Persist cve_matches -> Vulnerability Insights.
 type CVEMatcherWorker struct {
-	js             nats.JetStreamContext
-	db             *gorm.DB
-	dbManager      *database.Manager
-	matcher        *matcher.Matcher
-	insightMgr     *riskengine.InsightManager
-	logger         *log.Logger
-	onlySeverities map[string]bool
+	js                      nats.JetStreamContext
+	db                      *gorm.DB
+	dbManager               *database.Manager
+	matcher                 *matcher.Matcher
+	insightMgr              *riskengine.InsightManager
+	logger                  *log.Logger
+	onlySeverities          map[string]bool
+	publishInsightsUpdated  PublishInsightsUpdatedFunc
 }
 
-func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB) *CVEMatcherWorker {
-	dbMgr := database.NewPostgresManager(db)
+func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB, publishInsightsUpdated PublishInsightsUpdatedFunc) *CVEMatcherWorker {
+	nvdClient := database.NewNVDClientForManager()
+	dbMgr := database.NewPostgresManagerWithNVD(db, nvdClient)
 	m := matcher.NewMatcher(dbMgr, db)
 	return &CVEMatcherWorker{
-		js:         js,
-		db:         db,
-		dbManager:  dbMgr,
-		matcher:    m,
-		insightMgr: riskengine.NewInsightManager(db),
-		logger:     log.New(log.Writer(), "[CVEMatcherWorker] ", log.LstdFlags),
+		js:                     js,
+		db:                     db,
+		dbManager:              dbMgr,
+		matcher:                m,
+		insightMgr:             riskengine.NewInsightManager(db),
+		logger:                 log.New(log.Writer(), "[CVEMatcherWorker] ", log.LstdFlags),
+		publishInsightsUpdated: publishInsightsUpdated,
 		onlySeverities: map[string]bool{
 			"CRITICAL": true,
 			"HIGH":     true,
@@ -155,10 +162,12 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		metrics.RiskEvaluationDuration.Observe(time.Since(start).Seconds())
 		metrics.InsightsBatchSize.Observe(float64(len(insights)))
 		w.logger.Printf("✅ Created/updated %d vulnerability insights for pod %s/%s", len(insights), ev.PodNamespace, ev.PodName)
-		if w.js != nil {
+		if w.publishInsightsUpdated != nil {
+			_ = w.publishInsightsUpdated([]byte("{}"))
+		} else if w.js != nil {
 			_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
-			PublishSIEMEvents(w.js, insights)
 		}
+		PublishSIEMEvents(w.js, insights)
 	}
 
 	return nil

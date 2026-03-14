@@ -186,6 +186,9 @@ func rejectPodUid(uid string) bool {
 // IngestPodRuntimeMetricsPayload accepts POST from agent.
 func IngestPodRuntimeMetricsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if tryDedup(c, "metrics") {
+			return
+		}
 		var req struct {
 			PodUID     string                      `json:"podUid" binding:"required"`
 			ClusterID  string                      `json:"clusterId" binding:"required"`
@@ -223,6 +226,9 @@ func IngestPodRuntimeMetricsPayload(db *gorm.DB) gin.HandlerFunc {
 // IngestPodProcessesPayload accepts POST from agent.
 func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if tryDedup(c, "processes") {
+			return
+		}
 		var req struct {
 			PodUID        string               `json:"podUid" binding:"required"`
 			ClusterID     string               `json:"clusterId" binding:"required"`
@@ -268,6 +274,9 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 // IngestPodNetworkConnectionsPayload accepts POST from agent.
 func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if tryDedup(c, "network") {
+			return
+		}
 		var req struct {
 			PodUID        string                        `json:"podUid" binding:"required"`
 			ClusterID     string                        `json:"clusterId" binding:"required"`
@@ -316,6 +325,9 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 // IngestPodEventsPayload accepts POST from agent (K8s events; involved_uid can be pod UID).
 func IngestPodEventsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if tryDedup(c, "events") {
+			return
+		}
 		var req struct {
 			ClusterID string           `json:"clusterId" binding:"required"`
 			Events    []models.K8sEvent `json:"events"`

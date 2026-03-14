@@ -6,6 +6,22 @@ option go_package = "github.com/fortuna/api/proto/agent";
 
 import "google/protobuf/timestamp.proto";
 
+// SBOMSource indicates how the SBOM was produced (Finding #8.4)
+enum SBOMSource {
+  SBOM_SOURCE_UNKNOWN = 0;
+  SBOM_SOURCE_PARSERS = 1;              // Package managers (dpkg, apk, rpm, npm, etc.)
+  SBOM_SOURCE_DISTROLLESS_HEURISTIC = 2; // Synthetic/heuristic for distroless/system images
+  SBOM_SOURCE_LABEL_METADATA = 3;       // From OCI labels / image metadata only
+}
+
+// Confidence level for SBOM or component (Finding #8.4)
+enum Confidence {
+  CONFIDENCE_UNKNOWN = 0;
+  CONFIDENCE_LOW = 1;
+  CONFIDENCE_MEDIUM = 2;
+  CONFIDENCE_HIGH = 3;
+}
+
 // SBOMFinding represents SBOM data extracted by Agent
 message SBOMFinding {
   // Schema version for evolution
@@ -36,6 +52,10 @@ message SBOMFinding {
   // Additional context (optional)
   map<string, string> labels = 14;
   map<string, string> annotations = 15;
+  
+  // SBOM provenance (Finding #8.4) – Core uses for CVE matching (Trivy vs NVD fallback)
+  SBOMSource sbom_source = 16;
+  Confidence confidence = 17;
 }
 
 // OSInfo describes the container OS
@@ -53,12 +73,15 @@ message Package {
   PackageType type = 3;    // Enum of package types
   string architecture = 4; // e.g., "amd64", "all"
   repeated string licenses = 5;
-  string source = 6;       // e.g., source package name
+  string source = 6;       // e.g., source package name (Debian source pkg)
   
   // Optional metadata
   string description = 7;
   string homepage = 8;
   string maintainer = 9;
+  
+  // Canonical PURL (Finding #8.2) – e.g. pkg:generic/coredns@1.11.0 for distroless
+  string purl = 10;
 }
 
 // PackageType enum
@@ -73,6 +96,7 @@ enum PackageType {
   PACKAGE_TYPE_GO_MOD = 7;   // Go modules
   PACKAGE_TYPE_MAVEN = 8;    // Java Maven
   PACKAGE_TYPE_CARGO = 9;    // Rust
+  PACKAGE_TYPE_GENERIC = 10; // Distroless/system heuristic (pkg:generic/...)
 }
 
 // SBOMFindingResponse returned by Core

@@ -161,6 +161,7 @@ type AuditLog struct {
 	Details    string    `gorm:"type:jsonb" json:"details"` // JSON
 	User       string    `gorm:"column:username" json:"user"` // Username for backward compatibility (DB column: username)
 	IP         string    `json:"ip"`
+	TraceID    string    `gorm:"column:trace_id;index" json:"traceId,omitempty"` // Finding #5.2: correlation ID from Agent → sync → insight
 	CreatedAt  time.Time `json:"createdAt"`
 
 	Cluster Cluster `gorm:"foreignKey:ClusterID" json:"cluster,omitempty"`
