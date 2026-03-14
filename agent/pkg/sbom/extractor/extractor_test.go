@@ -45,6 +45,25 @@ func TestSyntheticPackageFromImageRef(t *testing.T) {
 	}
 }
 
+func TestDistrolessParserUsesSignatures(t *testing.T) {
+	fs := NewFilesystem()
+	fs.files["/usr/bin/coredns"] = []byte{}
+	p := NewDistrolessParser()
+	pkgs, err := p.Parse(fs)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 package, got %d", len(pkgs))
+	}
+	if pkgs[0].PURL != "pkg:generic/coredns@unknown" {
+		t.Fatalf("PURL = %q, want pkg:generic/coredns@unknown", pkgs[0].PURL)
+	}
+	if pkgs[0].Confidence != "high" {
+		t.Fatalf("Confidence = %q, want high", pkgs[0].Confidence)
+	}
+}
+
 func TestSyntheticPackageFromImageRef_Invalid(t *testing.T) {
 	e := NewExtractor()
 	p := e.syntheticPackageFromImage("", nil)

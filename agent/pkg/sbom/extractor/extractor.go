@@ -142,8 +142,14 @@ func (e *Extractor) ExtractSBOM(
 		}
 	}
 
-	// 6. Deduplicate
+	// 5b. Apply signature hints (versionFromTag/digestMap) to distroless/system binaries to reduce @unknown (Finding #8.3 B1/B2)
+	imageTag := ref.Identifier()
+	sigData := signatures.LoadDistroless()
 	deduped := e.deduplicate(allPackages)
+	deduped = applySignatureHints(deduped, imageTag, imageDigest, imageConfig, sigData)
+
+	// 6. Deduplicate
+
 
 	// 7. SBOM-level source/confidence: if any package is from distroless-heuristic, mark SBOM accordingly
 	sbomSource := "parsers"
@@ -488,6 +494,53 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 	}
 
 	return deduped
+}
+
+// applySignatureHints updates packages using signature DB (versionFromTag, digestMap) to reduce unknown versions.
+func applySignatureHints(pkgs []Package, imageTag string, imageDigest string, imageConfig *v1.ConfigFile, sig *signatures.DistrolessJSON) []Package {
+	if sig == nil || len(sig.Binaries) == 0 {
+		return pkgs
+	}
+	for i := range pkgs {
+		meta, ok := sig.Binaries[pkgs[i].Name]
+		if !ok {
+			continue
+		}
+		version := pkgs[i].Version
+		// Digest override wins
+		if meta.DigestMap != nil {
+			if v, ok := meta.DigestMap[imageDigest]; ok && v != "" {
+				version = v
+			}
+		}
+		// Tag-based version if allowed and digest did not override
+		if version == "unknown" && meta.VersionFromTag && imageTag != "" && !strings.HasPrefix(imageTag, "sha256:") {
+			version = imageTag
+		}
+		// Label-based version if still unknown
+		if version == "unknown" && len(meta.LabelKeys) > 0 && imageConfig != nil {
+			for _, k := range meta.LabelKeys {
+				if v, ok := imageConfig.Config.Labels[k]; ok && strings.TrimSpace(v) != "" {
+					version = strings.TrimSpace(v)
+					break
+				}
+			}
+		}
+		if version != "" && version != pkgs[i].Version {
+			pkgs[i].Version = version
+			pkgs[i].PURL = fmt.Sprintf("pkg:generic/%s@%s", pkgs[i].Name, version)
+		}
+		if meta.PURL != "" && version != "" && strings.Contains(meta.PURL, "@") {
+			// Replace suffix after @ with chosen version
+			if idx := strings.LastIndex(meta.PURL, "@"); idx != -1 {
+				pkgs[i].PURL = meta.PURL[:idx+1] + version
+			}
+		}
+		if meta.Confidence != "" {
+			pkgs[i].Confidence = meta.Confidence
+		}
+	}
+	return pkgs
 }
 
 // syntheticPackageFromImage returns one synthetic package for distroless/system images (0 packages).

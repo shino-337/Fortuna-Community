@@ -1,5 +1,16 @@
 {
-  "version": "1",
+  "version": "2",
   "description": "Signature DB for distroless/minimal images (Finding #8.3 / B1). Bump version when rules or binary list change to invalidate SBOM cache.",
-  "binaries": []
+  "binaries": {
+    "kube-apiserver":           { "purl": "pkg:generic/kube-apiserver@unknown",           "confidence": "medium", "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version", "io.k8s.display-version"], "digestMap": {} },
+    "kube-controller-manager":  { "purl": "pkg:generic/kube-controller-manager@unknown",  "confidence": "medium", "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version", "io.k8s.display-version"], "digestMap": {} },
+    "kube-scheduler":           { "purl": "pkg:generic/kube-scheduler@unknown",           "confidence": "medium", "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version", "io.k8s.display-version"], "digestMap": {} },
+    "kube-proxy":               { "purl": "pkg:generic/kube-proxy@unknown",               "confidence": "medium", "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version", "io.k8s.display-version"], "digestMap": {} },
+    "coredns":                  { "purl": "pkg:generic/coredns@unknown",                  "confidence": "high",   "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version"], "digestMap": {} },
+    "etcd":                     { "purl": "pkg:generic/etcd@unknown",                     "confidence": "medium", "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version"], "digestMap": {} },
+    "pause":                    { "purl": "pkg:generic/pause@unknown",                    "confidence": "low",    "versionFromTag": true, "labelKeys": [], "digestMap": {
+      "sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097": "3.9"
+    } },
+    "containerd-shim":          { "purl": "pkg:generic/containerd-shim@unknown",          "confidence": "low",    "versionFromTag": true, "labelKeys": [], "digestMap": {} }
+  }
 }

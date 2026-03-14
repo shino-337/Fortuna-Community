@@ -2,6 +2,8 @@ package extractor
 
 import (
 	"path/filepath"
+
+	"github.com/fortuna/agent/pkg/sbom/signatures"
 )
 
 // DistrolessParser scans /bin, /usr/bin, /usr/lib (and siblings) for binaries and emits
@@ -21,6 +23,7 @@ var distrolessPrefixes = []string{"/bin/", "/usr/bin/", "/usr/lib/", "/usr/local
 func (p *DistrolessParser) Parse(fs *Filesystem) ([]Package, error) {
 	seen := make(map[string]bool)
 	packages := make([]Package, 0)
+	sig := signatures.LoadDistroless()
 
 	for _, prefix := range distrolessPrefixes {
 		for _, path := range fs.PathsUnder(prefix) {
@@ -34,13 +37,27 @@ func (p *DistrolessParser) Parse(fs *Filesystem) ([]Package, error) {
 			seen[base] = true
 			version := "unknown"
 			purl := "pkg:generic/" + base + "@" + version
+			confidence := "low"
+
+			// If this binary is in signature DB, use its suggested PURL/confidence.
+			if sig != nil {
+				if meta, ok := sig.Binaries[base]; ok {
+					if meta.PURL != "" {
+						purl = meta.PURL
+					}
+					if meta.Confidence != "" {
+						confidence = meta.Confidence
+					}
+				}
+			}
+
 			packages = append(packages, Package{
 				Name:       base,
 				Version:    version,
 				Type:       "generic",
 				PURL:       purl,
 				Source:     "distroless-heuristic",
-				Confidence: "low",
+				Confidence: confidence,
 			})
 		}
 	}
