@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strconv"
+	"strings"
 	"time"
-	
+
 	"github.com/fortuna/core/pkg/cve"
 )
 
@@ -62,7 +64,32 @@ func (c *Client) Query(
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
+	// 429 Too Many Requests: respect Retry-After and retry once
+	if resp.StatusCode == http.StatusTooManyRequests {
+		_ = resp.Body.Close()
+		retryAfter := 30 * time.Second
+		if s := resp.Header.Get("Retry-After"); s != "" {
+			if sec, err := strconv.Atoi(s); err == nil && sec > 0 && sec <= 120 {
+				retryAfter = time.Duration(sec) * time.Second
+			}
+		}
+		c.logger.Printf("NVD API rate limit (429); waiting %v before retry (hint: NVD_API_KEY increases limit)", retryAfter)
+		select {
+		case <-ctx.Done():
+			return nil, fmt.Errorf("NVD API rate limit (429): %w", ctx.Err())
+		case <-time.After(retryAfter):
+			// Retry once (new request; GET has no body so req is reusable)
+			resp2, err2 := c.client.Do(req)
+			if err2 != nil {
+				return nil, fmt.Errorf("NVD API rate limit (429), retry failed: %w", err2)
+			}
+			resp = resp2
+			if resp.StatusCode != http.StatusOK {
+				defer resp.Body.Close()
+				return nil, fmt.Errorf("NVD API returned status %d (after 429 retry); set NVD_API_KEY for higher rate limit", resp.StatusCode)
+			}
+		}
+	} else if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("NVD API returned status %d", resp.StatusCode)
 	}
 
@@ -122,6 +149,13 @@ func (c *Client) convertNVDtoCVE(item NVDVulnerability, ecosystem, name, version
 		}
 	}
 
+	var published, modified time.Time
+	if t, ok := parseNVDTime(item.CVE.PublishedStr); ok {
+		published = t
+	}
+	if t, ok := parseNVDTime(item.CVE.LastModifiedStr); ok {
+		modified = t
+	}
 	return &cve.CVE{
 		ID:          item.CVE.ID,
 		Description: item.CVE.Descriptions[0].Value, // Use first description
@@ -129,8 +163,8 @@ func (c *Client) convertNVDtoCVE(item NVDVulnerability, ecosystem, name, version
 		CVSSScore:   cvssScore,
 		CVSSVector:  cvssVector,
 		Constraint:  "", // NVD doesn't provide version constraints directly
-		Published:   item.CVE.Published,
-		Modified:    item.CVE.LastModified,
+		Published:   published,
+		Modified:    modified,
 		References:  references,
 	}
 }
@@ -141,12 +175,35 @@ type NVDResponse struct {
 	TotalResults    int                `json:"totalResults"`
 }
 
+// NVD date layouts: API may return with or without timezone (e.g. "2004-12-31T05:00:00.000" or "2004-12-31T05:00:00.000Z").
+var nvdTimeLayouts = []string{
+	time.RFC3339Nano,
+	time.RFC3339,
+	"2006-01-02T15:04:05.000Z07:00",
+	"2006-01-02T15:04:05.000",
+	"2006-01-02T15:04:05Z07:00",
+	"2006-01-02T15:04:05",
+}
+
+func parseNVDTime(s string) (t time.Time, ok bool) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return time.Time{}, false
+	}
+	for _, layout := range nvdTimeLayouts {
+		if parsed, err := time.Parse(layout, s); err == nil {
+			return parsed, true
+		}
+	}
+	return time.Time{}, false
+}
+
 // NVDVulnerability represents a vulnerability in NVD format
 type NVDVulnerability struct {
 	CVE struct {
-		ID          string `json:"id"`
-		Published   time.Time `json:"published"`
-		LastModified time.Time `json:"lastModified"`
+		ID           string `json:"id"`
+		PublishedStr  string `json:"published"`
+		LastModifiedStr string `json:"lastModified"`
 		Descriptions []struct {
 			Value string `json:"value"`
 		} `json:"descriptions"`

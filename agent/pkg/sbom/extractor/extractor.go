@@ -95,9 +95,13 @@ func (e *Extractor) ExtractSBOM(
 	sigVersion := signatures.Version()
 	if e.cache != nil {
 		if cached, err := e.cache.Get(imageDigest, sigVersion); err == nil && cached != nil {
-			cached.ImageName = imageRef
-			cached.SignatureVersion = sigVersion
-			return cached, nil
+			// Do not use cache when cached has 0 packages (e.g. distroless before synthetic fallback existed)
+			// so we re-extract and get at least synthetic component (Finding #8).
+			if len(cached.Packages) > 0 {
+				cached.ImageName = imageRef
+				cached.SignatureVersion = sigVersion
+				return cached, nil
+			}
 		}
 	}
 
@@ -126,8 +130,14 @@ func (e *Extractor) ExtractSBOM(
 	// 5. Run OS-specific parsers (skip parsers that won't work for this OS)
 	allPackages := make([]Package, 0)
 	parsersToRun := e.selectParsersForOS(osInfo.Name)
+	hasOSPackages := false
 
 	for _, parserName := range parsersToRun {
+		// When dpkg/apk/rpm already returned packages, skip distroless to avoid adding junk from /usr/lib
+		if parserName == "distroless" && hasOSPackages {
+			e.logger.Printf("   Parser distroless: skipped (OS package manager already returned packages)")
+			continue
+		}
 		parser := e.parsers[parserName]
 		packages, err := parser.Parse(fs)
 		if err != nil {
@@ -137,6 +147,9 @@ func (e *Extractor) ExtractSBOM(
 		if len(packages) > 0 {
 			e.logger.Printf("✅ Parser %s found %d packages", parserName, len(packages))
 			allPackages = append(allPackages, packages...)
+			if parserName == "dpkg" || parserName == "apk" || parserName == "rpm" {
+				hasOSPackages = true
+			}
 		} else if parserName == "npm" || parserName == "pip" || parserName == "gomod" || parserName == "distroless" {
 			e.logger.Printf("   Parser %s: 0 packages (no matching files in image)", parserName)
 		}
@@ -146,7 +159,19 @@ func (e *Extractor) ExtractSBOM(
 	imageTag := ref.Identifier()
 	sigData := signatures.LoadDistroless()
 	deduped := e.deduplicate(allPackages)
-	deduped = applySignatureHints(deduped, imageTag, imageDigest, imageConfig, sigData)
+	// Debug: log version resolution inputs for control-plane (when we have signature entries)
+	if sigData != nil && imageConfig != nil {
+		for _, k := range []string{"org.opencontainers.image.version", "io.k8s.display-version", "org.opencontainers.image.ref.name"} {
+			if v, ok := imageConfig.Config.Labels[k]; ok && v != "" {
+				e.logger.Printf("   [control-plane version] OCI label %s=%q", k, v)
+			}
+		}
+	}
+	e.logger.Printf("   [control-plane version] imageTag=%q imageDigest=%s (digestMap/tag/labels will be applied to known binaries)", imageTag, imageDigest)
+	deduped = applySignatureHints(e.logger, deduped, imageTag, imageDigest, imageConfig, sigData)
+
+	// 5c. Set PURL pkg:deb/<distro>/name@version for dpkg/apk so Core queries OSV debian/ubuntu/alpine
+	deduped = setOSPackagePURLs(deduped, osInfo)
 
 	// 6. Deduplicate
 
@@ -474,8 +499,12 @@ func (e *Extractor) selectParsersForOS(osName string) []string {
 		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod", "distroless"}
 	}
 
-	// Combine OS parsers + language parsers
+	// Combine OS parsers + language parsers; for debian/ubuntu also add distroless so
+	// distroless/base images (e.g. gcr.io/distroless/static-debian12) get binary packages or at least synthetic
 	allParsers := append(osParsers, languageParsers...)
+	if strings.Contains(osLower, "debian") || strings.Contains(osLower, "ubuntu") {
+		allParsers = append(allParsers, "distroless")
+	}
 	e.logger.Printf("   Selected parsers for OS '%s': %v", osName, allParsers)
 	return allParsers
 }
@@ -497,7 +526,8 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 }
 
 // applySignatureHints updates packages using signature DB (versionFromTag, digestMap) to reduce unknown versions.
-func applySignatureHints(pkgs []Package, imageTag string, imageDigest string, imageConfig *v1.ConfigFile, sig *signatures.DistrolessJSON) []Package {
+// If logger is non-nil, logs version resolution for each known binary (control-plane debug).
+func applySignatureHints(logger *log.Logger, pkgs []Package, imageTag string, imageDigest string, imageConfig *v1.ConfigFile, sig *signatures.DistrolessJSON) []Package {
 	if sig == nil || len(sig.Binaries) == 0 {
 		return pkgs
 	}
@@ -507,28 +537,49 @@ func applySignatureHints(pkgs []Package, imageTag string, imageDigest string, im
 			continue
 		}
 		version := pkgs[i].Version
+		source := "none"
 		// Digest override wins
 		if meta.DigestMap != nil {
 			if v, ok := meta.DigestMap[imageDigest]; ok && v != "" {
 				version = v
+				source = "digestMap"
 			}
 		}
 		// Tag-based version if allowed and digest did not override
 		if version == "unknown" && meta.VersionFromTag && imageTag != "" && !strings.HasPrefix(imageTag, "sha256:") {
 			version = imageTag
+			source = "tag"
 		}
 		// Label-based version if still unknown
 		if version == "unknown" && len(meta.LabelKeys) > 0 && imageConfig != nil {
 			for _, k := range meta.LabelKeys {
 				if v, ok := imageConfig.Config.Labels[k]; ok && strings.TrimSpace(v) != "" {
 					version = strings.TrimSpace(v)
+					source = "label:" + k
 					break
 				}
 			}
 		}
+		// Fallback: org.opencontainers.image.ref.name often contains "repo:tag" (e.g. registry.k8s.io/kube-apiserver:v1.29.15)
+		if version == "unknown" && imageConfig != nil && imageConfig.Config.Labels != nil {
+			if v, ok := imageConfig.Config.Labels[labelRefName]; ok && strings.TrimSpace(v) != "" {
+				if idx := strings.LastIndex(v, ":"); idx >= 0 && idx < len(v)-1 {
+					version = strings.TrimSpace(v[idx+1:])
+					source = "label:ref.name"
+				}
+			}
+		}
+		if logger != nil {
+			logger.Printf("   [control-plane version] binary=%s version_before=unknown version_after=%q source=%s (digestMap_empty=%v tag_is_sha=%v)",
+				pkgs[i].Name, version, source, meta.DigestMap == nil || len(meta.DigestMap) == 0, strings.HasPrefix(imageTag, "sha256:"))
+		}
 		if version != "" && version != pkgs[i].Version {
 			pkgs[i].Version = version
 			pkgs[i].PURL = fmt.Sprintf("pkg:generic/%s@%s", pkgs[i].Name, version)
+			// Version from tag/label/digest → raise confidence to medium to enable NVD fallback
+			if pkgs[i].Confidence == "low" {
+				pkgs[i].Confidence = "medium"
+			}
 		}
 		if meta.PURL != "" && version != "" && strings.Contains(meta.PURL, "@") {
 			// Replace suffix after @ with chosen version
@@ -536,8 +587,35 @@ func applySignatureHints(pkgs []Package, imageTag string, imageDigest string, im
 				pkgs[i].PURL = meta.PURL[:idx+1] + version
 			}
 		}
-		if meta.Confidence != "" {
+		if meta.Confidence != "" && (version == "" || version == "unknown") {
 			pkgs[i].Confidence = meta.Confidence
+		}
+	}
+	return pkgs
+}
+
+// setOSPackagePURLs sets PURL pkg:deb/<distro>/name@version (or apk) for dpkg/apk packages
+// when PURL is empty, so Core matches OSV debian/ubuntu/alpine data (e.g. openssl 3.0.18-1~deb12u2).
+func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
+	distro := strings.ToLower(strings.TrimSpace(osInfo.Name))
+	for i := range pkgs {
+		p := &pkgs[i]
+		if p.PURL != "" {
+			continue
+		}
+		switch p.Type {
+		case "deb":
+			d := distro
+			if d == "" {
+				d = "debian"
+			}
+			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, p.Name, p.Version)
+		case "apk":
+			d := distro
+			if d == "" {
+				d = "alpine"
+			}
+			p.PURL = fmt.Sprintf("pkg:apk/%s/%s@%s", d, p.Name, p.Version)
 		}
 	}
 	return pkgs
@@ -574,6 +652,10 @@ func (e *Extractor) syntheticPackageFromImage(imageRef string, imageConfig *v1.C
 			}
 			confidence = "medium" // version from OCI label is more reliable
 		}
+	}
+	// When version came from ref tag (e.g. distroless-hello:e2e → e2e), use medium so NVD fallback is enabled
+	if confidence == "low" && version != "unknown" {
+		confidence = "medium"
 	}
 	// PURL per Finding #8.2: pkg:generic/name@version for NVD/join
 	purl := fmt.Sprintf("pkg:generic/%s@%s", namePart, version)

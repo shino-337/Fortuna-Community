@@ -66,8 +66,8 @@ func (m *Matcher) MatchSBOM(
 			continue
 		}
 
-		// Normalize ecosystem for DB queries
-		queryEcosystem := normalizeQueryEcosystem(purl)
+		// Normalize ecosystem for DB queries (use OS to map generic→distro for OSV match)
+		queryEcosystem := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 
 		// Group by ecosystem
 		ecosystemPackages[queryEcosystem] = append(ecosystemPackages[queryEcosystem], purl.Name)
@@ -152,15 +152,33 @@ func (m *Matcher) MatchSBOM(
 			if purl == nil {
 				continue
 			}
-			queryEco := normalizeQueryEcosystem(purl)
-			cves, err := m.dbManager.GetVulnerabilitiesForPackageWithOptions(ctx, queryEco, component.ComponentName, component.ComponentVersion, &database.QueryOptions{TryNVDFallback: true})
+			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
+			tryNVD := isNVDFallbackWhitelisted(component.ComponentName)
+			cves, err := m.dbManager.GetVulnerabilitiesForPackageWithOptions(ctx, queryEco, component.ComponentName, component.ComponentVersion, &database.QueryOptions{TryNVDFallback: tryNVD})
 			if err != nil || len(cves) == 0 {
 				continue
 			}
 			for _, cveData := range cves {
-				vulnerable, err := m.comparator.IsVulnerable(component.ComponentVersion, cveData.Constraint, purl.Ecosystem)
-				if err != nil || !vulnerable {
-					continue
+				var vulnerable bool
+				if cveData.Constraint == "" {
+					// NVD does not provide version ranges: treat as potentially affected so we persist and show on dashboard
+					vulnerable = true
+				} else {
+					var errV error
+					vulnerable, errV = m.comparator.IsVulnerable(component.ComponentVersion, cveData.Constraint, purl.Ecosystem)
+					if errV != nil || !vulnerable {
+						continue
+					}
+				}
+				// Persist NVD CVE into cves table so dashboard Preload("CVE") and detail view work
+				if cveData.Constraint == "" {
+					if err := m.dbManager.EnsureCVEExists(ctx, cveData); err != nil {
+						m.logger.Printf("⚠️  Failed to persist NVD CVE %s: %v", cveData.ID, err)
+					}
+				}
+				matchedBy := "fortuna-core-cve-matcher"
+				if cveData.Constraint == "" {
+					matchedBy = "nvd-fallback"
 				}
 				matches = append(matches, &models.CVEMatch{
 					SBOMID:         sbom.ID,
@@ -173,7 +191,7 @@ func (m *Matcher) MatchSBOM(
 					Severity:       strings.ToUpper(cveData.Severity),
 					CVSS:           float32(cveData.CVSSScore),
 					FixedVersion:   cveData.FixedVersion,
-					MatchedBy:      "fortuna-core-cve-matcher",
+					MatchedBy:      matchedBy,
 					MatchedAt:      component.CreatedAt,
 				})
 			}
@@ -195,14 +213,64 @@ func useNVDFallbackForHeuristic(sbom *models.SBOM) bool {
 	return conf != "high"
 }
 
+// isDistrolessHeuristicJunk returns true for components that should be skipped entirely:
+// version=unknown, source=distroless-heuristic, and name not in control-plane/runtime whitelist.
+func isDistrolessHeuristicJunk(c *models.SBOMComponent) bool {
+	if c == nil {
+		return true
+	}
+	if strings.TrimSpace(c.ComponentVersion) != "unknown" {
+		return false
+	}
+	if strings.TrimSpace(c.Source) != "distroless-heuristic" {
+		return false
+	}
+	return !isNVDFallbackWhitelisted(c.ComponentName)
+}
+
+// isNVDFallbackWhitelisted returns true for control-plane and runtime names we allow
+// for CVE matching and NVD fallback (openssl, glibc, kube-*, coredns, etcd, ...).
+func isNVDFallbackWhitelisted(name string) bool {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return false
+	}
+	if strings.HasPrefix(n, "kube-") {
+		return true
+	}
+	allowed := map[string]bool{
+		"openssl": true, "libssl.so.3": true, "libssl.so.1.1": true,
+		"glibc": true, "libc.so.6": true, "libc.so": true,
+		"coredns": true, "etcd": true, "pause": true,
+		"containerd-shim": true, "containerd-shim-runc-v1": true,
+		"runc": true, "conntrack": true, "iptables": true,
+	}
+	if allowed[n] {
+		return true
+	}
+	// Allow lib*.so* (e.g. libc.so.6 already above; other libs)
+	if strings.HasPrefix(n, "lib") && (strings.Contains(n, ".so") || strings.HasSuffix(n, ".so")) {
+		return true
+	}
+	return false
+}
+
 // normalizeQueryEcosystem maps PURL ecosystem/namespace into the ecosystem values
 // stored in PostgreSQL by the OSV loader (e.g., debian/ubuntu/alpine/go).
 func normalizeQueryEcosystem(p *PURL) string {
+	return normalizeQueryEcosystemWithOS(p, "")
+}
+
+// normalizeQueryEcosystemWithOS is like normalizeQueryEcosystem but uses SBOM OS name
+// to map generic components to the distro ecosystem when PURL is generic (e.g. from
+// distroless/heuristic), so OSV Debian/Ubuntu data is matched.
+func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 	if p == nil {
 		return ""
 	}
 	eco := strings.ToLower(strings.TrimSpace(p.Ecosystem))
 	ns := strings.ToLower(strings.TrimSpace(p.Namespace))
+	osName := strings.ToLower(strings.TrimSpace(sbomOSName))
 
 	switch eco {
 	case "deb", "package_type_dpkg", "package_type_deb":
@@ -228,6 +296,18 @@ func normalizeQueryEcosystem(p *PURL) string {
 	case "golang", "go":
 		// OSV loader normalizes to "go"
 		return "go"
+	case "generic":
+		// Heuristic/distroless components: use SBOM OS to query OSV distro data
+		if strings.Contains(osName, "debian") {
+			return "debian"
+		}
+		if strings.Contains(osName, "ubuntu") {
+			return "ubuntu"
+		}
+		if strings.Contains(osName, "alpine") {
+			return "alpine"
+		}
+		return "generic"
 	default:
 		// For unknown ecosystems, try to use namespace or return as-is
 		if ns != "" {

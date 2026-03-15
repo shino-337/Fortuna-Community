@@ -204,11 +204,13 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			Maintainer:       pkg.Maintainer,
 		})
 	}
+	// Insert components in batches to avoid SLOW SQL (single huge INSERT >= 200ms)
+	const componentBatchSize = 200
 	if len(components) > 0 {
 		if err := tx.Clauses(clause.OnConflict{
 			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "purl"}},
 			DoNothing: true,
-		}).Create(components).Error; err != nil {
+		}).CreateInBatches(components, componentBatchSize).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[SBOM] Failed to insert components: %v", err)
 			return nil, status.Errorf(codes.Internal, "failed to insert components: %v", err)

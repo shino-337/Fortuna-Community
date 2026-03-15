@@ -47,6 +47,9 @@ func (vc *VersionComparator) IsVulnerable(
 		return vc.compareAlpineVersion(installedVersion, constraint)
 	case "npm", "pypi", "go":
 		return vc.compareSemver(installedVersion, constraint)
+	case "generic":
+		// Distroless/control-plane (kube-apiserver, coredns, etc.): version from tag/label/digestMap, use semver (e.g. v1.29.0)
+		return vc.compareSemver(installedVersion, constraint)
 	default:
 		// No implicit semver fallback - explicit error per ADR-001
 		return false, fmt.Errorf("unsupported ecosystem: %s (normalized from: %s)", normalizedEco, ecosystem)

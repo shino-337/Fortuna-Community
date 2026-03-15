@@ -162,6 +162,13 @@ spec:
               value: "true"
             - name: PCE_SCHEDULER_INTERVAL
               value: "6h"
+            # NVD API key (optional): increases rate limit for CVE fallback. Add to fortuna-secrets as nvd-api-key.
+            - name: NVD_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: nvd-api-key
+                  optional: true
           
           volumeMounts:
             - name: fortuna-core-server-tls

@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -41,8 +42,11 @@ func NewManager(trivyDBPath string) (*Manager, error) {
 		trivyReader = nil
 	}
 
-	// Initialize NVD API client (fallback)
+	// Initialize NVD API client (fallback); NVD_API_KEY env increases rate limit
 	nvdClient := nvd.NewClient()
+	if key := strings.TrimSpace(os.Getenv("NVD_API_KEY")); key != "" {
+		nvdClient.SetAPIKey(key)
+	}
 
 	// Initialize cache
 	cache := NewCVECache()
@@ -77,11 +81,16 @@ func NewPostgresManagerWithNVD(db *gorm.DB, nvdClient *nvd.Client) *Manager {
 
 // NewNVDClientForManager returns an NVD API client for use with NewPostgresManagerWithNVD.
 // Returns nil if NVD is disabled (e.g. env FORTUNA_NVD_DISABLED=1).
+// If NVD_API_KEY is set, the client uses it for higher rate limit (recommended).
 func NewNVDClientForManager() *nvd.Client {
 	if os.Getenv("FORTUNA_NVD_DISABLED") == "1" || os.Getenv("FORTUNA_NVD_DISABLED") == "true" {
 		return nil
 	}
-	return nvd.NewClient()
+	client := nvd.NewClient()
+	if key := strings.TrimSpace(os.Getenv("NVD_API_KEY")); key != "" {
+		client.SetAPIKey(key)
+	}
+	return client
 }
 
 // QueryOptions optionally influence CVE lookup (e.g. NVD fallback for heuristic SBOMs).
@@ -358,6 +367,32 @@ func buildConstraintFromPV(pv models.PackageVulnerability) string {
 	}
 
 	return strings.Join(parts, ", ")
+}
+
+// EnsureCVEExists upserts a CVE into the cves table so that CVEMatch can reference it
+// (e.g. when CVE comes from NVD fallback and is not yet in DB). Idempotent: if CVEID
+// already exists (e.g. from OSV), the record is left unchanged.
+func (m *Manager) EnsureCVEExists(ctx context.Context, cveData *cve.CVE) error {
+	if m.postgresDB == nil || cveData == nil || cveData.ID == "" {
+		return nil
+	}
+	refsJSON := ""
+	if len(cveData.References) > 0 {
+		b, _ := json.Marshal(cveData.References)
+		refsJSON = string(b)
+	}
+	row := models.CVE{
+		CVEID:            cveData.ID,
+		CVSSScore:        cveData.CVSSScore,
+		CVSSVector:       cveData.CVSSVector,
+		Severity:         strings.ToUpper(cveData.Severity),
+		Description:      cveData.Description,
+		Source:           "nvd",
+		References:       refsJSON,
+		PublishedDate:    &cveData.Published,
+		LastModifiedDate: &cveData.Modified,
+	}
+	return m.postgresDB.WithContext(ctx).Where("cve_id = ?", cveData.ID).FirstOrCreate(&row).Error
 }
 
 // UpdateDatabase updates the CVE database

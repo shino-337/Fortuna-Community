@@ -24,6 +24,7 @@ Kubernetes manifests for **FortunaK8s** (Core, Agent, Dashboard, infrastructure)
 | **Dashboard** | Service type **LoadBalancer**; change to NodePort/ClusterIP or use Ingress as needed. Apply ConfigMap `fortuna-dashboard-nginx` **before** the Dashboard deployment (proxies `/api` to Core). |
 | **Images** | Dev/local: `imagePullPolicy: Never` and build on node (nerdctl/containerd). Production: use a versioned tag (e.g. `v1.0.0`), `IfNotPresent` or `Always`, and a registry. Multi-node: use `./scripts/utils/push-images-to-workers.sh` or a registry. |
 | **Auth** | Default admin `admin` / `admin123` in manifests. **Production:** change password and/or use a Secret (e.g. `fortuna-secrets` with `jwt-secret`, `admin-password`); Core supports `secretKeyRef` for JWT. |
+| **NVD API key** | Optional. Core uses NVD API as CVE fallback; without key, rate limit is low (429 possible). Set in Secret `fortuna-secrets` key `nvd-api-key`, or env `NVD_API_KEY`. Example: `kubectl patch secret fortuna-secrets -n fortuna -p '{"stringData":{"nvd-api-key":"YOUR_NVD_KEY"}}'` then rollout restart Core. |
 
 ### After deploy
 

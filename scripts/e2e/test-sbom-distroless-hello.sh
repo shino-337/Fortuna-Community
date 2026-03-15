@@ -23,6 +23,7 @@
 #   API_USER                # default: admin
 #   API_PASS                # default: admin123
 #   TEST_NS                 # default: fortuna
+#   SLEEP_SECONDS           # seconds container stays running (default 86400 = 24h) so pod stays Running and is not removed
 # ============================================================================
 
 set -euo pipefail
@@ -38,6 +39,8 @@ API_USER="${API_USER:-admin}"
 API_PASS="${API_PASS:-admin123}"
 POD_NAME="sbom-distroless-hello-$(date +%s)"
 AUTH_HEADER=""
+# Keep pod Running for a long time so it is not treated as completed/removed (container runs sleep)
+SLEEP_SECONDS="${SLEEP_SECONDS:-86400}"
 
 TEST_DISTROLESS_IMAGE="${TEST_DISTROLESS_IMAGE:-}"
 build_and_load_image() {
@@ -141,6 +144,9 @@ spec:
     - name: sbom-distroless-hello
       image: $TEST_DISTROLESS_IMAGE
       imagePullPolicy: Never
+      env:
+        - name: SLEEP_SECONDS
+          value: "$SLEEP_SECONDS"
 EOF
 echo ""
 

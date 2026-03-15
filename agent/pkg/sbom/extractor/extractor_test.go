@@ -41,7 +41,72 @@ func TestSyntheticPackageFromImageRef(t *testing.T) {
 			if p.Source != "distroless-heuristic" {
 				t.Errorf("Source = %q, want distroless-heuristic", p.Source)
 			}
+			// Version from ref tag → confidence medium for NVD fallback
+			if tt.wantVer != "unknown" && p.Confidence != "medium" {
+				t.Errorf("confidence with version from tag: got %q, want medium", p.Confidence)
+			}
 		})
+	}
+}
+
+// TestDistrolessSkipBasename verifies distroless parser skips os-release, build.log, *.log, .pl, non-lib .so (no SBOM garbage).
+func TestDistrolessSkipBasename(t *testing.T) {
+	skip := []string{"os-release", "build.log", "a.log", "build.log", "Extend.pl", "Y.pl", "ISO-IR-197.so"}
+	keep := []string{"hello", "kube-apiserver", "busybox", "libc.so.6", "libssl.so.3", "coredns"}
+	for _, b := range skip {
+		if !DistrolessSkipBasename(b) {
+			t.Errorf("DistrolessSkipBasename(%q) = false, want true (skip)", b)
+		}
+	}
+	for _, b := range keep {
+		if DistrolessSkipBasename(b) {
+			t.Errorf("DistrolessSkipBasename(%q) = true, want false (keep)", b)
+		}
+	}
+}
+
+// TestDistrolessParserSkipsJunk verifies .pl, charset .so (ISO-IR-197.so), and share/locale are not emitted as packages.
+func TestDistrolessParserSkipsJunk(t *testing.T) {
+	fs := NewFilesystem()
+	fs.files["/usr/bin/coredns"] = []byte{}
+	fs.files["/usr/lib/Extend.pl"] = []byte{}
+	fs.files["/usr/lib/ISO-IR-197.so"] = []byte{}
+	fs.files["/usr/lib/share/locale/en/LC_MESSAGES/foo.mo"] = []byte{}
+	p := NewDistrolessParser()
+	pkgs, err := p.Parse(fs)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	names := make(map[string]bool)
+	for _, pkg := range pkgs {
+		names[pkg.Name] = true
+	}
+	if !names["coredns"] {
+		t.Error("expected coredns to be kept (control-plane whitelist)")
+	}
+	if names["Extend.pl"] || names["ISO-IR-197.so"] {
+		t.Errorf("junk packages should be skipped: got %v", names)
+	}
+}
+
+// TestSyntheticPackageDistrolessHello verifies index.docker.io/library/distroless-hello:e2e → distroless-hello@e2e, confidence medium.
+func TestSyntheticPackageDistrolessHello(t *testing.T) {
+	e := NewExtractor()
+	p := e.syntheticPackageFromImage("index.docker.io/library/distroless-hello:e2e", nil)
+	if p.Name != "distroless-hello" {
+		t.Errorf("Name = %q, want distroless-hello", p.Name)
+	}
+	if p.Version != "e2e" {
+		t.Errorf("Version = %q, want e2e", p.Version)
+	}
+	if p.PURL != "pkg:generic/distroless-hello@e2e" {
+		t.Errorf("PURL = %q, want pkg:generic/distroless-hello@e2e", p.PURL)
+	}
+	if p.Source != "distroless-heuristic" {
+		t.Errorf("Source = %q, want distroless-heuristic", p.Source)
+	}
+	if p.Confidence != "medium" {
+		t.Errorf("confidence = %q, want medium (NVD fallback)", p.Confidence)
 	}
 }
 
@@ -190,5 +255,58 @@ func TestDistrolessParser(t *testing.T) {
 		if !names[want] {
 			t.Errorf("missing package %q", want)
 		}
+	}
+}
+
+// TestSetOSPackagePURLs verifies dpkg/apk packages get pkg:deb/<distro>/name@version for OSV/CVE query.
+func TestSetOSPackagePURLs(t *testing.T) {
+	osDebian := OSInfo{Name: "debian", Version: "12"}
+	osUbuntu := OSInfo{Name: "ubuntu", Version: "22.04"}
+	osAlpine := OSInfo{Name: "alpine", Version: "3.18"}
+	tests := []struct {
+		name string
+		os   OSInfo
+		pkgs []Package
+		want []string // PURL per package (same order as pkgs after filter)
+	}{
+		{
+			name: "debian openssl",
+			os:   osDebian,
+			pkgs: []Package{{Name: "openssl", Version: "3.0.18-1~deb12u2", Type: "deb", PURL: ""}},
+			want: []string{"pkg:deb/debian/openssl@3.0.18-1~deb12u2"},
+		},
+		{
+			name: "ubuntu libc6",
+			os:   osUbuntu,
+			pkgs: []Package{{Name: "libc6", Version: "2.35-0ubuntu3", Type: "deb", PURL: ""}},
+			want: []string{"pkg:deb/ubuntu/libc6@2.35-0ubuntu3"},
+		},
+		{
+			name: "alpine apk",
+			os:   osAlpine,
+			pkgs: []Package{{Name: "alpine-baselayout", Version: "3.4.3-r2", Type: "apk", PURL: ""}},
+			want: []string{"pkg:apk/alpine/alpine-baselayout@3.4.3-r2"},
+		},
+		{
+			name: "skip when PURL already set",
+			os:   osDebian,
+			pkgs: []Package{{Name: "openssl", Version: "1.1.1", Type: "deb", PURL: "pkg:deb/debian/openssl@1.1.1"}},
+			want: []string{"pkg:deb/debian/openssl@1.1.1"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := setOSPackagePURLs(tt.pkgs, tt.os)
+			for i, w := range tt.want {
+				if i >= len(got) || got[i].PURL != w {
+					t.Errorf("package[%d] PURL = %q, want %q", i, func() string {
+						if i < len(got) {
+							return got[i].PURL
+						}
+						return ""
+					}(), w)
+				}
+			}
+		})
 	}
 }

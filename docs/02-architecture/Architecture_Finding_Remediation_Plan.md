@@ -5,6 +5,26 @@
 
 ---
 
+## Kiểm tra Core / Agent đã rebuild và deploy
+
+Sau khi cập nhật code theo các finding trong doc này, cần **rebuild** image Core và Agent rồi **deploy/restart** để cluster chạy bản mới.
+
+**Cách kiểm tra nhanh:**
+
+```bash
+./scripts/verify/verify-core-agent-rebuild-deploy-status.sh
+```
+
+Script so sánh image ID của pod đang chạy với image local (`fortuna-core:latest`, `fortuna-agent:latest`), và (nếu có) dòng `[Build] version= commit= time=` trong log. Nếu pod đang dùng image khác local hoặc log vẫn `commit=none` thì cần rebuild và rollout restart.
+
+**Rebuild và deploy:**
+
+1. Rebuild: `./scripts/build/build-and-load-containerd.sh` (hoặc `NO_CACHE=true` nếu cần build sạch).
+2. Deploy / restart: `./scripts/deploy/deploy-fortuna-robust.sh` hoặc `kubectl rollout restart deployment/fortuna-core -n fortuna` và `kubectl rollout restart daemonset/fortuna-agent -n fortuna`.
+3. Chạy lại script verify trên để xác nhận.
+
+---
+
 ## Tổng quan ưu tiên
 
 | # | Finding | Risk | Ưu tiên | Effort ước lượng |

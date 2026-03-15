@@ -115,6 +115,7 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 			Version:      pkg.Version,
 			Type:         mapPackageType(pkg.Type),
 			Architecture: pkg.Arch,
+			Source:       pkg.Source,
 		}
 		if pkg.PURL != "" {
 			pp.Purl = pkg.PURL

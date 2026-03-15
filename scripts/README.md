@@ -12,7 +12,7 @@ Scripts are grouped in subdirectories. **Always invoke by full path** `./scripts
 |-----------|----------|
 | **pipeline/** | full-clean-database-rebuild-deploy.sh, full-rebuild-sync-deploy-and-e2e.sh, clean-rebuild-redeploy-and-test.sh |
 | **deploy/**   | deploy-fortuna-robust.sh, pre-deployment-checks.sh, ensure-flannel.sh, ensure-storage-class.sh, ensure-control-plane-label.sh, fix-flannel-vxlan.sh, fix-dns-config.sh |
-| **clean/**    | cleanup-environment.sh, clean-containerd-images.sh, clean-rebuild-dashboard.sh, cleanup-orphaned-migrations.sh |
+| **clean/**    | cleanup-environment.sh, clean-containerd-images.sh, check-and-clean-host-resources.sh, clean-rebuild-dashboard.sh, cleanup-orphaned-migrations.sh, clean-host-images-and-junk.sh |
 | **build/**    | build-and-load-containerd.sh, build-dashboard-containerd.sh, build-production.sh |
 | **verify/**   | check-full-deployment.sh, verify-dashboard-*.sh, verify-database-schema.sh, verify-agent-availability.sh, verify-agent-core-connectivity.sh, verify-pod-data.sh, verify-test-data.sh, check-pod-risk.sh |
 | **e2e/**      | **run-e2e.sh** (entry point), e2e-risk-center-full.sh, run-e2e-full.sh, run-e2e-with-capability-report.sh, run-dashboard-data-tests.sh, e2e-dashboard-data.sh, e2e-sbom-verify.sh, test-*.sh |
@@ -117,6 +117,16 @@ Chỉ xóa image fortuna/ksam trong containerd (namespace `k8s.io`). Có `--dry-
 ./scripts/clean/clean-containerd-images.sh           # xóa image fortuna
 ./scripts/clean/clean-containerd-images.sh --dry-run
 ./scripts/clean/clean-containerd-images.sh --all    # xóa tất cả image (nguy hiểm)
+```
+
+### `check-and-clean-host-resources.sh` **(kiểm tra + clean images, cache, ctr)**
+
+Mặc định **chỉ kiểm tra**: disk usage, images trong containerd (ctr), images qua nerdctl, build cache, thư mục temp (`/tmp/fortuna-images`, `/var/tmp/fortuna-images`). Với `--clean`: xóa image fortuna (theo tag và theo ID), `nerdctl system prune`, `nerdctl builder prune`, và temp dirs. Dùng khi cần xem nhanh tài nguyên host và dọn image/cache đã build và load vào ctr.
+
+```bash
+./scripts/clean/check-and-clean-host-resources.sh              # chỉ kiểm tra (disk, images, cache, temp)
+./scripts/clean/check-and-clean-host-resources.sh --clean      # kiểm tra rồi clean (có confirm)
+./scripts/clean/check-and-clean-host-resources.sh --clean -y   # kiểm tra rồi clean (không confirm)
 ```
 
 ### `clean-rebuild-dashboard.sh`

@@ -45,15 +45,16 @@ type SBOMComponentDTO struct {
 
 // VulnerabilityDTO is the payload for each CVE
 type VulnerabilityDTO struct {
-	ID            string  `json:"id"`
-	Severity      string  `json:"severity"`
-	CVSSScore     float32 `json:"cvssScore"`
-	Description   string  `json:"description,omitempty"`
-	FixedVersion  string  `json:"fixedVersion,omitempty"`
-	Status        string  `json:"status,omitempty"`        // active | allowed | fixed
-	ExploitKnown  bool    `json:"exploitKnown,omitempty"` // public exploit available
-	ExploitMaturity string `json:"exploitMaturity,omitempty"` // poc | functional | high
-	Allowed       bool    `json:"allowed,omitempty"`      // allowed by policy
+	ID              string  `json:"id"`
+	Severity        string  `json:"severity"`
+	CVSSScore       float32 `json:"cvssScore"`
+	Description     string  `json:"description,omitempty"`
+	FixedVersion    string  `json:"fixedVersion,omitempty"`
+	Status          string  `json:"status,omitempty"`          // active | allowed | fixed
+	ExploitKnown    bool    `json:"exploitKnown,omitempty"`   // public exploit available
+	ExploitMaturity string  `json:"exploitMaturity,omitempty"` // poc | functional | high
+	Allowed         bool    `json:"allowed,omitempty"`        // allowed by policy
+	Source          string  `json:"source,omitempty"`         // nvd-fallback | fortuna-core-cve-matcher (OSV)
 }
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
@@ -310,6 +311,10 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					exploitKnown = match.CVE.ExploitAvailable
 					exploitMaturity = match.CVE.ExploitMaturity
 				}
+				source := match.MatchedBy
+				if source == "nvd-fallback" {
+					source = "nvd"
+				}
 				compDTO.Vulnerabilities = append(compDTO.Vulnerabilities, VulnerabilityDTO{
 					ID:              match.CVEID,
 					Severity:        sev,
@@ -320,6 +325,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					ExploitKnown:    exploitKnown,
 					ExploitMaturity: exploitMaturity,
 					Allowed:         false,
+					Source:          source,
 				})
 			}
 			compDTO.MaxSeverity = maxSev
