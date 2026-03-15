@@ -57,7 +57,7 @@
 
 ### 3.3 Khác
 
-- **CVE data:** `cve-data/` (e2e, all) – dữ liệu CVE mẫu / test.
+- **CVE data:** `cve-data/all/` – nguồn CVE từ OSV (sync all.zip), dùng cho cve-loader load vào PostgreSQL; `cve-data/e2e/` – dữ liệu mẫu cho e2e (nếu có). **Không xóa** `cve-data/all/` trừ khi đã load xong vào DB và dùng option dọn trong load-cve-data.sh.
 - **Deploy:** YAML K8s, Helm (chart `helm/fortuna`), script-prod (build/deploy/verify/clean).
 
 ---

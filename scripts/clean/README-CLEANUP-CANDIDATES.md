@@ -48,4 +48,5 @@ Sau khi xóa image fortuna, cần rebuild nếu cần chạy Core/Agent: `./scri
 
 ## 4. CVE data (sau khi load xong)
 
-- Nếu đã load CVE vào DB và không cần giữ file JSON local: script load có option `CLEAN_LOCAL_SOURCE_AFTER_LOAD=true` (mặc định) để dọn `cve-data/all` sau khi load. Kiểm tra trong `scripts/utils/load-cve-data.sh`.
+- **Lưu ý:** `cve-data/all/` là **nguồn CVE từ OSV** (sync từ OSV bulk), không phải "dữ liệu test". Chỉ nên dọn khi đã load xong vào PostgreSQL và không cần giữ file JSON local.
+- Nếu đã load CVE vào DB và không cần giữ file JSON local: script load có option `CLEAN_LOCAL_SOURCE_AFTER_LOAD=true` (mặc định) để dọn `cve-data/all` **sau khi load**. Kiểm tra trong `scripts/utils/load-cve-data.sh`. Để có lại dữ liệu OSV sau khi dọn: chạy `./scripts/utils/sync-package-vulnerability-source.sh`.
