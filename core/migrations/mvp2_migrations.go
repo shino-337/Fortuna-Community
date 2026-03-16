@@ -88,6 +88,34 @@ func Migration012_AddRiskScores(db *gorm.DB) error {
 	return nil
 }
 
+// Migration020_AddOSVMirrorTables creates OSV mirror tables for Go ecosystem (P2-7).
+// Tables:
+//   - osv_vulnerabilities
+//   - osv_packages
+//   - osv_ranges
+func Migration020_AddOSVMirrorTables(db *gorm.DB) error {
+	log.Println("Running migration 020: Add OSV mirror tables (osv_vulnerabilities, osv_packages, osv_ranges)")
+
+	// Development/staging can use AutoMigrate; production should prefer SQL migrations later if needed.
+	if err := db.AutoMigrate(&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}); err != nil {
+		log.Printf("Warning: AutoMigrate for OSV mirror tables failed: %v", err)
+		return err
+	}
+
+	// Add useful indexes if not already created by GORM.
+	if err := db.Exec(`
+CREATE INDEX IF NOT EXISTS idx_osv_packages_ecosystem_package ON osv_packages (ecosystem, package_name);
+CREATE INDEX IF NOT EXISTS idx_osv_packages_vuln ON osv_packages (vuln_id);
+CREATE INDEX IF NOT EXISTS idx_osv_ranges_package_id ON osv_ranges (package_id);
+`).Error; err != nil {
+		log.Printf("Warning: failed to create OSV mirror indexes: %v", err)
+		return err
+	}
+
+	log.Println("Migration 020 completed: OSV mirror tables ready")
+	return nil
+}
+
 // Migration013_AddRiskScoresDeletedAt adds deleted_at column to risk_scores table
 func Migration013_AddRiskScoresDeletedAt(db *gorm.DB) error {
 	log.Println("Running migration 013: Add deleted_at column to risk_scores")

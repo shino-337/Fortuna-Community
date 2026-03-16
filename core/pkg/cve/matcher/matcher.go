@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
@@ -32,32 +33,54 @@ func NewMatcher(
 	}
 }
 
-// MatchSBOM matches CVEs against an SBOM
+// MatchSBOM matches CVEs against an SBOM. If componentsOverride is non-nil, use it (P1-5 snapshot);
+// otherwise load components from DB. This avoids race when components are soft-deleted after event publish.
 func (m *Matcher) MatchSBOM(
 	ctx context.Context,
 	sbom *models.SBOM,
+	componentsOverride []*models.SBOMComponent,
 ) ([]*models.CVEMatch, error) {
 	m.logger.Printf("Matching CVEs for SBOM ID %d (%d packages)", sbom.ID, sbom.PackageCount)
 
-	// Load SBOM components
 	var components []models.SBOMComponent
+	if componentsOverride != nil {
+		for _, c := range componentsOverride {
+			components = append(components, *c)
+		}
+		m.logger.Printf("Using %d components from snapshot (P1-5)", len(components))
+	} else {
 		if err := m.db.WithContext(ctx).
 			Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).
 			Find(&components).Error; err != nil {
 			return nil, fmt.Errorf("failed to load SBOM components: %w", err)
 		}
+	}
 
 	m.logger.Printf("Found %d components to match", len(components))
 
 	matches := make([]*models.CVEMatch, 0)
 
-	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk
+	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk.
+	// Additionally, for Kubernetes control-plane components (kube-apiserver, coredns, etcd, …),
+	// use component → module prefix mapping (P2-2) to query OSV Go instead of NVD keyword heuristic.
 	ecosystemPackages := make(map[string][]string)
 	componentsByName := make(map[string]*models.SBOMComponent)
 	purlsByName := make(map[string]*PURL)
 
+	// Optional: load K8s component → module prefix map once per MatchSBOM invocation.
+	k8sMap, k8sMapErr := cve.LoadK8sComponentMap()
+	if k8sMapErr != nil {
+		m.logger.Printf("⚠️  Failed to load K8s component map: %v (will continue without mapping)", k8sMapErr)
+		k8sMap = nil
+	}
+
 	for i := range components {
 		component := &components[i]
+
+		// Skip junk distroless heuristic components early
+		if isDistrolessHeuristicJunk(component) {
+			continue
+		}
 
 		// 1. Parse PURL
 		purl, err := ParsePURL(component.PURL)
@@ -69,10 +92,33 @@ func (m *Matcher) MatchSBOM(
 		// Normalize ecosystem for DB queries (use OS to map generic→distro for OSV match)
 		queryEcosystem := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 
-		// Group by ecosystem
-		ecosystemPackages[queryEcosystem] = append(ecosystemPackages[queryEcosystem], purl.Name)
-		componentsByName[component.ComponentName] = component
-		purlsByName[component.ComponentName] = purl
+		componentKey := component.ComponentName
+
+		// If K8s component mapping is available, try to map control-plane component → Go module prefix.
+		if k8sMap != nil {
+			normName := strings.ToLower(strings.TrimSpace(component.ComponentName))
+			if mapping, ok := k8sMap[normName]; ok && mapping.ModulePrefix != "" {
+				// Build a synthetic PURL-like view for the Go module.
+				moduleName := mapping.ModulePrefix
+				version := strings.TrimSpace(component.ComponentVersion)
+				if mapping.Ecosystem == "go" && version != "" && !strings.HasPrefix(version, "v") {
+					version = "v" + version
+				}
+
+				// We reuse the existing bulk query path by treating modulePrefix as package name
+				// in the "go" ecosystem (OSV Go mirror).
+				queryEcosystem = "go"
+				purl.Name = moduleName
+				purl.Ecosystem = "go"
+				// Note: we keep component.ComponentName/version as-is for persisted matches.
+				componentKey = moduleName
+			}
+		}
+
+		// Group by ecosystem using the (possibly remapped) name.
+		ecosystemPackages[queryEcosystem] = append(ecosystemPackages[queryEcosystem], componentKey)
+		componentsByName[componentKey] = component
+		purlsByName[componentKey] = purl
 	}
 
 	// 2. Bulk query CVEs for all packages per ecosystem
@@ -153,8 +199,9 @@ func (m *Matcher) MatchSBOM(
 				continue
 			}
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
+			nvdName := normalizeComponentNameForNVD(component.ComponentName) // so whitelist + NVD keyword match (e.g. registry.k8s.io/coredns → coredns)
 			tryNVD := isNVDFallbackWhitelisted(component.ComponentName)
-			cves, err := m.dbManager.GetVulnerabilitiesForPackageWithOptions(ctx, queryEco, component.ComponentName, component.ComponentVersion, &database.QueryOptions{TryNVDFallback: tryNVD})
+			cves, err := m.dbManager.GetVulnerabilitiesForPackageWithOptions(ctx, queryEco, nvdName, component.ComponentVersion, &database.QueryOptions{TryNVDFallback: tryNVD})
 			if err != nil || len(cves) == 0 {
 				continue
 			}
@@ -228,10 +275,34 @@ func isDistrolessHeuristicJunk(c *models.SBOMComponent) bool {
 	return !isNVDFallbackWhitelisted(c.ComponentName)
 }
 
+// registryCanonicalName maps known registry-style names (no slash) to canonical name for whitelist/NVD.
+// e.g. "registry.k8s.io/coredns" → "coredns" (per SBOM_Flow_distroless_Remediation §4).
+var registryCanonicalName = map[string]string{
+	"registry.k8s.io/coredns": "coredns",
+}
+
+// normalizeComponentNameForNVD normalizes component name for whitelist check and NVD keyword search.
+// e.g. "registry.k8s.io/coredns/coredns" → "coredns", "coredns/coredns" → "coredns" (per SBOM_Flow_distroless_Remediation §4).
+func normalizeComponentNameForNVD(name string) string {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return n
+	}
+	if idx := strings.LastIndex(n, "/"); idx >= 0 && idx < len(n)-1 {
+		n = strings.TrimSpace(n[idx+1:])
+	}
+	if canonical, ok := registryCanonicalName[n]; ok {
+		return canonical
+	}
+	return n
+}
+
 // isNVDFallbackWhitelisted returns true for control-plane and runtime names we allow
 // for CVE matching and NVD fallback (openssl, glibc, kube-*, coredns, etcd, ...).
+// Uses normalizeComponentNameForNVD so "coredns/coredns" and "registry.k8s.io/coredns" match.
 func isNVDFallbackWhitelisted(name string) bool {
-	n := strings.TrimSpace(name)
+	n := normalizeComponentNameForNVD(name)
+	n = strings.TrimSpace(n)
 	if n == "" {
 		return false
 	}

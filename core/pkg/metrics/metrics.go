@@ -151,6 +151,14 @@ var (
 		},
 	)
 
+	// NVD API calls (bottleneck observability; FORTUNA_CVE_MATCHING_ENGINE §13, P1-1)
+	NVDQueriesTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_nvd_queries_total",
+			Help: "Total number of NVD API queries (fallback for heuristic SBOM)",
+		},
+	)
+
 	// Insight metrics
 	InsightsCreatedTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

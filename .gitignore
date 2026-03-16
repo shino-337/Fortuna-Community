@@ -45,6 +45,7 @@ script-prod/logs/
 *.secret
 .env
 .env.local
+deploy/secrets.env
 
 # Build artifacts
 bin/

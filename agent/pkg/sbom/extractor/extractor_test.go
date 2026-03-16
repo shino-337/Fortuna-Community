@@ -228,11 +228,13 @@ VERSION_ID="12"
 	}
 }
 
-// TestDistrolessParser verifies the distroless parser emits one Package per binary under /bin, /usr/bin, etc. (C1)
+// TestDistrolessParser verifies the distroless parser emits only binaries in the signature DB (control-plane allowlist).
+// Binaries not in the signature (busybox, nginx, libc.so) are not emitted to avoid SBOM junk.
 func TestDistrolessParser(t *testing.T) {
 	fs := NewFilesystem()
 	fs.files["/bin/busybox"] = []byte{}
 	fs.files["/usr/bin/nginx"] = []byte{}
+	fs.files["/usr/bin/coredns"] = []byte{} // in signature → emitted
 	fs.files["/usr/lib/libc.so"] = []byte{}
 	fs.files["/etc/os-release"] = []byte{} // should be ignored (not under bin/lib)
 
@@ -241,19 +243,55 @@ func TestDistrolessParser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
-	if len(packages) != 3 {
-		t.Errorf("got %d packages, want 3 (busybox, nginx, libc.so)", len(packages))
+	// Only coredns is in distroless.json; busybox, nginx, libc.so are not → 1 package
+	if len(packages) != 1 {
+		t.Errorf("got %d packages, want 1 (only coredns in signature); names=%v", len(packages), pkgNames(packages))
 	}
-	names := make(map[string]bool)
 	for _, pkg := range packages {
-		names[pkg.Name] = true
+		if pkg.Name != "coredns" {
+			t.Errorf("unexpected package %q (only signature-listed binaries should be emitted)", pkg.Name)
+		}
 		if pkg.Type != "generic" || pkg.Source != "distroless-heuristic" || !strings.HasPrefix(pkg.PURL, "pkg:generic/") {
 			t.Errorf("package %s: Type=%q Source=%q PURL=%q", pkg.Name, pkg.Type, pkg.Source, pkg.PURL)
 		}
 	}
-	for _, want := range []string{"busybox", "nginx", "libc.so"} {
-		if !names[want] {
-			t.Errorf("missing package %q", want)
+}
+
+func pkgNames(pkgs []Package) []string {
+	names := make([]string, 0, len(pkgs))
+	for _, p := range pkgs {
+		names = append(names, p.Name)
+	}
+	return names
+}
+
+// TestDistrolessParserJunkNotEmitted verifies OS utility binaries (setpriv, ln, mkdir, rm, ...) are not
+// emitted as SBOM components when they exist in the image. Only control-plane binaries in the signature are emitted.
+func TestDistrolessParserJunkNotEmitted(t *testing.T) {
+	fs := NewFilesystem()
+	junk := []string{"setpriv", "zless", "resizepart", "addpart", "dircolors", "ln", "script", "expand", "mkdir", "mesg", "toe", "gpgv", "rm", "perl", "dpkg-deb", "groups", "install", "rmdir", "docker", "egrep", "umount", "prlimit"}
+	for _, name := range junk {
+		fs.files["/usr/bin/"+name] = []byte{}
+	}
+	fs.files["/usr/bin/kube-apiserver"] = []byte{} // in signature
+
+	p := NewDistrolessParser()
+	packages, err := p.Parse(fs)
+	if err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	names := pkgNames(packages)
+	if len(packages) != 1 {
+		t.Errorf("got %d packages, want 1 (only kube-apiserver); got %v", len(packages), names)
+	}
+	if len(packages) > 0 && packages[0].Name != "kube-apiserver" {
+		t.Errorf("only kube-apiserver should be emitted, got %v", names)
+	}
+	for _, pkg := range packages {
+		for _, j := range junk {
+			if pkg.Name == j {
+				t.Errorf("junk binary %q must not be emitted as SBOM component", j)
+			}
 		}
 	}
 }

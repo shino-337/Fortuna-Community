@@ -250,18 +250,26 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			}
 		}
 
+		// P1-5: component snapshot at publish time so CVE matcher can use it and avoid soft-delete race
+		componentsSnapshot := make([]map[string]string, 0, len(components))
+		for _, c := range components {
+			componentsSnapshot = append(componentsSnapshot, map[string]string{
+				"name": c.ComponentName, "version": c.ComponentVersion, "purl": c.PURL,
+			})
+		}
 		// Create proper JSON event with all required fields using map to avoid import issues
 		event := map[string]interface{}{
-			"type":            "sbom.created",
-			"timestamp":       time.Now().Unix(),
-			"cluster_id":      clusterID,
-			"pod_uid":         podUID,        // Use from request, not from SBOM record
-			"pod_name":        podName,       // Use from request, not from SBOM record
-			"pod_namespace":   podNamespace,  // Use from request, not from SBOM record
-			"container_name":  containerName, // Use from request, not from SBOM record
-			"container_image": fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
-			"sbom_id":         sbom.ID,
-			"image_digest":    sbom.ImageDigest,
+			"type":                "sbom.created",
+			"timestamp":           time.Now().Unix(),
+			"cluster_id":          clusterID,
+			"pod_uid":             podUID,
+			"pod_name":            podName,
+			"pod_namespace":       podNamespace,
+			"container_name":      containerName,
+			"container_image":     fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
+			"sbom_id":             sbom.ID,
+			"image_digest":        sbom.ImageDigest,
+			"components_snapshot": componentsSnapshot,
 		}
 		eventJSON, err := json.Marshal(event)
 		if err != nil {

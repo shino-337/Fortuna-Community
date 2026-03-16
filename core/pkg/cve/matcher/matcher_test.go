@@ -71,11 +71,30 @@ func TestNormalizeQueryEcosystemWithOS(t *testing.T) {
 	}
 }
 
+func TestNormalizeComponentNameForNVD(t *testing.T) {
+	tests := []struct{ in, want string }{
+		{"coredns", "coredns"},
+		{"coredns/coredns", "coredns"},
+		{"registry.k8s.io/coredns/coredns", "coredns"},
+		{"registry.k8s.io/coredns", "coredns"}, // no slash: use registryCanonicalName map
+		{"kube-apiserver", "kube-apiserver"},
+		{"openssl", "openssl"},
+		{"  coredns  ", "coredns"},
+	}
+	for _, tt := range tests {
+		got := normalizeComponentNameForNVD(tt.in)
+		if got != tt.want {
+			t.Errorf("normalizeComponentNameForNVD(%q) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
 func TestIsNVDFallbackWhitelisted(t *testing.T) {
 	allowed := []string{
 		"kube-apiserver", "kube-controller-manager", "kube-scheduler", "kube-proxy",
 		"coredns", "etcd", "pause", "openssl", "libc.so.6", "libssl.so.3",
 		"containerd-shim", "runc", "glibc", "libfoo.so.1",
+		"registry.k8s.io/coredns", "coredns/coredns", // normalized to coredns → whitelisted
 	}
 	for _, name := range allowed {
 		if !isNVDFallbackWhitelisted(name) {
@@ -233,7 +252,7 @@ func TestOpenSSL_Debian12_CVEResults(t *testing.T) {
 	mgr := database.NewPostgresManager(db)
 	matcher := NewMatcher(mgr, db)
 	ctx := context.Background()
-	matches, err := matcher.MatchSBOM(ctx, sbom)
+	matches, err := matcher.MatchSBOM(ctx, sbom, nil)
 	if err != nil {
 		t.Fatalf("MatchSBOM: %v", err)
 	}
@@ -303,7 +322,7 @@ func TestOpenSSL_Debian12_GenericPURL_CVEResults(t *testing.T) {
 
 	mgr := database.NewPostgresManager(db)
 	matcher := NewMatcher(mgr, db)
-	matches, err := matcher.MatchSBOM(context.Background(), sbom)
+	matches, err := matcher.MatchSBOM(context.Background(), sbom, nil)
 	if err != nil {
 		t.Fatalf("MatchSBOM: %v", err)
 	}
@@ -346,11 +365,11 @@ func TestControlPlane_KubeControllerManager_V12915(t *testing.T) {
 	}
 	if err := db.Create(&models.PackageVulnerability{
 		CVEID:                 "CVE-2024-12345",
-		Ecosystem:             "generic",
-		PackageName:           "kube-controller-manager",
-		VersionStartIncluding: "1.29.0",
-		VersionEndExcluding:   "1.29.16",
-		FixedVersion:          "1.29.16",
+		Ecosystem:             "go",
+		PackageName:           "k8s.io/kubernetes",
+		VersionStartIncluding: "v1.29.0",
+		VersionEndExcluding:   "v1.29.16",
+		FixedVersion:          "v1.29.16",
 	}).Error; err != nil {
 		t.Fatalf("create PackageVulnerability: %v", err)
 	}
@@ -378,7 +397,7 @@ func TestControlPlane_KubeControllerManager_V12915(t *testing.T) {
 
 	mgr := database.NewPostgresManager(db)
 	matcher := NewMatcher(mgr, db)
-	matches, err := matcher.MatchSBOM(context.Background(), sbom)
+	matches, err := matcher.MatchSBOM(context.Background(), sbom, nil)
 	if err != nil {
 		t.Fatalf("MatchSBOM: %v", err)
 	}
@@ -443,7 +462,7 @@ func TestControlPlane_KubeControllerManager_NVDIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
-	matches, err := matcher.MatchSBOM(ctx, sbom)
+	matches, err := matcher.MatchSBOM(ctx, sbom, nil)
 	if err != nil {
 		t.Fatalf("MatchSBOM: %v", err)
 	}

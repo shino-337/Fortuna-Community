@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database/nvd"
 	"github.com/fortuna/core/pkg/models"
 	"gorm.io/driver/postgres"
@@ -81,25 +80,28 @@ func main() {
 		logger.Printf("NVD returned %d CVEs for %s", len(cves), name)
 
 		for _, item := range cves {
+			// Map NVD CVE into normalized CVE model. We don't have full CVSS vector/version here,
+			// but we still persist score, severity, description, and references.
 			cveModel := models.CVE{
-				CVEID:      item.ID,
-				Severity:   severityFrom(item.CVSSScore),
-				CVSS:       item.CVSSScore,
-				Summary:    item.Description,
-				References: strings.Join(item.References, ","),
+				CVEID:       item.ID,
+				Severity:    severityFrom(item.CVSSScore),
+				CVSSScore:   item.CVSSScore,
+				Description: item.Description,
+				References:  models.ToJSONBString(item.References),
+				Source:      "nvd-controlplane-fetch",
 			}
 			db.Where(models.CVE{CVEID: cveModel.CVEID}).Assign(cveModel).FirstOrCreate(&cveModel)
 
+			// PackageVulnerability schema now uses version range fields instead of a single constraint.
+			// For control-plane prefetch we don't know detailed ranges, so we leave range fields empty
+			// and rely on matcher-side NVD logic when applicable.
 			pv := models.PackageVulnerability{
-				PackageName:    name,
-				PackageVersion: "", // unknown; matcher checks constraints later
-				CVEID:          item.ID,
-				Constraint:     "",
-				Ecosystem:      "generic",
-				FixedVersion:   item.FixedVersion,
-				Severity:       severityFrom(item.CVSSScore),
-				Source:         "nvd-controlplane-fetch",
-				CreatedAt:      time.Now(),
+				CVEID:       item.ID,
+				PackageName: name,
+				Ecosystem:   "generic",
+				FixedVersion: item.FixedVersion,
+				Product:      name,
+				CreatedAt:    time.Now(),
 			}
 			db.Where(models.PackageVulnerability{
 				PackageName: name,

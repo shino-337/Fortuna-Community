@@ -59,12 +59,21 @@ func DistrolessSkipBasename(base string) bool {
 }
 
 // Parse walks the virtual FS under common binary directories and creates one Package per
-// unique basename (Name, Version=unknown, Type=generic, PURL, Source=distroless-heuristic).
-// Skips os-release, build.log, and *.log so SBOM does not list those as components.
+// unique basename only when that binary is in the signature DB (control-plane allowlist).
+// This avoids emitting hundreds of OS utility binaries (setpriv, ln, mkdir, rm, ...) as SBOM
+// "junk" for non-control-plane images (e.g. agent, core). Control-plane binaries
+// (kube-apiserver, coredns, etc.) are in the signature and get one component each.
+// Skips os-release, build.log, *.log, .pl, non-lib .so, share/locale.
 func (p *DistrolessParser) Parse(fs *Filesystem) ([]Package, error) {
 	seen := make(map[string]bool)
 	packages := make([]Package, 0)
 	sig := signatures.LoadDistroless()
+
+	// Only emit components that are in the signature DB (control-plane allowlist).
+	// Without this, every file under /bin, /usr/bin would become a component (junk).
+	if sig == nil || len(sig.Binaries) == 0 {
+		return packages, nil
+	}
 
 	for _, prefix := range distrolessPrefixes {
 		for _, path := range fs.PathsUnder(prefix) {
@@ -72,24 +81,22 @@ func (p *DistrolessParser) Parse(fs *Filesystem) ([]Package, error) {
 			if distrolessSkipPath(path, base) {
 				continue
 			}
+			if _, inSig := sig.Binaries[base]; !inSig {
+				continue
+			}
 			if seen[base] {
 				continue
 			}
 			seen[base] = true
 			version := "unknown"
+			meta := sig.Binaries[base]
 			purl := "pkg:generic/" + base + "@" + version
 			confidence := "low"
-
-			// If this binary is in signature DB, use its suggested PURL/confidence.
-			if sig != nil {
-				if meta, ok := sig.Binaries[base]; ok {
-					if meta.PURL != "" {
-						purl = meta.PURL
-					}
-					if meta.Confidence != "" {
-						confidence = meta.Confidence
-					}
-				}
+			if meta.PURL != "" {
+				purl = meta.PURL
+			}
+			if meta.Confidence != "" {
+				confidence = meta.Confidence
 			}
 
 			packages = append(packages, Package{

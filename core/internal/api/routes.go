@@ -27,11 +27,12 @@ var (
 )
 
 func SetupRoutes(router *gin.Engine, db *gorm.DB, cfg *config.Config) {
-	SetupRoutesWithCertManager(router, db, cfg, nil, nil)
+	SetupRoutesWithCertManager(router, db, cfg, nil, nil, nil)
 }
 
 // SetupRoutesWithCertManager sets up routes with certificate manager and optional per-cluster rate limiter (Finding #6).
-func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter) {
+// If publishSBOMCreated is non-nil, registers POST /api/v1/internal/trigger-cve-match to re-publish sbom.created for a given sbom_id.
+func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter, publishSBOMCreated PublishSBOMCreatedFunc) {
 	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey)
 	// Phase 2.1: in-memory cache for GET /risks and GET /insights/summary (TTL 60s)
 	defaultRisksCache = NewMemoryRisksCache(60 * time.Second)
@@ -132,5 +133,10 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.GET("/resources", GetResources(db))
 		v1.GET("/notifications", GetNotifications(db))
 		v1.GET("/monitoring/agents", GetAgentStatus(db))
+
+		// Internal: re-trigger CVE matching for an existing SBOM (e.g. after restoring soft-deleted components)
+		if publishSBOMCreated != nil {
+			v1.POST("/internal/trigger-cve-match", middleware.RequireAdmin(), TriggerCVEMatch(db, publishSBOMCreated))
+		}
 	}
 }

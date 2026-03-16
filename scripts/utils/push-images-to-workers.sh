@@ -179,18 +179,18 @@ export_image() {
     # Create temp directory
     mkdir -p "$TEMP_DIR"
     
-    # Export using ctr (containerd)
+    # Export using ctr (containerd) first; then nerdctl (same namespace k8s.io)
     if ctr -n k8s.io images export "$output_file" "$image_name" 2>/dev/null; then
         log_success "Image exported: $output_file"
         return 0
-    # Fallback to nerdctl
-    elif nerdctl --namespace k8s.io save -o "$output_file" "$image_name" 2>/dev/null; then
+    fi
+    if nerdctl --namespace k8s.io save -o "$output_file" "$image_name" 2>/dev/null; then
         log_success "Image exported: $output_file"
         return 0
-    else
-        log_error "Failed to export image: $image_name"
-        return 1
     fi
+    log_error "Failed to export image: $image_name (tried ctr and nerdctl)"
+    log_info "Run on this host: ctr -n k8s.io images ls | grep fortuna  (or nerdctl -n k8s.io images | grep fortuna)"
+    return 1
 }
 
 # Build SSH target string (user@worker or worker)
@@ -359,23 +359,13 @@ clean_remote_fortuna_images() {
     fi
 }
 
-# Process single worker node
+# Process single worker node (expects core_tar and agent_tar to already exist)
 process_worker() {
     local worker=$1
+    local core_tar="$2"
+    local agent_tar="$3"
     
     log_info "Processing worker node: $worker"
-    
-    # Export Core image
-    local core_tar="$TEMP_DIR/fortuna-core.tar"
-    if ! export_image "$CORE_IMAGE" "$core_tar"; then
-        return 1
-    fi
-    
-    # Export Agent image
-    local agent_tar="$TEMP_DIR/fortuna-agent.tar"
-    if ! export_image "$AGENT_IMAGE" "$agent_tar"; then
-        return 1
-    fi
     
     # Copy Core image to worker
     local core_remote=$(copy_to_worker "$core_tar" "$worker")
@@ -442,7 +432,24 @@ main() {
     fi
     echo ""
     
-    # Process each worker node
+    # Export images ONCE on local machine (before cleaning any node).
+    # If we clean first and this host is in WORKER_NODES (e.g. master), we would delete local images and export would fail.
+    mkdir -p "$TEMP_DIR"
+    core_tar="$TEMP_DIR/fortuna-core.tar"
+    agent_tar="$TEMP_DIR/fortuna-agent.tar"
+    log_info "Exporting images once (local)..."
+    if ! export_image "$CORE_IMAGE" "$core_tar"; then
+        log_error "Export failed. Build images on this host first: ./scripts/build/build-and-load-containerd.sh"
+        exit 1
+    fi
+    if ! export_image "$AGENT_IMAGE" "$agent_tar"; then
+        log_error "Export failed. Build images on this host first: ./scripts/build/build-and-load-containerd.sh"
+        exit 1
+    fi
+    log_success "Images exported to $TEMP_DIR"
+    echo ""
+    
+    # Process each worker node (clean if requested, then copy + import)
     local success_count=0
     local total_count=0
     
@@ -451,7 +458,7 @@ main() {
         if [ "$CLEAN_REMOTE_IMAGES" = "true" ]; then
             clean_remote_fortuna_images "$worker"
         fi
-        if process_worker "$worker"; then
+        if process_worker "$worker" "$core_tar" "$agent_tar"; then
             success_count=$((success_count + 1))
         else
             log_error "Failed to process worker: $worker"

@@ -10,8 +10,9 @@ Kubernetes manifests for **FortunaK8s** (Core, Agent, Dashboard, infrastructure)
 
 | Item | Notes |
 |------|--------|
+| **fortuna-secrets** | Create and optionally set NVD API key: `./scripts/utils/ensure-fortuna-secrets.sh` (from repo root). Defines NVD key from `deploy/secrets.env` or env `NVD_API_KEY`. Copy `deploy/secrets.env.example` to `deploy/secrets.env`, set `NVD_API_KEY=your-key`, then run the script on each deploy/rebuild. |
 | **mTLS** | Required secrets: `fortuna-core-tls`, `fortuna-agent-tls`, `fortuna-ca-cert`, `fortuna-webhook-tls`. Create with: `NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh` (from repo root). Certificates are written to `.certs/` (gitignored), then created in the cluster. Both Helm and kubectl need this step first. |
-| **Order** | CNI (Flannel) → StorageClass (`local-path`) → PostgreSQL + NATS → mTLS secrets → RBAC → control-plane label → Core → Agent → Dashboard. Wrong order can leave pods Pending or ContainerCreating. |
+| **Order** | CNI (Flannel) → StorageClass (`local-path`) → PostgreSQL + NATS → mTLS secrets → **fortuna-secrets** → RBAC → control-plane label → Core → Agent → Dashboard. Wrong order can leave pods Pending or ContainerCreating. |
 | **Namespace** | Default `fortuna`. If you use another namespace, update all manifests or use Helm with `-n <ns>` and `namespaceOverride`. |
 | **PostgreSQL / NATS** | Must run in the same namespace (or set Core `DATABASE_URL` / `NATS_ENDPOINT` accordingly). The Helm chart does **not** deploy infra; run `kubectl apply -f deploy/infrastructure/...` first. |
 
@@ -24,7 +25,7 @@ Kubernetes manifests for **FortunaK8s** (Core, Agent, Dashboard, infrastructure)
 | **Dashboard** | Service type **LoadBalancer**; change to NodePort/ClusterIP or use Ingress as needed. Apply ConfigMap `fortuna-dashboard-nginx` **before** the Dashboard deployment (proxies `/api` to Core). |
 | **Images** | Dev/local: `imagePullPolicy: Never` and build on node (nerdctl/containerd). Production: use a versioned tag (e.g. `v1.0.0`), `IfNotPresent` or `Always`, and a registry. Multi-node: use `./scripts/utils/push-images-to-workers.sh` or a registry. |
 | **Auth** | Default admin `admin` / `admin123` in manifests. **Production:** change password and/or use a Secret (e.g. `fortuna-secrets` with `jwt-secret`, `admin-password`); Core supports `secretKeyRef` for JWT. |
-| **NVD API key** | Optional. Core uses NVD API as CVE fallback; without key, rate limit is low (429 possible). Set in Secret `fortuna-secrets` key `nvd-api-key`, or env `NVD_API_KEY`. Example: `kubectl patch secret fortuna-secrets -n fortuna -p '{"stringData":{"nvd-api-key":"YOUR_NVD_KEY"}}'` then rollout restart Core. |
+| **NVD API key** | Optional. Define in `deploy/secrets.env` (see `deploy/secrets.env.example`) and run `./scripts/utils/ensure-fortuna-secrets.sh` before/after deploy so `fortuna-secrets` gets `nvd-api-key`. Or one-off: `NVD_API_KEY=your-key ./scripts/utils/ensure-fortuna-secrets.sh`. Restart Core after changing the secret. |
 
 ### After deploy
 
@@ -45,7 +46,8 @@ deploy/
 ├── dashboard-deployment.yaml        # Dashboard: Deployment + Service (LoadBalancer)
 ├── dashboard-nginx-configmap.yaml   # Nginx config (proxy /api → Core)
 ├── fortuna-rbac.yaml                # RBAC: ServiceAccount, ClusterRole, ClusterRoleBinding (core + agent)
-├── core-secrets.yaml                # Secrets template (JWT, DB…)
+├── core-secrets.yaml                # Base fortuna-secrets (JWT, DB). NVD key added by ensure-fortuna-secrets.sh.
+├── secrets.env.example              # Copy to secrets.env (gitignored), set NVD_API_KEY for deploy/rebuild.
 ├── webhook-config.yaml              # Admission webhook (MutatingWebhookConfiguration)
 ├── webhook-service.yaml             # Webhook Service (optional)
 ├── certs/                            # mTLS (Certificate / cert-manager)

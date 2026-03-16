@@ -84,11 +84,26 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		return nil // Don't retry deleted SBOMs
 	}
 
+	// P1-5: when event carries component snapshot, use it to avoid soft-delete race; else load from DB
+	var componentsOverride []*models.SBOMComponent
+	if len(ev.ComponentsSnapshot) > 0 {
+		for i := range ev.ComponentsSnapshot {
+			s := &ev.ComponentsSnapshot[i]
+			componentsOverride = append(componentsOverride, &models.SBOMComponent{
+				SBOMID:           sbomModel.ID,
+				ComponentName:    s.Name,
+				ComponentVersion: s.Version,
+				PURL:             s.PURL,
+			})
+		}
+	}
 	// Match CVEs using postgres-backed manager (cves + package_vulnerabilities)
-	matches, err := w.matcher.MatchSBOM(ctx, &sbomModel)
+	startMatch := time.Now()
+	matches, err := w.matcher.MatchSBOM(ctx, &sbomModel, componentsOverride)
 	if err != nil {
 		return fmt.Errorf("match sbom id=%d: %w", sbomModel.ID, err)
 	}
+	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
 	if len(matches) == 0 {
 		return nil
 	}
@@ -96,6 +111,14 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	// Persist matches to cve_matches with dedup
 	if err := w.persistMatches(ctx, matches); err != nil {
 		return err
+	}
+	// Observability: count matches by severity (FORTUNA_CVE_MATCHING_ENGINE §13)
+	for _, m := range matches {
+		sev := strings.TrimSpace(strings.ToUpper(m.Severity))
+		if sev == "" {
+			sev = "UNKNOWN"
+		}
+		metrics.CVEMatchesTotal.WithLabelValues(sev).Inc()
 	}
 
 	// Create insights (critical/high only)

@@ -38,19 +38,20 @@ func NewExtractor() *Extractor {
 	if cacheDir == "0" || cacheDir == "disabled" || cacheDir == "off" {
 		cacheDir = ""
 	}
-	return &Extractor{
-		parsers: map[string]Parser{
-			"dpkg":      NewDpkgParser(),
-			"apk":       NewApkParser(),
-			"rpm":       NewRpmParser(),
-			"npm":       NewNpmParser(),
-			"pip":       NewPipParser(),
-			"gomod":     NewGoModParser(),
-			"distroless": NewDistrolessParser(), // Finding #8.2 / C1: walk /bin, /usr/bin, /usr/lib
-		},
-		logger: logger,
-		cache:  NewDiskCache(cacheDir, logger),
-	}
+		return &Extractor{
+			parsers: map[string]Parser{
+				"dpkg":       NewDpkgParser(),
+				"apk":        NewApkParser(),
+				"rpm":        NewRpmParser(),
+				"npm":        NewNpmParser(),
+				"pip":        NewPipParser(),
+				"gomod":      NewGoModParser(),
+				"gobinary":   NewGoBinaryParser(),
+				"distroless": NewDistrolessParser(), // Finding #8.2 / C1: walk /bin, /usr/bin, /usr/lib
+			},
+			logger: logger,
+			cache:  NewDiskCache(cacheDir, logger),
+		}
 }
 
 // ExtractSBOM extracts SBOM from a container image
@@ -248,10 +249,11 @@ func (e *Extractor) ResolveDigest(ctx context.Context, imageRef string) (string,
 // 1. Try containerd first (Kubernetes default runtime; fast, no rate limits)
 // 2. Fall back to remote registry if not found or content missing locally
 //
-// Containerd can fail with "content digest ... not found" when the image
-// metadata exists but layer blobs are missing on this node (e.g. agent runs
-// on a different node, or content was GC'd). Set SBOM_PREFER_REGISTRY=1 to
-// skip containerd and always use the registry.
+// Lỗi "content digest sha256:xxx: not found": metadata image có trong containerd (ImageService.Get
+// thành công) nhưng một hoặc nhiều layer blob thiếu trong ContentStore trên node này (vd. image
+// chưa pull đủ, content bị GC, hoặc pod chạy node khác nên node này chỉ có reference). Agent sẽ
+// tự fallback sang registry và vẫn extract SBOM bình thường. Để bỏ qua containerd hoàn toàn:
+// SBOM_PREFER_REGISTRY=1.
 func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image, error) {
 	useRegistry := os.Getenv("SBOM_PREFER_REGISTRY") == "1" || os.Getenv("SBOM_PREFER_REGISTRY") == "true"
 
@@ -259,8 +261,8 @@ func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image,
 		if img, err := e.getImageFromContainerd(ctx, ref); err == nil {
 			return img, nil
 		} else {
-			e.logger.Printf("⚠️  Containerd fetch failed (image/layer may be missing on this node): %v", err)
-			e.logger.Printf("🔍 Falling back to remote registry: %s", ref.Name())
+			e.logger.Printf("[INFO] Local containerd miss (layer/content not on this node): %v", err)
+			e.logger.Printf("[INFO] Falling back to registry: %s", ref.Name())
 		}
 	} else {
 		e.logger.Printf("Using remote registry (SBOM_PREFER_REGISTRY): %s", ref.Name())
@@ -490,13 +492,13 @@ func (e *Extractor) selectParsersForOS(osName string) []string {
 		osParsers = append(osParsers, "rpm")
 	}
 
-	// Language package managers (run for all OS types)
-	languageParsers := []string{"npm", "pip", "gomod"}
+	// Language package managers + Go binary analyzer (run for all OS types)
+	languageParsers := []string{"npm", "pip", "gomod", "gobinary"}
 
 	// If OS is unknown/distroless or no OS parsers matched, try all parsers + distroless (C1)
 	if len(osParsers) == 0 || osLower == "unknown" || osLower == "distroless" {
-		e.logger.Printf("   OS '%s', trying all parsers including distroless", osName)
-		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod", "distroless"}
+		e.logger.Printf("   OS '%s', trying all parsers including distroless and gobinary", osName)
+		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod", "gobinary", "distroless"}
 	}
 
 	// Combine OS parsers + language parsers; for debian/ubuntu also add distroless so

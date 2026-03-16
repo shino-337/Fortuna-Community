@@ -1,0 +1,29 @@
+components:
+  kube-apiserver:
+    ecosystem: go
+    module_prefix: k8s.io/kubernetes
+
+  kube-controller-manager:
+    ecosystem: go
+    module_prefix: k8s.io/kubernetes
+
+  kube-scheduler:
+    ecosystem: go
+    module_prefix: k8s.io/kubernetes
+
+  kube-proxy:
+    ecosystem: go
+    module_prefix: k8s.io/kubernetes
+
+  kubelet:
+    ecosystem: go
+    module_prefix: k8s.io/kubernetes
+
+  coredns:
+    ecosystem: go
+    module_prefix: github.com/coredns/coredns
+
+  etcd:
+    ecosystem: go
+    module_prefix: go.etcd.io/etcd
+

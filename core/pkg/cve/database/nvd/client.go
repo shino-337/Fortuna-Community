@@ -62,31 +62,40 @@ func (c *Client) Query(
 	if err != nil {
 		return nil, fmt.Errorf("failed to call NVD API: %w", err)
 	}
-	defer resp.Body.Close()
+	// defer close after 429 handling so the final resp body is closed (avoid leak on retry)
+	defer func() { _ = resp.Body.Close() }()
 
-	// 429 Too Many Requests: respect Retry-After and retry once
+	// 429 Too Many Requests: Retry-After then retry; if still 429, exponential backoff (P2-4) to avoid redelivery spam
 	if resp.StatusCode == http.StatusTooManyRequests {
 		_ = resp.Body.Close()
-		retryAfter := 30 * time.Second
+		backoffs := []time.Duration{30 * time.Second, 60 * time.Second, 120 * time.Second} // max 3 extra retries
 		if s := resp.Header.Get("Retry-After"); s != "" {
 			if sec, err := strconv.Atoi(s); err == nil && sec > 0 && sec <= 120 {
-				retryAfter = time.Duration(sec) * time.Second
+				backoffs[0] = time.Duration(sec) * time.Second
 			}
 		}
-		c.logger.Printf("NVD API rate limit (429); waiting %v before retry (hint: NVD_API_KEY increases limit)", retryAfter)
-		select {
-		case <-ctx.Done():
-			return nil, fmt.Errorf("NVD API rate limit (429): %w", ctx.Err())
-		case <-time.After(retryAfter):
-			// Retry once (new request; GET has no body so req is reusable)
+		for attempt, retryAfter := range backoffs {
+			c.logger.Printf("NVD API rate limit (429); waiting %v before retry (attempt %d/%d)", retryAfter, attempt+1, len(backoffs))
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("NVD API rate limit (429): %w", ctx.Err())
+			case <-time.After(retryAfter):
+			}
 			resp2, err2 := c.client.Do(req)
 			if err2 != nil {
 				return nil, fmt.Errorf("NVD API rate limit (429), retry failed: %w", err2)
 			}
 			resp = resp2
-			if resp.StatusCode != http.StatusOK {
+			if resp.StatusCode == http.StatusOK {
+				break
+			}
+			if resp.StatusCode != http.StatusTooManyRequests {
 				defer resp.Body.Close()
-				return nil, fmt.Errorf("NVD API returned status %d (after 429 retry); set NVD_API_KEY for higher rate limit", resp.StatusCode)
+				return nil, fmt.Errorf("NVD API returned status %d", resp.StatusCode)
+			}
+			_ = resp.Body.Close()
+			if attempt == len(backoffs)-1 {
+				return nil, fmt.Errorf("NVD API rate limit (429) after %d retries; set NVD_API_KEY for higher limit", len(backoffs))
 			}
 		}
 	} else if resp.StatusCode != http.StatusOK {

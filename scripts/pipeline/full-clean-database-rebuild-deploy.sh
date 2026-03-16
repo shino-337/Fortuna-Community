@@ -147,7 +147,10 @@ if [ "$SKIP_CLEAN" = false ]; then
     nerdctl --namespace "$CONTAINERD_NS" rmi --force "$img" 2>/dev/null || true
   done
   # Remove any remaining fortuna images by image ID (handles old/dangling refs)
-  nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep -E 'fortuna-(core|agent|dashboard)' | awk '{print $3}' | sort -u | while read -r id; do
+  # Use a list to avoid pipeline exit 1 when grep finds nothing (set -o pipefail would exit script)
+  fortuna_ids=""
+  fortuna_ids=$(nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep -E 'fortuna-(core|agent|dashboard)' | awk '{print $3}' | sort -u) || true
+  for id in $fortuna_ids; do
     [ -n "$id" ] && [ "$id" != "ID" ] && nerdctl --namespace "$CONTAINERD_NS" rmi --force "$id" 2>/dev/null || true
   done
   log_info "Pruning containerd system and build cache..."
@@ -367,6 +370,7 @@ log_success "Full clean / rebuild / deploy finished."
 echo "=========================================="
 echo "  Verify: kubectl get pods -n $NAMESPACE"
 echo "  Rollout status: ./scripts/pipeline/verify-rollout.sh   (or: kubectl rollout status deployment/fortuna-core deployment/fortuna-dashboard daemonset/fortuna-agent -n $NAMESPACE)"
+echo "  Rebuild/deploy status (image ID vs local): ./scripts/verify/verify-core-agent-rebuild-deploy-status.sh"
 echo "  Core API: kubectl port-forward -n $NAMESPACE svc/fortuna-core 8080:8080"
 echo "  Dashboard: kubectl port-forward -n $NAMESPACE svc/fortuna-dashboard 8081:80"
 echo "  Agents: wait 1–2 min; GET /api/v1/agents/status"

@@ -562,7 +562,7 @@ func main() {
 	if natsClient != nil {
 		api.SetPodDetailDedupChecker(natsClient)
 	}
-	api.SetupRoutesWithCertManager(router, db, cfg, certManager, clusterLimiter)
+	api.SetupRoutesWithCertManager(router, db, cfg, certManager, clusterLimiter, nil)
 
 	// Phase 2.7: Dedicated HTTPS server for admission webhook
 	log.Printf("[Main] ========================================")

@@ -54,7 +54,8 @@ type VulnerabilityDTO struct {
 	ExploitKnown    bool    `json:"exploitKnown,omitempty"`   // public exploit available
 	ExploitMaturity string  `json:"exploitMaturity,omitempty"` // poc | functional | high
 	Allowed         bool    `json:"allowed,omitempty"`        // allowed by policy
-	Source          string  `json:"source,omitempty"`         // nvd-fallback | fortuna-core-cve-matcher (OSV)
+	Source          string  `json:"source,omitempty"`         // nvd | fortuna-core-cve-matcher (OSV)
+	Confidence      string  `json:"confidence,omitempty"`     // P1-3: high (OSV) | low (nvd-fallback)
 }
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
@@ -315,6 +316,10 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 				if source == "nvd-fallback" {
 					source = "nvd"
 				}
+				confidence := "high" // OSV/package_vulnerabilities
+				if match.MatchedBy == "nvd-fallback" {
+					confidence = "low"
+				}
 				compDTO.Vulnerabilities = append(compDTO.Vulnerabilities, VulnerabilityDTO{
 					ID:              match.CVEID,
 					Severity:        sev,
@@ -326,6 +331,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					ExploitMaturity: exploitMaturity,
 					Allowed:         false,
 					Source:          source,
+					Confidence:      confidence,
 				})
 			}
 			compDTO.MaxSeverity = maxSev

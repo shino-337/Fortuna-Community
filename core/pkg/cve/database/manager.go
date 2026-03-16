@@ -11,53 +11,19 @@ import (
 
 	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database/nvd"
-	"github.com/fortuna/core/pkg/cve/database/trivy"
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
 	"gorm.io/gorm"
 )
 
-// Manager manages CVE database access (Trivy DB + NVD API)
-// NOTE: Trivy DB is used as a DATA SOURCE only (read-only BoltDB file).
-// We do NOT use Trivy tool/server - this is zero-dependency design.
+// Manager manages CVE database access: Postgres (OSV / package_vulnerabilities) + optional NVD API fallback for heuristic SBOM.
+// Luồng SBOM hiện tại chỉ dùng Postgres + NVD; không dùng Trivy.
 type Manager struct {
 	postgresDB *gorm.DB
-	source     string // postgres | trivy | nvd
-	trivyDB *trivy.Reader
-	nvdAPI  *nvd.Client
-	cache   *CVECache
-	logger  *log.Logger
-}
-
-// NewManager creates a new CVE database manager
-func NewManager(trivyDBPath string) (*Manager, error) {
-	source := os.Getenv("FORTUNA_CVE_SOURCE")
-	if source == "" {
-		source = "postgres" // default to postgres (OSV JSON loaded into DB)
-	}
-
-	// Initialize Trivy DB reader (just data, not code!)
-	trivyReader, err := trivy.NewReader(trivyDBPath)
-	if err != nil {
-		log.Printf("⚠️  Failed to open Trivy DB: %v (will use NVD API only)", err)
-		trivyReader = nil
-	}
-
-	// Initialize NVD API client (fallback); NVD_API_KEY env increases rate limit
-	nvdClient := nvd.NewClient()
-	if key := strings.TrimSpace(os.Getenv("NVD_API_KEY")); key != "" {
-		nvdClient.SetAPIKey(key)
-	}
-
-	// Initialize cache
-	cache := NewCVECache()
-
-	return &Manager{
-		source:  source,
-		trivyDB: trivyReader,
-		nvdAPI:  nvdClient,
-		cache:   cache,
-		logger:  log.New(log.Writer(), "[CVEDatabaseManager] ", log.LstdFlags),
-	}, nil
+	source     string // "postgres" (OSV in DB)
+	nvdAPI     *nvd.Client
+	cache      *CVECache
+	logger     *log.Logger
 }
 
 // NewPostgresManager creates a manager that queries PostgreSQL tables
@@ -136,6 +102,7 @@ func (m *Manager) GetVulnerabilitiesForPackageWithOptions(
 
 		// NVD fallback for heuristic SBOMs when OSV/postgres has no match (Finding #8.4)
 		if len(cves) == 0 && tryNVDFallback && m.nvdAPI != nil {
+			metrics.NVDQueriesTotal.Inc()
 			m.logger.Printf("🔄 Postgres returned 0 CVEs for %s:%s@%s, trying NVD API (heuristic SBOM)...", ecosystem, name, version)
 			cves, err = m.nvdAPI.Query(ctx, ecosystem, name, version)
 			if err != nil {
@@ -150,32 +117,8 @@ func (m *Manager) GetVulnerabilitiesForPackageWithOptions(
 		return cves, nil
 	}
 
-	// 2. Query Trivy DB (primary source)
-	var cves []*cve.CVE
-	var err error
-
-	if m.trivyDB != nil {
-		cves, err = m.trivyDB.Query(ctx, ecosystem, name, version)
-		if err != nil {
-			m.logger.Printf("⚠️  Trivy DB query failed: %v", err)
-		}
-	}
-
-	// 3. Fallback to NVD API if Trivy DB has no data
-	if len(cves) == 0 {
-		m.logger.Printf("🔄 Trivy DB returned no results, trying NVD API...")
-		cves, err = m.nvdAPI.Query(ctx, ecosystem, name, version)
-		if err != nil {
-			m.logger.Printf("⚠️  NVD API query failed: %v", err)
-			return nil, err
-		}
-	}
-
-	// 4. Cache result
-	m.cache.Set(cacheKey, cves)
-
-	m.logger.Printf("✅ Found %d CVEs for %s:%s@%s", len(cves), ecosystem, name, version)
-	return cves, nil
+	// Chỉ hỗ trợ postgres (OSV) + NVD fallback; không còn nhánh Trivy.
+	return nil, fmt.Errorf("CVE source must be postgres (OSV); use NewPostgresManagerWithNVD for SBOM flow")
 }
 
 // GetVulnerabilitiesForPackages gets CVEs for multiple packages in bulk (OPTIMIZATION)
@@ -186,17 +129,7 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 	packages []string, // Package names only
 ) (map[string][]*cve.CVE, error) {
 	if m.source != "postgres" || m.postgresDB == nil {
-		// Fallback to individual queries for non-postgres sources
-		result := make(map[string][]*cve.CVE)
-		for _, pkg := range packages {
-			cves, err := m.GetVulnerabilitiesForPackage(ctx, ecosystem, pkg, "")
-			if err != nil {
-				m.logger.Printf("⚠️  Failed to query CVEs for %s: %v", pkg, err)
-				continue
-			}
-			result[pkg] = cves
-		}
-		return result, nil
+		return nil, fmt.Errorf("postgres required for bulk CVE query (SBOM flow)")
 	}
 
 	// Check cache first
@@ -395,37 +328,50 @@ func (m *Manager) EnsureCVEExists(ctx context.Context, cveData *cve.CVE) error {
 	return m.postgresDB.WithContext(ctx).Where("cve_id = ?", cveData.ID).FirstOrCreate(&row).Error
 }
 
-// UpdateDatabase updates the CVE database
+// UpdateDatabase updates the CVE database (e.g. OSV loader refresh).
 func (m *Manager) UpdateDatabase(ctx context.Context) error {
-	// This would be called by a CronJob to update Trivy DB
-	// For now, just log
 	m.logger.Printf("Database update requested (not implemented yet)")
 	return nil
 }
 
-// CVECache provides in-memory caching for CVE queries
+// cveCacheEntry holds cached CVEs and expiry time (P1-2: fix cache TTL bug)
+type cveCacheEntry struct {
+	cves     []*cve.CVE
+	expiresAt time.Time
+}
+
+// CVECache provides in-memory caching for CVE queries with TTL (P1-2: Get() checks expiry)
 type CVECache struct {
-	cache map[string][]*cve.CVE
+	cache map[string]cveCacheEntry
 	ttl   time.Duration
 }
 
-// NewCVECache creates a new CVE cache
+// NewCVECache creates a new CVE cache (TTL 1h; NVD result stale if longer)
 func NewCVECache() *CVECache {
 	return &CVECache{
-		cache: make(map[string][]*cve.CVE),
-		ttl:   1 * time.Hour, // 1 hour TTL
+		cache: make(map[string]cveCacheEntry),
+		ttl:   1 * time.Hour,
 	}
 }
 
-// Get retrieves from cache
+// Get retrieves from cache; returns false if missing or expired (entry removed)
 func (c *CVECache) Get(key string) ([]*cve.CVE, bool) {
-	// For simplicity, no TTL checking (can be enhanced)
-	val, ok := c.cache[key]
-	return val, ok
+	entry, ok := c.cache[key]
+	if !ok {
+		return nil, false
+	}
+	if time.Now().After(entry.expiresAt) {
+		delete(c.cache, key)
+		return nil, false
+	}
+	return entry.cves, true
 }
 
-// Set stores in cache
+// Set stores in cache with TTL from now
 func (c *CVECache) Set(key string, cves []*cve.CVE) {
-	c.cache[key] = cves
+	c.cache[key] = cveCacheEntry{
+		cves:     cves,
+		expiresAt: time.Now().Add(c.ttl),
+	}
 }
 
