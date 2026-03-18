@@ -686,3 +686,16 @@ func TestPURLParser_GolangAlias(t *testing.T) {
 		t.Fatalf("version=%q, want v1.2.3", p.Version)
 	}
 }
+
+func TestMatcher_FullModulePathPreserved(t *testing.T) {
+	p, err := ParsePURL("pkg:go/github.com/a/b/c/d@v1.0.0")
+	if err != nil {
+		t.Fatalf("ParsePURL: %v", err)
+	}
+	if p.Ecosystem != "go" {
+		t.Fatalf("ecosystem=%q, want go", p.Ecosystem)
+	}
+	if p.Name != "github.com/a/b/c/d" {
+		t.Fatalf("name=%q, want github.com/a/b/c/d", p.Name)
+	}
+}

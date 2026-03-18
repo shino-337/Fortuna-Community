@@ -23,6 +23,7 @@ import (
 	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/repository"
 	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -123,7 +124,14 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	seenPURL := make(map[string]bool)
 	var components []*models.SBOMComponent
 	for _, pkg := range req.Packages {
+		// Trust boundary: prefer agent-provided PURL, but sanitize malformed input (best-effort).
 		purl := pkg.GetPurl()
+		if purl != "" {
+			if _, err := matcher.ParsePURL(purl); err != nil {
+				log.Printf("[SBOM] WARNING: invalid package PURL %q (name=%q type=%v): %v; regenerating", purl, pkg.Name, pkg.Type, err)
+				purl = ""
+			}
+		}
 		if purl == "" {
 			ecosystem := purlEcosystem(pkg.Type)
 			purl = fmt.Sprintf("pkg:%s/%s@%s", ecosystem, pkg.Name, pkg.Version)
