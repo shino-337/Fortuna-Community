@@ -105,6 +105,7 @@ func Migration020_AddOSVMirrorTables(db *gorm.DB) error {
 	// Add useful indexes if not already created by GORM.
 	if err := db.Exec(`
 CREATE INDEX IF NOT EXISTS idx_osv_packages_ecosystem_package ON osv_packages (ecosystem, package_name);
+CREATE INDEX IF NOT EXISTS idx_osv_packages_ecosystem_package_vuln ON osv_packages (ecosystem, package_name, vuln_id);
 CREATE INDEX IF NOT EXISTS idx_osv_packages_vuln ON osv_packages (vuln_id);
 CREATE INDEX IF NOT EXISTS idx_osv_ranges_package_id ON osv_ranges (package_id);
 `).Error; err != nil {
@@ -895,5 +896,55 @@ func Migration022_AddCVEColumnsToInsights(db *gorm.DB) error {
 	log.Println("[Migration 022] ========================================")
 	log.Println("[Migration 022] CVE columns migration completed")
 	log.Println("[Migration 022] ========================================")
+	return nil
+}
+
+// Migration080_AddGoModuleAlias creates go_module_alias for Go module rename resolution (alias → canonical).
+// Reduces CVE misses when SBOM uses old path (e.g. github.com/coreos/etcd) and OSV uses canonical (go.etcd.io/etcd).
+func Migration080_AddGoModuleAlias(db *gorm.DB) error {
+	log.Println("Running migration 080: Add go_module_alias table")
+	if err := db.AutoMigrate(&models.GoModuleAlias{}); err != nil {
+		return err
+	}
+	// Seed known official renames (idempotent: insert only if alias not exists)
+	aliases := []struct{ Alias, Canonical string }{
+		{"github.com/coreos/etcd", "go.etcd.io/etcd"},
+		{"google.golang.org/grpc", "github.com/grpc/grpc-go"},
+	}
+	for _, a := range aliases {
+		var count int64
+		if err := db.Model(&models.GoModuleAlias{}).Where("alias = ?", a.Alias).Count(&count).Error; err != nil {
+			log.Printf("Warning: go_module_alias count check: %v", err)
+			continue
+		}
+		if count == 0 {
+			if err := db.Create(&models.GoModuleAlias{Alias: a.Alias, Canonical: a.Canonical}).Error; err != nil {
+				log.Printf("Warning: go_module_alias seed %q -> %q: %v", a.Alias, a.Canonical, err)
+			}
+		}
+	}
+	log.Println("Migration 080 completed: go_module_alias ready")
+	return nil
+}
+
+// Migration081_AddMirrorState creates mirror_state (name, version, updated_at) for cache epoch.
+// Matcher cache key includes this version so that when mirror sync runs and bumps version, cache misses automatically.
+func Migration081_AddMirrorState(db *gorm.DB) error {
+	log.Println("Running migration 081: Add mirror_state table")
+	if err := db.AutoMigrate(&models.MirrorState{}); err != nil {
+		return err
+	}
+	// Seed osv row if missing
+	var count int64
+	if err := db.Model(&models.MirrorState{}).Where("name = ?", "osv").Count(&count).Error; err != nil {
+		log.Printf("Warning: mirror_state count: %v", err)
+		return nil
+	}
+	if count == 0 {
+		if err := db.Create(&models.MirrorState{Name: "osv", Version: 1}).Error; err != nil {
+			log.Printf("Warning: mirror_state seed osv: %v", err)
+		}
+	}
+	log.Println("Migration 081 completed: mirror_state ready")
 	return nil
 }

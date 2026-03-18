@@ -65,13 +65,13 @@ CVE matching được thực hiện theo **priority pipeline** (thiết kế m�
 
 ```
 1. Package Manager Matching   ← Đã có (Postgres / package_vulnerabilities)
-2. Binary Dependency Matching ← Chưa có
+2. Binary Dependency Matching ← Go: đã có (GoBinaryParser, buildinfo, OSV mirror)
 3. Image Metadata Matching    ← Metadata dùng ở Agent khi tạo SBOM; Core không bước riêng
-4. Kubernetes Component Matching ← Chưa có (xem §7)
+4. Kubernetes Component Matching ← Component → module mapping (k8s_component_map), không bảng riêng (xem §7)
 5. Heuristic / NVD Fallback   ← Đã có (whitelist + NVD API)
 ```
 
-**Hiện tại:** Worker chạy (1) bulk Package/OSV, sau đó (5) NVD fallback cho SBOM heuristic với component trong whitelist. Chi tiết đối chiếu: Phụ lục A.
+**Hiện tại:** Worker chạy (1) bulk Package/OSV — với ecosystem Go: **Go module matcher** (prefix + alias resolver) + **Go stdlib matcher** — sau đó (5) NVD fallback cho SBOM heuristic với component trong whitelist. Chi tiết đối chiếu: Phụ lục A.
 
 ---
 
@@ -226,13 +226,13 @@ Sau đó query CVE.
 
 ---
 
-# 7. Kubernetes Component Matching (chưa triển khai bảng)
+# 7. Kubernetes Component Matching (component → module mapping)
 
-Áp dụng cho control plane (thiết kế).
+Áp dụng cho control plane.
 
 Components phổ biến: kube-apiserver, kube-controller-manager, kube-scheduler, etcd, CoreDNS.
 
-**Hiện trạng:** Bảng `kubernetes_component_vulnerabilities` **chưa có** trong migrations. Control-plane được hỗ trợ qua **whitelist** (coredns, etcd, kube-*, …) và **NVD fallback** (§8). Có thể bổ sung bảng và matcher riêng sau (xem Phụ lục A, P2-2).
+**Hiện trạng:** Không dùng bảng `kubernetes_component_vulnerabilities`. Control-plane dùng **component → module mapping** (file `k8s_component_map.yaml`): ví dụ `kube-apiserver` → `k8s.io/kubernetes`, version lấy từ SBOM; matcher query OSV Go mirror với module prefix đó. Fallback: whitelist + NVD (§8) khi không có mapping.
 
 ---
 
@@ -321,18 +321,17 @@ WHERE ecosystem = ?
 AND package_name IN (...)
 ```
 
-## NVD caching
+## CVE cache (OSV / NVD)
 
 Cache key:
 
-```
-component + version
-```
+- **OSV mirror (Go):** `ecosystem:package:mirror_version` (mirror_state.version); khi mirror sync xong gọi `UpdateDatabase` → tăng version → cache miss tự động.
+- **Khác / single query:** `ecosystem:package:version` hoặc `ecosystem:package:*` (bulk).
 
 TTL:
 
 ```
-24 hours
+30 phút (entry hết hạn thì Get() xóa và trả miss).
 ```
 
 ## Worker parallelism
@@ -456,7 +455,7 @@ Mỗi đề xuất trong doc được đối chiếu với code/luồng thực t
 | **8** | Heuristic/NVD: keywordSearch=name, whitelist, confidence < high, match_source=nvd-fallback. | **Đạt (code); yếu (security model)** | Về code: đúng (useNVDFallbackForHeuristic, whitelist, normalizeComponentNameForNVD, MatchedBy=nvd-fallback). **Điểm yếu:** NVD API keywordSearch=name **không có filter version range** → false positive + false negative. Roadmap cần bước **giảm phụ thuộc NVD**. |
 | **9** | Confidence model: package manager=high, …, nvd=low; dashboard hiển thị. | **Một phần** | Không có cột confidence trong DB. Có thể suy từ MatchedBy (nvd-fallback → low, fortuna-core-cve-matcher → high). API trả `source`; dashboard có thể map source → confidence. |
 | **10** | Dedup: unique (sbom_id, component_name, cve_id), ON CONFLICT DO NOTHING. | **Đạt** | `cve_matcher_worker.go` persistMatches: OnConflict{Columns: sbom_id, package_name, cve_id, DoNothing: true}. Migration 023/025/033: unique index cve_matches(sbom_id, package_name, cve_id). |
-| **11** | Batch; NVD cache 24h; Worker parallelism. | **Batch đạt; cache bug; parallelism chưa** | Batch: GetVulnerabilitiesForPackages. **Cache:** TTL 1h khai báo nhưng Get() **không kiểm tra TTL** → **bug logic:** NVD result stale, cache không expire. Worker: 1 subscriber, chưa scale. |
+| **11** | Batch; cache TTL; Worker parallelism. | **Batch + cache đạt; parallelism chưa** | Batch: GetVulnerabilitiesForPackages. **Cache:** TTL 30 phút, Get() kiểm tra expiresAt; OSV cache key gồm mirror_state.version → sync xong gọi UpdateDatabase tăng version → cache miss. Worker: 1 subscriber, chưa scale. |
 | **12** | JetStream retry; DB retry; NVD 429 backoff; SBOM corrupted. | **Một phần** | **Quan trọng:** JetStream redelivery **không thay thế** retry logic bên trong worker. Nếu NVD rate limit → không Ack → redelivery = **spam NVD** (cùng message retry liên tục). NVD 429: retry 1 lần sau Retry-After. |
 | **13** | Metrics: fortuna_cve_matches_total, latency, fortuna_nvd_queries_total. | **CVE đạt; thiếu NVD** | fortuna_cve_matches_total, fortuna_cve_matching_duration_seconds đã instrument. **Thiếu fortuna_nvd_queries_total**—rất cần vì NVD thường là **bottleneck**. |
 | **14** | Security: sanitize API response, rate limit NVD, validate SBOM, isolate worker. | **Một phần** | NVD: parse JSON có kiểm tra; không sanitize sâu. Rate limit: 429 → retry 1 lần; NVD_API_KEY tăng limit. SBOM: load components Where deleted_at IS NULL. Worker chạy trong process Core, không isolate riêng. |
@@ -522,7 +521,7 @@ Platform security không nên phụ thuộc runtime vào NVD API (rate limit, la
 ## A.4 Tóm tắt
 
 * **Đã đáp ứng tốt:** §2 architecture, §4 Package Manager (có nuance ecosystem), §8 Heuristic/NVD (code), §10 Dedup, §11 batch, §13 metrics CVE.  
-* **Đáp ứng một phần:** §1 (distroless = heuristic, chưa SBOM thực), §6 (metadata detection ≠ matching), §9 (confidence suy từ source), §11 (cache TTL bug), §12 (redelivery ≠ retry, spam NVD risk), §14.  
+* **Đáp ứng một phần:** §1 (distroless = heuristic, chưa SBOM thực), §6 (metadata detection ≠ matching), §9 (confidence suy từ source), §12 (redelivery ≠ retry, spam NVD risk), §14.  
 * **Chưa đáp ứng / Điểm yếu:** §5 Binary Dependency, §7 bảng K8s (có thể thay bằng component→module), §8 security model (NVD không filter version), A.2.1–A.2.4 (version constraint, normalization risk, SBOM immutability, NVD dependency).  
 
 Kế hoạch: P0 (chuẩn hóa doc) → P1 (metric NVD, cache TTL, confidence API, P1-4 normalization, P1-5 component snapshot) → P2 (ưu tiên: **NVD mirror** → **Binary Go** → **K8s component/module** → **worker scale** → **EPSS/KEV**).

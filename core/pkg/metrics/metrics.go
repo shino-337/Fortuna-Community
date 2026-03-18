@@ -159,6 +159,23 @@ var (
 		},
 	)
 
+	// OSV mirror metrics (Go ecosystem SBOM matching)
+	OSVMirrorQueriesTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_osv_mirror_queries_total",
+			Help: "Total number of OSV mirror bulk queries (by ecosystem)",
+		},
+		[]string{"ecosystem"},
+	)
+
+	OSVMirrorCacheHitsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_osv_mirror_cache_hits_total",
+			Help: "Total number of CVE cache hits for OSV mirror-backed lookups (by ecosystem)",
+		},
+		[]string{"ecosystem"},
+	)
+
 	// Insight metrics
 	InsightsCreatedTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	debversion "github.com/knqyf263/go-deb-version"
+	rpmversion "github.com/knqyf263/go-rpm-version"
 	"github.com/hashicorp/go-version"
 )
 
@@ -127,17 +128,47 @@ func (vc *VersionComparator) compareDebianVersion(
 // Removed: dpkgCompareVersions, splitDebianVersion, compareDebianVersionPart
 // These functions are no longer needed as we use go-deb-version library per ADR-001
 
-// compareRPMVersion compares RPM package versions
-// Format: [epoch:]version-release
-// Example: 1:1.1.1k-5.el8
+// compareRPMVersion compares RPM package versions using go-rpm-version (rpmvercmp logic).
+// Format: [epoch:]version-release, e.g. 1:1.1.1k-5.el8
 func (vc *VersionComparator) compareRPMVersion(
 	installed string,
 	constraint string,
 ) (bool, error) {
-	// Similar to Debian but simpler
-	// For now, use semantic versioning as fallback
-	// TODO: Implement full RPM version comparison
-	return vc.compareSemver(installed, constraint)
+	v1 := rpmversion.NewVersion(installed)
+
+	// Multi-part constraints: ">= 1.0, < 2.0"
+	parts := strings.Split(constraint, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		op, targetStr := vc.parseConstraint(part)
+		if targetStr == "" {
+			return false, nil
+		}
+		v2 := rpmversion.NewVersion(targetStr)
+
+		ok := false
+		switch op {
+		case "<":
+			ok = v1.LessThan(v2)
+		case "<=":
+			ok = v1.LessThan(v2) || v1.Equal(v2)
+		case ">":
+			ok = v1.GreaterThan(v2)
+		case ">=":
+			ok = v1.GreaterThan(v2) || v1.Equal(v2)
+		case "==":
+			ok = v1.Equal(v2)
+		default:
+			return false, fmt.Errorf("unknown operator: %s", op)
+		}
+		if !ok {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 // compareAlpineVersion compares Alpine package versions

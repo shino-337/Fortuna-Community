@@ -18,6 +18,8 @@ type Matcher struct {
 	comparator  *VersionComparator
 	db          *gorm.DB
 	logger      *log.Logger
+	// cache for OSV mirror lookups: module -> vulnerabilities
+	osvCache map[string][]models.OSVVulnerability
 }
 
 // NewMatcher creates a new CVE matcher
@@ -30,6 +32,7 @@ func NewMatcher(
 		comparator: NewVersionComparator(),
 		db:         db,
 		logger:     log.New(log.Writer(), "[CVEMatcher] ", log.LstdFlags),
+		osvCache:   make(map[string][]models.OSVVulnerability),
 	}
 }
 
@@ -40,6 +43,13 @@ func (m *Matcher) MatchSBOM(
 	sbom *models.SBOM,
 	componentsOverride []*models.SBOMComponent,
 ) ([]*models.CVEMatch, error) {
+	// SBOM lifecycle: only match finalized SBOMs to avoid races with mutable components.
+	status := strings.ToLower(strings.TrimSpace(sbom.Status))
+	if status != "" && status != "finalized" {
+		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q (only finalized SBOMs are matched)", sbom.ID, sbom.Status)
+		return nil, nil
+	}
+
 	m.logger.Printf("Matching CVEs for SBOM ID %d (%d packages)", sbom.ID, sbom.PackageCount)
 
 	var components []models.SBOMComponent
@@ -61,11 +71,16 @@ func (m *Matcher) MatchSBOM(
 	matches := make([]*models.CVEMatch, 0)
 
 	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk.
-	// Additionally, for Kubernetes control-plane components (kube-apiserver, coredns, etcd, …),
-	// use component → module prefix mapping (P2-2) to query OSV Go instead of NVD keyword heuristic.
+	// For Go: use prefix list + alias resolution (go_module_alias) so renames (e.g. coreos/etcd → go.etcd.io/etcd) still match.
 	ecosystemPackages := make(map[string][]string)
 	componentsByName := make(map[string]*models.SBOMComponent)
 	purlsByName := make(map[string]*PURL)
+	// Go-only: resolved module name -> list of (component, purl) to run version check for
+	goResolvedToPairs := make(map[string][]struct {
+		component *models.SBOMComponent
+		purl      *PURL
+	})
+	goResolvedNamesSet := make(map[string]struct{})
 
 	// Optional: load K8s component → module prefix map once per MatchSBOM invocation.
 	k8sMap, k8sMapErr := cve.LoadK8sComponentMap()
@@ -115,10 +130,83 @@ func (m *Matcher) MatchSBOM(
 			}
 		}
 
+		// For Go: use prefix list + alias resolution so OSV mirror lookup matches renames (e.g. github.com/coreos/etcd → go.etcd.io/etcd).
+		if queryEcosystem == "go" {
+			modulePath := strings.TrimSpace(purl.Name)
+			prefixes := normalizeGoModulePrefixes(modulePath)
+			for _, p := range prefixes {
+				candidates := m.dbManager.ResolveGoModuleAliasCandidates(ctx, p)
+				if len(candidates) == 0 {
+					candidates = []string{p}
+				}
+				for _, resolved := range candidates {
+					goResolvedNamesSet[resolved] = struct{}{}
+					goResolvedToPairs[resolved] = append(goResolvedToPairs[resolved], struct {
+						component *models.SBOMComponent
+						purl      *PURL
+					}{component, purl})
+				}
+			}
+			continue
+		}
+
 		// Group by ecosystem using the (possibly remapped) name.
 		ecosystemPackages[queryEcosystem] = append(ecosystemPackages[queryEcosystem], componentKey)
 		componentsByName[componentKey] = component
 		purlsByName[componentKey] = purl
+	}
+
+	// 2a. Go: bulk query by resolved names (prefix + alias), then run version check per (component, purl)
+	if len(goResolvedNamesSet) > 0 {
+		allResolved := make([]string, 0, len(goResolvedNamesSet))
+		for n := range goResolvedNamesSet {
+			allResolved = append(allResolved, n)
+		}
+		m.logger.Printf("Bulk querying Go CVEs for %d resolved module names (prefix+alias)", len(allResolved))
+		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, "go", allResolved)
+		if err != nil {
+			m.logger.Printf("⚠️  Failed to bulk query Go CVEs: %v", err)
+		} else {
+			seenMatch := make(map[string]map[string]bool) // componentDedupKey -> CVEID -> true
+			for resolvedName, cves := range packageCVEs {
+				pairs := goResolvedToPairs[resolvedName]
+				for _, pair := range pairs {
+					comp := pair.component
+					purl := pair.purl
+					dedupKey := comp.PURL + "|" + comp.ComponentVersion + "|" + comp.ComponentName
+					if seenMatch[dedupKey] == nil {
+						seenMatch[dedupKey] = make(map[string]bool)
+					}
+					for _, cveData := range cves {
+						if seenMatch[dedupKey][cveData.ID] {
+							continue
+						}
+						vulnerable, err := m.comparator.IsVulnerable(comp.ComponentVersion, cveData.Constraint, purl.Ecosystem)
+						if err != nil {
+							continue
+						}
+						if !vulnerable {
+							continue
+						}
+						seenMatch[dedupKey][cveData.ID] = true
+						matches = append(matches, &models.CVEMatch{
+							SBOMID:         sbom.ID,
+							PodUID:         sbom.PodUID,
+							ContainerName:  sbom.ContainerName,
+							CVEID:          cveData.ID,
+							PackageName:    comp.ComponentName,
+							PackageVersion: comp.ComponentVersion,
+							PURL:           comp.PURL,
+							Severity:       strings.ToUpper(cveData.Severity),
+							CVSS:           float32(cveData.CVSSScore),
+							FixedVersion:   cveData.FixedVersion,
+							MatchedBy:      "fortuna-core-cve-matcher",
+							MatchedAt:      comp.CreatedAt,
+						})
+					}
+				}
+			}
+		}
 	}
 
 	// 2. Bulk query CVEs for all packages per ecosystem
@@ -246,7 +334,61 @@ func (m *Matcher) MatchSBOM(
 	}
 
 	m.logger.Printf("✅ Found %d CVE matches for SBOM ID %d", len(matches), sbom.ID)
+
+	// Go stdlib matcher (P2-x): match vulnerabilities based on sbom.GoVersion and OSV mirror stdlib entries.
+	m.matchGoStdlib(ctx, sbom, &matches)
+
 	return matches, nil
+}
+
+// normalizeGoModulePrefixes returns candidate Go module prefixes for a given module path.
+// Example: "k8s.io/kubernetes/cmd/kube-apiserver" ->
+// ["k8s.io/kubernetes/cmd/kube-apiserver", "k8s.io/kubernetes/cmd", "k8s.io/kubernetes"].
+// It stops when there are fewer than 3 segments (github.com/org/repo) to avoid matching non-modules (e.g. "k8s.io").
+func normalizeGoModulePrefixes(path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return []string{path}
+	}
+
+	// Minimum module depth varies by host:
+	// - github.com/org/repo (3 segments) is the common minimum for VCS hosts
+	// - k8s.io/kubernetes (2 segments) is a real Go module used by OSV
+	minParts := 2
+	host := strings.ToLower(parts[0])
+	switch host {
+	case "github.com", "gitlab.com", "bitbucket.org":
+		minParts = 3
+	}
+
+	out := make([]string, 0, len(parts))
+	for i := len(parts); i >= minParts; i-- {
+		prefix := strings.Join(parts[:i], "/")
+		out = append(out, prefix)
+
+		// Preserve major version modules like /v4: stop after emitting ".../v4".
+		if i >= minParts && isGoMajorVersionSegment(parts[i-1]) {
+			break
+		}
+	}
+	return out
+}
+
+func isGoMajorVersionSegment(seg string) bool {
+	seg = strings.TrimSpace(seg)
+	if len(seg) < 2 || seg[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(seg); i++ {
+		if seg[i] < '0' || seg[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // useNVDFallbackForHeuristic returns true when SBOM is from distroless/heuristic and
@@ -275,14 +417,17 @@ func isDistrolessHeuristicJunk(c *models.SBOMComponent) bool {
 	return !isNVDFallbackWhitelisted(c.ComponentName)
 }
 
-// registryCanonicalName maps known registry-style names (no slash) to canonical name for whitelist/NVD.
+// registryCanonicalName maps known registry-style names to canonical product/component name for whitelist/NVD.
 // e.g. "registry.k8s.io/coredns" → "coredns" (per SBOM_Flow_distroless_Remediation §4).
 var registryCanonicalName = map[string]string{
 	"registry.k8s.io/coredns": "coredns",
+	"registry.k8s.io/etcd":    "etcd",
 }
 
 // normalizeComponentNameForNVD normalizes component name for whitelist check and NVD keyword search.
 // e.g. "registry.k8s.io/coredns/coredns" → "coredns", "coredns/coredns" → "coredns" (per SBOM_Flow_distroless_Remediation §4).
+// It also normalizes some known control-plane aliases (e.g. "kubernetes-apiserver" → "kube-apiserver")
+// so that CPE product matching can rely on canonical names.
 func normalizeComponentNameForNVD(name string) string {
 	n := strings.TrimSpace(name)
 	if n == "" {
@@ -290,6 +435,15 @@ func normalizeComponentNameForNVD(name string) string {
 	}
 	if idx := strings.LastIndex(n, "/"); idx >= 0 && idx < len(n)-1 {
 		n = strings.TrimSpace(n[idx+1:])
+	}
+	// Normalize known control-plane aliases to canonical component names
+	switch strings.ToLower(n) {
+	case "kubernetes-apiserver", "k8s-apiserver", "apiserver":
+		return "kube-apiserver"
+	case "kubernetes-controller-manager", "k8s-controller-manager":
+		return "kube-controller-manager"
+	case "kubernetes-scheduler", "k8s-scheduler":
+		return "kube-scheduler"
 	}
 	if canonical, ok := registryCanonicalName[n]; ok {
 		return canonical

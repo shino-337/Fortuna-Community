@@ -137,6 +137,11 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		sbom.ID = existingSBOM.ID
 		sbom.UseCount = existingSBOM.UseCount + 1
 		sbom.LastUsedAt = time.Now()
+		nextVersion := existingSBOM.Version
+		if nextVersion <= 0 {
+			nextVersion = 1
+		}
+		nextVersion++
 		if err := tx.Model(&existingSBOM).Updates(map[string]interface{}{
 			"image_name":     sbom.ImageName,
 			"image_tag":      sbom.ImageTag,
@@ -150,6 +155,8 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			"use_count":      sbom.UseCount,
 			"sbom_source":    sbom.SbomSource,
 			"confidence":     sbom.Confidence,
+			"status":         "finalized",
+			"version":        nextVersion,
 		}).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[SBOM] Failed to update existing SBOM: %v", err)
@@ -164,7 +171,13 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			return nil, status.Errorf(codes.Internal, "failed to update components: %v", err)
 		}
 	} else if err == gorm.ErrRecordNotFound {
-		// New pod - create new SBOM row (one row per pod)
+		// New pod - create new SBOM row (one row per pod); mark as finalized v1
+		if sbom.Status == "" {
+			sbom.Status = "finalized"
+		}
+		if sbom.Version == 0 {
+			sbom.Version = 1
+		}
 		if err := tx.Create(sbom).Error; err != nil {
 			tx.Rollback()
 			log.Printf("[SBOM] Failed to insert SBOM: %v", err)

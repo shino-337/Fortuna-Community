@@ -13,6 +13,7 @@ import (
 	"github.com/fortuna/core/pkg/cve/database/nvd"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/mirror/osv"
 	"gorm.io/gorm"
 )
 
@@ -62,6 +63,29 @@ func NewNVDClientForManager() *nvd.Client {
 // QueryOptions optionally influence CVE lookup (e.g. NVD fallback for heuristic SBOMs).
 type QueryOptions struct {
 	TryNVDFallback bool // When true and postgres returns 0, try NVD API (Finding #8.4 / DISTROLESS_SBOM_SPEC).
+}
+
+type osvMirrorRow struct {
+	VulnID       string
+	Summary      string
+	Details      string
+	Severity     string
+	CVSSScore    float64
+	Aliases      string
+	PackageName  string
+	RangeType    string
+	Introduced   string
+	Fixed        string
+	LastAffected string
+}
+
+// GetGoStdlibVulns returns CVEs for Go stdlib based on OSV mirror (package_name = "stdlib").
+func (m *Manager) GetGoStdlibVulns(ctx context.Context) ([]*cve.CVE, error) {
+	pkgMap, err := m.GetVulnerabilitiesForPackages(ctx, "go", []string{"stdlib"})
+	if err != nil {
+		return nil, err
+	}
+	return pkgMap["stdlib"], nil
 }
 
 // GetVulnerabilitiesForPackage gets CVEs for a package (no options).
@@ -121,8 +145,66 @@ func (m *Manager) GetVulnerabilitiesForPackageWithOptions(
 	return nil, fmt.Errorf("CVE source must be postgres (OSV); use NewPostgresManagerWithNVD for SBOM flow")
 }
 
+// GetVulnsByPackageFromOSVMirror returns OSV-based vulnerabilities for a given ecosystem/package
+// using osv_vulnerabilities + osv_packages + osv_ranges mirror tables (P2-7, Go ecosystem first).
+// Version filtering is NOT applied here; caller (matcher) must apply semver logic using VersionComparator.
+func (m *Manager) GetVulnsByPackageFromOSVMirror(
+	ctx context.Context,
+	ecosystem string,
+	packageName string,
+) ([]models.OSVVulnerability, []models.OSVRange, error) {
+	if m.postgresDB == nil {
+		return nil, nil, fmt.Errorf("postgres required for OSV mirror queries")
+	}
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+	pkg := strings.TrimSpace(packageName)
+	if eco == "" || pkg == "" {
+		return nil, nil, nil
+	}
+
+	var vulns []models.OSVVulnerability
+	var ranges []models.OSVRange
+
+	// Join osv_packages -> osv_vulnerabilities to get vuln metadata.
+	if err := m.postgresDB.WithContext(ctx).
+		Joins("JOIN osv_packages p ON p.vuln_id = osv_vulnerabilities.id").
+		Where("p.ecosystem = ? AND p.package_name = ?", eco, pkg).
+		Find(&vulns).Error; err != nil {
+		return nil, nil, fmt.Errorf("query OSV mirror vulnerabilities: %w", err)
+	}
+
+	if len(vulns) == 0 {
+		return nil, nil, nil
+	}
+
+	// Fetch all ranges for these packages.
+	var pkgs []models.OSVPackage
+	if err := m.postgresDB.WithContext(ctx).
+		Where("ecosystem = ? AND package_name = ?", eco, pkg).
+		Find(&pkgs).Error; err != nil {
+		return nil, nil, fmt.Errorf("query OSV mirror packages: %w", err)
+	}
+	if len(pkgs) == 0 {
+		return vulns, nil, nil
+	}
+
+	pkgIDs := make([]uint, 0, len(pkgs))
+	for _, p := range pkgs {
+		pkgIDs = append(pkgIDs, p.ID)
+	}
+
+	if err := m.postgresDB.WithContext(ctx).
+		Where("package_id IN ?", pkgIDs).
+		Find(&ranges).Error; err != nil {
+		return nil, nil, fmt.Errorf("query OSV mirror ranges: %w", err)
+	}
+
+	return vulns, ranges, nil
+}
+
 // GetVulnerabilitiesForPackages gets CVEs for multiple packages in bulk (OPTIMIZATION)
-// Returns a map of package name -> CVEs
+// Returns a map of package name -> CVEs.
+// Cache key includes mirror_state version when using OSV mirror so that sync bumps version → cache miss automatically.
 func (m *Manager) GetVulnerabilitiesForPackages(
 	ctx context.Context,
 	ecosystem string,
@@ -132,14 +214,24 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 		return nil, fmt.Errorf("postgres required for bulk CVE query (SBOM flow)")
 	}
 
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+	useOSVMirror := eco == "go" && m.hasOSVMirrorTables()
+	cacheSuffix := "*"
+	if useOSVMirror {
+		if ver := m.getMirrorVersion(ctx, "osv"); ver != "" {
+			cacheSuffix = ver
+		}
+	}
+
 	// Check cache first
 	result := make(map[string][]*cve.CVE)
 	uncachedPackages := make([]string, 0, len(packages))
 
 	for _, pkg := range packages {
-		cacheKey := fmt.Sprintf("%s:%s:*", ecosystem, pkg)
+		cacheKey := fmt.Sprintf("%s:%s:%s", ecosystem, pkg, cacheSuffix)
 		if cached, ok := m.cache.Get(cacheKey); ok {
 			result[pkg] = cached
+			metrics.OSVMirrorCacheHitsTotal.WithLabelValues(eco).Inc()
 		} else {
 			uncachedPackages = append(uncachedPackages, pkg)
 		}
@@ -151,7 +243,26 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 	}
 
 	// Bulk query PostgreSQL for uncached packages
-	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+
+	// P2-7: OSV mirror for Go ecosystem (preferred for go modules) when tables exist.
+	if useOSVMirror {
+		metrics.OSVMirrorQueriesTotal.WithLabelValues(eco).Inc()
+		packageCVEs, err := m.queryOSVMirrorBulk(ctx, eco, uncachedPackages)
+		if err != nil {
+			return nil, err
+		}
+		for _, pkg := range uncachedPackages {
+			cves := packageCVEs[pkg]
+			if cves == nil {
+				cves = []*cve.CVE{}
+			}
+			cacheKey := fmt.Sprintf("%s:%s:%s", ecosystem, pkg, cacheSuffix)
+			m.cache.Set(cacheKey, cves)
+			result[pkg] = cves
+		}
+		m.logger.Printf("✅ Bulk query returned CVEs for %d packages (OSV mirror go)", len(packages))
+		return result, nil
+	}
 
 	var rows []models.PackageVulnerability
 	if err := m.postgresDB.WithContext(ctx).
@@ -204,7 +315,7 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 		packageCVEs[pv.PackageName] = append(packageCVEs[pv.PackageName], cveObj)
 	}
 
-	// Cache and add to result
+	// Cache and add to result (non-OSV path: cache suffix "*")
 	for _, pkg := range uncachedPackages {
 		cves := packageCVEs[pkg]
 		if cves == nil {
@@ -220,6 +331,171 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 		len(packages), len(uncachedPackages), len(packages)-len(uncachedPackages))
 
 	return result, nil
+}
+
+func (m *Manager) hasOSVMirrorTables() bool {
+	if m.postgresDB == nil {
+		return false
+	}
+	// Works for Postgres and sqlite test DBs.
+	return m.postgresDB.Migrator().HasTable("osv_vulnerabilities") &&
+		m.postgresDB.Migrator().HasTable("osv_packages") &&
+		m.postgresDB.Migrator().HasTable("osv_ranges")
+}
+
+// ResolveGoModuleAlias returns the canonical Go module path for OSV lookup (exact match only).
+// If name is in go_module_alias (e.g. github.com/coreos/etcd), returns canonical (e.g. go.etcd.io/etcd); otherwise returns name unchanged.
+func (m *Manager) ResolveGoModuleAlias(ctx context.Context, name string) string {
+	candidates := m.ResolveGoModuleAliasCandidates(ctx, name)
+	if len(candidates) == 0 {
+		return name
+	}
+	// Prefer exact canonical; otherwise first candidate (canonical base)
+	return candidates[0]
+}
+
+// ResolveGoModuleAliasCandidates returns all names to try for OSV lookup: exact match canonical + prefix-match canonicals.
+// E.g. github.com/coreos/etcd/client/v3 with alias github.com/coreos/etcd -> go.etcd.io/etcd yields [go.etcd.io/etcd, go.etcd.io/etcd/client/v3]
+// so that OSV mirror (which may list only go.etcd.io/etcd) is queried correctly.
+func (m *Manager) ResolveGoModuleAliasCandidates(ctx context.Context, name string) []string {
+	name = strings.TrimSpace(name)
+	if name == "" || m.postgresDB == nil {
+		return nil
+	}
+	if !m.postgresDB.Migrator().HasTable("go_module_alias") {
+		return nil
+	}
+	var rows []models.GoModuleAlias
+	if err := m.postgresDB.WithContext(ctx).Find(&rows).Error; err != nil {
+		return nil
+	}
+	// Exact match
+	for _, r := range rows {
+		if r.Alias == name && r.Canonical != "" {
+			return []string{r.Canonical}
+		}
+	}
+	// Prefix match: alias is a prefix of name -> add canonical and canonical+suffix
+	var out []string
+	for _, r := range rows {
+		if r.Alias == "" || r.Canonical == "" {
+			continue
+		}
+		if name == r.Alias || strings.HasPrefix(name, r.Alias+"/") {
+			suffix := strings.TrimPrefix(name, r.Alias)
+			out = append(out, r.Canonical, r.Canonical+suffix)
+			break // longest match first would require sort; one alias match is enough for etcd
+		}
+	}
+	return out
+}
+
+func (m *Manager) queryOSVMirrorBulk(ctx context.Context, ecosystem string, packages []string) (map[string][]*cve.CVE, error) {
+	if m.postgresDB == nil {
+		return nil, fmt.Errorf("postgres required for OSV mirror bulk query")
+	}
+	if !m.hasOSVMirrorTables() {
+		out := make(map[string][]*cve.CVE, len(packages))
+		for _, pkg := range packages {
+			out[pkg] = []*cve.CVE{}
+		}
+		return out, nil
+	}
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+	if eco == "" || len(packages) == 0 {
+		return map[string][]*cve.CVE{}, nil
+	}
+	var rows []osvMirrorRow
+	// Single join query then group in Go (production-friendly).
+	if err := m.postgresDB.WithContext(ctx).Raw(`
+SELECT
+  v.id AS vuln_id,
+  v.summary,
+  v.details,
+  v.severity,
+  v.cvss_score,
+  v.aliases,
+  p.package_name,
+  r.range_type,
+  r.introduced,
+  r.fixed,
+  r.last_affected
+FROM osv_packages p
+JOIN osv_vulnerabilities v ON v.id = p.vuln_id
+JOIN osv_ranges r ON r.package_id = p.id
+WHERE p.ecosystem = ? AND p.package_name IN ?
+`, eco, packages).Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("OSV mirror bulk join query: %w", err)
+	}
+
+	out := make(map[string][]*cve.CVE)
+	for _, row := range rows {
+		if row.VulnID == "" || row.PackageName == "" {
+			continue
+		}
+		if strings.ToUpper(strings.TrimSpace(row.RangeType)) != "SEMVER" {
+			continue
+		}
+		introduced := strings.TrimSpace(row.Introduced)
+		if introduced == "0" {
+			introduced = ""
+		}
+		fixed := strings.TrimSpace(row.Fixed)
+		lastAffected := strings.TrimSpace(row.LastAffected)
+
+		constraint := ""
+		if introduced != "" {
+			constraint = ">=" + introduced
+		}
+		if fixed != "" {
+			if constraint != "" {
+				constraint += ", "
+			}
+			constraint += "<" + fixed
+		} else if lastAffected != "" {
+			if constraint != "" {
+				constraint += ", "
+			}
+			constraint += "<=" + lastAffected
+		}
+
+		cveObj := &cve.CVE{
+			ID:           row.VulnID,
+			Description:  row.Details,
+			Severity:     row.Severity,
+			CVSSScore:    row.CVSSScore,
+			CVSSVector:   "",
+			Constraint:   constraint,
+			FixedVersion: fixed,
+			Published:    time.Time{},
+			Modified:     time.Time{},
+			References:   nil,
+		}
+
+		// OSV ↔ NVD correlation: if OSV has CVE alias, enrich from NVD-backed cves table
+		if strings.TrimSpace(row.Aliases) != "" {
+			var aliases []string
+			if err := json.Unmarshal([]byte(row.Aliases), &aliases); err == nil {
+				for _, a := range aliases {
+					a = strings.TrimSpace(a)
+					if strings.HasPrefix(strings.ToUpper(a), "CVE-") {
+						m.enrichCVEFromNVDByCVEID(ctx, a, cveObj)
+						break
+					}
+				}
+			}
+		}
+
+		out[row.PackageName] = append(out[row.PackageName], cveObj)
+	}
+
+	// Ensure all packages are present in map
+	for _, pkg := range packages {
+		if _, ok := out[pkg]; !ok {
+			out[pkg] = []*cve.CVE{}
+		}
+	}
+	return out, nil
 }
 
 func (m *Manager) queryPostgres(ctx context.Context, ecosystem, name string) ([]*cve.CVE, error) {
@@ -302,6 +578,69 @@ func buildConstraintFromPV(pv models.PackageVulnerability) string {
 	return strings.Join(parts, ", ")
 }
 
+// EnrichCVEFromNVD looks up NVD-backed CVE details for a given OSV vulnerability ID and
+// merges severity/CVSS/metadata into the in-memory CVE object used by the matcher.
+// It uses OSVVulnerability.Aliases (JSON) to find a CVE-* alias, then loads from cves table.
+func (m *Manager) EnrichCVEFromNVD(ctx context.Context, osvID string, cveOut *cve.CVE) {
+	if cveOut == nil || m.postgresDB == nil || strings.TrimSpace(osvID) == "" {
+		return
+	}
+	if !m.hasOSVMirrorTables() {
+		return
+	}
+
+	var osv models.OSVVulnerability
+	if err := m.postgresDB.WithContext(ctx).Where("id = ?", osvID).First(&osv).Error; err != nil {
+		return
+	}
+	if strings.TrimSpace(osv.Aliases) == "" {
+		return
+	}
+
+	var aliases []string
+	if err := json.Unmarshal([]byte(osv.Aliases), &aliases); err != nil {
+		return
+	}
+	for _, a := range aliases {
+		a = strings.TrimSpace(a)
+		if strings.HasPrefix(strings.ToUpper(a), "CVE-") {
+			m.enrichCVEFromNVDByCVEID(ctx, a, cveOut)
+			return
+		}
+	}
+}
+
+// enrichCVEFromNVDByCVEID merges details from cves table into cveOut when present.
+func (m *Manager) enrichCVEFromNVDByCVEID(ctx context.Context, cveID string, cveOut *cve.CVE) {
+	if cveOut == nil || m.postgresDB == nil || strings.TrimSpace(cveID) == "" {
+		return
+	}
+	var dbCVE models.CVE
+	if err := m.postgresDB.WithContext(ctx).
+		Where("cve_id = ? AND deleted_at IS NULL", cveID).
+		First(&dbCVE).Error; err != nil {
+		return
+	}
+
+	cveOut.Severity = dbCVE.Severity
+	cveOut.CVSSScore = dbCVE.CVSSScore
+	cveOut.CVSSVector = dbCVE.CVSSVector
+	if dbCVE.PublishedDate != nil {
+		cveOut.Published = *dbCVE.PublishedDate
+	}
+	if dbCVE.LastModifiedDate != nil {
+		cveOut.Modified = *dbCVE.LastModifiedDate
+	}
+
+	// References (JSONB in cves → []string)
+	if strings.TrimSpace(dbCVE.References) != "" {
+		var refs []string
+		if err := json.Unmarshal([]byte(dbCVE.References), &refs); err == nil {
+			cveOut.References = refs
+		}
+	}
+}
+
 // EnsureCVEExists upserts a CVE into the cves table so that CVEMatch can reference it
 // (e.g. when CVE comes from NVD fallback and is not yet in DB). Idempotent: if CVEID
 // already exists (e.g. from OSV), the record is left unchanged.
@@ -328,9 +667,63 @@ func (m *Manager) EnsureCVEExists(ctx context.Context, cveData *cve.CVE) error {
 	return m.postgresDB.WithContext(ctx).Where("cve_id = ?", cveData.ID).FirstOrCreate(&row).Error
 }
 
-// UpdateDatabase updates the CVE database (e.g. OSV loader refresh).
+// getMirrorVersion returns the mirror_state version for name (e.g. "osv") for cache key.
+// Returns "" if table/row missing so cache key falls back to "*" (no version).
+func (m *Manager) getMirrorVersion(ctx context.Context, name string) string {
+	if m.postgresDB == nil || strings.TrimSpace(name) == "" {
+		return ""
+	}
+	if !m.postgresDB.Migrator().HasTable("mirror_state") {
+		return ""
+	}
+	var row models.MirrorState
+	if err := m.postgresDB.WithContext(ctx).Where("name = ?", name).First(&row).Error; err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%d", row.Version)
+}
+
+// IncrementMirrorVersion bumps mirror_state.version for name so cache keys that include it miss (invalidate on sync).
+func (m *Manager) IncrementMirrorVersion(ctx context.Context, name string) error {
+	if m.postgresDB == nil || strings.TrimSpace(name) == "" {
+		return fmt.Errorf("db or name required")
+	}
+	if !m.postgresDB.Migrator().HasTable("mirror_state") {
+		return fmt.Errorf("mirror_state table missing")
+	}
+	// Upsert: create with version=1 if not exists, else increment
+	var row models.MirrorState
+	err := m.postgresDB.WithContext(ctx).Where("name = ?", name).First(&row).Error
+	if err != nil {
+		// Create new row with version 1
+		return m.postgresDB.WithContext(ctx).Create(&models.MirrorState{Name: name, Version: 1}).Error
+	}
+	row.Version++
+	return m.postgresDB.WithContext(ctx).Save(&row).Error
+}
+
+// UpdateDatabase runs OSV mirror sync (if configured), then bumps mirror_state version so cache invalidates.
+// Call after external OSV sync or when FORTUNA_OSV_SOURCE_DIR is set (loads JSON from that dir).
 func (m *Manager) UpdateDatabase(ctx context.Context) error {
-	m.logger.Printf("Database update requested (not implemented yet)")
+	if m.postgresDB == nil {
+		return fmt.Errorf("postgres required for UpdateDatabase")
+	}
+	// Optional: sync OSV from directory (env FORTUNA_OSV_SOURCE_DIR)
+	if dir := strings.TrimSpace(os.Getenv("FORTUNA_OSV_SOURCE_DIR")); dir != "" {
+		n, err := osv.LoadFromDir(ctx, m.postgresDB, dir)
+		if err != nil {
+			m.logger.Printf("⚠️  OSV sync from %q: %v", dir, err)
+			// Continue to bump version so any partial load still invalidates cache
+		} else {
+			m.logger.Printf("✅ OSV sync: ingested %d documents from %q", n, dir)
+		}
+	}
+	// Sync alias table: seed is idempotent in migration; no-op here or re-apply if we add file-based alias load later.
+	// Bump mirror version so matcher cache (key includes version) misses and uses fresh data.
+	if err := m.IncrementMirrorVersion(ctx, "osv"); err != nil {
+		return fmt.Errorf("increment mirror version: %w", err)
+	}
+	m.logger.Printf("✅ UpdateDatabase: mirror_state osv version incremented")
 	return nil
 }
 
@@ -346,11 +739,11 @@ type CVECache struct {
 	ttl   time.Duration
 }
 
-// NewCVECache creates a new CVE cache (TTL 1h; NVD result stale if longer)
+// NewCVECache creates a new CVE cache (TTL 30m; OSV/NVD data refreshed by periodic mirror sync).
 func NewCVECache() *CVECache {
 	return &CVECache{
 		cache: make(map[string]cveCacheEntry),
-		ttl:   1 * time.Hour,
+		ttl:   30 * time.Minute,
 	}
 }
 

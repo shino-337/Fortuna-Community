@@ -20,6 +20,7 @@ type SBOM struct {
 	OSName         string            `gorm:"type:varchar(100)" json:"osName"`
 	OSVersion      string            `gorm:"type:varchar(100)" json:"osVersion"`
 	OSArchitecture string            `gorm:"type:varchar(50)" json:"osArchitecture"`
+	GoVersion      string            `gorm:"type:varchar(50)" json:"goVersion"` // buildinfo.GoVersion for Go stdlib CVE matcher
 	PackageCount   int               `gorm:"default:0" json:"packageCount"`
 	SBOMFormat     string            `gorm:"type:varchar(50);default:'fortuna-agent'" json:"sbomFormat"`
 	SBOMContent    string            `gorm:"type:jsonb" json:"sbomContent"` // Optional JSON content
@@ -32,6 +33,8 @@ type SBOM struct {
 	UseCount       int               `gorm:"default:1" json:"useCount"`
 	SbomSource     string            `gorm:"type:varchar(64)" json:"sbomSource"`     // Finding #8.4: parsers | distroless-heuristic | label-metadata
 	Confidence     string            `gorm:"type:varchar(32)" json:"confidence"`    // Finding #8.4: low | medium | high
+	Status         string            `gorm:"type:varchar(20);default:'pending';index" json:"status"` // pending | finalized
+	Version        int               `gorm:"type:integer;default:1" json:"version"`                  // SBOM snapshot version
 	CreatedAt      time.Time         `json:"createdAt"`
 	UpdatedAt      time.Time         `json:"updatedAt"`
 	DeletedAt      gorm.DeletedAt    `gorm:"index" json:"-"`

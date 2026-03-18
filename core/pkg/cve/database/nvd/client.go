@@ -121,7 +121,9 @@ func (c *Client) Query(
 	return cves, nil
 }
 
-// convertNVDtoCVE converts NVD format to our CVE format
+// convertNVDtoCVE converts NVD format to our CVE format.
+// It also derives a best-effort version constraint from CPE matches when available
+// (versionStart/End* fields) to reduce false positives.
 func (c *Client) convertNVDtoCVE(item NVDVulnerability, ecosystem, name, version string) *cve.CVE {
 	// Extract CVSS score
 	cvssScore := 0.0
@@ -165,13 +167,16 @@ func (c *Client) convertNVDtoCVE(item NVDVulnerability, ecosystem, name, version
 	if t, ok := parseNVDTime(item.CVE.LastModifiedStr); ok {
 		modified = t
 	}
+
+	constraint := buildConstraintFromConfigurations(item, name)
+
 	return &cve.CVE{
 		ID:          item.CVE.ID,
 		Description: item.CVE.Descriptions[0].Value, // Use first description
 		Severity:    severity,
 		CVSSScore:   cvssScore,
 		CVSSVector:  cvssVector,
-		Constraint:  "", // NVD doesn't provide version constraints directly
+		Constraint:  constraint,
 		Published:   published,
 		Modified:    modified,
 		References:  references,
@@ -207,11 +212,11 @@ func parseNVDTime(s string) (t time.Time, ok bool) {
 	return time.Time{}, false
 }
 
-// NVDVulnerability represents a vulnerability in NVD format
+// NVDVulnerability represents a vulnerability in NVD format (simplified for our needs).
 type NVDVulnerability struct {
 	CVE struct {
-		ID           string `json:"id"`
-		PublishedStr  string `json:"published"`
+		ID             string `json:"id"`
+		PublishedStr   string `json:"published"`
 		LastModifiedStr string `json:"lastModified"`
 		Descriptions []struct {
 			Value string `json:"value"`
@@ -240,6 +245,78 @@ type NVDVulnerability struct {
 			URL string `json:"url"`
 		} `json:"references"`
 	} `json:"cve"`
+
+	// Configurations holds CPE matches, including versionStart/End* for deriving constraints.
+	Configurations *struct {
+		Nodes []struct {
+			CPEMatch []struct {
+				Vulnerable            bool   `json:"vulnerable"`
+				Criteria              string `json:"criteria"`
+				VersionStartIncluding string `json:"versionStartIncluding,omitempty"`
+				VersionStartExcluding string `json:"versionStartExcluding,omitempty"`
+				VersionEndIncluding   string `json:"versionEndIncluding,omitempty"`
+				VersionEndExcluding   string `json:"versionEndExcluding,omitempty"`
+			} `json:"cpeMatch"`
+		} `json:"nodes"`
+	} `json:"configurations"`
+}
+
+// buildConstraintFromConfigurations derives a simple version constraint from NVD configurations.
+// It looks for the first vulnerable CPE match whose criteria contains the component name
+// and has versionStart*/versionEnd* bounds, then converts them into our constraint syntax
+// (e.g. ">=1.2.0, <1.9.0").
+func buildConstraintFromConfigurations(item NVDVulnerability, componentName string) string {
+	if item.Configurations == nil {
+		return ""
+	}
+	name := strings.ToLower(strings.TrimSpace(componentName))
+	if name == "" {
+		return ""
+	}
+
+	var constraints []string
+
+	for _, node := range item.Configurations.Nodes {
+		for _, m := range node.CPEMatch {
+			if !m.Vulnerable {
+				continue
+			}
+			criteria := strings.ToLower(strings.TrimSpace(m.Criteria))
+			if criteria == "" {
+				continue
+			}
+			// Heuristic: only use CPEs that mention the component name.
+			if !strings.Contains(criteria, name) {
+				continue
+			}
+
+			parts := make([]string, 0, 4)
+			if m.VersionStartIncluding != "" && m.VersionStartIncluding != "0" {
+				parts = append(parts, ">="+strings.TrimSpace(m.VersionStartIncluding))
+			}
+			if m.VersionStartExcluding != "" && m.VersionStartExcluding != "0" {
+				parts = append(parts, ">"+strings.TrimSpace(m.VersionStartExcluding))
+			}
+			if m.VersionEndIncluding != "" {
+				parts = append(parts, "<="+strings.TrimSpace(m.VersionEndIncluding))
+			}
+			if m.VersionEndExcluding != "" {
+				parts = append(parts, "<"+strings.TrimSpace(m.VersionEndExcluding))
+			}
+			if len(parts) == 0 {
+				continue
+			}
+			constraints = append(constraints, strings.Join(parts, ", "))
+		}
+	}
+
+	// If multiple vulnerable CPE ranges matched this component, join them with OR semantics.
+	// Our version comparator does not understand OR directly, but returning the first is better
+	// than empty; in the future we can extend CVE model to support multiple constraints.
+	if len(constraints) == 0 {
+		return ""
+	}
+	return constraints[0]
 }
 
 

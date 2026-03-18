@@ -78,6 +78,8 @@ func TestNormalizeComponentNameForNVD(t *testing.T) {
 		{"registry.k8s.io/coredns/coredns", "coredns"},
 		{"registry.k8s.io/coredns", "coredns"}, // no slash: use registryCanonicalName map
 		{"kube-apiserver", "kube-apiserver"},
+		{"kubernetes-apiserver", "kube-apiserver"},
+		{"k8s-apiserver", "kube-apiserver"},
 		{"openssl", "openssl"},
 		{"  coredns  ", "coredns"},
 	}
@@ -233,6 +235,7 @@ func TestOpenSSL_Debian12_CVEResults(t *testing.T) {
 	sbom := &models.SBOM{
 		OSName:    "debian",
 		OSVersion: "12",
+		Status:    "finalized",
 	}
 	if err := db.Create(sbom).Error; err != nil {
 		t.Fatalf("create SBOM: %v", err)
@@ -303,7 +306,7 @@ func TestOpenSSL_Debian12_GenericPURL_CVEResults(t *testing.T) {
 		t.Fatalf("create PackageVulnerability: %v", err)
 	}
 
-	sbom := &models.SBOM{OSName: "debian", OSVersion: "12"}
+	sbom := &models.SBOM{OSName: "debian", OSVersion: "12", Status: "finalized"}
 	if err := db.Create(sbom).Error; err != nil {
 		t.Fatalf("create SBOM: %v", err)
 	}
@@ -375,10 +378,11 @@ func TestControlPlane_KubeControllerManager_V12915(t *testing.T) {
 	}
 
 	sbom := &models.SBOM{
-		OSName:      "distroless",
-		OSVersion:   "",
-		SbomSource:  "distroless-heuristic",
-		Confidence:  "medium",
+		OSName:     "distroless",
+		OSVersion:  "",
+		SbomSource: "distroless-heuristic",
+		Confidence: "medium",
+		Status:     "finalized",
 	}
 	if err := db.Create(sbom).Error; err != nil {
 		t.Fatalf("create SBOM: %v", err)
@@ -415,6 +419,175 @@ func TestControlPlane_KubeControllerManager_V12915(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected CVE-2024-12345 for kube-controller-manager@v1.29.15; got %+v", matches)
+	}
+}
+
+func TestGoStdlibMatcher_VulnerableAndPatched(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Seed OSV stdlib vuln: GO-STDLIB-TEST, introduced 0, fixed 1.18.3
+	v := models.OSVVulnerability{ID: "GO-STDLIB-TEST", Summary: "stdlib vuln", Details: "details", Severity: "HIGH", CVSSScore: 7.5}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatalf("seed vuln: %v", err)
+	}
+	p := models.OSVPackage{VulnID: "GO-STDLIB-TEST", Ecosystem: "go", PackageName: "stdlib"}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatalf("seed package: %v", err)
+	}
+	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.18.3"}
+	if err := db.Create(&r).Error; err != nil {
+		t.Fatalf("seed range: %v", err)
+	}
+
+	mgr := database.NewPostgresManager(db)
+	matcher := NewMatcher(mgr, db)
+
+	// Vulnerable GoVersion
+	sbomVuln := &models.SBOM{GoVersion: "go1.18.1", Status: "finalized"}
+	if err := db.Create(sbomVuln).Error; err != nil {
+		t.Fatalf("create sbom: %v", err)
+	}
+	matches, err := matcher.MatchSBOM(context.Background(), sbomVuln, nil)
+	if err != nil {
+		t.Fatalf("MatchSBOM (vulnerable): %v", err)
+	}
+	var found bool
+	for _, m := range matches {
+		if m.PackageName == "stdlib" && m.CVEID == "GO-STDLIB-TEST" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected GO-STDLIB-TEST match for stdlib@1.18.1, got %+v", matches)
+	}
+
+	// Patched GoVersion
+	sbomPatched := &models.SBOM{GoVersion: "go1.19.0", Status: "finalized"}
+	if err := db.Create(sbomPatched).Error; err != nil {
+		t.Fatalf("create sbom patched: %v", err)
+	}
+	matchesPatched, err := matcher.MatchSBOM(context.Background(), sbomPatched, nil)
+	if err != nil {
+		t.Fatalf("MatchSBOM (patched): %v", err)
+	}
+	for _, m := range matchesPatched {
+		if m.PackageName == "stdlib" && m.CVEID == "GO-STDLIB-TEST" {
+			t.Fatalf("did not expect GO-STDLIB-TEST for stdlib@1.19.0, got %+v", matchesPatched)
+		}
+	}
+}
+
+// TestGoModuleAlias_EtcdMatch verifies that when SBOM has github.com/coreos/etcd/client/v3 and
+// OSV mirror has vulns only for go.etcd.io/etcd, alias resolution still produces a CVE match.
+func TestGoModuleAlias_EtcdMatch(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.GoModuleAlias{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Alias: old path -> canonical (OSV uses canonical)
+	if err := db.Create(&models.GoModuleAlias{Alias: "github.com/coreos/etcd", Canonical: "go.etcd.io/etcd"}).Error; err != nil {
+		t.Fatalf("seed alias: %v", err)
+	}
+
+	// OSV vuln only for canonical go.etcd.io/etcd; version range includes v3.3.0
+	v := models.OSVVulnerability{ID: "GO-ETCD-ALIAS-TEST", Summary: "etcd vuln", Details: "details", Severity: "HIGH", CVSSScore: 8.0}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatalf("seed vuln: %v", err)
+	}
+	p := models.OSVPackage{VulnID: "GO-ETCD-ALIAS-TEST", Ecosystem: "go", PackageName: "go.etcd.io/etcd"}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatalf("seed package: %v", err)
+	}
+	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "3.3.99"}
+	if err := db.Create(&r).Error; err != nil {
+		t.Fatalf("seed range: %v", err)
+	}
+
+	sbom := &models.SBOM{Status: "finalized"}
+	if err := db.Create(sbom).Error; err != nil {
+		t.Fatalf("create SBOM: %v", err)
+	}
+	// SBOM component uses old path (alias); no k8s map, so matcher uses prefix + alias resolution
+	comp := models.SBOMComponent{
+		SBOMID:           sbom.ID,
+		ComponentName:    "github.com/coreos/etcd/client/v3",
+		ComponentVersion: "v3.3.0",
+		PURL:             "pkg:go/github.com/coreos/etcd/client/v3@v3.3.0",
+		ComponentType:    "library",
+		Source:           "go-binary",
+	}
+	if err := db.Create(&comp).Error; err != nil {
+		t.Fatalf("create SBOMComponent: %v", err)
+	}
+
+	mgr := database.NewPostgresManager(db)
+	matcher := NewMatcher(mgr, db)
+	matches, err := matcher.MatchSBOM(context.Background(), sbom, nil)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	var found bool
+	for _, m := range matches {
+		if m.PackageName == "github.com/coreos/etcd/client/v3" && m.CVEID == "GO-ETCD-ALIAS-TEST" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected GO-ETCD-ALIAS-TEST match for github.com/coreos/etcd/client/v3@v3.3.0 via alias go.etcd.io/etcd; got %+v", matches)
+	}
+}
+
+func TestNormalizeGoModulePrefixes(t *testing.T) {
+	tests := []struct {
+		in   string
+		want []string
+	}{
+		{
+			in:   "k8s.io/kubernetes/cmd/kube-apiserver",
+			want: []string{"k8s.io/kubernetes/cmd/kube-apiserver", "k8s.io/kubernetes/cmd", "k8s.io/kubernetes"},
+		},
+		{
+			in:   "github.com/labstack/echo/v4/middleware",
+			want: []string{"github.com/labstack/echo/v4/middleware", "github.com/labstack/echo/v4"},
+		},
+		{
+			in:   "github.com/org/repo",
+			want: []string{"github.com/org/repo"},
+		},
+		{
+			in:   "k8s.io",
+			want: []string{"k8s.io"},
+		},
+	}
+	for _, tt := range tests {
+		got := normalizeGoModulePrefixes(tt.in)
+		if len(got) != len(tt.want) {
+			t.Fatalf("normalizeGoModulePrefixes(%q) len=%d, want %d (%v)", tt.in, len(got), len(tt.want), got)
+		}
+		for i := range got {
+			if got[i] != tt.want[i] {
+				t.Fatalf("normalizeGoModulePrefixes(%q)[%d]=%q, want %q", tt.in, i, got[i], tt.want[i])
+			}
+		}
 	}
 }
 
@@ -472,5 +645,28 @@ func TestControlPlane_KubeControllerManager_NVDIntegration(t *testing.T) {
 	for i, m := range matches {
 		t.Logf("  [%d] CVEID=%s Package=%s@%s Severity=%s CVSS=%.1f",
 			i+1, m.CVEID, m.PackageName, m.PackageVersion, m.Severity, m.CVSS)
+	}
+}
+
+// TestCompareRPMVersion verifies RPM version comparison (go-rpm-version, epoch:version-release).
+func TestCompareRPMVersion(t *testing.T) {
+	vc := NewVersionComparator()
+
+	// Vulnerable: 1.1.1k-4.el8 < 1.1.1k-5.el8
+	vuln, err := vc.IsVulnerable("1.1.1k-4.el8", "< 1.1.1k-5.el8", "rpm")
+	if err != nil {
+		t.Fatalf("IsVulnerable rpm: %v", err)
+	}
+	if !vuln {
+		t.Error("expected 1.1.1k-4.el8 to be vulnerable to < 1.1.1k-5.el8")
+	}
+
+	// Not vulnerable: 1.1.1k-6.el8 >= 1.1.1k-5.el8
+	notVuln, err := vc.IsVulnerable("1.1.1k-6.el8", "< 1.1.1k-5.el8", "rpm")
+	if err != nil {
+		t.Fatalf("IsVulnerable rpm: %v", err)
+	}
+	if notVuln {
+		t.Error("expected 1.1.1k-6.el8 not to be vulnerable to < 1.1.1k-5.el8")
 	}
 }

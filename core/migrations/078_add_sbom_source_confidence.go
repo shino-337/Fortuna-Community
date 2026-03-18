@@ -16,9 +16,10 @@ func Migration078_AddSBOMSourceConfidence(db *gorm.DB) error {
 		return nil
 	}
 
-	var hasSource, hasConf int64
+	var hasSource, hasConf, hasStatus int64
 	_ = db.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'sboms' AND column_name = 'sbom_source'").Scan(&hasSource).Error
 	_ = db.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'sboms' AND column_name = 'confidence'").Scan(&hasConf).Error
+	_ = db.Raw("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'sboms' AND column_name = 'status'").Scan(&hasStatus).Error
 
 	if hasSource == 0 {
 		if err := db.Exec("ALTER TABLE sboms ADD COLUMN sbom_source VARCHAR(64) DEFAULT ''").Error; err != nil {
@@ -32,8 +33,20 @@ func Migration078_AddSBOMSourceConfidence(db *gorm.DB) error {
 		}
 		log.Println("[Migration 078] ✅ Added confidence column")
 	}
-	if hasSource != 0 && hasConf != 0 {
-		log.Println("[Migration 078] sbom_source and confidence already exist, skipping")
+
+	if hasStatus == 0 {
+		log.Println("[Migration 078] Adding status column to sboms (pending|finalized)")
+		if err := db.Exec("ALTER TABLE sboms ADD COLUMN status VARCHAR(20) DEFAULT 'pending'").Error; err != nil {
+			return err
+		}
+		if err := db.Exec("CREATE INDEX IF NOT EXISTS idx_sboms_status ON sboms(status)").Error; err != nil {
+			log.Printf("[Migration 078] ⚠️ Failed to create idx_sboms_status: %v", err)
+		} else {
+			log.Println("[Migration 078] ✅ Added status column and index")
+		}
+	} else {
+		log.Println("[Migration 078] status column already exists on sboms, skipping")
 	}
+
 	return nil
 }
