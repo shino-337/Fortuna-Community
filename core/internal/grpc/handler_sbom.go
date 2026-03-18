@@ -17,10 +17,11 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	pb "github.com/fortuna/api/proto/agent"
+	"github.com/fortuna/core/internal/contextkeys"
 	"github.com/fortuna/core/internal/ingest"
+	"github.com/fortuna/core/internal/repository"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/models"
 )
@@ -96,7 +97,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 
 	// Convert proto to internal model (Finding #8.4: sbom_source, confidence)
 	sbomSource, confidence := protoSBOMSourceAndConfidence(req)
-	sbom := &models.SBOM{
+	sbomModel := &models.SBOM{
 		PodUID:        req.PodUid,
 		PodName:       req.PodName,
 		Namespace:     req.Namespace,
@@ -118,79 +119,6 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		Confidence:    confidence,
 	}
 
-	// Start transaction
-	tx := s.db.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
-
-	// Upsert by pod_uid so each pod has its own SBOM row (UI shows all pods correctly).
-	// Previously we upserted by image_digest, which overwrote pod_uid and showed only one pod per image.
-	var existingSBOM models.SBOM
-	isNewSBOM := false
-	err := tx.Where("pod_uid = ? AND deleted_at IS NULL", sbom.PodUID).First(&existingSBOM).Error
-
-	if err == nil {
-		// This pod already has an SBOM row - update it (e.g. rescan or image changed)
-		sbom.ID = existingSBOM.ID
-		sbom.UseCount = existingSBOM.UseCount + 1
-		sbom.LastUsedAt = time.Now()
-		nextVersion := existingSBOM.Version
-		if nextVersion <= 0 {
-			nextVersion = 1
-		}
-		nextVersion++
-		if err := tx.Model(&existingSBOM).Updates(map[string]interface{}{
-			"image_name":     sbom.ImageName,
-			"image_tag":      sbom.ImageTag,
-			"image_digest":   sbom.ImageDigest,
-			"pod_name":       sbom.PodName,
-			"namespace":      sbom.Namespace,
-			"container_name": sbom.ContainerName,
-			"package_count":  sbom.PackageCount,
-			"generated_at":   sbom.GeneratedAt,
-			"last_used_at":   sbom.LastUsedAt,
-			"use_count":      sbom.UseCount,
-			"sbom_source":    sbom.SbomSource,
-			"confidence":     sbom.Confidence,
-			"status":         "finalized",
-			"version":        nextVersion,
-		}).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[SBOM] Failed to update existing SBOM: %v", err)
-			return nil, status.Errorf(codes.Internal, "failed to update SBOM: %v", err)
-		}
-		log.Printf("[SBOM] Updated existing SBOM id=%d for pod_uid=%s", existingSBOM.ID, sbom.PodUID)
-		isNewSBOM = false
-		// Replace components for this SBOM (delete old, insert new from request)
-		if err := tx.Where("sbom_id = ?", sbom.ID).Delete(&models.SBOMComponent{}).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[SBOM] Failed to delete old components: %v", err)
-			return nil, status.Errorf(codes.Internal, "failed to update components: %v", err)
-		}
-	} else if err == gorm.ErrRecordNotFound {
-		// New pod - create new SBOM row (one row per pod); mark as finalized v1
-		if sbom.Status == "" {
-			sbom.Status = "finalized"
-		}
-		if sbom.Version == 0 {
-			sbom.Version = 1
-		}
-		if err := tx.Create(sbom).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[SBOM] Failed to insert SBOM: %v", err)
-			return nil, status.Errorf(codes.Internal, "failed to insert SBOM: %v", err)
-		}
-		log.Printf("[SBOM] Created new SBOM id=%d for pod_uid=%s", sbom.ID, sbom.PodUID)
-		isNewSBOM = true
-	} else {
-		tx.Rollback()
-		log.Printf("[SBOM] Database error checking SBOM: %v", err)
-		return nil, status.Errorf(codes.Internal, "database error: %v", err)
-	}
-
 	// Insert SBOM components. Use agent-provided PURL when set (Finding #8.2 generic/distroless).
 	seenPURL := make(map[string]bool)
 	var components []*models.SBOMComponent
@@ -205,7 +133,6 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		}
 		seenPURL[purl] = true
 		components = append(components, &models.SBOMComponent{
-			SBOMID:           sbom.ID,
 			ComponentType:    mapComponentType(pkg.Type),
 			ComponentName:    pkg.Name,
 			ComponentVersion: pkg.Version,
@@ -217,23 +144,13 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			Maintainer:       pkg.Maintainer,
 		})
 	}
-	// Insert components in batches to avoid SLOW SQL (single huge INSERT >= 200ms)
-	const componentBatchSize = 200
-	if len(components) > 0 {
-		if err := tx.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "sbom_id"}, {Name: "purl"}},
-			DoNothing: true,
-		}).CreateInBatches(components, componentBatchSize).Error; err != nil {
-			tx.Rollback()
-			log.Printf("[SBOM] Failed to insert components: %v", err)
-			return nil, status.Errorf(codes.Internal, "failed to insert components: %v", err)
-		}
-	}
-
-	// Commit transaction
-	if err := tx.Commit().Error; err != nil {
-		log.Printf("[SBOM] Failed to commit transaction: %v", err)
-		return nil, status.Errorf(codes.Internal, "failed to commit: %v", err)
+	// Guarded SBOM write through repository with explicit mutation flag.
+	repo := repository.NewSBOMRepository(s.db)
+	ctxWithFlag := contextkeys.WithSBOMMutationAllowed(ctx)
+	persistedSBOM, isNewSBOM, err := repo.UpsertSBOMWithComponents(ctxWithFlag, sbomModel, components)
+	if err != nil {
+		log.Printf("[SBOM] Failed to upsert SBOM: %v", err)
+		return nil, status.Errorf(codes.Internal, "failed to store SBOM: %v", err)
 	}
 
 	// Publish SBOM_CREATED event to NATS (for CVE matching worker)
@@ -279,9 +196,9 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			"pod_name":            podName,
 			"pod_namespace":       podNamespace,
 			"container_name":      containerName,
-			"container_image":     fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
-			"sbom_id":             sbom.ID,
-			"image_digest":        sbom.ImageDigest,
+			"container_image":     fmt.Sprintf("%s:%s", persistedSBOM.ImageName, persistedSBOM.ImageTag),
+			"sbom_id":             persistedSBOM.ID,
+			"image_digest":        persistedSBOM.ImageDigest,
 			"components_snapshot": componentsSnapshot,
 		}
 		eventJSON, err := json.Marshal(event)
@@ -293,17 +210,17 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 				// Non-fatal, continue
 			} else {
 				log.Printf("[SBOM] correlation_id=%s published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)",
-					correlationID, sbom.ID, podUID, !isNewSBOM)
+					correlationID, persistedSBOM.ID, podUID, !isNewSBOM)
 			}
 		}
 	}
 
-	log.Printf("[SBOM] correlation_id=%s successfully stored SBOM id=%d with %d components", correlationID, sbom.ID, len(req.Packages))
+	log.Printf("[SBOM] correlation_id=%s successfully stored SBOM id=%d with %d components", correlationID, persistedSBOM.ID, len(req.Packages))
 
 	return &pb.SBOMFindingResponse{
 		Success:    true,
 		Message:    "SBOM received and stored",
-		SbomId:     fmt.Sprintf("%d", sbom.ID),
+		SbomId:     fmt.Sprintf("%d", persistedSBOM.ID),
 		ReceivedAt: timestamppb.New(time.Now()),
 	}, nil
 }

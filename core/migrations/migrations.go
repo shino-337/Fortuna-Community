@@ -103,6 +103,7 @@ var (
 	_ = Migration080_AddGoModuleAlias
 	_ = Migration081_AddMirrorState
 	_ = Migration082_AddSBOMStatusAndVersion
+	_ = Migration083_AddSBOMMatchRuns
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -204,7 +205,8 @@ func RunMigrations(db *gorm.DB) error {
 		Migration079_AddAuditTraceID,                      // Finding #5.2: trace_id on audit_logs (Agent → sync → insight)
 		Migration082_AddSBOMStatusAndVersion,              // SBOM lifecycle: status (pending/finalized) + version for immutability
 		Migration080_AddGoModuleAlias,                     // Go module alias resolver: alias → canonical (reduce CVE miss on renames)
-		Migration081_AddMirrorState,                        // mirror_state (name, version) for cache epoch; bump on sync
+		Migration081_AddMirrorState,                       // mirror_state (name, version) for cache epoch; bump on sync
+		Migration083_AddSBOMMatchRuns,                     // Idempotency: sbom_match_runs per (sbom_id, version, mirror_version)
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

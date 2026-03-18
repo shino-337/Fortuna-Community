@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/internal/repository"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/metrics"
@@ -82,6 +83,20 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		// If SBOM doesn't exist (deleted or never created), skip silently to avoid retry loops
 		w.logger.Printf("⚠️  SBOM id=%d not found (may have been deleted), skipping CVE matching", ev.SBOMID)
 		return nil // Don't retry deleted SBOMs
+	}
+
+	// Idempotency gate: only first matcher run per (sbom_id, version, mirror_version) proceeds.
+	// Temporary mirrorVersion: time-bucketed hour stamp, so matcher can re-run
+	// when mirror data changes in a later period instead of being frozen forever.
+	mirrorVersion := fmt.Sprintf("ts-%d", time.Now().Unix()/3600)
+	sbomRepo := repository.NewSBOMRepository(w.db)
+	ok, err := sbomRepo.EnsureMatchRun(ctx, sbomModel.ID, sbomModel.Version, mirrorVersion)
+	if err != nil {
+		return fmt.Errorf("ensure match run sbom_id=%d version=%d mirror=%s: %w", sbomModel.ID, sbomModel.Version, mirrorVersion, err)
+	}
+	if !ok {
+		w.logger.Printf("ℹ️  [matcher] duplicate run sbom_id=%d version=%d mirror=%s, skipping", sbomModel.ID, sbomModel.Version, mirrorVersion)
+		return nil
 	}
 
 	// P1-5: when event carries component snapshot, use it to avoid soft-delete race; else load from DB
