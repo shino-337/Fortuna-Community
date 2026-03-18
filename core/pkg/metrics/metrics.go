@@ -143,6 +143,15 @@ var (
 		[]string{"severity"}, // severity: CRITICAL, HIGH, MEDIUM, LOW
 	)
 
+	// CVE matcher run-level metrics (idempotency + outcomes)
+	CVEMatcherRunsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_cve_matcher_runs_total",
+			Help: "Total number of CVE matcher runs by result",
+		},
+		[]string{"result"}, // result: processed | skipped | duplicate | error
+	)
+
 	CVEMatchingDuration = promauto.NewHistogram(
 		prometheus.HistogramOpts{
 			Name:    "fortuna_cve_matching_duration_seconds",

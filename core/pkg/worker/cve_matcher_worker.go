@@ -67,11 +67,14 @@ func (w *CVEMatcherWorker) Name() string { return "cve_matcher" }
 func (w *CVEMatcherWorker) Subject() string { return "fortuna.sbom.created" }
 
 func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
+	startProcess := time.Now()
 	var ev sbom.SBOMCreatedEvent
 	if err := json.Unmarshal(msg.Data, &ev); err != nil {
+		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
 		return fmt.Errorf("unmarshal sbom.created: %w", err)
 	}
 	if ev.SBOMID == 0 {
+		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
 		return nil
 	}
 
@@ -82,20 +85,26 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		First(&sbomModel).Error; err != nil {
 		// If SBOM doesn't exist (deleted or never created), skip silently to avoid retry loops
 		w.logger.Printf("⚠️  SBOM id=%d not found (may have been deleted), skipping CVE matching", ev.SBOMID)
+		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
 		return nil // Don't retry deleted SBOMs
 	}
 
 	// Idempotency gate: only first matcher run per (sbom_id, version, mirror_version) proceeds.
-	// Temporary mirrorVersion: time-bucketed hour stamp, so matcher can re-run
-	// when mirror data changes in a later period instead of being frozen forever.
-	mirrorVersion := fmt.Sprintf("ts-%d", time.Now().Unix()/3600)
+	// Use OSV mirror_state.version so when mirror sync bumps version, a new run is allowed.
+	// Fallback to time bucket only when mirror_state isn't available (e.g. fresh DB or tests without table).
+	mirrorVersion := w.dbManager.GetMirrorVersion(ctx, "osv")
+	if strings.TrimSpace(mirrorVersion) == "" {
+		mirrorVersion = fmt.Sprintf("ts-%d", time.Now().Unix()/3600)
+	}
 	sbomRepo := repository.NewSBOMRepository(w.db)
 	ok, err := sbomRepo.EnsureMatchRun(ctx, sbomModel.ID, sbomModel.Version, mirrorVersion)
 	if err != nil {
+		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
 		return fmt.Errorf("ensure match run sbom_id=%d version=%d mirror=%s: %w", sbomModel.ID, sbomModel.Version, mirrorVersion, err)
 	}
 	if !ok {
-		w.logger.Printf("ℹ️  [matcher] duplicate run sbom_id=%d version=%d mirror=%s, skipping", sbomModel.ID, sbomModel.Version, mirrorVersion)
+		metrics.CVEMatcherRunsTotal.WithLabelValues("duplicate").Inc()
+		w.logger.Printf("[CVEMatcherRun] sbom_id=%d version=%d mirror=%s result=duplicate", sbomModel.ID, sbomModel.Version, mirrorVersion)
 		return nil
 	}
 
@@ -116,15 +125,20 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	startMatch := time.Now()
 	matches, err := w.matcher.MatchSBOM(ctx, &sbomModel, componentsOverride)
 	if err != nil {
+		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
 		return fmt.Errorf("match sbom id=%d: %w", sbomModel.ID, err)
 	}
 	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
 	if len(matches) == 0 {
+		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
+		w.logger.Printf("[CVEMatcherRun] sbom_id=%d version=%d mirror=%s result=skipped matches=0 duration_ms=%d",
+			sbomModel.ID, sbomModel.Version, mirrorVersion, time.Since(startProcess).Milliseconds())
 		return nil
 	}
 
 	// Persist matches to cve_matches with dedup
 	if err := w.persistMatches(ctx, matches); err != nil {
+		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
 		return err
 	}
 	// Observability: count matches by severity (FORTUNA_CVE_MATCHING_ENGINE §13)
@@ -135,6 +149,9 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		}
 		metrics.CVEMatchesTotal.WithLabelValues(sev).Inc()
 	}
+	metrics.CVEMatcherRunsTotal.WithLabelValues("processed").Inc()
+	w.logger.Printf("[CVEMatcherRun] sbom_id=%d version=%d mirror=%s result=processed matches=%d duration_ms=%d",
+		sbomModel.ID, sbomModel.Version, mirrorVersion, len(matches), time.Since(startProcess).Milliseconds())
 
 	// Create insights (critical/high only)
 	// OPTIMIZATION: Use matches directly instead of re-querying from DB

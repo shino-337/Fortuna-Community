@@ -250,6 +250,7 @@ func isDuplicateKey(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "duplicate key value") ||
 		strings.Contains(msg, "violates unique constraint") ||
+		strings.Contains(msg, "unique constraint failed") || // SQLite
 		strings.Contains(msg, "23505")
 }
 

@@ -670,3 +670,19 @@ func TestCompareRPMVersion(t *testing.T) {
 		t.Error("expected 1.1.1k-6.el8 not to be vulnerable to < 1.1.1k-5.el8")
 	}
 }
+
+func TestPURLParser_GolangAlias(t *testing.T) {
+	p, err := ParsePURL("pkg:golang/github.com/a/b/c@v1.2.3")
+	if err != nil {
+		t.Fatalf("ParsePURL: %v", err)
+	}
+	if p.Ecosystem != "go" {
+		t.Fatalf("ecosystem=%q, want go", p.Ecosystem)
+	}
+	if p.Name != "github.com/a/b/c" {
+		t.Fatalf("name=%q, want github.com/a/b/c", p.Name)
+	}
+	if p.Version != "v1.2.3" {
+		t.Fatalf("version=%q, want v1.2.3", p.Version)
+	}
+}

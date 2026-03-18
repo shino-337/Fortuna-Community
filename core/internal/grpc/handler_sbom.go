@@ -392,7 +392,7 @@ func purlEcosystem(t pb.PackageType) string {
 	case pb.PackageType_PACKAGE_TYPE_GEM:
 		return "gem"
 	case pb.PackageType_PACKAGE_TYPE_GO_MOD:
-		return "golang"
+		return "go"
 	case pb.PackageType_PACKAGE_TYPE_MAVEN:
 		return "maven"
 	case pb.PackageType_PACKAGE_TYPE_CARGO:

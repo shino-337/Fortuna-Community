@@ -683,6 +683,12 @@ func (m *Manager) getMirrorVersion(ctx context.Context, name string) string {
 	return fmt.Sprintf("%d", row.Version)
 }
 
+// GetMirrorVersion returns mirror_state.version for a mirror name (e.g. "osv").
+// It returns "" when mirror_state is missing, so callers can fall back to a default.
+func (m *Manager) GetMirrorVersion(ctx context.Context, name string) string {
+	return m.getMirrorVersion(ctx, name)
+}
+
 // IncrementMirrorVersion bumps mirror_state.version for name so cache keys that include it miss (invalidate on sync).
 func (m *Manager) IncrementMirrorVersion(ctx context.Context, name string) error {
 	if m.postgresDB == nil || strings.TrimSpace(name) == "" {

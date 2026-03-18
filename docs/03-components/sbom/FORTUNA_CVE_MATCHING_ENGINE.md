@@ -18,6 +18,20 @@ Engine phải hoạt động **event-driven**, scalable, và phù hợp với ki
 
 ---
 
+# 1.1. Reliability guards (immutability + idempotency)
+
+Để tránh mismatch/duplicate trong hệ thống event-driven:
+
+- **SBOM immutability (write-guard)**:
+  - SBOM có `status=finalized` là **immutable**, chỉ được phép mutate khi có context flag.
+  - Ingest path sử dụng repository (`SBOMRepository`) + `WithSBOMMutationAllowed(ctx)` để ghi đúng cách.
+- **Matcher idempotency**:
+  - Ghi nhận matcher-run theo khóa `(sbom_id, version, mirror_version)` tại bảng `sbom_match_runs`.
+  - Khi duplicate event/worker retry, matcher sẽ **skip** nếu run đã tồn tại và đang “running” trong window.
+  - “stale reclaim” cho phép re-run nếu run “running” bị treo quá lâu.
+
+---
+
 # 2. High-Level Architecture
 
 ```

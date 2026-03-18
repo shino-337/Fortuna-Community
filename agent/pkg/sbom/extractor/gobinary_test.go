@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+	"strings"
 )
 
 // TestGoBinaryParser_NoFiles ensures parser returns empty when no binaries are present.
@@ -59,9 +60,15 @@ func TestGoBinaryParser_ParsesRealGoBinary(t *testing.T) {
 	for _, pkg := range pkgs {
 		if pkg.Type == "go-binary" && pkg.Source == "gobinary-main" && pkg.Name != "" && pkg.Version != "" {
 			mainFound = true
+			if pkg.PURL == "" || !strings.HasPrefix(pkg.PURL, "pkg:go/") {
+				t.Fatalf("expected main package to have Go PURL pkg:go/...; got PURL=%q pkg=%+v", pkg.PURL, pkg)
+			}
 		}
 		if pkg.Type == "go" && pkg.Source == "gobinary" && pkg.Name != "" && pkg.Version != "" {
 			depFound = true
+			if pkg.PURL == "" || !strings.HasPrefix(pkg.PURL, "pkg:go/") {
+				t.Fatalf("expected dep package to have Go PURL pkg:go/...; got PURL=%q pkg=%+v", pkg.PURL, pkg)
+			}
 		}
 	}
 	if !mainFound {

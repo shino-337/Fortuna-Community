@@ -63,6 +63,7 @@ type SBOMComponent struct {
 	Homepage         string         `gorm:"type:varchar(500)" json:"homepage"`
 	Maintainer       string         `gorm:"type:varchar(255)" json:"maintainer"`
 	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
 	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 
 	// Relationships

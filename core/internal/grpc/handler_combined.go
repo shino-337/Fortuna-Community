@@ -313,7 +313,7 @@ func (s *SBOMServiceServer) generatePURL(pkg *pb.Package, osInfo *pb.OSInfo) str
 	case pb.PackageType_PACKAGE_TYPE_GEM:
 		purlType = "gem"
 	case pb.PackageType_PACKAGE_TYPE_GO_MOD:
-		purlType = "golang"
+		purlType = "go"
 	case pb.PackageType_PACKAGE_TYPE_MAVEN:
 		purlType = "maven"
 	case pb.PackageType_PACKAGE_TYPE_CARGO:

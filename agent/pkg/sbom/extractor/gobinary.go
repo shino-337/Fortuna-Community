@@ -3,6 +3,7 @@ package extractor
 import (
 	"bytes"
 	"debug/buildinfo"
+	"fmt"
 	"strings"
 )
 
@@ -77,6 +78,7 @@ func (p *GoBinaryParser) Parse(fs *Filesystem) ([]Package, error) {
 						Name:       mainPath,
 						Version:    mainVersion,
 						Type:       "go-binary",
+						PURL:       toGoPURL(mainPath, mainVersion),
 						Source:     "gobinary-main",
 						Confidence: "high",
 					})
@@ -106,6 +108,7 @@ func (p *GoBinaryParser) Parse(fs *Filesystem) ([]Package, error) {
 					Name:       path,
 					Version:    version,
 					Type:       "go",
+					PURL:       toGoPURL(path, version),
 					Source:     "gobinary",
 					Confidence: conf,
 				})
@@ -114,6 +117,15 @@ func (p *GoBinaryParser) Parse(fs *Filesystem) ([]Package, error) {
 	}
 
 	return pkgs, nil
+}
+
+func toGoPURL(name, version string) string {
+	name = strings.TrimSpace(name)
+	version = strings.TrimSpace(version)
+	if name == "" || version == "" {
+		return ""
+	}
+	return fmt.Sprintf("pkg:go/%s@%s", name, version)
 }
 
 // isPseudoVersion implements a lightweight check for Go pseudo-versions,

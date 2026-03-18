@@ -59,7 +59,7 @@ func ParsePURL(purlString string) (*PURL, error) {
 		purl.Ecosystem = pathComponents[0]
 		purl.Namespace = pathComponents[1]
 		purl.Name = pathComponents[2]
-	} else if len(pathComponents) >= 2 && strings.ToLower(pathComponents[0]) == "go" {
+	} else if len(pathComponents) >= 2 && (strings.ToLower(pathComponents[0]) == "go" || strings.ToLower(pathComponents[0]) == "golang") {
 		// pkg:go/github.com/coreos/etcd/client/v3@v3.3.0 — full module path as name for prefix + alias resolution
 		purl.Ecosystem = "go"
 		purl.Name = strings.Join(pathComponents[1:], "/")
