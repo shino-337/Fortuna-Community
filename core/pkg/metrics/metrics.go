@@ -143,6 +143,72 @@ var (
 		[]string{"severity"}, // severity: CRITICAL, HIGH, MEDIUM, LOW
 	)
 
+	// Matcher trust/selection metrics (noise control)
+	MatcherComponentsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_components_total",
+			Help: "Total number of components considered by the matcher (after snapshot/DB load)",
+		},
+	)
+	MatcherComponentsSkippedLowTrustTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_components_skipped_low_trust_total",
+			Help: "Total number of components skipped due to low trust when non-low components exist",
+		},
+	)
+	MatcherComponentsFallbackModeTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_components_fallback_mode_total",
+			Help: "Total number of matcher invocations that ran in low-trust fallback mode (all components low trust)",
+		},
+	)
+	MatcherComponentsFallbackLimitedTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_components_fallback_limited_total",
+			Help: "Total number of components dropped due to fallback-mode safety limit",
+		},
+	)
+
+	// Last-observed ratios (operational signals). These are not per-SBOM to avoid high cardinality.
+	MatcherFallbackRatio = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "fortuna_matcher_fallback_ratio",
+			Help: "Ratio of matcher invocations running in fallback mode (last observed value)",
+		},
+	)
+	MatcherLowTrustRatio = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "fortuna_matcher_low_trust_ratio",
+			Help: "Ratio of low-trust components among candidates (last observed value)",
+		},
+	)
+
+	// Time-aware (cumulative) signals for alerting on deltas / rates.
+	MatcherInvocationsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_invocations_total",
+			Help: "Total number of matcher invocations (including fallback mode)",
+		},
+	)
+	MatcherFallbackInvocationsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_fallback_invocations_total",
+			Help: "Total number of matcher invocations that ran in fallback mode",
+		},
+	)
+	MatcherCandidatesTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_candidate_components_total",
+			Help: "Total number of candidate components considered by the resolver",
+		},
+	)
+	MatcherCandidatesLowTrustTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_candidate_components_low_trust_total",
+			Help: "Total number of low-trust candidate components considered by the resolver",
+		},
+	)
+
 	// CVE matcher run-level metrics (idempotency + outcomes)
 	CVEMatcherRunsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

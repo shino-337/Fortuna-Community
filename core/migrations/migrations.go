@@ -104,6 +104,7 @@ var (
 	_ = Migration081_AddMirrorState
 	_ = Migration082_AddSBOMStatusAndVersion
 	_ = Migration083_AddSBOMMatchRuns
+	_ = Migration084_AddSBOMComponentTrustFields
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -207,6 +208,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration080_AddGoModuleAlias,                     // Go module alias resolver: alias → canonical (reduce CVE miss on renames)
 		Migration081_AddMirrorState,                       // mirror_state (name, version) for cache epoch; bump on sync
 		Migration083_AddSBOMMatchRuns,                     // Idempotency: sbom_match_runs per (sbom_id, version, mirror_version)
+		Migration084_AddSBOMComponentTrustFields,          // Trust boundary: original_purl, purl_validated, trust_level on sbom_components
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

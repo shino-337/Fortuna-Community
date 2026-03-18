@@ -13,6 +13,14 @@ The SBOM Generator creates Software Bill of Materials for container images, enab
 
 ---
 
+## Official spec (living document)
+
+All SBOM component contract changes (Agent ↔ Core ↔ DB ↔ Event ↔ Matcher) must be reflected here:
+
+- **`SBOM_COMPONENT_SPEC.md`** (source-of-truth / continuously updated)
+
+---
+
 ## Key Features
 
 ✅ **Zero Dependencies**
@@ -26,7 +34,7 @@ The SBOM Generator creates Software Bill of Materials for container images, enab
 - **Red Hat/CentOS**: rpm database (`/var/lib/rpm`)
 - **Node.js**: package.json + package-lock.json
 - **Python**: requirements.txt, Pipfile, setup.py
-- **Go**: go.mod
+- **Go**: go.mod + **Go binary buildinfo** (distroless/control-plane)
 
 ✅ **PURL Generation**
 - Standard Package URLs for all components
@@ -64,7 +72,7 @@ Check SBOM Cache (by digest)
         ├─▶ sboms table
         └─▶ sbom_components table
         ↓
-    Emit SBOM_CREATED event (NATS: ksam.sbom.created)
+    Emit SBOM_CREATED event (NATS: fortuna.sbom.created)
         ↓
     CVE Matcher Worker
         ↓

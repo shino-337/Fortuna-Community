@@ -13,6 +13,8 @@ type ComponentSnapshot struct {
 type SBOMCreatedEvent struct {
 	Type      string `json:"type"`
 	Timestamp int64  `json:"timestamp"`
+	// CorrelationID propagates request tracing from ingest to workers.
+	CorrelationID string `json:"correlation_id,omitempty"`
 
 	// Pod context (for insights)
 	ClusterID      string `json:"cluster_id"`

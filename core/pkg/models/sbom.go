@@ -57,6 +57,9 @@ type SBOMComponent struct {
 	ComponentName    string         `gorm:"type:varchar(255);not null;index" json:"componentName"`
 	ComponentVersion string         `gorm:"type:varchar(255);not null" json:"componentVersion"`
 	PURL             string         `gorm:"type:varchar(512);column:purl;index" json:"purl"` // Package URL (standard)
+	OriginalPURL     string         `gorm:"type:varchar(512);column:original_purl" json:"originalPurl,omitempty"`
+	PURLValidated    bool           `gorm:"not null;default:true;column:purl_validated" json:"purlValidated"`
+	TrustLevel       string         `gorm:"type:varchar(10);not null;default:'high';column:trust_level" json:"trustLevel"` // high | medium | low
 	Licenses         string         `gorm:"type:text" json:"licenses"`                       // Comma-separated licenses
 	Source           string         `gorm:"type:varchar(500)" json:"source"`
 	Description      string         `gorm:"type:text" json:"description"`

@@ -4,13 +4,21 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"regexp"
+	"sort"
 	"strings"
 
 	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/hashicorp/go-version"
 	"gorm.io/gorm"
 )
+
+var goStrictSemver = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+var goPseudoVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+-(0\.)?\d{14}-[0-9a-f]{7,}$`)
+var goLooseSemver = regexp.MustCompile(`^v?\d+\.\d+$`)
 
 // Matcher matches CVEs against SBOM components
 type Matcher struct {
@@ -66,7 +74,8 @@ func (m *Matcher) MatchSBOM(
 		}
 	}
 
-	m.logger.Printf("Found %d components to match", len(components))
+	components = m.resolveComponentsForMatching(ctx, sbom, components)
+	m.logger.Printf("Found %d components to match (after resolution)", len(components))
 
 	matches := make([]*models.CVEMatch, 0)
 
@@ -338,7 +347,289 @@ func (m *Matcher) MatchSBOM(
 	// Go stdlib matcher (P2-x): match vulnerabilities based on sbom.GoVersion and OSV mirror stdlib entries.
 	m.matchGoStdlib(ctx, sbom, &matches)
 
+	// Deterministic output contract: sorted by package identity, then version, then CVE ID.
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].PackageName != matches[j].PackageName {
+			return matches[i].PackageName < matches[j].PackageName
+		}
+		if matches[i].PackageVersion != matches[j].PackageVersion {
+			return matches[i].PackageVersion < matches[j].PackageVersion
+		}
+		if matches[i].CVEID != matches[j].CVEID {
+			return matches[i].CVEID < matches[j].CVEID
+		}
+		return matches[i].PURL < matches[j].PURL
+	})
+
 	return matches, nil
+}
+
+// resolveComponentsForMatching applies noise-reduction and multi-source conflict resolution.
+// It is deterministic and does not mutate DB state.
+func (m *Matcher) resolveComponentsForMatching(
+	ctx context.Context,
+	sbom *models.SBOM,
+	components []models.SBOMComponent,
+) []models.SBOMComponent {
+	type candidate struct {
+		c       models.SBOMComponent
+		p       *PURL
+		eco     string
+		key     string
+		pri     int
+	}
+
+	versionClass := func(eco string, v string) int {
+		eco = strings.ToLower(strings.TrimSpace(eco))
+		v = strings.TrimSpace(v)
+		if eco == "go" {
+			// STRICT: vX.Y.Z or pseudo-version; LOOSE: vX.Y; INVALID otherwise.
+			if goStrictSemver.MatchString(v) || goPseudoVersion.MatchString(v) {
+				return 2
+			}
+			if goLooseSemver.MatchString(v) {
+				return 1
+			}
+			return 0
+		}
+		return 1
+	}
+
+	trustRank := func(tl string) int {
+		switch strings.ToLower(strings.TrimSpace(tl)) {
+		case "high":
+			return 2
+		case "medium":
+			return 1
+		case "low":
+			return 0
+		default:
+			return 2
+		}
+	}
+
+	semverForSort := func(eco string, v string) *version.Version {
+		eco = strings.ToLower(strings.TrimSpace(eco))
+		if eco != "go" && eco != "npm" && eco != "pypi" && eco != "generic" {
+			return nil
+		}
+		v = strings.TrimSpace(v)
+		if strings.HasPrefix(v, "v") {
+			v = strings.TrimPrefix(v, "v")
+		}
+		ver, err := version.NewVersion(v)
+		if err != nil {
+			return nil
+		}
+		return ver
+	}
+
+	priority := func(src string) int {
+		s := strings.ToLower(strings.TrimSpace(src))
+		switch s {
+		case "gobinary":
+			return 100
+		case "gomod":
+			return 80
+		case "os", "dpkg", "apk", "rpm":
+			return 60
+		case "distroless-heuristic", "label-metadata", "heuristic":
+			return 20
+		case "gobinary-main":
+			return 0 // non-matchable
+		default:
+			// Unknown sources: keep but low priority
+			return 10
+		}
+	}
+
+	cands := make([]candidate, 0, len(components))
+	var highCount, mediumCount, lowCount int
+	hasNonLow := false
+	for i := range components {
+		c := components[i]
+
+		// Hard skip: main Go binary is inventory noise, not matchable (spec).
+		if strings.EqualFold(strings.TrimSpace(c.Source), "gobinary-main") {
+			continue
+		}
+
+		p, err := ParsePURL(c.PURL)
+		if err != nil || p == nil {
+			// Keep behavior: unparseable PURL not matchable
+			continue
+		}
+		tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
+		if tl == "" {
+			tl = "high"
+		}
+		if tl == "high" || tl == "medium" {
+			hasNonLow = true
+		}
+		switch tl {
+		case "high":
+			highCount++
+		case "medium":
+			mediumCount++
+		default:
+			lowCount++
+		}
+
+		eco := normalizeQueryEcosystemWithOS(p, sbom.OSName)
+		// Canonical identity key:
+		// - go: full module path
+		// - distro ecosystems: include namespace if present
+		// - generic: name
+		nameKey := strings.TrimSpace(p.Name)
+		if eco != "go" && strings.TrimSpace(p.Namespace) != "" {
+			nameKey = strings.TrimSpace(p.Namespace) + "/" + nameKey
+		}
+		key := eco + ":" + strings.ToLower(nameKey)
+
+		cands = append(cands, candidate{
+			c:   c,
+			p:   p,
+			eco: eco,
+			key: key,
+			pri: priority(c.Source),
+		})
+	}
+
+	metrics.MatcherComponentsTotal.Add(float64(len(cands)))
+	metrics.MatcherInvocationsTotal.Inc()
+	metrics.MatcherCandidatesTotal.Add(float64(len(cands)))
+	metrics.MatcherCandidatesLowTrustTotal.Add(float64(lowCount))
+	if len(cands) > 0 {
+		metrics.MatcherLowTrustRatio.Set(float64(lowCount) / float64(len(cands)))
+	}
+
+	// Graceful degradation: if we have any HIGH/MED components, drop LOW trust ones.
+	// If everything is LOW (e.g. distroless-only heuristic), allow matching in fallback mode.
+	if hasNonLow {
+		filtered := cands[:0]
+		var skippedLow int
+		for _, cand := range cands {
+			tl := strings.ToLower(strings.TrimSpace(cand.c.TrustLevel))
+			if tl == "" {
+				tl = "high"
+			}
+			if tl == "low" {
+				skippedLow++
+				continue
+			}
+			filtered = append(filtered, cand)
+		}
+		cands = filtered
+		if skippedLow > 0 {
+			metrics.MatcherComponentsSkippedLowTrustTotal.Add(float64(skippedLow))
+		}
+		m.logger.Printf("[MatcherTrust] sbom_id=%d high=%d medium=%d low=%d mode=normal", sbom.ID, highCount, mediumCount, lowCount)
+	} else {
+		metrics.MatcherComponentsFallbackModeTotal.Inc()
+		metrics.MatcherFallbackInvocationsTotal.Inc()
+		metrics.MatcherFallbackRatio.Set(1.0)
+		m.logger.Printf("[MatcherTrust] sbom_id=%d high=%d medium=%d low=%d mode=fallback", sbom.ID, highCount, mediumCount, lowCount)
+
+		// Fallback explosion guard: if all components are LOW trust and there are too many,
+		// limit the candidate set deterministically to reduce blast radius.
+		const fallbackLimit = 50
+		if len(cands) > fallbackLimit {
+			sort.Slice(cands, func(i, j int) bool {
+				vi := versionClass(cands[i].eco, cands[i].p.Version)
+				vj := versionClass(cands[j].eco, cands[j].p.Version)
+				if vi != vj {
+					return vi > vj
+				}
+				if cands[i].key != cands[j].key {
+					return cands[i].key < cands[j].key
+				}
+				return cands[i].c.PURL < cands[j].c.PURL
+			})
+			dropped := len(cands) - fallbackLimit
+			cands = cands[:fallbackLimit]
+			metrics.MatcherComponentsFallbackLimitedTotal.Add(float64(dropped))
+		}
+	}
+	if hasNonLow {
+		metrics.MatcherFallbackRatio.Set(0.0)
+	}
+
+	// Group by canonical key, pick a single winner per key.
+	groups := make(map[string]candidate)
+	for _, cand := range cands {
+		cur, ok := groups[cand.key]
+		if !ok {
+			groups[cand.key] = cand
+			continue
+		}
+		// Deterministic winner selection:
+		// priority DESC, trust DESC, version DESC (semantic where possible), purl ASC.
+		if cand.pri != cur.pri {
+			if cand.pri > cur.pri {
+				groups[cand.key] = cand
+			}
+			continue
+		}
+		tr1, tr2 := trustRank(cand.c.TrustLevel), trustRank(cur.c.TrustLevel)
+		if tr1 != tr2 {
+			if tr1 > tr2 {
+				groups[cand.key] = cand
+			}
+			continue
+		}
+		v1, v2 := semverForSort(cand.eco, cand.p.Version), semverForSort(cur.eco, cur.p.Version)
+		if v1 != nil && v2 != nil {
+			if v1.GreaterThan(v2) {
+				groups[cand.key] = cand
+				continue
+			}
+			if v2.GreaterThan(v1) {
+				continue
+			}
+		} else if v1 == nil && v2 == nil {
+			// Explicit tie-break when semver parsing fails: version string ASC.
+			if cand.p.Version != cur.p.Version {
+				if cand.p.Version < cur.p.Version {
+					groups[cand.key] = cand
+				}
+				continue
+			}
+		}
+		// Final tie-breaker: stable by PURL string (ASC)
+		if cand.c.PURL < cur.c.PURL {
+			groups[cand.key] = cand
+		}
+	}
+
+	// Deterministic output order + duplicate collapse (eco,name,version).
+	out := make([]models.SBOMComponent, 0, len(groups))
+	for _, cand := range groups {
+		out = append(out, cand.c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PURL != out[j].PURL {
+			return out[i].PURL < out[j].PURL
+		}
+		return out[i].ComponentName < out[j].ComponentName
+	})
+	seen := make(map[string]bool)
+	deduped := out[:0]
+	for _, c := range out {
+		p, err := ParsePURL(c.PURL)
+		if err != nil || p == nil {
+			continue
+		}
+		eco := normalizeQueryEcosystemWithOS(p, sbom.OSName)
+		ns := strings.ToLower(strings.TrimSpace(p.Namespace))
+		k := eco + ":" + ns + ":" + strings.ToLower(strings.TrimSpace(p.Name)) + "@" + strings.TrimSpace(p.Version)
+		if seen[k] {
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, c)
+	}
+	out = deduped
+	return out
 }
 
 // normalizeGoModulePrefixes returns candidate Go module prefixes for a given module path.

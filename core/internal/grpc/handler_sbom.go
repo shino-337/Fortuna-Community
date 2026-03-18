@@ -10,6 +10,8 @@ import (
 	"io"
 	"log"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -26,6 +28,118 @@ import (
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/models"
 )
+
+var goVersionNoBuildMeta = regexp.MustCompile(`^\s*v?\d+\.\d+\.\d+([\-\.].*)?\s*$`)
+var goModuleNameAllowed = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]*(/[a-z0-9._-]+)*$`)
+
+func normalizeGoVersionForPURL(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	// Drop build metadata (+...) to avoid logic injection / comparator mismatches.
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	// Ensure leading "v" for Go module versions when it looks like semver/pseudo-version.
+	if strings.HasPrefix(v, "v") {
+		return v
+	}
+	if goVersionNoBuildMeta.MatchString(v) {
+		return "v" + v
+	}
+	return v
+}
+
+func canonicalizeGoModuleName(name string) (string, bool) {
+	// Returns (canonical, ok). Normalize first, then validate on canonical form.
+	// Reject non-ASCII to prevent homoglyph confusion (Go modules are effectively ASCII).
+	for i := 0; i < len(name); i++ {
+		if name[i] > 0x7f {
+			return "", false
+		}
+	}
+	n := strings.ToLower(strings.TrimSpace(name))
+	if n == "" {
+		return "", false
+	}
+	// Normalize harmless trailing slashes; do not clean other path elements.
+	n = strings.TrimRight(n, "/")
+	if n == "" {
+		return "", false
+	}
+	// Reject traversal on canonical form (no mixed raw/normalized validation).
+	if strings.Contains(n, "..") {
+		return "", false
+	}
+	// Basic allowlist for go module path segments.
+	if !goModuleNameAllowed.MatchString(n) {
+		return "", false
+	}
+	// Must have a domain segment containing a dot (e.g., github.com, go.etcd.io, k8s.io).
+	first := n
+	if i := strings.IndexByte(n, '/'); i >= 0 {
+		first = n[:i]
+	}
+	if !strings.Contains(first, ".") {
+		return "", false
+	}
+	return n, true
+}
+
+type goVersionLevel string
+
+const (
+	goVerStrict  goVersionLevel = "strict"
+	goVerLoose   goVersionLevel = "loose"
+	goVerInvalid goVersionLevel = "invalid"
+)
+
+var goStrictSemver = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+var goPseudoVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+-(0\.)?\d{14}-[0-9a-f]{7,}$`)
+var goLooseSemver = regexp.MustCompile(`^v?\d+\.\d+$`)
+
+func classifyGoVersion(v string) goVersionLevel {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return goVerInvalid
+	}
+	if i := strings.IndexByte(v, '+'); i >= 0 {
+		v = v[:i]
+	}
+	if goStrictSemver.MatchString(v) || goPseudoVersion.MatchString(v) {
+		return goVerStrict
+	}
+	if goLooseSemver.MatchString(v) {
+		return goVerLoose
+	}
+	return goVerInvalid
+}
+
+func expectedPurlEcosystemForType(t pb.PackageType) string {
+	switch t {
+	case pb.PackageType_PACKAGE_TYPE_GO_MOD:
+		return "go"
+	case pb.PackageType_PACKAGE_TYPE_NPM:
+		return "npm"
+	case pb.PackageType_PACKAGE_TYPE_PYPI:
+		return "pypi"
+	case pb.PackageType_PACKAGE_TYPE_GEM:
+		return "gem"
+	case pb.PackageType_PACKAGE_TYPE_MAVEN:
+		return "maven"
+	case pb.PackageType_PACKAGE_TYPE_CARGO:
+		return "cargo"
+	case pb.PackageType_PACKAGE_TYPE_DEB:
+		return "deb"
+	case pb.PackageType_PACKAGE_TYPE_APK:
+		return "apk"
+	case pb.PackageType_PACKAGE_TYPE_RPM:
+		return "rpm"
+	default:
+		return ""
+	}
+}
 
 // SBOMServiceServer implements the SBOM-related RPCs from AgentService
 type SBOMServiceServer struct {
@@ -124,17 +238,111 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	seenPURL := make(map[string]bool)
 	var components []*models.SBOMComponent
 	for _, pkg := range req.Packages {
+		trustLevel := "high"
+		purlValidated := true
+		originalPURL := ""
+
 		// Trust boundary: prefer agent-provided PURL, but sanitize malformed input (best-effort).
 		purl := pkg.GetPurl()
 		if purl != "" {
-			if _, err := matcher.ParsePURL(purl); err != nil {
+			originalPURL = purl
+			parsed, err := matcher.ParsePURL(purl)
+			if err != nil {
 				log.Printf("[SBOM] WARNING: invalid package PURL %q (name=%q type=%v): %v; regenerating", purl, pkg.Name, pkg.Type, err)
 				purl = ""
+				trustLevel = "low"
+				purlValidated = false
+			} else if parsed != nil {
+				// Semantic validation: ecosystem must be consistent with package type (when applicable).
+				if exp := expectedPurlEcosystemForType(pkg.Type); exp != "" {
+					got := strings.ToLower(strings.TrimSpace(parsed.Ecosystem))
+					// Backward compatible alias for Go.
+					if got == "golang" {
+						got = "go"
+					}
+					if got != exp {
+						log.Printf("[SBOM] WARNING: PURL ecosystem mismatch purl=%q expected=%q got=%q (name=%q type=%v); regenerating",
+							purl, exp, got, pkg.Name, pkg.Type)
+						purl = ""
+						trustLevel = "low"
+						purlValidated = false
+					}
+				}
+				// Go-specific: forbid build metadata injection in versions; normalize.
+				if purl != "" && strings.EqualFold(parsed.Ecosystem, "go") {
+					canonName, ok := canonicalizeGoModuleName(pkg.Name)
+					if !ok {
+						log.Printf("[SBOM] WARNING: invalid Go module name %q (purl=%q); dropping component", pkg.Name, originalPURL)
+						continue
+					}
+					nv := normalizeGoVersionForPURL(pkg.Version)
+					level := classifyGoVersion(nv)
+					switch level {
+					case goVerStrict:
+						// ok
+					case goVerLoose:
+						trustLevel = "medium"
+					default:
+						log.Printf("[SBOM] WARNING: invalid Go module version %q (name=%q purl=%q); dropping component", pkg.Version, canonName, originalPURL)
+						continue
+					}
+					// Canonicalize PURL if agent sent non-canonical name or build metadata.
+					purl = fmt.Sprintf("pkg:go/%s@%s", canonName, nv)
+					if purl != originalPURL {
+						if trustLevel == "high" {
+							trustLevel = "medium"
+						}
+					}
+				}
 			}
 		}
 		if purl == "" {
 			ecosystem := purlEcosystem(pkg.Type)
-			purl = fmt.Sprintf("pkg:%s/%s@%s", ecosystem, pkg.Name, pkg.Version)
+			version := pkg.Version
+			if ecosystem == "go" {
+				canonName, ok := canonicalizeGoModuleName(pkg.Name)
+				if !ok {
+					log.Printf("[SBOM] WARNING: invalid Go module name %q (no PURL); dropping component", pkg.Name)
+					continue
+				}
+				version = normalizeGoVersionForPURL(version)
+				level := classifyGoVersion(version)
+				if level == goVerInvalid {
+					log.Printf("[SBOM] WARNING: invalid Go module version %q (name=%q no PURL); dropping component", pkg.Version, canonName)
+					continue
+				}
+				if level == goVerLoose {
+					trustLevel = "medium"
+				} else {
+					trustLevel = "low" // generated PURL from fields even though strict -> still LOW trust (edge-derived)
+				}
+				purl = fmt.Sprintf("pkg:go/%s@%s", canonName, version)
+				purlValidated = false
+				originalPURL = ""
+				// skip default formatting below
+				if seenPURL[purl] {
+					continue
+				}
+				seenPURL[purl] = true
+				components = append(components, &models.SBOMComponent{
+					ComponentType:    mapComponentType(pkg.Type),
+					ComponentName:    canonName,
+					ComponentVersion: version,
+					PURL:             purl,
+					OriginalPURL:     originalPURL,
+					PURLValidated:    purlValidated,
+					TrustLevel:       trustLevel,
+					Licenses:         models.ToJSONBString(pkg.Licenses),
+					Source:           pkg.Source,
+					Description:      pkg.Description,
+					Homepage:         pkg.Homepage,
+					Maintainer:       pkg.Maintainer,
+				})
+				continue
+			}
+			purl = fmt.Sprintf("pkg:%s/%s@%s", ecosystem, pkg.Name, version)
+			trustLevel = "low"
+			purlValidated = false
 		}
 		if seenPURL[purl] {
 			continue
@@ -145,6 +353,9 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			ComponentName:    pkg.Name,
 			ComponentVersion: pkg.Version,
 			PURL:             purl,
+			OriginalPURL:     originalPURL,
+			PURLValidated:    purlValidated,
+			TrustLevel:       trustLevel,
 			Licenses:         models.ToJSONBString(pkg.Licenses),
 			Source:           pkg.Source,
 			Description:      pkg.Description,
@@ -199,6 +410,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		event := map[string]interface{}{
 			"type":                "sbom.created",
 			"timestamp":           time.Now().Unix(),
+			"correlation_id":      correlationID,
 			"cluster_id":          clusterID,
 			"pod_uid":             podUID,
 			"pod_name":            podName,

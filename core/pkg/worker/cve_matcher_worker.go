@@ -104,7 +104,7 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 	if !ok {
 		metrics.CVEMatcherRunsTotal.WithLabelValues("duplicate").Inc()
-		w.logger.Printf("[CVEMatcherRun] sbom_id=%d version=%d mirror=%s result=duplicate", sbomModel.ID, sbomModel.Version, mirrorVersion)
+		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s result=duplicate", ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion)
 		return nil
 	}
 
@@ -131,8 +131,8 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
 	if len(matches) == 0 {
 		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
-		w.logger.Printf("[CVEMatcherRun] sbom_id=%d version=%d mirror=%s result=skipped matches=0 duration_ms=%d",
-			sbomModel.ID, sbomModel.Version, mirrorVersion, time.Since(startProcess).Milliseconds())
+		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s result=skipped matches=0 duration_ms=%d",
+			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, time.Since(startProcess).Milliseconds())
 		return nil
 	}
 
@@ -150,8 +150,8 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		metrics.CVEMatchesTotal.WithLabelValues(sev).Inc()
 	}
 	metrics.CVEMatcherRunsTotal.WithLabelValues("processed").Inc()
-	w.logger.Printf("[CVEMatcherRun] sbom_id=%d version=%d mirror=%s result=processed matches=%d duration_ms=%d",
-		sbomModel.ID, sbomModel.Version, mirrorVersion, len(matches), time.Since(startProcess).Milliseconds())
+	w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s result=processed matches=%d duration_ms=%d",
+		ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, len(matches), time.Since(startProcess).Milliseconds())
 
 	// Create insights (critical/high only)
 	// OPTIMIZATION: Use matches directly instead of re-querying from DB

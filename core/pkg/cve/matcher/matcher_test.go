@@ -2,7 +2,9 @@ package matcher
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -697,5 +699,329 @@ func TestMatcher_FullModulePathPreserved(t *testing.T) {
 	}
 	if p.Name != "github.com/a/b/c/d" {
 		t.Fatalf("name=%q, want github.com/a/b/c/d", p.Name)
+	}
+}
+
+func TestMatcher_ConflictResolution_PrefersGobinaryOverGomod(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// Seed OSV mirror vuln for module github.com/a/b; range includes v1.2.0 but not v1.1.0
+	v := models.OSVVulnerability{ID: "GO-CONFLICT-TEST", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatalf("seed vuln: %v", err)
+	}
+	p := models.OSVPackage{VulnID: "GO-CONFLICT-TEST", Ecosystem: "go", PackageName: "github.com/a/b"}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatalf("seed pkg: %v", err)
+	}
+	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
+	if err := db.Create(&r).Error; err != nil {
+		t.Fatalf("seed range: %v", err)
+	}
+
+	sbom := &models.SBOM{Status: "finalized"}
+	if err := db.Create(sbom).Error; err != nil {
+		t.Fatalf("create sbom: %v", err)
+	}
+
+	// Same canonical component (pkg:go/github.com/a/b@...), different sources and versions:
+	// - gobinary says v1.1.0 (vulnerable)
+	// - gomod says v1.2.0 (NOT vulnerable)
+	// We expect resolver prefers gobinary -> produces a match.
+	override := []*models.SBOMComponent{
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.2.0",
+			PURL:             "pkg:go/github.com/a/b@v1.2.0",
+			Source:           "gomod",
+		},
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.1.0",
+			PURL:             "pkg:go/github.com/a/b@v1.1.0",
+			Source:           "gobinary",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sbom, override)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	var found bool
+	for _, mm := range matches {
+		if mm.CVEID == "GO-CONFLICT-TEST" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected GO-CONFLICT-TEST match after resolver; got %+v", matches)
+	}
+}
+
+func TestMatcher_TrustLevel_GracefulDegradation_AllLowAllowed(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	v := models.OSVVulnerability{ID: "GO-LOW-ONLY", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
+	_ = db.Create(&v).Error
+	p := models.OSVPackage{VulnID: "GO-LOW-ONLY", Ecosystem: "go", PackageName: "github.com/a/b"}
+	_ = db.Create(&p).Error
+	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
+	_ = db.Create(&r).Error
+
+	sbom := &models.SBOM{Status: "finalized"}
+	_ = db.Create(sbom).Error
+
+	override := []*models.SBOMComponent{
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.1.0",
+			PURL:             "pkg:go/github.com/a/b@v1.1.0",
+			Source:           "distroless-heuristic",
+			TrustLevel:       "low",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sbom, override)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Fatalf("expected match in fallback mode when all components are LOW trust")
+	}
+}
+
+func TestMatcher_TrustLevel_LowSkippedWhenNonLowExists(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// Vulnerability only for github.com/a/b (low trust component).
+	v := models.OSVVulnerability{ID: "GO-LOW-SKIP", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
+	_ = db.Create(&v).Error
+	p := models.OSVPackage{VulnID: "GO-LOW-SKIP", Ecosystem: "go", PackageName: "github.com/a/b"}
+	_ = db.Create(&p).Error
+	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
+	_ = db.Create(&r).Error
+
+	sbom := &models.SBOM{Status: "finalized"}
+	_ = db.Create(sbom).Error
+
+	override := []*models.SBOMComponent{
+		// High trust unrelated component (ensures hasNonLow=true).
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/x/y",
+			ComponentVersion: "v9.9.9",
+			PURL:             "pkg:go/github.com/x/y@v9.9.9",
+			Source:           "gobinary",
+			TrustLevel:       "high",
+		},
+		// Low trust vulnerable component should be skipped -> no matches.
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.1.0",
+			PURL:             "pkg:go/github.com/a/b@v1.1.0",
+			Source:           "distroless-heuristic",
+			TrustLevel:       "low",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sbom, override)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	for _, mm := range matches {
+		if mm.CVEID == "GO-LOW-SKIP" {
+			t.Fatalf("expected low-trust component to be skipped when non-low exists; got %+v", matches)
+		}
+	}
+}
+
+func TestMatcher_ResolveAfterTrustFilter(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// Vulnerability affects github.com/a/b in v1.1.x.
+	v := models.OSVVulnerability{ID: "GO-TRUST-ORDER", Summary: "test", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
+	_ = db.Create(&v).Error
+	p := models.OSVPackage{VulnID: "GO-TRUST-ORDER", Ecosystem: "go", PackageName: "github.com/a/b"}
+	_ = db.Create(&p).Error
+	r := models.OSVRange{PackageID: p.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "1.1.99"}
+	_ = db.Create(&r).Error
+
+	sbom := &models.SBOM{Status: "finalized"}
+	_ = db.Create(sbom).Error
+
+	override := []*models.SBOMComponent{
+		// LOW trust gobinary (would win by priority if resolver ran before trust filter).
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.1.0",
+			PURL:             "pkg:go/github.com/a/b@v1.1.0",
+			Source:           "gobinary",
+			TrustLevel:       "low",
+		},
+		// HIGH trust gomod (should be chosen and LOW dropped before resolution).
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.2.0",
+			PURL:             "pkg:go/github.com/a/b@v1.2.0",
+			Source:           "gomod",
+			TrustLevel:       "high",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sbom, override)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	for _, mm := range matches {
+		if mm.CVEID == "GO-TRUST-ORDER" {
+			t.Fatalf("expected LOW-trust gobinary to be dropped before resolution, so no match; got %+v", matches)
+		}
+	}
+}
+
+func TestMatcher_FallbackMode_ComponentLimit(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	sbom := &models.SBOM{Status: "finalized"}
+	_ = db.Create(sbom).Error
+
+	// 100 low-trust components (no vulns needed; we just ensure it doesn't error).
+	override := make([]*models.SBOMComponent, 0, 100)
+	for i := 0; i < 100; i++ {
+		override = append(override, &models.SBOMComponent{
+			SBOMID:           sbom.ID,
+			ComponentName:    fmt.Sprintf("github.com/a/b%d", i),
+			ComponentVersion: "v1.0.0",
+			PURL:             fmt.Sprintf("pkg:go/github.com/a/b%d@v1.0.0", i),
+			Source:           "distroless-heuristic",
+			TrustLevel:       "low",
+		})
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	_, err = m.MatchSBOM(context.Background(), sbom, override)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+}
+
+func TestMatcher_DeterministicOutput_SameInputSameResult(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	// Two vulns for same module so output order matters.
+	v1 := models.OSVVulnerability{ID: "GO-DET-1", Summary: "t", Details: "d", Severity: "HIGH", CVSSScore: 7.0}
+	v2 := models.OSVVulnerability{ID: "GO-DET-2", Summary: "t", Details: "d", Severity: "MEDIUM", CVSSScore: 5.0}
+	_ = db.Create(&v1).Error
+	_ = db.Create(&v2).Error
+	p1 := models.OSVPackage{VulnID: "GO-DET-1", Ecosystem: "go", PackageName: "github.com/a/b"}
+	p2 := models.OSVPackage{VulnID: "GO-DET-2", Ecosystem: "go", PackageName: "github.com/a/b"}
+	_ = db.Create(&p1).Error
+	_ = db.Create(&p2).Error
+	_ = db.Create(&models.OSVRange{PackageID: p1.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "9.9.9"}).Error
+	_ = db.Create(&models.OSVRange{PackageID: p2.ID, RangeType: "SEMVER", Introduced: "0", Fixed: "9.9.9"}).Error
+
+	sbom := &models.SBOM{Status: "finalized"}
+	_ = db.Create(sbom).Error
+	override := []*models.SBOMComponent{
+		{
+			SBOMID:           sbom.ID,
+			ComponentName:    "github.com/a/b",
+			ComponentVersion: "v1.0.0",
+			PURL:             "pkg:go/github.com/a/b@v1.0.0",
+			Source:           "gobinary",
+			TrustLevel:       "high",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+
+	var baseline string
+	for i := 0; i < 100; i++ {
+		matches, err := m.MatchSBOM(context.Background(), sbom, override)
+		if err != nil {
+			t.Fatalf("MatchSBOM: %v", err)
+		}
+		// Serialize deterministically by the sorted order in MatchSBOM.
+		var b strings.Builder
+		for _, mm := range matches {
+			b.WriteString(mm.PackageName)
+			b.WriteString("|")
+			b.WriteString(mm.PackageVersion)
+			b.WriteString("|")
+			b.WriteString(mm.CVEID)
+			b.WriteString("|")
+			b.WriteString(mm.PURL)
+			b.WriteString("\n")
+		}
+		if i == 0 {
+			baseline = b.String()
+		} else if b.String() != baseline {
+			t.Fatalf("nondeterministic output at iter=%d\nbaseline:\n%s\ngot:\n%s", i, baseline, b.String())
+		}
 	}
 }
