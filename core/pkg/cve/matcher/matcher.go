@@ -457,6 +457,7 @@ func (m *Matcher) resolveComponentsForMatching(
 		p, err := ParsePURL(c.PURL)
 		if err != nil || p == nil {
 			// Keep behavior: unparseable PURL not matchable
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid").Inc()
 			continue
 		}
 		tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
@@ -481,8 +482,19 @@ func (m *Matcher) resolveComponentsForMatching(
 		// - distro ecosystems: include namespace if present
 		// - generic: name
 		nameKey := strings.TrimSpace(p.Name)
-		if eco != "go" && strings.TrimSpace(p.Namespace) != "" {
-			nameKey = strings.TrimSpace(p.Namespace) + "/" + nameKey
+		if eco != "go" {
+			ns := strings.TrimSpace(p.Namespace)
+			arch := ""
+			if p.Qualifiers != nil {
+				arch = strings.TrimSpace(p.Qualifiers["arch"])
+			}
+			if ns != "" && arch != "" {
+				nameKey = ns + ":" + arch + "/" + nameKey
+			} else if ns != "" {
+				nameKey = ns + "/" + nameKey
+			} else if arch != "" {
+				nameKey = ":" + arch + "/" + nameKey
+			}
 		}
 		key := eco + ":" + strings.ToLower(nameKey)
 
@@ -566,38 +578,52 @@ func (m *Matcher) resolveComponentsForMatching(
 		// priority DESC, trust DESC, version DESC (semantic where possible), purl ASC.
 		if cand.pri != cur.pri {
 			if cand.pri > cur.pri {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("priority").Inc()
 				groups[cand.key] = cand
+			} else {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("priority").Inc()
 			}
 			continue
 		}
 		tr1, tr2 := trustRank(cand.c.TrustLevel), trustRank(cur.c.TrustLevel)
 		if tr1 != tr2 {
 			if tr1 > tr2 {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 				groups[cand.key] = cand
+			} else {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 			}
 			continue
 		}
 		v1, v2 := semverForSort(cand.eco, cand.p.Version), semverForSort(cur.eco, cur.p.Version)
 		if v1 != nil && v2 != nil {
 			if v1.GreaterThan(v2) {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 				groups[cand.key] = cand
 				continue
 			}
 			if v2.GreaterThan(v1) {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 				continue
 			}
 		} else if v1 == nil && v2 == nil {
 			// Explicit tie-break when semver parsing fails: version string ASC.
 			if cand.p.Version != cur.p.Version {
 				if cand.p.Version < cur.p.Version {
+					metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 					groups[cand.key] = cand
+				} else {
+					metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 				}
 				continue
 			}
 		}
 		// Final tie-breaker: stable by PURL string (ASC)
 		if cand.c.PURL < cur.c.PURL {
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 			groups[cand.key] = cand
+		} else {
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
 		}
 	}
 
@@ -621,8 +647,13 @@ func (m *Matcher) resolveComponentsForMatching(
 		}
 		eco := normalizeQueryEcosystemWithOS(p, sbom.OSName)
 		ns := strings.ToLower(strings.TrimSpace(p.Namespace))
-		k := eco + ":" + ns + ":" + strings.ToLower(strings.TrimSpace(p.Name)) + "@" + strings.TrimSpace(p.Version)
+		arch := ""
+		if p.Qualifiers != nil {
+			arch = strings.ToLower(strings.TrimSpace(p.Qualifiers["arch"]))
+		}
+		k := eco + ":" + ns + ":" + arch + ":" + strings.ToLower(strings.TrimSpace(p.Name)) + "@" + strings.TrimSpace(p.Version)
 		if seen[k] {
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("duplicate").Inc()
 			continue
 		}
 		seen[k] = true

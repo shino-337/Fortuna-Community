@@ -209,6 +209,14 @@ var (
 		},
 	)
 
+	MatcherComponentsShadowedTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_matcher_components_shadowed_total",
+			Help: "Total number of components shadowed/dropped by the resolver, by reason",
+		},
+		[]string{"reason"}, // reason: priority | conflict | invalid | duplicate
+	)
+
 	// CVE matcher run-level metrics (idempotency + outcomes)
 	CVEMatcherRunsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

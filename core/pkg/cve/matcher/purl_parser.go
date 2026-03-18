@@ -12,6 +12,8 @@ type PURL struct {
 	Namespace string // debian, alpine, etc.
 	Name      string // openssl
 	Version   string // 1.1.1d
+	// Qualifiers are parsed from the query segment after the version (e.g. ?arch=amd64).
+	Qualifiers map[string]string
 }
 
 // ParsePURL parses a Package URL string
@@ -35,7 +37,29 @@ func ParsePURL(purlString string) (*PURL, error) {
 	}
 
 	pathPart := parts[0]
-	version := parts[1]
+	versionPart := parts[1]
+	version := versionPart
+	var qualifiers map[string]string
+	if i := strings.IndexByte(versionPart, '?'); i >= 0 {
+		version = versionPart[:i]
+		q := strings.TrimSpace(versionPart[i+1:])
+		if q != "" {
+			qualifiers = make(map[string]string)
+			for _, kv := range strings.Split(q, "&") {
+				kv = strings.TrimSpace(kv)
+				if kv == "" {
+					continue
+				}
+				k, v, ok := strings.Cut(kv, "=")
+				k = strings.ToLower(strings.TrimSpace(k))
+				v = strings.TrimSpace(v)
+				if !ok || k == "" {
+					continue
+				}
+				qualifiers[k] = v
+			}
+		}
+	}
 
 	// Split path by /
 	pathComponents := strings.Split(pathPart, "/")
@@ -46,6 +70,7 @@ func ParsePURL(purlString string) (*PURL, error) {
 	purl := &PURL{
 		Type:    "pkg",
 		Version: version,
+		Qualifiers: qualifiers,
 	}
 
 	if len(pathComponents) == 2 {

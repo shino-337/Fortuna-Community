@@ -8,10 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/cve/database/nvd"
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/glebarez/sqlite"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"gorm.io/gorm"
 )
 
@@ -958,6 +960,49 @@ func TestMatcher_FallbackMode_ComponentLimit(t *testing.T) {
 	_, err = m.MatchSBOM(context.Background(), sbom, override)
 	if err != nil {
 		t.Fatalf("MatchSBOM: %v", err)
+	}
+}
+
+func TestMatcher_OSNamespaceAndArch_NotCollapsed(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+
+	sbom := &models.SBOM{ID: 1, Status: "finalized", OSName: "debian"}
+	in := []models.SBOMComponent{
+		{SBOMID: sbom.ID, ComponentName: "openssl", ComponentVersion: "1.1.1", PURL: "pkg:deb/debian/openssl@1.1.1?arch=amd64", Source: "os", TrustLevel: "high"},
+		{SBOMID: sbom.ID, ComponentName: "openssl", ComponentVersion: "1.1.1", PURL: "pkg:deb/ubuntu/openssl@1.1.1?arch=amd64", Source: "os", TrustLevel: "high"},
+		{SBOMID: sbom.ID, ComponentName: "openssl", ComponentVersion: "1.1.1", PURL: "pkg:deb/debian/openssl@1.1.1?arch=arm64", Source: "os", TrustLevel: "high"},
+	}
+	out := m.resolveComponentsForMatching(context.Background(), sbom, in)
+	// All three must survive: different namespace and arch are distinct identities.
+	if len(out) != 3 {
+		t.Fatalf("expected 3 components, got %d", len(out))
+	}
+}
+
+func TestMatcher_ShadowMetrics_InvalidPURL_Increments(t *testing.T) {
+	before := testutil.ToFloat64(metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid"))
+
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	sbom := &models.SBOM{ID: 1, Status: "finalized"}
+
+	in := []models.SBOMComponent{
+		{SBOMID: sbom.ID, ComponentName: "x", ComponentVersion: "1", PURL: "not-a-purl", Source: "os", TrustLevel: "high"},
+	}
+	_ = m.resolveComponentsForMatching(context.Background(), sbom, in)
+
+	after := testutil.ToFloat64(metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid"))
+	if after != before+1 {
+		t.Fatalf("expected invalid shadow metric to increment by 1 (before=%v after=%v)", before, after)
 	}
 }
 
