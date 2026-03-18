@@ -400,10 +400,16 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		}
 
 		// P1-5: component snapshot at publish time so CVE matcher can use it and avoid soft-delete race
-		componentsSnapshot := make([]map[string]string, 0, len(components))
+		componentsSnapshot := make([]map[string]interface{}, 0, len(components))
 		for _, c := range components {
-			componentsSnapshot = append(componentsSnapshot, map[string]string{
-				"name": c.ComponentName, "version": c.ComponentVersion, "purl": c.PURL,
+			componentsSnapshot = append(componentsSnapshot, map[string]interface{}{
+				"name":          c.ComponentName,
+				"version":       c.ComponentVersion,
+				"purl":          c.PURL,
+				"source":        c.Source,
+				"trust_level":   c.TrustLevel,
+				"original_purl": c.OriginalPURL,
+				"purl_validated": c.PURLValidated,
 			})
 		}
 		// Create proper JSON event with all required fields using map to avoid import issues

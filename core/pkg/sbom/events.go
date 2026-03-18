@@ -1,10 +1,14 @@
 package sbom
 
-// ComponentSnapshot is a minimal component descriptor for CVE matcher (P1-5: avoid race with DB).
+// ComponentSnapshot is a component descriptor for CVE matcher (P1-5: avoid race with DB).
 type ComponentSnapshot struct {
-	Name    string `json:"name"`
-	Version string `json:"version"`
-	PURL    string `json:"purl"`
+	Name         string `json:"name"`
+	Version      string `json:"version"`
+	PURL         string `json:"purl"`
+	Source       string `json:"source,omitempty"`
+	TrustLevel   string `json:"trust_level,omitempty"`
+	OriginalPURL string `json:"original_purl,omitempty"`
+	PURLValidated bool  `json:"purl_validated,omitempty"`
 }
 
 // SBOMCreatedEvent is emitted after an SBOM is ensured/persisted for a pod container.

@@ -118,6 +118,10 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 				ComponentName:    s.Name,
 				ComponentVersion: s.Version,
 				PURL:             s.PURL,
+				Source:           s.Source,
+				TrustLevel:       s.TrustLevel,
+				OriginalPURL:     s.OriginalPURL,
+				PURLValidated:    s.PURLValidated,
 			})
 		}
 	}
