@@ -71,6 +71,13 @@ type SBOMComponent struct {
 
 	// Relationships
 	SBOM SBOM `gorm:"foreignKey:SBOMID" json:"sbom,omitempty"`
+
+	// Snapshot-only canonical fields (not persisted). Used to keep worker matching deterministic across replays.
+	NormalizedName string `gorm:"-" json:"-"`
+	VersionClass   string `gorm:"-" json:"-"`
+	Ecosystem      string `gorm:"-" json:"-"`
+	Namespace      string `gorm:"-" json:"-"`
+	Arch           string `gorm:"-" json:"-"`
 }
 
 // TableName specifies the table name for SBOMComponent

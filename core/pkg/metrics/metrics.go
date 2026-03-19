@@ -223,7 +223,7 @@ var (
 			Name: "fortuna_cve_matcher_runs_total",
 			Help: "Total number of CVE matcher runs by result",
 		},
-		[]string{"result"}, // result: processed | skipped | duplicate | error
+		[]string{"result"}, // result: processed | skipped | duplicate | replay | error
 	)
 
 	CVEMatchingDuration = promauto.NewHistogram(

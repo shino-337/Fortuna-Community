@@ -97,6 +97,22 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		mirrorVersion = fmt.Sprintf("ts-%d", time.Now().Unix()/3600)
 	}
 	sbomRepo := repository.NewSBOMRepository(w.db)
+
+	// PR-4 replay guard (atomic): skip stale replayed events by timestamp.
+	if ev.Timestamp > 0 {
+		ok, err := sbomRepo.ClaimSBOMEvent(ctx, ev.SBOMID, ev.EventID, ev.Timestamp)
+		if err != nil {
+			metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
+			return fmt.Errorf("claim sbom event sbom_id=%d ts=%d: %w", ev.SBOMID, ev.Timestamp, err)
+		}
+		if !ok {
+			metrics.CVEMatcherRunsTotal.WithLabelValues("replay").Inc()
+			w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d result=replay_skipped event_id=%s event_ts=%d",
+				ev.CorrelationID, ev.SBOMID, ev.EventID, ev.Timestamp)
+			return nil
+		}
+	}
+
 	ok, err := sbomRepo.EnsureMatchRun(ctx, sbomModel.ID, sbomModel.Version, mirrorVersion)
 	if err != nil {
 		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
@@ -122,6 +138,11 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 				TrustLevel:       s.TrustLevel,
 				OriginalPURL:     s.OriginalPURL,
 				PURLValidated:    s.PURLValidated,
+				NormalizedName:   s.NormalizedName,
+				VersionClass:     s.VersionClass,
+				Ecosystem:        s.Ecosystem,
+				Namespace:        s.Namespace,
+				Arch:             s.Arch,
 			})
 		}
 	}

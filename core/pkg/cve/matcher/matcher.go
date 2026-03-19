@@ -454,11 +454,28 @@ func (m *Matcher) resolveComponentsForMatching(
 			continue
 		}
 
-		p, err := ParsePURL(c.PURL)
-		if err != nil || p == nil {
-			// Keep behavior: unparseable PURL not matchable
-			metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid").Inc()
-			continue
+		// Prefer canonical fields from snapshot (PR-3 full). Fall back to parsing PURL.
+		var p *PURL
+		var err error
+		eco := strings.ToLower(strings.TrimSpace(c.Ecosystem))
+		if eco != "" && strings.TrimSpace(c.ComponentName) != "" && strings.TrimSpace(c.ComponentVersion) != "" {
+			p = &PURL{
+				Type:      "pkg",
+				Ecosystem: eco,
+				Namespace: strings.TrimSpace(c.Namespace),
+				Name:      strings.TrimSpace(c.ComponentName),
+				Version:   strings.TrimSpace(c.ComponentVersion),
+				Qualifiers: map[string]string{
+					"arch": strings.TrimSpace(c.Arch),
+				},
+			}
+		} else {
+			p, err = ParsePURL(c.PURL)
+			if err != nil || p == nil {
+				// Keep behavior: unparseable PURL not matchable
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid").Inc()
+				continue
+			}
 		}
 		tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
 		if tl == "" {
@@ -476,7 +493,7 @@ func (m *Matcher) resolveComponentsForMatching(
 			lowCount++
 		}
 
-		eco := normalizeQueryEcosystemWithOS(p, sbom.OSName)
+		eco = normalizeQueryEcosystemWithOS(p, sbom.OSName)
 		// Canonical identity key:
 		// - go: full module path
 		// - distro ecosystems: include namespace if present

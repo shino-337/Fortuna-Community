@@ -173,6 +173,14 @@ func correlationIDFromContext(ctx context.Context) string {
 	return fmt.Sprintf("core-%d", time.Now().UnixNano())
 }
 
+func newEventID() string {
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+	return fmt.Sprintf("ev-%d", time.Now().UnixNano())
+}
+
 // clusterIDFromContext returns x-cluster-id from gRPC metadata or empty (Finding #6).
 func clusterIDFromContext(ctx context.Context) string {
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -187,6 +195,7 @@ func clusterIDFromContext(ctx context.Context) string {
 // SendSBOMFinding handles a single SBOM finding from Agent
 func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
 	correlationID := correlationIDFromContext(ctx)
+	eventID := newEventID()
 	clusterID := clusterIDFromContext(ctx)
 	if clusterID == "" && s.db != nil {
 		var pod models.Pod
@@ -402,20 +411,56 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		// P1-5: component snapshot at publish time so CVE matcher can use it and avoid soft-delete race
 		componentsSnapshot := make([]map[string]interface{}, 0, len(components))
 		for _, c := range components {
+			eco := ""
+			ns := ""
+			arch := ""
+			normalizedName := ""
+			versionClass := "UNKNOWN"
+
+			if p, err := matcher.ParsePURL(c.PURL); err == nil && p != nil {
+				eco = strings.ToLower(strings.TrimSpace(p.Ecosystem))
+				if eco == "golang" {
+					eco = "go"
+				}
+				ns = strings.TrimSpace(p.Namespace)
+				if p.Qualifiers != nil {
+					arch = strings.TrimSpace(p.Qualifiers["arch"])
+				}
+				normalizedName = strings.ToLower(strings.TrimSpace(p.Name))
+				if eco == "go" {
+					// Canonicalize based on component fields (already firewall-validated).
+					normalizedName = c.ComponentName
+					switch classifyGoVersion(normalizeGoVersionForPURL(c.ComponentVersion)) {
+					case goVerStrict:
+						versionClass = "STRICT"
+					case goVerLoose:
+						versionClass = "LOOSE"
+					default:
+						versionClass = "INVALID"
+					}
+				}
+			}
+
 			componentsSnapshot = append(componentsSnapshot, map[string]interface{}{
-				"name":          c.ComponentName,
-				"version":       c.ComponentVersion,
-				"purl":          c.PURL,
-				"source":        c.Source,
-				"trust_level":   c.TrustLevel,
-				"original_purl": c.OriginalPURL,
-				"purl_validated": c.PURLValidated,
+				"purl":            c.PURL,
+				"name":            c.ComponentName,
+				"version":         c.ComponentVersion,
+				"normalized_name": normalizedName,
+				"version_class":   versionClass,
+				"ecosystem":       eco,
+				"namespace":       ns,
+				"arch":            arch,
+				"source":          c.Source,
+				"trust_level":     c.TrustLevel,
+				"original_purl":   c.OriginalPURL,
+				"purl_validated":  c.PURLValidated,
 			})
 		}
 		// Create proper JSON event with all required fields using map to avoid import issues
 		event := map[string]interface{}{
 			"type":                "sbom.created",
 			"timestamp":           time.Now().Unix(),
+			"event_id":            eventID,
 			"correlation_id":      correlationID,
 			"cluster_id":          clusterID,
 			"pod_uid":             podUID,

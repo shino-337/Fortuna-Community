@@ -105,6 +105,7 @@ var (
 	_ = Migration082_AddSBOMStatusAndVersion
 	_ = Migration083_AddSBOMMatchRuns
 	_ = Migration084_AddSBOMComponentTrustFields
+	_ = Migration085_AddSBOMMatchWatermarks
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -209,6 +210,8 @@ func RunMigrations(db *gorm.DB) error {
 		Migration081_AddMirrorState,                       // mirror_state (name, version) for cache epoch; bump on sync
 		Migration083_AddSBOMMatchRuns,                     // Idempotency: sbom_match_runs per (sbom_id, version, mirror_version)
 		Migration084_AddSBOMComponentTrustFields,          // Trust boundary: original_purl, purl_validated, trust_level on sbom_components
+		Migration085_AddSBOMMatchWatermarks,               // Replay guard: atomic watermark per sbom_id (version + event timestamp)
+		Migration086_AddSBOMProcessingState,               // Replay guard v2: atomic last-write-wins by event timestamp/id
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

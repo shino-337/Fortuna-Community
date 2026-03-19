@@ -240,6 +240,37 @@ func (r *SBOMRepository) EnsureMatchRun(
 	return true, nil
 }
 
+// ClaimSBOMEvent atomically claims processing rights for an sbom.created event based on event timestamp.
+// Returns true if this event is newer than the latest processed watermark; false if it is stale/replayed.
+func (r *SBOMRepository) ClaimSBOMEvent(ctx context.Context, sbomID uint, eventID string, eventTS int64) (bool, error) {
+	if sbomID == 0 || eventTS <= 0 {
+		return false, fmt.Errorf("invalid claim key: sbom_id=%d event_id=%q event_ts=%d", sbomID, eventID, eventTS)
+	}
+	if strings.TrimSpace(eventID) == "" {
+		eventID = fmt.Sprintf("ev-%d", time.Now().UnixNano())
+	}
+
+	// Atomic last-write-wins:
+	// - Insert watermark if missing.
+	// - Update only if incoming ts is strictly newer.
+	res := r.db.WithContext(ctx).Exec(`
+INSERT INTO sbom_processing_state (sbom_id, latest_event_ts, latest_event_id)
+VALUES (?, ?, ?)
+ON CONFLICT(sbom_id) DO UPDATE
+SET latest_event_ts = excluded.latest_event_ts,
+    latest_event_id = excluded.latest_event_id,
+    updated_at = CURRENT_TIMESTAMP
+WHERE sbom_processing_state.latest_event_ts < excluded.latest_event_ts;
+`, sbomID, eventTS, eventID)
+	if res.Error != nil {
+		return false, fmt.Errorf("claim sbom event: %w", res.Error)
+	}
+	// RowsAffected:
+	// - 1 on insert or successful update
+	// - 0 if stale (no update)
+	return res.RowsAffected > 0, nil
+}
+
 // isDuplicateKey returns true if err indicates a unique/primary key violation
 // (PostgreSQL 23505, or driver message), so callers can treat as idempotent skip.
 // Uses specific phrases to avoid false positives on unrelated error text.
