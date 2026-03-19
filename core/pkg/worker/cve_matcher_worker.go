@@ -30,6 +30,10 @@ const SubjectSIEMEvents = "fortuna.siem.events"
 // When nil, worker falls back to JetStream publish (single-replica broadcast).
 type PublishInsightsUpdatedFunc func(data []byte) error
 
+func incCVEMatcherRun(result string) {
+	metrics.CVEMatcherRunsTotal.WithLabelValues(result, matcher.ResolverVersion).Inc()
+}
+
 // CVEMatcherWorker implements: SBOM_CREATED -> CVE Matching -> Persist cve_matches -> Vulnerability Insights.
 type CVEMatcherWorker struct {
 	js                      nats.JetStreamContext
@@ -70,12 +74,16 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	startProcess := time.Now()
 	var ev sbom.SBOMCreatedEvent
 	if err := json.Unmarshal(msg.Data, &ev); err != nil {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
+		incCVEMatcherRun("error")
 		return fmt.Errorf("unmarshal sbom.created: %w", err)
 	}
 	if ev.SBOMID == 0 {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
+		incCVEMatcherRun("skipped")
 		return nil
+	}
+	if ev.SchemaVersion != "" && ev.SchemaVersion != sbom.SBOMCreatedEventSchemaVersion {
+		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d schema_version=%q expected=%q resolver_version=%s result=schema_mismatch_warn",
+			ev.CorrelationID, ev.SBOMID, ev.SchemaVersion, sbom.SBOMCreatedEventSchemaVersion, matcher.ResolverVersion)
 	}
 
 	// Load SBOM (for component_count/logging)
@@ -85,42 +93,42 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		First(&sbomModel).Error; err != nil {
 		// If SBOM doesn't exist (deleted or never created), skip silently to avoid retry loops
 		w.logger.Printf("⚠️  SBOM id=%d not found (may have been deleted), skipping CVE matching", ev.SBOMID)
-		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
+		incCVEMatcherRun("skipped")
 		return nil // Don't retry deleted SBOMs
 	}
 
-	// Idempotency gate: only first matcher run per (sbom_id, version, mirror_version) proceeds.
-	// Use OSV mirror_state.version so when mirror sync bumps version, a new run is allowed.
-	// Fallback to time bucket only when mirror_state isn't available (e.g. fresh DB or tests without table).
+	// Resolve mirror version once, then freeze on ctx for the whole run (avoid mid-run mirror_state bump drift).
 	mirrorVersion := w.dbManager.GetMirrorVersion(ctx, "osv")
 	if strings.TrimSpace(mirrorVersion) == "" {
 		mirrorVersion = fmt.Sprintf("ts-%d", time.Now().Unix()/3600)
 	}
+	ctx = database.WithFrozenMirrorVersion(ctx, "osv", mirrorVersion)
 	sbomRepo := repository.NewSBOMRepository(w.db)
 
 	// PR-4 replay guard (atomic): skip stale replayed events by timestamp.
 	if ev.Timestamp > 0 {
 		ok, err := sbomRepo.ClaimSBOMEvent(ctx, ev.SBOMID, ev.EventID, ev.Timestamp)
 		if err != nil {
-			metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
+			incCVEMatcherRun("error")
 			return fmt.Errorf("claim sbom event sbom_id=%d ts=%d: %w", ev.SBOMID, ev.Timestamp, err)
 		}
 		if !ok {
-			metrics.CVEMatcherRunsTotal.WithLabelValues("replay").Inc()
-			w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d result=replay_skipped event_id=%s event_ts=%d",
-				ev.CorrelationID, ev.SBOMID, ev.EventID, ev.Timestamp)
+			incCVEMatcherRun("replay")
+			w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d resolver_version=%s result=replay_skipped event_id=%s event_ts=%d",
+				ev.CorrelationID, ev.SBOMID, matcher.ResolverVersion, ev.EventID, ev.Timestamp)
 			return nil
 		}
 	}
 
 	ok, err := sbomRepo.EnsureMatchRun(ctx, sbomModel.ID, sbomModel.Version, mirrorVersion)
 	if err != nil {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
+		incCVEMatcherRun("error")
 		return fmt.Errorf("ensure match run sbom_id=%d version=%d mirror=%s: %w", sbomModel.ID, sbomModel.Version, mirrorVersion, err)
 	}
 	if !ok {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("duplicate").Inc()
-		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s result=duplicate", ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion)
+		incCVEMatcherRun("duplicate")
+		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=duplicate",
+			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion)
 		return nil
 	}
 
@@ -150,20 +158,20 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	startMatch := time.Now()
 	matches, err := w.matcher.MatchSBOM(ctx, &sbomModel, componentsOverride)
 	if err != nil {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
+		incCVEMatcherRun("error")
 		return fmt.Errorf("match sbom id=%d: %w", sbomModel.ID, err)
 	}
 	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
 	if len(matches) == 0 {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("skipped").Inc()
-		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s result=skipped matches=0 duration_ms=%d",
-			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, time.Since(startProcess).Milliseconds())
+		incCVEMatcherRun("skipped")
+		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=skipped matches=0 duration_ms=%d",
+			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, time.Since(startProcess).Milliseconds())
 		return nil
 	}
 
 	// Persist matches to cve_matches with dedup
 	if err := w.persistMatches(ctx, matches); err != nil {
-		metrics.CVEMatcherRunsTotal.WithLabelValues("error").Inc()
+		incCVEMatcherRun("error")
 		return err
 	}
 	// Observability: count matches by severity (FORTUNA_CVE_MATCHING_ENGINE §13)
@@ -174,9 +182,9 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		}
 		metrics.CVEMatchesTotal.WithLabelValues(sev).Inc()
 	}
-	metrics.CVEMatcherRunsTotal.WithLabelValues("processed").Inc()
-	w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s result=processed matches=%d duration_ms=%d",
-		ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, len(matches), time.Since(startProcess).Milliseconds())
+	incCVEMatcherRun("processed")
+	w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=processed matches=%d duration_ms=%d",
+		ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, len(matches), time.Since(startProcess).Milliseconds())
 
 	// Create insights (critical/high only)
 	// OPTIMIZATION: Use matches directly instead of re-querying from DB

@@ -252,7 +252,8 @@ func (r *SBOMRepository) ClaimSBOMEvent(ctx context.Context, sbomID uint, eventI
 
 	// Atomic last-write-wins:
 	// - Insert watermark if missing.
-	// - Update only if incoming ts is strictly newer.
+	// - Update if incoming ts is strictly newer, OR same ts with a different event_id (distinct events colliding on clock).
+	// - Same ts + same event_id → no row change (idempotent redelivery).
 	res := r.db.WithContext(ctx).Exec(`
 INSERT INTO sbom_processing_state (sbom_id, latest_event_ts, latest_event_id)
 VALUES (?, ?, ?)
@@ -260,7 +261,11 @@ ON CONFLICT(sbom_id) DO UPDATE
 SET latest_event_ts = excluded.latest_event_ts,
     latest_event_id = excluded.latest_event_id,
     updated_at = CURRENT_TIMESTAMP
-WHERE sbom_processing_state.latest_event_ts < excluded.latest_event_ts;
+WHERE sbom_processing_state.latest_event_ts < excluded.latest_event_ts
+   OR (
+        sbom_processing_state.latest_event_ts = excluded.latest_event_ts
+    AND sbom_processing_state.latest_event_id <> excluded.latest_event_id
+   );
 `, sbomID, eventTS, eventID)
 	if res.Error != nil {
 		return false, fmt.Errorf("claim sbom event: %w", res.Error)

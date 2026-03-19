@@ -58,7 +58,7 @@ func (m *Matcher) MatchSBOM(
 		return nil, nil
 	}
 
-	m.logger.Printf("Matching CVEs for SBOM ID %d (%d packages)", sbom.ID, sbom.PackageCount)
+	m.logger.Printf("Matching CVEs for SBOM ID %d (%d packages) resolver_version=%s", sbom.ID, sbom.PackageCount, ResolverVersion)
 
 	var components []models.SBOMComponent
 	if componentsOverride != nil {

@@ -91,3 +91,29 @@ func TestReplayGuard_ConcurrentEvents(t *testing.T) {
 	require.True(t, ok)
 }
 
+func TestReplayGuard_SameTimestampSameEventID_Idempotent(t *testing.T) {
+	repo, _ := newReplayGuardRepo(t)
+	ctx := context.Background()
+
+	ok, err := repo.ClaimSBOMEvent(ctx, 2, "X", 100)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	ok, err = repo.ClaimSBOMEvent(ctx, 2, "X", 100)
+	require.NoError(t, err)
+	require.False(t, ok)
+}
+
+func TestReplayGuard_SameTimestampDifferentEventID_AllowsSecond(t *testing.T) {
+	repo, _ := newReplayGuardRepo(t)
+	ctx := context.Background()
+
+	ok, err := repo.ClaimSBOMEvent(ctx, 3, "A", 100)
+	require.NoError(t, err)
+	require.True(t, ok)
+
+	ok, err = repo.ClaimSBOMEvent(ctx, 3, "B", 100)
+	require.NoError(t, err)
+	require.True(t, ok)
+}
+

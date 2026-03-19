@@ -1,5 +1,8 @@
 package sbom
 
+// SBOMCreatedEventSchemaVersion is bumped when SBOMCreatedEvent / ComponentSnapshot wire semantics change.
+const SBOMCreatedEventSchemaVersion = "v1"
+
 // ComponentSnapshot is a component descriptor for CVE matcher (P1-5: avoid race with DB).
 type ComponentSnapshot struct {
 	PURL    string `json:"purl"`
@@ -26,6 +29,8 @@ type SBOMCreatedEvent struct {
 	Type      string `json:"type"`
 	Timestamp int64  `json:"timestamp"`
 	EventID   string `json:"event_id,omitempty"`
+	// SchemaVersion lets workers detect snapshot format drift (forward compatibility).
+	SchemaVersion string `json:"schema_version,omitempty"`
 	// CorrelationID propagates request tracing from ingest to workers.
 	CorrelationID string `json:"correlation_id,omitempty"`
 

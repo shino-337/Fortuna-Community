@@ -670,6 +670,9 @@ func (m *Manager) EnsureCVEExists(ctx context.Context, cveData *cve.CVE) error {
 // getMirrorVersion returns the mirror_state version for name (e.g. "osv") for cache key.
 // Returns "" if table/row missing so cache key falls back to "*" (no version).
 func (m *Manager) getMirrorVersion(ctx context.Context, name string) string {
+	if v := frozenMirrorVersionFromContext(ctx, name); v != "" {
+		return v
+	}
 	if m.postgresDB == nil || strings.TrimSpace(name) == "" {
 		return ""
 	}

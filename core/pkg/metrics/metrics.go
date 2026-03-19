@@ -221,9 +221,9 @@ var (
 	CVEMatcherRunsTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
 			Name: "fortuna_cve_matcher_runs_total",
-			Help: "Total number of CVE matcher runs by result",
+			Help: "Total number of CVE matcher runs by result and resolver_version",
 		},
-		[]string{"result"}, // result: processed | skipped | duplicate | replay | error
+		[]string{"result", "resolver_version"}, // result: processed | skipped | duplicate | replay | error
 	)
 
 	CVEMatchingDuration = promauto.NewHistogram(

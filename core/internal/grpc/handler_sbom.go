@@ -27,6 +27,7 @@ import (
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/sbom"
 )
 
 var goVersionNoBuildMeta = regexp.MustCompile(`^\s*v?\d+\.\d+\.\d+([\-\.].*)?\s*$`)
@@ -461,6 +462,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			"type":                "sbom.created",
 			"timestamp":           time.Now().Unix(),
 			"event_id":            eventID,
+			"schema_version":      sbom.SBOMCreatedEventSchemaVersion,
 			"correlation_id":      correlationID,
 			"cluster_id":          clusterID,
 			"pod_uid":             podUID,
