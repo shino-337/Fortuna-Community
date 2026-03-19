@@ -509,6 +509,7 @@ func main() {
 	// Add middleware - CORS must be first to handle preflight
 	router.Use(middleware.CORS())
 	router.Use(middleware.SecurityHeaders())
+	router.Use(middleware.RateLimiting())
 	router.Use(middleware.MetricsMiddleware())
 	// Sanitize 5xx responses so internal error details are not sent to clients (log server-side only)
 	router.Use(middleware.ErrorSanitize())

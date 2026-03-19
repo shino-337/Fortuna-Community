@@ -44,6 +44,7 @@
 
 - [Deployment Checklist](05-operations/DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment
 - [Clean Rebuild & Verify](05-operations/CLEAN_REBUILD_REDEPLOY_AND_VERIFY.md) - Clean rebuild and E2E verify
+- [Backlog Execution Plan (2026-03-19)](05-operations/BACKLOG_EXECUTION_PLAN_2026-03-19.md) - Prioritized backlog with sprint plan and tracking table
 - [Troubleshooting](05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting) - Common issues and solutions
 - **[Agent/Core: Monitor & troubleshooting](AGENT_CORE_ERRORS_MONITOR.md)** – Monitor commands (monitor-agent-core-errors.sh), error analysis (OOM, secrets, containerd digest, Sync 500, DNS)
 

@@ -150,3 +150,35 @@ func TestWorker_Replay_SameTimestampDifferentEventID_UpdatesWatermark(t *testing
 	}
 }
 
+func TestWorker_Replay_OlderTimestampSkipped_AfterNewerProcessed(t *testing.T) {
+	db := newReplayWorkerTestDB(t)
+	sb := seedFinalizedSBOM(t, db)
+	w := NewCVEMatcherWorker(nil, db, nil)
+
+	runWorkerEvent(t, w, sbom.SBOMCreatedEvent{
+		Type:          "sbom.created",
+		Timestamp:     200,
+		EventID:       "ev-new",
+		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
+		SBOMID:        sb.ID,
+		ImageDigest:   sb.ImageDigest,
+	})
+	runWorkerEvent(t, w, sbom.SBOMCreatedEvent{
+		Type:          "sbom.created",
+		Timestamp:     100,
+		EventID:       "ev-old",
+		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
+		SBOMID:        sb.ID,
+		ImageDigest:   sb.ImageDigest,
+	})
+
+	var latestTS int64
+	var latestID string
+	if err := db.Raw("SELECT latest_event_ts, latest_event_id FROM sbom_processing_state WHERE sbom_id = ?", sb.ID).Row().Scan(&latestTS, &latestID); err != nil {
+		t.Fatalf("query watermark: %v", err)
+	}
+	if latestTS != 200 || latestID != "ev-new" {
+		t.Fatalf("expected watermark to remain newest (200, ev-new), got (%d, %q)", latestTS, latestID)
+	}
+}
+

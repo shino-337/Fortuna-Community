@@ -100,13 +100,8 @@ func CORS() gin.HandlerFunc {
 	}
 }
 
-// RateLimiting middleware (basic implementation)
+// RateLimiting middleware delegates to the in-memory/IP-aware rate limiter implementation.
 func RateLimiting() gin.HandlerFunc {
-	// TODO: Implement proper rate limiting with Redis or in-memory store
-	return func(c *gin.Context) {
-		// For now, just pass through
-		// In production, implement rate limiting based on IP or user
-		c.Next()
-	}
+	return RateLimiterMiddleware(DefaultRateLimiterConfig())
 }
 

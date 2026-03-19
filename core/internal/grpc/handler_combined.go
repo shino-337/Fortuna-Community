@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -272,11 +273,26 @@ func (s *SBOMServiceServer) storeCVEFindings(ctx context.Context, cve *pb.CVEFin
 
 // linkPodToSBOM creates pod_image_scan record
 func (s *SBOMServiceServer) linkPodToSBOM(ctx context.Context, sbom *pb.SBOMFinding, sbomID uint) error {
+	clusterID := clusterIDFromContext(ctx)
+	if clusterID == "" && s.db != nil {
+		var pod models.Pod
+		if err := s.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", sbom.PodUid).First(&pod).Error; err == nil {
+			clusterID = pod.ClusterID
+		}
+	}
+	if clusterID == "" {
+		if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
+			clusterID = v
+		} else {
+			clusterID = "unknown"
+		}
+	}
+
 	scan := models.PodImageScan{
 		PodUID:         sbom.PodUid,
 		PodName:        sbom.PodName,
 		PodNamespace:   sbom.Namespace,
-		ClusterID:      "default", // TODO: Get from config
+		ClusterID:      clusterID,
 		ContainerName:  sbom.ContainerName,
 		ContainerImage: fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
 		ImageName:      sbom.ImageName,
