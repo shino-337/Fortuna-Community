@@ -4,3 +4,7 @@
 *.OLD
 *archive*
 /test-results/
+/scripts/
+/deploy/
+/helm/
+/test/

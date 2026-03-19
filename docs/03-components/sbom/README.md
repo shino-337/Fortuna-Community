@@ -18,6 +18,7 @@ The SBOM Generator creates Software Bill of Materials for container images, enab
 All SBOM component contract changes (Agent ↔ Core ↔ DB ↔ Event ↔ Matcher) must be reflected here:
 
 - **`SBOM_COMPONENT_SPEC.md`** (source-of-truth / continuously updated)
+- **`SBOM_EVENT_REPLAY_CONTRACT.md`** (deterministic snapshot/replay contract)
 
 ---
 
