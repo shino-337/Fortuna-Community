@@ -92,6 +92,16 @@ var (
 		[]string{"worker_name"},
 	)
 
+	// DLQThresholdExceededTotal increments when the DLQ stream message count crosses
+	// AlertThreshold. A cooldown is applied in the DLQ manager to avoid log/metric spam.
+	DLQThresholdExceededTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_dlq_threshold_exceeded_total",
+			Help: "Total number of DLQ threshold exceeded alerts",
+		},
+		[]string{"stream_name"},
+	)
+
 	// Backpressure metrics (for worker backpressure.go)
 	WorkerBackpressureTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{

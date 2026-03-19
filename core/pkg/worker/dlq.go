@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/nats-io/nats.go"
 )
 
@@ -34,6 +36,10 @@ func DefaultDLQConfig() DLQConfig {
 type DLQManager struct {
 	js     nats.JetStreamContext
 	config DLQConfig
+
+	alertMu       sync.Mutex
+	lastAlertAt   time.Time
+	alertCooldown time.Duration
 }
 
 // NewDLQManager creates a new DLQ manager
@@ -41,6 +47,8 @@ func NewDLQManager(js nats.JetStreamContext, config DLQConfig) (*DLQManager, err
 	manager := &DLQManager{
 		js:     js,
 		config: config,
+		// Cooldown to avoid repeated alerts/log spam while DLQ remains above threshold.
+		alertCooldown: 5 * time.Minute,
 	}
 
 	if !config.Enabled {
@@ -150,11 +158,24 @@ func (m *DLQManager) checkAlertThreshold() error {
 		return fmt.Errorf("failed to get stream info: %w", err)
 	}
 
-	if streamInfo.State.Msgs > uint64(m.config.AlertThreshold) {
-		log.Printf("[DLQ] ALERT: DLQ message count (%d) exceeds threshold (%d)",
-			streamInfo.State.Msgs, m.config.AlertThreshold)
-		// TODO: Send alert to monitoring system
+	msgs := streamInfo.State.Msgs
+	threshold := uint64(m.config.AlertThreshold)
+	if msgs <= threshold {
+		return nil
 	}
+
+	// Avoid spamming while count stays above threshold.
+	m.alertMu.Lock()
+	defer m.alertMu.Unlock()
+
+	if !m.lastAlertAt.IsZero() && time.Since(m.lastAlertAt) < m.alertCooldown {
+		return nil
+	}
+	m.lastAlertAt = time.Now()
+
+	log.Printf("[DLQ] ALERT: DLQ message count (%d) exceeds threshold (%d) (stream=%s)",
+		msgs, m.config.AlertThreshold, m.config.StreamName)
+	metrics.DLQThresholdExceededTotal.WithLabelValues(m.config.StreamName).Inc()
 
 	return nil
 }
