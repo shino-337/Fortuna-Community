@@ -202,7 +202,6 @@ tests/performance/
 # Development documentation (optional)
 docs/06-reference/
 docs/04-development/
-docs/05-operations/
 docs/08-tutorials/
 docs/01-getting-started/
 docs/07-guides/
@@ -240,6 +239,7 @@ docs/02-architecture/KSAM_ADR_FULL.md
 !docs/ARCHITECTURE.md
 !docs/MIGRATIONS.md
 !docs/API_REFERENCE.md
+!docs/RATE_LIMITING.md
 !docs/PENDING_TASKS_SUMMARY.md
 !docs/TODO_LIST.md
 !docs/UI_AND_PENDING_TASKS.md

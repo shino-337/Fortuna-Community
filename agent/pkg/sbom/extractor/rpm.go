@@ -1,11 +1,24 @@
 package extractor
 
 import (
+	"bytes"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+	"strconv"
+	"strings"
+
+	rpmdb "github.com/anchore/go-rpmdb/pkg"
 )
 
-// RpmParser parses RedHat/CentOS packages
-// Note: RPM database is Berkeley DB format, complex to parse
-// For now, this is a placeholder that can be enhanced later
+// Default path inside the image for a line-based RPM inventory (Sprint C1 / Tier 0 MVP).
+// Format: see parseRPMPackagesList.
+const defaultRPMInventoryPath = "/var/lib/fortuna/rpm-packages.list"
+
+// RpmParser extracts RPM packages from a Fortuna inventory manifest embedded in the image.
+// Full Berkeley DB /var/lib/rpm/Packages parsing is out of scope; build pipelines or base
+// images can materialize the inventory file for deterministic SBOM on RPM-based images.
 type RpmParser struct{}
 
 // NewRpmParser creates a new rpm parser
@@ -13,22 +26,235 @@ func NewRpmParser() *RpmParser {
 	return &RpmParser{}
 }
 
-// Parse parses rpm packages
-// TODO: Implement full RPM database parsing
-// For now, returns empty (can be enhanced with Berkeley DB library)
+// Parse reads rpm-packages.list (or FORTUNA_RPM_INVENTORY_PATH) and returns packages with stable PURLs.
 func (p *RpmParser) Parse(fs *Filesystem) ([]Package, error) {
-	// RPM database is at /var/lib/rpm/Packages (Berkeley DB format)
-	// This requires a Berkeley DB library or using rpm command
-	// For initial implementation, we'll skip this
-	// Can be enhanced later with github.com/etcd-io/bbolt or similar
-
-	// Check if RPM database exists
-	if !fs.FileExists("/var/lib/rpm/Packages") {
-		return nil, nil // Not an RPM-based image
+	path := strings.TrimSpace(os.Getenv("FORTUNA_RPM_INVENTORY_PATH"))
+	if path == "" {
+		path = defaultRPMInventoryPath
 	}
-
-	// TODO: Implement RPM database parsing
-	// For now, return empty (will be implemented in Phase 2)
-	return []Package{}, nil
+	if !fs.FileExists(path) {
+		// A4: fallback to parsing rpmdb when Fortuna inventory is missing.
+		// We first try modern rpmdb.sqlite (RPM >= 4.16). If it exists, parse it best-effort.
+		pkgs, err := p.parseRPMDBFromFileSystem(fs)
+		if err != nil {
+			// Fallback should be non-fatal: absence/unreadable rpmdb just returns no rpm packages.
+			return nil, nil
+		}
+		return pkgs, nil
+	}
+	data, err := fs.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	distro := rpmDistroFromOSRelease(fs)
+	pkgs, err := parseRPMPackagesList(string(data), distro)
+	if err != nil {
+		return nil, err
+	}
+	return pkgs, nil
 }
 
+func (p *RpmParser) parseRPMDBFromFileSystem(fs *Filesystem) ([]Package, error) {
+	// Candidate paths for modern sqlite-backed rpmdb, NDB and legacy BerkeleyDB "Packages".
+	candidates := []string{
+		"/var/lib/rpm/rpmdb.sqlite",
+		"/usr/lib/sysimage/rpm/rpmdb.sqlite",
+		"/usr/lib/sysimage/rpm/rpmdb.sqlite3",
+		"/usr/lib/sysimage/rpm/Packages.db",
+		"/var/lib/rpm/Packages",
+		"/usr/lib/sysimage/rpm/Packages",
+	}
+
+	distro := rpmDistroFromOSRelease(fs)
+
+	for _, cand := range candidates {
+		if !fs.FileExists(cand) {
+			continue
+		}
+		data, err := fs.ReadFile(cand)
+		if err != nil {
+			continue
+		}
+
+		tmp, err := os.CreateTemp("", "fortuna-rpmdb-*.sqlite")
+		if err != nil {
+			continue
+		}
+		tmpPath := tmp.Name()
+		_ = tmp.Close()
+
+		f, err := os.OpenFile(tmpPath, os.O_WRONLY|os.O_TRUNC, 0600)
+		if err != nil {
+			_ = os.Remove(tmpPath)
+			continue
+		}
+		if _, err := io.Copy(f, bytes.NewReader(data)); err != nil {
+			_ = f.Close()
+			_ = os.Remove(tmpPath)
+			continue
+		}
+		_ = f.Close()
+
+		db, err := rpmdb.Open(tmpPath)
+		if err != nil {
+			_ = os.Remove(tmpPath)
+			continue
+		}
+
+		pkgsInfo, err := db.ListPackages()
+		if err != nil {
+			db.Close()
+			_ = os.Remove(tmpPath)
+			continue
+		}
+
+		out := make([]Package, 0, len(pkgsInfo))
+		seen := make(map[string]struct{})
+		for _, info := range pkgsInfo {
+			if info == nil {
+				continue
+			}
+			// Field names differ across rpmdb versions; keep best-effort by using likely getters/fields.
+			name := strings.TrimSpace(info.Name)
+			arch := strings.TrimSpace(info.Arch)
+			ver := strings.TrimSpace(info.Version)
+			rel := strings.TrimSpace(info.Release)
+			epoch := ""
+			if info.Epoch != nil && *info.Epoch != 0 {
+				epoch = strconv.Itoa(*info.Epoch)
+			}
+
+			if name == "" || ver == "" {
+				continue
+			}
+
+			evr := ver
+			if rel != "" {
+				evr = ver + "-" + rel
+			}
+			if epoch != "" {
+				evr = epoch + ":" + evr
+			}
+
+			purl := rpmPURL(distro, name, evr, arch)
+			key := name + "\x00" + arch + "\x00" + evr
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			out = append(out, Package{
+				Name:       name,
+				Version:    evr,
+				Type:       "rpm",
+				Arch:       arch,
+				PURL:       purl,
+				Source:     "rpmdb-fallback",
+				Confidence: "high",
+			})
+		}
+		db.Close()
+		_ = os.Remove(tmpPath)
+		return out, nil
+	}
+
+	// No rpmdb candidate found in filesystem.
+	return nil, nil
+}
+
+func rpmDistroFromOSRelease(fs *Filesystem) string {
+	b, err := fs.ReadFile("/etc/os-release")
+	if err != nil {
+		return "redhat"
+	}
+	id := ""
+	for _, line := range strings.Split(string(b), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "ID=") {
+			id = strings.Trim(strings.TrimPrefix(line, "ID="), `"`)
+			break
+		}
+	}
+	if id == "" {
+		return "redhat"
+	}
+	// PURL namespace: keep short lowercase token
+	return strings.ReplaceAll(strings.ToLower(id), " ", "-")
+}
+
+// parseRPMPackagesList parses lines:
+//   - name<TAB>version<TAB>release<TAB>arch
+//   - name|version|release|arch
+//   - name<TAB>epoch<TAB>version<TAB>release<TAB>arch
+// Lines starting with # or empty are skipped.
+func parseRPMPackagesList(content, distro string) ([]Package, error) {
+	seen := make(map[string]struct{})
+	var out []Package
+	for _, line := range strings.Split(content, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		var fields []string
+		if strings.Contains(line, "\t") {
+			fields = strings.Split(line, "\t")
+		} else if strings.Contains(line, "|") {
+			fields = strings.Split(line, "|")
+		} else {
+			return nil, fmt.Errorf("rpm inventory: unsupported line (need TAB or | separators): %q", line)
+		}
+		for i := range fields {
+			fields[i] = strings.TrimSpace(fields[i])
+		}
+		var name, epoch, version, release, arch string
+		switch len(fields) {
+		case 4:
+			name, version, release, arch = fields[0], fields[1], fields[2], fields[3]
+		case 5:
+			name, epoch, version, release, arch = fields[0], fields[1], fields[2], fields[3], fields[4]
+		default:
+			return nil, fmt.Errorf("rpm inventory: want 4 or 5 fields, got %d in %q", len(fields), line)
+		}
+		if name == "" || version == "" {
+			return nil, fmt.Errorf("rpm inventory: empty name or version in %q", line)
+		}
+		evr := version
+		if release != "" {
+			evr = version + "-" + release
+		}
+		if epoch != "" && epoch != "0" {
+			evr = epoch + ":" + evr
+		}
+		key := name + "\x00" + arch + "\x00" + evr
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		purl := rpmPURL(distro, name, evr, arch)
+		out = append(out, Package{
+			Name:       name,
+			Version:    evr,
+			Type:       "rpm",
+			Arch:       arch,
+			PURL:       purl,
+			Source:     "rpm-inventory",
+			Confidence: "high",
+		})
+	}
+	return out, nil
+}
+
+func rpmPURL(distro, name, evr, arch string) string {
+	if distro == "" {
+		distro = "redhat"
+	}
+	// Minimal escaping for PURL path/name segments (avoid raw @ in name).
+	safeName := strings.ReplaceAll(name, "/", "%2F")
+	safeName = strings.ReplaceAll(safeName, "@", "%40")
+	safeEvr := strings.ReplaceAll(evr, "@", "%40")
+	s := fmt.Sprintf("pkg:rpm/%s/%s@%s", distro, safeName, safeEvr)
+	if arch != "" {
+		s += "?arch=" + url.QueryEscape(arch)
+	}
+	return s
+}

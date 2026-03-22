@@ -428,7 +428,7 @@ func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 	for _, insight := range insights {
 		score := 0.0
 
-		// For CVE insights: Check exploit from description (ExploitAvailable field removed)
+		// For CVE insights: Check exploit maturity from description + optional EPSS (RISK-1).
 		if insight.InsightType == "vulnerability" {
 			// Check exploit maturity from description
 			desc := strings.ToLower(insight.Description)
@@ -438,6 +438,20 @@ func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 				score = 4.0
 			} else {
 				score = 5.0 // Default for exploit available
+			}
+			if e, ok := parseEPSSFromInsightEvidence(insight.Evidence); ok {
+				// Blend structured exploit likelihood (EPSS 0..1) with heuristic text score.
+				switch {
+				case e >= 0.75:
+					score = math.Max(score, 6.0)
+				case e <= 0.05:
+					score = math.Min(score, 4.5)
+				default:
+					score = math.Max(score, 4.0+e*2.5)
+				}
+			}
+			if kev, ok := parseCISAKEVFromInsightEvidence(insight.Evidence); ok && kev {
+				score = math.Max(score, 6.0)
 			}
 		} else {
 			// For policy insights: Parse from description
@@ -468,6 +482,38 @@ func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 	return maxScore
 }
 
+// parseEPSSFromInsightEvidence reads "epss" from Insight.evidence JSON (matcher EPSS enrichment).
+func parseEPSSFromInsightEvidence(evidence string) (epss float64, ok bool) {
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" {
+		return 0, false
+	}
+	var v struct {
+		EPSS *float64 `json:"epss"`
+	}
+	if err := json.Unmarshal([]byte(evidence), &v); err != nil || v.EPSS == nil {
+		return 0, false
+	}
+	e := *v.EPSS
+	if e < 0 || e > 1 {
+		return 0, false
+	}
+	return e, true
+}
+
+func parseCISAKEVFromInsightEvidence(evidence string) (kev bool, ok bool) {
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" {
+		return false, false
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(evidence), &m); err != nil {
+		return false, false
+	}
+	v, ok := m["cisa_kev"].(bool)
+	return v, ok
+}
+
 // separateInsights separates CVE insights from policy insights
 func (s *Scorer) separateInsights(insights []models.Insight) ([]models.Insight, []models.Insight) {
 	cveInsights := []models.Insight{}
@@ -489,6 +535,22 @@ func (s *Scorer) separateInsights(insights []models.Insight) ([]models.Insight, 
 func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 	if len(cveInsights) == 0 {
 		return 0.0
+	}
+
+	confMultiplier := func(conf string) float64 {
+		switch strings.ToUpper(strings.TrimSpace(conf)) {
+		case "HIGH":
+			return 1.0
+		case "MEDIUM":
+			return 0.7
+		case "LOW":
+			return 0.4
+		case "VERY_LOW":
+			return 0.2
+		default:
+			// Backward compatible: insights without confidence should behave like HIGH.
+			return 1.0
+		}
 	}
 
 	var totalScore float64
@@ -535,6 +597,7 @@ func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 		}
 
 		score := baseCVSS * exploitWeight * freshnessWeight
+		score = score * confMultiplier(insight.FinalRiskConfidence)
 		totalScore += score
 		totalWeight += exploitWeight * freshnessWeight
 	}

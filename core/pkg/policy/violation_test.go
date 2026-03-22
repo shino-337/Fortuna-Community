@@ -56,6 +56,7 @@ func setupTestDBViolation(t *testing.T) *gorm.DB {
 			template_id TEXT NOT NULL,
 			template_version TEXT NOT NULL,
 			instance_name TEXT NOT NULL UNIQUE,
+			description TEXT,
 			enabled BOOLEAN DEFAULT 1,
 			clusters TEXT,
 			namespaces TEXT,
@@ -66,7 +67,9 @@ func setupTestDBViolation(t *testing.T) *gorm.DB {
 			custom_message TEXT,
 			auto_remediate BOOLEAN DEFAULT 0,
 			remediation_dry_run BOOLEAN DEFAULT 0,
-			exemptions TEXT
+			exemptions TEXT,
+			created_by TEXT,
+			updated_by TEXT
 		)
 	`)
 

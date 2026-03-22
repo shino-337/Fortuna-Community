@@ -65,11 +65,26 @@ func (s *Service) UpsertPodImageScan(
 	}).Create(&scan).Error
 }
 
-// Helper
+// parseImageRef parses image reference into image name + tag/digest suffix.
+// Handles registry ports correctly (e.g. registry:5000/repo/image:1.2.3).
 func parseImageRef(imageRef string) (string, string) {
-	parts := strings.SplitN(imageRef, ":", 2)
-	if len(parts) == 2 {
-		return parts[0], parts[1]
+	imageRef = strings.TrimSpace(imageRef)
+	if imageRef == "" {
+		return "", "latest"
+	}
+	// Digest reference: repo/name@sha256:...
+	if at := strings.LastIndex(imageRef, "@"); at > 0 && at < len(imageRef)-1 {
+		return imageRef[:at], imageRef[at+1:]
+	}
+	lastSlash := strings.LastIndex(imageRef, "/")
+	lastColon := strings.LastIndex(imageRef, ":")
+	// Tag is only valid when ":" appears after the last "/" (so registry port is ignored).
+	if lastColon > lastSlash && lastColon < len(imageRef)-1 {
+		return imageRef[:lastColon], imageRef[lastColon+1:]
+	}
+	// Handle trailing colon gracefully: "image:" => ("image","latest")
+	if lastColon > lastSlash && lastColon == len(imageRef)-1 {
+		return strings.TrimSuffix(imageRef, ":"), "latest"
 	}
 	return imageRef, "latest"
 }

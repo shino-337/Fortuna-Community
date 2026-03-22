@@ -55,6 +55,11 @@ Core modules:
 | `scripts/` | Build/deploy/verify utilities |
 | `tests/` | E2E and test assets |
 
+## Configuration highlights (Core)
+
+- **`NVD_API_KEY`** (optional, recommended): NIST NVD API key for Fortuna Core’s CVE matcher NVD fallback — higher rate limits. See [`docs/05-operations/NVD_API_KEY.md`](docs/05-operations/NVD_API_KEY.md) and `core/README.md` (Environment Variables).
+- Disable NVD entirely: `FORTUNA_NVD_DISABLED=1`.
+
 ## Install
 
 ### Prerequisites

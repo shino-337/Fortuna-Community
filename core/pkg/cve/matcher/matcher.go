@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -53,8 +54,17 @@ func (m *Matcher) MatchSBOM(
 ) ([]*models.CVEMatch, error) {
 	// SBOM lifecycle: only match finalized SBOMs to avoid races with mutable components.
 	status := strings.ToLower(strings.TrimSpace(sbom.Status))
-	if status != "" && status != "finalized" {
-		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q (only finalized SBOMs are matched)", sbom.ID, sbom.Status)
+	// SBOM status model (C0): pending|complete|partial|failed(+ legacy finalized).
+	// Matching is allowed for complete/partial and legacy finalized.
+	// Matching is skipped for pending/failed and unknown statuses (safe default).
+	switch status {
+	case "", "complete", "partial", "finalized":
+		// proceed
+	case "pending", "failed":
+		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q", sbom.ID, sbom.Status)
+		return nil, nil
+	default:
+		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q (unknown/unsafe)", sbom.ID, sbom.Status)
 		return nil, nil
 	}
 
@@ -78,6 +88,8 @@ func (m *Matcher) MatchSBOM(
 	m.logger.Printf("Found %d components to match (after resolution)", len(components))
 
 	matches := make([]*models.CVEMatch, 0)
+	const maxMatchesPerComponent = 25
+	matchCountByComponent := make(map[string]int)
 
 	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk.
 	// For Go: use prefix list + alias resolution (go_module_alias) so renames (e.g. coreos/etcd → go.etcd.io/etcd) still match.
@@ -106,11 +118,14 @@ func (m *Matcher) MatchSBOM(
 			continue
 		}
 
-		// 1. Parse PURL
+		// 1. Parse PURL (C0.4: ecosystem fallback without PURL)
+		// If PURL is missing/invalid, we still infer an ecosystem to avoid hard skips.
 		purl, err := ParsePURL(component.PURL)
 		if err != nil {
-			m.logger.Printf("⚠️  Failed to parse PURL %s: %v", component.PURL, err)
-			continue
+			// Best-effort inference: keep matching deterministic and observable.
+			m.logger.Printf("⚠️  PURL unavailable for component=%q version=%q (purl=%q): %v; inferring ecosystem",
+				component.ComponentName, component.ComponentVersion, component.PURL, err)
+			purl = inferPURLFromComponent(component, sbom.OSName)
 		}
 
 		// Normalize ecosystem for DB queries (use OS to map generic→distro for OSV match)
@@ -178,6 +193,18 @@ func (m *Matcher) MatchSBOM(
 		} else {
 			seenMatch := make(map[string]map[string]bool) // componentDedupKey -> CVEID -> true
 			for resolvedName, cves := range packageCVEs {
+				// D3: sort CVEs by severity before cap so we keep the most important CVEs deterministically.
+				sort.SliceStable(cves, func(i, j int) bool {
+					si := severityRank(cves[i].Severity)
+					sj := severityRank(cves[j].Severity)
+					if si != sj {
+						return si > sj
+					}
+					if cves[i].CVSSScore != cves[j].CVSSScore {
+						return cves[i].CVSSScore > cves[j].CVSSScore
+					}
+					return cves[i].ID < cves[j].ID
+				})
 				pairs := goResolvedToPairs[resolvedName]
 				for _, pair := range pairs {
 					comp := pair.component
@@ -211,6 +238,8 @@ func (m *Matcher) MatchSBOM(
 							FixedVersion:   cveData.FixedVersion,
 							MatchedBy:      "fortuna-core-cve-matcher",
 							MatchedAt:      comp.CreatedAt,
+							HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+							ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
 						})
 					}
 				}
@@ -236,6 +265,18 @@ func (m *Matcher) MatchSBOM(
 
 		// 3. Process each package's CVEs
 		for pkgName, cves := range packageCVEs {
+			// D3: sort CVEs by severity before cap so we keep the most important CVEs deterministically.
+			sort.SliceStable(cves, func(i, j int) bool {
+				si := severityRank(cves[i].Severity)
+				sj := severityRank(cves[j].Severity)
+				if si != sj {
+					return si > sj
+				}
+				if cves[i].CVSSScore != cves[j].CVSSScore {
+					return cves[i].CVSSScore > cves[j].CVSSScore
+				}
+				return cves[i].ID < cves[j].ID
+			})
 			component := componentsByName[pkgName]
 			purl := purlsByName[pkgName]
 
@@ -245,6 +286,17 @@ func (m *Matcher) MatchSBOM(
 
 			// Check version constraints for each CVE
 			for _, cveData := range cves {
+				compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
+				if matchCountByComponent[compKey] >= maxMatchesPerComponent {
+					continue
+				}
+
+				unknownVersion := strings.EqualFold(strings.TrimSpace(component.ComponentVersion), "unknown")
+				if unknownVersion && strings.TrimSpace(cveData.Constraint) == "" && severityRank(cveData.Severity) < 3 {
+					// Unknown version + no range + non-high severity => skip to reduce false positives.
+					continue
+				}
+
 				vulnerable, err := m.comparator.IsVulnerable(
 					component.ComponentVersion,
 					cveData.Constraint,
@@ -273,22 +325,64 @@ func (m *Matcher) MatchSBOM(
 					FixedVersion:   cveData.FixedVersion,
 					MatchedBy:      "fortuna-core-cve-matcher",
 					MatchedAt:      component.CreatedAt,
+					HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+					ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
+				}
+				if unknownVersion {
+					match.MatchedBy = "fortuna-core-cve-matcher-low-confidence"
 				}
 
 				matches = append(matches, match)
+				matchCountByComponent[compKey]++
 			}
 		}
 	}
 
-	// 2b. NVD fallback for heuristic SBOMs when postgres/OSV returned 0 (Finding #8.4 / DISTROLESS_SBOM_SPEC)
-	if useNVDFallbackForHeuristic(sbom) {
-		matchedNames := make(map[string]bool)
-		for _, match := range matches {
-			matchedNames[match.PackageName] = true
-		}
+	// 2b. NVD fallback (C0.5) - trigger based on match failure.
+	// Previously, NVD fallback was gated by SBOM metadata (distroless/heuristic + confidence).
+	// Now we additionally enable it when we still have unresolved components (no OSV match yet)
+	// and the component name is whitelisted for NVD to avoid unnecessary NVD spam.
+	matchedNames := make(map[string]bool)
+	for _, match := range matches {
+		matchedNames[match.PackageName] = true
+	}
+	needNVDFallback := useNVDFallbackForHeuristic(sbom)
+	if !needNVDFallback {
 		for i := range components {
 			component := &components[i]
 			if matchedNames[component.ComponentName] {
+				continue
+			}
+			tl := strings.ToLower(strings.TrimSpace(component.TrustLevel))
+			if tl == "" {
+				tl = "high"
+			}
+			if tl == "low" {
+				continue
+			}
+			if strings.TrimSpace(component.ComponentVersion) == "unknown" {
+				continue
+			}
+			if isNVDFallbackWhitelisted(component.ComponentName) {
+				needNVDFallback = true
+				break
+			}
+		}
+	}
+	if needNVDFallback {
+		for i := range components {
+			component := &components[i]
+			if matchedNames[component.ComponentName] {
+				continue
+			}
+			tl := strings.ToLower(strings.TrimSpace(component.TrustLevel))
+			if tl == "" {
+				tl = "high"
+			}
+			if tl == "low" {
+				continue
+			}
+			if strings.TrimSpace(component.ComponentVersion) == "unknown" {
 				continue
 			}
 			purl := purlsByName[component.ComponentName]
@@ -298,11 +392,37 @@ func (m *Matcher) MatchSBOM(
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 			nvdName := normalizeComponentNameForNVD(component.ComponentName) // so whitelist + NVD keyword match (e.g. registry.k8s.io/coredns → coredns)
 			tryNVD := isNVDFallbackWhitelisted(component.ComponentName)
+			// Cost control: only try NVD for whitelisted names.
+			if !tryNVD {
+				continue
+			}
 			cves, err := m.dbManager.GetVulnerabilitiesForPackageWithOptions(ctx, queryEco, nvdName, component.ComponentVersion, &database.QueryOptions{TryNVDFallback: tryNVD})
 			if err != nil || len(cves) == 0 {
 				continue
 			}
+			// D3: sort CVEs by severity before cap so we keep the most important CVEs deterministically.
+			sort.SliceStable(cves, func(i, j int) bool {
+				si := severityRank(cves[i].Severity)
+				sj := severityRank(cves[j].Severity)
+				if si != sj {
+					return si > sj
+				}
+				if cves[i].CVSSScore != cves[j].CVSSScore {
+					return cves[i].CVSSScore > cves[j].CVSSScore
+				}
+				return cves[i].ID < cves[j].ID
+			})
 			for _, cveData := range cves {
+				compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
+				if matchCountByComponent[compKey] >= maxMatchesPerComponent {
+					continue
+				}
+
+				unknownVersion := strings.EqualFold(strings.TrimSpace(component.ComponentVersion), "unknown")
+				if unknownVersion {
+					continue
+				}
+
 				var vulnerable bool
 				if cveData.Constraint == "" {
 					// NVD does not provide version ranges: treat as potentially affected so we persist and show on dashboard
@@ -322,7 +442,11 @@ func (m *Matcher) MatchSBOM(
 				}
 				matchedBy := "fortuna-core-cve-matcher"
 				if cveData.Constraint == "" {
-					matchedBy = "nvd-fallback"
+					// D2: no version constraint => keep match but downgrade confidence and flag it explicitly.
+					matchedBy = "nvd-fallback-no-constraint"
+				}
+				if unknownVersion {
+					matchedBy += "-low-confidence"
 				}
 				matches = append(matches, &models.CVEMatch{
 					SBOMID:         sbom.ID,
@@ -337,7 +461,10 @@ func (m *Matcher) MatchSBOM(
 					FixedVersion:   cveData.FixedVersion,
 					MatchedBy:      matchedBy,
 					MatchedAt:      component.CreatedAt,
+					HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+					ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
 				})
+				matchCountByComponent[compKey]++
 			}
 		}
 	}
@@ -362,6 +489,46 @@ func (m *Matcher) MatchSBOM(
 	})
 
 	return matches, nil
+}
+
+func severityRank(sev string) int {
+	switch strings.ToUpper(strings.TrimSpace(sev)) {
+	case "CRITICAL":
+		return 4
+	case "HIGH":
+		return 3
+	case "MEDIUM":
+		return 2
+	case "LOW":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// inferPURLFromComponent provides a minimal inferred PURL for matching when the
+// real component.PURL is missing or unparseable (C0.4 ecosystem fallback).
+func inferPURLFromComponent(c *models.SBOMComponent, sbomOSName string) *PURL {
+	if c == nil {
+		return &PURL{Ecosystem: "generic", Name: "", Version: ""}
+	}
+	name := strings.TrimSpace(c.ComponentName)
+	version := strings.TrimSpace(c.ComponentVersion)
+
+	// Heuristic for Go modules when language-package artifacts are represented without PURL.
+	// This is intentionally conservative: only match well-known module host patterns.
+	n := strings.ToLower(name)
+	if strings.Contains(n, "github.com/") ||
+		strings.Contains(n, "gitlab.com/") ||
+		strings.Contains(n, "bitbucket.org/") ||
+		strings.Contains(n, "golang.org/") ||
+		strings.HasPrefix(n, "k8s.io/") {
+		return &PURL{Ecosystem: "go", Name: name, Version: version}
+	}
+
+	// Default: generic ecosystem mapped using SBOM OS for distro-specific OSV tables.
+	eco := normalizeQueryEcosystemWithOS(&PURL{Ecosystem: "generic"}, sbomOSName)
+	return &PURL{Ecosystem: eco, Name: name, Version: version}
 }
 
 // resolveComponentsForMatching applies noise-reduction and multi-source conflict resolution.
@@ -457,6 +624,7 @@ func (m *Matcher) resolveComponentsForMatching(
 		// Prefer canonical fields from snapshot (PR-3 full). Fall back to parsing PURL.
 		var p *PURL
 		var err error
+		inferredFromNoPURL := false
 		eco := strings.ToLower(strings.TrimSpace(c.Ecosystem))
 		if eco != "" && strings.TrimSpace(c.ComponentName) != "" && strings.TrimSpace(c.ComponentVersion) != "" {
 			p = &PURL{
@@ -472,14 +640,20 @@ func (m *Matcher) resolveComponentsForMatching(
 		} else {
 			p, err = ParsePURL(c.PURL)
 			if err != nil || p == nil {
-				// Keep behavior: unparseable PURL not matchable
+				// C0.4: ecosystem fallback without PURL
+				// Infer a minimal PURL-like view from component fields so we don't hard-skip.
+				// Downgrade trust deterministically when inference is used.
 				metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid").Inc()
-				continue
+				p = inferPURLFromComponent(&c, sbom.OSName)
+				inferredFromNoPURL = true
 			}
 		}
 		tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
 		if tl == "" {
 			tl = "high"
+		}
+		if inferredFromNoPURL {
+			tl = "low"
 		}
 		if tl == "high" || tl == "medium" {
 			hasNonLow = true
@@ -564,6 +738,11 @@ func (m *Matcher) resolveComponentsForMatching(
 		const fallbackLimit = 50
 		if len(cands) > fallbackLimit {
 			sort.Slice(cands, func(i, j int) bool {
+				// D4: prefer higher source/type priority first, so truncation keeps
+				// the most meaningful components deterministically.
+				if cands[i].pri != cands[j].pri {
+					return cands[i].pri > cands[j].pri
+				}
 				vi := versionClass(cands[i].eco, cands[i].p.Version)
 				vj := versionClass(cands[j].eco, cands[j].p.Version)
 				if vi != vj {
@@ -747,13 +926,22 @@ func isDistrolessHeuristicJunk(c *models.SBOMComponent) bool {
 	if c == nil {
 		return true
 	}
-	if strings.TrimSpace(c.ComponentVersion) != "unknown" {
-		return false
-	}
 	if strings.TrimSpace(c.Source) != "distroless-heuristic" {
 		return false
 	}
-	return !isNVDFallbackWhitelisted(c.ComponentName)
+	// C0.3: Unknown version should not be skipped entirely; allow controlled matching
+	// so NVD/OSV fallback triggers can be based on actual match failure.
+	if strings.TrimSpace(c.ComponentVersion) == "unknown" {
+		return false
+	}
+	// For known versions: only skip components that look like “file-artifacts” noise
+	// (e.g. Extend.pl, ISO-IR-197.so) and are not part of the NVD/CP allowlist.
+	// This avoids skipping legitimate module-like names used by tests and real Go deps.
+	if isNVDFallbackWhitelisted(c.ComponentName) {
+		return false
+	}
+	n := normalizeComponentNameForNVD(c.ComponentName)
+	return strings.Contains(n, ".")
 }
 
 // registryCanonicalName maps known registry-style names to canonical product/component name for whitelist/NVD.
@@ -812,6 +1000,22 @@ func isNVDFallbackWhitelisted(name string) bool {
 	if allowed[n] {
 		return true
 	}
+
+	// D1: allow extending NVD fallback whitelist via env var.
+	// Comma-separated tokens; we compare after normalizeComponentNameForNVD().
+	// Example: FORTUNA_NVD_FALLBACK_WHITELIST="nginx,postgres"
+	if extra := strings.TrimSpace(os.Getenv("FORTUNA_NVD_FALLBACK_WHITELIST")); extra != "" {
+		for _, tok := range strings.Split(extra, ",") {
+			tok = strings.TrimSpace(tok)
+			if tok == "" {
+				continue
+			}
+			if normalizeComponentNameForNVD(tok) == n {
+				return true
+			}
+		}
+	}
+
 	// Allow lib*.so* (e.g. libc.so.6 already above; other libs)
 	if strings.HasPrefix(n, "lib") && (strings.Contains(n, ".so") || strings.HasSuffix(n, ".so")) {
 		return true

@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -222,6 +224,73 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 
 	// Convert proto to internal model (Finding #8.4: sbom_source, confidence)
 	sbomSource, confidence := protoSBOMSourceAndConfidence(req)
+
+	// Determinism metadata (Phase 1): resolver + agent signature DB versions.
+	signatureDBVersion := ""
+	if req.Labels != nil {
+		signatureDBVersion = strings.TrimSpace(req.Labels["fortuna_signature_db_version"])
+	}
+	resolverVersion := matcher.ResolverVersion
+
+	// Validate agent-provided signature DB version (agent boundary is untrusted).
+	// If invalid, mark SBOM as failed instead of trusting nondeterministic metadata.
+	signatureDBVersionInvalid := !isValidSignatureDBVersion(signatureDBVersion)
+	if signatureDBVersionInvalid {
+		signatureDBVersion = ""
+	}
+
+	// C0.7: SBOM monotonic state transitions.
+	// If an SBOM already exists for this pod, never downgrade its sbom_status.
+	// This prevents races/retries from jumping state backwards (e.g. complete -> failed).
+	var existingSBOM models.SBOM
+	oldSBOMStatus := ""
+	oldSBOMStatusReason := ""
+	oldSBOMFound := false
+	if err := s.db.Where("pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", req.PodUid, req.ImageDigest).First(&existingSBOM).Error; err == nil {
+		oldSBOMFound = true
+		oldSBOMStatus = existingSBOM.Status
+		oldSBOMStatusReason = existingSBOM.StatusReason
+	}
+
+	// SBOM status model (C0): propagate ground-truth trust for downstream risk decisions.
+	// - failed: SBOM was not extracted (pull failure / extraction failure) => empty packages
+	// - partial: distroless-heuristic and/or low/unknown confidence
+	// - complete: parsers + high confidence
+	sbomStatus := "complete"
+	sbomStatusReason := "ok"
+	if len(req.Packages) == 0 {
+		sbomStatus = "failed"
+		// Failed on agent side commonly comes from pull/extract failure path (C0.1).
+		sbomStatusReason = "pull_error"
+	} else if sbomSource == "distroless-heuristic" || strings.ToLower(strings.TrimSpace(confidence)) != "high" || sbomSource == "" {
+		sbomStatus = "partial"
+		sbomStatusReason = "parse_error"
+	}
+	// Signature DB version comes from agent labels (untrusted boundary).
+	// If it's invalid, do not proceed as a trustworthy SBOM.
+	if signatureDBVersionInvalid && sbomStatus != "failed" {
+		sbomStatus = "failed"
+		sbomStatusReason = "validation_failed"
+	}
+
+	// C0.7 monotonic downgrade protection (and keep components stable):
+	// If the pod already has a COMPLETE/PARTIAL SBOM and the new request contains
+	// no packages (agent pull/extract failure), do not overwrite existing components.
+	if oldSBOMFound && len(req.Packages) == 0 {
+		oldNorm := strings.ToLower(strings.TrimSpace(oldSBOMStatus))
+		if oldNorm == "finalized" {
+			oldNorm = "complete"
+		}
+		if oldNorm == "complete" || oldNorm == "partial" {
+			return &pb.SBOMFindingResponse{
+				Success:  true,
+				Message:  "SBOM reused (monotonic state preserved; no new components)",
+				SbomId:    fmt.Sprintf("%d", existingSBOM.ID),
+				ReceivedAt: timestamppb.New(time.Now()),
+			}, nil
+		}
+	}
+
 	sbomModel := &models.SBOM{
 		PodUID:        req.PodUid,
 		PodName:       req.PodName,
@@ -230,6 +299,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		ImageName:     req.ImageName,
 		ImageDigest:   req.ImageDigest,
 		ImageTag:      req.ImageTag,
+		GoVersion:     strings.TrimSpace(req.GetGoVersion()),
 		GeneratedAt:   req.GeneratedAt.AsTime(),
 		AgentID:       req.AgentId,
 		NodeID:        req.NodeId,
@@ -242,6 +312,10 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		UseCount:      1,
 		SbomSource:    sbomSource,
 		Confidence:    confidence,
+		Status:        sbomStatus,
+		StatusReason:  sbomStatusReason,
+		ResolverVersion:     resolverVersion,
+		SignatureDBVersion: signatureDBVersion,
 	}
 
 	// Insert SBOM components. Use agent-provided PURL when set (Finding #8.2 generic/distroless).
@@ -251,6 +325,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		trustLevel := "high"
 		purlValidated := true
 		originalPURL := ""
+		sourceDetail := "agent-fields"
 
 		// Trust boundary: prefer agent-provided PURL, but sanitize malformed input (best-effort).
 		purl := pkg.GetPurl()
@@ -262,6 +337,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 				purl = ""
 				trustLevel = "low"
 				purlValidated = false
+				sourceDetail = "core-regenerated-purl"
 			} else if parsed != nil {
 				// Semantic validation: ecosystem must be consistent with package type (when applicable).
 				if exp := expectedPurlEcosystemForType(pkg.Type); exp != "" {
@@ -276,6 +352,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 						purl = ""
 						trustLevel = "low"
 						purlValidated = false
+						sourceDetail = "core-regenerated-purl"
 					}
 				}
 				// Go-specific: forbid build metadata injection in versions; normalize.
@@ -309,6 +386,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		if purl == "" {
 			ecosystem := purlEcosystem(pkg.Type)
 			version := pkg.Version
+			sourceDetail = "core-generated-purl"
 			if ecosystem == "go" {
 				canonName, ok := canonicalizeGoModuleName(pkg.Name)
 				if !ok {
@@ -342,6 +420,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 					OriginalPURL:     originalPURL,
 					PURLValidated:    purlValidated,
 					TrustLevel:       trustLevel,
+					SourceDetail:     sourceDetail,
 					Licenses:         models.ToJSONBString(pkg.Licenses),
 					Source:           pkg.Source,
 					Description:      pkg.Description,
@@ -366,6 +445,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			OriginalPURL:     originalPURL,
 			PURLValidated:    purlValidated,
 			TrustLevel:       trustLevel,
+			SourceDetail:     sourceDetail,
 			Licenses:         models.ToJSONBString(pkg.Licenses),
 			Source:           pkg.Source,
 			Description:      pkg.Description,
@@ -373,6 +453,66 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			Maintainer:       pkg.Maintainer,
 		})
 	}
+
+	// C0.7: SBOM status model should reflect sanitized components count
+	// (after PURL parsing/sanitization). This avoids marking SBOM as "complete"
+	// when all requested components were dropped.
+	sbomModel.PackageCount = len(components)
+	if len(components) == 0 {
+		if len(req.Packages) == 0 {
+			sbomModel.Status = "failed"
+			sbomModel.StatusReason = "pull_error"
+		} else {
+			// Components were requested but sanitized down to zero (best-effort partial).
+			sbomModel.Status = "partial"
+			sbomModel.StatusReason = "validation_failed"
+		}
+	} else if sbomSource == "distroless-heuristic" || strings.ToLower(strings.TrimSpace(confidence)) != "high" || sbomSource == "" {
+		sbomModel.Status = "partial"
+		sbomModel.StatusReason = "parse_error"
+	} else {
+		sbomModel.Status = "complete"
+		sbomModel.StatusReason = "ok"
+	}
+
+	// Determinism fingerprint (Phase 1):
+	// hash(sorted(component.ecosystem + name + version)) with dedup.
+	// Ignore empty/failed SBOMs to keep drift metrics meaningful.
+	if sbomModel.Status != "failed" && len(components) > 0 {
+		sbomModel.NormalizedFingerprint = computeNormalizedSBOMFingerprint(components)
+	} else {
+		sbomModel.NormalizedFingerprint = ""
+	}
+
+	// Enforce monotonic status boundaries (downgrade protection).
+	if oldSBOMFound {
+		old := strings.ToLower(strings.TrimSpace(oldSBOMStatus))
+		if old == "" || old == "pending" {
+			// pending -> anything is allowed (no override)
+		} else if old == "finalized" {
+			old = "complete"
+		}
+
+		switch old {
+		case "complete":
+			sbomModel.Status = "complete"
+			sbomModel.StatusReason = "ok"
+		case "failed":
+			sbomModel.Status = "failed"
+			if strings.TrimSpace(oldSBOMStatusReason) != "" {
+				sbomModel.StatusReason = oldSBOMStatusReason
+			}
+		case "partial":
+			// partial -> complete is allowed; partial -> failed is not.
+			if sbomModel.Status != "complete" {
+				sbomModel.Status = "partial"
+				if strings.TrimSpace(oldSBOMStatusReason) != "" {
+					sbomModel.StatusReason = oldSBOMStatusReason
+				}
+			}
+		}
+	}
+
 	// Guarded SBOM write through repository with explicit mutation flag.
 	repo := repository.NewSBOMRepository(s.db)
 	ctxWithFlag := contextkeys.WithSBOMMutationAllowed(ctx)
@@ -478,12 +618,18 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		if err != nil {
 			log.Printf("[SBOM] WARNING: Failed to marshal SBOM_CREATED event: %v", err)
 		} else {
-			if err := s.natsClient.Publish("fortuna.sbom.created", eventJSON); err != nil {
-				log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED event: %v", err)
-				// Non-fatal, continue
-			} else {
+			// C1: retry + DLQ (logic in sbom_publish_retry.go for unit testing).
+			priErr, dlqErr := publishSBOMCreatedWithRetry(ctx, s.natsClient.Publish, eventJSON, time.Sleep)
+			if priErr == nil {
 				log.Printf("[SBOM] correlation_id=%s published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)",
 					correlationID, persistedSBOM.ID, podUID, !isNewSBOM)
+			} else {
+				if dlqErr != nil {
+					log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED to DLQ: primary_err=%v dlq_err=%v", priErr, dlqErr)
+				} else {
+					log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED after %d attempts; sent to DLQ (%s): %v",
+						sbomPublishMaxAttempts, sbomCreatedDLQSubject, priErr)
+				}
 			}
 		}
 	}
@@ -647,6 +793,129 @@ func (s *SBOMServiceServer) RegisterAgent(ctx context.Context, req *pb.RegisterA
 		Message:   "Agent registered successfully",
 		ClusterId: clusterID, // From env only; no hardcoded default
 	}, nil
+}
+
+// computeNormalizedSBOMFingerprint hashes a canonical representation of component identity:
+// fingerprint = sha256(sorted( ecosystem + name + version )) with deterministic dedup.
+// (Phase 1 determinism v1)
+func computeNormalizedSBOMFingerprint(components []*models.SBOMComponent) string {
+	normalizeVersionForFingerprint := func(v string) string {
+		// Determinism fingerprint should be robust to common distro revision suffixes.
+		// Example: APK-style "...-r0" => treat as base version.
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return ""
+		}
+		// Go build metadata (+...) can also lead to string drift.
+		if i := strings.IndexByte(v, '+'); i >= 0 {
+			v = v[:i]
+		}
+		// APK revision: 1.2.3-r0 => 1.2.3
+		// Keep conservative: only strip when it matches "-r<digits>" suffix.
+		if idx := strings.LastIndex(v, "-r"); idx >= 0 && idx+2 < len(v) {
+			suffix := v[idx+2:]
+			allDigits := true
+			for i := 0; i < len(suffix); i++ {
+				if suffix[i] < '0' || suffix[i] > '9' {
+					allDigits = false
+					break
+				}
+			}
+			if allDigits {
+				v = v[:idx]
+			}
+		}
+		return v
+	}
+
+	type tuple struct {
+		Ecosystem string
+		Name      string
+		Version   string
+	}
+
+	dedup := make(map[string]tuple, len(components))
+	for _, c := range components {
+		if c == nil {
+			continue
+		}
+		name := strings.ToLower(strings.TrimSpace(c.ComponentName))
+		version := normalizeVersionForFingerprint(c.ComponentVersion)
+		ecosystem := "unknown"
+
+		// Prefer PURL-derived ecosystem/name/version to keep identity aligned with matcher queries.
+		if p, err := matcher.ParsePURL(c.PURL); err == nil && p != nil {
+			if strings.TrimSpace(p.Ecosystem) != "" {
+				ecosystem = strings.ToLower(strings.TrimSpace(p.Ecosystem))
+			}
+			if strings.TrimSpace(p.Name) != "" {
+				name = strings.ToLower(strings.TrimSpace(p.Name))
+			}
+			if strings.TrimSpace(p.Version) != "" {
+				version = normalizeVersionForFingerprint(p.Version)
+			}
+		}
+
+		key := ecosystem + "|" + name + "|" + version
+		dedup[key] = tuple{Ecosystem: ecosystem, Name: name, Version: version}
+	}
+
+	if len(dedup) == 0 {
+		return ""
+	}
+
+	tuples := make([]tuple, 0, len(dedup))
+	for _, v := range dedup {
+		tuples = append(tuples, v)
+	}
+	sort.Slice(tuples, func(i, j int) bool {
+		if tuples[i].Ecosystem != tuples[j].Ecosystem {
+			return tuples[i].Ecosystem < tuples[j].Ecosystem
+		}
+		if tuples[i].Name != tuples[j].Name {
+			return tuples[i].Name < tuples[j].Name
+		}
+		return tuples[i].Version < tuples[j].Version
+	})
+
+	var b strings.Builder
+	for i := range tuples {
+		if i > 0 {
+			b.WriteByte(';')
+		}
+		b.WriteString(tuples[i].Ecosystem)
+		b.WriteByte('/')
+		b.WriteString(tuples[i].Name)
+		b.WriteByte('@')
+		b.WriteString(tuples[i].Version)
+	}
+	sum := sha256.Sum256([]byte(b.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+func isValidSignatureDBVersion(v string) bool {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return true // empty means "unknown/unchecked" and should be allowed
+	}
+	if len(v) > 64 {
+		return false
+	}
+	// Allow common embedded-version shapes: "1", "2026-03", "v1.1", "1.0.0".
+	// Avoid path separators / whitespace injection.
+	for i := 0; i < len(v); i++ {
+		ch := v[i]
+		if (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') || (ch >= '0' && ch <= '9') {
+			continue
+		}
+		switch ch {
+		case '.', '-', '_':
+			continue
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // purlEcosystem returns PURL ecosystem name for package type (Finding #8.2).

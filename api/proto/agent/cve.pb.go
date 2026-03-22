@@ -2,14 +2,14 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.12.4
-// source: cve.proto
+// source: proto/agent/cve.proto
 
 package agent
 
 import (
+	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -39,9 +39,9 @@ type CVEFinding struct {
 	// CVE matches
 	Matches []*CVEMatch `protobuf:"bytes,9,rep,name=matches,proto3" json:"matches,omitempty"`
 	// Metadata
-	ScannedAt *timestamppb.Timestamp `protobuf:"bytes,10,opt,name=scanned_at,json=scannedAt,proto3" json:"scanned_at,omitempty"`
-	AgentId   string                 `protobuf:"bytes,11,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	NodeId    string                 `protobuf:"bytes,12,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	ScannedAt *timestamp.Timestamp `protobuf:"bytes,10,opt,name=scanned_at,json=scannedAt,proto3" json:"scanned_at,omitempty"`
+	AgentId   string               `protobuf:"bytes,11,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	NodeId    string               `protobuf:"bytes,12,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	// Summary
 	TotalMatches  int32 `protobuf:"varint,13,opt,name=total_matches,json=totalMatches,proto3" json:"total_matches,omitempty"`
 	CriticalCount int32 `protobuf:"varint,14,opt,name=critical_count,json=criticalCount,proto3" json:"critical_count,omitempty"`
@@ -54,7 +54,7 @@ type CVEFinding struct {
 
 func (x *CVEFinding) Reset() {
 	*x = CVEFinding{}
-	mi := &file_cve_proto_msgTypes[0]
+	mi := &file_proto_agent_cve_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -66,7 +66,7 @@ func (x *CVEFinding) String() string {
 func (*CVEFinding) ProtoMessage() {}
 
 func (x *CVEFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_cve_proto_msgTypes[0]
+	mi := &file_proto_agent_cve_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -79,7 +79,7 @@ func (x *CVEFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CVEFinding.ProtoReflect.Descriptor instead.
 func (*CVEFinding) Descriptor() ([]byte, []int) {
-	return file_cve_proto_rawDescGZIP(), []int{0}
+	return file_proto_agent_cve_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *CVEFinding) GetSchemaVersion() int32 {
@@ -145,7 +145,7 @@ func (x *CVEFinding) GetMatches() []*CVEMatch {
 	return nil
 }
 
-func (x *CVEFinding) GetScannedAt() *timestamppb.Timestamp {
+func (x *CVEFinding) GetScannedAt() *timestamp.Timestamp {
 	if x != nil {
 		return x.ScannedAt
 	}
@@ -219,7 +219,7 @@ type CVEMatch struct {
 
 func (x *CVEMatch) Reset() {
 	*x = CVEMatch{}
-	mi := &file_cve_proto_msgTypes[1]
+	mi := &file_proto_agent_cve_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -231,7 +231,7 @@ func (x *CVEMatch) String() string {
 func (*CVEMatch) ProtoMessage() {}
 
 func (x *CVEMatch) ProtoReflect() protoreflect.Message {
-	mi := &file_cve_proto_msgTypes[1]
+	mi := &file_proto_agent_cve_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -244,7 +244,7 @@ func (x *CVEMatch) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CVEMatch.ProtoReflect.Descriptor instead.
 func (*CVEMatch) Descriptor() ([]byte, []int) {
-	return file_cve_proto_rawDescGZIP(), []int{1}
+	return file_proto_agent_cve_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *CVEMatch) GetCveId() string {
@@ -322,7 +322,7 @@ type CVEFindingResponse struct {
 
 func (x *CVEFindingResponse) Reset() {
 	*x = CVEFindingResponse{}
-	mi := &file_cve_proto_msgTypes[2]
+	mi := &file_proto_agent_cve_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -334,7 +334,7 @@ func (x *CVEFindingResponse) String() string {
 func (*CVEFindingResponse) ProtoMessage() {}
 
 func (x *CVEFindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_cve_proto_msgTypes[2]
+	mi := &file_proto_agent_cve_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -347,7 +347,7 @@ func (x *CVEFindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CVEFindingResponse.ProtoReflect.Descriptor instead.
 func (*CVEFindingResponse) Descriptor() ([]byte, []int) {
-	return file_cve_proto_rawDescGZIP(), []int{2}
+	return file_proto_agent_cve_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *CVEFindingResponse) GetSuccess() bool {
@@ -371,11 +371,11 @@ func (x *CVEFindingResponse) GetInsightsCreated() string {
 	return ""
 }
 
-var File_cve_proto protoreflect.FileDescriptor
+var File_proto_agent_cve_proto protoreflect.FileDescriptor
 
-const file_cve_proto_rawDesc = "" +
+const file_proto_agent_cve_proto_rawDesc = "" +
 	"\n" +
-	"\tcve.proto\x12\x10fortuna.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdb\x04\n" +
+	"\x15proto/agent/cve.proto\x12\x10fortuna.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xdb\x04\n" +
 	"\n" +
 	"CVEFinding\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\x05R\rschemaVersion\x12\x17\n" +
@@ -417,25 +417,25 @@ const file_cve_proto_rawDesc = "" +
 	"\x10insights_created\x18\x03 \x01(\tR\x0finsightsCreatedB$Z\"github.com/fortuna/api/proto/agentb\x06proto3"
 
 var (
-	file_cve_proto_rawDescOnce sync.Once
-	file_cve_proto_rawDescData []byte
+	file_proto_agent_cve_proto_rawDescOnce sync.Once
+	file_proto_agent_cve_proto_rawDescData []byte
 )
 
-func file_cve_proto_rawDescGZIP() []byte {
-	file_cve_proto_rawDescOnce.Do(func() {
-		file_cve_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_cve_proto_rawDesc), len(file_cve_proto_rawDesc)))
+func file_proto_agent_cve_proto_rawDescGZIP() []byte {
+	file_proto_agent_cve_proto_rawDescOnce.Do(func() {
+		file_proto_agent_cve_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_agent_cve_proto_rawDesc), len(file_proto_agent_cve_proto_rawDesc)))
 	})
-	return file_cve_proto_rawDescData
+	return file_proto_agent_cve_proto_rawDescData
 }
 
-var file_cve_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_cve_proto_goTypes = []any{
-	(*CVEFinding)(nil),            // 0: fortuna.agent.v1.CVEFinding
-	(*CVEMatch)(nil),              // 1: fortuna.agent.v1.CVEMatch
-	(*CVEFindingResponse)(nil),    // 2: fortuna.agent.v1.CVEFindingResponse
-	(*timestamppb.Timestamp)(nil), // 3: google.protobuf.Timestamp
+var file_proto_agent_cve_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_proto_agent_cve_proto_goTypes = []any{
+	(*CVEFinding)(nil),          // 0: fortuna.agent.v1.CVEFinding
+	(*CVEMatch)(nil),            // 1: fortuna.agent.v1.CVEMatch
+	(*CVEFindingResponse)(nil),  // 2: fortuna.agent.v1.CVEFindingResponse
+	(*timestamp.Timestamp)(nil), // 3: google.protobuf.Timestamp
 }
-var file_cve_proto_depIdxs = []int32{
+var file_proto_agent_cve_proto_depIdxs = []int32{
 	1, // 0: fortuna.agent.v1.CVEFinding.matches:type_name -> fortuna.agent.v1.CVEMatch
 	3, // 1: fortuna.agent.v1.CVEFinding.scanned_at:type_name -> google.protobuf.Timestamp
 	2, // [2:2] is the sub-list for method output_type
@@ -445,26 +445,26 @@ var file_cve_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_cve_proto_init() }
-func file_cve_proto_init() {
-	if File_cve_proto != nil {
+func init() { file_proto_agent_cve_proto_init() }
+func file_proto_agent_cve_proto_init() {
+	if File_proto_agent_cve_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_cve_proto_rawDesc), len(file_cve_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_agent_cve_proto_rawDesc), len(file_proto_agent_cve_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_cve_proto_goTypes,
-		DependencyIndexes: file_cve_proto_depIdxs,
-		MessageInfos:      file_cve_proto_msgTypes,
+		GoTypes:           file_proto_agent_cve_proto_goTypes,
+		DependencyIndexes: file_proto_agent_cve_proto_depIdxs,
+		MessageInfos:      file_proto_agent_cve_proto_msgTypes,
 	}.Build()
-	File_cve_proto = out.File
-	file_cve_proto_goTypes = nil
-	file_cve_proto_depIdxs = nil
+	File_proto_agent_cve_proto = out.File
+	file_proto_agent_cve_proto_goTypes = nil
+	file_proto_agent_cve_proto_depIdxs = nil
 }

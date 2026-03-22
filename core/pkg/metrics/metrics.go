@@ -144,6 +144,138 @@ var (
 		},
 	)
 
+	// SBOM_CREATED failed primary publish after retries → DLQ; Core consumes for visibility (log + counter).
+	SBOMCreatedDLQConsumedTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_sbom_created_dlq_consumed_total",
+			Help: "Messages acknowledged from fortuna.sbom.created.dlq (dead-letter pipeline)",
+		},
+	)
+
+	// Approximate DLQ backlog: StreamInfo.State.Subjects[fortuna.sbom.created.dlq] on fortuna-events (polled).
+	SBOMCreatedDLQStreamMessages = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "fortuna_sbom_created_dlq_stream_messages",
+			Help: "Messages in JetStream fortuna-events for subject fortuna.sbom.created.dlq (StreamInfo.State.Subjects; polled)",
+		},
+	)
+
+	// Denominator for drift / ingest SLO (one increment per successful UpsertSBOMWithComponents commit).
+	SBOMStoreUpsertCommitsTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_sbom_store_upsert_commits_total",
+			Help: "Successful SBOM store upserts (commits); is_new=true for insert, false for update",
+		},
+		[]string{"is_new"},
+	)
+
+	// SBOM determinism / fingerprint drift metrics (Phase 1 - Determinism v1)
+	SBOMDriftTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_sbom_drift_total",
+			Help: "Total number of SBOM normalized_fingerprint drifts by type",
+		},
+		[]string{"drift_type", "resolver_version"}, // drift_type: expected_version_changed | unexpected_same_version
+	)
+
+	// SBOM coverage metrics (Phase 3)
+	SBOMComponentWithVersionRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_sbom_component_with_version_ratio",
+			Help: "Ratio of SBOM components with known version (computed at match time)",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+	SBOMComponentWithEcosystemRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_sbom_component_with_ecosystem_ratio",
+			Help: "Ratio of SBOM components with resolvable ecosystem (computed from PURL)",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+
+	// Effective coverage: only consider components with component_confidence >= MEDIUM
+	SBOMComponentEffectiveDenominatorTotal = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_sbom_component_effective_denominator_total",
+			Help: "Effective denominator count for coverage metrics: number of SBOM components with component_confidence >= MEDIUM",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+	SBOMComponentWithVersionRatioEffective = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_sbom_component_with_version_ratio_effective",
+			Help: "Effective ratio of SBOM components with known version among components with component_confidence >= MEDIUM",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+	SBOMComponentWithEcosystemRatioEffective = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_sbom_component_with_ecosystem_ratio_effective",
+			Help: "Effective ratio of SBOM components with resolvable ecosystem among components with component_confidence >= MEDIUM",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+
+	SBOMComponentUnknownVersionRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_component_unknown_version_ratio",
+			Help: "Ratio of SBOM components with component_version == unknown",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+
+	// Unknown version root-cause breakdown (actionable counter).
+	SBOMComponentUnknownVersionTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_component_unknown_version_total",
+			Help: "Total number of SBOM components with unknown version, broken down by reason",
+		},
+		[]string{"reason", "resolver_version"}, // reason: distroless|inferred|missing_metadata|other
+	)
+
+	// Inferred-component ratio (how much system is inferring vs explicit agent fields).
+	SBOMComponentInferredRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_component_inferred_ratio",
+			Help: "Ratio of SBOM components inferred by core (source_detail != agent-fields)",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+
+	// CVE matching ratios (Phase 3)
+	CVEMatchRatioRaw = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_cve_match_ratio_raw",
+			Help: "Raw ratio of SBOM components that produced any CVE match (before worker severity filter)",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+	CVEMatchRatioEffective = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_cve_match_ratio_effective",
+			Help: "Effective ratio of SBOM components that produced CVE matches after worker severity filter",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+	// Backward-compat: keep the old metric as an alias of effective ratio.
+	CVEMatchRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_cve_match_ratio",
+			Help: "Alias of fortuna_cve_match_ratio_effective (kept for backward compatibility)",
+		},
+		[]string{"sbom_status", "status_reason", "resolver_version"},
+	)
+
+	// Risk confidence distribution (Phase 3)
+	RiskConfidenceDistributionRatio = promauto.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "fortuna_risk_confidence_distribution_ratio",
+			Help: "Last-observed ratio of insights by final risk confidence, split by SBOM status and ecosystem (computed at insight creation)",
+		},
+		[]string{"level", "sbom_status", "status_reason", "ecosystem", "resolver_version"}, // level: HIGH|MEDIUM|LOW|VERY_LOW
+	)
+
 	// CVE matching metrics
 	CVEMatchesTotal = promauto.NewCounterVec(
 		prometheus.CounterOpts{
@@ -151,6 +283,27 @@ var (
 			Help: "Total number of CVE matches found",
 		},
 		[]string{"severity"}, // severity: CRITICAL, HIGH, MEDIUM, LOW
+	)
+
+	// Component-level CVE coverage counters.
+	// For each SBOM component, result=matched means it produced at least one CVE match (raw, before worker severity filter).
+	CVEMatchTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_cve_match_total",
+			Help: "Total number of SBOM components with/without CVE matches (raw)",
+		},
+		[]string{"result", "confidence_level", "resolver_version"}, // result: matched|not_matched, confidence_level: HIGH|MEDIUM|LOW|NONE
+	)
+
+	// Best confidence per component:
+	// increment once per SBOM component (raw matched), using the MAX match confidence level among its CVE matches.
+	// This avoids the "min-confidence floor hides good signals" problem.
+	CVEMatchBestConfidenceTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_cve_match_best_confidence_total",
+			Help: "Total number of SBOM components with CVE matches by best (max) match confidence level (raw)",
+		},
+		[]string{"confidence_level", "resolver_version"}, // confidence_level: HIGH|MEDIUM|LOW
 	)
 
 	// Matcher trust/selection metrics (noise control)
@@ -317,5 +470,45 @@ var (
 			Buckets: []float64{0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100},
 		},
 		[]string{"resource_type"},
+	)
+
+	// EPSS (FIRST.org) enrichment — RISK-1
+	EPSSLookupsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_epss_lookups_total",
+			Help: "EPSS API lookups (excluding cache hits)",
+		},
+	)
+	EPSSLookupErrorsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_epss_lookup_errors_total",
+			Help: "EPSS API lookup failures (HTTP/parse)",
+		},
+	)
+	EPSSCacheHitsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_epss_cache_hits_total",
+			Help: "EPSS lookups served from in-process cache",
+		},
+	)
+
+	// CISA KEV catalog (RISK-1+)
+	KEVRefreshTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_kev_catalog_refresh_total",
+			Help: "Successful refreshes of the CISA KEV CVE set",
+		},
+	)
+	KEVRefreshErrorsTotal = promauto.NewCounter(
+		prometheus.CounterOpts{
+			Name: "fortuna_kev_catalog_refresh_errors_total",
+			Help: "Failed KEV feed downloads or parses",
+		},
+	)
+	KEVCatalogSize = promauto.NewGauge(
+		prometheus.GaugeOpts{
+			Name: "fortuna_kev_catalog_cve_entries",
+			Help: "Number of CVE IDs in the last successful KEV catalog load",
+		},
 	)
 )

@@ -2,14 +2,14 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.12.4
-// source: service.proto
+// source: proto/agent/service.proto
 
 package agent
 
 import (
+	timestamp "github.com/golang/protobuf/ptypes/timestamp"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
 	reflect "reflect"
 	sync "sync"
 	unsafe "unsafe"
@@ -24,21 +24,19 @@ const (
 
 // RegisterAgentRequest contains agent registration info
 type RegisterAgentRequest struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	AgentId      string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
-	Hostname     string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
-	NodeName     string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
-	Version      string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
-	Capabilities []string               `protobuf:"bytes,5,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
-	// Cluster ID from agent discovery (kube-system UID hash or env CLUSTER_ID). Core uses this as the real cluster id when set.
-	ClusterId     string `protobuf:"bytes,6,opt,name=cluster_id,json=clusterId,proto3" json:"cluster_id,omitempty"`
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
+	Hostname      string                 `protobuf:"bytes,2,opt,name=hostname,proto3" json:"hostname,omitempty"`
+	NodeName      string                 `protobuf:"bytes,3,opt,name=node_name,json=nodeName,proto3" json:"node_name,omitempty"`
+	Version       string                 `protobuf:"bytes,4,opt,name=version,proto3" json:"version,omitempty"`
+	Capabilities  []string               `protobuf:"bytes,5,rep,name=capabilities,proto3" json:"capabilities,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *RegisterAgentRequest) Reset() {
 	*x = RegisterAgentRequest{}
-	mi := &file_service_proto_msgTypes[0]
+	mi := &file_proto_agent_service_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -50,7 +48,7 @@ func (x *RegisterAgentRequest) String() string {
 func (*RegisterAgentRequest) ProtoMessage() {}
 
 func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[0]
+	mi := &file_proto_agent_service_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -63,7 +61,7 @@ func (x *RegisterAgentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAgentRequest.ProtoReflect.Descriptor instead.
 func (*RegisterAgentRequest) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{0}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *RegisterAgentRequest) GetAgentId() string {
@@ -101,13 +99,6 @@ func (x *RegisterAgentRequest) GetCapabilities() []string {
 	return nil
 }
 
-func (x *RegisterAgentRequest) GetClusterId() string {
-	if x != nil {
-		return x.ClusterId
-	}
-	return ""
-}
-
 // RegisterAgentResponse confirms agent registration
 type RegisterAgentResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -120,7 +111,7 @@ type RegisterAgentResponse struct {
 
 func (x *RegisterAgentResponse) Reset() {
 	*x = RegisterAgentResponse{}
-	mi := &file_service_proto_msgTypes[1]
+	mi := &file_proto_agent_service_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -132,7 +123,7 @@ func (x *RegisterAgentResponse) String() string {
 func (*RegisterAgentResponse) ProtoMessage() {}
 
 func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[1]
+	mi := &file_proto_agent_service_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -145,7 +136,7 @@ func (x *RegisterAgentResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RegisterAgentResponse.ProtoReflect.Descriptor instead.
 func (*RegisterAgentResponse) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{1}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *RegisterAgentResponse) GetSuccess() bool {
@@ -174,14 +165,14 @@ type HeartbeatRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	AgentId       string                 `protobuf:"bytes,1,opt,name=agent_id,json=agentId,proto3" json:"agent_id,omitempty"`
 	Status        string                 `protobuf:"bytes,2,opt,name=status,proto3" json:"status,omitempty"`
-	Timestamp     *timestamppb.Timestamp `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
+	Timestamp     *timestamp.Timestamp   `protobuf:"bytes,3,opt,name=timestamp,proto3" json:"timestamp,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_service_proto_msgTypes[2]
+	mi := &file_proto_agent_service_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -193,7 +184,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[2]
+	mi := &file_proto_agent_service_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -206,7 +197,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{2}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *HeartbeatRequest) GetAgentId() string {
@@ -223,7 +214,7 @@ func (x *HeartbeatRequest) GetStatus() string {
 	return ""
 }
 
-func (x *HeartbeatRequest) GetTimestamp() *timestamppb.Timestamp {
+func (x *HeartbeatRequest) GetTimestamp() *timestamp.Timestamp {
 	if x != nil {
 		return x.Timestamp
 	}
@@ -241,7 +232,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_service_proto_msgTypes[3]
+	mi := &file_proto_agent_service_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -253,7 +244,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[3]
+	mi := &file_proto_agent_service_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -266,7 +257,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{3}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *HeartbeatResponse) GetSuccess() bool {
@@ -296,7 +287,7 @@ type BatchSBOMFindingResponse struct {
 
 func (x *BatchSBOMFindingResponse) Reset() {
 	*x = BatchSBOMFindingResponse{}
-	mi := &file_service_proto_msgTypes[4]
+	mi := &file_proto_agent_service_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -308,7 +299,7 @@ func (x *BatchSBOMFindingResponse) String() string {
 func (*BatchSBOMFindingResponse) ProtoMessage() {}
 
 func (x *BatchSBOMFindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[4]
+	mi := &file_proto_agent_service_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -321,7 +312,7 @@ func (x *BatchSBOMFindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BatchSBOMFindingResponse.ProtoReflect.Descriptor instead.
 func (*BatchSBOMFindingResponse) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{4}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *BatchSBOMFindingResponse) GetSuccess() bool {
@@ -363,7 +354,7 @@ type CombinedFinding struct {
 
 func (x *CombinedFinding) Reset() {
 	*x = CombinedFinding{}
-	mi := &file_service_proto_msgTypes[5]
+	mi := &file_proto_agent_service_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -375,7 +366,7 @@ func (x *CombinedFinding) String() string {
 func (*CombinedFinding) ProtoMessage() {}
 
 func (x *CombinedFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[5]
+	mi := &file_proto_agent_service_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -388,7 +379,7 @@ func (x *CombinedFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CombinedFinding.ProtoReflect.Descriptor instead.
 func (*CombinedFinding) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{5}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CombinedFinding) GetSbom() *SBOMFinding {
@@ -418,7 +409,7 @@ type CombinedFindingResponse struct {
 
 func (x *CombinedFindingResponse) Reset() {
 	*x = CombinedFindingResponse{}
-	mi := &file_service_proto_msgTypes[6]
+	mi := &file_proto_agent_service_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -430,7 +421,7 @@ func (x *CombinedFindingResponse) String() string {
 func (*CombinedFindingResponse) ProtoMessage() {}
 
 func (x *CombinedFindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[6]
+	mi := &file_proto_agent_service_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -443,7 +434,7 @@ func (x *CombinedFindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CombinedFindingResponse.ProtoReflect.Descriptor instead.
 func (*CombinedFindingResponse) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{6}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CombinedFindingResponse) GetSuccess() bool {
@@ -485,7 +476,7 @@ type PingRequest struct {
 
 func (x *PingRequest) Reset() {
 	*x = PingRequest{}
-	mi := &file_service_proto_msgTypes[7]
+	mi := &file_proto_agent_service_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -497,7 +488,7 @@ func (x *PingRequest) String() string {
 func (*PingRequest) ProtoMessage() {}
 
 func (x *PingRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[7]
+	mi := &file_proto_agent_service_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -510,7 +501,7 @@ func (x *PingRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingRequest.ProtoReflect.Descriptor instead.
 func (*PingRequest) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{7}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *PingRequest) GetAgentId() string {
@@ -538,7 +529,7 @@ type PingResponse struct {
 
 func (x *PingResponse) Reset() {
 	*x = PingResponse{}
-	mi := &file_service_proto_msgTypes[8]
+	mi := &file_proto_agent_service_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -550,7 +541,7 @@ func (x *PingResponse) String() string {
 func (*PingResponse) ProtoMessage() {}
 
 func (x *PingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[8]
+	mi := &file_proto_agent_service_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -563,7 +554,7 @@ func (x *PingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use PingResponse.ProtoReflect.Descriptor instead.
 func (*PingResponse) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{8}
+	return file_proto_agent_service_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *PingResponse) GetStatus() string {
@@ -580,64 +571,17 @@ func (x *PingResponse) GetVersion() string {
 	return ""
 }
 
-type StreamEnvelope struct {
-	state         protoimpl.MessageState `protogen:"open.v1"`
-	Payload       []byte                 `protobuf:"bytes,1,opt,name=payload,proto3" json:"payload,omitempty"` // JSON-encoded AgentMessage (Agent→Core) or CoreMessage (Core→Agent)
-	unknownFields protoimpl.UnknownFields
-	sizeCache     protoimpl.SizeCache
-}
+var File_proto_agent_service_proto protoreflect.FileDescriptor
 
-func (x *StreamEnvelope) Reset() {
-	*x = StreamEnvelope{}
-	mi := &file_service_proto_msgTypes[9]
-	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-	ms.StoreMessageInfo(mi)
-}
-
-func (x *StreamEnvelope) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
-
-func (*StreamEnvelope) ProtoMessage() {}
-
-func (x *StreamEnvelope) ProtoReflect() protoreflect.Message {
-	mi := &file_service_proto_msgTypes[9]
-	if x != nil {
-		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
-		if ms.LoadMessageInfo() == nil {
-			ms.StoreMessageInfo(mi)
-		}
-		return ms
-	}
-	return mi.MessageOf(x)
-}
-
-// Deprecated: Use StreamEnvelope.ProtoReflect.Descriptor instead.
-func (*StreamEnvelope) Descriptor() ([]byte, []int) {
-	return file_service_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *StreamEnvelope) GetPayload() []byte {
-	if x != nil {
-		return x.Payload
-	}
-	return nil
-}
-
-var File_service_proto protoreflect.FileDescriptor
-
-const file_service_proto_rawDesc = "" +
+const file_proto_agent_service_proto_rawDesc = "" +
 	"\n" +
-	"\rservice.proto\x12\x10fortuna.agent.v1\x1a\n" +
-	"sbom.proto\x1a\tcve.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xc7\x01\n" +
+	"\x19proto/agent/service.proto\x12\x10fortuna.agent.v1\x1a\x16proto/agent/sbom.proto\x1a\x15proto/agent/cve.proto\x1a\x1fgoogle/protobuf/timestamp.proto\"\xa8\x01\n" +
 	"\x14RegisterAgentRequest\x12\x19\n" +
 	"\bagent_id\x18\x01 \x01(\tR\aagentId\x12\x1a\n" +
 	"\bhostname\x18\x02 \x01(\tR\bhostname\x12\x1b\n" +
 	"\tnode_name\x18\x03 \x01(\tR\bnodeName\x12\x18\n" +
 	"\aversion\x18\x04 \x01(\tR\aversion\x12\"\n" +
-	"\fcapabilities\x18\x05 \x03(\tR\fcapabilities\x12\x1d\n" +
-	"\n" +
-	"cluster_id\x18\x06 \x01(\tR\tclusterId\"j\n" +
+	"\fcapabilities\x18\x05 \x03(\tR\fcapabilities\"j\n" +
 	"\x15RegisterAgentResponse\x12\x18\n" +
 	"\asuccess\x18\x01 \x01(\bR\asuccess\x12\x18\n" +
 	"\amessage\x18\x02 \x01(\tR\amessage\x12\x1d\n" +
@@ -668,9 +612,7 @@ const file_service_proto_rawDesc = "" +
 	"\tnode_name\x18\x02 \x01(\tR\bnodeName\"@\n" +
 	"\fPingResponse\x12\x16\n" +
 	"\x06status\x18\x01 \x01(\tR\x06status\x12\x18\n" +
-	"\aversion\x18\x02 \x01(\tR\aversion\"*\n" +
-	"\x0eStreamEnvelope\x12\x18\n" +
-	"\apayload\x18\x01 \x01(\fR\apayload2\x87\x05\n" +
+	"\aversion\x18\x02 \x01(\tR\aversion2\x87\x05\n" +
 	"\fAgentService\x12`\n" +
 	"\rRegisterAgent\x12&.fortuna.agent.v1.RegisterAgentRequest\x1a'.fortuna.agent.v1.RegisterAgentResponse\x12T\n" +
 	"\tHeartbeat\x12\".fortuna.agent.v1.HeartbeatRequest\x1a#.fortuna.agent.v1.HeartbeatResponse\x12W\n" +
@@ -678,24 +620,22 @@ const file_service_proto_rawDesc = "" +
 	"\x15BatchSendSBOMFindings\x12\x1d.fortuna.agent.v1.SBOMFinding\x1a*.fortuna.agent.v1.BatchSBOMFindingResponse(\x01\x12T\n" +
 	"\x0eSendCVEFinding\x12\x1c.fortuna.agent.v1.CVEFinding\x1a$.fortuna.agent.v1.CVEFindingResponse\x12c\n" +
 	"\x13SendCombinedFinding\x12!.fortuna.agent.v1.CombinedFinding\x1a).fortuna.agent.v1.CombinedFindingResponse\x12E\n" +
-	"\x04Ping\x12\x1d.fortuna.agent.v1.PingRequest\x1a\x1e.fortuna.agent.v1.PingResponse2g\n" +
-	"\x13ControlPlaneService\x12P\n" +
-	"\x06Stream\x12 .fortuna.agent.v1.StreamEnvelope\x1a .fortuna.agent.v1.StreamEnvelope(\x010\x01B$Z\"github.com/fortuna/api/proto/agentb\x06proto3"
+	"\x04Ping\x12\x1d.fortuna.agent.v1.PingRequest\x1a\x1e.fortuna.agent.v1.PingResponseB$Z\"github.com/fortuna/api/proto/agentb\x06proto3"
 
 var (
-	file_service_proto_rawDescOnce sync.Once
-	file_service_proto_rawDescData []byte
+	file_proto_agent_service_proto_rawDescOnce sync.Once
+	file_proto_agent_service_proto_rawDescData []byte
 )
 
-func file_service_proto_rawDescGZIP() []byte {
-	file_service_proto_rawDescOnce.Do(func() {
-		file_service_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_service_proto_rawDesc), len(file_service_proto_rawDesc)))
+func file_proto_agent_service_proto_rawDescGZIP() []byte {
+	file_proto_agent_service_proto_rawDescOnce.Do(func() {
+		file_proto_agent_service_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_agent_service_proto_rawDesc), len(file_proto_agent_service_proto_rawDesc)))
 	})
-	return file_service_proto_rawDescData
+	return file_proto_agent_service_proto_rawDescData
 }
 
-var file_service_proto_msgTypes = make([]protoimpl.MessageInfo, 10)
-var file_service_proto_goTypes = []any{
+var file_proto_agent_service_proto_msgTypes = make([]protoimpl.MessageInfo, 9)
+var file_proto_agent_service_proto_goTypes = []any{
 	(*RegisterAgentRequest)(nil),     // 0: fortuna.agent.v1.RegisterAgentRequest
 	(*RegisterAgentResponse)(nil),    // 1: fortuna.agent.v1.RegisterAgentResponse
 	(*HeartbeatRequest)(nil),         // 2: fortuna.agent.v1.HeartbeatRequest
@@ -705,62 +645,59 @@ var file_service_proto_goTypes = []any{
 	(*CombinedFindingResponse)(nil),  // 6: fortuna.agent.v1.CombinedFindingResponse
 	(*PingRequest)(nil),              // 7: fortuna.agent.v1.PingRequest
 	(*PingResponse)(nil),             // 8: fortuna.agent.v1.PingResponse
-	(*StreamEnvelope)(nil),           // 9: fortuna.agent.v1.StreamEnvelope
-	(*timestamppb.Timestamp)(nil),    // 10: google.protobuf.Timestamp
-	(*SBOMFinding)(nil),              // 11: fortuna.agent.v1.SBOMFinding
-	(*CVEFinding)(nil),               // 12: fortuna.agent.v1.CVEFinding
-	(*SBOMFindingResponse)(nil),      // 13: fortuna.agent.v1.SBOMFindingResponse
-	(*CVEFindingResponse)(nil),       // 14: fortuna.agent.v1.CVEFindingResponse
+	(*timestamp.Timestamp)(nil),      // 9: google.protobuf.Timestamp
+	(*SBOMFinding)(nil),              // 10: fortuna.agent.v1.SBOMFinding
+	(*CVEFinding)(nil),               // 11: fortuna.agent.v1.CVEFinding
+	(*SBOMFindingResponse)(nil),      // 12: fortuna.agent.v1.SBOMFindingResponse
+	(*CVEFindingResponse)(nil),       // 13: fortuna.agent.v1.CVEFindingResponse
 }
-var file_service_proto_depIdxs = []int32{
-	10, // 0: fortuna.agent.v1.HeartbeatRequest.timestamp:type_name -> google.protobuf.Timestamp
-	11, // 1: fortuna.agent.v1.CombinedFinding.sbom:type_name -> fortuna.agent.v1.SBOMFinding
-	12, // 2: fortuna.agent.v1.CombinedFinding.cve:type_name -> fortuna.agent.v1.CVEFinding
+var file_proto_agent_service_proto_depIdxs = []int32{
+	9,  // 0: fortuna.agent.v1.HeartbeatRequest.timestamp:type_name -> google.protobuf.Timestamp
+	10, // 1: fortuna.agent.v1.CombinedFinding.sbom:type_name -> fortuna.agent.v1.SBOMFinding
+	11, // 2: fortuna.agent.v1.CombinedFinding.cve:type_name -> fortuna.agent.v1.CVEFinding
 	0,  // 3: fortuna.agent.v1.AgentService.RegisterAgent:input_type -> fortuna.agent.v1.RegisterAgentRequest
 	2,  // 4: fortuna.agent.v1.AgentService.Heartbeat:input_type -> fortuna.agent.v1.HeartbeatRequest
-	11, // 5: fortuna.agent.v1.AgentService.SendSBOMFinding:input_type -> fortuna.agent.v1.SBOMFinding
-	11, // 6: fortuna.agent.v1.AgentService.BatchSendSBOMFindings:input_type -> fortuna.agent.v1.SBOMFinding
-	12, // 7: fortuna.agent.v1.AgentService.SendCVEFinding:input_type -> fortuna.agent.v1.CVEFinding
+	10, // 5: fortuna.agent.v1.AgentService.SendSBOMFinding:input_type -> fortuna.agent.v1.SBOMFinding
+	10, // 6: fortuna.agent.v1.AgentService.BatchSendSBOMFindings:input_type -> fortuna.agent.v1.SBOMFinding
+	11, // 7: fortuna.agent.v1.AgentService.SendCVEFinding:input_type -> fortuna.agent.v1.CVEFinding
 	5,  // 8: fortuna.agent.v1.AgentService.SendCombinedFinding:input_type -> fortuna.agent.v1.CombinedFinding
 	7,  // 9: fortuna.agent.v1.AgentService.Ping:input_type -> fortuna.agent.v1.PingRequest
-	9,  // 10: fortuna.agent.v1.ControlPlaneService.Stream:input_type -> fortuna.agent.v1.StreamEnvelope
-	1,  // 11: fortuna.agent.v1.AgentService.RegisterAgent:output_type -> fortuna.agent.v1.RegisterAgentResponse
-	3,  // 12: fortuna.agent.v1.AgentService.Heartbeat:output_type -> fortuna.agent.v1.HeartbeatResponse
-	13, // 13: fortuna.agent.v1.AgentService.SendSBOMFinding:output_type -> fortuna.agent.v1.SBOMFindingResponse
-	4,  // 14: fortuna.agent.v1.AgentService.BatchSendSBOMFindings:output_type -> fortuna.agent.v1.BatchSBOMFindingResponse
-	14, // 15: fortuna.agent.v1.AgentService.SendCVEFinding:output_type -> fortuna.agent.v1.CVEFindingResponse
-	6,  // 16: fortuna.agent.v1.AgentService.SendCombinedFinding:output_type -> fortuna.agent.v1.CombinedFindingResponse
-	8,  // 17: fortuna.agent.v1.AgentService.Ping:output_type -> fortuna.agent.v1.PingResponse
-	9,  // 18: fortuna.agent.v1.ControlPlaneService.Stream:output_type -> fortuna.agent.v1.StreamEnvelope
-	11, // [11:19] is the sub-list for method output_type
-	3,  // [3:11] is the sub-list for method input_type
+	1,  // 10: fortuna.agent.v1.AgentService.RegisterAgent:output_type -> fortuna.agent.v1.RegisterAgentResponse
+	3,  // 11: fortuna.agent.v1.AgentService.Heartbeat:output_type -> fortuna.agent.v1.HeartbeatResponse
+	12, // 12: fortuna.agent.v1.AgentService.SendSBOMFinding:output_type -> fortuna.agent.v1.SBOMFindingResponse
+	4,  // 13: fortuna.agent.v1.AgentService.BatchSendSBOMFindings:output_type -> fortuna.agent.v1.BatchSBOMFindingResponse
+	13, // 14: fortuna.agent.v1.AgentService.SendCVEFinding:output_type -> fortuna.agent.v1.CVEFindingResponse
+	6,  // 15: fortuna.agent.v1.AgentService.SendCombinedFinding:output_type -> fortuna.agent.v1.CombinedFindingResponse
+	8,  // 16: fortuna.agent.v1.AgentService.Ping:output_type -> fortuna.agent.v1.PingResponse
+	10, // [10:17] is the sub-list for method output_type
+	3,  // [3:10] is the sub-list for method input_type
 	3,  // [3:3] is the sub-list for extension type_name
 	3,  // [3:3] is the sub-list for extension extendee
 	0,  // [0:3] is the sub-list for field type_name
 }
 
-func init() { file_service_proto_init() }
-func file_service_proto_init() {
-	if File_service_proto != nil {
+func init() { file_proto_agent_service_proto_init() }
+func file_proto_agent_service_proto_init() {
+	if File_proto_agent_service_proto != nil {
 		return
 	}
-	file_sbom_proto_init()
-	file_cve_proto_init()
+	file_proto_agent_sbom_proto_init()
+	file_proto_agent_cve_proto_init()
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_service_proto_rawDesc), len(file_service_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_agent_service_proto_rawDesc), len(file_proto_agent_service_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   10,
+			NumMessages:   9,
 			NumExtensions: 0,
-			NumServices:   2,
+			NumServices:   1,
 		},
-		GoTypes:           file_service_proto_goTypes,
-		DependencyIndexes: file_service_proto_depIdxs,
-		MessageInfos:      file_service_proto_msgTypes,
+		GoTypes:           file_proto_agent_service_proto_goTypes,
+		DependencyIndexes: file_proto_agent_service_proto_depIdxs,
+		MessageInfos:      file_proto_agent_service_proto_msgTypes,
 	}.Build()
-	File_service_proto = out.File
-	file_service_proto_goTypes = nil
-	file_service_proto_depIdxs = nil
+	File_proto_agent_service_proto = out.File
+	file_proto_agent_service_proto_goTypes = nil
+	file_proto_agent_service_proto_depIdxs = nil
 }

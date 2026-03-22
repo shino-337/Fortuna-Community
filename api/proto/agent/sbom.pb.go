@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v3.12.4
-// source: sbom.proto
+// source: proto/agent/sbom.proto
 
 package agent
 
@@ -59,11 +59,11 @@ func (x SBOMSource) String() string {
 }
 
 func (SBOMSource) Descriptor() protoreflect.EnumDescriptor {
-	return file_sbom_proto_enumTypes[0].Descriptor()
+	return file_proto_agent_sbom_proto_enumTypes[0].Descriptor()
 }
 
 func (SBOMSource) Type() protoreflect.EnumType {
-	return &file_sbom_proto_enumTypes[0]
+	return &file_proto_agent_sbom_proto_enumTypes[0]
 }
 
 func (x SBOMSource) Number() protoreflect.EnumNumber {
@@ -72,7 +72,7 @@ func (x SBOMSource) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use SBOMSource.Descriptor instead.
 func (SBOMSource) EnumDescriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{0}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{0}
 }
 
 // Confidence level for SBOM or component (Finding #8.4)
@@ -112,11 +112,11 @@ func (x Confidence) String() string {
 }
 
 func (Confidence) Descriptor() protoreflect.EnumDescriptor {
-	return file_sbom_proto_enumTypes[1].Descriptor()
+	return file_proto_agent_sbom_proto_enumTypes[1].Descriptor()
 }
 
 func (Confidence) Type() protoreflect.EnumType {
-	return &file_sbom_proto_enumTypes[1]
+	return &file_proto_agent_sbom_proto_enumTypes[1]
 }
 
 func (x Confidence) Number() protoreflect.EnumNumber {
@@ -125,7 +125,7 @@ func (x Confidence) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use Confidence.Descriptor instead.
 func (Confidence) EnumDescriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{1}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{1}
 }
 
 // PackageType enum
@@ -186,11 +186,11 @@ func (x PackageType) String() string {
 }
 
 func (PackageType) Descriptor() protoreflect.EnumDescriptor {
-	return file_sbom_proto_enumTypes[2].Descriptor()
+	return file_proto_agent_sbom_proto_enumTypes[2].Descriptor()
 }
 
 func (PackageType) Type() protoreflect.EnumType {
-	return &file_sbom_proto_enumTypes[2]
+	return &file_proto_agent_sbom_proto_enumTypes[2]
 }
 
 func (x PackageType) Number() protoreflect.EnumNumber {
@@ -199,7 +199,7 @@ func (x PackageType) Number() protoreflect.EnumNumber {
 
 // Deprecated: Use PackageType.Descriptor instead.
 func (PackageType) EnumDescriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{2}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{2}
 }
 
 // SBOMFinding represents SBOM data extracted by Agent
@@ -228,15 +228,18 @@ type SBOMFinding struct {
 	Labels      map[string]string `protobuf:"bytes,14,rep,name=labels,proto3" json:"labels,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Annotations map[string]string `protobuf:"bytes,15,rep,name=annotations,proto3" json:"annotations,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	// SBOM provenance (Finding #8.4) – Core uses for CVE matching (Trivy vs NVD fallback)
-	SbomSource    SBOMSource `protobuf:"varint,16,opt,name=sbom_source,json=sbomSource,proto3,enum=fortuna.agent.v1.SBOMSource" json:"sbom_source,omitempty"`
-	Confidence    Confidence `protobuf:"varint,17,opt,name=confidence,proto3,enum=fortuna.agent.v1.Confidence" json:"confidence,omitempty"`
+	SbomSource SBOMSource `protobuf:"varint,16,opt,name=sbom_source,json=sbomSource,proto3,enum=fortuna.agent.v1.SBOMSource" json:"sbom_source,omitempty"`
+	Confidence Confidence `protobuf:"varint,17,opt,name=confidence,proto3,enum=fortuna.agent.v1.Confidence" json:"confidence,omitempty"`
+	// Go toolchain version used to build binaries in the image (e.g. go1.22.5 from buildinfo or
+	// GOLANG_VERSION label/env). Populated by Agent for Core Go stdlib CVE matching (package stdlib).
+	GoVersion     string `protobuf:"bytes,18,opt,name=go_version,json=goVersion,proto3" json:"go_version,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
 
 func (x *SBOMFinding) Reset() {
 	*x = SBOMFinding{}
-	mi := &file_sbom_proto_msgTypes[0]
+	mi := &file_proto_agent_sbom_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -248,7 +251,7 @@ func (x *SBOMFinding) String() string {
 func (*SBOMFinding) ProtoMessage() {}
 
 func (x *SBOMFinding) ProtoReflect() protoreflect.Message {
-	mi := &file_sbom_proto_msgTypes[0]
+	mi := &file_proto_agent_sbom_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -261,7 +264,7 @@ func (x *SBOMFinding) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBOMFinding.ProtoReflect.Descriptor instead.
 func (*SBOMFinding) Descriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{0}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *SBOMFinding) GetSchemaVersion() int32 {
@@ -383,6 +386,13 @@ func (x *SBOMFinding) GetConfidence() Confidence {
 	return Confidence_CONFIDENCE_UNKNOWN
 }
 
+func (x *SBOMFinding) GetGoVersion() string {
+	if x != nil {
+		return x.GoVersion
+	}
+	return ""
+}
+
 // OSInfo describes the container OS
 type OSInfo struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
@@ -396,7 +406,7 @@ type OSInfo struct {
 
 func (x *OSInfo) Reset() {
 	*x = OSInfo{}
-	mi := &file_sbom_proto_msgTypes[1]
+	mi := &file_proto_agent_sbom_proto_msgTypes[1]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -408,7 +418,7 @@ func (x *OSInfo) String() string {
 func (*OSInfo) ProtoMessage() {}
 
 func (x *OSInfo) ProtoReflect() protoreflect.Message {
-	mi := &file_sbom_proto_msgTypes[1]
+	mi := &file_proto_agent_sbom_proto_msgTypes[1]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -421,7 +431,7 @@ func (x *OSInfo) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OSInfo.ProtoReflect.Descriptor instead.
 func (*OSInfo) Descriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{1}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{1}
 }
 
 func (x *OSInfo) GetName() string {
@@ -473,7 +483,7 @@ type Package struct {
 
 func (x *Package) Reset() {
 	*x = Package{}
-	mi := &file_sbom_proto_msgTypes[2]
+	mi := &file_proto_agent_sbom_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -485,7 +495,7 @@ func (x *Package) String() string {
 func (*Package) ProtoMessage() {}
 
 func (x *Package) ProtoReflect() protoreflect.Message {
-	mi := &file_sbom_proto_msgTypes[2]
+	mi := &file_proto_agent_sbom_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -498,7 +508,7 @@ func (x *Package) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Package.ProtoReflect.Descriptor instead.
 func (*Package) Descriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{2}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *Package) GetName() string {
@@ -584,7 +594,7 @@ type SBOMFindingResponse struct {
 
 func (x *SBOMFindingResponse) Reset() {
 	*x = SBOMFindingResponse{}
-	mi := &file_sbom_proto_msgTypes[3]
+	mi := &file_proto_agent_sbom_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -596,7 +606,7 @@ func (x *SBOMFindingResponse) String() string {
 func (*SBOMFindingResponse) ProtoMessage() {}
 
 func (x *SBOMFindingResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_sbom_proto_msgTypes[3]
+	mi := &file_proto_agent_sbom_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -609,7 +619,7 @@ func (x *SBOMFindingResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use SBOMFindingResponse.ProtoReflect.Descriptor instead.
 func (*SBOMFindingResponse) Descriptor() ([]byte, []int) {
-	return file_sbom_proto_rawDescGZIP(), []int{3}
+	return file_proto_agent_sbom_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *SBOMFindingResponse) GetSuccess() bool {
@@ -640,12 +650,11 @@ func (x *SBOMFindingResponse) GetReceivedAt() *timestamp.Timestamp {
 	return nil
 }
 
-var File_sbom_proto protoreflect.FileDescriptor
+var File_proto_agent_sbom_proto protoreflect.FileDescriptor
 
-const file_sbom_proto_rawDesc = "" +
+const file_proto_agent_sbom_proto_rawDesc = "" +
 	"\n" +
-	"\n" +
-	"sbom.proto\x12\x10fortuna.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\xf6\x06\n" +
+	"\x16proto/agent/sbom.proto\x12\x10fortuna.agent.v1\x1a\x1fgoogle/protobuf/timestamp.proto\"\x95\a\n" +
 	"\vSBOMFinding\x12%\n" +
 	"\x0eschema_version\x18\x01 \x01(\x05R\rschemaVersion\x12\x17\n" +
 	"\apod_uid\x18\x02 \x01(\tR\x06podUid\x12\x19\n" +
@@ -668,7 +677,9 @@ const file_sbom_proto_rawDesc = "" +
 	"sbomSource\x12<\n" +
 	"\n" +
 	"confidence\x18\x11 \x01(\x0e2\x1c.fortuna.agent.v1.ConfidenceR\n" +
-	"confidence\x1a9\n" +
+	"confidence\x12\x1d\n" +
+	"\n" +
+	"go_version\x18\x12 \x01(\tR\tgoVersion\x1a9\n" +
 	"\vLabelsEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
@@ -727,20 +738,20 @@ const file_sbom_proto_rawDesc = "" +
 	"B$Z\"github.com/fortuna/api/proto/agentb\x06proto3"
 
 var (
-	file_sbom_proto_rawDescOnce sync.Once
-	file_sbom_proto_rawDescData []byte
+	file_proto_agent_sbom_proto_rawDescOnce sync.Once
+	file_proto_agent_sbom_proto_rawDescData []byte
 )
 
-func file_sbom_proto_rawDescGZIP() []byte {
-	file_sbom_proto_rawDescOnce.Do(func() {
-		file_sbom_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_sbom_proto_rawDesc), len(file_sbom_proto_rawDesc)))
+func file_proto_agent_sbom_proto_rawDescGZIP() []byte {
+	file_proto_agent_sbom_proto_rawDescOnce.Do(func() {
+		file_proto_agent_sbom_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_proto_agent_sbom_proto_rawDesc), len(file_proto_agent_sbom_proto_rawDesc)))
 	})
-	return file_sbom_proto_rawDescData
+	return file_proto_agent_sbom_proto_rawDescData
 }
 
-var file_sbom_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_sbom_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
-var file_sbom_proto_goTypes = []any{
+var file_proto_agent_sbom_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
+var file_proto_agent_sbom_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_proto_agent_sbom_proto_goTypes = []any{
 	(SBOMSource)(0),             // 0: fortuna.agent.v1.SBOMSource
 	(Confidence)(0),             // 1: fortuna.agent.v1.Confidence
 	(PackageType)(0),            // 2: fortuna.agent.v1.PackageType
@@ -752,7 +763,7 @@ var file_sbom_proto_goTypes = []any{
 	nil,                         // 8: fortuna.agent.v1.SBOMFinding.AnnotationsEntry
 	(*timestamp.Timestamp)(nil), // 9: google.protobuf.Timestamp
 }
-var file_sbom_proto_depIdxs = []int32{
+var file_proto_agent_sbom_proto_depIdxs = []int32{
 	4, // 0: fortuna.agent.v1.SBOMFinding.os_info:type_name -> fortuna.agent.v1.OSInfo
 	5, // 1: fortuna.agent.v1.SBOMFinding.packages:type_name -> fortuna.agent.v1.Package
 	9, // 2: fortuna.agent.v1.SBOMFinding.generated_at:type_name -> google.protobuf.Timestamp
@@ -769,27 +780,27 @@ var file_sbom_proto_depIdxs = []int32{
 	0, // [0:9] is the sub-list for field type_name
 }
 
-func init() { file_sbom_proto_init() }
-func file_sbom_proto_init() {
-	if File_sbom_proto != nil {
+func init() { file_proto_agent_sbom_proto_init() }
+func file_proto_agent_sbom_proto_init() {
+	if File_proto_agent_sbom_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_sbom_proto_rawDesc), len(file_sbom_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_proto_agent_sbom_proto_rawDesc), len(file_proto_agent_sbom_proto_rawDesc)),
 			NumEnums:      3,
 			NumMessages:   6,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_sbom_proto_goTypes,
-		DependencyIndexes: file_sbom_proto_depIdxs,
-		EnumInfos:         file_sbom_proto_enumTypes,
-		MessageInfos:      file_sbom_proto_msgTypes,
+		GoTypes:           file_proto_agent_sbom_proto_goTypes,
+		DependencyIndexes: file_proto_agent_sbom_proto_depIdxs,
+		EnumInfos:         file_proto_agent_sbom_proto_enumTypes,
+		MessageInfos:      file_proto_agent_sbom_proto_msgTypes,
 	}.Build()
-	File_sbom_proto = out.File
-	file_sbom_proto_goTypes = nil
-	file_sbom_proto_depIdxs = nil
+	File_proto_agent_sbom_proto = out.File
+	file_proto_agent_sbom_proto_goTypes = nil
+	file_proto_agent_sbom_proto_depIdxs = nil
 }

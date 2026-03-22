@@ -313,11 +313,12 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					exploitMaturity = match.CVE.ExploitMaturity
 				}
 				source := match.MatchedBy
-				if source == "nvd-fallback" {
+				if strings.HasPrefix(match.MatchedBy, "nvd-fallback") {
+					// NVD fallback (including no-constraint matches) is treated as lower confidence on the UI.
 					source = "nvd"
 				}
 				confidence := "high" // OSV/package_vulnerabilities
-				if match.MatchedBy == "nvd-fallback" {
+				if strings.HasPrefix(match.MatchedBy, "nvd-fallback") {
 					confidence = "low"
 				}
 				compDTO.Vulnerabilities = append(compDTO.Vulnerabilities, VulnerabilityDTO{

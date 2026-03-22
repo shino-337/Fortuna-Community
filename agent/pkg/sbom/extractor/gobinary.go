@@ -119,6 +119,53 @@ func (p *GoBinaryParser) Parse(fs *Filesystem) ([]Package, error) {
 	return pkgs, nil
 }
 
+// ToolchainVersion returns the Go toolchain version (buildinfo.GoVersion, e.g. go1.22.5) from
+// the first readable Go binary on the filesystem. Used for SBOM-level stdlib CVE matching in Core.
+func (p *GoBinaryParser) ToolchainVersion(fs *Filesystem) string {
+	candidates := []string{
+		"/bin",
+		"/usr/bin",
+		"/usr/local/bin",
+		"/usr/sbin",
+		"/sbin",
+		"/app",
+		"/",
+	}
+	const maxBinarySize = 200 * 1024 * 1024
+	const maxFilesScanned = 2000
+	filesScanned := 0
+
+	for _, dir := range candidates {
+		paths := fs.PathsUnder(dir)
+		for _, path := range paths {
+			if filesScanned >= maxFilesScanned {
+				return ""
+			}
+			if strings.HasSuffix(path, ".sh") || strings.HasSuffix(path, ".py") || strings.HasSuffix(path, ".pl") {
+				continue
+			}
+			content, err := fs.ReadFile(path)
+			if err != nil || len(content) == 0 {
+				continue
+			}
+			filesScanned++
+			if len(content) > maxBinarySize {
+				continue
+			}
+			r := bytes.NewReader(content)
+			bi, err := buildinfo.Read(r)
+			if err != nil || bi == nil {
+				continue
+			}
+			gv := strings.TrimSpace(bi.GoVersion)
+			if gv != "" {
+				return gv
+			}
+		}
+	}
+	return ""
+}
+
 func toGoPURL(name, version string) string {
 	name = strings.TrimSpace(name)
 	version = strings.TrimSpace(version)

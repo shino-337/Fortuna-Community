@@ -112,6 +112,30 @@ func TestSBOMRepository_AllowMutation_WithContextFlag(t *testing.T) {
 	require.Equal(t, "legit-update", persisted.ImageName)
 }
 
+func TestSBOMRepository_RejectCompleteWithZeroComponents(t *testing.T) {
+	repo, _ := newTestRepo(t)
+	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
+
+	sbom := &models.SBOM{
+		PodUID:        "pod-complete-zero-components",
+		ImageName:     "test/image",
+		ImageTag:      "latest",
+		ImageDigest:   "sha256:complete-zero",
+		PodName:       "test-pod",
+		Namespace:     "default",
+		ContainerName: "main",
+		PackageCount:  0,
+		LastUsedAt:    time.Now(),
+		UseCount:      1,
+		Status:        "complete",
+		Version:       1,
+	}
+
+	_, _, err := repo.UpsertSBOMWithComponents(ctx, sbom, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "zero components")
+}
+
 // --- B1–B3: IDEMPOTENT MATCH RUN ---
 
 const (
@@ -125,7 +149,7 @@ func TestMatchRun_FirstInsert(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 	require.NoError(t, err)
 	require.True(t, ok)
 }
@@ -135,9 +159,9 @@ func TestMatchRun_DuplicateInsert_ShouldSkip(t *testing.T) {
 	repo, _ := newTestRepo(t)
 	ctx := context.Background()
 
-	_, _ = repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+	_, _ = repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 
-	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -154,7 +178,7 @@ func TestMatchRun_ConcurrentInsert(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+			ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 			require.NoError(t, err)
 			results <- ok
 		}()
@@ -187,7 +211,7 @@ func TestMatchRun_DuplicateKey_ShouldNotError(t *testing.T) {
 		CreatedAt:     time.Now(),
 	}).Error)
 
-	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 	require.NoError(t, err)
 	require.False(t, ok)
 }
@@ -211,7 +235,7 @@ func TestMatchRun_StaleReclaim(t *testing.T) {
 
 	createRun(t, db, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "running", time.Now().Add(-20*time.Minute))
 
-	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 	require.NoError(t, err)
 	require.True(t, ok)
 }
@@ -223,7 +247,7 @@ func TestMatchRun_NotStale_ShouldSkip(t *testing.T) {
 
 	createRun(t, db, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "running", time.Now())
 
-	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion)
+	ok, err := repo.EnsureMatchRun(ctx, testMatchRunSBOMID, testMatchRunVersion, testMirrorVersion, "", "")
 	require.NoError(t, err)
 	require.False(t, ok)
 }

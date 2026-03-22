@@ -12,6 +12,7 @@ import (
 
 	"github.com/fortuna/core/internal/contextkeys"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/metrics"
 )
 
 // SBOMRepository provides a single guarded entrypoint for SBOM writes.
@@ -31,13 +32,14 @@ func (r *SBOMRepository) assertMutable(ctx context.Context, sbom *models.SBOM) e
 		return errors.New("nil sbom")
 	}
 
-	switch sbom.Status {
+	status := strings.ToLower(strings.TrimSpace(sbom.Status))
+	switch status {
 	case "", "pending":
 		// pending or empty (legacy rows) are always mutable
 		return nil
-	case "finalized":
+	case "finalized", "complete", "partial", "failed":
 		if !contextkeys.IsSBOMMutationAllowed(ctx) {
-			return fmt.Errorf("sbom %d is finalized and immutable", sbom.ID)
+			return fmt.Errorf("sbom %d is %q and immutable", sbom.ID, status)
 		}
 		return nil
 	default:
@@ -45,7 +47,60 @@ func (r *SBOMRepository) assertMutable(ctx context.Context, sbom *models.SBOM) e
 	}
 }
 
-// UpsertSBOMWithComponents upserts an SBOM (keyed by pod_uid) and replaces its components.
+func normalizeSBOMStatus(status string) string {
+	s := strings.ToLower(strings.TrimSpace(status))
+	switch s {
+	case "":
+		return "pending"
+	case "pending":
+		return "pending"
+	case "finalized":
+		// Legacy alias: treat as complete in downstream matching/intel.
+		return "complete"
+	case "complete", "partial", "failed":
+		return s
+	default:
+		return "pending"
+	}
+}
+
+// assertTransition enforces a monotonic SBOM lifecycle.
+// State machine (recommended by backlog C0.7):
+// - pending  -> complete | partial | failed
+// - failed   -> failed (idempotent)
+// - partial  -> partial | complete (optional reprocess)
+// - complete -> complete (immutable)
+func assertTransition(oldStatus, newStatus string) error {
+	oldS := normalizeSBOMStatus(oldStatus)
+	newS := normalizeSBOMStatus(newStatus)
+
+	switch oldS {
+	case "pending":
+		// pending -> anything (including pending)
+		switch newS {
+		case "pending", "complete", "partial", "failed":
+			return nil
+		}
+	case "failed":
+		if newS == "failed" {
+			return nil
+		}
+	case "partial":
+		if newS == "partial" || newS == "complete" || newS == "failed" {
+			return nil
+		}
+	case "complete":
+		// Determinism enforcement can mark SBOM as failed when nondeterminism is detected.
+		// This is an exceptional downgrade and must remain monotonic (failed is terminal).
+		if newS == "complete" || newS == "failed" {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("invalid sbom_status transition: %s -> %s", oldS, newS)
+}
+
+// UpsertSBOMWithComponents upserts an SBOM (keyed by pod_uid + image_digest) and replaces its components.
 // It is the single write entrypoint for the SBOM ingest path.
 func (r *SBOMRepository) UpsertSBOMWithComponents(
 	ctx context.Context,
@@ -63,16 +118,44 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 		}
 	}()
 
+	// C4: Validate component count invariant.
+	// SBOM lifecycle semantics:
+	// - complete/partial must have at least one non-nil component after sanitization.
+	// - failed may be empty.
+	//
+	// Important: we intentionally DO NOT enforce this on legacy alias "finalized"
+	// because existing tests/legacy rows assume finalized/complete can be created
+	// with zero components.
+	rawStatus := strings.ToLower(strings.TrimSpace(sbom.Status))
+	// NOTE: Existing handler semantics allow "partial" SBOM with 0 components
+	// (e.g., when all requested components were sanitized/dropped).
+	if rawStatus == "complete" {
+		compCount := 0
+		for _, c := range components {
+			if c != nil {
+				compCount++
+			}
+		}
+		if compCount == 0 {
+			tx.Rollback()
+			return nil, false, fmt.Errorf("invalid sbom_status=%q with zero components (sbom_id=%d)", rawStatus, sbom.ID)
+		}
+	}
+
 	var existing models.SBOM
 	isNewSBOM := false
 
-	// Row-level lock to serialize concurrent writers for the same pod_uid.
+	// Row-level lock to serialize concurrent writers for the same pod_uid + image_digest.
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("pod_uid = ? AND deleted_at IS NULL", sbom.PodUID).
+		Where("pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", sbom.PodUID, sbom.ImageDigest).
 		First(&existing).Error
 	switch {
 	case err == nil:
 		// Existing SBOM for this pod: enforce immutability guard.
+		if err := assertTransition(existing.Status, sbom.Status); err != nil {
+			tx.Rollback()
+			return nil, false, err
+		}
 		if err := r.assertMutable(ctx, &existing); err != nil {
 			tx.Rollback()
 			return nil, false, err
@@ -91,6 +174,25 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 		}
 		nextVersion++
 
+		// Drift detection (Phase 1 - Determinism v1):
+		// If fingerprint differs for the same pod_uid+image_digest, it must be explained
+		// by a change in versioned logic inputs (resolver_version/signature_db_version).
+		//
+		// Side-effect requirement: do NOT crash the pipeline. Instead, mark SBOM as failed.
+		if normalizeSBOMStatus(existing.Status) != "failed" && normalizeSBOMStatus(sbom.Status) != "failed" {
+			if existing.NormalizedFingerprint != "" && sbom.NormalizedFingerprint != "" && existing.NormalizedFingerprint != sbom.NormalizedFingerprint {
+				versionChanged := existing.ResolverVersion != sbom.ResolverVersion ||
+					existing.SignatureDBVersion != sbom.SignatureDBVersion
+				if !versionChanged {
+					metrics.SBOMDriftTotal.WithLabelValues("unexpected_same_version", sbom.ResolverVersion).Inc()
+					sbom.Status = "failed"
+					sbom.StatusReason = "nondeterministic_output"
+				} else {
+					metrics.SBOMDriftTotal.WithLabelValues("expected_version_changed", sbom.ResolverVersion).Inc()
+				}
+			}
+		}
+
 		if err := tx.Model(&existing).Updates(map[string]interface{}{
 			"image_name":     sbom.ImageName,
 			"image_tag":      sbom.ImageTag,
@@ -104,7 +206,12 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 			"use_count":      sbom.UseCount,
 			"sbom_source":    sbom.SbomSource,
 			"confidence":     sbom.Confidence,
-			"status":         "finalized",
+			"status_reason":  sbom.StatusReason,
+			"status":         normalizeSBOMStatus(sbom.Status),
+			"resolver_version":         sbom.ResolverVersion,
+			"signature_db_version":    sbom.SignatureDBVersion,
+			"normalized_fingerprint":  sbom.NormalizedFingerprint,
+			"go_version":               strings.TrimSpace(sbom.GoVersion),
 			"version":        nextVersion,
 		}).Error; err != nil {
 			tx.Rollback()
@@ -119,9 +226,27 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		// New pod: create fresh SBOM row, mark as finalized v1 by default.
-		if sbom.Status == "" {
-			sbom.Status = "finalized"
+		// Drift metric for input changes (expected_input_changed):
+		// If the same pod_uid appears with a different image_digest, this is an input change.
+		// We record it (without failing) to avoid confusing it with nondeterministic output.
+		if sbom.PodUID != "" && normalizeSBOMStatus(sbom.Status) != "failed" && sbom.NormalizedFingerprint != "" {
+			var prev models.SBOM
+			// Find the latest SBOM for the pod_uid excluding this image_digest.
+			// (SQLite and Postgres both support LIMIT in raw queries; we use First with ordering.)
+			prevErr := tx.Where("pod_uid = ? AND image_digest <> ? AND deleted_at IS NULL", sbom.PodUID, sbom.ImageDigest).
+				Order("version DESC").
+				First(&prev).Error
+			if prevErr == nil && normalizeSBOMStatus(prev.Status) != "failed" && prev.NormalizedFingerprint != "" && prev.NormalizedFingerprint != sbom.NormalizedFingerprint {
+				if prev.ResolverVersion == sbom.ResolverVersion && prev.SignatureDBVersion == sbom.SignatureDBVersion {
+					metrics.SBOMDriftTotal.WithLabelValues("expected_input_changed", sbom.ResolverVersion).Inc()
+				}
+			}
 		}
+
+		if sbom.Status == "" {
+			sbom.Status = "complete"
+		}
+		sbom.Status = normalizeSBOMStatus(sbom.Status)
 		if sbom.Version == 0 {
 			sbom.Version = 1
 		}
@@ -175,6 +300,12 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 		return nil, false, fmt.Errorf("commit sbom upsert: %w", err)
 	}
 
+	isNewLabel := "false"
+	if isNewSBOM {
+		isNewLabel = "true"
+	}
+	metrics.SBOMStoreUpsertCommitsTotal.WithLabelValues(isNewLabel).Inc()
+
 	return sbom, isNewSBOM, nil
 }
 
@@ -186,9 +317,17 @@ func (r *SBOMRepository) EnsureMatchRun(
 	sbomID uint,
 	version int,
 	mirrorVersion string,
+	resolverVersion string,
+	matcherVersion string,
 ) (bool, error) {
 	if sbomID == 0 || version <= 0 || mirrorVersion == "" {
 		return false, fmt.Errorf("invalid match run key: sbom_id=%d version=%d mirror_version=%q", sbomID, version, mirrorVersion)
+	}
+	if resolverVersion == "" {
+		resolverVersion = ""
+	}
+	if matcherVersion == "" {
+		matcherVersion = ""
 	}
 
 	now := time.Now()
@@ -211,6 +350,8 @@ func (r *SBOMRepository) EnsureMatchRun(
 			Version:       version,
 			MirrorVersion: mirrorVersion,
 			Status:        "running",
+			ResolverVersion: resolverVersion,
+			MatcherVersion:  matcherVersion,
 			CreatedAt:     now,
 		}
 		if errCreate := r.db.WithContext(ctx).Create(run).Error; errCreate != nil {
@@ -228,12 +369,19 @@ func (r *SBOMRepository) EnsureMatchRun(
 	// staleAfter must be >= max expected match duration to avoid reclaim while job still running.
 	const staleAfter = 15 * time.Minute
 	if existing.Status == "running" && now.Sub(existing.CreatedAt) < staleAfter {
+		// Even if we skip the run, ensure metadata versioning columns are populated.
+		_ = r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
+			"resolver_version": resolverVersion,
+			"matcher_version":  matcherVersion,
+		}).Error
 		return false, nil
 	}
 
 	if err := r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
-		"status":     "running",
-		"created_at": now,
+		"status":          "running",
+		"created_at":     now,
+		"resolver_version": resolverVersion,
+		"matcher_version":  matcherVersion,
 	}).Error; err != nil {
 		return false, fmt.Errorf("update sbom_match_run: %w", err)
 	}

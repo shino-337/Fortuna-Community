@@ -74,7 +74,47 @@ func (p *Processor) processContainer(ctx context.Context, pod *corev1.Pod, conta
 	// Extract SBOM using local extractor
 	rawSBOM, err := p.extractor.ExtractSBOM(ctx, imageRef)
 	if err != nil {
-		return fmt.Errorf("SBOM extraction failed for %s: %w", imageRef, err)
+		// C0.1: pull/extraction failure must still emit a SBOMFinding so Core can
+		// create an SBOM row with sbom_status=failed (empty packages).
+		p.logger.Printf("⚠️  SBOM extraction failed for %s: %v; emitting failed SBOMFinding", imageRef, err)
+
+		imageName, imageTag := parseImageRef(imageRef)
+		imageDigest := resolveImageDigest(imageRef)
+
+		sbomFinding := &pb.SBOMFinding{
+			SchemaVersion: 1,
+			PodUid:        string(pod.UID),
+			PodName:       pod.Name,
+			Namespace:     pod.Namespace,
+			ContainerName: container.Name,
+			ImageName:     imageName,
+			ImageDigest:   imageDigest,
+			ImageTag:      imageTag,
+			OsInfo:        nil,
+			Packages:      []*pb.Package{},
+			GeneratedAt:   timestamppb.New(time.Now()),
+			AgentId:       p.agentID,
+			NodeId:        p.nodeID,
+			Labels:        pod.Labels,
+			Annotations:   pod.Annotations,
+			SbomSource:    pb.SBOMSource_SBOM_SOURCE_UNKNOWN,
+			Confidence:    pb.Confidence_CONFIDENCE_LOW,
+		}
+
+		resp, sendErr := p.grpcClient.SendSBOMFinding(ctx, sbomFinding)
+		if sendErr != nil {
+			// Treat duplicate key as non-fatal (Core uses ON CONFLICT)
+			if strings.Contains(sendErr.Error(), "duplicate key") {
+				p.logger.Printf("⚠️  Core reported duplicate SBOMFinding (already stored); skipping: %v", sendErr)
+				return nil
+			}
+			return fmt.Errorf("failed to send failed SBOMFinding to Core: %w", sendErr)
+		}
+		if !resp.Success {
+			return fmt.Errorf("Core rejected failed SBOMFinding: %s", resp.Message)
+		}
+
+		return nil
 	}
 
 	p.logger.Printf("✅ Extracted %d packages from %s", len(rawSBOM.Packages), imageRef)
@@ -133,6 +173,20 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 		}
 	}
 
+	labels := make(map[string]string, len(pod.Labels)+1)
+	for k, v := range pod.Labels {
+		labels[k] = v
+	}
+	// Determinism metadata for core (Phase 1): signature DB version used by agent.
+	if rawSBOM != nil && rawSBOM.SignatureVersion != "" {
+		labels["fortuna_signature_db_version"] = rawSBOM.SignatureVersion
+	}
+
+	annotations := make(map[string]string, len(pod.Annotations))
+	for k, v := range pod.Annotations {
+		annotations[k] = v
+	}
+
 	out := &pb.SBOMFinding{
 		SchemaVersion: 1,
 		PodUid:        string(pod.UID),
@@ -147,12 +201,13 @@ func (p *Processor) convertToProto(pod *corev1.Pod, container corev1.Container, 
 		GeneratedAt:   timestamppb.New(time.Now()),
 		AgentId:       p.agentID,
 		NodeId:        p.nodeID,
-		Labels:        pod.Labels,
-		Annotations:   pod.Annotations,
+		Labels:        labels,
+		Annotations:   annotations,
 	}
 	// Finding #8.4: SBOM-level source and confidence for Core (Trivy vs NVD fallback)
 	out.SbomSource = mapSBOMSource(rawSBOM.SBOMSource)
 	out.Confidence = mapConfidence(rawSBOM.Confidence)
+	out.GoVersion = strings.TrimSpace(rawSBOM.GoVersion)
 	return out
 }
 
@@ -172,6 +227,20 @@ func parseImageRef(imageRef string) (imageName, imageTag string) {
 	return imageName, imageTag
 }
 
+// resolveImageDigest returns a best-effort stable digest string for sbom cache keys.
+// If the reference is already a digest ref (e.g. @sha256:...), we use it.
+// Otherwise we fall back to the reference name (same behavior as the extractor).
+func resolveImageDigest(imageRef string) string {
+	ref, err := name.ParseReference(imageRef)
+	if err != nil {
+		return imageRef
+	}
+	if digestRef, ok := ref.(name.Digest); ok {
+		return digestRef.DigestStr()
+	}
+	return ref.Name()
+}
+
 func mapPackageType(pkgType string) pb.PackageType {
 	switch pkgType {
 	case "deb":
@@ -186,7 +255,8 @@ func mapPackageType(pkgType string) pb.PackageType {
 		return pb.PackageType_PACKAGE_TYPE_PYPI
 	case "gem":
 		return pb.PackageType_PACKAGE_TYPE_GEM
-	case "go":
+	case "go", "go-binary":
+		// go-binary: main module from gobinary parser — same proto enum as module deps (Finding: avoid UNKNOWN).
 		return pb.PackageType_PACKAGE_TYPE_GO_MOD
 	case "maven":
 		return pb.PackageType_PACKAGE_TYPE_MAVEN

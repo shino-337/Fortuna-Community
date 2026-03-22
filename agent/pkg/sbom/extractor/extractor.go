@@ -38,20 +38,24 @@ func NewExtractor() *Extractor {
 	if cacheDir == "0" || cacheDir == "disabled" || cacheDir == "off" {
 		cacheDir = ""
 	}
-		return &Extractor{
-			parsers: map[string]Parser{
-				"dpkg":       NewDpkgParser(),
-				"apk":        NewApkParser(),
-				"rpm":        NewRpmParser(),
-				"npm":        NewNpmParser(),
-				"pip":        NewPipParser(),
-				"gomod":      NewGoModParser(),
-				"gobinary":   NewGoBinaryParser(),
-				"distroless": NewDistrolessParser(), // Finding #8.2 / C1: walk /bin, /usr/bin, /usr/lib
-			},
-			logger: logger,
-			cache:  NewDiskCache(cacheDir, logger),
-		}
+	return &Extractor{
+		parsers: map[string]Parser{
+			"dpkg":       NewDpkgParser(),
+			"apk":        NewApkParser(),
+			"rpm":        NewRpmParser(),
+			"npm":        NewNpmParser(),
+			"pip":        NewPipParser(),
+			"gomod":      NewGoModParser(),
+			"gobinary":   NewGoBinaryParser(),
+			"maven":      NewMavenParser(),
+			"cargo":      NewCargoParser(),
+			"ruby":       NewRubyGemsParser(),
+			"nuget":      NewNuGetParser(),
+			"distroless": NewDistrolessParser(), // Finding #8.2 / C1: walk /bin, /usr/bin, /usr/lib
+		},
+		logger: logger,
+		cache:  NewDiskCache(cacheDir, logger),
+	}
 }
 
 // ExtractSBOM extracts SBOM from a container image
@@ -123,6 +127,7 @@ func (e *Extractor) ExtractSBOM(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build filesystem: %w", err)
 	}
+	defer func() { _ = fs.Close() }()
 
 	// 5. Detect OS (filesystem + optional OCI labels)
 	osInfo := e.detectOS(fs, imageConfig)
@@ -151,7 +156,7 @@ func (e *Extractor) ExtractSBOM(
 			if parserName == "dpkg" || parserName == "apk" || parserName == "rpm" {
 				hasOSPackages = true
 			}
-		} else if parserName == "npm" || parserName == "pip" || parserName == "gomod" || parserName == "distroless" {
+		} else if parserName == "npm" || parserName == "pip" || parserName == "gomod" || parserName == "maven" || parserName == "cargo" || parserName == "ruby" || parserName == "nuget" || parserName == "distroless" {
 			e.logger.Printf("   Parser %s: 0 packages (no matching files in image)", parserName)
 		}
 	}
@@ -201,6 +206,20 @@ func (e *Extractor) ExtractSBOM(
 		e.logger.Printf("   No packages from parsers; added synthetic component for distroless/system image: %s (PURL=%s)", synthetic.Name, synthetic.PURL)
 	}
 
+	goToolchain := ""
+	if gp, ok := e.parsers["gobinary"].(*GoBinaryParser); ok {
+		goToolchain = gp.ToolchainVersion(fs)
+	}
+	if goToolchain == "" {
+		goToolchain = goVersionFromImageConfig(imageConfig)
+	}
+	goToolchain = normalizeGoToolchainVersionForSBOM(goToolchain)
+	if goToolchain != "" {
+		e.logger.Printf("   Go toolchain version (stdlib matching): %s", goToolchain)
+	}
+
+	e.logSBOMFilesystemMetrics(fs)
+
 	sbom := &RawSBOM{
 		ImageName:        imageRef,
 		ImageDigest:      imageDigest,
@@ -210,6 +229,7 @@ func (e *Extractor) ExtractSBOM(
 		SBOMSource:       sbomSource,
 		Confidence:       confidence,
 		SignatureVersion: sigVersion,
+		GoVersion:        goToolchain,
 	}
 
 	if e.cache != nil {
@@ -383,6 +403,27 @@ func getEnv(key, defaultValue string) string {
 	return defaultValue
 }
 
+// logSBOMFilesystemMetrics logs A5 Phase 2c counters (indexed vs materialize, lazy ReadFile volume).
+// Disable with SBOM_FS_METRICS=0|off|false.
+func (e *Extractor) logSBOMFilesystemMetrics(fs *Filesystem) {
+	if fs == nil {
+		return
+	}
+	s := strings.TrimSpace(os.Getenv("SBOM_FS_METRICS"))
+	if s == "0" || strings.EqualFold(s, "off") || strings.EqualFold(s, "false") {
+		return
+	}
+	m := fs.MetricsSnapshot()
+	if m.Mode == fsModeIndexed {
+		e.logger.Printf("[SBOM FS] mode=indexed paths=%d materialized=%d (%s) lazy_reads=%d (%s)",
+			m.IndexedPaths, m.MaterializedFiles, formatBytesIEC(m.MaterializedBytes),
+			m.LazyReadOps, formatBytesIEC(int64(m.LazyReadBytes)))
+		return
+	}
+	e.logger.Printf("[SBOM FS] mode=materialize files=%d stored=%s",
+		m.MaterializedFiles, formatBytesIEC(m.MaterializedBytes))
+}
+
 // buildFilesystem builds a virtual filesystem from image layers (base → top; overlay semantics).
 func (e *Extractor) buildFilesystem(ctx context.Context, layers []v1.Layer) (*Filesystem, error) {
 	fs := NewFilesystem()
@@ -394,22 +435,13 @@ func (e *Extractor) buildFilesystem(ctx context.Context, layers []v1.Layer) (*Fi
 			continue
 		}
 
-		if err := fs.ExtractTar(ctx, uncompressed); err != nil {
+		if err := fs.ExtractTar(ctx, i, uncompressed); err != nil {
 			_ = uncompressed.Close()
 			e.logger.Printf("⚠️  Layer %d ExtractTar failed: %v", i, err)
 			continue
 		}
 		_ = uncompressed.Close()
 	}
-
-	// Debug: count paths that matter for npm/SBOM
-	n := 0
-	for path := range fs.files {
-		if strings.Contains(path, "package.json") {
-			n++
-		}
-	}
-	e.logger.Printf("   Virtual FS: %d files total, %d paths containing package.json", len(fs.files), n)
 
 	return fs, nil
 }
@@ -493,12 +525,12 @@ func (e *Extractor) selectParsersForOS(osName string) []string {
 	}
 
 	// Language package managers + Go binary analyzer (run for all OS types)
-	languageParsers := []string{"npm", "pip", "gomod", "gobinary"}
+	languageParsers := []string{"npm", "pip", "gomod", "gobinary", "maven", "cargo", "ruby", "nuget"}
 
 	// If OS is unknown/distroless or no OS parsers matched, try all parsers + distroless (C1)
 	if len(osParsers) == 0 || osLower == "unknown" || osLower == "distroless" {
 		e.logger.Printf("   OS '%s', trying all parsers including distroless and gobinary", osName)
-		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod", "gobinary", "distroless"}
+		return []string{"dpkg", "apk", "rpm", "npm", "pip", "gomod", "gobinary", "maven", "cargo", "ruby", "nuget", "distroless"}
 	}
 
 	// Combine OS parsers + language parsers; for debian/ubuntu also add distroless so
@@ -708,6 +740,40 @@ type RawSBOM struct {
 	Confidence  string // "low" | "medium" | "high"
 	// SignatureVersion (B3): version of signature DB for cache invalidation
 	SignatureVersion string
+	// GoVersion: toolchain used to build Go binaries (buildinfo / GOLANG_VERSION). Sent to Core for stdlib CVE matching.
+	GoVersion string
+}
+
+// goVersionFromImageConfig reads GOLANG_VERSION / GO_VERSION from OCI config (common on official golang images).
+func goVersionFromImageConfig(imageConfig *v1.ConfigFile) string {
+	if imageConfig == nil {
+		return ""
+	}
+	for _, env := range imageConfig.Config.Env {
+		env = strings.TrimSpace(env)
+		if strings.HasPrefix(env, "GOLANG_VERSION=") {
+			return strings.TrimSpace(strings.TrimPrefix(env, "GOLANG_VERSION="))
+		}
+		if strings.HasPrefix(env, "GO_VERSION=") {
+			return strings.TrimSpace(strings.TrimPrefix(env, "GO_VERSION="))
+		}
+	}
+	return ""
+}
+
+// normalizeGoToolchainVersionForSBOM aligns with Core stdlib matcher (expects go1.x.y or 1.x.y after trim).
+func normalizeGoToolchainVersionForSBOM(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	if strings.HasPrefix(s, "go") {
+		return s
+	}
+	if len(s) > 0 && s[0] >= '0' && s[0] <= '9' {
+		return "go" + s
+	}
+	return s
 }
 
 // OSInfo represents OS information

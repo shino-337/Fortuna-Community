@@ -27,6 +27,7 @@ import (
 	"github.com/fortuna/core/internal/storage"
 	"github.com/fortuna/core/internal/webhook"
 	"github.com/fortuna/core/migrations"
+	"github.com/fortuna/core/pkg/kev"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/policy"
 	"github.com/fortuna/core/pkg/reconciler"
@@ -37,7 +38,6 @@ import (
 	"gorm.io/gorm"
 
 	_ "github.com/fortuna/core/pkg/metrics" // Import to register admission metrics
-	_ "github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 // Build info (set via -ldflags at build time)
@@ -138,6 +138,11 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
+	if kev.Enabled() {
+		go kev.StartBackgroundRefresh(ctx, kev.DefaultCatalog())
+		log.Printf("[Main] ✅ CISA KEV catalog background refresh enabled (FORTUNA_KEV_ENABLED)")
+	}
 
 	// Initialize NATS client with retry logic
 	// NATS connection failures are non-fatal for initial startup
@@ -367,6 +372,37 @@ func main() {
 			defer cveSub.Unsubscribe()
 		}
 
+		// SBOM_CREATED DLQ: events that failed primary publish after retries (handler_sbom.go).
+		sbomDLQ := worker.NewSBOMDLQWorker()
+		dlqDurable := "sbom-created-dlq"
+		dlqOpts := []nats.SubOpt{
+			nats.ManualAck(),
+			nats.DeliverAll(),
+			nats.MaxAckPending(50),
+			nats.AckWait(2 * time.Minute),
+		}
+		if useDurables {
+			dlqOpts = append(dlqOpts, nats.Durable(dlqDurable))
+		}
+		dlqSub, err := js.Subscribe(sbomDLQ.Subject(), func(msg *nats.Msg) {
+			if err := sbomDLQ.Process(ctx, msg); err != nil {
+				log.Printf("[SBOMDLQWorker] Error: %v", err)
+				return
+			}
+			msg.Ack()
+		}, dlqOpts...)
+		if err != nil {
+			log.Printf("[Main] Warning: Failed to subscribe SBOM DLQ worker: %v", err)
+		} else {
+			log.Printf("[Main] ✅ SBOMDLQWorker subscribed to %s (dead-letter visibility)", sbomDLQ.Subject())
+			defer dlqSub.Unsubscribe()
+		}
+
+		if pollEvery := worker.SBOMDLQDepthPollInterval(); pollEvery > 0 {
+			go worker.RunSBOMDLQStreamDepthPoller(ctx, js, pollEvery, log.Default())
+			log.Printf("[Main] ✅ SBOM DLQ JetStream depth gauge poll interval=%v (FORTUNA_SBOM_DLQ_DEPTH_POLL_INTERVAL)", pollEvery)
+		}
+
 		// Risk Center (Finding #1.3): subscribe via core NATS so every Core replica receives the message and broadcasts to its local WS clients (fan-out).
 		if natsClient != nil {
 			nc := natsClient.Conn()
@@ -510,7 +546,6 @@ func main() {
 	router.Use(middleware.CORS())
 	router.Use(middleware.SecurityHeaders())
 	router.Use(middleware.RateLimiting())
-	router.Use(middleware.MetricsMiddleware())
 	// Sanitize 5xx responses so internal error details are not sent to clients (log server-side only)
 	router.Use(middleware.ErrorSanitize())
 

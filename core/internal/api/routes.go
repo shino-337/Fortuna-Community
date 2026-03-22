@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/internal/api/policy"
@@ -44,7 +43,8 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	log.Printf("[API] ========================================")
 
 	// Prometheus metrics endpoint (no auth required)
-	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	// NOTE: Prometheus scraping endpoint is intentionally disabled for Phase 3+
+	// when no Prometheus/Grafana is deployed. Fortuna can self-handle metrics.
 
 	// Public auth routes
 	auth := router.Group("/api/v1/auth")

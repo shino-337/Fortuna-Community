@@ -9,6 +9,8 @@ type SBOMMatchRun struct {
 	Version      int       `gorm:"primaryKey;column:version"`
 	MirrorVersion string   `gorm:"primaryKey;type:varchar(128);column:mirror_version"`
 	Status       string    `gorm:"type:varchar(20);not null;default:'running'"` // running | succeeded | failed
+	ResolverVersion string `gorm:"type:varchar(32);default:''" json:"resolverVersion"` // matcher resolver_version at match time
+	MatcherVersion  string `gorm:"type:varchar(32);default:''" json:"matcherVersion"`  // same as ResolverVersion for now
 	CreatedAt    time.Time `gorm:"not null;default:CURRENT_TIMESTAMP"`
 }
 

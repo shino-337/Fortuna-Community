@@ -7,6 +7,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
+import { parseThreatIntelEvidence } from '../lib/threatIntel';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 
 export const RiskDetail: React.FC = () => {
@@ -92,6 +93,7 @@ export const RiskDetail: React.FC = () => {
   }
 
   const severityClass = getSeverityBadgeClass(insight.severity);
+  const threatIntel = parseThreatIntelEvidence(insight.evidence);
   const statusLabelMap: Record<string, string> = {
     new: 'Active',
     acknowledged: 'In review',
@@ -132,6 +134,25 @@ export const RiskDetail: React.FC = () => {
           {insight.priorityLevel && (
             <span className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full border border-slate-700 text-slate-300">
               Priority {insight.priorityLevel}
+            </span>
+          )}
+          {threatIntel.cisaKev && (
+            <span
+              className="text-[11px] font-semibold uppercase px-2 py-0.5 rounded-full border border-rose-600/80 bg-rose-950/50 text-rose-200"
+              title="CVE listed in CISA Known Exploited Vulnerabilities catalog"
+            >
+              CISA KEV
+            </span>
+          )}
+          {threatIntel.epss != null && (
+            <span
+              className="text-[11px] font-medium px-2 py-0.5 rounded-full border border-amber-700/60 bg-amber-950/40 text-amber-100"
+              title={threatIntel.epssSource ? `EPSS source: ${threatIntel.epssSource}` : 'FIRST.org EPSS (exploit probability)'}
+            >
+              EPSS {(threatIntel.epss * 100).toFixed(1)}%
+              {threatIntel.epssPercentile != null && (
+                <span className="text-amber-200/80"> · p{(threatIntel.epssPercentile * 100).toFixed(0)}</span>
+              )}
             </span>
           )}
         </div>

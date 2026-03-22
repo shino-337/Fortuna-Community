@@ -17,7 +17,7 @@ Fortuna Agent operates at the data plane, focusing on pod detection and SBOM ext
 - **SBOM Extraction**: Extract Software Bill of Materials from container images
 - **Asynchronous Processing**: Work queue prevents blocking during SBOM extraction
 - **gRPC Communication**: Send SBOMs to Core via secure gRPC with mTLS support
-- **Multi-Parser Support**: Support for multiple package managers (dpkg, apk, rpm, npm, pip, gomod)
+- **Multi-Parser Support**: 12 parsers — **dpkg**, **apk**, **rpm**, **npm**, **pip**, **gomod**, **gobinary**, **maven**, **cargo**, **ruby** (Gemfile.lock), **nuget** (packages.lock.json), **distroless**
 
 ---
 
@@ -41,7 +41,11 @@ agent/
 │   │   │   ├── rpm.go            # RPM parser
 │   │   │   ├── npm.go            # npm parser
 │   │   │   ├── pip.go            # pip parser
-│   │   │   └── gomod.go          # Go modules parser
+│   │   │   ├── gomod.go          # Go modules parser
+│   │   │   ├── maven.go          # Maven pom.xml (Tier 3)
+│   │   │   ├── cargo.go          # Cargo.lock (Tier 3)
+│   │   │   ├── ruby.go           # Gemfile.lock (Tier 3)
+│   │   │   └── nuget.go          # packages.lock.json (Tier 3)
 │   │   └── queue.go              # Work queue for async processing
 │   ├── client/                    # gRPC client
 │   │   ├── grpc_client_mtls.go   # mTLS-enabled gRPC client
@@ -73,10 +77,16 @@ agent/
 - **Multi-Parser Support**:
   - **dpkg**: Debian/Ubuntu packages (`/var/lib/dpkg/status`)
   - **apk**: Alpine packages (`/lib/apk/db/installed`)
-  - **rpm**: RedHat/CentOS packages (`/var/lib/rpm`)
-  - **npm**: Node.js packages (`node_modules/package.json`)
-  - **pip**: Python packages (`site-packages`)
-  - **gomod**: Go modules (`go.mod`)
+  - **rpm**: RedHat/CentOS packages (Fortuna inventory or `rpmdb.sqlite` fallback)
+  - **npm**: Node.js packages (`package-lock.json`, `node_modules/*/package.json`)
+  - **pip**: Python packages (`requirements.txt`, `*.dist-info/METADATA`)
+  - **gomod**: Go modules (`go.sum`, `go.mod`)
+  - **gobinary**: Go binaries via `debug/buildinfo`
+  - **maven**: Java packages (`pom.xml`)
+  - **cargo**: Rust crates (`Cargo.lock`)
+  - **ruby**: Ruby gems (`Gemfile.lock`)
+  - **nuget**: .NET packages (`packages.lock.json`, `project.assets.json` targets)
+  - **distroless**: Control-plane binaries via signature allowlist
 
 - **OS-Aware Parsing**: Only runs relevant parsers based on detected OS
 - **PURL Support**: Generates Package URLs (PURL) for all components

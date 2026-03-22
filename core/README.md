@@ -180,8 +180,27 @@ See [API Reference](../../docs/06-reference/API_REFERENCE.md) for complete docum
 - `AUTH_ENABLED`: Enable JWT authentication (default: `false`)
 - `JWT_SECRET`: JWT signing secret
 
+**NVD API (CVE matcher — optional, recommended in production)**:
+- **`NVD_API_KEY`**: API key from [NVD — Request a key](https://nvd.nist.gov/developers/request-an-api-key). Used by `NewNVDClientForManager()` to authenticate NVD REST requests (`apiKey` header) and **raise the API rate limit** vs unauthenticated calls. **Unset** = client still works but is more likely to hit 429 under load.
+- **`FORTUNA_NVD_DISABLED`**: Set to `1` or `true` to **disable** the NVD client entirely (no NVD fallback for heuristic SBOM paths).
+
 **NATS Durables**:
 - `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)
+
+**SBOM DLQ observability**:
+- `FORTUNA_SBOM_DLQ_DEPTH_POLL_INTERVAL`: Poll JetStream for DLQ subject backlog gauge `fortuna_sbom_created_dlq_stream_messages` (default `30s`; `0`/`off` disables).
+
+**EPSS (RISK-1 — optional)**:
+- `FORTUNA_EPSS_ENABLED`: `true`/`1` to fetch FIRST.org EPSS into `Insight.evidence` during CVE match (default off).
+- `FORTUNA_EPSS_MAX_PER_SBOM`: Max **unique** CVE EPSS lookups per SBOM (default `40`; `0` disables enrichment; negative caps at 10k).
+- `FORTUNA_EPSS_CONCURRENCY`: Parallel EPSS HTTP requests (default `8`).
+- `FORTUNA_EPSS_BASE_URL`: Override API base (default `https://api.first.org/data/v1/epss`).
+- `FORTUNA_EPSS_CACHE_TTL`: Cache TTL for EPSS responses (default `24h`).
+
+**CISA KEV (RISK-1+ — optional)**:
+- `FORTUNA_KEV_ENABLED`: `true`/`1` to tag insights with `cisa_kev` when CVE is in the CISA catalog (default off).
+- `FORTUNA_KEV_URL`: Feed URL (default CISA JSON).
+- `FORTUNA_KEV_REFRESH`: Refresh interval for background catalog reload (default `6h`).
 
 **Risk Center – Insights retention** (cleanup job chạy mỗi 24h):
 - `INSIGHTS_RESOLVED_RETENTION_DAYS`: Số ngày giữ insights đã resolved trước khi soft-delete (default: `30`). Ví dụ: `14`, `90`.
@@ -247,6 +266,8 @@ export DATABASE_URL=postgres://postgres:postgres@localhost:5432/fortuna?sslmode=
 export NATS_ENDPOINT=nats://localhost:4222
 export HTTP_PORT=8080
 export GRPC_PORT=9090
+# Optional: NVD API key for higher rate limits on CVE matcher NVD fallback (see docs/05-operations/NVD_API_KEY.md)
+# export NVD_API_KEY="your-key-from-nvd-nist-gov"
 ```
 
 4. **Run**:

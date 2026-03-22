@@ -139,7 +139,11 @@ func (p *NpmParser) parsePackageLock(content []byte) ([]Package, error) {
 			}
 			packages = append(packages, Package{Name: name, Version: pkg.Version, Type: "npm"})
 		}
-		return packages, nil
+		// A6: lockfile v2 can unmarshal with non-empty `packages` but zero resolvable versions
+		// (e.g. only empty entries). Fall back to v1 `dependencies` instead of returning empty.
+		if len(packages) > 0 {
+			return packages, nil
+		}
 	}
 
 	// v1 format: "dependencies": { "lodash": { "version": "4.17.19" } }

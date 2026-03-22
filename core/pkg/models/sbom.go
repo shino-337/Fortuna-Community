@@ -33,7 +33,11 @@ type SBOM struct {
 	UseCount       int               `gorm:"default:1" json:"useCount"`
 	SbomSource     string            `gorm:"type:varchar(64)" json:"sbomSource"`     // Finding #8.4: parsers | distroless-heuristic | label-metadata
 	Confidence     string            `gorm:"type:varchar(32)" json:"confidence"`    // Finding #8.4: low | medium | high
-	Status         string            `gorm:"type:varchar(20);default:'pending';index" json:"status"` // pending | finalized
+	Status         string            `gorm:"type:varchar(20);default:'pending';index" json:"status"` // pending | complete | partial | failed (+ legacy finalized)
+	StatusReason   string            `gorm:"type:varchar(64);default:''" json:"statusReason"` // pull_error | parse_error | empty_result | validation_failed | ok
+	ResolverVersion string          `gorm:"type:varchar(32);default:'';index" json:"resolverVersion"` // matcher.ResolverVersion used for normalization/trust
+	SignatureDBVersion string      `gorm:"type:varchar(64);default:'';index" json:"signatureDbVersion"` // agent embedded signatures.Version()
+	NormalizedFingerprint string   `gorm:"type:varchar(64);default:'';index" json:"normalizedFingerprint"` // sha256 of normalized component identity
 	Version        int               `gorm:"type:integer;default:1" json:"version"`                  // SBOM snapshot version
 	CreatedAt      time.Time         `json:"createdAt"`
 	UpdatedAt      time.Time         `json:"updatedAt"`
@@ -60,6 +64,7 @@ type SBOMComponent struct {
 	OriginalPURL     string         `gorm:"type:varchar(512);column:original_purl" json:"originalPurl,omitempty"`
 	PURLValidated    bool           `gorm:"not null;default:true;column:purl_validated" json:"purlValidated"`
 	TrustLevel       string         `gorm:"type:varchar(10);not null;default:'high';column:trust_level" json:"trustLevel"` // high | medium | low
+	SourceDetail     string         `gorm:"type:varchar(255);column:source_detail" json:"sourceDetail,omitempty"` // parser|agent-purl|core-regenerated-purl|core-generated-purl
 	Licenses         string         `gorm:"type:text" json:"licenses"`                       // Comma-separated licenses
 	Source           string         `gorm:"type:varchar(500)" json:"source"`
 	Description      string         `gorm:"type:text" json:"description"`
@@ -108,6 +113,16 @@ type CVEMatch struct {
 	CVSS         float32 `gorm:"type:decimal(4,1)" json:"cvss"` // Changed from *float64
 	FixedVersion string  `gorm:"type:varchar(255)" json:"fixedVersion"`
 	MatchedBy    string  `gorm:"type:varchar(255)" json:"matchedBy"` // Version range that matched
+
+	// HasConstraint/ConstraintSatisfied are computed during matching and used for
+	// post-match confidence propagation (Phase 2). They are not persisted.
+	HasConstraint       bool `gorm:"-" json:"hasConstraint,omitempty"`
+	ConstraintSatisfied bool `gorm:"-" json:"constraintSatisfied,omitempty"`
+
+	// MatchConfidence is computed after matching (Phase 2) to separate
+	// "where the match came from" (MatchedBy) vs "how trustworthy it is".
+	// It is not persisted in cve_matches.
+	MatchConfidence string `gorm:"-" json:"matchConfidence,omitempty"`
 
 	// Timestamps
 	MatchedAt time.Time      `gorm:"not null;default:CURRENT_TIMESTAMP" json:"matchedAt"`

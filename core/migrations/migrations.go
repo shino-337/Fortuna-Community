@@ -212,6 +212,10 @@ func RunMigrations(db *gorm.DB) error {
 		Migration084_AddSBOMComponentTrustFields,          // Trust boundary: original_purl, purl_validated, trust_level on sbom_components
 		Migration086_AddSBOMProcessingState,               // Replay guard: atomic last-write-wins by event timestamp/id
 		Migration087_DropLegacySBOMMatchWatermarks,        // Remove unused legacy watermark table (superseded by 086)
+		Migration088_UpdateSBOMStatusCheck,              // SBOM: status check values (complete|partial|failed)
+		Migration089_AddSBOMStatusReasonSourceDetail,     // SBOM: status_reason and component source_detail
+		Migration090_AddResolverSignatureFingerprint,     // Determinism v1: resolver/sig versions + normalized SBOM fingerprint
+		Migration091_AddInsightConfidenceColumns,        // Phase 2: confidence propagation into insights
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

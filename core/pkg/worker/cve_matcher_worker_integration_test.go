@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -140,7 +141,7 @@ func TestFullFlow_DistrolessSBOM_NVD_CVE_AndRisk(t *testing.T) {
 	}
 	nvdMatches := 0
 	for _, m := range matches {
-		if m.MatchedBy == "nvd-fallback" {
+		if strings.HasPrefix(m.MatchedBy, "nvd-fallback") {
 			nvdMatches++
 		}
 	}

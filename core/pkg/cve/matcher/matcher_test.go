@@ -12,6 +12,7 @@ import (
 	"github.com/fortuna/core/pkg/cve/database/nvd"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/stretchr/testify/require"
 	"github.com/glebarez/sqlite"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"gorm.io/gorm"
@@ -115,17 +116,34 @@ func TestIsNVDFallbackWhitelisted(t *testing.T) {
 	}
 }
 
+func TestIsNVDFallbackWhitelisted_EnvExtension(t *testing.T) {
+	// D1: allow extending NVD fallback whitelist via env var.
+	t.Setenv("FORTUNA_NVD_FALLBACK_WHITELIST", "nginx, PostgreSQL")
+
+	if !isNVDFallbackWhitelisted("nginx") {
+		t.Fatalf("expected env-extended whitelist to allow nginx")
+	}
+	if !isNVDFallbackWhitelisted("postgresql") && !isNVDFallbackWhitelisted("PostgreSQL") {
+		// normalizeComponentNameForNVD may not change these; we just ensure at least one casing passes.
+		t.Fatalf("expected env-extended whitelist to allow PostgreSQL")
+	}
+	if isNVDFallbackWhitelisted("no-such-component") {
+		t.Fatalf("expected env-extended whitelist not to allow unknown component")
+	}
+}
+
 func TestIsDistrolessHeuristicJunk(t *testing.T) {
-	// Junk: version=unknown, source=distroless-heuristic, name not whitelisted -> skip
-	if !isDistrolessHeuristicJunk(&models.SBOMComponent{
+	// C0.3: version=unknown, source=distroless-heuristic should NOT be skipped entirely
+	// (controlled matching instead of hard skip).
+	if isDistrolessHeuristicJunk(&models.SBOMComponent{
 		ComponentName: "Extend.pl", ComponentVersion: "unknown", Source: "distroless-heuristic",
 	}) {
-		t.Error("Extend.pl@unknown distroless-heuristic should be junk (skipped)")
+		t.Error("Extend.pl@unknown distroless-heuristic should NOT be junk (controlled matching)")
 	}
-	if !isDistrolessHeuristicJunk(&models.SBOMComponent{
+	if isDistrolessHeuristicJunk(&models.SBOMComponent{
 		ComponentName: "ISO-IR-197.so", ComponentVersion: "unknown", Source: "distroless-heuristic",
 	}) {
-		t.Error("ISO-IR-197.so@unknown distroless-heuristic should be junk (skipped)")
+		t.Error("ISO-IR-197.so@unknown distroless-heuristic should NOT be junk (controlled matching)")
 	}
 	// Not junk: whitelisted names even with unknown -> keep (will query Postgres/NVD)
 	if isDistrolessHeuristicJunk(&models.SBOMComponent{
@@ -138,11 +156,11 @@ func TestIsDistrolessHeuristicJunk(t *testing.T) {
 	}) {
 		t.Error("kube-apiserver@unknown should not be junk (NVD fallback allowed)")
 	}
-	// Not junk: has version -> keep
-	if isDistrolessHeuristicJunk(&models.SBOMComponent{
+	// Junk: non-whitelisted names with known version (version is available to match).
+	if !isDistrolessHeuristicJunk(&models.SBOMComponent{
 		ComponentName: "Extend.pl", ComponentVersion: "1.0", Source: "distroless-heuristic",
 	}) {
-		t.Error("Extend.pl@1.0 should not be junk (has version)")
+		t.Error("Extend.pl@1.0 distroless-heuristic should be junk (non-whitelisted)")
 	}
 	// Not junk: source not distroless-heuristic -> keep
 	if isDistrolessHeuristicJunk(&models.SBOMComponent{
@@ -675,6 +693,28 @@ func TestCompareRPMVersion(t *testing.T) {
 	}
 }
 
+func TestVersionComparator_UnknownEcosystem_Fallback(t *testing.T) {
+	vc := NewVersionComparator()
+
+	// Semver fallback path for unknown ecosystems.
+	vuln, err := vc.IsVulnerable("1.2.0", "< 2.0.0", "custom-eco")
+	if err != nil {
+		t.Fatalf("IsVulnerable unknown ecosystem: %v", err)
+	}
+	if !vuln {
+		t.Fatalf("expected semver fallback to mark 1.2.0 vulnerable for <2.0.0")
+	}
+
+	// Exact equality fallback path (when semver parsing might fail).
+	vulnEq, err := vc.IsVulnerable("v1", "== v1", "totally-unknown")
+	if err != nil {
+		t.Fatalf("IsVulnerable unknown ecosystem eq fallback: %v", err)
+	}
+	if !vulnEq {
+		t.Fatalf("expected equality fallback to mark v1 == v1 as vulnerable")
+	}
+}
+
 func TestPURLParser_GolangAlias(t *testing.T) {
 	p, err := ParsePURL("pkg:golang/github.com/a/b/c@v1.2.3")
 	if err != nil {
@@ -963,6 +1003,165 @@ func TestMatcher_FallbackMode_ComponentLimit(t *testing.T) {
 	}
 }
 
+func TestMatcher_NVDFallback_NoConstraint_MatchedByFlag(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	// Seed only normalized name "coredns" so primary query for
+	// "registry.k8s.io/coredns" returns 0 and fallback path is exercised.
+	now := time.Now()
+	cveRow := models.CVE{
+		CVEID:            "CVE-D2-NO-CONSTRAINT",
+		Severity:         "HIGH",
+		CVSSScore:        8.0,
+		Description:      "fallback no-constraint test",
+		PublishedDate:     &now,
+		LastModifiedDate: &now,
+	}
+	if err := db.Create(&cveRow).Error; err != nil {
+		t.Fatalf("seed cve: %v", err)
+	}
+	if err := db.Create(&models.PackageVulnerability{
+		CVEID:       cveRow.CVEID,
+		Ecosystem:   "generic",
+		PackageName: "coredns",
+		// Intentionally no version bounds -> empty constraint
+	}).Error; err != nil {
+		t.Fatalf("seed package_vulnerability: %v", err)
+	}
+
+	sb := &models.SBOM{OSName: "linux", Status: "finalized"}
+	if err := db.Create(sb).Error; err != nil {
+		t.Fatalf("create sbom: %v", err)
+	}
+
+	comp := []*models.SBOMComponent{
+		{
+			SBOMID:           sb.ID,
+			ComponentName:    "registry.k8s.io/coredns",
+			ComponentVersion: "1.11.1",
+			PURL:             "pkg:generic/registry.k8s.io/coredns@1.11.1",
+			Source:           "distroless-heuristic",
+			TrustLevel:       "high",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sb, comp)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+
+	found := false
+	for _, mm := range matches {
+		if mm.CVEID == "CVE-D2-NO-CONSTRAINT" {
+			found = true
+			if mm.MatchedBy != "nvd-fallback-no-constraint" {
+				t.Fatalf("matched_by=%q, want nvd-fallback-no-constraint", mm.MatchedBy)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("expected fallback no-constraint CVE match, got %+v", matches)
+	}
+}
+
+func TestMatcher_CVECap_PrioritizesSeverityBeforeLimit(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	now := time.Now()
+	// Seed 5 CRITICAL + 25 LOW for same package (total 30 > cap 25).
+	for i := 1; i <= 5; i++ {
+		id := fmt.Sprintf("CVE-D3-CRIT-%02d", i)
+		if err := db.Create(&models.CVE{
+			CVEID:            id,
+			Severity:         "CRITICAL",
+			CVSSScore:        9.0 + float64(i)/10,
+			Description:      "critical test",
+			PublishedDate:     &now,
+			LastModifiedDate: &now,
+		}).Error; err != nil {
+			t.Fatalf("seed critical cve %s: %v", id, err)
+		}
+		if err := db.Create(&models.PackageVulnerability{
+			CVEID:               id,
+			Ecosystem:           "debian",
+			PackageName:         "openssl",
+			VersionEndIncluding: "9.9.9",
+		}).Error; err != nil {
+			t.Fatalf("seed critical pv %s: %v", id, err)
+		}
+	}
+	for i := 1; i <= 25; i++ {
+		id := fmt.Sprintf("CVE-D3-LOW-%02d", i)
+		if err := db.Create(&models.CVE{
+			CVEID:            id,
+			Severity:         "LOW",
+			CVSSScore:        2.0 + float64(i)/100,
+			Description:      "low test",
+			PublishedDate:     &now,
+			LastModifiedDate: &now,
+		}).Error; err != nil {
+			t.Fatalf("seed low cve %s: %v", id, err)
+		}
+		if err := db.Create(&models.PackageVulnerability{
+			CVEID:               id,
+			Ecosystem:           "debian",
+			PackageName:         "openssl",
+			VersionEndIncluding: "9.9.9",
+		}).Error; err != nil {
+			t.Fatalf("seed low pv %s: %v", id, err)
+		}
+	}
+
+	sb := &models.SBOM{OSName: "debian", OSVersion: "12", Status: "finalized"}
+	if err := db.Create(sb).Error; err != nil {
+		t.Fatalf("create sbom: %v", err)
+	}
+	comp := []*models.SBOMComponent{
+		{
+			SBOMID:           sb.ID,
+			ComponentName:    "openssl",
+			ComponentVersion: "1.0.0",
+			PURL:             "pkg:generic/openssl@1.0.0",
+			Source:           "rpmdb-fallback",
+			TrustLevel:       "high",
+		},
+	}
+
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sb, comp)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	if len(matches) != 25 {
+		t.Fatalf("expected cap 25 matches, got %d", len(matches))
+	}
+
+	criticalCount := 0
+	for _, mm := range matches {
+		if strings.HasPrefix(mm.CVEID, "CVE-D3-CRIT-") {
+			criticalCount++
+		}
+	}
+	if criticalCount != 5 {
+		t.Fatalf("expected all 5 critical CVEs retained before cap, got %d/%d", criticalCount, 5)
+	}
+}
+
 func TestMatcher_OSNamespaceAndArch_NotCollapsed(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -1069,4 +1268,20 @@ func TestMatcher_DeterministicOutput_SameInputSameResult(t *testing.T) {
 			t.Fatalf("nondeterministic output at iter=%d\nbaseline:\n%s\ngot:\n%s", i, baseline, b.String())
 		}
 	}
+}
+
+func TestMatchSBOM_SkipsFailedSBOMStatus(t *testing.T) {
+	m := NewMatcher(nil, nil)
+	sbom := &models.SBOM{ID: 1, Status: "failed"}
+	matches, err := m.MatchSBOM(context.Background(), sbom, nil)
+	require.NoError(t, err)
+	require.Nil(t, matches)
+}
+
+func TestMatchSBOM_SkipsPendingSBOMStatus(t *testing.T) {
+	m := NewMatcher(nil, nil)
+	sbom := &models.SBOM{ID: 1, Status: "pending"}
+	matches, err := m.MatchSBOM(context.Background(), sbom, nil)
+	require.NoError(t, err)
+	require.Nil(t, matches)
 }

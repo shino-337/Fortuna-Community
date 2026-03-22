@@ -43,6 +43,8 @@ func (m *Matcher) matchGoStdlib(
 			CVSS:           float32(cveData.CVSSScore),
 			FixedVersion:   cveData.FixedVersion,
 			MatchedBy:      "fortuna-go-stdlib-matcher",
+			HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+			ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
 			MatchedAt:      time.Now(),
 		})
 	}

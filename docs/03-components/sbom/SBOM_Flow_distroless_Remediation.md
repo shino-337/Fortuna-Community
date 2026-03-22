@@ -297,6 +297,8 @@ mà không cần package manager.
 
 ## Cấu hình NVD API (kiểm tra thực tế)
 
+**Hướng dẫn gán giá trị cho user (local, K8s Secret, Docker):** xem **[docs/05-operations/NVD_API_KEY.md](../../05-operations/NVD_API_KEY.md)**.
+
 ### Nơi cấu hình
 
 | Nơi | Mục đích |

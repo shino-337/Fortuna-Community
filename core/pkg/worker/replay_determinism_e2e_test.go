@@ -35,6 +35,8 @@ type insightFingerprint struct {
 	Severity          string
 	CVSS              float32
 	Recommendation    string
+	FinalRiskConfidence string
+	Degraded            bool
 }
 
 type replayScenarioSnapshot struct {
@@ -286,6 +288,8 @@ func captureSnapshot(t *testing.T, db *gorm.DB, sbomID uint, podUID string) repl
 				Severity:          i.Severity,
 				CVSS:              i.CVSS,
 				Recommendation:    i.Recommendation,
+				FinalRiskConfidence: i.FinalRiskConfidence,
+				Degraded:            i.Degraded,
 			})
 		}
 		sort.Slice(out, func(i, j int) bool {
@@ -297,7 +301,9 @@ func captureSnapshot(t *testing.T, db *gorm.DB, sbomID uint, podUID string) repl
 
 		var b strings.Builder
 		for _, i := range out {
-			b.WriteString(fmt.Sprintf("%s|%s|%s|%s|%.1f|%s;", i.CVEID, i.AffectedComponent, i.FixedVersion, i.Severity, i.CVSS, i.Recommendation))
+			b.WriteString(fmt.Sprintf("%s|%s|%s|%s|%.1f|%s|%s|%t;",
+				i.CVEID, i.AffectedComponent, i.FixedVersion, i.Severity, i.CVSS, i.Recommendation,
+				i.FinalRiskConfidence, i.Degraded))
 		}
 		return b.String()
 	}(insights)

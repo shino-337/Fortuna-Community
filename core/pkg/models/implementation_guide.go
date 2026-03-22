@@ -71,6 +71,14 @@ type Insight struct {
 	RiskExplanation string `gorm:"type:text" json:"riskExplanation,omitempty"`
 	Remediation     string `gorm:"type:jsonb" json:"remediation,omitempty"`
 
+	// Confidence model (Phase 2 - confidence propagation)
+	// These reflect data trust, not CVSS severity.
+	MatchConfidence      string `gorm:"type:varchar(20);default:'';index" json:"matchConfidence,omitempty"`
+	ComponentConfidence  string `gorm:"type:varchar(20);default:'';index" json:"componentConfidence,omitempty"`
+	SBOMConfidence       string `gorm:"type:varchar(20);default:'';index" json:"sbomConfidence,omitempty"`
+	FinalRiskConfidence  string `gorm:"type:varchar(20);default:'';index" json:"finalRiskConfidence,omitempty"`
+	Degraded             bool   `gorm:"type:boolean;default:false" json:"degraded"`
+
 	// Status & Timestamps
 	Status     string         `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed
 	DetectedAt time.Time      `gorm:"not null;index" json:"detectedAt"`

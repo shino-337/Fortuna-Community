@@ -56,6 +56,10 @@ message SBOMFinding {
   // SBOM provenance (Finding #8.4) – Core uses for CVE matching (Trivy vs NVD fallback)
   SBOMSource sbom_source = 16;
   Confidence confidence = 17;
+
+  // Go toolchain version used to build binaries in the image (e.g. go1.22.5 from buildinfo or
+  // GOLANG_VERSION label/env). Populated by Agent for Core Go stdlib CVE matching (package stdlib).
+  string go_version = 18;
 }
 
 // OSInfo describes the container OS

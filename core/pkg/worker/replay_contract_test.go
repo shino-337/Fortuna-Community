@@ -77,7 +77,7 @@ func runWorkerEvent(t *testing.T, w *CVEMatcherWorker, ev sbom.SBOMCreatedEvent)
 	}
 }
 
-func TestWorker_SchemaMismatch_DoesNotFail(t *testing.T) {
+func TestWorker_SchemaMismatch_SkipsProcessing(t *testing.T) {
 	db := newReplayWorkerTestDB(t)
 	sb := seedFinalizedSBOM(t, db)
 	w := NewCVEMatcherWorker(nil, db, nil)
@@ -90,6 +90,14 @@ func TestWorker_SchemaMismatch_DoesNotFail(t *testing.T) {
 		SBOMID:        sb.ID,
 		ImageDigest:   sb.ImageDigest,
 	})
+
+	var runs int64
+	if err := db.Model(&models.SBOMMatchRun{}).Where("sbom_id = ?", sb.ID).Count(&runs).Error; err != nil {
+		t.Fatalf("count runs: %v", err)
+	}
+	if runs != 0 {
+		t.Fatalf("expected no match run when schema mismatched, got %d", runs)
+	}
 }
 
 func TestWorker_Replay_SameTimestampSameEventID_Idempotent(t *testing.T) {

@@ -52,8 +52,27 @@ func (vc *VersionComparator) IsVulnerable(
 		// Distroless/control-plane (kube-apiserver, coredns, etc.): version from tag/label/digestMap, use semver (e.g. v1.29.0)
 		return vc.compareSemver(installedVersion, constraint)
 	default:
-		// No implicit semver fallback - explicit error per ADR-001
-		return false, fmt.Errorf("unsupported ecosystem: %s (normalized from: %s)", normalizedEco, ecosystem)
+		// D5: For unknown ecosystems, avoid skipping by returning a best-effort match.
+		// We try semver constraint evaluation first; if parsing fails, fall back to a conservative "not vulnerable".
+		// This keeps the matcher deterministic and prevents unnecessary CVE drop.
+		ok, err := vc.compareSemver(installedVersion, constraint)
+		if err == nil {
+			return ok, nil
+		}
+
+		// Extra conservative fallback: if constraint looks like an exact "==X", do string equality on cleaned versions.
+		c := strings.TrimSpace(constraint)
+		if strings.HasPrefix(c, "==") {
+			target := strings.TrimSpace(c[2:])
+			installedClean := vc.cleanVersion(installedVersion)
+			targetClean := vc.cleanVersion(target)
+			if installedClean == targetClean {
+				return true, nil
+			}
+			return false, nil
+		}
+
+		return false, nil
 	}
 }
 

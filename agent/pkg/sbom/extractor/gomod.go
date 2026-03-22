@@ -16,17 +16,81 @@ func NewGoModParser() *GoModParser {
 // Parse parses go packages
 func (p *GoModParser) Parse(fs *Filesystem) ([]Package, error) {
 	packages := make([]Package, 0)
+	seen := make(map[string]struct{})
 
-	// Strategy 1: Parse go.sum
-	if sumContent, err := fs.ReadFile("/go.sum"); err == nil {
-		pkgs, _ := p.parseGoSum(sumContent)
-		packages = append(packages, pkgs...)
+	addPkg := func(pkg Package) {
+		if pkg.Name == "" {
+			return
+		}
+		key := pkg.Name + "@" + pkg.Version
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		packages = append(packages, pkg)
 	}
 
-	// Strategy 2: Parse go.mod
-	if modContent, err := fs.ReadFile("/go.mod"); err == nil {
-		pkgs, _ := p.parseGoMod(modContent)
-		packages = append(packages, pkgs...)
+	// Strategy 1: Parse go.sum from common roots first (cheap + deterministic).
+	foundSum := false
+	commonGoRoots := []string{"", "/app", "/src", "/workspace", "/home/node/app", "/opt", "/opt/app"}
+	for _, root := range commonGoRoots {
+		path := root + "/go.sum"
+		if root == "" {
+			path = "/go.sum"
+		}
+		if sumContent, err := fs.ReadFile(path); err == nil {
+			pkgs, _ := p.parseGoSum(sumContent)
+			for _, pkg := range pkgs {
+				addPkg(pkg)
+			}
+			foundSum = true
+			break
+		}
+	}
+
+	// Strategy 2: Parse go.mod from common roots first.
+	foundMod := false
+	for _, root := range commonGoRoots {
+		path := root + "/go.mod"
+		if root == "" {
+			path = "/go.mod"
+		}
+		if modContent, err := fs.ReadFile(path); err == nil {
+			pkgs, _ := p.parseGoMod(modContent)
+			for _, pkg := range pkgs {
+				addPkg(pkg)
+			}
+			foundMod = true
+			break
+		}
+	}
+
+	// Fallback: discover any go.sum/go.mod by suffix (best-effort).
+	if !foundSum {
+		for _, path := range fs.FindPathsBySuffix("go.sum") {
+			sumContent, err := fs.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			pkgs, _ := p.parseGoSum(sumContent)
+			for _, pkg := range pkgs {
+				addPkg(pkg)
+			}
+			break
+		}
+	}
+	if !foundMod {
+		for _, path := range fs.FindPathsBySuffix("go.mod") {
+			modContent, err := fs.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			pkgs, _ := p.parseGoMod(modContent)
+			for _, pkg := range pkgs {
+				addPkg(pkg)
+			}
+			break
+		}
 	}
 
 	return packages, nil

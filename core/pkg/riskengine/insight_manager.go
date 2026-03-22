@@ -353,11 +353,12 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			insight.Status = "active"
 		}
 
-		// Build placeholder for this row (17 columns, excluding fixed_version)
-		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+		// Build placeholder for this row (22 columns: original 17 + 5 confidence fields)
+		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			paramIndex, paramIndex+1, paramIndex+2, paramIndex+3, paramIndex+4, paramIndex+5,
 			paramIndex+6, paramIndex+7, paramIndex+8, paramIndex+9, paramIndex+10, paramIndex+11,
-			paramIndex+12, paramIndex+13, paramIndex+14, paramIndex+15, paramIndex+16)
+			paramIndex+12, paramIndex+13, paramIndex+14, paramIndex+15, paramIndex+16, paramIndex+17,
+			paramIndex+18, paramIndex+19, paramIndex+20, paramIndex+21)
 		placeholders = append(placeholders, placeholder)
 
 		// Add values in same order as placeholder (excluding FixedVersion)
@@ -372,6 +373,11 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			insight.Description,
 			insight.Status,
 			insight.Recommendation,
+			insight.MatchConfidence,
+			insight.ComponentConfidence,
+			insight.SBOMConfidence,
+			insight.FinalRiskConfidence,
+			insight.Degraded,
 			insight.CVEID,
 			insight.CVSS,
 			insight.AffectedComponent,
@@ -381,7 +387,7 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			now, // updated_at
 		)
 
-		paramIndex += 17
+		paramIndex += 22
 	}
 
 	// Build the UPSERT query
@@ -390,6 +396,7 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 INSERT INTO insights (
 	resource_type, resource_namespace, resource_name, resource_uid,
 	insight_type, severity, title, description, status, recommendation,
+	match_confidence, component_confidence, sbom_confidence, final_risk_confidence, degraded,
 	cve_id, cvss, affected_component, affected_version,
 	detected_at, created_at, updated_at
 ) VALUES %s
@@ -398,6 +405,26 @@ WHERE deleted_at IS NULL
 DO UPDATE SET
 	description = EXCLUDED.description,
 	recommendation = EXCLUDED.recommendation,
+	match_confidence = CASE
+		WHEN EXCLUDED.updated_at >= insights.updated_at THEN EXCLUDED.match_confidence
+		ELSE insights.match_confidence
+	END,
+	component_confidence = CASE
+		WHEN EXCLUDED.updated_at >= insights.updated_at THEN EXCLUDED.component_confidence
+		ELSE insights.component_confidence
+	END,
+	sbom_confidence = CASE
+		WHEN EXCLUDED.updated_at >= insights.updated_at THEN EXCLUDED.sbom_confidence
+		ELSE insights.sbom_confidence
+	END,
+	final_risk_confidence = CASE
+		WHEN EXCLUDED.updated_at >= insights.updated_at THEN EXCLUDED.final_risk_confidence
+		ELSE insights.final_risk_confidence
+	END,
+	degraded = CASE
+		WHEN EXCLUDED.updated_at >= insights.updated_at THEN EXCLUDED.degraded
+		ELSE insights.degraded
+	END,
 	cvss = EXCLUDED.cvss,
 	severity = EXCLUDED.severity,
 	affected_version = EXCLUDED.affected_version,
