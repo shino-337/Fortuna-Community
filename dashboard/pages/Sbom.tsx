@@ -6,7 +6,7 @@ import { PodSbom, PodSbomSummary } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Package, Search, Filter, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
-import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
+import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbomAsSpdxJson } from '../lib/exportSbom';
 import { getSeverityBadgeClass, getSeverityBorderClass } from '../lib/severity';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { useNavigate } from 'react-router-dom';
@@ -209,6 +209,12 @@ export const Sbom: React.FC = () => {
                       </Button>
                       <Button size="sm" variant="secondary" onClick={() => exportSbomAsJson(selectedDetail)} title="Download SBOM as JSON">
                         <Download size={14} className="mr-2" /> Export JSON
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => exportSbomAsSpdxJson(selectedDetail)} title="Download SBOM as SPDX JSON">
+                        <Download size={14} className="mr-2" /> Export SPDX
+                      </Button>
+                      <Button size="sm" variant="secondary" onClick={() => exportSbomAsCycloneDxJson(selectedDetail)} title="Download SBOM as CycloneDX JSON">
+                        <Download size={14} className="mr-2" /> Export CycloneDX
                       </Button>
                       <Button
                         size="sm"

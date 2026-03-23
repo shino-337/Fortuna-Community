@@ -65,3 +65,173 @@ export function exportSbomAsJson(sbom: PodSbom): void {
   a.click();
   URL.revokeObjectURL(url);
 }
+
+function safeRef(s: string | undefined): string {
+  return (s ?? '').replace(/[^A-Za-z0-9.\-]/g, '-');
+}
+
+function toIsoTime(input?: string): string {
+  if (!input) return new Date().toISOString();
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString();
+  return d.toISOString();
+}
+
+function randomUuid(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const s4 = () => Math.floor((1 + Math.random()) * 0x10000).toString(16).substring(1);
+  return `${s4()}${s4()}-${s4()}-4${s4().slice(1)}-${((8 + Math.random() * 4) | 0).toString(16)}${s4().slice(1)}-${s4()}${s4()}${s4()}`;
+}
+
+function maxSeverityRank(vulns: Array<{ severity?: string }>): string {
+  const order = ['critical', 'high', 'medium', 'low'];
+  for (const sev of order) {
+    if (vulns.some((v) => (v.severity ?? '').toLowerCase() === sev)) return sev.toUpperCase();
+  }
+  return 'NONE';
+}
+
+function downloadJson(filename: string, data: unknown): void {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Export SBOM as SPDX 2.3 JSON (package-level with purl external refs).
+ */
+export function exportSbomAsSpdxJson(sbom: PodSbom): void {
+  const podRef = safeRef(sbom.podName || sbom.podId || 'pod');
+  const created = toIsoTime(sbom.generatedAt);
+  const namespace = `https://fortuna.local/spdx/${podRef}/${Date.now()}`;
+
+  const packages = (sbom.components || []).map((c: SbomComponent, idx: number) => {
+    const pkgId = `SPDXRef-Package-${idx + 1}-${safeRef(c.name || 'pkg')}`;
+    const externalRefs = c.purl
+      ? [
+          {
+            referenceCategory: 'PACKAGE-MANAGER',
+            referenceType: 'purl',
+            referenceLocator: c.purl,
+          },
+        ]
+      : [];
+
+    return {
+      SPDXID: pkgId,
+      name: c.name || 'unknown',
+      versionInfo: c.version || 'unknown',
+      downloadLocation: 'NOASSERTION',
+      filesAnalyzed: false,
+      licenseConcluded: 'NOASSERTION',
+      licenseDeclared: 'NOASSERTION',
+      copyrightText: 'NOASSERTION',
+      externalRefs,
+      annotations: (c.vulnerabilities || []).map((v, i) => ({
+        annotationDate: created,
+        annotationType: 'OTHER',
+        annotator: 'Tool: Fortuna',
+        comment: `Vulnerability[${i + 1}]: ${v.id} severity=${(v.severity || 'unknown').toUpperCase()} cvss=${v.cvssScore ?? 'n/a'} status=${v.status || 'active'}`,
+      })),
+    };
+  });
+
+  const spdx = {
+    spdxVersion: 'SPDX-2.3',
+    dataLicense: 'CC0-1.0',
+    SPDXID: 'SPDXRef-DOCUMENT',
+    name: `fortuna-sbom-${podRef}`,
+    documentNamespace: namespace,
+    creationInfo: {
+      created,
+      creators: ['Tool: Fortuna Dashboard Exporter'],
+    },
+    packages,
+    relationships: packages.map((p: { SPDXID: string }) => ({
+      spdxElementId: 'SPDXRef-DOCUMENT',
+      relationshipType: 'DESCRIBES',
+      relatedSpdxElement: p.SPDXID,
+    })),
+  };
+
+  downloadJson(`sbom-${podRef}-${new Date().toISOString().slice(0, 10)}.spdx.json`, spdx);
+}
+
+/**
+ * Export SBOM as CycloneDX 1.5 JSON.
+ */
+export function exportSbomAsCycloneDxJson(sbom: PodSbom): void {
+  const podRef = safeRef(sbom.podName || sbom.podId || 'pod');
+  const created = toIsoTime(sbom.generatedAt);
+  const vulnCount = (sbom.components || []).reduce((acc, c) => acc + (c.vulnerabilities || []).length, 0);
+
+  const components = (sbom.components || []).map((c: SbomComponent) => ({
+    type: c.type === 'os-package' ? 'operating-system' : 'library',
+    'bom-ref': c.purl || `${c.name}@${c.version || 'unknown'}`,
+    name: c.name,
+    version: c.version || 'unknown',
+    purl: c.purl,
+    properties: [
+      { name: 'fortuna:cveCount', value: String((c.vulnerabilities || []).length) },
+      { name: 'fortuna:maxSeverity', value: maxSeverityRank(c.vulnerabilities || []) },
+    ],
+  }));
+
+  const vulnerabilities = (sbom.components || []).flatMap((c: SbomComponent) =>
+    (c.vulnerabilities || []).map((v) => ({
+      id: v.id,
+      source: { name: 'NVD' },
+      ratings: [
+        {
+          severity: (v.severity || 'unknown').toLowerCase(),
+          score: v.cvssScore ?? undefined,
+          method: 'CVSSv3',
+        },
+      ],
+      analysis: {
+        state: v.status === 'fixed' ? 'resolved' : 'exploitable',
+      },
+      affects: [
+        {
+          ref: c.purl || `${c.name}@${c.version || 'unknown'}`,
+        },
+      ],
+      recommendation: v.fixedVersion ? `Upgrade to ${v.fixedVersion} or newer` : undefined,
+      description: v.description || undefined,
+    }))
+  );
+
+  const cdx = {
+    bomFormat: 'CycloneDX',
+    specVersion: '1.5',
+    serialNumber: `urn:uuid:${randomUuid()}`,
+    version: 1,
+    metadata: {
+      timestamp: created,
+      tools: [{ vendor: 'Fortuna', name: 'Dashboard Exporter' }],
+      component: {
+        type: 'container',
+        name: sbom.podName || sbom.podId || 'pod',
+        version: sbom.image || 'unknown',
+        properties: [
+          { name: 'fortuna:namespace', value: sbom.namespace || '' },
+          { name: 'fortuna:container', value: sbom.container || '' },
+          { name: 'fortuna:sbomSource', value: sbom.sbomSource || '' },
+          { name: 'fortuna:confidence', value: sbom.confidence || '' },
+          { name: 'fortuna:goVersion', value: sbom.goVersion || '' },
+          { name: 'fortuna:vulnerabilityCount', value: String(vulnCount) },
+        ],
+      },
+    },
+    components,
+    vulnerabilities,
+  };
+
+  downloadJson(`sbom-${podRef}-${new Date().toISOString().slice(0, 10)}.cdx.json`, cdx);
+}

@@ -17,32 +17,37 @@ import (
 // PodHandler processes pod events
 type PodHandler func(ctx context.Context, pod *corev1.Pod) error
 
+// PodEnqueuer abstracts async queue enqueue with dedupe logic.
+type PodEnqueuer interface {
+	Enqueue(pod *corev1.Pod) bool
+}
+
 // LocalPodWatcher watches pods on the local node only
 type LocalPodWatcher struct {
 	clientset     *kubernetes.Clientset
 	nodeName      string
 	handler       PodHandler
-	queue         chan *corev1.Pod // Queue for async processing (optional)
+	enqueuer      PodEnqueuer // Async queue enqueuer (optional)
 	informer      cache.SharedIndexInformer
 	stopCh        chan struct{}
 	logger        *log.Logger
 	processedPods map[string]time.Time // Track processed pod UIDs with timestamp to prevent duplicates and enable cleanup
-	mu            sync.RWMutex          // Mutex for processedPods map access
+	mu            sync.RWMutex         // Mutex for processedPods map access
 }
 
 // NewLocalPodWatcher creates a new local pod watcher
-// If queue is provided, pods will be queued for async processing instead of calling handler directly
-func NewLocalPodWatcher(clientset *kubernetes.Clientset, nodeName string, handler PodHandler, queue chan *corev1.Pod) *LocalPodWatcher {
+// If enqueuer is provided, pods will be queued for async processing instead of calling handler directly.
+func NewLocalPodWatcher(clientset *kubernetes.Clientset, nodeName string, handler PodHandler, enqueuer PodEnqueuer) *LocalPodWatcher {
 	watcher := &LocalPodWatcher{
 		clientset:     clientset,
 		nodeName:      nodeName,
 		handler:       handler,
-		queue:         queue,
+		enqueuer:      enqueuer,
 		stopCh:        make(chan struct{}),
 		logger:        log.New(log.Writer(), "[LocalPodWatcher] ", log.LstdFlags),
 		processedPods: make(map[string]time.Time),
 	}
-	
+
 	return watcher
 }
 
@@ -81,37 +86,23 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 			if len(pod.Spec.Containers) > 0 {
 				// Process immediately if Running, otherwise UpdateFunc will catch it
 				if pod.Status.Phase == corev1.PodRunning {
-					// Check if already processed to prevent duplicates
-					podUID := string(pod.UID)
-					w.mu.RLock()
-					_, alreadyProcessed := w.processedPods[podUID]
-					w.mu.RUnlock()
-					if alreadyProcessed {
-						w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
-						return
-					}
-
-					// If queue is available, enqueue for async processing
-					// This prevents blocking the informer during slow SBOM extraction (2-3 min per pod)
-					if w.queue != nil {
-						select {
-						case w.queue <- pod:
+					// If enqueuer is available, enqueue for async processing.
+					// Do NOT mark processed here: queue worker handles retries for transient Core/DB failures.
+					if w.enqueuer != nil {
+						if w.enqueuer.Enqueue(pod) {
 							w.logger.Printf("   → Queued pod %s/%s for async processing", pod.Namespace, pod.Name)
-							w.mu.Lock()
-							w.processedPods[podUID] = time.Now() // Mark as processed with timestamp
-							w.mu.Unlock()
-						default:
-							w.logger.Printf("   ⚠️  Queue full, processing pod %s/%s synchronously", pod.Namespace, pod.Name)
-							// Fallback to synchronous processing if queue is full
-							if err := w.handler(ctx, pod); err != nil {
-								w.logger.Printf("⚠️  Handler error for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-							} else {
-								w.mu.Lock()
-								w.processedPods[podUID] = time.Now()
-								w.mu.Unlock()
-							}
 						}
 					} else {
+						// Check if already processed to prevent duplicates
+						podUID := string(pod.UID)
+						w.mu.RLock()
+						_, alreadyProcessed := w.processedPods[podUID]
+						w.mu.RUnlock()
+						if alreadyProcessed {
+							w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
+							return
+						}
+
 						// No queue, process synchronously (backward compatibility)
 						w.logger.Printf("   → Processing pod %s/%s synchronously", pod.Namespace, pod.Name)
 						if err := w.handler(ctx, pod); err != nil {
@@ -141,38 +132,25 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 			// Process any pod that is now in Running state (not just transitions)
 			// This catches pods that may have been missed during AddFunc
 			if newPod.Status.Phase == corev1.PodRunning && len(newPod.Spec.Containers) > 0 {
-			// Check if already processed to prevent duplicates
-			podUID := string(newPod.UID)
-			w.mu.RLock()
-			_, alreadyProcessed := w.processedPods[podUID]
-			w.mu.RUnlock()
-			if alreadyProcessed {
-				// Already processed, skip (prevents duplicate SBOM extractions during resyncs)
-				return
-			}
-
 				// Only process if this is a new transition to Running
 				if oldPod.Status.Phase != corev1.PodRunning {
-					// If queue is available, enqueue for async processing
-					if w.queue != nil {
-						select {
-						case w.queue <- newPod:
+					// If enqueuer is available, enqueue for async processing.
+					// Do NOT mark processed here: queue worker handles retries for transient Core/DB failures.
+					if w.enqueuer != nil {
+						if w.enqueuer.Enqueue(newPod) {
 							w.logger.Printf("   → Queued pod %s/%s for async processing (transitioned to Running)", newPod.Namespace, newPod.Name)
-							w.mu.Lock()
-							w.processedPods[podUID] = time.Now() // Mark as processed with timestamp
-							w.mu.Unlock()
-						default:
-							w.logger.Printf("   ⚠️  Queue full, processing pod %s/%s synchronously", newPod.Namespace, newPod.Name)
-							// Fallback to synchronous processing if queue is full
-							if err := w.handler(ctx, newPod); err != nil {
-								w.logger.Printf("⚠️  Handler error for pod %s/%s: %v", newPod.Namespace, newPod.Name, err)
-							} else {
-								w.mu.Lock()
-								w.processedPods[podUID] = time.Now()
-								w.mu.Unlock()
-							}
 						}
 					} else {
+						// Check if already processed to prevent duplicates
+						podUID := string(newPod.UID)
+						w.mu.RLock()
+						_, alreadyProcessed := w.processedPods[podUID]
+						w.mu.RUnlock()
+						if alreadyProcessed {
+							// Already processed, skip (prevents duplicate SBOM extractions during resyncs)
+							return
+						}
+
 						// No queue, process synchronously (backward compatibility)
 						w.logger.Printf("   → Processing pod %s/%s synchronously (transitioned to Running)", newPod.Namespace, newPod.Name)
 						if err := w.handler(ctx, newPod); err != nil {
@@ -216,36 +194,23 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 	for _, item := range items {
 		pod := item.(*corev1.Pod)
 		if pod.Status.Phase == corev1.PodRunning && len(pod.Spec.Containers) > 0 {
-			podUID := string(pod.UID)
-			w.mu.RLock()
-			_, alreadyProcessed := w.processedPods[podUID]
-			w.mu.RUnlock()
-			if alreadyProcessed {
-				w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
-				continue
-			}
-
-			// If queue is available, enqueue for async processing
-			if w.queue != nil {
-				select {
-				case w.queue <- pod:
+			// If enqueuer is available, enqueue for async processing.
+			// Do NOT mark processed here: queue worker handles retries for transient Core/DB failures.
+			if w.enqueuer != nil {
+				if w.enqueuer.Enqueue(pod) {
 					w.logger.Printf("   → Queued pod %s/%s for async processing", pod.Namespace, pod.Name)
-					w.mu.Lock()
-					w.processedPods[podUID] = time.Now()
-					w.mu.Unlock()
 					processedCount++
-				default:
-					w.logger.Printf("   ⚠️  Queue full, processing pod %s/%s synchronously", pod.Namespace, pod.Name)
-					if err := w.handler(ctx, pod); err != nil {
-						w.logger.Printf("⚠️  Handler error for pod %s/%s: %v", pod.Namespace, pod.Name, err)
-					} else {
-						w.mu.Lock()
-						w.processedPods[podUID] = time.Now()
-						w.mu.Unlock()
-						processedCount++
-					}
 				}
 			} else {
+				podUID := string(pod.UID)
+				w.mu.RLock()
+				_, alreadyProcessed := w.processedPods[podUID]
+				w.mu.RUnlock()
+				if alreadyProcessed {
+					w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
+					continue
+				}
+
 				// No queue, process synchronously (backward compatibility)
 				w.logger.Printf("   → Found Running pod: %s/%s (processing synchronously...)", pod.Namespace, pod.Name)
 				if err := w.handler(ctx, pod); err != nil {
@@ -323,28 +288,14 @@ func (w *LocalPodWatcher) ListCurrentPods(ctx context.Context) ([]*corev1.Pod, e
 
 	w.logger.Printf("Found %d running pods on node %s", len(pods), w.nodeName)
 
-	// Queue all existing pods for async processing instead of processing synchronously
+	// Queue all existing pods for async processing instead of processing synchronously.
 	// This prevents blocking during initial sync when there are many pods
-	if w.queue != nil {
+	if w.enqueuer != nil {
 		queued := 0
 		for _, pod := range pods {
-			podUID := string(pod.UID)
-			// Skip if already processed
-			w.mu.RLock()
-			_, alreadyProcessed := w.processedPods[podUID]
-			w.mu.RUnlock()
-			if alreadyProcessed {
-				w.logger.Printf("   → Skipping pod %s/%s (already processed)", pod.Namespace, pod.Name)
-				continue
-			}
-
-			select {
-			case w.queue <- pod:
-				w.mu.Lock()
-				w.processedPods[podUID] = time.Now() // Mark as processed with timestamp
-				w.mu.Unlock()
+			if w.enqueuer.Enqueue(pod) {
 				queued++
-			default:
+			} else {
 				w.logger.Printf("⚠️  Queue full during initial sync, skipping pod %s/%s", pod.Namespace, pod.Name)
 			}
 		}

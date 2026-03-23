@@ -12,7 +12,7 @@ import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, Che
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
-import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
+import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbomAsSpdxJson } from '../lib/exportSbom';
 import { SbomMetaBadges } from '../components/SbomMetaBadges';
 import { useAuthStore } from '../store/authStore';
 import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
@@ -249,6 +249,12 @@ export const PodDetail: React.FC = () => {
         <div className="flex gap-2">
           <Button variant="secondary" size="sm" onClick={() => sbom && exportSbomAsCsv(sbom)} disabled={!sbom?.components?.length}>
             <Download className="w-4 h-4 mr-2" /> Export SBOM
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => sbom && exportSbomAsSpdxJson(sbom)} disabled={!sbom?.components?.length}>
+            <Download className="w-4 h-4 mr-2" /> SPDX
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => sbom && exportSbomAsCycloneDxJson(sbom)} disabled={!sbom?.components?.length}>
+            <Download className="w-4 h-4 mr-2" /> CycloneDX
           </Button>
         </div>
       </div>
@@ -502,6 +508,24 @@ export const PodDetail: React.FC = () => {
                 >
                   <Download className="w-4 h-4 mr-2" />
                   Export JSON
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => exportSbomAsSpdxJson(sbom)}
+                  title="Download SBOM as SPDX JSON"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export SPDX
+                </Button>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => exportSbomAsCycloneDxJson(sbom)}
+                  title="Download SBOM as CycloneDX JSON"
+                >
+                  <Download className="w-4 h-4 mr-2" />
+                  Export CycloneDX
                 </Button>
               </div>
             )}

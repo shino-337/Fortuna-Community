@@ -288,7 +288,9 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 				"description",
 				"homepage",
 				"maintainer",
+				"source_detail",
 				"updated_at",
+				"deleted_at",
 			}),
 		}).CreateInBatches(components, componentBatchSize).Error; err != nil {
 			tx.Rollback()

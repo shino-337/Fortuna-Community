@@ -183,7 +183,7 @@ func main() {
 
 	// Initialize local pod watcher with work queue for async processing
 	// This allows the informer to continue detecting new pods while SBOM extraction happens
-	podWatcher := watcher.NewLocalPodWatcher(syncClientset, cfg.NodeName, podHandler, sbomQueue.Queue())
+	podWatcher := watcher.NewLocalPodWatcher(syncClientset, cfg.NodeName, podHandler, sbomQueue)
 	log.Printf("✅ Local pod watcher initialized for node: %s (async SBOM processing enabled)", cfg.NodeName)
 
 	// Start pod watcher

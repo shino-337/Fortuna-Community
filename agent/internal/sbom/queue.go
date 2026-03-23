@@ -28,6 +28,7 @@ func isTransientSendError(err error) bool {
 		strings.Contains(s, "unavailable") ||
 		strings.Contains(s, "deadline exceeded") ||
 		strings.Contains(s, "no such host") ||
+		(strings.Contains(s, "relation \"sboms\" does not exist") || strings.Contains(s, "relation \"sbom_components\" does not exist")) ||
 		strings.Contains(s, "dial tcp") && (strings.Contains(s, "i/o timeout") || strings.Contains(s, "refused"))
 }
 
@@ -41,8 +42,8 @@ type WorkQueue struct {
 	cancel     context.CancelFunc
 	logger     *log.Logger
 	mu         sync.RWMutex
-	active     map[string]bool    // Track active pods to prevent duplicates
-	retryCount map[string]int     // Per-pod send retry count (transient failures)
+	active     map[string]bool // Track active pods to prevent duplicates
+	retryCount map[string]int  // Per-pod send retry count (transient failures)
 }
 
 // NewWorkQueue creates a new SBOM work queue
