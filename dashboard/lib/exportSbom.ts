@@ -12,6 +12,9 @@ function escapeCsv(s: string): string {
  */
 export function exportSbomAsCsv(sbom: PodSbom): void {
   const headers = [
+    'SBOM Source',
+    'SBOM Confidence',
+    'Go Version',
     'Pod Name',
     'Namespace',
     'Image',
@@ -25,6 +28,9 @@ export function exportSbomAsCsv(sbom: PodSbom): void {
     'Severities',
   ];
   const rows = (sbom.components || []).map((c: SbomComponent) => [
+    sbom.sbomSource ?? '',
+    sbom.confidence ?? '',
+    sbom.goVersion ?? '',
     sbom.podName,
     sbom.namespace,
     sbom.image,

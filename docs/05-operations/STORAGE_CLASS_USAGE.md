@@ -45,6 +45,8 @@ Tất cả đều yêu cầu cluster có **StorageClass** (mặc định dùng t
 
 **Lưu ý**: Nếu cluster không có CNI hoạt động đầy đủ (ví dụ Flannel thiếu `/run/flannel/subnet.env` trên node), pod local-path-provisioner có thể không start được. Khi đó PVC sẽ ở trạng thái Pending. Cần sửa CNI trên cluster hoặc dùng `postgresql-local-pv.yaml` (hostPath) trên node đã chuẩn bị thư mục.
 
+**Đĩa node đầy (DiskPressure, pod Evicted)**: Không liên quan StorageClass; xem [DISK_PRESSURE_AND_CLEANUP.md](DISK_PRESSURE_AND_CLEANUP.md) và script `scripts/utils/cleanup-node-disk.sh`.
+
 ---
 
 ## 4. Cách dùng trong thực tế

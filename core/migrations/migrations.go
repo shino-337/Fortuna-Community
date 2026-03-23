@@ -106,6 +106,9 @@ var (
 	_ = Migration083_AddSBOMMatchRuns
 	_ = Migration084_AddSBOMComponentTrustFields
 	_ = Migration087_DropLegacySBOMMatchWatermarks
+	_ = Migration092_AddSBOMGoVersion
+	_ = Migration093_EnsureK8sEventsTable
+	_ = Migration094_EnsureAgentsTable
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -216,6 +219,9 @@ func RunMigrations(db *gorm.DB) error {
 		Migration089_AddSBOMStatusReasonSourceDetail,     // SBOM: status_reason and component source_detail
 		Migration090_AddResolverSignatureFingerprint,     // Determinism v1: resolver/sig versions + normalized SBOM fingerprint
 		Migration091_AddInsightConfidenceColumns,        // Phase 2: confidence propagation into insights
+		Migration092_AddSBOMGoVersion,                   // SBOM: go_version column (matches models.SBOM.GoVersion; gRPC insert)
+		Migration093_EnsureK8sEventsTable,               // Repair: k8s_events if migration 071 never created it
+		Migration094_EnsureAgentsTable,                  // Repair: agents after reset-db / if migration 038 skipped
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

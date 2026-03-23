@@ -38,8 +38,13 @@ func TestFilesystem_ExtractTar_RespectsMaxFileBytes(t *testing.T) {
 	if err := fs.ExtractTar(context.Background(), 0, bytes.NewReader(tarData)); err != nil {
 		t.Fatal(err)
 	}
-	if fs.FileExists("/big.bin") {
-		t.Fatalf("expected big.bin to be skipped due to maxFileBytes")
+	// Path should still be discoverable (for distroless parser), but content must not be readable.
+	if !fs.FileExists("/big.bin") {
+		t.Fatalf("expected big.bin path to be indexed even when content is too large")
+	}
+	content, err := fs.ReadFile("/big.bin")
+	if err == nil || content != nil {
+		t.Fatalf("expected ReadFile to fail for oversized file, got content=%d err=%v", len(content), err)
 	}
 }
 

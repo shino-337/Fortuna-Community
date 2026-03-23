@@ -8,6 +8,8 @@
 #
 # 1. Clean: port-forwards, E2E namespaces, fortuna images by tag and by ID, system/builder prune.
 # 2. Optional DB: run clear_all_cluster_data.sql (--db) or reset_database_full.sql (--db-reset).
+#    When deploy runs, DB clean happens in Phase 2d AFTER Flannel + StorageClass + apply Postgres (PVC must bind).
+#    When --only-db-reset, DB clean runs in Phase 1b (Postgres must already exist).
 #    Core runs all migrations on startup; --db-reset (DROP tables) ensures fresh schema
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
 # 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl → containerd k8s.io).
@@ -162,11 +164,11 @@ else
 fi
 echo ""
 
-# ---- Phase 1b: Database clean (optional) ----
-if [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; then
-  log_info "Phase 1b: Database clean..."
+# ---- Phase 1b: Database clean (only when deploy is skipped — Postgres must already exist, e.g. --only-db-reset) ----
+if [ "$SKIP_DEPLOY" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; }; then
+  log_info "Phase 1b: Database clean (deploy skipped — expecting Postgres already Running)..."
   POD=""
-  for _ in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  for _ in $(seq 1 120); do
     POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     [ -z "$POD" ] && sleep 5 && continue
     PHASE=$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
@@ -177,9 +179,10 @@ if [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; then
     sleep 5
   done
   if [ -z "$POD" ]; then
-    log_warn "Postgres pod not found in namespace $NAMESPACE; skip DB clean. Deploy infra first."
+    log_warn "Postgres pod not found in namespace $NAMESPACE; skip DB clean."
   elif [ "$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null)" != "Running" ]; then
-    log_error "Postgres pod $POD is not Running (no host assigned). Wait for cluster/node then re-run with --db-reset, or run DB reset after deploy."
+    log_error "Postgres pod $POD is not Running. Check: kubectl describe pod -n $NAMESPACE $POD"
+    kubectl describe pod -n "$NAMESPACE" "$POD" | tail -40 || true
     exit 1
   else
     if [ "$DB_RESET" = true ]; then
@@ -309,6 +312,76 @@ if [ "$SKIP_DEPLOY" = false ]; then
   sleep 10
   echo ""
 fi
+
+# ---- Phase 2d: Apply Postgres + DB clean when full deploy runs (after Flannel + StorageClass so PVC can bind) ----
+# --db / --db-reset used to run in Phase 1b before Postgres was applied → pod stayed Pending. Now: apply PG, wait, then SQL, then Phase 3 deploys the rest.
+if [ "$SKIP_DEPLOY" = false ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; }; then
+  log_info "Phase 2d: Ensuring PostgreSQL for DB clean (apply manifest + wait for Running)..."
+  kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+  PG_YAML="$PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml"
+  if [ ! -f "$PG_YAML" ]; then
+    log_error "PostgreSQL manifest not found: $PG_YAML"
+    exit 1
+  fi
+  kubectl apply -f "$PG_YAML"
+  log_info "Waiting for Postgres pod Running (max ~600s; ensure PVC binds via local-path + CNI)..."
+  POD=""
+  for _ in $(seq 1 120); do
+    POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    [ -z "$POD" ] && sleep 5 && continue
+    PHASE=$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
+    if [ "$PHASE" = "Running" ]; then
+      break
+    fi
+    log_info "Postgres pod $POD phase=$PHASE (waiting for Running)..."
+    sleep 5
+  done
+  if [ -z "$POD" ]; then
+    log_error "Postgres pod not found after apply. Check namespace and StorageClass."
+    exit 1
+  fi
+  if [ "$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null)" != "Running" ]; then
+    log_error "Postgres pod $POD did not reach Running (PVC/CNI/node?)."
+    kubectl get pods -n "$NAMESPACE" -l app=postgres -o wide
+    kubectl describe pod -n "$NAMESPACE" "$POD" | tail -50
+    exit 1
+  fi
+  if [ "$DB_RESET" = true ]; then
+    SQL_FILE="$PROJECT_ROOT/deploy/e2e/reset_database_full.sql"
+    if [ -f "$SQL_FILE" ]; then
+      if ! kubectl cp "$SQL_FILE" "$NAMESPACE/$POD:/tmp/reset_db.sql"; then
+        log_error "kubectl cp reset_database_full.sql failed"
+        exit 1
+      fi
+      if ! kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql; then
+        log_error "psql reset_database_full.sql failed"
+        exit 1
+      fi
+      log_success "DB full reset (DROP tables) done before full deploy."
+    else
+      log_error "File not found: $SQL_FILE"
+      exit 1
+    fi
+  else
+    SQL_FILE="$PROJECT_ROOT/deploy/e2e/clear_all_cluster_data.sql"
+    if [ -f "$SQL_FILE" ]; then
+      if ! kubectl cp "$SQL_FILE" "$NAMESPACE/$POD:/tmp/clear_db.sql"; then
+        log_error "kubectl cp clear_all_cluster_data.sql failed"
+        exit 1
+      fi
+      if ! kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/clear_db.sql; then
+        log_error "psql clear_all_cluster_data.sql failed"
+        exit 1
+      fi
+      log_success "DB data cleared (DELETE) before full deploy."
+    else
+      log_error "File not found: $SQL_FILE"
+      exit 1
+    fi
+  fi
+  echo ""
+fi
+
 
 # ---- Phase 3a: CNI (Flannel) check/fix for multi-node – short wait so script does not hang ----
 if [ "$SKIP_DEPLOY" = false ]; then

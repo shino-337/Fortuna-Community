@@ -120,16 +120,30 @@ verify_node_podcidr() {
 }
 
 # Step 3: Restart Flannel DaemonSet
+# Returns: 0 = restarted OK, 1 = rollout error, 2 = no Flannel DS (other CNI or incomplete install — not fatal for deploy)
 restart_flannel() {
     log_info "Step 3: Restarting Flannel DaemonSet..."
     
-    if ! kubectl get daemonset kube-flannel-ds -n kube-flannel &> /dev/null; then
-        log_error "Flannel DaemonSet not found"
-        return 1
+    local ds_name=""
+    if kubectl get daemonset kube-flannel-ds -n kube-flannel &> /dev/null; then
+        ds_name="kube-flannel-ds"
+    else
+        # Helm / arch-specific manifests may use a different DaemonSet name
+        ds_name=$(kubectl get ds -n kube-flannel -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+        if [ -n "$ds_name" ]; then
+            log_info "Using DaemonSet $ds_name (kube-flannel-ds not present)"
+        fi
     fi
     
-    if kubectl rollout restart daemonset kube-flannel-ds -n kube-flannel; then
-        log_success "Flannel DaemonSet restart initiated"
+    if [ -z "$ds_name" ]; then
+        log_warning "Flannel DaemonSet not found in namespace kube-flannel (expected kube-flannel-ds)."
+        log_warning "Common: cluster uses Calico, Cilium, Canal, or Weave — Flannel fix does not apply."
+        log_info "Diagnostics: kubectl get ds -A | grep -iE 'flannel|calico|cilium|weave'"
+        return 2
+    fi
+    
+    if kubectl rollout restart daemonset "$ds_name" -n kube-flannel; then
+        log_success "Flannel DaemonSet restart initiated ($ds_name)"
         # When called from deploy/rebuild scripts, use shorter wait (env CNI_WAIT_SECONDS, default 30)
         CNI_WAIT="${CNI_WAIT_SECONDS:-30}"
         log_info "Waiting for Flannel pods to restart (${CNI_WAIT} seconds)..."
@@ -144,7 +158,7 @@ restart_flannel() {
             log_warning "Flannel pods may not be fully ready yet ($ready_count/$total_count)"
         fi
     else
-        log_error "Failed to restart Flannel DaemonSet"
+        log_error "Failed to restart Flannel DaemonSet ($ds_name)"
         return 1
     fi
 }
@@ -249,7 +263,10 @@ test_connectivity() {
         if [ -n "$agent_pod" ]; then
             log_info "Testing connection from Agent pod ($agent_pod) to Core ($core_svc_ip:8080)..."
             local connected=false
-            if kubectl exec -n fortuna "$agent_pod" -- wget -q -O- --timeout=3 "http://${core_svc_ip}:8080/healthz" 2>/dev/null | grep -q ok; then
+            # Prefer curl (included in Agent image); fallback wget/nc
+            if kubectl exec -n fortuna "$agent_pod" -- sh -c "command -v curl >/dev/null 2>&1 && curl -sf --max-time 3 http://${core_svc_ip}:8080/healthz" 2>/dev/null | grep -q ok; then
+                connected=true
+            elif kubectl exec -n fortuna "$agent_pod" -- wget -q -O- --timeout=3 "http://${core_svc_ip}:8080/healthz" 2>/dev/null | grep -q ok; then
                 connected=true
             elif kubectl exec -n fortuna "$agent_pod" -- sh -c "command -v wget >/dev/null && wget -q -O- --timeout=3 http://${core_svc_ip}:8080/healthz 2>/dev/null" | grep -q ok; then
                 connected=true
@@ -259,7 +276,7 @@ test_connectivity() {
             if [ "$connected" = true ]; then
                 log_success "Pod-to-pod connectivity test passed (Agent -> Core HTTP)"
             else
-                log_warning "Pod-to-pod connectivity test failed or Agent image has no wget/nc (exit 127 = command not found). Verify: kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=20"
+                log_warning "Pod-to-pod connectivity test failed or Agent image has no curl/wget/nc. Rebuild agent after Dockerfile adds curl, or verify: kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=20"
             fi
         else
             log_warning "No Agent pod found. Deploy Core and Agent first, then re-run or check: kubectl logs -n fortuna -l app.kubernetes.io/component=agent"
@@ -314,7 +331,17 @@ main() {
     echo ""
     
     # Step 3: Restart Flannel
-    if ! restart_flannel; then
+    restart_flannel
+    fr=$?
+    if [ "$fr" -eq 2 ]; then
+        log_warning "Skipping Flannel restart (no Flannel DaemonSet). OK if your CNI is not Flannel."
+        echo ""
+        test_connectivity
+        echo ""
+        log_success "Flannel VXLAN script finished (restart skipped — use Calico/Cilium/… or install Flannel if needed)"
+        exit 0
+    fi
+    if [ "$fr" -ne 0 ]; then
         log_error "Flannel restart failed"
         exit 1
     fi

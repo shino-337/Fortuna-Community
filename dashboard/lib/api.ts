@@ -1239,6 +1239,9 @@ export const api = {
         lastScan: s.lastScan != null ? String(s.lastScan) : '',
         podCreatedAt: s.podCreatedAt != null ? String(s.podCreatedAt) : undefined,
         podStatus: s.podStatus != null ? String(s.podStatus) : undefined,
+        sbomSource: s.sbomSource != null ? String(s.sbomSource) : undefined,
+        confidence: s.confidence != null ? String(s.confidence) : undefined,
+        goVersion: s.goVersion != null ? String(s.goVersion) : undefined,
       })) as PodSbomSummary[];
     } catch (err) {
       return [];

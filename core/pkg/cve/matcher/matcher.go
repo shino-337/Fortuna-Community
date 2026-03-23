@@ -603,9 +603,8 @@ func (m *Matcher) resolveComponentsForMatching(
 		case "distroless-heuristic", "label-metadata", "heuristic":
 			return 20
 		case "gobinary-main":
-			return 0 // non-matchable
+			return 15
 		default:
-			// Unknown sources: keep but low priority
 			return 10
 		}
 	}
@@ -616,10 +615,9 @@ func (m *Matcher) resolveComponentsForMatching(
 	for i := range components {
 		c := components[i]
 
-		// Hard skip: main Go binary is inventory noise, not matchable (spec).
-		if strings.EqualFold(strings.TrimSpace(c.Source), "gobinary-main") {
-			continue
-		}
+		// gobinary-main: keep for matching — the main Go module may have CVEs in OSV.
+		// Low priority (15) ensures it doesn't shadow higher-quality sources.
+		// Components with (devel) version naturally won't match any CVE constraints.
 
 		// Prefer canonical fields from snapshot (PR-3 full). Fall back to parsing PURL.
 		var p *PURL

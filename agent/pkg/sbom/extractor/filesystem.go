@@ -228,6 +228,10 @@ func shouldMaterializeIndexed(path string) bool {
 	if strings.HasSuffix(path, "/var/lib/dpkg/status") {
 		return true
 	}
+	// Distroless: individual package status files under status.d/ (Trivy parity).
+	if strings.Contains(path, "/var/lib/dpkg/status.d/") && !strings.HasSuffix(path, ".md5sums") {
+		return true
+	}
 	if strings.HasSuffix(path, "rpm-packages.list") {
 		return true
 	}
@@ -238,6 +242,8 @@ func shouldMaterializeIndexed(path string) bool {
 		"/usr/lib/sysimage/rpm/Packages.db",
 		"/var/lib/rpm/Packages",
 		"/usr/lib/sysimage/rpm/Packages",
+		"/var/lib/rpmmanifest/container-manifest-2",
+		"/var/lib/rpmmanifest/container-manifest-1",
 	}
 	for _, p := range rpmdbExact {
 		if path == p {
@@ -382,8 +388,23 @@ func (fs *Filesystem) ExtractTar(ctx context.Context, layerIdx int, r io.Reader)
 			continue
 		}
 
-		// A5 guard: skip oversized files to reduce OOM risk on large images.
+		// A5 guard: skip oversized file CONTENT to reduce OOM risk on large images.
+		// Still register the path so discovery APIs (PathsUnder, Glob) can find it.
+		// This allows path-only parsers (distroless) to work even for large binaries.
 		if fs.maxFileBytes > 0 && header.Size > fs.maxFileBytes {
+			if fs.pathSizes != nil {
+				var contentOff int64
+				if cr != nil {
+					contentOff = cr.n
+				}
+				fs.pathSizes[path] = header.Size
+				fs.lazyRefs[path] = lazyLayerRef{layerIdx: layerIdx, offset: contentOff, size: header.Size}
+			} else {
+				// Materialize mode: register path with nil content for discovery.
+				if _, exists := fs.files[path]; !exists {
+					fs.files[path] = nil
+				}
+			}
 			if header.Size > 0 {
 				_, _ = io.CopyN(io.Discard, tr, header.Size)
 			}
@@ -464,6 +485,9 @@ func (fs *Filesystem) ReadFile(path string) ([]byte, error) {
 	}
 
 	if content, ok := fs.files[path]; ok {
+		if content == nil {
+			return nil, fmt.Errorf("file too large (content not materialized): %s", path)
+		}
 		return content, nil
 	}
 

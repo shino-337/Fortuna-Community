@@ -285,10 +285,10 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 		}
 		var capabilityCount int64
 		if db.Migrator().HasTable("pod_capabilities") {
+			// pod_capabilities has no deleted_at (see migration 041); filter soft-deleted pods only via p.deleted_at
 			db.Raw(`
 				SELECT COUNT(DISTINCT pc.id) FROM pod_capabilities pc
 				INNER JOIN pods p ON p.uid = pc.pod_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-				WHERE pc.deleted_at IS NULL
 			`, id).Scan(&capabilityCount)
 		}
 		c.JSON(http.StatusOK, ClusterSecuritySummaryResponse{

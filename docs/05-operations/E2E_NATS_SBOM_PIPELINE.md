@@ -33,3 +33,5 @@ Hoặc dùng manifest trong cluster (Helm `nats`); đảm bảo stream `fortuna-
 ## Tự động hóa
 
 Unit tests trong repo mock publish/retry (`sbom_publish_retry_test.go`); **E2E đầy đờ** (container NATS + Core) nên chạy trong CI có service `nats` hoặc `testcontainers` — backlog optional.
+
+**E2E SBOM trên cluster** (Agent → Core → API, không cần NATS smoke riêng): `./scripts/e2e/run-e2e.sh --suite=sbom-full` — xem [E2E_SBOM_SCRIPTS.md](E2E_SBOM_SCRIPTS.md).

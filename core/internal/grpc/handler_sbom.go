@@ -75,6 +75,11 @@ func canonicalizeGoModuleName(name string) (string, bool) {
 	if strings.Contains(n, "..") {
 		return "", false
 	}
+	// Go buildinfo uses "command-line-arguments" for binaries built without an explicit
+	// module path (common for kubernetes). Accept it as a special case.
+	if n == "command-line-arguments" {
+		return n, true
+	}
 	// Basic allowlist for go module path segments.
 	if !goModuleNameAllowed.MatchString(n) {
 		return "", false
@@ -114,6 +119,11 @@ func classifyGoVersion(v string) goVersionLevel {
 		return goVerStrict
 	}
 	if goLooseSemver.MatchString(v) {
+		return goVerLoose
+	}
+	// Go buildinfo main modules often report "(devel)" when built outside module context
+	// (e.g., kubernetes monorepo). Accept as loose to avoid silently dropping components.
+	if v == "(devel)" {
 		return goVerLoose
 	}
 	return goVerInvalid
@@ -506,7 +516,10 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 			// partial -> complete is allowed; partial -> failed is not.
 			if sbomModel.Status != "complete" {
 				sbomModel.Status = "partial"
-				if strings.TrimSpace(oldSBOMStatusReason) != "" {
+				// Use the NEW status_reason when the current scan has more data
+				// (e.g., old was validation_failed with 0 packages, new has packages).
+				// Otherwise keep old reason for continuity.
+				if sbomModel.PackageCount <= 0 && strings.TrimSpace(oldSBOMStatusReason) != "" {
 					sbomModel.StatusReason = oldSBOMStatusReason
 				}
 			}

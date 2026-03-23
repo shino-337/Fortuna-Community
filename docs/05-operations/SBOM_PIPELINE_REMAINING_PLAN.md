@@ -40,7 +40,7 @@ Mục đích: đóng vòng **implementation + verification**; phân tier cho bac
 
 - **Unit / integration trong Go:** publish retry, PURL, replay determinism, matcher confidence — xem `SBOM_FLOWS_VERIFICATION_REPORT.md`.
 - **Smoke / cluster thủ công:** các doc triển khai (`PRODUCTION_DEPLOYMENT`, `CLEAN_REBUILD_*`, checklist SBOM trong `docs/03-components/sbom/README.md`) — **không** chạy tự động trên GitHub.
-- **Tài liệu cũ** từng nhắc `E2E_NATS_SBOM_PIPELINE.md` — **file không tồn tại** trong repo; thay bằng báo cáo verify + workflow trên.
+- **NATS smoke (dev/staging):** [E2E_NATS_SBOM_PIPELINE.md](E2E_NATS_SBOM_PIPELINE.md). **E2E SBOM trên cluster:** [E2E_SBOM_SCRIPTS.md](E2E_SBOM_SCRIPTS.md) (`run-e2e.sh --suite=sbom-full`).
 
 ### Đề xuất khi triển khai mục 9 (tóm tắt)
 

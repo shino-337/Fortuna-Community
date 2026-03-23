@@ -25,7 +25,11 @@ type SBOMSummaryDTO struct {
 	PackageCount         int                  `json:"packageCount"`
 	VulnerabilitySummary vulnerabilitySummary `json:"vulnerabilitySummary"`
 	PodCreatedAt         *time.Time           `json:"podCreatedAt,omitempty"` // from pods table when available
-	PodStatus            string               `json:"podStatus,omitempty"`    // e.g. Running, Pending (when available)
+	PodStatus            string               `json:"podStatus,omitempty"`      // K8s phase from pods.phase when synced
+	// SBOM metadata (same as detail; list view for dashboard badges/filters)
+	SbomSource string `json:"sbomSource,omitempty"` // parsers | distroless-heuristic | label-metadata
+	Confidence string `json:"confidence,omitempty"`   // low | medium | high
+	GoVersion  string `json:"goVersion,omitempty"`    // Go toolchain / stdlib matcher (when applicable)
 }
 
 // SBOMComponentDTO exposes component details for /sbom/{podId}
@@ -71,8 +75,9 @@ type SBOMDetailDTO struct {
 	VulnerabilitySummary   vulnerabilitySummary `json:"vulnerabilitySummary"`   // critical/high/medium/low counts
 	Components             []SBOMComponentDTO   `json:"components"`
 	// Finding #8.4: distroless/heuristic SBOM – for dashboard badge and audit
-	SbomSource  string `json:"sbomSource,omitempty"`  // parsers | distroless-heuristic | label-metadata
-	Confidence  string `json:"confidence,omitempty"`  // low | medium | high
+	SbomSource string `json:"sbomSource,omitempty"` // parsers | distroless-heuristic | label-metadata
+	Confidence string `json:"confidence,omitempty"` // low | medium | high
+	GoVersion  string `json:"goVersion,omitempty"`  // buildinfo / image config — Go stdlib CVE matching
 }
 
 // GetSBOMList returns paginated SBOM summaries (pod-level) with vulnerability counts.
@@ -142,14 +147,19 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 		uidToCreatedAt := make(map[string]time.Time)
+		uidToPhase := make(map[string]string)
 		if len(podUIDs) > 0 {
 			var podRows []struct {
 				UID       string
 				CreatedAt time.Time
+				Phase     string
 			}
-			if err := db.Table("pods").Select("uid, created_at").Where("uid IN ? AND deleted_at IS NULL", podUIDs).Find(&podRows).Error; err == nil {
+			if err := db.Table("pods").Select("uid, created_at, phase").Where("uid IN ? AND deleted_at IS NULL", podUIDs).Find(&podRows).Error; err == nil {
 				for _, r := range podRows {
 					uidToCreatedAt[r.UID] = r.CreatedAt
+					if strings.TrimSpace(r.Phase) != "" {
+						uidToPhase[r.UID] = strings.TrimSpace(r.Phase)
+					}
 				}
 			}
 		}
@@ -160,6 +170,7 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 			if t, ok := uidToCreatedAt[sbom.PodUID]; ok {
 				podCreatedAt = &t
 			}
+			podPhase := uidToPhase[sbom.PodUID]
 			summary := SBOMSummaryDTO{
 				PodID:         sbom.PodUID,
 				PodName:       sbom.PodName,
@@ -169,7 +180,10 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 				LastScan:      sbom.GeneratedAt,
 				PackageCount:  sbom.PackageCount,
 				PodCreatedAt:  podCreatedAt,
-				PodStatus:     "", // pods table has no status column; can be extended later
+				PodStatus:     podPhase,
+				SbomSource:    sbom.SbomSource,
+				Confidence:    sbom.Confidence,
+				GoVersion:     sbom.GoVersion,
 				VulnerabilitySummary: vulnerabilitySummary{
 					"critical": 0,
 					"high":     0,
@@ -275,6 +289,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			Components:              make([]SBOMComponentDTO, 0, len(components)),
 			SbomSource:              sbom.SbomSource,
 			Confidence:              sbom.Confidence,
+			GoVersion:               sbom.GoVersion,
 		}
 
 		severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}

@@ -1205,6 +1205,34 @@ func TestMatcher_ShadowMetrics_InvalidPURL_Increments(t *testing.T) {
 	}
 }
 
+func TestMatcher_GobinaryMain_KeptForMatching(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	mgr := database.NewPostgresManager(db)
+	m := NewMatcher(mgr, db)
+	sbom := &models.SBOM{ID: 1, Status: "finalized"}
+
+	in := []models.SBOMComponent{
+		{SBOMID: sbom.ID, ComponentName: "k8s.io/kubernetes", ComponentVersion: "v1.29.15", PURL: "pkg:golang/k8s.io/kubernetes@v1.29.15", Source: "gobinary-main", TrustLevel: "high"},
+		{SBOMID: sbom.ID, ComponentName: "k8s.io/apiserver", ComponentVersion: "v0.29.15", PURL: "pkg:go/k8s.io/apiserver@v0.29.15", Source: "gobinary", TrustLevel: "high"},
+	}
+	out := m.resolveComponentsForMatching(context.Background(), sbom, in)
+	if len(out) != 2 {
+		t.Fatalf("expected gobinary-main to be kept (got %d components, want 2)", len(out))
+	}
+	found := false
+	for _, c := range out {
+		if c.Source == "gobinary-main" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("gobinary-main component was filtered out but should be kept for CVE matching")
+	}
+}
+
 func TestMatcher_DeterministicOutput_SameInputSameResult(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

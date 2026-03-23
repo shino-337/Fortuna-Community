@@ -26,18 +26,27 @@ func NewRpmParser() *RpmParser {
 	return &RpmParser{}
 }
 
+// RPM manifest paths for Mariner / Azure Linux distroless (Trivy parity).
+var rpmManifestPaths = []string{
+	"/var/lib/rpmmanifest/container-manifest-2",
+	"/var/lib/rpmmanifest/container-manifest-1",
+}
+
 // Parse reads rpm-packages.list (or FORTUNA_RPM_INVENTORY_PATH) and returns packages with stable PURLs.
+// Fallback chain: inventory file → rpmmanifest (Mariner distroless) → rpmdb (sqlite/bdb).
 func (p *RpmParser) Parse(fs *Filesystem) ([]Package, error) {
 	path := strings.TrimSpace(os.Getenv("FORTUNA_RPM_INVENTORY_PATH"))
 	if path == "" {
 		path = defaultRPMInventoryPath
 	}
 	if !fs.FileExists(path) {
+		// Try Mariner/Azure Linux distroless manifest (rpmqa-format output).
+		if pkgs := p.parseRPMManifest(fs); len(pkgs) > 0 {
+			return pkgs, nil
+		}
 		// A4: fallback to parsing rpmdb when Fortuna inventory is missing.
-		// We first try modern rpmdb.sqlite (RPM >= 4.16). If it exists, parse it best-effort.
 		pkgs, err := p.parseRPMDBFromFileSystem(fs)
 		if err != nil {
-			// Fallback should be non-fatal: absence/unreadable rpmdb just returns no rpm packages.
 			return nil, nil
 		}
 		return pkgs, nil
@@ -159,6 +168,91 @@ func (p *RpmParser) parseRPMDBFromFileSystem(fs *Filesystem) ([]Package, error) 
 
 	// No rpmdb candidate found in filesystem.
 	return nil, nil
+}
+
+// parseRPMManifest reads rpmmanifest/container-manifest-2 (CBL-Mariner / Azure Linux distroless).
+// Format: one package per line as "name-version-release.arch" (output of rpm -qa).
+func (p *RpmParser) parseRPMManifest(fs *Filesystem) []Package {
+	var data []byte
+	for _, mp := range rpmManifestPaths {
+		if d, err := fs.ReadFile(mp); err == nil {
+			data = d
+			break
+		}
+	}
+	if data == nil {
+		return nil
+	}
+
+	distro := rpmDistroFromOSRelease(fs)
+	seen := make(map[string]struct{})
+	var out []Package
+
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+
+		// Format: name-version-release.arch  OR  name-epoch:version-release.arch
+		// Split from the right: arch is after the last '.', release before that after last '-', etc.
+		dotIdx := strings.LastIndex(line, ".")
+		if dotIdx < 0 {
+			continue
+		}
+		arch := line[dotIdx+1:]
+		rest := line[:dotIdx] // name-version-release OR name-epoch:version-release
+
+		relIdx := strings.LastIndex(rest, "-")
+		if relIdx < 0 {
+			continue
+		}
+		release := rest[relIdx+1:]
+		rest = rest[:relIdx] // name-version OR name-epoch:version
+
+		verIdx := strings.LastIndex(rest, "-")
+		if verIdx < 0 {
+			continue
+		}
+		name := rest[:verIdx]
+		version := rest[verIdx+1:]
+
+		// Handle epoch prefix in version (e.g., "1:2.36")
+		epoch := ""
+		if colonIdx := strings.Index(version, ":"); colonIdx > 0 {
+			epoch = version[:colonIdx]
+			version = version[colonIdx+1:]
+		}
+
+		if name == "" || version == "" {
+			continue
+		}
+
+		evr := version
+		if release != "" {
+			evr = version + "-" + release
+		}
+		if epoch != "" && epoch != "0" {
+			evr = epoch + ":" + evr
+		}
+
+		key := name + "\x00" + arch + "\x00" + evr
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		out = append(out, Package{
+			Name:       name,
+			Version:    evr,
+			Type:       "rpm",
+			Arch:       arch,
+			PURL:       rpmPURL(distro, name, evr, arch),
+			Source:     "rpmmanifest",
+			Confidence: "high",
+		})
+	}
+	return out
 }
 
 func rpmDistroFromOSRelease(fs *Filesystem) string {

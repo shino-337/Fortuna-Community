@@ -4,6 +4,7 @@
 # Pre-Deployment Checks for Fortuna
 # ============================================================================
 # Validates cluster readiness before deploying Fortuna components.
+# AUTO_ENSURE_FLANNEL=1: auto-run scripts/deploy/ensure-flannel.sh when no CNI (optional).
 # Target: Kubernetes with containerd + nerdctl for building images (no Docker/Podman required).
 # ============================================================================
 
@@ -228,19 +229,34 @@ check_coredns
 check_kube_proxy
 
 # Check CNI (Flannel or other) so pod network works; avoids subnet.env / ContainerCreating stuck
+# AUTO_ENSURE_FLANNEL=1 (default): run ensure-flannel.sh when no CNI detected
 check_cni() {
     echo ""
     echo "=== Checking CNI (pod network) ==="
-    local flannel_pods=$(kubectl get pods -n kube-flannel --no-headers 2>/dev/null | wc -l)
-    local other_cni=$(kubectl get pods -A --no-headers 2>/dev/null | grep -cE 'calico|cilium|weave' || true)
-    if [ "${flannel_pods:-0}" -ge 1 ]; then
-        echo -e "${GREEN}✅${NC} Flannel CNI running ($flannel_pods pod(s) in kube-flannel)"
-    elif [ "${other_cni:-0}" -ge 1 ]; then
-        echo -e "${GREEN}✅${NC} Other CNI detected (Calico/Cilium/Weave)"
-    else
-        echo -e "${YELLOW}⚠️${NC}  No CNI pods found. Pods may stay ContainerCreating (subnet.env missing). Run: ./scripts/deploy/ensure-flannel.sh"
-        WARNINGS=$((WARNINGS+1))
+    local flannel_running
+    flannel_running=$(kubectl get pods -n kube-flannel -l app=flannel --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+    local other_cni
+    other_cni=$(kubectl get pods -A --no-headers 2>/dev/null | grep -cE 'calico-node|cilium-agent|weave-net|kube-weave|canal' || true)
+    if [ "${flannel_running:-0}" -ge 1 ]; then
+        echo -e "${GREEN}✅${NC} Flannel CNI running ($flannel_running Running pod(s) in kube-flannel)"
+        return 0
     fi
+    if [ "${other_cni:-0}" -ge 1 ]; then
+        echo -e "${GREEN}✅${NC} Other CNI detected (Calico/Cilium/Weave/Canal)"
+        return 0
+    fi
+    if [ "${AUTO_ENSURE_FLANNEL:-1}" = "1" ] && [ -x "$SCRIPT_DIR/ensure-flannel.sh" ]; then
+        echo -e "${YELLOW}⚠️${NC}  No healthy CNI detected; running ensure-flannel.sh..."
+        if "$SCRIPT_DIR/ensure-flannel.sh"; then
+            echo -e "${GREEN}✅${NC} ensure-flannel completed"
+            return 0
+        fi
+        echo -e "${RED}❌${NC} ensure-flannel failed"
+        ERRORS=$((ERRORS+1))
+        return 1
+    fi
+    echo -e "${YELLOW}⚠️${NC}  No CNI pods found. Run: ./scripts/deploy/ensure-flannel.sh (or set AUTO_ENSURE_FLANNEL=1)"
+    WARNINGS=$((WARNINGS+1))
 }
 check_cni
 

@@ -3,8 +3,8 @@
 # E2E Runner – Entry point duy nhất cho E2E
 # ============================================================================
 # Chạy theo suite: risk-center | full | priority1 | runtime | pce | dashboard |
-#                  sbom | full-report
-# Chi tiết test case và luồng code: docs/e2e/E2E-TestCases-And-Runner.md
+#                  sbom | sbom-full | full-report
+# SBOM: docs/05-operations/E2E_SBOM_SCRIPTS.md
 # ============================================================================
 # Usage:
 #   ./scripts/e2e/run-e2e.sh                  # default: full
@@ -81,7 +81,19 @@ case "$SUITE" in
     run_script "e2e-dashboard-data.sh" "$SCRIPTS/e2e/e2e-dashboard-data.sh"
     ;;
   sbom)
-    run_script "e2e-sbom-verify.sh" "$SCRIPTS/e2e/e2e-sbom-verify.sh"
+    run_script "e2e-sbom-verify.sh (default pod)" "$SCRIPTS/e2e/e2e-sbom-verify.sh"
+    ;;
+  sbom-full)
+    # SBOM luồng hiện tại: busybox + distroless + CoreDNS (kiểu control-plane)
+    FAIL=0
+    run_script "test-sbom-pod-flow.sh (busybox)" "$SCRIPTS/e2e/test-sbom-pod-flow.sh" || FAIL=$((FAIL+1))
+    run_script "test-sbom-distroless-hello.sh" "$SCRIPTS/e2e/test-sbom-distroless-hello.sh" || FAIL=$((FAIL+1))
+    run_script "test-sbom-control-plane-coredns.sh" "$SCRIPTS/e2e/test-sbom-control-plane-coredns.sh" || FAIL=$((FAIL+1))
+    if [ "$FAIL" -gt 0 ]; then
+      log_fail "sbom-full: $FAIL step(s) failed."
+      exit 1
+    fi
+    log_ok "sbom-full: all SBOM E2E scripts passed."
     ;;
   full-report)
     if [ -x "$SCRIPTS/e2e/run-e2e-with-capability-report.sh" ]; then
@@ -113,7 +125,7 @@ case "$SUITE" in
     ;;
   *)
     echo "Unknown suite: $SUITE"
-    echo "  Valid: risk-center | full | priority1 | runtime | pce | dashboard | sbom | full-report"
+    echo "  Valid: risk-center | full | priority1 | runtime | pce | dashboard | sbom | sbom-full | full-report"
     exit 1
     ;;
 esac

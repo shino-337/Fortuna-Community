@@ -1,29 +1,74 @@
 package extractor
 
 import (
+	"path/filepath"
 	"strings"
 )
 
-// DpkgParser parses Debian/Ubuntu packages from /var/lib/dpkg/status
+// DpkgParser parses Debian/Ubuntu packages from /var/lib/dpkg/status and
+// /var/lib/dpkg/status.d/* (Google Distroless images store per-package status
+// files there instead of a single monolithic file — same approach as Trivy/Syft).
 type DpkgParser struct{}
 
-// NewDpkgParser creates a new dpkg parser
 func NewDpkgParser() *DpkgParser {
 	return &DpkgParser{}
 }
 
-// Parse parses dpkg status file
+const (
+	dpkgStatusFile = "/var/lib/dpkg/status"
+	dpkgStatusDir  = "/var/lib/dpkg/status.d/"
+)
+
 func (p *DpkgParser) Parse(fs *Filesystem) ([]Package, error) {
-	// Read dpkg status file
-	content, err := fs.ReadFile("/var/lib/dpkg/status")
-	if err != nil {
-		return nil, err // File not found is OK (not a Debian image)
+	packages := make([]Package, 0)
+	seen := make(map[string]bool)
+
+	// 1. Standard monolithic status file (traditional Debian/Ubuntu images).
+	if content, err := fs.ReadFile(dpkgStatusFile); err == nil {
+		pkgs := parseDpkgStatus(string(content))
+		for _, pkg := range pkgs {
+			key := pkg.Name + "\x00" + pkg.Version
+			if !seen[key] {
+				seen[key] = true
+				packages = append(packages, pkg)
+			}
+		}
 	}
 
-	packages := make([]Package, 0)
+	// 2. Distroless status.d/ directory: each non-md5sums file is a single
+	//    dpkg status entry (Package: ..., Version: ..., etc.)
+	//    Ref: var/lib/dpkg/status.d/ in gcr.io/distroless/* and Kubernetes
+	//    control-plane images (kube-apiserver, kube-proxy, etcd, etc.)
+	for _, path := range fs.PathsUnder(dpkgStatusDir) {
+		base := filepath.Base(path)
+		if strings.HasSuffix(base, ".md5sums") || base == "" || base == "." {
+			continue
+		}
+		content, err := fs.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		pkgs := parseDpkgStatus(string(content))
+		for _, pkg := range pkgs {
+			key := pkg.Name + "\x00" + pkg.Version
+			if !seen[key] {
+				seen[key] = true
+				packages = append(packages, pkg)
+			}
+		}
+	}
 
-	// Parse dpkg status format
-	lines := strings.Split(string(content), "\n")
+	if len(packages) == 0 {
+		return nil, nil
+	}
+	return packages, nil
+}
+
+// parseDpkgStatus parses dpkg status format (works for both monolithic file
+// and individual status.d/* entries).
+func parseDpkgStatus(content string) []Package {
+	packages := make([]Package, 0)
+	lines := strings.Split(content, "\n")
 	var currentPkg Package
 	var inPackage bool
 
@@ -31,7 +76,6 @@ func (p *DpkgParser) Parse(fs *Filesystem) ([]Package, error) {
 		line = strings.TrimSpace(line)
 
 		if line == "" {
-			// End of package entry
 			if inPackage && currentPkg.Name != "" {
 				packages = append(packages, currentPkg)
 				currentPkg = Package{}
@@ -49,19 +93,17 @@ func (p *DpkgParser) Parse(fs *Filesystem) ([]Package, error) {
 		} else if strings.HasPrefix(line, "Architecture: ") {
 			currentPkg.Arch = strings.TrimPrefix(line, "Architecture: ")
 		} else if strings.HasPrefix(line, "Status: ") {
-			// Only include installed packages
 			status := strings.TrimPrefix(line, "Status: ")
 			if !strings.Contains(status, "installed") {
-				inPackage = false // Skip non-installed packages
+				inPackage = false
 			}
 		}
 	}
 
-	// Add last package if exists
 	if inPackage && currentPkg.Name != "" {
 		packages = append(packages, currentPkg)
 	}
 
-	return packages, nil
+	return packages
 }
 

@@ -84,6 +84,7 @@ RUN for i in 1 2 3 4 5; do \
     done && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
+    curl \
     tzdata \
     docker.io \
     && \

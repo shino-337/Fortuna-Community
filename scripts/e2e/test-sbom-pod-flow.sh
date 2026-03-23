@@ -3,6 +3,7 @@
 # Test SBOM flow: create a new pod, wait for agent to send SBOM, verify API
 # returns the pod in /sbom list and /sbom/:podId detail.
 # ============================================================================
+# Agent env (optional): SBOM_FS_MODE=indexed|materialize (A5), SBOM_FS_METRICS=off
 # Prerequisites: Core running, Agent running on node where pod is scheduled,
 # CORE_API_URL or port-forward to Core (e.g. 8080).
 # If Core has auth enabled: set API_USER and API_PASS (default admin/admin).
@@ -129,6 +130,14 @@ if [ "$HTTP" = "200" ]; then
   echo "  HTTP 200 OK"
   head -c 400 /tmp/sbom_detail.json
   echo ""
+  if command -v jq >/dev/null 2>&1; then
+    CC=$(jq '.components | length' /tmp/sbom_detail.json 2>/dev/null || echo 0)
+    echo "  INFO: components count = $CC"
+    GV=$(jq -r '.goVersion // empty' /tmp/sbom_detail.json 2>/dev/null || echo "")
+    [ -n "$GV" ] && echo "  INFO: goVersion (SBOM) = $GV"
+    SRC=$(jq -r '.sbomSource // empty' /tmp/sbom_detail.json 2>/dev/null || echo "")
+    [ -n "$SRC" ] && echo "  INFO: sbomSource = $SRC"
+  fi
 else
   echo "  HTTP $HTTP"
   [ -s /tmp/sbom_detail.json ] && head -c 200 /tmp/sbom_detail.json

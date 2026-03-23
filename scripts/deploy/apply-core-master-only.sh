@@ -141,6 +141,20 @@ else
     done
 fi
 
+# Step 1b: Ensure Flannel CNI so pods get pod IP (subnet.env on nodes)
+log_section "Step 1b: Ensuring Flannel CNI (pod network)"
+SCRIPTS="$PROJECT_ROOT/scripts"
+if [ -x "$SCRIPTS/deploy/ensure-flannel.sh" ] && [ "${SKIP_FLANNEL_INSTALL:-0}" != "1" ]; then
+    if bash "$SCRIPTS/deploy/ensure-flannel.sh"; then
+        log_success "Flannel / pod network OK"
+    else
+        log_error "ensure-flannel failed; Core may stay ContainerCreating (subnet.env). Run: ./scripts/deploy/ensure-flannel.sh"
+        exit 1
+    fi
+else
+    log_warning "Skipped ensure-flannel (script missing or SKIP_FLANNEL_INSTALL=1)"
+fi
+
 # Step 2: Delete existing Core deployments (to avoid conflicts)
 log_section "Step 2: Cleaning Up Existing Core Deployments"
 log_info "Deleting existing Core deployments and pods..."

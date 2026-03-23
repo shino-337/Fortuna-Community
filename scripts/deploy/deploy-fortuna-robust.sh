@@ -234,6 +234,21 @@ else
     echo -e "${YELLOW}⚠️${NC}  check-prerequisites-core-agent.sh not found; continuing without strict check"
 fi
 
+# Step 7e: Re-verify Flannel before Core (avoids ContainerCreating / subnet.env on master-only Core)
+echo ""
+echo -e "${BLUE}Step 7e: Pod network — Flannel (required if CNI plugin is flannel)...${NC}"
+if [ -x "$SCRIPTS/deploy/ensure-flannel.sh" ] && [ "${SKIP_FLANNEL_INSTALL:-0}" != "1" ]; then
+    if bash "$SCRIPTS/deploy/ensure-flannel.sh"; then
+        echo -e "${GREEN}✅${NC} Flannel / pod network OK"
+    else
+        echo -e "${RED}❌${NC} Flannel not ready — Core will stay ContainerCreating (subnet.env). Fix: ./scripts/deploy/ensure-flannel.sh"
+        exit 1
+    fi
+    sleep 3
+else
+    echo -e "${YELLOW}⚠️${NC}  Skipping ensure-flannel (SKIP_FLANNEL_INSTALL=1 or script missing)"
+fi
+
 # Step 8: Deploy Core
 echo ""
 echo -e "${BLUE}Step 8: Deploying Core...${NC}"

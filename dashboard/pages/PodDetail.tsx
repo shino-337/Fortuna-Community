@@ -13,6 +13,7 @@ import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
 import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
+import { SbomMetaBadges } from '../components/SbomMetaBadges';
 import { useAuthStore } from '../store/authStore';
 import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
 
@@ -472,14 +473,15 @@ export const PodDetail: React.FC = () => {
       {activeTab === 'sbom' && (
         <Card className="p-6">
           <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h3 className="text-lg font-semibold text-white">SBOM</h3>
-              {sbom?.sbomSource === 'distroless-heuristic' && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/40" title="SBOM inferred from image ref/labels (no package DB). CVE match uses NVD fallback.">
-                  <Info className="w-3.5 h-3.5" />
-                  Distroless SBOM (heuristic)
-                </span>
-              )}
+            <div className="flex flex-col gap-2 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h3 className="text-lg font-semibold text-white">SBOM</h3>
+              </div>
+              <SbomMetaBadges
+                sbomSource={sbom?.sbomSource}
+                confidence={sbom?.confidence}
+                goVersion={sbom?.goVersion}
+              />
             </div>
             {sbom && (sbom.components?.length ?? 0) > 0 && (
               <div className="flex items-center gap-2">

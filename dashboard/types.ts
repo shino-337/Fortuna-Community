@@ -35,7 +35,13 @@ export interface PodSbomSummary {
   lastScan: string;
   packageCount?: number;
   podCreatedAt?: string;   // pod creation time (from pods table when available)
-  podStatus?: string;     // e.g. Running, Pending (when available)
+  podStatus?: string;     // K8s phase from pods table when synced (Running, Pending, …)
+  /** parsers | distroless-heuristic | label-metadata */
+  sbomSource?: string;
+  /** low | medium | high */
+  confidence?: string;
+  /** Go toolchain / stdlib context from agent (when applicable) */
+  goVersion?: string;
   vulnerabilitySummary?: {
     critical: number;
     high: number;
@@ -59,6 +65,8 @@ export interface PodSbom {
   sbomSource?: string;
   /** low | medium | high */
   confidence?: string;
+  /** Go version (stdlib / image config) used for matcher context */
+  goVersion?: string;
 }
 
 // Cluster (from /api/v1/clusters or /api/v1/clusters/stats) – SSOT from DB, no hardcoded fallback

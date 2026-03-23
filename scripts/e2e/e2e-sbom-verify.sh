@@ -7,7 +7,8 @@
 # Usage:
 #   ./scripts/e2e/e2e-sbom-verify.sh                    # Check pod-test in API
 #   ./scripts/e2e/e2e-sbom-verify.sh my-pod default   # Check my-pod in default ns
-#   ./scripts/e2e/e2e-sbom-verify.sh --full            # Run full test-sbom-pod-flow
+#   ./scripts/e2e/e2e-sbom-verify.sh --full            # Run test-sbom-pod-flow (busybox)
+#   ./scripts/e2e/e2e-sbom-verify.sh --full-pipeline   # busybox + distroless + CoreDNS
 # ============================================================================
 
 set -euo pipefail
@@ -61,6 +62,10 @@ get_pod_uid() {
 
 main() {
   cd "$PROJECT_ROOT"
+  if [ "${1:-}" = "--full-pipeline" ] || [ "${1:-}" = "--pipeline" ]; then
+    echo "Running SBOM full pipeline (busybox + distroless + CoreDNS) — see run-e2e.sh --suite=sbom-full"
+    exec "$SCRIPTS/e2e/run-e2e.sh" --suite=sbom-full
+  fi
   if [ "${1:-}" = "--full" ]; then
     echo "Running full SBOM flow test (create pod, wait for SBOM, verify API)..."
     exec "$SCRIPTS/e2e/test-sbom-pod-flow.sh" "$@"

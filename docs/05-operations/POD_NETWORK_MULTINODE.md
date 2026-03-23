@@ -27,7 +27,14 @@ Sau khi chạy xong, đợi 30–60 giây rồi kiểm tra Agent logs (Heartbeat
 
 ### 2. Tích hợp vào deploy
 
-Khi deploy bằng `./scripts/pipeline/full-clean-database-rebuild-deploy.sh` (hoặc `./scripts/deploy/deploy-fortuna-robust.sh`), nếu cluster có **hơn 1 node**, script sẽ **tự chạy** `scripts/deploy/fix-flannel-vxlan.sh` (Step 4b) sau bước deploy infrastructure (PostgreSQL, NATS) và trước khi deploy Core/Agent. Nhờ đó deploy mới trên multi-node sẽ ít gặp lỗi “Agent trên worker không kết nối được Core”.
+Khi deploy bằng `./scripts/pipeline/full-clean-database-rebuild-deploy.sh` (hoặc `./scripts/deploy/deploy-fortuna-robust.sh`):
+
+- **`scripts/deploy/ensure-flannel.sh`** được gọi **trước StorageClass** (Step 3a) và **lặp lại trước khi deploy Core** (Step 7e) để cài Flannel nếu thiếu và tránh lỗi `subnet.env` / `ContainerCreating`. Chỉ coi Flannel “ổn” khi có pod `app=flannel` **Running** (không dừng ở ConfigMap-only).
+- Nếu cluster có **hơn 1 node**, script có thể chạy thêm `scripts/deploy/fix-flannel-vxlan.sh` (VXLAN / multi-node).
+
+`pre-deployment-checks.sh` mặc định **`AUTO_ENSURE_FLANNEL=1`**: nếu không thấy CNI, tự gọi `ensure-flannel.sh`. Đặt `AUTO_ENSURE_FLANNEL=0` để chỉ cảnh báo.
+
+`SKIP_FLANNEL_INSTALL=1` bỏ qua cài Flannel (khi bạn dùng CNI khác và tự quản lý).
 
 ### 3. Kiểm tra thủ công
 

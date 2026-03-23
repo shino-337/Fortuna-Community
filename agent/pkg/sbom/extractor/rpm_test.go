@@ -65,6 +65,47 @@ func TestRpmParser_Parse_MissingInventory(t *testing.T) {
 	}
 }
 
+func TestRpmParser_Parse_RPMManifest(t *testing.T) {
+	fs := NewFilesystem()
+	fs.files["/etc/os-release"] = []byte("ID=mariner\nVERSION_ID=2.0\n")
+	fs.files["/var/lib/rpmmanifest/container-manifest-2"] = []byte(
+		"curl-7.85.0-1.cm2.x86_64\n" +
+			"openssl-libs-1.1.1k-21.cm2.x86_64\n" +
+			"# comment line\n" +
+			"\n" +
+			"glibc-2.35-4.cm2.x86_64\n",
+	)
+
+	p := NewRpmParser()
+	pkgs, err := p.Parse(fs)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(pkgs) != 3 {
+		t.Fatalf("want 3 packages from rpmmanifest, got %d", len(pkgs))
+	}
+
+	names := map[string]string{}
+	for _, pkg := range pkgs {
+		names[pkg.Name] = pkg.Version
+		if pkg.Type != "rpm" {
+			t.Errorf("expected type rpm, got %s", pkg.Type)
+		}
+		if pkg.Source != "rpmmanifest" {
+			t.Errorf("expected source rpmmanifest, got %s", pkg.Source)
+		}
+	}
+	if v, ok := names["curl"]; !ok || v != "7.85.0-1.cm2" {
+		t.Errorf("curl: got %q", v)
+	}
+	if v, ok := names["openssl-libs"]; !ok || v != "1.1.1k-21.cm2" {
+		t.Errorf("openssl-libs: got %q", v)
+	}
+	if v, ok := names["glibc"]; !ok || v != "2.35-4.cm2" {
+		t.Errorf("glibc: got %q", v)
+	}
+}
+
 func TestRpmParser_Parse_InvalidRPMDBFallback_NonFatal(t *testing.T) {
 	fs := NewFilesystem()
 	// Inventory missing; fallback path exists but contains invalid data.

@@ -17,6 +17,10 @@
 #   Mode B (pre-built image):
 #     - Set TEST_DISTROLESS_IMAGE to an existing image tag
 #
+# Env (Agent daemonset):
+#   SBOM_FS_MODE=indexed|materialize  # A5 VFS; indexed reduces RAM
+#   SBOM_FS_METRICS=off               # optional: quiet [SBOM FS] logs
+#
 # Env:
 #   TEST_DISTROLESS_IMAGE   # optional; if empty, script will build local image
 #   CORE_API_URL            # default: http://localhost:8080
@@ -119,7 +123,7 @@ echo "Image:          $TEST_DISTROLESS_IMAGE"
 echo "======================================================="
 echo ""
 
-echo "[1/4] Creating distroless test pod $POD_NAME..."
+echo "[1/5] Creating distroless test pod $POD_NAME..."
 
 # Ensure namespace exists (mirrors other e2e tests)
 kubectl get namespace "$TEST_NS" &>/dev/null || kubectl create namespace "$TEST_NS"
@@ -150,7 +154,7 @@ spec:
 EOF
 echo ""
 
-echo "[2/4] Waiting for pod to be Ready or Completed..."
+echo "[2/5] Waiting for pod to be Ready or Completed..."
 kubectl wait --for=condition=Ready pod/"$POD_NAME" -n "$TEST_NS" --timeout=120s || true
 kubectl get pod "$POD_NAME" -n "$TEST_NS"
 POD_UID=$(kubectl get pod "$POD_NAME" -n "$TEST_NS" -o jsonpath='{.metadata.uid}' 2>/dev/null || echo "")

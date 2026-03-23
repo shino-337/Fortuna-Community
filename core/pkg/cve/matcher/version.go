@@ -2,4 +2,5 @@ package matcher
 
 // ResolverVersion is the semantic version of resolver/normalization/trust logic used for matching.
 // Bump when matching behavior changes so incidents can distinguish data vs logic regressions.
-const ResolverVersion = "v1.1"
+// v1.3: keep gobinary-main for CVE matching, PURL rewrite generic→golang for K8s control plane.
+const ResolverVersion = "v1.3"

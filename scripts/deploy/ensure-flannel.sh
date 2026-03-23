@@ -7,17 +7,18 @@
 # open /run/flannel/subnet.env: no such file or directory" and PVCs never bind
 # because local-path-provisioner cannot start.
 #
-# This script: if Flannel is not installed (no kube-flannel namespace or no
-# kube-flannel-cfg / kube-flannel-ds), applies the official Flannel manifest
-# and waits for pods to be Running. If another CNI is already present (Calico,
-# Cilium, etc.), skip install (optional: set SKIP_FLANNEL_INSTALL=1).
+# This script:
+#   - Treats Flannel as OK only when flannel pods are **Running** (not ConfigMap-only).
+#   - If another CNI is present (Calico/Cilium/Weave), skips Flannel install.
+#   - Otherwise applies the official Flannel manifest and waits for Ready.
 #
-# Called by: deploy-fortuna-robust.sh (before StorageClass), full-clean-database-rebuild-deploy.sh (Phase 2b).
+# Called by: deploy-fortuna-robust.sh, full-clean-database-rebuild-deploy.sh,
+#            check-prerequisites-core-agent.sh, pre-deployment-checks.sh (optional).
 #
 # Usage: ./scripts/deploy/ensure-flannel.sh
-# Env:   SKIP_FLANNEL_INSTALL=1     do not install, only check
+# Env:   SKIP_FLANNEL_INSTALL=1     do not install, only check (exit 0 / 1)
 #        FLANNEL_MANIFEST_URL       override manifest URL
-#        FLANNEL_WAIT_TIMEOUT=120  wait for pods (default 120s)
+#        FLANNEL_WAIT_TIMEOUT=120   wait for pods (default 120s)
 # ============================================================================
 
 set -euo pipefail
@@ -32,43 +33,71 @@ log_success() { echo -e "${GREEN}[OK]${NC} $1"; }
 log_warn()    { echo -e "${YELLOW}[WARN]${NC} $1"; }
 log_error()   { echo -e "${RED}[ERR]${NC} $1"; }
 
-# Prefer versioned tag; fallback to master if tag not found
-FLANNEL_MANIFEST_URL="${FLANNEL_MANIFEST_URL:-https://raw.githubusercontent.com/flannel-io/flannel/master/Documentation/kube-flannel.yml}"
+# Prefer pinned release; master may change without notice
+FLANNEL_MANIFEST_URL="${FLANNEL_MANIFEST_URL:-https://raw.githubusercontent.com/flannel-io/flannel/v0.26.0/Documentation/kube-flannel.yml}"
 WAIT_TIMEOUT="${FLANNEL_WAIT_TIMEOUT:-120}"
 
-# Flannel is installed if we have the ConfigMap or DaemonSet or running pods in kube-flannel
-has_flannel() {
-  kubectl get configmap kube-flannel-cfg -n kube-flannel &>/dev/null && return 0
-  kubectl get daemonset kube-flannel-ds -n kube-flannel &>/dev/null && return 0
-  [ "$(kubectl get pods -n kube-flannel --no-headers 2>/dev/null | wc -l)" -ge 1 ] 2>/dev/null && return 0
+# True when at least one Flannel pod is Running (subnet.env gets written on nodes)
+flannel_healthy() {
+  local n
+  n=$(kubectl get pods -n kube-flannel -l app=flannel --field-selector=status.phase=Running --no-headers 2>/dev/null | wc -l)
+  [ "${n:-0}" -ge 1 ]
+}
+
+# Another CNI is running — do not install Flannel on top
+has_other_cni() {
+  kubectl get pods -n kube-system --no-headers 2>/dev/null | grep -qE 'calico-node|cilium|weave-net|kube-weave|canal' || \
+  kubectl get pods -A --no-headers 2>/dev/null | grep -qE 'calico-node|cilium-agent|weave-net|kube-weave'
+}
+
+# Legacy/partial install: ConfigMap or DS exists but pods not Running — repair
+try_repair_flannel() {
+  if ! kubectl get ns kube-flannel &>/dev/null; then
+    return 1
+  fi
+  local ds
+  ds=$(kubectl get ds -n kube-flannel -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+  if [ -n "$ds" ]; then
+    log_info "Attempting rollout restart of DaemonSet $ds (partial/broken Flannel)..."
+    kubectl rollout restart "daemonset/$ds" -n kube-flannel 2>/dev/null || true
+    sleep 10
+    flannel_healthy && return 0
+  fi
   return 1
 }
 
-# Another CNI is running (we could skip Flannel install)
-has_other_cni() {
-  kubectl get pods -n kube-system --no-headers 2>/dev/null | grep -qE 'calico|cilium|weave|canal' || \
-  kubectl get pods -A --no-headers 2>/dev/null | grep -qE 'calico|cilium|weave'
-}
-
 log_info "Checking CNI (Flannel)..."
-if has_flannel; then
-  log_success "Flannel already installed"
-  kubectl get pods -n kube-flannel --no-headers 2>/dev/null || true
-  exit 0
-fi
 
-if [ "${SKIP_FLANNEL_INSTALL:-0}" = "1" ]; then
-  log_warn "Flannel not found; SKIP_FLANNEL_INSTALL=1. Pod network may fail (subnet.env missing)."
-  log_info "Install manually: kubectl apply -f $FLANNEL_MANIFEST_URL"
+if flannel_healthy; then
+  log_success "Flannel is running"
+  kubectl get pods -n kube-flannel -o wide 2>/dev/null || true
   exit 0
 fi
 
 if has_other_cni; then
-  log_warn "Another CNI appears to be running (Calico/Cilium/Weave). Skipping Flannel install."
+  log_warn "Another CNI appears to be running (Calico/Cilium/Weave/Canal). Skipping Flannel install."
   exit 0
 fi
 
-log_info "Flannel not installed. Applying manifest..."
+if [ "${SKIP_FLANNEL_INSTALL:-0}" = "1" ]; then
+  log_warn "Flannel not healthy; SKIP_FLANNEL_INSTALL=1. Pod network may fail (subnet.env missing)."
+  log_info "Install manually: kubectl apply -f $FLANNEL_MANIFEST_URL"
+  exit 0
+fi
+
+# ConfigMap-only or broken install: do not exit early — re-apply or restart
+if kubectl get configmap kube-flannel-cfg -n kube-flannel &>/dev/null && ! flannel_healthy; then
+  log_warn "kube-flannel ConfigMap exists but no Running flannel pods — repairing..."
+  try_repair_flannel || true
+fi
+
+if flannel_healthy; then
+  log_success "Flannel is running after repair"
+  kubectl get pods -n kube-flannel -o wide 2>/dev/null || true
+  exit 0
+fi
+
+log_info "Flannel not healthy. Applying manifest: $FLANNEL_MANIFEST_URL"
 if ! kubectl apply -f "$FLANNEL_MANIFEST_URL" 2>&1; then
   log_error "Failed to apply Flannel manifest"
   log_info "Try manually: kubectl apply -f $FLANNEL_MANIFEST_URL"
@@ -77,20 +106,20 @@ fi
 
 log_info "Waiting for Flannel pods (timeout=${WAIT_TIMEOUT}s)..."
 if kubectl wait --for=condition=ready pod -l app=flannel -n kube-flannel --timeout="${WAIT_TIMEOUT}s" 2>/dev/null; then
-  log_success "Flannel pods are ready"
+  log_success "Flannel pods are Ready"
 else
-  log_warn "Flannel pods may still be starting. Check: kubectl get pods -n kube-flannel"
+  log_warn "Flannel pods may still be starting. Check: kubectl get pods -n kube-flannel -o wide"
 fi
 
-# Give nodes time to write subnet.env so subsequent pods (e.g. local-path-provisioner) can start
-log_info "Waiting 15s for Flannel to write subnet.env on nodes..."
+log_info "Waiting 15s for Flannel to write /run/flannel/subnet.env on nodes..."
 sleep 15
 
-if has_flannel; then
+if flannel_healthy; then
   log_success "Flannel is installed and running"
   kubectl get pods -n kube-flannel -o wide 2>/dev/null || true
   exit 0
 fi
 
-log_error "Flannel may not be ready; pod network could still fail"
+log_error "Flannel is not healthy; pod network may still fail (subnet.env)"
+kubectl get pods -n kube-flannel -o wide 2>/dev/null || true
 exit 1

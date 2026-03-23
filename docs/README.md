@@ -44,6 +44,7 @@
 
 - **[NVD_API_KEY](05-operations/NVD_API_KEY.md)** — Gán API key NIST NVD cho Core (CVE matcher fallback, rate limit)
 - **[K8s env check & full rebuild prep](05-operations/K8S_ENVIRONMENT_CHECK_AND_FULL_REBUILD.md)** — Kiểm tra cluster, PVC, checklist trước clean rebuild / integration & E2E
+- **[E2E SBOM scripts](05-operations/E2E_SBOM_SCRIPTS.md)** — `run-e2e.sh --suite=sbom-full` (busybox + distroless + CoreDNS)
 - [Deployment Checklist](05-operations/DEPLOYMENT_CHECKLIST.md) - Step-by-step deployment
 - [Clean Rebuild & Verify](05-operations/CLEAN_REBUILD_REDEPLOY_AND_VERIFY.md) - Clean rebuild and E2E verify
 - [Backlog Execution Plan (2026-03-19)](05-operations/BACKLOG_EXECUTION_PLAN_2026-03-19.md) - Prioritized backlog with sprint plan and tracking table

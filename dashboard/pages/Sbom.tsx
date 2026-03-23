@@ -10,6 +10,7 @@ import { exportSbomAsCsv, exportSbomAsJson } from '../lib/exportSbom';
 import { getSeverityBadgeClass, getSeverityBorderClass } from '../lib/severity';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { useNavigate } from 'react-router-dom';
+import { SbomMetaBadges } from '../components/SbomMetaBadges';
 
 export const Sbom: React.FC = () => {
   const navigate = useNavigate();
@@ -158,10 +159,17 @@ export const Sbom: React.FC = () => {
                   <ChevronRight size={14} className={`transition-transform duration-200 ${selectedPod?.podId === pod.podId ? 'text-pink-500 rotate-90 lg:rotate-0' : 'text-slate-600'}`} />
                 </div>
                 <div className="text-xs text-slate-500 truncate mb-1 font-mono">{pod.image}</div>
+                <SbomMetaBadges
+                  compact
+                  className="mb-2"
+                  sbomSource={pod.sbomSource}
+                  confidence={pod.confidence}
+                  goVersion={pod.goVersion}
+                />
                 <div className="text-[10px] text-slate-500 mb-2">
                   <span title="Pod creation time">Created: {createdLabel}</span>
                   <span className="mx-1.5">·</span>
-                  <span title="Pod status">Status: {statusLabel}</span>
+                  <span title="Pod phase (synced)">Phase: {statusLabel}</span>
                 </div>
                 <div className="flex gap-2">
                   {summary.critical > 0 && (
@@ -226,6 +234,14 @@ export const Sbom: React.FC = () => {
                     <div className="w-4 h-4 border-2 border-pink-500 border-t-transparent rounded-full animate-spin mr-2"></div>
                     Loading SBOM detail...
                   </div>
+                )}
+                {!detailLoading && (selectedDetail || selectedPod) && (
+                  <SbomMetaBadges
+                    className="mb-4"
+                    sbomSource={selectedDetail?.sbomSource ?? selectedPod?.sbomSource}
+                    confidence={selectedDetail?.confidence ?? selectedPod?.confidence}
+                    goVersion={selectedDetail?.goVersion ?? selectedPod?.goVersion}
+                  />
                 )}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
                   <div className="flex items-center space-x-6">

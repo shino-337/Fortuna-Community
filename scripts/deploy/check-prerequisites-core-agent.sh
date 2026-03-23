@@ -2,7 +2,8 @@
 # ============================================================================
 # Prerequisites check before deploying Core / Agent (Finding #7.2)
 # ============================================================================
-# Verifies: (1) mTLS secrets exist; (2) PostgreSQL reachable (service + endpoints);
+# Verifies: (0) Pod network (Flannel via ensure-flannel.sh unless SKIP_FLANNEL_INSTALL=1);
+#           (1) mTLS secrets exist; (2) PostgreSQL reachable (service + endpoints);
 #           (3) NATS reachable (service + endpoints).
 # Exit 1 on first failure with clear instructions. Run after infra + mTLS are in place.
 #
@@ -36,6 +37,22 @@ echo "Prerequisites check (Core / Agent)"
 echo "=========================================="
 echo "Namespace: $NAMESPACE"
 echo ""
+
+# 0. Pod network: Flannel (or skip if another CNI — ensure-flannel exits 0)
+echo ""
+echo "=== Pod network (Flannel / CNI) ==="
+if [ -x "$SCRIPTS/deploy/ensure-flannel.sh" ] && [ "${SKIP_FLANNEL_INSTALL:-0}" != "1" ]; then
+  if bash "$SCRIPTS/deploy/ensure-flannel.sh"; then
+    ok "Pod network (ensure-flannel) OK"
+  else
+    fail "Flannel / pod network not ready (subnet.env). Run: ./scripts/deploy/ensure-flannel.sh"
+  fi
+elif [ "${SKIP_FLANNEL_INSTALL:-0}" = "1" ]; then
+  echo -e "${YELLOW}⚠️${NC} SKIP_FLANNEL_INSTALL=1 — skipping ensure-flannel (ensure CNI manually)"
+else
+  fail "ensure-flannel.sh not found at $SCRIPTS/deploy/ensure-flannel.sh"
+fi
+
 
 # 1. mTLS secrets (Core and Agent need these to mount certs)
 for secret in fortuna-core-tls fortuna-agent-tls; do
