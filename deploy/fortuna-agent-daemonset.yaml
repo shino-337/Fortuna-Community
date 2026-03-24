@@ -97,6 +97,14 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
             # Optional: override agent id (default: NODE_NAME-agent, unique per node)
             # - name: AGENT_ID
             #   value: "my-agent-1"
@@ -131,6 +139,15 @@ spec:
               value: "true"
             # R9 eBPF sensor (phase-1 scaffold). Keep disabled by default for safe rollout.
             - name: EBPF_ENABLED
+              value: "false"
+            - name: EBPF_MODE
+              value: "exec"
+            - name: EBPF_EVENT_FLUSH_INTERVAL
+              value: "5s"
+            - name: EBPF_EVENT_BUFFER_SIZE
+              value: "200"
+            # For canary verification only; keep false in production.
+            - name: EBPF_SIMULATE
               value: "false"
           
           volumeMounts:

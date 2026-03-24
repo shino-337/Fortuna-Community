@@ -22,8 +22,8 @@ Cap nhat: 2026-03-24
 
 - R5: Da co baseline + anomaly + cooldown suppression; phan packet/throughput counters theo flow van can bo sung.
 - R6: Da co dynamic scoring cho network spike; van con chuoi hanh vi (multi-signal chain) va calibration nang cao.
-- R9: Da co scaffold `cilium/ebpf` + env rollout fail-open (`EBPF_ENABLED`), chua attach sensor production.
-- R10: Da co hybrid gate theo namespace nhay cam + threshold risk trong admission; can bo sung full policy manifest rollout va tuning.
+- R9: Da attach tracepoint that su (`sys_enter_execve` / `sys_enter_connect`) bang `cilium/ebpf` + stream batch `POST /api/v1/runtime/events`; van can tiep tuc toi uu correlation va event richness.
+- R10: Da co hybrid gate theo namespace nhay cam + threshold risk + mode `audit|enforce`; can tiep tuc tuning threshold/namespace theo moi truong production.
 
 ## Ghi chu van hanh
 

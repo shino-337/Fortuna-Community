@@ -129,9 +129,13 @@ func (w *AdmissionWebhook) Handle(resp http.ResponseWriter, req *http.Request) {
 	}
 	// R10 phase-1 (hybrid): namespace policy is primary; threshold only elevates in sensitive namespaces.
 	if !hasBlockingViolation {
-		if ok, msg := w.hybridRiskGate(ctx, resource.Namespace); ok {
-			hasBlockingViolation = true
-			blockMessage = msg
+		if hit, msg := w.hybridRiskGate(ctx, resource.Namespace); hit {
+			if riskGateMode() == "audit" {
+				log.Printf("[Webhook] ⚠️  AUDIT risk gate hit (allow): %s", msg)
+			} else {
+				hasBlockingViolation = true
+				blockMessage = msg
+			}
 		}
 	}
 
@@ -153,6 +157,14 @@ func (w *AdmissionWebhook) Handle(resp http.ResponseWriter, req *http.Request) {
 	log.Printf("[Webhook] ✅ ALLOWED: %s/%s in %s", resource.Type, resource.Name, resource.Namespace)
 	metrics.AdmissionAllowedCount.WithLabelValues(resource.Type).Inc()
 	w.sendResponse(resp, &admissionReview, true, "Policy check passed")
+}
+
+func riskGateMode() string {
+	mode := strings.ToLower(strings.TrimSpace(os.Getenv("ADMISSION_RISK_GATE_MODE")))
+	if mode != "audit" && mode != "enforce" {
+		return "enforce"
+	}
+	return mode
 }
 
 func (w *AdmissionWebhook) hybridRiskGate(ctx context.Context, namespace string) (bool, string) {

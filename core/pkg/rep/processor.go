@@ -112,6 +112,12 @@ func classifySignal(syscall, target, capabilityName string, db *gorm.DB, ctx con
 	if isNetworkQueueSpike(syscall, capabilityName) {
 		return "NETWORK_QUEUE_ANOMALY", "T1046", networkQueueSpikeScore(target)
 	}
+	if isEBPFExecTrace(syscall, capabilityName) {
+		return "EBPF_EXEC_ACTIVITY", "T1059", 40
+	}
+	if isEBPFConnectTrace(syscall, capabilityName) {
+		return "EBPF_CONNECT_ACTIVITY", "T1046", 30
+	}
 	return "", "", 0
 }
 
@@ -224,6 +230,16 @@ func parseTargetFloatKV(target, key string) float64 {
 		return n
 	}
 	return 0
+}
+
+func isEBPFExecTrace(syscall, capabilityName string) bool {
+	return strings.EqualFold(strings.TrimSpace(syscall), "execve") &&
+		strings.EqualFold(strings.TrimSpace(capabilityName), "EBPF_EXEC_TRACE")
+}
+
+func isEBPFConnectTrace(syscall, capabilityName string) bool {
+	return strings.EqualFold(strings.TrimSpace(syscall), "connect") &&
+		strings.EqualFold(strings.TrimSpace(capabilityName), "EBPF_CONNECT_TRACE")
 }
 
 func podAllowsCapability(containerSecurityContexts, capName string) bool {

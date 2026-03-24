@@ -167,6 +167,8 @@ spec:
               value: "prod,fortuna"
             - name: ADMISSION_RISK_BLOCK_THRESHOLD
               value: "70"
+            - name: ADMISSION_RISK_GATE_MODE
+              value: "audit"
             # Default admin for E2E / test scripts (migrations create user when set). Override with secret in production.
             - name: FORTUNA_ADMIN_USERNAME
               value: "admin"

@@ -182,6 +182,10 @@ kubectl -n fortuna exec deploy/fortuna-core -- env | grep POD_DETAIL_NET_SPIKE
 kubectl -n fortuna exec deploy/fortuna-core -- env | grep -E "ADMISSION_RISK_GATE_ENABLED|ADMISSION_RISK_BLOCK_THRESHOLD|ADMISSION_RISK_SENSITIVE_NAMESPACES"
 ```
 
+`ADMISSION_RISK_GATE_MODE`:
+- `audit` (recommended default for rollout): log gate hit but allow request
+- `enforce`: deny request when hybrid gate threshold is hit
+
 ### Step 9.1: Apply Admission Webhook Configuration (R10 hybrid)
 
 ```bash
@@ -336,9 +340,29 @@ kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=20 | grep -E
 
 **R9 eBPF (phase-1 scaffold)**
 - Default in manifest: `EBPF_ENABLED=false` (safe rollout).
+- Sensor mode: `EBPF_MODE=exec` (options: `exec`, `connect`, `all`)
+- Event stream controls:
+  - `EBPF_EVENT_FLUSH_INTERVAL=5s`
+  - `EBPF_EVENT_BUFFER_SIZE=200`
+  - `EBPF_SIMULATE=false` (canary only)
+- Runtime identity for event stream:
+  - `POD_UID` and `POD_NAMESPACE` are injected via downward API in DaemonSet.
 - To canary on selected node pool, set `EBPF_ENABLED=true` and verify agent log:
 ```bash
 kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=80 | grep -i ebpf
+```
+
+**Verify full R9 stream (agent -> core -> runtime_events)**:
+```bash
+# 1) Confirm attach + stream logs on agent
+kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=200 | grep -Ei "ebpf|attached tracepoint|send batch|heartbeat mode"
+
+# 2) Confirm core receives runtime events
+kubectl logs -n fortuna -l app.kubernetes.io/component=core --tail=200 | grep -Ei "RuntimeEvent|Ingesting event"
+
+# 3) Query runtime events in DB (pod UID can be agent pod UID in canary)
+kubectl exec -n fortuna deployment/postgres -- psql -U postgres -d fortuna -c \
+"SELECT id,pod_uid,namespace,syscall,target_path,created_at FROM runtime_events ORDER BY created_at DESC LIMIT 20;"
 ```
 
 **If Agent on worker node cannot connect**:

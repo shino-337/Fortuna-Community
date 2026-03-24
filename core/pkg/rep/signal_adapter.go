@@ -131,6 +131,13 @@ func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category str
 	if strings.EqualFold(syscall, "connect") && strings.EqualFold(event.Capability, "NETWORK_TXRX_QUEUE_SPIKE") {
 		return "NETWORK_QUEUE_ANOMALY", "NETWORK", 0.65
 	}
+	// R9 eBPF enriched mappings
+	if strings.EqualFold(syscall, "execve") && strings.EqualFold(event.Capability, "EBPF_EXEC_TRACE") {
+		return "EBPF_EXEC_ACTIVITY", "EXECUTION", 0.75
+	}
+	if strings.EqualFold(syscall, "connect") && strings.EqualFold(event.Capability, "EBPF_CONNECT_TRACE") {
+		return "EBPF_CONNECT_ACTIVITY", "NETWORK", 0.65
+	}
 
 	// Default: unknown signal
 	return "UNKNOWN", "UNKNOWN", 0.3

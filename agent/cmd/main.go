@@ -263,9 +263,16 @@ func main() {
 		log.Printf("✅ Runtime events reader enabled (path=%s poll=%s)", cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll)
 	}
 	if cfg.EBPFEnabled {
-		sensor := ebpfruntime.NewSensor()
+		sensor := ebpfruntime.NewSensor(
+			cfg.EBPFMode,
+			cfg.CoreHTTPEndpoint,
+			cfg.NodeName,
+			cfg.EBPFEventFlushInterval,
+			cfg.EBPFEventBufferSize,
+			cfg.EBPFSimulate,
+		)
 		go sensor.Start(ctx)
-		log.Printf("✅ eBPF sensor enabled (phase-1 scaffold)")
+		log.Printf("✅ eBPF sensor enabled (mode=%s flush=%s simulate=%v)", cfg.EBPFMode, cfg.EBPFEventFlushInterval, cfg.EBPFSimulate)
 	}
 
 	log.Printf("========================================")

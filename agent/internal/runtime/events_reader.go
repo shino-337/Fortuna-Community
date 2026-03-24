@@ -15,16 +15,17 @@ import (
 )
 
 type Event struct {
-	EventType     string                 `json:"event_type"`
-	MitreTechnique string                `json:"mitre_technique"`
-	Signal        string                 `json:"signal"`
-	Severity      string                 `json:"severity"`
-	Pod           map[string]interface{} `json:"pod"`
-	Runtime       string                 `json:"runtime"`
-	Syscall       string                 `json:"syscall"`
-	Target        string                 `json:"target"`
-	Capabilities  []string               `json:"capabilities"`
-	Timestamp     int64                  `json:"timestamp"`
+	EventType      string                 `json:"event_type"`
+	MitreTechnique string                 `json:"mitre_technique"`
+	Signal         string                 `json:"signal"`
+	Severity       string                 `json:"severity"`
+	Pod            map[string]interface{} `json:"pod"`
+	Runtime        string                 `json:"runtime"`
+	Syscall        string                 `json:"syscall"`
+	Target         string                 `json:"target"`
+	Capability     string                 `json:"capability,omitempty"`
+	Capabilities   []string               `json:"capabilities"`
+	Timestamp      int64                  `json:"timestamp"`
 }
 
 type Reader struct {

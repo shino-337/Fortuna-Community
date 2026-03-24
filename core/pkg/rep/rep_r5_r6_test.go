@@ -37,3 +37,34 @@ func TestClassifyEventToSignal_NetworkQueueSpike(t *testing.T) {
 		t.Fatalf("expected confidence >= 0.6, got %.2f", confidence)
 	}
 }
+
+func TestClassifySignal_EBPFExecTrace(t *testing.T) {
+	signal, mitre, score := classifySignal("execve", "/bin/sh", "EBPF_EXEC_TRACE", nil, context.Background(), "")
+	if signal != "EBPF_EXEC_ACTIVITY" {
+		t.Fatalf("expected EBPF_EXEC_ACTIVITY, got %s", signal)
+	}
+	if mitre != "T1059" {
+		t.Fatalf("expected mitre T1059, got %s", mitre)
+	}
+	if score != 40 {
+		t.Fatalf("expected score 40, got %d", score)
+	}
+}
+
+func TestClassifyEventToSignal_EBPFConnectTrace(t *testing.T) {
+	ev := &models.RuntimeEvent{
+		Syscall:    "connect",
+		Capability: "EBPF_CONNECT_TRACE",
+		TargetPath: "8.8.8.8:53",
+	}
+	signal, category, confidence := classifyEventToSignal(ev)
+	if signal != "EBPF_CONNECT_ACTIVITY" {
+		t.Fatalf("expected EBPF_CONNECT_ACTIVITY, got %s", signal)
+	}
+	if category != "NETWORK" {
+		t.Fatalf("expected NETWORK category, got %s", category)
+	}
+	if confidence < 0.6 {
+		t.Fatalf("expected confidence >= 0.6, got %.2f", confidence)
+	}
+}

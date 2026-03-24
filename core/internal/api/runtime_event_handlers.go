@@ -3,6 +3,7 @@ package api
 import (
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -12,10 +13,10 @@ import (
 )
 
 type runtimeEventPayload struct {
-	EventType     string `json:"event_type"`
+	EventType      string `json:"event_type"`
 	MitreTechnique string `json:"mitre_technique"`
-	Signal        string `json:"signal"`
-	Severity      string `json:"severity"`
+	Signal         string `json:"signal"`
+	Severity       string `json:"severity"`
 
 	Pod struct {
 		Name      string `json:"name"`
@@ -69,6 +70,10 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 			if target == "" {
 				target = p.TargetPath
 			}
+			capability := strings.TrimSpace(p.Capability)
+			if capability == "" {
+				capability = deriveCapabilityFromSignal(p.Signal)
+			}
 			var ts *time.Time
 			if p.Timestamp > 0 {
 				t := time.Unix(p.Timestamp, 0).UTC()
@@ -80,13 +85,13 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 
 			log.Printf("[RuntimeEvent] Ingesting event: pod_uid=%s namespace=%s syscall=%s target=%s capability=%s",
 				podUID, namespace, p.Syscall, target, p.Capability)
-			
+
 			result, err := rep.ProcessRuntimeEvent(c.Request.Context(), db, rep.RuntimeEventInput{
 				PodUID:     podUID,
 				Namespace:  namespace,
 				Syscall:    p.Syscall,
 				TargetPath: target,
-				Capability: p.Capability,
+				Capability: capability,
 				Timestamp:  ts,
 			})
 			if err != nil {
@@ -103,5 +108,18 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, runtimeEventResponse{Processed: processed})
+	}
+}
+
+func deriveCapabilityFromSignal(signal string) string {
+	switch strings.ToUpper(strings.TrimSpace(signal)) {
+	case "EBPF_EXEC_EVENT":
+		return "EBPF_EXEC_TRACE"
+	case "EBPF_CONNECT_EVENT":
+		return "EBPF_CONNECT_TRACE"
+	case "EBPF_ATTACH_EVENT":
+		return "EBPF_ATTACH"
+	default:
+		return ""
 	}
 }
