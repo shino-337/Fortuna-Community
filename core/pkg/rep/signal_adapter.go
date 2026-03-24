@@ -3,6 +3,7 @@ package rep
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -24,8 +25,8 @@ func (a *SignalAdapter) AdaptEvent(ctx context.Context, event *models.RuntimeEve
 	signalType, category, confidence := classifyEventToSignal(event)
 
 	evidence := map[string]interface{}{
-		"syscall":   event.Syscall,
-		"target":    event.TargetPath,
+		"syscall":    event.Syscall,
+		"target":     event.TargetPath,
 		"capability": event.Capability,
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
@@ -53,7 +54,7 @@ func (a *SignalAdapter) AdaptAndPersist(ctx context.Context, event *models.Runti
 	var existing models.RuntimeSignal
 	today := time.Now().Truncate(24 * time.Hour)
 	err = a.db.WithContext(ctx).
-		Where("pod_uid = ? AND signal_type = ? AND created_at >= ?", 
+		Where("pod_uid = ? AND signal_type = ? AND created_at >= ?",
 			signal.PodUID, signal.SignalType, today).
 		First(&existing).Error
 
@@ -81,18 +82,18 @@ func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category str
 
 	// PROC_ROOT_PIVOT detection
 	if (syscall == "openat" || syscall == "open" || syscall == "stat" || syscall == "readlink") &&
-		(target == "/proc/1/root" || 
-		 target == "/proc/self/exe" || 
-		 target == "/proc/1/exe" ||
-		 (len(target) > 6 && target[:6] == "/proc/" && (target[6:] == "1/root" || target[6:] == "self/exe"))) {
+		(target == "/proc/1/root" ||
+			target == "/proc/self/exe" ||
+			target == "/proc/1/exe" ||
+			(len(target) > 6 && target[:6] == "/proc/" && (target[6:] == "1/root" || target[6:] == "self/exe"))) {
 		return "PROC_ROOT_PIVOT", "ESCAPE", 0.9
 	}
 
 	// FS_ESCAPE_ATTEMPT detection
 	if (syscall == "mount" || syscall == "pivot_root") &&
-		(target == "/proc" || target == "/sys" || target == "/dev" || 
-		 target == "/run" || target == "/var/run" ||
-		 len(target) >= 5 && (target[:5] == "/proc" || target[:5] == "/sys/" || target[:4] == "/dev")) {
+		(target == "/proc" || target == "/sys" || target == "/dev" ||
+			target == "/run" || target == "/var/run" ||
+			len(target) >= 5 && (target[:5] == "/proc" || target[:5] == "/sys/" || target[:4] == "/dev")) {
 		return "FS_ESCAPE_ATTEMPT", "ESCAPE", 0.95
 	}
 
@@ -106,6 +107,29 @@ func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category str
 	if (syscall == "mount" || syscall == "setns" || syscall == "pivot_root") &&
 		event.Capability == "SYS_ADMIN" {
 		return "CAPABILITY_MISUSE", "ESCAPE", 0.6
+	}
+
+	// SUSPICIOUS_EXEC_FROM_SNAPSHOT (R6 heuristic extension)
+	if strings.EqualFold(syscall, "execve") && strings.EqualFold(event.Capability, "PROCESS_SNAPSHOT_DIFF") {
+		t := strings.ToLower(strings.TrimSpace(target))
+		if t != "" {
+			keywords := []string{
+				"bash", "sh", "nc", "netcat", "ncat", "socat",
+				"curl", "wget", "python", "perl", "ruby",
+			}
+			for _, k := range keywords {
+				if strings.Contains(t, k) {
+					return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
+				}
+			}
+			if strings.HasPrefix(t, "/tmp/") || strings.HasPrefix(t, "/dev/shm/") {
+				return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
+			}
+		}
+	}
+	// NETWORK_QUEUE_ANOMALY (R5 phase-2)
+	if strings.EqualFold(syscall, "connect") && strings.EqualFold(event.Capability, "NETWORK_TXRX_QUEUE_SPIKE") {
+		return "NETWORK_QUEUE_ANOMALY", "NETWORK", 0.65
 	}
 
 	// Default: unknown signal

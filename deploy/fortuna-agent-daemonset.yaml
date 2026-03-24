@@ -121,8 +121,14 @@ spec:
             - name: LOG_LEVEL
               value: "info"
             # Pod Detail: host = collect from /proc (no exec); exec = current exec ps/ss (default when unset)
-            # - name: POD_DETAIL_RUNTIME_SOURCE
-            #   value: "host"
+            - name: POD_DETAIL_RUNTIME_SOURCE
+              value: "host"
+            # Explicit host proc root for runtime collectors (kept explicit for deploy clarity)
+            - name: POD_DETAIL_PROC_ROOT
+              value: "/host/proc"
+            # Approximate per-process CPU% from /proc; set false to disable
+            - name: POD_DETAIL_PROCESS_CPU_APPROX_FROM_PROC
+              value: "true"
           
           volumeMounts:
             - name: tls-certs

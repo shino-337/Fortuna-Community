@@ -149,6 +149,15 @@ spec:
                   name: fortuna-secrets
                   key: pod-detail-encryption-key
                   optional: true
+            # R5 Phase-2 network queue anomaly tuning (core-side baseline detector).
+            - name: POD_DETAIL_NET_SPIKE_WINDOW_MINUTES
+              value: "30"
+            - name: POD_DETAIL_NET_SPIKE_MIN_SAMPLES
+              value: "5"
+            - name: POD_DETAIL_NET_SPIKE_MULTIPLIER
+              value: "4.0"
+            - name: POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES
+              value: "4096"
             # Default admin for E2E / test scripts (migrations create user when set). Override with secret in production.
             - name: FORTUNA_ADMIN_USERNAME
               value: "admin"

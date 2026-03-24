@@ -93,7 +93,7 @@ func DecryptSensitive(ciphertext string) string {
 	return string(plain)
 }
 
-// decryptProcessList decrypts Command and BinaryPath in place for API response. Detects encrypted value by base64 decode + length.
+// decryptProcessList decrypts sensitive process fields in place for API response.
 func decryptProcessList(list []models.PodProcess) {
 	for i := range list {
 		if list[i].Command != "" {
@@ -104,6 +104,11 @@ func decryptProcessList(list []models.PodProcess) {
 		if list[i].BinaryPath != "" {
 			if dec := DecryptSensitive(list[i].BinaryPath); dec != list[i].BinaryPath {
 				list[i].BinaryPath = dec
+			}
+		}
+		if list[i].WorkingDir != "" {
+			if dec := DecryptSensitive(list[i].WorkingDir); dec != list[i].WorkingDir {
+				list[i].WorkingDir = dec
 			}
 		}
 	}

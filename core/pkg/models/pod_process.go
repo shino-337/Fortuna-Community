@@ -15,10 +15,14 @@ type PodProcess struct {
 	PID           int        `gorm:"column:p_id;not null" json:"pid"`
 	PPID          int        `gorm:"column:pp_id;default:0" json:"ppid"`
 	UserName      string     `gorm:"column:user_name;type:varchar(255)" json:"userName"`
+	UserID        int        `gorm:"column:user_id;default:0" json:"userId,omitempty"`
+	GroupID       int        `gorm:"column:group_id;default:0" json:"groupId,omitempty"`
 	CPUPercent    float64    `gorm:"type:float;default:0" json:"cpuPercent"`
 	MemoryPercent float64    `gorm:"type:float;default:0" json:"memoryPercent"`
 	Command       string     `gorm:"type:text" json:"command"`
 	BinaryPath    string     `gorm:"type:varchar(1024)" json:"binaryPath"`
+	WorkingDir    string     `gorm:"column:working_dir;type:varchar(1024)" json:"workingDir,omitempty"`
+	CapEff        string     `gorm:"column:cap_eff;type:varchar(128)" json:"capEff,omitempty"`
 	StartedAt     *time.Time `json:"startedAt,omitempty"`
 	ObservedAt    time.Time  `gorm:"default:CURRENT_TIMESTAMP" json:"observedAt"`
 	CreatedAt     time.Time  `json:"createdAt"`

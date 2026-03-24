@@ -1,8 +1,11 @@
 package api
 
 import (
+	"log"
 	"net/http"
+	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -190,10 +193,10 @@ func IngestPodRuntimeMetricsPayload(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var req struct {
-			PodUID     string                      `json:"podUid" binding:"required"`
-			ClusterID  string                      `json:"clusterId" binding:"required"`
-			Namespace  string                      `json:"namespace" binding:"required"`
-			Metrics    []models.PodRuntimeMetrics  `json:"metrics"`
+			PodUID    string                     `json:"podUid" binding:"required"`
+			ClusterID string                     `json:"clusterId" binding:"required"`
+			Namespace string                     `json:"namespace" binding:"required"`
+			Metrics   []models.PodRuntimeMetrics `json:"metrics"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -230,11 +233,11 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var req struct {
-			PodUID        string               `json:"podUid" binding:"required"`
-			ClusterID     string               `json:"clusterId" binding:"required"`
-			Namespace     string               `json:"namespace" binding:"required"`
-			RuntimeSource string               `json:"runtimeSource"` // optional: "host" | "exec" for UI indicator
-			Processes     []models.PodProcess  `json:"processes"`
+			PodUID        string              `json:"podUid" binding:"required"`
+			ClusterID     string              `json:"clusterId" binding:"required"`
+			Namespace     string              `json:"namespace" binding:"required"`
+			RuntimeSource string              `json:"runtimeSource"` // optional: "host" | "exec" for UI indicator
+			Processes     []models.PodProcess `json:"processes"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -256,12 +259,33 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 			req.Processes[i].ObservedAt = now
 			req.Processes[i].CreatedAt = now
 			req.Processes[i].RuntimeSource = runtimeSource
+		}
+		// R7: process diff detection
+		// Compare current snapshot with previous snapshot for the same pod; emit runtime events
+		// only for newly appeared processes (container+pid key).
+		newProcessEvents, err := buildProcessDiffEvents(db, req.PodUID, req.Namespace, now, req.Processes)
+		if err != nil {
+			log.Printf("[PodDetail] R7 diff detection skipped for pod %s: %v", req.PodUID, err)
+			newProcessEvents = nil
+		}
+		for i := range req.Processes {
 			// Phase 4.2: encrypt sensitive fields at-rest when POD_DETAIL_ENCRYPTION_KEY is set
 			req.Processes[i].Command = EncryptSensitive(req.Processes[i].Command)
 			req.Processes[i].BinaryPath = EncryptSensitive(req.Processes[i].BinaryPath)
+			req.Processes[i].WorkingDir = EncryptSensitive(req.Processes[i].WorkingDir)
 		}
 		if len(req.Processes) > 0 {
-			if err := dbIngestWithRetry(db, func(tx *gorm.DB) error { return tx.CreateInBatches(req.Processes, 100).Error }); err != nil {
+			if err := dbIngestWithRetry(db, func(tx *gorm.DB) error {
+				if err := tx.CreateInBatches(req.Processes, 100).Error; err != nil {
+					return err
+				}
+				if len(newProcessEvents) > 0 {
+					if err := tx.CreateInBatches(newProcessEvents, 100).Error; err != nil {
+						return err
+					}
+				}
+				return nil
+			}); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
@@ -269,6 +293,70 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(req.Processes)})
 	}
+}
+
+func buildProcessDiffEvents(db *gorm.DB, podUID, namespace string, observedAt time.Time, current []models.PodProcess) ([]models.RuntimeEvent, error) {
+	if podUID == "" || len(current) == 0 {
+		return nil, nil
+	}
+	var prevSnapshot models.PodProcess
+	if err := db.Table("pod_processes").
+		Select("observed_at").
+		Where("pod_uid = ? AND observed_at < ?", podUID, observedAt).
+		Order("observed_at DESC").
+		Limit(1).
+		Take(&prevSnapshot).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, err
+	}
+	// First snapshot for this pod: no diff baseline.
+	if prevSnapshot.ObservedAt.IsZero() {
+		return nil, nil
+	}
+
+	var prev []models.PodProcess
+	if err := db.Where("pod_uid = ? AND observed_at = ?", podUID, prevSnapshot.ObservedAt).Find(&prev).Error; err != nil {
+		return nil, err
+	}
+	prevSet := make(map[string]struct{}, len(prev))
+	for i := range prev {
+		prevSet[processDiffKey(prev[i].ContainerName, prev[i].PID)] = struct{}{}
+	}
+
+	events := make([]models.RuntimeEvent, 0, len(current))
+	for i := range current {
+		k := processDiffKey(current[i].ContainerName, current[i].PID)
+		if _, ok := prevSet[k]; ok {
+			continue
+		}
+		target := strings.TrimSpace(current[i].BinaryPath)
+		if target == "" {
+			target = strings.TrimSpace(current[i].Command)
+		}
+		// RuntimeEvent.TargetPath is varchar(500)
+		if len(target) > 500 {
+			target = target[:500]
+		}
+		events = append(events, models.RuntimeEvent{
+			PodUID:     podUID,
+			Namespace:  namespace,
+			Syscall:    "execve",
+			TargetPath: target,
+			Capability: "PROCESS_SNAPSHOT_DIFF",
+			CreatedAt:  observedAt,
+		})
+		// Safety cap to avoid spikes on huge churn.
+		if len(events) >= 500 {
+			break
+		}
+	}
+	return events, nil
+}
+
+func processDiffKey(container string, pid int) string {
+	return container + "|" + strconv.Itoa(pid)
 }
 
 // IngestPodNetworkConnectionsPayload accepts POST from agent.
@@ -305,12 +393,25 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 			req.Connections[i].CreatedAt = now
 			req.Connections[i].RuntimeSource = runtimeSource
 		}
+		newNetworkEvents, err := buildNetworkQueueSpikeEvents(db, req.PodUID, req.Namespace, now, req.Connections)
+		if err != nil {
+			log.Printf("[PodDetail] R5 network anomaly detection skipped for pod %s: %v", req.PodUID, err)
+			newNetworkEvents = nil
+		}
 		if len(req.Connections) > 0 {
 			// Use PrepareStmt to reuse INSERT plan; smaller batch (50) to reduce per-statement time and stay under PG param limit.
 			session := db.Session(&gorm.Session{PrepareStmt: true})
 			if err := dbIngestWithRetry(session, func(tx *gorm.DB) error {
 				return tx.Transaction(func(tx2 *gorm.DB) error {
-					return tx2.CreateInBatches(req.Connections, 50).Error
+					if err := tx2.CreateInBatches(req.Connections, 50).Error; err != nil {
+						return err
+					}
+					if len(newNetworkEvents) > 0 {
+						if err := tx2.CreateInBatches(newNetworkEvents, 100).Error; err != nil {
+							return err
+						}
+					}
+					return nil
 				})
 			}); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -322,6 +423,111 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+func buildNetworkQueueSpikeEvents(db *gorm.DB, podUID, namespace string, observedAt time.Time, current []models.PodNetworkConnection) ([]models.RuntimeEvent, error) {
+	if podUID == "" || len(current) == 0 {
+		return nil, nil
+	}
+	windowMin := envIntDefault("POD_DETAIL_NET_SPIKE_WINDOW_MINUTES", 30)
+	minSamples := envIntDefault("POD_DETAIL_NET_SPIKE_MIN_SAMPLES", 5)
+	multiplier := envFloatDefault("POD_DETAIL_NET_SPIKE_MULTIPLIER", 4.0)
+	minQueueBytes := int64(envIntDefault("POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES", 4096))
+
+	type baselineRow struct {
+		ContainerName string
+		DestIP        string
+		DestPort      int
+		Protocol      string
+		AvgQueue      float64
+		Samples       int64
+	}
+	var baseline []baselineRow
+	fromTime := observedAt.Add(-time.Duration(windowMin) * time.Minute)
+	if err := db.Table("pod_network_connections").
+		Select("container_name, dest_ip, dest_port, protocol, AVG(bytes_sent + bytes_recv) AS avg_queue, COUNT(*) AS samples").
+		Where("pod_uid = ? AND observed_at >= ? AND observed_at < ?", podUID, fromTime, observedAt).
+		Group("container_name, dest_ip, dest_port, protocol").
+		Scan(&baseline).Error; err != nil {
+		return nil, err
+	}
+	baseMap := make(map[string]baselineRow, len(baseline))
+	for i := range baseline {
+		k := networkAnomalyKey(baseline[i].ContainerName, baseline[i].DestIP, baseline[i].DestPort, baseline[i].Protocol)
+		baseMap[k] = baseline[i]
+	}
+
+	events := make([]models.RuntimeEvent, 0, len(current))
+	emitted := make(map[string]struct{})
+	for i := range current {
+		c := current[i]
+		k := networkAnomalyKey(c.ContainerName, c.DestIP, c.DestPort, c.Protocol)
+		if _, ok := emitted[k]; ok {
+			continue
+		}
+		base, ok := baseMap[k]
+		if !ok || base.Samples < int64(minSamples) {
+			continue
+		}
+		currentQueue := c.BytesSent + c.BytesRecv
+		if currentQueue < minQueueBytes {
+			continue
+		}
+		if base.AvgQueue <= 0 {
+			continue
+		}
+		if float64(currentQueue) < base.AvgQueue*multiplier {
+			continue
+		}
+		target := strings.TrimSpace(c.DestIP) + ":" + strconv.Itoa(c.DestPort) +
+			" proto=" + strings.ToLower(strings.TrimSpace(c.Protocol)) +
+			" q=" + strconv.FormatInt(currentQueue, 10) +
+			" avg=" + strconv.FormatFloat(base.AvgQueue, 'f', 0, 64)
+		if len(target) > 500 {
+			target = target[:500]
+		}
+		events = append(events, models.RuntimeEvent{
+			PodUID:     podUID,
+			Namespace:  namespace,
+			Syscall:    "connect",
+			TargetPath: target,
+			Capability: "NETWORK_TXRX_QUEUE_SPIKE",
+			CreatedAt:  observedAt,
+		})
+		emitted[k] = struct{}{}
+		if len(events) >= 100 {
+			break
+		}
+	}
+	return events, nil
+}
+
+func networkAnomalyKey(container, destIP string, destPort int, proto string) string {
+	return container + "|" + destIP + "|" + strconv.Itoa(destPort) + "|" + strings.ToLower(strings.TrimSpace(proto))
+}
+
+func envIntDefault(name string, def int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
+func envFloatDefault(name string, def float64) float64 {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil || n <= 0 {
+		return def
+	}
+	return n
+}
+
 // IngestPodEventsPayload accepts POST from agent (K8s events; involved_uid can be pod UID).
 func IngestPodEventsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -329,7 +535,7 @@ func IngestPodEventsPayload(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var req struct {
-			ClusterID string           `json:"clusterId" binding:"required"`
+			ClusterID string            `json:"clusterId" binding:"required"`
 			Events    []models.K8sEvent `json:"events"`
 		}
 		if err := c.ShouldBindJSON(&req); err != nil {

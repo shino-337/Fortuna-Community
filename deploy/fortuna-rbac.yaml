@@ -101,6 +101,11 @@ rules:
   resources:
     - nodes
   verbs: ["get", "list"]
+- apiGroups: [""]
+  resources:
+    - nodes/proxy
+  verbs: ["get"]
+
 
 # Read namespaces for context
 - apiGroups: [""]

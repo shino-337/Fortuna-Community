@@ -25,6 +25,8 @@ type connectionPayload struct {
 	DestPort      int    `json:"destPort"`
 	Protocol      string `json:"protocol"`
 	State         string `json:"state"`
+	BytesSent     int64  `json:"bytesSent,omitempty"`
+	BytesRecv     int64  `json:"bytesRecv,omitempty"`
 }
 
 // CollectNetworkFromPod runs "ss" or "netstat" in each container and returns connection list.
@@ -180,4 +182,3 @@ func splitAddr(addr string) (ip string, port int) {
 	}
 	return host, p
 }
-

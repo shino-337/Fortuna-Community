@@ -41,7 +41,7 @@ func CollectProcessesFromPod(ctx context.Context, clientset kubernetes.Interface
 	return all, nil
 }
 
-// execPsInContainer runs "ps -eo pid,ppid,user,%cpu,%mem,comm" in the container and parses output.
+// execPsInContainer runs "ps -eo pid,ppid,user,%cpu,%mem,args" in the container and parses output.
 func execPsInContainer(ctx context.Context, clientset kubernetes.Interface, restConfig *rest.Config, namespace, podName, containerName, observedAt string) ([]processPayload, error) {
 	req := clientset.CoreV1().RESTClient().Post().
 		Resource("pods").
@@ -50,7 +50,7 @@ func execPsInContainer(ctx context.Context, clientset kubernetes.Interface, rest
 		SubResource("exec").
 		VersionedParams(&corev1.PodExecOptions{
 			Container: containerName,
-			Command:   []string{"ps", "-eo", "pid,ppid,user,%cpu,%mem,comm"},
+			Command:   []string{"ps", "-eo", "pid,ppid,user,%cpu,%mem,args"},
 			Stdin:     false,
 			Stdout:    true,
 			Stderr:    true,
@@ -74,7 +74,7 @@ func execPsInContainer(ctx context.Context, clientset kubernetes.Interface, rest
 	return parsePsOutput(out, containerName, observedAt)
 }
 
-// parsePsOutput parses "ps -eo pid,ppid,user,%cpu,%mem,comm" style output (header + lines).
+// parsePsOutput parses "ps -eo pid,ppid,user,%cpu,%mem,args" style output (header + lines).
 func parsePsOutput(out, containerName, observedAt string) ([]processPayload, error) {
 	var list []processPayload
 	scanner := bufio.NewScanner(strings.NewReader(out))
@@ -127,6 +127,12 @@ func parsePsOutput(out, containerName, observedAt string) ([]processPayload, err
 		if len(comm) > 1024 {
 			comm = comm[:1024]
 		}
+		binaryPath := comm
+		if comm != "" {
+			if args := strings.Fields(comm); len(args) > 0 {
+				binaryPath = args[0]
+			}
+		}
 		list = append(list, processPayload{
 			ContainerName: containerName,
 			PID:           pid,
@@ -135,7 +141,7 @@ func parsePsOutput(out, containerName, observedAt string) ([]processPayload, err
 			CPUPercent:    cpu,
 			MemoryPercent: mem,
 			Command:       comm,
-			BinaryPath:    comm,
+			BinaryPath:    truncate(binaryPath, 1024),
 			ObservedAt:    observedAt,
 		})
 	}

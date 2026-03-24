@@ -33,6 +33,39 @@ NO_CACHE=true ./scripts/build/build-and-load-containerd.sh
 Image sau build: `fortuna-core:latest`, `fortuna-agent:latest`, `fortuna-dashboard:latest` (và tag `VERSION` nếu set).  
 Deployment YAML dùng `imagePullPolicy: Never` để dùng image local.
 
+### Đồng nhất digest mặc định (master + worker)
+
+Từ bản cập nhật hiện tại:
+- `scripts/build/build-and-load-containerd.sh` tự đồng bộ short tag `fortuna-*:<tag>` với canonical ref `docker.io/library/fortuna-*:<tag>`.
+- `scripts/utils/push-images-to-workers.sh` bật mặc định `VERIFY_REMOTE_DIGEST=true` và fail-fast khi digest remote không khớp digest local.
+
+Luồng khuyến nghị:
+
+```bash
+# 1) Build local (đồng bộ short/canonical refs)
+./scripts/build/build-and-load-containerd.sh
+
+# 2) Push sang tất cả node với verify digest mặc định
+./scripts/utils/push-images-to-workers.sh
+
+# 3) Rollout workload
+kubectl -n fortuna rollout restart deployment/fortuna-core
+kubectl -n fortuna rollout restart daemonset/fortuna-agent
+```
+
+Kiểm tra nhanh imageID sau rollout:
+
+```bash
+kubectl get pods -n fortuna -l app.kubernetes.io/component=agent -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.spec.nodeName}{"|"}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+kubectl get pods -n fortuna -l app.kubernetes.io/component=core -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.spec.nodeName}{"|"}{.status.containerStatuses[0].imageID}{"\n"}{end}'
+```
+
+Nếu cần bỏ verify digest tạm thời (không khuyến nghị):
+
+```bash
+VERIFY_REMOTE_DIGEST=false ./scripts/utils/push-images-to-workers.sh
+```
+
 ## 4. Deploy
 
 ```bash

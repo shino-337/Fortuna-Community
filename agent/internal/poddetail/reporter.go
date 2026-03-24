@@ -114,6 +114,10 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list pods: %w", err)
 	}
+	usageByPod, err := collectPodRuntimeUsageFromKubelet(ctx, r.client, r.nodeName)
+	if err != nil {
+		log.Printf("[PodDetail] runtime usage source unavailable (node=%s): %v", r.nodeName, err)
+	}
 
 	var processesByPod map[string][]processPayload
 	var connectionsByPod map[string][]connectionPayload
@@ -140,7 +144,7 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 			continue
 		}
 		// Send runtime metrics (from pod status: container state, restart count)
-		if err := r.sendRuntimeMetrics(ctx, pod); err != nil {
+		if err := r.sendRuntimeMetrics(ctx, pod, usageByPod[uid]); err != nil {
 			log.Printf("[PodDetail] send metrics for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
 		// Process snapshot: host (from /proc) or exec
@@ -175,7 +179,7 @@ type runtimeMetricPayload struct {
 	State             string `json:"state"`
 }
 
-func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod) error {
+func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod, usageByContainer map[string]containerRuntimeUsage) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
@@ -190,11 +194,12 @@ func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod) erro
 		} else if cs.State.Terminated != nil {
 			state = "Terminated"
 		}
+		usage := usageByContainer[cs.Name]
 		metrics = append(metrics, runtimeMetricPayload{
 			ContainerName:     cs.Name,
-			CPUUsageMillicore: 0, // TODO: from metrics-server or cAdvisor
-			MemoryUsageBytes:  0,
-			MemoryLimitBytes:  0,
+			CPUUsageMillicore: usage.CPUUsageMillicore,
+			MemoryUsageBytes:  usage.MemoryUsageBytes,
+			MemoryLimitBytes:  memoryLimitBytesForContainer(pod, cs.Name),
 			RestartCount:      int(cs.RestartCount),
 			State:             state,
 		})
@@ -213,15 +218,19 @@ func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod) erro
 
 // processPayload matches Core PodProcess JSON (pid/ppid).
 type processPayload struct {
-	ContainerName string   `json:"containerName"`
-	PID           int      `json:"pid"`
-	PPID          int      `json:"ppid"`
-	UserName      string   `json:"userName"`
-	CPUPercent    float64  `json:"cpuPercent"`
-	MemoryPercent float64  `json:"memoryPercent"`
-	Command       string   `json:"command"`
-	BinaryPath    string   `json:"binaryPath"`
-	ObservedAt    string   `json:"observedAt"`
+	ContainerName string  `json:"containerName"`
+	PID           int     `json:"pid"`
+	PPID          int     `json:"ppid"`
+	UserName      string  `json:"userName"`
+	UserID        int     `json:"userId,omitempty"`
+	GroupID       int     `json:"groupId,omitempty"`
+	CPUPercent    float64 `json:"cpuPercent"`
+	MemoryPercent float64 `json:"memoryPercent"`
+	Command       string  `json:"command"`
+	BinaryPath    string  `json:"binaryPath"`
+	WorkingDir    string  `json:"workingDir,omitempty"`
+	CapEff        string  `json:"capEff,omitempty"`
+	ObservedAt    string  `json:"observedAt"`
 }
 
 // sendProcessSnapshotsForPod sends process list for one pod. When hostProcesses is non-nil (host mode)

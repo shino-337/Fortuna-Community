@@ -104,6 +104,29 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     }
   };
 
+  const getSignalBadge = (signalType: string) => {
+    const t = (signalType || '').trim().toUpperCase();
+    if (t === 'NETWORK_QUEUE_ANOMALY') {
+      return {
+        className: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+        severity: 'MEDIUM',
+        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      };
+    }
+    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
+      return {
+        className: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+        severity: 'HIGH',
+        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+      };
+    }
+    return {
+      className: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+      severity: 'INFO',
+      severityClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+    };
+  };
+
   const filteredSignals = signals.filter(signal => {
     if (!filters.search) return true;
     const searchLower = filters.search.toLowerCase();
@@ -235,11 +258,19 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
               key={signal.id}
               className="bg-slate-900/70 border border-slate-800 rounded-lg p-4 hover:border-slate-700 transition-colors"
             >
+              {(() => {
+                const visual = getSignalBadge(signal.signalType);
+                return (
               <div className="flex items-start justify-between mb-2">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <AlertTriangle size={16} className="text-pink-400" />
-                    <span className="font-semibold text-white text-sm">{signal.signalType}</span>
+                    <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${visual.className}`}>
+                      {signal.signalType}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${visual.severityClass}`}>
+                      {visual.severity}
+                    </span>
                     <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${getCategoryColor(signal.category)}`}>
                       {signal.category}
                     </span>
@@ -260,6 +291,8 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
                   </div>
                 </div>
               </div>
+                );
+              })()}
 
               {/* Evidence: expand/collapse + copy */}
               {signal.evidence && typeof signal.evidence === 'object' && Object.keys(signal.evidence).length > 0 && (() => {

@@ -78,6 +78,29 @@ export const RiskCenter: React.FC = () => {
   const [pceHeatmap, setPceHeatmap] = useState<PodCapabilitySummaryNamespace[]>([]);
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
+
+  const runtimeSignalVisual = (signalType: string): { signalClass: string; severity: string; severityClass: string } => {
+    const t = (signalType || '').trim().toUpperCase();
+    if (t === 'NETWORK_QUEUE_ANOMALY') {
+      return {
+        signalClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+        severity: 'MEDIUM',
+        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      };
+    }
+    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
+      return {
+        signalClass: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+        severity: 'HIGH',
+        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+      };
+    }
+    return {
+      signalClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+      severity: 'INFO',
+      severityClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+    };
+  };
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drawerTab, setDrawerTab] = useState<'summary' | 'evidence' | 'pce'>('summary');
   const [drawerAuditLogs, setDrawerAuditLogs] = useState<AuditLog[]>([]);
@@ -1997,7 +2020,12 @@ export const RiskCenter: React.FC = () => {
                       <div className="space-y-1.5">
                         {selectedRiskSignals.slice(0, 5).map((s) => (
                           <div key={s.id} className="text-xs bg-slate-950 border border-slate-800 rounded px-2 py-1.5 text-slate-300">
-                            <span className="text-amber-300 font-medium">{s.signalType}</span>
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border mr-2 ${runtimeSignalVisual(s.signalType).signalClass}`}>
+                              {s.signalType}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium border mr-2 ${runtimeSignalVisual(s.signalType).severityClass}`}>
+                              {runtimeSignalVisual(s.signalType).severity}
+                            </span>
                             <span className="text-slate-500"> · {s.category} · {new Date(s.createdAt).toLocaleString()}</span>
                           </div>
                         ))}

@@ -105,6 +105,12 @@ func classifySignal(syscall, target, capabilityName string, db *gorm.DB, ctx con
 	if isCapabilityMisuse(syscall, capabilityName, db, ctx, podUID) {
 		return "CAPABILITY_MISUSE", "T1611.002", 60
 	}
+	if isSuspiciousProcessSnapshotExec(syscall, capabilityName, target) {
+		return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "T1059", 45
+	}
+	if isNetworkQueueSpike(syscall, capabilityName) {
+		return "NETWORK_QUEUE_ANOMALY", "T1046", 35
+	}
 	return "", "", 0
 }
 
@@ -149,6 +155,38 @@ func isCapabilityMisuse(syscall, capName string, db *gorm.DB, ctx context.Contex
 		return true
 	}
 	return !podAllowsCapability(pod.ContainerSecurityContexts, "SYS_ADMIN")
+}
+
+func isSuspiciousProcessSnapshotExec(syscall, capName, target string) bool {
+	if strings.ToLower(strings.TrimSpace(syscall)) != "execve" {
+		return false
+	}
+	if strings.ToUpper(strings.TrimSpace(capName)) != "PROCESS_SNAPSHOT_DIFF" {
+		return false
+	}
+	t := strings.ToLower(strings.TrimSpace(target))
+	if t == "" {
+		return false
+	}
+	// Heuristic bucket for high-risk tooling frequently used in runtime abuse.
+	keywords := []string{
+		"bash", "sh", "nc", "netcat", "ncat", "socat",
+		"curl", "wget", "python", "perl", "ruby",
+	}
+	for _, k := range keywords {
+		if strings.Contains(t, k) {
+			return true
+		}
+	}
+	// Direct execution from writable locations is suspicious.
+	return strings.HasPrefix(t, "/tmp/") || strings.HasPrefix(t, "/dev/shm/")
+}
+
+func isNetworkQueueSpike(syscall, capabilityName string) bool {
+	if strings.ToLower(strings.TrimSpace(syscall)) != "connect" {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(capabilityName), "NETWORK_TXRX_QUEUE_SPIKE")
 }
 
 func podAllowsCapability(containerSecurityContexts, capName string) bool {
@@ -234,7 +272,7 @@ func upsertRuntimeScore(ctx context.Context, db *gorm.DB, podUID, namespace stri
 	now := time.Now()
 	profile.LastEventAt = &now
 	profile.UpdatedAt = now
-	
+
 	// Update capabilities array based on runtime score
 	capabilityID, _ := scoreToCapability(newScore)
 	if capabilityID != "" {
@@ -250,7 +288,7 @@ func upsertRuntimeScore(ctx context.Context, db *gorm.DB, podUID, namespace stri
 			profile.Capabilities = append(capabilities, capabilityID)
 		}
 	}
-	
+
 	_ = db.WithContext(ctx).Save(&profile).Error
 	return newScore
 }

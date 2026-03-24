@@ -19,6 +19,29 @@ export const RiskDetail: React.FC = () => {
   const [podRuntimeSignals, setPodRuntimeSignals] = useState<RuntimeSignal[]>([]);
   const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
 
+  const runtimeSignalVisual = (signalType: string): { signalClass: string; severity: string; severityClass: string } => {
+    const t = (signalType || '').trim().toUpperCase();
+    if (t === 'NETWORK_QUEUE_ANOMALY') {
+      return {
+        signalClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+        severity: 'MEDIUM',
+        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      };
+    }
+    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
+      return {
+        signalClass: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+        severity: 'HIGH',
+        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+      };
+    }
+    return {
+      signalClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+      severity: 'INFO',
+      severityClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+    };
+  };
+
   const fetchInsight = useCallback(async () => {
     if (!id) return;
     setLoading(true);
@@ -264,7 +287,16 @@ export const RiskDetail: React.FC = () => {
                 <tbody>
                   {podRuntimeSignals.slice(0, 10).map((s) => (
                     <tr key={s.id} className="border-b border-slate-800/50">
-                      <td className="py-1.5 font-medium text-amber-400">{s.signalType}</td>
+                      <td className="py-1.5">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${runtimeSignalVisual(s.signalType).signalClass}`}>
+                            {s.signalType}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${runtimeSignalVisual(s.signalType).severityClass}`}>
+                            {runtimeSignalVisual(s.signalType).severity}
+                          </span>
+                        </div>
+                      </td>
                       <td className="py-1.5 text-slate-400">{s.category}</td>
                       <td className="py-1.5 text-slate-500 font-mono truncate max-w-[120px]" title={s.podUid}>
                         {s.podUid ? (

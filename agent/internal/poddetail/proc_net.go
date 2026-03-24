@@ -66,6 +66,7 @@ func ParseProcNetFile(procRoot, proto string, pid int) ([]connectionPayload, err
 		localAddr := fields[1]
 		remAddr := fields[2]
 		stStr := fields[3]
+		txQueue, rxQueue := parseTxRxQueue(fields)
 		st, _ := strconv.ParseInt(stStr, 16, 32)
 		stateStr := tcpStateNames[int(st)]
 		if stateStr == "" {
@@ -80,12 +81,31 @@ func ParseProcNetFile(procRoot, proto string, pid int) ([]connectionPayload, err
 			DestPort:   remPort,
 			Protocol:   proto,
 			State:      stateStr,
+			BytesSent:  txQueue,
+			BytesRecv:  rxQueue,
 		})
 	}
 	if err := scanner.Err(); err != nil {
 		return nil, err
 	}
 	return list, nil
+}
+
+// parseTxRxQueue reads tx/rx queue bytes from proc net fields[4] format: "00000000:00000000" (hex).
+func parseTxRxQueue(fields []string) (int64, int64) {
+	if len(fields) < 5 {
+		return 0, 0
+	}
+	parts := strings.Split(fields[4], ":")
+	if len(parts) != 2 {
+		return 0, 0
+	}
+	tx, err1 := strconv.ParseInt(parts[0], 16, 64)
+	rx, err2 := strconv.ParseInt(parts[1], 16, 64)
+	if err1 != nil || err2 != nil {
+		return 0, 0
+	}
+	return tx, rx
 }
 
 // parseHexAddr parses "AABBCCDD:PORT" (hex, IPv4 LE) to (ip string, port int).

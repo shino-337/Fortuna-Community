@@ -15,6 +15,7 @@ type PodNetworkConnection struct {
 	DestPort      int       `gorm:"default:0" json:"destPort"`
 	Protocol      string    `gorm:"type:varchar(16);default:tcp" json:"protocol"`
 	State         string    `gorm:"type:varchar(32)" json:"state"`
+	// BytesSent/BytesRecv currently map to tx/rx queue bytes parsed from /proc/net/* (not cumulative flow totals).
 	BytesSent     int64     `gorm:"default:0" json:"bytesSent"`
 	BytesRecv     int64     `gorm:"default:0" json:"bytesRecv"`
 	ObservedAt    time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"observedAt"`

@@ -107,6 +107,10 @@ PUSH_TO_WORKERS=true bash scripts/build/build-and-load-containerd.sh
 bash scripts/utils/push-images-to-workers.sh
 ```
 
+**Lưu ý quan trọng (mặc định mới):**
+- Script push hiện bật `VERIFY_REMOTE_DIGEST=true` theo mặc định.
+- Nếu digest image trên node không khớp digest local, script sẽ fail-fast để tránh deploy lệch phiên bản giữa master/worker.
+
 **Configuration** (if needed):
 ```bash
 export WORKER_NODES="k8s-worker01 k8s-worker02"
@@ -125,6 +129,12 @@ nerdctl --namespace k8s.io save -o fortuna-agent.tar fortuna/agent:latest
 scp fortuna-*.tar user@worker:/tmp/
 ssh user@worker "sudo ctr -n k8s.io images import /tmp/fortuna-core.tar"
 ssh user@worker "sudo ctr -n k8s.io images import /tmp/fortuna-agent.tar"
+```
+
+**Verify digest after push (recommended):**
+```bash
+kubectl get pods -n fortuna -l app.kubernetes.io/component=agent \
+  -o jsonpath='{range .items[*]}{.metadata.name}{"|"}{.spec.nodeName}{"|"}{.status.containerStatuses[0].imageID}{"\n"}{end}'
 ```
 
 ### Step 7: Deploy RBAC
@@ -156,6 +166,17 @@ kubectl get svc fortuna-core -n fortuna
 ```bash
 kubectl apply -f deploy/fortuna-core-deployment.yaml
 kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=core -n fortuna --timeout=300s
+```
+
+**Core defaults now include R5 anomaly tuning envs** (auto-applied from manifest on each deploy):
+- `POD_DETAIL_NET_SPIKE_WINDOW_MINUTES=30`
+- `POD_DETAIL_NET_SPIKE_MIN_SAMPLES=5`
+- `POD_DETAIL_NET_SPIKE_MULTIPLIER=4.0`
+- `POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES=4096`
+
+**Verify env in running core pod**:
+```bash
+kubectl -n fortuna exec deploy/fortuna-core -- env | grep POD_DETAIL_NET_SPIKE
 ```
 
 **Note**: Core will automatically run database migrations on startup. This may take 1-2 minutes.

@@ -334,10 +334,14 @@ export interface PodProcessItem {
   pid: number;
   ppid?: number;
   userName?: string;
+  userId?: number;
+  groupId?: number;
   cpuPercent?: number;
   memoryPercent?: number;
   command?: string;
   binaryPath?: string;
+  workingDir?: string;
+  capEff?: string;
   startedAt?: string;
   observedAt?: string;
   /** "host" | "exec" - Runtime Source indicator (Host Inspection vs Container Exec) */
@@ -354,7 +358,9 @@ export interface PodNetworkConnectionItem {
   destPort?: number;
   protocol?: string;
   state?: string;
+  /** tx_queue bytes from /proc/net/* snapshot (not cumulative bytes sent) */
   bytesSent?: number;
+  /** rx_queue bytes from /proc/net/* snapshot (not cumulative bytes received) */
   bytesRecv?: number;
   observedAt?: string;
   /** "host" | "exec" - Runtime Source indicator */

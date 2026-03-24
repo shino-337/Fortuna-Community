@@ -79,6 +79,7 @@ SSH_TRY_USERS="${SSH_TRY_USERS:-k8s $USER root}"
 TEMP_DIR="${TEMP_DIR:-/tmp/fortuna-images}"
 # Remote node: where to put tar files (default /var/tmp to avoid /tmp Permission denied on some nodes)
 REMOTE_TEMP_DIR="${REMOTE_TEMP_DIR:-/var/tmp/fortuna-images}"
+VERIFY_REMOTE_DIGEST="${VERIFY_REMOTE_DIGEST:-true}"
 
 # Parse flags (before main)
 CLEAN_REMOTE_IMAGES="${CLEAN_REMOTE_IMAGES:-false}"
@@ -139,6 +140,21 @@ image_exists() {
     (ctr -n k8s.io images list 2>/dev/null; nerdctl --namespace k8s.io images list 2>/dev/null) | grep -q "$img"
 }
 
+resolve_export_ref() {
+    local img="$1"
+    local canonical="docker.io/library/$img"
+    if image_exists "$canonical"; then
+        echo "$canonical"
+    else
+        echo "$img"
+    fi
+}
+
+get_local_digest() {
+    local ref="$1"
+    ctr -n k8s.io images ls | awk -v r="$ref" '$1==r {print $3; exit}'
+}
+
 # Check prerequisites
 check_prerequisites() {
     log_info "Checking prerequisites..."
@@ -173,18 +189,20 @@ check_prerequisites() {
 export_image() {
     local image_name=$1
     local output_file=$2
+    local export_ref
+    export_ref=$(resolve_export_ref "$image_name")
     
-    log_info "Exporting image: $image_name -> $output_file"
+    log_info "Exporting image: $export_ref -> $output_file"
     
     # Create temp directory
     mkdir -p "$TEMP_DIR"
     
     # Export using ctr (containerd) first; then nerdctl (same namespace k8s.io)
-    if ctr -n k8s.io images export "$output_file" "$image_name" 2>/dev/null; then
+    if ctr -n k8s.io images export "$output_file" "$export_ref" 2>/dev/null; then
         log_success "Image exported: $output_file"
         return 0
     fi
-    if nerdctl --namespace k8s.io save -o "$output_file" "$image_name" 2>/dev/null; then
+    if nerdctl --namespace k8s.io save -o "$output_file" "$export_ref" 2>/dev/null; then
         log_success "Image exported: $output_file"
         return 0
     fi
@@ -323,6 +341,7 @@ import_on_worker() {
     local worker=$1
     local remote_file=$2
     local image_name=$3
+    local expected_digest=${4:-}
     
     remote_file=$(echo "$remote_file" | tr -d '\n' | xargs)
     
@@ -335,6 +354,16 @@ import_on_worker() {
     # Tag so Kubernetes finds it (ensure both refs exist: nerdctl uses docker.io/library/...)
     _ssh_run "$worker" "sudo ctr -n k8s.io images tag docker.io/library/$image_name $image_name" 2>/dev/null || true
     _ssh_run "$worker" "sudo ctr -n k8s.io images tag $image_name docker.io/library/$image_name" 2>/dev/null || true
+
+    if [ "$VERIFY_REMOTE_DIGEST" = "true" ] && [ -n "$expected_digest" ]; then
+        local got_digest
+        got_digest=$(_ssh_run "$worker" "sudo ctr -n k8s.io images ls | grep -E '^(docker.io/library/$image_name|$image_name)[[:space:]]' | head -n1 | tr -s ' ' | cut -d ' ' -f3")
+        got_digest=$(echo "$got_digest" | tr -d '\r\n ')
+        if [ "$got_digest" != "$expected_digest" ]; then
+            log_error "Digest mismatch on $worker for $image_name: expected=$expected_digest got=${got_digest:-<empty>}"
+            return 1
+        fi
+    fi
     log_success "Image imported on $worker"
     return 0
 }
@@ -381,14 +410,14 @@ process_worker() {
     fi
     
     # Import Core image on worker
-    if ! import_on_worker "$worker" "$core_remote" "$CORE_IMAGE"; then
+    if ! import_on_worker "$worker" "$core_remote" "$CORE_IMAGE" "$expected_core_digest"; then
         cleanup_remote "$worker" "$core_remote"
         cleanup_remote "$worker" "$agent_remote"
         return 1
     fi
     
     # Import Agent image on worker
-    if ! import_on_worker "$worker" "$agent_remote" "$AGENT_IMAGE"; then
+    if ! import_on_worker "$worker" "$agent_remote" "$AGENT_IMAGE" "$expected_agent_digest"; then
         cleanup_remote "$worker" "$core_remote"
         cleanup_remote "$worker" "$agent_remote"
         return 1
@@ -449,6 +478,10 @@ main() {
     log_success "Images exported to $TEMP_DIR"
     echo ""
     
+    local expected_core_digest expected_agent_digest
+    expected_core_digest=$(get_local_digest "$(resolve_export_ref "$CORE_IMAGE")")
+    expected_agent_digest=$(get_local_digest "$(resolve_export_ref "$AGENT_IMAGE")")
+
     # Process each worker node (clean if requested, then copy + import)
     local success_count=0
     local total_count=0

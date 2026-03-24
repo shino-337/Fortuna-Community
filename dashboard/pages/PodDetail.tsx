@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { PodWithRisk, PodSbom, Insight, Vulnerability } from '../types';
+import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
 import { Card } from '../components/ui/Card';
@@ -58,6 +58,8 @@ export const PodDetail: React.FC = () => {
   const [processes, setProcesses] = useState<PodProcessItem[]>([]);
   const [networkConnections, setNetworkConnections] = useState<PodNetworkConnectionItem[]>([]);
   const [podEvents, setPodEvents] = useState<PodK8sEventItem[]>([]);
+  const [runtimeSignals, setRuntimeSignals] = useState<RuntimeSignal[]>([]);
+  const [runtimeSignalFilter, setRuntimeSignalFilter] = useState<'all' | 'NETWORK_QUEUE_ANOMALY'>('all');
   const [specYaml, setSpecYaml] = useState<string>('');
 
   const idOrUid = uid ?? id;
@@ -67,6 +69,29 @@ export const PodDetail: React.FC = () => {
     if (count >= 4) return 'high';
     if (count >= 1) return 'medium';
     return 'low';
+  };
+
+  const runtimeSignalVisual = (signalType: string): { signalClass: string; severity: string; severityClass: string } => {
+    const t = (signalType || '').trim().toUpperCase();
+    if (t === 'NETWORK_QUEUE_ANOMALY') {
+      return {
+        signalClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
+        severity: 'MEDIUM',
+        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      };
+    }
+    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
+      return {
+        signalClass: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
+        severity: 'HIGH',
+        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+      };
+    }
+    return {
+      signalClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+      severity: 'INFO',
+      severityClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+    };
   };
 
   const fetchPod = useCallback(async () => {
@@ -98,6 +123,8 @@ export const PodDetail: React.FC = () => {
         } else if (tab === 'events') {
           const data = await api.getPodEvents(pod.uid);
           setPodEvents(data);
+          const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: 1440, limit: 200 });
+          setRuntimeSignals(signals);
         } else if (tab === 'spec') {
           const yaml = await api.getPodSpecYaml(pod.uid);
           setSpecYaml(yaml);
@@ -129,6 +156,7 @@ export const PodDetail: React.FC = () => {
     api.getPodProcesses(pod.uid).then(setProcesses).catch(() => []);
     api.getPodNetworkConnections(pod.uid).then(setNetworkConnections).catch(() => []);
     api.getPodEvents(pod.uid).then(setPodEvents).catch(() => []);
+    api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => []);
   }, [pod?.uid]);
 
   useEffect(() => {
@@ -160,17 +188,20 @@ export const PodDetail: React.FC = () => {
             api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
           } else if (t === 'events') {
             api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
+            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
           } else {
             api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
             api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
             api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
             api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
+            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
           }
         } catch {
           api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
           api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
           api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
           api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
+          api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
         }
       };
     } catch {
@@ -246,17 +277,7 @@ export const PodDetail: React.FC = () => {
             </div>
           </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="secondary" size="sm" onClick={() => sbom && exportSbomAsCsv(sbom)} disabled={!sbom?.components?.length}>
-            <Download className="w-4 h-4 mr-2" /> Export SBOM
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => sbom && exportSbomAsSpdxJson(sbom)} disabled={!sbom?.components?.length}>
-            <Download className="w-4 h-4 mr-2" /> SPDX
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => sbom && exportSbomAsCycloneDxJson(sbom)} disabled={!sbom?.components?.length}>
-            <Download className="w-4 h-4 mr-2" /> CycloneDX
-          </Button>
-        </div>
+        <div />
       </div>
 
       {/* Hint when pod IP / start time are missing (filled by agent sync; wait for next sync or restart agent) */}
@@ -929,9 +950,12 @@ export const PodDetail: React.FC = () => {
                   <tr>
                     <th className="px-3 py-2 font-medium">PID</th>
                     <th className="px-3 py-2 font-medium">User</th>
+                    <th className="px-3 py-2 font-medium">UID:GID</th>
                     <th className="px-3 py-2 font-medium">CPU %</th>
                     <th className="px-3 py-2 font-medium">Mem %</th>
                     <th className="px-3 py-2 font-medium">Command</th>
+                    <th className="px-3 py-2 font-medium">CWD</th>
+                    <th className="px-3 py-2 font-medium">CapEff</th>
                     <th className="px-3 py-2 font-medium">Start time</th>
                   </tr>
                 </thead>
@@ -940,9 +964,16 @@ export const PodDetail: React.FC = () => {
                     <tr key={proc.id ?? i} className="hover:bg-muted/30">
                       <td className="px-3 py-2 tabular-nums font-mono">{proc.pid}</td>
                       <td className="px-3 py-2 text-slate-300">{proc.userName ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-300">
+                        {(proc.userId != null || proc.groupId != null)
+                          ? `${proc.userId ?? '—'}:${proc.groupId ?? '—'}`
+                          : '—'}
+                      </td>
                       <td className="px-3 py-2 tabular-nums">{proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '—'}</td>
                       <td className="px-3 py-2 tabular-nums">{proc.memoryPercent != null ? proc.memoryPercent.toFixed(1) : '—'}</td>
                       <td className="px-3 py-2 font-mono text-slate-400 truncate max-w-[280px]" title={proc.command}>{proc.command ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500 truncate max-w-[220px]" title={proc.workingDir}>{proc.workingDir ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500">{proc.capEff ?? '—'}</td>
                       <td className="px-3 py-2 text-slate-500 text-xs">{proc.startedAt ? formatDateTime(proc.startedAt) : '—'}</td>
                     </tr>
                   ))}
@@ -977,6 +1008,8 @@ export const PodDetail: React.FC = () => {
                     <th className="px-3 py-2 font-medium">Local port</th>
                     <th className="px-3 py-2 font-medium">Protocol</th>
                     <th className="px-3 py-2 font-medium">Status</th>
+                    <th className="px-3 py-2 font-medium">TX queue (proc)</th>
+                    <th className="px-3 py-2 font-medium">RX queue (proc)</th>
                     <th className="px-3 py-2 font-medium">Timestamp</th>
                   </tr>
                 </thead>
@@ -1001,6 +1034,8 @@ export const PodDetail: React.FC = () => {
                         <td className="px-3 py-2 tabular-nums">{localPort || '—'}</td>
                         <td className="px-3 py-2">{conn.protocol ?? '—'}</td>
                         <td className="px-3 py-2 text-slate-400">{conn.state ?? '—'}</td>
+                        <td className="px-3 py-2 tabular-nums font-mono text-slate-400">{conn.bytesSent ?? 0}</td>
+                        <td className="px-3 py-2 tabular-nums font-mono text-slate-400">{conn.bytesRecv ?? 0}</td>
                         <td className="px-3 py-2 text-slate-500 text-xs">{conn.observedAt ? formatDateTime(conn.observedAt) : '—'}</td>
                       </tr>
                     );
@@ -1057,6 +1092,55 @@ export const PodDetail: React.FC = () => {
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
             <Activity className="w-5 h-5 text-pink-500" /> Kubernetes events
           </h3>
+          <div className="mb-6">
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h4 className="text-sm font-semibold text-white">Runtime signals (last 24h)</h4>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant={runtimeSignalFilter === 'all' ? 'default' : 'secondary'}
+                  size="sm"
+                  onClick={() => setRuntimeSignalFilter('all')}
+                >
+                  All
+                </Button>
+                <Button
+                  variant={runtimeSignalFilter === 'NETWORK_QUEUE_ANOMALY' ? 'default' : 'secondary'}
+                  size="sm"
+                  onClick={() => setRuntimeSignalFilter('NETWORK_QUEUE_ANOMALY')}
+                >
+                  Network queue anomaly
+                </Button>
+              </div>
+            </div>
+            {(() => {
+              const filteredSignals = runtimeSignals.filter((s) =>
+                runtimeSignalFilter === 'all' ? true : s.signalType === runtimeSignalFilter
+              );
+              if (filteredSignals.length === 0) {
+                return <p className="text-slate-500 text-sm">No runtime signals.</p>;
+              }
+              return (
+                <div className="space-y-2">
+                  {filteredSignals.slice(0, 20).map((s) => (
+                    <div key={s.id} className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 flex items-center justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${runtimeSignalVisual(s.signalType).signalClass}`}>
+                            {s.signalType}
+                          </span>
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${runtimeSignalVisual(s.signalType).severityClass}`}>
+                            {runtimeSignalVisual(s.signalType).severity}
+                          </span>
+                        </div>
+                        <p className="text-xs text-slate-400">{s.category} · confidence {Number(s.confidence ?? 0).toFixed(2)}</p>
+                      </div>
+                      <span className="text-xs text-slate-500 whitespace-nowrap">{s.createdAt ? formatDateTime(s.createdAt) : '—'}</span>
+                    </div>
+                  ))}
+                </div>
+              );
+            })()}
+          </div>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : podEvents.length > 0 ? (

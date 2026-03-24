@@ -109,6 +109,7 @@ var (
 	_ = Migration092_AddSBOMGoVersion
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
+	_ = Migration095_AddPodProcessRuntimeIdentityFields
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -158,70 +159,71 @@ func RunMigrations(db *gorm.DB) error {
 		Migration028_AddPerformanceIndexes,             // Performance: Critical indexes for CVE matching and insights
 		Migration029_AddInsightsUniqueConstraint,       // Performance: Unique constraint for insights batch UPSERT
 		// Schema migrations and cleanup (030-036)
-		Migration030_MigrateInsightsSchemaComplete,        // Schema Migration: Complete insights schema migration (combines old 030+031+038)
-		Migration031_CleanupDuplicateIndexes,              // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
-		Migration032_MigrateCVEMatchesComplete,            // Schema Migration: Complete cve_matches migration (combines old 037+039)
-		Migration033_AddUniqueConstraints,                 // Schema Integrity: Add proper unique constraints for data integrity
-		Migration034_StandardizeCVSSType,                  // Schema Standardization: Standardize CVSS column types to REAL
-		Migration035_EvaluateTrivyTables,                  // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
-		Migration036_AddMissingSBOMColumns,                // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
-		Migration037_AddSoftDeleteToResources,             // Schema Update: Add deleted_at to resource tables
-		Migration038_AddAgentsTable,                       // Schema Update: Add agents table for dashboard metrics
-		Migration039_AddDeletedAtToClusters,               // Schema Update: Add deleted_at to clusters
-		Migration040_AddMissingInsightColumns,             // Schema Update: Ensure insights columns exist (fixed_version, resolved_at)
-		Migration041_AddPodCapabilitiesTable,              // Schema Update: Add pod_capabilities table (PCE)
-		Migration042_AddPodFactColumns,                    // Schema Update: Add pod security fact columns
-		Migration043_AddREPTables,                         // Schema Update: Add REP tables (pod_risk_profiles, runtime_events)
-		Migration044_AddPodInstancesTable,                 // PCE Phase 1.5: Pod lifecycle normalization (pod_instances)
-		Migration045_AddRuntimeSignalsTable,               // PCE Phase 1.5: Runtime signals semantic layer
-		Migration046_AddCapabilityStateMachine,            // PCE Phase 1.5: Capability state machine (detected/confirmed/exploited/chained)
-		Migration047_AddCapabilityMetadataTable,           // PCE Phase 1.5 Adjustment: Capability metadata (semantic layer)
-		Migration048_AddPromotionRulesTable,               // PCE Phase 1.5 Adjustment: Promotion rules (signal → state)
-		Migration049_AddPodAttackStepsTable,               // PCE Phase 1.5 Adjustment: Minimal AttackStep model
-		Migration050_SeedCapabilityMetadata,               // PCE Phase 1.5 Adjustment: Seed capability metadata
-		Migration051_SeedPromotionRules,                   // PCE Phase 1.5 Adjustment: Seed promotion rules
-		Migration052_SBOMOneRowPerPod,                     // SBOM: one row per pod (drop unique on image_digest)
-		Migration053_FixMinikubeClusterDisplayName,        // Cluster display name from env only (CLUSTER_ID_TO_UPDATE, CLUSTER_DISPLAY_NAME)
-		Migration054_AddClusterMetadataColumns,            // Cluster SSOT: source, k8s_version, distribution
-		Migration055_DropClustersNameUnique,               // Cluster SSOT: allow same display name for multiple clusters (id is identity)
-		Migration056_AddNotificationsTable,                // Dashboard: notifications table (real data)
-		Migration057_AddErrorLogsTable,                    // Dashboard: error_logs table (real data)
-		Migration058_AddInsightsEvidenceViolatedRules,     // Risk Detail: evidence + violated_rules on insights
-		Migration059_AddNodeMetadataColumns,               // Node Detail: role, os, runtime on nodes
-		Migration060_AddCapabilityMetadataExtendedColumns, // Capability Spec: extended metadata (name, summary, mitre, impact, etc.)
-		Migration061_SeedCapabilityMetadataExtended,       // Capability Spec: seed extended metadata from spec
-		Migration062_AddClustersRegionEndpointKubeconfig,  // Cluster: region, endpoint, kubeconfig (fix agent sync 500)
-		Migration063_AddPodsLastSeenCleanupIndex,          // Ops: index for stale pod cleanup and pod-count queries
-		Migration064_ExpandAdvisoryIDColumns,              // CVE/SBOM: support non-CVE advisory IDs for richer package vulnerability coverage
-		Migration065_EnsureUsersDeletedAt,                 // Auth schema hardening: ensure users.deleted_at exists for soft-delete queries
-		Migration066_AddPodsPhase,                         // Pods: phase (Running, Pending, etc.) for UI
+		Migration030_MigrateInsightsSchemaComplete,              // Schema Migration: Complete insights schema migration (combines old 030+031+038)
+		Migration031_CleanupDuplicateIndexes,                    // Schema Cleanup: Remove duplicate indexes (combines old 032+038 index cleanup)
+		Migration032_MigrateCVEMatchesComplete,                  // Schema Migration: Complete cve_matches migration (combines old 037+039)
+		Migration033_AddUniqueConstraints,                       // Schema Integrity: Add proper unique constraints for data integrity
+		Migration034_StandardizeCVSSType,                        // Schema Standardization: Standardize CVSS column types to REAL
+		Migration035_EvaluateTrivyTables,                        // Schema Evaluation: Evaluate and mark Trivy tables as deprecated
+		Migration036_AddMissingSBOMColumns,                      // Schema Update: Add missing columns (pod_uid, pod_name, namespace, container_name) to sboms table
+		Migration037_AddSoftDeleteToResources,                   // Schema Update: Add deleted_at to resource tables
+		Migration038_AddAgentsTable,                             // Schema Update: Add agents table for dashboard metrics
+		Migration039_AddDeletedAtToClusters,                     // Schema Update: Add deleted_at to clusters
+		Migration040_AddMissingInsightColumns,                   // Schema Update: Ensure insights columns exist (fixed_version, resolved_at)
+		Migration041_AddPodCapabilitiesTable,                    // Schema Update: Add pod_capabilities table (PCE)
+		Migration042_AddPodFactColumns,                          // Schema Update: Add pod security fact columns
+		Migration043_AddREPTables,                               // Schema Update: Add REP tables (pod_risk_profiles, runtime_events)
+		Migration044_AddPodInstancesTable,                       // PCE Phase 1.5: Pod lifecycle normalization (pod_instances)
+		Migration045_AddRuntimeSignalsTable,                     // PCE Phase 1.5: Runtime signals semantic layer
+		Migration046_AddCapabilityStateMachine,                  // PCE Phase 1.5: Capability state machine (detected/confirmed/exploited/chained)
+		Migration047_AddCapabilityMetadataTable,                 // PCE Phase 1.5 Adjustment: Capability metadata (semantic layer)
+		Migration048_AddPromotionRulesTable,                     // PCE Phase 1.5 Adjustment: Promotion rules (signal → state)
+		Migration049_AddPodAttackStepsTable,                     // PCE Phase 1.5 Adjustment: Minimal AttackStep model
+		Migration050_SeedCapabilityMetadata,                     // PCE Phase 1.5 Adjustment: Seed capability metadata
+		Migration051_SeedPromotionRules,                         // PCE Phase 1.5 Adjustment: Seed promotion rules
+		Migration052_SBOMOneRowPerPod,                           // SBOM: one row per pod (drop unique on image_digest)
+		Migration053_FixMinikubeClusterDisplayName,              // Cluster display name from env only (CLUSTER_ID_TO_UPDATE, CLUSTER_DISPLAY_NAME)
+		Migration054_AddClusterMetadataColumns,                  // Cluster SSOT: source, k8s_version, distribution
+		Migration055_DropClustersNameUnique,                     // Cluster SSOT: allow same display name for multiple clusters (id is identity)
+		Migration056_AddNotificationsTable,                      // Dashboard: notifications table (real data)
+		Migration057_AddErrorLogsTable,                          // Dashboard: error_logs table (real data)
+		Migration058_AddInsightsEvidenceViolatedRules,           // Risk Detail: evidence + violated_rules on insights
+		Migration059_AddNodeMetadataColumns,                     // Node Detail: role, os, runtime on nodes
+		Migration060_AddCapabilityMetadataExtendedColumns,       // Capability Spec: extended metadata (name, summary, mitre, impact, etc.)
+		Migration061_SeedCapabilityMetadataExtended,             // Capability Spec: seed extended metadata from spec
+		Migration062_AddClustersRegionEndpointKubeconfig,        // Cluster: region, endpoint, kubeconfig (fix agent sync 500)
+		Migration063_AddPodsLastSeenCleanupIndex,                // Ops: index for stale pod cleanup and pod-count queries
+		Migration064_ExpandAdvisoryIDColumns,                    // CVE/SBOM: support non-CVE advisory IDs for richer package vulnerability coverage
+		Migration065_EnsureUsersDeletedAt,                       // Auth schema hardening: ensure users.deleted_at exists for soft-delete queries
+		Migration066_AddPodsPhase,                               // Pods: phase (Running, Pending, etc.) for UI
 		Migration067_ExpandPackageVulnerabilitiesVersionColumns, // CVE: package_vulnerabilities version columns to 255 for OSV data
-		Migration068_AddPodDetailColumns,                  // Pod Detail (POD_DETAIL_SPEC): pod_ip, start_time, restart_count, owner_*, qos_class
-		Migration069_AddPodSpecHash,                       // POD_SYNC_ARCHITECTURE §4.3: spec_hash for conditional PCE
-		Migration070_AddPodLastEvaluatedHash,             // last_evaluated_hash after PCE success; race protection
-		Migration071_AddPodDetailServicesTables,           // Pod Detail: pod_runtime_metrics, pod_processes, pod_network_connections, k8s_events
-		Migration072_PodProcessesGormColumns,              // Pod Detail: pid->p_id, ppid->pp_id for GORM
-		Migration073_PodProcessesHistoryIndex,             // Pod Detail: index (pod_uid, observed_at)
-		Migration074_AddRuntimeSourcePodDetail,            // Pod Detail: runtime_source (host|exec) for UI
-		Migration075_AddRiskRulesTable,                    // Risk rules CRUD: table for engine-loaded rules
-		Migration076_AddRiskRulesHistoryTable,             // Risk rules versioning: risk_rules_history (Phase 3)
-		Migration077_AddInsightExplanationRemediation,     // Risk Detail: explanation (TEXT) + remediation (JSONB) on insights
-		Migration078_AddSBOMSourceConfidence,              // SBOM (Finding #8.4): sbom_source, confidence for distroless/heuristic
-		Migration079_AddAuditTraceID,                      // Finding #5.2: trace_id on audit_logs (Agent → sync → insight)
-		Migration082_AddSBOMStatusAndVersion,              // SBOM lifecycle: status (pending/finalized) + version for immutability
-		Migration080_AddGoModuleAlias,                     // Go module alias resolver: alias → canonical (reduce CVE miss on renames)
-		Migration081_AddMirrorState,                       // mirror_state (name, version) for cache epoch; bump on sync
-		Migration083_AddSBOMMatchRuns,                     // Idempotency: sbom_match_runs per (sbom_id, version, mirror_version)
-		Migration084_AddSBOMComponentTrustFields,          // Trust boundary: original_purl, purl_validated, trust_level on sbom_components
-		Migration086_AddSBOMProcessingState,               // Replay guard: atomic last-write-wins by event timestamp/id
-		Migration087_DropLegacySBOMMatchWatermarks,        // Remove unused legacy watermark table (superseded by 086)
-		Migration088_UpdateSBOMStatusCheck,              // SBOM: status check values (complete|partial|failed)
-		Migration089_AddSBOMStatusReasonSourceDetail,     // SBOM: status_reason and component source_detail
-		Migration090_AddResolverSignatureFingerprint,     // Determinism v1: resolver/sig versions + normalized SBOM fingerprint
-		Migration091_AddInsightConfidenceColumns,        // Phase 2: confidence propagation into insights
-		Migration092_AddSBOMGoVersion,                   // SBOM: go_version column (matches models.SBOM.GoVersion; gRPC insert)
-		Migration093_EnsureK8sEventsTable,               // Repair: k8s_events if migration 071 never created it
-		Migration094_EnsureAgentsTable,                  // Repair: agents after reset-db / if migration 038 skipped
+		Migration068_AddPodDetailColumns,                        // Pod Detail (POD_DETAIL_SPEC): pod_ip, start_time, restart_count, owner_*, qos_class
+		Migration069_AddPodSpecHash,                             // POD_SYNC_ARCHITECTURE §4.3: spec_hash for conditional PCE
+		Migration070_AddPodLastEvaluatedHash,                    // last_evaluated_hash after PCE success; race protection
+		Migration071_AddPodDetailServicesTables,                 // Pod Detail: pod_runtime_metrics, pod_processes, pod_network_connections, k8s_events
+		Migration072_PodProcessesGormColumns,                    // Pod Detail: pid->p_id, ppid->pp_id for GORM
+		Migration073_PodProcessesHistoryIndex,                   // Pod Detail: index (pod_uid, observed_at)
+		Migration074_AddRuntimeSourcePodDetail,                  // Pod Detail: runtime_source (host|exec) for UI
+		Migration075_AddRiskRulesTable,                          // Risk rules CRUD: table for engine-loaded rules
+		Migration076_AddRiskRulesHistoryTable,                   // Risk rules versioning: risk_rules_history (Phase 3)
+		Migration077_AddInsightExplanationRemediation,           // Risk Detail: explanation (TEXT) + remediation (JSONB) on insights
+		Migration078_AddSBOMSourceConfidence,                    // SBOM (Finding #8.4): sbom_source, confidence for distroless/heuristic
+		Migration079_AddAuditTraceID,                            // Finding #5.2: trace_id on audit_logs (Agent → sync → insight)
+		Migration082_AddSBOMStatusAndVersion,                    // SBOM lifecycle: status (pending/finalized) + version for immutability
+		Migration080_AddGoModuleAlias,                           // Go module alias resolver: alias → canonical (reduce CVE miss on renames)
+		Migration081_AddMirrorState,                             // mirror_state (name, version) for cache epoch; bump on sync
+		Migration083_AddSBOMMatchRuns,                           // Idempotency: sbom_match_runs per (sbom_id, version, mirror_version)
+		Migration084_AddSBOMComponentTrustFields,                // Trust boundary: original_purl, purl_validated, trust_level on sbom_components
+		Migration086_AddSBOMProcessingState,                     // Replay guard: atomic last-write-wins by event timestamp/id
+		Migration087_DropLegacySBOMMatchWatermarks,              // Remove unused legacy watermark table (superseded by 086)
+		Migration088_UpdateSBOMStatusCheck,                      // SBOM: status check values (complete|partial|failed)
+		Migration089_AddSBOMStatusReasonSourceDetail,            // SBOM: status_reason and component source_detail
+		Migration090_AddResolverSignatureFingerprint,            // Determinism v1: resolver/sig versions + normalized SBOM fingerprint
+		Migration091_AddInsightConfidenceColumns,                // Phase 2: confidence propagation into insights
+		Migration092_AddSBOMGoVersion,                           // SBOM: go_version column (matches models.SBOM.GoVersion; gRPC insert)
+		Migration093_EnsureK8sEventsTable,                       // Repair: k8s_events if migration 071 never created it
+		Migration094_EnsureAgentsTable,                          // Repair: agents after reset-db / if migration 038 skipped
+		Migration095_AddPodProcessRuntimeIdentityFields,         // Pod Detail: user/group/cwd/cap_eff for runtime identity analysis
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

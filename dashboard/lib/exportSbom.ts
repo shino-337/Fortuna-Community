@@ -103,6 +103,26 @@ function downloadJson(filename: string, data: unknown): void {
   URL.revokeObjectURL(url);
 }
 
+function toCdxSeverity(input?: string): 'critical' | 'high' | 'medium' | 'low' | 'info' | 'none' | 'unknown' {
+  const s = (input ?? '').trim().toLowerCase();
+  if (s === 'critical' || s === 'high' || s === 'medium' || s === 'low' || s === 'info' || s === 'none') return s;
+  return 'unknown';
+}
+
+function toSpdxExternalRefsForVulns(vulns: Array<{ id?: string }>): Array<{ referenceCategory: string; referenceType: string; referenceLocator: string }> {
+  const refs: Array<{ referenceCategory: string; referenceType: string; referenceLocator: string }> = [];
+  for (const v of vulns || []) {
+    const id = (v?.id ?? '').trim();
+    if (!id) continue;
+    refs.push({
+      referenceCategory: 'SECURITY',
+      referenceType: 'advisory',
+      referenceLocator: `https://nvd.nist.gov/vuln/detail/${id}`,
+    });
+  }
+  return refs;
+}
+
 /**
  * Export SBOM as SPDX 2.3 JSON (package-level with purl external refs).
  */
@@ -113,15 +133,16 @@ export function exportSbomAsSpdxJson(sbom: PodSbom): void {
 
   const packages = (sbom.components || []).map((c: SbomComponent, idx: number) => {
     const pkgId = `SPDXRef-Package-${idx + 1}-${safeRef(c.name || 'pkg')}`;
-    const externalRefs = c.purl
-      ? [
-          {
-            referenceCategory: 'PACKAGE-MANAGER',
-            referenceType: 'purl',
-            referenceLocator: c.purl,
-          },
-        ]
-      : [];
+    const externalRefs = [];
+    if (c.purl) {
+      externalRefs.push({
+        referenceCategory: 'PACKAGE-MANAGER',
+        referenceType: 'purl',
+        referenceLocator: c.purl,
+      });
+    }
+    externalRefs.push(...toSpdxExternalRefsForVulns(c.vulnerabilities || []));
+    const vulnList = (c.vulnerabilities || []).map((v) => v.id).filter(Boolean).join(', ');
 
     return {
       SPDXID: pkgId,
@@ -133,12 +154,7 @@ export function exportSbomAsSpdxJson(sbom: PodSbom): void {
       licenseDeclared: 'NOASSERTION',
       copyrightText: 'NOASSERTION',
       externalRefs,
-      annotations: (c.vulnerabilities || []).map((v, i) => ({
-        annotationDate: created,
-        annotationType: 'OTHER',
-        annotator: 'Tool: Fortuna',
-        comment: `Vulnerability[${i + 1}]: ${v.id} severity=${(v.severity || 'unknown').toUpperCase()} cvss=${v.cvssScore ?? 'n/a'} status=${v.status || 'active'}`,
-      })),
+      summary: vulnList ? `Known vulnerabilities: ${vulnList}` : undefined,
     };
   });
 
@@ -152,6 +168,7 @@ export function exportSbomAsSpdxJson(sbom: PodSbom): void {
       created,
       creators: ['Tool: Fortuna Dashboard Exporter'],
     },
+    documentDescribes: packages.map((p: { SPDXID: string }) => p.SPDXID),
     packages,
     relationships: packages.map((p: { SPDXID: string }) => ({
       spdxElementId: 'SPDXRef-DOCUMENT',
@@ -189,9 +206,9 @@ export function exportSbomAsCycloneDxJson(sbom: PodSbom): void {
       source: { name: 'NVD' },
       ratings: [
         {
-          severity: (v.severity || 'unknown').toLowerCase(),
+          severity: toCdxSeverity(v.severity),
           score: v.cvssScore ?? undefined,
-          method: 'CVSSv3',
+          method: 'CVSSv31',
         },
       ],
       analysis: {
