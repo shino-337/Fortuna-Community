@@ -178,6 +178,22 @@ kubectl wait --for=condition=ready pod -l app.kubernetes.io/component=core -n fo
 ```bash
 kubectl -n fortuna exec deploy/fortuna-core -- env | grep POD_DETAIL_NET_SPIKE
 ```
+```bash
+kubectl -n fortuna exec deploy/fortuna-core -- env | grep -E "ADMISSION_RISK_GATE_ENABLED|ADMISSION_RISK_BLOCK_THRESHOLD|ADMISSION_RISK_SENSITIVE_NAMESPACES"
+```
+
+### Step 9.1: Apply Admission Webhook Configuration (R10 hybrid)
+
+```bash
+kubectl apply -f deploy/webhook-service.yaml
+kubectl apply -f deploy/webhook-config.yaml
+```
+
+**Verify**:
+```bash
+kubectl get validatingwebhookconfiguration fortuna-policy-webhook
+kubectl get svc -n fortuna fortuna-webhook
+```
 
 **Note**: Core will automatically run database migrations on startup. This may take 1-2 minutes.
 
@@ -317,6 +333,13 @@ kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=20 | grep -E
 ```
 
 **Expected**: Should see "✅ Connected to Core" or "Heartbeat successful" messages.
+
+**R9 eBPF (phase-1 scaffold)**
+- Default in manifest: `EBPF_ENABLED=false` (safe rollout).
+- To canary on selected node pool, set `EBPF_ENABLED=true` and verify agent log:
+```bash
+kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=80 | grep -i ebpf
+```
 
 **If Agent on worker node cannot connect**:
 - Wait 30-60 seconds after Flannel restart

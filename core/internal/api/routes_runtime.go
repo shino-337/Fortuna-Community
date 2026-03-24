@@ -19,4 +19,5 @@ func registerRuntimeRoutes(api *gin.RouterGroup, db *gorm.DB) {
 
 	rt.POST("/events", PostRuntimeEvents(db))
 	rt.GET("/signals", GetRuntimeSignalsList(db))
+	rt.GET("/signals/suppression-stats", GetRuntimeSignalSuppressionStats(db))
 }

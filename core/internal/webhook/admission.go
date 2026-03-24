@@ -7,6 +7,8 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	admissionv1 "k8s.io/api/admission/v1"
@@ -56,10 +58,10 @@ func (w *AdmissionWebhook) Handle(resp http.ResponseWriter, req *http.Request) {
 	defer func() {
 		duration := time.Since(start)
 		durationMs := float64(duration.Nanoseconds()) / 1e6 // Convert to milliseconds
-		
+
 		// Record admission latency metric
 		metrics.AdmissionLatencyMs.WithLabelValues("validate").Observe(durationMs)
-		
+
 		if duration > 100*time.Millisecond {
 			log.Printf("[Webhook] ⚠️  SLOW request: %v", duration)
 		} else {
@@ -102,10 +104,10 @@ func (w *AdmissionWebhook) Handle(resp http.ResponseWriter, req *http.Request) {
 	violations, err := w.evaluator.EvaluateFast(ctx, resource)
 	celDuration := time.Since(celStart)
 	celDurationMs := float64(celDuration.Nanoseconds()) / 1e6
-	
+
 	// Record CEL evaluation time (use "unknown" if template ID not available)
 	metrics.CELEvaluationMs.WithLabelValues("unknown").Observe(celDurationMs)
-	
+
 	if err != nil {
 		// On error, fail open (allow) with logging
 		log.Printf("[Webhook] Evaluation error: %v", err)
@@ -123,6 +125,13 @@ func (w *AdmissionWebhook) Handle(resp http.ResponseWriter, req *http.Request) {
 			hasBlockingViolation = true
 			blockMessage = fmt.Sprintf("Policy violation: %s - %s", v.InstanceName, v.Message)
 			break
+		}
+	}
+	// R10 phase-1 (hybrid): namespace policy is primary; threshold only elevates in sensitive namespaces.
+	if !hasBlockingViolation {
+		if ok, msg := w.hybridRiskGate(ctx, resource.Namespace); ok {
+			hasBlockingViolation = true
+			blockMessage = msg
 		}
 	}
 
@@ -144,6 +153,47 @@ func (w *AdmissionWebhook) Handle(resp http.ResponseWriter, req *http.Request) {
 	log.Printf("[Webhook] ✅ ALLOWED: %s/%s in %s", resource.Type, resource.Name, resource.Namespace)
 	metrics.AdmissionAllowedCount.WithLabelValues(resource.Type).Inc()
 	w.sendResponse(resp, &admissionReview, true, "Policy check passed")
+}
+
+func (w *AdmissionWebhook) hybridRiskGate(ctx context.Context, namespace string) (bool, string) {
+	if w.db == nil || namespace == "" {
+		return false, ""
+	}
+	if strings.EqualFold(os.Getenv("ADMISSION_RISK_GATE_ENABLED"), "false") {
+		return false, ""
+	}
+	sensitive := strings.Split(strings.TrimSpace(os.Getenv("ADMISSION_RISK_SENSITIVE_NAMESPACES")), ",")
+	nsOK := false
+	for _, ns := range sensitive {
+		if strings.TrimSpace(ns) == namespace {
+			nsOK = true
+			break
+		}
+	}
+	if !nsOK {
+		return false, ""
+	}
+	threshold := 70.0
+	if s := strings.TrimSpace(os.Getenv("ADMISSION_RISK_BLOCK_THRESHOLD")); s != "" {
+		if n, err := strconv.ParseFloat(s, 64); err == nil && n > 0 {
+			threshold = n
+		}
+	}
+	var row struct {
+		MaxScore float64
+	}
+	if err := w.db.WithContext(ctx).
+		Table("risk_scores").
+		Select("COALESCE(MAX(total_score), 0) AS max_score").
+		Where("namespace = ?", namespace).
+		Scan(&row).Error; err != nil {
+		log.Printf("[Webhook] hybridRiskGate query failed: %v", err)
+		return false, ""
+	}
+	if row.MaxScore < threshold {
+		return false, ""
+	}
+	return true, fmt.Sprintf("Risk gate blocked: namespace=%s max_risk=%.2f threshold=%.2f", namespace, row.MaxScore, threshold)
 }
 
 // parseResource parses Kubernetes resource from admission request
@@ -248,8 +298,8 @@ func (w *AdmissionWebhook) publishViolationEvent(
 			"clusterId": resource.ClusterID,
 		},
 		"request": map[string]interface{}{
-			"uid":      string(req.UID),
-			"kind":     req.Kind.String(),
+			"uid":       string(req.UID),
+			"kind":      req.Kind.String(),
 			"operation": string(req.Operation),
 		},
 	}
@@ -303,4 +353,3 @@ func (w *AdmissionWebhook) HealthCheck(resp http.ResponseWriter, req *http.Reque
 	resp.WriteHeader(http.StatusOK)
 	resp.Write([]byte("OK"))
 }
-

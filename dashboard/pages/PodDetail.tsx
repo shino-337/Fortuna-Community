@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal } from '../types';
+import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal, RuntimeSignalSuppressionStats } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
 import { Card } from '../components/ui/Card';
@@ -59,6 +59,7 @@ export const PodDetail: React.FC = () => {
   const [networkConnections, setNetworkConnections] = useState<PodNetworkConnectionItem[]>([]);
   const [podEvents, setPodEvents] = useState<PodK8sEventItem[]>([]);
   const [runtimeSignals, setRuntimeSignals] = useState<RuntimeSignal[]>([]);
+  const [signalStats, setSignalStats] = useState<RuntimeSignalSuppressionStats | null>(null);
   const [runtimeSignalFilter, setRuntimeSignalFilter] = useState<'all' | 'NETWORK_QUEUE_ANOMALY'>('all');
   const [specYaml, setSpecYaml] = useState<string>('');
 
@@ -125,6 +126,8 @@ export const PodDetail: React.FC = () => {
           setPodEvents(data);
           const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: 1440, limit: 200 });
           setRuntimeSignals(signals);
+          const stats = await api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 });
+          setSignalStats(stats);
         } else if (tab === 'spec') {
           const yaml = await api.getPodSpecYaml(pod.uid);
           setSpecYaml(yaml);
@@ -157,6 +160,7 @@ export const PodDetail: React.FC = () => {
     api.getPodNetworkConnections(pod.uid).then(setNetworkConnections).catch(() => []);
     api.getPodEvents(pod.uid).then(setPodEvents).catch(() => []);
     api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => []);
+    api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
   }, [pod?.uid]);
 
   useEffect(() => {
@@ -189,12 +193,14 @@ export const PodDetail: React.FC = () => {
           } else if (t === 'events') {
             api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
             api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+            api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
           } else {
             api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
             api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
             api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
             api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
             api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+            api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
           }
         } catch {
           api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
@@ -202,6 +208,7 @@ export const PodDetail: React.FC = () => {
           api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
           api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
           api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+          api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
         }
       };
     } catch {
@@ -1093,6 +1100,13 @@ export const PodDetail: React.FC = () => {
             <Activity className="w-5 h-5 text-pink-500" /> Kubernetes events
           </h3>
           <div className="mb-6">
+            {signalStats && (
+              <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">R5 emitted(60m): {signalStats.emittedEvents}</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">keys: {signalStats.uniqueKeys}</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">max ratio: {Number(signalStats.maxRatio ?? 0).toFixed(2)}</span>
+              </div>
+            )}
             <div className="flex items-center justify-between gap-3 mb-3">
               <h4 className="text-sm font-semibold text-white">Runtime signals (last 24h)</h4>
               <div className="flex items-center gap-2">

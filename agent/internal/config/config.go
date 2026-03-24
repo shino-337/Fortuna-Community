@@ -45,6 +45,9 @@ type Config struct {
 	RuntimeEventsEnabled bool
 	RuntimeEventsPath    string
 	RuntimeEventsPoll    time.Duration
+
+	// eBPF runtime telemetry (R9)
+	EBPFEnabled bool
 }
 
 func LoadConfig() *Config {
@@ -54,26 +57,27 @@ func LoadConfig() *Config {
 	agentID := getEnv("AGENT_ID", nodeName+"-agent")
 
 	cfg := &Config{
-		AgentID:          agentID,
-		NodeID:           nodeID,
-		NodeName:         nodeName,
-		ClusterID:        getEnv("CLUSTER_ID", ""),   // From env or kubeconfig in main; no hardcoded default
-		ClusterName:      getEnv("CLUSTER_NAME", ""), // Optional; main uses kubeconfig or CLUSTER_ID when set
-		CoreGRPCEndpoint: getEnv("CORE_GRPC_ENDPOINT", "fortuna-core.fortuna.svc.cluster.local:9090"),
-		CoreHTTPEndpoint: getEnv("CORE_HTTP_ENDPOINT", "http://fortuna-core.fortuna.svc.cluster.local:8080"),
-		TLSEnabled:       getEnv("TLS_ENABLED", "true") == "true",
-		TLSCertPath:      getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/client/tls.crt"),
-		TLSKeyPath:       getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/client/tls.key"),
-		TLSCACertPath:    getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/client/ca.crt"),
-		BatchSize:        parseInt(getEnv("BATCH_SIZE", "50")),
-		BatchTimeoutMS:   parseInt(getEnv("BATCH_TIMEOUT_MS", "5000")),
-		SyncInterval:      parseDuration(getEnv("SYNC_INTERVAL", "30s")),
-		HeartbeatInterval: parseDuration(getEnv("HEARTBEAT_INTERVAL", "15s")),
-		Kubeconfig:        getEnv("KUBECONFIG", ""),
-		WatchNamespace:   getEnv("WATCH_NAMESPACE", ""),
+		AgentID:              agentID,
+		NodeID:               nodeID,
+		NodeName:             nodeName,
+		ClusterID:            getEnv("CLUSTER_ID", ""),   // From env or kubeconfig in main; no hardcoded default
+		ClusterName:          getEnv("CLUSTER_NAME", ""), // Optional; main uses kubeconfig or CLUSTER_ID when set
+		CoreGRPCEndpoint:     getEnv("CORE_GRPC_ENDPOINT", "fortuna-core.fortuna.svc.cluster.local:9090"),
+		CoreHTTPEndpoint:     getEnv("CORE_HTTP_ENDPOINT", "http://fortuna-core.fortuna.svc.cluster.local:8080"),
+		TLSEnabled:           getEnv("TLS_ENABLED", "true") == "true",
+		TLSCertPath:          getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/client/tls.crt"),
+		TLSKeyPath:           getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/client/tls.key"),
+		TLSCACertPath:        getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/client/ca.crt"),
+		BatchSize:            parseInt(getEnv("BATCH_SIZE", "50")),
+		BatchTimeoutMS:       parseInt(getEnv("BATCH_TIMEOUT_MS", "5000")),
+		SyncInterval:         parseDuration(getEnv("SYNC_INTERVAL", "30s")),
+		HeartbeatInterval:    parseDuration(getEnv("HEARTBEAT_INTERVAL", "15s")),
+		Kubeconfig:           getEnv("KUBECONFIG", ""),
+		WatchNamespace:       getEnv("WATCH_NAMESPACE", ""),
 		RuntimeEventsEnabled: getEnv("RUNTIME_EVENTS_ENABLED", "false") == "true",
 		RuntimeEventsPath:    getEnv("RUNTIME_EVENTS_PATH", "/var/log/fortuna/runtime-events.log"),
 		RuntimeEventsPoll:    parseDuration(getEnv("RUNTIME_EVENTS_POLL", "5s")),
+		EBPFEnabled:          getEnv("EBPF_ENABLED", "false") == "true",
 	}
 
 	return cfg

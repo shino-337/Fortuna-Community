@@ -431,6 +431,7 @@ func buildNetworkQueueSpikeEvents(db *gorm.DB, podUID, namespace string, observe
 	minSamples := envIntDefault("POD_DETAIL_NET_SPIKE_MIN_SAMPLES", 5)
 	multiplier := envFloatDefault("POD_DETAIL_NET_SPIKE_MULTIPLIER", 4.0)
 	minQueueBytes := int64(envIntDefault("POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES", 4096))
+	cooldownMinutes := envIntDefault("POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES", 10)
 
 	type baselineRow struct {
 		ContainerName string
@@ -477,10 +478,18 @@ func buildNetworkQueueSpikeEvents(db *gorm.DB, podUID, namespace string, observe
 		if float64(currentQueue) < base.AvgQueue*multiplier {
 			continue
 		}
-		target := strings.TrimSpace(c.DestIP) + ":" + strconv.Itoa(c.DestPort) +
+		ratio := float64(currentQueue) / base.AvgQueue
+		if suppressed, err := isNetworkSpikeSuppressed(db, podUID, k, observedAt, cooldownMinutes); err != nil {
+			return nil, err
+		} else if suppressed {
+			continue
+		}
+		target := "key=" + k + " dst=" + strings.TrimSpace(c.DestIP) + ":" + strconv.Itoa(c.DestPort) +
 			" proto=" + strings.ToLower(strings.TrimSpace(c.Protocol)) +
 			" q=" + strconv.FormatInt(currentQueue, 10) +
-			" avg=" + strconv.FormatFloat(base.AvgQueue, 'f', 0, 64)
+			" avg=" + strconv.FormatFloat(base.AvgQueue, 'f', 0, 64) +
+			" ratio=" + strconv.FormatFloat(ratio, 'f', 2, 64) +
+			" samples=" + strconv.FormatInt(base.Samples, 10)
 		if len(target) > 500 {
 			target = target[:500]
 		}
@@ -498,6 +507,21 @@ func buildNetworkQueueSpikeEvents(db *gorm.DB, podUID, namespace string, observe
 		}
 	}
 	return events, nil
+}
+
+func isNetworkSpikeSuppressed(db *gorm.DB, podUID, key string, observedAt time.Time, cooldownMinutes int) (bool, error) {
+	if cooldownMinutes <= 0 {
+		return false, nil
+	}
+	from := observedAt.Add(-time.Duration(cooldownMinutes) * time.Minute)
+	var cnt int64
+	err := db.Model(&models.RuntimeEvent{}).
+		Where("pod_uid = ? AND capability = ? AND created_at >= ? AND target_path LIKE ?", podUID, "NETWORK_TXRX_QUEUE_SPIKE", from, "key="+key+" %").
+		Count(&cnt).Error
+	if err != nil {
+		return false, err
+	}
+	return cnt > 0, nil
 }
 
 func networkAnomalyKey(container, destIP string, destPort int, proto string) string {

@@ -90,3 +90,58 @@ func TestBuildNetworkQueueSpikeEvents_NoBaselineNoEvent(t *testing.T) {
 		t.Fatalf("expected no event without baseline, got %d", len(events))
 	}
 }
+
+func TestBuildNetworkQueueSpikeEvents_CooldownSuppressesRepeatedSpike(t *testing.T) {
+	db := newR5TestDB(t)
+	podUID := "pod-net-r5-cooldown"
+	ns := "fortuna"
+	now := time.Now().UTC()
+	for i := 0; i < 6; i++ {
+		row := models.PodNetworkConnection{
+			PodUID:        podUID,
+			ClusterID:     "c1",
+			Namespace:     ns,
+			ContainerName: "app",
+			DestIP:        "10.0.0.8",
+			DestPort:      443,
+			Protocol:      "tcp",
+			BytesSent:     300,
+			BytesRecv:     200,
+			ObservedAt:    now.Add(-8 * time.Minute),
+			CreatedAt:     now.Add(-8 * time.Minute),
+		}
+		if err := db.Create(&row).Error; err != nil {
+			t.Fatalf("seed baseline: %v", err)
+		}
+	}
+	// Existing spike event in cooldown window.
+	existing := models.RuntimeEvent{
+		PodUID:     podUID,
+		Namespace:  ns,
+		Syscall:    "connect",
+		Capability: "NETWORK_TXRX_QUEUE_SPIKE",
+		TargetPath: "key=app|10.0.0.8|443|tcp dst=10.0.0.8:443 proto=tcp q=9000 avg=500 ratio=18.00 samples=6",
+		CreatedAt:  now.Add(-2 * time.Minute),
+	}
+	if err := db.Create(&existing).Error; err != nil {
+		t.Fatalf("seed existing event: %v", err)
+	}
+	current := []models.PodNetworkConnection{
+		{
+			ContainerName: "app",
+			DestIP:        "10.0.0.8",
+			DestPort:      443,
+			Protocol:      "tcp",
+			BytesSent:     7000,
+			BytesRecv:     3000,
+		},
+	}
+	t.Setenv("POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES", "10")
+	events, err := buildNetworkQueueSpikeEvents(db, podUID, ns, now, current)
+	if err != nil {
+		t.Fatalf("buildNetworkQueueSpikeEvents error: %v", err)
+	}
+	if len(events) != 0 {
+		t.Fatalf("expected suppression by cooldown, got %d events", len(events))
+	}
+}

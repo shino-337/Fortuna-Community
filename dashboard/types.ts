@@ -425,6 +425,14 @@ export interface RuntimeSignal {
   createdAt: string;
 }
 
+export interface RuntimeSignalSuppressionStats {
+  sinceMinutes: number;
+  emittedEvents: number;
+  uniqueKeys: number;
+  maxRatio: number;
+  perKey: Record<string, number>;
+}
+
 // Phase 2.3: Capability State History
 export interface CapabilityStateHistory {
   capabilityId: string;

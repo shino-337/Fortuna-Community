@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"strconv"
 	"strings"
 	"time"
 
@@ -109,7 +110,7 @@ func classifySignal(syscall, target, capabilityName string, db *gorm.DB, ctx con
 		return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "T1059", 45
 	}
 	if isNetworkQueueSpike(syscall, capabilityName) {
-		return "NETWORK_QUEUE_ANOMALY", "T1046", 35
+		return "NETWORK_QUEUE_ANOMALY", "T1046", networkQueueSpikeScore(target)
 	}
 	return "", "", 0
 }
@@ -187,6 +188,42 @@ func isNetworkQueueSpike(syscall, capabilityName string) bool {
 		return false
 	}
 	return strings.EqualFold(strings.TrimSpace(capabilityName), "NETWORK_TXRX_QUEUE_SPIKE")
+}
+
+func networkQueueSpikeScore(target string) int {
+	ratio := parseTargetFloatKV(target, "ratio")
+	// Default for backward compatibility when old events don't carry ratio.
+	if ratio <= 0 {
+		return 35
+	}
+	switch {
+	case ratio >= 12:
+		return 65
+	case ratio >= 8:
+		return 55
+	case ratio >= 5:
+		return 45
+	default:
+		return 35
+	}
+}
+
+func parseTargetFloatKV(target, key string) float64 {
+	if target == "" || key == "" {
+		return 0
+	}
+	for _, token := range strings.Fields(target) {
+		if !strings.HasPrefix(token, key+"=") {
+			continue
+		}
+		v := strings.TrimPrefix(token, key+"=")
+		n, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return 0
+		}
+		return n
+	}
+	return 0
 }
 
 func podAllowsCapability(containerSecurityContexts, capName string) bool {

@@ -20,6 +20,7 @@ import (
 	"github.com/fortuna/agent/internal/k8s"
 	"github.com/fortuna/agent/internal/poddetail"
 	"github.com/fortuna/agent/internal/runtime"
+	ebpfruntime "github.com/fortuna/agent/internal/runtime/ebpf"
 	"github.com/fortuna/agent/internal/sbom"
 	"github.com/fortuna/agent/internal/syncer"
 	"github.com/fortuna/agent/internal/watcher"
@@ -260,6 +261,11 @@ func main() {
 		reader := runtime.NewReader(cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll, cfg.CoreHTTPEndpoint)
 		go reader.Start(ctx)
 		log.Printf("✅ Runtime events reader enabled (path=%s poll=%s)", cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll)
+	}
+	if cfg.EBPFEnabled {
+		sensor := ebpfruntime.NewSensor()
+		go sensor.Start(ctx)
+		log.Printf("✅ eBPF sensor enabled (phase-1 scaffold)")
 	}
 
 	log.Printf("========================================")

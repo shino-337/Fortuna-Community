@@ -37,6 +37,7 @@ import {
   AttackStepSummary,
   PromotionRule,
   RuntimeSignal,
+  RuntimeSignalSuppressionStats,
   PodRuntimeMetric,
   PodProcessItem,
   PodNetworkConnectionItem,
@@ -1506,6 +1507,19 @@ export const api = {
       return data.signals || [];
     } catch (err) {
       return [];
+    }
+  },
+
+  getRuntimeSignalSuppressionStats: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats | null> => {
+    try {
+      const queryParams = new URLSearchParams();
+      if (params?.podUid) queryParams.append('podUid', params.podUid);
+      if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
+      const query = queryParams.toString();
+      const url = query ? `/runtime/signals/suppression-stats?${query}` : '/runtime/signals/suppression-stats';
+      return await request<RuntimeSignalSuppressionStats>(url);
+    } catch {
+      return null;
     }
   },
 

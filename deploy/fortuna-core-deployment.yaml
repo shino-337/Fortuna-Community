@@ -158,6 +158,15 @@ spec:
               value: "4.0"
             - name: POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES
               value: "4096"
+            - name: POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES
+              value: "10"
+            # R10 hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
+            - name: ADMISSION_RISK_GATE_ENABLED
+              value: "true"
+            - name: ADMISSION_RISK_SENSITIVE_NAMESPACES
+              value: "prod,fortuna"
+            - name: ADMISSION_RISK_BLOCK_THRESHOLD
+              value: "70"
             # Default admin for E2E / test scripts (migrations create user when set). Override with secret in production.
             - name: FORTUNA_ADMIN_USERNAME
               value: "admin"

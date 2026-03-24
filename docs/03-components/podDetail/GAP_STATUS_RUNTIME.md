@@ -20,13 +20,16 @@ Cap nhat: 2026-03-24
 
 ## Chua hoan thanh (GAP con lai)
 
-- R5: Network sau hon (byte/packet counters theo flow, baseline va anomaly manh hon).
-- R6: REP/heuristic nang cao (chuoi hanh vi, giam false-positive, hop nhat evidence scoring).
-- R9: eBPF runtime telemetry (PoC, parallel mode, danh gia chi phi/chinh xac).
-- R10: Admission/Policy prevention (audit -> enforce theo namespace/risk level).
+- R5: Da co baseline + anomaly + cooldown suppression; phan packet/throughput counters theo flow van can bo sung.
+- R6: Da co dynamic scoring cho network spike; van con chuoi hanh vi (multi-signal chain) va calibration nang cao.
+- R9: Da co scaffold `cilium/ebpf` + env rollout fail-open (`EBPF_ENABLED`), chua attach sensor production.
+- R10: Da co hybrid gate theo namespace nhay cam + threshold risk trong admission; can bo sung full policy manifest rollout va tuning.
 
 ## Ghi chu van hanh
 
 - Push image multi-node hien mac dinh verify digest (`VERIFY_REMOTE_DIGEST=true`) trong `push-images-to-workers.sh`.
 - Build script da dong bo short tag voi canonical `docker.io/library/*` de tranh lech digest khi dung `:latest`.
 - Truong `bytesSent/bytesRecv` trong `pod_network_connections` hien tai la `tx_queue/rx_queue` tu `/proc/net/*` snapshot, khong phai tong byte theo flow.
+- Env mac dinh moi:
+  - Core: `POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES`, `ADMISSION_RISK_GATE_ENABLED`, `ADMISSION_RISK_SENSITIVE_NAMESPACES`, `ADMISSION_RISK_BLOCK_THRESHOLD`.
+  - Agent: `EBPF_ENABLED` (mac dinh `false`, bat dan theo rollout).

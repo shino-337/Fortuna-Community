@@ -8,15 +8,15 @@ import (
 )
 
 func TestClassifySignal_NetworkQueueSpike(t *testing.T) {
-	signal, mitre, score := classifySignal("connect", "1.2.3.4:443", "NETWORK_TXRX_QUEUE_SPIKE", nil, context.Background(), "")
+	signal, mitre, score := classifySignal("connect", "key=k dst=1.2.3.4:443 proto=tcp q=12000 avg=1000 ratio=12.00 samples=9", "NETWORK_TXRX_QUEUE_SPIKE", nil, context.Background(), "")
 	if signal != "NETWORK_QUEUE_ANOMALY" {
 		t.Fatalf("expected NETWORK_QUEUE_ANOMALY, got %s", signal)
 	}
 	if mitre != "T1046" {
 		t.Fatalf("expected mitre T1046, got %s", mitre)
 	}
-	if score != 35 {
-		t.Fatalf("expected score 35, got %d", score)
+	if score != 65 {
+		t.Fatalf("expected dynamic score 65, got %d", score)
 	}
 }
 

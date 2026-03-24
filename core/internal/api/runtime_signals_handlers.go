@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -95,6 +96,79 @@ func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 			"offset":  offset,
 		})
 	}
+}
+
+// GetRuntimeSignalSuppressionStats returns quick observability stats for NETWORK_TXRX_QUEUE_SPIKE events.
+// Note: suppressed events are not persisted; this endpoint reports emitted events and key distribution.
+func GetRuntimeSignalSuppressionStats(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		sinceMin := 60
+		if s := c.Query("sinceMinutes"); s != "" {
+			if n, err := strconv.Atoi(s); err == nil && n > 0 && n <= 43200 {
+				sinceMin = n
+			}
+		}
+		from := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
+		query := db.Model(&models.RuntimeEvent{}).
+			Where("capability = ? AND created_at >= ?", "NETWORK_TXRX_QUEUE_SPIKE", from)
+		if podUID := c.Query("podUid"); podUID != "" {
+			query = query.Where("pod_uid = ?", podUID)
+		}
+		type row struct {
+			PodUID     string
+			TargetPath string
+		}
+		var rows []row
+		if err := query.Select("pod_uid, target_path").Order("created_at DESC").Limit(2000).Find(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		perKey := map[string]int{}
+		maxRatio := 0.0
+		for i := range rows {
+			key := parseTargetToken(rows[i].TargetPath, "key")
+			if key == "" {
+				key = "unknown"
+			}
+			perKey[key]++
+			r := parseTargetTokenFloat(rows[i].TargetPath, "ratio")
+			if r > maxRatio {
+				maxRatio = r
+			}
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"sinceMinutes":  sinceMin,
+			"emittedEvents": len(rows),
+			"uniqueKeys":    len(perKey),
+			"maxRatio":      maxRatio,
+			"perKey":        perKey,
+		})
+	}
+}
+
+func parseTargetToken(target, key string) string {
+	if target == "" || key == "" {
+		return ""
+	}
+	prefix := key + "="
+	for _, t := range strings.Fields(target) {
+		if strings.HasPrefix(t, prefix) {
+			return strings.TrimPrefix(t, prefix)
+		}
+	}
+	return ""
+}
+
+func parseTargetTokenFloat(target, key string) float64 {
+	v := parseTargetToken(target, key)
+	if v == "" {
+		return 0
+	}
+	n, err := strconv.ParseFloat(v, 64)
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // GetRuntimeSignalsByPod returns runtime signals for a specific pod
