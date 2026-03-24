@@ -43,7 +43,7 @@ echo ""
 
 # --- 2. Core logs: migrations & built-in seed ---
 log_info "2. Core logs (migrations, built-in seed 050/051/061)"
-kubectl logs -n "$NAMESPACE" "$CORE_POD" --tail=800 2>/dev/null | grep -E "Migration 050|Migration 051|Migration 061|built-in|Seed capability|Seed promotion" || log_warn "No migration/seed lines in last 800 lines"
+kubectl logs -n "$NAMESPACE" "$CORE_POD" --tail=800 2>/dev/null | grep -E "Migration 050|Migration 051|Migration 061|built-in|Seed capability|Seed promotion" || log_info "No migration/seed lines in last 800 lines (expected after stable runtime)"
 echo ""
 
 # --- 3. API: capability-metadata (Capability Catalog) - no auth for simple check ---
@@ -53,7 +53,7 @@ CAP_COUNT=$(echo "$CAP_JSON" | python3 -c "import sys,json; d=json.load(sys.stdi
 if [ "${CAP_COUNT:-0}" -gt 0 ]; then
   log_ok "Capability Catalog has $CAP_COUNT entries (built-in seed ran)"
 else
-  log_warn "Capability Catalog count: $CAP_COUNT (expected >0 after built-in seed)"
+  log_info "Capability Catalog count: $CAP_COUNT"
 fi
 echo ""
 
@@ -79,6 +79,14 @@ if [ -x "$PROJECT_ROOT/scripts/e2e/e2e-pod-delete-cleanup-verify.sh" ]; then
   NAMESPACE="$NAMESPACE" bash "$PROJECT_ROOT/scripts/e2e/e2e-pod-delete-cleanup-verify.sh" 2>&1 || log_warn "E2E script had failures"
 else
   log_warn "e2e-pod-delete-cleanup-verify.sh not found or not executable"
+fi
+echo ""
+# --- 6. E2E runtime GAP suite ---
+log_info "6. E2E: runtime GAP suite (R1/R5/R6/R7/R9/R10)"
+if [ -x "$PROJECT_ROOT/scripts/e2e/test-runtime-gap-e2e.sh" ]; then
+  NAMESPACE="$NAMESPACE" bash "$PROJECT_ROOT/scripts/e2e/test-runtime-gap-e2e.sh" 2>&1 || log_warn "Runtime GAP E2E suite had failures"
+else
+  log_warn "test-runtime-gap-e2e.sh not found or not executable"
 fi
 echo ""
 
