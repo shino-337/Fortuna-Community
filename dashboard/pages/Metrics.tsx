@@ -107,25 +107,25 @@ export const Monitoring: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <Card variant="panel">
           <div className="space-y-1">
-            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Agents</div>
+            <div className="ui-micro-label">Agents</div>
             <div className="text-2xl font-bold text-white">{agents.length}</div>
           </div>
         </Card>
         <Card variant="panel">
           <div className="space-y-1">
-            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Pods synced</div>
+            <div className="ui-micro-label">Pods synced</div>
             <div className="text-2xl font-bold text-white">{syncStatus?.resources.pods ?? 0}</div>
           </div>
         </Card>
         <Card variant="panel">
           <div className="space-y-1">
-            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Service accounts synced</div>
+            <div className="ui-micro-label">Service accounts synced</div>
             <div className="text-2xl font-bold text-white">{syncStatus?.resources.sas ?? 0}</div>
           </div>
         </Card>
         <Card variant="panel">
           <div className="space-y-1">
-            <div className="text-slate-500 text-[10px] font-semibold uppercase tracking-wider">Latest agent heartbeat</div>
+            <div className="ui-micro-label">Latest agent heartbeat</div>
             <div className="text-sm font-medium text-slate-200">{lastHeartbeat ? formatDateTime(lastHeartbeat) : 'N/A'}</div>
           </div>
         </Card>

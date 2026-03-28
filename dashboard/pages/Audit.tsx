@@ -47,7 +47,7 @@ export const Audit: React.FC = () => {
       }
     >
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+        <div className="ui-table-scroll">
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
               <tr>

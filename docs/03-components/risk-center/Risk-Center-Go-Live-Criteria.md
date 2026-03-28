@@ -89,8 +89,8 @@ Tài liệu này định nghĩa **tiêu chí go-live** cho Risk Center: mục b�
 ### 4.4 Test
 
 - [x] Unit: risks_cache, insights_audit, risks_export, evidence/mask, risk_rules, scheduler (insights + PCE cleanup)
-- [x] E2E: e2e-risk-center-full.sh (TC-01–TC-16)
-- [ ] E2E: thêm TC GET /risk/histogram
+- [x] E2E: e2e-risk-center-full.sh (TC-01–TC-18, gồm TC-17/18 pod report + runtime signals)
+- [x] E2E: TC GET /risk/histogram (TC-05c)
 - [ ] (Optional) E2E: bulk action (POST /risk/insights/bulk)
 
 ---

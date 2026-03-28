@@ -5,6 +5,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -220,6 +221,29 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 				log.Printf("[GetPodRiskReport] Failed to load insights: %v", err)
 			}
 		}
+
+		// Align with risk engine / UI: 24h runtime signal window (same default as FORTUNA_RUNTIME_RISK_LOOKBACK_HOURS).
+		signalsSince := time.Now().Add(-24 * time.Hour)
+		var runtimeSignals24h int64
+		_ = db.Model(&models.RuntimeSignal{}).
+			Where("pod_uid = ? AND created_at >= ?", pod.UID, signalsSince).
+			Count(&runtimeSignals24h).Error
+
+		podDirectInsightCount := 0
+		runtimePolicyInsightCount := 0
+		for _, ins := range report.Insights {
+			if ins.ResourceUID == pod.UID {
+				podDirectInsightCount++
+				switch ins.InsightType {
+				case "runtime-behavior", "pod-security":
+					runtimePolicyInsightCount++
+				}
+			}
+		}
+		report.Summary["runtimeSignals24h"] = runtimeSignals24h
+		report.Summary["podDirectInsightCount"] = podDirectInsightCount
+		report.Summary["runtimePolicyInsightCount"] = runtimePolicyInsightCount
+		report.Summary["insightsInReport"] = len(report.Insights)
 
 		riskLevel := "low"
 		if clusterAdminBindings > 0 {

@@ -22,4 +22,8 @@ tags:
   - critical
   - clusterrolebinding
   - overprivileged
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Enterprise privilege escalation mapping (RBAC misconfig -> escalation)
+  - T1068
 

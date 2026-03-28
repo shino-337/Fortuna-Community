@@ -23,6 +23,7 @@ NC='\033[0m'
 NAMESPACE="${NAMESPACE:-fortuna}"
 USE_IP_FALLBACK="${USE_IP_FALLBACK:-true}"
 AUTO_LOAD_CVE_ON_DEPLOY="${AUTO_LOAD_CVE_ON_DEPLOY:-true}"
+PUSH_DASHBOARD="${PUSH_DASHBOARD:-false}"
 
 echo "=========================================="
 echo "Fortuna Robust Deployment"
@@ -159,7 +160,7 @@ NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
 if [ "${NODE_COUNT:-0}" -gt 1 ] && [ -x "$SCRIPTS/utils/push-images-to-workers.sh" ]; then
     echo ""
     echo -e "${BLUE}Step 5b: Pushing images to worker nodes...${NC}"
-    if bash "$SCRIPTS/utils/push-images-to-workers.sh" 2>&1; then
+    if bash "$SCRIPTS/utils/push-images-to-workers.sh" ${PUSH_DASHBOARD:+--include-dashboard} 2>&1; then
         echo -e "${GREEN}✅${NC} Images pushed to all nodes"
     else
         echo -e "${YELLOW}⚠️${NC}  Push to workers failed (SSH or keys). Add scripts/utils/push-images.config (see push-images.config.example) or set SSH_USER/SSH_PASS; then run: $SCRIPTS/utils/push-images-to-workers.sh"

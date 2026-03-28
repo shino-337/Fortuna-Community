@@ -4,6 +4,14 @@
 # Exports fortuna-core and fortuna-agent from local containerd and imports on all nodes
 # (master + workers) so Core and Agent have the image.
 #
+# Build tip: tag must match docker.io/library/fortuna-agent:latest in the same namespace
+# this script exports from (typically default nerdctl namespace). For kubelet-visible images,
+# build with: nerdctl -n k8s.io build -t docker.io/library/fortuna-agent:latest -f agent/Dockerfile .
+# (from repo root). See agent/README.md "Build".
+#
+# Optional: export/import fortuna-dashboard as well (needed for SBOM extraction when
+# dashboard imagePullPolicy: Never and the offline cluster has no registry).
+#
 # Config file: Set PUSH_CONFIG_FILE to path of a file with per-node credentials, or place
 #   push-images.config in this directory (see push-images.config.example). Format:
 #   MASTER_NODE=192.168.56.100
@@ -19,6 +27,7 @@
 # Options:
 #   --clean-remote   On each node, remove existing fortuna* images from ctr -n k8s.io before pushing.
 #   --clean-only     Only clean fortuna* images on all nodes (no export/push). Use after cleaning local and before rebuild+push.
+#   --include-dashboard  Also export/import fortuna-dashboard so it exists on nodes where the pod runs.
 #
 # Called automatically by: full-clean-database-rebuild-deploy.sh (Phase 2b), deploy-fortuna-robust.sh (Step 5b when multi-node).
 
@@ -58,6 +67,12 @@ detect_agent_image() {
         grep -E '^\s+image:\s+fortuna-agent:' "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" | sed -E 's/.*image:\s+//' | tr -d ' \r' | head -1
     fi
 }
+detect_dashboard_image() {
+    # Dashboard deploy is not a daemonset; detect from the dashboard Deployment manifest.
+    if [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ]; then
+        grep -E "^\s+image:\s+fortuna-dashboard:" "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" | sed -E "s/.*image:\s+//" | tr -d " \r" | head -1
+    fi
+}
 detect_all_node_ips() {
     kubectl get nodes -o jsonpath='{.items[*].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null | tr ' ' '\n' | sort -u
 }
@@ -66,9 +81,12 @@ detect_all_node_ips() {
 # Default SSH_USER is 'k8s' (non-root); sudo is used remotely for ctr commands.
 _detected_core=$(detect_core_image)
 _detected_agent=$(detect_agent_image)
+_detected_dashboard=$(detect_dashboard_image)
 _detected_nodes=$(detect_all_node_ips)
 CORE_IMAGE="${CORE_IMAGE:-${_detected_core:-fortuna-core:latest}}"
 AGENT_IMAGE="${AGENT_IMAGE:-${_detected_agent:-fortuna-agent:latest}}"
+# Optional dashboard image (only exported/imported when INCLUDE_DASHBOARD=true)
+DASHBOARD_IMAGE="${DASHBOARD_IMAGE:-${_detected_dashboard:-fortuna-dashboard:latest}}"
 # Include all nodes (master + workers); Core runs on control-plane and needs the image there
 WORKER_NODES="${WORKER_NODES:-${_detected_nodes:-192.168.56.100 192.168.56.101}}"
 # SSH_USER: set to k8s, root, or leave empty to try SSH_TRY_USERS. SSH_PASS for sshpass (optional).
@@ -84,10 +102,12 @@ VERIFY_REMOTE_DIGEST="${VERIFY_REMOTE_DIGEST:-true}"
 # Parse flags (before main)
 CLEAN_REMOTE_IMAGES="${CLEAN_REMOTE_IMAGES:-false}"
 CLEAN_ONLY="${CLEAN_ONLY:-false}"
+INCLUDE_DASHBOARD="${INCLUDE_DASHBOARD:-false}"
 for arg in "$@"; do
     case "$arg" in
         --clean-remote) CLEAN_REMOTE_IMAGES=true ;;
         --clean-only)   CLEAN_ONLY=true ;;
+        --include-dashboard) INCLUDE_DASHBOARD=true ;;
     esac
 done
 
@@ -169,6 +189,14 @@ check_prerequisites() {
         log_error "Agent image not found: $AGENT_IMAGE"
         log_info "Build first: ./scripts/build/build-and-load-containerd.sh (from $PROJECT_ROOT)"
         return 1
+    fi
+    
+    if [ "$INCLUDE_DASHBOARD" = "true" ]; then
+        if ! image_exists "$DASHBOARD_IMAGE"; then
+            log_error "Dashboard image not found: $DASHBOARD_IMAGE"
+            log_info "Build first: ./scripts/build/build-and-load-containerd.sh (from $PROJECT_ROOT)"
+            return 1
+        fi
     fi
     
     if [ -z "$WORKER_NODES" ]; then
@@ -393,6 +421,7 @@ process_worker() {
     local worker=$1
     local core_tar="$2"
     local agent_tar="$3"
+    local dashboard_tar="${4:-}"
     
     log_info "Processing worker node: $worker"
     
@@ -421,6 +450,26 @@ process_worker() {
         cleanup_remote "$worker" "$core_remote"
         cleanup_remote "$worker" "$agent_remote"
         return 1
+    fi
+    
+    # Optional: Import Dashboard image on worker
+    if [ -n "$dashboard_tar" ]; then
+        local dashboard_remote
+        dashboard_remote=$(copy_to_worker "$dashboard_tar" "$worker")
+        if [ -z "$dashboard_remote" ]; then
+            cleanup_remote "$worker" "$core_remote"
+            cleanup_remote "$worker" "$agent_remote"
+            return 1
+        fi
+        
+        if ! import_on_worker "$worker" "$dashboard_remote" "$DASHBOARD_IMAGE" "$expected_dashboard_digest"; then
+            cleanup_remote "$worker" "$core_remote"
+            cleanup_remote "$worker" "$agent_remote"
+            cleanup_remote "$worker" "$dashboard_remote"
+            return 1
+        fi
+
+        cleanup_remote "$worker" "$dashboard_remote"
     fi
     
     # Cleanup remote files
@@ -466,6 +515,7 @@ main() {
     mkdir -p "$TEMP_DIR"
     core_tar="$TEMP_DIR/fortuna-core.tar"
     agent_tar="$TEMP_DIR/fortuna-agent.tar"
+    dashboard_tar=""
     log_info "Exporting images once (local)..."
     if ! export_image "$CORE_IMAGE" "$core_tar"; then
         log_error "Export failed. Build images on this host first: ./scripts/build/build-and-load-containerd.sh"
@@ -475,12 +525,23 @@ main() {
         log_error "Export failed. Build images on this host first: ./scripts/build/build-and-load-containerd.sh"
         exit 1
     fi
+    if [ "$INCLUDE_DASHBOARD" = "true" ]; then
+        dashboard_tar="$TEMP_DIR/fortuna-dashboard.tar"
+        if ! export_image "$DASHBOARD_IMAGE" "$dashboard_tar"; then
+            log_error "Export failed for dashboard. Build images on this host first: ./scripts/build/build-and-load-containerd.sh"
+            exit 1
+        fi
+    fi
     log_success "Images exported to $TEMP_DIR"
     echo ""
     
-    local expected_core_digest expected_agent_digest
+    local expected_core_digest expected_agent_digest expected_dashboard_digest
     expected_core_digest=$(get_local_digest "$(resolve_export_ref "$CORE_IMAGE")")
     expected_agent_digest=$(get_local_digest "$(resolve_export_ref "$AGENT_IMAGE")")
+    expected_dashboard_digest=""
+    if [ "$INCLUDE_DASHBOARD" = "true" ]; then
+        expected_dashboard_digest=$(get_local_digest "$(resolve_export_ref "$DASHBOARD_IMAGE")")
+    fi
 
     # Process each worker node (clean if requested, then copy + import)
     local success_count=0
@@ -491,10 +552,18 @@ main() {
         if [ "$CLEAN_REMOTE_IMAGES" = "true" ]; then
             clean_remote_fortuna_images "$worker"
         fi
-        if process_worker "$worker" "$core_tar" "$agent_tar"; then
-            success_count=$((success_count + 1))
+        if [ "$INCLUDE_DASHBOARD" = "true" ]; then
+            if process_worker "$worker" "$core_tar" "$agent_tar" "$dashboard_tar"; then
+                success_count=$((success_count + 1))
+            else
+                log_error "Failed to process worker: $worker"
+            fi
         else
-            log_error "Failed to process worker: $worker"
+            if process_worker "$worker" "$core_tar" "$agent_tar"; then
+                success_count=$((success_count + 1))
+            else
+                log_error "Failed to process worker: $worker"
+            fi
         fi
         echo ""
     done

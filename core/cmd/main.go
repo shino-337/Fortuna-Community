@@ -33,6 +33,8 @@ import (
 	"github.com/fortuna/core/pkg/reconciler"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/security"
+	cvedb "github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
@@ -118,6 +120,7 @@ func main() {
 	} else if n > 0 {
 		log.Printf("[MAIN] ✅ Seeded %d risk rules from %s (DB was empty)", n, riskengine.GetRiskRulesExportDir())
 	}
+	bootstrapVulnCatalog(tempDB)
 
 	dbMutex.Lock()
 	db = tempDB
@@ -703,4 +706,43 @@ func main() {
 	if grpcServer != nil {
 		grpcServer.Stop()
 	}
+}
+
+// bootstrapVulnCatalog performs a safe one-shot OSV mirror bootstrap when vulnerability tables are empty.
+// It only runs when FORTUNA_OSV_SOURCE_DIR is configured and points to an existing directory.
+func bootstrapVulnCatalog(db *gorm.DB) {
+	if db == nil {
+		return
+	}
+	var pvCount int64
+	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
+		log.Printf("[MAIN] ⚠️  Unable to count package_vulnerabilities: %v", err)
+		return
+	}
+	if pvCount > 0 {
+		log.Printf("[MAIN] Vulnerability catalog already populated (package_vulnerabilities=%d), skip bootstrap", pvCount)
+		return
+	}
+
+	sourceDir := strings.TrimSpace(os.Getenv("FORTUNA_OSV_SOURCE_DIR"))
+	if sourceDir == "" {
+		log.Printf("[MAIN] Vulnerability catalog empty and FORTUNA_OSV_SOURCE_DIR is not set; skip bootstrap")
+		return
+	}
+	if st, err := os.Stat(sourceDir); err != nil || !st.IsDir() {
+		log.Printf("[MAIN] Vulnerability catalog empty; source dir not available (%s), skip bootstrap", sourceDir)
+		return
+	}
+
+	log.Printf("[MAIN] Vulnerability catalog empty; bootstrapping OSV mirror from %s ...", sourceDir)
+	manager := cvedb.NewPostgresManager(db)
+	if err := manager.UpdateDatabase(context.Background()); err != nil {
+		log.Printf("[MAIN] ⚠️  OSV bootstrap failed: %v", err)
+		return
+	}
+	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
+		log.Printf("[MAIN] ⚠️  Unable to recount package_vulnerabilities after bootstrap: %v", err)
+		return
+	}
+	log.Printf("[MAIN] ✅ Vulnerability catalog bootstrap done (package_vulnerabilities=%d)", pvCount)
 }

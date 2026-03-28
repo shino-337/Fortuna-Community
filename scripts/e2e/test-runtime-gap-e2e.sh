@@ -44,6 +44,23 @@ else
 fi
 pass "Core pod found: $CORE_POD"
 
+# Risk Center pod matrix (coverage expansion)
+echo ""
+echo "--- Pod matrix: ensure risk-center coverage pods ---"
+MATRIX_FILE="$PROJECT_ROOT/deploy/e2e/risk-center-pod-matrix.yaml"
+if [ -f "$MATRIX_FILE" ]; then
+  kubectl apply -f "$MATRIX_FILE" >/dev/null 2>&1 || true
+  if kubectl -n risk-center-test wait --for=condition=Ready pod \
+    rc-pss-privileged-host rc-rbac-cluster-admin rc-pss-cap-netraw-sysadmin rc-pss-no-limits \
+    --timeout=120s >/dev/null 2>&1; then
+    pass "Risk-center pod matrix is Ready (4/4 pods)"
+  else
+    warn_case "Risk-center pod matrix not fully Ready yet; tests continue with current coverage"
+  fi
+else
+  warn_case "Pod matrix manifest missing: $MATRIX_FILE"
+fi
+
 # R10 config sanity from deployment env
 echo ""
 echo "--- R10: admission gate env config ---"

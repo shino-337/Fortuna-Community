@@ -48,20 +48,34 @@ func GetRiskRulesList(db *gorm.DB) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-			list := make([]riskengine.RiskRuleSummary, 0, len(rows))
-			for i := range rows {
-				list = append(list, riskengine.RiskRuleSummary{
-					ID:          rows[i].RuleID,
-					Name:        rows[i].Name,
-					Severity:    rows[i].Severity,
-					Description: rows[i].Description,
-					Category:    rows[i].Category,
-					File:        "",
-					Enabled:     rows[i].Enabled,
-				})
+			if len(rows) > 0 {
+				list := make([]riskengine.RiskRuleSummary, 0, len(rows))
+				for i := range rows {
+					list = append(list, riskengine.RiskRuleSummary{
+						ID:          rows[i].RuleID,
+						Name:        rows[i].Name,
+						Severity:    rows[i].Severity,
+						Description: rows[i].Description,
+						Category:    rows[i].Category,
+						File:        "",
+						Enabled:     rows[i].Enabled,
+					})
+				}
+				log.Printf("[RiskRules] GET /risk/rules: returning %d rules from db", len(list))
+				c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "db"})
+				return
 			}
-			log.Printf("[RiskRules] GET /risk/rules: returning %d rules from db", len(list))
-			c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "db"})
+			// DB exists but empty: try file-based fallback to avoid empty Rule Center.
+			log.Printf("[RiskRules] GET /risk/rules: DB table exists but has 0 active rules, trying file fallback")
+			rulesDir := os.Getenv("FORTUNA_RULES_DIR")
+			list, err := riskengine.ListRuleSummariesFromDir(rulesDir)
+			if err == nil && len(list) > 0 {
+				log.Printf("[RiskRules] GET /risk/rules: returning %d rules from files fallback", len(list))
+				c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "files-fallback"})
+				return
+			}
+			// Keep backward-compatible behavior when fallback source is also empty/unavailable.
+			c.JSON(http.StatusOK, gin.H{"rules": []riskengine.RiskRuleSummary{}, "total": 0, "source": "db"})
 			return
 		}
 		rulesDir := os.Getenv("FORTUNA_RULES_DIR")
@@ -275,6 +289,40 @@ func CreateRiskRule(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+
+		// GORM soft-delete keeps the row (deleted_at != NULL). But risk_rules.rule_id has a UNIQUE constraint,
+		// so a subsequent Create would fail with 500. Restore + update to make CRUD idempotent.
+		var existing models.RiskRule
+		err = db.Unscoped().Where("rule_id = ?", m.RuleID).First(&existing).Error
+		if err == nil {
+			existing.Name = m.Name
+			existing.Category = m.Category
+			existing.Severity = m.Severity
+			existing.Description = m.Description
+			existing.Enabled = m.Enabled
+			existing.Conditions = m.Conditions
+			existing.Aggregation = m.Aggregation
+			existing.BaseScore = m.BaseScore
+			existing.Tags = m.Tags
+			existing.DeletedAt = gorm.DeletedAt{} // restore soft-deleted row
+
+			if err := db.Unscoped().Save(&existing).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			_ = riskengine.ReloadGlobalFromDB()
+			if dir := riskengine.GetRiskRulesExportDir(); dir != "" {
+				_ = riskengine.ExportRuleToFile(&req, dir)
+			}
+			resp, _ := riskRuleToAPI(&existing)
+			c.JSON(http.StatusOK, resp)
+			return
+		}
+		if err != nil && err != gorm.ErrRecordNotFound {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+
 		if err := db.Create(m).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return

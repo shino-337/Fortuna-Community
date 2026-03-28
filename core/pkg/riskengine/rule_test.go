@@ -2,14 +2,28 @@ package riskengine
 
 import (
 	"context"
+	"path/filepath"
+	"runtime"
 	"testing"
 )
 
 // TestCriticalRules tests critical rules from YAML
 func TestCriticalRules(t *testing.T) {
-	// Create test engine with YAML rules
-	// Note: This requires FORTUNA_RULES_DIR to be set or rules directory to exist
-	engine := NewEngine(nil) // nil DB for testing
+	// Direction A: YAML is the single source of truth; tests must load rules from core/rules.
+	_, thisFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatalf("failed to resolve test file path")
+	}
+	rulesDir := filepath.Clean(filepath.Join(filepath.Dir(thisFile), "..", "..", "rules"))
+	engine, err := NewYAMLEngine(nil, rulesDir)
+	if err != nil {
+		t.Fatalf("failed to init YAML engine from %s: %v", rulesDir, err)
+	}
+
+	ruleByID := map[string]Rule{}
+	for _, r := range engine.GetRules() {
+		ruleByID[r.ID] = r
+	}
 
 	testCases := []struct {
 		name           string
@@ -118,6 +132,11 @@ func TestCriticalRules(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			expectedRule, ok := ruleByID[tc.expectedRuleID]
+			if !ok {
+				t.Fatalf("expected rule %s not loaded from YAML", tc.expectedRuleID)
+			}
+
 			insights, err := engine.EvaluateResource(context.Background(), tc.resourceType, tc.resourceData)
 			if err != nil {
 				t.Fatalf("Evaluation failed: %v", err)
@@ -125,8 +144,8 @@ func TestCriticalRules(t *testing.T) {
 
 			matched := false
 			for _, insight := range insights {
-				// Check if any insight matches the expected rule
-				if insight.InsightType == "rbac" {
+				// We don't store rule_id in Insight; match by the rule name used as title.
+				if insight.Title == expectedRule.Name {
 					matched = true
 					break
 				}

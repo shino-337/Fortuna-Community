@@ -58,6 +58,11 @@ spec:
           hostPath:
             path: /proc
             type: Directory
+        # Falco JSONL (optional R9): ensure Falco writes e.g. /var/log/falco/events.jsonl on each node
+        - name: falco-events
+          hostPath:
+            path: /var/log/falco
+            type: DirectoryOrCreate
       
       containers:
         - name: agent
@@ -137,6 +142,17 @@ spec:
             # Approximate per-process CPU% from /proc; set false to disable
             - name: POD_DETAIL_PROCESS_CPU_APPROX_FROM_PROC
               value: "true"
+            # Falco JSONL → Core (R9). Agent tails from EOF on first open (see FalcoReader) to avoid
+            # reading multi-GB backlog into memory; rotate/truncate host /var/log/falco/events.jsonl if needed.
+            - name: FALCO_EVENTS_ENABLED
+              value: "true"
+            - name: FALCO_EVENTS_PATH
+              value: "/var/log/falco/events.jsonl"
+            - name: FALCO_EVENTS_POLL
+              value: "5s"
+            # Lower peak memory when many pods queue SBOM (default queue workers=2 in code).
+            - name: SBOM_WORKERS
+              value: "1"
             # R9 eBPF sensor (phase-1 scaffold). Keep disabled by default for safe rollout.
             - name: EBPF_ENABLED
               value: "false"
@@ -163,15 +179,18 @@ spec:
             - name: host-proc
               mountPath: /host/proc
               readOnly: true
+            - name: falco-events
+              mountPath: /var/log/falco
+              readOnly: true
           
-          # Production-ready resource limits (SBOM extraction materializes image layers in memory; 1Gi was causing OOMKilled)
+          # SBOM + Falco JSONL poll: 2Gi limit caused OOM when Falco backlog was read before tail-from-EOF fix; keep headroom.
           resources:
             requests:
               cpu: 100m
-              memory: 512Mi
+              memory: 1Gi
             limits:
-              cpu: 500m
-              memory: 2Gi
+              cpu: "1"
+              memory: 6Gi
           
           # Security context - root required for containerd socket access
           securityContext:

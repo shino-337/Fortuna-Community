@@ -1,0 +1,29 @@
+# RBAC: interactive access to running containers via Kubernetes API subresources.
+
+id: rbac-pods-exec-attach-portforward
+name: "Role allows exec/attach/portforward into pods"
+category: rbac
+severity: critical
+description: "Role/ClusterRole grants create on pods/exec, pods/attach or pods/portforward; enables interactive access to containers"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.rules.exists(r,
+        r.resources.exists(res, res == 'pods/exec' || res == 'pods/attach' || res == 'pods/portforward') &&
+        r.verbs.exists(v, v == 'create' || v == '*' )
+      )
+
+aggregation: AND
+base_score: 9.0
+tags:
+  - rbac
+  - pod-access
+  - exec
+  - portforward
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+  # Command and Scripting Interpreter (best-effort for exec capability)
+  - T1059
+

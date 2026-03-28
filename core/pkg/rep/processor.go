@@ -23,6 +23,24 @@ type RuntimeEventInput struct {
 	TargetPath string
 	Capability string
 	Timestamp  *time.Time
+	// Canonical contract fields (P0.1): optional, best-effort.
+	EventID         string
+	ObservedAt      *time.Time
+	IngestedAt      *time.Time
+	ResolutionState string
+	SourceKind      string
+	SourceSensorID  string
+	SourceRule      string
+	PayloadJSON     string
+	PayloadHash     string
+	// Optional enrichment for R9 correlation/richness.
+	PodName        string
+	NodeName       string
+	Runtime        string
+	EventType      string
+	Signal         string
+	MitreTechnique string
+	Severity       string
 }
 
 type ProcessResult struct {
@@ -34,13 +52,34 @@ type ProcessResult struct {
 }
 
 func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInput) (*ProcessResult, error) {
+	payloadJSON := strings.TrimSpace(input.PayloadJSON)
+	if payloadJSON == "" || !json.Valid([]byte(payloadJSON)) {
+		payloadJSON = "{}"
+	}
+
 	// Step 1: Create raw runtime event
 	event := models.RuntimeEvent{
-		PodUID:     input.PodUID,
-		Namespace:  input.Namespace,
-		Syscall:    input.Syscall,
-		TargetPath: input.TargetPath,
-		Capability: input.Capability,
+		EventID:         strings.TrimSpace(input.EventID),
+		ObservedAt:      input.ObservedAt,
+		IngestedAt:      input.IngestedAt,
+		ResolutionState: strings.TrimSpace(input.ResolutionState),
+		SourceKind:      strings.TrimSpace(input.SourceKind),
+		SourceSensorID:  strings.TrimSpace(input.SourceSensorID),
+		SourceRule:      strings.TrimSpace(input.SourceRule),
+		PayloadJSON:     payloadJSON,
+		PayloadHash:     strings.TrimSpace(input.PayloadHash),
+		PodName:         input.PodName,
+		PodUID:          input.PodUID,
+		Namespace:       input.Namespace,
+		NodeName:        input.NodeName,
+		Runtime:         input.Runtime,
+		EventType:       input.EventType,
+		Signal:          input.Signal,
+		Mitre:           input.MitreTechnique,
+		Severity:        input.Severity,
+		Syscall:         input.Syscall,
+		TargetPath:      input.TargetPath,
+		Capability:      input.Capability,
 	}
 	if input.Timestamp != nil {
 		event.CreatedAt = *input.Timestamp
@@ -51,6 +90,26 @@ func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInp
 		return nil, err
 	}
 
+	// Step 1.5 (P0): extract normalized behavior facts from raw runtime event.
+	// This runs in parallel with existing REP v1 signal path to keep compatibility.
+	facts, err := extractAndPersistBehaviorFacts(ctx, db, &event)
+	if err != nil {
+		log.Printf("[REP] Failed to extract behavior facts: %v", err)
+		// non-fatal: keep existing runtime_signals pipeline alive
+	}
+	// Step 1.5b (P0.2+/REP-B): facts -> synthesized semantic signals (persist path).
+	// This fills missing signals without double-counting within the current day window.
+	if facts != nil && len(facts) > 0 {
+		cands := synthesizeSignalsFromFacts(facts)
+		if err2 := persistSynthesizedSignalsFromFacts(ctx, db, &event, facts, cands); err2 != nil {
+			log.Printf("[REP] Failed to persist signals from facts: %v", err2)
+		}
+	}
+	// Step 1.6 (P0): REP-C minimal correlator (stateful incidents).
+	if err := correlateAndPersistRuntimeIncidents(ctx, db, &event, facts); err != nil {
+		log.Printf("[REP] Failed to correlate runtime incidents: %v", err)
+	}
+
 	// Step 2: Convert to semantic signal using SignalAdapter
 	signalAdapter := NewSignalAdapter(db)
 	if err := signalAdapter.AdaptAndPersist(ctx, &event); err != nil {
@@ -59,9 +118,22 @@ func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInp
 	}
 
 	// Step 3: Get signal type for promotion
-	signal, mitre, baseScore := classifySignal(input.Syscall, input.TargetPath, input.Capability, db, ctx, input.PodUID)
+	signal, mitre, baseScore := classifySignal(input.Syscall, input.TargetPath, input.Capability, input.Runtime, db, ctx, input.PodUID)
 	if signal == "" {
+		// Compare-only mode for REP v2: observe where fact-based synthesis sees signals while legacy path misses.
+		if cands := synthesizeSignalsFromFacts(facts); len(cands) > 0 {
+			log.Printf("[REPv2-compare] legacy=no-match pod_uid=%s facts=%d synthesized=%v",
+				input.PodUID, len(facts), signalTypes(cands))
+		}
 		return nil, nil
+	}
+
+	// Compare-only mode for REP v2: no persistence yet, just parity visibility.
+	if cands := synthesizeSignalsFromFacts(facts); len(cands) > 0 {
+		match := containsSignalType(cands, signal)
+		if !match {
+			log.Printf("[REPv2-compare] mismatch pod_uid=%s legacy=%s synthesized=%v", input.PodUID, signal, signalTypes(cands))
+		}
 	}
 
 	// Step 4: Update risk profile
@@ -72,6 +144,19 @@ func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInp
 	csc := capability.NewCapabilityStateController(db)
 	capabilityID, severity := scoreToCapability(runtimeScore)
 	if capabilityID != "" {
+		// P0.3 runtime-first capability init:
+		// ensure capability exists even if no promotion_rule matches this signal yet.
+		runtimeEvidence := map[string]interface{}{
+			"source":        "runtime",
+			"signal_type":   signal,
+			"runtime_score": runtimeScore,
+			"base_score":    baseScore,
+			"mitre":         mitre,
+		}
+		if err := csc.InitializeCapability(ctx, input.PodUID, namespace, capabilityID, "ESC", severity, runtimeEvidence); err != nil {
+			log.Printf("[REP] Failed to initialize runtime capability %s for pod %s: %v", capabilityID, input.PodUID, err)
+		}
+
 		// Get signal type from adapted signal (use same logic as classifySignal for now)
 		signalType := signal
 		if err := csc.PromoteCapability(ctx, input.PodUID, capabilityID, signalType, 0.9); err != nil {
@@ -89,10 +174,28 @@ func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInp
 	}, nil
 }
 
-func classifySignal(syscall, target, capabilityName string, db *gorm.DB, ctx context.Context, podUID string) (string, string, int) {
+func containsSignalType(cands []synthesizedSignal, signal string) bool {
+	for i := range cands {
+		if cands[i].SignalType == signal {
+			return true
+		}
+	}
+	return false
+}
+
+func signalTypes(cands []synthesizedSignal) []string {
+	out := make([]string, 0, len(cands))
+	for i := range cands {
+		out = append(out, cands[i].SignalType)
+	}
+	return out
+}
+
+func classifySignal(syscall, target, capabilityName, runtimeSource string, db *gorm.DB, ctx context.Context, podUID string) (string, string, int) {
 	syscall = strings.ToLower(strings.TrimSpace(syscall))
 	target = strings.TrimSpace(target)
 	capabilityName = strings.ToUpper(strings.TrimSpace(capabilityName))
+	runtimeSource = strings.ToLower(strings.TrimSpace(runtimeSource))
 
 	if isProcRootPivot(syscall, target) {
 		return "PROC_ROOT_PIVOT", "T1611.001", 90
@@ -106,6 +209,28 @@ func classifySignal(syscall, target, capabilityName string, db *gorm.DB, ctx con
 	if isCapabilityMisuse(syscall, capabilityName, db, ctx, podUID) {
 		return "CAPABILITY_MISUSE", "T1611.002", 60
 	}
+
+	// Falco: capability fields may not exist, so map exec/connect into Fortuna runtime-signals
+	// via syscall + target heuristics to keep runtime YAML rules usable.
+	if runtimeSource == "falco" {
+		if strings.EqualFold(syscall, "execve") {
+			// Reuse the same high-risk keyword heuristics as the snapshot case.
+			if isSuspiciousProcessSnapshotExec(syscall, "PROCESS_SNAPSHOT_DIFF", target) {
+				return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "T1059", 45
+			}
+		}
+		if strings.EqualFold(syscall, "connect") {
+			t := strings.ToLower(target)
+			looksNetwork := strings.Contains(t, ":") ||
+				strings.Contains(t, "dst=") ||
+				strings.Contains(t, "proto=") ||
+				strings.Contains(t, "dport=")
+			if looksNetwork {
+				return "NETWORK_QUEUE_ANOMALY", "T1046", networkQueueSpikeScore(target)
+			}
+		}
+	}
+
 	if isSuspiciousProcessSnapshotExec(syscall, capabilityName, target) {
 		return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "T1059", 45
 	}

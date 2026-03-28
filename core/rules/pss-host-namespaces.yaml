@@ -1,0 +1,27 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like, post-sync via Fortuna correlator).
+id: pss-host-namespaces
+name: "Pod uses host namespaces (hostNetwork, hostPID, and/or hostIPC)"
+category: pod-security
+severity: high
+description: "Workload shares host network, PID, or IPC namespace; violates typical PSS baseline/restricted posture"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      ((has(object.spec.hostNetwork) && object.spec.hostNetwork == true) ||
+       (has(object.spec.hostPID) && object.spec.hostPID == true) ||
+       (has(object.spec.hostIPC) && object.spec.hostIPC == true))
+
+aggregation: AND
+base_score: 7.5
+tags:
+  - pss
+  - pod-security
+  - host-namespaces
+  # MITRE ATT&CK for Containers: Host namespace exposure
+  - T1614      # hostNetwork
+  - T1611.001  # hostPID
+  - T1611.002  # hostIPC

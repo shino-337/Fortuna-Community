@@ -12,6 +12,12 @@ type PodRuntimeMetrics struct {
 	CPUUsageMillicore  int       `gorm:"default:0" json:"cpuUsageMillicore"`
 	MemoryUsageBytes   int64     `gorm:"default:0" json:"memoryUsageBytes"`
 	MemoryLimitBytes   int64     `gorm:"default:0" json:"memoryLimitBytes"`
+	// Netns counters (host mode): parsed from /proc/<pid>/net/dev, summed across interfaces.
+	// These are cumulative counters for the pod network namespace (not per-flow).
+	NetRxBytes         int64     `gorm:"default:0" json:"netRxBytes,omitempty"`
+	NetTxBytes         int64     `gorm:"default:0" json:"netTxBytes,omitempty"`
+	NetRxPackets       int64     `gorm:"default:0" json:"netRxPackets,omitempty"`
+	NetTxPackets       int64     `gorm:"default:0" json:"netTxPackets,omitempty"`
 	RestartCount       int       `gorm:"default:0" json:"restartCount"`
 	State              string    `gorm:"type:varchar(32);default:Running" json:"state"` // Running, Waiting, Terminated
 	LastObservedAt     time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"lastObservedAt"`

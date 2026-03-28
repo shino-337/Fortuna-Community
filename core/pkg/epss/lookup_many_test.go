@@ -3,6 +3,7 @@ package epss
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"

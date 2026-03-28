@@ -1,0 +1,51 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects seccomp profiles that rely on node-local files (localhost profiles).
+
+id: pss-seccomp-localhost-profile
+name: "Pod uses seccomp localhostProfile"
+category: pod-security
+severity: high
+description: "Pod securityContext/seccompProfile specifies localhostProfile; may weaken syscall filtering if not verified"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (
+          has(object.spec.securityContext) &&
+          has(object.spec.securityContext.seccompProfile) &&
+          has(object.spec.securityContext.seccompProfile.localhostProfile) &&
+          object.spec.securityContext.seccompProfile.localhostProfile != ""
+        ) ||
+        (
+          has(object.spec.containers) &&
+          object.spec.containers.exists(c,
+            has(c.securityContext) &&
+            has(c.securityContext.seccompProfile) &&
+            has(c.securityContext.seccompProfile.localhostProfile) &&
+            c.securityContext.seccompProfile.localhostProfile != ""
+          )
+        ) ||
+        (
+          has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.securityContext) &&
+            has(c.securityContext.seccompProfile) &&
+            has(c.securityContext.seccompProfile.localhostProfile) &&
+            c.securityContext.seccompProfile.localhostProfile != ""
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 8.0
+tags:
+  - pss
+  - pod-security
+  - seccomp
+  # MITRE ATT&CK: Defense Evasion / Disable or Modify Tools (best-effort mapping)
+  - T1562.001
+

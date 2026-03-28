@@ -1,0 +1,30 @@
+id: toxic-combo-hostns-escape-runtime
+name: "Toxic combo: host namespaces + escape runtime signals"
+category: runtime-behavior
+severity: critical
+description: "Pod with host namespace exposure and escape-related runtime activity."
+enabled: true
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          (object.securityState.host_network == true || object.securityState.host_pid == true || object.securityState.host_ipc == true) &&
+          object.securityState.has_escape_related == true &&
+          object.securityState.signal_total_24h > 0)
+        ||
+        (has(object.fortuna) &&
+          (object.fortuna.host_network == true || object.fortuna.host_pid == true || object.fortuna.host_ipc == true) &&
+          object.fortuna.has_escape_related == true &&
+          object.fortuna.signal_total_24h > 0)
+      )
+aggregation: AND
+base_score: 10.0
+tags:
+  - toxic-combination
+  - runtime
+  - host-namespace
+  - escape
+  - T1611
+

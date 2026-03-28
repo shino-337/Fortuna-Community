@@ -42,8 +42,12 @@ import {
   PodProcessItem,
   PodNetworkConnectionItem,
   PodK8sEventItem,
+  PodRuntimeSecurityEvent,
+  PodRuntimeBehaviorFact,
+  PodRuntimeIncident,
   RiskRuleItem,
   RiskRuleFull,
+  PodRiskReportSummary,
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 
@@ -51,6 +55,9 @@ const CORE_API_URL = (import.meta as any).env?.VITE_CORE_API_URL || '';
 const API_BASE = CORE_API_URL
   ? `${CORE_API_URL.replace(/\/$/, '')}/api/v1`
   : '/api/v1';
+const API_V2_BASE = CORE_API_URL
+  ? `${CORE_API_URL.replace(/\/$/, '')}/api/v2`
+  : '/api/v2';
 
 const buildUrl = (path: string) => {
   if (path.startsWith('http')) {
@@ -58,6 +65,7 @@ const buildUrl = (path: string) => {
   }
   return `${API_BASE}${path}`;
 };
+const buildUrlV2 = (path: string) => `${API_V2_BASE}${path}`;
 
 const getToken = () => useAuthStore.getState().token;
 
@@ -91,6 +99,25 @@ const request = async <T>(path: string, options: RequestInit = {}): Promise<T> =
     throw new Error(message);
   }
 
+  if (!res.ok) {
+    const text = await res.text().catch(() => '');
+    throw new Error(getErrorMessage(res.status, text || undefined));
+  }
+  return res.json();
+};
+
+const requestV2 = async <T>(path: string, options: RequestInit = {}): Promise<T> => {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string> | undefined),
+  };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(buildUrlV2(path), { ...options, headers });
+  if (res.status === 401) {
+    useAuthStore.getState().logout();
+    throw new Error('Session expired. Please log in again.');
+  }
   if (!res.ok) {
     const text = await res.text().catch(() => '');
     throw new Error(getErrorMessage(res.status, text || undefined));
@@ -751,6 +778,15 @@ export const api = {
         evalTime: r.evalTime != null ? String(r.evalTime) : undefined,
         lastUpdated: r.lastUpdated != null ? String(r.lastUpdated) : undefined,
         matches: r.matches != null ? Number(r.matches) : undefined,
+        lastMatchedAt: r.lastMatchedAt != null ? String(r.lastMatchedAt) : undefined,
+        source: r.source != null ? String(r.source) : undefined,
+        signature: r.signature != null ? String(r.signature) : undefined,
+        overlapGroup: r.overlapGroup != null ? String(r.overlapGroup) : undefined,
+        isCanonical: r.isCanonical != null ? Boolean(r.isCanonical) : undefined,
+        canonicalRuleId: r.canonicalRuleId != null ? String(r.canonicalRuleId) : undefined,
+        impactedFindings24h: r.impactedFindings24h != null ? Number(r.impactedFindings24h) : undefined,
+        impactedFindings7d: r.impactedFindings7d != null ? Number(r.impactedFindings7d) : undefined,
+        relatedCapabilities: Array.isArray(r.relatedCapabilities) ? r.relatedCapabilities.map((x) => String(x)) : undefined,
       })) as SecurityRule[];
     } catch (err) {
       return [];
@@ -936,15 +972,29 @@ export const api = {
   /** GET /api/v1/rules/:id – single rule + matchCount + recentMatches */
   getRule: async (id: string): Promise<{ rule: SecurityRule & { description?: string }; matchCount: number; recentMatches: Insight[] } | null> => {
     try {
-      const data = await request<{ rule: unknown; matchCount?: number; recentMatches?: unknown[] }>(`/policy/rules/${id}`);
-      const rule = (data.rule ?? {}) as SecurityRule & { description?: string };
+      const data = await request<{ rule: unknown; source?: string; signature?: string; overlapGroup?: string; isCanonical?: boolean; canonicalRule?: string; impactedFindings24h?: number; impactedFindings7d?: number; relatedCapabilities?: string[]; matchCount?: number; recentMatches?: unknown[] }>(`/policy/rules/${id}`);
+      const rule = {
+        ...(data.rule as SecurityRule & { description?: string }),
+        source: data.source,
+        signature: data.signature,
+        overlapGroup: data.overlapGroup,
+        isCanonical: data.isCanonical,
+        canonicalRuleId: data.canonicalRule,
+        impactedFindings24h: data.impactedFindings24h,
+        impactedFindings7d: data.impactedFindings7d,
+        relatedCapabilities: data.relatedCapabilities,
+      };
       const recentMatches = (data.recentMatches || []).map((m: unknown) => {
         const x = m as Record<string, unknown>;
         return {
           id: String(x.id ?? ''),
           title: (x.title ?? '') as string,
+          description: (x.description ?? '') as string,
           severity: String(x.severity ?? 'medium').toLowerCase(),
           status: x.status as string,
+          impact: (x.resourceName ?? x.resourceUid ?? '') as string,
+          evidence: x.evidence,
+          violatedRules: x.violatedRules,
           timestamp: (x.detectedAt ?? x.createdAt) as string | undefined,
         } as Insight;
       });
@@ -1258,10 +1308,42 @@ export const api = {
     }
   },
 
-  /** GET /api/v1/risk/pods/:uid/report – risk report for pod */
-  getPodRiskReport: async (podUid: string): Promise<{ insights: Insight[]; summary?: Record<string, unknown> }> => {
+  /** GET /api/v1/risk/pods/:uid/runtime/events — security runtime events (Falco ingest, REP, …) */
+  getPodRuntimeSecurityEvents: async (podUid: string, limit = 100): Promise<PodRuntimeSecurityEvent[]> => {
     try {
-      const data = await request<{ insights?: unknown[]; summary?: Record<string, unknown> }>(`/risk/pods/${encodeURIComponent(podUid)}/report`);
+      const data = await request<{ events?: PodRuntimeSecurityEvent[] }>(
+        `/risk/pods/${encodeURIComponent(podUid)}/runtime/events?limit=${limit}`,
+      );
+      return data.events || [];
+    } catch {
+      return [];
+    }
+  },
+  getPodRuntimeBehaviorFactsV2: async (podUid: string, limit = 100): Promise<PodRuntimeBehaviorFact[]> => {
+    if (!podUid) return [];
+    try {
+      const data = await requestV2<{ facts?: PodRuntimeBehaviorFact[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`);
+      return data.facts || [];
+    } catch {
+      return [];
+    }
+  },
+  getPodRuntimeIncidentsV2: async (podUid: string, limit = 100): Promise<PodRuntimeIncident[]> => {
+    if (!podUid) return [];
+    try {
+      const data = await requestV2<{ incidents?: PodRuntimeIncident[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`);
+      return data.incidents || [];
+    } catch {
+      return [];
+    }
+  },
+
+  /** GET /api/v1/risk/pods/:uid/report – risk report for pod */
+  getPodRiskReport: async (podUid: string): Promise<{ insights: Insight[]; summary?: PodRiskReportSummary }> => {
+    try {
+      const data = await request<{ insights?: unknown[]; summary?: Record<string, unknown> }>(
+        `/risk/pods/${encodeURIComponent(podUid)}/report`,
+      );
       const insights = (data.insights || []).map((i: any) => ({
         id: String(i.id ?? ''),
         cveId: i.cveId != null ? String(i.cveId) : undefined,
@@ -1271,9 +1353,30 @@ export const api = {
         score: i.cvss != null ? Math.round(Number(i.cvss) * 10) : undefined,
         status: i.status === 'active' ? 'new' : i.status === 'resolved' ? 'resolved' : 'acknowledged',
         timestamp: i.detectedAt ?? i.createdAt,
+        insightType: i.insightType != null ? String(i.insightType) : undefined,
         affectedResources: [{ id: i.resourceUid ?? '', name: i.resourceName, kind: i.resourceType, namespace: i.resourceNamespace }],
       })) as Insight[];
-      return { insights, summary: data.summary };
+      const s = data.summary;
+      const summary: PodRiskReportSummary | undefined = s
+        ? {
+            runtimeSignals24h: typeof s.runtimeSignals24h === 'number' ? s.runtimeSignals24h : Number(s.runtimeSignals24h) || undefined,
+            podDirectInsightCount:
+              typeof s.podDirectInsightCount === 'number' ? s.podDirectInsightCount : Number(s.podDirectInsightCount) || undefined,
+            runtimePolicyInsightCount:
+              typeof s.runtimePolicyInsightCount === 'number'
+                ? s.runtimePolicyInsightCount
+                : Number(s.runtimePolicyInsightCount) || undefined,
+            insightsInReport:
+              typeof s.insightsInReport === 'number' ? s.insightsInReport : Number(s.insightsInReport) || undefined,
+            clusterAdminBindings:
+              typeof s.clusterAdminBindings === 'number' ? s.clusterAdminBindings : Number(s.clusterAdminBindings) || undefined,
+            wildcardRoles: typeof s.wildcardRoles === 'number' ? s.wildcardRoles : Number(s.wildcardRoles) || undefined,
+            overprivilegedRoles:
+              typeof s.overprivilegedRoles === 'number' ? s.overprivilegedRoles : Number(s.overprivilegedRoles) || undefined,
+            riskLevel: s.riskLevel != null ? String(s.riskLevel) : undefined,
+          }
+        : undefined;
+      return { insights, summary };
     } catch {
       return { insights: [] };
     }
@@ -1397,10 +1500,19 @@ export const api = {
   getPodCapabilities: async (podUid: string): Promise<PodCapabilityDetail[]> => {
     if (!podUid) return [];
     try {
-      const data = await request<{ capabilities: PodCapabilityDetail[] }>(`/inventory/pods/${encodeURIComponent(podUid)}/capabilities`);
+      const data = await requestV2<{ capabilities: PodCapabilityDetail[] }>(
+        `/runtime/pods/${encodeURIComponent(podUid)}/capabilities`,
+      );
       return data.capabilities || [];
-    } catch (err) {
-      return [];
+    } catch {
+      try {
+        const data = await request<{ capabilities: PodCapabilityDetail[] }>(
+          `/inventory/pods/${encodeURIComponent(podUid)}/capabilities`,
+        );
+        return data.capabilities || [];
+      } catch {
+        return [];
+      }
     }
   },
 

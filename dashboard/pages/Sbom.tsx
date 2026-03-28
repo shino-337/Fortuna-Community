@@ -78,7 +78,7 @@ export const Sbom: React.FC = () => {
   };
 
   const getSeverityBadge = (severity: string) => {
-    return <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase border ${getSeverityBadgeClass(severity)}`}>{severity}</span>;
+    return <span className={`px-2 py-0.5 rounded ui-micro-label border ${getSeverityBadgeClass(severity)}`}>{severity}</span>;
   };
 
   const getSeverityBorder = (severity: string) => {
@@ -227,7 +227,7 @@ export const Sbom: React.FC = () => {
                           if (name) params.set('search', name);
                           navigate(`/risks?${params.toString()}`);
                         }}
-                        title="Open related risks in Risk Center"
+                        title="Open related risks in Risk Operations"
                       >
                         View related risks
                       </Button>
@@ -252,12 +252,12 @@ export const Sbom: React.FC = () => {
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
                   <div className="flex items-center space-x-6">
                     <div className="text-center">
-                      <div className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Components</div>
+                      <div className="ui-micro-label">Components</div>
                       <div className="text-xl font-bold text-white">{selectedDetail?.components.length || 0}</div>
                     </div>
                     <div className="h-8 w-px bg-slate-800"></div>
                     <div className="text-center">
-                      <div className="text-slate-500 text-[10px] uppercase font-bold tracking-wider">Vulnerabilities</div>
+                      <div className="ui-micro-label">Vulnerabilities</div>
                       <div className="text-xl font-bold text-red-500">
                         {selectedDetail?.components.reduce((acc, c) => acc + c.vulnerabilities.length, 0) || 0}
                       </div>

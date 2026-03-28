@@ -1,0 +1,28 @@
+# CIS Kubernetes Benchmark 5.1.4: Minimize access to create pods
+# Detect Roles/ClusterRoles that allow creating pods.
+
+id: cis-5.1.4
+name: "Role allows creating pods"
+category: rbac
+severity: high
+description: "Role/ClusterRole allows 'create' on pods; can be abused to deploy malicious workloads"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.rules.exists(r,
+        r.resources.exists(res, res == 'pods') &&
+        r.verbs.exists(v, v == 'create' || v == '*' )
+      )
+
+aggregation: AND
+base_score: 8.0
+tags:
+  - cis
+  - rbac
+  - pods
+  - create
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+

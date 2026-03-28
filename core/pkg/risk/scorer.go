@@ -116,6 +116,8 @@ func (s *Scorer) CalculateScore(ctx context.Context, resourceUID string) (*RiskS
 		"business_impact_components": s.getBusinessImpactBreakdown(insights, resourceInfo),
 	}
 
+	s.attachScoreV3Preview(ctx, factors, resourceUID, resourceInfo)
+
 	priorityLevel := s.determinePriority(totalScore)
 
 	return &RiskScoreV2{

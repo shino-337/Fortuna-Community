@@ -39,7 +39,12 @@ func TestYAMLEngineCreation(t *testing.T) {
 		t.Logf("  - %s (%s): %s", rule.ID, rule.Severity, rule.Name)
 	}
 
-	expectedRules := []string{"cis-5.1.3", "wildcard-permissions", "orphan-serviceaccount", "overprivileged-role", "overprivileged-binding"}
+	expectedRules := []string{
+		"cis-5.1.3", "wildcard-permissions", "orphan-serviceaccount", "overprivileged-role", "overprivileged-binding",
+		"cluster-admin-pod", "cluster-admin-binding-detailed",
+		"runtime-signals-recent", "runtime-hostnetwork-network-anomaly", "runtime-privileged-with-signals", "runtime-escape-class-signals",
+		"pss-host-namespaces", "pss-privileged-container",
+	}
 	for _, expectedID := range expectedRules {
 		if !ruleIDs[expectedID] {
 			t.Errorf("Expected rule %s not found", expectedID)

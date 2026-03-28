@@ -41,6 +41,10 @@ jobs:
           cd agent && go mod download && go test ./... -count=1
         continue-on-error: true
 
+      # G-R10 Phase A: admission gate smoke (no-op without kubectl/cluster; prints env + webhook when present).
+      - name: Verify admission risk gate (optional cluster)
+        run: bash scripts/verify/verify-admission-risk-gate.sh
+
   build-docker:
     name: Build Docker images
     runs-on: ubuntu-latest

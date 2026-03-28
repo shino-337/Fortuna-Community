@@ -28,6 +28,32 @@ body {
   color: rgb(var(--color-text));
 }
 
+@layer components {
+  .ui-table-scroll {
+    @apply overflow-x-auto overflow-y-auto max-h-[60vh];
+  }
+
+  .ui-table-scroll-compact {
+    @apply overflow-x-auto overflow-y-auto max-h-[500px];
+  }
+
+  .ui-code-scroll {
+    @apply overflow-auto max-h-[70vh];
+  }
+
+  .ui-filter-bar {
+    @apply rounded-lg border border-border bg-surface/60 px-4 py-3;
+  }
+
+  .ui-micro-label {
+    @apply text-[10px] font-semibold uppercase tracking-wider text-slate-500;
+  }
+
+  .ui-badge-text {
+    @apply text-[11px] font-semibold;
+  }
+}
+
 /* Custom scrollbar for webkit */
 ::-webkit-scrollbar {
   width: 6px;

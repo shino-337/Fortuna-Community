@@ -304,7 +304,7 @@ export const Dashboard: React.FC = () => {
                 ))}
             </div>
             
-            <Card variant="primary" title={`Velocity & PCE Trend (${trendDays} Days)`}>
+            <Card variant="primary" title={`Velocity & Capability Exposure Trend (${trendDays} Days)`}>
                  <div className="flex items-center justify-end gap-2 mb-2 text-xs text-slate-400">
                    <span>Range:</span>
                    {[7, 30].map((d) => (
@@ -331,11 +331,11 @@ export const Dashboard: React.FC = () => {
                        <Tooltip
                          contentStyle={{ backgroundColor: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', padding: '12px' }}
                          labelFormatter={(label) => `Date: ${label}`}
-                         formatter={(value: number, name: string) => [value, name === 'risk' ? 'Threat Velocity (Risks)' : 'PCE (Capabilities)']}
+                        formatter={(value: number, name: string) => [value, name === 'risk' ? 'Threat Velocity (Risks)' : 'Capability Exposure']}
                        />
                        <Legend
                          wrapperStyle={{ paddingTop: 8 }}
-                         formatter={(value) => (value === 'risk' ? 'Threat Velocity' : 'PCE Trend')}
+                        formatter={(value) => (value === 'risk' ? 'Threat Velocity' : 'Capability Exposure Trend')}
                          iconType="line"
                          iconSize={10}
                          style={{ fontSize: 11 }}

@@ -262,6 +262,11 @@ func main() {
 		go reader.Start(ctx)
 		log.Printf("✅ Runtime events reader enabled (path=%s poll=%s)", cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll)
 	}
+	if cfg.FalcoEventsEnabled {
+		reader := runtime.NewFalcoReader(cfg.FalcoEventsPath, cfg.FalcoEventsPoll, cfg.CoreHTTPEndpoint, cfg.NodeName, k8sClient.Clientset)
+		go reader.Start(ctx)
+		log.Printf("✅ Falco events reader enabled (path=%s poll=%s)", cfg.FalcoEventsPath, cfg.FalcoEventsPoll)
+	}
 	if cfg.EBPFEnabled {
 		sensor := ebpfruntime.NewSensor(
 			cfg.EBPFMode,

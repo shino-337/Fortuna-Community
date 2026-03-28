@@ -2,6 +2,7 @@ package riskengine
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
 	"log"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fortuna/core/pkg/models"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
@@ -23,14 +25,12 @@ type YAMLEngine struct {
 	celCompiler *CELCompiler
 }
 
-// NewYAMLEngine creates a new engine with YAML rule support
-// Note: This creates a base engine with hardcoded rules first, then loads YAML rules
-// It does NOT call NewEngine to avoid circular dependency
+// NewYAMLEngine creates a YAML-only engine.
 func NewYAMLEngine(db *gorm.DB, rulesDir string) (*YAMLEngine, error) {
-	// Create base engine with hardcoded rules first (to avoid circular dependency)
+	// Create base engine with empty rules; YAML is the only source of truth.
 	baseEngine := &Engine{
 		db:    db,
-		rules: GetBuiltInRules(), // Start with hardcoded rules
+		rules: []Rule{},
 	}
 
 	// Create CEL compiler
@@ -49,25 +49,39 @@ func NewYAMLEngine(db *gorm.DB, rulesDir string) (*YAMLEngine, error) {
 
 	// Load YAML rules
 	if err := ye.LoadYAMLRules(); err != nil {
-		log.Printf("[YAMLEngine] Failed to load YAML rules: %v, using hardcoded only", err)
+		return nil, fmt.Errorf("failed to load YAML rules: %w", err)
 	} else {
-		// Merge YAML rules with hardcoded
 		ye.mergeRules()
 		// Compile CEL expressions in loaded rules
 		ye.compileRuleCELs()
 	}
 
-	// DB rules override when present (risk rules CRUD)
-	if db != nil {
-		if dbRules, err := LoadRulesFromDB(db); err == nil && len(dbRules) > 0 {
-			ye.mu.Lock()
-			ye.rules = dbRules
-			ye.mu.Unlock()
-			log.Printf("[YAMLEngine] Using %d rules from DB (risk_rules)", len(dbRules))
+	return ye, nil
+}
+
+// EvaluateResource evaluates rules using YAML/CEL paths on the YAMLEngine (not only the embedded *Engine).
+// Calling EvaluateResource on *Engine after embedding loses method overrides; workers must call this when using YAML rules.
+func (ye *YAMLEngine) EvaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
+	var insights []*models.Insight
+	enrichedData := ye.prepareEnrichedResourceData(ctx, resourceType, resourceData)
+	ye.mu.RLock()
+	applicableRules := ye.getApplicableRules(resourceType)
+	ye.mu.RUnlock()
+	for _, rule := range applicableRules {
+		if !rule.Enabled {
+			continue
+		}
+		matched, score, err := ye.evaluateRule(ctx, rule, enrichedData)
+		if err != nil {
+			log.Printf("[RiskEngine] Failed to evaluate rule %s: %v", rule.ID, err)
+			continue
+		}
+		if matched {
+			insight := ye.createInsight(rule, resourceType, enrichedData, score)
+			insights = append(insights, insight)
 		}
 	}
-
-	return ye, nil
+	return insights, nil
 }
 
 // LoadYAMLRules loads all YAML rules from directory
@@ -175,7 +189,7 @@ func (ye *YAMLEngine) validateRule(rule *Rule) error {
 	return nil
 }
 
-// mergeRules merges YAML rules with hardcoded rules (YAML takes precedence)
+// mergeRules rebuilds the runtime ruleset from YAML.
 func (ye *YAMLEngine) mergeRules() {
 	ye.mu.Lock()
 	defer ye.mu.Unlock()
@@ -184,48 +198,25 @@ func (ye *YAMLEngine) mergeRules() {
 
 // mergeRulesUnlocked does the merge; caller must hold ye.mu Lock (writes to ye.rules).
 func (ye *YAMLEngine) mergeRulesUnlocked() {
-	// Start with hardcoded rules as fallback
-	ruleMap := make(map[string]Rule)
-	for _, rule := range ye.rules {
-		ruleMap[rule.ID] = rule
-	}
-
-	// Override with YAML rules (YAML takes precedence)
+	ruleMap := make(map[string]Rule, len(ye.yamlRules))
 	for id, rule := range ye.yamlRules {
 		ruleMap[id] = *rule
-		log.Printf("[YAMLEngine] Loaded YAML rule: %s (replaces hardcoded if exists)", id)
+		log.Printf("[YAMLEngine] Loaded YAML rule: %s", id)
 	}
 
 	// Convert to slice
 	ye.rules = make([]Rule, 0, len(ruleMap))
 	for _, rule := range ruleMap {
-		if rule.Enabled {
-			ye.rules = append(ye.rules, rule)
-		}
+		ye.rules = append(ye.rules, rule)
 	}
 
-	log.Printf("[YAMLEngine] Merged rules: %d total (%d YAML + %d hardcoded fallback)",
-		len(ye.rules), len(ye.yamlRules), len(ye.rules)-len(ye.yamlRules))
+	log.Printf("[YAMLEngine] Active YAML rules: %d", len(ye.rules))
 }
 
-// ReloadFromDB reloads rules from DB. If DB has rules, they replace current; else YAML+hardcoded merge is restored.
+// ReloadFromDB is retained for interface compatibility only.
+// Rules are YAML-only, so this simply reloads YAML.
 func (ye *YAMLEngine) ReloadFromDB() error {
-	ye.mu.Lock()
-	defer ye.mu.Unlock()
-	if ye.db != nil {
-		dbRules, err := LoadRulesFromDB(ye.db)
-		if err != nil {
-			return err
-		}
-		if len(dbRules) > 0 {
-			ye.rules = dbRules
-			log.Printf("[YAMLEngine] Reloaded %d rules from DB", len(dbRules))
-			return nil
-		}
-	}
-	// No DB rules: restore YAML + hardcoded merge
-	ye.mergeRulesUnlocked()
-	return nil
+	return ye.Reload()
 }
 
 // Reload reloads YAML rules and recompiles CEL expressions
@@ -234,7 +225,7 @@ func (ye *YAMLEngine) Reload() error {
 	if ye.celCompiler != nil {
 		ye.celCompiler.ClearCache()
 	}
-	
+
 	if err := ye.LoadYAMLRules(); err != nil {
 		return err
 	}
@@ -244,11 +235,22 @@ func (ye *YAMLEngine) Reload() error {
 	return nil
 }
 
-// GetRules returns the current rules (merged YAML + hardcoded)
+// GetRules returns the current active YAML rules.
 func (ye *YAMLEngine) GetRules() []Rule {
 	ye.mu.RLock()
 	defer ye.mu.RUnlock()
 	return ye.rules
+}
+
+// GetYAMLRuleIDs returns IDs loaded from YAML files.
+func (ye *YAMLEngine) GetYAMLRuleIDs() map[string]struct{} {
+	ye.mu.RLock()
+	defer ye.mu.RUnlock()
+	out := make(map[string]struct{}, len(ye.yamlRules))
+	for id := range ye.yamlRules {
+		out[id] = struct{}{}
+	}
+	return out
 }
 
 // compileRuleCELs compiles all CEL expressions in loaded rules
@@ -283,6 +285,32 @@ func (ye *YAMLEngine) compileRuleCELs() {
 func (ye *YAMLEngine) evaluateCELCondition(condition Condition, resourceData map[string]interface{}) (bool, error) {
 	if ye.celCompiler == nil {
 		return false, fmt.Errorf("CEL compiler not available")
+	}
+
+	// Normalize RBAC "rules" so CEL sees an actual list.
+	// In the DB models Role/ClusterRole store rules as a JSON string; CEL expressions expect:
+	//   object.rules.exists(r, ...)
+	// If object.rules is still a string, cel-go evaluation will fail (or always false).
+	if resourceData != nil {
+		if rulesVal, ok := resourceData["rules"]; ok {
+			switch v := rulesVal.(type) {
+			case string:
+				trimmed := strings.TrimSpace(v)
+				// Only attempt parsing when it looks like a JSON array/object.
+				if trimmed != "" && (strings.HasPrefix(trimmed, "[") || strings.HasPrefix(trimmed, "{")) {
+					var parsed []interface{}
+					if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+						resourceData["rules"] = parsed
+					}
+				}
+			case []byte:
+				// Handle []byte JSON payloads defensively.
+				var parsed []interface{}
+				if err := json.Unmarshal(v, &parsed); err == nil {
+					resourceData["rules"] = parsed
+				}
+			}
+		}
 	}
 
 	// Prepare CEL input with object as root

@@ -30,14 +30,23 @@ func (a *SignalAdapter) AdaptEvent(ctx context.Context, event *models.RuntimeEve
 		"capability": event.Capability,
 	}
 	evidenceJSON, _ := json.Marshal(evidence)
+	evidenceRefsJSON, _ := json.Marshal(map[string]interface{}{
+		"eventIds": []string{event.EventID},
+	})
+	firstSeen := event.CreatedAt.UTC().Format(time.RFC3339Nano)
+	lastSeen := event.CreatedAt.UTC().Format(time.RFC3339Nano)
 
 	signal := &models.RuntimeSignal{
-		PodUID:     event.PodUID,
-		SignalType: signalType,
-		Category:   category,
-		Confidence: confidence,
-		Evidence:   string(evidenceJSON),
-		CreatedAt:  event.CreatedAt,
+		PodUID:       event.PodUID,
+		SignalType:   signalType,
+		Category:     category,
+		Confidence:   confidence,
+		Evidence:     string(evidenceJSON),
+		EvidenceRefs: string(evidenceRefsJSON),
+		Count:        1,
+		FirstSeenAt:  &firstSeen,
+		LastSeenAt:   &lastSeen,
+		CreatedAt:    event.CreatedAt,
 	}
 
 	return signal, nil
@@ -65,20 +74,27 @@ func (a *SignalAdapter) AdaptAndPersist(ctx context.Context, event *models.Runti
 		return err
 	}
 
-	// Signal exists, update confidence if higher
+	// Signal exists for today: bump occurrence count and keep best evidence/confidence.
+	existing.Count++
+	lastSeen := signal.CreatedAt.UTC().Format(time.RFC3339Nano)
+	existing.LastSeenAt = &lastSeen
+	if existing.FirstSeenAt == nil {
+		firstSeen := signal.CreatedAt.UTC().Format(time.RFC3339Nano)
+		existing.FirstSeenAt = &firstSeen
+	}
 	if signal.Confidence > existing.Confidence {
 		existing.Confidence = signal.Confidence
 		existing.Evidence = signal.Evidence
-		return a.db.WithContext(ctx).Save(&existing).Error
+		existing.EvidenceRefs = signal.EvidenceRefs
 	}
-
-	return nil
+	return a.db.WithContext(ctx).Save(&existing).Error
 }
 
 // classifyEventToSignal maps runtime event to semantic signal
 func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category string, confidence float64) {
 	syscall := event.Syscall
 	target := event.TargetPath
+	runtimeSource := strings.ToLower(strings.TrimSpace(event.Runtime))
 
 	// PROC_ROOT_PIVOT detection
 	if (syscall == "openat" || syscall == "open" || syscall == "stat" || syscall == "readlink") &&
@@ -110,27 +126,44 @@ func classifyEventToSignal(event *models.RuntimeEvent) (signalType, category str
 	}
 
 	// SUSPICIOUS_EXEC_FROM_SNAPSHOT (R6 heuristic extension)
-	if strings.EqualFold(syscall, "execve") && strings.EqualFold(event.Capability, "PROCESS_SNAPSHOT_DIFF") {
-		t := strings.ToLower(strings.TrimSpace(target))
-		if t != "" {
-			keywords := []string{
-				"bash", "sh", "nc", "netcat", "ncat", "socat",
-				"curl", "wget", "python", "perl", "ruby",
-			}
-			for _, k := range keywords {
-				if strings.Contains(t, k) {
+	if strings.EqualFold(syscall, "execve") {
+		// For Falco: capability might be missing; still map to suspicious exec when the target looks like
+		// "bash/sh/nc/curl/wget/..." or comes from writable locations (/tmp,/dev/shm).
+		allowFalco := runtimeSource == "falco"
+		allowSnapshot := strings.EqualFold(event.Capability, "PROCESS_SNAPSHOT_DIFF")
+		if allowFalco || allowSnapshot {
+			t := strings.ToLower(strings.TrimSpace(target))
+			if t != "" {
+				keywords := []string{
+					"bash", "sh", "nc", "netcat", "ncat", "socat",
+					"curl", "wget", "python", "perl", "ruby",
+				}
+				for _, k := range keywords {
+					if strings.Contains(t, k) {
+						return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
+					}
+				}
+				if strings.HasPrefix(t, "/tmp/") || strings.HasPrefix(t, "/dev/shm/") {
 					return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
 				}
-			}
-			if strings.HasPrefix(t, "/tmp/") || strings.HasPrefix(t, "/dev/shm/") {
-				return "SUSPICIOUS_EXEC_FROM_SNAPSHOT", "EXECUTION", 0.7
 			}
 		}
 	}
 	// NETWORK_QUEUE_ANOMALY (R5 phase-2)
-	if strings.EqualFold(syscall, "connect") && strings.EqualFold(event.Capability, "NETWORK_TXRX_QUEUE_SPIKE") {
-		return "NETWORK_QUEUE_ANOMALY", "NETWORK", 0.65
+	if strings.EqualFold(syscall, "connect") {
+		allowNetworkSpike := strings.EqualFold(event.Capability, "NETWORK_TXRX_QUEUE_SPIKE")
+		// For Falco: also map connect() to queue anomaly when the target looks like network-ish evidence
+		// (ip:port, dst=..., proto=...). This keeps runtime-signals consistent for existing runtime YAML rules.
+		allowFalco := runtimeSource == "falco" &&
+			(strings.Contains(strings.ToLower(target), ":") ||
+				strings.Contains(strings.ToLower(target), "dst=") ||
+				strings.Contains(strings.ToLower(target), "proto=") ||
+				strings.Contains(strings.ToLower(target), "dport="))
+		if allowNetworkSpike || allowFalco {
+			return "NETWORK_QUEUE_ANOMALY", "NETWORK", 0.65
+		}
 	}
+
 	// R9 eBPF enriched mappings
 	if strings.EqualFold(syscall, "execve") && strings.EqualFold(event.Capability, "EBPF_EXEC_TRACE") {
 		return "EBPF_EXEC_ACTIVITY", "EXECUTION", 0.75

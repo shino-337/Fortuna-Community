@@ -585,17 +585,17 @@ export const RiskCenter: React.FC = () => {
     resolved: 'Resolved',
   };
 
-  if (loading) return <PageLoading message="Loading Risk Center…" />;
+  if (loading) return <PageLoading message="Loading Risk Operations…" />;
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'risks', label: 'Risk Findings' },
-    { id: 'pce', label: 'Capability Exposure (PCE)' },
+    { id: 'pce', label: 'Capability Exposure' },
     { id: 'reference', label: 'Evidence & References' },
   ];
 
   return (
     <PageLayout
-      title="Risk Center"
+      title="Risk Operations"
       description={RISK_CENTER_DESCRIPTION}
     >
       {/* Error banner when some APIs failed */}
@@ -627,10 +627,18 @@ export const RiskCenter: React.FC = () => {
         }}
       />
       <div className="mt-3 p-3 bg-slate-900/60 border border-slate-800 rounded-lg text-xs text-slate-400">
-        <strong className="text-slate-300">Risk Findings</strong> = security findings (insights). <strong className="text-slate-300">PCE</strong> = pod capability exposure (separate counts). <strong className="text-slate-300">Evidence & References</strong> = runtime signals and capability catalog (no single total). <em>Total findings below applies only to Risk Findings.</em>
+        <strong className="text-slate-300">Risk Findings</strong> = active security findings. <strong className="text-slate-300">Capability Exposure</strong> = pod capability exposure counts (separate from findings). <strong className="text-slate-300">Evidence & References</strong> = runtime evidence and capability knowledge (no single total). <em>Total findings below applies only to Risk Findings.</em>
+      </div>
+      <div className="mt-2 p-3 bg-slate-900/40 border border-slate-800 rounded-lg text-xs text-slate-400 flex flex-wrap items-center gap-3">
+        <span className="text-slate-300 font-medium">Page objective:</span>
+        <span>Triage and prioritize active risks in operations.</span>
+        <span className="text-slate-600">|</span>
+        <span>Need rule tuning? <Link className="text-pink-400 hover:underline" to="/rules">Open Detection & Policy Catalog</Link></span>
+        <span className="text-slate-600">|</span>
+        <span>Need semantic explanation? <Link className="text-pink-400 hover:underline" to="/capabilities">Open Capability Knowledge</Link></span>
       </div>
       <div className="mt-3 p-3 bg-slate-900/40 border border-slate-800 rounded-lg text-xs text-slate-400 flex flex-wrap gap-x-4 gap-y-1 items-center">
-        <span title="Count of risk findings (insights) in current scope. Does not include PCE or Evidence totals.">
+        <span title="Count of risk findings in current scope. Does not include Capability Exposure or Evidence totals.">
           Total findings (Risk Findings only): <span className="text-slate-200 font-medium">{severityBar.total}</span>
         </span>
         <span>Scope: <span className="text-slate-200 font-medium">{effectiveClusterId ? `cluster ${effectiveClusterId}` : 'all clusters'}</span></span>
@@ -983,7 +991,7 @@ export const RiskCenter: React.FC = () => {
                   >
                     <Shield className="w-10 h-10 text-amber-400 shrink-0" />
                     <div>
-                      <span className="font-medium text-slate-200 block">PCE Heatmap</span>
+                      <span className="font-medium text-slate-200 block">Capability Exposure Heatmap</span>
                       <span className="text-xs text-slate-500">Capability exposure by namespace & severity</span>
                     </div>
                     <ArrowRight className="w-5 h-5 text-slate-500 shrink-0 ml-auto" />
@@ -1172,7 +1180,7 @@ export const RiskCenter: React.FC = () => {
 
           {/* Risk list – compact table with internal scroll to keep layout consistent */}
           <div className="bg-surface rounded-lg border border-border shadow-sm p-0 overflow-hidden">
-            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+            <div className="ui-table-scroll">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                   <tr>
@@ -1363,7 +1371,7 @@ export const RiskCenter: React.FC = () => {
       {activeTab === 'pce' && (
         <div className="space-y-6">
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <h1 className="text-lg font-semibold text-slate-200">PCE Exposure</h1>
+            <h1 className="text-lg font-semibold text-slate-200">Capability Exposure</h1>
             {pceHeatmap.length > 0 && (
               <Button
                 variant="secondary"
@@ -1386,10 +1394,10 @@ export const RiskCenter: React.FC = () => {
               </Button>
             )}
           </div>
-          {/* PCE Summary – capability counts, not risk counts; not included in Total findings */}
+          {/* Capability exposure summary: capability counts, not risk counts */}
           <div className="bg-surface border border-border p-4 rounded-lg">
             <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1">
-              Capability Exposure Summary (PCE)
+              Capability Exposure Summary
             </h2>
             <p className="text-xs text-slate-500 mb-3">Counts by severity from pod capabilities. These numbers are separate from &quot;Total findings&quot; (which counts Risk Findings only).</p>
             {pceSummary.length === 0 ? (
@@ -1406,10 +1414,10 @@ export const RiskCenter: React.FC = () => {
             )}
           </div>
 
-          {/* PCE Trend (7 days) – Phase 4 */}
+          {/* Capability exposure trend (7 days) */}
           {pceTrend.length > 0 && (
             <div className="bg-surface border border-border p-4 rounded-lg">
-              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">PCE Trend (7 Days)</h2>
+              <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-2">Capability Exposure Trend (7 Days)</h2>
               <p className="text-xs text-slate-500 mb-3">Capability exposure counts by day. Same scope as current cluster filter.</p>
               <div className="w-full h-[220px]">
                 <ResponsiveContainer width="100%" height="100%">
@@ -1620,7 +1628,7 @@ export const RiskCenter: React.FC = () => {
                 <option value="namespace_asc">Namespace A-Z</option>
               </select>
             </div>
-            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-surface">
+            <div className="ui-table-scroll rounded-lg border border-border bg-surface">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                   <tr>
@@ -1719,14 +1727,14 @@ export const RiskCenter: React.FC = () => {
               <div className="bg-slate-900 border border-slate-800 p-6 rounded-lg">
                 <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-2">
                   <Shield size={16} className="text-pink-400" />
-                  Capability Reference Catalog
+                  Capability Knowledge Reference
                 </h2>
                 <p className="text-xs text-slate-500 mb-4">Definitions and context: capability meaning, severity base, MITRE mapping, and mitigations.</p>
                 <Link
                   to="/capabilities"
                   className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-pink-500/20 text-pink-400 border border-pink-500/50 hover:bg-pink-500/30 transition-colors text-sm font-medium"
                 >
-                  Open capability catalog
+                  Open Capability Knowledge
                   <ArrowRight size={16} />
                 </Link>
               </div>
@@ -1742,7 +1750,7 @@ export const RiskCenter: React.FC = () => {
                 <p className="text-slate-500 text-sm py-4">No audit logs for insights yet.</p>
               ) : (
                 <>
-                  <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border bg-surface">
+                  <div className="ui-table-scroll rounded-lg border border-border bg-surface">
                     <table className="w-full text-sm">
                       <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                         <tr>
@@ -1834,7 +1842,7 @@ export const RiskCenter: React.FC = () => {
               {selectedRiskLoading && (
                 <div className="flex items-center gap-2 text-xs text-slate-500">
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Loading linked Risk, PCE, and evidence context...
+                  Loading linked risk, capability exposure, and evidence context...
                 </div>
               )}
               {/* Drawer tabs */}
@@ -1871,7 +1879,7 @@ export const RiskCenter: React.FC = () => {
                         : 'border-transparent text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    PCE &amp; Attack Path
+                    Capability Exposure &amp; Attack Path
                   </button>
                 </nav>
               </div>
@@ -1881,7 +1889,7 @@ export const RiskCenter: React.FC = () => {
                 <>
                   <section>
                     <div className="text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded px-3 py-2">
-                      Relationship: <span className="text-slate-200">Risk finding</span> → <span className="text-slate-200">affected Pod</span> → <span className="text-slate-200">PCE capabilities</span> → <span className="text-slate-200">runtime evidence &amp; references</span>.
+                      Relationship: <span className="text-slate-200">Risk finding</span> → <span className="text-slate-200">affected Pod</span> → <span className="text-slate-200">capabilities</span> → <span className="text-slate-200">runtime evidence &amp; references</span>.
                     </div>
                   </section>
                   <section className="mt-4">
@@ -2080,11 +2088,11 @@ export const RiskCenter: React.FC = () => {
                 </>
               )}
 
-              {/* PCE & Attack Path tab */}
+              {/* Capability exposure & attack path tab */}
               {drawerTab === 'pce' && (
                 <>
                   <section>
-                    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Related Capability IDs (PCE)</h3>
+                    <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Related Capability IDs</h3>
                     {selectedRiskCapabilities.length === 0 ? (
                       <p className="text-slate-500 text-xs">No linked capability found on the affected pod.</p>
                     ) : (
@@ -2100,7 +2108,7 @@ export const RiskCenter: React.FC = () => {
                   <section className="mt-4">
                     <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Capability Details</h3>
                     {selectedRiskCapabilities.length === 0 ? (
-                      <p className="text-slate-500 text-xs">No PCE capability context available for the currently linked asset.</p>
+                      <p className="text-slate-500 text-xs">No capability context available for the currently linked asset.</p>
                     ) : (
                       <div className="max-h-40 overflow-y-auto border border-slate-800 rounded">
                         <table className="w-full text-xs">
@@ -2127,7 +2135,7 @@ export const RiskCenter: React.FC = () => {
                   <section className="mt-4">
                     <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Capability Exposure Impact</h3>
                     <p className="text-slate-500 text-xs mb-2">
-                      Risk is linked to PCE through affected Pod UID. Open PCE tab for full drill-down with capability filters.
+                      This risk is linked to capability exposure through the affected Pod UID. Open the Capability Exposure tab for detailed filtering.
                     </p>
                     <button
                       type="button"

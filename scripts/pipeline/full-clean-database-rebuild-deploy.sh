@@ -52,12 +52,14 @@ SKIP_DEPLOY=false
 CLEAN_DB=false
 DB_RESET=false
 SHOW_MENU=false
+PUSH_DASHBOARD=false
 
 for arg in "$@"; do
   case "$arg" in
     --skip-clean)    SKIP_CLEAN=true ;;
     --skip-rebuild)  SKIP_REBUILD=true ;;
     --skip-deploy)   SKIP_DEPLOY=true ;;
+    --push-dashboard) PUSH_DASHBOARD=true ;;
     --db)            CLEAN_DB=true ;;
     --db-reset)       DB_RESET=true ;;
     --only-db-reset)  SKIP_CLEAN=true; SKIP_REBUILD=true; SKIP_DEPLOY=true; DB_RESET=true ;;
@@ -251,7 +253,7 @@ PUSH_IMAGES_AFTER_REBUILD="${PUSH_IMAGES_AFTER_REBUILD:-true}"
 if [ "$SKIP_DEPLOY" = false ] && [ "$SKIP_REBUILD" = false ] && [ "$PUSH_IMAGES_AFTER_REBUILD" = true ]; then
   if [ -x "$SCRIPTS/utils/push-images-to-workers.sh" ]; then
     log_info "Phase 2b: Push images to all nodes (master + workers) so Core pod can start..."
-    if "$SCRIPTS/utils/push-images-to-workers.sh" 2>&1; then
+    if "$SCRIPTS/utils/push-images-to-workers.sh" ${PUSH_DASHBOARD:+--include-dashboard} 2>&1; then
       log_success "Images pushed to all nodes"
     else
       log_warn "Push to nodes failed (SSH or node list). Add scripts/utils/push-images.config (see push-images.config.example) or set SSH_USER/SSH_PASS; if Core shows ErrImageNeverPull run: ./scripts/utils/push-images-to-workers.sh"

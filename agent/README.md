@@ -159,11 +159,16 @@ go build -o bin/fortuna-agent ./cmd
 docker build -t fortuna-agent:latest -f Dockerfile .
 ```
 
-Or using `nerdctl`:
+Or using `nerdctl` (default namespace may **not** be what kubelet uses):
 
 ```bash
-nerdctl build -t fortuna-agent:latest -f Dockerfile .
+# From repository root (Dockerfile expects repo context for api/ + agent/)
+nerdctl -n k8s.io build -t docker.io/library/fortuna-agent:latest -f agent/Dockerfile .
 ```
+
+**Why `-n k8s.io`:** On many clusters the kubelet pulls images from the **containerd `k8s.io` namespace**. Building only in the default nerdctl namespace can leave `fortuna-agent:latest` invisible to Kubernetes or with a stale digest. The sync script `scripts/utils/push-images-to-workers.sh` exports `docker.io/library/fortuna-agent:latest`; match that tag when loading on nodes.
+
+**Multi-node:** After building locally, import the same tarball on each node (the push script does this) or rebuild with `nerdctl -n k8s.io` on each host.
 
 ---
 
@@ -298,6 +303,12 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 ```
 
 ### Common Issues
+
+**Issue**: Falco alerts not reaching Core / empty `runtime_events` for a pod
+- **Solution**: Set `FALCO_EVENTS_ENABLED=true` and mount host `/var/log/falco` (see `deploy/fortuna-agent-daemonset.yaml`). Ensure Falco writes `events.jsonl` on that node. The agent resolves `pod_uid` from `k8s.pod.name` + namespace via **list** if **get** is denied by RBAC. If the JSONL file is huge, the reader **starts at EOF** on first run (new alerts only); rotate or truncate the file on the host if you need a clean slate.
+
+**Issue**: Agent `OOMKilled` when Falco is enabled
+- **Solution**: DaemonSet uses higher memory limits and optional `SBOM_WORKERS=1` to reduce peak usage; ensure the deployed manifest matches `deploy/fortuna-agent-daemonset.yaml`.
 
 **Issue**: Agent can't connect to Core
 - **Solution**: Check `CORE_GRPC_ENDPOINT` and network policies

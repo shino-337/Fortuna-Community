@@ -129,6 +129,16 @@ echo " Risk Center E2E – Full test suite"
 echo "=============================================="
 info "Core pod: $CORE_POD"
 
+# Coverage pod matrix for risk center rules/runtime
+MATRIX_FILE="$PROJECT_ROOT/deploy/e2e/risk-center-pod-matrix.yaml"
+if [ -f "$MATRIX_FILE" ]; then
+  info "Applying pod matrix: $MATRIX_FILE"
+  kubectl apply -f "$MATRIX_FILE" >/dev/null 2>&1 || true
+  kubectl -n risk-center-test wait --for=condition=Ready pod \
+    rc-pss-privileged-host rc-rbac-cluster-admin rc-pss-cap-netraw-sysadmin rc-pss-no-limits \
+    --timeout=120s >/dev/null 2>&1 || true
+fi
+
 # ---------------------------------------------------------------------------
 # TC-01: GET /risks (list, pagination)
 # ---------------------------------------------------------------------------
@@ -355,6 +365,63 @@ if [ "$WS_RESP" = "101" ] || [ "$WS_RESP" = "400" ] || [ "$WS_RESP" = "401" ]; t
   run_tc "16" "WebSocket GET /ws/risks (endpoint)" "Endpoint phản hồi (101/400/401)" "HTTP $WS_RESP" "PASS"
 else
   run_tc "16" "WebSocket GET /ws/risks" "Endpoint phản hồi" "HTTP $WS_RESP" "FAIL"
+fi
+
+# ---------------------------------------------------------------------------
+# TC-17: GET /risk/pods/:uid/report (Pod risk report + runtime summary)
+# ---------------------------------------------------------------------------
+SAMPLE_POD_UID="$(kubectl -n "$NAMESPACE" get pods -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
+if [ -n "$SAMPLE_POD_UID" ]; then
+  RESP=$(api_get "risk/pods/${SAMPLE_POD_UID}/report")
+  BODY=$(get_body "$RESP")
+  CODE=$(get_http_code "$RESP")
+  HAS_SUMMARY=$(echo "$BODY" | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin)
+  s=d.get('summary') or {}
+  if not isinstance(s,dict):
+    print('no')
+  elif 'runtimeSignals24h' in s or 'podDirectInsightCount' in s:
+    print('runtime')
+  elif 'riskLevel' in s or 'clusterAdminBindings' in s:
+    print('legacy')
+  else:
+    print('no')
+except Exception:
+  print('err')
+" 2>/dev/null || echo "err")
+  if [ "$CODE" = "200" ] && { [ "$HAS_SUMMARY" = "runtime" ] || [ "$HAS_SUMMARY" = "legacy" ]; }; then
+    run_tc "17" "GET /risk/pods/:uid/report (summary)" "HTTP 200, summary (runtime hoặc RBAC legacy)" "HTTP $CODE, summaryKind=$HAS_SUMMARY" "PASS"
+  else
+    run_tc "17" "GET /risk/pods/:uid/report" "HTTP 200 + summary hợp lệ" "HTTP $CODE, summaryKind=$HAS_SUMMARY" "FAIL" "${BODY:0:240}"
+  fi
+else
+  run_tc "17" "GET /risk/pods/:uid/report" "Cần ít nhất một pod trong namespace" "no pod uid" "SKIP"
+fi
+
+# ---------------------------------------------------------------------------
+# TC-18: GET /runtime/pods/:uid/signals (24h window)
+# ---------------------------------------------------------------------------
+if [ -n "$SAMPLE_POD_UID" ]; then
+  RESP=$(api_get "runtime/pods/${SAMPLE_POD_UID}/signals?sinceMinutes=1440&limit=50")
+  BODY=$(get_body "$RESP")
+  CODE=$(get_http_code "$RESP")
+  HAS_SIGNALS_KEY=$(echo "$BODY" | python3 -c "
+import sys,json
+try:
+  d=json.load(sys.stdin)
+  print('yes' if 'signals' in d else 'no')
+except Exception:
+  print('err')
+" 2>/dev/null || echo "err")
+  if [ "$CODE" = "200" ] && [ "$HAS_SIGNALS_KEY" = "yes" ]; then
+    run_tc "18" "GET /runtime/pods/:uid/signals?sinceMinutes=1440" "HTTP 200, JSON có signals[]" "HTTP $CODE" "PASS"
+  else
+    run_tc "18" "GET /runtime/pods/:uid/signals" "HTTP 200, signals[]" "HTTP $CODE" "FAIL" "${BODY:0:200}"
+  fi
+else
+  run_tc "18" "GET /runtime/pods/:uid/signals" "Cần pod uid" "SKIP" "no pod in namespace"
 fi
 
 # ---------------------------------------------------------------------------

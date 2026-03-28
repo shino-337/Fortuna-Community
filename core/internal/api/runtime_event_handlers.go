@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"log"
 	"net/http"
 	"strings"
@@ -22,6 +23,7 @@ type runtimeEventPayload struct {
 		Name      string `json:"name"`
 		Namespace string `json:"namespace"`
 		UID       string `json:"uid"`
+		Node      string `json:"node"`
 	} `json:"pod"`
 
 	PodUID string `json:"pod_uid"`
@@ -33,10 +35,51 @@ type runtimeEventPayload struct {
 	TargetPath string `json:"target_path"`
 	Capability string `json:"capability"`
 	Timestamp  int64  `json:"timestamp"`
+	Runtime    string `json:"runtime"`
 }
 
 type runtimeEventResponse struct {
 	Processed int `json:"processed"`
+}
+
+// runtimeEventV2Payload is canonical-ish DTO for POST /api/v2/runtime/events (P0.1 minimal).
+type runtimeEventV2Payload struct {
+	EventID         string `json:"event_id"`
+	ObservedAt      string `json:"observed_at"` // RFC3339
+	IngestedAt      string `json:"ingested_at"` // RFC3339
+	ResolutionState string `json:"resolution_state"`
+
+	// Flattened source fields (agent compatibility).
+	// If nested `source` is missing, these will be used.
+	SourceKindFlat     string `json:"source_kind"`
+	SourceSensorIDFlat string `json:"source_sensor_id"`
+	SourceRuleFlat     string `json:"source_rule"`
+
+	Source struct {
+		Kind     string `json:"kind"`
+		SensorID string `json:"sensor_id"`
+		Rule     string `json:"rule"`
+	} `json:"source"`
+	PayloadJSON json.RawMessage `json:"payload_json"`
+	PayloadHash string          `json:"payload_hash"`
+
+	Pod struct {
+		Name      string `json:"name"`
+		Namespace string `json:"namespace"`
+		UID       string `json:"uid"`
+		Node      string `json:"node"`
+	} `json:"pod"`
+
+	Syscall    string `json:"syscall"`
+	Target     string `json:"target"`
+	Capability string `json:"capability"`
+
+	// Compatibility with existing REP classification inputs
+	EventType      string `json:"event_type"`
+	Signal         string `json:"signal"`
+	MitreTechnique string `json:"mitre_technique"`
+	Severity       string `json:"severity"`
+	Runtime        string `json:"runtime"`
 }
 
 // PostRuntimeEvents ingests runtime escape probe events from agents/sensors.
@@ -66,6 +109,9 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 			if namespace == "" {
 				namespace = p.Namespace
 			}
+			podName := strings.TrimSpace(p.Pod.Name)
+			nodeName := strings.TrimSpace(p.Pod.Node)
+			runtimeSource := strings.TrimSpace(p.Runtime)
 			target := p.Target
 			if target == "" {
 				target = p.TargetPath
@@ -87,12 +133,19 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 				podUID, namespace, p.Syscall, target, p.Capability)
 
 			result, err := rep.ProcessRuntimeEvent(c.Request.Context(), db, rep.RuntimeEventInput{
-				PodUID:     podUID,
-				Namespace:  namespace,
-				Syscall:    p.Syscall,
-				TargetPath: target,
-				Capability: capability,
-				Timestamp:  ts,
+				PodUID:         podUID,
+				PodName:        podName,
+				Namespace:      namespace,
+				NodeName:       nodeName,
+				Syscall:        p.Syscall,
+				TargetPath:     target,
+				Capability:     capability,
+				Timestamp:      ts,
+				Runtime:        runtimeSource,
+				EventType:      strings.TrimSpace(p.EventType),
+				Signal:         strings.TrimSpace(p.Signal),
+				MitreTechnique: strings.TrimSpace(p.MitreTechnique),
+				Severity:       strings.TrimSpace(p.Severity),
 			})
 			if err != nil {
 				log.Printf("[RuntimeEvent] ❌ Failed to process event for pod_uid=%s: %v", podUID, err)
@@ -104,6 +157,116 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 				processed++
 			} else {
 				log.Printf("[RuntimeEvent] ⚠️  No signal matched for pod_uid=%s syscall=%s target=%s", podUID, p.Syscall, target)
+			}
+		}
+
+		c.JSON(http.StatusOK, runtimeEventResponse{Processed: processed})
+	}
+}
+
+// PostRuntimeEventsV2 ingests canonical runtime events (P0.1 minimal).
+// It is unauthenticated like v1 to support daemonset sensors.
+func PostRuntimeEventsV2(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		var payloads []runtimeEventV2Payload
+		if err := c.ShouldBindJSON(&payloads); err != nil {
+			var single runtimeEventV2Payload
+			if err2 := c.ShouldBindJSON(&single); err2 != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err2.Error()})
+				return
+			}
+			payloads = []runtimeEventV2Payload{single}
+		}
+
+		processed := 0
+		now := time.Now().UTC()
+
+		for _, p := range payloads {
+			podUID := strings.TrimSpace(p.Pod.UID)
+			if podUID == "" || strings.TrimSpace(p.Syscall) == "" {
+				continue
+			}
+			namespace := strings.TrimSpace(p.Pod.Namespace)
+
+			var observedAt *time.Time
+			if strings.TrimSpace(p.ObservedAt) != "" {
+				if t, err := time.Parse(time.RFC3339, strings.TrimSpace(p.ObservedAt)); err == nil {
+					tt := t.UTC()
+					observedAt = &tt
+				}
+			}
+			if observedAt == nil {
+				observedAt = &now
+			}
+
+			var ingestedAt *time.Time
+			if strings.TrimSpace(p.IngestedAt) != "" {
+				if t, err := time.Parse(time.RFC3339, strings.TrimSpace(p.IngestedAt)); err == nil {
+					tt := t.UTC()
+					ingestedAt = &tt
+				}
+			}
+			if ingestedAt == nil {
+				ingestedAt = &now
+			}
+
+			target := strings.TrimSpace(p.Target)
+			capability := strings.TrimSpace(p.Capability)
+			if capability == "" {
+				capability = deriveCapabilityFromSignal(p.Signal)
+			}
+
+			payloadJSON := "{}"
+			if len(p.PayloadJSON) > 0 {
+				payloadJSON = string(p.PayloadJSON)
+			}
+
+			sourceKind := strings.TrimSpace(p.Source.Kind)
+			sourceSensorID := strings.TrimSpace(p.Source.SensorID)
+			sourceRule := strings.TrimSpace(p.Source.Rule)
+			// Fallback to flattened keys for compatibility with existing agent payload.
+			if sourceKind == "" {
+				sourceKind = strings.TrimSpace(p.SourceKindFlat)
+			}
+			if sourceSensorID == "" {
+				sourceSensorID = strings.TrimSpace(p.SourceSensorIDFlat)
+			}
+			if sourceRule == "" {
+				sourceRule = strings.TrimSpace(p.SourceRuleFlat)
+			}
+
+			result, err := rep.ProcessRuntimeEvent(c.Request.Context(), db, rep.RuntimeEventInput{
+				PodUID:     podUID,
+				PodName:    strings.TrimSpace(p.Pod.Name),
+				Namespace:  namespace,
+				NodeName:   strings.TrimSpace(p.Pod.Node),
+				Syscall:    strings.TrimSpace(p.Syscall),
+				TargetPath: target,
+				Capability: capability,
+				Timestamp:  observedAt,
+
+				EventID:         strings.TrimSpace(p.EventID),
+				ObservedAt:      observedAt,
+				IngestedAt:      ingestedAt,
+				ResolutionState: strings.TrimSpace(p.ResolutionState),
+				SourceKind:      sourceKind,
+				SourceSensorID:  sourceSensorID,
+				SourceRule:      sourceRule,
+				PayloadJSON:     payloadJSON,
+				PayloadHash:     strings.TrimSpace(p.PayloadHash),
+
+				Runtime:        strings.TrimSpace(p.Runtime),
+				EventType:      strings.TrimSpace(p.EventType),
+				Signal:         strings.TrimSpace(p.Signal),
+				MitreTechnique: strings.TrimSpace(p.MitreTechnique),
+				Severity:       strings.TrimSpace(p.Severity),
+			})
+			if err != nil {
+				log.Printf("[RuntimeEventV2] ❌ Failed to process event_id=%s pod_uid=%s: %v", p.EventID, podUID, err)
+				continue
+			}
+			if result != nil {
+				processed++
 			}
 		}
 

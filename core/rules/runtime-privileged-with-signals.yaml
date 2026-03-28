@@ -1,0 +1,30 @@
+# Kyverno/PSS-style privileged risk elevated when runtime signals exist (behavior + posture).
+id: runtime-privileged-with-signals
+name: "Privileged container with runtime signals"
+category: pod-security
+severity: high
+description: "Pod has a privileged container and Fortuna recorded runtime signals in the lookback window"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      object.spec.containers.exists(c, has(c.securityContext) && c.securityContext.privileged == true) &&
+      (
+        (has(object.securityState) &&
+          object.securityState.signal_total_24h > 0)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.signal_total_24h > 0)
+      )
+
+aggregation: AND
+base_score: 8.5
+tags:
+  - pod-security
+  - privileged
+  - runtime
+  # MITRE ATT&CK for Containers: Escape to Host (privileged container breakout)
+  - T1611

@@ -11,9 +11,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/pkg/explainability"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/worker"
 )
+
+type InsightEvidenceRefs struct {
+	EventIDs      []string `json:"eventIds,omitempty"`
+	FactIDs       []string `json:"factIds,omitempty"`
+	SignalTypes   []string `json:"signalTypes,omitempty"`
+	IncidentTypes []string `json:"incidentTypes,omitempty"`
+	CapabilityIDs []string `json:"capabilityIds,omitempty"`
+	RuleIDs       []string `json:"ruleIds,omitempty"`
+}
+
+type insightWithExplainability struct {
+	models.Insight
+	EvidenceRefs      InsightEvidenceRefs           `json:"evidence_refs"`
+	ExplanationChain  []explainability.ChainStep     `json:"explanation_chain,omitempty"`
+}
 
 // createInsightAuditLog writes an audit log entry for a Risk Center insight action (acknowledge, resolve, dismiss).
 // userID and username are read from context (set by auth middleware); if missing, 0 and "system" are used.
@@ -132,8 +148,18 @@ func GetInsights(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		out := make([]insightWithExplainability, 0, len(insights))
+		for i := range insights {
+			refs := buildInsightEvidenceRefs(insights[i])
+			out = append(out, insightWithExplainability{
+				Insight:          insights[i],
+				EvidenceRefs:     refs,
+				ExplanationChain: buildExplanationChain(refs),
+			})
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"insights": insights,
+			"insights": out,
 			"total":    total,
 			"page":     page,
 			"pageSize": pageSize,
@@ -144,7 +170,10 @@ func GetInsights(db *gorm.DB) gin.HandlerFunc {
 // insightWithResourceExists is used by GetInsight to add resourceExists when resource is Pod.
 type insightWithResourceExists struct {
 	models.Insight
-	ResourceExists *bool `json:"resourceExists,omitempty"`
+	ResourceExists   *bool                      `json:"resourceExists,omitempty"`
+	EvidenceRefs     InsightEvidenceRefs        `json:"evidence_refs"`
+	ExplanationChain []explainability.ChainStep `json:"explanation_chain,omitempty"`
+	EnrichedRefs     *explainability.EnrichedRefs `json:"enriched_refs,omitempty"`
 }
 
 // GetInsight returns a specific insight by ID.
@@ -161,7 +190,17 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		resp := insightWithResourceExists{Insight: insight}
+		refs := buildInsightEvidenceRefs(insight)
+		resp := insightWithResourceExists{
+			Insight:          insight,
+			EvidenceRefs:     refs,
+			ExplanationChain: buildExplanationChain(refs),
+		}
+		if c.Query("enrich") == "1" && insight.ResourceType == "Pod" && strings.TrimSpace(insight.ResourceUID) != "" {
+			if er, err := explainability.BuildEnrichedRefs(c.Request.Context(), db, insight.ResourceUID, refs.FactIDs); err == nil && er != nil {
+				resp.EnrichedRefs = er
+			}
+		}
 		if insight.ResourceType == "Pod" && insight.ResourceUID != "" {
 			var podExists int64
 			db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).Count(&podExists)
@@ -171,6 +210,127 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 		createInsightAuditLog(db, c, "view", id, "{}")
 		c.JSON(http.StatusOK, resp)
 	}
+}
+
+func buildInsightEvidenceRefs(in models.Insight) InsightEvidenceRefs {
+	refs := InsightEvidenceRefs{}
+	seen := map[string]map[string]struct{}{
+		"event":      {},
+		"fact":       {},
+		"signal":     {},
+		"incident":   {},
+		"capability": {},
+		"rule":       {},
+	}
+	add := func(kind, v string) {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			return
+		}
+		if _, ok := seen[kind][v]; ok {
+			return
+		}
+		seen[kind][v] = struct{}{}
+		switch kind {
+		case "event":
+			refs.EventIDs = append(refs.EventIDs, v)
+		case "fact":
+			refs.FactIDs = append(refs.FactIDs, v)
+		case "signal":
+			refs.SignalTypes = append(refs.SignalTypes, v)
+		case "incident":
+			refs.IncidentTypes = append(refs.IncidentTypes, v)
+		case "capability":
+			refs.CapabilityIDs = append(refs.CapabilityIDs, v)
+		case "rule":
+			refs.RuleIDs = append(refs.RuleIDs, v)
+		}
+	}
+	extract := func(m map[string]interface{}, key string) {
+		if v, ok := m[key]; ok {
+			switch t := v.(type) {
+			case string:
+				add(key, t)
+			case []interface{}:
+				for _, it := range t {
+					if s, ok := it.(string); ok {
+						add(key, s)
+					}
+				}
+			}
+		}
+	}
+
+	// Parse Evidence (if available) and map known keys.
+	if strings.TrimSpace(in.Evidence) != "" {
+		var ev map[string]interface{}
+		if err := json.Unmarshal([]byte(in.Evidence), &ev); err == nil {
+			if ids, ok := ev["evidence_fact_ids"].([]interface{}); ok {
+				for _, it := range ids {
+					if s, ok := it.(string); ok {
+						add("fact", s)
+					}
+				}
+			}
+			if v, ok := ev["signal_type"].(string); ok {
+				add("signal", v)
+			}
+			if v, ok := ev["incident_type"].(string); ok {
+				add("incident", v)
+			}
+			if v, ok := ev["capability_id"].(string); ok {
+				add("capability", v)
+			}
+			if v, ok := ev["event_id"]; ok {
+				switch t := v.(type) {
+				case string:
+					add("event", t)
+				case float64:
+					add("event", strconv.FormatInt(int64(t), 10))
+				}
+			}
+			// Generic fallbacks for explicit keys
+			extract(ev, "event")
+			extract(ev, "fact")
+			extract(ev, "signal")
+			extract(ev, "incident")
+			extract(ev, "capability")
+			extract(ev, "rule")
+		}
+	}
+
+	// Parse ViolatedRules (if available).
+	if strings.TrimSpace(in.ViolatedRules) != "" {
+		var raw interface{}
+		if err := json.Unmarshal([]byte(in.ViolatedRules), &raw); err == nil {
+			switch v := raw.(type) {
+			case []interface{}:
+				for _, item := range v {
+					if m, ok := item.(map[string]interface{}); ok {
+						if rid, ok := m["ruleId"].(string); ok {
+							add("rule", rid)
+						}
+					}
+				}
+			case map[string]interface{}:
+				if rid, ok := v["ruleId"].(string); ok {
+					add("rule", rid)
+				}
+			}
+		}
+	}
+	return refs
+}
+
+func buildExplanationChain(refs InsightEvidenceRefs) []explainability.ChainStep {
+	return explainability.BuildOrderedChain(
+		refs.EventIDs,
+		refs.FactIDs,
+		refs.SignalTypes,
+		refs.IncidentTypes,
+		refs.CapabilityIDs,
+		refs.RuleIDs,
+	)
 }
 
 // InsightContextResponse is returned by GET /risk/insights/:id/context.

@@ -349,7 +349,7 @@ export const Settings: React.FC = () => {
             ) : users.length === 0 ? (
               <PageEmpty title="No users" description="No user records returned by /api/v1/users." className="py-8" />
             ) : (
-              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+              <div className="ui-table-scroll">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                     <tr>
@@ -392,7 +392,7 @@ export const Settings: React.FC = () => {
             ) : auditLogs.length === 0 ? (
               <PageEmpty title="No audit logs" description="No records returned by /api/v1/audit." className="py-8" />
             ) : (
-              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+              <div className="ui-table-scroll">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                     <tr>
@@ -452,7 +452,7 @@ export const Settings: React.FC = () => {
                 className="py-8"
               />
             ) : (
-              <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+              <div className="ui-table-scroll">
                 <table className="w-full text-sm text-left">
                   <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                     <tr>

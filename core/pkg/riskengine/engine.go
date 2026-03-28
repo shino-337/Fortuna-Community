@@ -21,43 +21,29 @@ type Engine struct {
 	rules []Rule
 }
 
-// NewEngine creates a new risk engine
-// Priority: DB rules (risk_rules table) > YAML (FORTUNA_RULES_DIR) > hardcoded
+// NewEngine creates a new risk engine.
+// Source of truth: YAML rules from /core/rules (or FORTUNA_RULES_DIR override).
 func NewEngine(db *gorm.DB) *Engine {
 	engine := &Engine{
 		db: db,
 	}
 
-	// Try DB first (risk rules CRUD)
-	if db != nil {
-		if rules, err := LoadRulesFromDB(db); err == nil && len(rules) > 0 {
-			engine.rules = rules
-			log.Printf("[RiskEngine] ✅ Loaded %d rules from DB (risk_rules)", len(rules))
-			return engine
-		}
-	}
-
-	// Try to load YAML rules (primary source when no DB rules)
+	// YAML-only loading path.
 	rulesDir := getRulesDirectory()
 	if rulesDir != "" {
-		if yamlEngine, err := NewYAMLEngine(nil, rulesDir); err == nil {
-			// Use YAML engine (which includes hardcoded as fallback)
-			// Note: Pass nil for db to avoid circular dependency in NewYAMLEngine
-			// The YAMLEngine will create its own base engine
+		if yamlEngine, err := NewYAMLEngine(db, rulesDir); err == nil {
 			engine.rules = yamlEngine.GetRules()
-			engine.db = db // Set db after getting rules
-			log.Printf("[RiskEngine] ✅ Using YAML engine with %d rules (YAML + hardcoded fallback)", len(engine.rules))
+			log.Printf("[RiskEngine] ✅ Loaded %d YAML rules from %s", len(engine.rules), rulesDir)
 			return engine
 		} else {
-			log.Printf("[RiskEngine] ⚠️  Failed to load YAML rules: %v, using hardcoded rules only", err)
+			log.Printf("[RiskEngine] ❌ Failed to load YAML rules from %s: %v", rulesDir, err)
 		}
 	} else {
-		log.Printf("[RiskEngine] ℹ️  No rules directory configured (FORTUNA_RULES_DIR), using hardcoded rules")
+		log.Printf("[RiskEngine] ❌ No rules directory configured/found (FORTUNA_RULES_DIR or ./rules or core/rules)")
 	}
 
-	// Fallback to hardcoded rules only
-	engine.rules = GetBuiltInRules()
-	log.Printf("[RiskEngine] Using %d hardcoded rules", len(engine.rules))
+	// No hardcoded fallback: keep empty ruleset to enforce YAML-only governance.
+	engine.rules = []Rule{}
 	return engine
 }
 
@@ -100,12 +86,20 @@ func (e *Engine) ReloadFromDB() error {
 	return nil
 }
 
+// prepareEnrichedResourceData merges normalized + raw_json and, for Pods, Fortuna runtime context for CEL.
+func (e *Engine) prepareEnrichedResourceData(ctx context.Context, resourceType string, resourceData map[string]interface{}) map[string]interface{} {
+	enriched := e.enrichResourceData(resourceData)
+	if strings.EqualFold(strings.TrimSpace(resourceType), "Pod") {
+		e.enrichPodFortunaContext(ctx, enriched)
+	}
+	return enriched
+}
+
 // EvaluateResource evaluates a resource against all rules
 func (e *Engine) EvaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
 	var insights []*models.Insight
 
-	// Parse raw_json and merge with resourceData
-	enrichedData := e.enrichResourceData(resourceData)
+	enrichedData := e.prepareEnrichedResourceData(ctx, resourceType, resourceData)
 
 	e.mu.RLock()
 	applicableRules := e.getApplicableRules(resourceType)
@@ -257,7 +251,7 @@ func (e *Engine) evaluateExpressionCondition(condition Condition, resourceData m
 	// Check if we're using YAMLEngine with CEL support
 	// This is a bit of a hack - we check if the engine has a method to evaluate CEL
 	// In practice, YAMLEngine will override this method
-	
+
 	// For now, try simple expression evaluation as fallback
 	expr := condition.Expression
 
@@ -367,14 +361,19 @@ func (e *Engine) createInsight(rule Rule, resourceType string, resourceData map[
 		ResourceName:      name,
 		ResourceUID:       uid,
 		InsightType:       string(rule.Category),
-		Title:             rule.Name,
-		Description:       description,
-		Severity:          string(rule.Severity),
-		Recommendation:    recommendedAction,
-		Status:            "active", // Explicitly set status to 'active'
-		DetectedAt:        time.Now(),
-		CreatedAt:         time.Now(),
-		UpdatedAt:         time.Now(),
+		// Use rule.ID as logical key for non-vulnerability insights.
+		// This avoids unique constraint collisions in `insights` table
+		// (unique on resource_uid + cve_id + insight_type) when multiple
+		// YAML rules match the same resource.
+		CVEID:          rule.ID,
+		Title:          rule.Name,
+		Description:    description,
+		Severity:       string(rule.Severity),
+		Recommendation: recommendedAction,
+		Status:         "active", // Explicitly set status to 'active'
+		DetectedAt:     time.Now(),
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
 	}
 }
 
@@ -481,20 +480,8 @@ func (e *Engine) getApplicableRules(resourceType string) []Rule {
 	var applicable []Rule
 
 	for _, rule := range e.rules {
-		// Simple matching based on resource type and rule category
-		switch resourceType {
-		case "ServiceAccount":
-			if rule.Category == CategoryRBAC {
-				applicable = append(applicable, rule)
-			}
-		case "Role", "ClusterRole":
-			if rule.Category == CategoryRBAC {
-				applicable = append(applicable, rule)
-			}
-		case "RoleBinding", "ClusterRoleBinding":
-			if rule.Category == CategoryRBAC {
-				applicable = append(applicable, rule)
-			}
+		if ruleMatchesResourceType(resourceType, rule) {
+			applicable = append(applicable, rule)
 		}
 	}
 

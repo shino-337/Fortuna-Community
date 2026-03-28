@@ -10,7 +10,7 @@ import { PageEmpty } from '../components/PageEmpty';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
-import { RefreshCw, Search, FlaskConical } from 'lucide-react';
+import { RefreshCw, Search, FlaskConical, Compass, ShieldCheck, Link2, Info } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
 
 export const Rules: React.FC = () => {
@@ -22,6 +22,7 @@ export const Rules: React.FC = () => {
   const [severityFilter, setSeverityFilter] = useState<'all' | 'critical' | 'high' | 'medium' | 'low'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortBy, setSortBy] = useState<'name_asc' | 'severity_desc' | 'status'>('severity_desc');
+  const [overlappingOnly, setOverlappingOnly] = useState(false);
   const [reloadingRules, setReloadingRules] = useState(false);
   const [testingRuleId, setTestingRuleId] = useState<string | null>(null);
 
@@ -48,6 +49,7 @@ export const Rules: React.FC = () => {
     let out = [...rules];
     if (statusFilter !== 'all') out = out.filter((r) => (statusFilter === 'enabled' ? r.enabled : !r.enabled));
     if (severityFilter !== 'all') out = out.filter((r) => (r.severity || '').toLowerCase() === severityFilter);
+    if (overlappingOnly) out = out.filter((r) => r.isCanonical === false);
     if (searchTerm.trim()) {
       const q = searchTerm.trim().toLowerCase();
       out = out.filter((r) => [r.id, r.name, r.category, r.type, r.description].some((v) => (v || '').toLowerCase().includes(q)));
@@ -65,7 +67,7 @@ export const Rules: React.FC = () => {
       }
     });
     return out;
-  }, [rules, statusFilter, severityFilter, searchTerm, sortBy]);
+  }, [rules, statusFilter, severityFilter, overlappingOnly, searchTerm, sortBy]);
 
   const handleReloadRules = async () => {
     setReloadingRules(true);
@@ -91,6 +93,7 @@ export const Rules: React.FC = () => {
   };
 
   if (loading) return <PageLoading message="Loading policy rules..." className="min-h-[40vh]" />;
+  const tooltipLabelClass = 'inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 cursor-help';
 
   return (
     <PageLayout
@@ -147,9 +150,40 @@ export const Rules: React.FC = () => {
             <option value="name_asc">Sort: Name A-Z</option>
             <option value="status">Sort: Enabled first</option>
           </select>
+          <label className="inline-flex items-center gap-2 text-sm text-slate-300">
+            <input
+              type="checkbox"
+              checked={overlappingOnly}
+              onChange={(e) => setOverlappingOnly(e.target.checked)}
+              className="rounded border-slate-600 bg-slate-950"
+            />
+            Show only overlapping rules
+          </label>
         </div>
       }
     >
+      <Card className="p-4 mb-4 border-slate-800 bg-slate-900/60">
+        <div className="grid gap-3 md:grid-cols-3">
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1">
+              <Compass className="w-3.5 h-3.5" /> Page goal
+            </div>
+            <p className="text-sm text-slate-300">Manage detection/policy logic: source, overlap grouping, severity and activation quality.</p>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" /> Use this page when
+            </div>
+            <p className="text-sm text-slate-300">You need to tune false positives, review overlapping rules, or test rule behavior.</p>
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/60 p-3">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-1 flex items-center gap-1">
+              <Link2 className="w-3.5 h-3.5" /> Next action
+            </div>
+            <p className="text-sm text-slate-300">Operational triage belongs to Risk Operations. Semantic interpretation belongs to Capability Knowledge.</p>
+          </div>
+        </div>
+      </Card>
       {error && (
         <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
           {error}
@@ -157,13 +191,13 @@ export const Rules: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
-        <Card variant="panel"><div className="text-muted text-[10px] uppercase tracking-wide">Total</div><div className="text-xl font-bold text-text mt-1">{rules.length}</div></Card>
-        <Card variant="panel"><div className="text-muted text-[10px] uppercase tracking-wide">Enabled</div><div className="text-xl font-bold text-emerald-400 mt-1">{rules.filter((r) => r.enabled).length}</div></Card>
-        <Card variant="panel"><div className="text-muted text-[10px] uppercase tracking-wide">Disabled</div><div className="text-xl font-bold text-muted mt-1">{rules.filter((r) => !r.enabled).length}</div></Card>
+        <Card variant="panel"><div className="ui-micro-label">Total</div><div className="text-xl font-bold text-text mt-1">{rules.length}</div></Card>
+        <Card variant="panel"><div className="ui-micro-label">Enabled</div><div className="text-xl font-bold text-emerald-400 mt-1">{rules.filter((r) => r.enabled).length}</div></Card>
+        <Card variant="panel"><div className="ui-micro-label">Disabled</div><div className="text-xl font-bold text-muted mt-1">{rules.filter((r) => !r.enabled).length}</div></Card>
       </div>
 
       <Card className="p-0 overflow-hidden">
-        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+        <div className="ui-table-scroll">
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border">
               <tr>
@@ -171,13 +205,23 @@ export const Rules: React.FC = () => {
                 <th className="px-6 py-4 font-medium">Category / Type</th>
                 <th className="px-6 py-4 font-medium">Severity</th>
                 <th className="px-6 py-4 font-medium">Status</th>
+                <th className="px-6 py-4 font-medium">
+                  <span className={tooltipLabelClass} title="Rule source: db (managed), files (YAML), built-in (fallback)">
+                    Source <Info className="w-3 h-3" />
+                  </span>
+                </th>
+                <th className="px-6 py-4 font-medium">
+                  <span className={tooltipLabelClass} title="Rule activity quality: total matches, impacted findings in 24h/7d, and related capabilities extracted from evidence">
+                    Activation <Info className="w-3 h-3" />
+                  </span>
+                </th>
                 <th className="px-6 py-4 font-medium text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-800">
               {filteredRules.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-8">
+                  <td colSpan={7} className="px-6 py-8">
                     <PageEmpty title="No rules match current filters" description="Adjust search or filter conditions." className="py-6" />
                   </td>
                 </tr>
@@ -187,6 +231,11 @@ export const Rules: React.FC = () => {
                     <td className="px-6 py-4">
                       <div className="font-medium text-white">{rule.name}</div>
                       <div className="text-xs text-slate-500 font-mono">{rule.id}</div>
+                      {rule.description && (
+                        <div className="text-xs text-slate-400 mt-1 max-w-[460px] truncate" title={rule.description}>
+                          {rule.description}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-slate-400">
                       {(rule.category || 'uncategorized')}{rule.type ? ` / ${rule.type}` : ''}
@@ -198,6 +247,32 @@ export const Rules: React.FC = () => {
                       <span className={`px-2 py-0.5 rounded text-xs font-medium border ${rule.enabled ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-slate-400 bg-slate-800 border-slate-700'}`}>
                         {rule.enabled ? 'Enabled' : 'Disabled'}
                       </span>
+                    </td>
+                    <td className="px-6 py-4 text-xs text-slate-300">
+                      <div title="Where this rule definition is loaded from">{rule.source ?? 'unknown'}</div>
+                      <div className="mt-1 text-slate-500" title="Primary rule = main rule in a shared signature group. Overlapping rule = same signature group, kept for compatibility/tuning.">
+                        {rule.isCanonical === false ? `Overlapping rule of ${rule.canonicalRuleId}` : 'Primary rule'}
+                      </div>
+                    </td>
+                    <td className="px-6 py-4 text-slate-400 text-xs">
+                      <div>Matches: <span className="text-slate-200">{rule.matches ?? 0}</span></div>
+                      <div className="mt-1" title="Impacted findings in rolling windows">
+                        24h/7d: <span className="text-slate-300">{rule.impactedFindings24h ?? 0}/{rule.impactedFindings7d ?? 0}</span>
+                      </div>
+                      <div className="mt-1">
+                        Last:{' '}
+                        <span className="text-slate-300">
+                          {rule.lastMatchedAt ? new Date(rule.lastMatchedAt).toLocaleString() : 'Never'}
+                        </span>
+                      </div>
+                      {rule.relatedCapabilities && rule.relatedCapabilities.length > 0 && (
+                        <div
+                          className="mt-1 text-slate-500 truncate max-w-[220px]"
+                          title={`Related capabilities identified from this rule activity: ${rule.relatedCapabilities.join(', ')}`}
+                        >
+                          Caps: {rule.relatedCapabilities.join(', ')}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">

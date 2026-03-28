@@ -24,4 +24,8 @@ tags:
   - cis
   - cluster-admin
   - critical
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Enterprise privilege escalation mapping
+  - T1068
 

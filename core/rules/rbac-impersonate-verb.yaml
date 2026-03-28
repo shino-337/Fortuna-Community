@@ -1,0 +1,21 @@
+# RBAC: detect Roles/ClusterRoles that allow impersonation via the "impersonate" verb.
+
+id: rbac-impersonate-verb
+name: "Role allows impersonation (impersonate verb)"
+category: rbac
+severity: high
+description: "Role/ClusterRole contains the 'impersonate' verb; may allow acting as other users/serviceaccounts/groups"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: "object.rules.exists(r, r.verbs.exists(v, v == 'impersonate'))"
+
+aggregation: AND
+base_score: 8.5
+tags:
+  - rbac
+  - impersonation
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+

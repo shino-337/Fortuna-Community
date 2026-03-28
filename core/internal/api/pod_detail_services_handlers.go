@@ -344,6 +344,7 @@ func buildProcessDiffEvents(db *gorm.DB, podUID, namespace string, observedAt ti
 			Namespace:  namespace,
 			Syscall:    "execve",
 			TargetPath: target,
+			PayloadJSON: `{}`,
 			Capability: "PROCESS_SNAPSHOT_DIFF",
 			CreatedAt:  observedAt,
 		})

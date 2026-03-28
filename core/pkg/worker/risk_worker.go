@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/metrics"
+	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
@@ -89,8 +90,14 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		}
 	}
 
-	// Evaluate risks for this resource (policy-based)
-	insights, err := w.riskEngine.EvaluateResource(ctx, kind, normalizedData)
+	// Evaluate risks (use YAMLEngine when configured so CEL expression rules run; *Engine alone would miss overrides)
+	var insights []*models.Insight
+	var err error
+	if w.yamlEngine != nil {
+		insights, err = w.yamlEngine.EvaluateResource(ctx, kind, normalizedData)
+	} else {
+		insights, err = w.riskEngine.EvaluateResource(ctx, kind, normalizedData)
+	}
 	if err != nil {
 		log.Printf("[RiskWorker] Error evaluating risks for %s/%s: %v", namespace, name, err)
 		return fmt.Errorf("failed to evaluate risks: %w", err)

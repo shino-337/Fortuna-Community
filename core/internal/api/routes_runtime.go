@@ -16,8 +16,17 @@ func registerRuntimeRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	pods.GET("/:uid/events", GetPodEventsByUID(db))
 	pods.GET("/:uid/metrics", GetPodRuntimeMetricsByUID(db))
 	pods.GET("/:uid/signals", GetRuntimeSignalsByPod(db))
-
-	rt.POST("/events", PostRuntimeEvents(db))
 	rt.GET("/signals", GetRuntimeSignalsList(db))
 	rt.GET("/signals/suppression-stats", GetRuntimeSignalSuppressionStats(db))
+}
+
+// registerRuntimeV2Routes registers /api/v2/runtime/* layer-oriented runtime APIs.
+func registerRuntimeV2Routes(api *gin.RouterGroup, db *gorm.DB) {
+	rt := api.Group("/runtime")
+	pods := rt.Group("/pods")
+	pods.GET("/:uid/security-state", GetPodAssetSecurityState(db))
+	pods.GET("/:uid/facts", GetPodRuntimeBehaviorFacts(db))
+	pods.GET("/:uid/incidents", GetPodRuntimeIncidents(db))
+	// G-API-01: formal v2 alias for pod capabilities (same handler/query as v1 inventory).
+	pods.GET("/:uid/capabilities", GetPodCapabilities(db))
 }

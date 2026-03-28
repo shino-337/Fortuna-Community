@@ -1,0 +1,27 @@
+# CIS Kubernetes Benchmark 5.1.7: Minimize access to create service accounts
+
+id: cis-5.1.7
+name: "Role allows creating ServiceAccounts"
+category: rbac
+severity: high
+description: "Role/ClusterRole allows creating serviceaccounts; can be abused to mint identities for privilege escalation"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.rules.exists(r,
+        r.resources.exists(res, res == 'serviceaccounts') &&
+        r.verbs.exists(v, v == 'create' || v == '*' )
+      )
+
+aggregation: AND
+base_score: 8.5
+tags:
+  - cis
+  - rbac
+  - serviceaccounts
+  - create
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+

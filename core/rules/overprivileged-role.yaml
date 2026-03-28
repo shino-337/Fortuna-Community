@@ -18,4 +18,8 @@ base_score: 7.0
 tags:
   - overprivileged
   - sensitive-resources
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Enterprise privilege escalation mapping (RBAC misconfig)
+  - T1068
 

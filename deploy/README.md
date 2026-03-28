@@ -21,7 +21,7 @@ Kubernetes manifests for **FortunaK8s** (Core, Agent, Dashboard, infrastructure)
 | Item | Notes |
 |------|--------|
 | **Core** | Schedules only on **control-plane** nodes (nodeSelector + tolerations). If no node has `node-role.kubernetes.io/control-plane`, Core stays **Pending**. Run: `./scripts/deploy/ensure-control-plane-label.sh`. |
-| **Agent** | DaemonSet on all nodes; needs containerd socket. Memory limit 2Gi; if OOM, set env `SBOM_WORKERS=1` (requires image rebuild). |
+| **Agent** | DaemonSet on all nodes; needs containerd socket. Manifest uses **6Gi** memory limit + `SBOM_WORKERS=1` when Falco JSONL is enabled (SBOM + tail reader headroom). Build image with `nerdctl -n k8s.io` so kubelet sees `docker.io/library/fortuna-agent:latest` (see `agent/README.md` Build). |
 | **Dashboard** | Service type **LoadBalancer**; change to NodePort/ClusterIP or use Ingress as needed. Apply ConfigMap `fortuna-dashboard-nginx` **before** the Dashboard deployment (proxies `/api` to Core). |
 | **Images** | Dev/local: `imagePullPolicy: Never` and build on node (nerdctl/containerd). Production: use a versioned tag (e.g. `v1.0.0`), `IfNotPresent` or `Always`, and a registry. Multi-node: use `./scripts/utils/push-images-to-workers.sh` or a registry. |
 | **Auth** | Default admin `admin` / `admin123` in manifests. **Production:** change password and/or use a Secret (e.g. `fortuna-secrets` with `jwt-secret`, `admin-password`); Core supports `secretKeyRef` for JWT. |

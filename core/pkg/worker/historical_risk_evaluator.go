@@ -17,6 +17,7 @@ import (
 type HistoricalRiskEvaluator struct {
 	db         *gorm.DB
 	riskEngine *riskengine.Engine
+	yamlEngine *riskengine.YAMLEngine
 	insightMgr *riskengine.InsightManager
 }
 
@@ -25,22 +26,36 @@ func NewHistoricalRiskEvaluator(db *gorm.DB) *HistoricalRiskEvaluator {
 	// Try YAML engine first, fallback to standard
 	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 	var engine *riskengine.Engine
-	
+	var yamlEngine *riskengine.YAMLEngine
+
 	if rulesDir != "" {
-		if yamlEngine, err := riskengine.NewYAMLEngine(db, rulesDir); err == nil {
-			engine = yamlEngine.Engine
+		ye, err := riskengine.NewYAMLEngine(db, rulesDir)
+		if err == nil {
+			log.Printf("[HistoricalRiskEvaluator] Using YAMLEngine rulesDir=%q", rulesDir)
+			yamlEngine = ye
+			engine = ye.Engine
 		} else {
+			log.Printf("[HistoricalRiskEvaluator] NewYAMLEngine failed rulesDir=%q: %v; falling back to Engine", rulesDir, err)
 			engine = riskengine.NewEngine(db)
 		}
 	} else {
+		log.Printf("[HistoricalRiskEvaluator] FORTUNA_RULES_DIR not set; using standard Engine")
 		engine = riskengine.NewEngine(db)
 	}
-	
+
 	return &HistoricalRiskEvaluator{
 		db:         db,
 		riskEngine: engine,
+		yamlEngine: yamlEngine,
 		insightMgr: riskengine.NewInsightManager(db),
 	}
+}
+
+func (e *HistoricalRiskEvaluator) evaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
+	if e.yamlEngine != nil {
+		return e.yamlEngine.EvaluateResource(ctx, resourceType, resourceData)
+	}
+	return e.riskEngine.EvaluateResource(ctx, resourceType, resourceData)
 }
 
 // EvaluateAllResources evaluates all existing resources in the database
@@ -139,7 +154,7 @@ func (e *HistoricalRiskEvaluator) evaluateServiceAccounts(ctx context.Context, s
 			"linkedPods": sa.LinkedPods,
 		}
 
-		insights, err := e.riskEngine.EvaluateResource(ctx, "ServiceAccount", normalizedData)
+		insights, err := e.evaluateResource(ctx, "ServiceAccount", normalizedData)
 		if err != nil {
 			log.Printf("[HistoricalRiskEvaluator] Error evaluating ServiceAccount %s/%s: %v", sa.Namespace, sa.Name, err)
 			stats.Errors++
@@ -208,7 +223,7 @@ func (e *HistoricalRiskEvaluator) evaluateRoles(ctx context.Context, stats *stru
 			"rules":      rules,
 		}
 
-		insights, err := e.riskEngine.EvaluateResource(ctx, "Role", normalizedData)
+		insights, err := e.evaluateResource(ctx, "Role", normalizedData)
 		if err != nil {
 			log.Printf("[HistoricalRiskEvaluator] Error evaluating Role %s/%s: %v", role.Namespace, role.Name, err)
 			stats.Errors++
@@ -266,7 +281,7 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoles(ctx context.Context, stat
 			"rules":      cr.Rules,
 		}
 
-		insights, err := e.riskEngine.EvaluateResource(ctx, "ClusterRole", normalizedData)
+		insights, err := e.evaluateResource(ctx, "ClusterRole", normalizedData)
 		if err != nil {
 			log.Printf("[HistoricalRiskEvaluator] Error evaluating ClusterRole %s: %v", cr.Name, err)
 			stats.Errors++
@@ -325,7 +340,7 @@ func (e *HistoricalRiskEvaluator) evaluateRoleBindings(ctx context.Context, stat
 			"subjects":   rb.Subjects,
 		}
 
-		insights, err := e.riskEngine.EvaluateResource(ctx, "RoleBinding", normalizedData)
+		insights, err := e.evaluateResource(ctx, "RoleBinding", normalizedData)
 		if err != nil {
 			log.Printf("[HistoricalRiskEvaluator] Error evaluating RoleBinding %s/%s: %v", rb.Namespace, rb.Name, err)
 			stats.Errors++
@@ -398,7 +413,7 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoleBindings(ctx context.Contex
 			}
 		}
 
-		insights, err := e.riskEngine.EvaluateResource(ctx, "ClusterRoleBinding", normalizedData)
+		insights, err := e.evaluateResource(ctx, "ClusterRoleBinding", normalizedData)
 		if err != nil {
 			log.Printf("[HistoricalRiskEvaluator] Error evaluating ClusterRoleBinding %s: %v", crb.Name, err)
 			stats.Errors++

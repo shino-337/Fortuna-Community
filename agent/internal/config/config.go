@@ -46,6 +46,11 @@ type Config struct {
 	RuntimeEventsPath    string
 	RuntimeEventsPoll    time.Duration
 
+	// Falco JSON output ingestion (optional) (R9 practical source)
+	FalcoEventsEnabled bool
+	FalcoEventsPath    string
+	FalcoEventsPoll    time.Duration
+
 	// eBPF runtime telemetry (R9)
 	EBPFEnabled            bool
 	EBPFMode               string
@@ -81,6 +86,9 @@ func LoadConfig() *Config {
 		RuntimeEventsEnabled:   getEnv("RUNTIME_EVENTS_ENABLED", "false") == "true",
 		RuntimeEventsPath:      getEnv("RUNTIME_EVENTS_PATH", "/var/log/fortuna/runtime-events.log"),
 		RuntimeEventsPoll:      parseDuration(getEnv("RUNTIME_EVENTS_POLL", "5s")),
+		FalcoEventsEnabled:     getEnv("FALCO_EVENTS_ENABLED", "false") == "true",
+		FalcoEventsPath:        getEnv("FALCO_EVENTS_PATH", "/var/log/falco/events.jsonl"),
+		FalcoEventsPoll:        parseDuration(getEnv("FALCO_EVENTS_POLL", "5s")),
 		EBPFEnabled:            getEnv("EBPF_ENABLED", "false") == "true",
 		EBPFMode:               getEnv("EBPF_MODE", "exec"),
 		EBPFEventFlushInterval: parseDuration(getEnv("EBPF_EVENT_FLUSH_INTERVAL", "5s")),

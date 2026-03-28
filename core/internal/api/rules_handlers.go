@@ -1,6 +1,8 @@
 package api
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -18,6 +20,196 @@ import (
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/riskengine"
 )
+
+type ruleActivationMeta struct {
+	Count               int64
+	LastSeenAt          *time.Time
+	ImpactedFindings24h int64
+	ImpactedFindings7d  int64
+	RelatedCapabilities []string
+}
+
+type ruleDecoration struct {
+	Signature       string
+	OverlapGroup    string
+	IsCanonical     bool
+	CanonicalRuleID string
+}
+
+func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]ruleActivationMeta {
+	meta := make(map[string]ruleActivationMeta, len(rules))
+	if db == nil || len(rules) == 0 {
+		return meta
+	}
+
+	for _, rule := range rules {
+		ruleID := strings.TrimSpace(rule.ID)
+		if ruleID == "" {
+			continue
+		}
+		like := "%" + ruleID + "%"
+		var row struct {
+			Count int64
+			Last  *time.Time
+		}
+		if err := db.Model(&models.Insight{}).
+			Select("COUNT(*) as count, MAX(created_at) as last").
+			Where("type LIKE ? OR description LIKE ?", like, like).
+			Scan(&row).Error; err != nil {
+			continue
+		}
+		meta[ruleID] = ruleActivationMeta{
+			Count:      row.Count,
+			LastSeenAt: row.Last,
+		}
+
+		var c24h int64
+		_ = db.Model(&models.Insight{}).
+			Where("(type LIKE ? OR description LIKE ?) AND created_at >= ?", like, like, time.Now().Add(-24*time.Hour)).
+			Count(&c24h).Error
+		var c7d int64
+		_ = db.Model(&models.Insight{}).
+			Where("(type LIKE ? OR description LIKE ?) AND created_at >= ?", like, like, time.Now().Add(-7*24*time.Hour)).
+			Count(&c7d).Error
+
+		var recent []models.Insight
+		_ = db.Select("evidence").
+			Where("type LIKE ? OR description LIKE ?", like, like).
+			Order("created_at DESC").
+			Limit(200).
+			Find(&recent).Error
+
+		capFreq := map[string]int{}
+		for _, ins := range recent {
+			for _, cap := range extractCapabilityIDsFromEvidence(ins.Evidence) {
+				capFreq[cap]++
+			}
+		}
+		topCaps := topNCapabilityKeys(capFreq, 3)
+		cur := meta[ruleID]
+		cur.ImpactedFindings24h = c24h
+		cur.ImpactedFindings7d = c7d
+		cur.RelatedCapabilities = topCaps
+		meta[ruleID] = cur
+	}
+	return meta
+}
+
+func extractCapabilityIDsFromEvidence(evidence string) []string {
+	if strings.TrimSpace(evidence) == "" {
+		return nil
+	}
+	var payload interface{}
+	if err := json.Unmarshal([]byte(evidence), &payload); err != nil {
+		return nil
+	}
+	out := map[string]struct{}{}
+	var walk func(v interface{})
+	walk = func(v interface{}) {
+		switch t := v.(type) {
+		case map[string]interface{}:
+			for k, vv := range t {
+				lk := strings.ToLower(strings.TrimSpace(k))
+				if lk == "capabilityid" || lk == "capability_id" || lk == "capability" {
+					if s, ok := vv.(string); ok && strings.TrimSpace(s) != "" {
+						out[strings.TrimSpace(s)] = struct{}{}
+					}
+				}
+				walk(vv)
+			}
+		case []interface{}:
+			for _, item := range t {
+				walk(item)
+			}
+		}
+	}
+	walk(payload)
+	res := make([]string, 0, len(out))
+	for k := range out {
+		res = append(res, k)
+	}
+	return res
+}
+
+func topNCapabilityKeys(freq map[string]int, n int) []string {
+	type kv struct {
+		Key string
+		Val int
+	}
+	items := make([]kv, 0, len(freq))
+	for k, v := range freq {
+		items = append(items, kv{Key: k, Val: v})
+	}
+	for i := 0; i < len(items); i++ {
+		for j := i + 1; j < len(items); j++ {
+			if items[j].Val > items[i].Val || (items[j].Val == items[i].Val && items[j].Key < items[i].Key) {
+				items[i], items[j] = items[j], items[i]
+			}
+		}
+	}
+	if len(items) > n {
+		items = items[:n]
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		out = append(out, item.Key)
+	}
+	return out
+}
+
+func collectRuleSource(db *gorm.DB, manager *RulesManager) map[string]string {
+	out := map[string]string{}
+	for _, r := range riskengine.GetBuiltInRules() {
+		out[r.ID] = "built-in"
+	}
+	if manager != nil && manager.yamlEngine != nil {
+		for id := range manager.yamlEngine.GetYAMLRuleIDs() {
+			out[id] = "files"
+		}
+	}
+	if db != nil && db.Migrator().HasTable(&models.RiskRule{}) {
+		var ids []string
+		if err := db.Model(&models.RiskRule{}).Where("deleted_at IS NULL").Pluck("rule_id", &ids).Error; err == nil {
+			for _, id := range ids {
+				out[id] = "db"
+			}
+		}
+	}
+	return out
+}
+
+func buildRuleSignature(rule riskengine.Rule) string {
+	conditionsJSON, _ := json.Marshal(rule.Conditions)
+	base := strings.ToLower(strings.TrimSpace(fmt.Sprintf("%s|%s|%s|%s", rule.Category, rule.Severity, rule.Aggregation, string(conditionsJSON))))
+	sum := sha1.Sum([]byte(base))
+	return hex.EncodeToString(sum[:])[:12]
+}
+
+func decorateRules(rules []riskengine.Rule) map[string]ruleDecoration {
+	out := make(map[string]ruleDecoration, len(rules))
+	groupBySig := map[string][]riskengine.Rule{}
+	for _, rule := range rules {
+		sig := buildRuleSignature(rule)
+		groupBySig[sig] = append(groupBySig[sig], rule)
+	}
+	for sig, group := range groupBySig {
+		canonical := group[0]
+		for _, g := range group[1:] {
+			if g.BaseScore > canonical.BaseScore || (g.BaseScore == canonical.BaseScore && g.ID < canonical.ID) {
+				canonical = g
+			}
+		}
+		for _, rule := range group {
+			out[rule.ID] = ruleDecoration{
+				Signature:       sig,
+				OverlapGroup:    "sig-" + sig,
+				IsCanonical:     rule.ID == canonical.ID,
+				CanonicalRuleID: canonical.ID,
+			}
+		}
+	}
+	return out
+}
 
 // RulesManager manages rules engine instance
 type RulesManager struct {
@@ -113,9 +305,50 @@ func GetRules(db *gorm.DB) gin.HandlerFunc {
 				disabledCount++
 			}
 		}
+		activationMeta := collectRuleActivationMeta(db, filteredRules)
+		ruleSource := collectRuleSource(db, manager)
+		decorations := decorateRules(filteredRules)
+
+		respRules := make([]gin.H, 0, len(filteredRules))
+		for _, rule := range filteredRules {
+			item := gin.H{
+				"id":          rule.ID,
+				"name":        rule.Name,
+				"category":    rule.Category,
+				"severity":    rule.Severity,
+				"description": rule.Description,
+				"enabled":     rule.Enabled,
+				"conditions":  rule.Conditions,
+				"aggregation": rule.Aggregation,
+				"baseScore":   rule.BaseScore,
+				"tags":        rule.Tags,
+				"source":      ruleSource[rule.ID],
+			}
+			if d, ok := decorations[rule.ID]; ok {
+				item["signature"] = d.Signature
+				item["overlapGroup"] = d.OverlapGroup
+				item["isCanonical"] = d.IsCanonical
+				item["canonicalRuleId"] = d.CanonicalRuleID
+			}
+			if m, ok := activationMeta[rule.ID]; ok {
+				item["matches"] = m.Count
+				if m.LastSeenAt != nil {
+					item["lastMatchedAt"] = m.LastSeenAt.UTC().Format(time.RFC3339)
+				}
+				item["impactedFindings24h"] = m.ImpactedFindings24h
+				item["impactedFindings7d"] = m.ImpactedFindings7d
+				item["relatedCapabilities"] = m.RelatedCapabilities
+			} else {
+				item["matches"] = int64(0)
+				item["impactedFindings24h"] = int64(0)
+				item["impactedFindings7d"] = int64(0)
+				item["relatedCapabilities"] = []string{}
+			}
+			respRules = append(respRules, item)
+		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"rules":    filteredRules,
+			"rules":    respRules,
 			"total":    len(filteredRules),
 			"active":   activeCount,
 			"disabled": disabledCount,
@@ -161,10 +394,22 @@ func GetRule(db *gorm.DB) gin.HandlerFunc {
 			Limit(10).
 			Find(&recentMatches)
 
+		source := collectRuleSource(db, manager)[ruleID]
+		decoration := decorateRules(rules)[ruleID]
+		activation := collectRuleActivationMeta(db, []riskengine.Rule{*rule})[ruleID]
+
 		c.JSON(http.StatusOK, gin.H{
-			"rule":          rule,
-			"matchCount":    matchCount,
-			"recentMatches": recentMatches,
+			"rule":                rule,
+			"source":              source,
+			"signature":           decoration.Signature,
+			"overlapGroup":        decoration.OverlapGroup,
+			"isCanonical":         decoration.IsCanonical,
+			"canonicalRule":       decoration.CanonicalRuleID,
+			"matchCount":          matchCount,
+			"impactedFindings24h": activation.ImpactedFindings24h,
+			"impactedFindings7d":  activation.ImpactedFindings7d,
+			"relatedCapabilities": activation.RelatedCapabilities,
+			"recentMatches":       recentMatches,
 		})
 	}
 }

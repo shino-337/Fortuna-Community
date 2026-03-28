@@ -36,8 +36,12 @@ func getPodCapabilitiesByUID(c *gin.Context, db *gorm.DB, podUID string) {
 		c.JSON(http.StatusOK, gin.H{"podUid": podUID, "capabilities": []PodCapabilityDTO{}, "total": 0})
 		return
 	}
+	q := db.Where("pod_uid = ?", podUID)
+	if class := c.Query("class"); class != "" {
+		q = q.Where("capability_class = ?", class)
+	}
 	var caps []models.PodCapability
-	if err := db.Where("pod_uid = ?", podUID).Order("created_at DESC").Find(&caps).Error; err != nil {
+	if err := q.Order("created_at DESC").Find(&caps).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -101,6 +105,9 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		}
 		if sev := c.Query("severity"); sev != "" {
 			query = query.Where("pod_capabilities.severity = ?", sev)
+		}
+		if class := c.Query("class"); class != "" {
+			query = query.Where("pod_capabilities.capability_class = ?", class)
 		}
 
 		var total int64
@@ -464,4 +471,3 @@ func mapPodCapabilities(caps []models.PodCapability) []PodCapabilityDTO {
 	}
 	return dtos
 }
-

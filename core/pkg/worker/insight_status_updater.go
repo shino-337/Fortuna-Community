@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log"
+	"os"
 	"strings"
 	"time"
 
@@ -16,18 +17,42 @@ import (
 // This is called after historical risk evaluation to auto-resolve insights
 // when risks no longer exist
 type InsightStatusUpdater struct {
-	db           *gorm.DB
-	riskEngine   *riskengine.Engine
-	insightMgr   *riskengine.InsightManager
+	db         *gorm.DB
+	riskEngine *riskengine.Engine
+	yamlEngine *riskengine.YAMLEngine
+	insightMgr *riskengine.InsightManager
 }
 
-// NewInsightStatusUpdater creates a new insight status updater
+// NewInsightStatusUpdater creates a new insight status updater.
+// When FORTUNA_RULES_DIR is set, uses YAMLEngine.EvaluateResource (same as Risk worker) so Pod/runtime CEL rules re-evaluate correctly.
 func NewInsightStatusUpdater(db *gorm.DB) *InsightStatusUpdater {
+	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
+	var engine *riskengine.Engine
+	var yamlEngine *riskengine.YAMLEngine
+	if rulesDir != "" {
+		if ye, err := riskengine.NewYAMLEngine(db, rulesDir); err == nil {
+			yamlEngine = ye
+			engine = ye.Engine
+		} else {
+			log.Printf("[InsightStatusUpdater] YAMLEngine unavailable: %v, using standard engine", err)
+			engine = riskengine.NewEngine(db)
+		}
+	} else {
+		engine = riskengine.NewEngine(db)
+	}
 	return &InsightStatusUpdater{
 		db:         db,
-		riskEngine: riskengine.NewEngine(db),
+		riskEngine: engine,
+		yamlEngine: yamlEngine,
 		insightMgr: riskengine.NewInsightManager(db),
 	}
+}
+
+func (u *InsightStatusUpdater) evaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
+	if u.yamlEngine != nil {
+		return u.yamlEngine.EvaluateResource(ctx, resourceType, resourceData)
+	}
+	return u.riskEngine.EvaluateResource(ctx, resourceType, resourceData)
 }
 
 // UpdateStatusForResolvedRisks checks all active insights and auto-resolves
@@ -82,9 +107,8 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 // checkIfRiskStillExists checks if the risk described by the insight still exists
 // by re-evaluating the resource
 func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resourceType, resourceName, resourceNamespace string, insight *models.Insight) (bool, error) {
-	// Get resource from database
 	var resourceData map[string]interface{}
-	
+
 	switch resourceType {
 	case "ServiceAccount":
 		var sa models.ServiceAccount
@@ -147,29 +171,102 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 			"cluster_id": cr.ClusterID,
 			"rules":      rules,
 		}
-	case "RoleBinding", "ClusterRoleBinding":
-		// For bindings, we need to check if the binding still exists and if it's still risky
-		// This is more complex - for now, we'll just check if the resource exists
-		// A more sophisticated check would evaluate the binding against rules
-		return true, nil // Assume risk still exists if we can't determine
+	case "RoleBinding":
+		var rb models.RoleBinding
+		if err := u.db.Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&rb).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return false, nil
+			}
+			return true, err
+		}
+		var roleRef interface{}
+		_ = json.Unmarshal([]byte(rb.RoleRef), &roleRef)
+		var subjects interface{}
+		_ = json.Unmarshal([]byte(rb.Subjects), &subjects)
+		resourceData = map[string]interface{}{
+			"kind":       "RoleBinding",
+			"name":       rb.Name,
+			"namespace":  rb.Namespace,
+			"uid":        rb.UID,
+			"cluster_id": rb.ClusterID,
+			"roleRef":    roleRef,
+			"subjects":   subjects,
+		}
+	case "ClusterRoleBinding":
+		var crb models.ClusterRoleBinding
+		if err := u.db.Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&crb).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return false, nil
+			}
+			return true, err
+		}
+		var roleRef interface{}
+		_ = json.Unmarshal([]byte(crb.RoleRef), &roleRef)
+		var subjects interface{}
+		_ = json.Unmarshal([]byte(crb.Subjects), &subjects)
+		resourceData = map[string]interface{}{
+			"kind":       "ClusterRoleBinding",
+			"name":       crb.Name,
+			"namespace":  "",
+			"uid":        crb.UID,
+			"cluster_id": crb.ClusterID,
+			"roleRef":    roleRef,
+			"subjects":   subjects,
+		}
 	case "Pod":
-		// Pod insight: if no active pod exists with this uid, risk is resolved (pod deleted or never synced)
-		var podCount int64
-		if err := u.db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).Count(&podCount).Error; err != nil {
-			return true, err // On error, assume risk still exists
+		var pod models.Pod
+		if err := u.db.Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&pod).Error; err != nil {
+			if err == gorm.ErrRecordNotFound {
+				log.Printf("[InsightStatusUpdater] Pod with uid=%s not found in DB - risk resolved (orphan insight)", insight.ResourceUID)
+				return false, nil
+			}
+			return true, err
 		}
-		if podCount == 0 {
-			log.Printf("[InsightStatusUpdater] Pod with uid=%s not found in DB - risk resolved (orphan insight)", insight.ResourceUID)
-			return false, nil
+		var containers interface{}
+		if pod.Containers != "" {
+			if err := json.Unmarshal([]byte(pod.Containers), &containers); err != nil {
+				containers = []interface{}{}
+			}
+		} else {
+			containers = []interface{}{}
 		}
-		return true, nil // Pod still exists, risk may still exist (no re-eval for Pod insights here)
+		k8sPod := map[string]interface{}{
+			"kind":       "Pod",
+			"apiVersion": "v1",
+			"metadata": map[string]interface{}{
+				"name": pod.Name, "namespace": pod.Namespace, "uid": pod.UID,
+			},
+			"spec": map[string]interface{}{
+				"serviceAccountName": pod.ServiceAccount,
+				"hostNetwork":        pod.HostNetwork,
+				"hostPID":            pod.HostPID,
+				"hostIPC":            pod.HostIPC,
+				"containers":         containers,
+			},
+		}
+		rawBytes, err := json.Marshal(k8sPod)
+		if err != nil {
+			return true, err
+		}
+		resourceData = map[string]interface{}{
+			"kind":       "Pod",
+			"uid":        pod.UID,
+			"name":       pod.Name,
+			"namespace":  pod.Namespace,
+			"cluster_id": pod.ClusterID,
+			"raw_json":   string(rawBytes),
+		}
 	default:
 		// Unknown resource type - assume risk still exists
 		return true, nil
 	}
 
+	if resourceData == nil {
+		return true, nil
+	}
+
 	// Re-evaluate the resource
-	insights, err := u.riskEngine.EvaluateResource(ctx, resourceType, resourceData)
+	insights, err := u.evaluateResource(ctx, resourceType, resourceData)
 	if err != nil {
 		log.Printf("[InsightStatusUpdater] Error re-evaluating resource %s/%s/%s: %v", resourceType, resourceNamespace, resourceName, err)
 		return true, err // On error, assume risk still exists (safer)
@@ -187,7 +284,14 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 			log.Printf("[InsightStatusUpdater] Risk still exists: exact description match for insight %d", insight.ID)
 			return true, nil
 		}
-		
+		// Stable match for YAML-driven insights (Pod runtime, PSS, cluster-admin, etc.)
+		if strings.TrimSpace(insight.Title) != "" &&
+			newInsight.Title == insight.Title &&
+			newInsight.InsightType == insight.InsightType {
+			log.Printf("[InsightStatusUpdater] Risk still exists: title+insightType match for insight %d", insight.ID)
+			return true, nil
+		}
+
 		// For wildcard/overprivileged insights, check if same type and severity
 		// This handles cases where description might vary slightly but risk is the same
 		// Also check if both descriptions mention the same resource name/namespace

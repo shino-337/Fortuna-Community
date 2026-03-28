@@ -1,0 +1,30 @@
+# Correlates runtime "network queue anomaly" signal (REP → runtime_signals)
+# into a dedicated risk rule with MITRE ATT&CK mapping.
+
+id: runtime-network-queue-anomaly-signal
+name: "Runtime network queue anomaly signal"
+category: runtime-behavior
+severity: medium
+description: "Fortuna recorded network queue anomaly runtime signals for this pod in the lookback window"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          object.securityState.has_network_queue_anomaly == true)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.has_network_queue_anomaly == true)
+      )
+
+aggregation: AND
+base_score: 6.0
+tags:
+  - runtime
+  - network
+  # MITRE ATT&CK: Network Sniffing
+  - T1040
+

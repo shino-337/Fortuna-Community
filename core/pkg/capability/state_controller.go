@@ -27,18 +27,28 @@ func NewCapabilityStateController(db *gorm.DB) *CapabilityStateController {
 // PromoteCapability promotes a capability state based on runtime signal
 // This is the ONLY way to update capability state from runtime signals
 func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, podUID, capabilityID, signalType string, signalConfidence float64) error {
-	// Get current capability
-	var cap models.PodCapability
-	err := csc.db.WithContext(ctx).
+	// Query only columns needed for promotion logic to avoid scanning DB-specific timestamp formats
+	// into struct time pointers (notably in SQLite test environments).
+	type capabilityRow struct {
+		ID           uint
+		State        string
+		Confidence   float64
+		Evidence     string
+		CapabilityID string
+	}
+	var cap capabilityRow
+	tx := csc.db.WithContext(ctx).
+		Model(&models.PodCapability{}).
+		Select("id", "state", "confidence", "evidence", "capability_id").
 		Where("pod_uid = ? AND capability_id = ?", podUID, capabilityID).
-		First(&cap).Error
-
-	if err == gorm.ErrRecordNotFound {
-		// Capability doesn't exist yet, cannot promote
+		Limit(1).
+		Find(&cap)
+	if tx.Error != nil {
+		return tx.Error
+	}
+	if tx.RowsAffected == 0 {
 		log.Printf("[CSC] Capability %s not found for pod %s, skipping promotion", capabilityID, podUID)
 		return nil
-	} else if err != nil {
-		return err
 	}
 
 	// Get promotion rules for this capability + signal
@@ -74,9 +84,11 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 
 	// Count signal occurrences for this pod + signal type
 	var signalCount int64
+	// runtime_signals are de-duped by day in SignalAdapter, so we sum the persisted counter.
 	csc.db.WithContext(ctx).Model(&models.RuntimeSignal{}).
+		Select("COALESCE(SUM(count), 0)").
 		Where("pod_uid = ? AND signal_type = ?", podUID, signalType).
-		Count(&signalCount)
+		Scan(&signalCount)
 
 	log.Printf("[CSC] Signal %s occurrences for pod %s: %d", signalType, podUID, signalCount)
 
@@ -152,7 +164,8 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 
 	// Update capability
 	if err := csc.db.WithContext(ctx).
-		Model(&cap).
+		Model(&models.PodCapability{}).
+		Where("id = ?", cap.ID).
 		Updates(updates).Error; err != nil {
 		return err
 	}
@@ -175,12 +188,14 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 // InitializeCapability creates a new capability with detected state
 // This is called when static config is detected
 func (csc *CapabilityStateController) InitializeCapability(ctx context.Context, podUID, namespace, capabilityID, group, severity string, evidence map[string]interface{}) error {
-	// Get metadata for base confidence
+	// Get metadata for base confidence (avoid First() — optional row, no noisy GORM "record not found" log)
 	var metadata models.CapabilityMetadata
 	baseConfidence := 0.5 // Default
-	if err := csc.db.WithContext(ctx).
+	mdTx := csc.db.WithContext(ctx).
 		Where("capability_id = ?", capabilityID).
-		First(&metadata).Error; err == nil {
+		Limit(1).
+		Find(&metadata)
+	if mdTx.Error == nil && mdTx.RowsAffected > 0 {
 		baseConfidence = metadata.ConfidenceBase
 		if severity == "" {
 			severity = metadata.SeverityBase
@@ -198,6 +213,8 @@ func (csc *CapabilityStateController) InitializeCapability(ctx context.Context, 
 		Severity:        severity,
 		State:           string(StateDetected),
 		Confidence:      baseConfidence,
+		CapabilityClass: "effective",
+		DerivedFrom:     `{}`,
 		FirstSeenAt:     &now,
 		LastSeenAt:      &now,
 		Evidence:        string(evidenceJSON),
@@ -218,11 +235,15 @@ func (csc *CapabilityStateController) InitializeCapability(ctx context.Context, 
 // GetCapabilityState returns current state of a capability
 func (csc *CapabilityStateController) GetCapabilityState(ctx context.Context, podUID, capabilityID string) (string, error) {
 	var cap models.PodCapability
-	err := csc.db.WithContext(ctx).
+	tx := csc.db.WithContext(ctx).
 		Where("pod_uid = ? AND capability_id = ?", podUID, capabilityID).
-		First(&cap).Error
-	if err != nil {
-		return "", err
+		Limit(1).
+		Find(&cap)
+	if tx.Error != nil {
+		return "", tx.Error
+	}
+	if tx.RowsAffected == 0 {
+		return "", gorm.ErrRecordNotFound
 	}
 	return cap.State, nil
 }

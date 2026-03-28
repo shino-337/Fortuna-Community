@@ -16,6 +16,8 @@ type PodCapability struct {
 	Severity        string         `gorm:"type:varchar(20);not null;index" json:"severity"`
 	State           string         `gorm:"type:varchar(20);default:detected;index;check:state IN ('detected', 'confirmed', 'exploited', 'chained')" json:"state"`
 	Confidence      float64        `gorm:"type:float;default:0.5;check:confidence >= 0 AND confidence <= 1" json:"confidence"`
+	CapabilityClass string         `gorm:"type:varchar(30);default:effective;index;column:capability_class" json:"capabilityClass,omitempty"`
+	DerivedFrom     string         `gorm:"type:jsonb;column:derived_from" json:"derivedFrom,omitempty"`
 	FirstSeenAt     *time.Time     `gorm:"type:timestamp with time zone" json:"firstSeenAt,omitempty"`
 	LastSeenAt      *time.Time     `gorm:"type:timestamp with time zone" json:"lastSeenAt,omitempty"`
 	Evidence        string         `gorm:"type:jsonb" json:"evidence"`

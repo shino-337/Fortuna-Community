@@ -28,6 +28,8 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			severity TEXT NOT NULL,
 			state TEXT DEFAULT 'detected',
 			confidence REAL DEFAULT 0.5,
+			capability_class TEXT DEFAULT 'effective',
+			derived_from TEXT,
 			first_seen_at TIMESTAMP,
 			last_seen_at TIMESTAMP,
 			evidence TEXT,
@@ -65,6 +67,10 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			category TEXT NOT NULL,
 			confidence REAL DEFAULT 0.5,
 			evidence TEXT,
+			evidence_refs TEXT,
+			count INTEGER DEFAULT 1,
+			first_seen_at TIMESTAMP,
+			last_seen_at TIMESTAMP,
 			created_at TIMESTAMP
 		);
 	`).Error; err != nil {
@@ -172,10 +178,10 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 
 	// Create promotion rule
 	rule := models.PromotionRule{
-		CapabilityID:   "ESC_HOSTPATH_NODE",
-		SignalType:     "PROC_ROOT_PIVOT",
-		MinOccurrences: 1,
-		PromoteTo:      "confirmed",
+		CapabilityID:    "ESC_HOSTPATH_NODE",
+		SignalType:      "PROC_ROOT_PIVOT",
+		MinOccurrences:  1,
+		PromoteTo:       "confirmed",
 		ConfidenceBoost: 0.2,
 	}
 	db.Create(&rule)
@@ -245,10 +251,10 @@ func TestCapabilityStateController_PromoteCapability_MinOccurrences(t *testing.T
 
 	// Create promotion rule requiring 2 occurrences
 	rule := models.PromotionRule{
-		CapabilityID:   "ESC_HOSTPATH_NODE",
-		SignalType:     "PROC_ROOT_PIVOT",
-		MinOccurrences: 2,
-		PromoteTo:      "confirmed",
+		CapabilityID:    "ESC_HOSTPATH_NODE",
+		SignalType:      "PROC_ROOT_PIVOT",
+		MinOccurrences:  2,
+		PromoteTo:       "confirmed",
 		ConfidenceBoost: 0.2,
 	}
 	db.Create(&rule)
@@ -320,20 +326,20 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 
 	// Create rule to promote to confirmed
 	rule1 := models.PromotionRule{
-		CapabilityID:   "ESC_HOSTPATH_NODE",
-		SignalType:     "PROC_ROOT_PIVOT",
-		MinOccurrences: 1,
-		PromoteTo:      "confirmed",
+		CapabilityID:    "ESC_HOSTPATH_NODE",
+		SignalType:      "PROC_ROOT_PIVOT",
+		MinOccurrences:  1,
+		PromoteTo:       "confirmed",
 		ConfidenceBoost: 0.2,
 	}
 	db.Create(&rule1)
 
 	// Create rule to promote to exploited
 	rule2 := models.PromotionRule{
-		CapabilityID:   "ESC_HOSTPATH_NODE",
-		SignalType:     "PROC_ROOT_PIVOT",
-		MinOccurrences: 3,
-		PromoteTo:      "exploited",
+		CapabilityID:    "ESC_HOSTPATH_NODE",
+		SignalType:      "PROC_ROOT_PIVOT",
+		MinOccurrences:  3,
+		PromoteTo:       "exploited",
 		ConfidenceBoost: 0.3,
 	}
 	db.Create(&rule2)

@@ -382,6 +382,51 @@ export interface PodK8sEventItem {
   lastTimestamp?: string;
 }
 
+/** GET /risk/pods/:uid/runtime/events — raw runtime_events (Falco, eBPF, agent diffs, …) */
+export interface PodRuntimeSecurityEvent {
+  id: number;
+  podUid: string;
+  podName?: string;
+  namespace: string;
+  nodeName?: string;
+  runtime?: string;
+  eventType?: string;
+  signal?: string;
+  mitreTechnique?: string;
+  severity?: string;
+  syscall: string;
+  targetPath: string;
+  capability: string;
+  createdAt: string;
+}
+
+/** GET /api/v2/runtime/pods/:uid/facts */
+export interface PodRuntimeBehaviorFact {
+  id: number;
+  factId: string;
+  podUid: string;
+  namespace: string;
+  factType: string;
+  domain: string;
+  observedAt?: string;
+  createdAt?: string;
+}
+
+/** GET /api/v2/runtime/pods/:uid/incidents */
+export interface PodRuntimeIncident {
+  id: number;
+  incidentId: string;
+  podUid: string;
+  namespace: string;
+  incidentType: string;
+  severityHint?: string;
+  confidence?: number;
+  firstSeenAt?: string;
+  lastSeenAt?: string;
+  window?: string;
+  createdAt?: string;
+}
+
 // Phase 2.2: Attack Steps
 export interface PodAttackStep {
   podUid: string;
@@ -542,6 +587,15 @@ export interface SecurityRule {
   evalTime?: string;
   lastUpdated?: string;
   matches?: number;
+  lastMatchedAt?: string;
+  source?: 'db' | 'files' | 'built-in' | string;
+  signature?: string;
+  overlapGroup?: string;
+  isCanonical?: boolean;
+  canonicalRuleId?: string;
+  impactedFindings24h?: number;
+  impactedFindings7d?: number;
+  relatedCapabilities?: string[];
 }
 
 /** Risk rule from DB (GET /risk-rules CRUD). */
@@ -594,6 +648,34 @@ export interface RotationEvent {
   success: boolean;
 }
 
+/** Structured refs from Core GET /risk/insights* (snake_case JSON). */
+export interface InsightEvidenceRefsPayload {
+  eventIds?: string[];
+  factIds?: string[];
+  signalTypes?: string[];
+  incidentTypes?: string[];
+  capabilityIds?: string[];
+  ruleIds?: string[];
+}
+
+/** Ordered pipeline layers for explainability (G-EXP-01 MVP). */
+export interface InsightExplanationChainStep {
+  layer: string;
+  refs: string[];
+}
+
+/** Resolved fact rows when GET /risk/insights/:id?enrich=1 */
+export interface InsightEnrichedFactRef {
+  factId: string;
+  factType?: string;
+  domain?: string;
+  observedAt?: string;
+}
+
+export interface InsightEnrichedRefs {
+  facts?: InsightEnrichedFactRef[];
+}
+
 export interface Insight {
   id: string;           // PK from API (used for GET /insights/:id and route /risks/:id)
   cveId?: string;       // CVE identifier for display (e.g. CVE-2024-123)
@@ -627,4 +709,19 @@ export interface Insight {
   exploitabilityScore?: number;
   businessImpactScore?: number;
   timeDecay?: number;
+  evidence_refs?: InsightEvidenceRefsPayload;
+  explanation_chain?: InsightExplanationChainStep[];
+  enriched_refs?: InsightEnrichedRefs;
+}
+
+/** Summary from GET /risk/pods/:uid/report — DB/agent/runtime alignment */
+export interface PodRiskReportSummary {
+  runtimeSignals24h?: number;
+  podDirectInsightCount?: number;
+  runtimePolicyInsightCount?: number;
+  insightsInReport?: number;
+  clusterAdminBindings?: number;
+  wildcardRoles?: number;
+  overprivilegedRoles?: number;
+  riskLevel?: string;
 }

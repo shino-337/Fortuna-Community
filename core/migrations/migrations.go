@@ -110,6 +110,13 @@ var (
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
+	_ = Migration096_PolicyEngineBaselineBootstrap
+	_ = Migration097_SeedYAMLRiskRulesMITRE
+	_ = Migration098_SeedYAMLRiskRulesMITREFix
+	_ = Migration099_RefreshYAMLRiskRulesMITRE
+	_ = Migration100_RefreshYAMLRiskRulesMITRE
+	_ = Migration109_AddRuntimeSignalLifecycle
+	_ = Migration110_AddPodCapabilityClassDerivedFrom
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -224,6 +231,21 @@ func RunMigrations(db *gorm.DB) error {
 		Migration093_EnsureK8sEventsTable,                       // Repair: k8s_events if migration 071 never created it
 		Migration094_EnsureAgentsTable,                          // Repair: agents after reset-db / if migration 038 skipped
 		Migration095_AddPodProcessRuntimeIdentityFields,         // Pod Detail: user/group/cwd/cap_eff for runtime identity analysis
+		Migration096_PolicyEngineBaselineBootstrap,              // Policy engine: ensure tables + seed baseline templates/instances/risk-rules
+		Migration097_SeedYAMLRiskRulesMITRE,                     // Risk rules: upsert all YAML rules with MITRE tags
+		Migration098_SeedYAMLRiskRulesMITREFix,                  // Risk rules: fix empty rule_id row and re-upsert correctly
+		Migration099_RefreshYAMLRiskRulesMITRE,                  // Risk rules: refresh/ensure YAML MITRE tags are applied
+		Migration100_RefreshYAMLRiskRulesMITRE,                  // Risk rules: refresh/ensure YAML MITRE tags are applied
+		Migration101_AddPodRuntimeMetricsNetDev,                 // Pod Detail R5: netns counters from /proc/<pid>/net/dev
+		Migration102_AddRuntimeEventsMetadata,                   // R9: enrich runtime_events with payload metadata
+		Migration103_AddRuntimeSignalsCount,                     // R6: count occurrences for de-duped runtime_signals
+		Migration104_AddRuntimeBehaviorFacts,                    // Runtime P0: Layer-2 normalized behavior facts
+		Migration105_AddRuntimeIncidents,                        // Runtime P0/P1: stateful runtime incident table
+		Migration106_AddAssetSecurityState,                      // Runtime P0.5: asset_security_state minimal projector input
+		Migration107_FixAssetSecurityStateColumnNames,           // Runtime P0.5: fix-up acronym column names
+		Migration108_AddRuntimeEventsCanonicalColumns,           // Runtime P0.1: runtime_events canonical contract columns
+		Migration109_AddRuntimeSignalLifecycle,                  // Runtime P1: runtime_signals lifecycle + evidence refs
+		Migration110_AddPodCapabilityClassDerivedFrom,           // Runtime P1: capability compatibility columns
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

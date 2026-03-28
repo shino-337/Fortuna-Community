@@ -1,14 +1,15 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal, RuntimeSignalSuppressionStats } from '../types';
+import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal, RuntimeSignalSuppressionStats, PodRiskReportSummary, PodRuntimeSecurityEvent, PodRuntimeBehaviorFact, PodRuntimeIncident, PodCapabilityDetail } from '../types';
+import { RUNTIME_SIGNALS_LOOKBACK_MINUTES } from '../lib/runtimeLookback';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
-import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode } from 'lucide-react';
+import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
@@ -17,7 +18,7 @@ import { SbomMetaBadges } from '../components/SbomMetaBadges';
 import { useAuthStore } from '../store/authStore';
 import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
 
-type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'spec';
+type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec';
 
 /** Short type label for SBOM (os-package -> os, library -> lib, etc.) */
 function sbomTypeLabel(type: string | undefined): string {
@@ -58,10 +59,19 @@ export const PodDetail: React.FC = () => {
   const [processes, setProcesses] = useState<PodProcessItem[]>([]);
   const [networkConnections, setNetworkConnections] = useState<PodNetworkConnectionItem[]>([]);
   const [podEvents, setPodEvents] = useState<PodK8sEventItem[]>([]);
+  const [runtimeSecurityEvents, setRuntimeSecurityEvents] = useState<PodRuntimeSecurityEvent[]>([]);
   const [runtimeSignals, setRuntimeSignals] = useState<RuntimeSignal[]>([]);
+  const [runtimeFacts, setRuntimeFacts] = useState<PodRuntimeBehaviorFact[]>([]);
+  const [runtimeIncidents, setRuntimeIncidents] = useState<PodRuntimeIncident[]>([]);
+  const [podCapabilities, setPodCapabilities] = useState<PodCapabilityDetail[]>([]);
   const [signalStats, setSignalStats] = useState<RuntimeSignalSuppressionStats | null>(null);
   const [runtimeSignalFilter, setRuntimeSignalFilter] = useState<'all' | 'NETWORK_QUEUE_ANOMALY'>('all');
+  /** Filter for GET /risk/.../runtime/events (Falco vs other collectors) */
+  const [secRuntimeFilter, setSecRuntimeFilter] = useState<'all' | 'falco' | 'other'>('all');
+  const [showLegacyEventsView, setShowLegacyEventsView] = useState(false);
   const [specYaml, setSpecYaml] = useState<string>('');
+  /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
+  const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
 
   const idOrUid = uid ?? id;
 
@@ -95,6 +105,23 @@ export const PodDetail: React.FC = () => {
     };
   };
 
+  const runtimeSourceBadge = (src: string | undefined): { label: string; className: string } => {
+    const s = (src || '').toLowerCase().trim();
+    if (s === 'falco') return { label: 'Falco', className: 'bg-violet-600/25 text-violet-200 border-violet-500/40' };
+    if (s === 'ebpf') return { label: 'eBPF', className: 'bg-sky-600/25 text-sky-200 border-sky-500/40' };
+    if (s === 'agent') return { label: 'Agent', className: 'bg-emerald-600/25 text-emerald-200 border-emerald-500/40' };
+    return { label: s ? src! : '—', className: 'bg-slate-600/25 text-slate-300 border-slate-500/40' };
+  };
+
+  const runtimeDataHints = (): string[] => {
+    const out: string[] = [];
+    if (runtimeSecurityEvents.length === 0) out.push('No runtime_events for this pod UID yet (sensor -> Core ingest).');
+    if (runtimeFacts.length === 0) out.push('No behavior facts synthesized yet (REP-A output empty).');
+    if (runtimeIncidents.length === 0) out.push('No correlated incidents yet (REP-C threshold/window not reached).');
+    if (runtimeSignals.length === 0) out.push('No runtime signals in lookback window (check signal filters and lookback).');
+    return out;
+  };
+
   const fetchPod = useCallback(async () => {
     if (!idOrUid) return;
     setLoading(true);
@@ -121,10 +148,20 @@ export const PodDetail: React.FC = () => {
         } else if (tab === 'network') {
           const data = await api.getPodNetworkConnections(pod.uid);
           setNetworkConnections(data);
-        } else if (tab === 'events') {
-          const data = await api.getPodEvents(pod.uid);
+        } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
+          const [data, sec, facts, incidents, caps] = await Promise.all([
+            api.getPodEvents(pod.uid),
+            api.getPodRuntimeSecurityEvents(pod.uid, 150),
+            api.getPodRuntimeBehaviorFactsV2(pod.uid, 120),
+            api.getPodRuntimeIncidentsV2(pod.uid, 80),
+            api.getPodCapabilities(pod.uid),
+          ]);
           setPodEvents(data);
-          const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: 1440, limit: 200 });
+          setRuntimeSecurityEvents(sec);
+          setRuntimeFacts(facts);
+          setRuntimeIncidents(incidents);
+          setPodCapabilities(caps);
+          const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 });
           setRuntimeSignals(signals);
           const stats = await api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 });
           setSignalStats(stats);
@@ -152,6 +189,24 @@ export const PodDetail: React.FC = () => {
     }
   }, [pod?.uid]);
 
+  useEffect(() => {
+    if (!pod?.uid) {
+      setPodRiskReportSummary(null);
+      setRelatedRisks([]);
+      return;
+    }
+    api
+      .getPodRiskReport(pod.uid)
+      .then(({ insights, summary }) => {
+        setRelatedRisks(insights ?? []);
+        setPodRiskReportSummary(summary ?? null);
+      })
+      .catch(() => {
+        setRelatedRisks([]);
+        setPodRiskReportSummary(null);
+      });
+  }, [pod?.uid]);
+
   // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data. All use pod UID.
   useEffect(() => {
     if (!pod?.uid) return;
@@ -159,7 +214,11 @@ export const PodDetail: React.FC = () => {
     api.getPodProcesses(pod.uid).then(setProcesses).catch(() => []);
     api.getPodNetworkConnections(pod.uid).then(setNetworkConnections).catch(() => []);
     api.getPodEvents(pod.uid).then(setPodEvents).catch(() => []);
-    api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => []);
+    api.getPodRuntimeSecurityEvents(pod.uid, 150).then(setRuntimeSecurityEvents).catch(() => []);
+    api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => []);
+    api.getPodRuntimeBehaviorFactsV2(pod.uid, 120).then(setRuntimeFacts).catch(() => []);
+    api.getPodRuntimeIncidentsV2(pod.uid, 80).then(setRuntimeIncidents).catch(() => []);
+    api.getPodCapabilities(pod.uid).then(setPodCapabilities).catch(() => []);
     api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
   }, [pod?.uid]);
 
@@ -192,14 +251,22 @@ export const PodDetail: React.FC = () => {
             api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
           } else if (t === 'events') {
             api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
-            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+            api.getPodRuntimeSecurityEvents(currentUid, 150).then(setRuntimeSecurityEvents).catch(() => {});
+            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+            api.getPodRuntimeBehaviorFactsV2(currentUid, 120).then(setRuntimeFacts).catch(() => {});
+            api.getPodRuntimeIncidentsV2(currentUid, 80).then(setRuntimeIncidents).catch(() => {});
+            api.getPodCapabilities(currentUid).then(setPodCapabilities).catch(() => {});
             api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
           } else {
             api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
             api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
             api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
             api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
-            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+            api.getPodRuntimeSecurityEvents(currentUid, 150).then(setRuntimeSecurityEvents).catch(() => {});
+            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+            api.getPodRuntimeBehaviorFactsV2(currentUid, 120).then(setRuntimeFacts).catch(() => {});
+            api.getPodRuntimeIncidentsV2(currentUid, 80).then(setRuntimeIncidents).catch(() => {});
+            api.getPodCapabilities(currentUid).then(setPodCapabilities).catch(() => {});
             api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
           }
         } catch {
@@ -207,7 +274,8 @@ export const PodDetail: React.FC = () => {
           api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
           api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
           api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
-          api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: 1440, limit: 200 }).then(setRuntimeSignals).catch(() => {});
+          api.getPodRuntimeSecurityEvents(currentUid, 150).then(setRuntimeSecurityEvents).catch(() => {});
+          api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => {});
           api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
         }
       };
@@ -252,6 +320,8 @@ export const PodDetail: React.FC = () => {
     { id: 'processes', label: 'Processes', icon: <Cpu className="w-4 h-4" /> },
     { id: 'network', label: 'Network', icon: <Network className="w-4 h-4" /> },
     { id: 'events', label: 'Events', icon: <Activity className="w-4 h-4" /> },
+    { id: 'timeline', label: 'Runtime Timeline', icon: <Activity className="w-4 h-4" /> },
+    { id: 'coverage', label: 'Coverage', icon: <Shield className="w-4 h-4" /> },
     { id: 'spec', label: 'Spec', icon: <FileCode className="w-4 h-4" /> },
   ];
 
@@ -295,39 +365,39 @@ export const PodDetail: React.FC = () => {
       )}
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Status</p>
+          <p className="ui-micro-label mb-1">Status</p>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getPodStatusBadgeClass(pod.status ?? pod.phase)}`}>{pod.status ?? pod.phase ?? '—'}</span>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Pod IP</p>
+          <p className="ui-micro-label mb-1">Pod IP</p>
           <p className="text-sm font-medium text-slate-300 font-mono">{pod.podIP ?? '—'}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Start Time</p>
+          <p className="ui-micro-label mb-1">Start Time</p>
           <p className="text-sm font-medium text-slate-300">{pod.startTime ? formatDateTime(pod.startTime) : (runtimeMetrics.length > 0 && runtimeMetrics[0].lastObservedAt ? `Last reported: ${formatDateTime(runtimeMetrics[0].lastObservedAt)}` : '—')}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Uptime</p>
+          <p className="ui-micro-label mb-1">Uptime</p>
           <p className="text-sm font-medium text-slate-300">{formatUptime(pod.startTime ?? undefined)}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Restart Count</p>
+          <p className="ui-micro-label mb-1">Restart Count</p>
           <p className="text-lg font-bold text-white">{pod.restartCount ?? 0}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">QoS Class</p>
+          <p className="ui-micro-label mb-1">QoS Class</p>
           <p className="text-sm font-medium text-slate-300">{pod.qosClass ?? '—'}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Risk Count</p>
+          <p className="ui-micro-label mb-1">Risk Count</p>
           <p className="text-lg font-bold text-white">{pod.riskCount}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Service Account</p>
+          <p className="ui-micro-label mb-1">Service Account</p>
           <p className="text-sm font-medium text-slate-300 truncate">{pod.serviceAccount ?? '—'}</p>
         </Card>
         <Card className="p-4 bg-slate-900/50">
-          <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-1">Created</p>
+          <p className="ui-micro-label mb-1">Created</p>
           <p className="text-sm font-medium text-slate-300">{pod.createdAt ? formatDateTime(pod.createdAt) : '—'}</p>
         </Card>
       </div>
@@ -454,6 +524,24 @@ export const PodDetail: React.FC = () => {
               <h4 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
                 <BarChart2 className="w-4 h-4" /> Pod detail (agent)
               </h4>
+              {podRiskReportSummary && (
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mb-3 text-slate-400">
+                  <div>
+                    <dt className="text-slate-500">Runtime signals (24h, DB)</dt>
+                    <dd className="text-slate-200 tabular-nums">{podRiskReportSummary.runtimeSignals24h ?? 0}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-slate-500">Insights on this pod (report)</dt>
+                    <dd className="text-slate-200 tabular-nums">{podRiskReportSummary.podDirectInsightCount ?? 0}</dd>
+                  </div>
+                  {(podRiskReportSummary.runtimePolicyInsightCount ?? 0) > 0 && (
+                    <div className="col-span-2">
+                      <dt className="text-slate-500">Runtime / pod-security policy insights</dt>
+                      <dd className="text-amber-300/90 tabular-nums">{podRiskReportSummary.runtimePolicyInsightCount}</dd>
+                    </div>
+                  )}
+                </dl>
+              )}
               {(runtimeMetrics.length > 0 || processes.length > 0 || networkConnections.length > 0) ? (
                 <div className="flex flex-wrap gap-3 text-sm">
                   {runtimeMetrics.length > 0 && (
@@ -488,7 +576,7 @@ export const PodDetail: React.FC = () => {
                   }}
                   className="inline-flex items-center px-2.5 py-1.5 rounded bg-slate-950 border border-slate-700 text-slate-200 hover:border-pink-500"
                 >
-                  View related risks in Risk Center
+                  View related risks in Risk Operations
                 </button>
               </div>
             </div>
@@ -693,7 +781,7 @@ export const PodDetail: React.FC = () => {
                         </button>
                       </div>
                     </div>
-                    <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+                    <div className="ui-table-scroll-compact">
                       <table className="w-full text-sm">
                         <thead className="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
                           <tr>
@@ -892,7 +980,7 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : runtimeMetrics.length > 0 ? (
-            <div className="overflow-x-auto border border-slate-800 rounded-lg max-h-[60vh] overflow-y-auto">
+            <div className="ui-table-scroll border border-slate-800 rounded-lg">
               <table className="w-full text-sm">
                 <thead className="bg-slate-800/80 text-slate-300 text-left">
                   <tr>
@@ -951,7 +1039,7 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : processes.length > 0 ? (
-            <div className="overflow-x-auto border border-slate-800 rounded-lg max-h-[60vh] overflow-y-auto">
+            <div className="ui-table-scroll border border-slate-800 rounded-lg">
               <table className="w-full text-sm">
                 <thead className="bg-slate-800/80 text-slate-300 text-left">
                   <tr>
@@ -1006,7 +1094,7 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : networkConnections.length > 0 ? (
-            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
+            <div className="ui-table-scroll rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                   <tr>
@@ -1015,8 +1103,12 @@ export const PodDetail: React.FC = () => {
                     <th className="px-3 py-2 font-medium">Local port</th>
                     <th className="px-3 py-2 font-medium">Protocol</th>
                     <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium">TX queue (proc)</th>
-                    <th className="px-3 py-2 font-medium">RX queue (proc)</th>
+                    <th className="px-3 py-2 font-medium" title="Kernel transmit queue snapshot from /proc networking data">
+                      Outbound queue (proc)
+                    </th>
+                    <th className="px-3 py-2 font-medium" title="Kernel receive queue snapshot from /proc networking data">
+                      Inbound queue (proc)
+                    </th>
                     <th className="px-3 py-2 font-medium">Timestamp</th>
                   </tr>
                 </thead>
@@ -1086,7 +1178,7 @@ export const PodDetail: React.FC = () => {
                   <Download className="w-4 h-4 mr-2" /> Download YAML
                 </Button>
               </div>
-              <pre className="overflow-auto max-h-[70vh] p-4 rounded-lg bg-slate-900 border border-slate-800 text-sm font-mono text-slate-300 whitespace-pre-wrap break-all">
+              <pre className="ui-code-scroll p-4 rounded-lg bg-slate-900 border border-slate-800 text-sm font-mono text-slate-300 whitespace-pre-wrap break-all">
                 {specYaml || 'No spec data.'}
               </pre>
             </>
@@ -1096,19 +1188,226 @@ export const PodDetail: React.FC = () => {
 
       {activeTab === 'events' && (
         <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-pink-500" /> Kubernetes events
+          <div className="mb-2">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
+              <Activity className="w-5 h-5 text-pink-500" /> Events
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Kubernetes API events, deduplicated runtime signals, and raw security runtime events (e.g. Falco → Core ingest).
+            </p>
+          </div>
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-1">Coverage by source</p>
+              <p className="text-xs text-slate-300">
+                Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
+                {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}
+              </p>
+            </Card>
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-1">Coverage by layer</p>
+              <p className="text-xs text-slate-300">
+                Events {runtimeSecurityEvents.length} · Facts {runtimeFacts.length} · Signals {runtimeSignals.length} · Incidents {runtimeIncidents.length}
+              </p>
+            </Card>
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-1">Coverage by MITRE tags</p>
+              <p className="text-xs text-slate-300">
+                {new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques
+              </p>
+            </Card>
+          </div>
+          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-2">Coverage by fact domain</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from(
+                  runtimeFacts.reduce((acc, f) => {
+                    const d = (f.domain || 'unknown').trim() || 'unknown';
+                    acc.set(d, (acc.get(d) || 0) + 1);
+                    return acc;
+                  }, new Map<string, number>())
+                )
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 8)
+                  .map(([domain, count]) => (
+                    <span key={domain} className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
+                      {domain}: {count}
+                    </span>
+                  ))}
+                {runtimeFacts.length === 0 ? <span className="text-xs text-slate-500">No fact coverage yet.</span> : null}
+              </div>
+            </Card>
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-2">Coverage by signal type</p>
+              <div className="flex flex-wrap gap-1.5">
+                {Array.from(
+                  runtimeSignals.reduce((acc, s) => {
+                    const t = (s.signalType || 'UNKNOWN').trim() || 'UNKNOWN';
+                    acc.set(t, (acc.get(t) || 0) + 1);
+                    return acc;
+                  }, new Map<string, number>())
+                )
+                  .sort((a, b) => b[1] - a[1])
+                  .slice(0, 8)
+                  .map(([signalType, count]) => (
+                    <span key={signalType} className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
+                      {signalType}: {count}
+                    </span>
+                  ))}
+                {runtimeSignals.length === 0 ? <span className="text-xs text-slate-500">No signal coverage yet.</span> : null}
+              </div>
+            </Card>
+          </div>
+          <div className="mb-8 pb-6 border-b border-slate-800">
+            <div className="flex items-center justify-between gap-3 mb-2">
+              <h4 className="text-sm font-semibold text-white">Legacy quick view (migration-safe)</h4>
+              <Button variant="secondary" size="sm" onClick={() => setShowLegacyEventsView((v) => !v)}>
+                {showLegacyEventsView ? (
+                  <>
+                    <ChevronDown className="w-4 h-4 mr-1" /> Hide
+                  </>
+                ) : (
+                  <>
+                    <ChevronRight className="w-4 h-4 mr-1" /> Show
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Preserves old combined troubleshooting flow while new layered sections are rolling out.
+            </p>
+            {showLegacyEventsView ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <h5 className="text-xs font-semibold text-slate-300 mb-2">Runtime signals (legacy summary)</h5>
+                  {runtimeSignals.length === 0 ? (
+                    <p className="text-xs text-slate-500">No runtime signals.</p>
+                  ) : (
+                    <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                      {runtimeSignals.slice(0, 20).map((s) => (
+                        <div key={s.id} className="text-xs text-slate-300">
+                          {s.signalType} · {s.createdAt ? formatDateTime(s.createdAt) : '—'}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <h5 className="text-xs font-semibold text-slate-300 mb-2">Kubernetes events (legacy summary)</h5>
+                  {podEvents.length === 0 ? (
+                    <p className="text-xs text-slate-500">No Kubernetes events.</p>
+                  ) : (
+                    <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
+                      {podEvents.slice(0, 20).map((ev, i) => (
+                        <div key={ev.id ?? i} className="text-xs text-slate-300">
+                          {(ev.reason || ev.eventType || 'Event')} · {ev.lastTimestamp ? formatDateTime(ev.lastTimestamp) : '—'}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </Card>
+              </div>
+            ) : null}
+          </div>
+
+          <div className="mb-8 pb-6 border-b border-slate-800">
+            <h4 className="text-sm font-semibold text-white mb-2 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-violet-400" /> Security runtime events
+            </h4>
+            <p className="text-xs text-slate-500 mb-3">
+              Stored in Core as <code className="text-slate-400">runtime_events</code> (source: Falco JSONL, eBPF, agent). Requires pod UID in the payload to persist.
+            </p>
+            <div className="flex flex-wrap items-center gap-2 mb-3">
+              <Button variant={secRuntimeFilter === 'all' ? 'default' : 'secondary'} size="sm" onClick={() => setSecRuntimeFilter('all')}>
+                All sources
+              </Button>
+              <Button variant={secRuntimeFilter === 'falco' ? 'default' : 'secondary'} size="sm" onClick={() => setSecRuntimeFilter('falco')}>
+                Falco
+              </Button>
+              <Button variant={secRuntimeFilter === 'other' ? 'default' : 'secondary'} size="sm" onClick={() => setSecRuntimeFilter('other')}>
+                Other
+              </Button>
+            </div>
+            {(() => {
+              const filtered = runtimeSecurityEvents.filter((ev) => {
+                const r = (ev.runtime || '').toLowerCase();
+                if (secRuntimeFilter === 'all') return true;
+                if (secRuntimeFilter === 'falco') return r === 'falco';
+                return r !== 'falco';
+              });
+              if (filtered.length === 0) {
+                return (
+                  <PageEmpty
+                    title="No security runtime events"
+                    description="When Falco or other sensors POST to Core, events appear here. Install Falco (scripts/deploy/install-falco-fortuna.sh) and set FALCO_EVENTS_ENABLED=true on the agent."
+                    className="py-6"
+                  />
+                );
+              }
+              return (
+                <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
+                  {filtered.slice(0, 80).map((ev) => {
+                    const src = runtimeSourceBadge(ev.runtime);
+                    const sev = (ev.severity || '').toLowerCase();
+                    const sevClass =
+                      sev === 'critical'
+                        ? 'bg-red-600/80 text-white border-red-500/50'
+                        : sev === 'high'
+                          ? 'bg-orange-600/80 text-white border-orange-500/50'
+                          : sev === 'medium'
+                            ? 'bg-amber-600/70 text-white border-amber-500/50'
+                            : 'bg-slate-600/80 text-slate-200 border-slate-500/50';
+                    return (
+                      <div key={ev.id} className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 flex flex-col gap-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${src.className}`}>{src.label}</span>
+                          {ev.mitreTechnique && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-slate-800 border border-slate-600 text-amber-200/90">{ev.mitreTechnique}</span>
+                          )}
+                          {ev.severity && <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${sevClass}`}>{ev.severity}</span>}
+                          <span className="text-[10px] text-slate-500 ml-auto tabular-nums">{ev.createdAt ? formatDateTime(ev.createdAt) : '—'}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                          {ev.signal && <span className="text-violet-200/95 font-medium truncate max-w-full">{ev.signal}</span>}
+                          {ev.eventType && <span className="text-slate-500 truncate">{ev.eventType}</span>}
+                        </div>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-slate-400 font-mono">
+                          <span>
+                            <span className="text-slate-600">syscall </span>
+                            {ev.syscall || '—'}
+                          </span>
+                          <span className="truncate" title={ev.targetPath}>
+                            <span className="text-slate-600">target </span>
+                            {ev.targetPath || '—'}
+                          </span>
+                        </div>
+                        {ev.capability ? (
+                          <p className="text-[10px] text-slate-500">
+                            capability <span className="text-slate-300">{ev.capability}</span>
+                          </p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
+          </div>
+
+          <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-cyan-400" /> Runtime signals &amp; Kubernetes events
           </h3>
           <div className="mb-6">
             {signalStats && (
               <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
-                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">R5 emitted(60m): {signalStats.emittedEvents}</span>
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">Network anomaly events (60m): {signalStats.emittedEvents}</span>
                 <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">keys: {signalStats.uniqueKeys}</span>
                 <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">max ratio: {Number(signalStats.maxRatio ?? 0).toFixed(2)}</span>
               </div>
             )}
             <div className="flex items-center justify-between gap-3 mb-3">
-              <h4 className="text-sm font-semibold text-white">Runtime signals (last 24h)</h4>
+              <h4 className="text-sm font-semibold text-white">Runtime signals (normalized, last 24h)</h4>
               <div className="flex items-center gap-2">
                 <Button
                   variant={runtimeSignalFilter === 'all' ? 'default' : 'secondary'}
@@ -1135,26 +1434,47 @@ export const PodDetail: React.FC = () => {
               }
               return (
                 <div className="space-y-2">
-                  {filteredSignals.slice(0, 20).map((s) => (
-                    <div key={s.id} className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-2">
-                          <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${runtimeSignalVisual(s.signalType).signalClass}`}>
-                            {s.signalType}
-                          </span>
-                          <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${runtimeSignalVisual(s.signalType).severityClass}`}>
-                            {runtimeSignalVisual(s.signalType).severity}
-                          </span>
+                  {filteredSignals.slice(0, 20).map((s) => {
+                    const ev = (s.evidence ?? {}) as any;
+                    const evSyscall = typeof ev?.syscall === 'string' ? ev.syscall : '';
+                    const evTarget = typeof ev?.target === 'string' ? ev.target : '';
+                    return (
+                      <div
+                        key={s.id}
+                        className="p-3 rounded-lg border border-slate-800 bg-slate-900/50 flex items-center justify-between gap-3"
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <span className={`px-2 py-0.5 rounded text-[11px] font-semibold border ${runtimeSignalVisual(s.signalType).signalClass}`}>
+                              {s.signalType}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded text-[10px] font-medium border ${runtimeSignalVisual(s.signalType).severityClass}`}>
+                              {runtimeSignalVisual(s.signalType).severity}
+                            </span>
+                          </div>
+                          <p className="text-xs text-slate-400">
+                            {s.category} · confidence {Number(s.confidence ?? 0).toFixed(2)}
+                          </p>
+                          <p className="text-[11px] text-slate-500 mt-1">
+                            evidence: syscall <span className="text-slate-300">{evSyscall || '—'}</span> · target{' '}
+                            <span className="text-slate-300 break-all">{evTarget || '—'}</span>
+                          </p>
                         </div>
-                        <p className="text-xs text-slate-400">{s.category} · confidence {Number(s.confidence ?? 0).toFixed(2)}</p>
+                        <span className="text-xs text-slate-500 whitespace-nowrap">{s.createdAt ? formatDateTime(s.createdAt) : '—'}</span>
                       </div>
-                      <span className="text-xs text-slate-500 whitespace-nowrap">{s.createdAt ? formatDateTime(s.createdAt) : '—'}</span>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               );
             })()}
           </div>
+          <Card className="p-3 mb-6 bg-slate-900/30 border-slate-800">
+            <p className="text-xs text-slate-400">
+              Facts, incidents, capabilities and insights are split into dedicated views to reduce noise:
+              <span className="text-slate-200"> Runtime Timeline</span>, <span className="text-slate-200">Coverage</span>, and
+              <span className="text-slate-200"> Related Risks</span>.
+            </p>
+          </Card>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : podEvents.length > 0 ? (
@@ -1175,6 +1495,162 @@ export const PodDetail: React.FC = () => {
             </div>
           ) : (
             <PageEmpty title="No events" description="Kubernetes events for this pod are collected by the agent." className="py-6" />
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'timeline' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+            <Activity className="w-5 h-5 text-pink-500" /> Runtime Timeline
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">
+            Incident-first timeline with correlated facts, capabilities, and insights for this pod.
+          </p>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : runtimeIncidents.length === 0 ? (
+            <>
+              <PageEmpty title="No runtime incidents" description="No stateful incidents found in the selected lookback window." className="py-6" />
+              {runtimeDataHints().length > 0 && (
+                <Card className="p-3 bg-slate-900/40 border-slate-800 mt-3">
+                  <p className="text-xs text-slate-400 mb-2">Diagnostics</p>
+                  <ul className="space-y-1">
+                    {runtimeDataHints().map((h) => (
+                      <li key={h} className="text-xs text-slate-500">- {h}</li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+            </>
+          ) : (
+            <div className="space-y-3">
+              {[...runtimeIncidents]
+                .sort((a, b) => new Date(b.lastSeenAt ?? b.createdAt ?? 0).getTime() - new Date(a.lastSeenAt ?? a.createdAt ?? 0).getTime())
+                .map((inc) => (
+                  <div key={inc.id} className="p-3 rounded-lg border border-slate-800 bg-slate-900/50">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[11px] font-semibold border border-slate-700 bg-slate-800 text-slate-200">
+                        {inc.incidentType}
+                      </span>
+                      <span className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
+                        {inc.severityHint ?? '—'}
+                      </span>
+                      <span className="text-[11px] text-slate-500 ml-auto">
+                        {inc.lastSeenAt ? formatDateTime(inc.lastSeenAt) : (inc.createdAt ? formatDateTime(inc.createdAt) : '—')}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-400 mt-1">
+                      confidence {Number(inc.confidence ?? 0).toFixed(2)} · window {inc.window ?? '—'}
+                    </p>
+                    <p className="text-[11px] text-slate-500 mt-1">
+                      first {inc.firstSeenAt ? formatDateTime(inc.firstSeenAt) : '—'} → last {inc.lastSeenAt ? formatDateTime(inc.lastSeenAt) : '—'}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          )}
+          <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-3">
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-1">Facts in scope</p>
+              <p className="text-sm text-slate-200">{runtimeFacts.length}</p>
+            </Card>
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-1">Capabilities in scope</p>
+              <p className="text-sm text-slate-200">{podCapabilities.length}</p>
+            </Card>
+            <Card className="p-3 bg-slate-900/40 border-slate-800">
+              <p className="text-[11px] text-slate-500 mb-1">Insights in report</p>
+              <p className="text-sm text-slate-200">{relatedRisks.length}</p>
+            </Card>
+          </div>
+        </Card>
+      )}
+
+      {activeTab === 'coverage' && (
+        <Card className="p-6">
+          <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
+            <Shield className="w-5 h-5 text-pink-500" /> Runtime Coverage
+          </h3>
+          <p className="text-xs text-slate-500 mb-4">
+            Coverage lens by source, layer, domain, signal type, and MITRE tags.
+          </p>
+          {tabLoading ? (
+            <p className="text-slate-500 text-sm">Loading...</p>
+          ) : (
+            <>
+              {runtimeDataHints().length > 0 && (
+                <Card className="p-3 bg-slate-900/40 border-slate-800 mb-4">
+                  <p className="text-xs text-slate-400 mb-2">Data availability diagnostics</p>
+                  <ul className="space-y-1">
+                    {runtimeDataHints().map((h) => (
+                      <li key={h} className="text-xs text-slate-500">- {h}</li>
+                    ))}
+                  </ul>
+                </Card>
+              )}
+              <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <p className="text-[11px] text-slate-500 mb-1">Coverage by source</p>
+                  <p className="text-xs text-slate-300">
+                    Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
+                    {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}
+                  </p>
+                </Card>
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <p className="text-[11px] text-slate-500 mb-1">Coverage by layer</p>
+                  <p className="text-xs text-slate-300">
+                    Events {runtimeSecurityEvents.length} · Facts {runtimeFacts.length} · Signals {runtimeSignals.length} · Incidents {runtimeIncidents.length}
+                  </p>
+                </Card>
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <p className="text-[11px] text-slate-500 mb-1">Coverage by MITRE tags</p>
+                  <p className="text-xs text-slate-300">
+                    {new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques
+                  </p>
+                </Card>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <p className="text-[11px] text-slate-500 mb-2">Fact domain distribution</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from(
+                      runtimeFacts.reduce((acc, f) => {
+                        const d = (f.domain || 'unknown').trim() || 'unknown';
+                        acc.set(d, (acc.get(d) || 0) + 1);
+                        return acc;
+                      }, new Map<string, number>())
+                    )
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([domain, count]) => (
+                        <span key={domain} className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
+                          {domain}: {count}
+                        </span>
+                      ))}
+                    {runtimeFacts.length === 0 ? <span className="text-xs text-slate-500">No fact coverage yet.</span> : null}
+                  </div>
+                </Card>
+                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                  <p className="text-[11px] text-slate-500 mb-2">Signal type distribution</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {Array.from(
+                      runtimeSignals.reduce((acc, s) => {
+                        const t = (s.signalType || 'UNKNOWN').trim() || 'UNKNOWN';
+                        acc.set(t, (acc.get(t) || 0) + 1);
+                        return acc;
+                      }, new Map<string, number>())
+                    )
+                      .sort((a, b) => b[1] - a[1])
+                      .map(([signalType, count]) => (
+                        <span key={signalType} className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
+                          {signalType}: {count}
+                        </span>
+                      ))}
+                    {runtimeSignals.length === 0 ? <span className="text-xs text-slate-500">No signal coverage yet.</span> : null}
+                  </div>
+                </Card>
+              </div>
+            </>
           )}
         </Card>
       )}

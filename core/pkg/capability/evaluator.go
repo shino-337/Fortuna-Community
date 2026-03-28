@@ -364,6 +364,8 @@ func upsertCapabilities(db *gorm.DB, pod models.Pod, caps []Capability) error {
 			CapabilityID:    c.ID,
 			CapabilityGroup: c.Group,
 			Severity:        c.Severity,
+			CapabilityClass: "effective",
+			DerivedFrom:     `{}`,
 			Evidence:        string(evidenceJSON),
 			MitreTechniques: c.Mitre,
 			CreatedAt:       now,

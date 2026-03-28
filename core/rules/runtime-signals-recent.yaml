@@ -1,0 +1,33 @@
+# Fortuna runtime correlation (REP → runtime_signals), Falco/NeuVector-style “something happened” visibility.
+id: runtime-signals-recent
+name: "Runtime behavior signals observed for this pod"
+category: runtime-behavior
+severity: low
+description: "At least one semantic runtime signal was recorded for this pod in the configured lookback window"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          object.securityState.signal_total_24h > 0)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.signal_total_24h > 0)
+      )
+
+aggregation: AND
+base_score: 3.0
+tags:
+  - runtime
+  - fortuna
+  - signals
+  # MITRE ATT&CK (broad mapping): runtime signals may include
+  # - Escape to Host (T1611)
+  # - Network Sniffing (T1040)
+  # - Container CLI/API command execution (T1059.013)
+  - T1611
+  - T1040
+  - T1059.013

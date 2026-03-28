@@ -19,7 +19,7 @@ Yêu cầu: `kubectl` trỏ tới cluster có namespace fortuna (hoặc NAMESPAC
 
 ---
 
-## Danh sách Test Case (18)
+## Danh sách Test Case (20)
 
 | ID | Test case | Mô tả | Phase |
 |----|-----------|--------|-------|
@@ -41,6 +41,8 @@ Yêu cầu: `kubectl` trỏ tới cluster có namespace fortuna (hoặc NAMESPAC
 | **TC-14** | GET /pod-capabilities/summary/namespace | PCE heatmap theo namespace. | 4 PCE |
 | **TC-15** | GET /runtime-signals | Tab Reference / runtime signals. | Base |
 | **TC-16** | WebSocket GET /ws/risks | Endpoint /ws/risks phản hồi (101 upgrade hoặc 400/401). | 2.3 |
+| **TC-17** | GET /risk/pods/:uid/report | Pod risk report: HTTP 200, `summary` hợp lệ — **bản mới:** `runtimeSignals24h` / `podDirectInsightCount`; **Core cũ:** chỉ `riskLevel` / `clusterAdminBindings`. SKIP nếu namespace không có pod. | Runtime |
+| **TC-18** | GET /runtime/pods/:uid/signals | Tín hiệu runtime theo pod (24h): HTTP 200, JSON có `signals[]`. SKIP nếu không có pod uid. | Runtime |
 
 ---
 
@@ -59,7 +61,7 @@ Ví dụ tổng kết:
 | PASS    | 15 |
 | FAIL    | 0 |
 | SKIP    | 1 |
-| **Tổng** | **16** |
+| **Tổng** | **20** |
 
 TC-09 thường SKIP khi chưa có rule (total=0). TC-10/11/12 SKIP khi `source=files` (rules load từ YAML, không CRUD qua API). **TC-10:** Script xóa rule `e2e-risk-center-rule` (nếu có) trước khi POST để tránh lỗi duplicate `rule_id` từ lần chạy trước; nếu POST vẫn FAIL, báo cáo sẽ in ~300 ký tự response để debug.
 

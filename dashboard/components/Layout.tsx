@@ -24,7 +24,7 @@ import {
 import { Cluster } from '../types';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
 
-// Nav aligned to Dashboard-UX-Specification: Dashboard → Clusters → Resources → Risk Center → Capabilities → Identities → Rules → Attack Paths → Monitoring. Settings at end.
+// Nav aligned to Dashboard-UX-Specification: Dashboard -> Clusters -> Resources -> Risk Operations -> Capability Knowledge -> Detection & Policy Catalog -> Attack Paths -> Monitoring. Settings at end.
 export const Layout: React.FC = () => {
   const { user, logout } = useAuthStore();
   const { selectedClusterId, setSelectedClusterId } = useClusterStore();
@@ -64,9 +64,9 @@ export const Layout: React.FC = () => {
     {
       title: 'Security',
       items: [
-        { icon: <ShieldAlert size={18} />, label: 'Risk Center', path: '/risks' },
-        { icon: <Shield size={18} />, label: 'Capabilities', path: '/capabilities' },
-        { icon: <ScrollText size={18} />, label: 'Rules & Policies', path: '/rules' },
+        { icon: <ShieldAlert size={18} />, label: 'Risk Operations', path: '/risks' },
+        { icon: <Shield size={18} />, label: 'Capability Knowledge', path: '/capabilities' },
+        { icon: <ScrollText size={18} />, label: 'Detection & Policy Catalog', path: '/rules' },
         { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths', comingSoon: true },
       ],
     },
@@ -219,7 +219,7 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
                 onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
                 placeholder="Search findings (Enter)"
                 className="bg-surface/70 border border-border rounded-full pl-9 pr-4 py-1.5 text-sm text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand w-64 transition-all"
-                title="Search findings: type and press Enter to open Risk Center with results."
+                title="Search findings: type and press Enter to open Risk Operations with results."
               />
               <button
                 type="button"

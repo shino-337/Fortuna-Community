@@ -68,6 +68,21 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	}
 	log.Printf("[API] Agent ingest routes registered: POST /api/v1/agent/sync, pod-runtime-metrics, pod-processes, pod-network-connections, pod-events")
 
+	// Runtime ingest routes (no auth): sensors/agents publish runtime events here.
+	// Keep POST /api/v1/runtime/events unauthenticated so daemonsets can post without JWT.
+	runtimeIngest := router.Group("/api/v1/runtime")
+	{
+		runtimeIngest.POST("/events", PostRuntimeEvents(db))
+	}
+	log.Printf("[API] Runtime ingest routes registered: POST /api/v1/runtime/events")
+
+	// Runtime ingest v2 (no auth): canonical DTO.
+	runtimeIngestV2 := router.Group("/api/v2/runtime")
+	{
+		runtimeIngestV2.POST("/events", PostRuntimeEventsV2(db))
+	}
+	log.Printf("[API] Runtime ingest routes registered: POST /api/v2/runtime/events")
+
 	// Protected routes
 	v1 := router.Group("/api/v1")
 	if cfg.AuthEnabled {
@@ -138,5 +153,14 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		if publishSBOMCreated != nil {
 			v1.POST("/internal/trigger-cve-match", middleware.RequireAdmin(), TriggerCVEMatch(db, publishSBOMCreated))
 		}
+	}
+
+	// Runtime architecture v2 read APIs (layered runtime model).
+	v2 := router.Group("/api/v2")
+	if cfg.AuthEnabled {
+		v2.Use(middleware.AuthMiddleware(db, cfg.JWTSecret))
+	}
+	{
+		registerRuntimeV2Routes(v2, db)
 	}
 }

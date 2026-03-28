@@ -1,0 +1,30 @@
+# Fortuna + Falco: JSON lines to hostPath so fortuna-agent can tail → POST /api/v1/runtime/events
+# Install: bash scripts/deploy/install-falco-fortuna.sh
+#
+# Requires: helm 3+, chart falcosecurity/falco
+driver:
+  kind: modern_ebpf
+
+mounts:
+  volumes:
+    - name: fortuna-falco-log
+      hostPath:
+        path: /var/log/falco
+        type: DirectoryOrCreate
+  volumeMounts:
+    - name: fortuna-falco-log
+      mountPath: /var/log/falco
+
+falco:
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+  priority: debug
+  stdout_output:
+    enabled: false
+  syslog_output:
+    enabled: false
+  file_output:
+    enabled: true
+    keep_alive: true
+    filename: /var/log/falco/events.jsonl

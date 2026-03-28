@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { api } from '../lib/api';
-import { CapabilityMetadata } from '../types';
+import { CapabilityMetadata, SecurityRule } from '../types';
 import { Search, Shield, Info, AlertTriangle, CheckCircle2, ChevronDown, ChevronRight, ExternalLink } from 'lucide-react';
 
 export const CapabilityMetadataBrowser: React.FC = () => {
@@ -9,6 +9,7 @@ export const CapabilityMetadataBrowser: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedDomain, setSelectedDomain] = useState<string>('all');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [rules, setRules] = useState<SecurityRule[]>([]);
 
   useEffect(() => {
     api.getCapabilityMetadata().then((data) => {
@@ -17,6 +18,10 @@ export const CapabilityMetadataBrowser: React.FC = () => {
     }).catch(() => {
       setLoading(false);
     });
+  }, []);
+
+  useEffect(() => {
+    api.getRules().then(setRules).catch(() => setRules([]));
   }, []);
 
   const domains = Array.from(new Set(metadata.map(m => m.domain)));
@@ -48,6 +53,13 @@ export const CapabilityMetadataBrowser: React.FC = () => {
   const toggleExpanded = (id: string) => {
     setExpandedId(prev => prev === id ? null : id);
   };
+
+  const capabilityRuleStats = (capabilityId: string): { count: number; topRules: SecurityRule[] } => {
+    const matches = rules.filter((r) => (r.relatedCapabilities || []).includes(capabilityId));
+    const sorted = [...matches].sort((a, b) => (b.impactedFindings7d || 0) - (a.impactedFindings7d || 0));
+    return { count: matches.length, topRules: sorted.slice(0, 3) };
+  };
+  const tooltipLabelClass = 'inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 cursor-help';
 
   if (loading) {
     return (
@@ -92,6 +104,7 @@ export const CapabilityMetadataBrowser: React.FC = () => {
             (meta.falsePositiveConsiderations && meta.falsePositiveConsiderations.length > 0) ||
             (meta.references && meta.references.length > 0);
           const isExpanded = expandedId === meta.capabilityId;
+          const triggerStats = capabilityRuleStats(meta.capabilityId);
 
           return (
             <div
@@ -146,6 +159,9 @@ export const CapabilityMetadataBrowser: React.FC = () => {
                     <div className="flex flex-wrap items-center gap-4 pl-6 mt-2 text-xs text-slate-500">
                       <span>Category: {meta.category}</span>
                       <span>Confidence Base: {Math.round((meta.confidenceBase ?? 0) * 100)}%</span>
+                      <span title="Number of rules whose matched findings frequently carry this capability in evidence">
+                        <span className={tooltipLabelClass}>Triggered by rules <Info size={12} /></span>: {triggerStats.count}
+                      </span>
                       {meta.supportsRuntimePromotion && (
                         <span className="flex items-center gap-1 text-green-400">
                           <CheckCircle2 size={12} />
@@ -190,6 +206,27 @@ export const CapabilityMetadataBrowser: React.FC = () => {
                 {/* Expanded: full description + technical indicators, impact, mitigations, false positives, references */}
                 {hasExtended && isExpanded && (
                   <div className="mt-4 pt-4 border-t border-slate-700 space-y-4">
+                    <div>
+                      <div className="text-xs font-semibold text-slate-400 mb-1">
+                        <span className={tooltipLabelClass} title="Top 3 rules most associated with this capability over recent 7-day impacted findings">
+                          Triggered by Rules <Info size={12} />
+                        </span>
+                      </div>
+                      {triggerStats.topRules.length === 0 ? (
+                        <p className="text-sm text-slate-500">No linked rules in recent rule analytics.</p>
+                      ) : (
+                        <ul className="space-y-1 text-sm text-slate-300">
+                          {triggerStats.topRules.map((rule) => (
+                            <li key={rule.id} className="flex items-center justify-between gap-2">
+                              <span className="truncate">
+                                {rule.name} <span className="text-slate-500 text-xs">({rule.id})</span>
+                              </span>
+                              <span className="text-xs text-slate-500 whitespace-nowrap">{rule.impactedFindings7d ?? 0} / 7d</span>
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                    </div>
                     {meta.fullDescription && (
                       <div>
                         <div className="text-xs font-semibold text-slate-400 mb-1">Full Description</div>

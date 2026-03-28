@@ -278,7 +278,9 @@ export const Resources: React.FC = () => {
           >
             <option value="">All Namespaces</option>
             <option value="default">default</option>
+            <option value="fortuna">fortuna</option>
             <option value="kube-system">kube-system</option>
+            <option value="risk-center-test">risk-center-test</option>
           </select>
           <select
             value={sortBy}
@@ -321,7 +323,7 @@ export const Resources: React.FC = () => {
           </nav>
         </div>
 
-        <div className="overflow-x-auto max-h-[60vh] overflow-y-auto">
+        <div className="ui-table-scroll">
           <table className="w-full text-sm text-left">
             <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
               {renderTableHead()}

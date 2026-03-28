@@ -1,0 +1,29 @@
+# CIS Kubernetes Benchmark 5.1.6: Minimize access to secrets
+# Detect Roles/ClusterRoles that can read secrets.
+
+id: cis-5.1.6
+name: "Role allows reading secrets"
+category: rbac
+severity: critical
+description: "Role/ClusterRole grants get/list/watch on secrets; can expose credentials and cluster access material"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.rules.exists(r,
+        r.resources.exists(res, res == 'secrets') &&
+        r.verbs.exists(v, v == 'get' || v == 'list' || v == 'watch' || v == '*' )
+      )
+
+aggregation: AND
+base_score: 9.5
+tags:
+  - cis
+  - rbac
+  - secrets
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+  # Credential access (best-effort)
+  - T1552
+

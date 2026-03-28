@@ -226,7 +226,7 @@ export const ClusterDetail: React.FC = () => {
           {tabLoading ? (
             <PageLoading message="Loading agents..." className="py-8" />
           ) : agents.length > 0 ? (
-            <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
+            <div className="ui-table-scroll rounded-lg border border-border">
               <table className="w-full text-sm">
                 <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                   <tr>

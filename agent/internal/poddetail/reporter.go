@@ -121,19 +121,36 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 
 	var processesByPod map[string][]processPayload
 	var connectionsByPod map[string][]connectionPayload
+	var netCountersByPod map[string]NetDevCounters
 	if useHostRuntime() {
 		procRoot := hostProcRoot()
 		containerMap := BuildContainerIDToPodMap(pods)
 		observedAt := time.Now().Format(time.RFC3339)
 		procItems := CollectProcessesFromHost(procRoot, containerMap, observedAt)
 		processesByPod = make(map[string][]processPayload)
+		// Pick one representative PID per pod for netns counters (net/dev).
+		repPIDByPod := make(map[string]int)
 		for _, it := range procItems {
 			processesByPod[it.PodUID] = append(processesByPod[it.PodUID], it.Process)
+			if it.PodUID != "" && it.Process.PID > 0 {
+				if _, ok := repPIDByPod[it.PodUID]; !ok {
+					repPIDByPod[it.PodUID] = it.Process.PID
+				}
+			}
 		}
 		netItems := CollectNetworkFromHost(procRoot, containerMap)
 		connectionsByPod = make(map[string][]connectionPayload)
 		for _, it := range netItems {
 			connectionsByPod[it.PodUID] = append(connectionsByPod[it.PodUID], it.Connection)
+		}
+		// Collect netns counters for pods where we have a representative PID.
+		netCountersByPod = make(map[string]NetDevCounters)
+		for podUID, pid := range repPIDByPod {
+			counters, err := ParseProcNetDev(procRoot, pid)
+			if err != nil {
+				continue
+			}
+			netCountersByPod[podUID] = counters
 		}
 	}
 
@@ -144,7 +161,13 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 			continue
 		}
 		// Send runtime metrics (from pod status: container state, restart count)
-		if err := r.sendRuntimeMetrics(ctx, pod, usageByPod[uid]); err != nil {
+		var netc *NetDevCounters
+		if netCountersByPod != nil {
+			if v, ok := netCountersByPod[uid]; ok {
+				netc = &v
+			}
+		}
+		if err := r.sendRuntimeMetrics(ctx, pod, usageByPod[uid], netc); err != nil {
 			log.Printf("[PodDetail] send metrics for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
 		// Process snapshot: host (from /proc) or exec
@@ -177,9 +200,13 @@ type runtimeMetricPayload struct {
 	MemoryLimitBytes  int64  `json:"memoryLimitBytes"`
 	RestartCount      int    `json:"restartCount"`
 	State             string `json:"state"`
+	NetRxBytes        int64  `json:"netRxBytes,omitempty"`
+	NetTxBytes        int64  `json:"netTxBytes,omitempty"`
+	NetRxPackets      int64  `json:"netRxPackets,omitempty"`
+	NetTxPackets      int64  `json:"netTxPackets,omitempty"`
 }
 
-func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod, usageByContainer map[string]containerRuntimeUsage) error {
+func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod, usageByContainer map[string]containerRuntimeUsage, netCounters *NetDevCounters) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
@@ -202,6 +229,18 @@ func (r *Reporter) sendRuntimeMetrics(ctx context.Context, pod *corev1.Pod, usag
 			MemoryLimitBytes:  memoryLimitBytesForContainer(pod, cs.Name),
 			RestartCount:      int(cs.RestartCount),
 			State:             state,
+		})
+	}
+	// Host-mode network namespace counters (pod-level): store as synthetic row.
+	// This avoids duplicating the same netns counters across all containers.
+	if netCounters != nil && (netCounters.RxBytes > 0 || netCounters.TxBytes > 0 || netCounters.RxPackets > 0 || netCounters.TxPackets > 0) {
+		metrics = append(metrics, runtimeMetricPayload{
+			ContainerName: "__pod__",
+			NetRxBytes:    netCounters.RxBytes,
+			NetTxBytes:    netCounters.TxBytes,
+			NetRxPackets:  netCounters.RxPackets,
+			NetTxPackets:  netCounters.TxPackets,
+			State:         "Running",
 		})
 	}
 	if len(metrics) == 0 {

@@ -94,7 +94,7 @@ export const IdentityDetail: React.FC = () => {
           <Key className="w-5 h-5 text-pink-500" /> Permissions
         </h3>
         {permissions.length > 0 ? (
-          <div className="overflow-x-auto max-h-[60vh] overflow-y-auto rounded-lg border border-border">
+          <div className="ui-table-scroll rounded-lg border border-border">
             <table className="w-full text-sm">
               <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
                 <tr>

@@ -1,22 +1,76 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { Insight, RuntimeSignal } from '../types';
+import { CapabilityMetadata, Insight, RuntimeSignal } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2, Info } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
 import { parseThreatIntelEvidence } from '../lib/threatIntel';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 
+const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
+  if (!violatedRules) return [];
+  let raw: unknown = violatedRules;
+  if (typeof violatedRules === 'string') {
+    try {
+      raw = JSON.parse(violatedRules);
+    } catch {
+      return [];
+    }
+  }
+  const values = Array.isArray(raw) ? raw : [raw];
+  const out = new Set<string>();
+  values.forEach((v) => {
+    if (typeof v === 'string' && v.trim()) out.add(v.trim());
+    if (v && typeof v === 'object') {
+      const o = v as Record<string, unknown>;
+      const id = o.ruleId ?? o.rule_id ?? o.id;
+      if (typeof id === 'string' && id.trim()) out.add(id.trim());
+    }
+  });
+  return Array.from(out);
+};
+
+const collectCapabilityIDsFromEvidence = (evidence: Insight['evidence']): string[] => {
+  if (!evidence) return [];
+  let raw: unknown = evidence;
+  if (typeof evidence === 'string') {
+    try {
+      raw = JSON.parse(evidence);
+    } catch {
+      return [];
+    }
+  }
+  const out = new Set<string>();
+  const walk = (node: unknown) => {
+    if (!node) return;
+    if (Array.isArray(node)) {
+      node.forEach(walk);
+      return;
+    }
+    if (typeof node === 'object') {
+      const obj = node as Record<string, unknown>;
+      const cap = obj.capabilityId ?? obj.capability_id ?? obj.capability;
+      if (typeof cap === 'string' && cap.trim()) out.add(cap.trim());
+      Object.values(obj).forEach(walk);
+    }
+  };
+  walk(raw);
+  return Array.from(out);
+};
+
 export const RiskDetail: React.FC = () => {
+  const tooltipLabelClass = 'inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 cursor-help';
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [insight, setInsight] = useState<Insight | null>(null);
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
   const [podRuntimeSignals, setPodRuntimeSignals] = useState<RuntimeSignal[]>([]);
+  const [linkedRules, setLinkedRules] = useState<Array<{ id: string; name: string; source?: string; signature?: string; isCanonical?: boolean; canonicalRuleId?: string }>>([]);
+  const [linkedCapabilities, setLinkedCapabilities] = useState<CapabilityMetadata[]>([]);
   const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
 
   const runtimeSignalVisual = (signalType: string): { signalClass: string; severity: string; severityClass: string } => {
@@ -53,6 +107,44 @@ export const RiskDetail: React.FC = () => {
   useEffect(() => {
     fetchInsight();
   }, [fetchInsight]);
+
+  useEffect(() => {
+    if (!insight) {
+      setLinkedRules([]);
+      setLinkedCapabilities([]);
+      return;
+    }
+    let cancelled = false;
+    const loadLinkedDetections = async () => {
+      const ruleIds = parseRuleIDsFromViolatedRules(insight.violatedRules).slice(0, 6);
+      const capabilityIds = collectCapabilityIDsFromEvidence(insight.evidence).slice(0, 6);
+      const [rulesRes, capsRes] = await Promise.all([
+        Promise.allSettled(ruleIds.map((ruleId) => api.getRule(ruleId))),
+        Promise.allSettled(capabilityIds.map((capabilityId) => api.getCapabilityMetadataById(capabilityId))),
+      ]);
+      if (cancelled) return;
+
+      const rules = rulesRes
+        .filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<typeof api.getRule>>> => r.status === 'fulfilled' && r.value != null)
+        .map((r) => ({
+          id: r.value!.rule.id,
+          name: r.value!.rule.name ?? r.value!.rule.id,
+          source: r.value!.rule.source,
+          signature: r.value!.rule.signature,
+          isCanonical: r.value!.rule.isCanonical,
+          canonicalRuleId: r.value!.rule.canonicalRuleId,
+        }));
+      const caps = capsRes
+        .filter((r): r is PromiseFulfilledResult<CapabilityMetadata | null> => r.status === 'fulfilled' && r.value != null)
+        .map((r) => r.value as CapabilityMetadata);
+      setLinkedRules(rules);
+      setLinkedCapabilities(caps);
+    };
+    loadLinkedDetections();
+    return () => {
+      cancelled = true;
+    };
+  }, [insight]);
 
   // When insight has Pod assets, fetch runtime/escape signals for those pods so risk view shows escape info
   useEffect(() => {
@@ -109,7 +201,7 @@ export const RiskDetail: React.FC = () => {
     return (
       <PageLayout title="Risk not found" description="The risk may have been resolved or removed.">
         <Button variant="secondary" onClick={() => navigate('/risks')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Risk Center
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Risk Operations
         </Button>
       </PageLayout>
     );
@@ -123,6 +215,20 @@ export const RiskDetail: React.FC = () => {
     resolved: 'Resolved',
   };
 
+  const topEvidenceFields = (() => {
+    if (!insight.evidence) return [] as string[];
+    let raw: unknown = insight.evidence;
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        return [];
+      }
+    }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return [];
+    return Object.keys(raw as Record<string, unknown>).slice(0, 8);
+  })();
+
   return (
     <PageLayout
       title={insight.title}
@@ -135,7 +241,7 @@ export const RiskDetail: React.FC = () => {
             </Button>
           )}
           <Button variant="secondary" onClick={() => navigate('/risks')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Risk Center
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Risk Operations
           </Button>
         </div>
       }
@@ -349,6 +455,113 @@ export const RiskDetail: React.FC = () => {
           )}
         </Card>
       )}
+
+      {(linkedRules.length > 0 || linkedCapabilities.length > 0) && (
+        <Card className="p-6 mt-6">
+          <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+            <Link2 className="w-5 h-5 text-pink-500" /> Linked Detections
+          </h3>
+          <p className="text-slate-500 text-sm mb-4">
+            Bridge from this finding to detection logic and capability semantics for faster root-cause triage.
+          </p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Rules</div>
+              {linkedRules.length === 0 ? (
+                <p className="text-sm text-slate-500">No linked rules found in this finding.</p>
+              ) : (
+                <div className="space-y-2">
+                  {linkedRules.map((r) => (
+                    <div key={r.id} className="flex items-center justify-between gap-2 border border-slate-800 rounded px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm text-slate-200 truncate">{r.name}</p>
+                        <p className="text-xs text-slate-500 font-mono">{r.id} {r.source ? `· ${r.source}` : ''}</p>
+                      </div>
+                      <Button size="sm" variant="secondary" onClick={() => navigate(`/rules/${encodeURIComponent(r.id)}`)}>
+                        Open
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+              <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">Capabilities</div>
+              {linkedCapabilities.length === 0 ? (
+                <p className="text-sm text-slate-500">No linked capabilities found in this finding.</p>
+              ) : (
+                <div className="space-y-2">
+                  {linkedCapabilities.map((c) => (
+                    <div key={c.capabilityId} className="border border-slate-800 rounded px-3 py-2">
+                      <p className="text-sm text-slate-200">{c.name || c.capabilityId}</p>
+                      <p className="text-xs text-slate-500 font-mono">{c.capabilityId}</p>
+                    </div>
+                  ))}
+                  <Button size="sm" variant="secondary" onClick={() => navigate('/capabilities')}>
+                    Open Capability Knowledge
+                  </Button>
+                </div>
+              )}
+            </div>
+          </div>
+        </Card>
+      )}
+
+      <Card className="p-6 mt-6">
+        <h3 className="text-lg font-semibold text-white mb-3 flex items-center gap-2">
+          <Link2 className="w-5 h-5 text-pink-500" /> Why triggered
+        </h3>
+        <p className="text-slate-500 text-sm mb-4">
+          Detection context that explains why this finding was raised.
+        </p>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">
+              <span className={tooltipLabelClass} title="Source, rule signature, and rule role (Primary/Overlapping) for rules linked to this finding">
+                Rule context <Info className="w-3 h-3" />
+              </span>
+            </div>
+            {linkedRules.length === 0 ? (
+              <p className="text-sm text-slate-500">No explicit rule reference found for this finding.</p>
+            ) : (
+              <div className="space-y-2">
+                {linkedRules.map((r) => (
+                  <div key={r.id} className="border border-slate-800 rounded px-3 py-2">
+                    <p className="text-sm text-slate-200">{r.name}</p>
+                    <p className="text-xs text-slate-500 font-mono" title="Rule ID, source, and rule signature">
+                      {r.id} · source={r.source ?? 'unknown'} · signature={r.signature ?? 'n/a'}
+                    </p>
+                    <p className="text-xs text-slate-500" title="Primary rule = main rule in a shared signature group. Overlapping rule = same signature group, kept for compatibility/tuning.">
+                      {r.isCanonical === false ? `Overlapping rule of ${r.canonicalRuleId}` : 'Primary rule'}
+                    </p>
+                    <Button className="mt-2" size="sm" variant="secondary" onClick={() => navigate(`/rules/${encodeURIComponent(r.id)}`)}>
+                      Open rule
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="rounded-lg border border-slate-800 bg-slate-900/40 p-4">
+            <div className="text-xs uppercase tracking-wide text-slate-500 mb-2">
+              <span className={tooltipLabelClass} title="Most informative keys in finding evidence payload for quick non-technical review">
+                Top evidence fields <Info className="w-3 h-3" />
+              </span>
+            </div>
+            {topEvidenceFields.length === 0 ? (
+              <p className="text-sm text-slate-500">No structured evidence fields found.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {topEvidenceFields.map((k) => (
+                  <span key={k} className="px-2 py-1 rounded text-[11px] bg-slate-800 text-slate-300 border border-slate-700">
+                    {k}
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </Card>
     </PageLayout>
   );
 };

@@ -26,7 +26,14 @@ type PodRiskProfileDTO struct {
 type RuntimeEventDTO struct {
 	ID          uint      `json:"id"`
 	PodUID      string    `json:"podUid"`
+	PodName     string    `json:"podName,omitempty"`
 	Namespace   string    `json:"namespace"`
+	NodeName    string    `json:"nodeName,omitempty"`
+	Runtime     string    `json:"runtime,omitempty"`
+	EventType   string    `json:"eventType,omitempty"`
+	Signal      string    `json:"signal,omitempty"`
+	Mitre       string    `json:"mitreTechnique,omitempty"`
+	Severity    string    `json:"severity,omitempty"`
 	Syscall     string    `json:"syscall"`
 	TargetPath  string    `json:"targetPath"`
 	Capability  string    `json:"capability"`
@@ -103,7 +110,14 @@ func GetPodRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 			dtos[i] = RuntimeEventDTO{
 				ID:         e.ID,
 				PodUID:     e.PodUID,
+				PodName:    e.PodName,
 				Namespace:  e.Namespace,
+				NodeName:   e.NodeName,
+				Runtime:    e.Runtime,
+				EventType:  e.EventType,
+				Signal:     e.Signal,
+				Mitre:      e.Mitre,
+				Severity:   e.Severity,
 				Syscall:    e.Syscall,
 				TargetPath: e.TargetPath,
 				Capability: e.Capability,
