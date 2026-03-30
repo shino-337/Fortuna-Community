@@ -127,6 +127,14 @@ func (s *SyftAdapter) DiscoverPackages(ctx context.Context, imageRef string) ([]
 	return out, nil
 }
 
+func (s *SyftAdapter) HasSyftBinary() bool {
+	if s == nil {
+		return false
+	}
+	_, err := exec.LookPath(s.syftBin)
+	return err == nil
+}
+
 type syftPackagesJSON struct {
 	Artifacts []syftArtifactJSON `json:"artifacts"`
 }

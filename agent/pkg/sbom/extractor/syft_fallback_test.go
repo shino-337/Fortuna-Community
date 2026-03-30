@@ -1,6 +1,9 @@
 package extractor
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestShouldInvokeSyft_ZeroFortunaDistroless(t *testing.T) {
 	e := &Extractor{
@@ -79,6 +82,26 @@ func TestMergeSyftPackages_PrefersFortunaByPURL(t *testing.T) {
 	}
 	if merged[0].Source != "parsers" || merged[0].Name != "openssl" {
 		t.Fatalf("expected fortuna openssl first; got %+v", merged[0])
+	}
+}
+
+func TestSyftResultCache_TTLExpiry(t *testing.T) {
+	c := NewSyftResultCache(1, 10)
+	if c == nil {
+		t.Fatalf("cache should not be nil")
+	}
+	// Inject deterministic clock.
+	now := c.now()
+	c.now = func() time.Time { return now }
+
+	c.Set("k", []Package{{Name: "a", Version: "1", Type: "deb"}})
+	if got := c.Get("k"); len(got) != 1 {
+		t.Fatalf("cache get len=%d, want 1", len(got))
+	}
+	// Advance past TTL.
+	c.now = func() time.Time { return now.Add(2 * time.Second) }
+	if got := c.Get("k"); got != nil {
+		t.Fatalf("cache entry should be expired; got=%v", got)
 	}
 }
 

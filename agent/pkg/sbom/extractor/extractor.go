@@ -31,6 +31,8 @@ type Extractor struct {
 	syftEnabled             bool
 	syftAdapter             *SyftAdapter
 	syftMinPackageThreshold int
+	syftCache               *SyftResultCache
+	syftMaxRetries          int
 }
 
 // NewExtractor creates a new custom SBOM extractor.
@@ -79,9 +81,41 @@ func NewExtractor() *Extractor {
 		}
 	}
 
+	// Syft retry (transient failures).
+	syftMaxRetries := 2
+	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_MAX_RETRIES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			syftMaxRetries = n
+		}
+	}
+
+	// Syft in-memory cache (per-agent process; avoids rerunning Syft for same digest repeatedly).
+	syftCacheTTL := 1 * time.Hour
+	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_CACHE_TTL")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d >= 0 {
+			syftCacheTTL = d
+		} else if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			syftCacheTTL = time.Duration(n) * time.Second
+		}
+	}
+	syftCacheMax := 256
+	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_CACHE_MAX_ITEMS")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			syftCacheMax = n
+		}
+	}
+	var syftCache *SyftResultCache
+	if syftEnabled && syftCacheTTL > 0 && syftCacheMax > 0 {
+		syftCache = NewSyftResultCache(syftCacheTTL, syftCacheMax)
+	}
+
 	var syftAdapter *SyftAdapter
 	if syftEnabled {
 		syftAdapter = NewSyftAdapter(logger, syftTimeout, syftMaxPkgs)
+		// If enabled but binary missing, warn once at startup.
+		if !syftAdapter.HasSyftBinary() {
+			logger.Printf("⚠️  WARNING: SBOM_USE_SYFT_FALLBACK is enabled but syft binary not found (bin=%q). Falling back to Fortuna-only.", syftAdapter.syftBin)
+		}
 	}
 
 	return &Extractor{
@@ -105,6 +139,8 @@ func NewExtractor() *Extractor {
 		syftEnabled:             syftEnabled,
 		syftAdapter:             syftAdapter,
 		syftMinPackageThreshold: syftMinPkgs,
+		syftCache:               syftCache,
+		syftMaxRetries:          syftMaxRetries,
 	}
 }
 
@@ -232,12 +268,26 @@ func (e *Extractor) ExtractSBOM(
 	// 5d. Syft fallback (Slow path): distroless/minimal images where package-manager metadata is missing.
 	fortunaPkgCount := len(deduped)
 	if e.syftAdapter != nil && e.shouldInvokeSyft(fortunaPkgCount, osInfo.Name) {
+		cacheKey := imageDigest
+		if cacheKey == "" {
+			cacheKey = imageRef
+		}
+
+		if cached := e.syftCache.Get(cacheKey); len(cached) > 0 {
+			e.logger.Printf("✅ [FALLBACK] Syft cache hit (%d packages); merging...", len(cached))
+			merged := e.mergeSyftPackages(deduped, cached)
+			deduped = e.deduplicate(merged)
+			deduped = setOSPackagePURLs(deduped, osInfo)
+			goto afterSyftFallback
+		}
+
 		e.logger.Printf("   [FALLBACK] Fortuna found %d packages; invoking Syft...", fortunaPkgCount)
-		syftPkgs, err := e.syftAdapter.DiscoverPackages(ctx, imageRef)
+		syftPkgs, err := e.invokeSyftWithRetry(ctx, imageRef)
 		if err != nil {
 			e.logger.Printf("   [FALLBACK] Syft discovery failed (continuing with Fortuna results): %v", err)
 		} else if len(syftPkgs) > 0 {
 			e.logger.Printf("✅ [FALLBACK] Syft found %d packages; merging...", len(syftPkgs))
+			e.syftCache.Set(cacheKey, syftPkgs)
 			merged := e.mergeSyftPackages(deduped, syftPkgs)
 			deduped = e.deduplicate(merged)
 			// Ensure OS package PURLs for Core OSV queries.
@@ -246,6 +296,7 @@ func (e *Extractor) ExtractSBOM(
 			e.logger.Printf("   [FALLBACK] Syft found 0 packages")
 		}
 	}
+afterSyftFallback:
 
 	// 6. Deduplicate
 
@@ -679,6 +730,63 @@ func (e *Extractor) mergeSyftPackages(fortuna []Package, syft []Package) []Packa
 	}
 
 	return merged
+}
+
+func (e *Extractor) invokeSyftWithRetry(ctx context.Context, imageRef string) ([]Package, error) {
+	if e == nil || e.syftAdapter == nil {
+		return nil, nil
+	}
+	max := e.syftMaxRetries
+	if max < 0 {
+		max = 0
+	}
+	var lastErr error
+	for attempt := 0; attempt <= max; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		pkgs, err := e.syftAdapter.DiscoverPackages(ctx, imageRef)
+		if err == nil {
+			return pkgs, nil
+		}
+		lastErr = err
+		if !isTransientSyftError(err) || attempt == max {
+			break
+		}
+		// Exponential backoff: 1s, 2s, 4s...
+		backoff := time.Duration(1<<attempt) * time.Second
+		timer := time.NewTimer(backoff)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, lastErr
+}
+
+func isTransientSyftError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(s, "timeout"),
+		strings.Contains(s, "tls handshake timeout"),
+		strings.Contains(s, "connection reset"),
+		strings.Contains(s, "connection refused"),
+		strings.Contains(s, "no such host"),
+		strings.Contains(s, "temporary failure"),
+		strings.Contains(s, "i/o timeout"),
+		strings.Contains(s, "eof"),
+		strings.Contains(s, "502"),
+		strings.Contains(s, "503"),
+		strings.Contains(s, "504"):
+		return true
+	default:
+		return false
+	}
 }
 
 // applySignatureHints updates packages using signature DB (versionFromTag, digestMap) to reduce unknown versions.
