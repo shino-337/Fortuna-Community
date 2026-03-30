@@ -20,13 +20,14 @@ import (
 var goStrictSemver = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
 var goPseudoVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+-(0\.)?\d{14}-[0-9a-f]{7,}$`)
 var goLooseSemver = regexp.MustCompile(`^v?\d+\.\d+$`)
+var constraintArchRE = regexp.MustCompile(`(?i)(?:^|[,\s])arch\s*=\s*([a-z0-9_:-]+)`)
 
 // Matcher matches CVEs against SBOM components
 type Matcher struct {
-	dbManager   *database.Manager
-	comparator  *VersionComparator
-	db          *gorm.DB
-	logger      *log.Logger
+	dbManager  *database.Manager
+	comparator *VersionComparator
+	db         *gorm.DB
+	logger     *log.Logger
 	// cache for OSV mirror lookups: module -> vulnerabilities
 	osvCache map[string][]models.OSVVulnerability
 }
@@ -93,9 +94,12 @@ func (m *Matcher) MatchSBOM(
 
 	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk.
 	// For Go: use prefix list + alias resolution (go_module_alias) so renames (e.g. coreos/etcd → go.etcd.io/etcd) still match.
-	ecosystemPackages := make(map[string][]string)
-	componentsByName := make(map[string]*models.SBOMComponent)
-	purlsByName := make(map[string]*PURL)
+	ecosystemPackages := make(map[string]map[string]struct{})
+	type packageCandidate struct {
+		component *models.SBOMComponent
+		purl      *PURL
+	}
+	candidatesByEcoPkg := make(map[string][]packageCandidate)
 	// Go-only: resolved module name -> list of (component, purl) to run version check for
 	goResolvedToPairs := make(map[string][]struct {
 		component *models.SBOMComponent
@@ -174,10 +178,17 @@ func (m *Matcher) MatchSBOM(
 			continue
 		}
 
-		// Group by ecosystem using the (possibly remapped) name.
-		ecosystemPackages[queryEcosystem] = append(ecosystemPackages[queryEcosystem], componentKey)
-		componentsByName[componentKey] = component
-		purlsByName[componentKey] = purl
+		// Group by ecosystem using the (possibly remapped) name. Keep all candidates so
+		// components that differ only by qualifiers (e.g., arch) are all matched.
+		if ecosystemPackages[queryEcosystem] == nil {
+			ecosystemPackages[queryEcosystem] = make(map[string]struct{})
+		}
+		ecosystemPackages[queryEcosystem][componentKey] = struct{}{}
+		ecoPkgKey := queryEcosystem + "|" + componentKey
+		candidatesByEcoPkg[ecoPkgKey] = append(candidatesByEcoPkg[ecoPkgKey], packageCandidate{
+			component: component,
+			purl:      purl,
+		})
 	}
 
 	// 2a. Go: bulk query by resolved names (prefix + alias), then run version check per (component, purl)
@@ -217,7 +228,8 @@ func (m *Matcher) MatchSBOM(
 						if seenMatch[dedupKey][cveData.ID] {
 							continue
 						}
-						vulnerable, err := m.comparator.IsVulnerable(comp.ComponentVersion, cveData.Constraint, purl.Ecosystem)
+						installedVersion := effectiveVersionForComparison(comp.ComponentVersion, purl)
+						vulnerable, err := m.comparator.IsVulnerable(installedVersion, cveData.Constraint, purl.Ecosystem)
 						if err != nil {
 							continue
 						}
@@ -226,18 +238,18 @@ func (m *Matcher) MatchSBOM(
 						}
 						seenMatch[dedupKey][cveData.ID] = true
 						matches = append(matches, &models.CVEMatch{
-							SBOMID:         sbom.ID,
-							PodUID:         sbom.PodUID,
-							ContainerName:  sbom.ContainerName,
-							CVEID:          cveData.ID,
-							PackageName:    comp.ComponentName,
-							PackageVersion: comp.ComponentVersion,
-							PURL:           comp.PURL,
-							Severity:       strings.ToUpper(cveData.Severity),
-							CVSS:           float32(cveData.CVSSScore),
-							FixedVersion:   cveData.FixedVersion,
-							MatchedBy:      "fortuna-core-cve-matcher",
-							MatchedAt:      comp.CreatedAt,
+							SBOMID:              sbom.ID,
+							PodUID:              sbom.PodUID,
+							ContainerName:       sbom.ContainerName,
+							CVEID:               cveData.ID,
+							PackageName:         comp.ComponentName,
+							PackageVersion:      comp.ComponentVersion,
+							PURL:                comp.PURL,
+							Severity:            strings.ToUpper(cveData.Severity),
+							CVSS:                float32(cveData.CVSSScore),
+							FixedVersion:        cveData.FixedVersion,
+							MatchedBy:           "fortuna-core-cve-matcher",
+							MatchedAt:           comp.CreatedAt,
 							HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
 							ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
 						})
@@ -248,7 +260,11 @@ func (m *Matcher) MatchSBOM(
 	}
 
 	// 2. Bulk query CVEs for all packages per ecosystem
-	for ecosystem, packageNames := range ecosystemPackages {
+	for ecosystem, packageSet := range ecosystemPackages {
+		packageNames := make([]string, 0, len(packageSet))
+		for pkg := range packageSet {
+			packageNames = append(packageNames, pkg)
+		}
 		m.logger.Printf("Bulk querying CVEs for %d packages in ecosystem %s", len(packageNames), ecosystem)
 
 		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, ecosystem, packageNames)
@@ -277,63 +293,72 @@ func (m *Matcher) MatchSBOM(
 				}
 				return cves[i].ID < cves[j].ID
 			})
-			component := componentsByName[pkgName]
-			purl := purlsByName[pkgName]
-
-			if component == nil || purl == nil {
+			candidates := candidatesByEcoPkg[ecosystem+"|"+pkgName]
+			if len(candidates) == 0 {
 				continue
 			}
 
-			// Check version constraints for each CVE
-			for _, cveData := range cves {
-				compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
-				if matchCountByComponent[compKey] >= maxMatchesPerComponent {
+			for _, cand := range candidates {
+				component := cand.component
+				purl := cand.purl
+				if component == nil || purl == nil {
 					continue
 				}
+				// Check version constraints for each CVE
+				for _, cveData := range cves {
+					if !isCVEApplicableToPackageArch(cveData, purl) {
+						continue
+					}
+					compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
+					if matchCountByComponent[compKey] >= maxMatchesPerComponent {
+						continue
+					}
 
-				unknownVersion := strings.EqualFold(strings.TrimSpace(component.ComponentVersion), "unknown")
-				if unknownVersion && strings.TrimSpace(cveData.Constraint) == "" && severityRank(cveData.Severity) < 3 {
-					// Unknown version + no range + non-high severity => skip to reduce false positives.
-					continue
-				}
+					unknownVersion := strings.EqualFold(strings.TrimSpace(component.ComponentVersion), "unknown")
+					if unknownVersion && strings.TrimSpace(cveData.Constraint) == "" && severityRank(cveData.Severity) < 3 {
+						// Unknown version + no range + non-high severity => skip to reduce false positives.
+						continue
+					}
 
-				vulnerable, err := m.comparator.IsVulnerable(
-					component.ComponentVersion,
-					cveData.Constraint,
-					purl.Ecosystem,
-				)
-				if err != nil {
-					m.logger.Printf("⚠️  Version comparison failed for %s: %v", component.ComponentName, err)
-					continue
-				}
+					installedVersion := effectiveVersionForComparison(component.ComponentVersion, purl)
+					vulnerable, err := m.comparator.IsVulnerable(
+						installedVersion,
+						cveData.Constraint,
+						purl.Ecosystem,
+					)
+					if err != nil {
+						m.logger.Printf("⚠️  Version comparison failed for %s: %v", component.ComponentName, err)
+						continue
+					}
 
-				if !vulnerable {
-					continue // Not vulnerable
-				}
+					if !vulnerable {
+						continue // Not vulnerable
+					}
 
-				// 4. Create match
-				match := &models.CVEMatch{
-					SBOMID:         sbom.ID,
-					PodUID:         sbom.PodUID,
-					ContainerName:  sbom.ContainerName,
-					CVEID:          cveData.ID,
-					PackageName:    component.ComponentName,
-					PackageVersion: component.ComponentVersion,
-					PURL:           component.PURL,
-					Severity:       strings.ToUpper(cveData.Severity),
-					CVSS:           float32(cveData.CVSSScore), // Convert to float32
-					FixedVersion:   cveData.FixedVersion,
-					MatchedBy:      "fortuna-core-cve-matcher",
-					MatchedAt:      component.CreatedAt,
-					HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
-					ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
-				}
-				if unknownVersion {
-					match.MatchedBy = "fortuna-core-cve-matcher-low-confidence"
-				}
+					// 4. Create match
+					match := &models.CVEMatch{
+						SBOMID:              sbom.ID,
+						PodUID:              sbom.PodUID,
+						ContainerName:       sbom.ContainerName,
+						CVEID:               cveData.ID,
+						PackageName:         component.ComponentName,
+						PackageVersion:      component.ComponentVersion,
+						PURL:                component.PURL,
+						Severity:            strings.ToUpper(cveData.Severity),
+						CVSS:                float32(cveData.CVSSScore), // Convert to float32
+						FixedVersion:        cveData.FixedVersion,
+						MatchedBy:           "fortuna-core-cve-matcher",
+						MatchedAt:           component.CreatedAt,
+						HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+						ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
+					}
+					if unknownVersion {
+						match.MatchedBy = "fortuna-core-cve-matcher-low-confidence"
+					}
 
-				matches = append(matches, match)
-				matchCountByComponent[compKey]++
+					matches = append(matches, match)
+					matchCountByComponent[compKey]++
+				}
 			}
 		}
 	}
@@ -385,9 +410,9 @@ func (m *Matcher) MatchSBOM(
 			if strings.TrimSpace(component.ComponentVersion) == "unknown" {
 				continue
 			}
-			purl := purlsByName[component.ComponentName]
-			if purl == nil {
-				continue
+			purl, err := ParsePURL(component.PURL)
+			if err != nil || purl == nil {
+				purl = inferPURLFromComponent(component, sbom.OSName)
 			}
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 			nvdName := normalizeComponentNameForNVD(component.ComponentName) // so whitelist + NVD keyword match (e.g. registry.k8s.io/coredns → coredns)
@@ -429,7 +454,8 @@ func (m *Matcher) MatchSBOM(
 					vulnerable = true
 				} else {
 					var errV error
-					vulnerable, errV = m.comparator.IsVulnerable(component.ComponentVersion, cveData.Constraint, purl.Ecosystem)
+					installedVersion := effectiveVersionForComparison(component.ComponentVersion, purl)
+					vulnerable, errV = m.comparator.IsVulnerable(installedVersion, cveData.Constraint, purl.Ecosystem)
 					if errV != nil || !vulnerable {
 						continue
 					}
@@ -449,18 +475,18 @@ func (m *Matcher) MatchSBOM(
 					matchedBy += "-low-confidence"
 				}
 				matches = append(matches, &models.CVEMatch{
-					SBOMID:         sbom.ID,
-					PodUID:         sbom.PodUID,
-					ContainerName:  sbom.ContainerName,
-					CVEID:          cveData.ID,
-					PackageName:    component.ComponentName,
-					PackageVersion: component.ComponentVersion,
-					PURL:           component.PURL,
-					Severity:       strings.ToUpper(cveData.Severity),
-					CVSS:           float32(cveData.CVSSScore),
-					FixedVersion:   cveData.FixedVersion,
-					MatchedBy:      matchedBy,
-					MatchedAt:      component.CreatedAt,
+					SBOMID:              sbom.ID,
+					PodUID:              sbom.PodUID,
+					ContainerName:       sbom.ContainerName,
+					CVEID:               cveData.ID,
+					PackageName:         component.ComponentName,
+					PackageVersion:      component.ComponentVersion,
+					PURL:                component.PURL,
+					Severity:            strings.ToUpper(cveData.Severity),
+					CVSS:                float32(cveData.CVSSScore),
+					FixedVersion:        cveData.FixedVersion,
+					MatchedBy:           matchedBy,
+					MatchedAt:           component.CreatedAt,
 					HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
 					ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
 				})
@@ -539,11 +565,11 @@ func (m *Matcher) resolveComponentsForMatching(
 	components []models.SBOMComponent,
 ) []models.SBOMComponent {
 	type candidate struct {
-		c       models.SBOMComponent
-		p       *PURL
-		eco     string
-		key     string
-		pri     int
+		c   models.SBOMComponent
+		p   *PURL
+		eco string
+		key string
+		pri int
 	}
 
 	versionClass := func(eco string, v string) int {
@@ -580,10 +606,7 @@ func (m *Matcher) resolveComponentsForMatching(
 		if eco != "go" && eco != "npm" && eco != "pypi" && eco != "generic" {
 			return nil
 		}
-		v = strings.TrimSpace(v)
-		if strings.HasPrefix(v, "v") {
-			v = strings.TrimPrefix(v, "v")
-		}
+		v = strings.TrimPrefix(strings.TrimSpace(v), "v")
 		ver, err := version.NewVersion(v)
 		if err != nil {
 			return nil
@@ -1083,6 +1106,46 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 	}
 }
 
+// effectiveVersionForComparison reconstructs distro qualifiers needed for precise
+// comparisons (e.g., Debian epoch carried in PURL qualifiers).
+func effectiveVersionForComparison(componentVersion string, purl *PURL) string {
+	v := strings.TrimSpace(componentVersion)
+	if purl == nil || purl.Qualifiers == nil {
+		return v
+	}
+	eco := strings.ToLower(strings.TrimSpace(purl.Ecosystem))
+	if eco == "deb" || eco == "debian" || eco == "ubuntu" {
+		epoch := strings.TrimSpace(purl.Qualifiers["epoch"])
+		if epoch != "" && epoch != "0" && !strings.Contains(v, ":") {
+			return epoch + ":" + v
+		}
+	}
+	return v
+}
+
+// isCVEApplicableToPackageArch provides architecture-aware filtering when
+// constraints explicitly carry arch metadata (e.g. "... , arch=amd64").
+// If no arch metadata exists in constraints, it returns true.
+func isCVEApplicableToPackageArch(cveData *cve.CVE, purl *PURL) bool {
+	if cveData == nil || purl == nil || purl.Qualifiers == nil {
+		return true
+	}
+	pkgArch := strings.ToLower(strings.TrimSpace(purl.Qualifiers["arch"]))
+	if pkgArch == "" {
+		return true
+	}
+	matches := constraintArchRE.FindAllStringSubmatch(cveData.Constraint, -1)
+	if len(matches) == 0 {
+		return true
+	}
+	for _, m := range matches {
+		if len(m) > 1 && strings.EqualFold(strings.TrimSpace(m[1]), pkgArch) {
+			return true
+		}
+	}
+	return false
+}
+
 // FilterBySeverity filters matches by severity
 func (m *Matcher) FilterBySeverity(
 	matches []*models.CVEMatch,
@@ -1106,4 +1169,3 @@ func (m *Matcher) FilterBySeverity(
 
 	return filtered
 }
-

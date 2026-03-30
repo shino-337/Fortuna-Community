@@ -8,13 +8,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/cve/database/nvd"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
-	"github.com/stretchr/testify/require"
 	"github.com/glebarez/sqlite"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 )
 
@@ -93,6 +94,37 @@ func TestNormalizeComponentNameForNVD(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("normalizeComponentNameForNVD(%q) = %q, want %q", tt.in, got, tt.want)
 		}
+	}
+}
+
+func TestEffectiveVersionForComparison_DebEpochQualifier(t *testing.T) {
+	p := &PURL{
+		Ecosystem: "deb",
+		Qualifiers: map[string]string{
+			"epoch": "2",
+		},
+	}
+	got := effectiveVersionForComparison("3.0.8-1", p)
+	if got != "2:3.0.8-1" {
+		t.Fatalf("effectiveVersionForComparison = %q, want %q", got, "2:3.0.8-1")
+	}
+}
+
+func TestIsCVEApplicableToPackageArch(t *testing.T) {
+	p := &PURL{
+		Ecosystem: "deb",
+		Qualifiers: map[string]string{
+			"arch": "amd64",
+		},
+	}
+	if !isCVEApplicableToPackageArch(&cve.CVE{Constraint: ">= 1.0, < 2.0"}, p) {
+		t.Fatal("constraint without arch metadata should be applicable")
+	}
+	if !isCVEApplicableToPackageArch(&cve.CVE{Constraint: ">= 1.0, arch=amd64"}, p) {
+		t.Fatal("matching arch qualifier should be applicable")
+	}
+	if isCVEApplicableToPackageArch(&cve.CVE{Constraint: ">= 1.0, arch=arm64"}, p) {
+		t.Fatal("mismatched arch qualifier should not be applicable")
 	}
 }
 
@@ -234,7 +266,7 @@ func TestOpenSSL_Debian12_CVEResults(t *testing.T) {
 		Severity:         "HIGH",
 		CVSSScore:        7.5,
 		Description:      "Stack buffer overflow in OpenSSL (Debian 12 bookworm).",
-		PublishedDate:     &now,
+		PublishedDate:    &now,
 		LastModifiedDate: &now,
 	}
 	if err := db.Create(&cveRow).Error; err != nil {
@@ -383,7 +415,7 @@ func TestControlPlane_KubeControllerManager_V12915(t *testing.T) {
 	// Example CVE for Kubernetes controller-manager (version range that includes v1.29.15)
 	if err := db.Create(&models.CVE{
 		CVEID: "CVE-2024-12345", Severity: "HIGH", CVSSScore: 8.1,
-		Description: "Example Kubernetes CVE for controller-manager.",
+		Description:   "Example Kubernetes CVE for controller-manager.",
 		PublishedDate: &now, LastModifiedDate: &now,
 	}).Error; err != nil {
 		t.Fatalf("create CVE: %v", err)
@@ -1020,7 +1052,7 @@ func TestMatcher_NVDFallback_NoConstraint_MatchedByFlag(t *testing.T) {
 		Severity:         "HIGH",
 		CVSSScore:        8.0,
 		Description:      "fallback no-constraint test",
-		PublishedDate:     &now,
+		PublishedDate:    &now,
 		LastModifiedDate: &now,
 	}
 	if err := db.Create(&cveRow).Error; err != nil {
@@ -1090,7 +1122,7 @@ func TestMatcher_CVECap_PrioritizesSeverityBeforeLimit(t *testing.T) {
 			Severity:         "CRITICAL",
 			CVSSScore:        9.0 + float64(i)/10,
 			Description:      "critical test",
-			PublishedDate:     &now,
+			PublishedDate:    &now,
 			LastModifiedDate: &now,
 		}).Error; err != nil {
 			t.Fatalf("seed critical cve %s: %v", id, err)
@@ -1111,7 +1143,7 @@ func TestMatcher_CVECap_PrioritizesSeverityBeforeLimit(t *testing.T) {
 			Severity:         "LOW",
 			CVSSScore:        2.0 + float64(i)/100,
 			Description:      "low test",
-			PublishedDate:     &now,
+			PublishedDate:    &now,
 			LastModifiedDate: &now,
 		}).Error; err != nil {
 			t.Fatalf("seed low cve %s: %v", id, err)
@@ -1180,6 +1212,50 @@ func TestMatcher_OSNamespaceAndArch_NotCollapsed(t *testing.T) {
 	// All three must survive: different namespace and arch are distinct identities.
 	if len(out) != 3 {
 		t.Fatalf("expected 3 components, got %d", len(out))
+	}
+}
+
+func TestMatchSBOM_MultipleArchComponentsSamePackage_AllEvaluated(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}, &models.CVE{}, &models.PackageVulnerability{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	if err := db.Create(&models.CVE{
+		CVEID:       "CVE-ARCH-0001",
+		Severity:    "HIGH",
+		Description: "arch regression test",
+	}).Error; err != nil {
+		t.Fatalf("seed cve: %v", err)
+	}
+	if err := db.Create(&models.PackageVulnerability{
+		CVEID:         "CVE-ARCH-0001",
+		Ecosystem:     "debian",
+		PackageName:   "openssl",
+		AffectedRange: ">=1.0.0, <2.0.0",
+	}).Error; err != nil {
+		t.Fatalf("seed package vulnerability: %v", err)
+	}
+
+	sbom := &models.SBOM{Status: "finalized", OSName: "debian"}
+	if err := db.Create(sbom).Error; err != nil {
+		t.Fatalf("create sbom: %v", err)
+	}
+	override := []*models.SBOMComponent{
+		{SBOMID: sbom.ID, ComponentName: "openssl", ComponentVersion: "1.1.1", PURL: "pkg:deb/debian/openssl@1.1.1?arch=amd64", Source: "os", TrustLevel: "high"},
+		{SBOMID: sbom.ID, ComponentName: "openssl", ComponentVersion: "1.1.1", PURL: "pkg:deb/debian/openssl@1.1.1?arch=arm64", Source: "os", TrustLevel: "high"},
+	}
+
+	m := NewMatcher(database.NewPostgresManager(db), db)
+	matches, err := m.MatchSBOM(context.Background(), sbom, override)
+	if err != nil {
+		t.Fatalf("MatchSBOM: %v", err)
+	}
+	if len(matches) != 2 {
+		t.Fatalf("expected 2 matches (both arch components evaluated), got %d", len(matches))
 	}
 }
 
