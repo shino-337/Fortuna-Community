@@ -33,6 +33,28 @@ Version: 1.0
 	if pkgs[1].Name != "libc6" || pkgs[1].Version != "2.36-9+deb12u9" {
 		t.Errorf("pkg[1] = %+v", pkgs[1])
 	}
+	if pkgs[1].SourcePackage != "glibc" {
+		t.Errorf("pkg[1] source package = %q, want glibc", pkgs[1].SourcePackage)
+	}
+}
+
+func TestParseDpkgStatus_SourcePackageWithVersion(t *testing.T) {
+	content := `Package: libssl3
+Status: install ok installed
+Architecture: amd64
+Source: openssl (3.0.8-1)
+Version: 3.0.8-1~deb12u2
+`
+	pkgs := parseDpkgStatus(content)
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 package, got %d", len(pkgs))
+	}
+	if pkgs[0].SourcePackage != "openssl" {
+		t.Fatalf("SourcePackage = %q, want openssl", pkgs[0].SourcePackage)
+	}
+	if pkgs[0].SourceVersion != "3.0.8-1" {
+		t.Fatalf("SourceVersion = %q, want 3.0.8-1", pkgs[0].SourceVersion)
+	}
 }
 
 func TestParseDpkgStatus_SingleEntry(t *testing.T) {

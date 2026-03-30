@@ -314,6 +314,12 @@ func TestSetOSPackagePURLs(t *testing.T) {
 			want: []string{"pkg:deb/debian/openssl@3.0.18-1~deb12u2"},
 		},
 		{
+			name: "debian binary uses source package for PURL",
+			os:   osDebian,
+			pkgs: []Package{{Name: "libssl3", SourcePackage: "openssl", Version: "3.0.18-1~deb12u2", Type: "deb", PURL: ""}},
+			want: []string{"pkg:deb/debian/openssl@3.0.18-1~deb12u2"},
+		},
+		{
 			name: "ubuntu libc6",
 			os:   osUbuntu,
 			pkgs: []Package{{Name: "libc6", Version: "2.35-0ubuntu3", Type: "deb", PURL: ""}},

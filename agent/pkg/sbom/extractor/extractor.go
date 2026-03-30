@@ -970,7 +970,11 @@ func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 			if d == "" {
 				d = "debian"
 			}
-			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, p.Name, p.Version)
+			nameForPURL := p.Name
+			if sp := strings.TrimSpace(p.SourcePackage); sp != "" {
+				nameForPURL = sp
+			}
+			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, nameForPURL, p.Version)
 		case "apk":
 			d := distro
 			if d == "" {
@@ -1050,6 +1054,8 @@ type Package struct {
 	Version    string
 	Type       string // deb, apk, rpm, npm, pypi, go, generic
 	Arch       string
+	SourcePackage string // for OS packages (e.g., deb Source: openssl for binary libssl3)
+	SourceVersion string // parsed from Source field when available
 	PURL       string // Canonical Package URL e.g. pkg:generic/coredns@1.11.0 (Finding #8.2)
 	Source     string // "parsers" | "distroless-heuristic" | "label-metadata" (Finding #8.4)
 	Confidence string // "low" | "medium" | "high"

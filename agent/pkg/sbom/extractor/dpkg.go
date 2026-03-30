@@ -90,6 +90,18 @@ func parseDpkgStatus(content string) []Package {
 			inPackage = true
 		} else if strings.HasPrefix(line, "Version: ") {
 			currentPkg.Version = strings.TrimPrefix(line, "Version: ")
+		} else if strings.HasPrefix(line, "Source: ") {
+			source := strings.TrimSpace(strings.TrimPrefix(line, "Source: "))
+			// Format can be either:
+			//   "openssl"
+			//   "openssl (3.0.8-1)"
+			if idx := strings.Index(source, "("); idx > 0 {
+				currentPkg.SourcePackage = strings.TrimSpace(source[:idx])
+				sv := strings.TrimSpace(strings.TrimSuffix(source[idx+1:], ")"))
+				currentPkg.SourceVersion = sv
+			} else {
+				currentPkg.SourcePackage = source
+			}
 		} else if strings.HasPrefix(line, "Architecture: ") {
 			currentPkg.Arch = strings.TrimPrefix(line, "Architecture: ")
 		} else if strings.HasPrefix(line, "Status: ") {
