@@ -70,6 +70,37 @@ RUN echo "build=$(date -Iseconds) utc" > /build-version.txt
 RUN go clean -cache -modcache -testcache && \
     rm -rf /tmp/go-build-cache /tmp/go-mod-cache /root/.cache/go-build 2>/dev/null || true
 
+# Syft acquirer stage (optional build arg cache URL, release fallback)
+FROM debian:bookworm-slim AS syft-acquirer
+ENV DEBIAN_FRONTEND=noninteractive
+WORKDIR /tmp
+
+ARG SYFT_VERSION=v0.98.0
+ARG SYFT_BIN_CACHE_URL=""
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates curl tar && \
+    rm -rf /var/lib/apt/lists/*
+
+# 1) Try internal binary cache first (fast path) if configured.
+# 2) Fall back to official GitHub release artifact.
+RUN set -eux; \
+    if [ -n "${SYFT_BIN_CACHE_URL}" ]; then \
+      echo "Trying Syft binary cache: ${SYFT_BIN_CACHE_URL}"; \
+      if curl -fsSL --max-time 20 "${SYFT_BIN_CACHE_URL}/syft-${SYFT_VERSION}-linux-amd64.tar.gz" -o /tmp/syft.tgz; then \
+        tar -xzf /tmp/syft.tgz -C /tmp; \
+      fi; \
+    fi; \
+    if [ ! -f /tmp/syft ]; then \
+      echo "Falling back to GitHub release download for ${SYFT_VERSION}"; \
+      curl -fsSL --max-time 60 "https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz" -o /tmp/syft.tgz; \
+      tar -xzf /tmp/syft.tgz -C /tmp; \
+    fi; \
+    test -f /tmp/syft; \
+    install -m 0755 /tmp/syft /syft-bin; \
+    /syft-bin --version; \
+    rm -rf /tmp/*
+
 # Final stage - minimal runtime image
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
@@ -100,9 +131,13 @@ WORKDIR /app
 # Copy binary and version file from builder
 COPY --from=builder --chown=fortuna:fortuna /fortuna-agent /app/fortuna-agent
 COPY --from=builder /build-version.txt /app/version.txt
+COPY --from=syft-acquirer --chown=root:root /syft-bin /usr/local/bin/syft
 
 # Ensure all files are owned by fortuna user
-RUN chown -R fortuna:fortuna /app
+RUN chown -R fortuna:fortuna /app && \
+    chmod 0755 /app/fortuna-agent /usr/local/bin/syft && \
+    syft --version > /app/syft-version.txt && \
+    test -f /app/fortuna-agent && test -f /usr/local/bin/syft
 
 # Note: Agent runs as root (USER root) because it needs access to:
 # - Docker socket (/var/run/docker.sock)
@@ -114,9 +149,9 @@ RUN chown -R fortuna:fortuna /app
 # 3. Using rootless Docker or containerd if possible
 USER root
 
-# Healthcheck (simple process check)
+# Healthcheck: ensure agent process and syft binary are available
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD pgrep -f fortuna-agent > /dev/null || exit 1
+    CMD sh -c 'syft --version >/dev/null 2>&1 && pgrep -f fortuna-agent >/dev/null'
 
 # Labels for metadata
 LABEL org.opencontainers.image.title="Fortuna Agent" \

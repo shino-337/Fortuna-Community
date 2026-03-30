@@ -18,6 +18,7 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
+	sbomversion "github.com/fortuna/agent/pkg/sbom/version"
 	"github.com/fortuna/agent/pkg/sbom/signatures"
 )
 
@@ -297,6 +298,9 @@ func (e *Extractor) ExtractSBOM(
 		}
 	}
 afterSyftFallback:
+
+	// 6b. Enrich versions from distroless binaries when Syft/native parsers yield "@unknown"
+	deduped = e.enrichBinaryVersions(deduped, fs)
 
 	// 6. Deduplicate
 
@@ -730,6 +734,99 @@ func (e *Extractor) mergeSyftPackages(fortuna []Package, syft []Package) []Packa
 	}
 
 	return merged
+}
+
+// enrichBinaryVersions attempts to fill missing versions for binary-derived SBOM components
+// (primarily distroless/control-plane) by extracting version metadata from the binary itself.
+//
+// It is best-effort: if the binary content can't be read (e.g., A5 file-too-large), versions remain "unknown".
+func (e *Extractor) enrichBinaryVersions(pkgs []Package, fs *Filesystem) []Package {
+	if fs == nil {
+		return pkgs
+	}
+	ve := sbomversion.NewExtractor(e.logger)
+
+	for i := range pkgs {
+		p := &pkgs[i]
+		name := strings.TrimSpace(p.Name)
+		if name == "" {
+			continue
+		}
+
+		// Only enrich when we currently have no usable version.
+		purlHasUnknown := strings.Contains(strings.TrimSpace(p.PURL), "@unknown")
+		if strings.TrimSpace(p.Version) != "unknown" && !purlHasUnknown {
+			continue
+		}
+
+		candidates := candidateBinaryPaths(name)
+
+		var content []byte
+		found := false
+		for _, path := range candidates {
+			if !fs.FileExists(path) {
+				continue
+			}
+			b, err := fs.ReadFile(path)
+			if err != nil || len(b) == 0 {
+				continue
+			}
+			content = b
+			found = true
+			break
+		}
+		if !found {
+			continue
+		}
+
+		rawVer, _, conf := ve.ExtractFromBinary(content, name)
+		if rawVer == "" {
+			continue
+		}
+		normVer := sbomversion.NormalizeVersionForPURL(p.PURL, p.Type, rawVer)
+
+		p.Version = normVer
+		if strings.TrimSpace(p.PURL) != "" && strings.Contains(p.PURL, "@") {
+			p.PURL = sbomversion.UpdatePURLVersion(p.PURL, normVer)
+		}
+
+		// Don't change Source; only update confidence. This keeps SBOM-level provenance stable.
+		if conf != "" {
+			p.Confidence = sbomversion.FormatConfidence(p.Confidence, conf)
+		}
+	}
+
+	// Normalize already-known versions (e.g., Go "v1.28.0" => "1.28.0") to improve OSV exact matching.
+	for i := range pkgs {
+		p := &pkgs[i]
+		if strings.TrimSpace(p.Version) == "" || strings.TrimSpace(p.Version) == "unknown" {
+			continue
+		}
+		if strings.TrimSpace(p.PURL) == "" || !strings.Contains(p.PURL, "@") {
+			continue
+		}
+		norm := sbomversion.NormalizeVersionForPURL(p.PURL, p.Type, p.Version)
+		if norm != "" && norm != p.Version {
+			p.Version = norm
+			p.PURL = sbomversion.UpdatePURLVersion(p.PURL, norm)
+		}
+	}
+
+	return pkgs
+}
+
+func candidateBinaryPaths(name string) []string {
+	// Most distroless/control-plane binaries live under /bin, /usr/bin, /usr/local/bin.
+	// Add a couple of extra common locations as best-effort.
+	return []string{
+		"/bin/" + name,
+		"/usr/bin/" + name,
+		"/usr/local/bin/" + name,
+		"/sbin/" + name,
+		"/usr/sbin/" + name,
+		"/lib/" + name,
+		"/usr/lib/" + name,
+	}
 }
 
 func (e *Extractor) invokeSyftWithRetry(ctx context.Context, imageRef string) ([]Package, error) {
