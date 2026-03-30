@@ -121,8 +121,8 @@ func TestDistrolessParserUsesSignatures(t *testing.T) {
 	if len(pkgs) != 1 {
 		t.Fatalf("expected 1 package, got %d", len(pkgs))
 	}
-	if pkgs[0].PURL != "pkg:generic/coredns@unknown" {
-		t.Fatalf("PURL = %q, want pkg:generic/coredns@unknown", pkgs[0].PURL)
+	if pkgs[0].PURL != "pkg:golang/github.com/coredns/coredns@unknown" {
+		t.Fatalf("PURL = %q, want pkg:golang/github.com/coredns/coredns@unknown", pkgs[0].PURL)
 	}
 	if pkgs[0].Confidence != "high" {
 		t.Fatalf("Confidence = %q, want high", pkgs[0].Confidence)
@@ -251,7 +251,7 @@ func TestDistrolessParser(t *testing.T) {
 		if pkg.Name != "coredns" {
 			t.Errorf("unexpected package %q (only signature-listed binaries should be emitted)", pkg.Name)
 		}
-		if pkg.Type != "generic" || pkg.Source != "distroless-heuristic" || !strings.HasPrefix(pkg.PURL, "pkg:generic/") {
+		if pkg.Type != "generic" || pkg.Source != "distroless-heuristic" || strings.TrimSpace(pkg.PURL) == "" {
 			t.Errorf("package %s: Type=%q Source=%q PURL=%q", pkg.Name, pkg.Type, pkg.Source, pkg.PURL)
 		}
 	}

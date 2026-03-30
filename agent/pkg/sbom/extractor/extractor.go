@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -25,6 +26,11 @@ type Extractor struct {
 	parsers map[string]Parser
 	logger  *log.Logger
 	cache   *DiskCache // optional on-disk cache (Finding #8.5 / B2)
+
+	// Syft fallback (slow, comprehensive) for distroless/minimal images where package-manager metadata is missing.
+	syftEnabled             bool
+	syftAdapter             *SyftAdapter
+	syftMinPackageThreshold int
 }
 
 // NewExtractor creates a new custom SBOM extractor.
@@ -38,6 +44,46 @@ func NewExtractor() *Extractor {
 	if cacheDir == "0" || cacheDir == "disabled" || cacheDir == "off" {
 		cacheDir = ""
 	}
+
+	// Syft fallback flags.
+	// Default: enabled.
+	syftEnabled := true
+	if v := strings.TrimSpace(os.Getenv("SBOM_USE_SYFT_FALLBACK")); v != "" {
+		switch strings.ToLower(v) {
+		case "0", "false", "off", "disabled":
+			syftEnabled = false
+		}
+	}
+
+	syftMinPkgs := 20
+	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_MIN_PACKAGE_THRESHOLD")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			syftMinPkgs = n
+		}
+	}
+
+	// Timeout accepts either Go duration (e.g. "300s") or raw seconds (e.g. "300").
+	syftTimeout := 5 * time.Minute
+	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_TIMEOUT")); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			syftTimeout = d
+		} else if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			syftTimeout = time.Duration(n) * time.Second
+		}
+	}
+
+	syftMaxPkgs := 1000
+	if v := strings.TrimSpace(os.Getenv("SBOM_SYFT_MAX_PACKAGES")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			syftMaxPkgs = n
+		}
+	}
+
+	var syftAdapter *SyftAdapter
+	if syftEnabled {
+		syftAdapter = NewSyftAdapter(logger, syftTimeout, syftMaxPkgs)
+	}
+
 	return &Extractor{
 		parsers: map[string]Parser{
 			"dpkg":       NewDpkgParser(),
@@ -55,6 +101,10 @@ func NewExtractor() *Extractor {
 		},
 		logger: logger,
 		cache:  NewDiskCache(cacheDir, logger),
+
+		syftEnabled:             syftEnabled,
+		syftAdapter:             syftAdapter,
+		syftMinPackageThreshold: syftMinPkgs,
 	}
 }
 
@@ -178,6 +228,24 @@ func (e *Extractor) ExtractSBOM(
 
 	// 5c. Set PURL pkg:deb/<distro>/name@version for dpkg/apk so Core queries OSV debian/ubuntu/alpine
 	deduped = setOSPackagePURLs(deduped, osInfo)
+
+	// 5d. Syft fallback (Slow path): distroless/minimal images where package-manager metadata is missing.
+	fortunaPkgCount := len(deduped)
+	if e.syftAdapter != nil && e.shouldInvokeSyft(fortunaPkgCount, osInfo.Name) {
+		e.logger.Printf("   [FALLBACK] Fortuna found %d packages; invoking Syft...", fortunaPkgCount)
+		syftPkgs, err := e.syftAdapter.DiscoverPackages(ctx, imageRef)
+		if err != nil {
+			e.logger.Printf("   [FALLBACK] Syft discovery failed (continuing with Fortuna results): %v", err)
+		} else if len(syftPkgs) > 0 {
+			e.logger.Printf("✅ [FALLBACK] Syft found %d packages; merging...", len(syftPkgs))
+			merged := e.mergeSyftPackages(deduped, syftPkgs)
+			deduped = e.deduplicate(merged)
+			// Ensure OS package PURLs for Core OSV queries.
+			deduped = setOSPackagePURLs(deduped, osInfo)
+		} else {
+			e.logger.Printf("   [FALLBACK] Syft found 0 packages")
+		}
+	}
 
 	// 6. Deduplicate
 
@@ -559,6 +627,60 @@ func (e *Extractor) deduplicate(packages []Package) []Package {
 	return deduped
 }
 
+func (e *Extractor) shouldInvokeSyft(fortunaPkgCount int, osName string) bool {
+	if e == nil || e.syftAdapter == nil || !e.syftEnabled {
+		return false
+	}
+	osLower := strings.ToLower(strings.TrimSpace(osName))
+
+	// Distroless/minimal images often yield 0 Fortuna packages (missing dpkg/apk/rpm metadata),
+	// so treat 0 as a strong signal to run Syft.
+	if fortunaPkgCount == 0 {
+		return osLower == "unknown" || osLower == "generic" || strings.Contains(osLower, "distroless")
+	}
+
+	// If we are in distroless mode but Fortuna extracted only a handful of packages,
+	// Syft can still fill in the missing OS-level package inventory.
+	if strings.Contains(osLower, "distroless") && fortunaPkgCount < e.syftMinPackageThreshold {
+		return true
+	}
+
+	return false
+}
+
+func (e *Extractor) mergeSyftPackages(fortuna []Package, syft []Package) []Package {
+	// Prefer Fortuna packages when duplicate by PURL; otherwise include Syft discoveries.
+	seen := make(map[string]bool, len(fortuna)+len(syft))
+	merged := make([]Package, 0, len(fortuna)+len(syft))
+
+	packageKey := func(p Package) string {
+		if p.PURL != "" {
+			return "purl:" + strings.ToLower(strings.TrimSpace(p.PURL))
+		}
+		return p.Type + "|" + p.Name + "|" + p.Version
+	}
+
+	for _, p := range fortuna {
+		key := packageKey(p)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged = append(merged, p)
+	}
+
+	for _, p := range syft {
+		key := packageKey(p)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		merged = append(merged, p)
+	}
+
+	return merged
+}
+
 // applySignatureHints updates packages using signature DB (versionFromTag, digestMap) to reduce unknown versions.
 // If logger is non-nil, logs version resolution for each known binary (control-plane debug).
 func applySignatureHints(logger *log.Logger, pkgs []Package, imageTag string, imageDigest string, imageConfig *v1.ConfigFile, sig *signatures.DistrolessJSON) []Package {
@@ -605,7 +727,7 @@ func applySignatureHints(logger *log.Logger, pkgs []Package, imageTag string, im
 		}
 		if logger != nil {
 			logger.Printf("   [control-plane version] binary=%s version_before=unknown version_after=%q source=%s (digestMap_empty=%v tag_is_sha=%v)",
-				pkgs[i].Name, version, source, meta.DigestMap == nil || len(meta.DigestMap) == 0, strings.HasPrefix(imageTag, "sha256:"))
+				pkgs[i].Name, version, source, len(meta.DigestMap) == 0, strings.HasPrefix(imageTag, "sha256:"))
 		}
 		if version != "" && version != pkgs[i].Version {
 			pkgs[i].Version = version

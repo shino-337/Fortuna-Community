@@ -1,5 +1,5 @@
 {
-  "version": "3",
+  "version": "4",
   "description": "Signature DB for distroless/minimal images (Finding #8.3 / B1). Bump version when rules or binary list change to invalidate SBOM cache.",
   "binaries": {
     "kube-apiserver":           { "purl": "pkg:golang/k8s.io/kubernetes@unknown",            "confidence": "medium", "versionFromTag": true, "labelKeys": ["org.opencontainers.image.version", "io.k8s.display-version"], "digestMap": {} },
