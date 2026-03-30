@@ -311,13 +311,13 @@ func TestSetOSPackagePURLs(t *testing.T) {
 			name: "debian openssl",
 			os:   osDebian,
 			pkgs: []Package{{Name: "openssl", Version: "3.0.18-1~deb12u2", Type: "deb", PURL: ""}},
-			want: []string{"pkg:deb/debian/openssl@3.0.18-1~deb12u2"},
+			want: []string{"pkg:deb/debian/openssl@3.0.18-1"},
 		},
 		{
 			name: "debian binary uses source package for PURL",
 			os:   osDebian,
-			pkgs: []Package{{Name: "libssl3", SourcePackage: "openssl", Version: "3.0.18-1~deb12u2", Type: "deb", PURL: ""}},
-			want: []string{"pkg:deb/debian/openssl@3.0.18-1~deb12u2"},
+			pkgs: []Package{{Name: "libssl3", SourcePackage: "openssl", Version: "3.0.18-1~deb12u2", Arch: "amd64", Type: "deb", PURL: ""}},
+			want: []string{"pkg:deb/debian/openssl@3.0.18-1?arch=amd64"},
 		},
 		{
 			name: "ubuntu libc6",
@@ -330,6 +330,12 @@ func TestSetOSPackagePURLs(t *testing.T) {
 			os:   osAlpine,
 			pkgs: []Package{{Name: "alpine-baselayout", Version: "3.4.3-r2", Type: "apk", PURL: ""}},
 			want: []string{"pkg:apk/alpine/alpine-baselayout@3.4.3-r2"},
+		},
+		{
+			name: "alpine apk with arch",
+			os:   osAlpine,
+			pkgs: []Package{{Name: "musl", Version: "1.2.4-r1", Arch: "amd64", Type: "apk", PURL: ""}},
+			want: []string{"pkg:apk/alpine/musl@1.2.4-r1?arch=amd64"},
 		},
 		{
 			name: "skip when PURL already set",

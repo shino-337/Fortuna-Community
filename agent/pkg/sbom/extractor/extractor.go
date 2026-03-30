@@ -1119,13 +1119,21 @@ func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 			if sp := strings.TrimSpace(p.SourcePackage); sp != "" {
 				nameForPURL = sp
 			}
-			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, nameForPURL, p.Version)
+			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "deb", p.Version)
+			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, nameForPURL, normalizedVersion)
+			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
+				p.PURL = p.PURL + fmt.Sprintf("?arch=%s", a)
+			}
 		case "apk":
 			d := distro
 			if d == "" {
 				d = "alpine"
 			}
-			p.PURL = fmt.Sprintf("pkg:apk/%s/%s@%s", d, p.Name, p.Version)
+			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "apk", p.Version)
+			p.PURL = fmt.Sprintf("pkg:apk/%s/%s@%s", d, p.Name, normalizedVersion)
+			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
+				p.PURL = p.PURL + fmt.Sprintf("?arch=%s", a)
+			}
 		}
 	}
 	return pkgs
