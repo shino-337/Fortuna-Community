@@ -11,10 +11,10 @@ func TestSyntheticPackageFromImageRef(t *testing.T) {
 	e := NewExtractor()
 
 	tests := []struct {
-		imageRef   string
-		wantName   string
-		wantVer    string
-		wantType   string
+		imageRef string
+		wantName string
+		wantVer  string
+		wantType string
 	}{
 		{"registry.k8s.io/coredns/coredns:v1.10.0", "coredns", "v1.10.0", "generic"},
 		{"docker.io/library/nginx:latest", "nginx", "latest", "generic"},
@@ -172,7 +172,7 @@ func TestDetectOS_OCIDistroless(t *testing.T) {
 		Config: v1.Config{
 			Labels: map[string]string{
 				"org.opencontainers.image.ref.name": "v1.0",
-				"foo": "distroless",
+				"foo":                               "distroless",
 			},
 		},
 	}
@@ -318,6 +318,12 @@ func TestSetOSPackagePURLs(t *testing.T) {
 			os:   osDebian,
 			pkgs: []Package{{Name: "libssl3", SourcePackage: "openssl", Version: "3.0.18-1~deb12u2", Arch: "amd64", Type: "deb", PURL: ""}},
 			want: []string{"pkg:deb/debian/openssl@3.0.18-1?arch=amd64"},
+		},
+		{
+			name: "debian with epoch and arch qualifiers",
+			os:   osDebian,
+			pkgs: []Package{{Name: "zlib1g", Version: "1.2.13.dfsg-1", Epoch: "1", Arch: "amd64", Type: "deb", PURL: ""}},
+			want: []string{"pkg:deb/debian/zlib1g@1.2.13.dfsg-1?epoch=1&arch=amd64"},
 		},
 		{
 			name: "ubuntu libc6",

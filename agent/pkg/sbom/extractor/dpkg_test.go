@@ -57,6 +57,24 @@ Version: 3.0.8-1~deb12u2
 	}
 }
 
+func TestParseDpkgStatus_DebianEpoch(t *testing.T) {
+	content := `Package: zlib1g
+Status: install ok installed
+Architecture: amd64
+Version: 1:1.2.13.dfsg-1
+`
+	pkgs := parseDpkgStatus(content)
+	if len(pkgs) != 1 {
+		t.Fatalf("expected 1 package, got %d", len(pkgs))
+	}
+	if pkgs[0].Epoch != "1" {
+		t.Fatalf("Epoch = %q, want 1", pkgs[0].Epoch)
+	}
+	if pkgs[0].Version != "1.2.13.dfsg-1" {
+		t.Fatalf("Version = %q, want 1.2.13.dfsg-1", pkgs[0].Version)
+	}
+}
+
 func TestParseDpkgStatus_SingleEntry(t *testing.T) {
 	content := `Package: iptables
 Status: install ok installed

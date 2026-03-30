@@ -104,7 +104,8 @@ func parseDpkgStatus(content string) []Package {
 			currentPkg.Type = "deb"
 			inPackage = true
 		} else if strings.HasPrefix(line, "Version: ") {
-			currentPkg.Version = strings.TrimPrefix(line, "Version: ")
+			rawVersion := strings.TrimSpace(strings.TrimPrefix(line, "Version: "))
+			currentPkg.Epoch, currentPkg.Version = splitDebianEpochVersion(rawVersion)
 		} else if strings.HasPrefix(line, "Source: ") {
 			source := strings.TrimSpace(strings.TrimPrefix(line, "Source: "))
 			// Format can be either:
@@ -157,7 +158,8 @@ func parseDpkgStatusDetails(content string) []DebianPackageInfo {
 			cur.Name = strings.TrimSpace(strings.TrimPrefix(line, "Package: "))
 			inPackage = true
 		case strings.HasPrefix(line, "Version: "):
-			cur.Version = strings.TrimSpace(strings.TrimPrefix(line, "Version: "))
+			rawVersion := strings.TrimSpace(strings.TrimPrefix(line, "Version: "))
+			_, cur.Version = splitDebianEpochVersion(rawVersion)
 		case strings.HasPrefix(line, "Depends: "):
 			cur.Depends = parseDebianDependencies(strings.TrimSpace(strings.TrimPrefix(line, "Depends: ")))
 		case strings.HasPrefix(line, "Pre-Depends: "):
@@ -225,3 +227,19 @@ func normalizeDependencyPackageName(raw string) string {
 	return strings.TrimSpace(s)
 }
 
+func splitDebianEpochVersion(raw string) (string, string) {
+	v := strings.TrimSpace(raw)
+	if v == "" {
+		return "", ""
+	}
+	idx := strings.Index(v, ":")
+	if idx <= 0 {
+		return "", v
+	}
+	epoch := strings.TrimSpace(v[:idx])
+	version := strings.TrimSpace(v[idx+1:])
+	if epoch == "" || version == "" {
+		return "", v
+	}
+	return epoch, version
+}

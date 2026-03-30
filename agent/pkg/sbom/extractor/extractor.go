@@ -19,8 +19,8 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
-	sbomversion "github.com/fortuna/agent/pkg/sbom/version"
 	"github.com/fortuna/agent/pkg/sbom/signatures"
+	sbomversion "github.com/fortuna/agent/pkg/sbom/version"
 )
 
 // Extractor extracts SBOM from container images using custom parsers
@@ -309,7 +309,6 @@ afterSyftFallback:
 	deduped = e.enrichBinaryVersions(deduped, fs)
 
 	// 6. Deduplicate
-
 
 	// 7. SBOM-level source/confidence: if any package is from distroless-heuristic, mark SBOM accordingly
 	sbomSource := "parsers"
@@ -1121,8 +1120,11 @@ func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 			}
 			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "deb", p.Version)
 			p.PURL = fmt.Sprintf("pkg:deb/%s/%s@%s", d, nameForPURL, normalizedVersion)
+			if ep := strings.TrimSpace(p.Epoch); ep != "" && ep != "0" {
+				p.PURL = appendPURLQualifier(p.PURL, "epoch", ep)
+			}
 			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
-				p.PURL = p.PURL + fmt.Sprintf("?arch=%s", a)
+				p.PURL = appendPURLQualifier(p.PURL, "arch", a)
 			}
 		case "apk":
 			d := distro
@@ -1132,11 +1134,22 @@ func setOSPackagePURLs(pkgs []Package, osInfo OSInfo) []Package {
 			normalizedVersion := sbomversion.NormalizeVersionForPURL("", "apk", p.Version)
 			p.PURL = fmt.Sprintf("pkg:apk/%s/%s@%s", d, p.Name, normalizedVersion)
 			if a := strings.TrimSpace(p.Arch); a != "" && a != "all" {
-				p.PURL = p.PURL + fmt.Sprintf("?arch=%s", a)
+				p.PURL = appendPURLQualifier(p.PURL, "arch", a)
 			}
 		}
 	}
 	return pkgs
+}
+
+func appendPURLQualifier(purl, key, value string) string {
+	if strings.TrimSpace(value) == "" {
+		return purl
+	}
+	sep := "?"
+	if strings.Contains(purl, "?") {
+		sep = "&"
+	}
+	return purl + sep + key + "=" + value
 }
 
 // syntheticPackageFromImage returns one synthetic package for distroless/system images (0 packages).
@@ -1203,15 +1216,16 @@ func parseOSRelease(content string) OSInfo {
 
 // Package represents a package found in the image
 type Package struct {
-	Name       string
-	Version    string
-	Type       string // deb, apk, rpm, npm, pypi, go, generic
-	Arch       string
+	Name          string
+	Version       string
+	Type          string // deb, apk, rpm, npm, pypi, go, generic
+	Epoch         string // Debian epoch parsed from "Version: epoch:version" when available
+	Arch          string
 	SourcePackage string // for OS packages (e.g., deb Source: openssl for binary libssl3)
 	SourceVersion string // parsed from Source field when available
-	PURL       string // Canonical Package URL e.g. pkg:generic/coredns@1.11.0 (Finding #8.2)
-	Source     string // "parsers" | "distroless-heuristic" | "label-metadata" (Finding #8.4)
-	Confidence string // "low" | "medium" | "high"
+	PURL          string // Canonical Package URL e.g. pkg:generic/coredns@1.11.0 (Finding #8.2)
+	Source        string // "parsers" | "distroless-heuristic" | "label-metadata" (Finding #8.4)
+	Confidence    string // "low" | "medium" | "high"
 }
 
 // RawSBOM represents the raw extracted SBOM
@@ -1222,8 +1236,8 @@ type RawSBOM struct {
 	Packages    []Package
 	ExtractedAt time.Time
 	// SBOM-level provenance (Finding #8.4) – set when synthetic/heuristic is used
-	SBOMSource  string // "parsers" | "distroless-heuristic" | "label-metadata"
-	Confidence  string // "low" | "medium" | "high"
+	SBOMSource string // "parsers" | "distroless-heuristic" | "label-metadata"
+	Confidence string // "low" | "medium" | "high"
 	// SignatureVersion (B3): version of signature DB for cache invalidation
 	SignatureVersion string
 	// GoVersion: toolchain used to build Go binaries (buildinfo / GOLANG_VERSION). Sent to Core for stdlib CVE matching.
