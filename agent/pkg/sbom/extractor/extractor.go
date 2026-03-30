@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -264,6 +265,11 @@ func (e *Extractor) ExtractSBOM(
 	deduped = applySignatureHints(e.logger, deduped, imageTag, imageDigest, imageConfig, sigData)
 
 	// 5c. Set PURL pkg:deb/<distro>/name@version for dpkg/apk so Core queries OSV debian/ubuntu/alpine
+	deduped = setOSPackagePURLs(deduped, osInfo)
+
+	// 5c.1 Expand Debian transitive dependencies from dpkg metadata (Depends/Pre-Depends).
+	// This improves CVE coverage for images where direct package lists miss linked runtime deps.
+	deduped = e.expandDebianTransitivePackages(deduped, fs, osInfo)
 	deduped = setOSPackagePURLs(deduped, osInfo)
 
 	// 5d. Syft fallback (Slow path): distroless/minimal images where package-manager metadata is missing.
@@ -734,6 +740,145 @@ func (e *Extractor) mergeSyftPackages(fortuna []Package, syft []Package) []Packa
 	}
 
 	return merged
+}
+
+func (e *Extractor) expandDebianTransitivePackages(pkgs []Package, fs *Filesystem, osInfo OSInfo) []Package {
+	if fs == nil {
+		return pkgs
+	}
+	osLower := strings.ToLower(strings.TrimSpace(osInfo.Name))
+	if !(strings.Contains(osLower, "debian") || strings.Contains(osLower, "ubuntu") || strings.Contains(osLower, "distroless")) {
+		return pkgs
+	}
+
+	infos := collectDebianPackageInfos(fs)
+	if len(infos) == 0 {
+		return pkgs
+	}
+
+	existing := make(map[string]bool, len(pkgs))
+	for _, p := range pkgs {
+		if p.Type == "deb" {
+			existing[p.Name] = true
+		}
+	}
+
+	visited := make(map[string]bool)
+	toAdd := make([]Package, 0)
+	for _, p := range pkgs {
+		if p.Type != "deb" || strings.TrimSpace(p.Name) == "" {
+			continue
+		}
+		e.resolveDebianDepsRecursive(p.Name, infos, existing, visited, 0, &toAdd)
+	}
+
+	if len(toAdd) == 0 {
+		return pkgs
+	}
+	return append(pkgs, toAdd...)
+}
+
+func (e *Extractor) resolveDebianDepsRecursive(
+	name string,
+	infos map[string]DebianPackageInfo,
+	existing map[string]bool,
+	visited map[string]bool,
+	depth int,
+	out *[]Package,
+) {
+	const maxDepth = 10
+	if depth > maxDepth || name == "" {
+		return
+	}
+	vKey := fmt.Sprintf("%s|%d", name, depth)
+	if visited[vKey] {
+		return
+	}
+	visited[vKey] = true
+
+	info, ok := infos[name]
+	if !ok {
+		return
+	}
+	deps := append([]DebianDependency{}, info.PreDepends...)
+	deps = append(deps, info.Depends...)
+	for _, depName := range pickDependencyCandidates(deps, infos) {
+		if depName == "" || depName == name {
+			continue
+		}
+		if !existing[depName] {
+			if depInfo, ok := infos[depName]; ok {
+				existing[depName] = true
+				*out = append(*out, Package{
+					Name:          depInfo.Name,
+					Version:       depInfo.Version,
+					Type:          "deb",
+					Source:        "dpkg-transitive",
+					Confidence:    "medium",
+					SourcePackage: depInfo.Name,
+				})
+			}
+		}
+		e.resolveDebianDepsRecursive(depName, infos, existing, visited, depth+1, out)
+	}
+}
+
+func pickDependencyCandidates(deps []DebianDependency, infos map[string]DebianPackageInfo) []string {
+	out := make([]string, 0)
+	for i := 0; i < len(deps); {
+		// Group alternatives by OR.
+		group := []DebianDependency{deps[i]}
+		j := i + 1
+		for j < len(deps) && deps[j].Or {
+			group = append(group, deps[j])
+			j++
+		}
+		chosen := ""
+		// Prefer first option present in this image.
+		for _, d := range group {
+			if _, ok := infos[d.Package]; ok {
+				chosen = d.Package
+				break
+			}
+		}
+		// Fallback to first option.
+		if chosen == "" && len(group) > 0 {
+			chosen = group[0].Package
+		}
+		if chosen != "" {
+			out = append(out, chosen)
+		}
+		i = j
+	}
+	return out
+}
+
+func collectDebianPackageInfos(fs *Filesystem) map[string]DebianPackageInfo {
+	out := make(map[string]DebianPackageInfo)
+	merge := func(items []DebianPackageInfo) {
+		for _, it := range items {
+			if strings.TrimSpace(it.Name) == "" {
+				continue
+			}
+			out[it.Name] = it
+		}
+	}
+
+	if content, err := fs.ReadFile(dpkgStatusFile); err == nil {
+		merge(parseDpkgStatusDetails(string(content)))
+	}
+	for _, path := range fs.PathsUnder(dpkgStatusDir) {
+		base := filepath.Base(path)
+		if strings.HasSuffix(base, ".md5sums") || base == "" || base == "." {
+			continue
+		}
+		content, err := fs.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		merge(parseDpkgStatusDetails(string(content)))
+	}
+	return out
 }
 
 // enrichBinaryVersions attempts to fill missing versions for binary-derived SBOM components

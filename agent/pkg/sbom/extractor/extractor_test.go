@@ -354,3 +354,41 @@ func TestSetOSPackagePURLs(t *testing.T) {
 		})
 	}
 }
+
+func TestExpandDebianTransitivePackages(t *testing.T) {
+	e := NewExtractor()
+	fs := NewFilesystem()
+	fs.files["/var/lib/dpkg/status"] = []byte(`Package: nginx
+Status: install ok installed
+Architecture: amd64
+Version: 1.25.0-1
+Depends: libc6 (>= 2.34), libssl3 | libssl1.1
+
+Package: libc6
+Status: install ok installed
+Architecture: amd64
+Version: 2.36-9+deb12u9
+
+Package: libssl3
+Status: install ok installed
+Architecture: amd64
+Version: 3.0.8-1~deb12u2
+Depends: zlib1g
+
+Package: zlib1g
+Status: install ok installed
+Architecture: amd64
+Version: 1:1.2.13
+`)
+	base := []Package{
+		{Name: "nginx", Version: "1.25.0-1", Type: "deb", Source: "dpkg", Confidence: "high"},
+	}
+	out := e.expandDebianTransitivePackages(base, fs, OSInfo{Name: "debian", Version: "12"})
+	names := map[string]bool{}
+	for _, p := range out {
+		names[p.Name] = true
+	}
+	if !names["nginx"] || !names["libc6"] || !names["libssl3"] || !names["zlib1g"] {
+		t.Fatalf("expected transitive deps to be added, got names=%v", names)
+	}
+}

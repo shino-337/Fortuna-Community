@@ -19,6 +19,21 @@ const (
 	dpkgStatusDir  = "/var/lib/dpkg/status.d/"
 )
 
+// DebianDependency is a parsed dependency entry from dpkg metadata.
+// If Or=true, this entry is an alternative to the previous dependency in the same group.
+type DebianDependency struct {
+	Package string
+	Or      bool
+}
+
+// DebianPackageInfo holds dependency metadata used for transitive expansion.
+type DebianPackageInfo struct {
+	Name       string
+	Version    string
+	Depends    []DebianDependency
+	PreDepends []DebianDependency
+}
+
 func (p *DpkgParser) Parse(fs *Filesystem) ([]Package, error) {
 	packages := make([]Package, 0)
 	seen := make(map[string]bool)
@@ -117,5 +132,96 @@ func parseDpkgStatus(content string) []Package {
 	}
 
 	return packages
+}
+
+// parseDpkgStatusDetails parses only fields needed for transitive dependency expansion.
+func parseDpkgStatusDetails(content string) []DebianPackageInfo {
+	out := make([]DebianPackageInfo, 0)
+	lines := strings.Split(content, "\n")
+	var cur DebianPackageInfo
+	var inPackage bool
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			if inPackage && cur.Name != "" {
+				out = append(out, cur)
+			}
+			cur = DebianPackageInfo{}
+			inPackage = false
+			continue
+		}
+
+		switch {
+		case strings.HasPrefix(line, "Package: "):
+			cur.Name = strings.TrimSpace(strings.TrimPrefix(line, "Package: "))
+			inPackage = true
+		case strings.HasPrefix(line, "Version: "):
+			cur.Version = strings.TrimSpace(strings.TrimPrefix(line, "Version: "))
+		case strings.HasPrefix(line, "Depends: "):
+			cur.Depends = parseDebianDependencies(strings.TrimSpace(strings.TrimPrefix(line, "Depends: ")))
+		case strings.HasPrefix(line, "Pre-Depends: "):
+			cur.PreDepends = parseDebianDependencies(strings.TrimSpace(strings.TrimPrefix(line, "Pre-Depends: ")))
+		case strings.HasPrefix(line, "Status: "):
+			status := strings.TrimSpace(strings.TrimPrefix(line, "Status: "))
+			if !strings.Contains(status, "installed") {
+				inPackage = false
+			}
+		}
+	}
+
+	if inPackage && cur.Name != "" {
+		out = append(out, cur)
+	}
+	return out
+}
+
+func parseDebianDependencies(depStr string) []DebianDependency {
+	if strings.TrimSpace(depStr) == "" {
+		return nil
+	}
+	out := make([]DebianDependency, 0)
+	andGroups := strings.Split(depStr, ",")
+	for _, group := range andGroups {
+		group = strings.TrimSpace(group)
+		if group == "" {
+			continue
+		}
+		alts := strings.Split(group, "|")
+		for i, alt := range alts {
+			name := normalizeDependencyPackageName(alt)
+			if name == "" {
+				continue
+			}
+			out = append(out, DebianDependency{
+				Package: name,
+				Or:      i > 0,
+			})
+		}
+	}
+	return out
+}
+
+func normalizeDependencyPackageName(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	// Remove architecture/profile qualifiers and version constraints.
+	if idx := strings.Index(s, "("); idx >= 0 {
+		s = s[:idx]
+	}
+	if idx := strings.Index(s, "["); idx >= 0 {
+		s = s[:idx]
+	}
+	if idx := strings.Index(s, "<"); idx >= 0 {
+		s = s[:idx]
+	}
+	s = strings.TrimSpace(s)
+	// Debian qualifier, e.g. "python3:any"
+	if idx := strings.Index(s, ":"); idx >= 0 {
+		s = s[:idx]
+	}
+	return strings.TrimSpace(s)
 }
 

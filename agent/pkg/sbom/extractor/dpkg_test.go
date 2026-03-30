@@ -144,3 +144,46 @@ func TestDpkgParser_NoFiles(t *testing.T) {
 		t.Fatalf("expected nil for no dpkg files, got %d packages", len(pkgs))
 	}
 }
+
+func TestParseDebianDependencies(t *testing.T) {
+	deps := parseDebianDependencies("libc6 (>= 2.34), libssl3 | libssl1.1, zlib1g:any")
+	if len(deps) < 4 {
+		t.Fatalf("expected >= 4 deps, got %d", len(deps))
+	}
+	if deps[0].Package != "libc6" || deps[0].Or {
+		t.Fatalf("dep0 = %+v", deps[0])
+	}
+	if deps[1].Package != "libssl3" || deps[1].Or {
+		t.Fatalf("dep1 = %+v", deps[1])
+	}
+	if deps[2].Package != "libssl1.1" || !deps[2].Or {
+		t.Fatalf("dep2 = %+v", deps[2])
+	}
+	if deps[3].Package != "zlib1g" {
+		t.Fatalf("dep3 = %+v", deps[3])
+	}
+}
+
+func TestParseDpkgStatusDetails(t *testing.T) {
+	content := `Package: nginx
+Status: install ok installed
+Version: 1.25.0-1
+Depends: libc6 (>= 2.34), libssl3 | libssl1.1
+Pre-Depends: adduser
+
+Package: not-installed
+Status: deinstall ok config-files
+Version: 1.0
+Depends: foo
+`
+	items := parseDpkgStatusDetails(content)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 installed item, got %d", len(items))
+	}
+	if items[0].Name != "nginx" {
+		t.Fatalf("unexpected name: %+v", items[0])
+	}
+	if len(items[0].Depends) == 0 || len(items[0].PreDepends) == 0 {
+		t.Fatalf("expected dependencies to be parsed: %+v", items[0])
+	}
+}
