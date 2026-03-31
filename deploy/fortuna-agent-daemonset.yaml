@@ -67,7 +67,7 @@ spec:
       containers:
         - name: agent
           # Use :latest after build (BUILD_TAG=latest). IfNotPresent: use local image when present; multi-node: push script loads on each node.
-          image: fortuna-agent:v1.0.0-83-g2d066c376
+          image: fortuna-agent:v1.0.0-84-g3736426ab
           imagePullPolicy: IfNotPresent
           
           env:

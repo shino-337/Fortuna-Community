@@ -21,7 +21,7 @@ spec:
         effect: "NoSchedule"
       containers:
       - name: dashboard
-        image: fortuna-dashboard:v1.0.0-83-g2d066c376
+        image: fortuna-dashboard:v1.0.0-84-g3736426ab
         # Never pull: image must be built/loaded on node (e.g. nerdctl build on k8s-master)
         imagePullPolicy: Never
         ports:
