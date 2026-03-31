@@ -63,6 +63,41 @@ run_script() {
   fi
 }
 
+CORE_PORT_FORWARD_PID=""
+stop_core_port_forward() {
+  if [ -n "${CORE_PORT_FORWARD_PID:-}" ]; then
+    kill "$CORE_PORT_FORWARD_PID" 2>/dev/null || true
+  fi
+}
+
+start_core_port_forward() {
+  # SBOM scripts use http://localhost:8080 by default.
+  # Create a port-forward to make localhost reachable from the runner host.
+  pkill -f "kubectl.*port-forward.*svc/fortuna-core" 2>/dev/null || true
+
+  log_info "Starting port-forward: svc/fortuna-core 8080:8080 -> localhost:8080..."
+  : > /tmp/e2e-core-port-forward.log 2>/dev/null || true
+  kubectl -n "$NAMESPACE" port-forward "svc/fortuna-core" 8080:8080 \
+    > /tmp/e2e-core-port-forward.log 2>&1 &
+  CORE_PORT_FORWARD_PID=$!
+
+  # /healthz has no auth; wait until it answers (or time out quickly).
+  local code="000"
+  for _ in {1..30}; do
+    code=$(curl -s -o /dev/null -w "%{http_code}" "http://localhost:8080/healthz" 2>/dev/null || echo "000")
+    if [ "$code" != "000" ]; then
+      log_ok "Core reachable via localhost:8080 (GET /healthz => $code)"
+      return 0
+    fi
+    sleep 1
+  done
+
+  log_warn "Core not reachable via localhost:8080/healthz within ~30s (last http_code=$code). See /tmp/e2e-core-port-forward.log"
+  return 1
+}
+
+trap stop_core_port_forward EXIT
+
 case "$SUITE" in
   risk-center)
     run_script "e2e-risk-center-full.sh (17 TCs)" "$SCRIPTS/e2e/e2e-risk-center-full.sh"
@@ -81,10 +116,14 @@ case "$SUITE" in
     run_script "e2e-dashboard-data.sh" "$SCRIPTS/e2e/e2e-dashboard-data.sh"
     ;;
   sbom)
+    export CORE_API_URL="http://localhost:8080"
+    start_core_port_forward || true
     run_script "e2e-sbom-verify.sh (default pod)" "$SCRIPTS/e2e/e2e-sbom-verify.sh"
     ;;
   sbom-full)
     # SBOM luồng hiện tại: busybox + distroless + CoreDNS (kiểu control-plane)
+    export CORE_API_URL="http://localhost:8080"
+    start_core_port_forward || true
     FAIL=0
     run_script "test-sbom-pod-flow.sh (busybox)" "$SCRIPTS/e2e/test-sbom-pod-flow.sh" || FAIL=$((FAIL+1))
     run_script "test-sbom-distroless-hello.sh" "$SCRIPTS/e2e/test-sbom-distroless-hello.sh" || FAIL=$((FAIL+1))

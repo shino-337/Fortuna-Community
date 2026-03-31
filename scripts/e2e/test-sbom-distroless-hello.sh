@@ -178,29 +178,22 @@ CURL_AUTH=()
 [ -n "$AUTH_HEADER" ] && CURL_AUTH=(-H "$AUTH_HEADER")
 echo ""
 
-echo "[3/5] Waiting for SBOM to appear in API..."
+echo "[3/5] Waiting for SBOM detail in API..."
 MAX_WAIT=300
 INTERVAL=15
 elapsed=0
 while [ $elapsed -lt $MAX_WAIT ]; do
-  body=$(curl -s "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/sbom?limit=100" 2>/dev/null) || true
-  if echo "$body" | grep -q "$POD_UID"; then
-    echo "  SBOM found for pod $POD_UID after ${elapsed}s"
+  HTTP=$(curl -s -o /dev/null -w "%{http_code}" "${CURL_AUTH[@]}"     "${CORE_URL}/api/v1/inventory/pods/${POD_UID}/sbom" 2>/dev/null) || HTTP="000"
+  if [ "$HTTP" = "200" ]; then
+    echo "  SBOM detail available for pod UID after ${elapsed}s"
     break
-  fi
-  if echo "$body" | grep -q "$POD_NAME"; then
-    echo "  SBOM found for pod name $POD_NAME after ${elapsed}s"
-    break
-  fi
-  if echo "$body" | grep -q '"error"'; then
-    echo "  API error: $(echo "$body" | head -c 120)"
   fi
   sleep $INTERVAL
   elapsed=$((elapsed + INTERVAL))
-  echo "  ... ${elapsed}s (no SBOM yet)"
+  echo "  ... ${elapsed}s (no SBOM detail yet)"
 done
 if [ $elapsed -ge $MAX_WAIT ]; then
-  echo "  WARNING: SBOM did not appear within ${MAX_WAIT}s."
+  echo "  WARNING: SBOM detail did not appear within ${MAX_WAIT}s."
   echo "    - Check agent logs:"
   echo "        kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=agent --tail=80"
   echo "    - Check pod/node:"
