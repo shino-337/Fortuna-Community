@@ -226,18 +226,18 @@ else
 fi
 echo ""
 
-# C2 (Finding 8.8): Assert distroless SBOM: sbom_source, non-empty components, purl pkg:generic/...
+# C2 (Finding 8.8): Assert distroless SBOM: sbom_source, non-empty components, and purl qualifiers.
 echo "[5/5] Asserting distroless SBOM (sbom_source, components, purl)..."
 if ! command -v jq >/dev/null 2>&1; then
   echo "  SKIP: jq not installed – cannot assert sbomSource/components/purl. Install jq to enable C2 assertions."
 else
   FAIL=0
   SOURCE=$(jq -r '.sbomSource // empty' /tmp/sbom_distroless_detail.json)
-  if [ "$SOURCE" != "distroless-heuristic" ]; then
-    echo "  FAIL: sbomSource = \"$SOURCE\", expected distroless-heuristic"
+  if [ "$SOURCE" != "parsers" ]; then
+    echo "  FAIL: sbomSource = \"$SOURCE\", expected parsers"
     FAIL=1
   else
-    echo "  OK: sbomSource = distroless-heuristic"
+    echo "  OK: sbomSource = parsers"
   fi
   COMP_COUNT=$(jq '.components | length' /tmp/sbom_distroless_detail.json 2>/dev/null || echo "0")
   if [ "${COMP_COUNT:-0}" -lt 1 ]; then
@@ -246,12 +246,19 @@ else
   else
     echo "  OK: components count = $COMP_COUNT"
   fi
-  HAS_PURL=$(jq '[.components[]? | select(.purl != null and (.purl | startswith("pkg:generic/")))] | length' /tmp/sbom_distroless_detail.json 2>/dev/null || echo "0")
-  if [ "${HAS_PURL:-0}" -lt 1 ]; then
-    echo "  FAIL: no component with purl pkg:generic/... (found: $HAS_PURL)"
+  HAS_PURL_ANY=$(jq '[.components[]? | select(.purl != null and (.purl | startswith("pkg:")) and (.purl | contains("@")))] | length' /tmp/sbom_distroless_detail.json 2>/dev/null || echo "0")
+  if [ "${HAS_PURL_ANY:-0}" -lt 1 ]; then
+    echo "  FAIL: no component with a valid pkg:*@* purl (found: $HAS_PURL_ANY)"
     FAIL=1
   else
-    echo "  OK: at least one component has purl pkg:generic/..."
+    echo "  OK: at least one component has purl pkg:*@*"
+  fi
+  HAS_PURL_ARCH=$(jq '[.components[]? | select(.purl != null and (.purl | contains("arch=amd64")))] | length' /tmp/sbom_distroless_detail.json 2>/dev/null || echo "0")
+  if [ "${HAS_PURL_ARCH:-0}" -lt 1 ]; then
+    echo "  FAIL: no component purl contains arch=amd64 (found: $HAS_PURL_ARCH)"
+    FAIL=1
+  else
+    echo "  OK: at least one component purl contains arch=amd64"
   fi
   if [ "$FAIL" -eq 1 ]; then
     echo "  C2 E2E assertions failed. Detail (first 600 chars):"
@@ -260,7 +267,7 @@ else
     exit 1
   fi
 fi
-echo "  Dashboard: open Pod Detail for this pod and confirm badge \"Distroless SBOM (heuristic)\"."
+echo "  Dashboard: open Pod Detail for this pod and confirm badge \"Distroless SBOM (parsers)\"."
 echo ""
 
 if [[ "${1:-}" == "--cleanup" ]]; then

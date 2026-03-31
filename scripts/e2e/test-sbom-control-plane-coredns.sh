@@ -87,6 +87,12 @@ spec:
       labels:
         app: ${DEPLOY_NAME}
     spec:
+      nodeSelector:
+        kubernetes.io/hostname: k8s-master
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
       containers:
         - name: coredns
           image: ${TEST_COREDNS_IMAGE}
@@ -138,18 +144,14 @@ else
 fi
 echo ""
 
-echo "[4/5] Waiting for SBOM in API (up to 300s)..."
+echo "[4/5] Waiting for SBOM detail in API (up to 300s)..."
 MAX_WAIT=300
 INTERVAL=15
 elapsed=0
 while [ $elapsed -lt $MAX_WAIT ]; do
-  body=$(curl -s "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/sbom?limit=200" 2>/dev/null) || true
-  if echo "$body" | grep -q "$POD_UID"; then
-    echo "  SBOM visible for pod UID after ${elapsed}s"
-    break
-  fi
-  if echo "$body" | grep -q "$POD_NAME"; then
-    echo "  SBOM visible for pod name after ${elapsed}s"
+  HTTP=$(curl -s -o /tmp/sbom_coredns_detail_poll.json -w "%{http_code}" "${CURL_AUTH[@]}"     "${CORE_URL}/api/v1/inventory/pods/${POD_UID}/sbom" 2>/dev/null) || HTTP="000"
+  if [ "$HTTP" = "200" ]; then
+    echo "  SBOM detail available for pod UID after ${elapsed}s"
     break
   fi
   sleep "$INTERVAL"
@@ -157,7 +159,7 @@ while [ $elapsed -lt $MAX_WAIT ]; do
   echo "  ... ${elapsed}s"
 done
 if [ "$elapsed" -ge "$MAX_WAIT" ]; then
-  echo "  ERROR: SBOM not in list within ${MAX_WAIT}s."
+  echo "  ERROR: SBOM detail not available for pod UID within ${MAX_WAIT}s."
   echo "    kubectl logs -n $NAMESPACE -l app.kubernetes.io/component=agent --tail=100"
   exit 1
 fi
