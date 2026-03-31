@@ -25,11 +25,11 @@ type SBOMSummaryDTO struct {
 	PackageCount         int                  `json:"packageCount"`
 	VulnerabilitySummary vulnerabilitySummary `json:"vulnerabilitySummary"`
 	PodCreatedAt         *time.Time           `json:"podCreatedAt,omitempty"` // from pods table when available
-	PodStatus            string               `json:"podStatus,omitempty"`      // K8s phase from pods.phase when synced
+	PodStatus            string               `json:"podStatus,omitempty"`    // K8s phase from pods.phase when synced
 	// SBOM metadata (same as detail; list view for dashboard badges/filters)
 	SbomSource string `json:"sbomSource,omitempty"` // parsers | distroless-heuristic | label-metadata
-	Confidence string `json:"confidence,omitempty"`   // low | medium | high
-	GoVersion  string `json:"goVersion,omitempty"`    // Go toolchain / stdlib matcher (when applicable)
+	Confidence string `json:"confidence,omitempty"` // low | medium | high
+	GoVersion  string `json:"goVersion,omitempty"`  // Go toolchain / stdlib matcher (when applicable)
 }
 
 // SBOMComponentDTO exposes component details for /sbom/{podId}
@@ -40,10 +40,10 @@ type SBOMComponentDTO struct {
 	Type            string             `json:"type"`
 	PURL            string             `json:"purl,omitempty"`
 	Vulnerabilities []VulnerabilityDTO `json:"vulnerabilities"`
-	CveCount        int                `json:"cveCount"`        // len(Vulnerabilities)
-	MaxSeverity     string             `json:"maxSeverity"`     // highest severity in list
-	MaxCVSS         float32            `json:"maxCvss"`         // highest CVSS in list
-	FixVersion      string             `json:"fixVersion"`      // first fixed version if any
+	CveCount        int                `json:"cveCount"`         // len(Vulnerabilities)
+	MaxSeverity     string             `json:"maxSeverity"`      // highest severity in list
+	MaxCVSS         float32            `json:"maxCvss"`          // highest CVSS in list
+	FixVersion      string             `json:"fixVersion"`       // first fixed version if any
 	Status          string             `json:"status,omitempty"` // active | allowed | fixed (default active)
 }
 
@@ -55,11 +55,11 @@ type VulnerabilityDTO struct {
 	Description     string  `json:"description,omitempty"`
 	FixedVersion    string  `json:"fixedVersion,omitempty"`
 	Status          string  `json:"status,omitempty"`          // active | allowed | fixed
-	ExploitKnown    bool    `json:"exploitKnown,omitempty"`   // public exploit available
+	ExploitKnown    bool    `json:"exploitKnown,omitempty"`    // public exploit available
 	ExploitMaturity string  `json:"exploitMaturity,omitempty"` // poc | functional | high
-	Allowed         bool    `json:"allowed,omitempty"`        // allowed by policy
-	Source          string  `json:"source,omitempty"`         // nvd | fortuna-core-cve-matcher (OSV)
-	Confidence      string  `json:"confidence,omitempty"`     // P1-3: high (OSV) | low (nvd-fallback)
+	Allowed         bool    `json:"allowed,omitempty"`         // allowed by policy
+	Source          string  `json:"source,omitempty"`          // nvd | fortuna-core-cve-matcher (OSV)
+	Confidence      string  `json:"confidence,omitempty"`      // P1-3: high (OSV) | low (nvd-fallback)
 }
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
@@ -165,6 +165,31 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		summaries := make([]SBOMSummaryDTO, 0, len(sboms))
+		sbomIDs := make([]uint, 0, len(sboms))
+		for _, s := range sboms {
+			sbomIDs = append(sbomIDs, s.ID)
+		}
+		type sevAgg struct {
+			SBOMID   uint
+			Severity string
+			Count    int
+		}
+		sevBySBOM := make(map[uint]map[string]int, len(sboms))
+		if len(sbomIDs) > 0 {
+			var rows []sevAgg
+			if err := db.Model(&models.CVEMatch{}).
+				Select("sbom_id, LOWER(severity) as severity, COUNT(*) as count").
+				Where("sbom_id IN ? AND deleted_at IS NULL", sbomIDs).
+				Group("sbom_id, LOWER(severity)").
+				Scan(&rows).Error; err == nil {
+				for _, row := range rows {
+					if _, ok := sevBySBOM[row.SBOMID]; !ok {
+						sevBySBOM[row.SBOMID] = map[string]int{}
+					}
+					sevBySBOM[row.SBOMID][strings.ToLower(strings.TrimSpace(row.Severity))] = row.Count
+				}
+			}
+		}
 		for _, sbom := range sboms {
 			var podCreatedAt *time.Time
 			if t, ok := uidToCreatedAt[sbom.PodUID]; ok {
@@ -192,22 +217,9 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 				},
 			}
 
-			var rows []struct {
-				Severity string
-				Count    int
-			}
-			if err := db.Model(&models.CVEMatch{}).
-				Select("LOWER(severity) as severity, COUNT(*) as count").
-				Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).
-				Group("LOWER(severity)").
-				Scan(&rows).Error; err == nil {
-				for _, r := range rows {
-					sev := strings.ToLower(r.Severity)
-					if _, ok := summary.VulnerabilitySummary[sev]; ok {
-						summary.VulnerabilitySummary[sev] = r.Count
-					} else {
-						summary.VulnerabilitySummary[sev] = r.Count
-					}
+			if grouped, ok := sevBySBOM[sbom.ID]; ok {
+				for sev, count := range grouped {
+					summary.VulnerabilitySummary[sev] = count
 				}
 			}
 
@@ -277,19 +289,19 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		vulnerablePackageCount := len(byName)
 
 		dto := SBOMDetailDTO{
-			PodID:                   sbom.PodUID,
-			Image:                   fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
-			Namespace:               sbom.Namespace,
-			PodName:                 sbom.PodName,
-			Container:               sbom.ContainerName,
-			GeneratedAt:             sbom.GeneratedAt,
-			PackageCount:            sbom.PackageCount,
-			VulnerablePackageCount:  vulnerablePackageCount,
-			VulnerabilitySummary:    summary,
-			Components:              make([]SBOMComponentDTO, 0, len(components)),
-			SbomSource:              sbom.SbomSource,
-			Confidence:              sbom.Confidence,
-			GoVersion:               sbom.GoVersion,
+			PodID:                  sbom.PodUID,
+			Image:                  fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
+			Namespace:              sbom.Namespace,
+			PodName:                sbom.PodName,
+			Container:              sbom.ContainerName,
+			GeneratedAt:            sbom.GeneratedAt,
+			PackageCount:           sbom.PackageCount,
+			VulnerablePackageCount: vulnerablePackageCount,
+			VulnerabilitySummary:   summary,
+			Components:             make([]SBOMComponentDTO, 0, len(components)),
+			SbomSource:             sbom.SbomSource,
+			Confidence:             sbom.Confidence,
+			GoVersion:              sbom.GoVersion,
 		}
 
 		severityOrder := map[string]int{"critical": 0, "high": 1, "medium": 2, "low": 3}

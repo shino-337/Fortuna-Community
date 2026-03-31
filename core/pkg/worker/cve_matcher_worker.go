@@ -41,14 +41,14 @@ func incCVEMatcherRun(result string) {
 
 // CVEMatcherWorker implements: SBOM_CREATED -> CVE Matching -> Persist cve_matches -> Vulnerability Insights.
 type CVEMatcherWorker struct {
-	js                      nats.JetStreamContext
-	db                      *gorm.DB
-	dbManager               *database.Manager
-	matcher                 *matcher.Matcher
-	insightMgr              *riskengine.InsightManager
-	logger                  *log.Logger
-	onlySeverities          map[string]bool
-	publishInsightsUpdated  PublishInsightsUpdatedFunc
+	js                     nats.JetStreamContext
+	db                     *gorm.DB
+	dbManager              *database.Manager
+	matcher                *matcher.Matcher
+	insightMgr             *riskengine.InsightManager
+	logger                 *log.Logger
+	onlySeverities         map[string]bool
+	publishInsightsUpdated PublishInsightsUpdatedFunc
 }
 
 func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB, publishInsightsUpdated PublishInsightsUpdatedFunc) *CVEMatcherWorker {
@@ -141,6 +141,14 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion)
 		return nil
 	}
+	runStatus := "failed"
+	runErrorCode := "processing_error"
+	defer func() {
+		if err := sbomRepo.CompleteMatchRun(ctx, sbomModel.ID, sbomModel.Version, mirrorVersion, runStatus, runErrorCode); err != nil {
+			w.logger.Printf("⚠️  Failed to complete match run sbom_id=%d version=%d mirror=%s status=%s: %v",
+				sbomModel.ID, sbomModel.Version, mirrorVersion, runStatus, err)
+		}
+	}()
 
 	// P1-5: when event carries component snapshot, use it to avoid soft-delete race; else load from DB
 	var componentsOverride []*models.SBOMComponent
@@ -173,6 +181,8 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
 	if len(matches) == 0 {
+		runStatus = "succeeded"
+		runErrorCode = ""
 		incCVEMatcherRun("skipped")
 		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=skipped matches=0 duration_ms=%d",
 			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, time.Since(startProcess).Milliseconds())
@@ -212,6 +222,8 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 
 	if len(packageNames) == 0 {
+		runStatus = "succeeded"
+		runErrorCode = ""
 		return nil
 	}
 
@@ -356,6 +368,8 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		PublishSIEMEvents(w.js, insights)
 	}
 
+	runStatus = "succeeded"
+	runErrorCode = ""
 	return nil
 }
 
@@ -527,7 +541,7 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, comp
 		Title:             title,
 		Description:       description,
 		Status:            "active",
-		Recommendation:    fmt.Sprintf("Update image/package to a fixed version (package %s -> %s, or update image %s).",
+		Recommendation: fmt.Sprintf("Update image/package to a fixed version (package %s -> %s, or update image %s).",
 			component.ComponentName, match.FixedVersion, ev.ContainerImage),
 
 		MatchConfidence:     matchConf,

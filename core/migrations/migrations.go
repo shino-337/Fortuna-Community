@@ -117,6 +117,7 @@ var (
 	_ = Migration100_RefreshYAMLRiskRulesMITRE
 	_ = Migration109_AddRuntimeSignalLifecycle
 	_ = Migration110_AddPodCapabilityClassDerivedFrom
+	_ = Migration111_HardenSBOMRunAndEnums
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -246,6 +247,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration108_AddRuntimeEventsCanonicalColumns,           // Runtime P0.1: runtime_events canonical contract columns
 		Migration109_AddRuntimeSignalLifecycle,                  // Runtime P1: runtime_signals lifecycle + evidence refs
 		Migration110_AddPodCapabilityClassDerivedFrom,           // Runtime P1: capability compatibility columns
+		Migration111_HardenSBOMRunAndEnums,                      // SBOM reliability: match-run timeout fields + enum checks
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

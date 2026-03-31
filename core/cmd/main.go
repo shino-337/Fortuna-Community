@@ -16,7 +16,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/fortuna/core/internal/api"
 	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/internal/grpc"
@@ -27,15 +26,16 @@ import (
 	"github.com/fortuna/core/internal/storage"
 	"github.com/fortuna/core/internal/webhook"
 	"github.com/fortuna/core/migrations"
+	cvedb "github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/kev"
 	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/policy"
 	"github.com/fortuna/core/pkg/reconciler"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/security"
-	cvedb "github.com/fortuna/core/pkg/cve/database"
-	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/worker"
+	"github.com/gin-gonic/gin"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 
@@ -129,7 +129,7 @@ func main() {
 
 	log.Printf("[MAIN] ✅ Database is now available for use")
 	dbReady <- true
-	
+
 	// Set up cleanup for database (will be set when connection is established)
 	defer func() {
 		dbMutex.RLock()
@@ -225,11 +225,11 @@ func main() {
 	// Policy Evaluator will be initialized when database is ready
 	var policyEvaluator *policy.Evaluator
 	var policyWorker *policy.PolicyWorker
-	
+
 	dbMutex.RLock()
 	dbReadyNow := db != nil
 	dbMutex.RUnlock()
-	
+
 	if dbReadyNow {
 		log.Printf("[Main] Calling policy.NewEvaluator(db)...")
 		policyEvaluator, err = policy.NewEvaluator(db)
@@ -242,7 +242,7 @@ func main() {
 			log.Printf("[Main] ✅ Policy Evaluator initialized successfully")
 			log.Printf("[Main] Policy Evaluator pointer: %p", policyEvaluator)
 		}
-		
+
 		// Add Policy Worker to worker pool (for slow path processing)
 		log.Printf("[Main] Creating Policy Worker...")
 		policyWorker = policy.NewPolicyWorker(db, policyEvaluator)
@@ -376,7 +376,7 @@ func main() {
 		}
 
 		// SBOM_CREATED DLQ: events that failed primary publish after retries (handler_sbom.go).
-		sbomDLQ := worker.NewSBOMDLQWorker()
+		sbomDLQ := worker.NewSBOMDLQWorker(js)
 		dlqDurable := "sbom-created-dlq"
 		dlqOpts := []nats.SubOpt{
 			nats.ManualAck(),
@@ -558,11 +558,11 @@ func main() {
 	// /live: Alias for liveness (backward compatibility)
 	// /status: Full status check (includes DB, NATS - for observability only)
 	router.GET("/healthz", health.LivenessCheck())
-	router.GET("/health", health.HealthCheck(db)) // Legacy endpoint
+	router.GET("/health", health.HealthCheck(db))                                  // Legacy endpoint
 	router.GET("/health/dashboard-data-integrity", api.DashboardDataIntegrity(db)) // Dashboard data traceability
-	router.GET("/ready", health.ReadinessCheck(db, cfg.GRPCPort)) // Readiness: HTTP + gRPC listening (avoids Agent "connection refused" on 9090)
-	router.GET("/live", health.LivenessCheck()) // Alias for /healthz
-	router.GET("/status", health.StatusCheck(db)) // Full status: includes DB, NATS
+	router.GET("/ready", health.ReadinessCheck(db, cfg.GRPCPort))                  // Readiness: HTTP + gRPC listening (avoids Agent "connection refused" on 9090)
+	router.GET("/live", health.LivenessCheck())                                    // Alias for /healthz
+	router.GET("/status", health.StatusCheck(db))                                  // Full status: includes DB, NATS
 
 	// Phase 2.7: Initialize Admission Webhook
 	log.Printf("[Main] ========================================")

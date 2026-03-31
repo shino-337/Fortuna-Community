@@ -79,7 +79,7 @@ spec:
       containers:
         - name: core
           # Use :latest after build (BUILD_TAG=latest)
-          image: fortuna-core:v1.0.0-82-g37eafd52c
+          image: fortuna-core:v1.0.0-83-g2d066c376
           # Never pull: image must be built/loaded on node (e.g. build-and-load-containerd.sh on control-plane node)
           imagePullPolicy: Never
           

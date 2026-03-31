@@ -16,6 +16,12 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	sbomPodPhasePolicyRunningOnly = "running_only"
+	sbomPodPhasePolicyAll         = "all"
+	sbomPodPhasePolicyNonFailed   = "all_non_failed"
+)
+
 // SBOMWorker implements: Kubernetes Event -> Digest Resolution -> SBOM Cache Check -> SBOM Generation -> Persist -> SBOM_CREATED event.
 type SBOMWorker struct {
 	db        *gorm.DB
@@ -84,11 +90,14 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		return fmt.Errorf("parse raw pod json: %w", err)
 	}
 
-	// Only process running pods (reduce duplicate work on pending/terminating updates)
+	// Process policy is configurable so operators can choose reliability vs noise.
 	if status, ok := podObj["status"].(map[string]interface{}); ok {
 		if phase, _ := status["phase"].(string); phase != "" && phase != "Running" {
-			w.logger.Printf("⏭️  Skipping pod %s/%s: phase=%s (not Running)", podNS, podName, phase)
-			return nil
+			policy := getSBOMPodPhasePolicy()
+			if !shouldProcessSBOMForPhase(phase, policy) {
+				w.logger.Printf("⏭️  Skipping pod %s/%s: phase=%s policy=%s", podNS, podName, phase, policy)
+				return nil
+			}
 		}
 	}
 
@@ -194,4 +203,31 @@ func getEnv(key, def string) string {
 		return v
 	}
 	return def
+}
+
+func getSBOMPodPhasePolicy() string {
+	policy := strings.ToLower(strings.TrimSpace(getEnv("FORTUNA_SBOM_POD_PHASE_POLICY", sbomPodPhasePolicyNonFailed)))
+	switch policy {
+	case sbomPodPhasePolicyRunningOnly, sbomPodPhasePolicyAll, sbomPodPhasePolicyNonFailed:
+		return policy
+	default:
+		return sbomPodPhasePolicyNonFailed
+	}
+}
+
+func shouldProcessSBOMForPhase(phase string, policy string) bool {
+	p := strings.ToLower(strings.TrimSpace(phase))
+	if p == "" {
+		return true
+	}
+	switch policy {
+	case sbomPodPhasePolicyAll:
+		return true
+	case sbomPodPhasePolicyRunningOnly:
+		return p == "running"
+	case sbomPodPhasePolicyNonFailed:
+		return p != "failed" && p != "unknown"
+	default:
+		return p != "failed" && p != "unknown"
+	}
 }

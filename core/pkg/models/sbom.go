@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -9,48 +10,93 @@ import (
 // SBOM represents a Software Bill of Materials for a container image
 // Updated for Agent-Based architecture
 type SBOM struct {
-	ID             uint              `gorm:"primaryKey" json:"id"`
-	ImageName      string            `gorm:"type:varchar(255);not null;index" json:"imageName"`
-	ImageTag       string            `gorm:"type:varchar(255);not null;index" json:"imageTag"`
-	ImageDigest    string            `gorm:"type:varchar(255);not null;index" json:"imageDigest"` // SHA256; one row per pod (multiple pods can share same image)
-	PodUID         string            `gorm:"type:varchar(255);index" json:"podUid"`
-	PodName        string            `gorm:"type:varchar(255)" json:"podName"`
-	Namespace      string            `gorm:"type:varchar(255);index" json:"namespace"`
-	ContainerName  string            `gorm:"type:varchar(255)" json:"containerName"`
-	OSName         string            `gorm:"type:varchar(100)" json:"osName"`
-	OSVersion      string            `gorm:"type:varchar(100)" json:"osVersion"`
-	OSArchitecture string            `gorm:"type:varchar(50)" json:"osArchitecture"`
-	GoVersion      string            `gorm:"type:varchar(50)" json:"goVersion"` // buildinfo.GoVersion for Go stdlib CVE matcher
-	PackageCount   int               `gorm:"default:0" json:"packageCount"`
-	SBOMFormat     string            `gorm:"type:varchar(50);default:'fortuna-agent'" json:"sbomFormat"`
-	SBOMContent    string            `gorm:"type:jsonb" json:"sbomContent"` // Optional JSON content
-	GeneratedAt    time.Time         `gorm:"index" json:"generatedAt"`
-	AgentID        string            `gorm:"type:varchar(255);index" json:"agentId"`
-	NodeID         string            `gorm:"type:varchar(255);index" json:"nodeId"`
-	Labels         map[string]string `gorm:"type:jsonb;serializer:json" json:"labels"`
-	Annotations    map[string]string `gorm:"type:jsonb;serializer:json" json:"annotations"`
-	LastUsedAt     time.Time         `gorm:"index" json:"lastUsedAt"`
-	UseCount       int               `gorm:"default:1" json:"useCount"`
-	SbomSource     string            `gorm:"type:varchar(64)" json:"sbomSource"`     // Finding #8.4: parsers | distroless-heuristic | label-metadata
-	Confidence     string            `gorm:"type:varchar(32)" json:"confidence"`    // Finding #8.4: low | medium | high
-	Status         string            `gorm:"type:varchar(20);default:'pending';index" json:"status"` // pending | complete | partial | failed (+ legacy finalized)
-	StatusReason   string            `gorm:"type:varchar(64);default:''" json:"statusReason"` // pull_error | parse_error | empty_result | validation_failed | ok
-	ResolverVersion string          `gorm:"type:varchar(32);default:'';index" json:"resolverVersion"` // matcher.ResolverVersion used for normalization/trust
-	SignatureDBVersion string      `gorm:"type:varchar(64);default:'';index" json:"signatureDbVersion"` // agent embedded signatures.Version()
-	NormalizedFingerprint string   `gorm:"type:varchar(64);default:'';index" json:"normalizedFingerprint"` // sha256 of normalized component identity
-	Version        int               `gorm:"type:integer;default:1" json:"version"`                  // SBOM snapshot version
-	CreatedAt      time.Time         `json:"createdAt"`
-	UpdatedAt      time.Time         `json:"updatedAt"`
-	DeletedAt      gorm.DeletedAt    `gorm:"index" json:"-"`
+	ID                    uint              `gorm:"primaryKey" json:"id"`
+	ImageName             string            `gorm:"type:varchar(255);not null;index" json:"imageName"`
+	ImageTag              string            `gorm:"type:varchar(255);not null;index" json:"imageTag"`
+	ImageDigest           string            `gorm:"type:varchar(255);not null;index" json:"imageDigest"` // SHA256; one row per pod (multiple pods can share same image)
+	PodUID                string            `gorm:"type:varchar(255);index" json:"podUid"`
+	PodName               string            `gorm:"type:varchar(255)" json:"podName"`
+	Namespace             string            `gorm:"type:varchar(255);index" json:"namespace"`
+	ContainerName         string            `gorm:"type:varchar(255)" json:"containerName"`
+	OSName                string            `gorm:"type:varchar(100)" json:"osName"`
+	OSVersion             string            `gorm:"type:varchar(100)" json:"osVersion"`
+	OSArchitecture        string            `gorm:"type:varchar(50)" json:"osArchitecture"`
+	GoVersion             string            `gorm:"type:varchar(50)" json:"goVersion"` // buildinfo.GoVersion for Go stdlib CVE matcher
+	PackageCount          int               `gorm:"default:0" json:"packageCount"`
+	SBOMFormat            string            `gorm:"type:varchar(50);default:'fortuna-agent'" json:"sbomFormat"`
+	SBOMContent           string            `gorm:"type:jsonb" json:"sbomContent"` // Optional JSON content
+	GeneratedAt           time.Time         `gorm:"index" json:"generatedAt"`
+	AgentID               string            `gorm:"type:varchar(255);index" json:"agentId"`
+	NodeID                string            `gorm:"type:varchar(255);index" json:"nodeId"`
+	Labels                map[string]string `gorm:"type:jsonb;serializer:json" json:"labels"`
+	Annotations           map[string]string `gorm:"type:jsonb;serializer:json" json:"annotations"`
+	LastUsedAt            time.Time         `gorm:"index" json:"lastUsedAt"`
+	UseCount              int               `gorm:"default:1" json:"useCount"`
+	SbomSource            string            `gorm:"type:varchar(64)" json:"sbomSource"`                             // Finding #8.4: parsers | distroless-heuristic | label-metadata
+	Confidence            string            `gorm:"type:varchar(32)" json:"confidence"`                             // Finding #8.4: low | medium | high
+	Status                string            `gorm:"type:varchar(20);default:'pending';index" json:"status"`         // pending | complete | partial | failed (+ legacy finalized)
+	StatusReason          string            `gorm:"type:varchar(64);default:''" json:"statusReason"`                // pull_error | parse_error | empty_result | validation_failed | ok
+	ResolverVersion       string            `gorm:"type:varchar(32);default:'';index" json:"resolverVersion"`       // matcher.ResolverVersion used for normalization/trust
+	SignatureDBVersion    string            `gorm:"type:varchar(64);default:'';index" json:"signatureDbVersion"`    // agent embedded signatures.Version()
+	NormalizedFingerprint string            `gorm:"type:varchar(64);default:'';index" json:"normalizedFingerprint"` // sha256 of normalized component identity
+	Version               int               `gorm:"type:integer;default:1" json:"version"`                          // SBOM snapshot version
+	CreatedAt             time.Time         `json:"createdAt"`
+	UpdatedAt             time.Time         `json:"updatedAt"`
+	DeletedAt             gorm.DeletedAt    `gorm:"index" json:"-"`
 
 	// Relationships
 	Components []SBOMComponent `gorm:"foreignKey:SBOMID" json:"components,omitempty"`
 	CVEMatches []CVEMatch      `gorm:"foreignKey:SBOMID" json:"cveMatches,omitempty"`
 }
 
+const (
+	SBOMSourceParsers             = "parsers"
+	SBOMSourceDistrolessHeuristic = "distroless-heuristic"
+	SBOMSourceLabelMetadata       = "label-metadata"
+	SBOMSourceSyft                = "syft"
+	SBOMSourceUnknown             = "unknown"
+
+	SBOMConfidenceLow     = "low"
+	SBOMConfidenceMedium  = "medium"
+	SBOMConfidenceHigh    = "high"
+	SBOMConfidenceUnknown = "unknown"
+)
+
 // TableName specifies the table name for SBOM
 func (SBOM) TableName() string {
 	return "sboms"
+}
+
+func NormalizeSBOMSource(source string) string {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case SBOMSourceParsers:
+		return SBOMSourceParsers
+	case SBOMSourceDistrolessHeuristic:
+		return SBOMSourceDistrolessHeuristic
+	case SBOMSourceLabelMetadata:
+		return SBOMSourceLabelMetadata
+	case SBOMSourceSyft:
+		return SBOMSourceSyft
+	case "":
+		return SBOMSourceUnknown
+	default:
+		return SBOMSourceUnknown
+	}
+}
+
+func NormalizeSBOMConfidence(confidence string) string {
+	switch strings.ToLower(strings.TrimSpace(confidence)) {
+	case SBOMConfidenceLow:
+		return SBOMConfidenceLow
+	case SBOMConfidenceMedium:
+		return SBOMConfidenceMedium
+	case SBOMConfidenceHigh:
+		return SBOMConfidenceHigh
+	case "":
+		return SBOMConfidenceUnknown
+	default:
+		return SBOMConfidenceUnknown
+	}
 }
 
 // SBOMComponent represents a component (package) extracted from SBOM
@@ -64,8 +110,8 @@ type SBOMComponent struct {
 	OriginalPURL     string         `gorm:"type:varchar(512);column:original_purl" json:"originalPurl,omitempty"`
 	PURLValidated    bool           `gorm:"not null;default:true;column:purl_validated" json:"purlValidated"`
 	TrustLevel       string         `gorm:"type:varchar(10);not null;default:'high';column:trust_level" json:"trustLevel"` // high | medium | low
-	SourceDetail     string         `gorm:"type:varchar(255);column:source_detail" json:"sourceDetail,omitempty"` // parser|agent-purl|core-regenerated-purl|core-generated-purl
-	Licenses         string         `gorm:"type:text" json:"licenses"`                       // Comma-separated licenses
+	SourceDetail     string         `gorm:"type:varchar(255);column:source_detail" json:"sourceDetail,omitempty"`          // parser|agent-purl|core-regenerated-purl|core-generated-purl
+	Licenses         string         `gorm:"type:text" json:"licenses"`                                                     // Comma-separated licenses
 	Source           string         `gorm:"type:varchar(500)" json:"source"`
 	Description      string         `gorm:"type:text" json:"description"`
 	Homepage         string         `gorm:"type:varchar(500)" json:"homepage"`

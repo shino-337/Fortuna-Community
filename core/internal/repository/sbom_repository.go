@@ -11,8 +11,15 @@ import (
 	"gorm.io/gorm/clause"
 
 	"github.com/fortuna/core/internal/contextkeys"
-	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/metrics"
+	"github.com/fortuna/core/pkg/models"
+)
+
+const (
+	matchRunStatusRunning   = "running"
+	matchRunStatusSucceeded = "succeeded"
+	matchRunStatusFailed    = "failed"
+	matchRunTimeout         = 10 * time.Minute
 )
 
 // SBOMRepository provides a single guarded entrypoint for SBOM writes.
@@ -110,6 +117,8 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 	if sbom == nil {
 		return nil, false, errors.New("sbom is required")
 	}
+	sbom.SbomSource = models.NormalizeSBOMSource(sbom.SbomSource)
+	sbom.Confidence = models.NormalizeSBOMConfidence(sbom.Confidence)
 
 	tx := r.db.WithContext(ctx).Begin()
 	defer func() {
@@ -194,25 +203,25 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 		}
 
 		if err := tx.Model(&existing).Updates(map[string]interface{}{
-			"image_name":     sbom.ImageName,
-			"image_tag":      sbom.ImageTag,
-			"image_digest":   sbom.ImageDigest,
-			"pod_name":       sbom.PodName,
-			"namespace":      sbom.Namespace,
-			"container_name": sbom.ContainerName,
-			"package_count":  sbom.PackageCount,
-			"generated_at":   sbom.GeneratedAt,
-			"last_used_at":   sbom.LastUsedAt,
-			"use_count":      sbom.UseCount,
-			"sbom_source":    sbom.SbomSource,
-			"confidence":     sbom.Confidence,
-			"status_reason":  sbom.StatusReason,
-			"status":         normalizeSBOMStatus(sbom.Status),
-			"resolver_version":         sbom.ResolverVersion,
-			"signature_db_version":    sbom.SignatureDBVersion,
-			"normalized_fingerprint":  sbom.NormalizedFingerprint,
-			"go_version":               strings.TrimSpace(sbom.GoVersion),
-			"version":        nextVersion,
+			"image_name":             sbom.ImageName,
+			"image_tag":              sbom.ImageTag,
+			"image_digest":           sbom.ImageDigest,
+			"pod_name":               sbom.PodName,
+			"namespace":              sbom.Namespace,
+			"container_name":         sbom.ContainerName,
+			"package_count":          sbom.PackageCount,
+			"generated_at":           sbom.GeneratedAt,
+			"last_used_at":           sbom.LastUsedAt,
+			"use_count":              sbom.UseCount,
+			"sbom_source":            sbom.SbomSource,
+			"confidence":             sbom.Confidence,
+			"status_reason":          sbom.StatusReason,
+			"status":                 normalizeSBOMStatus(sbom.Status),
+			"resolver_version":       sbom.ResolverVersion,
+			"signature_db_version":   sbom.SignatureDBVersion,
+			"normalized_fingerprint": sbom.NormalizedFingerprint,
+			"go_version":             strings.TrimSpace(sbom.GoVersion),
+			"version":                nextVersion,
 		}).Error; err != nil {
 			tx.Rollback()
 			return nil, false, fmt.Errorf("update existing sbom: %w", err)
@@ -333,6 +342,7 @@ func (r *SBOMRepository) EnsureMatchRun(
 	}
 
 	now := time.Now()
+	timeoutAt := now.Add(matchRunTimeout)
 
 	// First, check if a run already exists for this key.
 	var existing models.SBOMMatchRun
@@ -348,13 +358,17 @@ func (r *SBOMRepository) EnsureMatchRun(
 		// No existing run: create a fresh one. Concurrent workers may both miss SELECT
 		// and try INSERT; one wins, the other gets duplicate key → treat as skip.
 		run := &models.SBOMMatchRun{
-			SBOMID:        sbomID,
-			Version:       version,
-			MirrorVersion: mirrorVersion,
-			Status:        "running",
+			SBOMID:          sbomID,
+			Version:         version,
+			MirrorVersion:   mirrorVersion,
+			Status:          matchRunStatusRunning,
 			ResolverVersion: resolverVersion,
 			MatcherVersion:  matcherVersion,
-			CreatedAt:     now,
+			ErrorCode:       "",
+			StartedAt:       now,
+			TimeoutAt:       &timeoutAt,
+			CreatedAt:       now,
+			UpdatedAt:       now,
 		}
 		if errCreate := r.db.WithContext(ctx).Create(run).Error; errCreate != nil {
 			if isDuplicateKey(errCreate) {
@@ -365,29 +379,82 @@ func (r *SBOMRepository) EnsureMatchRun(
 		return true, nil
 	}
 
-	// Existing run found. Implement simple crash-recovery:
-	// - If it's still "running" and recent, treat as duplicate (another worker).
-	// - If it's old or finished, allow re-run by bumping to "running" and updating CreatedAt.
-	// staleAfter must be >= max expected match duration to avoid reclaim while job still running.
-	const staleAfter = 15 * time.Minute
-	if existing.Status == "running" && now.Sub(existing.CreatedAt) < staleAfter {
-		// Even if we skip the run, ensure metadata versioning columns are populated.
+	if existing.Status == matchRunStatusRunning {
+		// Legacy rows may not have timeout_at populated; treat them as reclaimable.
+		isTimedOut := existing.TimeoutAt == nil || !existing.TimeoutAt.After(now)
+		if !isTimedOut {
+			_ = r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
+				"resolver_version": resolverVersion,
+				"matcher_version":  matcherVersion,
+				"updated_at":       now,
+			}).Error
+			return false, nil
+		}
+		_ = r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
+			"status":     matchRunStatusFailed,
+			"error_code": "timeout",
+			"updated_at": now,
+		}).Error
+	}
+
+	if existing.Status == matchRunStatusSucceeded || existing.Status == matchRunStatusFailed {
 		_ = r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
 			"resolver_version": resolverVersion,
 			"matcher_version":  matcherVersion,
+			"updated_at":       now,
 		}).Error
 		return false, nil
 	}
 
 	if err := r.db.WithContext(ctx).Model(&existing).Updates(map[string]interface{}{
-		"status":          "running",
-		"created_at":     now,
+		"status":           matchRunStatusRunning,
+		"error_code":       "",
+		"started_at":       now,
+		"timeout_at":       timeoutAt,
+		"created_at":       now,
 		"resolver_version": resolverVersion,
 		"matcher_version":  matcherVersion,
+		"updated_at":       now,
 	}).Error; err != nil {
 		return false, fmt.Errorf("update sbom_match_run: %w", err)
 	}
 	return true, nil
+}
+
+func (r *SBOMRepository) CompleteMatchRun(
+	ctx context.Context,
+	sbomID uint,
+	version int,
+	mirrorVersion string,
+	status string,
+	errorCode string,
+) error {
+	if sbomID == 0 || version <= 0 || mirrorVersion == "" {
+		return fmt.Errorf("invalid match run key: sbom_id=%d version=%d mirror_version=%q", sbomID, version, mirrorVersion)
+	}
+	switch status {
+	case matchRunStatusSucceeded, matchRunStatusFailed:
+	default:
+		return fmt.Errorf("invalid match run status: %q", status)
+	}
+	updates := map[string]interface{}{
+		"status":     status,
+		"error_code": strings.TrimSpace(errorCode),
+		"updated_at": time.Now(),
+	}
+	if status == matchRunStatusSucceeded {
+		updates["error_code"] = ""
+	}
+	res := r.db.WithContext(ctx).Model(&models.SBOMMatchRun{}).
+		Where("sbom_id = ? AND version = ? AND mirror_version = ?", sbomID, version, mirrorVersion).
+		Updates(updates)
+	if res.Error != nil {
+		return fmt.Errorf("complete sbom_match_run: %w", res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return fmt.Errorf("complete sbom_match_run: no row for sbom_id=%d version=%d mirror_version=%s", sbomID, version, mirrorVersion)
+	}
+	return nil
 }
 
 // ClaimSBOMEvent atomically claims processing rights for an sbom.created event based on event timestamp.
@@ -442,4 +509,3 @@ func isDuplicateKey(err error) bool {
 		strings.Contains(msg, "unique constraint failed") || // SQLite
 		strings.Contains(msg, "23505")
 }
-

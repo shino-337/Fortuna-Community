@@ -1,6 +1,6 @@
 # GAP implementation status (sync with backlog §9)
 
-Last updated: 2026-03-28 (iteration 2).
+Last updated: 2026-03-31 (iteration 3).
 
 ## Completed in this delivery
 
@@ -16,6 +16,12 @@ Last updated: 2026-03-28 (iteration 2).
 | **G-DB-01** | Decision: keep single table | `docs/adr/005-*` | — |
 | **G-API-01** | (prior) v2 capabilities route | `routes_runtime.go`, dashboard | `pod_capability_handlers_sync_test.go` |
 | **G-R10** (baseline) | Runbook + CI verify | `R10-ADMISSION-RUNBOOK.md`, workflow | script smoke |
+| **SBOM-REL-01** | DLQ replay orchestration (bounded retries) | `core/pkg/worker/sbom_dlq_worker.go`, `core/cmd/main.go` | `go test ./pkg/worker/... -run SBOMDLQ` |
+| **SBOM-REL-02** | `SBOMMatchRun` explicit lifecycle + timeout/status/error_code | `core/pkg/models/sbom_match_run.go`, `core/internal/repository/sbom_repository.go`, `core/pkg/worker/cve_matcher_worker.go`, `core/migrations/111_*` | `go test ./internal/repository/...` |
+| **SBOM-REL-03** | Configurable SBOM pod phase policy | `core/pkg/worker/sbom_worker.go` (`FORTUNA_SBOM_POD_PHASE_POLICY`) | `go test ./pkg/worker/... -run ShouldProcessSBOMForPhase` |
+| **SBOM-REL-04** | Configurable orphan grace + runtime evidence guard before delete | `core/pkg/reconciler/sbom_reconciler.go` (`FORTUNA_SBOM_ORPHAN_GRACE_PERIOD`) | `go test ./pkg/reconciler/...` |
+| **SBOM-DATA-01** | Enum normalization + DB constraints for `sbom_source`/`confidence` | `core/pkg/models/sbom.go`, `core/internal/repository/sbom_repository.go`, `core/migrations/111_*` | `go test ./internal/repository/... -run NormalizeSourceAndConfidence` |
+| **SBOM-PERF-01** | Remove N+1 CVE severity queries in SBOM list API | `core/internal/api/sbom_handlers.go` | `go test ./internal/api/...` |
 
 ## Deferred (multi-sprint / not done here)
 

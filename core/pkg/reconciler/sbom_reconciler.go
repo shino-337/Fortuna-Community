@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -13,10 +16,10 @@ import (
 
 // SBOMReconciler periodically reconciles SBOM state with actual pod state
 type SBOMReconciler struct {
-	db               *gorm.DB
+	db                *gorm.DB
 	reconcileInterval time.Duration
-	logger           *log.Logger
-	stopChan         chan struct{}
+	logger            *log.Logger
+	stopChan          chan struct{}
 }
 
 // NewSBOMReconciler creates a new SBOM reconciler
@@ -26,10 +29,10 @@ func NewSBOMReconciler(db *gorm.DB, reconcileInterval time.Duration) *SBOMReconc
 	}
 
 	return &SBOMReconciler{
-		db:               db,
+		db:                db,
 		reconcileInterval: reconcileInterval,
-		logger:           log.New(log.Writer(), "[SBOMReconciler] ", log.LstdFlags),
-		stopChan:         make(chan struct{}),
+		logger:            log.New(log.Writer(), "[SBOMReconciler] ", log.LstdFlags),
+		stopChan:          make(chan struct{}),
 	}
 }
 
@@ -100,7 +103,21 @@ func (r *SBOMReconciler) Reconcile(ctx context.Context) error {
 
 // orphanGracePeriod: do not delete SBOM when pod is missing from DB if SBOM is newer than this
 // (avoids race where SBOM arrives before pod sync)
-const orphanGracePeriod = 2 * time.Hour
+const defaultOrphanGracePeriod = 30 * time.Minute
+
+func orphanGracePeriod() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("FORTUNA_SBOM_ORPHAN_GRACE_PERIOD"))
+	if raw == "" {
+		return defaultOrphanGracePeriod
+	}
+	if d, err := time.ParseDuration(raw); err == nil && d > 0 {
+		return d
+	}
+	if mins, err := strconv.Atoi(raw); err == nil && mins > 0 {
+		return time.Duration(mins) * time.Minute
+	}
+	return defaultOrphanGracePeriod
+}
 
 // cleanupOrphanedSBOMs soft-deletes SBOMs for pods that have been deleted (or missing for too long)
 // Only treats SBOM as orphaned when: (1) pod exists in DB and is soft-deleted, or
@@ -122,7 +139,10 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 	}
 
 	// Collect pod_uid -> sbom (id + created_at)
-	type sbomInfo struct{ id uint; createdAt time.Time }
+	type sbomInfo struct {
+		id        uint
+		createdAt time.Time
+	}
 	sbomByPodUID := make(map[string]sbomInfo)
 	for _, sbom := range activeSBOMs {
 		if sbom.PodUID != "" {
@@ -139,14 +159,14 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
 		return fmt.Errorf("check pods table: %w", err)
 	}
-	
+
 	var orphanedSBOMIDs []uint
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping orphan SBOM cleanup")
 		stats.OrphanedSBOMs = 0
 		return nil
 	}
-	
+
 	// Active pod UIDs
 	var existingPods []models.Pod
 	if err := r.db.WithContext(ctx).
@@ -186,7 +206,12 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 			continue
 		}
 		// Pod not in DB at all: avoid race with pod sync — only treat as orphan if SBOM is old enough
-		if now.Sub(info.createdAt) > orphanGracePeriod {
+		if now.Sub(info.createdAt) > orphanGracePeriod() {
+			// Keep SBOM if runtime security evidence still references this pod UID.
+			if keep, reason, err := r.hasRuntimeSecurityEvidence(ctx, podUID); err == nil && keep {
+				r.logger.Printf("⏭️  Keep SBOM id=%d pod_uid=%s due to %s evidence", info.id, podUID, reason)
+				continue
+			}
 			orphanedSBOMIDs = append(orphanedSBOMIDs, info.id)
 		}
 	}
@@ -213,6 +238,30 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 	return nil
 }
 
+func (r *SBOMReconciler) hasRuntimeSecurityEvidence(ctx context.Context, podUID string) (bool, string, error) {
+	checks := []struct {
+		table string
+		name  string
+	}{
+		{table: "runtime_events", name: "runtime_events"},
+		{table: "runtime_incidents", name: "runtime_incidents"},
+		{table: "asset_security_state", name: "asset_security_state"},
+	}
+	for _, check := range checks {
+		if !r.db.Migrator().HasTable(check.table) {
+			continue
+		}
+		var count int64
+		if err := r.db.WithContext(ctx).Table(check.table).Where("resource_uid = ?", podUID).Count(&count).Error; err != nil {
+			return false, "", fmt.Errorf("query %s for pod_uid=%s: %w", check.table, podUID, err)
+		}
+		if count > 0 {
+			return true, check.name, nil
+		}
+	}
+	return false, "", nil
+}
+
 // identifyMissingSBOMs identifies pods that don't have SBOMs (informational only)
 func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *ReconciliationStats) error {
 	// Check if pods table exists first
@@ -220,12 +269,12 @@ func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *Reconc
 	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
 		return fmt.Errorf("check pods table: %w", err)
 	}
-	
+
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping missing SBOM identification")
 		return nil
 	}
-	
+
 	// Find all running pods
 	var runningPods []models.Pod
 	if err := r.db.WithContext(ctx).
@@ -296,12 +345,12 @@ func (r *SBOMReconciler) updateActiveSBOMTimestamps(ctx context.Context, stats *
 	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
 		return fmt.Errorf("check pods table: %w", err)
 	}
-	
+
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping SBOM timestamp update")
 		return nil
 	}
-	
+
 	// Find all running pods
 	var runningPodUIDs []string
 	if err := r.db.WithContext(ctx).

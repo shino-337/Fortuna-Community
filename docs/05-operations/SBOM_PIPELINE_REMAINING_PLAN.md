@@ -1,6 +1,6 @@
 # SBOM Pipeline — Trạng thái & Kế hoạch phần còn lại
 
-Cập nhật: 2026-03-22 — Xác nhận lại kết quả + chi tiết **CI / E2E**  
+Cập nhật: 2026-03-31 — bổ sung hardening reliability + data integrity  
 Mục đích: đóng vòng **implementation + verification**; phân tier cho backlog dài hạn.
 
 ---
@@ -67,6 +67,7 @@ Mục đích: đóng vòng **implementation + verification**; phân tier cho bac
 | **Dashboard** | **Risk Detail**: badge CISA KEV + EPSS (từ `evidence`) — `dashboard/lib/threatIntel.ts` |
 | **RISK-1+** | **CISA KEV** (`core/pkg/kev`, `FORTUNA_KEV_ENABLED`); **EPSS** song song (`LookupManyDefault`, `FORTUNA_EPSS_CONCURRENCY`); evidence merge (`insightevidence`) |
 | **A5+** | Phase 1 cap + skip-prefix; **2a–2c** `SBOM_FS_MODE=indexed`, spool, lazy read, `[SBOM FS]` metrics (`SBOM_FS_METRICS=off` để tắt log) |
+| **SBOM hardening 2026-03-31** | DLQ auto replay (bounded by `FORTUNA_SBOM_DLQ_REPLAY_MAX_ATTEMPTS`), `SBOMMatchRun` timeout/lifecycle (`status`, `error_code`, `timeout_at`), phase policy (`FORTUNA_SBOM_POD_PHASE_POLICY`), orphan grace policy (`FORTUNA_SBOM_ORPHAN_GRACE_PERIOD`), enum normalization + DB checks (`sbom_source`, `confidence`), API list CVE aggregation batch (remove N+1) |
 
 ---
 
