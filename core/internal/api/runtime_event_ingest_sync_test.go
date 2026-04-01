@@ -93,3 +93,52 @@ func TestRuntimeEventPayload_UnmarshalAgentShape(t *testing.T) {
 	// Core accepts timestamp 0 as "now" path — sanity only
 	_ = time.Unix(p.Timestamp, 0)
 }
+
+// TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal locks the R6/R9 e2e contract:
+// flat pod_uid + execve + EBPF_EXEC_TRACE -> processed>=1 and runtime_signals.signal_type EBPF_EXEC_ACTIVITY.
+func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	r := gin.New()
+	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
+
+	podUID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	body := []byte(`[{
+		"pod_uid": "` + podUID + `",
+		"namespace": "fortuna",
+		"syscall": "execve",
+		"target_path": "/bin/sh-e2e-test",
+		"capability": "EBPF_EXEC_TRACE",
+		"timestamp": 1700000001
+	}]`)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtime/events", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status %d: %s", w.Code, w.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("response json: %v", err)
+	}
+	if int(resp["processed"].(float64)) < 1 {
+		t.Fatalf("expected processed>=1, got %v", resp["processed"])
+	}
+
+	var signals []models.RuntimeSignal
+	if err := db.Where("pod_uid = ? AND signal_type = ?", podUID, "EBPF_EXEC_ACTIVITY").Find(&signals).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(signals) != 1 {
+		t.Fatalf("runtime_signals: want 1 EBPF_EXEC_ACTIVITY, got %d", len(signals))
+	}
+}

@@ -16,7 +16,7 @@ import (
 type FileMetadata struct {
 	ID               uint      `gorm:"primaryKey"`
 	FilePath         string    `gorm:"type:varchar(500);uniqueIndex;not null"`
-	CVEID            string    `gorm:"type:varchar(20);not null;index"`
+	CVEID            string    `gorm:"type:varchar(255);not null;index"`
 	FileSize         int64     `gorm:"not null"`
 	FileMTime        time.Time `gorm:"column:file_mtime;not null;index"`
 	FileHash         string    `gorm:"type:varchar(64)"` // SHA256
@@ -34,8 +34,8 @@ func (FileMetadata) TableName() string {
 
 // IncrementalTracker manages incremental CVE updates
 type IncrementalTracker struct {
-	db         *gorm.DB
-	sourceDir  string
+	db          *gorm.DB
+	sourceDir   string
 	computeHash bool // Compute file hash (slower but more accurate)
 }
 
@@ -346,9 +346,9 @@ type FileInfo struct {
 
 // TrackerStats holds tracker statistics
 type TrackerStats struct {
-	TotalFiles       int64
-	SuccessCount     int64
-	FailedCount      int64
-	PendingCount     int64
-	LastProcessedAt  time.Time
+	TotalFiles      int64
+	SuccessCount    int64
+	FailedCount     int64
+	PendingCount    int64
+	LastProcessedAt time.Time
 }

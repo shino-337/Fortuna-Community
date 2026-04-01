@@ -8,3 +8,5 @@
 /deploy/
 /helm/
 /test/
+/docs/test-results/
+/docs/test-results}/

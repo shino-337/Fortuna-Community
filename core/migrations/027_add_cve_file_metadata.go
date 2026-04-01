@@ -19,7 +19,7 @@ func Migration027_AddCVEFileMetadata(db *gorm.DB) error {
 	CREATE TABLE IF NOT EXISTS cve_file_metadata (
 		id SERIAL PRIMARY KEY,
 		file_path VARCHAR(500) UNIQUE NOT NULL,
-		cve_id VARCHAR(20) NOT NULL,
+		cve_id VARCHAR(255) NOT NULL,
 		file_size BIGINT NOT NULL,
 		file_mtime TIMESTAMPTZ NOT NULL,
 		file_hash VARCHAR(64),

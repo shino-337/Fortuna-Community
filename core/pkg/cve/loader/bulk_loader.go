@@ -14,11 +14,11 @@ import (
 
 // BulkLoader optimized CVE loader using PostgreSQL COPY for maximum performance
 type BulkLoader struct {
-	db                *gorm.DB
-	batchSize         int
-	workers           int
+	db                 *gorm.DB
+	batchSize          int
+	workers            int
 	checkpointInterval int
-	logger            *log.Logger
+	logger             *log.Logger
 
 	// Statistics
 	stats *BulkLoaderStats
@@ -129,7 +129,7 @@ func (l *BulkLoader) parseFilesParallel(files []string) ([]*ParsedCVE, []*Parsed
 		go func(f string) {
 			defer wg.Done()
 
-			semaphore <- struct{}{} // Acquire
+			semaphore <- struct{}{}        // Acquire
 			defer func() { <-semaphore }() // Release
 
 			// Parse file
@@ -212,7 +212,7 @@ func (l *BulkLoader) bulkInsertCVEs(ctx context.Context, cves []*ParsedCVE) erro
 func (l *BulkLoader) createTempCVETable(ctx context.Context) error {
 	sql := `
 	CREATE TEMPORARY TABLE IF NOT EXISTS cves_temp (
-		cve_id VARCHAR(20) NOT NULL,
+		cve_id VARCHAR(255) NOT NULL,
 		cvss_score DECIMAL(3,1),
 		cvss_vector TEXT,
 		cvss_version VARCHAR(10),

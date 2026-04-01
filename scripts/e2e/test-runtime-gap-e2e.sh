@@ -86,7 +86,11 @@ fi
 # R6 + R9 synthetic event mapping
 echo ""
 echo "--- R6/R9: REP signal mapping from capability ---"
-TEST_UID="$(kubectl -n "$NAMESPACE" get pods -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
+# Prefer Core pod UID (stable contract for REP); fallback to any Running pod in namespace.
+TEST_UID="$(kubectl -n "$NAMESPACE" get pods -l app.kubernetes.io/component=core -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
+if [ -z "$TEST_UID" ]; then
+  TEST_UID="$(kubectl -n "$NAMESPACE" get pods -o jsonpath='{.items[0].metadata.uid}' 2>/dev/null || true)"
+fi
 if [ -z "$TEST_UID" ]; then
   fail_case "Cannot resolve a running pod UID for runtime event injection"
   TEST_UID="gap-e2e-$(date +%s)"
@@ -94,21 +98,26 @@ fi
 TS="$(date +%s)"
 PROCESSED=0
 for i in 1 2 3; do
-  TARGET="/bin/sh#e2e-${TS}-${i}"
+  # Avoid '#' in target (shell/json edge cases); use agent-shaped nested "pod" + stdin body for curl.
+  TARGET="/bin/sh-e2e-${TS}-${i}"
   PAYLOAD="$(cat <<PAYLOADEOF
 [
   {
-    "pod_uid": "$TEST_UID",
-    "namespace": "fortuna",
+    "pod": {
+      "uid": "$TEST_UID",
+      "namespace": "$NAMESPACE",
+      "name": "$CORE_POD"
+    },
     "syscall": "execve",
-    "target_path": "$TARGET",
+    "target": "$TARGET",
     "capability": "EBPF_EXEC_TRACE",
     "timestamp": $((TS + i))
   }
 ]
 PAYLOADEOF
 )"
-  POST_RESP="$(core_api_post_json "runtime/events" "$TOKEN" "$CORE_POD" "$PAYLOAD" || echo "{}")"
+  # POST /api/v1/runtime/events is unauthenticated; pipe JSON on stdin so kubectl+curl never mangles quotes.
+  POST_RESP="$(printf '%s' "$PAYLOAD" | kubectl -n "$NAMESPACE" exec -i "$CORE_POD" --     curl -s -S -X POST -H "Content-Type: application/json" --data-binary @-     "http://localhost:8080/api/v1/runtime/events" 2>/dev/null || echo "{}")"
   PROCESSED="$(echo "$POST_RESP" | python3 -c 'import sys,json
 try:
  d=json.load(sys.stdin); print(d.get("processed", 0))
@@ -126,7 +135,7 @@ else
   fail_case "Runtime event ingest failed for synthetic eBPF exec trace after retries"
 fi
 
-SIG_RESP="$(core_api_get "runtime/pods/$TEST_UID/signals" "$TOKEN" "$CORE_POD" || echo "{}")"
+SIG_RESP="$(core_api_get "runtime/pods/$TEST_UID/signals?signalType=EBPF_EXEC_ACTIVITY&limit=20" "$TOKEN" "$CORE_POD" || echo "{}")"
 SIG_TYPE="$(echo "$SIG_RESP" | python3 -c 'import sys,json
 try:
  d=json.load(sys.stdin); sigs=d.get("signals") or []; print((sigs[0] if sigs else {}).get("signalType",""))

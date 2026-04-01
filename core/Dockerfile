@@ -59,7 +59,7 @@ RUN set -e && \
     go clean -cache && \
     rm -rf /tmp/go-build-cache /root/.cache/go-build 2>/dev/null || true
 
-# Build CVE loader binary (if exists) - cleanup cache after
+# Build CVE loader binaries (basic + optimized when present) - cleanup cache after
 RUN if [ -f "./cmd/cve-loader/main.go" ]; then \
         CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
         -ldflags="-w -s" \
@@ -67,11 +67,22 @@ RUN if [ -f "./cmd/cve-loader/main.go" ]; then \
         -buildvcs=false \
         -a \
         -o /cve-loader ./cmd/cve-loader/main.go && \
-        go clean -cache && \
         test -f /cve-loader || touch /cve-loader; \
     else \
         touch /cve-loader; \
-    fi
+    fi && \
+    if [ -f "./cmd/cve-loader-optimized/main.go" ]; then \
+        CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
+        -ldflags="-w -s" \
+        -trimpath \
+        -buildvcs=false \
+        -a \
+        -o /cve-loader-optimized ./cmd/cve-loader-optimized/main.go && \
+        test -f /cve-loader-optimized || touch /cve-loader-optimized; \
+    else \
+        touch /cve-loader-optimized; \
+    fi && \
+    go clean -cache
 
 # Clean up Go caches to free disk space (after verifying binaries exist)
 RUN go clean -cache -modcache -testcache && \
@@ -104,14 +115,22 @@ WORKDIR /app
 
 # Copy binaries from builder (paths under builder WORKDIR /build/core)
 COPY --from=builder --chown=fortuna:fortuna /build/core/fortuna-core /app/fortuna-core
-# Copy CVE loader if it exists and has content (built to /cve-loader in builder)
+# Copy CVE loaders if they exist and have content
 COPY --from=builder /cve-loader /tmp/cve-loader
+COPY --from=builder /cve-loader-optimized /tmp/cve-loader-optimized
 RUN if [ -s /tmp/cve-loader ]; then \
         mv /tmp/cve-loader /app/cve-loader && \
         chmod +x /app/cve-loader && \
         chown fortuna:fortuna /app/cve-loader; \
     else \
         rm -f /tmp/cve-loader; \
+    fi && \
+    if [ -s /tmp/cve-loader-optimized ]; then \
+        mv /tmp/cve-loader-optimized /app/cve-loader-optimized && \
+        chmod +x /app/cve-loader-optimized && \
+        chown fortuna:fortuna /app/cve-loader-optimized; \
+    else \
+        rm -f /tmp/cve-loader-optimized; \
     fi
 
 # Copy migrations and rules with proper ownership
