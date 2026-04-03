@@ -12,6 +12,7 @@ import (
 	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database/nvd"
 	"github.com/fortuna/core/pkg/metrics"
+	nvdmirror "github.com/fortuna/core/pkg/mirror/nvd"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/mirror/osv"
 	"gorm.io/gorm"
@@ -221,6 +222,9 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 		if ver := m.getMirrorVersion(ctx, "osv"); ver != "" {
 			cacheSuffix = ver
 		}
+	}
+	if nvdVer := m.getMirrorVersion(ctx, "nvd"); nvdVer != "" {
+		cacheSuffix += ":" + nvdVer
 	}
 
 	// Check cache first
@@ -733,6 +737,34 @@ func (m *Manager) UpdateDatabase(ctx context.Context) error {
 		return fmt.Errorf("increment mirror version: %w", err)
 	}
 	m.logger.Printf("✅ UpdateDatabase: mirror_state osv version incremented")
+	return nil
+}
+
+// SyncNVDMirror performs an incremental NVD mirror sync via API 2.0.
+// Fetches CVEs modified since the last sync and upserts into cves + package_vulnerabilities.
+// Enabled when FORTUNA_NVD_MIRROR=1; uses NVD_API_KEY for higher rate limits.
+// Safe to call periodically (e.g. daily cron).
+func (m *Manager) SyncNVDMirror(ctx context.Context) error {
+	if m.postgresDB == nil {
+		return fmt.Errorf("postgres required for NVD mirror sync")
+	}
+	if os.Getenv("FORTUNA_NVD_MIRROR") != "1" && os.Getenv("FORTUNA_NVD_MIRROR") != "true" {
+		m.logger.Printf("NVD mirror sync skipped (FORTUNA_NVD_MIRROR not enabled)")
+		return nil
+	}
+
+	apiKey := strings.TrimSpace(os.Getenv("NVD_API_KEY"))
+	syncer := nvdmirror.NewSyncer(m.postgresDB, apiKey)
+
+	m.logger.Printf("Starting NVD mirror sync...")
+	if err := syncer.Sync(ctx); err != nil {
+		return fmt.Errorf("NVD mirror sync: %w", err)
+	}
+
+	if err := m.IncrementMirrorVersion(ctx, "nvd"); err != nil {
+		m.logger.Printf("⚠️  Failed to increment NVD mirror version: %v", err)
+	}
+	m.logger.Printf("✅ NVD mirror sync complete, mirror_state nvd version incremented")
 	return nil
 }
 

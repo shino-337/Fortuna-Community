@@ -493,6 +493,31 @@ func main() {
 			sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
 		}()
 		log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
+
+		// Start NVD mirror sync (runs daily when FORTUNA_NVD_MIRROR=1)
+		if os.Getenv("FORTUNA_NVD_MIRROR") == "1" || os.Getenv("FORTUNA_NVD_MIRROR") == "true" {
+			nvdManager := cvedb.NewPostgresManager(db)
+			go func() {
+				log.Printf("[Main] Starting NVD mirror initial sync...")
+				if err := nvdManager.SyncNVDMirror(ctx); err != nil {
+					log.Printf("[Main] ⚠️  NVD mirror initial sync failed: %v", err)
+				}
+				ticker := time.NewTicker(24 * time.Hour)
+				defer ticker.Stop()
+				for {
+					select {
+					case <-ctx.Done():
+						return
+					case <-ticker.C:
+						log.Printf("[Main] Running periodic NVD mirror sync...")
+						if err := nvdManager.SyncNVDMirror(ctx); err != nil {
+							log.Printf("[Main] ⚠️  NVD mirror periodic sync failed: %v", err)
+						}
+					}
+				}
+			}()
+			log.Printf("NVD mirror sync enabled (interval: 24 hours)")
+		}
 	} else {
 		log.Printf("[Main] ⚠️  WARNING: Skipping background jobs (database not ready)")
 		// Start background jobs when database becomes available

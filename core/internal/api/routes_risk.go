@@ -14,6 +14,8 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/analytics/trends", risk.GetRiskTrendsAnalytics(db))
 	api.GET("/risk/analytics/comparison", risk.GetRiskComparison(db))
 	api.GET("/risk/analytics/correlation", risk.GetRiskCorrelation(db))
+	api.GET("/risk/analytics/supply-chain", risk.GetSupplyChainCorrelation(db))
+	api.GET("/risk/analytics/runtime-cve", risk.GetRuntimeCVECorrelation(db))
 	api.GET("/risk/priorities", risk.GetPriorityStatistics(db))
 	api.GET("/risk/top", risk.GetTopRisks(db))
 	api.GET("/risk/grouped", risk.GetGroupedRisks(db))

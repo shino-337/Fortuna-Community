@@ -2,7 +2,9 @@ package risk
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"math"
 	"net/http"
 	"strconv"
 	"time"
@@ -285,30 +287,202 @@ type CorrelationPoint struct {
 	Y float64 `json:"y"` // Risk score
 }
 
-// GetRiskCorrelation analyzes correlations between risk and other factors
+// GetRiskCorrelation analyzes correlations between risk scores and CVE severity.
+// Supported factors: cve_count, cve_severity, namespace, node.
 func GetRiskCorrelation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		factor := c.DefaultQuery("factor", "deployments") // deployments, cluster_age, namespace_activity
-		_ = c.Query("cluster")                            // Reserved for future use
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
 
-		// For now, return placeholder correlation
-		// Full implementation would require additional data sources
-		result := CorrelationResult{
-			Factor:      factor,
-			Correlation: 0.0,
-			Strength:    "none",
-			Insights:    []string{"Correlation analysis requires additional data sources"},
-			DataPoints:  []CorrelationPoint{},
+		factor := c.DefaultQuery("factor", "cve_count")
+		clusterID := c.Query("cluster")
+
+		var result CorrelationResult
+
+		switch factor {
+		case "cve_count":
+			result = correlateCVECountVsRisk(ctx, db, clusterID)
+		case "cve_severity":
+			result = correlateCVESeverityVsRisk(ctx, db, clusterID)
+		default:
+			result = correlateCVECountVsRisk(ctx, db, clusterID)
+			result.Factor = factor
 		}
 
-		// TODO: Implement actual correlation calculation when data sources are available
-		// This would require:
-		// - Deployment history data
-		// - Cluster creation dates
-		// - Namespace activity metrics
-		// - Team ownership data
-
 		c.JSON(http.StatusOK, result)
+	}
+}
+
+type nsRiskRow struct {
+	Namespace string
+	AvgScore  float64
+	CVECount  int64
+	CritCount int64
+}
+
+func correlateCVECountVsRisk(ctx context.Context, db *gorm.DB, clusterID string) CorrelationResult {
+	result := CorrelationResult{Factor: "cve_count", Insights: []string{}}
+
+	var rows []nsRiskRow
+	q := db.WithContext(ctx).Raw(`
+SELECT
+  rs.namespace,
+  AVG(rs.total_score) AS avg_score,
+  COUNT(DISTINCT cm.cve_id) AS cve_count,
+  COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) AS crit_count
+FROM risk_scores rs
+LEFT JOIN sboms s ON s.namespace = rs.namespace AND s.deleted_at IS NULL
+LEFT JOIN cve_matches cm ON cm.sbom_id = s.id AND cm.deleted_at IS NULL
+WHERE rs.namespace != ''
+  AND ($1 = '' OR rs.cluster_id = $1)
+GROUP BY rs.namespace
+HAVING COUNT(DISTINCT cm.cve_id) > 0
+ORDER BY cve_count DESC
+LIMIT 100
+`, clusterID)
+
+	if err := q.Scan(&rows).Error; err != nil {
+		log.Printf("[RiskCorrelation] query error: %v", err)
+		result.Insights = append(result.Insights, "Query failed: "+err.Error())
+		return result
+	}
+
+	if len(rows) < 3 {
+		result.Strength = "insufficient_data"
+		result.Insights = append(result.Insights, "Need at least 3 namespaces with CVE matches for correlation")
+		return result
+	}
+
+	xs := make([]float64, len(rows))
+	ys := make([]float64, len(rows))
+	for i, r := range rows {
+		xs[i] = float64(r.CVECount)
+		ys[i] = r.AvgScore
+		result.DataPoints = append(result.DataPoints, CorrelationPoint{X: xs[i], Y: ys[i]})
+	}
+
+	result.Correlation = pearsonCorrelation(xs, ys)
+	result.Strength = correlationStrength(result.Correlation)
+
+	if result.Correlation > 0.5 {
+		result.Insights = append(result.Insights,
+			fmt.Sprintf("Strong positive correlation (r=%.2f): namespaces with more CVEs tend to have higher risk scores", result.Correlation))
+	} else if result.Correlation < -0.3 {
+		result.Insights = append(result.Insights,
+			fmt.Sprintf("Negative correlation (r=%.2f): namespaces with more CVEs have lower risk scores (may indicate better patching)", result.Correlation))
+	} else {
+		result.Insights = append(result.Insights,
+			fmt.Sprintf("Weak correlation (r=%.2f): CVE count alone is not a strong predictor of risk score", result.Correlation))
+	}
+
+	maxCVENs := ""
+	maxCVE := int64(0)
+	for _, r := range rows {
+		if r.CVECount > maxCVE {
+			maxCVE = r.CVECount
+			maxCVENs = r.Namespace
+		}
+	}
+	if maxCVENs != "" {
+		result.Insights = append(result.Insights,
+			fmt.Sprintf("Most exposed namespace: %s (%d unique CVEs)", maxCVENs, maxCVE))
+	}
+
+	return result
+}
+
+func correlateCVESeverityVsRisk(ctx context.Context, db *gorm.DB, clusterID string) CorrelationResult {
+	result := CorrelationResult{Factor: "cve_severity", Insights: []string{}}
+
+	var rows []nsRiskRow
+	q := db.WithContext(ctx).Raw(`
+SELECT
+  rs.namespace,
+  AVG(rs.total_score) AS avg_score,
+  COUNT(DISTINCT cm.cve_id) AS cve_count,
+  COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) AS crit_count
+FROM risk_scores rs
+LEFT JOIN sboms s ON s.namespace = rs.namespace AND s.deleted_at IS NULL
+LEFT JOIN cve_matches cm ON cm.sbom_id = s.id AND cm.deleted_at IS NULL
+WHERE rs.namespace != ''
+  AND ($1 = '' OR rs.cluster_id = $1)
+GROUP BY rs.namespace
+HAVING COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) > 0
+ORDER BY crit_count DESC
+LIMIT 100
+`, clusterID)
+
+	if err := q.Scan(&rows).Error; err != nil {
+		log.Printf("[RiskCorrelation] severity query error: %v", err)
+		result.Insights = append(result.Insights, "Query failed")
+		return result
+	}
+
+	if len(rows) < 3 {
+		result.Strength = "insufficient_data"
+		result.Insights = append(result.Insights, "Need at least 3 namespaces with critical CVEs for severity correlation")
+		return result
+	}
+
+	xs := make([]float64, len(rows))
+	ys := make([]float64, len(rows))
+	for i, r := range rows {
+		xs[i] = float64(r.CritCount)
+		ys[i] = r.AvgScore
+		result.DataPoints = append(result.DataPoints, CorrelationPoint{X: xs[i], Y: ys[i]})
+	}
+
+	result.Correlation = pearsonCorrelation(xs, ys)
+	result.Strength = correlationStrength(result.Correlation)
+
+	result.Insights = append(result.Insights,
+		fmt.Sprintf("Correlation between critical CVE count and risk score: r=%.2f (%s)", result.Correlation, result.Strength))
+
+	totalCrit := int64(0)
+	for _, r := range rows {
+		totalCrit += r.CritCount
+	}
+	result.Insights = append(result.Insights,
+		fmt.Sprintf("Total critical CVEs across %d namespaces: %d", len(rows), totalCrit))
+
+	return result
+}
+
+func pearsonCorrelation(xs, ys []float64) float64 {
+	n := float64(len(xs))
+	if n < 2 {
+		return 0
+	}
+
+	var sumX, sumY, sumXY, sumX2, sumY2 float64
+	for i := range xs {
+		sumX += xs[i]
+		sumY += ys[i]
+		sumXY += xs[i] * ys[i]
+		sumX2 += xs[i] * xs[i]
+		sumY2 += ys[i] * ys[i]
+	}
+
+	num := n*sumXY - sumX*sumY
+	den := math.Sqrt((n*sumX2 - sumX*sumX) * (n*sumY2 - sumY*sumY))
+	if den == 0 {
+		return 0
+	}
+	r := num / den
+	return math.Round(r*100) / 100
+}
+
+func correlationStrength(r float64) string {
+	abs := math.Abs(r)
+	switch {
+	case abs >= 0.7:
+		return "strong"
+	case abs >= 0.4:
+		return "moderate"
+	case abs >= 0.2:
+		return "weak"
+	default:
+		return "none"
 	}
 }
 

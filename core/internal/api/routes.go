@@ -21,6 +21,8 @@ var (
 	_ = risk.GetRiskTrendsAnalytics
 	_ = risk.GetRiskComparison
 	_ = risk.GetRiskCorrelation
+	_ = risk.GetSupplyChainCorrelation
+	_ = risk.GetRuntimeCVECorrelation
 	// Policy handlers
 	_ = policy.NewPolicyHandler
 )

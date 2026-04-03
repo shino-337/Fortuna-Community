@@ -150,8 +150,8 @@ export function exportSbomAsSpdxJson(sbom: PodSbom): void {
       versionInfo: c.version || 'unknown',
       downloadLocation: 'NOASSERTION',
       filesAnalyzed: false,
-      licenseConcluded: 'NOASSERTION',
-      licenseDeclared: 'NOASSERTION',
+      licenseConcluded: c.license || 'NOASSERTION',
+      licenseDeclared: c.license || 'NOASSERTION',
       copyrightText: 'NOASSERTION',
       externalRefs,
       summary: vulnList ? `Known vulnerabilities: ${vulnList}` : undefined,
@@ -194,6 +194,7 @@ export function exportSbomAsCycloneDxJson(sbom: PodSbom): void {
     name: c.name,
     version: c.version || 'unknown',
     purl: c.purl,
+    licenses: c.license ? [{ license: { name: c.license } }] : undefined,
     properties: [
       { name: 'fortuna:cveCount', value: String((c.vulnerabilities || []).length) },
       { name: 'fortuna:maxSeverity', value: maxSeverityRank(c.vulnerabilities || []) },
@@ -231,7 +232,11 @@ export function exportSbomAsCycloneDxJson(sbom: PodSbom): void {
     version: 1,
     metadata: {
       timestamp: created,
-      tools: [{ vendor: 'Fortuna', name: 'Dashboard Exporter' }],
+      tools: {
+        components: [
+          { type: 'application', name: 'Fortuna Dashboard Exporter', publisher: 'Fortuna' },
+        ],
+      },
       component: {
         type: 'container',
         name: sbom.podName || sbom.podId || 'pod',
