@@ -223,6 +223,15 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 		return nil
 	}
 
+	// Collect audit details before deletion (pod_uid, namespace, pod_name per SBOM).
+	auditSBOMs := make([]models.SBOM, 0, len(orphanedSBOMIDs))
+	if err := r.db.WithContext(ctx).
+		Where("id IN ?", orphanedSBOMIDs).
+		Select("id, pod_uid, pod_name, namespace, image_name, image_tag").
+		Find(&auditSBOMs).Error; err != nil {
+		r.logger.Printf("⚠️  Failed to pre-load SBOM audit data: %v (proceeding with deletion)", err)
+	}
+
 	// Soft delete orphaned SBOMs
 	result := r.db.WithContext(ctx).
 		Where("id IN ?", orphanedSBOMIDs).
@@ -234,6 +243,27 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 
 	r.logger.Printf("✅ Soft-deleted %d orphaned SBOMs", result.RowsAffected)
 	stats.DeletedSBOMs = int(result.RowsAffected)
+
+	// G8: Write audit trail for each deleted SBOM so compliance investigations
+	// can trace when and why an SBOM was removed.
+	for _, s := range auditSBOMs {
+		reason := "pod_deleted"
+		if !deletedPodUIDs[s.PodUID] {
+			reason = "pod_missing_grace_expired"
+		}
+		details := fmt.Sprintf(`{"sbom_id":%d,"pod_uid":%q,"pod_name":%q,"namespace":%q,"image":"%s:%s","reason":%q}`,
+			s.ID, s.PodUID, s.PodName, s.Namespace, s.ImageName, s.ImageTag, reason)
+		audit := models.AuditLog{
+			Action:     "delete",
+			Resource:   "sbom",
+			ResourceID: fmt.Sprintf("%d", s.ID),
+			User:       "system/sbom-reconciler",
+			Details:    details,
+		}
+		if err := r.db.WithContext(ctx).Create(&audit).Error; err != nil {
+			r.logger.Printf("⚠️  Failed to write audit log for SBOM id=%d: %v", s.ID, err)
+		}
+	}
 
 	return nil
 }
