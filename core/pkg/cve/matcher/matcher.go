@@ -449,7 +449,7 @@ func (m *Matcher) MatchSBOM(
 				purl = inferPURLFromComponent(component, sbom.OSName)
 			}
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
-			nvdName := normalizeComponentNameForNVD(component.ComponentName) // so whitelist + NVD keyword match (e.g. registry.k8s.io/coredns → coredns)
+			nvdName := nvdKeywordSearchName(component.ComponentName, purl) // Go modules: full path for NVD keywordSearch; else normalize (e.g. coredns image → coredns)
 			tryNVD := isNVDFallbackWhitelisted(component.ComponentName)
 			// Cost control: only try NVD for whitelisted names.
 			if !tryNVD {
@@ -1033,10 +1033,35 @@ func normalizeComponentNameForNVD(name string) string {
 	return n
 }
 
+// nvdKeywordSearchName picks the string passed to NVD keywordSearch=.
+// For Go/golang PURLs, the last path segment alone (e.g. "crypto") is too noisy; use the full module path.
+// golang.org/x/* is handled on raw component name so a missing/invalid PURL still gets a precise keyword.
+func nvdKeywordSearchName(componentName string, purl *PURL) string {
+	full := strings.TrimSpace(componentName)
+	if full == "" {
+		return normalizeComponentNameForNVD(componentName)
+	}
+	if strings.Contains(full, "/") && strings.HasPrefix(strings.ToLower(full), "golang.org/x/") {
+		return full
+	}
+	if purl != nil {
+		eco := strings.ToLower(strings.TrimSpace(purl.Ecosystem))
+		if (eco == "go" || eco == "golang") && strings.Contains(full, "/") {
+			return full
+		}
+	}
+	return normalizeComponentNameForNVD(componentName)
+}
+
 // isNVDFallbackWhitelisted returns true for control-plane and runtime names we allow
 // for CVE matching and NVD fallback (openssl, glibc, kube-*, coredns, etcd, ...).
 // Uses normalizeComponentNameForNVD so "coredns/coredns" and "registry.k8s.io/coredns" match.
 func isNVDFallbackWhitelisted(name string) bool {
+	raw := strings.TrimSpace(name)
+	// Go x/* repos: normalize() yields a useless short token ("crypto"); allow NVD fallback on full module path.
+	if strings.HasPrefix(strings.ToLower(raw), "golang.org/x/") {
+		return true
+	}
 	n := normalizeComponentNameForNVD(name)
 	n = strings.TrimSpace(n)
 	if n == "" {
@@ -1052,7 +1077,7 @@ func isNVDFallbackWhitelisted(name string) bool {
 		"containerd-shim": true, "containerd-shim-runc-v1": true,
 		"runc": true, "conntrack": true, "iptables": true,
 		"busybox": true, "busybox-binsh": true,
-		"curl": true, "wget": true, "nginx": true, "postgres": true,
+		"curl": true, "wget": true, "postgres": true,
 		"musl": true, "zlib": true, "libcrypto": true, "libxml2": true,
 		"bash": true, "sudo": true, "openssh": true,
 		"flannel": true, "cni-plugins": true,

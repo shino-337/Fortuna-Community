@@ -40,6 +40,7 @@ var (
 	_ = Migration016_AddPolicyViolations
 	_ = Migration018_AddRiskScoresV2Columns
 	_ = Migration019_AddCVETables
+	_ = Migration020_AddOSVMirrorTables
 	_ = Migration020_AddSBOMTables
 	_ = Migration021_FixSBOMSchema
 	_ = Migration022_AddCVEColumnsToInsights
@@ -156,6 +157,7 @@ func RunMigrations(db *gorm.DB) error {
 		// MVP2: Risk scores V2, CVE, SBOM (018-022)
 		Migration018_AddRiskScoresV2Columns,  // MVP2 Phase 1.2: Risk Scoring V2
 		Migration019_AddCVETables,            // MVP2 Phase 2: CVE Detection Integration (Trivy-based)
+		Migration020_AddOSVMirrorTables,      // P2-7: OSV mirror tables (Go + future ecosystems); was defined but not wired
 		Migration020_AddSBOMTables,           // MVP2 Phase 2: SBOM-based CVE Detection (replacing Trivy)
 		Migration021_FixSBOMSchema,           // MVP2 Phase 2: Schema fix for p_url -> purl and insights.source
 		Migration022_AddCVEColumnsToInsights, // MVP2 Phase 2: Add CVE-specific columns to insights table

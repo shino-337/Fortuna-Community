@@ -77,6 +77,23 @@ func TestNormalizeQueryEcosystemWithOS(t *testing.T) {
 	}
 }
 
+func TestNvdKeywordSearchName_GoModuleFullPath(t *testing.T) {
+	p, err := ParsePURL("pkg:golang/golang.org/x/crypto@0.12.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := nvdKeywordSearchName("golang.org/x/crypto", p)
+	if got != "golang.org/x/crypto" {
+		t.Fatalf("nvdKeywordSearchName = %q, want full module path", got)
+	}
+	if nvdKeywordSearchName("openssl", &PURL{Ecosystem: "deb"}) != "openssl" {
+		t.Fatal("non-Go should use normalizeComponentNameForNVD")
+	}
+	if got := nvdKeywordSearchName("golang.org/x/crypto", nil); got != "golang.org/x/crypto" {
+		t.Fatalf("golang.org/x/* without PURL: got %q, want full module path", got)
+	}
+}
+
 func TestNormalizeComponentNameForNVD(t *testing.T) {
 	tests := []struct{ in, want string }{
 		{"coredns", "coredns"},
@@ -134,6 +151,7 @@ func TestIsNVDFallbackWhitelisted(t *testing.T) {
 		"coredns", "etcd", "pause", "openssl", "libc.so.6", "libssl.so.3",
 		"containerd-shim", "runc", "glibc", "libfoo.so.1",
 		"registry.k8s.io/coredns", "coredns/coredns", // normalized to coredns → whitelisted
+		"golang.org/x/crypto", "Golang.org/x/Net", // x/* expansion path (normalize → short token; raw prefix whitelists)
 	}
 	for _, name := range allowed {
 		if !isNVDFallbackWhitelisted(name) {
