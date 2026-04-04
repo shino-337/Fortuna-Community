@@ -8,8 +8,6 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
 spec:
-  strategy:
-    type: Recreate
   selector:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
