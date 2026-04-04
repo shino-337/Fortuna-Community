@@ -68,6 +68,10 @@ func main() {
 	// Load configuration
 	cfg := config.LoadConfig()
 	logConfig(cfg)
+	if cfg.NodeName == "unknown-node" {
+		log.Printf("❌ SBOM: NODE_NAME is unset (using default %q). Pod informer fieldSelector is spec.nodeName=%q → no real node matches → SBOM queue stays empty. Set NODE_NAME via downward API (fieldRef spec.nodeName) on the Agent pod.",
+			cfg.NodeName, cfg.NodeName)
+	}
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())

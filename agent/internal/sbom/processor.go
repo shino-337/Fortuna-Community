@@ -45,8 +45,9 @@ func NewProcessor(grpcClient client.GRPCClient, agentID, nodeID, nodeName string
 func (p *Processor) ProcessPod(ctx context.Context, pod *corev1.Pod) error {
 	p.logger.Printf("Processing pod %s/%s on node %s", pod.Namespace, pod.Name, pod.Spec.NodeName)
 
-	// Verify pod is on our node
-	if pod.Spec.NodeName != p.nodeName {
+	// Defensive: informer already filters by spec.nodeName==this node. Only reject when API
+	// reports a different non-empty node (avoids dropping work if nodeName is briefly empty).
+	if pod.Spec.NodeName != "" && pod.Spec.NodeName != p.nodeName {
 		return fmt.Errorf("pod %s/%s is not on our node (expected %s, got %s)",
 			pod.Namespace, pod.Name, p.nodeName, pod.Spec.NodeName)
 	}
