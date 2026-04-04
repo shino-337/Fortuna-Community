@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/fortuna/core/pkg/models"
 )
@@ -979,10 +980,34 @@ func (s *Scorer) SaveScore(ctx context.Context, score *RiskScoreV2) error {
 		CalculatedAt:        time.Now(),
 	}
 
-	// Upsert (update or create)
-	return s.db.WithContext(ctx).
-		Where("resource_type = ? AND resource_uid = ? AND cluster_id = ?",
-			score.ResourceType, score.ResourceUID, score.ClusterID).
-		Assign(riskScore).
-		FirstOrCreate(riskScore).Error
+	// Upsert on (resource_type, resource_uid, cluster_id). The table has a UNIQUE on those
+	// columns without excluding deleted_at, so soft-deleted rows still occupy the key; GORM's
+	// default FirstOrCreate skips deleted rows and would INSERT → 23505. ON CONFLICT also
+	// makes concurrent SaveScore from InsightManager goroutines safe.
+	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "resource_type"},
+			{Name: "resource_uid"},
+			{Name: "cluster_id"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"resource_name",
+			"namespace",
+			"total_score",
+			"base_score",
+			"severity_weight",
+			"impact_multiplier",
+			"time_decay",
+			"exploitability_score",
+			"business_impact_score",
+			"scorer_version",
+			"factors",
+			"insights_count",
+			"highest_severity",
+			"priority_level",
+			"calculated_at",
+			"updated_at",
+			"deleted_at",
+		}),
+	}).Create(riskScore).Error
 }
