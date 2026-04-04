@@ -98,31 +98,32 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		}
 	}
 
-	// For capability insights with CVEID set (capability ID used as logical key), deduplicate by resource_uid + insight_type + cve_id
-	// to match DB unique constraint (idx_insights_unique_resource_cve_type_all). Find ANY existing row regardless of status
-	// to avoid duplicate key on INSERT (e.g. status empty or other value not in active/resolved/dismissed).
-	if insight.InsightType == "capability" && strings.TrimSpace(insight.CVEID) != "" {
-		var existingCap models.Insight
+	// Non-vulnerability insights that store a logical key in cve_id (YAML rule.ID, capability id, …):
+	// DB enforces UNIQUE (resource_uid, cve_id, insight_type) (idx_insights_unique_resource_cve_type_all).
+	// Deduplicate on that triple — not on title alone — so re-runs, duplicate API objects with the same UID,
+	// or legacy rows with empty/unexpected status still upsert instead of raising 23505.
+	if insight.InsightType != "vulnerability" && strings.TrimSpace(insight.CVEID) != "" {
+		cveKey := strings.TrimSpace(insight.CVEID)
+		var existingKey models.Insight
 		if tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND deleted_at IS NULL",
-			"capability", insight.ResourceUID, insight.CVEID).First(&existingCap).Error == nil {
-			wasResolvedOrDismissed := existingCap.Status == "resolved" || existingCap.Status == "dismissed"
-			existingCap.Status = "active"
-			existingCap.Severity = insight.Severity
-			existingCap.Description = insight.Description
-			existingCap.Recommendation = insight.Recommendation
-			existingCap.Title = insight.Title
-			existingCap.UpdatedAt = time.Now()
+			insight.InsightType, insight.ResourceUID, cveKey).First(&existingKey).Error == nil {
+			wasResolvedOrDismissed := existingKey.Status == "resolved" || existingKey.Status == "dismissed"
+			existingKey.Status = "active"
+			existingKey.Severity = insight.Severity
+			existingKey.Description = insight.Description
+			existingKey.Recommendation = insight.Recommendation
+			existingKey.Title = insight.Title
+			existingKey.UpdatedAt = time.Now()
 			if wasResolvedOrDismissed {
-				existingCap.DetectedAt = time.Now()
+				existingKey.DetectedAt = time.Now()
 			}
-			if err := tx.Save(&existingCap).Error; err != nil {
-				return fmt.Errorf("failed to update capability insight: %w", err)
+			if err := tx.Save(&existingKey).Error; err != nil {
+				return fmt.Errorf("failed to update insight (resource+cve+type key): %w", err)
 			}
-			log.Printf("[InsightManager] Updated capability insight ID=%d (resource_uid=%s, cve_id=%s)",
-				existingCap.ID, insight.ResourceUID, insight.CVEID)
+			log.Printf("[InsightManager] Updated insight ID=%d (resource_uid=%s, insight_type=%s, cve_id=%s)",
+				existingKey.ID, insight.ResourceUID, insight.InsightType, cveKey)
 			return nil
 		}
-		// No existing row: fall through to createInsightTx
 	}
 
 	// For other non-vulnerability insights, deduplicate by resource_uid + insight_type + title.
