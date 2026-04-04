@@ -2,6 +2,7 @@ package sbom
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -52,16 +53,17 @@ func (p *Processor) ProcessPod(ctx context.Context, pod *corev1.Pod) error {
 			pod.Namespace, pod.Name, p.nodeName, pod.Spec.NodeName)
 	}
 
-	// Process each container
+	// Process each container; return error if any send/extract path fails so the SBOM queue
+	// can retry (ProcessPod used to always return nil and marked pods "succeeded" despite gRPC failures).
+	var errs []error
 	for _, container := range pod.Spec.Containers {
 		if err := p.processContainer(ctx, pod, container); err != nil {
 			p.logger.Printf("⚠️  Failed to process container %s in pod %s/%s: %v",
 				container.Name, pod.Namespace, pod.Name, err)
-			// Continue with other containers
+			errs = append(errs, fmt.Errorf("container %s: %w", container.Name, err))
 		}
 	}
-
-	return nil
+	return errors.Join(errs...)
 }
 
 // processContainer extracts SBOM for a single container

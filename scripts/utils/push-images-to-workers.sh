@@ -193,9 +193,14 @@ check_prerequisites() {
     
     if [ "$INCLUDE_DASHBOARD" = "true" ]; then
         if ! image_exists "$DASHBOARD_IMAGE"; then
-            log_error "Dashboard image not found: $DASHBOARD_IMAGE"
-            log_info "Build first: ./scripts/build/build-and-load-containerd.sh (from $PROJECT_ROOT)"
-            return 1
+            if image_exists "fortuna-dashboard:latest"; then
+                log_warning "Dashboard image not found: $DASHBOARD_IMAGE — using fortuna-dashboard:latest (pin deploy/dashboard-deployment.yaml to :latest after rebuild)"
+                DASHBOARD_IMAGE="fortuna-dashboard:latest"
+            else
+                log_error "Dashboard image not found: $DASHBOARD_IMAGE (and fortuna-dashboard:latest missing)"
+                log_info "Build first: ./scripts/build/build-and-load-containerd.sh (from $PROJECT_ROOT)"
+                return 1
+            fi
         fi
     fi
     

@@ -363,9 +363,9 @@ echo -e "${GREEN}✅${NC} Dashboard deployed"
 # Step 10: Rollout restart workloads so new images (from rebuild) are used
 echo ""
 echo -e "${BLUE}Step 10: Rollout restart (Core, Dashboard, Agent) to use new images...${NC}"
-kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
-kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
-kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
+kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
 echo "Waiting for Core to be available (max 120s)..."
 kubectl wait --for=condition=available deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
 echo "Waiting for Core rollout to complete..."

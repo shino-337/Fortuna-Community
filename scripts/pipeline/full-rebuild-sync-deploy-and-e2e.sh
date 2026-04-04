@@ -106,9 +106,9 @@ fi
 [ -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" || true
 [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" || true
 log_info "Rollout restart Core, Dashboard, Agent..."
-kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
-kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
-kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
+kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
 log_ok "Deploy complete"
 echo ""
 

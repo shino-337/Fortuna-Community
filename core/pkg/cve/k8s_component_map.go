@@ -1,6 +1,7 @@
 package cve
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed k8s_component_map.yaml
+var embeddedK8sComponentMapYAML []byte
 
 // K8sComponentMapping represents a single component → module prefix mapping entry.
 type K8sComponentMapping struct {
@@ -63,8 +67,13 @@ func LoadK8sComponentMap() (map[string]K8sComponentMapping, error) {
 			usedPath = p
 			break
 		}
-		if data == nil || usedPath == "" {
-			k8sComponentMapErr = fmt.Errorf("failed to read k8s component map from any candidate path (FORTUNA_K8S_COMPONENT_MAP_PATH, core/pkg/cve/k8s_component_map.yaml, pkg/cve/k8s_component_map.yaml, ../k8s_component_map.yaml)")
+		// Container images and many production WORKDIRs have no repo-relative YAML; embed default.
+		if len(data) == 0 && len(embeddedK8sComponentMapYAML) > 0 {
+			data = embeddedK8sComponentMapYAML
+			usedPath = "<embedded>"
+		}
+		if len(data) == 0 || usedPath == "" {
+			k8sComponentMapErr = fmt.Errorf("failed to read k8s component map (no file on disk and embedded copy empty); set FORTUNA_K8S_COMPONENT_MAP_PATH or mount k8s_component_map.yaml")
 			return
 		}
 

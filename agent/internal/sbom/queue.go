@@ -23,6 +23,8 @@ func isTransientSendError(err error) bool {
 	}
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "client not connected") ||
+		strings.Contains(s, "connect before sbom") ||
+		strings.Contains(s, "connect before combinedfinding") ||
 		strings.Contains(s, "connection refused") ||
 		strings.Contains(s, "connection reset") ||
 		strings.Contains(s, "unavailable") ||

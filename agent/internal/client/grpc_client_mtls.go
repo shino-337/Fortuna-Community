@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -47,6 +48,7 @@ type MTLSClient struct {
 	conn       *grpc.ClientConn
 	client     pb.AgentServiceClient
 	logger     *log.Logger
+	mu         sync.Mutex // serializes Reconnect/Close vs RPCs; prevents SendSBOM during nil client window after Close()
 }
 
 // NewMTLSClient creates a new mTLS-enabled gRPC client. clusterID is optional (for Core per-cluster rate limit).
@@ -62,44 +64,60 @@ func NewMTLSClient(endpoint string, tlsEnabled bool, certPath, keyPath, caPath s
 	}
 }
 
-// Connect establishes gRPC connection with mTLS
+// Connect establishes gRPC connection with mTLS (idempotent if already connected).
 func (c *MTLSClient) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.client != nil {
+		return nil
+	}
+	return c.dialLocked(ctx)
+}
+
+// closeLocked drops the connection and stub; caller must hold c.mu.
+func (c *MTLSClient) closeLocked() {
+	if c.conn != nil {
+		c.logger.Printf("Closing gRPC connection")
+		_ = c.conn.Close()
+		c.conn = nil
+		c.client = nil
+	}
+}
+
+// dialLocked dials Core; caller must hold c.mu.
+func (c *MTLSClient) dialLocked(ctx context.Context) error {
+	c.closeLocked()
+
 	c.logger.Printf("Connecting to Core at %s (TLS: %v)", c.endpoint, c.tlsEnabled)
 
 	var opts []grpc.DialOption
 
-	// Configure mTLS if enabled
 	if c.tlsEnabled {
 		c.logger.Printf("Loading mTLS certificates...")
 		c.logger.Printf("  Cert: %s", c.certPath)
 		c.logger.Printf("  Key:  %s", c.keyPath)
 		c.logger.Printf("  CA:   %s", c.caPath)
 
-		// Load client certificate
 		cert, err := tls.LoadX509KeyPair(c.certPath, c.keyPath)
 		if err != nil {
 			return fmt.Errorf("failed to load client cert/key: %w", err)
 		}
 
-		// Load CA certificate
 		caCert, err := os.ReadFile(c.caPath)
 		if err != nil {
 			return fmt.Errorf("failed to read CA cert: %w", err)
 		}
 
-		// Create cert pool
 		certPool := x509.NewCertPool()
 		if !certPool.AppendCertsFromPEM(caCert) {
 			return fmt.Errorf("failed to append CA cert")
 		}
 
-		// Create TLS config
 		tlsConfig := &tls.Config{
 			Certificates: []tls.Certificate{cert},
 			RootCAs:      certPool,
-			// Server name must match cert CN/SAN
-			ServerName: "fortuna-core.fortuna.svc.cluster.local",
-			MinVersion: tls.VersionTLS13,
+			ServerName:   "fortuna-core.fortuna.svc.cluster.local",
+			MinVersion:   tls.VersionTLS13,
 		}
 
 		creds := credentials.NewTLS(tlsConfig)
@@ -110,15 +128,12 @@ func (c *MTLSClient) Connect(ctx context.Context) error {
 		opts = append(opts, grpc.WithTransportCredentials(insecure.NewCredentials()))
 	}
 
-	// Add keepalive parameters
 	opts = append(opts, grpc.WithKeepaliveParams(keepalive.ClientParameters{
 		Time:                30 * time.Second,
 		Timeout:             10 * time.Second,
 		PermitWithoutStream: true,
 	}))
 
-	// Block until connection is established (or timeout) so we surface real errors:
-	// connection refused (Core not ready), TLS handshake failure (certs), timeout (network/DNS).
 	const dialTimeout = 15 * time.Second
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
@@ -138,25 +153,27 @@ func (c *MTLSClient) Connect(ctx context.Context) error {
 
 // Close closes the gRPC connection and clears client so Connect can be called again
 func (c *MTLSClient) Close() error {
-	if c.conn != nil {
-		c.logger.Printf("Closing gRPC connection")
-		_ = c.conn.Close()
-		c.conn = nil
-		c.client = nil
-	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.closeLocked()
 	return nil
 }
 
 // Reconnect closes the current connection and establishes a new one (e.g. after DNS/connection recovery)
 func (c *MTLSClient) Reconnect(ctx context.Context) error {
-	c.Close()
-	return c.Connect(ctx)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.dialLocked(ctx)
 }
 
 // SendSBOMFinding sends a single SBOM finding to Core (Finding #1.2: correlation ID in metadata).
 func (c *MTLSClient) SendSBOMFinding(ctx context.Context, finding *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.client == nil {
-		return nil, fmt.Errorf("client not connected")
+		if err := c.dialLocked(ctx); err != nil {
+			return nil, fmt.Errorf("connect before SBOM: %w", err)
+		}
 	}
 
 	correlationID := uuid.New().String()
@@ -177,8 +194,12 @@ func (c *MTLSClient) SendSBOMFinding(ctx context.Context, finding *pb.SBOMFindin
 
 // SendCombinedFinding sends combined SBOM + CVE findings to Core
 func (c *MTLSClient) SendCombinedFinding(ctx context.Context, finding *pb.CombinedFinding) (*pb.CombinedFindingResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.client == nil {
-		return nil, fmt.Errorf("client not connected")
+		if err := c.dialLocked(ctx); err != nil {
+			return nil, fmt.Errorf("connect before CombinedFinding: %w", err)
+		}
 	}
 
 	c.logger.Printf("Sending CombinedFinding: pod=%s/%s", finding.Sbom.Namespace, finding.Sbom.PodName)
@@ -193,8 +214,12 @@ func (c *MTLSClient) SendCombinedFinding(ctx context.Context, finding *pb.Combin
 
 // RegisterAgent registers the agent with Core
 func (c *MTLSClient) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.client == nil {
-		return nil, fmt.Errorf("client not connected")
+		if err := c.dialLocked(ctx); err != nil {
+			return nil, fmt.Errorf("connect before RegisterAgent: %w", err)
+		}
 	}
 
 	c.logger.Printf("Registering agent: id=%s node=%s", req.AgentId, req.NodeName)
@@ -210,8 +235,12 @@ func (c *MTLSClient) RegisterAgent(ctx context.Context, req *pb.RegisterAgentReq
 
 // Ping sends a health check ping to Core
 func (c *MTLSClient) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.client == nil {
-		return nil, fmt.Errorf("client not connected")
+		if err := c.dialLocked(ctx); err != nil {
+			return nil, fmt.Errorf("connect before Ping: %w", err)
+		}
 	}
 
 	resp, err := c.client.Ping(ctx, req)
@@ -229,8 +258,12 @@ func (c *MTLSClient) StreamInventory(ctx context.Context, items interface{}) err
 
 // Heartbeat sends periodic health status to Core.
 func (c *MTLSClient) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	if c.client == nil {
-		return nil, fmt.Errorf("client not connected")
+		if err := c.dialLocked(ctx); err != nil {
+			return nil, fmt.Errorf("connect before Heartbeat: %w", err)
+		}
 	}
 	return c.client.Heartbeat(ctx, req)
 }

@@ -39,8 +39,8 @@ echo ""
 
 # 2. Rollout restart Core and Agent
 echo "[2/3] Rolling out Core and Agent to load new certs..."
-kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
-kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" --timeout=120s 2>/dev/null || true
+kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
 echo -e "${GREEN}Rollout restart requested${NC}"
 echo ""
 

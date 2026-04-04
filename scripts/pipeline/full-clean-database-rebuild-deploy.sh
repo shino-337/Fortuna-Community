@@ -416,9 +416,9 @@ if [ "$SKIP_DEPLOY" = false ]; then
   [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" || true
   # Rollout restart is done inside deploy-fortuna-robust.sh (Step 10); here as safety net if deploy was partial
   log_info "Phase 3b: Rollout restart (Core, Dashboard, Agent) to use new images..."
-  kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" --timeout=60s 2>/dev/null || true
-  kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
-  kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" --timeout=90s 2>/dev/null || true
+  kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
+  kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" 2>/dev/null || true
+  kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
   log_info "Waiting for Core rollout (max 120s)..."
   kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Core rollout status check failed or timed out"
   log_info "Waiting for Dashboard rollout (max 90s)..."

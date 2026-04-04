@@ -154,6 +154,7 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 		}
 	}
 
+	hostRt := useHostRuntime()
 	for i := range pods {
 		pod := &pods[i]
 		uid := string(pod.UID)
@@ -170,12 +171,25 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 		if err := r.sendRuntimeMetrics(ctx, pod, usageByPod[uid], netc); err != nil {
 			log.Printf("[PodDetail] send metrics for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
-		// Process snapshot: host (from /proc) or exec
-		if err := r.sendProcessSnapshotsForPod(ctx, pod, processesByPod[uid]); err != nil {
+		// Process / network: when POD_DETAIL_RUNTIME_SOURCE=host, never fall back to exec for pods
+		// with no PIDs mapped from /host/proc (nil map entry); exec would spam "container not found"
+		// for workloads whose cgroups are not visible the same way (e.g. some nginx/alpine pods).
+		var procArg []processPayload
+		var connArg []connectionPayload
+		if hostRt {
+			procArg = processesByPod[uid]
+			if procArg == nil {
+				procArg = []processPayload{}
+			}
+			connArg = connectionsByPod[uid]
+			if connArg == nil {
+				connArg = []connectionPayload{}
+			}
+		}
+		if err := r.sendProcessSnapshotsForPod(ctx, pod, procArg, hostRt); err != nil {
 			log.Printf("[PodDetail] send processes for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
-		// Network: host (from /proc/<pid>/net/*) or exec
-		if err := r.sendNetworkConnectionsForPod(ctx, pod, connectionsByPod[uid]); err != nil {
+		if err := r.sendNetworkConnectionsForPod(ctx, pod, connArg, hostRt); err != nil {
 			log.Printf("[PodDetail] send network for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
 	}
@@ -272,15 +286,15 @@ type processPayload struct {
 	ObservedAt    string  `json:"observedAt"`
 }
 
-// sendProcessSnapshotsForPod sends process list for one pod. When hostProcesses is non-nil (host mode)
-// it uses that; otherwise collects via exec when restConfig is set.
-func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.Pod, hostProcesses []processPayload) error {
+// sendProcessSnapshotsForPod sends process list for one pod. When runtimeFromHost is true, hostProcesses
+// is used as-is (may be empty); no exec fallback. When false, collects via exec when restConfig is set.
+func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.Pod, hostProcesses []processPayload, runtimeFromHost bool) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
 	}
 	var processes []processPayload
-	if hostProcesses != nil {
+	if runtimeFromHost {
 		processes = hostProcesses
 	} else if r.restConfig != nil {
 		var err error
@@ -295,7 +309,7 @@ func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.P
 		"namespace": pod.Namespace,
 		"processes": processes,
 	}
-	if hostProcesses != nil {
+	if runtimeFromHost {
 		body["runtimeSource"] = "host"
 	}
 	return r.post(ctx, "/api/v1/agent/pod-processes", body)
@@ -346,15 +360,15 @@ func (r *Reporter) postWithRetry(ctx context.Context, path string, body interfac
 	return nil
 }
 
-// sendNetworkConnectionsForPod sends network connections for one pod. When hostConnections is non-nil (host mode)
-// uses that; otherwise collects via exec when restConfig is set.
-func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1.Pod, hostConnections []connectionPayload) error {
+// sendNetworkConnectionsForPod sends network connections for one pod. When runtimeFromHost is true,
+// hostConnections is used as-is (may be empty); no exec fallback.
+func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1.Pod, hostConnections []connectionPayload, runtimeFromHost bool) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
 	}
 	var connections []connectionPayload
-	if hostConnections != nil {
+	if runtimeFromHost {
 		connections = hostConnections
 	} else if r.restConfig != nil {
 		var err error
@@ -369,7 +383,7 @@ func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1
 		"namespace":   pod.Namespace,
 		"connections": connections,
 	}
-	if hostConnections != nil {
+	if runtimeFromHost {
 		body["runtimeSource"] = "host"
 	}
 	return r.postWithRetry(ctx, "/api/v1/agent/pod-network-connections", body)
