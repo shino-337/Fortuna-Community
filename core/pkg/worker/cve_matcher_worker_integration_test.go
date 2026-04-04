@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/glebarez/sqlite"
+	"github.com/fortuna/core/migrations"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/sbom"
 	"github.com/nats-io/nats.go"
@@ -54,10 +55,12 @@ func TestFullFlow_DistrolessSBOM_NVD_CVE_AndRisk(t *testing.T) {
 	if err := db.AutoMigrate(
 		&models.SBOM{},
 		&models.SBOMComponent{},
+		&models.SBOMMatchRun{},
 		&models.CVE{},
 		&models.PackageVulnerability{},
 		&models.CVEMatch{},
 		&models.Insight{},
+		&models.MirrorState{},
 	); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -67,7 +70,10 @@ func TestFullFlow_DistrolessSBOM_NVD_CVE_AndRisk(t *testing.T) {
 	if err := db.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_insights_unique_resource_cve_type ON insights(resource_uid, cve_id, insight_type)").Error; err != nil {
 		t.Fatalf("create unique index on insights: %v", err)
 	}
-	t.Log("OK: Bảng sboms, sbom_components, cves, package_vulnerabilities, cve_matches, insights đã sẵn sàng.")
+	if err := migrations.Migration086_AddSBOMProcessingState(db); err != nil {
+		t.Fatalf("migration 086 sbom_processing_state: %v", err)
+	}
+	t.Log("OK: Bảng sboms, sbom_components, cves, package_vulnerabilities, cve_matches, insights, sbom_processing_state đã sẵn sàng.")
 
 	t.Log("========== BƯỚC 1: Tạo SBOM distroless (pod control-plane) ==========")
 	containerImage := testImageName + ":" + testImageTag
@@ -84,6 +90,7 @@ func TestFullFlow_DistrolessSBOM_NVD_CVE_AndRisk(t *testing.T) {
 		PackageCount:  1,
 		SbomSource:    "distroless-heuristic",
 		Confidence:    "medium",
+		Status:        "complete", // matcher skips pending/failed (TestMatchSBOM_SkipsPendingSBOMStatus)
 		GeneratedAt:   time.Now(),
 	}
 	if err := db.Create(&sbomRow).Error; err != nil {
