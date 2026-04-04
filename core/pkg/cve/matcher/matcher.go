@@ -11,6 +11,7 @@ import (
 
 	"github.com/fortuna/core/pkg/cve"
 	"github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/hashicorp/go-version"
@@ -24,12 +25,18 @@ var constraintArchRE = regexp.MustCompile(`(?i)(?:^|[,\s])arch\s*=\s*([a-z0-9_:-
 
 // Matcher matches CVEs against SBOM components
 type Matcher struct {
-	dbManager  *database.Manager
-	comparator *VersionComparator
-	db         *gorm.DB
-	logger     *log.Logger
-	// cache for OSV mirror lookups: module -> vulnerabilities
-	osvCache map[string][]models.OSVVulnerability
+	dbManager      *database.Manager
+	comparator     *VersionComparator
+	db             *gorm.DB
+	logger         *log.Logger
+	malwareManager MalwareChecker
+	osvCache       map[string][]models.OSVVulnerability
+}
+
+// MalwareChecker is satisfied by malware.Manager (avoids import cycle).
+type MalwareChecker interface {
+	Enabled() bool
+	BulkCheck(ctx context.Context, packages []malware.PkgVersion) map[string]*models.MalwarePackage
 }
 
 // NewMatcher creates a new CVE matcher
@@ -44,6 +51,11 @@ func NewMatcher(
 		logger:     log.New(log.Writer(), "[CVEMatcher] ", log.LstdFlags),
 		osvCache:   make(map[string][]models.OSVVulnerability),
 	}
+}
+
+// SetMalwareChecker attaches a malware manager for supply-chain threat detection.
+func (m *Matcher) SetMalwareChecker(mc MalwareChecker) {
+	m.malwareManager = mc
 }
 
 // MatchSBOM matches CVEs against an SBOM. If componentsOverride is non-nil, use it (P1-5 snapshot);
@@ -260,7 +272,24 @@ func (m *Matcher) MatchSBOM(
 	}
 
 	// 2. Bulk query CVEs for all packages per ecosystem
+	// When ecosystem is "generic" (unknown OS), also try common distro ecosystems
+	// so that packages like busybox still match Alpine/Debian CVEs.
+	expandedEcosystems := make(map[string]map[string]struct{})
 	for ecosystem, packageSet := range ecosystemPackages {
+		expandedEcosystems[ecosystem] = packageSet
+		if ecosystem == "generic" {
+			for _, fallbackEco := range []string{"alpine", "debian"} {
+				if expandedEcosystems[fallbackEco] == nil {
+					expandedEcosystems[fallbackEco] = make(map[string]struct{})
+				}
+				for pkg := range packageSet {
+					expandedEcosystems[fallbackEco][pkg] = struct{}{}
+				}
+			}
+		}
+	}
+
+	for ecosystem, packageSet := range expandedEcosystems {
 		packageNames := make([]string, 0, len(packageSet))
 		for pkg := range packageSet {
 			packageNames = append(packageNames, pkg)
@@ -294,6 +323,11 @@ func (m *Matcher) MatchSBOM(
 				return cves[i].ID < cves[j].ID
 			})
 			candidates := candidatesByEcoPkg[ecosystem+"|"+pkgName]
+			// Cross-ecosystem fallback: when querying alpine/debian for generic packages,
+			// the candidates were stored under "generic|pkgName".
+			if len(candidates) == 0 {
+				candidates = candidatesByEcoPkg["generic|"+pkgName]
+			}
 			if len(candidates) == 0 {
 				continue
 			}
@@ -1017,6 +1051,11 @@ func isNVDFallbackWhitelisted(name string) bool {
 		"coredns": true, "etcd": true, "pause": true,
 		"containerd-shim": true, "containerd-shim-runc-v1": true,
 		"runc": true, "conntrack": true, "iptables": true,
+		"busybox": true, "busybox-binsh": true,
+		"curl": true, "wget": true, "nginx": true, "postgres": true,
+		"musl": true, "zlib": true, "libcrypto": true, "libxml2": true,
+		"bash": true, "sudo": true, "openssh": true,
+		"flannel": true, "cni-plugins": true,
 	}
 	if allowed[n] {
 		return true

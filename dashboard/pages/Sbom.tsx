@@ -2,7 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
-import { PodSbom, PodSbomSummary } from '../types';
+import { PodSbom, PodSbomSummary, ThreatSummary } from '../types';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Package, Search, Filter, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2, Download } from 'lucide-react';
@@ -24,6 +24,7 @@ export const Sbom: React.FC = () => {
   const [namespaceFilter, setNamespaceFilter] = useState('');
   const [expandedComponents, setExpandedComponents] = useState<Set<string>>(new Set());
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [threatSummary, setThreatSummary] = useState<ThreatSummary | null>(null);
   const initialSelectionDone = useRef(false);
 
   const fetchSbomList = useCallback(async () => {
@@ -72,9 +73,17 @@ export const Sbom: React.FC = () => {
   const handleSelectPod = async (pod: PodSbomSummary) => {
     setSelectedPod(pod);
     setDetailLoading(true);
+    setThreatSummary(null);
     const detail = await api.getPodSbom(pod.podId);
     setSelectedDetail(detail || null);
     setDetailLoading(false);
+    try {
+      const resp = await fetch(`/api/v1/malware/threats/${pod.podId}`);
+      if (resp.ok) {
+        const ts = await resp.json();
+        if (ts && ts.totalThreats > 0) setThreatSummary(ts);
+      }
+    } catch { /* malware API optional */ }
   };
 
   const getSeverityBadge = (severity: string) => {
@@ -249,6 +258,38 @@ export const Sbom: React.FC = () => {
                     goVersion={selectedDetail?.goVersion ?? selectedPod?.goVersion}
                   />
                 )}
+                {threatSummary && threatSummary.totalThreats > 0 && (
+                  <div className={`mb-4 p-4 rounded-lg border-2 ${
+                    threatSummary.requiresAction
+                      ? 'bg-red-950/20 border-red-700/50'
+                      : 'bg-yellow-950/20 border-yellow-700/50'
+                  }`}>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-2">
+                        <AlertTriangle size={16} className={threatSummary.requiresAction ? 'text-red-500' : 'text-yellow-500'} />
+                        <span className={`font-bold text-sm ${threatSummary.requiresAction ? 'text-red-100' : 'text-yellow-100'}`}>
+                          {threatSummary.requiresAction ? 'MALWARE DETECTED' : 'Supply Chain Risk'}
+                        </span>
+                      </div>
+                      <span className="text-xs font-mono px-2 py-0.5 rounded bg-slate-900 text-slate-300">
+                        {threatSummary.malwareCount} malware
+                        {threatSummary.protestwareCount > 0 && ` / ${threatSummary.protestwareCount} protestware`}
+                        {threatSummary.telemetryCount > 0 && ` / ${threatSummary.telemetryCount} telemetry`}
+                      </span>
+                    </div>
+                    <div className="flex flex-wrap gap-1">
+                      {threatSummary.affectedPackages.map((pkg) => (
+                        <span key={`${pkg.name}@${pkg.version}`} className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-mono ${
+                          pkg.reason === 'MALWARE' ? 'bg-red-900/40 text-red-200'
+                          : pkg.reason === 'PROTESTWARE' ? 'bg-orange-900/40 text-orange-200'
+                          : 'bg-yellow-900/40 text-yellow-200'
+                        }`}>
+                          {pkg.name}@{pkg.version}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6 bg-slate-950 p-4 rounded-lg border border-slate-800">
                   <div className="flex items-center space-x-6">
                     <div className="text-center">
@@ -289,8 +330,11 @@ export const Sbom: React.FC = () => {
                           onClick={() => toggleExpand(compKey)}
                         >
                           <div className="flex items-center space-x-3">
-                            <div className={`p-2 rounded-lg ${vulnTotal > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'}`}>
-                              <Package size={18} />
+                            <div className={`p-2 rounded-lg ${
+                              comp.malwareMatch ? 'bg-red-500/20 text-red-300 ring-1 ring-red-700' :
+                              vulnTotal > 0 ? 'bg-red-500/10 text-red-400' : 'bg-emerald-500/10 text-emerald-400'
+                            }`}>
+                              {comp.malwareMatch ? <AlertTriangle size={18} /> : <Package size={18} />}
                             </div>
                             <div>
                               <div className="flex items-center">
@@ -301,6 +345,18 @@ export const Sbom: React.FC = () => {
                             </div>
                           </div>
                           <div className="flex items-center space-x-4">
+                            {comp.malwareMatch && (
+                              <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide ${
+                                comp.malwareMatch.reason === 'MALWARE'
+                                  ? 'bg-red-950 border border-red-700 text-red-200'
+                                  : comp.malwareMatch.reason === 'PROTESTWARE'
+                                  ? 'bg-orange-950 border border-orange-700 text-orange-200'
+                                  : 'bg-yellow-950 border border-yellow-700 text-yellow-200'
+                              }`}>
+                                <AlertTriangle size={10} />
+                                {comp.malwareMatch.reason}
+                              </span>
+                            )}
                             {vulnTotal > 0 ? (
                               <div className="flex gap-1">
                                 {/* Fix for line 180: cast 'sev' (inferred as unknown) to string for getSeverityBadge */}

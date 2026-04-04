@@ -8,6 +8,8 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
 spec:
+  strategy:
+    type: Recreate
   selector:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
@@ -31,6 +33,8 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
 spec:
+  strategy:
+    type: Recreate
   replicas: 1
   selector:
     matchLabels:
@@ -79,7 +83,7 @@ spec:
       containers:
         - name: core
           # Use :latest after build (BUILD_TAG=latest)
-          image: fortuna-core:v1.0.0-84-g3736426ab
+          image: fortuna-core:latest
           # Never pull: image must be built/loaded on node (e.g. build-and-load-containerd.sh on control-plane node)
           imagePullPolicy: Never
           
@@ -182,6 +186,10 @@ spec:
               value: "true"
             - name: PCE_SCHEDULER_INTERVAL
               value: "6h"
+            - name: FORTUNA_NVD_MIRROR
+              value: "1"
+            - name: FORTUNA_NVD_FALLBACK_WHITELIST
+              value: "busybox,nginx,postgres,curl,wget,musl,zlib,bash,sudo,openssh"
             # NVD API key (optional): increases rate limit for CVE fallback. Add to fortuna-secrets as nvd-api-key.
             - name: NVD_API_KEY
               valueFrom:

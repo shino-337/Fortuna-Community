@@ -250,6 +250,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration110_AddPodCapabilityClassDerivedFrom,           // Runtime P1: capability compatibility columns
 		Migration111_HardenSBOMRunAndEnums,                      // SBOM reliability: match-run timeout fields + enum checks
 		Migration112_ExpandAdvisoryIDColumnsV2,                  // CVE schema: widen advisory ID columns for GHSA/OSV/vendor IDs
+		Migration113_AddMalwareTables,                           // Supply-chain threat detection: malware_packages + malware_matches
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

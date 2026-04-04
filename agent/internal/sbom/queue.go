@@ -42,8 +42,10 @@ type WorkQueue struct {
 	cancel     context.CancelFunc
 	logger     *log.Logger
 	mu         sync.RWMutex
-	active     map[string]bool // Track active pods to prevent duplicates
-	retryCount map[string]int  // Per-pod send retry count (transient failures)
+	active     map[string]bool        // Track active pods to prevent duplicates
+	retryCount map[string]int         // Per-pod send retry count (transient failures)
+	failedPods map[string]*corev1.Pod // Pods that exhausted retries; reconciliation re-queues them
+	succeeded  map[string]bool        // Pods that completed successfully (skip during reconciliation)
 }
 
 // NewWorkQueue creates a new SBOM work queue
@@ -58,6 +60,8 @@ func NewWorkQueue(processor *Processor, workers int) *WorkQueue {
 		logger:     log.New(log.Writer(), "[SBOMQueue] ", log.LstdFlags),
 		active:     make(map[string]bool),
 		retryCount: make(map[string]int),
+		failedPods: make(map[string]*corev1.Pod),
+		succeeded:  make(map[string]bool),
 	}
 }
 
@@ -178,18 +182,21 @@ func (q *WorkQueue) worker(id int) {
 						}(pod)
 						continue // do not remove from active; pod will be processed again
 					}
-					q.mu.Lock()
-					delete(q.retryCount, key)
-					q.mu.Unlock()
-					q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s (uid=%s) after %d send retries", id, label, key, maxSendRetries)
-				}
-			} else {
-				duration := time.Since(start)
-				q.logger.Printf("[Worker %d] ✅ Completed pod %s (uid=%s) in %v", id, label, key, duration)
 				q.mu.Lock()
 				delete(q.retryCount, key)
+				q.failedPods[key] = pod
 				q.mu.Unlock()
+				q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s (uid=%s) after %d send retries; will retry on reconciliation", id, label, key, maxSendRetries)
 			}
+		} else {
+			duration := time.Since(start)
+			q.logger.Printf("[Worker %d] ✅ Completed pod %s (uid=%s) in %v", id, label, key, duration)
+			q.mu.Lock()
+			delete(q.retryCount, key)
+			delete(q.failedPods, key)
+			q.succeeded[key] = true
+			q.mu.Unlock()
+		}
 
 			// Remove from active set
 			q.mu.Lock()
@@ -197,6 +204,55 @@ func (q *WorkQueue) worker(id int) {
 			q.mu.Unlock()
 		}
 	}
+}
+
+// StartReconciliation runs a periodic loop that re-queues pods whose SBOM send
+// failed after exhausting retries (e.g. Core was down for extended period).
+// Interval controls how often the reconciliation runs (default: 10 minutes).
+func (q *WorkQueue) StartReconciliation(interval time.Duration) {
+	if interval <= 0 {
+		interval = 10 * time.Minute
+	}
+	q.wg.Add(1)
+	go func() {
+		defer q.wg.Done()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-q.ctx.Done():
+				return
+			case <-ticker.C:
+				q.reconcileFailedPods()
+			}
+		}
+	}()
+	q.logger.Printf("✅ SBOM reconciliation started (interval=%v)", interval)
+}
+
+func (q *WorkQueue) reconcileFailedPods() {
+	q.mu.Lock()
+	if len(q.failedPods) == 0 {
+		q.mu.Unlock()
+		return
+	}
+	// Snapshot failed pods and clear the map; they'll be re-added if they fail again.
+	toRetry := make([]*corev1.Pod, 0, len(q.failedPods))
+	for key, pod := range q.failedPods {
+		delete(q.failedPods, key)
+		delete(q.retryCount, key)
+		toRetry = append(toRetry, pod)
+	}
+	q.mu.Unlock()
+
+	q.logger.Printf("🔄 Reconciliation: re-queuing %d previously failed pods", len(toRetry))
+	queued := 0
+	for _, pod := range toRetry {
+		if q.Enqueue(pod) {
+			queued++
+		}
+	}
+	q.logger.Printf("🔄 Reconciliation: queued %d/%d pods", queued, len(toRetry))
 }
 
 // Stop stops the work queue and waits for workers to finish

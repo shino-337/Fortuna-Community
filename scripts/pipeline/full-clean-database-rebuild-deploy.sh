@@ -12,8 +12,10 @@
 #    When --only-db-reset, DB clean runs in Phase 1b (Postgres must already exist).
 #    Core runs all migrations on startup; --db-reset (DROP tables) ensures fresh schema
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
+#    DB reset now drops malware_packages/malware_matches + OSV/mirror/runtime/policy tables (updated 2026-04).
 # 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl → containerd k8s.io).
 # 4. Deploy: addons, Flannel, StorageClass, deploy-fortuna-robust.sh; Phase 3b rollout restart (Core, Dashboard, Agent).
+# 5. Post-deploy: Core auto-syncs Aikido malware feeds (122k packages, every 6h). No manual seed needed.
 #
 # Usage:
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh              # interactive menu (no args)
@@ -455,4 +457,6 @@ echo "  If Core pod shows ErrImageNeverPull: image must be on the node that runs
 echo "    fix: ./scripts/utils/push-images-to-workers.sh (pushes to all nodes including master; set SSH_USER/SSH_PASS or use keys)."
 echo "  If Agent CrashLoopBackOff (OOMKilled): daemonset has memory limit 2Gi; optional SBOM_WORKERS=1 and rebuild agent."
 echo "  Monitor errors: ./scripts/monitor/monitor-agent-core-errors.sh (or --follow). Full troubleshooting: docs/AGENT_CORE_ERRORS_MONITOR.md"
+echo "  Malware DB: Core auto-syncs Aikido feeds on startup (~122k packages). Verify: curl localhost:8080/api/v1/malware/stats"
+echo "    Manual upload: curl -X POST localhost:8080/api/v1/malware/db/upload -d @malware.json"
 echo ""

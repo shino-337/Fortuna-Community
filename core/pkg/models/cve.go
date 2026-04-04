@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -21,9 +22,9 @@ type CVE struct {
 	LastModifiedDate *time.Time     `json:"lastModifiedDate"`
 	ExploitAvailable bool           `gorm:"default:false;index" json:"exploitAvailable"`
 	ExploitMaturity  string         `gorm:"type:varchar(20)" json:"exploitMaturity"`               // poc, functional, high
-	ExploitSources   string         `gorm:"type:text[]" json:"exploitSources"`                     // Array of sources
+	ExploitSources   pq.StringArray `gorm:"type:text[]" json:"exploitSources"`                     // Array of sources
 	References       string         `gorm:"type:jsonb;column:cve_references" json:"references"`    // JSON array
-	CWEIDs           string         `gorm:"type:text[]" json:"cweIds"`                             // Array of CWE IDs
+	CWEIDs           pq.StringArray `gorm:"type:text[]" json:"cweIds"`                             // Array of CWE IDs
 	Source           string         `gorm:"type:varchar(50);not null;default:'nvd'" json:"source"` // nvd, trivy, github
 	SourceURL        string         `gorm:"type:text" json:"sourceUrl"`
 	CreatedAt        time.Time      `json:"createdAt"`
@@ -52,7 +53,7 @@ type PackageVulnerability struct {
 	VersionEndIncluding   string         `gorm:"type:varchar(255)" json:"versionEndIncluding"`
 	VersionEndExcluding   string         `gorm:"type:varchar(255);index" json:"versionEndExcluding"` // Most common: fixed version
 	FixedVersion          string         `gorm:"type:varchar(255)" json:"fixedVersion"`
-	FixedInVersions       string         `gorm:"type:text[]" json:"fixedInVersions"` // Array of fixed versions
+	FixedInVersions       pq.StringArray `gorm:"type:text[]" json:"fixedInVersions"` // Array of fixed versions
 	Vendor                string         `gorm:"type:varchar(100)" json:"vendor"`
 	Product               string         `gorm:"type:varchar(100)" json:"product"`
 	CreatedAt             time.Time      `json:"createdAt"`

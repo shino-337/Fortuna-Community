@@ -181,7 +181,7 @@ Recommendation: Update the image to use version %s or later.`,
 
 This vulnerability is being actively exploited. Immediate patching is recommended.`,
 			cveInfo.ExploitMaturity,
-			strings.Join(strings.Split(cveInfo.ExploitSources, ","), ", "),
+			strings.Join([]string(cveInfo.ExploitSources), ", "),
 		)
 	}
 
@@ -216,8 +216,8 @@ This vulnerability is being actively exploited. Immediate patching is recommende
 	}
 	if cveInfo != nil {
 		details["exploit_maturity"] = cveInfo.ExploitMaturity
-		details["exploit_sources"] = strings.Split(cveInfo.ExploitSources, ",")
-		details["cwe_ids"] = strings.Split(cveInfo.CWEIDs, ",")
+		details["exploit_sources"] = []string(cveInfo.ExploitSources)
+		details["cwe_ids"] = []string(cveInfo.CWEIDs)
 	}
 	detailsJSON, _ := json.Marshal(details)
 

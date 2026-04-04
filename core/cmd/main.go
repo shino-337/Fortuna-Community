@@ -28,6 +28,7 @@ import (
 	"github.com/fortuna/core/migrations"
 	cvedb "github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/kev"
+	malwarePkg "github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/policy"
@@ -493,6 +494,39 @@ func main() {
 			sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
 		}()
 		log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
+
+		// Start Aikido malware feed sync (runs every 6 hours)
+		go func() {
+			aikidoSyncer := malwarePkg.NewAikidoSyncer(db)
+			log.Printf("[Main] Starting Aikido malware feed initial sync...")
+			results, err := aikidoSyncer.SyncAll(ctx)
+			if err != nil {
+				log.Printf("[Main] Aikido malware initial sync error: %v", err)
+			}
+			for _, r := range results {
+				log.Printf("[Main] Aikido sync %s: total=%d upserted=%d errors=%d duration=%v",
+					r.Source, r.Total, r.Upserted, r.Errors, r.Duration)
+			}
+
+			ticker := time.NewTicker(6 * time.Hour)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-ticker.C:
+					log.Printf("[Main] Running periodic Aikido malware sync...")
+					results, err := aikidoSyncer.SyncAll(ctx)
+					if err != nil {
+						log.Printf("[Main] Aikido periodic sync error: %v", err)
+					}
+					for _, r := range results {
+						log.Printf("[Main] Aikido sync %s: total=%d upserted=%d", r.Source, r.Total, r.Upserted)
+					}
+				}
+			}
+		}()
+		log.Printf("[Main] Aikido malware feed sync enabled (interval: 6 hours)")
 
 		// Start NVD mirror sync (runs daily when FORTUNA_NVD_MIRROR=1)
 		if os.Getenv("FORTUNA_NVD_MIRROR") == "1" || os.Getenv("FORTUNA_NVD_MIRROR") == "true" {

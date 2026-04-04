@@ -216,7 +216,7 @@ func IngestPodRuntimeMetricsPayload(db *gorm.DB) gin.HandlerFunc {
 			req.Metrics[i].UpdatedAt = now
 		}
 		if len(req.Metrics) > 0 {
-			if err := dbIngestWithRetry(db, func(tx *gorm.DB) error { return tx.CreateInBatches(req.Metrics, 50).Error }); err != nil {
+			if err := dbIngestWithRetry(db, func(tx *gorm.DB) error { return tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(req.Metrics, 50).Error }); err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
@@ -276,11 +276,11 @@ func IngestPodProcessesPayload(db *gorm.DB) gin.HandlerFunc {
 		}
 		if len(req.Processes) > 0 {
 			if err := dbIngestWithRetry(db, func(tx *gorm.DB) error {
-				if err := tx.CreateInBatches(req.Processes, 100).Error; err != nil {
+				if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(req.Processes, 100).Error; err != nil {
 					return err
 				}
 				if len(newProcessEvents) > 0 {
-					if err := tx.CreateInBatches(newProcessEvents, 100).Error; err != nil {
+					if err := tx.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(newProcessEvents, 100).Error; err != nil {
 						return err
 					}
 				}
@@ -404,11 +404,11 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 			session := db.Session(&gorm.Session{PrepareStmt: true})
 			if err := dbIngestWithRetry(session, func(tx *gorm.DB) error {
 				return tx.Transaction(func(tx2 *gorm.DB) error {
-					if err := tx2.CreateInBatches(req.Connections, 50).Error; err != nil {
+					if err := tx2.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(req.Connections, 50).Error; err != nil {
 						return err
 					}
 					if len(newNetworkEvents) > 0 {
-						if err := tx2.CreateInBatches(newNetworkEvents, 100).Error; err != nil {
+						if err := tx2.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(newNetworkEvents, 100).Error; err != nil {
 							return err
 						}
 					}

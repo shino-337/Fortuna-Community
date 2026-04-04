@@ -16,6 +16,7 @@ import (
 	"github.com/fortuna/core/pkg/epss"
 	"github.com/fortuna/core/pkg/insightevidence"
 	"github.com/fortuna/core/pkg/kev"
+	"github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/riskengine"
@@ -55,6 +56,13 @@ func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB, publishInsightsU
 	nvdClient := database.NewNVDClientForManager()
 	dbMgr := database.NewPostgresManagerWithNVD(db, nvdClient)
 	m := matcher.NewMatcher(dbMgr, db)
+
+	malwareMgr := malware.NewManager(db)
+	if malwareMgr.Enabled() {
+		m.SetMalwareChecker(malwareMgr)
+		log.Printf("[CVEMatcherWorker] Malware checker enabled (%d packages loaded)", 0)
+	}
+
 	return &CVEMatcherWorker{
 		js:                     js,
 		db:                     db,
@@ -193,6 +201,23 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	if err := w.persistMatches(ctx, matches); err != nil {
 		incCVEMatcherRun("error")
 		return err
+	}
+
+	// Malware matching: check SBOM components against malware package DB
+	var allComponents []models.SBOMComponent
+	if componentsOverride != nil {
+		for _, co := range componentsOverride {
+			if co != nil {
+				allComponents = append(allComponents, *co)
+			}
+		}
+	} else {
+		w.db.WithContext(ctx).Where("sbom_id = ? AND deleted_at IS NULL", sbomModel.ID).Find(&allComponents)
+	}
+	malwareMatches := w.matcher.MatchMalware(ctx, &sbomModel, allComponents)
+	if len(malwareMatches) > 0 {
+		w.persistMalwareMatches(ctx, malwareMatches)
+		w.logger.Printf("[MalwareMatch] sbom_id=%d malware_hits=%d", sbomModel.ID, len(malwareMatches))
 	}
 	// Observability: count matches by severity (FORTUNA_CVE_MATCHING_ENGINE §13)
 	for _, m := range matches {
@@ -400,6 +425,20 @@ func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models
 		}
 	}
 	return nil
+}
+
+func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, matches []*models.MalwareMatch) {
+	if len(matches) == 0 {
+		return
+	}
+	for _, m := range matches {
+		if err := w.db.WithContext(ctx).
+			Where("sbom_id = ? AND package_name = ? AND package_version = ?",
+				m.SBOMID, m.PackageName, m.PackageVersion).
+			FirstOrCreate(m).Error; err != nil {
+			w.logger.Printf("[MalwareMatch] persist error: %v", err)
+		}
+	}
 }
 
 func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, component *models.SBOMComponent, match *models.CVEMatch) *models.Insight {

@@ -12,6 +12,7 @@ import (
 	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/middleware"
+	"github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/security"
 )
 
@@ -98,6 +99,10 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		registerGraphRoutes(v1, db)
 		registerAuditRoutes(v1, db)
 		registerPolicyRoutes(v1, db)
+
+		// Malware detection
+		malwareMgr := malware.NewManager(db)
+		registerMalwareRoutes(v1, db, malwareMgr)
 
 		// Health / data integrity
 		v1.GET("/health/dashboard-data-integrity", DashboardDataIntegrity(db))

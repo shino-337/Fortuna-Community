@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -259,10 +260,10 @@ func (u *CVEUpdater) parseCVE(nvdVuln *NVDVulnerability) (*models.CVE, []*models
 		Description:      description,
 		PublishedDate:    &publishedDate,
 		LastModifiedDate: &modifiedDate,
-		ExploitAvailable: false, // NVD doesn't provide this, would need separate source
-		ExploitSources:   "",    // Would need separate source
+		ExploitAvailable: false,
+		ExploitSources:   pq.StringArray{},
 		References:       string(referencesJSON),
-		CWEIDs:           strings.Join(cweIDs, ","),
+		CWEIDs:           pq.StringArray(cweIDs),
 		Source:           "nvd",
 		SourceURL:        fmt.Sprintf("https://nvd.nist.gov/vuln/detail/%s", nvdVuln.ID),
 	}

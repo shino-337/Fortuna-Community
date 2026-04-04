@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/lib/pq"
 	"gorm.io/gorm"
 )
 
@@ -439,9 +440,9 @@ func scoreToSeverity(s float64) string {
 	}
 }
 
-func extractCWEIDs(ws []Weakness) string {
+func extractCWEIDs(ws []Weakness) pq.StringArray {
 	if len(ws) == 0 {
-		return ""
+		return pq.StringArray{}
 	}
 	var ids []string
 	seen := make(map[string]bool)
@@ -454,10 +455,7 @@ func extractCWEIDs(ws []Weakness) string {
 			}
 		}
 	}
-	if len(ids) == 0 {
-		return ""
-	}
-	return fmt.Sprintf("{%s}", strings.Join(ids, ","))
+	return pq.StringArray(ids)
 }
 
 func buildRefsJSON(refs []Reference) string {

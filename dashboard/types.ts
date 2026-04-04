@@ -24,6 +24,23 @@ export interface SbomComponent {
   maxCvss?: number;
   fixVersion?: string;
   status?: string;
+  malwareMatch?: MalwareMatch;
+}
+
+export interface MalwareMatch {
+  reason: 'MALWARE' | 'TELEMETRY' | string;
+  confidence: number;
+  malwareFamily?: string;
+}
+
+export interface ThreatSummary {
+  totalThreats: number;
+  malwareCount: number;
+  telemetryCount: number;
+  protestwareCount: number;
+  highestSeverity: string;
+  affectedPackages: { name: string; version: string; reason: string }[];
+  requiresAction: boolean;
 }
 
 export interface PodSbomSummary {

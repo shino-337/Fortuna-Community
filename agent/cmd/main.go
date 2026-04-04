@@ -174,7 +174,8 @@ func main() {
 	}
 	sbomQueue := sbom.NewWorkQueue(sbomProcessor, workers)
 	sbomQueue.Start()
-	log.Printf("✅ SBOM work queue started with %d workers", workers)
+	sbomQueue.StartReconciliation(10 * time.Minute)
+	log.Printf("✅ SBOM work queue started with %d workers (reconciliation every 10m)", workers)
 	defer sbomQueue.Stop()
 
 	// Create pod event handler (for backward compatibility, but won't be used if queue is provided)
