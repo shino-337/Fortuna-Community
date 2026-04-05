@@ -48,7 +48,9 @@ type MTLSClient struct {
 	conn       *grpc.ClientConn
 	client     pb.AgentServiceClient
 	logger     *log.Logger
-	mu         sync.Mutex // serializes Reconnect/Close vs RPCs; prevents SendSBOM during nil client window after Close()
+	// RWMutex: exclusive (Lock) for Connect/Close/Reconnect/dial; shared (RLock) during RPC so multiple
+	// goroutines can use the same ClientConn concurrently (gRPC-safe). Reconnect waits for in-flight RPCs.
+	mu sync.RWMutex
 }
 
 // NewMTLSClient creates a new mTLS-enabled gRPC client. clusterID is optional (for Core per-cluster rate limit).
@@ -66,6 +68,16 @@ func NewMTLSClient(endpoint string, tlsEnabled bool, certPath, keyPath, caPath s
 
 // Connect establishes gRPC connection with mTLS (idempotent if already connected).
 func (c *MTLSClient) Connect(ctx context.Context) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.client != nil {
+		return nil
+	}
+	return c.dialLocked(ctx)
+}
+
+// dialIfNeeded acquires an exclusive lock and dials when the client is nil.
+func (c *MTLSClient) dialIfNeeded(ctx context.Context) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.client != nil {
@@ -168,87 +180,104 @@ func (c *MTLSClient) Reconnect(ctx context.Context) error {
 
 // SendSBOMFinding sends a single SBOM finding to Core (Finding #1.2: correlation ID in metadata).
 func (c *MTLSClient) SendSBOMFinding(ctx context.Context, finding *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.client == nil {
-		if err := c.dialLocked(ctx); err != nil {
-			return nil, fmt.Errorf("connect before SBOM: %w", err)
+	for {
+		c.mu.RLock()
+		if c.client == nil {
+			c.mu.RUnlock()
+			if err := c.dialIfNeeded(ctx); err != nil {
+				return nil, fmt.Errorf("connect before SBOM: %w", err)
+			}
+			continue
 		}
-	}
 
-	correlationID := uuid.New().String()
-	pairs := []string{"x-correlation-id", correlationID}
-	if c.clusterID != "" {
-		pairs = append(pairs, "x-cluster-id", c.clusterID)
-	}
-	ctx = metadata.NewOutgoingContext(ctx, metadata.Pairs(pairs...))
-	c.logger.Printf("Sending SBOM: pod=%s/%s image=%s correlation_id=%s", finding.Namespace, finding.PodName, finding.ImageDigest, correlationID)
+		correlationID := uuid.New().String()
+		pairs := []string{"x-correlation-id", correlationID}
+		if c.clusterID != "" {
+			pairs = append(pairs, "x-cluster-id", c.clusterID)
+		}
+		ctx2 := metadata.NewOutgoingContext(ctx, metadata.Pairs(pairs...))
+		c.logger.Printf("Sending SBOM: pod=%s/%s image=%s correlation_id=%s", finding.Namespace, finding.PodName, finding.ImageDigest, correlationID)
 
-	resp, err := c.client.SendSBOMFinding(ctx, finding)
-	if err != nil {
-		return nil, fmt.Errorf("SendSBOMFinding RPC failed: %w", err)
-	}
+		resp, err := c.client.SendSBOMFinding(ctx2, finding)
+		c.mu.RUnlock()
 
-	return resp, nil
+		if err != nil {
+			return nil, fmt.Errorf("SendSBOMFinding RPC failed: %w", err)
+		}
+		return resp, nil
+	}
 }
 
 // SendCombinedFinding sends combined SBOM + CVE findings to Core
 func (c *MTLSClient) SendCombinedFinding(ctx context.Context, finding *pb.CombinedFinding) (*pb.CombinedFindingResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.client == nil {
-		if err := c.dialLocked(ctx); err != nil {
-			return nil, fmt.Errorf("connect before CombinedFinding: %w", err)
+	for {
+		c.mu.RLock()
+		if c.client == nil {
+			c.mu.RUnlock()
+			if err := c.dialIfNeeded(ctx); err != nil {
+				return nil, fmt.Errorf("connect before CombinedFinding: %w", err)
+			}
+			continue
 		}
+
+		c.logger.Printf("Sending CombinedFinding: pod=%s/%s", finding.Sbom.Namespace, finding.Sbom.PodName)
+
+		resp, err := c.client.SendCombinedFinding(ctx, finding)
+		c.mu.RUnlock()
+
+		if err != nil {
+			return nil, fmt.Errorf("SendCombinedFinding RPC failed: %w", err)
+		}
+		return resp, nil
 	}
-
-	c.logger.Printf("Sending CombinedFinding: pod=%s/%s", finding.Sbom.Namespace, finding.Sbom.PodName)
-
-	resp, err := c.client.SendCombinedFinding(ctx, finding)
-	if err != nil {
-		return nil, fmt.Errorf("SendCombinedFinding RPC failed: %w", err)
-	}
-
-	return resp, nil
 }
 
 // RegisterAgent registers the agent with Core
 func (c *MTLSClient) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.client == nil {
-		if err := c.dialLocked(ctx); err != nil {
-			return nil, fmt.Errorf("connect before RegisterAgent: %w", err)
+	for {
+		c.mu.RLock()
+		if c.client == nil {
+			c.mu.RUnlock()
+			if err := c.dialIfNeeded(ctx); err != nil {
+				return nil, fmt.Errorf("connect before RegisterAgent: %w", err)
+			}
+			continue
 		}
+
+		c.logger.Printf("Registering agent: id=%s node=%s", req.AgentId, req.NodeName)
+
+		resp, err := c.client.RegisterAgent(ctx, req)
+		c.mu.RUnlock()
+
+		if err != nil {
+			return nil, fmt.Errorf("RegisterAgent RPC failed: %w", err)
+		}
+
+		c.logger.Printf("✅ Agent registered: %s", resp.Message)
+		return resp, nil
 	}
-
-	c.logger.Printf("Registering agent: id=%s node=%s", req.AgentId, req.NodeName)
-
-	resp, err := c.client.RegisterAgent(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("RegisterAgent RPC failed: %w", err)
-	}
-
-	c.logger.Printf("✅ Agent registered: %s", resp.Message)
-	return resp, nil
 }
 
 // Ping sends a health check ping to Core
 func (c *MTLSClient) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.client == nil {
-		if err := c.dialLocked(ctx); err != nil {
-			return nil, fmt.Errorf("connect before Ping: %w", err)
+	for {
+		c.mu.RLock()
+		if c.client == nil {
+			c.mu.RUnlock()
+			if err := c.dialIfNeeded(ctx); err != nil {
+				return nil, fmt.Errorf("connect before Ping: %w", err)
+			}
+			continue
 		}
-	}
 
-	resp, err := c.client.Ping(ctx, req)
-	if err != nil {
-		return nil, fmt.Errorf("Ping RPC failed: %w", err)
-	}
+		resp, err := c.client.Ping(ctx, req)
+		c.mu.RUnlock()
 
-	return resp, nil
+		if err != nil {
+			return nil, fmt.Errorf("Ping RPC failed: %w", err)
+		}
+		return resp, nil
+	}
 }
 
 // StreamInventory is a no-op: current Core does not expose StreamInventory RPC; agent uses HTTP syncer for inventory.
@@ -258,14 +287,24 @@ func (c *MTLSClient) StreamInventory(ctx context.Context, items interface{}) err
 
 // Heartbeat sends periodic health status to Core.
 func (c *MTLSClient) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.client == nil {
-		if err := c.dialLocked(ctx); err != nil {
-			return nil, fmt.Errorf("connect before Heartbeat: %w", err)
+	for {
+		c.mu.RLock()
+		if c.client == nil {
+			c.mu.RUnlock()
+			if err := c.dialIfNeeded(ctx); err != nil {
+				return nil, fmt.Errorf("connect before Heartbeat: %w", err)
+			}
+			continue
 		}
+
+		resp, err := c.client.Heartbeat(ctx, req)
+		c.mu.RUnlock()
+
+		if err != nil {
+			return nil, fmt.Errorf("Heartbeat RPC failed: %w", err)
+		}
+		return resp, nil
 	}
-	return c.client.Heartbeat(ctx, req)
 }
 
 // NewNewGRPCClient creates a GRPCClient from config (MTLS client) and connects. Used by collector when instantiated.
