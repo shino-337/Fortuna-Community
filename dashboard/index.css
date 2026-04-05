@@ -34,7 +34,7 @@ body {
   }
 
   .ui-table-scroll-compact {
-    @apply overflow-x-auto overflow-y-auto max-h-[500px];
+    @apply overflow-x-auto overflow-y-auto;
   }
 
   .ui-code-scroll {

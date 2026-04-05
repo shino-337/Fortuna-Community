@@ -1,4 +1,5 @@
 import React from 'react';
+import clsx from 'clsx';
 
 export type CardVariant = 'primary' | 'secondary' | 'panel';
 
@@ -11,6 +12,8 @@ const variantPadding = {
 interface CardProps {
   children: React.ReactNode;
   className?: string;
+  /** Merges with variant default inner padding (e.g. p-0 for full-bleed tables). */
+  contentClassName?: string;
   title?: string;
   description?: string;
   actions?: React.ReactNode;
@@ -21,6 +24,7 @@ interface CardProps {
 export const Card: React.FC<CardProps> = ({
   children,
   className = '',
+  contentClassName,
   title,
   description,
   actions,
@@ -28,7 +32,7 @@ export const Card: React.FC<CardProps> = ({
 }) => {
   const pad = variantPadding[variant];
   return (
-    <div className={`bg-surface rounded-lg border border-border shadow-sm ${className}`}>
+    <div className={clsx('bg-surface rounded-lg border border-border shadow-sm min-w-0', className)}>
       {(title || description || actions) && (
         <div className={`${pad.header} border-b border-border flex justify-between items-start`}>
           <div>
@@ -38,7 +42,7 @@ export const Card: React.FC<CardProps> = ({
           {actions && <div className="ml-4">{actions}</div>}
         </div>
       )}
-      <div className={pad.content}>{children}</div>
+      <div className={clsx(pad.content, contentClassName)}>{children}</div>
     </div>
   );
 };

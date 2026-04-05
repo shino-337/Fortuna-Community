@@ -335,22 +335,22 @@ export const PodDetail: React.FC = () => {
         </Button>
       }
     >
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6 mb-6">
-        <div className="flex items-center gap-4">
-          <div className="p-4 bg-slate-900 border border-slate-800 rounded-xl">
-            <Box className="w-8 h-8 text-pink-500" />
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 mb-6 min-w-0">
+        <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
+          <div className="p-3 sm:p-4 bg-slate-900 border border-slate-800 rounded-xl shrink-0">
+            <Box className="w-7 h-7 sm:w-8 sm:h-8 text-pink-500" />
           </div>
-          <div>
-            <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-2xl font-bold text-white tracking-tight">{pod.name}</h1>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight truncate max-w-full">{pod.name}</h1>
               <span className={clsx('px-2.5 py-0.5 rounded-full text-xs font-semibold uppercase border', getSeverityBadgeClass(podRiskLevel(pod.riskCount)))}>
                 {podRiskLevel(pod.riskCount)} ({pod.riskCount})
               </span>
             </div>
-            <div className="mt-1 text-slate-500 text-sm font-mono">
-              <span>{pod.namespace}</span>
+            <div className="mt-1 text-slate-500 text-xs sm:text-sm font-mono break-all sm:break-normal">
+              <span className="inline-block">{pod.namespace}</span>
               <span className="mx-2 opacity-50">|</span>
-              <span>{pod.nodeName ?? '—'}</span>
+              <span className="inline-block">{pod.nodeName ?? '—'}</span>
             </div>
           </div>
         </div>
@@ -363,40 +363,40 @@ export const PodDetail: React.FC = () => {
           Pod IP and Start time come from agent sync. If empty, wait for the next sync (~2 min) or restart the agent: <code className="bg-slate-800 px-1 rounded">kubectl rollout restart daemonset/fortuna-agent -n fortuna</code>
         </p>
       )}
-      <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4 mb-6">
-        <Card className="p-4 bg-slate-900/50">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6 min-w-0">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Status</p>
           <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium border ${getPodStatusBadgeClass(pod.status ?? pod.phase)}`}>{pod.status ?? pod.phase ?? '—'}</span>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Pod IP</p>
           <p className="text-sm font-medium text-slate-300 font-mono">{pod.podIP ?? '—'}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Start Time</p>
           <p className="text-sm font-medium text-slate-300">{pod.startTime ? formatDateTime(pod.startTime) : (runtimeMetrics.length > 0 && runtimeMetrics[0].lastObservedAt ? `Last reported: ${formatDateTime(runtimeMetrics[0].lastObservedAt)}` : '—')}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Uptime</p>
           <p className="text-sm font-medium text-slate-300">{formatUptime(pod.startTime ?? undefined)}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Restart Count</p>
           <p className="text-lg font-bold text-white">{pod.restartCount ?? 0}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">QoS Class</p>
           <p className="text-sm font-medium text-slate-300">{pod.qosClass ?? '—'}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Risk Count</p>
           <p className="text-lg font-bold text-white">{pod.riskCount}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Service Account</p>
           <p className="text-sm font-medium text-slate-300 truncate">{pod.serviceAccount ?? '—'}</p>
         </Card>
-        <Card className="p-4 bg-slate-900/50">
+        <Card variant="panel" className="bg-slate-900/50 min-w-0">
           <p className="ui-micro-label mb-1">Created</p>
           <p className="text-sm font-medium text-slate-300">{pod.createdAt ? formatDateTime(pod.createdAt) : '—'}</p>
         </Card>
@@ -406,8 +406,8 @@ export const PodDetail: React.FC = () => {
 
       {activeTab === 'overview' && (
         <div className="space-y-6">
-        <Card className="p-5 md:p-6" variant="secondary">
-            <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2">
+        <Card variant="secondary">
+            <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
               <Box className="w-5 h-5 text-pink-500" /> Overview
             </h3>
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
@@ -443,7 +443,7 @@ export const PodDetail: React.FC = () => {
             {(pod.ownerKind ?? pod.ownerName ?? pod.replicaSetName ?? pod.qosClass) && (
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <h4 className="text-sm font-semibold text-slate-300 mb-3">Identity &amp; Ownership</h4>
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
                   {pod.ownerKind && (
                     <div>
                       <dt className="text-slate-500">Owner Type</dt>
@@ -474,7 +474,7 @@ export const PodDetail: React.FC = () => {
             {sbom && (
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <h4 className="text-sm font-semibold text-slate-300 mb-3">Security</h4>
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mb-4">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm mb-4">
                   <div>
                     <dt className="text-slate-500">Total Packages</dt>
                     <dd className="text-white font-medium">{sbom.components?.length ?? 0}</dd>
@@ -525,7 +525,7 @@ export const PodDetail: React.FC = () => {
                 <BarChart2 className="w-4 h-4" /> Pod detail (agent)
               </h4>
               {podRiskReportSummary && (
-                <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-sm mb-3 text-slate-400">
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1 text-sm mb-3 text-slate-400">
                   <div>
                     <dt className="text-slate-500">Runtime signals (24h, DB)</dt>
                     <dd className="text-slate-200 tabular-nums">{podRiskReportSummary.runtimeSignals24h ?? 0}</dd>
@@ -593,9 +593,9 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'sbom' && (
-        <Card className="p-6">
-          <div className="flex flex-wrap items-center justify-between gap-4 mb-4">
-            <div className="flex flex-col gap-2 min-w-0">
+        <Card>
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-start lg:justify-between mb-4">
+            <div className="flex flex-col gap-2 min-w-0 flex-1 basis-[min(100%,18rem)]">
               <div className="flex items-center gap-2 flex-wrap">
                 <h3 className="text-lg font-semibold text-white">SBOM</h3>
               </div>
@@ -606,42 +606,46 @@ export const PodDetail: React.FC = () => {
               />
             </div>
             {sbom && (sbom.components?.length ?? 0) > 0 && (
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center justify-end gap-2 shrink-0 w-full lg:w-auto lg:max-w-full">
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => exportSbomAsCsv(sbom)}
                   title="Download SBOM as CSV"
+                  className="shrink-0"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export CSV
+                  <Download className="w-4 h-4 mr-2 shrink-0" />
+                  <span className="hidden sm:inline">Export </span>CSV
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => exportSbomAsJson(sbom)}
                   title="Download SBOM as JSON"
+                  className="shrink-0"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export JSON
+                  <Download className="w-4 h-4 mr-2 shrink-0" />
+                  <span className="hidden sm:inline">Export </span>JSON
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => exportSbomAsSpdxJson(sbom)}
                   title="Download SBOM as SPDX JSON"
+                  className="shrink-0"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export SPDX
+                  <Download className="w-4 h-4 mr-2 shrink-0" />
+                  SPDX
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
                   onClick={() => exportSbomAsCycloneDxJson(sbom)}
                   title="Download SBOM as CycloneDX JSON"
+                  className="shrink-0"
                 >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export CycloneDX
+                  <Download className="w-4 h-4 mr-2 shrink-0" />
+                  CycloneDX
                 </Button>
               </div>
             )}
@@ -700,110 +704,117 @@ export const PodDetail: React.FC = () => {
                   });
                 return (
                   <>
-                    <div className="flex flex-wrap items-center gap-4 py-2 border-y border-slate-800">
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 text-sm">Severity:</span>
-                        {severityOpts.map((s) => (
+                    <div className="flex flex-col gap-3 py-3 border-y border-slate-800">
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <span className="text-slate-500 text-sm shrink-0 w-16 sm:w-auto">Severity</span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {severityOpts.map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setSbomSeverityFilter(s)}
+                              className={clsx(
+                                'px-2 py-1 rounded text-xs font-medium capitalize',
+                                sbomSeverityFilter === s ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                              )}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                        <span className="text-slate-500 text-sm shrink-0 w-16 sm:w-auto">Status</span>
+                        <div className="flex flex-wrap items-center gap-1">
+                          {statusOpts.map((s) => (
+                            <button
+                              key={s}
+                              type="button"
+                              onClick={() => setSbomStatusFilter(s)}
+                              className={clsx(
+                                'px-2 py-1 rounded text-xs font-medium capitalize',
+                                sbomStatusFilter === s ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                              )}
+                            >
+                              {s}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
+                        <label className="flex items-center gap-2 text-slate-400 text-sm cursor-pointer min-w-0">
+                          <input
+                            type="checkbox"
+                            checked={sbomOnlyVulnerable}
+                            onChange={(e) => setSbomOnlyVulnerable(e.target.checked)}
+                            className="rounded border-slate-600 bg-slate-800 text-pink-500 shrink-0"
+                          />
+                          <span className="leading-snug">Vulnerable / malware only</span>
+                        </label>
+                        <div className="flex flex-wrap items-center gap-2 min-w-0 flex-1 sm:flex-initial">
+                          <span className="text-slate-500 text-sm shrink-0">Search</span>
+                          <input
+                            type="text"
+                            value={sbomSearch}
+                            onChange={(e) => setSbomSearch(e.target.value)}
+                            placeholder="Package or version…"
+                            className="bg-slate-950 border border-slate-700 rounded px-2 py-1.5 text-xs text-slate-200 min-w-0 w-full sm:w-48 max-w-full"
+                          />
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1">
+                          <span className="text-slate-500 text-sm shrink-0 mr-1">Sort</span>
                           <button
-                            key={s}
                             type="button"
-                            onClick={() => setSbomSeverityFilter(s)}
+                            onClick={() => setSbomSort(sbomSort === 'name' ? 'none' : 'name')}
                             className={clsx(
-                              'px-2 py-1 rounded text-xs font-medium capitalize',
-                              sbomSeverityFilter === s ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                              'px-2 py-1 rounded text-xs font-medium',
+                              sbomSort === 'name' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
                             )}
                           >
-                            {s}
+                            Name
                           </button>
-                        ))}
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 text-sm">Status:</span>
-                        {statusOpts.map((s) => (
                           <button
-                            key={s}
                             type="button"
-                            onClick={() => setSbomStatusFilter(s)}
+                            onClick={() => setSbomSort(sbomSort === 'severity' ? 'none' : 'severity')}
                             className={clsx(
-                              'px-2 py-1 rounded text-xs font-medium capitalize',
-                              sbomStatusFilter === s ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                              'px-2 py-1 rounded text-xs font-medium',
+                              sbomSort === 'severity' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
                             )}
                           >
-                            {s}
+                            Severity
                           </button>
-                        ))}
-                      </div>
-                      <label className="flex items-center gap-2 text-slate-400 text-sm cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={sbomOnlyVulnerable}
-                          onChange={(e) => setSbomOnlyVulnerable(e.target.checked)}
-                          className="rounded border-slate-600 bg-slate-800 text-pink-500"
-                        />
-                        Show only vulnerable packages
-                      </label>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 text-sm">Search:</span>
-                        <input
-                          type="text"
-                          value={sbomSearch}
-                          onChange={(e) => setSbomSearch(e.target.value)}
-                          placeholder="Package or version..."
-                          className="bg-slate-950 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 w-40"
-                        />
-                      </div>
-                      <div className="flex items-center gap-2">
-                        <span className="text-slate-500 text-sm">Sort:</span>
-                        <button
-                          type="button"
-                          onClick={() => setSbomSort(sbomSort === 'name' ? 'none' : 'name')}
-                          className={clsx(
-                            'px-2 py-1 rounded text-xs font-medium',
-                            sbomSort === 'name' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                          )}
-                        >
-                          Name
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSbomSort(sbomSort === 'severity' ? 'none' : 'severity')}
-                          className={clsx(
-                            'px-2 py-1 rounded text-xs font-medium',
-                            sbomSort === 'severity' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                          )}
-                        >
-                          Severity
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSbomSort(sbomSort === 'cve' ? 'none' : 'cve')}
-                          className={clsx(
-                            'px-2 py-1 rounded text-xs font-medium',
-                            sbomSort === 'cve' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
-                          )}
-                        >
-                          CVE count
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => setSbomSort(sbomSort === 'cve' ? 'none' : 'cve')}
+                            className={clsx(
+                              'px-2 py-1 rounded text-xs font-medium',
+                              sbomSort === 'cve' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
+                            )}
+                          >
+                            CVEs
+                          </button>
+                        </div>
                       </div>
                     </div>
-                    <div className="ui-table-scroll-compact">
-                      <table className="w-full text-sm">
-                        <thead className="text-slate-400 border-b border-slate-800 sticky top-0 bg-slate-900 z-10">
-                          <tr>
-                            <th className="w-8 py-2" />
-                            <th className="text-left py-2">Package</th>
-                            <th className="text-left py-2">Malware DB</th>
-                            <th className="text-left py-2">Version</th>
-                            <th className="text-left py-2">Type</th>
-                            <th className="text-left py-2">CVE</th>
-                            <th className="text-left py-2">Max Severity</th>
-                            <th className="text-left py-2">CVSS</th>
-                            <th className="text-left py-2">Fix</th>
-                            <th className="text-left py-2">Status</th>
-                            <th className="text-left py-2">Exploit</th>
-                            <th className="text-left py-2">Allowed</th>
-                          </tr>
-                        </thead>
+                    <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden -mx-1 sm:mx-0">
+                      <div className="ui-table-scroll-compact max-h-[min(70vh,36rem)]">
+                        <table className="w-full min-w-[1100px] text-sm border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm shadow-[inset_0_-1px_0_0_rgb(30_41_59)] sticky top-0 z-10">
+                              <th className="py-2.5 px-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-500" aria-hidden />
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Package</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Malware</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Version</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Type</th>
+                              <th className="py-2.5 px-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">CVE</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Severity</th>
+                              <th className="py-2.5 px-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">CVSS</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Fix</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                              <th className="py-2.5 px-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">Exploit</th>
+                              <th className="py-2.5 px-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">Allow</th>
+                            </tr>
+                          </thead>
                         <tbody className="divide-y divide-slate-800">
                           {filtered.map((c, i) => {
                             const rowId = `${c.name}@${c.version ?? i}`;
@@ -824,53 +835,72 @@ export const PodDetail: React.FC = () => {
                                   )}
                                   onClick={() => rowExpandable && setSbomExpandedId(isExpanded ? null : rowId)}
                                 >
-                                  <td className="py-2 w-8">
+                                  <td className="py-2 px-1 w-9 text-center align-middle">
                                     {hasCves ? (
                                       isExpanded ? (
-                                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                                        <ChevronDown className="w-4 h-4 text-slate-400 mx-auto" />
                                       ) : (
-                                        <ChevronRight className="w-4 h-4 text-slate-400" />
+                                        <ChevronRight className="w-4 h-4 text-slate-400 mx-auto" />
                                       )
                                     ) : (
                                       <span className="w-4 inline-block" />
                                     )}
                                   </td>
-                                  <td className="py-2 font-mono text-white">{c.name}</td>
-                                  <td className="py-2">
+                                  <td
+                                    className="py-2 px-2 align-middle font-mono text-white max-w-[14rem] truncate"
+                                    title={c.name ?? undefined}
+                                  >
+                                    {c.name}
+                                  </td>
+                                  <td className="py-2 px-2 align-middle max-w-[10rem]">
                                     {mm ? (
                                       <span
-                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold border bg-red-950/50 text-red-200 border-red-700/60"
+                                        className="inline-flex items-center gap-1 max-w-full px-1.5 py-0.5 rounded text-xs font-semibold border bg-red-950/50 text-red-200 border-red-700/60"
                                         title={mm.malwareFamily ? `Family: ${mm.malwareFamily}` : mm.reason}
                                       >
                                         <AlertTriangle className="w-3 h-3 shrink-0" />
-                                        {mm.reason}
+                                        <span className="truncate">{mm.reason}</span>
                                       </span>
                                     ) : (
                                       <span className="text-slate-600">—</span>
                                     )}
                                   </td>
-                                  <td className="py-2 text-slate-400 font-mono">{c.version ?? '—'}</td>
-                                  <td className="py-2 text-slate-500 font-mono">{sbomTypeLabel(c.type)}</td>
-                                  <td className="py-2">
+                                  <td
+                                    className="py-2 px-2 align-middle text-slate-400 font-mono max-w-[7rem] truncate whitespace-nowrap"
+                                    title={c.version ?? undefined}
+                                  >
+                                    {c.version ?? '—'}
+                                  </td>
+                                  <td className="py-2 px-2 align-middle text-slate-500 font-mono whitespace-nowrap">
+                                    {sbomTypeLabel(c.type)}
+                                  </td>
+                                  <td className="py-2 px-2 align-middle text-right tabular-nums whitespace-nowrap">
                                     {cveCount > 0 ? (
                                       <span className="text-amber-400 font-medium">{cveCount}</span>
                                     ) : (
                                       <span className="text-slate-500">0</span>
                                     )}
                                   </td>
-                                  <td className="py-2">
+                                  <td className="py-2 px-2 align-middle whitespace-nowrap">
                                     {c.maxSeverity ? (
                                       <span className={clsx('inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium border', getSeverityBadgeClass(c.maxSeverity))}>
                                         <span>{getSeverityIcon(c.maxSeverity)}</span>
                                         <span className="capitalize">{c.maxSeverity}</span>
                                       </span>
                                     ) : (
-                                      '—'
+                                      <span className="text-slate-500">—</span>
                                     )}
                                   </td>
-                                  <td className="py-2 text-slate-400">{c.maxCvss != null ? c.maxCvss : '—'}</td>
-                                  <td className="py-2 font-mono text-slate-400">{c.fixVersion ?? '—'}</td>
-                                  <td className="py-2">
+                                  <td className="py-2 px-2 align-middle text-right tabular-nums text-slate-400 whitespace-nowrap">
+                                    {c.maxCvss != null ? c.maxCvss : '—'}
+                                  </td>
+                                  <td
+                                    className="py-2 px-2 align-middle font-mono text-slate-400 max-w-[6rem] truncate"
+                                    title={c.fixVersion ?? undefined}
+                                  >
+                                    {c.fixVersion ?? '—'}
+                                  </td>
+                                  <td className="py-2 px-2 align-middle whitespace-nowrap">
                                     {mm ? (
                                       <span className="px-1.5 py-0.5 rounded text-xs bg-red-900/40 text-red-200 border border-red-800/50">Threat</span>
                                     ) : cveCount === 0 ? (
@@ -883,7 +913,7 @@ export const PodDetail: React.FC = () => {
                                       <span className={clsx('px-1.5 py-0.5 rounded text-xs', statusBadgeClass('active'))}>Not Fixed</span>
                                     )}
                                   </td>
-                                  <td className="py-2">
+                                  <td className="py-2 px-2 align-middle text-center whitespace-nowrap">
                                     {vulns.some((v) => v.exploitKnown) ? (
                                       <span className="text-amber-400" title="Public exploit available">🔥</span>
                                     ) : vulns.some((v) => v.exploitMaturity && v.exploitMaturity.toLowerCase().includes('poc')) ? (
@@ -892,9 +922,9 @@ export const PodDetail: React.FC = () => {
                                       <span className="text-slate-500" title="No known exploit">—</span>
                                     )}
                                   </td>
-                                  <td className="py-2">
+                                  <td className="py-2 px-2 align-middle text-center whitespace-nowrap">
                                     {vulns.length === 0 ? (
-                                      '—'
+                                      <span className="text-slate-500">—</span>
                                     ) : vulns.every((v) => v.allowed) ? (
                                       <span className="text-emerald-400" title="Allowed by policy">✅</span>
                                     ) : vulns.some((v) => v.allowed) ? (
@@ -962,11 +992,12 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'risks' && (
-        <Card className="p-6 space-y-4">
-          <div className="flex items-center justify-between gap-2">
+        <Card>
+          <div className="space-y-4 min-w-0">
+          <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between min-w-0">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Related Risks</h3>
             {relatedRisks.length > 0 && (
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-slate-400 shrink-0">
                 {relatedRisks.length} finding{relatedRisks.length !== 1 ? 's' : ''} for this pod
               </span>
             )}
@@ -974,7 +1005,7 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : relatedRisks.length > 0 ? (
-            <div className="space-y-2">
+            <div className="space-y-2 min-w-0">
               {relatedRisks.map((risk) => (
                 <div
                   key={risk.id}
@@ -994,56 +1025,59 @@ export const PodDetail: React.FC = () => {
           ) : (
             <p className="text-slate-500 text-sm">No related risks for this pod.</p>
           )}
+          </div>
         </Card>
       )}
 
       {activeTab === 'metrics' && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <BarChart2 className="w-5 h-5 text-pink-500" /> Runtime metrics
+        <Card>
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
+            <BarChart2 className="w-5 h-5 text-pink-500 shrink-0" /> Runtime metrics
           </h3>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : runtimeMetrics.length > 0 ? (
-            <div className="ui-table-scroll border border-slate-800 rounded-lg">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-800/80 text-slate-300 text-left">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Container</th>
-                    <th className="px-3 py-2 font-medium">CPU (m)</th>
-                    <th className="px-3 py-2 font-medium">Memory</th>
-                    <th className="px-3 py-2 font-medium">Limit</th>
-                    <th className="px-3 py-2 font-medium">Restarts</th>
-                    <th className="px-3 py-2 font-medium">State</th>
-                    <th className="px-3 py-2 font-medium">Last observed</th>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden -mx-1 sm:mx-0">
+              <div className="ui-table-scroll max-h-[min(70vh,36rem)]">
+              <table className="w-full min-w-[720px] text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Container</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">CPU (m)</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Memory</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Limit</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Restarts</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">State</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Last observed</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {runtimeMetrics.map((m, i) => (
                     <tr key={m.id ?? i} className="hover:bg-muted/30">
-                      <td className="px-3 py-2 font-mono text-slate-300">{m.containerName ?? '—'}</td>
-                      <td className="px-3 py-2 tabular-nums">{m.cpuUsageMillicore != null ? m.cpuUsageMillicore : '—'}</td>
-                      <td className="px-3 py-2 tabular-nums font-mono text-slate-400">
+                      <td className="px-3 py-2 font-mono text-slate-300 max-w-[10rem] truncate align-middle" title={m.containerName ?? undefined}>{m.containerName ?? '—'}</td>
+                      <td className="px-3 py-2 tabular-nums text-right align-middle whitespace-nowrap">{m.cpuUsageMillicore != null ? m.cpuUsageMillicore : '—'}</td>
+                      <td className="px-3 py-2 tabular-nums font-mono text-slate-400 align-middle whitespace-nowrap">
                         {m.memoryUsageBytes != null && m.memoryUsageBytes > 0
                           ? (m.memoryUsageBytes >= 1024 * 1024 ? `${(m.memoryUsageBytes / 1024 / 1024).toFixed(1)} MB` : `${(m.memoryUsageBytes / 1024).toFixed(1)} KB`)
                           : '—'}
                       </td>
-                      <td className="px-3 py-2 tabular-nums font-mono text-slate-400">
+                      <td className="px-3 py-2 tabular-nums font-mono text-slate-400 align-middle whitespace-nowrap">
                         {m.memoryLimitBytes != null && m.memoryLimitBytes > 0
                           ? (m.memoryLimitBytes >= 1024 * 1024 ? `${(m.memoryLimitBytes / 1024 / 1024).toFixed(1)} MB` : `${(m.memoryLimitBytes / 1024).toFixed(1)} KB`)
                           : '—'}
                       </td>
-                      <td className="px-3 py-2 tabular-nums">{m.restartCount ?? 0}</td>
-                      <td className="px-3 py-2">
+                      <td className="px-3 py-2 tabular-nums text-right align-middle">{m.restartCount ?? 0}</td>
+                      <td className="px-3 py-2 align-middle whitespace-nowrap">
                         <span className={clsx('px-2 py-0.5 rounded text-xs', m.state === 'Running' ? 'bg-emerald-600/80 text-white' : 'bg-slate-600 text-slate-200')}>
                           {m.state ?? '—'}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-slate-500 text-xs">{m.lastObservedAt ? formatDateTime(m.lastObservedAt) : '—'}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap align-middle">{m.lastObservedAt ? formatDateTime(m.lastObservedAt) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             <PageEmpty title="No runtime metrics" description="Per-container CPU/memory metrics are reported by the agent. Ensure the agent is running on the pod's node." className="py-6" />
@@ -1052,11 +1086,11 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'processes' && (
-        <Card className="p-6">
+        <Card>
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
-            <Cpu className="w-5 h-5 text-pink-500" /> Processes
+            <Cpu className="w-5 h-5 text-pink-500 shrink-0" /> Processes
             {processes.length > 0 && (
-              <span className="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-slate-800">
+              <span className="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-slate-800 max-w-full truncate">
                 Runtime: {processes[0]?.runtimeSource === 'host' ? 'Host Inspection' : 'Container Exec'}
               </span>
             )}
@@ -1064,41 +1098,43 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : processes.length > 0 ? (
-            <div className="ui-table-scroll border border-slate-800 rounded-lg">
-              <table className="w-full text-sm">
-                <thead className="bg-slate-800/80 text-slate-300 text-left">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">PID</th>
-                    <th className="px-3 py-2 font-medium">User</th>
-                    <th className="px-3 py-2 font-medium">UID:GID</th>
-                    <th className="px-3 py-2 font-medium">CPU %</th>
-                    <th className="px-3 py-2 font-medium">Mem %</th>
-                    <th className="px-3 py-2 font-medium">Command</th>
-                    <th className="px-3 py-2 font-medium">CWD</th>
-                    <th className="px-3 py-2 font-medium">CapEff</th>
-                    <th className="px-3 py-2 font-medium">Start time</th>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden -mx-1 sm:mx-0">
+              <div className="ui-table-scroll max-h-[min(70vh,36rem)]">
+              <table className="w-full min-w-[960px] text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">PID</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">User</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">UID:GID</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">CPU %</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">Mem %</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Command</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">CWD</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">CapEff</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Start</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
                   {processes.map((proc, i) => (
                     <tr key={proc.id ?? i} className="hover:bg-muted/30">
-                      <td className="px-3 py-2 tabular-nums font-mono">{proc.pid}</td>
-                      <td className="px-3 py-2 text-slate-300">{proc.userName ?? '—'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-300">
+                      <td className="px-3 py-2 tabular-nums font-mono text-right align-middle whitespace-nowrap">{proc.pid}</td>
+                      <td className="px-3 py-2 text-slate-300 align-middle max-w-[6rem] truncate" title={proc.userName ?? undefined}>{proc.userName ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-300 align-middle whitespace-nowrap">
                         {(proc.userId != null || proc.groupId != null)
                           ? `${proc.userId ?? '—'}:${proc.groupId ?? '—'}`
                           : '—'}
                       </td>
-                      <td className="px-3 py-2 tabular-nums">{proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '—'}</td>
-                      <td className="px-3 py-2 tabular-nums">{proc.memoryPercent != null ? proc.memoryPercent.toFixed(1) : '—'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-400 truncate max-w-[280px]" title={proc.command}>{proc.command ?? '—'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-500 truncate max-w-[220px]" title={proc.workingDir}>{proc.workingDir ?? '—'}</td>
-                      <td className="px-3 py-2 font-mono text-slate-500">{proc.capEff ?? '—'}</td>
-                      <td className="px-3 py-2 text-slate-500 text-xs">{proc.startedAt ? formatDateTime(proc.startedAt) : '—'}</td>
+                      <td className="px-3 py-2 tabular-nums text-right align-middle">{proc.cpuPercent != null ? proc.cpuPercent.toFixed(1) : '—'}</td>
+                      <td className="px-3 py-2 tabular-nums text-right align-middle">{proc.memoryPercent != null ? proc.memoryPercent.toFixed(1) : '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-400 max-w-[14rem] truncate align-middle" title={proc.command}>{proc.command ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500 max-w-[10rem] truncate align-middle" title={proc.workingDir}>{proc.workingDir ?? '—'}</td>
+                      <td className="px-3 py-2 font-mono text-slate-500 max-w-[8rem] truncate align-middle" title={proc.capEff ?? undefined}>{proc.capEff ?? '—'}</td>
+                      <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap align-middle">{proc.startedAt ? formatDateTime(proc.startedAt) : '—'}</td>
                     </tr>
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             <PageEmpty title="No process data" description="Process list is collected by the agent. Ensure the agent is running on the pod's node and Pod Detail collection is enabled." className="py-6" />
@@ -1107,11 +1143,11 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'network' && (
-        <Card className="p-6">
+        <Card>
           <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
-            <Network className="w-5 h-5 text-pink-500" /> Network connections
+            <Network className="w-5 h-5 text-pink-500 shrink-0" /> Network connections
             {networkConnections.length > 0 && (
-              <span className="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-slate-800">
+              <span className="text-xs font-normal text-slate-400 px-2 py-0.5 rounded bg-slate-800 max-w-full truncate">
                 Runtime: {networkConnections[0]?.runtimeSource === 'host' ? 'Host Inspection' : 'Container Exec'}
               </span>
             )}
@@ -1119,22 +1155,23 @@ export const PodDetail: React.FC = () => {
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : networkConnections.length > 0 ? (
-            <div className="ui-table-scroll rounded-lg border border-border">
-              <table className="w-full text-sm">
-                <thead className="text-xs text-muted uppercase bg-muted/50 border-b border-border sticky top-0 z-10">
-                  <tr>
-                    <th className="px-3 py-2 font-medium">Direction</th>
-                    <th className="px-3 py-2 font-medium">Remote address</th>
-                    <th className="px-3 py-2 font-medium">Local port</th>
-                    <th className="px-3 py-2 font-medium">Protocol</th>
-                    <th className="px-3 py-2 font-medium">Status</th>
-                    <th className="px-3 py-2 font-medium" title="Kernel transmit queue snapshot from /proc networking data">
-                      Outbound queue (proc)
+            <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden -mx-1 sm:mx-0">
+              <div className="ui-table-scroll max-h-[min(70vh,36rem)]">
+              <table className="w-full min-w-[900px] text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm sticky top-0 z-10">
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Dir</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Remote</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">L.port</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Proto</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Status</th>
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500" title="Kernel transmit queue snapshot from /proc networking data">
+                      Tx Q
                     </th>
-                    <th className="px-3 py-2 font-medium" title="Kernel receive queue snapshot from /proc networking data">
-                      Inbound queue (proc)
+                    <th className="px-3 py-2.5 text-right text-xs font-semibold uppercase tracking-wide text-slate-500" title="Kernel receive queue snapshot from /proc networking data">
+                      Rx Q
                     </th>
-                    <th className="px-3 py-2 font-medium">Timestamp</th>
+                    <th className="px-3 py-2.5 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Time</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-border">
@@ -1149,23 +1186,24 @@ export const PodDetail: React.FC = () => {
                     const localPort = isOutbound ? (conn.sourcePort ?? 0) : (conn.destPort ?? 0);
                     return (
                       <tr key={conn.id ?? i} className="hover:bg-muted/30">
-                        <td className="px-3 py-2">
+                        <td className="px-3 py-2 align-middle whitespace-nowrap">
                           <span className={clsx('px-2 py-0.5 rounded text-xs', direction === 'Outbound' ? 'bg-sky-600/80 text-white' : 'bg-slate-600 text-slate-200')}>
-                            {direction}
+                            {direction === 'Outbound' ? 'Out' : 'In'}
                           </span>
                         </td>
-                        <td className="px-3 py-2 font-mono">{remoteAddr}</td>
-                        <td className="px-3 py-2 tabular-nums">{localPort || '—'}</td>
-                        <td className="px-3 py-2">{conn.protocol ?? '—'}</td>
-                        <td className="px-3 py-2 text-slate-400">{conn.state ?? '—'}</td>
-                        <td className="px-3 py-2 tabular-nums font-mono text-slate-400">{conn.bytesSent ?? 0}</td>
-                        <td className="px-3 py-2 tabular-nums font-mono text-slate-400">{conn.bytesRecv ?? 0}</td>
-                        <td className="px-3 py-2 text-slate-500 text-xs">{conn.observedAt ? formatDateTime(conn.observedAt) : '—'}</td>
+                        <td className="px-3 py-2 font-mono text-xs max-w-[14rem] truncate align-middle" title={remoteAddr}>{remoteAddr}</td>
+                        <td className="px-3 py-2 tabular-nums text-right align-middle">{localPort || '—'}</td>
+                        <td className="px-3 py-2 align-middle whitespace-nowrap">{conn.protocol ?? '—'}</td>
+                        <td className="px-3 py-2 text-slate-400 align-middle max-w-[6rem] truncate" title={conn.state ?? undefined}>{conn.state ?? '—'}</td>
+                        <td className="px-3 py-2 tabular-nums font-mono text-slate-400 text-right align-middle">{conn.bytesSent ?? 0}</td>
+                        <td className="px-3 py-2 tabular-nums font-mono text-slate-400 text-right align-middle">{conn.bytesRecv ?? 0}</td>
+                        <td className="px-3 py-2 text-slate-500 text-xs whitespace-nowrap align-middle">{conn.observedAt ? formatDateTime(conn.observedAt) : '—'}</td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
+              </div>
             </div>
           ) : (
             <PageEmpty title="No network data" description="Network connections are collected by the agent. Enable network collection on the agent." className="py-6" />
@@ -1174,15 +1212,15 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'spec' && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2">
-            <FileCode className="w-5 h-5 text-pink-500" /> Pod Specification (YAML)
+        <Card>
+          <h3 className="text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
+            <FileCode className="w-5 h-5 text-pink-500 shrink-0" /> Pod Specification (YAML)
           </h3>
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : (
             <>
-              <div className="flex justify-end mb-3">
+              <div className="flex flex-wrap justify-end gap-2 mb-3">
                 <Button
                   variant="secondary"
                   size="sm"
@@ -1203,7 +1241,7 @@ export const PodDetail: React.FC = () => {
                   <Download className="w-4 h-4 mr-2" /> Download YAML
                 </Button>
               </div>
-              <pre className="ui-code-scroll p-4 rounded-lg bg-slate-900 border border-slate-800 text-sm font-mono text-slate-300 whitespace-pre-wrap break-all">
+              <pre className="ui-code-scroll p-3 sm:p-4 rounded-lg bg-slate-900 border border-slate-800 text-xs sm:text-sm font-mono text-slate-300 whitespace-pre-wrap break-words max-w-full overflow-x-auto">
                 {specYaml || 'No spec data.'}
               </pre>
             </>
@@ -1212,30 +1250,30 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'events' && (
-        <Card className="p-6">
-          <div className="mb-2">
-            <h3 className="text-lg font-semibold text-white flex items-center gap-2">
-              <Activity className="w-5 h-5 text-pink-500" /> Events
+        <Card>
+          <div className="mb-2 min-w-0">
+            <h3 className="text-lg font-semibold text-white flex items-center gap-2 flex-wrap">
+              <Activity className="w-5 h-5 text-pink-500 shrink-0" /> Events
             </h3>
             <p className="text-xs text-slate-500 mt-1">
               Kubernetes API events, deduplicated runtime signals, and raw security runtime events (e.g. Falco → Core ingest).
             </p>
           </div>
           <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-1">Coverage by source</p>
               <p className="text-xs text-slate-300">
                 Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
                 {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}
               </p>
             </Card>
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-1">Coverage by layer</p>
               <p className="text-xs text-slate-300">
                 Events {runtimeSecurityEvents.length} · Facts {runtimeFacts.length} · Signals {runtimeSignals.length} · Incidents {runtimeIncidents.length}
               </p>
             </Card>
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-1">Coverage by MITRE tags</p>
               <p className="text-xs text-slate-300">
                 {new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques
@@ -1243,7 +1281,7 @@ export const PodDetail: React.FC = () => {
             </Card>
           </div>
           <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-2">Coverage by fact domain</p>
               <div className="flex flex-wrap gap-1.5">
                 {Array.from(
@@ -1263,7 +1301,7 @@ export const PodDetail: React.FC = () => {
                 {runtimeFacts.length === 0 ? <span className="text-xs text-slate-500">No fact coverage yet.</span> : null}
               </div>
             </Card>
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-2">Coverage by signal type</p>
               <div className="flex flex-wrap gap-1.5">
                 {Array.from(
@@ -1304,7 +1342,7 @@ export const PodDetail: React.FC = () => {
             </p>
             {showLegacyEventsView ? (
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <h5 className="text-xs font-semibold text-slate-300 mb-2">Runtime signals (legacy summary)</h5>
                   {runtimeSignals.length === 0 ? (
                     <p className="text-xs text-slate-500">No runtime signals.</p>
@@ -1318,7 +1356,7 @@ export const PodDetail: React.FC = () => {
                     </div>
                   )}
                 </Card>
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <h5 className="text-xs font-semibold text-slate-300 mb-2">Kubernetes events (legacy summary)</h5>
                   {podEvents.length === 0 ? (
                     <p className="text-xs text-slate-500">No Kubernetes events.</p>
@@ -1420,20 +1458,20 @@ export const PodDetail: React.FC = () => {
             })()}
           </div>
 
-          <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-cyan-400" /> Runtime signals &amp; Kubernetes events
+          <h3 className="text-base font-semibold text-white mb-4 flex items-center gap-2 flex-wrap min-w-0">
+            <Activity className="w-5 h-5 text-cyan-400 shrink-0" /> Runtime signals &amp; Kubernetes events
           </h3>
-          <div className="mb-6">
+          <div className="mb-6 min-w-0">
             {signalStats && (
-              <div className="mb-3 flex items-center gap-3 text-xs text-slate-400">
-                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">Network anomaly events (60m): {signalStats.emittedEvents}</span>
+              <div className="mb-3 flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700 max-w-full break-words">Network anomaly events (60m): {signalStats.emittedEvents}</span>
                 <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">keys: {signalStats.uniqueKeys}</span>
                 <span className="px-2 py-0.5 rounded bg-slate-800 border border-slate-700">max ratio: {Number(signalStats.maxRatio ?? 0).toFixed(2)}</span>
               </div>
             )}
-            <div className="flex items-center justify-between gap-3 mb-3">
-              <h4 className="text-sm font-semibold text-white">Runtime signals (normalized, last 24h)</h4>
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between mb-3 min-w-0">
+              <h4 className="text-sm font-semibold text-white min-w-0">Runtime signals (normalized, last 24h)</h4>
+              <div className="flex flex-wrap items-center gap-2 shrink-0">
                 <Button
                   variant={runtimeSignalFilter === 'all' ? 'default' : 'secondary'}
                   size="sm"
@@ -1493,7 +1531,7 @@ export const PodDetail: React.FC = () => {
               );
             })()}
           </div>
-          <Card className="p-3 mb-6 bg-slate-900/30 border-slate-800">
+          <Card variant="panel" className="mb-6 bg-slate-900/30 border-slate-800 min-w-0">
             <p className="text-xs text-slate-400">
               Facts, incidents, capabilities and insights are split into dedicated views to reduce noise:
               <span className="text-slate-200"> Runtime Timeline</span>, <span className="text-slate-200">Coverage</span>, and
@@ -1525,9 +1563,9 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'timeline' && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-            <Activity className="w-5 h-5 text-pink-500" /> Runtime Timeline
+        <Card>
+          <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2 flex-wrap">
+            <Activity className="w-5 h-5 text-pink-500 shrink-0" /> Runtime Timeline
           </h3>
           <p className="text-xs text-slate-500 mb-4">
             Incident-first timeline with correlated facts, capabilities, and insights for this pod.
@@ -1538,7 +1576,7 @@ export const PodDetail: React.FC = () => {
             <>
               <PageEmpty title="No runtime incidents" description="No stateful incidents found in the selected lookback window." className="py-6" />
               {runtimeDataHints().length > 0 && (
-                <Card className="p-3 bg-slate-900/40 border-slate-800 mt-3">
+                <Card variant="panel" className="mt-3 bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-xs text-slate-400 mb-2">Diagnostics</p>
                   <ul className="space-y-1">
                     {runtimeDataHints().map((h) => (
@@ -1576,15 +1614,15 @@ export const PodDetail: React.FC = () => {
             </div>
           )}
           <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-3">
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-1">Facts in scope</p>
               <p className="text-sm text-slate-200">{runtimeFacts.length}</p>
             </Card>
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-1">Capabilities in scope</p>
               <p className="text-sm text-slate-200">{podCapabilities.length}</p>
             </Card>
-            <Card className="p-3 bg-slate-900/40 border-slate-800">
+            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
               <p className="text-[11px] text-slate-500 mb-1">Insights in report</p>
               <p className="text-sm text-slate-200">{relatedRisks.length}</p>
             </Card>
@@ -1593,9 +1631,9 @@ export const PodDetail: React.FC = () => {
       )}
 
       {activeTab === 'coverage' && (
-        <Card className="p-6">
-          <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2">
-            <Shield className="w-5 h-5 text-pink-500" /> Runtime Coverage
+        <Card>
+          <h3 className="text-lg font-semibold text-white mb-2 flex items-center gap-2 flex-wrap">
+            <Shield className="w-5 h-5 text-pink-500 shrink-0" /> Runtime Coverage
           </h3>
           <p className="text-xs text-slate-500 mb-4">
             Coverage lens by source, layer, domain, signal type, and MITRE tags.
@@ -1605,7 +1643,7 @@ export const PodDetail: React.FC = () => {
           ) : (
             <>
               {runtimeDataHints().length > 0 && (
-                <Card className="p-3 bg-slate-900/40 border-slate-800 mb-4">
+                <Card variant="panel" className="mb-4 bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-xs text-slate-400 mb-2">Data availability diagnostics</p>
                   <ul className="space-y-1">
                     {runtimeDataHints().map((h) => (
@@ -1615,20 +1653,20 @@ export const PodDetail: React.FC = () => {
                 </Card>
               )}
               <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-[11px] text-slate-500 mb-1">Coverage by source</p>
                   <p className="text-xs text-slate-300">
                     Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
                     {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}
                   </p>
                 </Card>
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-[11px] text-slate-500 mb-1">Coverage by layer</p>
                   <p className="text-xs text-slate-300">
                     Events {runtimeSecurityEvents.length} · Facts {runtimeFacts.length} · Signals {runtimeSignals.length} · Incidents {runtimeIncidents.length}
                   </p>
                 </Card>
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-[11px] text-slate-500 mb-1">Coverage by MITRE tags</p>
                   <p className="text-xs text-slate-300">
                     {new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques
@@ -1636,7 +1674,7 @@ export const PodDetail: React.FC = () => {
                 </Card>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-[11px] text-slate-500 mb-2">Fact domain distribution</p>
                   <div className="flex flex-wrap gap-1.5">
                     {Array.from(
@@ -1655,7 +1693,7 @@ export const PodDetail: React.FC = () => {
                     {runtimeFacts.length === 0 ? <span className="text-xs text-slate-500">No fact coverage yet.</span> : null}
                   </div>
                 </Card>
-                <Card className="p-3 bg-slate-900/40 border-slate-800">
+                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
                   <p className="text-[11px] text-slate-500 mb-2">Signal type distribution</p>
                   <div className="flex flex-wrap gap-1.5">
                     {Array.from(
@@ -1747,11 +1785,11 @@ export const PodDetail: React.FC = () => {
         </div>
       )}
 
-      <Card className="mt-8" variant="secondary">
-        <div className="flex items-center justify-between mb-3">
+      <Card className="mt-8 min-w-0" variant="secondary">
+        <div className="flex items-center justify-between mb-3 min-w-0">
           <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Related navigation</h3>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 min-w-0">
           {pod.clusterId && (
             <Button variant="secondary" size="sm" onClick={() => navigate(`/clusters/${pod.clusterId}`)}>
               <Globe className="w-4 h-4 mr-1" /> View cluster
