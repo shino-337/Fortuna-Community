@@ -32,7 +32,8 @@ import (
 //	  sbom_worker_phase_policy_test.go — Pod phase gating for SBOM processing
 //	  sbom_dlq_worker_test.go          — DLQ replay max attempts
 //	  sbom_coverage_stats_test.go      — Coverage stats invariants
-//	  sbom_realistic_pod_e2e_test.go   — THIS FILE: realistic pod metadata + DB-backed CVE/malware
+//	  sbom_realistic_pod_e2e_test.go        — THIS FILE: realistic pod metadata + DB-backed CVE/malware
+//	  sbom_realistic_pod_npm_malware_test.go — npm-style multi-malware + CVE seeds + large tree + empty malware DB
 //	pkg/sbom/events_contract_test.go — sbom.created event JSON contract
 //	internal/repository/sbom_repository_test.go — Finalized SBOM mutation rules
 //	pkg/reconciler/sbom_reconciler_test.go       — Reconciler behaviour
