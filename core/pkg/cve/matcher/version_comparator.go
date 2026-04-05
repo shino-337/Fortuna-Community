@@ -3,6 +3,7 @@ package matcher
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 
 	debversion "github.com/knqyf263/go-deb-version"
@@ -42,7 +43,7 @@ func (vc *VersionComparator) IsVulnerable(
 	switch normalizedEco {
 	case "deb", "debian", "ubuntu":
 		return vc.compareDebianVersion(installedVersion, constraint)
-	case "rpm", "redhat", "centos":
+	case "rpm", "redhat", "centos", "fedora", "rocky", "alma", "oraclelinux", "amazon", "photon", "opensuse", "sles", "archlinux", "wolfi", "chainguard":
 		return vc.compareRPMVersion(installedVersion, constraint)
 	case "apk", "alpine":
 		return vc.compareAlpineVersion(installedVersion, constraint)
@@ -190,20 +191,85 @@ func (vc *VersionComparator) compareRPMVersion(
 	return true, nil
 }
 
-// compareAlpineVersion compares Alpine package versions
-// Format: version-rN
-// Example: 1.1.1g-r0
+// parseAlpineVersionParts splits Alpine apk versions like 1.36.1-r15 into (upstream, release).
+// Versions without -r use release 0.
+func parseAlpineVersionParts(v string) (core string, rel int, ok bool) {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return "", 0, false
+	}
+	idx := strings.LastIndex(v, "-r")
+	if idx < 0 {
+		return v, 0, true
+	}
+	core = strings.TrimSpace(v[:idx])
+	relStr := v[idx+2:]
+	relVal, err := strconv.Atoi(relStr)
+	if err != nil || core == "" {
+		return v, 0, true
+	}
+	return core, relVal, true
+}
+
+// compareAlpineVersions orders two full Alpine version strings (upstream + -rN).
+func compareAlpineVersions(a, b string) int {
+	ca, ra, _ := parseAlpineVersionParts(a)
+	cb, rb, _ := parseAlpineVersionParts(b)
+	va, errA := version.NewVersion(ca)
+	vb, errB := version.NewVersion(cb)
+	if errA != nil || errB != nil {
+		return strings.Compare(strings.TrimSpace(a), strings.TrimSpace(b))
+	}
+	if cmp := va.Compare(vb); cmp != 0 {
+		return cmp
+	}
+	if ra < rb {
+		return -1
+	}
+	if ra > rb {
+		return 1
+	}
+	return 0
+}
+
+// compareAlpineVersion compares Alpine package versions (apk) including -r release suffixes.
+// OSV Alpine ranges use ECOSYSTEM events with bounds like 1.36.1-r16; semver-only stripping was incorrect.
 func (vc *VersionComparator) compareAlpineVersion(
 	installed string,
 	constraint string,
 ) (bool, error) {
-	// Strip Alpine release suffix (-rN)
-	if idx := strings.Index(installed, "-r"); idx != -1 {
-		installed = installed[:idx]
+	installed = strings.TrimSpace(installed)
+	parts := strings.Split(constraint, ",")
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		op, targetStr := vc.parseConstraint(part)
+		if targetStr == "" {
+			return false, nil
+		}
+		cmp := compareAlpineVersions(installed, targetStr)
+		ok := false
+		switch op {
+		case "<":
+			ok = cmp < 0
+		case "<=":
+			ok = cmp <= 0
+		case ">":
+			ok = cmp > 0
+		case ">=":
+			ok = cmp >= 0
+		case "==":
+			ok = cmp == 0
+		default:
+			return false, fmt.Errorf("unknown operator: %s", op)
+		}
+		if !ok {
+			return false, nil
+		}
 	}
-
-	// Use semantic versioning for comparison
-	return vc.compareSemver(installed, constraint)
+	return true, nil
 }
 
 // compareSemver compares semantic versions

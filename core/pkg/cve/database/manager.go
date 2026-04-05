@@ -216,7 +216,7 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 	}
 
 	eco := strings.ToLower(strings.TrimSpace(ecosystem))
-	useOSVMirror := eco == "go" && m.hasOSVMirrorTables()
+	useOSVMirror := m.hasOSVMirrorTables() && useOSVMirrorForEcosystem(eco)
 	cacheSuffix := "*"
 	if useOSVMirror {
 		if ver := m.getMirrorVersion(ctx, "osv"); ver != "" {
@@ -264,7 +264,7 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 			m.cache.Set(cacheKey, cves)
 			result[pkg] = cves
 		}
-		m.logger.Printf("✅ Bulk query returned CVEs for %d packages (OSV mirror go)", len(packages))
+		m.logger.Printf("✅ Bulk query returned CVEs for %d packages (OSV mirror ecosystem=%s)", len(packages), eco)
 		return result, nil
 	}
 
@@ -345,6 +345,15 @@ func (m *Manager) hasOSVMirrorTables() bool {
 	return m.postgresDB.Migrator().HasTable("osv_vulnerabilities") &&
 		m.postgresDB.Migrator().HasTable("osv_packages") &&
 		m.postgresDB.Migrator().HasTable("osv_ranges")
+}
+
+// ShouldUseNVDFallbackForPackage is false for distro OS packages when the OSV mirror is present,
+// so we do not merge unconstrained NVD API hits with OSV-backed range evaluation.
+func (m *Manager) ShouldUseNVDFallbackForPackage(ecosystem string) bool {
+	if !m.hasOSVMirrorTables() {
+		return true
+	}
+	return !isDistroPackageEcosystemNoNVD(ecosystem)
 }
 
 // ResolveGoModuleAlias returns the canonical Go module path for OSV lookup (exact match only).
@@ -437,7 +446,16 @@ WHERE p.ecosystem = ? AND p.package_name IN ?
 		if row.VulnID == "" || row.PackageName == "" {
 			continue
 		}
-		if strings.ToUpper(strings.TrimSpace(row.RangeType)) != "SEMVER" {
+		rt := strings.ToUpper(strings.TrimSpace(row.RangeType))
+		switch rt {
+		case "SEMVER":
+			// all mirrored ecosystems
+		case "ECOSYSTEM":
+			// Go modules use SEMVER in OSV; ECOSYSTEM rows for go are skipped at ingest and ignored here.
+			if eco == "go" || !isDistroOSVEcosystem(eco) {
+				continue
+			}
+		default:
 			continue
 		}
 		introduced := strings.TrimSpace(row.Introduced)
@@ -483,6 +501,7 @@ WHERE p.ecosystem = ? AND p.package_name IN ?
 				for _, a := range aliases {
 					a = strings.TrimSpace(a)
 					if strings.HasPrefix(strings.ToUpper(a), "CVE-") {
+						cveObj.ID = a
 						m.enrichCVEFromNVDByCVEID(ctx, a, cveObj)
 						break
 					}

@@ -60,11 +60,11 @@ func TestIngestDocument_FlattensPackagesAndRanges(t *testing.T) {
 	if stats.VulnsUpserted != 1 {
 		t.Fatalf("vulns upserted=%d, want 1", stats.VulnsUpserted)
 	}
-	// 2 packages inserted; second has ECOSYSTEM ranges which should be skipped, but package row is still inserted
+	// 2 packages inserted; second is still go — ECOSYSTEM ranges for go are skipped; package row is still inserted
 	if stats.PackagesInserted != 2 {
 		t.Fatalf("packages inserted=%d, want 2", stats.PackagesInserted)
 	}
-	// 2 SEMVER intervals created for first affected; second affected ranges are skipped
+	// 2 SEMVER intervals from first affected only
 	if stats.RangesInserted != 2 {
 		t.Fatalf("ranges inserted=%d, want 2", stats.RangesInserted)
 	}
@@ -86,6 +86,48 @@ func TestIngestDocument_FlattensPackagesAndRanges(t *testing.T) {
 		if p.Ecosystem != "go" {
 			t.Fatalf("expected ecosystem normalized to go, got %q", p.Ecosystem)
 		}
+	}
+}
+
+func TestIngestDocument_AlpineECOSYSTEMRange(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	doc := &Document{
+		ID: "ALPINE-TEST-1", Summary: "s", Details: "d",
+		Affected: []Affected{
+			{
+				Package: Package{Ecosystem: "Alpine:v3.19", Name: "busybox"},
+				Ranges: []Range{
+					{Type: "ECOSYSTEM", Events: []Event{{Introduced: "0"}, {Fixed: "1.99.0"}}},
+				},
+			},
+		},
+	}
+	stats, err := IngestDocument(context.Background(), db, doc)
+	if err != nil {
+		t.Fatalf("IngestDocument: %v", err)
+	}
+	if stats.RangesInserted != 1 {
+		t.Fatalf("ranges inserted=%d, want 1", stats.RangesInserted)
+	}
+	var r models.OSVRange
+	if err := db.First(&r).Error; err != nil {
+		t.Fatalf("range: %v", err)
+	}
+	if r.RangeType != "ECOSYSTEM" {
+		t.Fatalf("range type=%q, want ECOSYSTEM", r.RangeType)
+	}
+	var p models.OSVPackage
+	if err := db.First(&p).Error; err != nil {
+		t.Fatalf("pkg: %v", err)
+	}
+	if p.Ecosystem != "alpine" {
+		t.Fatalf("ecosystem=%q, want alpine", p.Ecosystem)
 	}
 }
 

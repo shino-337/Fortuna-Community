@@ -278,7 +278,8 @@ func (m *Matcher) MatchSBOM(
 	for ecosystem, packageSet := range ecosystemPackages {
 		expandedEcosystems[ecosystem] = packageSet
 		if ecosystem == "generic" {
-			for _, fallbackEco := range []string{"alpine", "debian"} {
+			// Try common distro OSV keys when OS is unknown; cheap bulk queries, version checks filter.
+			for _, fallbackEco := range []string{"alpine", "debian", "ubuntu", "redhat", "rocky", "alma", "centos"} {
 				if expandedEcosystems[fallbackEco] == nil {
 					expandedEcosystems[fallbackEco] = make(map[string]struct{})
 				}
@@ -355,10 +356,11 @@ func (m *Matcher) MatchSBOM(
 					}
 
 					installedVersion := effectiveVersionForComparison(component.ComponentVersion, purl)
+					compEco := comparatorEcosystemForBulkBatch(purl, ecosystem)
 					vulnerable, err := m.comparator.IsVulnerable(
 						installedVersion,
 						cveData.Constraint,
-						purl.Ecosystem,
+						compEco,
 					)
 					if err != nil {
 						m.logger.Printf("⚠️  Version comparison failed for %s: %v", component.ComponentName, err)
@@ -422,10 +424,19 @@ func (m *Matcher) MatchSBOM(
 			if strings.TrimSpace(component.ComponentVersion) == "unknown" {
 				continue
 			}
-			if isNVDFallbackWhitelisted(component.ComponentName) {
-				needNVDFallback = true
-				break
+			if !isNVDFallbackWhitelisted(component.ComponentName) {
+				continue
 			}
+			purl, perr := ParsePURL(component.PURL)
+			if perr != nil || purl == nil {
+				purl = inferPURLFromComponent(component, sbom.OSName)
+			}
+			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
+			if !m.dbManager.ShouldUseNVDFallbackForPackage(queryEco) {
+				continue
+			}
+			needNVDFallback = true
+			break
 		}
 	}
 	if needNVDFallback {
@@ -450,7 +461,7 @@ func (m *Matcher) MatchSBOM(
 			}
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 			nvdName := nvdKeywordSearchName(component.ComponentName, purl) // Go modules: full path for NVD keywordSearch; else normalize (e.g. coredns image → coredns)
-			tryNVD := isNVDFallbackWhitelisted(component.ComponentName)
+			tryNVD := isNVDFallbackWhitelisted(component.ComponentName) && m.dbManager.ShouldUseNVDFallbackForPackage(queryEco)
 			// Cost control: only try NVD for whitelisted names.
 			if !tryNVD {
 				continue
@@ -489,7 +500,9 @@ func (m *Matcher) MatchSBOM(
 				} else {
 					var errV error
 					installedVersion := effectiveVersionForComparison(component.ComponentVersion, purl)
-					vulnerable, errV = m.comparator.IsVulnerable(installedVersion, cveData.Constraint, purl.Ecosystem)
+					// Use queryEco so debian/openssl + generic PURL still evaluates dpkg-shaped constraints.
+					compEco := comparatorEcosystemForBulkBatch(purl, queryEco)
+					vulnerable, errV = m.comparator.IsVulnerable(installedVersion, cveData.Constraint, compEco)
 					if errV != nil || !vulnerable {
 						continue
 					}
@@ -1108,6 +1121,29 @@ func isNVDFallbackWhitelisted(name string) bool {
 	return false
 }
 
+// comparatorEcosystemForBulkBatch selects VersionComparator semantics for CVE rows loaded via
+// GetVulnerabilitiesForPackages(ctx, bulkQueryEcosystem, ...). Constraints follow that feed
+// (dpkg, apk, rpm, semver), so we must not use purl.Ecosystem when it is "generic" and the batch
+// is a concrete distro (fixes false negatives when generic heuristic SBOMs expand to alpine/debian/redhat).
+func comparatorEcosystemForBulkBatch(purl *PURL, bulkQueryEcosystem string) string {
+	b := strings.ToLower(strings.TrimSpace(bulkQueryEcosystem))
+	switch b {
+	case "", "generic":
+		if purl == nil {
+			return ""
+		}
+		return purl.Ecosystem
+	case "linux":
+		// Ambiguous RPM bucket: keep PURL (usually rpm) for rpmver comparison.
+		if purl == nil {
+			return "linux"
+		}
+		return purl.Ecosystem
+	default:
+		return bulkQueryEcosystem
+	}
+}
+
 // normalizeQueryEcosystem maps PURL ecosystem/namespace into the ecosystem values
 // stored in PostgreSQL by the OSV loader (e.g., debian/ubuntu/alpine/go).
 func normalizeQueryEcosystem(p *PURL) string {
@@ -1141,11 +1177,38 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 		}
 		return "alpine"
 	case "rpm", "package_type_rpm":
-		// Use namespace if present (e.g., centos/redhat)
 		if ns != "" {
 			return ns
 		}
-		return "linux" // Most RPM vulnerabilities are in "linux" ecosystem
+		// Map SBOM OS to OSV-style ecosystem keys when namespace is missing (syft/rpm often omit ns).
+		if strings.Contains(osName, "red hat") || strings.Contains(osName, "rhel") {
+			return "redhat"
+		}
+		if strings.Contains(osName, "centos") {
+			return "centos"
+		}
+		if strings.Contains(osName, "fedora") {
+			return "fedora"
+		}
+		if strings.Contains(osName, "rocky") {
+			return "rocky"
+		}
+		if strings.Contains(osName, "alma") {
+			return "alma"
+		}
+		if strings.Contains(osName, "oracle linux") || strings.Contains(osName, "ol ") {
+			return "oraclelinux"
+		}
+		if strings.Contains(osName, "amazon linux") || strings.Contains(osName, "amzn") {
+			return "amazon"
+		}
+		if strings.Contains(osName, "opensuse") || strings.Contains(osName, "suse") {
+			return "opensuse"
+		}
+		if strings.Contains(osName, "photon") {
+			return "photon"
+		}
+		return "linux" // legacy / unknown RPM — keep previous default
 	case "golang", "go":
 		// OSV loader normalizes to "go"
 		return "go"
@@ -1159,6 +1222,33 @@ func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
 		}
 		if strings.Contains(osName, "alpine") {
 			return "alpine"
+		}
+		if strings.Contains(osName, "rocky") {
+			return "rocky"
+		}
+		if strings.Contains(osName, "alma") {
+			return "alma"
+		}
+		if strings.Contains(osName, "centos") {
+			return "centos"
+		}
+		if strings.Contains(osName, "fedora") {
+			return "fedora"
+		}
+		if strings.Contains(osName, "red hat") || strings.Contains(osName, "rhel") {
+			return "redhat"
+		}
+		if strings.Contains(osName, "oracle linux") || strings.Contains(osName, "ol ") {
+			return "oraclelinux"
+		}
+		if strings.Contains(osName, "amazon linux") || strings.Contains(osName, "amzn") {
+			return "amazon"
+		}
+		if strings.Contains(osName, "opensuse") || strings.Contains(osName, "sles") {
+			return "opensuse"
+		}
+		if strings.Contains(osName, "photon") {
+			return "photon"
 		}
 		return "generic"
 	default:

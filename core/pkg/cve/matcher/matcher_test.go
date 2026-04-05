@@ -19,6 +19,26 @@ import (
 	"gorm.io/gorm"
 )
 
+func TestComparatorEcosystemForBulkBatch(t *testing.T) {
+	p, err := ParsePURL("pkg:generic/openssl@1.1.1d-0+deb10u7")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := comparatorEcosystemForBulkBatch(p, "debian"); g != "debian" {
+		t.Fatalf("bulk debian: got %q want debian", g)
+	}
+	if g := comparatorEcosystemForBulkBatch(p, "generic"); g != "generic" {
+		t.Fatalf("bulk generic: got %q want generic", g)
+	}
+	rp, err := ParsePURL("pkg:rpm/openssl@1.1.1k-8.el8")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if g := comparatorEcosystemForBulkBatch(rp, "linux"); g != "rpm" {
+		t.Fatalf("bulk linux: got %q want rpm", g)
+	}
+}
+
 func TestNormalizeQueryEcosystemWithOS(t *testing.T) {
 	tests := []struct {
 		name       string
@@ -61,6 +81,18 @@ func TestNormalizeQueryEcosystemWithOS(t *testing.T) {
 			purl:       "pkg:deb/ubuntu/libc6@2.35",
 			sbomOSName: "",
 			want:       "ubuntu",
+		},
+		{
+			name:       "rpm without namespace on Rocky -> rocky",
+			purl:       "pkg:rpm/openssl@1.1.1k-8.el8_6",
+			sbomOSName: "Rocky Linux 8.8",
+			want:       "rocky",
+		},
+		{
+			name:       "generic on RHEL -> redhat",
+			purl:       "pkg:generic/openssl@1.1.1k",
+			sbomOSName: "Red Hat Enterprise Linux 8.6",
+			want:       "redhat",
 		},
 	}
 	for _, tt := range tests {
@@ -1390,6 +1422,46 @@ func TestMatcher_DeterministicOutput_SameInputSameResult(t *testing.T) {
 			t.Fatalf("nondeterministic output at iter=%d\nbaseline:\n%s\ngot:\n%s", i, baseline, b.String())
 		}
 	}
+}
+
+func TestMatchSBOM_AlpineBusyboxUsesOSVMirror_NotNVDFallback(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(
+		&models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{},
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}, &models.CVE{},
+	))
+	now := time.Now()
+	require.NoError(t, db.Create(&models.CVE{
+		CVEID: "CVE-2023-42363", Severity: "HIGH", CVSSScore: 7.5,
+		PublishedDate: &now, LastModifiedDate: &now,
+	}).Error)
+	v := models.OSVVulnerability{
+		ID: "ALPINE-CVE-2023-42363", Summary: "busybox", Details: "x", Severity: "HIGH", CVSSScore: 7.5,
+		Aliases: `["CVE-2023-42363"]`,
+	}
+	require.NoError(t, db.Create(&v).Error)
+	p := models.OSVPackage{VulnID: v.ID, Ecosystem: "alpine", PackageName: "busybox"}
+	require.NoError(t, db.Create(&p).Error)
+	require.NoError(t, db.Create(&models.OSVRange{
+		PackageID: p.ID, RangeType: "ECOSYSTEM", Introduced: "0", Fixed: "1.99.0",
+	}).Error)
+
+	sb := &models.SBOM{PodUID: "pod-1", OSName: "alpine", Status: "complete", PackageCount: 1}
+	require.NoError(t, db.Create(sb).Error)
+	comp := []*models.SBOMComponent{{
+		SBOMID: sb.ID, ComponentName: "busybox", ComponentVersion: "1.36.1-r15",
+		PURL: "pkg:apk/alpine/busybox@1.36.1-r15?arch=x86_64", TrustLevel: "high",
+	}}
+
+	// NVD client present but must not be used for apk/alpine when OSV mirror exists.
+	mgr := database.NewPostgresManagerWithNVD(db, nvd.NewClient())
+	m := NewMatcher(mgr, db)
+	matches, err := m.MatchSBOM(context.Background(), sb, comp)
+	require.NoError(t, err)
+	require.Len(t, matches, 1)
+	require.Equal(t, "CVE-2023-42363", matches[0].CVEID)
+	require.Equal(t, "fortuna-core-cve-matcher", matches[0].MatchedBy)
 }
 
 func TestMatchSBOM_SkipsFailedSBOMStatus(t *testing.T) {

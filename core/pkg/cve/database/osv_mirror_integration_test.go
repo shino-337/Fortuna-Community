@@ -57,7 +57,8 @@ func TestOSVMirrorBulkQuery_GoModule(t *testing.T) {
 		t.Fatalf("expected 1 CVE from OSV mirror, got %d (%+v)", len(cves), cves)
 	}
 	gotCVE := cves[0]
-	if gotCVE.ID != "GO-TEST-1" {
+	// Prefer canonical CVE-* id from OSV aliases when present (dashboard / CVEMatch keys).
+	if gotCVE.ID != "CVE-2023-1234" {
 		t.Fatalf("unexpected cve id: %q", gotCVE.ID)
 	}
 	// Constraint should be "<v1.9.1" (introduced 0 means no lower bound)
@@ -73,6 +74,56 @@ func TestOSVMirrorBulkQuery_GoModule(t *testing.T) {
 	}
 	if len(gotCVE.References) == 0 {
 		t.Fatalf("expected at least one reference from NVD, got 0")
+	}
+}
+
+func TestOSVMirrorBulkQuery_AlpineBusybox_ECOSYSTEM(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}, &models.CVE{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := time.Now()
+	if err := db.Create(&models.CVE{
+		CVEID:              "CVE-2023-42363",
+		Severity:           "HIGH",
+		CVSSScore:          7.5,
+		PublishedDate:      &now,
+		LastModifiedDate:   &now,
+	}).Error; err != nil {
+		t.Fatalf("seed cve: %v", err)
+	}
+	v := models.OSVVulnerability{
+		ID: "ALPINE-CVE-2023-42363", Summary: "busybox", Details: "uaf", Severity: "HIGH", CVSSScore: 7.5,
+		Aliases: `["CVE-2023-42363"]`,
+	}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatalf("seed vuln: %v", err)
+	}
+	p := models.OSVPackage{VulnID: v.ID, Ecosystem: "alpine", PackageName: "busybox"}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatalf("seed package: %v", err)
+	}
+	r := models.OSVRange{PackageID: p.ID, RangeType: "ECOSYSTEM", Introduced: "0", Fixed: "1.99.0"}
+	if err := db.Create(&r).Error; err != nil {
+		t.Fatalf("seed range: %v", err)
+	}
+	m := NewPostgresManager(db)
+	got, err := m.GetVulnerabilitiesForPackages(context.Background(), "alpine", []string{"busybox"})
+	if err != nil {
+		t.Fatalf("GetVulnerabilitiesForPackages: %v", err)
+	}
+	cves := got["busybox"]
+	if len(cves) != 1 {
+		t.Fatalf("expected 1 CVE, got %d (%+v)", len(cves), cves)
+	}
+	if cves[0].ID != "CVE-2023-42363" {
+		t.Fatalf("cve id: %q", cves[0].ID)
+	}
+	if cves[0].Constraint != "<1.99.0" {
+		t.Fatalf("constraint: %q", cves[0].Constraint)
 	}
 }
 

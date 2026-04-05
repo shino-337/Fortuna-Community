@@ -22,12 +22,66 @@ type Stats struct {
 
 func normalizeEcosystem(e string) string {
 	e = strings.ToLower(strings.TrimSpace(e))
+	// Collapse versioned OSV distro keys (Debian:10, Alpine:v3.19, …) like pkg/cve/loader.
+	if strings.HasPrefix(e, "debian:") || e == "debian" {
+		return "debian"
+	}
+	if strings.HasPrefix(e, "ubuntu:") || e == "ubuntu" {
+		return "ubuntu"
+	}
+	if strings.HasPrefix(e, "alpine:") || e == "alpine" {
+		return "alpine"
+	}
+	if e == "red hat" || strings.HasPrefix(e, "red hat:") {
+		return "redhat"
+	}
+	if e == "rhel" || strings.HasPrefix(e, "rhel:") {
+		return "redhat"
+	}
 	switch e {
 	case "go", "golang":
 		return "go"
+	case "pypi":
+		return "pypi"
+	case "npm":
+		return "npm"
+	case "maven":
+		return "maven"
+	case "nuget":
+		return "nuget"
+	case "crates.io", "cargo":
+		return "cargo"
+	case "rubygems":
+		return "rubygems"
 	default:
 		return e
 	}
+}
+
+// ingestRangeEvents flattens OSV range events into osv_ranges rows.
+// storeType is SEMVER or ECOSYSTEM (stored verbatim for matcher policy).
+func ingestRangeEvents(ctx context.Context, db *gorm.DB, pkgRow *models.OSVPackage, storeType string, r Range, stats *Stats) error {
+	var currentIntroduced string
+	for _, ev := range r.Events {
+		if ev.Introduced != "" {
+			currentIntroduced = strings.TrimSpace(ev.Introduced)
+			continue
+		}
+		if ev.Fixed != "" || ev.LastAffected != "" {
+			row := models.OSVRange{
+				PackageID:    pkgRow.ID,
+				RangeType:    storeType,
+				Introduced:   strings.TrimSpace(currentIntroduced),
+				Fixed:        strings.TrimSpace(ev.Fixed),
+				LastAffected: strings.TrimSpace(ev.LastAffected),
+			}
+			if err := db.WithContext(ctx).Create(&row).Error; err != nil {
+				return fmt.Errorf("ingest OSV range: %w", err)
+			}
+			stats.RangesInserted++
+		}
+	}
+	return nil
 }
 
 func normalizeAliases(aliases []string) string {
@@ -56,9 +110,10 @@ func normalizeAliases(aliases []string) string {
 // osv_vulnerabilities, osv_packages, osv_ranges.
 //
 // Notes:
-// - ecosystem is normalized to lowercase (Go/Golang -> go).
+// - ecosystem is normalized (Go/Golang -> go; Debian:10 -> debian; Red Hat -> redhat).
 // - aliases are stored as JSON array string (upper-cased IDs).
-// - Only SEMVER ranges are ingested (GIT/ECOSYSTEM skipped for Go matching).
+// - SEMVER ranges are ingested for all ecosystems.
+// - ECOSYSTEM ranges are ingested for non-go ecosystems (Alpine/Debian/RPM feeds); skipped for go (modules use SEMVER).
 func IngestDocument(ctx context.Context, db *gorm.DB, doc *Document) (*Stats, error) {
 	if db == nil || doc == nil {
 		return nil, fmt.Errorf("ingest OSV: db/doc required")
@@ -118,30 +173,21 @@ func IngestDocument(ctx context.Context, db *gorm.DB, doc *Document) (*Stats, er
 		stats.PackagesInserted++
 
 		for _, r := range aff.Ranges {
-			if strings.ToUpper(strings.TrimSpace(r.Type)) != "SEMVER" {
-				continue
-			}
-			// Flatten event pairs. We support sequences like:
-			// introduced -> fixed (or last_affected), repeated.
-			var currentIntroduced string
-			for _, ev := range r.Events {
-				if ev.Introduced != "" {
-					currentIntroduced = strings.TrimSpace(ev.Introduced)
+			rt := strings.ToUpper(strings.TrimSpace(r.Type))
+			switch rt {
+			case "SEMVER":
+				if err := ingestRangeEvents(ctx, db, &pkgRow, "SEMVER", r, stats); err != nil {
+					return nil, err
+				}
+			case "ECOSYSTEM":
+				if eco == "go" {
 					continue
 				}
-				if ev.Fixed != "" || ev.LastAffected != "" {
-					row := models.OSVRange{
-						PackageID:    pkgRow.ID,
-						RangeType:    "SEMVER",
-						Introduced:   strings.TrimSpace(currentIntroduced),
-						Fixed:        strings.TrimSpace(ev.Fixed),
-						LastAffected: strings.TrimSpace(ev.LastAffected),
-					}
-					if err := db.WithContext(ctx).Create(&row).Error; err != nil {
-						return nil, fmt.Errorf("ingest OSV range: %w", err)
-					}
-					stats.RangesInserted++
+				if err := ingestRangeEvents(ctx, db, &pkgRow, "ECOSYSTEM", r, stats); err != nil {
+					return nil, err
 				}
+			default:
+				continue
 			}
 		}
 	}
