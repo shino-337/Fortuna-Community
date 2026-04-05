@@ -188,22 +188,15 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		return fmt.Errorf("match sbom id=%d: %w", sbomModel.ID, err)
 	}
 	metrics.CVEMatchingDuration.Observe(time.Since(startMatch).Seconds())
-	if len(matches) == 0 {
-		runStatus = "succeeded"
-		runErrorCode = ""
-		incCVEMatcherRun("skipped")
-		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=skipped matches=0 duration_ms=%d",
-			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, time.Since(startProcess).Milliseconds())
-		return nil
+
+	if len(matches) > 0 {
+		if err := w.persistMatches(ctx, matches); err != nil {
+			incCVEMatcherRun("error")
+			return err
+		}
 	}
 
-	// Persist matches to cve_matches with dedup
-	if err := w.persistMatches(ctx, matches); err != nil {
-		incCVEMatcherRun("error")
-		return err
-	}
-
-	// Malware matching: check SBOM components against malware package DB
+	// Malware matching: always run even when CVE matches=0 (demo / supply-chain hits may have no OSV row).
 	var allComponents []models.SBOMComponent
 	if componentsOverride != nil {
 		for _, co := range componentsOverride {
@@ -219,7 +212,17 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		w.persistMalwareMatches(ctx, malwareMatches)
 		w.logger.Printf("[MalwareMatch] sbom_id=%d malware_hits=%d", sbomModel.ID, len(malwareMatches))
 	}
-	// Observability: count matches by severity (FORTUNA_CVE_MATCHING_ENGINE §13)
+
+	if len(matches) == 0 && len(malwareMatches) == 0 {
+		runStatus = "succeeded"
+		runErrorCode = ""
+		incCVEMatcherRun("skipped")
+		w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=skipped matches=0 malware=0 duration_ms=%d",
+			ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, time.Since(startProcess).Milliseconds())
+		return nil
+	}
+
+	// Observability: count CVE matches by severity (FORTUNA_CVE_MATCHING_ENGINE §13)
 	for _, m := range matches {
 		sev := strings.TrimSpace(strings.ToUpper(m.Severity))
 		if sev == "" {
@@ -228,13 +231,13 @@ func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		metrics.CVEMatchesTotal.WithLabelValues(sev).Inc()
 	}
 	incCVEMatcherRun("processed")
-	w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=processed matches=%d duration_ms=%d",
-		ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, len(matches), time.Since(startProcess).Milliseconds())
+	w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=processed cve_matches=%d malware_hits=%d duration_ms=%d",
+		ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, len(matches), len(malwareMatches), time.Since(startProcess).Milliseconds())
 
-	// Create insights (critical/high only)
-	// OPTIMIZATION: Use matches directly instead of re-querying from DB
-	// This avoids timing issues where persistedMatches query might not find newly inserted records
+	// Create insights (critical/high only) — requires CVE matches
 	if len(matches) == 0 {
+		runStatus = "succeeded"
+		runErrorCode = ""
 		return nil
 	}
 

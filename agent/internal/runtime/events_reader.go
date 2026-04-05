@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/fortuna/agent/internal/corehttp"
 )
 
 type Event struct {
@@ -199,6 +201,7 @@ func (r *Reader) send(events []Event) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req)
 
 	resp, err := r.httpClient.Do(req)
 	if err == nil {
@@ -218,6 +221,7 @@ func (r *Reader) send(events []Event) error {
 		return err2
 	}
 	req2.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req2)
 	resp2, err3 := r.httpClient.Do(req2)
 	if err3 != nil {
 		return err3

@@ -48,6 +48,7 @@ import {
   RiskRuleItem,
   RiskRuleFull,
   PodRiskReportSummary,
+  ThreatSummary,
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 
@@ -1305,6 +1306,17 @@ export const api = {
       return await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
     } catch (err) {
       return undefined;
+    }
+  },
+
+  /** GET /api/v1/malware/threats/:pod_uid – per-pod malware/telemetry matches (requires same auth as SBOM) */
+  getPodThreatSummary: async (podUid: string): Promise<ThreatSummary | null> => {
+    try {
+      const data = await request<ThreatSummary>(`/malware/threats/${encodeURIComponent(podUid)}`);
+      if (!data || data.totalThreats <= 0) return null;
+      return data;
+    } catch {
+      return null;
     }
   },
 

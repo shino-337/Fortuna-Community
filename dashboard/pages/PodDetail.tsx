@@ -9,7 +9,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
-import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield } from 'lucide-react';
+import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
@@ -662,7 +662,12 @@ export const PodDetail: React.FC = () => {
                 const statusOpts = ['all', 'active', 'allowed', 'fixed'] as const;
                 const filtered = comps
                   .filter((c) => {
-                    if (sbomOnlyVulnerable && (c.cveCount ?? c.vulnerabilities?.length ?? 0) === 0) return false;
+                    if (
+                      sbomOnlyVulnerable &&
+                      (c.cveCount ?? c.vulnerabilities?.length ?? 0) === 0 &&
+                      !c.malwareMatch
+                    )
+                      return false;
                     const maxSev = (c.maxSeverity ?? '').toLowerCase();
                     if (sbomSeverityFilter !== 'all' && maxSev !== sbomSeverityFilter) return false;
                     const status = (c.status ?? 'active').toLowerCase();
@@ -787,6 +792,7 @@ export const PodDetail: React.FC = () => {
                           <tr>
                             <th className="w-8 py-2" />
                             <th className="text-left py-2">Package</th>
+                            <th className="text-left py-2">Malware DB</th>
                             <th className="text-left py-2">Version</th>
                             <th className="text-left py-2">Type</th>
                             <th className="text-left py-2">CVE</th>
@@ -805,14 +811,18 @@ export const PodDetail: React.FC = () => {
                             const cveCount = c.cveCount ?? vulns.length;
                             const isExpanded = sbomExpandedId === rowId;
                             const hasCves = cveCount > 0;
+                            const mm = c.malwareMatch;
+                            const hasMalware = !!mm;
+                            const rowExpandable = hasCves;
                             return (
                               <React.Fragment key={rowId}>
                                 <tr
                                   className={clsx(
                                     'border-b border-slate-800',
-                                    hasCves ? 'cursor-pointer hover:bg-slate-800/50' : ''
+                                    hasMalware && 'bg-red-950/15',
+                                    rowExpandable ? 'cursor-pointer hover:bg-slate-800/50' : ''
                                   )}
-                                  onClick={() => hasCves && setSbomExpandedId(isExpanded ? null : rowId)}
+                                  onClick={() => rowExpandable && setSbomExpandedId(isExpanded ? null : rowId)}
                                 >
                                   <td className="py-2 w-8">
                                     {hasCves ? (
@@ -826,6 +836,19 @@ export const PodDetail: React.FC = () => {
                                     )}
                                   </td>
                                   <td className="py-2 font-mono text-white">{c.name}</td>
+                                  <td className="py-2">
+                                    {mm ? (
+                                      <span
+                                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-semibold border bg-red-950/50 text-red-200 border-red-700/60"
+                                        title={mm.malwareFamily ? `Family: ${mm.malwareFamily}` : mm.reason}
+                                      >
+                                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                                        {mm.reason}
+                                      </span>
+                                    ) : (
+                                      <span className="text-slate-600">—</span>
+                                    )}
+                                  </td>
                                   <td className="py-2 text-slate-400 font-mono">{c.version ?? '—'}</td>
                                   <td className="py-2 text-slate-500 font-mono">{sbomTypeLabel(c.type)}</td>
                                   <td className="py-2">
@@ -848,7 +871,9 @@ export const PodDetail: React.FC = () => {
                                   <td className="py-2 text-slate-400">{c.maxCvss != null ? c.maxCvss : '—'}</td>
                                   <td className="py-2 font-mono text-slate-400">{c.fixVersion ?? '—'}</td>
                                   <td className="py-2">
-                                    {cveCount === 0 ? (
+                                    {mm ? (
+                                      <span className="px-1.5 py-0.5 rounded text-xs bg-red-900/40 text-red-200 border border-red-800/50">Threat</span>
+                                    ) : cveCount === 0 ? (
                                       <span className="px-1.5 py-0.5 rounded text-xs bg-slate-600/60 text-slate-400">Clean</span>
                                     ) : c.status ? (
                                       <span className={clsx('px-1.5 py-0.5 rounded text-xs capitalize', statusBadgeClass(c.status))}>
@@ -881,7 +906,7 @@ export const PodDetail: React.FC = () => {
                                 </tr>
                                 {isExpanded && vulns.length > 0 && (
                                   <tr className="bg-slate-800/40">
-                                    <td colSpan={11} className="py-3 px-4">
+                                    <td colSpan={12} className="py-3 px-4">
                                       <div className="pl-6 space-y-2 text-sm">
                                         {vulns.map((v) => {
                                           const vStatus = (v.status ?? 'active').toLowerCase();

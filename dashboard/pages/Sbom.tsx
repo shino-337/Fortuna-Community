@@ -38,11 +38,14 @@ export const Sbom: React.FC = () => {
       setSbomList(data);
       if (data.length > 0 && !initialSelectionDone.current) {
         initialSelectionDone.current = true;
-        setSelectedPod(data[0]);
+        const first = data[0];
+        setSelectedPod(first);
         setDetailLoading(true);
-        const detail = await api.getPodSbom(data[0].podId);
+        const detail = await api.getPodSbom(first.podId);
         setSelectedDetail(detail || null);
         setDetailLoading(false);
+        const threats = await api.getPodThreatSummary(first.podId);
+        setThreatSummary(threats);
       }
     } catch (err) {
       setLoadError(err instanceof Error ? err.message : 'Failed to load SBOM list. Please log in or check connection.');
@@ -77,13 +80,8 @@ export const Sbom: React.FC = () => {
     const detail = await api.getPodSbom(pod.podId);
     setSelectedDetail(detail || null);
     setDetailLoading(false);
-    try {
-      const resp = await fetch(`/api/v1/malware/threats/${pod.podId}`);
-      if (resp.ok) {
-        const ts = await resp.json();
-        if (ts && ts.totalThreats > 0) setThreatSummary(ts);
-      }
-    } catch { /* malware API optional */ }
+    const threats = await api.getPodThreatSummary(pod.podId);
+    setThreatSummary(threats);
   };
 
   const getSeverityBadge = (severity: string) => {
@@ -94,10 +92,16 @@ export const Sbom: React.FC = () => {
     return getSeverityBorderClass(severity);
   };
 
-  const filteredComponents = selectedDetail?.components.filter(c =>
-    c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    c.vulnerabilities.some(v => v.id.toLowerCase().includes(searchTerm.toLowerCase()))
-  ) || [];
+  const filteredComponents = selectedDetail?.components.filter((c) => {
+    const q = searchTerm.toLowerCase();
+    if (!q) return true;
+    return (
+      c.name.toLowerCase().includes(q) ||
+      (c.version && c.version.toLowerCase().includes(q)) ||
+      c.vulnerabilities.some((v) => v.id.toLowerCase().includes(q)) ||
+      (c.malwareMatch && (c.malwareMatch.reason?.toLowerCase().includes(q) || (c.malwareMatch.malwareFamily && c.malwareMatch.malwareFamily.toLowerCase().includes(q))))
+    );
+  }) || [];
 
   if (loading) return (
     <div className="flex flex-col justify-center items-center h-[60vh] space-y-4">
@@ -321,13 +325,14 @@ export const Sbom: React.FC = () => {
                     const compKey = String(comp.id);
                     const isExpanded = expandedComponents.has(compKey);
                     const vulnTotal = comp.vulnerabilities.length;
+                    const canExpand = vulnTotal > 0 || !!comp.malwareMatch;
                     
                     return (
                       <div key={compKey} className={`bg-slate-900/50 border rounded-lg overflow-hidden transition-all duration-200 ${isExpanded ? 'border-slate-600' : 'border-slate-800'}`}>
                         {/* Summary Header */}
                         <div 
-                          className="p-4 flex justify-between items-center cursor-pointer hover:bg-slate-900/80 transition-colors group"
-                          onClick={() => toggleExpand(compKey)}
+                          className={`p-4 flex justify-between items-center transition-colors group ${canExpand ? 'cursor-pointer hover:bg-slate-900/80' : ''}`}
+                          onClick={() => canExpand && toggleExpand(compKey)}
                         >
                           <div className="flex items-center space-x-3">
                             <div className={`p-2 rounded-lg ${
@@ -364,20 +369,45 @@ export const Sbom: React.FC = () => {
                                   <div key={sev as string}>{getSeverityBadge(sev as string)}</div>
                                 ))}
                               </div>
+                            ) : comp.malwareMatch ? (
+                              <span className="flex items-center text-xs text-red-400 font-medium">
+                                <AlertTriangle size={14} className="mr-1 shrink-0" /> Supply-chain threat (no CVE row)
+                              </span>
                             ) : (
                               <span className="flex items-center text-xs text-emerald-500 font-medium">
                                 <CheckCircle2 size={14} className="mr-1" /> Secure
                               </span>
                             )}
-                            {vulnTotal > 0 && (
+                            {canExpand && (
                               isExpanded ? <ChevronDown size={18} className="text-slate-400" /> : <ChevronRight size={18} className="text-slate-600 group-hover:text-slate-400 transition-colors" />
                             )}
                           </div>
                         </div>
 
                         {/* Detailed Expansion */}
-                        {isExpanded && vulnTotal > 0 && (
+                        {isExpanded && canExpand && (
                           <div className="p-5 bg-slate-950/40 border-t border-slate-800 animate-in slide-in-from-top-2 duration-200">
+                            {comp.malwareMatch && (
+                              <div className="mb-6 rounded-xl border border-red-800/60 bg-red-950/25 p-4">
+                                <div className="flex items-center gap-2 text-xs font-bold text-red-200 uppercase tracking-widest mb-2">
+                                  <AlertTriangle size={14} className="text-red-400" />
+                                  Malware DB match
+                                </div>
+                                <p className="text-sm text-slate-200">
+                                  <span className="font-mono text-white">{comp.name}@{comp.version}</span>
+                                  {' '}is listed in the Fortuna malware package database.
+                                </p>
+                                <dl className="mt-3 grid gap-1 text-xs text-slate-400">
+                                  <div><dt className="inline text-slate-500">Reason: </dt><dd className="inline font-medium text-slate-200">{comp.malwareMatch.reason}</dd></div>
+                                  {comp.malwareMatch.malwareFamily ? (
+                                    <div><dt className="inline text-slate-500">Family: </dt><dd className="inline text-slate-200">{comp.malwareMatch.malwareFamily}</dd></div>
+                                  ) : null}
+                                  <div><dt className="inline text-slate-500">Confidence: </dt><dd className="inline text-slate-200">{comp.malwareMatch.confidence}</dd></div>
+                                </dl>
+                              </div>
+                            )}
+                            {vulnTotal > 0 && (
+                             <>
                              <div className="flex items-center mb-4 text-xs font-bold text-slate-500 uppercase tracking-widest">
                                <AlertTriangle size={12} className="mr-2 text-orange-500" />
                                Detected Security Vulnerabilities ({vulnTotal})
@@ -428,6 +458,8 @@ export const Sbom: React.FC = () => {
                                   </div>
                                 ))}
                              </div>
+                             </>
+                            )}
                           </div>
                         )}
                       </div>

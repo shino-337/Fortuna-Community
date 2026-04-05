@@ -18,6 +18,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/fortuna/agent/internal/cluster"
+	"github.com/fortuna/agent/internal/corehttp"
 )
 
 type PodPayload struct {
@@ -209,6 +210,7 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 		return fmt.Errorf("build request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req)
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {

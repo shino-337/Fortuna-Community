@@ -32,6 +32,13 @@ type SBOMSummaryDTO struct {
 	GoVersion  string `json:"goVersion,omitempty"`  // Go toolchain / stdlib matcher (when applicable)
 }
 
+// MalwareMatchDTO is embedded on SBOM components when package@version hit malware_packages / malware_matches.
+type MalwareMatchDTO struct {
+	Reason        string  `json:"reason"`
+	Confidence    float32 `json:"confidence"`
+	MalwareFamily string  `json:"malwareFamily,omitempty"`
+}
+
 // SBOMComponentDTO exposes component details for /sbom/{podId}
 type SBOMComponentDTO struct {
 	ID              uint               `json:"id"`
@@ -45,6 +52,7 @@ type SBOMComponentDTO struct {
 	MaxCVSS         float32            `json:"maxCvss"`          // highest CVSS in list
 	FixVersion      string             `json:"fixVersion"`       // first fixed version if any
 	Status          string             `json:"status,omitempty"` // active | allowed | fixed (default active)
+	MalwareMatch    *MalwareMatchDTO   `json:"malwareMatch,omitempty"`
 }
 
 // VulnerabilityDTO is the payload for each CVE
@@ -277,6 +285,21 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		byCompID := make(map[uint]models.MalwareMatch)
+		byNameVer := make(map[string]models.MalwareMatch)
+		if db.Migrator().HasTable("malware_matches") {
+			var mmRows []models.MalwareMatch
+			if err := db.Where("sbom_id = ?", sbom.ID).Find(&mmRows).Error; err == nil {
+				for _, mm := range mmRows {
+					if mm.ComponentID != 0 {
+						byCompID[mm.ComponentID] = mm
+					}
+					k := strings.ToLower(strings.TrimSpace(mm.PackageName)) + ":" + strings.TrimSpace(mm.PackageVersion)
+					byNameVer[k] = mm
+				}
+			}
+		}
+
 		byName := make(map[string][]models.CVEMatch)
 		summary := vulnerabilitySummary{"critical": 0, "high": 0, "medium": 0, "low": 0}
 		for _, match := range matches {
@@ -365,6 +388,22 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			compDTO.MaxSeverity = maxSev
 			compDTO.MaxCVSS = maxCVSS
 			compDTO.FixVersion = fixVer
+			if mm, ok := byCompID[comp.ID]; ok {
+				compDTO.MalwareMatch = &MalwareMatchDTO{
+					Reason:        mm.Reason,
+					Confidence:    mm.Confidence,
+					MalwareFamily: mm.MalwareFamily,
+				}
+			} else {
+				k := strings.ToLower(strings.TrimSpace(comp.ComponentName)) + ":" + strings.TrimSpace(comp.ComponentVersion)
+				if mm, ok2 := byNameVer[k]; ok2 {
+					compDTO.MalwareMatch = &MalwareMatchDTO{
+						Reason:        mm.Reason,
+						Confidence:    mm.Confidence,
+						MalwareFamily: mm.MalwareFamily,
+					}
+				}
+			}
 			dto.Components = append(dto.Components, compDTO)
 		}
 

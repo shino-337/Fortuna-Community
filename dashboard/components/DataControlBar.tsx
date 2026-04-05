@@ -34,13 +34,14 @@ export const DataControlBar: React.FC = () => {
 
   return (
     <div
-      className="flex flex-wrap items-center gap-3 px-3 py-2 bg-slate-900/80 border border-slate-800 rounded-lg"
+      className="flex flex-wrap items-center gap-2 sm:gap-3 px-2 sm:px-3 py-2 bg-slate-900/80 border border-slate-800 rounded-lg min-w-0 max-w-full"
       title="Time range = phạm vi dữ liệu; Refresh interval = tần suất re-fetch; Nút Refresh = fetch ngay"
     >
       {/* 1. Time Range Selector – Last 1m / 5m / ... */}
       <div className="flex items-center gap-2">
-        <label htmlFor="data-control-time-range" className="text-xs text-slate-500 whitespace-nowrap">
-          Time range:
+        <label htmlFor="data-control-time-range" className="text-xs text-slate-500 whitespace-nowrap shrink-0">
+          <span className="hidden min-[1100px]:inline">Time range:</span>
+          <span className="min-[1100px]:hidden">Range:</span>
         </label>
         <select
           id="data-control-time-range"
@@ -61,8 +62,9 @@ export const DataControlBar: React.FC = () => {
 
       {/* 2. Auto Refresh Interval – Every 1m / 5m / ... */}
       <div className="flex items-center gap-2">
-        <label htmlFor="data-control-refresh-interval" className="text-xs text-slate-500 whitespace-nowrap">
-          Auto refresh:
+        <label htmlFor="data-control-refresh-interval" className="text-xs text-slate-500 whitespace-nowrap shrink-0">
+          <span className="hidden min-[1100px]:inline">Auto refresh:</span>
+          <span className="min-[1100px]:hidden">Auto:</span>
         </label>
         <select
           id="data-control-refresh-interval"

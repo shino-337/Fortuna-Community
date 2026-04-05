@@ -18,6 +18,8 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/fortuna/agent/internal/corehttp"
 )
 
 // Falco JSON event format (minimal subset).
@@ -213,6 +215,7 @@ func (r *FalcoReader) send(events []Event) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req)
 	resp, err := r.httpClient.Do(req)
 	if err == nil {
 		defer resp.Body.Close()
@@ -231,6 +234,7 @@ func (r *FalcoReader) send(events []Event) error {
 		return err2
 	}
 	req2.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req2)
 	resp2, err3 := r.httpClient.Do(req2)
 	if err3 != nil {
 		return err3

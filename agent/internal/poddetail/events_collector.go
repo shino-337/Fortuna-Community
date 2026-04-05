@@ -15,6 +15,8 @@ import (
 	"k8s.io/client-go/informers"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/cache"
+
+	"github.com/fortuna/agent/internal/corehttp"
 )
 
 const (
@@ -170,6 +172,7 @@ func (e *EventsCollector) post(ctx context.Context, events []K8sEventPayload) er
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req)
 	resp, err := e.httpClient.Do(req)
 	if err != nil {
 		return err

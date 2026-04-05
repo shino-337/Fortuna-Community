@@ -15,6 +15,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
+
+	"github.com/fortuna/agent/internal/corehttp"
 )
 
 const (
@@ -334,6 +336,7 @@ func (r *Reporter) postWithRetry(ctx context.Context, path string, body interfac
 			return err
 		}
 		req.Header.Set("Content-Type", "application/json")
+		corehttp.ApplyOptionalAuthorization(req)
 		resp, err := r.httpClient.Do(req)
 		if err != nil {
 			if attempt < maxRetries-1 {

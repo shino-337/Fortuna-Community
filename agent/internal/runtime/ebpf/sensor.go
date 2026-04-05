@@ -14,6 +14,7 @@ import (
 	"time"
 
 	ciliumebpf "github.com/cilium/ebpf"
+	"github.com/fortuna/agent/internal/corehttp"
 	"github.com/fortuna/agent/internal/runtime"
 )
 
@@ -137,6 +138,7 @@ func (s *Sensor) send(events []runtime.Event) error {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/json")
+	corehttp.ApplyOptionalAuthorization(req)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
 		return err

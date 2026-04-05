@@ -163,16 +163,18 @@ export const Layout: React.FC = () => {
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
-        {/* Desktop Header */}
-        <header className="hidden lg:flex h-16 bg-base/60 backdrop-blur-md border-b border-border items-center px-8 justify-between z-10">
-          <div className="flex items-center gap-4">
-            <h2 className="text-lg font-semibold text-text">{currentTitle}</h2>
+        {/* Desktop Header — flex-wrap + min-w-0 so controls don’t overflow when the viewport is narrowed */}
+        <header className="hidden lg:flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 min-h-16 bg-base/60 backdrop-blur-md border-b border-border px-4 xl:px-8 z-10">
+          <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1 basis-[min(100%,22rem)]">
+            <h2 className="text-lg font-semibold text-text shrink-0 min-w-0 max-w-[10rem] xl:max-w-[14rem] 2xl:max-w-none truncate">
+              {currentTitle}
+            </h2>
             {/* Global Cluster Selector */}
-            <div className="relative">
+            <div className="relative shrink-0 min-w-0">
               <button
                 type="button"
                 onClick={() => setClusterDropdownOpen((o) => !o)}
-                className="flex items-center gap-2 px-3 py-1.5 bg-surface/70 border border-border rounded-lg text-sm text-muted hover:border-surface-2 transition-colors min-w-[180px]"
+                className="flex items-center gap-2 px-3 py-1.5 bg-surface/70 border border-border rounded-lg text-sm text-muted hover:border-surface-2 transition-colors min-w-[10rem] max-w-[14rem] xl:min-w-[180px] xl:max-w-none"
               >
                 <Globe className="w-4 h-4 text-brand shrink-0" />
                 <span className="truncate">
@@ -210,7 +212,7 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
                 </>
               )}
             </div>
-            <div className="relative group flex items-center">
+            <div className="relative group flex items-center min-w-0 flex-1 basis-[12rem] max-w-xs 2xl:max-w-md">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-2 w-4 h-4 group-focus-within:text-brand transition-colors pointer-events-none" />
               <input
                 type="text"
@@ -218,7 +220,7 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
                 onChange={(e) => setGlobalSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleGlobalSearch()}
                 placeholder="Search findings (Enter)"
-                className="bg-surface/70 border border-border rounded-full pl-9 pr-4 py-1.5 text-sm text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand w-64 transition-all"
+                className="bg-surface/70 border border-border rounded-full pl-9 pr-4 py-1.5 text-sm text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand focus:border-brand w-full min-w-0 transition-all"
                 title="Search findings: type and press Enter to open Risk Operations with results."
               />
               <button
@@ -231,14 +233,14 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
               </button>
             </div>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex flex-wrap items-center gap-3 min-w-0 justify-end shrink-0 w-full lg:w-auto lg:max-w-full">
             <DataControlBar />
-            <div className="h-6 w-px bg-border" />
-            <div className="flex items-center space-x-2 px-2 py-1 bg-surface border border-border rounded-lg">
-              <div className="w-7 h-7 rounded-full bg-brand/20 text-brand flex items-center justify-center text-[10px] font-bold">
+            <div className="h-6 w-px bg-border shrink-0 hidden sm:block" aria-hidden />
+            <div className="flex items-center gap-2 px-2 py-1 bg-surface border border-border rounded-lg min-w-0 max-w-full">
+              <div className="w-7 h-7 rounded-full bg-brand/20 text-brand flex items-center justify-center text-[10px] font-bold shrink-0">
                 {user?.name?.charAt(0) || 'A'}
               </div>
-              <div className="flex flex-col min-w-0">
+              <div className="flex flex-col min-w-0 max-w-[6rem] xl:max-w-[9rem]">
                 <span className="text-xs font-medium text-text truncate">
                   {user?.name ?? 'User'}
                 </span>
@@ -249,76 +251,78 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
               <button
                 type="button"
                 onClick={handleLogout}
-                className="ml-1 inline-flex items-center px-2 py-1 rounded-md text-[11px] font-medium text-muted hover:text-critical hover:bg-critical/10 transition-colors"
+                className="inline-flex items-center shrink-0 px-2 py-1 rounded-md text-[11px] font-medium text-muted hover:text-critical hover:bg-critical/10 transition-colors"
                 title="Sign out"
               >
-                <LogOut size={14} className="mr-1" />
-                Sign Out
+                <LogOut size={14} className="sm:mr-1" />
+                <span className="hidden sm:inline">Sign Out</span>
               </button>
             </div>
           </div>
         </header>
 
-        {/* Mobile Header: menu, logo, cluster + search + DataControlBar */}
+        {/* Mobile Header: row1 menu | logo | cluster; row2 search + data controls (no squeezed justify-between row) */}
         <header className="lg:hidden min-h-[3.5rem] bg-surface border-b border-border flex flex-col gap-2 px-4 py-2 shrink-0 z-10">
-          <div className="flex items-center justify-between h-12">
+          <div className="flex items-center justify-between gap-2 min-w-0 h-12">
             <button
               onClick={() => setIsMobileMenuOpen(true)}
-              className="p-2 text-muted hover:text-text"
+              className="p-2 text-muted hover:text-text shrink-0"
             >
               <Menu size={24} />
             </button>
-            <div className="flex items-center space-x-2">
-              <div className="w-6 h-6 bg-brand rounded flex items-center justify-center">
+            <div className="flex items-center space-x-2 min-w-0 justify-center flex-1">
+              <div className="w-6 h-6 bg-brand rounded flex items-center justify-center shrink-0">
                 <ShieldAlert className="text-white w-4 h-4" />
               </div>
-              <span className="font-bold text-text tracking-tight">Fortuna</span>
+              <span className="font-bold text-text tracking-tight truncate">Fortuna</span>
             </div>
-            <div className="flex items-center gap-1.5">
+            <div className="flex items-center gap-1.5 shrink-0">
               <div className="relative">
-              <button
-                type="button"
-                onClick={() => setClusterDropdownOpen((o) => !o)}
-                className="flex items-center gap-2 px-2.5 py-1.5 bg-surface/80 border border-border rounded-md text-xs text-muted hover:border-surface-2 transition-colors"
-              >
-                <Globe className="w-3.5 h-3.5 text-brand" />
-                <span className="max-w-[110px] truncate">
-                  {selectedClusterId
-                    ? getClusterDisplayName(clusters.find((c) => c.id === selectedClusterId) ?? { id: selectedClusterId })
-                    : 'All clusters'}
-                </span>
-                <ChevronDown className="w-3.5 h-3.5 text-muted-2" />
-              </button>
-              {clusterDropdownOpen && (
-                <>
-                  <div className="fixed inset-0 z-20" onClick={() => setClusterDropdownOpen(false)} />
-                  <div className="absolute right-0 top-full mt-1 w-56 max-h-64 overflow-y-auto bg-surface border border-border rounded-lg shadow-xl z-30 py-1">
-                    <button
-                      type="button"
-                      onClick={() => { setSelectedClusterId(null); setClusterDropdownOpen(false); }}
-                      className={`w-full text-left px-4 py-2 text-xs ${!selectedClusterId ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
-                    >
-                      All clusters
-                    </button>
-                    {clusters.map((c) => (
+                <button
+                  type="button"
+                  onClick={() => setClusterDropdownOpen((o) => !o)}
+                  className="flex items-center gap-2 px-2.5 py-1.5 bg-surface/80 border border-border rounded-md text-xs text-muted hover:border-surface-2 transition-colors max-w-[min(100vw-8rem,11rem)]"
+                >
+                  <Globe className="w-3.5 h-3.5 text-brand shrink-0" />
+                  <span className="truncate min-w-0">
+                    {selectedClusterId
+                      ? getClusterDisplayName(clusters.find((c) => c.id === selectedClusterId) ?? { id: selectedClusterId })
+                      : 'All clusters'}
+                  </span>
+                  <ChevronDown className="w-3.5 h-3.5 text-muted-2 shrink-0" />
+                </button>
+                {clusterDropdownOpen && (
+                  <>
+                    <div className="fixed inset-0 z-20" onClick={() => setClusterDropdownOpen(false)} />
+                    <div className="absolute right-0 top-full mt-1 w-56 max-h-64 overflow-y-auto bg-surface border border-border rounded-lg shadow-xl z-30 py-1">
                       <button
-                        key={c.id}
                         type="button"
-                        onClick={() => { setSelectedClusterId(c.id); setClusterDropdownOpen(false); }}
-                        className={`w-full text-left px-4 py-2 text-xs truncate ${selectedClusterId === c.id ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
+                        onClick={() => { setSelectedClusterId(null); setClusterDropdownOpen(false); }}
+                        className={`w-full text-left px-4 py-2 text-xs ${!selectedClusterId ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
                       >
-                        {getClusterDisplayName(c)}
+                        All clusters
                       </button>
-                    ))}
-                    {clusters.length === 0 && (
-                      <div className="px-4 py-2 text-muted-2 text-xs">No clusters</div>
-                    )}
-                  </div>
-                </>
-              )}
+                      {clusters.map((c) => (
+                        <button
+                          key={c.id}
+                          type="button"
+                          onClick={() => { setSelectedClusterId(c.id); setClusterDropdownOpen(false); }}
+                          className={`w-full text-left px-4 py-2 text-xs truncate ${selectedClusterId === c.id ? 'bg-brand/20 text-brand' : 'text-muted hover:bg-surface-2'}`}
+                        >
+                          {getClusterDisplayName(c)}
+                        </button>
+                      ))}
+                      {clusters.length === 0 && (
+                        <div className="px-4 py-2 text-muted-2 text-xs">No clusters</div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-            <div className="relative flex-1 min-w-0 max-w-[140px]">
+          </div>
+          <div className="flex flex-col sm:flex-row sm:items-start gap-2 min-w-0">
+            <div className="relative flex-1 min-w-0">
               <Search className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-2 w-3.5 h-3.5 pointer-events-none" />
               <input
                 type="text"
@@ -326,11 +330,13 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
                 onChange={(e) => setGlobalSearchQuery(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && (handleGlobalSearch(), e.currentTarget.blur())}
                 placeholder="Search findings"
-                className="w-full pl-7 pr-2 py-1.5 bg-surface/80 border border-border rounded-md text-xs text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand"
+                className="w-full min-w-0 pl-7 pr-2 py-1.5 bg-surface/80 border border-border rounded-md text-xs text-text placeholder-muted-2 focus:outline-none focus:ring-1 focus:ring-brand"
                 title="Search findings (Enter)"
               />
             </div>
-            <DataControlBar />
+            <div className="min-w-0 w-full sm:w-auto sm:shrink-0">
+              <DataControlBar />
+            </div>
           </div>
         </header>
 
