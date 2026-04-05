@@ -147,3 +147,41 @@ func TestOSVMirrorBulkQuery_SkipsWhenTablesMissing(t *testing.T) {
 	}
 }
 
+func TestShouldUseNVDFallbackForPackage_OSVMirrorPackageRow(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	m := NewPostgresManager(db)
+	ctx := context.Background()
+
+	if !m.ShouldUseNVDFallbackForPackage(ctx, "alpine", "not-in-osv-pkg") {
+		t.Fatal("expected NVD fallback when OSV has no row for package")
+	}
+	if m.ShouldUseNVDFallbackForPackage(ctx, "alpine", "") {
+		t.Fatal("expected no NVD fallback for distro when package name empty")
+	}
+
+	v := models.OSVVulnerability{ID: "ALP-1", Summary: "x", Details: "d", Severity: "LOW", CVSSScore: 1}
+	if err := db.Create(&v).Error; err != nil {
+		t.Fatalf("seed vuln: %v", err)
+	}
+	p := models.OSVPackage{VulnID: v.ID, Ecosystem: "alpine", PackageName: "busybox"}
+	if err := db.Create(&p).Error; err != nil {
+		t.Fatalf("seed pkg: %v", err)
+	}
+	if m.ShouldUseNVDFallbackForPackage(ctx, "alpine", "busybox") {
+		t.Fatal("expected NVD blocked when OSV mirror lists package")
+	}
+	if m.ShouldUseNVDFallbackForPackage(ctx, "alpine", "BusyBox") {
+		t.Fatal("expected NVD blocked for BusyBox when OSV has busybox (case-insensitive)")
+	}
+	// Non-distro ecosystems: allow regardless of OSV rows
+	if !m.ShouldUseNVDFallbackForPackage(ctx, "go", "busybox") {
+		t.Fatal("expected NVD policy allowed for go ecosystem")
+	}
+}
+

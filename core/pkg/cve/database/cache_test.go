@@ -1,6 +1,7 @@
 package database
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -32,5 +33,42 @@ func TestCVECache_HitAndExpiry(t *testing.T) {
 		return
 	}
 	t.Fatal("expected cache entry to be expired after negative TTL")
+}
+
+func TestCVECache_Clear(t *testing.T) {
+	cache := NewCVECache()
+	cache.Set("k", []*cve.CVE{{ID: "CVE-1"}})
+	if _, ok := cache.Get("k"); !ok {
+		t.Fatal("expected hit before Clear")
+	}
+	cache.Clear()
+	if _, ok := cache.Get("k"); ok {
+		t.Fatal("expected miss after Clear")
+	}
+}
+
+func TestCVECache_MaxEntriesEviction(t *testing.T) {
+	c := &CVECache{
+		cache:      make(map[string]cveCacheEntry),
+		ttl:        time.Hour,
+		maxEntries: 3,
+	}
+	for i := 1; i <= 4; i++ {
+		c.Set(fmt.Sprintf("k%d", i), []*cve.CVE{{ID: fmt.Sprintf("CVE-%d", i)}})
+	}
+	if len(c.cache) != 3 {
+		t.Fatalf("expected exactly 3 entries after eviction, got %d keys %v", len(c.cache), keysOf(c.cache))
+	}
+	if _, ok := c.Get("k4"); !ok {
+		t.Fatal("expected most recent key k4 to remain")
+	}
+}
+
+func keysOf(m map[string]cveCacheEntry) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 

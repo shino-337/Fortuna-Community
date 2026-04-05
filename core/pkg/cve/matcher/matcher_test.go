@@ -37,6 +37,30 @@ func TestComparatorEcosystemForBulkBatch(t *testing.T) {
 	if g := comparatorEcosystemForBulkBatch(rp, "linux"); g != "rpm" {
 		t.Fatalf("bulk linux: got %q want rpm", g)
 	}
+	if g := comparatorEcosystemForBulkBatch(nil, "generic"); g != "generic" {
+		t.Fatalf("nil purl + generic bulk: got %q want generic", g)
+	}
+	if g := comparatorEcosystemForBulkBatch(nil, ""); g != "generic" {
+		t.Fatalf("nil purl + empty bulk: got %q want generic", g)
+	}
+}
+
+func TestLikelyDistroEcosystemsForGenericSBOM(t *testing.T) {
+	if got := strings.Join(likelyDistroEcosystemsForGenericSBOM(""), ","); got != "alpine,debian" {
+		t.Fatalf("empty OS: got %q", got)
+	}
+	if got := likelyDistroEcosystemsForGenericSBOM("Alpine Linux 3.19"); len(got) != 1 || got[0] != "alpine" {
+		t.Fatalf("alpine: %#v", got)
+	}
+	if got := likelyDistroEcosystemsForGenericSBOM("Debian GNU/Linux 12"); len(got) != 1 || got[0] != "debian" {
+		t.Fatalf("debian: %#v", got)
+	}
+	if got := likelyDistroEcosystemsForGenericSBOM("Ubuntu 22.04"); len(got) != 1 || got[0] != "ubuntu" {
+		t.Fatalf("ubuntu: %#v", got)
+	}
+	if got := likelyDistroEcosystemsForGenericSBOM("Red Hat Enterprise Linux 8"); len(got) != 1 || got[0] != "redhat" {
+		t.Fatalf("rhel: %#v", got)
+	}
 }
 
 func TestNormalizeQueryEcosystemWithOS(t *testing.T) {

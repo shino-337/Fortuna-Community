@@ -23,6 +23,9 @@ var goPseudoVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+-(0\.)?\d{14}-[0-9a-f]{
 var goLooseSemver = regexp.MustCompile(`^v?\d+\.\d+$`)
 var constraintArchRE = regexp.MustCompile(`(?i)(?:^|[,\s])arch\s*=\s*([a-z0-9_:-]+)`)
 
+// sharedVersionComparator is stateless; reuse across matchers to avoid per-SBOM alloc.
+var sharedVersionComparator = NewVersionComparator()
+
 // Matcher matches CVEs against SBOM components
 type Matcher struct {
 	dbManager      *database.Manager
@@ -46,7 +49,7 @@ func NewMatcher(
 ) *Matcher {
 	return &Matcher{
 		dbManager:  dbManager,
-		comparator: NewVersionComparator(),
+		comparator: sharedVersionComparator,
 		db:         db,
 		logger:     log.New(log.Writer(), "[CVEMatcher] ", log.LstdFlags),
 		osvCache:   make(map[string][]models.OSVVulnerability),
@@ -278,8 +281,8 @@ func (m *Matcher) MatchSBOM(
 	for ecosystem, packageSet := range ecosystemPackages {
 		expandedEcosystems[ecosystem] = packageSet
 		if ecosystem == "generic" {
-			// Try common distro OSV keys when OS is unknown; cheap bulk queries, version checks filter.
-			for _, fallbackEco := range []string{"alpine", "debian", "ubuntu", "redhat", "rocky", "alma", "centos"} {
+			// When OS is unknown, avoid querying every distro feed (7× duplicate work). Use OS hint or a small default set.
+			for _, fallbackEco := range likelyDistroEcosystemsForGenericSBOM(sbom.OSName) {
 				if expandedEcosystems[fallbackEco] == nil {
 					expandedEcosystems[fallbackEco] = make(map[string]struct{})
 				}
@@ -432,7 +435,7 @@ func (m *Matcher) MatchSBOM(
 				purl = inferPURLFromComponent(component, sbom.OSName)
 			}
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
-			if !m.dbManager.ShouldUseNVDFallbackForPackage(queryEco) {
+			if !m.dbManager.ShouldUseNVDFallbackForPackage(ctx, queryEco, component.ComponentName) {
 				continue
 			}
 			needNVDFallback = true
@@ -461,7 +464,7 @@ func (m *Matcher) MatchSBOM(
 			}
 			queryEco := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
 			nvdName := nvdKeywordSearchName(component.ComponentName, purl) // Go modules: full path for NVD keywordSearch; else normalize (e.g. coredns image → coredns)
-			tryNVD := isNVDFallbackWhitelisted(component.ComponentName) && m.dbManager.ShouldUseNVDFallbackForPackage(queryEco)
+			tryNVD := isNVDFallbackWhitelisted(component.ComponentName) && m.dbManager.ShouldUseNVDFallbackForPackage(ctx, queryEco, component.ComponentName)
 			// Cost control: only try NVD for whitelisted names.
 			if !tryNVD {
 				continue
@@ -1121,6 +1124,30 @@ func isNVDFallbackWhitelisted(name string) bool {
 	return false
 }
 
+// likelyDistroEcosystemsForGenericSBOM returns 1–2 OSV ecosystem keys to try when SBOM ecosystem is "generic"
+// and we need cross-feed matching without blasting every RPM/Debian derivative.
+func likelyDistroEcosystemsForGenericSBOM(osName string) []string {
+	osLower := strings.ToLower(strings.TrimSpace(osName))
+	if osLower == "" {
+		return []string{"alpine", "debian"}
+	}
+	if strings.Contains(osLower, "alpine") {
+		return []string{"alpine"}
+	}
+	if strings.Contains(osLower, "ubuntu") {
+		return []string{"ubuntu"}
+	}
+	if strings.Contains(osLower, "debian") {
+		return []string{"debian"}
+	}
+	for _, tok := range []string{"red hat", "rhel", "centos", "rocky", "alma", "fedora", "oracle linux", "amazon linux"} {
+		if strings.Contains(osLower, tok) {
+			return []string{"redhat"}
+		}
+	}
+	return []string{"alpine", "debian"}
+}
+
 // comparatorEcosystemForBulkBatch selects VersionComparator semantics for CVE rows loaded via
 // GetVulnerabilitiesForPackages(ctx, bulkQueryEcosystem, ...). Constraints follow that feed
 // (dpkg, apk, rpm, semver), so we must not use purl.Ecosystem when it is "generic" and the batch
@@ -1129,10 +1156,10 @@ func comparatorEcosystemForBulkBatch(purl *PURL, bulkQueryEcosystem string) stri
 	b := strings.ToLower(strings.TrimSpace(bulkQueryEcosystem))
 	switch b {
 	case "", "generic":
-		if purl == nil {
-			return ""
+		if purl != nil && strings.TrimSpace(purl.Ecosystem) != "" {
+			return purl.Ecosystem
 		}
-		return purl.Ecosystem
+		return "generic"
 	case "linux":
 		// Ambiguous RPM bucket: keep PURL (usually rpm) for rpmver comparison.
 		if purl == nil {
