@@ -147,6 +147,55 @@ func TestOSVMirrorBulkQuery_SkipsWhenTablesMissing(t *testing.T) {
 	}
 }
 
+func TestGetVulnerabilitiesForPackages_DistroMergesNVDMirrorWhenOSVEmpty(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	if err := db.AutoMigrate(
+		&models.OSVVulnerability{}, &models.OSVPackage{}, &models.OSVRange{},
+		&models.CVE{}, &models.PackageVulnerability{},
+	); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	now := time.Now()
+	if err := db.Create(&models.CVE{
+		CVEID:            "CVE-2021-28831",
+		Severity:         "HIGH",
+		CVSSScore:        7.5,
+		Description:      "busybox",
+		PublishedDate:    &now,
+		LastModifiedDate: &now,
+	}).Error; err != nil {
+		t.Fatalf("seed cve: %v", err)
+	}
+	if err := db.Create(&models.PackageVulnerability{
+		CVEID:                 "CVE-2021-28831",
+		PackageName:           "busybox",
+		Ecosystem:             "nvd",
+		VersionStartIncluding: "1.32.0",
+	}).Error; err != nil {
+		t.Fatalf("seed pv: %v", err)
+	}
+
+	m := NewPostgresManager(db)
+	ctx := context.Background()
+	got, err := m.GetVulnerabilitiesForPackages(ctx, "alpine", []string{"busybox"})
+	if err != nil {
+		t.Fatalf("GetVulnerabilitiesForPackages: %v", err)
+	}
+	cves := got["busybox"]
+	if len(cves) != 1 {
+		t.Fatalf("expected 1 CVE from nvd mirror merge, got %d (%+v)", len(cves), cves)
+	}
+	if cves[0].ID != "CVE-2021-28831" {
+		t.Fatalf("unexpected id %q", cves[0].ID)
+	}
+	if cves[0].Constraint == "" {
+		t.Fatal("expected version constraint from package_vulnerabilities")
+	}
+}
+
 func TestShouldUseNVDFallbackForPackage_OSVMirrorPackageRow(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {

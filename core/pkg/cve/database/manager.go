@@ -262,6 +262,17 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 		if err != nil {
 			return nil, err
 		}
+		// NVD mirror stores CPE-scoped rows under ecosystem "nvd". Distro OSV queries (alpine, debian, …)
+		// would otherwise see 0 CVEs when osv_packages is empty and never merge these — triggering noisy NVD API fallback.
+		if isDistroPackageEcosystemNoNVD(eco) {
+			if nvdSupp, err := m.queryPostgresPackageVulnsBulk(ctx, []string{"nvd"}, uncachedPackages); err != nil {
+				m.logger.Printf("⚠️  NVD mirror supplement (package_vulnerabilities): %v", err)
+			} else {
+				for _, pkg := range uncachedPackages {
+					packageCVEs[pkg] = mergeCVEByIDUnique(packageCVEs[pkg], nvdSupp[pkg])
+				}
+			}
+		}
 		for _, pkg := range uncachedPackages {
 			cves := packageCVEs[pkg]
 			if cves == nil {
@@ -275,55 +286,9 @@ func (m *Manager) GetVulnerabilitiesForPackages(
 		return result, nil
 	}
 
-	var rows []models.PackageVulnerability
-	if err := m.postgresDB.WithContext(ctx).
-		Where("ecosystem = ? AND package_name IN ? AND deleted_at IS NULL", eco, uncachedPackages).
-		Preload("CVE", "deleted_at IS NULL").
-		Find(&rows).Error; err != nil {
+	packageCVEs, err := m.queryPostgresPackageVulnsBulk(ctx, []string{eco}, uncachedPackages)
+	if err != nil {
 		return nil, fmt.Errorf("bulk query postgres: %w", err)
-	}
-
-	// Group CVEs by package name
-	packageCVEs := make(map[string][]*cve.CVE)
-	for _, pv := range rows {
-		if pv.CVEID == "" || pv.PackageName == "" {
-			continue
-		}
-
-		// Build CVE object
-		constraint := buildConstraintFromPV(pv)
-		if constraint == "" && pv.AffectedRange != "" {
-			constraint = pv.AffectedRange
-		}
-
-		fixed := pv.FixedVersion
-		if fixed == "" {
-			fixed = pv.VersionEndExcluding
-		}
-
-		var published time.Time
-		var modified time.Time
-		if pv.CVE.PublishedDate != nil {
-			published = *pv.CVE.PublishedDate
-		}
-		if pv.CVE.LastModifiedDate != nil {
-			modified = *pv.CVE.LastModifiedDate
-		}
-
-		cveObj := &cve.CVE{
-			ID:           pv.CVEID,
-			Description:  pv.CVE.Description,
-			Severity:     pv.CVE.Severity,
-			CVSSScore:    pv.CVE.CVSSScore,
-			CVSSVector:   pv.CVE.CVSSVector,
-			Constraint:   constraint,
-			FixedVersion: fixed,
-			Published:    published,
-			Modified:     modified,
-			References:   nil,
-		}
-
-		packageCVEs[pv.PackageName] = append(packageCVEs[pv.PackageName], cveObj)
 	}
 
 	// Cache and add to result (non-OSV path: cache suffix "*")
@@ -589,6 +554,26 @@ func (m *Manager) queryPostgres(ctx context.Context, ecosystem, name string) ([]
 		return []*cve.CVE{}, nil
 	}
 
+	out, err := m.queryPostgresPackageVulnsForPackage(ctx, eco, pkg)
+	if err != nil {
+		return nil, err
+	}
+	if len(out) == 0 && isDistroPackageEcosystemNoNVD(eco) {
+		nvdOut, err := m.queryPostgresPackageVulnsForPackage(ctx, "nvd", pkg)
+		if err != nil {
+			return out, nil
+		}
+		out = mergeCVEByIDUnique(out, nvdOut)
+	}
+	return out, nil
+}
+
+func (m *Manager) queryPostgresPackageVulnsForPackage(ctx context.Context, ecosystem, packageName string) ([]*cve.CVE, error) {
+	eco := strings.ToLower(strings.TrimSpace(ecosystem))
+	pkg := strings.TrimSpace(packageName)
+	if m.postgresDB == nil || pkg == "" {
+		return []*cve.CVE{}, nil
+	}
 	var rows []models.PackageVulnerability
 	if err := m.postgresDB.WithContext(ctx).
 		Where("ecosystem = ? AND package_name = ? AND deleted_at IS NULL", eco, pkg).
@@ -596,48 +581,86 @@ func (m *Manager) queryPostgres(ctx context.Context, ecosystem, name string) ([]
 		Find(&rows).Error; err != nil {
 		return nil, err
 	}
-
 	out := make([]*cve.CVE, 0, len(rows))
 	for _, pv := range rows {
-		if pv.CVEID == "" {
-			continue
+		if c := packageVulnerabilityToCVE(pv); c != nil {
+			out = append(out, c)
 		}
-
-		// Build constraint string for matcher to evaluate
-		constraint := buildConstraintFromPV(pv)
-		if constraint == "" && pv.AffectedRange != "" {
-			constraint = pv.AffectedRange
-		}
-
-		fixed := pv.FixedVersion
-		if fixed == "" {
-			fixed = pv.VersionEndExcluding
-		}
-
-		var published time.Time
-		var modified time.Time
-		if pv.CVE.PublishedDate != nil {
-			published = *pv.CVE.PublishedDate
-		}
-		if pv.CVE.LastModifiedDate != nil {
-			modified = *pv.CVE.LastModifiedDate
-		}
-
-		out = append(out, &cve.CVE{
-			ID:           pv.CVEID,
-			Description:  pv.CVE.Description,
-			Severity:     pv.CVE.Severity,
-			CVSSScore:    pv.CVE.CVSSScore,
-			CVSSVector:   pv.CVE.CVSSVector,
-			Constraint:   constraint,
-			FixedVersion: fixed,
-			Published:    published,
-			Modified:     modified,
-			References:   nil,
-		})
 	}
-
 	return out, nil
+}
+
+// queryPostgresPackageVulnsBulk loads package_vulnerabilities for many packages and ecosystems (e.g. nvd supplement for distro OSV).
+func (m *Manager) queryPostgresPackageVulnsBulk(ctx context.Context, ecosystems []string, packages []string) (map[string][]*cve.CVE, error) {
+	out := make(map[string][]*cve.CVE)
+	if m.postgresDB == nil || len(packages) == 0 || len(ecosystems) == 0 {
+		return out, nil
+	}
+	var rows []models.PackageVulnerability
+	if err := m.postgresDB.WithContext(ctx).
+		Where("ecosystem IN ? AND package_name IN ? AND deleted_at IS NULL", ecosystems, packages).
+		Preload("CVE", "deleted_at IS NULL").
+		Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	for _, pv := range rows {
+		if c := packageVulnerabilityToCVE(pv); c != nil {
+			out[pv.PackageName] = append(out[pv.PackageName], c)
+		}
+	}
+	return out, nil
+}
+
+func packageVulnerabilityToCVE(pv models.PackageVulnerability) *cve.CVE {
+	if pv.CVEID == "" {
+		return nil
+	}
+	constraint := buildConstraintFromPV(pv)
+	if constraint == "" && pv.AffectedRange != "" {
+		constraint = pv.AffectedRange
+	}
+	fixed := pv.FixedVersion
+	if fixed == "" {
+		fixed = pv.VersionEndExcluding
+	}
+	var published time.Time
+	var modified time.Time
+	if pv.CVE.PublishedDate != nil {
+		published = *pv.CVE.PublishedDate
+	}
+	if pv.CVE.LastModifiedDate != nil {
+		modified = *pv.CVE.LastModifiedDate
+	}
+	return &cve.CVE{
+		ID:           pv.CVEID,
+		Description:  pv.CVE.Description,
+		Severity:     pv.CVE.Severity,
+		CVSSScore:    pv.CVE.CVSSScore,
+		CVSSVector:   pv.CVE.CVSSVector,
+		Constraint:   constraint,
+		FixedVersion: fixed,
+		Published:    published,
+		Modified:     modified,
+		References:   nil,
+	}
+}
+
+func mergeCVEByIDUnique(primary, extra []*cve.CVE) []*cve.CVE {
+	seen := make(map[string]struct{}, len(primary)+len(extra))
+	out := make([]*cve.CVE, 0, len(primary)+len(extra))
+	for _, list := range [][]*cve.CVE{primary, extra} {
+		for _, c := range list {
+			if c == nil || c.ID == "" {
+				continue
+			}
+			if _, ok := seen[c.ID]; ok {
+				continue
+			}
+			seen[c.ID] = struct{}{}
+			out = append(out, c)
+		}
+	}
+	return out
 }
 
 func buildConstraintFromPV(pv models.PackageVulnerability) string {
