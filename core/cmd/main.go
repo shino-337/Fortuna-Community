@@ -427,7 +427,7 @@ func main() {
 			}
 		}
 	} else {
-		log.Printf("[Main] ⚠️  WARNING: Skipping SBOM/CVE pipeline setup (NATS unavailable)")
+		log.Printf("[Main] ⚠️  WARNING: Skipping JetStream SBOM/CVE consumers (NATS unavailable). SBOM gRPC ingest will still run CVE matching in-process after each upsert.")
 	}
 
 	// Start queue depth monitoring (only if worker pool is available)

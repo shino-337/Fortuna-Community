@@ -26,10 +26,11 @@ import (
 	"github.com/fortuna/core/internal/contextkeys"
 	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/repository"
-	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/cve/matcher"
+	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/sbom"
+	"github.com/fortuna/core/pkg/worker"
 )
 
 var goVersionNoBuildMeta = regexp.MustCompile(`^\s*v?\d+\.\d+\.\d+([\-\.].*)?\s*$`)
@@ -538,115 +539,98 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		return nil, status.Errorf(codes.Internal, "failed to store SBOM: %v", err)
 	}
 
-	// Publish SBOM_CREATED event to NATS (for CVE matching worker)
-	// Use subject 'fortuna.sbom.created' to match stream pattern 'fortuna.sbom.>' in 'fortuna-events' stream
-	// Include all required fields for worker to create insights with new schema
-	// IMPORTANT: Use PodUID from request (req.PodUid), not from SBOM record (sbom.PodUID)
-	// This ensures insights are created for the CURRENT pod, not the pod that first created the SBOM
-	if s.natsClient != nil {
-		// Use PodUID from request to ensure insights are created for the current pod
-		// even when SBOM is reused (same image_digest)
-		podUID := req.PodUid
-		podName := req.PodName
-		podNamespace := req.Namespace
-		containerName := req.ContainerName
+	// SBOM_CREATED payload for CVE pipeline: JetStream (preferred) or in-process when NATS client is nil.
+	// Use PodUID from request (req.PodUid), not from SBOM record, so insights target the current pod.
+	podUID := req.PodUid
+	podName := req.PodName
+	podNamespace := req.Namespace
+	containerName := req.ContainerName
+	// clusterID already resolved above (metadata → pod → unknown) for rate limiting and event payload.
 
-		// Resolve cluster_id from pod in DB or env only (no hardcoded name)
-		var clusterID string
-		var pod models.Pod
-		if err := s.db.Where("uid = ? AND deleted_at IS NULL", podUID).First(&pod).Error; err == nil {
-			clusterID = pod.ClusterID
-		}
-		if clusterID == "" {
-			if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
-				clusterID = v
-			} else {
-				clusterID = "unknown"
+	componentsSnapshot := make([]map[string]interface{}, 0, len(components))
+	for _, c := range components {
+		eco := ""
+		ns := ""
+		arch := ""
+		normalizedName := ""
+		versionClass := "UNKNOWN"
+
+		if p, err := matcher.ParsePURL(c.PURL); err == nil && p != nil {
+			eco = strings.ToLower(strings.TrimSpace(p.Ecosystem))
+			if eco == "golang" {
+				eco = "go"
+			}
+			ns = strings.TrimSpace(p.Namespace)
+			if p.Qualifiers != nil {
+				arch = strings.TrimSpace(p.Qualifiers["arch"])
+			}
+			normalizedName = strings.ToLower(strings.TrimSpace(p.Name))
+			if eco == "go" {
+				normalizedName = c.ComponentName
+				switch classifyGoVersion(normalizeGoVersionForPURL(c.ComponentVersion)) {
+				case goVerStrict:
+					versionClass = "STRICT"
+				case goVerLoose:
+					versionClass = "LOOSE"
+				default:
+					versionClass = "INVALID"
+				}
 			}
 		}
 
-		// P1-5: component snapshot at publish time so CVE matcher can use it and avoid soft-delete race
-		componentsSnapshot := make([]map[string]interface{}, 0, len(components))
-		for _, c := range components {
-			eco := ""
-			ns := ""
-			arch := ""
-			normalizedName := ""
-			versionClass := "UNKNOWN"
-
-			if p, err := matcher.ParsePURL(c.PURL); err == nil && p != nil {
-				eco = strings.ToLower(strings.TrimSpace(p.Ecosystem))
-				if eco == "golang" {
-					eco = "go"
-				}
-				ns = strings.TrimSpace(p.Namespace)
-				if p.Qualifiers != nil {
-					arch = strings.TrimSpace(p.Qualifiers["arch"])
-				}
-				normalizedName = strings.ToLower(strings.TrimSpace(p.Name))
-				if eco == "go" {
-					// Canonicalize based on component fields (already firewall-validated).
-					normalizedName = c.ComponentName
-					switch classifyGoVersion(normalizeGoVersionForPURL(c.ComponentVersion)) {
-					case goVerStrict:
-						versionClass = "STRICT"
-					case goVerLoose:
-						versionClass = "LOOSE"
-					default:
-						versionClass = "INVALID"
-					}
-				}
-			}
-
-			componentsSnapshot = append(componentsSnapshot, map[string]interface{}{
-				"purl":            c.PURL,
-				"name":            c.ComponentName,
-				"version":         c.ComponentVersion,
-				"normalized_name": normalizedName,
-				"version_class":   versionClass,
-				"ecosystem":       eco,
-				"namespace":       ns,
-				"arch":            arch,
-				"source":          c.Source,
-				"trust_level":     c.TrustLevel,
-				"original_purl":   c.OriginalPURL,
-				"purl_validated":  c.PURLValidated,
-			})
-		}
-		// Create proper JSON event with all required fields using map to avoid import issues
-		event := map[string]interface{}{
-			"type":                "sbom.created",
-			"timestamp":           time.Now().Unix(),
-			"event_id":            eventID,
-			"schema_version":      sbom.SBOMCreatedEventSchemaVersion,
-			"correlation_id":      correlationID,
-			"cluster_id":          clusterID,
-			"pod_uid":             podUID,
-			"pod_name":            podName,
-			"pod_namespace":       podNamespace,
-			"container_name":      containerName,
-			"container_image":     fmt.Sprintf("%s:%s", persistedSBOM.ImageName, persistedSBOM.ImageTag),
-			"sbom_id":             persistedSBOM.ID,
-			"image_digest":        persistedSBOM.ImageDigest,
-			"components_snapshot": componentsSnapshot,
-		}
-		eventJSON, err := json.Marshal(event)
-		if err != nil {
-			log.Printf("[SBOM] WARNING: Failed to marshal SBOM_CREATED event: %v", err)
+		componentsSnapshot = append(componentsSnapshot, map[string]interface{}{
+			"purl":            c.PURL,
+			"name":            c.ComponentName,
+			"version":         c.ComponentVersion,
+			"normalized_name": normalizedName,
+			"version_class":   versionClass,
+			"ecosystem":       eco,
+			"namespace":       ns,
+			"arch":            arch,
+			"source":          c.Source,
+			"trust_level":     c.TrustLevel,
+			"original_purl":   c.OriginalPURL,
+			"purl_validated":  c.PURLValidated,
+		})
+	}
+	event := map[string]interface{}{
+		"type":                "sbom.created",
+		"timestamp":           time.Now().Unix(),
+		"event_id":            eventID,
+		"schema_version":      sbom.SBOMCreatedEventSchemaVersion,
+		"correlation_id":      correlationID,
+		"cluster_id":          clusterID,
+		"pod_uid":             podUID,
+		"pod_name":            podName,
+		"pod_namespace":       podNamespace,
+		"container_name":      containerName,
+		"container_image":     fmt.Sprintf("%s:%s", persistedSBOM.ImageName, persistedSBOM.ImageTag),
+		"sbom_id":             persistedSBOM.ID,
+		"image_digest":        persistedSBOM.ImageDigest,
+		"components_snapshot": componentsSnapshot,
+	}
+	eventJSON, marshalErr := json.Marshal(event)
+	if marshalErr != nil {
+		log.Printf("[SBOM] WARNING: Failed to marshal SBOM_CREATED event: %v", marshalErr)
+	} else if s.natsClient != nil {
+		priErr, dlqErr := publishSBOMCreatedWithRetry(ctx, s.natsClient.Publish, eventJSON, time.Sleep)
+		if priErr == nil {
+			log.Printf("[SBOM] correlation_id=%s published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)",
+				correlationID, persistedSBOM.ID, podUID, !isNewSBOM)
 		} else {
-			// C1: retry + DLQ (logic in sbom_publish_retry.go for unit testing).
-			priErr, dlqErr := publishSBOMCreatedWithRetry(ctx, s.natsClient.Publish, eventJSON, time.Sleep)
-			if priErr == nil {
-				log.Printf("[SBOM] correlation_id=%s published SBOM_CREATED event for sbom_id=%d (pod_uid=%s, reused=%v)",
-					correlationID, persistedSBOM.ID, podUID, !isNewSBOM)
+			if dlqErr != nil {
+				log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED to DLQ: primary_err=%v dlq_err=%v", priErr, dlqErr)
 			} else {
-				if dlqErr != nil {
-					log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED to DLQ: primary_err=%v dlq_err=%v", priErr, dlqErr)
-				} else {
-					log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED after %d attempts; sent to DLQ (%s): %v",
-						sbomPublishMaxAttempts, sbomCreatedDLQSubject, priErr)
-				}
+				log.Printf("[SBOM] WARNING: Failed to publish SBOM_CREATED after %d attempts; sent to DLQ (%s): %v",
+					sbomPublishMaxAttempts, sbomCreatedDLQSubject, priErr)
 			}
+		}
+	} else {
+		log.Printf("[SBOM] correlation_id=%s NATS unavailable — running CVE matcher in-process for sbom_id=%d (pod_uid=%s)",
+			correlationID, persistedSBOM.ID, podUID)
+		cveW := worker.NewCVEMatcherWorker(nil, s.db, nil)
+		if err := cveW.ProcessSBOMCreatedEventJSON(ctx, eventJSON); err != nil {
+			log.Printf("[SBOM] WARNING: in-process CVE pipeline failed sbom_id=%d: %v", persistedSBOM.ID, err)
 		}
 	}
 

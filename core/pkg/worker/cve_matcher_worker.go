@@ -84,12 +84,26 @@ func (w *CVEMatcherWorker) Name() string { return "cve_matcher" }
 func (w *CVEMatcherWorker) Subject() string { return "fortuna.sbom.created" }
 
 func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {
-	startProcess := time.Now()
 	var ev sbom.SBOMCreatedEvent
 	if err := json.Unmarshal(msg.Data, &ev); err != nil {
 		incCVEMatcherRun("error")
 		return fmt.Errorf("unmarshal sbom.created: %w", err)
 	}
+	return w.ProcessSBOMCreatedEvent(ctx, ev)
+}
+
+// ProcessSBOMCreatedEventJSON unmarshals data and runs ProcessSBOMCreatedEvent (gRPC in-process CVE path).
+func (w *CVEMatcherWorker) ProcessSBOMCreatedEventJSON(ctx context.Context, data []byte) error {
+	var ev sbom.SBOMCreatedEvent
+	if err := json.Unmarshal(data, &ev); err != nil {
+		return fmt.Errorf("unmarshal sbom.created: %w", err)
+	}
+	return w.ProcessSBOMCreatedEvent(ctx, ev)
+}
+
+// ProcessSBOMCreatedEvent runs CVE matching + persistence + insights for one sbom.created event.
+func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.SBOMCreatedEvent) error {
+	startProcess := time.Now()
 	if ev.SBOMID == 0 {
 		incCVEMatcherRun("skipped")
 		return nil
