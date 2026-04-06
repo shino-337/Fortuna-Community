@@ -767,41 +767,75 @@ func main() {
 	}
 }
 
-// bootstrapVulnCatalog performs a safe one-shot OSV mirror bootstrap when vulnerability tables are empty.
-// It only runs when FORTUNA_OSV_SOURCE_DIR is configured and points to an existing directory.
+// bootstrapVulnCatalog loads OSV JSON from FORTUNA_OSV_SOURCE_DIR when the mirror or legacy catalog is empty.
+// Previously this only ran when package_vulnerabilities was empty; NVD sync can populate PV while osv_packages
+// stays empty, so we also bootstrap when osv_packages exists and has zero rows.
 func bootstrapVulnCatalog(db *gorm.DB) {
 	if db == nil {
 		return
 	}
-	var pvCount int64
-	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
-		log.Printf("[MAIN] ⚠️  Unable to count package_vulnerabilities: %v", err)
-		return
-	}
-	if pvCount > 0 {
-		log.Printf("[MAIN] Vulnerability catalog already populated (package_vulnerabilities=%d), skip bootstrap", pvCount)
-		return
-	}
-
 	sourceDir := strings.TrimSpace(os.Getenv("FORTUNA_OSV_SOURCE_DIR"))
 	if sourceDir == "" {
-		log.Printf("[MAIN] Vulnerability catalog empty and FORTUNA_OSV_SOURCE_DIR is not set; skip bootstrap")
+		log.Printf("[MAIN] FORTUNA_OSV_SOURCE_DIR not set; skip OSV mirror bootstrap (set it to a directory of OSV *.json to autoload on startup)")
 		return
 	}
 	if st, err := os.Stat(sourceDir); err != nil || !st.IsDir() {
-		log.Printf("[MAIN] Vulnerability catalog empty; source dir not available (%s), skip bootstrap", sourceDir)
+		log.Printf("[MAIN] OSV source dir missing or not a directory (%q); skip bootstrap: %v", sourceDir, err)
 		return
 	}
 
-	log.Printf("[MAIN] Vulnerability catalog empty; bootstrapping OSV mirror from %s ...", sourceDir)
+	var pvCount int64
+	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
+		log.Printf("[MAIN] ⚠️  Unable to count package_vulnerabilities: %v", err)
+	}
+
+	var osvPkgCount int64
+	osvTableReady := db.Migrator().HasTable("osv_packages")
+	var osvCountErr error
+	if osvTableReady {
+		osvCountErr = db.Model(&models.OSVPackage{}).Count(&osvPkgCount).Error
+		if osvCountErr != nil {
+			log.Printf("[MAIN] ⚠️  Unable to count osv_packages: %v", osvCountErr)
+		}
+	}
+	// Treat missing table, count error, or zero rows as "mirror not loaded" so we retry OSV ingest on startup.
+	osvMirrorEmpty := !osvTableReady || osvCountErr != nil || osvPkgCount == 0
+
+	catalogEmpty := pvCount == 0
+
+	if !catalogEmpty && !osvMirrorEmpty {
+		log.Printf("[MAIN] OSV mirror populated (osv_packages=%d) and package_vulnerabilities=%d; skip OSV bootstrap", osvPkgCount, pvCount)
+		return
+	}
+	// Avoid re-reading every OSV JSON on each restart when mirror is already filled (PV may stay empty if only osv_* is used).
+	if catalogEmpty && !osvMirrorEmpty {
+		log.Printf("[MAIN] package_vulnerabilities empty but OSV mirror has %d osv_packages rows; skip OSV bootstrap on this boot", osvPkgCount)
+		return
+	}
+
+	if catalogEmpty && osvMirrorEmpty {
+		log.Printf("[MAIN] Fresh DB: package_vulnerabilities=0 and OSV mirror empty; bootstrapping OSV from %q ...", sourceDir)
+	} else if !catalogEmpty && osvMirrorEmpty {
+		log.Printf("[MAIN] OSV mirror empty (osv_packages=%d) while package_vulnerabilities=%d — ingesting OSV from %q ...", osvPkgCount, pvCount, sourceDir)
+	}
+
 	manager := cvedb.NewPostgresManager(db)
 	if err := manager.UpdateDatabase(context.Background()); err != nil {
-		log.Printf("[MAIN] ⚠️  OSV bootstrap failed: %v", err)
+		log.Printf("[MAIN] ⚠️  OSV bootstrap UpdateDatabase failed: %v", err)
 		return
+	}
+
+	var afterOSV int64
+	if osvTableReady {
+		if err := db.Model(&models.OSVPackage{}).Count(&afterOSV).Error; err != nil {
+			log.Printf("[MAIN] ⚠️  Unable to recount osv_packages after bootstrap: %v", err)
+		} else {
+			log.Printf("[MAIN] ✅ OSV bootstrap finished (osv_packages=%d)", afterOSV)
+		}
 	}
 	if err := db.Model(&models.PackageVulnerability{}).Where("deleted_at IS NULL").Count(&pvCount).Error; err != nil {
 		log.Printf("[MAIN] ⚠️  Unable to recount package_vulnerabilities after bootstrap: %v", err)
 		return
 	}
-	log.Printf("[MAIN] ✅ Vulnerability catalog bootstrap done (package_vulnerabilities=%d)", pvCount)
+	log.Printf("[MAIN] ✅ Catalog state after bootstrap: package_vulnerabilities=%d", pvCount)
 }
