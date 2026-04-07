@@ -19,6 +19,7 @@ import { PageLoading } from '../components/PageLoading';
 import { RiskHistogram } from '../components/RiskHistogram';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { RiskHistogramResponse } from '../types';
+import { riskListSecondaryLabel } from '../lib/riskDisplay';
 
 type TabId = 'risks' | 'pce' | 'reference';
 
@@ -1064,6 +1065,7 @@ export const RiskCenter: React.FC = () => {
               >
                 <option value="">All</option>
                 <option value="vulnerability">Vulnerability</option>
+                <option value="supply_chain_malware">Supply-chain malware</option>
                 <option value="rbac_risk">RBAC risk</option>
                 <option value="capability">Capability</option>
               </select>
@@ -1074,7 +1076,7 @@ export const RiskCenter: React.FC = () => {
                 type="text"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search title, CVE, pod, namespace..."
+                placeholder="Search title, CVE, package, pod, namespace..."
                 className="pl-9 pr-4 py-2 bg-slate-900 border border-slate-700 rounded-lg text-sm text-white focus:ring-2 focus:ring-pink-500 outline-none w-full placeholder:text-slate-600"
               />
             </div>
@@ -1257,13 +1259,21 @@ export const RiskCenter: React.FC = () => {
                         </td>
                         <td className="px-4 py-3">
                           <span className="text-white font-medium">{risk.title}</span>
-                          <span className="text-slate-500 ml-1 text-xs">({risk.cveId ?? risk.id})</span>
+                          <span className="text-slate-500 ml-1 text-xs font-mono" title={risk.cveId}>
+                            ({riskListSecondaryLabel(risk)})
+                          </span>
                         </td>
                         <td className="px-4 py-3 text-slate-400 hidden sm:table-cell capitalize text-xs">
-                          {risk.insightType === 'vulnerability' ? 'Vulnerability' : risk.insightType === 'rbac' ? 'Behavior' : (risk.insightType ?? 'Vulnerability')}
+                          {risk.insightType === 'vulnerability'
+                            ? 'Vulnerability'
+                            : risk.insightType === 'supply_chain_malware'
+                              ? 'Supply-chain malware'
+                              : risk.insightType === 'rbac'
+                                ? 'Behavior'
+                                : (risk.insightType ?? 'Finding')}
                         </td>
                         <td className="px-4 py-3 text-slate-400 hidden md:table-cell text-xs">
-                          {risk.insightType === 'vulnerability' ? 'Static' : 'Runtime'}
+                          {risk.insightType === 'vulnerability' || risk.insightType === 'supply_chain_malware' ? 'Static' : 'Runtime'}
                         </td>
                         <td className="px-4 py-3 text-slate-400 text-xs" onClick={(e) => e.stopPropagation()}>
                           {risk.affectedResources?.length
@@ -1826,7 +1836,9 @@ export const RiskCenter: React.FC = () => {
                   </span>
                   <span>
                     Source:{' '}
-                    {selectedRisk.insightType === 'vulnerability' ? 'Static scan' : 'Runtime behavior'}
+                    {selectedRisk.insightType === 'vulnerability' || selectedRisk.insightType === 'supply_chain_malware'
+                      ? 'Static scan'
+                      : 'Runtime behavior'}
                   </span>
                   <span>
                     Workflow:{' '}

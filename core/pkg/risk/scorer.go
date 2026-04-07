@@ -290,6 +290,8 @@ func (s *Scorer) getVulnerabilityTypeBonus(insights []models.Insight) float64 {
 			bonus = 3.0
 		} else if strings.Contains(desc, "information disclosure") {
 			bonus = 2.0
+		} else if iType == "supply_chain_malware" || strings.Contains(desc, "malicious") && strings.Contains(desc, "package") {
+			bonus = 8.0
 		}
 
 		if bonus > maxBonus {
@@ -456,6 +458,12 @@ func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 			if kev, ok := parseCISAKEVFromInsightEvidence(insight.Evidence); ok && kev {
 				score = math.Max(score, 6.0)
 			}
+		} else if insight.InsightType == "supply_chain_malware" {
+			// Malicious dependency: code may execute in workload — treat as high exploit concern (no EPSS/KEV).
+			score = 5.5
+			if strings.EqualFold(strings.TrimSpace(insight.Severity), "critical") {
+				score = 6.0
+			}
 		} else {
 			// For policy insights: Parse from description
 			desc := strings.ToLower(insight.Description)
@@ -517,13 +525,16 @@ func parseCISAKEVFromInsightEvidence(evidence string) (kev bool, ok bool) {
 	return v, ok
 }
 
-// separateInsights separates CVE insights from policy insights
+// separateInsights separates CVE-like insights (CVSS path) from policy/runtime insights.
+// supply_chain_malware uses the same base-score path as CVE (severity → pseudo-CVSS when CVSS=0).
 func (s *Scorer) separateInsights(insights []models.Insight) ([]models.Insight, []models.Insight) {
 	cveInsights := []models.Insight{}
 	policyInsights := []models.Insight{}
 
 	for _, insight := range insights {
-		if insight.InsightType == "vulnerability" && insight.CVEID != "" {
+		if insight.InsightType == "vulnerability" && strings.TrimSpace(insight.CVEID) != "" {
+			cveInsights = append(cveInsights, insight)
+		} else if insight.InsightType == "supply_chain_malware" && strings.TrimSpace(insight.CVEID) != "" {
 			cveInsights = append(cveInsights, insight)
 		} else {
 			policyInsights = append(policyInsights, insight)

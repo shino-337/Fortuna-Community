@@ -17,6 +17,7 @@ import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbo
 import { SbomMetaBadges } from '../components/SbomMetaBadges';
 import { useAuthStore } from '../store/authStore';
 import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
+import { formatRiskFindingReference } from '../lib/riskDisplay';
 
 type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec';
 
@@ -1019,6 +1020,12 @@ export const PodDetail: React.FC = () => {
                       {risk.severity}
                     </span>
                   </div>
+                  {(formatRiskFindingReference(risk) || risk.insightType) && (
+                    <p className="text-slate-500 text-[11px] font-mono mt-0.5">
+                      {risk.insightType === 'supply_chain_malware' ? 'Malware' : risk.insightType === 'vulnerability' ? 'CVE' : risk.insightType}
+                      {formatRiskFindingReference(risk) ? ` · ${formatRiskFindingReference(risk)}` : ''}
+                    </p>
+                  )}
                   {risk.description && <p className="text-slate-500 text-xs mt-0.5 line-clamp-2">{risk.description}</p>}
                 </div>
               ))}

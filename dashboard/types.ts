@@ -695,7 +695,10 @@ export interface InsightEnrichedRefs {
 
 export interface Insight {
   id: string;           // PK from API (used for GET /insights/:id and route /risks/:id)
-  cveId?: string;       // CVE identifier for display (e.g. CVE-2024-123)
+  cveId?: string;       // CVE or internal dedup key (e.g. CVE-2024-123, supply-malware:pkg@ver)
+  /** Populated from API for supply_chain_malware rows */
+  affectedComponent?: string;
+  affectedVersion?: string;
   title: string;
   description?: string;
   severity: string;

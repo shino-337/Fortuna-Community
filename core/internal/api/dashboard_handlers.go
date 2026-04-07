@@ -37,7 +37,7 @@ type ThreatVelocityPoint struct {
 // GetDashboardStats returns totals for active clusters, pods, agents, critical risks.
 // Query param clusterId: when set, all counts are scoped to that cluster.
 // Query param sinceMinutes: when > 0, insight counts limited to detected_at >= now - sinceMinutes.
-// Query param byType: "vulnerability" (default) = only CVE insights; "all" = all insight types for totalRisks and criticalRisks.
+// Query param byType: "vulnerability" (default) = CVE + supply_chain_malware; "all" = all insight types for totalRisks and criticalRisks.
 func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := strings.TrimSpace(c.Query("clusterId"))
@@ -116,23 +116,23 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 					WHERE i.deleted_at IS NULL`+detectedSinceClause,
 					totalArgs...).Scan(&totalRisks)
 			} else {
-				criticalArgs := []interface{}{clusterID, "vulnerability", "critical"}
+				criticalArgs := []interface{}{clusterID, "vulnerability", "supply_chain_malware", "critical"}
 				if sinceMinutes > 0 {
 					criticalArgs = append(criticalArgs, since)
 				}
 				db.Raw(`
 					SELECT COUNT(*) FROM insights i
 					INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-					WHERE i.insight_type = ? AND LOWER(i.severity) = ? AND i.deleted_at IS NULL`+detectedSinceClause,
+					WHERE i.insight_type IN (?, ?) AND LOWER(i.severity) = ? AND i.deleted_at IS NULL`+detectedSinceClause,
 					criticalArgs...).Scan(&critical)
-				totalArgs := []interface{}{clusterID, "vulnerability"}
+				totalArgs := []interface{}{clusterID, "vulnerability", "supply_chain_malware"}
 				if sinceMinutes > 0 {
 					totalArgs = append(totalArgs, since)
 				}
 				db.Raw(`
 					SELECT COUNT(*) FROM insights i
 					INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-					WHERE i.insight_type = ? AND i.deleted_at IS NULL`+detectedSinceClause,
+					WHERE i.insight_type IN (?, ?) AND i.deleted_at IS NULL`+detectedSinceClause,
 					totalArgs...).Scan(&totalRisks)
 			}
 
@@ -189,19 +189,20 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 					db.Table("insights").Where("deleted_at IS NULL").Count(&totalRisks)
 				}
 			} else {
+				supplyTypes := []string{"vulnerability", "supply_chain_malware"}
 				if sinceMinutes > 0 {
 					db.Table("insights").
-						Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL AND detected_at >= ?", "vulnerability", "critical", since).
+						Where("insight_type IN ? AND LOWER(severity) = ? AND deleted_at IS NULL AND detected_at >= ?", supplyTypes, "critical", since).
 						Count(&critical)
 					db.Table("insights").
-						Where("insight_type = ? AND deleted_at IS NULL AND detected_at >= ?", "vulnerability", since).
+						Where("insight_type IN ? AND deleted_at IS NULL AND detected_at >= ?", supplyTypes, since).
 						Count(&totalRisks)
 				} else {
 					db.Table("insights").
-						Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL", "vulnerability", "critical").
+						Where("insight_type IN ? AND LOWER(severity) = ? AND deleted_at IS NULL", supplyTypes, "critical").
 						Count(&critical)
 					db.Table("insights").
-						Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").
+						Where("insight_type IN ? AND deleted_at IS NULL", supplyTypes).
 						Count(&totalRisks)
 				}
 			}
@@ -243,7 +244,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 
 // GetThreatVelocity returns daily counts of insights grouped by severity.
 // Query param days: 1–30 (default 7). Query param clusterId: optional.
-// Query param byType: "vulnerability" (default) = only CVE insights; "all" = all insight types (RBAC, misconfig, etc.).
+// Query param byType: "vulnerability" (default) = CVE + supply_chain_malware insights; "all" = every insight_type (RBAC, capability, etc.).
 // Pod filter: only count Pod insights when pod exists (deleted_at IS NULL).
 func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -274,8 +275,9 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 				Where("detected_at >= ? AND deleted_at IS NULL", start).
 				Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
 		} else {
+			// Default "vulnerability" mode: CVE findings plus supply-chain malware (same operational slice as Risk Findings / SBOM threats).
 			baseQuery = db.Model(&models.Insight{}).
-				Where("insight_type = ? AND detected_at >= ? AND deleted_at IS NULL", "vulnerability", start).
+				Where("insight_type IN ? AND detected_at >= ? AND deleted_at IS NULL", []string{"vulnerability", "supply_chain_malware"}, start).
 				Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
 		}
 		if clusterID != "" {
@@ -385,8 +387,8 @@ func getInsightsListData(db *gorm.DB, filter RiskFilter, page, pageSize int, has
 	if filter.Search != "" {
 		search := "%" + strings.ToLower(filter.Search) + "%"
 		query = query.Where(
-			"LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(resource_name) LIKE ?",
-			search, search, search,
+			"LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(resource_name) LIKE ? OR LOWER(cve_id) LIKE ? OR LOWER(affected_component) LIKE ?",
+			search, search, search, search, search,
 		)
 	}
 	if filter.SinceMinutes > 0 {
@@ -647,7 +649,7 @@ func writeRisksExportHTML(w http.ResponseWriter, insights []models.Insight) {
 	w.Write([]byte(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Risks Export</title>`))
 	w.Write([]byte(`<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #333;padding:6px;text-align:left;} th{background:#444;color:#fff;} @media print{body{margin:0;}}</style></head><body>`))
 	w.Write([]byte(`<h1>Risks Export</h1><p>Generated at ` + time.Now().Format(time.RFC3339) + ` — ` + strconv.Itoa(len(insights)) + ` findings. Use browser Print → Save as PDF.</p><table><thead><tr>`))
-	headers := []string{"ID", "Title", "Severity", "Status", "Type", "Resource", "Namespace", "CVE", "Detected At"}
+	headers := []string{"ID", "Title", "Severity", "Status", "Type", "Resource", "Namespace", "Finding ref", "Detected At"}
 	for _, h := range headers {
 		w.Write([]byte("<th>" + html.EscapeString(h) + "</th>"))
 	}
@@ -699,8 +701,8 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 		if filter.Search != "" {
 			search := "%" + strings.ToLower(filter.Search) + "%"
 			query = query.Where(
-				"LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(resource_name) LIKE ?",
-				search, search, search,
+				"LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(resource_name) LIKE ? OR LOWER(cve_id) LIKE ? OR LOWER(affected_component) LIKE ?",
+				search, search, search, search, search,
 			)
 		}
 	if filter.SinceMinutes > 0 {
@@ -735,7 +737,7 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 		csvW := csv.NewWriter(c.Writer)
 		_ = csvW.Write([]string{
 			"id", "title", "description", "severity", "status", "insight_type", "resource_type",
-			"resource_name", "resource_namespace", "resource_uid", "cve_id", "detected_at", "created_at", "updated_at",
+			"resource_name", "resource_namespace", "resource_uid", "finding_reference", "detected_at", "created_at", "updated_at",
 		})
 		csvW.Flush()
 		if err := csvW.Error(); err != nil {

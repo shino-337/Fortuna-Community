@@ -39,12 +39,6 @@ spec:
       # Schedule PostgreSQL on master node to avoid network routing issues
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
-      # Allow scheduling when the PVC node has disk-pressure NoSchedule taint (local-path often pins Postgres to one node; kubelet may taint before free space stabilizes).
-      tolerations:
-      - key: node.kubernetes.io/disk-pressure
-        operator: Exists
-        effect: NoSchedule
-
       containers:
       - name: postgres
         image: postgres:15-alpine
@@ -72,7 +66,7 @@ spec:
         resources:
           requests:
             memory: "256Mi"
-            cpu: "50m"  # master often ~1950m/2000m allocated; need headroom for local-path PVC on control-plane
+            cpu: "10m"  # keep request tiny: omitting cpu makes request default to limit (500m). Master is CPU-saturated.
           limits:
             memory: "512Mi"
             cpu: "500m"

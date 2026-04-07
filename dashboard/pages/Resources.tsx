@@ -279,6 +279,7 @@ export const Resources: React.FC = () => {
             <option value="">All Namespaces</option>
             <option value="default">default</option>
             <option value="fortuna">fortuna</option>
+            <option value="fortuna-demo">fortuna-demo</option>
             <option value="kube-system">kube-system</option>
             <option value="risk-center-test">risk-center-test</option>
           </select>

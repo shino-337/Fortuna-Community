@@ -420,9 +420,23 @@ export const api = {
       const insight = await request<Record<string, unknown>>(`/risk/insights/${id}`);
       const severity = (insight.severity || 'medium').toLowerCase();
       const cvss = Number(insight.cvss) || (severity === 'critical' ? 9 : severity === 'high' ? 7 : severity === 'medium' ? 5 : 3);
+      const insightTypeRaw = (insight.insightType ?? insight.insight_type ?? '') as string;
       return {
         id: String(insight.id ?? id),
         cveId: insight.cveId != null ? String(insight.cveId) : undefined,
+        insightType: insightTypeRaw ? String(insightTypeRaw) : undefined,
+        affectedComponent:
+          insight.affectedComponent != null
+            ? String(insight.affectedComponent)
+            : insight.affected_component != null
+              ? String(insight.affected_component)
+              : undefined,
+        affectedVersion:
+          insight.affectedVersion != null
+            ? String(insight.affectedVersion)
+            : insight.affected_version != null
+              ? String(insight.affected_version)
+              : undefined,
         title: String(insight.title ?? ''),
         description: insight.description != null ? String(insight.description) : undefined,
         severity,
@@ -537,15 +551,28 @@ export const api = {
         const businessImpactScore =
           insight.businessImpactScore != null ? Number(insight.businessImpactScore) : undefined;
         const timeDecay = insight.timeDecay != null ? Number(insight.timeDecay) : undefined;
+        const itype = (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string;
         return {
           id: String(insight.id),
           cveId: insight.cveId ? String(insight.cveId) : undefined,
+          affectedComponent:
+            insight.affectedComponent != null
+              ? String(insight.affectedComponent)
+              : insight.affected_component != null
+                ? String(insight.affected_component)
+                : undefined,
+          affectedVersion:
+            insight.affectedVersion != null
+              ? String(insight.affectedVersion)
+              : insight.affected_version != null
+                ? String(insight.affected_version)
+                : undefined,
           title: insight.title,
           description: insight.description,
           severity,
           score: Math.min(100, Math.max(0, score)),
-          category: insight.insightType === 'vulnerability' ? 'sbom' : 'security',
-          insightType: (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string,
+          category: itype === 'vulnerability' || itype === 'supply_chain_malware' ? 'sbom' : 'security',
+          insightType: itype,
           status: insight.status === 'active' ? 'new' : insight.status === 'resolved' ? 'resolved' : 'acknowledged',
           timestamp: insight.detectedAt || insight.createdAt,
           clusterId: (insight.clusterId ?? insight.resourceNamespace) ?? '',
@@ -1359,6 +1386,18 @@ export const api = {
       const insights = (data.insights || []).map((i: any) => ({
         id: String(i.id ?? ''),
         cveId: i.cveId != null ? String(i.cveId) : undefined,
+        affectedComponent:
+          i.affectedComponent != null
+            ? String(i.affectedComponent)
+            : i.affected_component != null
+              ? String(i.affected_component)
+              : undefined,
+        affectedVersion:
+          i.affectedVersion != null
+            ? String(i.affectedVersion)
+            : i.affected_version != null
+              ? String(i.affected_version)
+              : undefined,
         title: String(i.title ?? ''),
         description: i.description != null ? String(i.description) : undefined,
         severity: (i.severity || 'medium').toLowerCase(),

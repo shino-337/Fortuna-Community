@@ -8,6 +8,7 @@ import { Button } from '../components/ui/Button';
 import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2, Info } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
 import { parseThreatIntelEvidence } from '../lib/threatIntel';
+import { formatRiskFindingReference } from '../lib/riskDisplay';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 
 const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
@@ -230,9 +231,9 @@ export const RiskDetail: React.FC = () => {
   })();
 
   return (
-    <PageLayout
+      <PageLayout
       title={insight.title}
-      description={insight.id !== insight.title ? `Finding ID: ${insight.id}` : undefined}
+      description={`Finding #${insight.id}${formatRiskFindingReference(insight) ? ` · ${formatRiskFindingReference(insight)}` : ''}`}
       actions={
         <div className="flex items-center gap-2">
           {insight.status !== 'resolved' && (
@@ -282,6 +283,26 @@ export const RiskDetail: React.FC = () => {
               {threatIntel.epssPercentile != null && (
                 <span className="text-amber-200/80"> · p{(threatIntel.epssPercentile * 100).toFixed(0)}</span>
               )}
+            </span>
+          )}
+        </div>
+        <div className="mt-3 flex flex-wrap gap-3 text-xs text-slate-400">
+          {insight.insightType && (
+            <span>
+              <span className="text-slate-500 uppercase tracking-wider mr-1">Type</span>
+              <span className="text-slate-200">
+                {insight.insightType === 'supply_chain_malware'
+                  ? 'Supply-chain malware'
+                  : insight.insightType === 'vulnerability'
+                    ? 'Vulnerability'
+                    : insight.insightType}
+              </span>
+            </span>
+          )}
+          {(formatRiskFindingReference(insight) || insight.cveId) && (
+            <span>
+              <span className="text-slate-500 uppercase tracking-wider mr-1">Reference</span>
+              <span className="text-slate-200 font-mono">{formatRiskFindingReference(insight) || insight.cveId}</span>
             </span>
           )}
         </div>

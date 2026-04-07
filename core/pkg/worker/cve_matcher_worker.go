@@ -40,7 +40,8 @@ func incCVEMatcherRun(result string) {
 	metrics.CVEMatcherRunsTotal.WithLabelValues(result, matcher.ResolverVersion).Inc()
 }
 
-// CVEMatcherWorker implements: SBOM_CREATED -> CVE Matching -> Persist cve_matches -> Vulnerability Insights.
+// CVEMatcherWorker implements: SBOM_CREATED -> CVE Matching -> Persist cve_matches -> Vulnerability Insights;
+// plus malware DB matching -> malware_matches -> supply_chain_malware insights (Risk Operations / trend / SIEM).
 type CVEMatcherWorker struct {
 	js                     nats.JetStreamContext
 	db                     *gorm.DB
@@ -248,166 +249,208 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 	w.logger.Printf("[CVEMatcherRun] correlation_id=%s sbom_id=%d version=%d mirror=%s resolver_version=%s result=processed cve_matches=%d malware_hits=%d duration_ms=%d",
 		ev.CorrelationID, sbomModel.ID, sbomModel.Version, mirrorVersion, matcher.ResolverVersion, len(matches), len(malwareMatches), time.Since(startProcess).Milliseconds())
 
-	// Create insights (critical/high only) — requires CVE matches
-	if len(matches) == 0 {
-		runStatus = "succeeded"
-		runErrorCode = ""
-		return nil
-	}
-
-	// Collect all package names for bulk loading components
-	packageNames := make([]string, 0, len(matches))
-	for _, m := range matches {
-		if w.onlySeverities[strings.ToUpper(m.Severity)] {
-			packageNames = append(packageNames, m.PackageName)
-		}
-	}
-
-	if len(packageNames) == 0 {
-		runStatus = "succeeded"
-		runErrorCode = ""
-		return nil
-	}
-
-	// Bulk load all components (for insight join). INS-1: snapshot fallback if DB row missing/racy.
-	var components []models.SBOMComponent
-	if err := w.db.WithContext(ctx).
-		Where("sbom_id = ? AND component_name IN ? AND deleted_at IS NULL",
-			sbomModel.ID, packageNames).
-		Find(&components).Error; err != nil {
-		w.logger.Printf("⚠️  Failed to load components: %v", err)
-		return fmt.Errorf("load components: %w", err)
-	}
+	// INS-1: snapshot map for component resolution (CVE + supply-chain malware insights).
 	snapshotByName := make(map[string]*models.SBOMComponent, len(componentsOverride))
 	for _, co := range componentsOverride {
 		if co == nil || strings.TrimSpace(co.ComponentName) == "" {
 			continue
 		}
-		// First snapshot wins (deterministic); supplements DB for insight lookup.
 		if _, ok := snapshotByName[co.ComponentName]; !ok {
 			cp := *co
 			snapshotByName[co.ComponentName] = &cp
 		}
 	}
 
-	// Phase 3: SBOM coverage metrics
-	// Coverage needs "total components in SBOM", not just matched ones.
-	var allSBOMComponents []models.SBOMComponent
-	if err := w.db.WithContext(ctx).
-		Where("sbom_id = ? AND deleted_at IS NULL", sbomModel.ID).
-		Find(&allSBOMComponents).Error; err != nil {
-		w.logger.Printf("⚠️  Failed to load all SBOM components for coverage metrics: %v", err)
-		// Do not fail pipeline; coverage metrics are best-effort.
-	}
-	w.emitSBOMCoverageMetrics(ctx, &sbomModel, allSBOMComponents, matches)
-
-	// Create lookup map for components (O(1) access). Prefer DB row; overlay snapshot for same name.
-	componentMap := make(map[string]*models.SBOMComponent)
-	for i := range components {
-		componentMap[components[i].ComponentName] = &components[i]
-	}
-	for name, snap := range snapshotByName {
-		if _, ok := componentMap[name]; !ok && snap != nil {
-			componentMap[name] = snap
-		}
-	}
-
-	// Build insights directly from matches (no need to re-query persistedMatches)
-	insights := make([]*models.Insight, 0, len(matches))
-	insightEcosystems := make([]string, 0, len(matches))
 	sbomStatus := strings.ToLower(strings.TrimSpace(sbomModel.Status))
+	var cveInsights []*models.Insight
+	var cveInsightEcosystems []string
+	var allSBOMComponents []models.SBOMComponent
 
-	// EPSS: default 40 CVE lookups per SBOM; 0 = skip; negative = unlimited (cap 10k safety).
-	epssLimit := 40
-	if s := strings.TrimSpace(os.Getenv("FORTUNA_EPSS_MAX_PER_SBOM")); s != "" {
-		if v, err := strconv.Atoi(s); err == nil {
-			epssLimit = v
+	// --- CVE → vulnerability insights (unchanged semantics) ---
+	if len(matches) > 0 {
+		packageNames := make([]string, 0, len(matches))
+		for _, m := range matches {
+			if w.onlySeverities[strings.ToUpper(m.Severity)] {
+				packageNames = append(packageNames, m.PackageName)
+			}
+		}
+		if len(packageNames) > 0 {
+			var components []models.SBOMComponent
+			if err := w.db.WithContext(ctx).
+				Where("sbom_id = ? AND component_name IN ? AND deleted_at IS NULL",
+					sbomModel.ID, packageNames).
+				Find(&components).Error; err != nil {
+				w.logger.Printf("⚠️  Failed to load components: %v", err)
+				return fmt.Errorf("load components: %w", err)
+			}
+			if err := w.db.WithContext(ctx).
+				Where("sbom_id = ? AND deleted_at IS NULL", sbomModel.ID).
+				Find(&allSBOMComponents).Error; err != nil {
+				w.logger.Printf("⚠️  Failed to load all SBOM components for coverage metrics: %v", err)
+			}
+			w.emitSBOMCoverageMetrics(ctx, &sbomModel, allSBOMComponents, matches)
+
+			componentMap := make(map[string]*models.SBOMComponent)
+			for i := range components {
+				componentMap[components[i].ComponentName] = &components[i]
+			}
+			for name, snap := range snapshotByName {
+				if _, ok := componentMap[name]; !ok && snap != nil {
+					componentMap[name] = snap
+				}
+			}
+
+			cveInsights = make([]*models.Insight, 0, len(matches))
+			cveInsightEcosystems = make([]string, 0, len(matches))
+
+			epssLimit := 40
+			if s := strings.TrimSpace(os.Getenv("FORTUNA_EPSS_MAX_PER_SBOM")); s != "" {
+				if v, err := strconv.Atoi(s); err == nil {
+					epssLimit = v
+				}
+			}
+			if epssLimit < 0 {
+				epssLimit = 10000
+			}
+
+			type matchWork struct {
+				m         *models.CVEMatch
+				component *models.SBOMComponent
+			}
+			works := make([]matchWork, 0, len(matches))
+			for _, m := range matches {
+				if !w.onlySeverities[strings.ToUpper(m.Severity)] {
+					continue
+				}
+				component, foundComp := componentMap[m.PackageName]
+				if !foundComp {
+					w.logger.Printf("⚠️  Component not found for package %s", m.PackageName)
+					continue
+				}
+				works = append(works, matchWork{m: m, component: component})
+			}
+
+			epssResults := make(map[string]epss.EpssResult)
+			if epss.Enabled() && epssLimit > 0 && len(works) > 0 {
+				seenCVE := make(map[string]struct{})
+				ids := make([]string, 0, epssLimit)
+				for _, wk := range works {
+					id := strings.TrimSpace(strings.ToUpper(wk.m.CVEID))
+					if id == "" {
+						continue
+					}
+					if _, ok := seenCVE[id]; ok {
+						continue
+					}
+					seenCVE[id] = struct{}{}
+					ids = append(ids, id)
+					if len(ids) >= epssLimit {
+						break
+					}
+				}
+				if len(ids) > 0 {
+					epssResults = epss.LookupManyDefault(ctx, ids)
+				}
+			}
+
+			for _, wk := range works {
+				insight := buildVulnInsightFromEvent(ev, sbomStatus, wk.component, wk.m)
+				patch := map[string]interface{}{}
+				if epss.Enabled() && epssLimit > 0 {
+					id := strings.TrimSpace(strings.ToUpper(wk.m.CVEID))
+					if r, ok := epssResults[id]; ok {
+						patch["epss"] = r.EPSS
+						patch["epss_percentile"] = r.Percentile
+						patch["epss_source"] = "first.org"
+					}
+				}
+				if kev.Enabled() && kev.Contains(wk.m.CVEID) {
+					patch["cisa_kev"] = true
+				}
+				if len(patch) > 0 {
+					insight.Evidence = insightevidence.Merge(insight.Evidence, patch)
+				}
+				cveInsights = append(cveInsights, insight)
+				cveInsightEcosystems = append(cveInsightEcosystems, resolveComponentEcosystemForMetrics(&sbomModel, wk.component))
+			}
+
+			if len(cveInsights) > 0 {
+				w.emitRiskConfidenceDistributionMetrics(sbomStatus, sbomModel.StatusReason, cveInsights, cveInsightEcosystems, allSBOMComponents, resolverVersion, &sbomModel)
+			}
 		}
 	}
-	if epssLimit < 0 {
-		epssLimit = 10000 // "unlimited" with safety cap
-	}
 
-	type matchWork struct {
-		m         *models.CVEMatch
-		component *models.SBOMComponent
-	}
-	works := make([]matchWork, 0, len(matches))
-	for _, m := range matches {
-		if !w.onlySeverities[strings.ToUpper(m.Severity)] {
-			continue
-		}
-		component, foundComp := componentMap[m.PackageName]
-		if !foundComp {
-			w.logger.Printf("⚠️  Component not found for package %s", m.PackageName)
-			continue
-		}
-		works = append(works, matchWork{m: m, component: component})
-	}
-
-	epssResults := make(map[string]epss.EpssResult)
-	if epss.Enabled() && epssLimit > 0 && len(works) > 0 {
-		seenCVE := make(map[string]struct{})
-		ids := make([]string, 0, epssLimit)
-		for _, wk := range works {
-			id := strings.TrimSpace(strings.ToUpper(wk.m.CVEID))
-			if id == "" {
+	// --- Malware packages → supply_chain_malware insights (Risk Operations / trend / SIEM) ---
+	var malInsights []*models.Insight
+	if len(malwareMatches) > 0 {
+		seenName := make(map[string]struct{})
+		var malNames []string
+		for _, mm := range malwareMatches {
+			n := strings.TrimSpace(mm.PackageName)
+			if n == "" {
 				continue
 			}
-			if _, ok := seenCVE[id]; ok {
+			if _, ok := seenName[n]; ok {
 				continue
 			}
-			seenCVE[id] = struct{}{}
-			ids = append(ids, id)
-			if len(ids) >= epssLimit {
-				break
-			}
+			seenName[n] = struct{}{}
+			malNames = append(malNames, n)
 		}
-		if len(ids) > 0 {
-			epssResults = epss.LookupManyDefault(ctx, ids)
+		if len(malNames) > 0 {
+			var malComponents []models.SBOMComponent
+			if err := w.db.WithContext(ctx).
+				Where("sbom_id = ? AND component_name IN ? AND deleted_at IS NULL", sbomModel.ID, malNames).
+				Find(&malComponents).Error; err != nil {
+				w.logger.Printf("⚠️  Failed to load components for malware insights: %v", err)
+				return fmt.Errorf("load components for malware insights: %w", err)
+			}
+			malMap := make(map[string]*models.SBOMComponent)
+			for i := range malComponents {
+				malMap[malComponents[i].ComponentName] = &malComponents[i]
+			}
+			for name, snap := range snapshotByName {
+				if _, ok := malMap[name]; !ok && snap != nil {
+					malMap[name] = snap
+				}
+			}
+			for _, mm := range malwareMatches {
+				comp := malMap[strings.TrimSpace(mm.PackageName)]
+				if comp == nil {
+					comp = &models.SBOMComponent{
+						SBOMID:           sbomModel.ID,
+						ComponentName:    mm.PackageName,
+						ComponentVersion: mm.PackageVersion,
+					}
+				}
+				malInsights = append(malInsights, buildSupplyChainMalwareInsight(ev, sbomStatus, comp, mm))
+			}
 		}
 	}
 
-	for _, wk := range works {
-		insight := buildVulnInsightFromEvent(ev, sbomStatus, wk.component, wk.m)
-		patch := map[string]interface{}{}
-		if epss.Enabled() && epssLimit > 0 {
-			id := strings.TrimSpace(strings.ToUpper(wk.m.CVEID))
-			if r, ok := epssResults[id]; ok {
-				patch["epss"] = r.EPSS
-				patch["epss_percentile"] = r.Percentile
-				patch["epss_source"] = "first.org"
-			}
-		}
-		if kev.Enabled() && kev.Contains(wk.m.CVEID) {
-			patch["cisa_kev"] = true
-		}
-		if len(patch) > 0 {
-			insight.Evidence = insightevidence.Merge(insight.Evidence, patch)
-		}
-		insights = append(insights, insight)
-		insightEcosystems = append(insightEcosystems, resolveComponentEcosystemForMetrics(&sbomModel, wk.component))
-	}
+	allInsights := make([]*models.Insight, 0, len(cveInsights)+len(malInsights))
+	allInsights = append(allInsights, cveInsights...)
+	allInsights = append(allInsights, malInsights...)
 
-	// Phase 3: confidence distribution metrics (computed from built insights)
-	w.emitRiskConfidenceDistributionMetrics(sbomStatus, sbomModel.StatusReason, insights, insightEcosystems, allSBOMComponents, resolverVersion, &sbomModel)
-
-	// Batch create/update insights (single transaction)
-	if len(insights) > 0 {
+	if len(allInsights) > 0 {
 		start := time.Now()
-		if err := w.insightMgr.BatchCreateOrUpdateInsights(insights); err != nil {
+		if err := w.insightMgr.BatchCreateOrUpdateInsights(allInsights); err != nil {
 			w.logger.Printf("⚠️  Failed to batch create/update insights: %v", err)
 			return fmt.Errorf("batch create insights: %w", err)
 		}
 		metrics.RiskEvaluationDuration.Observe(time.Since(start).Seconds())
-		metrics.InsightsBatchSize.Observe(float64(len(insights)))
-		w.logger.Printf("✅ Created/updated %d vulnerability insights for pod %s/%s", len(insights), ev.PodNamespace, ev.PodName)
+		metrics.InsightsBatchSize.Observe(float64(len(allInsights)))
+		if len(cveInsights) > 0 {
+			w.logger.Printf("✅ Created/updated %d vulnerability insights for pod %s/%s", len(cveInsights), ev.PodNamespace, ev.PodName)
+		}
+		if len(malInsights) > 0 {
+			w.logger.Printf("✅ Created/updated %d supply-chain malware insights for pod %s/%s", len(malInsights), ev.PodNamespace, ev.PodName)
+		}
 		if w.publishInsightsUpdated != nil {
 			_ = w.publishInsightsUpdated([]byte("{}"))
 		} else if w.js != nil {
 			_, _ = w.js.Publish(SubjectInsightsUpdated, []byte("{}"))
 		}
-		PublishSIEMEvents(w.js, insights)
+		PublishSIEMEvents(w.js, allInsights)
 	}
 
 	runStatus = "succeeded"
@@ -613,6 +656,191 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, comp
 		AffectedVersion:   component.ComponentVersion,
 		FixedVersion:      match.FixedVersion,
 		DetectedAt:        time.Now(),
+	}
+}
+
+// supplyChainMalwareInsightDedupKey is stored in insights.cve_id for InsightManager upsert (stable non-CVE key).
+func supplyChainMalwareInsightDedupKey(pkgName, pkgVer string) string {
+	n := strings.TrimSpace(pkgName)
+	v := strings.TrimSpace(pkgVer)
+	key := "supply-malware:" + strings.ToLower(n) + "@" + v
+	if len(key) > 255 {
+		key = key[:255]
+	}
+	return key
+}
+
+func malwareReasonToInsightSeverity(reason string) string {
+	switch strings.ToUpper(strings.TrimSpace(reason)) {
+	case "MALWARE", "PROTESTWARE":
+		return "critical"
+	case "TELEMETRY":
+		return "high"
+	default:
+		return "high"
+	}
+}
+
+func malwareMatchConfidenceForInsight(mm *models.MalwareMatch) string {
+	if mm == nil {
+		return "LOW"
+	}
+	if mm.Confidence >= 0.85 {
+		return "HIGH"
+	}
+	if mm.Confidence > 0 {
+		return "MEDIUM"
+	}
+	return "HIGH"
+}
+
+// buildSupplyChainMalwareInsight creates a Risk Operations insight for a malware_packages DB hit (parallel to CVE insights).
+func buildSupplyChainMalwareInsight(ev sbom.SBOMCreatedEvent, sbomStatus string, component *models.SBOMComponent, mm *models.MalwareMatch) *models.Insight {
+	confRank := func(c string) int {
+		switch strings.ToUpper(strings.TrimSpace(c)) {
+		case "HIGH":
+			return 3
+		case "MEDIUM":
+			return 2
+		case "LOW":
+			return 1
+		case "VERY_LOW":
+			return 0
+		default:
+			return 1
+		}
+	}
+	minConf := func(a, b string) string {
+		if confRank(a) <= confRank(b) {
+			return a
+		}
+		return b
+	}
+	min3Conf := func(a, b, c string) string {
+		return minConf(minConf(a, b), c)
+	}
+	capConf := func(v, cap string) string {
+		if confRank(v) > confRank(cap) {
+			return cap
+		}
+		return v
+	}
+
+	sbomConf := func(status string) string {
+		switch strings.ToLower(strings.TrimSpace(status)) {
+		case "complete":
+			return "HIGH"
+		case "partial":
+			return "MEDIUM"
+		case "failed":
+			return "VERY_LOW"
+		case "pending":
+			return "LOW"
+		default:
+			return "LOW"
+		}
+	}(sbomStatus)
+
+	componentConf := func(c *models.SBOMComponent) string {
+		if c == nil {
+			return "VERY_LOW"
+		}
+		if strings.EqualFold(strings.TrimSpace(c.ComponentVersion), "unknown") {
+			return "LOW"
+		}
+		sd := strings.ToLower(strings.TrimSpace(c.SourceDetail))
+		switch sd {
+		case "agent-fields":
+			tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
+			switch tl {
+			case "high":
+				return "HIGH"
+			case "medium":
+				return "MEDIUM"
+			case "low":
+				return "LOW"
+			default:
+				return "LOW"
+			}
+		case "core-regenerated-purl":
+			return "LOW"
+		case "core-generated-purl":
+			return "MEDIUM"
+		default:
+			return "LOW"
+		}
+	}(component)
+
+	matchConf := malwareMatchConfidenceForInsight(mm)
+	finalConf := min3Conf(sbomConf, componentConf, matchConf)
+	if strings.ToLower(strings.TrimSpace(sbomStatus)) == "failed" {
+		finalConf = "VERY_LOW"
+	}
+	if strings.ToLower(strings.TrimSpace(sbomStatus)) != "complete" {
+		finalConf = capConf(finalConf, "MEDIUM")
+	}
+	degraded := strings.ToLower(strings.TrimSpace(sbomStatus)) == "partial"
+
+	sev := malwareReasonToInsightSeverity(mm.Reason)
+	dedupKey := supplyChainMalwareInsightDedupKey(mm.PackageName, mm.PackageVersion)
+
+	reason := strings.TrimSpace(mm.Reason)
+	fam := strings.TrimSpace(mm.MalwareFamily)
+	desc := fmt.Sprintf(
+		"Known malicious or policy-flagged package %s@%s (%s) in pod %s/%s (container=%s, image=%s).",
+		mm.PackageName,
+		mm.PackageVersion,
+		reason,
+		ev.PodNamespace,
+		ev.PodName,
+		ev.ContainerName,
+		ev.ContainerImage,
+	)
+	if fam != "" {
+		desc += fmt.Sprintf(" Family: %s.", fam)
+	}
+	title := fmt.Sprintf("Supply-chain: %s@%s", mm.PackageName, mm.PackageVersion)
+	if degraded {
+		title = "[DEGRADED] " + title
+		desc += "\nSBOM status: partial (degraded; trust reduced)."
+	}
+
+	evidence := map[string]interface{}{
+		"malwareReason":     reason,
+		"malwareFamily":     fam,
+		"packageConfidence": mm.Confidence,
+		"insightKind":       "supply_chain_malware",
+	}
+	evidenceJSON, _ := json.Marshal(evidence)
+
+	return &models.Insight{
+		ResourceType:        "Pod",
+		ResourceNamespace:   ev.PodNamespace,
+		ResourceName:        ev.PodName,
+		ResourceUID:         ev.PodUID,
+		InsightType:         "supply_chain_malware",
+		Severity:            sev,
+		Title:               title,
+		Description:         desc,
+		Status:              "active",
+		Recommendation: fmt.Sprintf(
+			"Remove or replace dependency %s (version %s) and rebuild the container image %s.",
+			mm.PackageName,
+			mm.PackageVersion,
+			ev.ContainerImage,
+		),
+		CVEID:               dedupKey,
+		AffectedComponent:   mm.PackageName,
+		AffectedVersion:     mm.PackageVersion,
+		FixedVersion:        "",
+		CVSS:                0,
+		Evidence:            string(evidenceJSON),
+		MatchConfidence:     matchConf,
+		ComponentConfidence: componentConf,
+		SBOMConfidence:      sbomConf,
+		FinalRiskConfidence: finalConf,
+		Degraded:            degraded,
+		DetectedAt:          time.Now(),
 	}
 }
 
