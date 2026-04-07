@@ -243,6 +243,29 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# TC-05d / TC-05e: dashboard byType=all (Phase 1 data scope + Phase 7.2 E2E)
+# ---------------------------------------------------------------------------
+RESP=$(api_get "dashboard/stats?byType=all")
+BODY=$(get_body "$RESP")
+CODE=$(get_http_code "$RESP")
+TR=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('totalRisks',-1))" 2>/dev/null || echo "-1")
+if [ "$CODE" = "200" ] && [ "${TR:- -1}" -ge 0 ]; then
+  run_tc "05d" "GET /dashboard/stats?byType=all" "HTTP 200, totalRisks>=0" "HTTP $CODE, totalRisks=$TR" "PASS"
+else
+  run_tc "05d" "GET /dashboard/stats?byType=all" "HTTP 200, JSON hợp lệ" "HTTP $CODE" "FAIL" "Body: ${BODY:0:240}"
+fi
+
+RESP=$(api_get "dashboard/metrics/threat-velocity?byType=all&days=7")
+BODY=$(get_body "$RESP")
+CODE=$(get_http_code "$RESP")
+TREND_LEN=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); t=d.get('trend',[]); print(len(t) if isinstance(t,list) else 0)" 2>/dev/null || echo "0")
+if [ "$CODE" = "200" ] && [ "${TREND_LEN:-0}" -ge 1 ]; then
+  run_tc "05e" "GET /threat-velocity?byType=all&days=7" "HTTP 200, trend[]" "HTTP $CODE, trend_len=$TREND_LEN" "PASS"
+else
+  run_tc "05e" "GET /threat-velocity?byType=all" "HTTP 200, trend[]" "HTTP $CODE, trend_len=$TREND_LEN" "FAIL" "Body: ${BODY:0:240}"
+fi
+
+# ---------------------------------------------------------------------------
 # TC-06: GET /risks/export (Phase 1.3 – CSV)
 # ---------------------------------------------------------------------------
 RESP=$(api_get "risk/insights/export")

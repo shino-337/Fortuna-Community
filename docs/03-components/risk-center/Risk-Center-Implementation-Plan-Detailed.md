@@ -108,14 +108,14 @@ Thứ tự ưu tiên: **Data scope (KPI đúng) → Ops doc → UI PCE/Evidence 
 
 ---
 
-### Phase 6 – UX: [REDACTED] & polish
+### Phase 6 – UX: [REDACTED] & polish ✅ Done
 
 **Mục tiêu:** Evidence/JSON hiển thị [REDACTED] ổn định; một số polish nhỏ.
 
-| Bước | Task | Chủ thể | Chi tiết | Ước lượng |
-|------|------|---------|----------|-----------|
-| 6.1 | Kiểm tra hiển thị [REDACTED] | Dashboard | Trong drawer Evidence & Audit và mọi chỗ render evidence JSON/code: kiểm tra chuỗi [REDACTED] không làm vỡ layout; nếu cần thêm class/style (monospace, word-break). | 0.25d |
-| 6.2 | Doc | Doc | Gaps: đánh dấu "[REDACTED] display" đã kiểm tra/điều chỉnh. | 0.25d |
+| Bước | Task | Chủ thể | Chi tiết | Trạng thái |
+|------|------|---------|----------|------------|
+| 6.1 | Kiểm tra hiển thị [REDACTED] / JSON dài | Dashboard | `RuntimeSignalsTable`: `pre` đã có `whitespace-pre-wrap break-words`. **RiskDetail** Evidence / Violated Rules: bổ sung `font-mono whitespace-pre-wrap break-words max-w-full` để payload masked hoặc dài không tràn layout. | ✅ |
+| 6.2 | Doc | Doc | Cập nhật dòng trạng thái Phase 6 trong plan này. | ✅ |
 
 **Deliverable:** Evidence có [REDACTED] hiển thị đúng; doc cập nhật.
 
@@ -125,13 +125,13 @@ Thứ tự ưu tiên: **Data scope (KPI đúng) → Ops doc → UI PCE/Evidence 
 
 **Mục tiêu:** E2E flow cơ bản (ingest → insights → WS → UI); có thể thêm UI test sau.
 
-| Bước | Task | Chủ thể | Chi tiết | Ước lượng |
-|------|------|---------|----------|-----------|
-| 7.1 | E2E script: agent → worker → insights → WS → refetch | Scripts | Script (bash/curl hoặc e2e framework): tạo dữ liệu chuẩn (hoặc dùng fixture) → trigger worker / NATS → đợi insights trong DB → gọi WS hoặc poll GET /risk/insights → assert count/title. | 1d |
-| 7.2 | E2E byType=all | Scripts | Thêm TC: GET threat-velocity?byType=all, GET dashboard/stats?byType=all → 200, body hợp lệ. | 0.25d |
-| 7.3 | UI test (Cypress/Playwright) | Backlog optional | Routes /risks, /risks/findings; bulk actions; histogram click → filter. Đánh dấu backlog nếu chưa có framework. | 1d (backlog) |
+| Bước | Task | Chủ thể | Chi tiết | Trạng thái |
+|------|------|---------|----------|------------|
+| 7.1 | E2E script: agent → worker → insights → WS → refetch | Scripts | Luồng đầy đủ ingest→NATS vẫn **backlog** (TC-01…TC-18 đã cover API/WS cơ bản). | Backlog |
+| 7.2 | E2E byType=all | Scripts | **`e2e-risk-center-full.sh`:** TC-05d `GET /dashboard/stats?byType=all`, TC-05e `GET /dashboard/metrics/threat-velocity?byType=all&days=7` → 200, body hợp lệ. | ✅ |
+| 7.3 | UI test (Cypress/Playwright) | Backlog optional | Routes /risks, /risks/findings; bulk actions; histogram click → filter. | Backlog |
 
-**Deliverable:** E2E flow ingest → UI có trong script; byType=all có TC; UI test trong backlog nếu chưa làm.
+**Deliverable:** byType=all có TC trong script; UI test & full ingest pipeline trong backlog.
 
 ---
 

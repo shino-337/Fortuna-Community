@@ -65,6 +65,7 @@
 
 6. **E2E**
    - `./scripts/e2e/e2e-risk-center-full.sh` → TC-05b PASS (và các TC khác).
+   - TC-05d/05e: `GET /dashboard/stats?byType=all` và `GET /dashboard/metrics/threat-velocity?byType=all&days=7` → 200, body hợp lệ (Phase 7.2).
    - (Khi có) TC GET /risk/histogram → 200, body có bins.
 
 7. **Dashboard**

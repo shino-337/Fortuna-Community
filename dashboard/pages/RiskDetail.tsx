@@ -435,7 +435,7 @@ export const RiskDetail: React.FC = () => {
           {insight.evidence != null && (
             <div className="mb-4">
               <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-2">Evidence</h4>
-              <pre className="p-3 bg-slate-900/50 rounded border border-slate-800 text-slate-300 text-xs overflow-x-auto">
+              <pre className="p-3 bg-slate-900/50 rounded border border-slate-800 text-slate-300 text-xs font-mono whitespace-pre-wrap break-words max-w-full overflow-x-auto">
                 {typeof insight.evidence === 'string'
                   ? insight.evidence
                   : JSON.stringify(insight.evidence, null, 2)}
@@ -445,7 +445,7 @@ export const RiskDetail: React.FC = () => {
           {insight.violatedRules != null && (
             <div>
               <h4 className="text-slate-400 text-xs uppercase tracking-wider mb-2">Violated Rules</h4>
-              <pre className="p-3 bg-slate-900/50 rounded border border-slate-800 text-slate-300 text-xs overflow-x-auto">
+              <pre className="p-3 bg-slate-900/50 rounded border border-slate-800 text-slate-300 text-xs font-mono whitespace-pre-wrap break-words max-w-full overflow-x-auto">
                 {typeof insight.violatedRules === 'string'
                   ? insight.violatedRules
                   : JSON.stringify(insight.violatedRules, null, 2)}
