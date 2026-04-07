@@ -9,6 +9,7 @@ import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2, 
 import { getSeverityBadgeClass } from '../lib/severity';
 import { parseThreatIntelEvidence } from '../lib/threatIntel';
 import { formatRiskFindingReference } from '../lib/riskDisplay';
+import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 
 const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
@@ -73,29 +74,6 @@ export const RiskDetail: React.FC = () => {
   const [linkedRules, setLinkedRules] = useState<Array<{ id: string; name: string; source?: string; signature?: string; isCanonical?: boolean; canonicalRuleId?: string }>>([]);
   const [linkedCapabilities, setLinkedCapabilities] = useState<CapabilityMetadata[]>([]);
   const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
-
-  const runtimeSignalVisual = (signalType: string): { signalClass: string; severity: string; severityClass: string } => {
-    const t = (signalType || '').trim().toUpperCase();
-    if (t === 'NETWORK_QUEUE_ANOMALY') {
-      return {
-        signalClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-        severity: 'MEDIUM',
-        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-      };
-    }
-    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
-      return {
-        signalClass: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
-        severity: 'HIGH',
-        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
-      };
-    }
-    return {
-      signalClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
-      severity: 'INFO',
-      severityClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
-    };
-  };
 
   const fetchInsight = useCallback(async () => {
     if (!id) return;

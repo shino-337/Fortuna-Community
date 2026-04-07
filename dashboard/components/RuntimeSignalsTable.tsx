@@ -4,6 +4,7 @@ import { RuntimeSignal } from '../types';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 import { Search, AlertTriangle, Clock, TrendingUp, Shield, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
 import { Pagination } from './Pagination';
+import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 
 interface RuntimeSignalsTableProps {
   podUid?: string;
@@ -105,25 +106,11 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   };
 
   const getSignalBadge = (signalType: string) => {
-    const t = (signalType || '').trim().toUpperCase();
-    if (t === 'NETWORK_QUEUE_ANOMALY') {
-      return {
-        className: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
-        severity: 'MEDIUM',
-        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-      };
-    }
-    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
-      return {
-        className: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
-        severity: 'HIGH',
-        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
-      };
-    }
+    const v = runtimeSignalVisual(signalType);
     return {
-      className: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
-      severity: 'INFO',
-      severityClass: 'bg-slate-500/20 text-slate-300 border-slate-500/40',
+      className: v.signalClass,
+      severity: v.severity,
+      severityClass: v.severityClass,
     };
   };
 

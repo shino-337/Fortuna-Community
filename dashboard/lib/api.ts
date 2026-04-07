@@ -1527,7 +1527,15 @@ export const api = {
     }
   },
 
-  getPceCapabilities: async (params?: { clusterId?: string; namespace?: string; capabilityId?: string; severity?: string; podName?: string; limit?: number; offset?: number }): Promise<PodCapabilityDetail[]> => {
+  getPceCapabilities: async (params?: {
+    clusterId?: string;
+    namespace?: string;
+    capabilityId?: string;
+    severity?: string;
+    podName?: string;
+    limit?: number;
+    offset?: number;
+  }): Promise<{ capabilities: PodCapabilityDetail[]; total: number }> => {
     try {
       const query = new URLSearchParams();
       if (params?.clusterId) query.set('clusterId', params.clusterId);
@@ -1538,14 +1546,23 @@ export const api = {
       if (params?.limit) query.set('limit', String(params.limit));
       if (params?.offset) query.set('offset', String(params.offset));
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ capabilities: Array<PodCapabilityDetail & { pod_name?: string }> }>(`/inventory/pod-capabilities${suffix}`);
+      const data = await request<{
+        capabilities: Array<PodCapabilityDetail & { pod_name?: string }>;
+        total?: number;
+        Total?: number;
+      }>(`/inventory/pod-capabilities${suffix}`);
       const raw = data.capabilities || [];
-      return raw.map((c) => ({
-        ...c,
-        podName: c.podName ?? (c as any).pod_name ?? undefined,
-      })) as PodCapabilityDetail[];
+      const totalRaw = data.total ?? data.Total ?? raw.length;
+      const total = typeof totalRaw === 'number' && Number.isFinite(totalRaw) ? totalRaw : raw.length;
+      return {
+        capabilities: raw.map((c) => ({
+          ...c,
+          podName: c.podName ?? (c as any).pod_name ?? undefined,
+        })) as PodCapabilityDetail[],
+        total,
+      };
     } catch (err) {
-      return [];
+      return { capabilities: [], total: 0 };
     }
   },
   getPodCapabilities: async (podUid: string): Promise<PodCapabilityDetail[]> => {
