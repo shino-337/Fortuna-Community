@@ -29,6 +29,38 @@ type TabId = 'risks' | 'pce' | 'reference';
 const TABLE_HEAD_ROW = 'text-xs uppercase tracking-wide text-slate-400 bg-slate-950/95 backdrop-blur-sm border-b border-slate-800';
 const TABLE_BODY_ROW = 'border-b border-slate-800/80 transition-colors hover:bg-slate-800/35';
 
+const RISK_FINDINGS_COLS_KEY = 'fortuna-risk-findings-table-cols-v1';
+
+type RiskFindingsTableCols = {
+  type: boolean;
+  resource: boolean;
+  score: boolean;
+  nsCluster: boolean;
+  detected: boolean;
+  updated: boolean;
+};
+
+const defaultRiskFindingsCols: RiskFindingsTableCols = {
+  type: true,
+  resource: true,
+  score: true,
+  nsCluster: true,
+  detected: true,
+  updated: true,
+};
+
+function loadRiskFindingsCols(): RiskFindingsTableCols {
+  if (typeof window === 'undefined') return { ...defaultRiskFindingsCols };
+  try {
+    const raw = window.localStorage.getItem(RISK_FINDINGS_COLS_KEY);
+    if (!raw) return { ...defaultRiskFindingsCols };
+    const o = JSON.parse(raw) as Partial<RiskFindingsTableCols>;
+    return { ...defaultRiskFindingsCols, ...o };
+  } catch {
+    return { ...defaultRiskFindingsCols };
+  }
+}
+
 export const RiskCenter: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -117,6 +149,8 @@ export const RiskCenter: React.FC = () => {
   /** Recalculate all scores: loading and success message (POST /risk/scores/sync) */
   const [syncScoresLoading, setSyncScoresLoading] = useState(false);
   const [syncScoresMessage, setSyncScoresMessage] = useState<string | null>(null);
+  const [riskFindingsCols, setRiskFindingsCols] = useState<RiskFindingsTableCols>(() => loadRiskFindingsCols());
+  const [drawerActionBusy, setDrawerActionBusy] = useState<null | 'ack' | 'resolve' | 'dismiss'>(null);
   // Resolve cluster + time: URL from Dashboard link overrides store so Risk Center shows same scope
   const effectiveClusterId = clusterIdFromUrl ?? selectedClusterId ?? undefined;
   const effectiveSinceMinutes = sinceMinutesFromUrl != null ? parseInt(sinceMinutesFromUrl, 10) : timeWindowMinutes;
@@ -139,6 +173,18 @@ export const RiskCenter: React.FC = () => {
     }
     return effectiveSinceMinutesNum ?? (timeWindowMinutes > 0 ? timeWindowMinutes : undefined);
   }, [selectedChartDate, effectiveSinceMinutesNum, timeWindowMinutes]);
+
+  React.useEffect(() => {
+    try {
+      window.localStorage.setItem(RISK_FINDINGS_COLS_KEY, JSON.stringify(riskFindingsCols));
+    } catch {
+      /* ignore quota */
+    }
+  }, [riskFindingsCols]);
+
+  React.useEffect(() => {
+    setDrawerActionBusy(null);
+  }, [selectedRisk?.id]);
 
   React.useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearchTerm(searchTerm.trim()), 400);
@@ -717,6 +763,17 @@ export const RiskCenter: React.FC = () => {
     resolved: 'Resolved',
   };
 
+  const findingsTableColCount = useMemo(() => {
+    let n = 5; // checkbox, level, finding, workflow, actions
+    if (riskFindingsCols.type) n += 1;
+    if (riskFindingsCols.resource) n += 1;
+    if (riskFindingsCols.score) n += 1;
+    if (!effectiveClusterId && riskFindingsCols.nsCluster) n += 1;
+    if (riskFindingsCols.detected) n += 1;
+    if (riskFindingsCols.updated) n += 1;
+    return n;
+  }, [riskFindingsCols, effectiveClusterId]);
+
   if (pageBlocking) return <PageLoading message="Loading Risk Operations…" />;
 
   const tabs: { id: TabId; label: string }[] = [
@@ -730,6 +787,7 @@ export const RiskCenter: React.FC = () => {
       title="Risk Operations"
       description={RISK_CENTER_DESCRIPTION}
     >
+      <div className="contents" inert={selectedRisk ? true : undefined}>
       {/* Error banner when some APIs failed */}
       {error && (
         <div className="flex items-center justify-between gap-4 p-4 bg-amber-500/10 border border-amber-500/30 rounded-lg text-amber-200">
@@ -1268,6 +1326,33 @@ export const RiskCenter: React.FC = () => {
               </select>
             </div>
           </div>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-slate-400 -mt-1">
+            <span className="text-slate-500 uppercase tracking-wider whitespace-nowrap">Table columns:</span>
+            {(
+              [
+                { key: 'type' as const, label: 'Type' },
+                { key: 'resource' as const, label: 'Impacted resource' },
+                { key: 'score' as const, label: 'Risk score' },
+                { key: 'nsCluster' as const, label: 'Namespace / cluster', allClustersOnly: true },
+                { key: 'detected' as const, label: 'Detected' },
+                { key: 'updated' as const, label: 'Updated' },
+              ] satisfies { key: keyof RiskFindingsTableCols; label: string; allClustersOnly?: boolean }[]
+            )
+              .filter((c) => !c.allClustersOnly || !effectiveClusterId)
+              .map((c) => (
+                <label key={c.key} className="inline-flex items-center gap-1.5 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded border-slate-600 bg-slate-900"
+                    checked={riskFindingsCols[c.key]}
+                    onChange={() =>
+                      setRiskFindingsCols((prev) => ({ ...prev, [c.key]: !prev[c.key] }))
+                    }
+                  />
+                  <span>{c.label}</span>
+                </label>
+              ))}
+          </div>
           <p className="text-xs text-slate-500 -mt-2">
             Tip: click any finding row to open contextual investigation panel without leaving this page.
           </p>
@@ -1366,20 +1451,32 @@ export const RiskCenter: React.FC = () => {
                     </th>
                     <th className="text-left px-4 py-3 w-10">Level</th>
                     <th className="text-left px-4 py-3">Finding</th>
-                    <th className="text-left px-4 py-3 w-36 hidden sm:table-cell">Type</th>
-                    <th className="text-left px-4 py-3 w-20">Impacted Resource</th>
-                    <th className="text-left px-4 py-3 w-20 min-w-[5rem]">Risk Score</th>
-                    {!effectiveClusterId && <th className="text-left px-4 py-3 hidden lg:table-cell w-32">Namespace / Cluster</th>}
+                    {riskFindingsCols.type && (
+                      <th className="text-left px-4 py-3 w-36 hidden sm:table-cell">Type</th>
+                    )}
+                    {riskFindingsCols.resource && (
+                      <th className="text-left px-4 py-3 w-20">Impacted Resource</th>
+                    )}
+                    {riskFindingsCols.score && (
+                      <th className="text-left px-4 py-3 w-20 min-w-[5rem]">Risk Score</th>
+                    )}
+                    {!effectiveClusterId && riskFindingsCols.nsCluster && (
+                      <th className="text-left px-4 py-3 hidden lg:table-cell w-32">Namespace / Cluster</th>
+                    )}
                     <th className="text-left px-4 py-3 w-24">Workflow</th>
-                    <th className="text-left px-4 py-3 w-24 hidden md:table-cell">Detected At</th>
-                    <th className="text-left px-4 py-3 w-24 hidden lg:table-cell">Updated At</th>
+                    {riskFindingsCols.detected && (
+                      <th className="text-left px-4 py-3 w-24 hidden md:table-cell">Detected At</th>
+                    )}
+                    {riskFindingsCols.updated && (
+                      <th className="text-left px-4 py-3 w-24 hidden lg:table-cell">Updated At</th>
+                    )}
                     <th className="text-right px-4 py-3 w-32">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
                   {paginatedRisks.length === 0 ? (
                     <tr>
-                      <td colSpan={effectiveClusterId ? 9 : 10} className="px-4 py-8 text-center text-slate-500">
+                      <td colSpan={findingsTableColCount} className="px-4 py-8 text-center text-slate-500">
                         No risks match the current filters.
                       </td>
                     </tr>
@@ -1422,89 +1519,95 @@ export const RiskCenter: React.FC = () => {
                             ({riskListSecondaryLabel(risk)})
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-400 hidden sm:table-cell text-xs leading-snug">
-                          {(() => {
-                            const label =
-                              risk.insightType === 'vulnerability'
-                                ? 'Vulnerability'
-                                : risk.insightType === 'supply_chain_malware'
-                                  ? 'Supply-chain malware'
-                                  : risk.insightType === 'rbac'
-                                    ? 'Behavior'
-                                    : (risk.insightType ?? 'Finding');
-                            const src =
-                              risk.insightType === 'vulnerability' || risk.insightType === 'supply_chain_malware'
-                                ? 'Static'
-                                : 'Runtime';
-                            return (
-                              <>
-                                <span className="capitalize block text-slate-300">{label}</span>
-                                <span className="text-[10px] text-slate-500">({src})</span>
-                              </>
-                            );
-                          })()}
-                        </td>
-                        <td className="px-4 py-3 text-slate-400 text-xs" onClick={(e) => e.stopPropagation()}>
-                          {risk.affectedResources?.length
-                            ? risk.affectedResources.length === 1 && risk.affectedResources[0]?.kind && risk.affectedResources[0]?.id
-                              ? risk.affectedResources[0].kind === 'Pod'
-                                ? (
-                                    <Link
-                                      to={`/resources/pods/uid/${encodeURIComponent(risk.affectedResources[0].id)}`}
-                                      className="text-pink-400 hover:text-pink-300 hover:underline font-medium"
-                                      title="View pod in Resources"
-                                    >
-                                      1 Pod →
-                                    </Link>
-                                  )
-                                : risk.affectedResources[0].kind === 'ServiceAccount'
+                        {riskFindingsCols.type && (
+                          <td className="px-4 py-3 text-slate-400 hidden sm:table-cell text-xs leading-snug">
+                            {(() => {
+                              const label =
+                                risk.insightType === 'vulnerability'
+                                  ? 'Vulnerability'
+                                  : risk.insightType === 'supply_chain_malware'
+                                    ? 'Supply-chain malware'
+                                    : risk.insightType === 'rbac'
+                                      ? 'Behavior'
+                                      : (risk.insightType ?? 'Finding');
+                              const src =
+                                risk.insightType === 'vulnerability' || risk.insightType === 'supply_chain_malware'
+                                  ? 'Static'
+                                  : 'Runtime';
+                              return (
+                                <>
+                                  <span className="capitalize block text-slate-300">{label}</span>
+                                  <span className="text-[10px] text-slate-500">({src})</span>
+                                </>
+                              );
+                            })()}
+                          </td>
+                        )}
+                        {riskFindingsCols.resource && (
+                          <td className="px-4 py-3 text-slate-400 text-xs" onClick={(e) => e.stopPropagation()}>
+                            {risk.affectedResources?.length
+                              ? risk.affectedResources.length === 1 && risk.affectedResources[0]?.kind && risk.affectedResources[0]?.id
+                                ? risk.affectedResources[0].kind === 'Pod'
                                   ? (
-                                    <Link
-                                      to={`/identities/uid/${encodeURIComponent(risk.affectedResources[0].id)}`}
-                                      className="text-pink-400 hover:text-pink-300 hover:underline font-medium"
-                                      title="View identity"
-                                    >
-                                      1 ServiceAccount →
-                                    </Link>
-                                  )
-                                  : `1 ${risk.affectedResources[0].kind}`
-                              : `${risk.affectedResources.length} resources`
-                            : '—'}
-                        </td>
-                        <td
-                          className="px-4 py-3 text-slate-300 align-top"
-                          title={
-                            [
-                              risk.score != null ? `Score ${risk.score}/100` : null,
-                              risk.priorityLevel ? `Priority ${risk.priorityLevel}` : null,
-                              risk.exploitabilityScore != null ? `Exploitability ${risk.exploitabilityScore.toFixed(1)}` : null,
-                              risk.businessImpactScore != null ? `Business impact ${risk.businessImpactScore.toFixed(1)}` : null,
-                            ]
-                              .filter(Boolean)
-                              .join(' · ') || undefined
-                          }
-                        >
-                          {risk.score != null ? (
-                            <div className="space-y-1">
-                              <div className="font-medium tabular-nums">
-                                {risk.score}/100
-                                {risk.priorityLevel ? <span className="text-slate-500 font-normal"> {risk.priorityLevel}</span> : null}
-                              </div>
-                              <div
-                                className="h-1 rounded-full bg-slate-800 overflow-hidden max-w-[4.5rem]"
-                                title="Score / 100"
-                              >
+                                      <Link
+                                        to={`/resources/pods/uid/${encodeURIComponent(risk.affectedResources[0].id)}`}
+                                        className="text-pink-400 hover:text-pink-300 hover:underline font-medium"
+                                        title="View pod in Resources"
+                                      >
+                                        1 Pod →
+                                      </Link>
+                                    )
+                                  : risk.affectedResources[0].kind === 'ServiceAccount'
+                                    ? (
+                                        <Link
+                                          to={`/identities/uid/${encodeURIComponent(risk.affectedResources[0].id)}`}
+                                          className="text-pink-400 hover:text-pink-300 hover:underline font-medium"
+                                          title="View identity"
+                                        >
+                                          1 ServiceAccount →
+                                        </Link>
+                                      )
+                                      : `1 ${risk.affectedResources[0].kind}`
+                                : `${risk.affectedResources.length} resources`
+                              : '—'}
+                          </td>
+                        )}
+                        {riskFindingsCols.score && (
+                          <td
+                            className="px-4 py-3 text-slate-300 align-top"
+                            title={
+                              [
+                                risk.score != null ? `Score ${risk.score}/100` : null,
+                                risk.priorityLevel ? `Priority ${risk.priorityLevel}` : null,
+                                risk.exploitabilityScore != null ? `Exploitability ${risk.exploitabilityScore.toFixed(1)}` : null,
+                                risk.businessImpactScore != null ? `Business impact ${risk.businessImpactScore.toFixed(1)}` : null,
+                              ]
+                                .filter(Boolean)
+                                .join(' · ') || undefined
+                            }
+                          >
+                            {risk.score != null ? (
+                              <div className="space-y-1">
+                                <div className="font-medium tabular-nums">
+                                  {risk.score}/100
+                                  {risk.priorityLevel ? <span className="text-slate-500 font-normal"> {risk.priorityLevel}</span> : null}
+                                </div>
                                 <div
-                                  className={`h-full rounded-full ${risk.score >= 70 ? 'bg-red-500' : risk.score >= 40 ? 'bg-amber-500' : 'bg-emerald-500/80'}`}
-                                  style={{ width: `${Math.min(100, Math.max(0, risk.score))}%` }}
-                                />
+                                  className="h-1 rounded-full bg-slate-800 overflow-hidden max-w-[4.5rem]"
+                                  title="Score / 100"
+                                >
+                                  <div
+                                    className={`h-full rounded-full ${risk.score >= 70 ? 'bg-red-500' : risk.score >= 40 ? 'bg-amber-500' : 'bg-emerald-500/80'}`}
+                                    style={{ width: `${Math.min(100, Math.max(0, risk.score))}%` }}
+                                  />
+                                </div>
                               </div>
-                            </div>
-                          ) : (
-                            '—'
-                          )}
-                        </td>
-                        {!effectiveClusterId && (
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                        )}
+                        {!effectiveClusterId && riskFindingsCols.nsCluster && (
                           <td className="px-4 py-3 text-slate-400 hidden lg:table-cell max-w-[160px]" title={`ns: ${risk.affectedResources?.[0]?.namespace ?? '—'} · cl: ${risk.clusterName ?? (risk.clusterId ? clusterLabelById.get(risk.clusterId) ?? risk.clusterId : '—')}`}>
                             <div className="text-xs text-slate-200 truncate">
                               ns: {risk.affectedResources?.[0]?.namespace ?? '—'}
@@ -1519,12 +1622,16 @@ export const RiskCenter: React.FC = () => {
                             {statusLabelMap[risk.status || ''] ?? (risk.status || 'Unknown')}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-slate-500 hidden md:table-cell text-xs">
-                          {risk.timestamp ? new Date(risk.timestamp).toLocaleDateString() : '—'}
-                        </td>
-                        <td className="px-4 py-3 text-slate-500 hidden lg:table-cell text-xs">
-                          {risk.updatedAt ? new Date(risk.updatedAt).toLocaleDateString() : '—'}
-                        </td>
+                        {riskFindingsCols.detected && (
+                          <td className="px-4 py-3 text-slate-500 hidden md:table-cell text-xs">
+                            {risk.timestamp ? new Date(risk.timestamp).toLocaleDateString() : '—'}
+                          </td>
+                        )}
+                        {riskFindingsCols.updated && (
+                          <td className="px-4 py-3 text-slate-500 hidden lg:table-cell text-xs">
+                            {risk.updatedAt ? new Date(risk.updatedAt).toLocaleDateString() : '—'}
+                          </td>
+                        )}
                         <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                           <button
                             onClick={() => setSelectedRisk(risk)}
@@ -2063,6 +2170,7 @@ export const RiskCenter: React.FC = () => {
           )}
         </div>
       )}
+      </div>
 
       {/* Risk Detail Drawer (spec §4): right-side contextual panel, no navigation away */}
       {selectedRisk && (
@@ -2450,8 +2558,13 @@ export const RiskCenter: React.FC = () => {
                         size="sm"
                         variant="secondary"
                         onClick={() => {
+                          const podUid = selectedRisk.affectedResources?.find((r) => r.kind === 'Pod' && r.id)?.id;
+                          const q = new URLSearchParams();
+                          q.set('insightId', selectedRisk.id);
+                          if (podUid) q.set('podUid', podUid);
+                          if (selectedRisk.clusterId) q.set('clusterId', selectedRisk.clusterId);
                           setSelectedRisk(null);
-                          navigate('/attack-paths');
+                          navigate(`/attack-paths?${q.toString()}`);
                         }}
                       >
                         Open attack path view
@@ -2504,48 +2617,84 @@ export const RiskCenter: React.FC = () => {
                 <Button
                   size="sm"
                   variant="secondary"
+                  disabled={drawerActionBusy !== null}
                   onClick={async () => {
+                    if (drawerActionBusy) return;
+                    setDrawerActionBusy('ack');
                     try {
                       await api.bulkInsightsAction({ action: 'acknowledge', insightIds: [selectedRisk.id] });
                       setDrawerNotice('Finding acknowledged.');
                       fetchDataRef.current();
                     } catch (e) {
                       setDrawerNotice(String(e instanceof Error ? e.message : e));
+                    } finally {
+                      setDrawerActionBusy(null);
                     }
                   }}
                 >
-                  Acknowledge
+                  {drawerActionBusy === 'ack' ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Acknowledge
+                    </span>
+                  ) : (
+                    'Acknowledge'
+                  )}
                 </Button>
                 <Button
                   size="sm"
+                  disabled={drawerActionBusy !== null}
                   onClick={async () => {
+                    if (drawerActionBusy) return;
                     if (!window.confirm('Resolve this finding?')) return;
+                    setDrawerActionBusy('resolve');
                     try {
                       await api.bulkInsightsAction({ action: 'resolve', insightIds: [selectedRisk.id] });
                       setDrawerNotice('Finding resolved.');
                       fetchDataRef.current();
                     } catch (e) {
                       setDrawerNotice(String(e instanceof Error ? e.message : e));
+                    } finally {
+                      setDrawerActionBusy(null);
                     }
                   }}
                 >
-                  Resolve
+                  {drawerActionBusy === 'resolve' ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Resolve
+                    </span>
+                  ) : (
+                    'Resolve'
+                  )}
                 </Button>
                 <Button
                   size="sm"
                   variant="secondary"
+                  disabled={drawerActionBusy !== null}
                   onClick={async () => {
+                    if (drawerActionBusy) return;
                     if (!window.confirm('Dismiss this finding?')) return;
+                    setDrawerActionBusy('dismiss');
                     try {
                       await api.bulkInsightsAction({ action: 'dismiss', insightIds: [selectedRisk.id] });
                       setDrawerNotice('Finding dismissed.');
                       fetchDataRef.current();
                     } catch (e) {
                       setDrawerNotice(String(e instanceof Error ? e.message : e));
+                    } finally {
+                      setDrawerActionBusy(null);
                     }
                   }}
                 >
-                  Dismiss
+                  {drawerActionBusy === 'dismiss' ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      Dismiss
+                    </span>
+                  ) : (
+                    'Dismiss'
+                  )}
                 </Button>
               </section>
             </div>
