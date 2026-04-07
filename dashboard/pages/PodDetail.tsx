@@ -978,6 +978,7 @@ export const PodDetail: React.FC = () => {
                         </tbody>
                       </table>
                     </div>
+                    </div>
                     {filtered.length === 0 && (
                       <p className="text-slate-500 text-sm py-4">No packages match the current filters.</p>
                     )}

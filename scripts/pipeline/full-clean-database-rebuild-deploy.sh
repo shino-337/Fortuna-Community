@@ -172,14 +172,25 @@ echo ""
 if [ "$SKIP_DEPLOY" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; }; then
   log_info "Phase 1b: Database clean (deploy skipped — expecting Postgres already Running)..."
   POD=""
+  _pg_wait_i=0
   for _ in $(seq 1 120); do
+    _pg_wait_i=$((_pg_wait_i + 1))
     POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     [ -z "$POD" ] && sleep 5 && continue
     PHASE=$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
     if [ "$PHASE" = "Running" ]; then
       break
     fi
-    log_info "Postgres pod $POD phase=$PHASE (waiting for Running)..."
+    # Log every ~30s to avoid spam; on Pending show scheduler events (e.g. Insufficient cpu + volume node affinity).
+    if [ $((_pg_wait_i % 6)) -ne 0 ]; then
+      sleep 5
+      continue
+    fi
+    log_info "Postgres pod $POD phase=$PHASE (~$((_pg_wait_i * 5))s elapsed, waiting for Running)..."
+    if [ "$PHASE" = "Pending" ]; then
+      log_warn "PVC local-path pins data to one node; pod must schedule there. If events say Insufficient cpu, free CPU on that node or lower postgres requests. Recent events:"
+      kubectl get events -n "$NAMESPACE" --field-selector "involvedObject.name=$POD" 2>/dev/null | tail -8 || true
+    fi
     sleep 5
   done
   if [ -z "$POD" ]; then
@@ -330,14 +341,24 @@ if [ "$SKIP_DEPLOY" = false ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = tru
   kubectl apply -f "$PG_YAML"
   log_info "Waiting for Postgres pod Running (max ~600s; ensure PVC binds via local-path + CNI)..."
   POD=""
+  _pg_wait_i=0
   for _ in $(seq 1 120); do
+    _pg_wait_i=$((_pg_wait_i + 1))
     POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     [ -z "$POD" ] && sleep 5 && continue
     PHASE=$(kubectl get pod -n "$NAMESPACE" "$POD" -o jsonpath='{.status.phase}' 2>/dev/null || echo "")
     if [ "$PHASE" = "Running" ]; then
       break
     fi
-    log_info "Postgres pod $POD phase=$PHASE (waiting for Running)..."
+    if [ $((_pg_wait_i % 6)) -ne 0 ]; then
+      sleep 5
+      continue
+    fi
+    log_info "Postgres pod $POD phase=$PHASE (~$((_pg_wait_i * 5))s elapsed, waiting for Running)..."
+    if [ "$PHASE" = "Pending" ]; then
+      log_warn "PVC local-path pins data to one node; pod must schedule there. If events say Insufficient cpu, free CPU on that node or lower postgres requests. Recent events:"
+      kubectl get events -n "$NAMESPACE" --field-selector "involvedObject.name=$POD" 2>/dev/null | tail -8 || true
+    fi
     sleep 5
   done
   if [ -z "$POD" ]; then

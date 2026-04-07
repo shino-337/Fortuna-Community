@@ -78,6 +78,12 @@ spec:
         app: postgres
     spec:
       # No nodeSelector: schedule where PVC is bound (worker01 has disk now). Optional: pin to master with nodeSelector if PVC is on master.
+      # Allow scheduling when the PVC node has disk-pressure NoSchedule taint (local-path often pins Postgres to one node; kubelet may taint before free space stabilizes).
+      tolerations:
+      - key: node.kubernetes.io/disk-pressure
+        operator: Exists
+        effect: NoSchedule
+
       containers:
       - name: postgres
         # Use custom image with AGE if available, otherwise fallback to standard
@@ -109,7 +115,7 @@ spec:
         resources:
           requests:
             memory: "256Mi"
-            cpu: "250m"
+            cpu: "50m"  # master often ~1950m/2000m allocated; need headroom for local-path PVC on control-plane
           limits:
             memory: "512Mi"
             cpu: "500m"
