@@ -8,7 +8,7 @@ import { Button } from '../components/ui/Button';
 import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2, Info } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
 import { parseThreatIntelEvidence } from '../lib/threatIntel';
-import { formatRiskFindingReference } from '../lib/riskDisplay';
+import { formatRiskFindingReference, insightTypeUiLabel } from '../lib/riskDisplay';
 import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 
@@ -269,11 +269,7 @@ export const RiskDetail: React.FC = () => {
             <span>
               <span className="text-slate-500 uppercase tracking-wider mr-1">Type</span>
               <span className="text-slate-200">
-                {insight.insightType === 'supply_chain_malware'
-                  ? 'Supply-chain malware'
-                  : insight.insightType === 'vulnerability'
-                    ? 'Vulnerability'
-                    : insight.insightType}
+                {insightTypeUiLabel(insight.insightType)}
               </span>
             </span>
           )}

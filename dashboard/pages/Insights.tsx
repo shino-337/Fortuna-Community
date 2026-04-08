@@ -18,7 +18,7 @@ import { RuntimeSignalsTable } from '../components/RuntimeSignalsTable';
 import { RiskHistogram } from '../components/RiskHistogram';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { RiskHistogramResponse } from '../types';
-import { riskListSecondaryLabel } from '../lib/riskDisplay';
+import { insightTypeUiLabel, riskListSecondaryLabel } from '../lib/riskDisplay';
 import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { formatMinutesHuman } from '../lib/formatDuration';
 
@@ -1611,21 +1611,14 @@ export const RiskCenter: React.FC = () => {
                         {riskFindingsCols.type && (
                           <td className="px-4 py-3 text-slate-400 hidden sm:table-cell text-xs leading-snug">
                             {(() => {
-                              const label =
-                                risk.insightType === 'vulnerability'
-                                  ? 'Vulnerability'
-                                  : risk.insightType === 'supply_chain_malware'
-                                    ? 'Supply-chain malware'
-                                    : risk.insightType === 'rbac'
-                                      ? 'Behavior'
-                                      : (risk.insightType ?? 'Finding');
+                              const label = insightTypeUiLabel(risk.insightType);
                               const src =
                                 risk.insightType === 'vulnerability' || risk.insightType === 'supply_chain_malware'
                                   ? 'Static'
                                   : 'Runtime';
                               return (
                                 <>
-                                  <span className="capitalize block text-slate-300">{label}</span>
+                                  <span className="block text-slate-300">{label}</span>
                                   <span className="text-[10px] text-slate-500">({src})</span>
                                 </>
                               );
