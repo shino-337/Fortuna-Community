@@ -384,6 +384,29 @@ export interface PodNetworkConnectionItem {
   runtimeSource?: string;
 }
 
+/** Aggregated per-pod row from GET /runtime/network-activity?view=pods */
+export interface NetworkActivityWorkloadRow {
+  podUid: string;
+  namespace: string;
+  clusterId: string;
+  connectionCount: number;
+  lastObservedAt?: string;
+  podName?: string;
+  ownerKind?: string;
+  ownerName?: string;
+  nodeName?: string;
+}
+
+/** Flat connection row from GET /runtime/network-activity (join pods for names) */
+export interface NetworkActivityConnectionRow extends PodNetworkConnectionItem {
+  clusterId?: string;
+  namespace?: string;
+  podName?: string;
+  ownerKind?: string;
+  ownerName?: string;
+  nodeName?: string;
+}
+
 export interface PodK8sEventItem {
   id?: number;
   eventUid?: string;

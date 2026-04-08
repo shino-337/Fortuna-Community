@@ -5,6 +5,7 @@ import { Login } from './pages/Login';
 import { Dashboard } from './pages/Dashboard';
 import { RiskCenter } from './pages/Insights';
 import { Resources } from './pages/Resources';
+import { NetworkActivity } from './pages/NetworkActivity';
 import { AttackPaths } from './pages/AttackPaths';
 import { Monitoring } from './pages/Metrics';
 import { Rules } from './pages/Rules';
@@ -60,6 +61,7 @@ const App: React.FC = () => {
           <Route path="clusters/:id" element={<ClusterDetail />} />
           <Route path="clusters/:clusterId/nodes/:nodeName" element={<NodeDetail />} />
           <Route path="resources" element={<Resources />} />
+          <Route path="network-activity" element={<NetworkActivity />} />
           <Route path="resources/pods/uid/:uid" element={<PodDetail />} />
           <Route path="resources/pods/:id" element={<PodDetail />} />
           <Route path="risks" element={<RiskCenter />} />

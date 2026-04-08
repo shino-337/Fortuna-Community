@@ -26,6 +26,13 @@
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy    # clean + rebuild only
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-db-reset  # DB full reset only (no clean/rebuild/deploy)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core     # chỉ build + apply + rollout Core (bỏ qua clean mặc định)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-agent    # chỉ Agent (DaemonSet)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-dashboard # chỉ Dashboard (build-dashboard script + Deployment)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core --with-clean   # như trên + Phase 1 clean đầy đủ
+#   COMPONENT_ONLY=core ./scripts/pipeline/full-clean-database-rebuild-deploy.sh      # tương đương --only-core
+#   Chế độ only-*: bỏ Phase 2a/2a2/2c/2d/3a và deploy-fortuna-robust; không chạy --db/--db-reset (cảnh báo nếu có).
+#   PUSH_IMAGES_AFTER_REBUILD mặc định false khi only-* (multi-node: bật =1 hoặc chạy push-images-to-workers.sh thủ công).
 #   RUN_ASYNC=1 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh  # run in background
 # ============================================================================
 
@@ -55,6 +62,10 @@ CLEAN_DB=false
 DB_RESET=false
 SHOW_MENU=false
 PUSH_DASHBOARD=false
+DEPLOY_MINIMAL=false
+COMPONENT_ONLY="${COMPONENT_ONLY:-}"
+WITH_CLEAN_FLAG=false
+FULL_PIPELINE=false
 
 for arg in "$@"; do
   case "$arg" in
@@ -64,9 +75,13 @@ for arg in "$@"; do
     --push-dashboard) PUSH_DASHBOARD=true ;;
     --db)            CLEAN_DB=true ;;
     --db-reset)       DB_RESET=true ;;
-    --only-db-reset)  SKIP_CLEAN=true; SKIP_REBUILD=true; SKIP_DEPLOY=true; DB_RESET=true ;;
+    --only-db-reset)  SKIP_CLEAN=true; SKIP_REBUILD=true; SKIP_DEPLOY=true; DB_RESET=true; COMPONENT_ONLY=""; DEPLOY_MINIMAL=false ;;
     --menu|-i)        SHOW_MENU=true ;;
-    --full)           ;;  # no-extra flags = full pipeline
+    --full)           FULL_PIPELINE=true; COMPONENT_ONLY=""; DEPLOY_MINIMAL=false; SKIP_CLEAN=false ;;
+    --only-core)      COMPONENT_ONLY=core; DEPLOY_MINIMAL=true; SKIP_CLEAN=true ;;
+    --only-agent)     COMPONENT_ONLY=agent; DEPLOY_MINIMAL=true; SKIP_CLEAN=true ;;
+    --only-dashboard) COMPONENT_ONLY=dashboard; DEPLOY_MINIMAL=true; SKIP_CLEAN=true ;;
+    --with-clean)     WITH_CLEAN_FLAG=true; SKIP_CLEAN=false ;;
   esac
 done
 
@@ -78,6 +93,10 @@ if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
   SKIP_DEPLOY=false
   CLEAN_DB=false
   DB_RESET=false
+  DEPLOY_MINIMAL=false
+  COMPONENT_ONLY=""
+  WITH_CLEAN_FLAG=false
+  FULL_PIPELINE=false
   RED='\033[0;31m'
   GREEN='\033[0;32m'
   YELLOW='\033[1;33m'
@@ -96,9 +115,12 @@ if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
   echo "  5) Clean + Rebuild only   Skip deploy"
   echo "  6) Run in background      Same as 1, log to /tmp/clean-rebuild-deploy.log"
   echo "  7) Only reset DB          DB full reset only (DROP tables; no clean/rebuild/deploy)"
+  echo "  8) Chỉ Core               Build + apply + rollout Core (minimal deploy)"
+  echo "  9) Chỉ Agent              Build + apply + rollout Agent DaemonSet"
+  echo " 10) Chỉ Dashboard          Build dashboard + apply + rollout Dashboard"
   echo "  0) Cancel"
   echo ""
-  printf "  Select [1-7, 0]: "
+  printf "  Select [1-10, 0]: "
   read -r choice
   choice="${choice:-0}"
   case "$choice" in
@@ -112,6 +134,9 @@ if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
         exit 0
         ;;
     7)  SKIP_CLEAN=true; SKIP_REBUILD=true; SKIP_DEPLOY=true; DB_RESET=true ;;
+    8)  COMPONENT_ONLY=core; DEPLOY_MINIMAL=true; SKIP_CLEAN=true ;;
+    9)  COMPONENT_ONLY=agent; DEPLOY_MINIMAL=true; SKIP_CLEAN=true ;;
+    10) COMPONENT_ONLY=dashboard; DEPLOY_MINIMAL=true; SKIP_CLEAN=true ;;
     0|q|Q)
         echo "Cancelled."
         exit 0
@@ -120,6 +145,22 @@ if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
         echo "Invalid choice. Exiting."
         exit 1
         ;;
+  esac
+fi
+
+# ---- Component-only: COMPONENT_ONLY từ env hoặc menu 8–10 (CLI --only-* đã set sẵn) ----
+if [ -n "${COMPONENT_ONLY:-}" ]; then
+  case "$COMPONENT_ONLY" in
+    core|agent|dashboard)
+      DEPLOY_MINIMAL=true
+      if [ "$WITH_CLEAN_FLAG" = false ]; then
+        SKIP_CLEAN=true
+      fi
+      ;;
+    *)
+      echo "[ERR] Invalid COMPONENT_ONLY=$COMPONENT_ONLY (use core, agent, or dashboard)" >&2
+      exit 1
+      ;;
   esac
 fi
 
@@ -138,7 +179,16 @@ echo "Full Clean (images + optional DB) → Rebuild → Deploy"
 echo "=========================================="
 echo "  Skip clean: $SKIP_CLEAN | Skip rebuild: $SKIP_REBUILD | Skip deploy: $SKIP_DEPLOY"
 echo "  Clean DB (delete data): $CLEAN_DB | DB full reset (drop tables): $DB_RESET"
+if [ "$DEPLOY_MINIMAL" = true ]; then
+  echo "  Component-only: $COMPONENT_ONLY (minimal deploy; infra/DB phases skipped)"
+fi
 echo ""
+
+if [ "$DEPLOY_MINIMAL" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; }; then
+  log_warn "Ignoring --db / --db-reset in component-only mode ($COMPONENT_ONLY). Use full pipeline for DB changes."
+  CLEAN_DB=false
+  DB_RESET=false
+fi
 
 # ---- Phase 1: Clean ----
 if [ "$SKIP_CLEAN" = false ]; then
@@ -239,21 +289,43 @@ fi
 
 # ---- Phase 2: Rebuild (nerdctl → containerd) ----
 if [ "$SKIP_REBUILD" = false ]; then
-  log_info "Phase 2: Rebuild (core, agent, dashboard) with nerdctl..."
   cd "$PROJECT_ROOT"
-  # After full clean (images + builder prune), force no cache so all layers rebuild from current source
   export NO_CACHE="${NO_CACHE:-false}"
   if [ "$SKIP_CLEAN" = false ]; then
     NO_CACHE=true
     log_info "NO_CACHE=true (clean was run; ensure fresh build)"
   fi
-  if [ -x "$SCRIPTS/build/build-and-load-containerd.sh" ]; then
-    SKIP_DASHBOARD="${SKIP_DASHBOARD:-false}" NO_CACHE="$NO_CACHE" "$SCRIPTS/build/build-and-load-containerd.sh" || {
-      log_warn "Build script had errors (e.g. agent build may fail). Continuing deploy with existing images."
-    }
+  if [ "$COMPONENT_ONLY" = "dashboard" ]; then
+    log_info "Phase 2: Rebuild dashboard only (build-dashboard-containerd.sh)..."
+    if [ -x "$SCRIPTS/build/build-dashboard-containerd.sh" ]; then
+      CONTAINERD_NAMESPACE="$CONTAINERD_NS" "$SCRIPTS/build/build-dashboard-containerd.sh" || {
+        log_error "Dashboard build failed"
+        exit 1
+      }
+    else
+      log_error "build-dashboard-containerd.sh not found or not executable"
+      exit 1
+    fi
   else
-    log_error "build-and-load-containerd.sh not found or not executable"
-    exit 1
+    if [ "$COMPONENT_ONLY" = "core" ]; then
+      log_info "Phase 2: Rebuild Core only..."
+      export BUILD_CORE_ONLY=true BUILD_AGENT_ONLY=false SKIP_DASHBOARD=true
+    elif [ "$COMPONENT_ONLY" = "agent" ]; then
+      log_info "Phase 2: Rebuild Agent only..."
+      export BUILD_CORE_ONLY=false BUILD_AGENT_ONLY=true SKIP_DASHBOARD=true
+    else
+      log_info "Phase 2: Rebuild (core, agent, dashboard) with nerdctl..."
+      unset BUILD_CORE_ONLY BUILD_AGENT_ONLY 2>/dev/null || true
+    fi
+    if [ -x "$SCRIPTS/build/build-and-load-containerd.sh" ]; then
+      SKIP_DASHBOARD="${SKIP_DASHBOARD:-false}" NO_CACHE="$NO_CACHE" BUILD_CORE_ONLY="${BUILD_CORE_ONLY:-false}" BUILD_AGENT_ONLY="${BUILD_AGENT_ONLY:-false}" \
+        "$SCRIPTS/build/build-and-load-containerd.sh" || {
+        log_warn "Build script had errors (e.g. agent build may fail). Continuing deploy with existing images."
+      }
+    else
+      log_error "build-and-load-containerd.sh not found or not executable"
+      exit 1
+    fi
   fi
   log_success "Rebuild phase done"
 else
@@ -262,7 +334,11 @@ fi
 echo ""
 
 # ---- Phase 2b: Push images to all nodes (including master) so Core/Agent find image with imagePullPolicy: Never ----
-PUSH_IMAGES_AFTER_REBUILD="${PUSH_IMAGES_AFTER_REBUILD:-true}"
+if [ "$DEPLOY_MINIMAL" = true ]; then
+  PUSH_IMAGES_AFTER_REBUILD="${PUSH_IMAGES_AFTER_REBUILD:-false}"
+else
+  PUSH_IMAGES_AFTER_REBUILD="${PUSH_IMAGES_AFTER_REBUILD:-true}"
+fi
 if [ "$SKIP_DEPLOY" = false ] && [ "$SKIP_REBUILD" = false ] && [ "$PUSH_IMAGES_AFTER_REBUILD" = true ]; then
   if [ -x "$SCRIPTS/utils/push-images-to-workers.sh" ]; then
     log_info "Phase 2b: Push images to all nodes (master + workers) so Core pod can start..."
@@ -278,7 +354,7 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$SKIP_REBUILD" = false ] && [ "$PUSH_IMAGES_
 fi
 
 # ---- Phase 2a: Ensure cluster addons (kube-proxy, CoreDNS) so ClusterIP/CNI work ----
-if [ "$SKIP_DEPLOY" = false ]; then
+if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ]; then
   log_info "Phase 2a: Ensure cluster addons (kube-proxy, CoreDNS)..."
   if [ -x "$SCRIPTS/deploy/ensure-cluster-addons.sh" ]; then
     if "$SCRIPTS/deploy/ensure-cluster-addons.sh" 2>/dev/null; then
@@ -295,7 +371,7 @@ if [ "$SKIP_DEPLOY" = false ]; then
 fi
 
 # ---- Phase 2a2: Ensure Flannel CNI so pod network works (avoids subnet.env / local-path-provisioner stuck) ----
-if [ "$SKIP_DEPLOY" = false ]; then
+if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ]; then
   log_info "Phase 2a2: Ensure Flannel CNI (install if missing)..."
   if [ -x "$SCRIPTS/deploy/ensure-flannel.sh" ]; then
     if "$SCRIPTS/deploy/ensure-flannel.sh" 2>/dev/null; then
@@ -312,7 +388,7 @@ if [ "$SKIP_DEPLOY" = false ]; then
 fi
 
 # ---- Phase 2c: Ensure StorageClass (local-path) for PVCs ----
-if [ "$SKIP_DEPLOY" = false ]; then
+if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ]; then
   log_info "Phase 2c: Ensure StorageClass (local-path) for PostgreSQL/NATS PVCs..."
   if [ -x "$SCRIPTS/deploy/ensure-storage-class.sh" ]; then
     if "$SCRIPTS/deploy/ensure-storage-class.sh" 2>/dev/null; then
@@ -330,7 +406,7 @@ fi
 
 # ---- Phase 2d: Apply Postgres + DB clean when full deploy runs (after Flannel + StorageClass so PVC can bind) ----
 # --db / --db-reset used to run in Phase 1b before Postgres was applied → pod stayed Pending. Now: apply PG, wait, then SQL, then Phase 3 deploys the rest.
-if [ "$SKIP_DEPLOY" = false ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; }; then
+if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true ]; }; then
   log_info "Phase 2d: Ensuring PostgreSQL for DB clean (apply manifest + wait for Running)..."
   kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
   PG_YAML="$PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml"
@@ -409,7 +485,7 @@ fi
 
 
 # ---- Phase 3a: CNI (Flannel) check/fix for multi-node – short wait so script does not hang ----
-if [ "$SKIP_DEPLOY" = false ]; then
+if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ]; then
   NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l || echo "0")
   if [ "${NODE_COUNT:-0}" -gt 1 ] && [ -x "$SCRIPTS/deploy/fix-flannel-vxlan.sh" ]; then
     log_info "Phase 3a: CNI (Flannel) check/fix (multi-node, short wait)..."
@@ -421,43 +497,89 @@ fi
 
 # ---- Phase 3: Deploy ----
 if [ "$SKIP_DEPLOY" = false ]; then
-  log_info "Phase 3: Deploy (infra, RBAC, core, agent, dashboard)..."
-  if [ -x "$SCRIPTS/deploy/deploy-fortuna-robust.sh" ]; then
-    "$SCRIPTS/deploy/deploy-fortuna-robust.sh"
+  if [ "$DEPLOY_MINIMAL" = true ]; then
+    log_info "Phase 3: Deploy (component-only: $COMPONENT_ONLY)..."
+    kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f - 2>/dev/null || true
+    case "$COMPONENT_ONLY" in
+      core)
+        [ -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" || true
+        [ -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" || true
+        log_info "Phase 3b: Rollout restart Core..."
+        kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
+        log_info "Waiting for Core rollout (max 120s)..."
+        kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Core rollout status check failed or timed out"
+        log_info "Phase 3c: Verify rollout (core)..."
+        CORE_OK=false
+        kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=5s 2>/dev/null && CORE_OK=true || true
+        if [ "$CORE_OK" = true ]; then log_success "  Core: rolled out"; else log_warn "  Core: not rolled out or still updating"; fi
+        ;;
+      agent)
+        [ -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" || true
+        [ -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" || true
+        log_info "Phase 3b: Rollout restart Agent DaemonSet..."
+        kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
+        log_info "Waiting for Agent DaemonSet rollout (max 120s)..."
+        kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Agent DaemonSet rollout status check failed or timed out"
+        log_info "Phase 3c: Verify rollout (agent)..."
+        AGENT_OK=false
+        kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=5s 2>/dev/null && AGENT_OK=true || true
+        if [ "$AGENT_OK" = true ]; then log_success "  Agent: rolled out"; else log_warn "  Agent: not rolled out or still updating"; fi
+        log_info "Sleep 10s for Agent sync to run..."
+        sleep 10
+        ;;
+      dashboard)
+        [ -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" || true
+        [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" || true
+        log_info "Phase 3b: Rollout restart Dashboard..."
+        kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" 2>/dev/null || true
+        log_info "Waiting for Dashboard rollout (max 90s)..."
+        kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || log_warn "Dashboard rollout status check failed or timed out"
+        log_info "Phase 3c: Verify rollout (dashboard)..."
+        DASH_OK=false
+        kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=5s 2>/dev/null && DASH_OK=true || true
+        if [ "$DASH_OK" = true ]; then log_success "  Dashboard: rolled out"; else log_warn "  Dashboard: not rolled out or still updating"; fi
+        ;;
+    esac
+    log_success "Deploy complete (component-only)"
   else
-    kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
-    [ -f "$PROJECT_ROOT/deploy/infrastructure/postgresql.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/infrastructure/postgresql.yaml" || true
-    [ -f "$PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml" || true
-    [ -f "$PROJECT_ROOT/deploy/infrastructure/nats.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/infrastructure/nats.yaml" || true
-    [ -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" || true
-    [ -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" || true
-    [ -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" || true
+    log_info "Phase 3: Deploy (infra, RBAC, core, agent, dashboard)..."
+    if [ -x "$SCRIPTS/deploy/deploy-fortuna-robust.sh" ]; then
+      "$SCRIPTS/deploy/deploy-fortuna-robust.sh"
+    else
+      kubectl create namespace "$NAMESPACE" --dry-run=client -o yaml | kubectl apply -f -
+      [ -f "$PROJECT_ROOT/deploy/infrastructure/postgresql.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/infrastructure/postgresql.yaml" || true
+      [ -f "$PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml" || true
+      [ -f "$PROJECT_ROOT/deploy/infrastructure/nats.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/infrastructure/nats.yaml" || true
+      [ -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-rbac.yaml" || true
+      [ -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" || true
+      [ -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" || true
+    fi
+    [ -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" || true
+    [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" || true
+    # Rollout restart is done inside deploy-fortuna-robust.sh (Step 10); here as safety net if deploy was partial
+    log_info "Phase 3b: Rollout restart (Core, Dashboard, Agent) to use new images..."
+    kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
+    kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" 2>/dev/null || true
+    kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
+    log_info "Waiting for Core rollout (max 120s)..."
+    kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Core rollout status check failed or timed out"
+    log_info "Waiting for Dashboard rollout (max 90s)..."
+    kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || log_warn "Dashboard rollout status check failed or timed out"
+    log_info "Waiting for Agent DaemonSet rollout (max 120s)..."
+    kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Agent DaemonSet rollout status check failed or timed out"
+    log_info "Phase 3c: Verify rollout (core, dashboard, agent)..."
+    CORE_OK=false; DASH_OK=false; AGENT_OK=false
+    # Short timeout: if already complete, returns 0 immediately; else wait up to 5s
+    kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=5s 2>/dev/null && CORE_OK=true || true
+    kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=5s 2>/dev/null && DASH_OK=true || true
+    kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=5s 2>/dev/null && AGENT_OK=true || true
+    if [ "$CORE_OK" = true ]; then log_success "  Core: rolled out"; else log_warn "  Core: not rolled out or still updating"; fi
+    if [ "$DASH_OK" = true ]; then log_success "  Dashboard: rolled out"; else log_warn "  Dashboard: not rolled out or still updating"; fi
+    if [ "$AGENT_OK" = true ]; then log_success "  Agent: rolled out"; else log_warn "  Agent: not rolled out or still updating"; fi
+    log_info "Sleep 10s for Agent sync to run..."
+    sleep 10
+    log_success "Deploy complete"
   fi
-  [ -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-nginx-configmap.yaml" || true
-  [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ] && kubectl apply -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" || true
-  # Rollout restart is done inside deploy-fortuna-robust.sh (Step 10); here as safety net if deploy was partial
-  log_info "Phase 3b: Rollout restart (Core, Dashboard, Agent) to use new images..."
-  kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
-  kubectl rollout restart deployment/fortuna-dashboard -n "$NAMESPACE" 2>/dev/null || true
-  kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
-  log_info "Waiting for Core rollout (max 120s)..."
-  kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Core rollout status check failed or timed out"
-  log_info "Waiting for Dashboard rollout (max 90s)..."
-  kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=90s 2>/dev/null || log_warn "Dashboard rollout status check failed or timed out"
-  log_info "Waiting for Agent DaemonSet rollout (max 120s)..."
-  kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=120s 2>/dev/null || log_warn "Agent DaemonSet rollout status check failed or timed out"
-  log_info "Phase 3c: Verify rollout (core, dashboard, agent)..."
-  CORE_OK=false; DASH_OK=false; AGENT_OK=false
-  # Short timeout: if already complete, returns 0 immediately; else wait up to 5s
-  kubectl rollout status deployment/fortuna-core -n "$NAMESPACE" --timeout=5s 2>/dev/null && CORE_OK=true || true
-  kubectl rollout status deployment/fortuna-dashboard -n "$NAMESPACE" --timeout=5s 2>/dev/null && DASH_OK=true || true
-  kubectl rollout status daemonset/fortuna-agent -n "$NAMESPACE" --timeout=5s 2>/dev/null && AGENT_OK=true || true
-  if [ "$CORE_OK" = true ]; then log_success "  Core: rolled out"; else log_warn "  Core: not rolled out or still updating"; fi
-  if [ "$DASH_OK" = true ]; then log_success "  Dashboard: rolled out"; else log_warn "  Dashboard: not rolled out or still updating"; fi
-  if [ "$AGENT_OK" = true ]; then log_success "  Agent: rolled out"; else log_warn "  Agent: not rolled out or still updating"; fi
-  log_info "Sleep 10s for Agent sync to run..."
-  sleep 10
-  log_success "Deploy complete"
 else
   log_info "Phase 3: Deploy (skipped)"
 fi

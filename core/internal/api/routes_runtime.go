@@ -10,6 +10,9 @@ import (
 func registerRuntimeRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	rt := api.Group("/runtime")
 
+	// Cluster-wide network activity (aggregates pod_network_connections from Pod Detail ingest).
+	rt.GET("/network-activity", GetNetworkActivity(db))
+
 	pods := rt.Group("/pods")
 	pods.GET("/:uid/processes", GetPodProcessesByUID(db))
 	pods.GET("/:uid/network", GetPodNetworkConnectionsByUID(db))

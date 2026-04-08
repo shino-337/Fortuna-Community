@@ -19,7 +19,8 @@ import {
   ScrollText,
   Search,
   Globe,
-  ChevronDown
+  ChevronDown,
+  Share2
 } from 'lucide-react';
 import { Cluster } from '../types';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
@@ -59,6 +60,7 @@ export const Layout: React.FC = () => {
         { icon: <LayoutDashboard size={18} />, label: 'Dashboard', path: '/' },
         { icon: <Globe size={18} />, label: 'Clusters', path: '/clusters' },
         { icon: <Layers size={18} />, label: 'Resources', path: '/resources' },
+        { icon: <Share2 size={18} />, label: 'Network activity', path: '/network-activity' },
       ],
     },
     {

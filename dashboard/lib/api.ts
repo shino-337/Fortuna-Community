@@ -41,6 +41,8 @@ import {
   PodRuntimeMetric,
   PodProcessItem,
   PodNetworkConnectionItem,
+  NetworkActivityWorkloadRow,
+  NetworkActivityConnectionRow,
   PodK8sEventItem,
   PodRuntimeSecurityEvent,
   PodRuntimeBehaviorFact,
@@ -737,6 +739,39 @@ export const api = {
     } catch {
       return [];
     }
+  },
+
+  /**
+   * Cluster-wide network activity from pod_network_connections (same source as Pod Detail).
+   * @param view pods = one row per workload; connections = flat connection list
+   */
+  getNetworkActivity: async (params: {
+    cluster: string;
+    view?: 'pods' | 'connections';
+    namespace?: string;
+    q?: string;
+    sinceMinutes?: number;
+    page?: number;
+    pageSize?: number;
+  }): Promise<{
+    view: string;
+    clusterId: string;
+    total: number;
+    page: number;
+    pageSize: number;
+    items: NetworkActivityWorkloadRow[] | NetworkActivityConnectionRow[];
+  }> => {
+    const q = new URLSearchParams();
+    q.set('cluster', params.cluster);
+    q.set('view', params.view ?? 'connections');
+    if (params.namespace) q.set('namespace', params.namespace);
+    if (params.q) q.set('q', params.q);
+    if (params.sinceMinutes != null && params.sinceMinutes > 0) {
+      q.set('sinceMinutes', String(params.sinceMinutes));
+    }
+    if (params.page != null) q.set('page', String(params.page));
+    if (params.pageSize != null) q.set('pageSize', String(params.pageSize));
+    return request(`/runtime/network-activity?${q.toString()}`);
   },
   getPodEvents: async (podUid: string): Promise<PodK8sEventItem[]> => {
     try {
