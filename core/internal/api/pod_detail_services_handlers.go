@@ -420,22 +420,38 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 		}
 		now := time.Now().UTC()
 		bucket := networkbucket.FloorBucket5MUTC(now)
+		// Build fresh rows so bucket_5m and timestamps are always set on the struct GORM inserts.
+		// Mutating JSON-bound models caused intermittent NULL bucket_5m (NOT NULL violation) with
+		// CreateInBatches + OnConflict + PrepareStmt on PostgreSQL.
+		normalized := make([]models.PodNetworkConnection, len(req.Connections))
 		for i := range req.Connections {
-			normalizePodNetworkForUpsert(&req.Connections[i])
-			req.Connections[i].PodUID = req.PodUID
-			req.Connections[i].ClusterID = req.ClusterID
-			req.Connections[i].Namespace = req.Namespace
-			req.Connections[i].ObservedAt = now
-			req.Connections[i].CreatedAt = now
-			req.Connections[i].RuntimeSource = runtimeSource
-			req.Connections[i].Bucket5m = bucket
+			c := req.Connections[i]
+			normalizePodNetworkForUpsert(&c)
+			normalized[i] = models.PodNetworkConnection{
+				PodUID:        req.PodUID,
+				ClusterID:     req.ClusterID,
+				Namespace:     req.Namespace,
+				ContainerName: c.ContainerName,
+				SourceIP:      c.SourceIP,
+				SourcePort:    c.SourcePort,
+				DestIP:        c.DestIP,
+				DestPort:      c.DestPort,
+				Protocol:      c.Protocol,
+				State:         c.State,
+				BytesSent:     c.BytesSent,
+				BytesRecv:     c.BytesRecv,
+				ObservedAt:    now,
+				CreatedAt:     now,
+				RuntimeSource: runtimeSource,
+				Bucket5m:      bucket,
+			}
 		}
-		newNetworkEvents, err := buildNetworkQueueSpikeEvents(db, req.PodUID, req.Namespace, now, req.Connections)
+		newNetworkEvents, err := buildNetworkQueueSpikeEvents(db, req.PodUID, req.Namespace, now, normalized)
 		if err != nil {
 			log.Printf("[PodDetail] R5 network anomaly detection skipped for pod %s: %v", req.PodUID, err)
 			newNetworkEvents = nil
 		}
-		if len(req.Connections) > 0 {
+		if len(normalized) > 0 {
 			upsert := clause.OnConflict{
 				Columns: []clause.Column{
 					{Name: "cluster_id"},
@@ -457,11 +473,11 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 					"runtime_source": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.runtime_source ELSE pod_network_connections.runtime_source END"),
 				}),
 			}
-			// Use PrepareStmt to reuse INSERT plan; smaller batch (50) to reduce per-statement time and stay under PG param limit.
-			session := db.Session(&gorm.Session{PrepareStmt: true})
+			// PrepareStmt + batched upsert has caused NULL bucket_5m on PostgreSQL; keep batches, disable prepare.
+			session := db.Session(&gorm.Session{PrepareStmt: false})
 			if err := dbIngestWithRetry(session, func(tx *gorm.DB) error {
 				return tx.Transaction(func(tx2 *gorm.DB) error {
-					if err := tx2.Clauses(upsert).CreateInBatches(req.Connections, 50).Error; err != nil {
+					if err := tx2.Clauses(upsert).CreateInBatches(normalized, 50).Error; err != nil {
 						return err
 					}
 					if len(newNetworkEvents) > 0 {
@@ -477,7 +493,7 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 			}
 			BroadcastPodDetailUpdate(req.PodUID, "network")
 		}
-		c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(req.Connections)})
+		c.JSON(http.StatusOK, gin.H{"ok": true, "count": len(normalized)})
 	}
 }
 
