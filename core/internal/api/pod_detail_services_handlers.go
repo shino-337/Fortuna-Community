@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/networkbucket"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -134,8 +135,28 @@ func GetPodNetworkConnectionsByUID(db *gorm.DB) gin.HandlerFunc {
 }
 
 func getPodNetworkConnectionsByUID(c *gin.Context, db *gorm.DB, podUID string) {
+	sinceMinutes := 1440
+	if v := strings.TrimSpace(c.Query("sinceMinutes")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			sinceMinutes = n
+		}
+	}
+	limit := 500
+	if v := strings.TrimSpace(c.Query("limit")); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+			if limit > 2000 {
+				limit = 2000
+			}
+		}
+	}
+	sinceWall := time.Now().UTC().Add(-time.Duration(sinceMinutes) * time.Minute)
+	sinceBucket := networkbucket.FloorBucket5MUTC(sinceWall)
 	var list []models.PodNetworkConnection
-	if err := db.Where("pod_uid = ?", podUID).Order("observed_at DESC").Limit(500).Find(&list).Error; err != nil {
+	q := db.Where("pod_uid = ? AND bucket_5m >= ?", podUID, sinceBucket).
+		Order("bucket_5m DESC, observed_at DESC").
+		Limit(limit)
+	if err := q.Find(&list).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -360,6 +381,18 @@ func processDiffKey(container string, pid int) string {
 	return container + "|" + strconv.Itoa(pid)
 }
 
+func normalizePodNetworkForUpsert(p *models.PodNetworkConnection) {
+	// Match unique index / migration 115 (use empty string, not NULL)
+	p.SourceIP = strings.TrimSpace(p.SourceIP)
+	p.DestIP = strings.TrimSpace(p.DestIP)
+	if strings.TrimSpace(p.Protocol) == "" {
+		p.Protocol = "tcp"
+	} else {
+		p.Protocol = strings.TrimSpace(p.Protocol)
+	}
+	p.State = strings.TrimSpace(p.State)
+}
+
 // IngestPodNetworkConnectionsPayload accepts POST from agent.
 func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -385,14 +418,17 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 		if runtimeSource != "host" && runtimeSource != "exec" {
 			runtimeSource = "exec"
 		}
-		now := time.Now()
+		now := time.Now().UTC()
+		bucket := networkbucket.FloorBucket5MUTC(now)
 		for i := range req.Connections {
+			normalizePodNetworkForUpsert(&req.Connections[i])
 			req.Connections[i].PodUID = req.PodUID
 			req.Connections[i].ClusterID = req.ClusterID
 			req.Connections[i].Namespace = req.Namespace
 			req.Connections[i].ObservedAt = now
 			req.Connections[i].CreatedAt = now
 			req.Connections[i].RuntimeSource = runtimeSource
+			req.Connections[i].Bucket5m = bucket
 		}
 		newNetworkEvents, err := buildNetworkQueueSpikeEvents(db, req.PodUID, req.Namespace, now, req.Connections)
 		if err != nil {
@@ -400,11 +436,32 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 			newNetworkEvents = nil
 		}
 		if len(req.Connections) > 0 {
+			upsert := clause.OnConflict{
+				Columns: []clause.Column{
+					{Name: "cluster_id"},
+					{Name: "pod_uid"},
+					{Name: "namespace"},
+					{Name: "container_name"},
+					{Name: "source_ip"},
+					{Name: "source_port"},
+					{Name: "dest_ip"},
+					{Name: "dest_port"},
+					{Name: "protocol"},
+					{Name: "state"},
+					{Name: "bucket_5m"},
+				},
+				DoUpdates: clause.Assignments(map[string]interface{}{
+					"observed_at": gorm.Expr("GREATEST(pod_network_connections.observed_at, EXCLUDED.observed_at)"),
+					"bytes_sent": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.bytes_sent ELSE pod_network_connections.bytes_sent END"),
+					"bytes_recv": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.bytes_recv ELSE pod_network_connections.bytes_recv END"),
+					"runtime_source": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.runtime_source ELSE pod_network_connections.runtime_source END"),
+				}),
+			}
 			// Use PrepareStmt to reuse INSERT plan; smaller batch (50) to reduce per-statement time and stay under PG param limit.
 			session := db.Session(&gorm.Session{PrepareStmt: true})
 			if err := dbIngestWithRetry(session, func(tx *gorm.DB) error {
 				return tx.Transaction(func(tx2 *gorm.DB) error {
-					if err := tx2.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(req.Connections, 50).Error; err != nil {
+					if err := tx2.Clauses(upsert).CreateInBatches(req.Connections, 50).Error; err != nil {
 						return err
 					}
 					if len(newNetworkEvents) > 0 {

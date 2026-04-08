@@ -121,6 +121,7 @@ var (
 	_ = Migration111_HardenSBOMRunAndEnums
 	_ = Migration112_ExpandAdvisoryIDColumnsV2
 	_ = Migration114_AddOSVRangeTypeIndex
+	_ = Migration115_AddPodNetworkBucket5m
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -255,6 +256,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration112_ExpandAdvisoryIDColumnsV2,                  // CVE schema: widen advisory ID columns for GHSA/OSV/vendor IDs
 		Migration113_AddMalwareTables,                           // Supply-chain threat detection: malware_packages + malware_matches
 		Migration114_AddOSVRangeTypeIndex,                       // OSV mirror: index range_type for bulk join filtering
+		Migration115_AddPodNetworkBucket5m,                    // Pod network: 5m bucket + upsert signature + indexes
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

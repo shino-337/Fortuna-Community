@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/networkbucket"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -29,6 +30,7 @@ func TestBuildNetworkQueueSpikeEvents_EmitsSpikeEvent(t *testing.T) {
 
 	// Baseline around ~500 bytes queue for same destination, enough samples.
 	for i := 0; i < 6; i++ {
+		obs := now.Add(-10 * time.Minute)
 		row := models.PodNetworkConnection{
 			PodUID:        podUID,
 			ClusterID:     "c1",
@@ -39,8 +41,9 @@ func TestBuildNetworkQueueSpikeEvents_EmitsSpikeEvent(t *testing.T) {
 			Protocol:      "tcp",
 			BytesSent:     300,
 			BytesRecv:     200,
-			ObservedAt:    now.Add(-10 * time.Minute),
-			CreatedAt:     now.Add(-10 * time.Minute),
+			ObservedAt:    obs,
+			CreatedAt:     obs,
+			Bucket5m:      networkbucket.FloorBucket5MUTC(obs),
 		}
 		if err := db.Create(&row).Error; err != nil {
 			t.Fatalf("seed baseline: %v", err)
@@ -97,6 +100,7 @@ func TestBuildNetworkQueueSpikeEvents_CooldownSuppressesRepeatedSpike(t *testing
 	ns := "fortuna"
 	now := time.Now().UTC()
 	for i := 0; i < 6; i++ {
+		obs := now.Add(-8 * time.Minute)
 		row := models.PodNetworkConnection{
 			PodUID:        podUID,
 			ClusterID:     "c1",
@@ -107,8 +111,9 @@ func TestBuildNetworkQueueSpikeEvents_CooldownSuppressesRepeatedSpike(t *testing
 			Protocol:      "tcp",
 			BytesSent:     300,
 			BytesRecv:     200,
-			ObservedAt:    now.Add(-8 * time.Minute),
-			CreatedAt:     now.Add(-8 * time.Minute),
+			ObservedAt:    obs,
+			CreatedAt:     obs,
+			Bucket5m:      networkbucket.FloorBucket5MUTC(obs),
 		}
 		if err := db.Create(&row).Error; err != nil {
 			t.Fatalf("seed baseline: %v", err)

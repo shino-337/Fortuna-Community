@@ -68,7 +68,14 @@ Biến môi trường trung tâm: `POD_DETAIL_RUNTIME_SOURCE` (xem `useHostRunti
 ### 4.2 Đọc (Dashboard / client)
 
 - **Path**: `GET /runtime/pods/:uid/network`
-- **Response**: `{ podUid, items: PodNetworkConnection[] }` (tối đa 500 rows).
+- **Query**: `sinceMinutes` (mặc định **1440** = 24h), `limit` (mặc định 500, tối đa 2000). Lọc theo **`bucket_5m`** (bucket 5 phút UTC) ≥ `floor5m(now − since)`.
+- **Response**: `{ podUid, items: PodNetworkConnection[] }`; mỗi item có thể có `bucket5m`.
+- **Ingest**: cùng một signature trong một bucket 5 phút → **UPSERT** (cập nhật `observed_at`/`bytes_*`/`runtime_source` theo snapshot mới nhất), giảm bùng nổ row khi poll 2 phút.
+
+### 4.2b Retention (Core)
+
+- Job nền: `PodNetworkRetentionJob` — xóa theo `bucket_5m` cũ hơn retention.
+- Env: `POD_NETWORK_RETENTION_HOURS` (mặc định 24), `POD_NETWORK_CLEANUP_INTERVAL` (mặc định `10m`), `POD_NETWORK_CLEANUP_BATCH` (20000), `POD_NETWORK_CLEANUP_ROUNDS` (3).
 
 ### 4.3 Toàn cluster / workload (Dashboard “Network activity”)
 
@@ -76,7 +83,7 @@ Biến môi trường trung tâm: `POD_DETAIL_RUNTIME_SOURCE` (xem `useHostRunti
 - **Query**:
   - `cluster` (bắt buộc): id cluster (sau `NormalizeClusterID`).
   - `view`: `connections` (mặc định) — mỗi dòng một kết nối; `pods` — gom theo Pod (`COUNT(*)`, `MAX(observed_at)`).
-  - `namespace`, `q` (tìm theo tên pod / namespace / IP đích / cổng — tùy view), `sinceMinutes`, `page`, `pageSize` (tối đa 200).
+  - `namespace`, `q` (tìm theo tên pod / namespace / IP đích / cổng — tùy view), `sinceMinutes` (nếu > 0: lọc `bucket_5m >= floor5m(now − since)`), `page`, `pageSize` (tối đa 200).
 - **JOIN**: `pods` (LEFT) để hiển thị `podName`, `ownerKind`, `ownerName`, `nodeName` khi inventory còn pod.
 - **UI**: trang `#/network-activity` — lọc theo cluster chọn trên thanh điều khiển, liên kết mở Pod Detail.
 
@@ -84,14 +91,14 @@ Biến môi trường trung tâm: `POD_DETAIL_RUNTIME_SOURCE` (xem `useHostRunti
 
 ## 5. Mô hình dữ liệu (PostgreSQL)
 
-Bảng: `pod_network_connections` (migration 071, cột bổ sung `runtime_source` migration 074).
+Bảng: `pod_network_connections` (migration 071, `runtime_source` migration 074, **`bucket_5m` + unique signature** migration 115).
 
 Các trường chính (khớp `core/pkg/models/pod_network_connection.go`):
 
 - `pod_uid`, `cluster_id`, `namespace`, `container_name`
 - `source_ip`, `source_port`, `dest_ip`, `dest_port`, `protocol`, `state`
 - `bytes_sent`, `bytes_recv` (ý nghĩa queue — xem comment model)
-- `observed_at`, `created_at`, `runtime_source`
+- `observed_at`, `created_at`, `runtime_source`, **`bucket_5m`** (mốc 5 phút UTC cho upsert/query)
 
 **Dọn dữ liệu**: khi Pod bị xóa khỏi DB đồng bộ, Core có thể xóa network connections theo `pod_uid` (xem `agent_service` cleanup).
 

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/pkg/networkbucket"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -18,7 +19,7 @@ import (
 //   - view: "connections" (default) | "pods" — flat rows vs one row per pod (aggregated)
 //   - namespace: filter
 //   - q: search pod name, namespace, dest IP/port (connections view); pod name / namespace (pods view)
-//   - sinceMinutes: only rows with observed_at >= now - sinceMinutes
+//   - sinceMinutes: only rows with bucket_5m >= floor5m(now - sinceMinutes) (aligned with stored buckets)
 //   - page, pageSize: pagination (default page=1, pageSize=50, max 200)
 func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -51,28 +52,29 @@ func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
 		}
 		offset := (page - 1) * pageSize
 
-		var since *time.Time
+		var sinceBucket *time.Time
 		if sinceMin > 0 {
-			t := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
-			since = &t
+			sw := time.Now().UTC().Add(-time.Duration(sinceMin) * time.Minute)
+			sb := networkbucket.FloorBucket5MUTC(sw)
+			sinceBucket = &sb
 		}
 
 		if view == "pods" {
-			handleNetworkActivityPodsView(c, db, clusterID, namespace, q, since, page, pageSize, offset)
+			handleNetworkActivityPodsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
 			return
 		}
-		handleNetworkActivityConnectionsView(c, db, clusterID, namespace, q, since, page, pageSize, offset)
+		handleNetworkActivityConnectionsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
 	}
 }
 
-func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, since *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
 	base := db.Table("pod_network_connections AS n").
 		Where("n.cluster_id = ?", clusterID)
 	if namespace != "" {
 		base = base.Where("n.namespace = ?", namespace)
 	}
-	if since != nil {
-		base = base.Where("n.observed_at >= ?", *since)
+	if sinceBucket != nil {
+		base = base.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
 	if q != "" {
 		like := "%" + strings.ToLower(q) + "%"
@@ -118,8 +120,8 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 	if namespace != "" {
 		qb = qb.Where("n.namespace = ?", namespace)
 	}
-	if since != nil {
-		qb = qb.Where("n.observed_at >= ?", *since)
+	if sinceBucket != nil {
+		qb = qb.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
 	if q != "" {
 		like := "%" + strings.ToLower(q) + "%"
@@ -128,7 +130,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 	}
 
 	var items []row
-	if err := qb.Order("n.observed_at DESC").Offset(offset).Limit(pageSize).Scan(&items).Error; err != nil {
+	if err := qb.Order("n.bucket_5m DESC, n.observed_at DESC").Offset(offset).Limit(pageSize).Scan(&items).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -143,7 +145,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 	})
 }
 
-func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, since *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
 	// Subquery for grouping — count distinct pod groups matching filters
 	sub := db.Table("pod_network_connections AS n").
 		Select("n.pod_uid, n.namespace, n.cluster_id, COUNT(*) AS connection_count, MAX(n.observed_at) AS last_observed_at, MAX(p.name) AS pod_name, MAX(p.owner_kind) AS owner_kind, MAX(p.owner_name) AS owner_name, MAX(p.node_name) AS node_name").
@@ -153,8 +155,8 @@ func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, names
 	if namespace != "" {
 		sub = sub.Where("n.namespace = ?", namespace)
 	}
-	if since != nil {
-		sub = sub.Where("n.observed_at >= ?", *since)
+	if sinceBucket != nil {
+		sub = sub.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
 	if q != "" {
 		like := "%" + strings.ToLower(q) + "%"

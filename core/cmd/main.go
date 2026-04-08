@@ -492,6 +492,15 @@ func main() {
 		defer pceCleanupJob.Stop()
 		log.Printf("PCE cleanup job started (interval: 24 hours)")
 
+		// Pod network connections retention (bucket_5m; env POD_NETWORK_*)
+		podNetRetention := scheduler.NewPodNetworkRetentionJob(db)
+		go func() {
+			log.Printf("[Main] Starting pod network retention job in goroutine...")
+			podNetRetention.Start()
+		}()
+		defer podNetRetention.Stop()
+		log.Printf("Pod network retention job started (see POD_NETWORK_RETENTION_HOURS / POD_NETWORK_CLEANUP_INTERVAL)")
+
 		// Start SBOM reconciliation loop (runs every hour)
 		// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
 		sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)

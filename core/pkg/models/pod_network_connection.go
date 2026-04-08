@@ -21,6 +21,8 @@ type PodNetworkConnection struct {
 	ObservedAt    time.Time `gorm:"default:CURRENT_TIMESTAMP" json:"observedAt"`
 	CreatedAt     time.Time `json:"createdAt"`
 	RuntimeSource string    `gorm:"type:varchar(32);default:exec" json:"runtimeSource,omitempty"` // "host" | "exec" for UI indicator
+	// Bucket5m is the UTC start of the 5-minute bucket (dedupe key with connection tuple); see migration 115.
+	Bucket5m time.Time `gorm:"column:bucket_5m;type:timestamptz;not null;index" json:"bucket5m,omitempty"`
 }
 
 // TableName overrides table name.
