@@ -107,6 +107,13 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 // checkIfRiskStillExists checks if the risk described by the insight still exists
 // by re-evaluating the resource
 func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resourceType, resourceName, resourceNamespace string, insight *models.Insight) (bool, error) {
+	// SBOM/CVE pipeline findings are not reproduced by Pod YAML/CEL EvaluateResource.
+	// Without this guard, the updater concludes "no matching insight" and incorrectly auto-resolves them.
+	switch strings.TrimSpace(insight.InsightType) {
+	case "supply_chain_malware", "vulnerability":
+		return true, nil
+	}
+
 	var resourceData map[string]interface{}
 
 	switch resourceType {
