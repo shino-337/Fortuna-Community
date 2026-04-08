@@ -15,7 +15,6 @@ import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { getSeverityBadgeClass, getSeverityTextClass } from '../lib/severity';
 import { RISK_CENTER_DESCRIPTION } from '../constants/labels';
 import { RuntimeSignalsTable } from '../components/RuntimeSignalsTable';
-import { PageLoading } from '../components/PageLoading';
 import { RiskHistogram } from '../components/RiskHistogram';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import type { RiskHistogramResponse } from '../types';
@@ -122,7 +121,9 @@ export const RiskCenter: React.FC = () => {
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  const [insightsSeverityApproximate, setInsightsSeverityApproximate] = useState(false);
+  /** When summary API fails: 'page' = current table page only; 'sample' = first N rows (≤1000); 'exact' = trusted counts */
+  const [severityCountTrust, setSeverityCountTrust] = useState<'exact' | 'sample' | 'page'>('exact');
+  const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' } | null>(null);
   const [pceTrendDays, setPceTrendDays] = useState(7);
   const [heatmapShowAll, setHeatmapShowAll] = useState(false);
   const [pageBlocking, setPageBlocking] = useState(true);
@@ -234,174 +235,227 @@ export const RiskCenter: React.FC = () => {
     setDebouncedSearchTerm((searchFromUrl ?? '').trim());
   }, [searchFromUrl]);
 
+  React.useEffect(() => {
+    if (!toast) return undefined;
+    const id = window.setTimeout(() => setToast(null), 4200);
+    return () => window.clearTimeout(id);
+  }, [toast]);
+
   const fetchData = useCallback(async () => {
     const isFirst = !hasLoadedOnceRef.current;
     if (!isFirst) setRefreshing(true);
     setError(null);
-    try {
-      const sinceMinutes = sinceMinutesForApi;
-      const clusterId = effectiveClusterId ?? selectedClusterId ?? undefined;
-      const useScores =
-        riskSort === 'score_desc' ||
-        riskSort === 'score_asc' ||
-        riskSort === 'exploitability_desc' ||
-        riskSort === 'exploitability_asc' ||
-        priorityLevel !== '';
-      const risksPromise = api.getRisks({
-        page: risksPage,
-        pageSize: risksPageSize,
-        severity: filter !== 'all' ? filter : undefined,
-        status: statusFilter,
-        search: debouncedSearchTerm || undefined,
-        clusterId: clusterId ?? undefined,
-        namespace: namespaceFilter.trim() || undefined,
-        type: typeFilter || undefined,
-        sinceMinutes,
-        withScores: useScores ? 1 : undefined,
-        priorityLevel: priorityLevel || undefined,
-        scoreBin: selectedScoreBin ?? undefined,
+    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
+    const sinceMinutes = sinceMinutesForApi;
+    const clusterId = effectiveClusterId ?? selectedClusterId ?? undefined;
+    const useScores = riskSort === 'score_desc' || riskSort === 'score_asc' || priorityLevel !== '';
+    const risksListParamsBase = {
+      severity: filter !== 'all' ? filter : undefined,
+      status: statusFilter,
+      search: debouncedSearchTerm || undefined,
+      clusterId: clusterId ?? undefined,
+      namespace: namespaceFilter.trim() || undefined,
+      type: typeFilter || undefined,
+      sinceMinutes,
+      withScores: useScores ? 1 : undefined,
+      priorityLevel: priorityLevel || undefined,
+      scoreBin: selectedScoreBin ?? undefined,
+    };
+    const countSeverity = (insights: Insight[]) => {
+      const bySev = { critical: 0, high: 0, medium: 0, low: 0 };
+      insights.forEach((r: Insight) => {
+        const sev = (r.severity || '').toLowerCase();
+        if (sev in bySev) (bySev as Record<string, number>)[sev]++;
       });
-      const summaryPromise = api.getInsightsSummary(clusterId ?? undefined, sinceMinutes);
-      const threatPromise = api.getThreatVelocity(trendDays, clusterId ?? undefined).catch(() => []);
-      const clustersPromise = api.getClusters();
-      const statsPromise = api.getStats(clusterId ?? undefined, sinceMinutes, 'all');
-      const byClusterPromise = !clusterId ? api.getInsightsSummaryByCluster(sinceMinutes) : Promise.resolve([] as InsightsSummaryByClusterItem[]);
-      setHistogramLoading(true);
-      const histogramPromise = api
-        .getRiskHistogram({ clusterId: clusterId ?? undefined, sinceMinutes })
-        .then((r) => {
-          setHistogramData(r);
-          return r;
-        })
-        .finally(() => setHistogramLoading(false));
-
-      const coreResults = await Promise.allSettled([
-        risksPromise,
-        summaryPromise,
-        threatPromise,
-        clustersPromise,
-        statsPromise,
-        byClusterPromise,
-        histogramPromise,
+      return bySev;
+    };
+    const runPceBlock = async (errors: string[]) => {
+      const pceDrillCluster = (pceClusterId || '').trim() || clusterId;
+      const pceResults = await Promise.allSettled([
+        api.getPceSummaryBySeverity(),
+        api.getPceCapabilities({
+          clusterId: pceDrillCluster || undefined,
+          namespace: pceNamespace.trim() || undefined,
+          severity: pceSeverityFilter || undefined,
+          podName: pcePodName.trim() || undefined,
+          capabilityId: pceCapabilityId.trim() || undefined,
+          limit: pceListPageSize,
+          offset: (pceListPage - 1) * pceListPageSize,
+        }),
+        api.getPceTrend(pceTrendDays, { clusterId: clusterId ?? undefined }),
+        api.getPceSummaryByNamespace({ clusterId: clusterId ?? undefined }),
       ]);
-
-      const [risksResult, summaryResult, threatResult, clustersResult, statsResult, byClusterResult] = coreResults;
-      const errors: string[] = [];
-
-      if (threatResult.status === 'fulfilled') {
-        setThreatVelocity(threatResult.value);
+      const [pceSummaryResult, pceListResult, pceTrendResult, pceHeatmapResult] = pceResults;
+      if (pceSummaryResult.status === 'fulfilled') {
+        setPceSummary(pceSummaryResult.value);
       } else {
-        setThreatVelocity([]);
+        setPceSummary([]);
+        errors.push('PCE summary: ' + (pceSummaryResult.reason?.message || String(pceSummaryResult.reason)));
       }
-
-      if (risksResult.status === 'fulfilled') {
-        setRisks(risksResult.value.insights);
-        setRisksTotal(risksResult.value.total);
+      if (pceListResult.status === 'fulfilled') {
+        const v = pceListResult.value;
+        setPceDetails(v.capabilities);
+        setPceListTotal(v.total);
       } else {
-        setRisks([]);
-        setRisksTotal(0);
-        errors.push('Risks: ' + (risksResult.reason?.message || String(risksResult.reason)));
+        setPceDetails([]);
+        setPceListTotal(0);
       }
-
-      const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
-      if (summaryResult.status === 'fulfilled') {
-        setInsightsSeverityApproximate(false);
-        const s = summaryResult.value;
-        setInsightsSummary({
-          total: num(s?.total),
-          critical: num(s?.critical),
-          high: num(s?.high),
-          medium: num(s?.medium),
-          low: num(s?.low),
-        });
-      } else if (risksResult.status === 'fulfilled') {
-        setInsightsSeverityApproximate(true);
-        const { insights, total } = risksResult.value;
-        const bySev = { critical: 0, high: 0, medium: 0, low: 0 };
-        insights.forEach((r: Insight) => {
-          const sev = (r.severity || '').toLowerCase();
-          if (sev in bySev) (bySev as Record<string, number>)[sev]++;
-        });
-        setInsightsSummary({
-          total: num(total),
-          critical: bySev.critical,
-          high: bySev.high,
-          medium: bySev.medium,
-          low: bySev.low,
-        });
+      if (pceTrendResult.status === 'fulfilled') {
+        setPceTrend(Array.isArray(pceTrendResult.value) ? pceTrendResult.value : []);
       } else {
-        setInsightsSeverityApproximate(false);
-        setInsightsSummary(null);
+        setPceTrend([]);
       }
-
-      if (clustersResult.status === 'fulfilled') {
-        setClusters(clustersResult.value);
+      if (pceHeatmapResult.status === 'fulfilled') {
+        setPceHeatmap(Array.isArray(pceHeatmapResult.value) ? pceHeatmapResult.value : []);
       } else {
-        setClusters([]);
+        setPceHeatmap([]);
       }
-
-      if (statsResult.status === 'fulfilled') {
-        const st = statsResult.value as { resolved24h?: number };
-        setResolved24h(st?.resolved24h ?? 0);
-      } else {
-        setResolved24h(0);
-      }
-
-      if (byClusterResult.status === 'fulfilled') {
-        setRisksByCluster(Array.isArray(byClusterResult.value) ? byClusterResult.value : []);
-      } else {
-        setRisksByCluster([]);
-      }
-
-      if (activeTab === 'pce') {
-        const pceDrillCluster = (pceClusterId || '').trim() || clusterId;
-        const pceResults = await Promise.allSettled([
-          api.getPceSummaryBySeverity(),
-          api.getPceCapabilities({
-            clusterId: pceDrillCluster || undefined,
-            namespace: pceNamespace.trim() || undefined,
-            severity: pceSeverityFilter || undefined,
-            podName: pcePodName.trim() || undefined,
-            capabilityId: pceCapabilityId.trim() || undefined,
-            limit: pceListPageSize,
-            offset: (pceListPage - 1) * pceListPageSize,
-          }),
-          api.getPceTrend(pceTrendDays, { clusterId: clusterId ?? undefined }),
-          api.getPceSummaryByNamespace({ clusterId: clusterId ?? undefined }),
+    };
+    try {
+      const loadRisksHeavy = activeTab === 'risks';
+      if (!loadRisksHeavy) {
+        const errors: string[] = [];
+        const lightResults = await Promise.allSettled([
+          api.getInsightsSummary(clusterId ?? undefined, sinceMinutes),
+          api.getClusters(),
+          api.getStats(clusterId ?? undefined, sinceMinutes, 'all'),
         ]);
-        const [pceSummaryResult, pceListResult, pceTrendResult, pceHeatmapResult] = pceResults;
-
-        if (pceSummaryResult.status === 'fulfilled') {
-          setPceSummary(pceSummaryResult.value);
+        const [summaryResult, clustersResult, statsResult] = lightResults;
+        if (clustersResult.status === 'fulfilled') {
+          setClusters(clustersResult.value);
         } else {
-          setPceSummary([]);
-          errors.push('PCE summary: ' + (pceSummaryResult.reason?.message || String(pceSummaryResult.reason)));
+          setClusters([]);
         }
-
-        if (pceListResult.status === 'fulfilled') {
-          const v = pceListResult.value;
-          setPceDetails(v.capabilities);
-          setPceListTotal(v.total);
+        if (statsResult.status === 'fulfilled') {
+          const st = statsResult.value as { resolved24h?: number };
+          setResolved24h(st?.resolved24h ?? 0);
         } else {
-          setPceDetails([]);
-          setPceListTotal(0);
+          setResolved24h(0);
         }
-
-        if (pceTrendResult.status === 'fulfilled') {
-          setPceTrend(Array.isArray(pceTrendResult.value) ? pceTrendResult.value : []);
+        if (summaryResult.status === 'fulfilled') {
+          setSeverityCountTrust('exact');
+          const s = summaryResult.value;
+          setInsightsSummary({
+            total: num(s?.total),
+            critical: num(s?.critical),
+            high: num(s?.high),
+            medium: num(s?.medium),
+            low: num(s?.low),
+          });
         } else {
-          setPceTrend([]);
+          errors.push('Summary: ' + (summaryResult.reason?.message || String(summaryResult.reason)));
+          setInsightsSummary(null);
+          setSeverityCountTrust('exact');
         }
-
-        if (pceHeatmapResult.status === 'fulfilled') {
-          setPceHeatmap(Array.isArray(pceHeatmapResult.value) ? pceHeatmapResult.value : []);
+        if (activeTab === 'pce') {
+          await runPceBlock(errors);
+        }
+        if (errors.length > 0) setError(errors.join('; '));
+      } else {
+        const errors: string[] = [];
+        const risksPromise = api.getRisks({
+          page: risksPage,
+          pageSize: risksPageSize,
+          ...risksListParamsBase,
+        });
+        const summaryPromise = api.getInsightsSummary(clusterId ?? undefined, sinceMinutes);
+        const threatPromise = api.getThreatVelocity(trendDays, clusterId ?? undefined).catch(() => []);
+        const clustersPromise = api.getClusters();
+        const statsPromise = api.getStats(clusterId ?? undefined, sinceMinutes, 'all');
+        const byClusterPromise = !clusterId ? api.getInsightsSummaryByCluster(sinceMinutes) : Promise.resolve([] as InsightsSummaryByClusterItem[]);
+        setHistogramLoading(true);
+        const histogramPromise = api
+          .getRiskHistogram({ clusterId: clusterId ?? undefined, sinceMinutes })
+          .then((r) => {
+            setHistogramData(r);
+            return r;
+          })
+          .finally(() => setHistogramLoading(false));
+        const coreResults = await Promise.allSettled([
+          risksPromise,
+          summaryPromise,
+          threatPromise,
+          clustersPromise,
+          statsPromise,
+          byClusterPromise,
+          histogramPromise,
+        ]);
+        const [risksResult, summaryResult, threatResult, clustersResult, statsResult, byClusterResult] = coreResults;
+        if (threatResult.status === 'fulfilled') {
+          setThreatVelocity(threatResult.value);
         } else {
-          setPceHeatmap([]);
+          setThreatVelocity([]);
         }
-      }
-
-      if (errors.length > 0) {
-        setError(errors.join('; '));
+        if (risksResult.status === 'fulfilled') {
+          setRisks(risksResult.value.insights);
+          setRisksTotal(risksResult.value.total);
+        } else {
+          setRisks([]);
+          setRisksTotal(0);
+          errors.push('Risks: ' + (risksResult.reason?.message || String(risksResult.reason)));
+        }
+        if (summaryResult.status === 'fulfilled') {
+          setSeverityCountTrust('exact');
+          const s = summaryResult.value;
+          setInsightsSummary({
+            total: num(s?.total),
+            critical: num(s?.critical),
+            high: num(s?.high),
+            medium: num(s?.medium),
+            low: num(s?.low),
+          });
+        } else if (risksResult.status === 'fulfilled') {
+          const { insights, total } = risksResult.value;
+          const totalN = num(total);
+          const sampleSize = Math.min(1000, Math.max(1, totalN));
+          try {
+            const wide = await api.getRisks({
+              page: 1,
+              pageSize: sampleSize,
+              ...risksListParamsBase,
+            });
+            const bySev = countSeverity(wide.insights);
+            const wideTotal = num(wide.total);
+            setInsightsSummary({
+              total: wideTotal,
+              critical: bySev.critical,
+              high: bySev.high,
+              medium: bySev.medium,
+              low: bySev.low,
+            });
+            setSeverityCountTrust(wide.insights.length >= wideTotal ? 'exact' : 'sample');
+          } catch {
+            const bySev = countSeverity(insights);
+            setInsightsSummary({
+              total: totalN,
+              critical: bySev.critical,
+              high: bySev.high,
+              medium: bySev.medium,
+              low: bySev.low,
+            });
+            setSeverityCountTrust('page');
+          }
+        } else {
+          setSeverityCountTrust('exact');
+          setInsightsSummary(null);
+        }
+        if (clustersResult.status === 'fulfilled') {
+          setClusters(clustersResult.value);
+        } else {
+          setClusters([]);
+        }
+        if (statsResult.status === 'fulfilled') {
+          const st = statsResult.value as { resolved24h?: number };
+          setResolved24h(st?.resolved24h ?? 0);
+        } else {
+          setResolved24h(0);
+        }
+        if (byClusterResult.status === 'fulfilled') {
+          setRisksByCluster(Array.isArray(byClusterResult.value) ? byClusterResult.value : []);
+        } else {
+          setRisksByCluster([]);
+        }
+        if (errors.length > 0) setError(errors.join('; '));
       }
     } finally {
       hasLoadedOnceRef.current = true;
@@ -774,7 +828,26 @@ export const RiskCenter: React.FC = () => {
     return n;
   }, [riskFindingsCols, effectiveClusterId]);
 
-  if (pageBlocking) return <PageLoading message="Loading Risk Operations…" />;
+  if (pageBlocking) {
+    return (
+      <PageLayout title="Risk Operations" description={RISK_CENTER_DESCRIPTION}>
+        <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Loading Risk Operations">
+          <div className="h-10 bg-slate-800/80 rounded-lg border border-slate-800" />
+          <div className="h-14 bg-slate-800/60 rounded-lg border border-slate-800" />
+          <div className="grid gap-3 sm:grid-cols-3">
+            <div className="h-28 bg-slate-800/60 rounded-lg border border-slate-800" />
+            <div className="h-28 bg-slate-800/60 rounded-lg border border-slate-800" />
+            <div className="h-28 bg-slate-800/60 rounded-lg border border-slate-800" />
+          </div>
+          <div className="grid gap-4 lg:grid-cols-[2fr_1fr]">
+            <div className="h-[220px] bg-slate-800/40 rounded-lg border border-slate-800" />
+            <div className="h-[220px] bg-slate-800/40 rounded-lg border border-slate-800" />
+          </div>
+          <div className="h-40 bg-slate-800/40 rounded-lg border border-slate-800" />
+        </div>
+      </PageLayout>
+    );
+  }
 
   const tabs: { id: TabId; label: string }[] = [
     { id: 'risks', label: 'Risk Findings' },
@@ -843,9 +916,11 @@ export const RiskCenter: React.FC = () => {
         </div>
       </details>
       <div className="mt-2 p-3 bg-slate-900/40 border border-slate-800 rounded-lg text-xs text-slate-400 flex flex-wrap gap-x-4 gap-y-1 items-center">
-        <span title="Count of risk findings in current scope. Does not include Capability Exposure or Evidence totals.">
-          Total findings (Risk Findings only): <span className="text-slate-200 font-medium">{severityBar.total}</span>
-        </span>
+        {activeTab !== 'risks' && (
+          <span title="Count of risk findings in current scope. On Risk Findings tab, see Risk Level Overview for the same total.">
+            Active findings (Risk): <span className="text-slate-200 font-medium">{severityBar.total}</span>
+          </span>
+        )}
         <span>
           Scope:{' '}
           <span className="text-slate-200 font-medium" title={effectiveClusterId ?? undefined}>
@@ -1054,12 +1129,24 @@ export const RiskCenter: React.FC = () => {
           {/* Layer 2 – Risk level overview: totals, velocity, resolved + severity breakdown */}
           <div>
             <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Risk Level Overview (Active Findings)</h2>
-            {insightsSeverityApproximate && (
+            {severityCountTrust !== 'exact' && (
               <div
                 className="mb-2 p-2 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-100 text-xs"
-                title="Counts approximate – from current page only"
+                title={
+                  severityCountTrust === 'sample'
+                    ? 'Severity breakdown from first up to 1000 rows matching filters'
+                    : 'Severity breakdown from current page only'
+                }
               >
-                Summary API unavailable: severity counts below reflect the <strong>current table page</strong> only. Total findings still matches the server total.
+                {severityCountTrust === 'sample' ? (
+                  <>
+                    Summary API unavailable: severity counts use the <strong>first up to 1,000</strong> findings matching your filters. Total count is still the server total.
+                  </>
+                ) : (
+                  <>
+                    Summary API unavailable: severity counts reflect the <strong>current table page</strong> only. Total findings still matches the server total.
+                  </>
+                )}
               </div>
             )}
             <p className="text-xs text-slate-500 mb-3">
@@ -1122,11 +1209,13 @@ export const RiskCenter: React.FC = () => {
                   onClick={() => isOverviewPage ? navigate(`/risks/findings?severity=${sev}`) : setFilter(sev)}
                   className="bg-slate-900 border border-slate-800 p-4 rounded-lg flex flex-col gap-1 text-left hover:border-slate-600 transition-colors"
                   title={
-                    insightsSeverityApproximate
-                      ? `Approximate count (current page). View ${sev} findings`
-                      : isOverviewPage
-                        ? `View ${sev} findings`
-                        : 'Filter by severity'
+                    severityCountTrust === 'sample'
+                      ? `Approximate count (sample up to 1000). View ${sev} findings`
+                      : severityCountTrust === 'page'
+                        ? `Approximate count (current page). View ${sev} findings`
+                        : isOverviewPage
+                          ? `View ${sev} findings`
+                          : 'Filter by severity'
                   }
                 >
                   <span className="text-slate-400 text-sm capitalize">{sev}</span>
@@ -2620,13 +2709,17 @@ export const RiskCenter: React.FC = () => {
                   disabled={drawerActionBusy !== null}
                   onClick={async () => {
                     if (drawerActionBusy) return;
+                    if (!window.confirm('Acknowledge this finding? It will move to In review.')) return;
                     setDrawerActionBusy('ack');
                     try {
                       await api.bulkInsightsAction({ action: 'acknowledge', insightIds: [selectedRisk.id] });
-                      setDrawerNotice('Finding acknowledged.');
+                      setDrawerNotice(null);
+                      setToast({ message: 'Finding acknowledged.', variant: 'success' });
                       fetchDataRef.current();
                     } catch (e) {
-                      setDrawerNotice(String(e instanceof Error ? e.message : e));
+                      const msg = String(e instanceof Error ? e.message : e);
+                      setDrawerNotice(msg);
+                      setToast({ message: msg, variant: 'error' });
                     } finally {
                       setDrawerActionBusy(null);
                     }
@@ -2650,10 +2743,13 @@ export const RiskCenter: React.FC = () => {
                     setDrawerActionBusy('resolve');
                     try {
                       await api.bulkInsightsAction({ action: 'resolve', insightIds: [selectedRisk.id] });
-                      setDrawerNotice('Finding resolved.');
+                      setDrawerNotice(null);
+                      setToast({ message: 'Finding resolved.', variant: 'success' });
                       fetchDataRef.current();
                     } catch (e) {
-                      setDrawerNotice(String(e instanceof Error ? e.message : e));
+                      const msg = String(e instanceof Error ? e.message : e);
+                      setDrawerNotice(msg);
+                      setToast({ message: msg, variant: 'error' });
                     } finally {
                       setDrawerActionBusy(null);
                     }
@@ -2678,10 +2774,13 @@ export const RiskCenter: React.FC = () => {
                     setDrawerActionBusy('dismiss');
                     try {
                       await api.bulkInsightsAction({ action: 'dismiss', insightIds: [selectedRisk.id] });
-                      setDrawerNotice('Finding dismissed.');
+                      setDrawerNotice(null);
+                      setToast({ message: 'Finding dismissed.', variant: 'success' });
                       fetchDataRef.current();
                     } catch (e) {
-                      setDrawerNotice(String(e instanceof Error ? e.message : e));
+                      const msg = String(e instanceof Error ? e.message : e);
+                      setDrawerNotice(msg);
+                      setToast({ message: msg, variant: 'error' });
                     } finally {
                       setDrawerActionBusy(null);
                     }
@@ -2700,6 +2799,18 @@ export const RiskCenter: React.FC = () => {
             </div>
           </div>
         </>
+      )}
+      {toast && (
+        <div
+          role="status"
+          className={`fixed top-4 right-4 z-[60] max-w-sm px-4 py-3 rounded-lg border text-sm shadow-xl ${
+            toast.variant === 'success'
+              ? 'bg-emerald-950/95 border-emerald-600/50 text-emerald-100'
+              : 'bg-red-950/95 border-red-600/50 text-red-100'
+          }`}
+        >
+          {toast.message}
+        </div>
       )}
     </PageLayout>
   );
