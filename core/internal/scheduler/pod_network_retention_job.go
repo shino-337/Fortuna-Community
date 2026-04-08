@@ -15,6 +15,7 @@ type PodNetworkRetentionJob struct {
 	db             *gorm.DB
 	retentionHours int
 	interval       time.Duration
+	initialDelay   time.Duration
 	batchSize      int
 	maxRounds      int
 	ctx            context.Context
@@ -47,11 +48,18 @@ func NewPodNetworkRetentionJob(db *gorm.DB) *PodNetworkRetentionJob {
 			maxRounds = n
 		}
 	}
+	initialDelay := time.Duration(0)
+	if v := os.Getenv("POD_NETWORK_CLEANUP_INITIAL_DELAY"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			initialDelay = d
+		}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PodNetworkRetentionJob{
 		db:             db,
 		retentionHours: retentionHours,
 		interval:       interval,
+		initialDelay:   initialDelay,
 		batchSize:      batchSize,
 		maxRounds:      maxRounds,
 		ctx:            ctx,
@@ -63,8 +71,17 @@ func NewPodNetworkRetentionJob(db *gorm.DB) *PodNetworkRetentionJob {
 func (j *PodNetworkRetentionJob) Start() {
 	ticker := time.NewTicker(j.interval)
 	defer ticker.Stop()
-	log.Printf("[PodNetworkRetentionJob] Started retention=%dh interval=%s batch=%d rounds=%d",
-		j.retentionHours, j.interval, j.batchSize, j.maxRounds)
+	log.Printf("[PodNetworkRetentionJob] Started retention=%dh interval=%s batch=%d rounds=%d initialDelay=%s",
+		j.retentionHours, j.interval, j.batchSize, j.maxRounds, j.initialDelay)
+	if j.initialDelay > 0 {
+		log.Printf("[PodNetworkRetentionJob] Deferring first cleanup by %s (reduce startup IO)", j.initialDelay)
+		select {
+		case <-j.ctx.Done():
+			log.Printf("[PodNetworkRetentionJob] Stopped before first run")
+			return
+		case <-time.After(j.initialDelay):
+		}
+	}
 	j.run()
 	for {
 		select {

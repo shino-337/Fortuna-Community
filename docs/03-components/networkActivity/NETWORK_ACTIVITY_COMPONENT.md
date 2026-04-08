@@ -35,7 +35,7 @@ flowchart LR
 
 1. **Agent** (package `agent/internal/poddetail`): theo chu kỳ liệt kê Pod trên node, thu thập connection cho từng `podUid`.
 2. **Ingest Core**: `POST /api/v1/agent/pod-network-connections` — lưu batch vào bảng `pod_network_connections`, tùy chọn sinh `RuntimeEvent` (anomaly queue spike).
-3. **Đọc API**: `GET /runtime/pods/:uid/network` — tối đa **500** bản ghi mới nhất theo `observed_at DESC`.
+3. **Đọc API**: `GET /runtime/pods/:uid/network` — mặc định 24h, sắp xếp **`bucket_5m DESC`**, rồi `observed_at DESC`; `limit` mặc định 500 (tối đa 2000).
 4. **Dashboard**: `getPodNetworkConnections(podUid)` → hiển thị trong `PodDetail.tsx`.
 
 ---
@@ -63,19 +63,19 @@ Biến môi trường trung tâm: `POD_DETAIL_RUNTIME_SOURCE` (xem `useHostRunti
 
 - **Method / path**: `POST /api/v1/agent/pod-network-connections`
 - **Body (JSON)** (rút gọn): `podUid`, `clusterId`, `namespace`, `connections[]`, tùy chọn `runtimeSource` (`host` \| `exec`).
-- **Hành vi**: ghi `PodNetworkConnection` với `observed_at` = thời điểm ingest; `OnConflict` có thể bỏ qua trùng (theo implementation GORM); broadcast cập nhật Pod Detail qua WebSocket topic `network` khi có connection.
+- **Hành vi**: một **bucket 5 phút UTC** cho cả batch; `observed_at` = thời điểm ingest; **UPSERT** theo khóa `(signature, bucket_5m)` (cập nhật snapshot mới nhất trong bucket, không đổi `created_at`); `protocol` chuẩn hóa lowercase; broadcast Pod Detail qua WebSocket topic `network` khi có connection.
 
 ### 4.2 Đọc (Dashboard / client)
 
 - **Path**: `GET /runtime/pods/:uid/network`
 - **Query**: `sinceMinutes` (mặc định **1440** = 24h), `limit` (mặc định 500, tối đa 2000). Lọc theo **`bucket_5m`** (bucket 5 phút UTC) ≥ `floor5m(now − since)`.
 - **Response**: `{ podUid, items: PodNetworkConnection[] }`; mỗi item có thể có `bucket5m`.
-- **Ingest**: cùng một signature trong một bucket 5 phút → **UPSERT** (cập nhật `observed_at`/`bytes_*`/`runtime_source` theo snapshot mới nhất), giảm bùng nổ row khi poll 2 phút.
+- **Semantics “lịch sử 5 phút”**: mỗi cặp **signature + `bucket_5m`** chỉ còn **một dòng** — đó là **snapshot cuối** ghi nhận trong bucket đó (bytes/state/runtime_source theo luật upsert), không phải mọi poll trong 5 phút. UI có thể hiển thị `bucket5m` để người dùng hiểu đây là dữ liệu theo bucket.
 
 ### 4.2b Retention (Core)
 
 - Job nền: `PodNetworkRetentionJob` — xóa theo `bucket_5m` cũ hơn retention.
-- Env: `POD_NETWORK_RETENTION_HOURS` (mặc định 24), `POD_NETWORK_CLEANUP_INTERVAL` (mặc định `10m`), `POD_NETWORK_CLEANUP_BATCH` (20000), `POD_NETWORK_CLEANUP_ROUNDS` (3).
+- Env: `POD_NETWORK_RETENTION_HOURS` (mặc định 24), `POD_NETWORK_CLEANUP_INTERVAL` (mặc định `10m`), `POD_NETWORK_CLEANUP_BATCH` (20000), `POD_NETWORK_CLEANUP_ROUNDS` (3), `POD_NETWORK_CLEANUP_INITIAL_DELAY` (tùy chọn, ví dụ `2m` — trì hoãn lần cleanup đầu sau khi Core boot, giảm spike IO).
 
 ### 4.3 Toàn cluster / workload (Dashboard “Network activity”)
 
@@ -83,7 +83,7 @@ Biến môi trường trung tâm: `POD_DETAIL_RUNTIME_SOURCE` (xem `useHostRunti
 - **Query**:
   - `cluster` (bắt buộc): id cluster (sau `NormalizeClusterID`).
   - `view`: `connections` (mặc định) — mỗi dòng một kết nối; `pods` — gom theo Pod (`COUNT(*)`, `MAX(observed_at)`).
-  - `namespace`, `q` (tìm theo tên pod / namespace / IP đích / cổng — tùy view), `sinceMinutes` (nếu > 0: lọc `bucket_5m >= floor5m(now − since)`), `page`, `pageSize` (tối đa 200).
+  - `namespace`, `q` (tìm theo tên pod / namespace / IP; nếu `q` là số cổng hợp lệ thì thêm lọc `dest_port`/`source_port` — thân thiện index), `sinceMinutes` (nếu > 0: lọc `bucket_5m >= floor5m(now − since)`), `page`, `pageSize` (tối đa 200).
 - **JOIN**: `pods` (LEFT) để hiển thị `podName`, `ownerKind`, `ownerName`, `nodeName` khi inventory còn pod.
 - **UI**: trang `#/network-activity` — lọc theo cluster chọn trên thanh điều khiển, liên kết mở Pod Detail.
 
@@ -91,7 +91,7 @@ Biến môi trường trung tâm: `POD_DETAIL_RUNTIME_SOURCE` (xem `useHostRunti
 
 ## 5. Mô hình dữ liệu (PostgreSQL)
 
-Bảng: `pod_network_connections` (migration 071, `runtime_source` migration 074, **`bucket_5m` + unique signature** migration 115).
+Bảng: `pod_network_connections` (migration 071, `runtime_source` migration 074, **`bucket_5m` + unique signature** migration 115). Migration 115 dùng **`CREATE INDEX CONCURRENTLY`** cho index mới (tránh lock bảng lâu trên Postgres; runner migration không bọc transaction ngoài — mỗi `Exec` auto-commit).
 
 Các trường chính (khớp `core/pkg/models/pod_network_connection.go`):
 
@@ -135,7 +135,7 @@ Event sinh ra: `Capability = NETWORK_TXRX_QUEUE_SPIKE`, `Syscall = connect`, `Ta
 | Chủ đề | Spec dài (networkActivity_Spec.md) | Thực tế repo |
 |--------|-------------------------------------|--------------|
 | Thu thập | eBPF DaemonSet, metadata kernel | `/proc` host hoặc **exec** `ss` trong container |
-| Lưu trữ | Redis Streams, TimescaleDB, nén protobuf | **PostgreSQL** rows, giới hạn 500 rows/query |
+| Lưu trữ | Redis Streams, TimescaleDB, nén protobuf | **PostgreSQL** rows, bucket 5 phút + upsert; đọc theo `limit` (mặc định 500) |
 | UI | Graph toàn cluster, flow list tách biệt | **Pod Detail** — bảng connections |
 | Thời gian thực | WebSocket flow stream | WebSocket **cập nhật Pod Detail** sau ingest, không phải stream từng flow |
 
@@ -168,4 +168,4 @@ Việc **lấp khoảng cách** (eBPF, retention tier, graph) là đường **ro
 
 ---
 
-*Tài liệu này phản ánh kiến trúc tại thời điểm bảo trì; khi merge tính năng mới (eBPF, retention), cập nhật mục 8 và sơ đồ mục 2.*
+*Tài liệu này phản ánh kiến trúc tại thời điểm bảo trì; khi merge tính năng mới (eBPF, v.v.), cập nhật mục 8 và sơ đồ mục 2.*

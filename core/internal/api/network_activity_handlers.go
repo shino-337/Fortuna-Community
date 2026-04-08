@@ -77,10 +77,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 		base = base.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
 	if q != "" {
-		like := "%" + strings.ToLower(q) + "%"
-		base = base.Joins("LEFT JOIN pods p ON p.uid = n.pod_uid AND p.cluster_id = n.cluster_id AND p.deleted_at IS NULL").
-			Where(`(LOWER(COALESCE(p.name,'')) LIKE ? OR LOWER(n.namespace) LIKE ? OR LOWER(COALESCE(n.dest_ip,'')) LIKE ? OR CAST(n.dest_port AS TEXT) LIKE ? OR CAST(n.source_port AS TEXT) LIKE ?)`,
-				like, like, like, like, like)
+		base = applyNetworkActivityConnectionsSearch(base, q)
 	}
 
 	var total int64
@@ -124,9 +121,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 		qb = qb.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
 	if q != "" {
-		like := "%" + strings.ToLower(q) + "%"
-		qb = qb.Where(`(LOWER(COALESCE(p.name,'')) LIKE ? OR LOWER(n.namespace) LIKE ? OR LOWER(COALESCE(n.dest_ip,'')) LIKE ? OR CAST(n.dest_port AS TEXT) LIKE ? OR CAST(n.source_port AS TEXT) LIKE ?)`,
-			like, like, like, like, like)
+		qb = applyNetworkActivityConnectionsSearch(qb, q)
 	}
 
 	var items []row
@@ -159,8 +154,7 @@ func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, names
 		sub = sub.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
 	if q != "" {
-		like := "%" + strings.ToLower(q) + "%"
-		sub = sub.Having(`(LOWER(MAX(COALESCE(p.name,''))) LIKE ? OR LOWER(MAX(n.namespace)) LIKE ?)`, like, like)
+		sub = applyNetworkActivityPodsSubSearch(sub, q)
 	}
 
 	// Count groups — wrap subquery

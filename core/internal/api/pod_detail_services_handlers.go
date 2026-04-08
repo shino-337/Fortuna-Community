@@ -388,7 +388,7 @@ func normalizePodNetworkForUpsert(p *models.PodNetworkConnection) {
 	if strings.TrimSpace(p.Protocol) == "" {
 		p.Protocol = "tcp"
 	} else {
-		p.Protocol = strings.TrimSpace(p.Protocol)
+		p.Protocol = strings.ToLower(strings.TrimSpace(p.Protocol))
 	}
 	p.State = strings.TrimSpace(p.State)
 }
