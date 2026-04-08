@@ -116,6 +116,12 @@ func main() {
 		log.Printf("[MAIN] ⚠️  Warning: Failed to run post-migrations: %v", err)
 	}
 
+	if n, err := riskengine.BackfillSupplyChainMalwareInsightsFromMatches(tempDB); err != nil {
+		log.Printf("[MAIN] ⚠️  supply_chain_malware backfill from malware_matches: %v", err)
+	} else if n > 0 {
+		log.Printf("[MAIN] ✅ Backfilled %d supply_chain_malware insight(s) from malware_matches (Risk Center / Pod Related Risks)", n)
+	}
+
 	if n, err := riskengine.SeedRiskRulesFromExportDir(tempDB); err != nil {
 		log.Printf("[MAIN] ⚠️  Risk rules seed from folder failed: %v", err)
 	} else if n > 0 {

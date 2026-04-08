@@ -14,6 +14,7 @@ import (
 	"github.com/fortuna/core/pkg/cve/database"
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/epss"
+	"github.com/fortuna/core/pkg/insightbuilder"
 	"github.com/fortuna/core/pkg/insightevidence"
 	"github.com/fortuna/core/pkg/kev"
 	"github.com/fortuna/core/pkg/malware"
@@ -659,189 +660,17 @@ func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, comp
 	}
 }
 
-// supplyChainMalwareInsightDedupKey is stored in insights.cve_id for InsightManager upsert (stable non-CVE key).
-func supplyChainMalwareInsightDedupKey(pkgName, pkgVer string) string {
-	n := strings.TrimSpace(pkgName)
-	v := strings.TrimSpace(pkgVer)
-	key := "supply-malware:" + strings.ToLower(n) + "@" + v
-	if len(key) > 255 {
-		key = key[:255]
-	}
-	return key
-}
-
-func malwareReasonToInsightSeverity(reason string) string {
-	switch strings.ToUpper(strings.TrimSpace(reason)) {
-	case "MALWARE", "PROTESTWARE":
-		return "critical"
-	case "TELEMETRY":
-		return "high"
-	default:
-		return "high"
-	}
-}
-
-func malwareMatchConfidenceForInsight(mm *models.MalwareMatch) string {
-	if mm == nil {
-		return "LOW"
-	}
-	if mm.Confidence >= 0.85 {
-		return "HIGH"
-	}
-	if mm.Confidence > 0 {
-		return "MEDIUM"
-	}
-	return "HIGH"
-}
-
-// buildSupplyChainMalwareInsight creates a Risk Operations insight for a malware_packages DB hit (parallel to CVE insights).
 func buildSupplyChainMalwareInsight(ev sbom.SBOMCreatedEvent, sbomStatus string, component *models.SBOMComponent, mm *models.MalwareMatch) *models.Insight {
-	confRank := func(c string) int {
-		switch strings.ToUpper(strings.TrimSpace(c)) {
-		case "HIGH":
-			return 3
-		case "MEDIUM":
-			return 2
-		case "LOW":
-			return 1
-		case "VERY_LOW":
-			return 0
-		default:
-			return 1
-		}
-	}
-	minConf := func(a, b string) string {
-		if confRank(a) <= confRank(b) {
-			return a
-		}
-		return b
-	}
-	min3Conf := func(a, b, c string) string {
-		return minConf(minConf(a, b), c)
-	}
-	capConf := func(v, cap string) string {
-		if confRank(v) > confRank(cap) {
-			return cap
-		}
-		return v
-	}
-
-	sbomConf := func(status string) string {
-		switch strings.ToLower(strings.TrimSpace(status)) {
-		case "complete":
-			return "HIGH"
-		case "partial":
-			return "MEDIUM"
-		case "failed":
-			return "VERY_LOW"
-		case "pending":
-			return "LOW"
-		default:
-			return "LOW"
-		}
-	}(sbomStatus)
-
-	componentConf := func(c *models.SBOMComponent) string {
-		if c == nil {
-			return "VERY_LOW"
-		}
-		if strings.EqualFold(strings.TrimSpace(c.ComponentVersion), "unknown") {
-			return "LOW"
-		}
-		sd := strings.ToLower(strings.TrimSpace(c.SourceDetail))
-		switch sd {
-		case "agent-fields":
-			tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
-			switch tl {
-			case "high":
-				return "HIGH"
-			case "medium":
-				return "MEDIUM"
-			case "low":
-				return "LOW"
-			default:
-				return "LOW"
-			}
-		case "core-regenerated-purl":
-			return "LOW"
-		case "core-generated-purl":
-			return "MEDIUM"
-		default:
-			return "LOW"
-		}
-	}(component)
-
-	matchConf := malwareMatchConfidenceForInsight(mm)
-	finalConf := min3Conf(sbomConf, componentConf, matchConf)
-	if strings.ToLower(strings.TrimSpace(sbomStatus)) == "failed" {
-		finalConf = "VERY_LOW"
-	}
-	if strings.ToLower(strings.TrimSpace(sbomStatus)) != "complete" {
-		finalConf = capConf(finalConf, "MEDIUM")
-	}
-	degraded := strings.ToLower(strings.TrimSpace(sbomStatus)) == "partial"
-
-	sev := malwareReasonToInsightSeverity(mm.Reason)
-	dedupKey := supplyChainMalwareInsightDedupKey(mm.PackageName, mm.PackageVersion)
-
-	reason := strings.TrimSpace(mm.Reason)
-	fam := strings.TrimSpace(mm.MalwareFamily)
-	desc := fmt.Sprintf(
-		"Known malicious or policy-flagged package %s@%s (%s) in pod %s/%s (container=%s, image=%s).",
-		mm.PackageName,
-		mm.PackageVersion,
-		reason,
-		ev.PodNamespace,
-		ev.PodName,
-		ev.ContainerName,
-		ev.ContainerImage,
-	)
-	if fam != "" {
-		desc += fmt.Sprintf(" Family: %s.", fam)
-	}
-	title := fmt.Sprintf("Supply-chain: %s@%s", mm.PackageName, mm.PackageVersion)
-	if degraded {
-		title = "[DEGRADED] " + title
-		desc += "\nSBOM status: partial (degraded; trust reduced)."
-	}
-
-	evidence := map[string]interface{}{
-		"malwareReason":     reason,
-		"malwareFamily":     fam,
-		"packageConfidence": mm.Confidence,
-		"insightKind":       "supply_chain_malware",
-	}
-	evidenceJSON, _ := json.Marshal(evidence)
-
-	return &models.Insight{
-		ResourceType:        "Pod",
-		ResourceNamespace:   ev.PodNamespace,
-		ResourceName:        ev.PodName,
-		ResourceUID:         ev.PodUID,
-		InsightType:         "supply_chain_malware",
-		Severity:            sev,
-		Title:               title,
-		Description:         desc,
-		Status:              "active",
-		Recommendation: fmt.Sprintf(
-			"Remove or replace dependency %s (version %s) and rebuild the container image %s.",
-			mm.PackageName,
-			mm.PackageVersion,
-			ev.ContainerImage,
-		),
-		CVEID:               dedupKey,
-		AffectedComponent:   mm.PackageName,
-		AffectedVersion:     mm.PackageVersion,
-		FixedVersion:        "",
-		CVSS:                0,
-		Evidence:            string(evidenceJSON),
-		MatchConfidence:     matchConf,
-		ComponentConfidence: componentConf,
-		SBOMConfidence:      sbomConf,
-		FinalRiskConfidence: finalConf,
-		Degraded:            degraded,
-		DetectedAt:          time.Now(),
-	}
+	return insightbuilder.BuildSupplyChainMalwareInsight(insightbuilder.SupplyChainMalwareInput{
+		PodUID:          ev.PodUID,
+		PodNamespace:    ev.PodNamespace,
+		PodName:         ev.PodName,
+		ContainerName:   ev.ContainerName,
+		ContainerImage:  ev.ContainerImage,
+		SBOMStatus:      sbomStatus,
+		Component:       component,
+		Match:           mm,
+	})
 }
 
 // resolveComponentEcosystemForMetrics resolves ecosystem for metric grouping.
