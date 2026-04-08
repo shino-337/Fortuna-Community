@@ -229,11 +229,20 @@ spec:
               drop:
                 - ALL
           
+          # Long migration chains on cold DB can exceed default liveness window; startupProbe gates liveness/readiness until HTTP is up.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          
           livenessProbe:
             httpGet:
               path: /healthz
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 10
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
@@ -242,7 +251,7 @@ spec:
             httpGet:
               path: /ready
               port: http
-            initialDelaySeconds: 10
+            initialDelaySeconds: 5
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
