@@ -100,6 +100,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 		State         string    `json:"state" gorm:"column:state"`
 		BytesSent     int64     `json:"bytesSent" gorm:"column:bytes_sent"`
 		BytesRecv     int64     `json:"bytesRecv" gorm:"column:bytes_recv"`
+		Bucket5m      time.Time `json:"bucket5m" gorm:"column:bucket_5m"`
 		ObservedAt    time.Time `json:"observedAt" gorm:"column:observed_at"`
 		CreatedAt     time.Time `json:"createdAt" gorm:"column:created_at"`
 		RuntimeSource string    `json:"runtimeSource,omitempty" gorm:"column:runtime_source"`
@@ -110,7 +111,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 	}
 
 	qb := db.Table("pod_network_connections AS n").
-		Select(`n.id, n.pod_uid, n.cluster_id, n.namespace, n.container_name, n.source_ip, n.source_port, n.dest_ip, n.dest_port, n.protocol, n.state, n.bytes_sent, n.bytes_recv, n.observed_at, n.created_at, n.runtime_source,
+		Select(`n.id, n.pod_uid, n.cluster_id, n.namespace, n.container_name, n.source_ip, n.source_port, n.dest_ip, n.dest_port, n.protocol, n.state, n.bytes_sent, n.bytes_recv, n.bucket_5m, n.observed_at, n.created_at, n.runtime_source,
 			p.name AS pod_name, p.owner_kind, p.owner_name, p.node_name`).
 		Joins("LEFT JOIN pods p ON p.uid = n.pod_uid AND p.cluster_id = n.cluster_id AND p.deleted_at IS NULL").
 		Where("n.cluster_id = ?", clusterID)

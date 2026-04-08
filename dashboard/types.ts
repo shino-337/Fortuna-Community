@@ -379,6 +379,8 @@ export interface PodNetworkConnectionItem {
   bytesSent?: number;
   /** rx_queue bytes from /proc/net/* snapshot (not cumulative bytes received) */
   bytesRecv?: number;
+  /** Start of 5-minute UTC bucket for this row (dedupe window) */
+  bucket5m?: string;
   observedAt?: string;
   /** "host" | "exec" - Runtime Source indicator */
   runtimeSource?: string;

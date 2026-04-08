@@ -5,6 +5,14 @@ export const formatDateTime = (value?: string): string => {
   return d.toLocaleString();
 };
 
+/** Hiển thị mốc bucket 5 phút (giờ:phút, theo locale). Tooltip nên dùng formatDateTime đầy đủ. */
+export const formatBucketClock = (value?: string): string => {
+  if (!value) return '—';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+};
+
 /** Format startTime as relative uptime (e.g. "2h 15m" or "3d 1h"). */
 export const formatUptime = (startTime?: string | null): string => {
   if (!startTime) return '—';
