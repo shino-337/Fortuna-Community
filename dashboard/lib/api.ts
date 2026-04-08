@@ -423,7 +423,12 @@ export const api = {
       const insightTypeRaw = (insight.insightType ?? insight.insight_type ?? '') as string;
       return {
         id: String(insight.id ?? id),
-        cveId: insight.cveId != null ? String(insight.cveId) : undefined,
+        cveId:
+          insight.cveId != null
+            ? String(insight.cveId)
+            : insight.cve_id != null
+              ? String(insight.cve_id)
+              : undefined,
         insightType: insightTypeRaw ? String(insightTypeRaw) : undefined,
         affectedComponent:
           insight.affectedComponent != null
@@ -554,7 +559,12 @@ export const api = {
         const itype = (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string;
         return {
           id: String(insight.id),
-          cveId: insight.cveId ? String(insight.cveId) : undefined,
+          cveId:
+            insight.cveId != null
+              ? String(insight.cveId)
+              : insight.cve_id != null
+                ? String(insight.cve_id)
+                : undefined,
           affectedComponent:
             insight.affectedComponent != null
               ? String(insight.affectedComponent)
@@ -1385,7 +1395,8 @@ export const api = {
       );
       const insights = (data.insights || []).map((i: any) => ({
         id: String(i.id ?? ''),
-        cveId: i.cveId != null ? String(i.cveId) : undefined,
+        cveId:
+          i.cveId != null ? String(i.cveId) : i.cve_id != null ? String(i.cve_id) : undefined,
         affectedComponent:
           i.affectedComponent != null
             ? String(i.affectedComponent)
@@ -1404,7 +1415,12 @@ export const api = {
         score: i.cvss != null ? Math.round(Number(i.cvss) * 10) : undefined,
         status: i.status === 'active' ? 'new' : i.status === 'resolved' ? 'resolved' : 'acknowledged',
         timestamp: i.detectedAt ?? i.createdAt,
-        insightType: i.insightType != null ? String(i.insightType) : undefined,
+        insightType:
+          i.insightType != null
+            ? String(i.insightType)
+            : i.insight_type != null
+              ? String(i.insight_type)
+              : undefined,
         affectedResources: [{ id: i.resourceUid ?? '', name: i.resourceName, kind: i.resourceType, namespace: i.resourceNamespace }],
       })) as Insight[];
       const s = data.summary;
