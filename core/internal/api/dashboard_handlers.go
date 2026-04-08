@@ -333,10 +333,23 @@ type RiskFilter struct {
 	Type              string `form:"type"`
 	ClusterID         string `form:"clusterId"`
 	ResourceNamespace string `form:"resourceNamespace"` // namespace filter (Phase 1)
-	SinceMinutes      int    `form:"sinceMinutes"`      // when > 0: only insights with detected_at >= now - sinceMinutes
-	WithScores        int    `form:"withScores"`       // when != 0: include totalScore, priorityLevel from risk_scores (Phase 3.1)
-	PriorityLevel     string `form:"priorityLevel"`      // when set (e.g. P0, P1): only insights whose resource has this risk_scores.priority_level
-	ScoreBin          int    `form:"scoreBin"`          // when 0,10,...,90: filter to findings whose resource score is in [scoreBin, scoreBin+10) (histogram click)
+	// SinceMinutes: when > 0, only insights with detected_at >= now - sinceMinutes.
+	// Not applied when Type is vulnerability or supply_chain_malware (SBOM-derived; detected_at is first-seen, not recurring).
+	SinceMinutes  int    `form:"sinceMinutes"`
+	WithScores    int    `form:"withScores"`    // when != 0: include totalScore, priorityLevel from risk_scores (Phase 3.1)
+	PriorityLevel string `form:"priorityLevel"` // when set (e.g. P0, P1): only insights whose resource has this risk_scores.priority_level
+	ScoreBin      int    `form:"scoreBin"`      // when 0,10,...,90: filter to findings whose resource score is in [scoreBin, scoreBin+10) (histogram click)
+}
+
+// riskInsightsListTimeWindowApplies is false for SBOM-derived insight types: their detected_at stays at first
+// match, so a short sinceMinutes (dashboard time window) would hide active findings incorrectly.
+func riskInsightsListTimeWindowApplies(insightType string) bool {
+	switch strings.TrimSpace(insightType) {
+	case "vulnerability", "supply_chain_malware":
+		return false
+	default:
+		return true
+	}
 }
 
 // InsightWithScore extends Insight with optional risk score fields (from risk_scores join).
@@ -391,7 +404,7 @@ func getInsightsListData(db *gorm.DB, filter RiskFilter, page, pageSize int, has
 			search, search, search, search, search,
 		)
 	}
-	if filter.SinceMinutes > 0 {
+	if filter.SinceMinutes > 0 && riskInsightsListTimeWindowApplies(filter.Type) {
 		since := time.Now().Add(-time.Duration(filter.SinceMinutes) * time.Minute)
 		query = query.Where("detected_at >= ?", since)
 	}
@@ -613,22 +626,22 @@ WHERE ` + joinWhere
 				percent = float64(row.Count) / float64(totalFindings) * 100
 			}
 			outBins = append(outBins, gin.H{
-				"bin":                b,
-				"count":              row.Count,
-				"percent":            roundPercent(percent),
-				"severityBreakdown":  gin.H{"critical": row.CriticalCount, "high": row.HighCount, "medium": row.MediumCount, "low": row.LowCount},
-				"critical_count":     row.CriticalCount,
-				"high_count":         row.HighCount,
-				"medium_count":       row.MediumCount,
-				"low_count":          row.LowCount,
+				"bin":               b,
+				"count":             row.Count,
+				"percent":           roundPercent(percent),
+				"severityBreakdown": gin.H{"critical": row.CriticalCount, "high": row.HighCount, "medium": row.MediumCount, "low": row.LowCount},
+				"critical_count":    row.CriticalCount,
+				"high_count":        row.HighCount,
+				"medium_count":      row.MediumCount,
+				"low_count":         row.LowCount,
 			})
 		}
 
 		resp := gin.H{
-			"bins":           outBins,
-			"totalFindings":  totalFindings,
-			"averageScore":   roundPercent(averageScore),
-			"p0Count":        p0Count,
+			"bins":          outBins,
+			"totalFindings": totalFindings,
+			"averageScore":  roundPercent(averageScore),
+			"p0Count":       p0Count,
 		}
 		b, _ := json.Marshal(resp)
 		if defaultRisksCache != nil {
@@ -705,19 +718,19 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 				search, search, search, search, search,
 			)
 		}
-	if filter.SinceMinutes > 0 {
-		since := time.Now().Add(-time.Duration(filter.SinceMinutes) * time.Minute)
-		query = query.Where("detected_at >= ?", since)
-	}
-	if strings.TrimSpace(filter.ResourceNamespace) != "" {
-		query = query.Where("resource_namespace = ?", strings.TrimSpace(filter.ResourceNamespace))
-	}
-	// Histogram bin filter: score in [scoreBin, scoreBin+10) (e.g. scoreBin=10 → 10–19)
-	// Only apply when scoreBin query param is explicitly provided.
-	if hasScoreBin && filter.ScoreBin >= 0 && filter.ScoreBin <= 90 && (filter.ScoreBin%10) == 0 {
-		query = query.Where("resource_uid IN (SELECT resource_uid FROM risk_scores WHERE total_score >= ? AND total_score < ? AND deleted_at IS NULL)",
-			filter.ScoreBin, filter.ScoreBin+10)
-	}
+		if filter.SinceMinutes > 0 && riskInsightsListTimeWindowApplies(filter.Type) {
+			since := time.Now().Add(-time.Duration(filter.SinceMinutes) * time.Minute)
+			query = query.Where("detected_at >= ?", since)
+		}
+		if strings.TrimSpace(filter.ResourceNamespace) != "" {
+			query = query.Where("resource_namespace = ?", strings.TrimSpace(filter.ResourceNamespace))
+		}
+		// Histogram bin filter: score in [scoreBin, scoreBin+10) (e.g. scoreBin=10 → 10–19)
+		// Only apply when scoreBin query param is explicitly provided.
+		if hasScoreBin && filter.ScoreBin >= 0 && filter.ScoreBin <= 90 && (filter.ScoreBin%10) == 0 {
+			query = query.Where("resource_uid IN (SELECT resource_uid FROM risk_scores WHERE total_score >= ? AND total_score < ? AND deleted_at IS NULL)",
+				filter.ScoreBin, filter.ScoreBin+10)
+		}
 
 		if format == "pdf" {
 			// PDF: load up to limit for HTML (single response)
