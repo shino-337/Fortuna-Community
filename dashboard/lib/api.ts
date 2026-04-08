@@ -41,6 +41,9 @@ import {
   PodRuntimeMetric,
   PodProcessItem,
   PodNetworkConnectionItem,
+  PodNetworkTopDestinationItem,
+  NetworkActivityDestinationRow,
+  NetworkActivityTalkerRow,
   NetworkActivityWorkloadRow,
   NetworkActivityConnectionRow,
   PodK8sEventItem,
@@ -741,13 +744,35 @@ export const api = {
     }
   },
 
+  /** Aggregated dest_ip:port/proto for this pod (same time window semantics as GET .../network). */
+  getPodNetworkTopDestinations: async (
+    podUid: string,
+    params?: { sinceMinutes?: number; limit?: number }
+  ): Promise<PodNetworkTopDestinationItem[]> => {
+    try {
+      const q = new URLSearchParams();
+      if (params?.sinceMinutes != null && params.sinceMinutes > 0) {
+        q.set('sinceMinutes', String(params.sinceMinutes));
+      }
+      if (params?.limit != null && params.limit > 0) {
+        q.set('limit', String(params.limit));
+      }
+      const qs = q.toString();
+      const path = `/runtime/pods/${encodeURIComponent(podUid)}/network/top-destinations${qs ? `?${qs}` : ''}`;
+      const data = await request<{ items?: PodNetworkTopDestinationItem[] }>(path);
+      return data.items ?? [];
+    } catch {
+      return [];
+    }
+  },
+
   /**
    * Cluster-wide network activity from pod_network_connections (same source as Pod Detail).
-   * @param view pods = one row per workload; connections = flat connection list
+   * @param view pods | connections | destinations | talkers
    */
   getNetworkActivity: async (params: {
     cluster: string;
-    view?: 'pods' | 'connections';
+    view?: 'pods' | 'connections' | 'destinations' | 'talkers';
     namespace?: string;
     q?: string;
     sinceMinutes?: number;
@@ -759,7 +784,11 @@ export const api = {
     total: number;
     page: number;
     pageSize: number;
-    items: NetworkActivityWorkloadRow[] | NetworkActivityConnectionRow[];
+    items:
+      | NetworkActivityWorkloadRow[]
+      | NetworkActivityConnectionRow[]
+      | NetworkActivityDestinationRow[]
+      | NetworkActivityTalkerRow[];
   }> => {
     const q = new URLSearchParams();
     q.set('cluster', params.cluster);

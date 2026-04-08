@@ -386,6 +386,48 @@ export interface PodNetworkConnectionItem {
   runtimeSource?: string;
 }
 
+/** Aggregated remote endpoints for a pod (GET /runtime/pods/:uid/network/top-destinations) — optional API, UI chính dùng Network activity. */
+export interface PodNetworkTopDestinationItem {
+  destIp: string;
+  destPort: number;
+  protocol: string;
+  /** Rows in window (each row is one signature × 5m bucket observation) */
+  observationCount: number;
+  lastObservedAt?: string;
+  /** How many distinct 5m buckets contributed */
+  distinctBucketCount?: number;
+}
+
+/** Cluster-wide aggregate by dest (GET /runtime/network-activity?view=destinations) */
+export interface NetworkActivityDestinationRow {
+  destIp: string;
+  destPort: number;
+  protocol: string;
+  observationCount: number;
+  lastObservedAt?: string;
+  distinctBucketCount?: number;
+  distinctPodCount: number;
+  /** pods.pod_ip = dest_ip (pod-to-pod); không phải ClusterIP Service */
+  destWorkloadName?: string;
+  destWorkloadNamespace?: string;
+}
+
+/** Cluster-wide aggregate by source pod (GET /runtime/network-activity?view=talkers) */
+export interface NetworkActivityTalkerRow {
+  podUid: string;
+  namespace: string;
+  clusterId: string;
+  podName?: string;
+  ownerKind?: string;
+  ownerName?: string;
+  nodeName?: string;
+  observationCount: number;
+  lastObservedAt?: string;
+  distinctBucketCount?: number;
+  /** Số tuple đích (IP|port|proto) khác nhau */
+  distinctDestCount: number;
+}
+
 /** Aggregated per-pod row from GET /runtime/network-activity?view=pods */
 export interface NetworkActivityWorkloadRow {
   podUid: string;

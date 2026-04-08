@@ -1214,7 +1214,11 @@ export const PodDetail: React.FC = () => {
               </div>
             </div>
           ) : (
-            <PageEmpty title="No network data" description="Network connections are collected by the agent. Enable network collection on the agent." className="py-6" />
+            <PageEmpty
+              title="No network data"
+              description="Network connections are collected by the agent. Enable network collection on the agent. For cluster-wide “top destinations”, use Dashboard → Network activity → Top đích (cluster)."
+              className="py-6"
+            />
           )}
         </Card>
       )}

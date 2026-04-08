@@ -16,7 +16,7 @@ import (
 //
 // Query:
 //   - cluster (required): cluster id
-//   - view: "connections" (default) | "pods" — flat rows vs one row per pod (aggregated)
+//   - view: "connections" (default) | "pods" | "destinations" | "talkers" — flat, per-pod summary, cluster dest aggregate, or cluster source aggregate by pod
 //   - namespace: filter
 //   - q: search pod name, namespace, dest IP/port (connections view); pod name / namespace (pods view)
 //   - sinceMinutes: only rows with bucket_5m >= floor5m(now - sinceMinutes) (aligned with stored buckets)
@@ -31,8 +31,8 @@ func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
 		clusterID = NormalizeClusterID(db, clusterID)
 
 		view := strings.ToLower(strings.TrimSpace(c.DefaultQuery("view", "connections")))
-		if view != "connections" && view != "pods" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "view must be connections or pods"})
+		if view != "connections" && view != "pods" && view != "destinations" && view != "talkers" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "view must be connections, pods, destinations, or talkers"})
 			return
 		}
 
@@ -61,6 +61,14 @@ func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
 
 		if view == "pods" {
 			handleNetworkActivityPodsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+			return
+		}
+		if view == "destinations" {
+			handleNetworkActivityDestinationsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+			return
+		}
+		if view == "talkers" {
+			handleNetworkActivityTalkersView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
 			return
 		}
 		handleNetworkActivityConnectionsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
@@ -192,6 +200,143 @@ func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, names
 
 	c.JSON(http.StatusOK, gin.H{
 		"view":      "pods",
+		"clusterId": clusterID,
+		"total":     total,
+		"page":      page,
+		"pageSize":  pageSize,
+		"items":     items,
+	})
+}
+
+// clusterDestinationRow is aggregated remote endpoints across pods in a cluster (same filters as connections view).
+type clusterDestinationRow struct {
+	DestIP               string    `json:"destIp" gorm:"column:dest_ip"`
+	DestPort             int       `json:"destPort" gorm:"column:dest_port"`
+	Protocol             string    `json:"protocol" gorm:"column:protocol"`
+	ObservationCount     int64     `json:"observationCount" gorm:"column:observation_count"`
+	LastObservedAt       time.Time `json:"lastObservedAt" gorm:"column:last_observed_at"`
+	DistinctPodCount     int64     `json:"distinctPodCount" gorm:"column:distinct_pod_count"`
+	DistinctBucketCount  int64     `json:"distinctBucketCount" gorm:"column:distinct_bucket_count"`
+	DestWorkloadName     string    `json:"destWorkloadName,omitempty" gorm:"column:dest_workload_name"`         // pods.pod_ip = dest_ip (pod-to-pod), not K8s Service ClusterIP
+	DestWorkloadNS       string    `json:"destWorkloadNamespace,omitempty" gorm:"column:dest_workload_namespace"` // namespace of matched pod, if any
+}
+
+func handleNetworkActivityDestinationsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+	// Filter only (no pdest join) so GROUP BY counts are not skewed if inventory has duplicate pod_ip rows.
+	filtered := db.Table("pod_network_connections AS n").
+		Where("n.cluster_id = ?", clusterID)
+	if namespace != "" {
+		filtered = filtered.Where("n.namespace = ?", namespace)
+	}
+	if sinceBucket != nil {
+		filtered = filtered.Where("n.bucket_5m >= ?", *sinceBucket)
+	}
+	if q != "" {
+		filtered = applyNetworkActivityConnectionsSearch(filtered, q)
+	}
+
+	grouped := filtered.Session(&gorm.Session{}).
+		Select("n.dest_ip, n.dest_port, n.protocol").
+		Group("n.dest_ip, n.dest_port, n.protocol")
+
+	var total int64
+	if err := db.Table("(?) AS g", grouped).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	qb := filtered.Session(&gorm.Session{}).
+		Joins(`LEFT JOIN pods pdest ON pdest.cluster_id = n.cluster_id AND pdest.pod_ip = n.dest_ip AND pdest.pod_ip <> '' AND pdest.deleted_at IS NULL`).
+		Select(`n.dest_ip, n.dest_port, n.protocol,
+			COUNT(DISTINCT n.id) AS observation_count,
+			MAX(n.observed_at) AS last_observed_at,
+			COUNT(DISTINCT n.pod_uid) AS distinct_pod_count,
+			COUNT(DISTINCT n.bucket_5m) AS distinct_bucket_count,
+			MAX(pdest.name) AS dest_workload_name,
+			MAX(pdest.namespace) AS dest_workload_namespace`).
+		Group("n.dest_ip, n.dest_port, n.protocol").
+		Order("observation_count DESC").
+		Offset(offset).
+		Limit(pageSize)
+
+	var items []clusterDestinationRow
+	if err := qb.Scan(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"view":      "destinations",
+		"clusterId": clusterID,
+		"total":     total,
+		"page":      page,
+		"pageSize":  pageSize,
+		"items":     items,
+	})
+}
+
+// clusterTalkerRow is per-pod aggregate: how many observation rows and distinct dest fingerprints this pod produced.
+type clusterTalkerRow struct {
+	PodUID              string    `json:"podUid" gorm:"column:pod_uid"`
+	Namespace           string    `json:"namespace" gorm:"column:namespace"`
+	ClusterID           string    `json:"clusterId" gorm:"column:cluster_id"`
+	PodName             string    `json:"podName,omitempty" gorm:"column:pod_name"`
+	OwnerKind           string    `json:"ownerKind,omitempty" gorm:"column:owner_kind"`
+	OwnerName           string    `json:"ownerName,omitempty" gorm:"column:owner_name"`
+	NodeName            string    `json:"nodeName,omitempty" gorm:"column:node_name"`
+	ObservationCount    int64     `json:"observationCount" gorm:"column:observation_count"`
+	LastObservedAt      time.Time `json:"lastObservedAt" gorm:"column:last_observed_at"`
+	DistinctBucketCount int64     `json:"distinctBucketCount" gorm:"column:distinct_bucket_count"`
+	DistinctDestCount   int64     `json:"distinctDestCount" gorm:"column:distinct_dest_count"`
+}
+
+func handleNetworkActivityTalkersView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+	base := db.Table("pod_network_connections AS n").
+		Where("n.cluster_id = ?", clusterID)
+	if namespace != "" {
+		base = base.Where("n.namespace = ?", namespace)
+	}
+	if sinceBucket != nil {
+		base = base.Where("n.bucket_5m >= ?", *sinceBucket)
+	}
+	if q != "" {
+		base = applyNetworkActivityConnectionsSearch(base, q)
+	}
+
+	grouped := base.Session(&gorm.Session{}).
+		Select("n.pod_uid, n.namespace, n.cluster_id").
+		Group("n.pod_uid, n.namespace, n.cluster_id")
+
+	var total int64
+	if err := db.Table("(?) AS g", grouped).Count(&total).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	qb := base.Session(&gorm.Session{}).
+		Joins("LEFT JOIN pods p ON p.uid = n.pod_uid AND p.cluster_id = n.cluster_id AND p.deleted_at IS NULL").
+		Select(`n.pod_uid, n.namespace, n.cluster_id,
+			MAX(p.name) AS pod_name,
+			MAX(p.owner_kind) AS owner_kind,
+			MAX(p.owner_name) AS owner_name,
+			MAX(p.node_name) AS node_name,
+			COUNT(DISTINCT n.id) AS observation_count,
+			MAX(n.observed_at) AS last_observed_at,
+			COUNT(DISTINCT n.bucket_5m) AS distinct_bucket_count,
+			COUNT(DISTINCT (n.dest_ip || E'\x1f' || n.dest_port::text || E'\x1f' || COALESCE(n.protocol, ''))) AS distinct_dest_count`).
+		Group("n.pod_uid, n.namespace, n.cluster_id").
+		Order("observation_count DESC").
+		Offset(offset).
+		Limit(pageSize)
+
+	var items []clusterTalkerRow
+	if err := qb.Scan(&items).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"view":      "talkers",
 		"clusterId": clusterID,
 		"total":     total,
 		"page":      page,

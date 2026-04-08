@@ -12,7 +12,12 @@ import { Button } from '../components/ui/Button';
 import { Pagination } from '../components/Pagination';
 import { PageEmpty } from '../components/PageEmpty';
 import { formatDateTime, formatBucketClock } from '../lib/display';
-import type { NetworkActivityWorkloadRow, NetworkActivityConnectionRow } from '../types';
+import type {
+  NetworkActivityWorkloadRow,
+  NetworkActivityConnectionRow,
+  NetworkActivityDestinationRow,
+  NetworkActivityTalkerRow,
+} from '../types';
 
 const PAGE_SIZES = [20, 50, 100, 200];
 
@@ -77,10 +82,16 @@ const TX_RX_HEADER_TITLE =
 
 const BUCKET_COL_TITLE = 'Mốc bucket 5 phút (UTC). Các hàng cùng bucket có thể trùng “Time” gần nhau — đây là bình thường.';
 
+const DEST_AGG_TITLE =
+  'Gom toàn cluster theo đích (IP:cổng + protocol). Cột Workload: khi dest IP trùng pod_ip trong inventory (pod-to-pod), không phải ClusterIP Service.';
+
+const TALKERS_AGG_TITLE =
+  'Gom theo pod nguồn: workload có nhiều bản ghi quan sát nhất. Đích (distinct) = số tuple IP|port|proto khác nhau trong cửa sổ.';
+
 export function NetworkActivity() {
   const navigate = useNavigate();
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
-  const [view, setView] = useState('pods' as 'pods' | 'connections');
+  const [view, setView] = useState('pods' as 'pods' | 'connections' | 'destinations' | 'talkers');
   const [namespaceDraft, setNamespaceDraft] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [namespaceApplied, setNamespaceApplied] = useState('');
@@ -93,6 +104,8 @@ export function NetworkActivity() {
   const [total, setTotal] = useState(0);
   const [workloads, setWorkloads] = useState([] as NetworkActivityWorkloadRow[]);
   const [connections, setConnections] = useState([] as NetworkActivityConnectionRow[]);
+  const [destinations, setDestinations] = useState([] as NetworkActivityDestinationRow[]);
+  const [talkers, setTalkers] = useState([] as NetworkActivityTalkerRow[]);
 
   const appliedPort = useMemo(() => parseAppliedPort(searchApplied), [searchApplied]);
   const hasTextFilters = Boolean(namespaceApplied || searchApplied);
@@ -117,6 +130,8 @@ export function NetworkActivity() {
       if (!selectedClusterId) {
         setWorkloads([]);
         setConnections([]);
+        setDestinations([]);
+        setTalkers([]);
         setTotal(0);
         return;
       }
@@ -136,14 +151,30 @@ export function NetworkActivity() {
         if (data.view === 'pods') {
           setWorkloads((data.items as NetworkActivityWorkloadRow[]) ?? []);
           setConnections([]);
+          setDestinations([]);
+          setTalkers([]);
+        } else if (data.view === 'destinations') {
+          setDestinations((data.items as NetworkActivityDestinationRow[]) ?? []);
+          setWorkloads([]);
+          setConnections([]);
+          setTalkers([]);
+        } else if (data.view === 'talkers') {
+          setTalkers((data.items as NetworkActivityTalkerRow[]) ?? []);
+          setWorkloads([]);
+          setConnections([]);
+          setDestinations([]);
         } else {
           setConnections((data.items as NetworkActivityConnectionRow[]) ?? []);
           setWorkloads([]);
+          setDestinations([]);
+          setTalkers([]);
         }
       } catch {
         setTotal(0);
         setWorkloads([]);
         setConnections([]);
+        setDestinations([]);
+        setTalkers([]);
       } finally {
         setLoading(false);
         if (manual) setRefreshSpin(false);
@@ -155,6 +186,15 @@ export function NetworkActivity() {
   useEffect(() => {
     setPage(1);
   }, [view, selectedClusterId, sinceMinutes]);
+
+  /** Tránh hiển thị nhầm bảng / phân trang giữa các view khi đổi tab. */
+  useEffect(() => {
+    setTotal(0);
+    setWorkloads([]);
+    setConnections([]);
+    setDestinations([]);
+    setTalkers([]);
+  }, [view]);
 
   useEffect(() => {
     void fetchData(false);
@@ -173,7 +213,7 @@ export function NetworkActivity() {
   return (
     <PageLayout
       title="Network activity"
-      description="Tổng hợp kết nối mạng từ agent (Pod Detail). Chọn cluster ở thanh trên cùng."
+      description="Workload, kết nối thô, top đích cluster, top nguồn (pod)—dữ liệu Pod Detail network. Chọn cluster trên thanh trên cùng."
     >
       {!selectedClusterId ? (
         <PageEmpty
@@ -202,6 +242,26 @@ export function NetworkActivity() {
                 }`}
               >
                 Tất cả kết nối
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('destinations')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  view === 'destinations' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+                title={DEST_AGG_TITLE}
+              >
+                Top đích (cluster)
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('talkers')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  view === 'talkers' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+                title={TALKERS_AGG_TITLE}
+              >
+                Top nguồn (Pod)
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -238,14 +298,25 @@ export function NetworkActivity() {
                   value={searchDraft}
                   onChange={(e) => setSearchDraft(e.target.value)}
                   onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-                  placeholder={view === 'pods' ? 'Tên pod, namespace…' : 'Pod, IP đích, cổng…'}
+                  placeholder={
+                    view === 'pods' || view === 'talkers'
+                      ? 'Tên pod, namespace…'
+                      : 'Pod, IP đích, cổng…'
+                  }
                   className="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 placeholder:text-slate-600"
                 />
               </div>
-              {view === 'connections' && (
+              {(view === 'connections' || view === 'destinations' || view === 'talkers') && (
                 <p className="mt-1 text-[11px] text-slate-600">
-                  Gợi ý: chỉ nhập số (ví dụ <span className="font-mono text-slate-500">443</span>) rồi Áp dụng để
-                  lọc nhanh theo cổng đích hoặc nguồn.
+                  {view === 'talkers' ? (
+                    <>Lọc theo tên pod / namespace (giống view workload). </>
+                  ) : (
+                    <>
+                      Gợi ý: chỉ nhập số (ví dụ <span className="font-mono text-slate-500">443</span>) rồi Áp dụng để
+                      lọc nhanh theo cổng đích hoặc nguồn
+                      {view === 'destinations' ? ' (lọc trước khi gom đích).' : '.'}
+                    </>
+                  )}
                 </p>
               )}
             </div>
@@ -279,7 +350,8 @@ export function NetworkActivity() {
             </div>
           </div>
 
-          {appliedPort != null && view === 'connections' && (
+          {appliedPort != null &&
+            (view === 'connections' || view === 'destinations' || view === 'talkers') && (
             <div className="px-4 pb-2 flex flex-wrap gap-2 items-center text-xs">
               <span className="inline-flex items-center rounded-full bg-slate-800 text-slate-300 px-2.5 py-0.5 border border-slate-600">
                 Port = {appliedPort}
@@ -289,7 +361,12 @@ export function NetworkActivity() {
           )}
 
           <div className="overflow-x-auto">
-            {loading && total === 0 && workloads.length === 0 && connections.length === 0 ? (
+            {loading &&
+            total === 0 &&
+            workloads.length === 0 &&
+            connections.length === 0 &&
+            destinations.length === 0 &&
+            talkers.length === 0 ? (
               <p className="p-8 text-slate-500 text-sm text-center">Đang tải…</p>
             ) : view === 'pods' ? (
               workloads.length === 0 ? (
@@ -354,6 +431,154 @@ export function NetworkActivity() {
                     ))}
                   </tbody>
                 </table>
+              )
+            ) : view === 'destinations' ? (
+              destinations.length === 0 ? (
+                <div className="py-8">
+                  <PageEmpty
+                    title="Chưa có dữ liệu gom đích"
+                    description={`Không có bản ghi nào sau khi lọc để gom theo đích. Thu thập từ agent (Pod Detail network). ${emptyContextLine}`}
+                    className="py-8"
+                  />
+                  {hasTextFilters && (
+                    <div className="flex justify-center">
+                      <Button variant="secondary" size="sm" onClick={clearTextFilters}>
+                        Xóa lọc namespace / tìm kiếm
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="px-2 pb-2">
+                  <p className="text-xs text-slate-500 mb-3 px-2" title={DEST_AGG_TITLE}>
+                    Topology nhẹ theo đích: IP:cổng / protocol. Cột Workload khi IP trùng <span className="font-mono">pod_ip</span> trong
+                    inventory (không phải Service ClusterIP). Chưa D3.
+                  </p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3">Remote (đích)</th>
+                        <th className="px-4 py-3">Proto</th>
+                        <th className="px-4 py-3" title="Pod có pod_ip = dest IP (nếu có)">
+                          Workload đích
+                        </th>
+                        <th className="px-4 py-3 text-right" title="Số bản ghi quan sát (đã bucket 5 phút)">
+                          Quan sát
+                        </th>
+                        <th className="px-4 py-3 text-right" title="Số pod nguồn khác nhau">
+                          Pods
+                        </th>
+                        <th className="px-4 py-3 text-right" title="Số mốc bucket 5 phút (UTC)">
+                          Buckets
+                        </th>
+                        <th className="px-4 py-3">Lần cuối</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {destinations.map((row, idx) => (
+                        <tr key={`${row.destIp}-${row.destPort}-${row.protocol}-${idx}`} className="hover:bg-muted/30">
+                          <td className="px-4 py-3 font-mono text-xs text-slate-200 whitespace-nowrap">
+                            {row.destIp || '—'}:{row.destPort ?? 0}
+                          </td>
+                          <td className="px-4 py-3 text-xs">{row.protocol ?? '—'}</td>
+                          <td className="px-4 py-3 text-xs text-slate-400 max-w-[10rem] truncate" title={row.destWorkloadName || ''}>
+                            {row.destWorkloadName ? (
+                              <span>
+                                {row.destWorkloadName}
+                                {row.destWorkloadNamespace ? (
+                                  <span className="text-slate-600"> ({row.destWorkloadNamespace})</span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              '—'
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-200">{row.observationCount}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-300">{row.distinctPodCount}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-400">
+                            {row.distinctBucketCount ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                            {row.lastObservedAt ? formatDateTime(row.lastObservedAt) : '—'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )
+            ) : view === 'talkers' ? (
+              talkers.length === 0 ? (
+                <div className="py-8">
+                  <PageEmpty
+                    title="Chưa có dữ liệu top nguồn"
+                    description={`Không có bản ghi pod nào sau khi lọc. ${emptyContextLine}`}
+                    className="py-8"
+                  />
+                  {hasTextFilters && (
+                    <div className="flex justify-center">
+                      <Button variant="secondary" size="sm" onClick={clearTextFilters}>
+                        Xóa lọc namespace / tìm kiếm
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="px-2 pb-2">
+                  <p className="text-xs text-slate-500 mb-3 px-2" title={TALKERS_AGG_TITLE}>
+                    Pod nguồn có nhiều quan sát nhất (số hàng đã bucket). Đích (distinct) ≈ độ đa dạng điểm đến.
+                  </p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-left text-xs uppercase tracking-wide text-slate-500">
+                        <th className="px-4 py-3">Pod</th>
+                        <th className="px-4 py-3">NS</th>
+                        <th className="px-4 py-3">Owner</th>
+                        <th className="px-4 py-3">Node</th>
+                        <th className="px-4 py-3 text-right" title={OBS_BUCKET_HEADER_TITLE}>
+                          Quan sát
+                        </th>
+                        <th className="px-4 py-3 text-right" title="Số đích (IP|port|proto) khác nhau">
+                          Đích (distinct)
+                        </th>
+                        <th className="px-4 py-3 text-right">Buckets</th>
+                        <th className="px-4 py-3">Lần cuối</th>
+                        <th className="px-4 py-3 text-right">Chi tiết</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {talkers.map((t) => (
+                        <tr key={`${t.podUid}-${t.namespace}`} className="hover:bg-muted/30">
+                          <td className="px-4 py-3 text-slate-200 max-w-[10rem] truncate" title={t.podName || t.podUid}>
+                            {podDisplayName(t.podName, t.podUid)}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">{t.namespace}</td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">
+                            {t.ownerKind && t.ownerName ? `${t.ownerKind}/${t.ownerName}` : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-slate-400 text-xs">{t.nodeName || '—'}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-200">{t.observationCount}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-300">{t.distinctDestCount}</td>
+                          <td className="px-4 py-3 text-right tabular-nums text-slate-400">
+                            {t.distinctBucketCount ?? '—'}
+                          </td>
+                          <td className="px-4 py-3 text-xs text-slate-500 whitespace-nowrap">
+                            {t.lastObservedAt ? formatDateTime(t.lastObservedAt) : '—'}
+                          </td>
+                          <td className="px-4 py-3 text-right">
+                            <button
+                              type="button"
+                              onClick={() => goPod(t.podUid)}
+                              className="inline-flex items-center gap-1 text-pink-400 hover:text-pink-300 text-xs font-medium"
+                            >
+                              Pod <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               )
             ) : connections.length === 0 ? (
               <div className="py-8">
@@ -457,7 +682,15 @@ export function NetworkActivity() {
                 setPage(1);
               }}
               pageSizeOptions={PAGE_SIZES}
-              itemLabel={view === 'pods' ? 'workloads' : 'connections'}
+              itemLabel={
+                view === 'pods'
+                  ? 'workloads'
+                  : view === 'destinations'
+                    ? 'destinations'
+                    : view === 'talkers'
+                      ? 'talkers'
+                      : 'connections'
+              }
             />
           )}
         </Card>

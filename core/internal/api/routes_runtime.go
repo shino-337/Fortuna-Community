@@ -15,6 +15,8 @@ func registerRuntimeRoutes(api *gin.RouterGroup, db *gorm.DB) {
 
 	pods := rt.Group("/pods")
 	pods.GET("/:uid/processes", GetPodProcessesByUID(db))
+	// More specific than /:uid/network so Gin does not treat "top-destinations" as :uid (literal path segment).
+	pods.GET("/:uid/network/top-destinations", GetPodNetworkTopDestinationsByUID(db))
 	pods.GET("/:uid/network", GetPodNetworkConnectionsByUID(db))
 	pods.GET("/:uid/events", GetPodEventsByUID(db))
 	pods.GET("/:uid/metrics", GetPodRuntimeMetricsByUID(db))
