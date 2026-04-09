@@ -3,18 +3,20 @@ module github.com/fortuna/core
 go 1.24.0
 
 require (
-	github.com/boltdb/bolt v1.3.1
 	github.com/fortuna/api v0.0.0
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/gin-gonic/gin v1.9.1
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.2.0
 	github.com/google/cel-go v0.26.1
+	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/go-version v1.8.0
 	github.com/knqyf263/go-deb-version v0.0.0-20241115132648-6f4aee6ccd23
+	github.com/knqyf263/go-rpm-version v0.0.0-20240918084003-2afd7dc6a38f
 	github.com/lib/pq v1.10.9
 	github.com/nats-io/nats.go v1.31.0
 	github.com/prometheus/client_golang v1.18.0
+	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.44.0
 	golang.org/x/time v0.3.0
 	google.golang.org/grpc v1.77.0
@@ -55,7 +57,6 @@ require (
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/gofuzz v1.2.0 // indirect
 	github.com/google/uuid v1.6.0 // indirect
-	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/imdario/mergo v0.3.6 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a // indirect
@@ -66,7 +67,6 @@ require (
 	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.18.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.4 // indirect
-	github.com/knqyf263/go-rpm-version v0.0.0-20240918084003-2afd7dc6a38f // indirect
 	github.com/leodido/go-urn v1.2.4 // indirect
 	github.com/mailru/easyjson v0.7.7 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
@@ -86,13 +86,10 @@ require (
 	github.com/rogpeppe/go-internal v1.14.1 // indirect
 	github.com/spf13/pflag v1.0.9 // indirect
 	github.com/stoewer/go-strcase v1.2.0 // indirect
-	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.11 // indirect
 	go.opentelemetry.io/otel v1.39.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.39.0 // indirect
-	go.uber.org/multierr v1.10.0 // indirect
-	go.uber.org/zap v1.27.1 // indirect
 	golang.org/x/arch v0.3.0 // indirect
 	golang.org/x/exp v0.0.0-20230515195305-f3d0a9c9a5cc // indirect
 	golang.org/x/net v0.47.0 // indirect

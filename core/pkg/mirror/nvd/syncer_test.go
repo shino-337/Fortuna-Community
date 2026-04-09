@@ -2,8 +2,11 @@ package nvd
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 	"time"
+
+	"github.com/lib/pq"
 )
 
 func TestParseCPE(t *testing.T) {
@@ -71,8 +74,9 @@ func TestExtractCWEIDs(t *testing.T) {
 		},
 	}}
 	got := extractCWEIDs(ws)
-	if got != "{CWE-79,CWE-89}" {
-		t.Errorf("got %q", got)
+	want := pq.StringArray{"CWE-79", "CWE-89"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("got %v, want %v", got, want)
 	}
 }
 
