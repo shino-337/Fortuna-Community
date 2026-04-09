@@ -37,6 +37,10 @@ function computeDirection(
   return 'inbound';
 }
 
+/* ──────────────── constants ──────────────── */
+
+const PROTO_COLORS = ['#38bdf8', '#f472b6', '#a78bfa', '#34d399', '#fbbf24', '#fb923c'];
+
 /* ──────────────── component ──────────────── */
 
 export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
@@ -164,8 +168,6 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
 };
 
 /* ──────────────── sub-components ──────────────── */
-
-const PROTO_COLORS = ['#38bdf8', '#f472b6', '#a78bfa', '#34d399', '#fbbf24', '#fb923c'];
 
 function Kpi({ label, value, accent }: { label: string; value: number; accent?: 'sky' | 'pink' }) {
   const textColor =

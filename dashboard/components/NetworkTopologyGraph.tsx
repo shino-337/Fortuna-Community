@@ -33,6 +33,9 @@ export interface NetworkTopologyGraphProps {
 
 /* ─── helpers ─────────────────────────────────────────────────── */
 
+/** Max pods to link per destination node (avoids spaghetti) */
+const MAX_LINKS_PER_DESTINATION = 5;
+
 function buildGraph(
   destinations: NetworkActivityDestinationRow[],
   talkers: NetworkActivityTalkerRow[],
@@ -81,7 +84,7 @@ function buildGraph(
   for (const d of topDests) {
     const destKey = `dest:${d.destIp}:${d.destPort}/${d.protocol ?? 'tcp'}`;
     // Connect to each pod that could reach this dest (top N by observation)
-    const podsToLink = podIds.slice(0, Math.min(podIds.length, 5));
+    const podsToLink = podIds.slice(0, Math.min(podIds.length, MAX_LINKS_PER_DESTINATION));
     for (const podId of podsToLink) {
       links.push({
         source: podId,
