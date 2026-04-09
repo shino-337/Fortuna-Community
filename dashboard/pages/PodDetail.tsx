@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal, RuntimeSignalSuppressionStats, PodRiskReportSummary, PodRuntimeSecurityEvent, PodRuntimeBehaviorFact, PodRuntimeIncident, PodCapabilityDetail } from '../types';
@@ -10,7 +10,7 @@ import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
 import { PodNetworkSummary } from '../components/PodNetworkSummary';
-import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
@@ -50,6 +50,7 @@ export const PodDetail: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
   const [tabLoading, setTabLoading] = useState(false);
+  const [sbomLoaded, setSbomLoaded] = useState(false);
   const [sbomSeverityFilter, setSbomSeverityFilter] = useState<string>('all');
   const [sbomStatusFilter, setSbomStatusFilter] = useState<string>('all');
   const [sbomOnlyVulnerable, setSbomOnlyVulnerable] = useState(false);
@@ -72,8 +73,9 @@ export const PodDetail: React.FC = () => {
   const [runtimeSignalFilter, setRuntimeSignalFilter] = useState<'all' | 'NETWORK_QUEUE_ANOMALY'>('all');
   /** Filter for GET /risk/.../runtime/events (Falco vs other collectors) */
   const [secRuntimeFilter, setSecRuntimeFilter] = useState<'all' | 'falco' | 'other'>('all');
-  const [showLegacyEventsView, setShowLegacyEventsView] = useState(false);
   const [specYaml, setSpecYaml] = useState<string>('');
+  const [refreshing, setRefreshing] = useState(false);
+  const [dataErrors, setDataErrors] = useState<string[]>([]);
   /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
   const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
 
@@ -88,18 +90,45 @@ export const PodDetail: React.FC = () => {
 
   const runtimeSignalVisual = (signalType: string): { signalClass: string; severity: string; severityClass: string } => {
     const t = (signalType || '').trim().toUpperCase();
-    if (t === 'NETWORK_QUEUE_ANOMALY') {
-      return {
+    const knownSignals: Record<string, { signalClass: string; severity: string; severityClass: string }> = {
+      NETWORK_QUEUE_ANOMALY: {
         signalClass: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40',
         severity: 'MEDIUM',
         severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
-      };
-    }
-    if (t === 'SUSPICIOUS_EXEC_FROM_SNAPSHOT') {
-      return {
+      },
+      SUSPICIOUS_EXEC_FROM_SNAPSHOT: {
         signalClass: 'bg-orange-500/20 text-orange-300 border-orange-500/40',
         severity: 'HIGH',
         severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+      },
+      PRIVILEGE_ESCALATION: {
+        signalClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+        severity: 'CRITICAL',
+        severityClass: 'bg-red-600/20 text-red-300 border-red-600/40',
+      },
+      UNEXPECTED_NETWORK_CONN: {
+        signalClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+        severity: 'MEDIUM',
+        severityClass: 'bg-amber-500/20 text-amber-300 border-amber-500/40',
+      },
+      SENSITIVE_FILE_ACCESS: {
+        signalClass: 'bg-yellow-500/20 text-yellow-300 border-yellow-500/40',
+        severity: 'HIGH',
+        severityClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+      },
+      CRYPTOMINING_DETECTED: {
+        signalClass: 'bg-red-500/20 text-red-300 border-red-500/40',
+        severity: 'CRITICAL',
+        severityClass: 'bg-red-600/20 text-red-300 border-red-600/40',
+      },
+    };
+    if (knownSignals[t]) return knownSignals[t];
+    // Dynamic fallback: treat any unknown signal with WARN-level styling instead of silent INFO
+    if (t) {
+      return {
+        signalClass: 'bg-amber-500/15 text-amber-200 border-amber-500/30',
+        severity: 'WARN',
+        severityClass: 'bg-amber-500/15 text-amber-200 border-amber-500/30',
       };
     }
     return {
@@ -141,38 +170,52 @@ export const PodDetail: React.FC = () => {
       setTabLoading(true);
       try {
         if (tab === 'sbom') {
-          const data = await api.getPodSbom(pod.uid);
-          setSbom(data ?? null);
+          // Skip if already loaded by preload
+          if (!sbomLoaded) {
+            const data = await api.getPodSbom(pod.uid);
+            setSbom(data ?? null);
+            setSbomLoaded(true);
+          }
         } else if (tab === 'risks') {
-          const { insights } = await api.getPodRiskReport(pod.uid);
-          setRelatedRisks(insights);
+          // Skip if already loaded by preload
+          if (relatedRisks.length === 0 && !podRiskReportSummary) {
+            const { insights } = await api.getPodRiskReport(pod.uid);
+            setRelatedRisks(insights);
+          }
         } else if (tab === 'processes') {
-          const data = await api.getPodProcesses(pod.uid);
-          setProcesses(data);
+          if (processes.length === 0) {
+            const data = await api.getPodProcesses(pod.uid);
+            setProcesses(data);
+          }
         } else if (tab === 'network') {
-          const [data, topDest] = await Promise.all([
-            api.getPodNetworkConnections(pod.uid),
-            api.getPodNetworkTopDestinations(pod.uid, { sinceMinutes: 1440 }),
-          ]);
-          setNetworkConnections(data);
-          setNetworkTopDestinations(topDest);
+          if (networkConnections.length === 0) {
+            const [data, topDest] = await Promise.all([
+              api.getPodNetworkConnections(pod.uid),
+              api.getPodNetworkTopDestinations(pod.uid, { sinceMinutes: 1440 }),
+            ]);
+            setNetworkConnections(data);
+            setNetworkTopDestinations(topDest);
+          }
         } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
-          const [data, sec, facts, incidents, caps] = await Promise.all([
-            api.getPodEvents(pod.uid),
-            api.getPodRuntimeSecurityEvents(pod.uid, 150),
-            api.getPodRuntimeBehaviorFactsV2(pod.uid, 120),
-            api.getPodRuntimeIncidentsV2(pod.uid, 80),
-            api.getPodCapabilities(pod.uid),
-          ]);
-          setPodEvents(data);
-          setRuntimeSecurityEvents(sec);
-          setRuntimeFacts(facts);
-          setRuntimeIncidents(incidents);
-          setPodCapabilities(caps);
-          const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 });
-          setRuntimeSignals(signals);
-          const stats = await api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 });
-          setSignalStats(stats);
+          // Only fetch if empty (preload already populates these)
+          if (runtimeSecurityEvents.length === 0 && runtimeFacts.length === 0) {
+            const [data, sec, facts, incidents, caps] = await Promise.all([
+              api.getPodEvents(pod.uid),
+              api.getPodRuntimeSecurityEvents(pod.uid, 150),
+              api.getPodRuntimeBehaviorFactsV2(pod.uid, 120),
+              api.getPodRuntimeIncidentsV2(pod.uid, 80),
+              api.getPodCapabilities(pod.uid),
+            ]);
+            setPodEvents(data);
+            setRuntimeSecurityEvents(sec);
+            setRuntimeFacts(facts);
+            setRuntimeIncidents(incidents);
+            setPodCapabilities(caps);
+            const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 });
+            setRuntimeSignals(signals);
+            const stats = await api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 });
+            setSignalStats(stats);
+          }
         } else if (tab === 'spec') {
           const yaml = await api.getPodSpecYaml(pod.uid);
           setSpecYaml(yaml);
@@ -181,7 +224,7 @@ export const PodDetail: React.FC = () => {
         setTabLoading(false);
       }
     },
-    [pod]
+    [pod, sbomLoaded, relatedRisks.length, podRiskReportSummary, processes.length, networkConnections.length, runtimeSecurityEvents.length, runtimeFacts.length]
   );
 
   useEffect(() => {
@@ -191,9 +234,10 @@ export const PodDetail: React.FC = () => {
   // Load SBOM when pod is available (for Overview summary + SBOM tab)
   useEffect(() => {
     if (pod?.uid) {
-      api.getPodSbom(pod.uid).then((data) => setSbom(data ?? null)).catch(() => setSbom(null));
+      api.getPodSbom(pod.uid).then((data) => { setSbom(data ?? null); setSbomLoaded(true); }).catch(() => { setSbom(null); setSbomLoaded(true); });
     } else {
       setSbom(null);
+      setSbomLoaded(false);
     }
   }, [pod?.uid]);
 
@@ -215,21 +259,33 @@ export const PodDetail: React.FC = () => {
       });
   }, [pod?.uid]);
 
+  // Helper to refresh all pod-detail data (used by preload + WS + manual refresh)
+  const refreshAllData = useCallback((podUid: string) => {
+    const errors: string[] = [];
+    const track = (label: string) => (err: unknown) => { errors.push(label); console.error(label, err); };
+    Promise.all([
+      api.getPodRuntimeMetrics(podUid).then(setRuntimeMetrics).catch(track('metrics')),
+      api.getPodProcesses(podUid).then(setProcesses).catch(track('processes')),
+      api.getPodNetworkConnections(podUid).then(setNetworkConnections).catch(track('network')),
+      api.getPodNetworkTopDestinations(podUid, { sinceMinutes: 1440 }).then(setNetworkTopDestinations).catch(track('top-dest')),
+      api.getPodEvents(podUid).then(setPodEvents).catch(track('events')),
+      api.getPodRuntimeSecurityEvents(podUid, 150).then(setRuntimeSecurityEvents).catch(track('security-events')),
+      api.getRuntimeSignalsByPod(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(track('signals')),
+      api.getPodRuntimeBehaviorFactsV2(podUid, 120).then(setRuntimeFacts).catch(track('facts')),
+      api.getPodRuntimeIncidentsV2(podUid, 80).then(setRuntimeIncidents).catch(track('incidents')),
+      api.getPodCapabilities(podUid).then(setPodCapabilities).catch(track('capabilities')),
+      api.getRuntimeSignalSuppressionStats({ podUid, sinceMinutes: 60 }).then(setSignalStats).catch(track('signal-stats')),
+    ]).then(() => {
+      if (errors.length > 0) setDataErrors(errors);
+      else setDataErrors([]);
+    });
+  }, []);
+
   // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data. All use pod UID.
   useEffect(() => {
     if (!pod?.uid) return;
-    api.getPodRuntimeMetrics(pod.uid).then(setRuntimeMetrics).catch(() => []);
-    api.getPodProcesses(pod.uid).then(setProcesses).catch(() => []);
-    api.getPodNetworkConnections(pod.uid).then(setNetworkConnections).catch(() => []);
-    api.getPodNetworkTopDestinations(pod.uid, { sinceMinutes: 1440 }).then(setNetworkTopDestinations).catch(() => []);
-    api.getPodEvents(pod.uid).then(setPodEvents).catch(() => []);
-    api.getPodRuntimeSecurityEvents(pod.uid, 150).then(setRuntimeSecurityEvents).catch(() => []);
-    api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => []);
-    api.getPodRuntimeBehaviorFactsV2(pod.uid, 120).then(setRuntimeFacts).catch(() => []);
-    api.getPodRuntimeIncidentsV2(pod.uid, 80).then(setRuntimeIncidents).catch(() => []);
-    api.getPodCapabilities(pod.uid).then(setPodCapabilities).catch(() => []);
-    api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
-  }, [pod?.uid]);
+    refreshAllData(pod.uid);
+  }, [pod?.uid, refreshAllData]);
 
   useEffect(() => {
     if (pod && activeTab !== 'overview') fetchTabData(activeTab);
@@ -238,7 +294,7 @@ export const PodDetail: React.FC = () => {
   // Phase 5.1: WebSocket for live pod detail updates (metrics, processes, network, events). All APIs use pod UID.
   const wsUid = pod?.uid ?? uid ?? null;
   const hasToken = Boolean(useAuthStore((s) => s.token));
-  const podUidRef = React.useRef(pod?.uid);
+  const podUidRef = useRef(pod?.uid);
   podUidRef.current = pod?.uid;
   useEffect(() => {
     if (!wsUid || !pod?.uid || !hasToken) return;
@@ -259,33 +315,12 @@ export const PodDetail: React.FC = () => {
           } else if (t === 'network') {
             api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
           } else if (t === 'events') {
-            api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
-            api.getPodRuntimeSecurityEvents(currentUid, 150).then(setRuntimeSecurityEvents).catch(() => {});
-            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => {});
-            api.getPodRuntimeBehaviorFactsV2(currentUid, 120).then(setRuntimeFacts).catch(() => {});
-            api.getPodRuntimeIncidentsV2(currentUid, 80).then(setRuntimeIncidents).catch(() => {});
-            api.getPodCapabilities(currentUid).then(setPodCapabilities).catch(() => {});
-            api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
+            refreshAllData(currentUid);
           } else {
-            api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
-            api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
-            api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
-            api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
-            api.getPodRuntimeSecurityEvents(currentUid, 150).then(setRuntimeSecurityEvents).catch(() => {});
-            api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => {});
-            api.getPodRuntimeBehaviorFactsV2(currentUid, 120).then(setRuntimeFacts).catch(() => {});
-            api.getPodRuntimeIncidentsV2(currentUid, 80).then(setRuntimeIncidents).catch(() => {});
-            api.getPodCapabilities(currentUid).then(setPodCapabilities).catch(() => {});
-            api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
+            refreshAllData(currentUid);
           }
         } catch {
-          api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
-          api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
-          api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
-          api.getPodEvents(currentUid).then(setPodEvents).catch(() => {});
-          api.getPodRuntimeSecurityEvents(currentUid, 150).then(setRuntimeSecurityEvents).catch(() => {});
-          api.getRuntimeSignalsByPod(currentUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => {});
-          api.getRuntimeSignalSuppressionStats({ podUid: currentUid, sinceMinutes: 60 }).then(setSignalStats).catch(() => {});
+          refreshAllData(currentUid);
         }
       };
     } catch {
@@ -294,7 +329,7 @@ export const PodDetail: React.FC = () => {
     return () => {
       if (ws != null) ws.close();
     };
-  }, [wsUid, pod?.uid, hasToken]);
+  }, [wsUid, pod?.uid, hasToken, refreshAllData]);
 
   if (loading || !idOrUid) {
     return <PageLoading message="Loading pod detail..." className="min-h-[40vh]" />;
@@ -339,9 +374,30 @@ export const PodDetail: React.FC = () => {
       title="Pod Detail"
       description=""
       actions={
-        <Button variant="secondary" onClick={() => navigate('/resources')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              if (!pod?.uid) return;
+              setRefreshing(true);
+              try {
+                await fetchPod();
+                refreshAllData(pod.uid);
+                setSbomLoaded(false);
+                api.getPodSbom(pod.uid).then((d) => { setSbom(d ?? null); setSbomLoaded(true); }).catch(() => { setSbom(null); setSbomLoaded(true); });
+                api.getPodRiskReport(pod.uid).then(({ insights, summary }) => { setRelatedRisks(insights ?? []); setPodRiskReportSummary(summary ?? null); }).catch(() => {});
+              } finally {
+                setRefreshing(false);
+              }
+            }}
+            disabled={refreshing}
+          >
+            <RefreshCw className={clsx('w-4 h-4 mr-2', refreshing && 'animate-spin')} /> {refreshing ? 'Refreshing…' : 'Refresh'}
+          </Button>
+          <Button variant="secondary" onClick={() => navigate('/resources')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+          </Button>
+        </div>
       }
     >
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 md:gap-6 mb-6 min-w-0">
@@ -371,6 +427,12 @@ export const PodDetail: React.FC = () => {
         <p className="text-slate-500 text-xs mb-2">
           Pod IP and Start time come from agent sync. If empty, wait for the next sync (~2 min) or restart the agent: <code className="bg-slate-800 px-1 rounded">kubectl rollout restart daemonset/fortuna-agent -n fortuna</code>
         </p>
+      )}
+      {dataErrors.length > 0 && (
+        <div className="mb-3 p-2.5 rounded-lg border border-amber-700/50 bg-amber-950/30 flex items-center gap-2 text-xs text-amber-300">
+          <AlertTriangle className="w-4 h-4 shrink-0" />
+          <span>Failed to load: {dataErrors.join(', ')}. <button type="button" className="underline hover:text-white" onClick={() => pod?.uid && refreshAllData(pod.uid)}>Retry</button></span>
+        </div>
       )}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6 min-w-0">
         <Card variant="panel" className="bg-slate-900/50 min-w-0">
@@ -419,37 +481,47 @@ export const PodDetail: React.FC = () => {
             <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
               <Box className="w-5 h-5 text-pink-500" /> Overview
             </h3>
-            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div>
-                <dt className="text-slate-500">Namespace</dt>
-                <dd className="text-white font-mono">{pod.namespace}</dd>
-              </div>
-              <div>
-                <dt className="text-slate-500">Node</dt>
-                <dd className="text-slate-300 font-mono">
-                  {pod.nodeName && pod.clusterId ? (
-                    <button type="button" className="text-pink-400 hover:underline" onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName!)}`)}>
-                      {pod.nodeName}
-                    </button>
-                  ) : (
-                    pod.nodeName ?? '—'
+            {/* Container image info — GAP 10: missing from original */}
+            {(sbom?.image || sbom?.container) && (
+              <div className="mb-4 pb-4 border-b border-slate-800">
+                <h4 className="text-sm font-semibold text-slate-300 mb-3">Container Image</h4>
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  {sbom?.image && (
+                    <div className="col-span-2">
+                      <dt className="text-slate-500">Image</dt>
+                      <dd className="text-slate-300 font-mono text-xs break-all">{sbom.image}</dd>
+                    </div>
                   )}
-                </dd>
+                  {sbom?.container && (
+                    <div>
+                      <dt className="text-slate-500">Container</dt>
+                      <dd className="text-slate-300 font-mono">{sbom.container}</dd>
+                    </div>
+                  )}
+                </dl>
               </div>
-              <div>
-                <dt className="text-slate-500">Pod IP</dt>
-                <dd className="text-slate-300 font-mono">{pod.podIP ?? '—'}</dd>
-              </div>
-              <div>
-                <dt className="text-slate-500">Service Account</dt>
-                <dd className="text-slate-300 font-mono">{pod.serviceAccount ?? '—'}</dd>
-              </div>
+            )}
+            <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
                 <dt className="text-slate-500">UID</dt>
                 <dd className="text-slate-400 font-mono text-xs break-all">{pod.uid}</dd>
               </div>
+              {pod.nodeName && (
+                <div>
+                  <dt className="text-slate-500">Node</dt>
+                  <dd className="text-slate-300 font-mono">
+                    {pod.nodeName && pod.clusterId ? (
+                      <button type="button" className="text-pink-400 hover:underline" onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName!)}`)}>
+                        {pod.nodeName}
+                      </button>
+                    ) : (
+                      pod.nodeName ?? '—'
+                    )}
+                  </dd>
+                </div>
+              )}
             </dl>
-            {(pod.ownerKind ?? pod.ownerName ?? pod.replicaSetName ?? pod.qosClass) && (
+            {(pod.ownerKind ?? pod.ownerName ?? pod.replicaSetName) && (
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <h4 className="text-sm font-semibold text-slate-300 mb-3">Identity &amp; Ownership</h4>
                 <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2 text-sm">
@@ -469,12 +541,6 @@ export const PodDetail: React.FC = () => {
                     <div>
                       <dt className="text-slate-500">ReplicaSet</dt>
                       <dd className="text-slate-300 font-mono">{pod.replicaSetName}</dd>
-                    </div>
-                  )}
-                  {pod.qosClass && (
-                    <div>
-                      <dt className="text-slate-500">QoS Class</dt>
-                      <dd className="text-slate-300 font-medium">{pod.qosClass}</dd>
                     </div>
                   )}
                 </dl>
@@ -524,7 +590,12 @@ export const PodDetail: React.FC = () => {
                 )}
               </div>
             )}
-            {!sbom && (
+            {!sbom && sbomLoaded && (
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <p className="text-slate-500 text-sm">No SBOM data available for this pod.</p>
+              </div>
+            )}
+            {!sbom && !sbomLoaded && (
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <p className="text-slate-500 text-sm">Security summary loading…</p>
               </div>
@@ -589,14 +660,6 @@ export const PodDetail: React.FC = () => {
                 </button>
               </div>
             </div>
-            {pod.createdAt && (
-              <dl className="grid grid-cols-1 gap-3 text-sm mt-4">
-                <div>
-                  <dt className="text-slate-500">Created</dt>
-                  <dd className="text-slate-300">{formatDateTime(pod.createdAt)}</dd>
-                </div>
-              </dl>
-            )}
           </Card>
         </div>
       )}
@@ -815,6 +878,7 @@ export const PodDetail: React.FC = () => {
                               <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Malware</th>
                               <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Version</th>
                               <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Type</th>
+                              <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">License</th>
                               <th className="py-2.5 px-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">CVE</th>
                               <th className="py-2.5 px-2 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">Severity</th>
                               <th className="py-2.5 px-2 text-right text-xs font-semibold uppercase tracking-wide text-slate-500">CVSS</th>
@@ -883,6 +947,9 @@ export const PodDetail: React.FC = () => {
                                   <td className="py-2 px-2 align-middle text-slate-500 font-mono whitespace-nowrap">
                                     {sbomTypeLabel(c.type)}
                                   </td>
+                                  <td className="py-2 px-2 align-middle text-slate-500 text-xs max-w-[6rem] truncate" title={c.license ?? undefined}>
+                                    {c.license ?? '—'}
+                                  </td>
                                   <td className="py-2 px-2 align-middle text-right tabular-nums whitespace-nowrap">
                                     {cveCount > 0 ? (
                                       <span className="text-amber-400 font-medium">{cveCount}</span>
@@ -945,7 +1012,7 @@ export const PodDetail: React.FC = () => {
                                 </tr>
                                 {isExpanded && vulns.length > 0 && (
                                   <tr className="bg-slate-800/40">
-                                    <td colSpan={12} className="py-3 px-4">
+                                    <td colSpan={13} className="py-3 px-4">
                                       <div className="pl-6 space-y-2 text-sm">
                                         {vulns.map((v) => {
                                           const vStatus = (v.status ?? 'active').toLowerCase();
@@ -1306,121 +1373,8 @@ export const PodDetail: React.FC = () => {
             </h3>
             <p className="text-xs text-slate-500 mt-1">
               Kubernetes API events, deduplicated runtime signals, and raw security runtime events (e.g. Falco → Core ingest).
+              For coverage breakdown, see the <button type="button" className="text-pink-400 hover:underline" onClick={() => setActiveTab('coverage')}>Coverage</button> tab.
             </p>
-          </div>
-          <div className="mb-6 grid grid-cols-1 md:grid-cols-3 gap-3">
-            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-              <p className="text-[11px] text-slate-500 mb-1">Coverage by source</p>
-              <p className="text-xs text-slate-300">
-                Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
-                {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}
-              </p>
-            </Card>
-            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-              <p className="text-[11px] text-slate-500 mb-1">Coverage by layer</p>
-              <p className="text-xs text-slate-300">
-                Events {runtimeSecurityEvents.length} · Facts {runtimeFacts.length} · Signals {runtimeSignals.length} · Incidents {runtimeIncidents.length}
-              </p>
-            </Card>
-            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-              <p className="text-[11px] text-slate-500 mb-1">Coverage by MITRE tags</p>
-              <p className="text-xs text-slate-300">
-                {new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques
-              </p>
-            </Card>
-          </div>
-          <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-3">
-            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-              <p className="text-[11px] text-slate-500 mb-2">Coverage by fact domain</p>
-              <div className="flex flex-wrap gap-1.5">
-                {Array.from(
-                  runtimeFacts.reduce((acc, f) => {
-                    const d = (f.domain || 'unknown').trim() || 'unknown';
-                    acc.set(d, (acc.get(d) || 0) + 1);
-                    return acc;
-                  }, new Map<string, number>())
-                )
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 8)
-                  .map(([domain, count]) => (
-                    <span key={domain} className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
-                      {domain}: {count}
-                    </span>
-                  ))}
-                {runtimeFacts.length === 0 ? <span className="text-xs text-slate-500">No fact coverage yet.</span> : null}
-              </div>
-            </Card>
-            <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-              <p className="text-[11px] text-slate-500 mb-2">Coverage by signal type</p>
-              <div className="flex flex-wrap gap-1.5">
-                {Array.from(
-                  runtimeSignals.reduce((acc, s) => {
-                    const t = (s.signalType || 'UNKNOWN').trim() || 'UNKNOWN';
-                    acc.set(t, (acc.get(t) || 0) + 1);
-                    return acc;
-                  }, new Map<string, number>())
-                )
-                  .sort((a, b) => b[1] - a[1])
-                  .slice(0, 8)
-                  .map(([signalType, count]) => (
-                    <span key={signalType} className="px-2 py-0.5 rounded text-[10px] border border-slate-700 bg-slate-900 text-slate-300">
-                      {signalType}: {count}
-                    </span>
-                  ))}
-                {runtimeSignals.length === 0 ? <span className="text-xs text-slate-500">No signal coverage yet.</span> : null}
-              </div>
-            </Card>
-          </div>
-          <div className="mb-8 pb-6 border-b border-slate-800">
-            <div className="flex items-center justify-between gap-3 mb-2">
-              <h4 className="text-sm font-semibold text-white">Legacy quick view (migration-safe)</h4>
-              <Button variant="secondary" size="sm" onClick={() => setShowLegacyEventsView((v) => !v)}>
-                {showLegacyEventsView ? (
-                  <>
-                    <ChevronDown className="w-4 h-4 mr-1" /> Hide
-                  </>
-                ) : (
-                  <>
-                    <ChevronRight className="w-4 h-4 mr-1" /> Show
-                  </>
-                )}
-              </Button>
-            </div>
-            <p className="text-xs text-slate-500 mb-3">
-              Preserves old combined troubleshooting flow while new layered sections are rolling out.
-            </p>
-            {showLegacyEventsView ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-                  <h5 className="text-xs font-semibold text-slate-300 mb-2">Runtime signals (legacy summary)</h5>
-                  {runtimeSignals.length === 0 ? (
-                    <p className="text-xs text-slate-500">No runtime signals.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
-                      {runtimeSignals.slice(0, 20).map((s) => (
-                        <div key={s.id} className="text-xs text-slate-300">
-                          {s.signalType} · {s.createdAt ? formatDateTime(s.createdAt) : '—'}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-                <Card variant="panel" className="bg-slate-900/40 border-slate-800 min-w-0">
-                  <h5 className="text-xs font-semibold text-slate-300 mb-2">Kubernetes events (legacy summary)</h5>
-                  {podEvents.length === 0 ? (
-                    <p className="text-xs text-slate-500">No Kubernetes events.</p>
-                  ) : (
-                    <div className="space-y-1 max-h-44 overflow-y-auto pr-1">
-                      {podEvents.slice(0, 20).map((ev, i) => (
-                        <div key={ev.id ?? i} className="text-xs text-slate-300">
-                          {(ev.reason || ev.eventType || 'Event')} · {ev.lastTimestamp ? formatDateTime(ev.lastTimestamp) : '—'}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </Card>
-              </div>
-            ) : null}
           </div>
 
           <div className="mb-8 pb-6 border-b border-slate-800">
@@ -1458,6 +1412,7 @@ export const PodDetail: React.FC = () => {
                 );
               }
               return (
+                <>
                 <div className="space-y-2 max-h-[420px] overflow-y-auto pr-1">
                   {filtered.slice(0, 80).map((ev) => {
                     const src = runtimeSourceBadge(ev.runtime);
@@ -1503,6 +1458,10 @@ export const PodDetail: React.FC = () => {
                     );
                   })}
                 </div>
+                {filtered.length > 80 && (
+                  <p className="text-xs text-slate-500 mt-2">Showing 80 of {filtered.length} events. Use the Coverage tab for full breakdown.</p>
+                )}
+                </>
               );
             })()}
           </div>
@@ -1545,6 +1504,7 @@ export const PodDetail: React.FC = () => {
                 return <p className="text-slate-500 text-sm">No runtime signals.</p>;
               }
               return (
+                <>
                 <div className="space-y-2">
                   {filteredSignals.slice(0, 20).map((s) => {
                     const ev = (s.evidence ?? {}) as any;
@@ -1577,6 +1537,10 @@ export const PodDetail: React.FC = () => {
                     );
                   })}
                 </div>
+                {filteredSignals.length > 20 && (
+                  <p className="text-xs text-slate-500 mt-2">Showing 20 of {filteredSignals.length} signals.</p>
+                )}
+                </>
               );
             })()}
           </div>
@@ -1825,6 +1789,35 @@ export const PodDetail: React.FC = () => {
                   <span className="text-xs font-semibold uppercase">No fix version yet</span>
                 </div>
                 <p className="text-sm text-slate-300">Monitor advisories for updates.</p>
+              </div>
+            )}
+            {/* GAP 12: Exploit maturity & allowed status */}
+            {(selectedVulnerability.exploitKnown || selectedVulnerability.exploitMaturity || selectedVulnerability.allowed != null) && (
+              <div className="space-y-2">
+                {(selectedVulnerability.exploitKnown || selectedVulnerability.exploitMaturity) && (
+                  <div className="p-3 bg-slate-800/50 rounded-lg border border-slate-700">
+                    <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2">Exploit Intelligence</p>
+                    <div className="flex flex-wrap gap-3 text-sm text-slate-300">
+                      {selectedVulnerability.exploitKnown && (
+                        <span className="flex items-center gap-1.5">
+                          <span className="text-amber-400">🔥</span> Public exploit known
+                        </span>
+                      )}
+                      {selectedVulnerability.exploitMaturity && (
+                        <span>Maturity: <span className="font-medium text-slate-200">{selectedVulnerability.exploitMaturity}</span></span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {selectedVulnerability.allowed != null && (
+                  <div className={clsx('p-3 rounded-lg border', selectedVulnerability.allowed ? 'bg-emerald-500/10 border-emerald-500/20' : 'bg-red-500/10 border-red-500/20')}>
+                    <p className="text-sm text-slate-300">
+                      Policy: <span className={clsx('font-medium', selectedVulnerability.allowed ? 'text-emerald-300' : 'text-red-300')}>
+                        {selectedVulnerability.allowed ? '✅ Allowed by policy' : '❌ Not allowed'}
+                      </span>
+                    </p>
+                  </div>
+                )}
               </div>
             )}
             <Button className="w-full" size="sm" onClick={() => window.open(`https://nvd.nist.gov/vuln/detail/${selectedVulnerability.id}`, '_blank')}>
