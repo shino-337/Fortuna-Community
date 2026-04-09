@@ -11,6 +11,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Pagination } from '../components/Pagination';
 import { PageEmpty } from '../components/PageEmpty';
+import { NetworkTopologyGraph } from '../components/NetworkTopologyGraph';
 import { formatDateTime, formatBucketClock } from '../lib/display';
 import type {
   NetworkActivityWorkloadRow,
@@ -91,7 +92,7 @@ const TALKERS_AGG_TITLE =
 export function NetworkActivity() {
   const navigate = useNavigate();
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
-  const [view, setView] = useState('pods' as 'pods' | 'connections' | 'destinations' | 'talkers');
+  const [view, setView] = useState('pods' as 'pods' | 'connections' | 'destinations' | 'talkers' | 'topology');
   const [namespaceDraft, setNamespaceDraft] = useState('');
   const [searchDraft, setSearchDraft] = useState('');
   const [namespaceApplied, setNamespaceApplied] = useState('');
@@ -106,6 +107,10 @@ export function NetworkActivity() {
   const [connections, setConnections] = useState([] as NetworkActivityConnectionRow[]);
   const [destinations, setDestinations] = useState([] as NetworkActivityDestinationRow[]);
   const [talkers, setTalkers] = useState([] as NetworkActivityTalkerRow[]);
+
+  /** Topology-only state: holds destinations + talkers simultaneously for the graph. */
+  const [graphDestinations, setGraphDestinations] = useState([] as NetworkActivityDestinationRow[]);
+  const [graphTalkers, setGraphTalkers] = useState([] as NetworkActivityTalkerRow[]);
 
   const appliedPort = useMemo(() => parseAppliedPort(searchApplied), [searchApplied]);
   const hasTextFilters = Boolean(namespaceApplied || searchApplied);
@@ -132,42 +137,69 @@ export function NetworkActivity() {
         setConnections([]);
         setDestinations([]);
         setTalkers([]);
+        setGraphDestinations([]);
+        setGraphTalkers([]);
         setTotal(0);
         return;
       }
       if (manual) setRefreshSpin(true);
       setLoading(true);
       try {
-        const data = await api.getNetworkActivity({
-          cluster: selectedClusterId,
-          view,
-          namespace: namespaceApplied || undefined,
-          q: searchApplied || undefined,
-          sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
-          page,
-          pageSize,
-        });
-        setTotal(data.total);
-        if (data.view === 'pods') {
-          setWorkloads((data.items as NetworkActivityWorkloadRow[]) ?? []);
-          setConnections([]);
-          setDestinations([]);
-          setTalkers([]);
-        } else if (data.view === 'destinations') {
-          setDestinations((data.items as NetworkActivityDestinationRow[]) ?? []);
-          setWorkloads([]);
-          setConnections([]);
-          setTalkers([]);
-        } else if (data.view === 'talkers') {
-          setTalkers((data.items as NetworkActivityTalkerRow[]) ?? []);
+        if (view === 'topology') {
+          // Topology graph needs both destinations + talkers
+          const commonParams = {
+            cluster: selectedClusterId,
+            namespace: namespaceApplied || undefined,
+            q: searchApplied || undefined,
+            sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
+            page: 1,
+            pageSize: 100,
+          };
+          const [destData, talkerData] = await Promise.all([
+            api.getNetworkActivity({ ...commonParams, view: 'destinations' }),
+            api.getNetworkActivity({ ...commonParams, view: 'talkers' }),
+          ]);
+          setGraphDestinations((destData.items as NetworkActivityDestinationRow[]) ?? []);
+          setGraphTalkers((talkerData.items as NetworkActivityTalkerRow[]) ?? []);
+          setTotal((destData.total ?? 0) + (talkerData.total ?? 0));
           setWorkloads([]);
           setConnections([]);
           setDestinations([]);
+          setTalkers([]);
         } else {
-          setConnections((data.items as NetworkActivityConnectionRow[]) ?? []);
-          setWorkloads([]);
-          setDestinations([]);
-          setTalkers([]);
+          const data = await api.getNetworkActivity({
+            cluster: selectedClusterId,
+            view,
+            namespace: namespaceApplied || undefined,
+            q: searchApplied || undefined,
+            sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
+            page,
+            pageSize,
+          });
+          setTotal(data.total);
+          setGraphDestinations([]);
+          setGraphTalkers([]);
+          if (data.view === 'pods') {
+            setWorkloads((data.items as NetworkActivityWorkloadRow[]) ?? []);
+            setConnections([]);
+            setDestinations([]);
+            setTalkers([]);
+          } else if (data.view === 'destinations') {
+            setDestinations((data.items as NetworkActivityDestinationRow[]) ?? []);
+            setWorkloads([]);
+            setConnections([]);
+            setTalkers([]);
+          } else if (data.view === 'talkers') {
+            setTalkers((data.items as NetworkActivityTalkerRow[]) ?? []);
+            setWorkloads([]);
+            setConnections([]);
+            setDestinations([]);
+          } else {
+            setConnections((data.items as NetworkActivityConnectionRow[]) ?? []);
+            setWorkloads([]);
+            setDestinations([]);
+            setTalkers([]);
+          }
         }
       } catch {
         setTotal(0);
@@ -175,6 +207,8 @@ export function NetworkActivity() {
         setConnections([]);
         setDestinations([]);
         setTalkers([]);
+        setGraphDestinations([]);
+        setGraphTalkers([]);
       } finally {
         setLoading(false);
         if (manual) setRefreshSpin(false);
@@ -194,6 +228,8 @@ export function NetworkActivity() {
     setConnections([]);
     setDestinations([]);
     setTalkers([]);
+    setGraphDestinations([]);
+    setGraphTalkers([]);
   }, [view]);
 
   useEffect(() => {
@@ -262,6 +298,16 @@ export function NetworkActivity() {
                 title={TALKERS_AGG_TITLE}
               >
                 Top nguồn (Pod)
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('topology')}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  view === 'topology' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                }`}
+                title="Biểu đồ topology D3 — hiển thị quan hệ pod → đích dạng force-directed graph"
+              >
+                🔗 Topology graph
               </button>
             </div>
             <div className="flex flex-wrap items-center gap-2">
@@ -366,8 +412,24 @@ export function NetworkActivity() {
             workloads.length === 0 &&
             connections.length === 0 &&
             destinations.length === 0 &&
-            talkers.length === 0 ? (
+            talkers.length === 0 &&
+            graphDestinations.length === 0 &&
+            graphTalkers.length === 0 ? (
               <p className="p-8 text-slate-500 text-sm text-center">Đang tải…</p>
+            ) : view === 'topology' ? (
+              <div className="p-4">
+                <p className="text-xs text-slate-500 mb-3">
+                  Force-directed graph: Pod nguồn (xanh) → Đích (hồng). Kích thước node ∝ số quan sát. Kéo node để khám phá, scroll để zoom.
+                </p>
+                <NetworkTopologyGraph
+                  destinations={graphDestinations}
+                  talkers={graphTalkers}
+                  maxNodes={80}
+                  onNodeClick={(id, kind) => {
+                    if (kind === 'pod') goPod(id);
+                  }}
+                />
+              </div>
             ) : view === 'pods' ? (
               workloads.length === 0 ? (
                 <div className="py-8">
@@ -452,7 +514,7 @@ export function NetworkActivity() {
                 <div className="px-2 pb-2">
                   <p className="text-xs text-slate-500 mb-3 px-2" title={DEST_AGG_TITLE}>
                     Topology nhẹ theo đích: IP:cổng / protocol. Cột Workload khi IP trùng <span className="font-mono">pod_ip</span> trong
-                    inventory (không phải Service ClusterIP). Chưa D3.
+                    inventory (không phải Service ClusterIP). Xem tab <button type="button" onClick={() => setView('topology')} className="text-pink-400 hover:underline">Topology graph</button> cho biểu đồ D3.
                   </p>
                   <table className="w-full text-sm">
                     <thead>
@@ -671,7 +733,7 @@ export function NetworkActivity() {
             )}
           </div>
 
-          {total > 0 && (
+          {total > 0 && view !== 'topology' && (
             <Pagination
               page={page}
               pageSize={pageSize}

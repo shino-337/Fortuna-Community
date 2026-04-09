@@ -9,6 +9,7 @@ import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
+import { PodNetworkSummary } from '../components/PodNetworkSummary';
 import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
@@ -16,7 +17,7 @@ import { formatDateTime, formatUptime } from '../lib/display';
 import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbomAsSpdxJson } from '../lib/exportSbom';
 import { SbomMetaBadges } from '../components/SbomMetaBadges';
 import { useAuthStore } from '../store/authStore';
-import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem } from '../types';
+import type { SbomComponent as SbomComponentType, PodRuntimeMetric, PodProcessItem, PodNetworkConnectionItem, PodK8sEventItem, PodNetworkTopDestinationItem } from '../types';
 import { formatRiskFindingReference, insightTypeUiLabel } from '../lib/riskDisplay';
 
 type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec';
@@ -59,6 +60,8 @@ export const PodDetail: React.FC = () => {
   const [runtimeMetrics, setRuntimeMetrics] = useState<PodRuntimeMetric[]>([]);
   const [processes, setProcesses] = useState<PodProcessItem[]>([]);
   const [networkConnections, setNetworkConnections] = useState<PodNetworkConnectionItem[]>([]);
+  const [networkTopDestinations, setNetworkTopDestinations] = useState<PodNetworkTopDestinationItem[]>([]);
+  const [networkSubView, setNetworkSubView] = useState<'summary' | 'raw'>('summary');
   const [podEvents, setPodEvents] = useState<PodK8sEventItem[]>([]);
   const [runtimeSecurityEvents, setRuntimeSecurityEvents] = useState<PodRuntimeSecurityEvent[]>([]);
   const [runtimeSignals, setRuntimeSignals] = useState<RuntimeSignal[]>([]);
@@ -147,8 +150,12 @@ export const PodDetail: React.FC = () => {
           const data = await api.getPodProcesses(pod.uid);
           setProcesses(data);
         } else if (tab === 'network') {
-          const data = await api.getPodNetworkConnections(pod.uid);
+          const [data, topDest] = await Promise.all([
+            api.getPodNetworkConnections(pod.uid),
+            api.getPodNetworkTopDestinations(pod.uid, { sinceMinutes: 1440 }),
+          ]);
           setNetworkConnections(data);
+          setNetworkTopDestinations(topDest);
         } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
           const [data, sec, facts, incidents, caps] = await Promise.all([
             api.getPodEvents(pod.uid),
@@ -214,6 +221,7 @@ export const PodDetail: React.FC = () => {
     api.getPodRuntimeMetrics(pod.uid).then(setRuntimeMetrics).catch(() => []);
     api.getPodProcesses(pod.uid).then(setProcesses).catch(() => []);
     api.getPodNetworkConnections(pod.uid).then(setNetworkConnections).catch(() => []);
+    api.getPodNetworkTopDestinations(pod.uid, { sinceMinutes: 1440 }).then(setNetworkTopDestinations).catch(() => []);
     api.getPodEvents(pod.uid).then(setPodEvents).catch(() => []);
     api.getPodRuntimeSecurityEvents(pod.uid, 150).then(setRuntimeSecurityEvents).catch(() => []);
     api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(() => []);
@@ -1160,9 +1168,38 @@ export const PodDetail: React.FC = () => {
               </span>
             )}
           </h3>
+
+          {/* Sub-view toggle: Summary vs Raw connections */}
+          {networkConnections.length > 0 && (
+            <div className="flex gap-2 mb-4">
+              <button
+                type="button"
+                onClick={() => setNetworkSubView('summary')}
+                className={clsx('px-3 py-1 rounded-lg text-xs font-medium transition-colors', networkSubView === 'summary' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700')}
+              >
+                Summary & Top Destinations
+              </button>
+              <button
+                type="button"
+                onClick={() => setNetworkSubView('raw')}
+                className={clsx('px-3 py-1 rounded-lg text-xs font-medium transition-colors', networkSubView === 'raw' ? 'bg-pink-600 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700')}
+              >
+                Raw connections ({networkConnections.length})
+              </button>
+            </div>
+          )}
+
           {tabLoading ? (
             <p className="text-slate-500 text-sm">Loading...</p>
           ) : networkConnections.length > 0 ? (
+            networkSubView === 'summary' ? (
+              <PodNetworkSummary
+                connections={networkConnections}
+                topDestinations={networkTopDestinations}
+                podIP={pod?.podIP}
+                loading={tabLoading}
+              />
+            ) : (
             <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden -mx-1 sm:mx-0">
               <div className="ui-table-scroll max-h-[min(70vh,36rem)]">
               <table className="w-full min-w-[900px] text-sm border-collapse">
@@ -1187,7 +1224,6 @@ export const PodDetail: React.FC = () => {
                     const podIP = (pod?.podIP ?? '').trim();
                     const isListen = (conn.state ?? '').toUpperCase() === 'LISTEN';
                     const srcIsPod = podIP && (conn.sourceIp === podIP || conn.sourceIp === '0.0.0.0' || conn.sourceIp === '::');
-                    const dstIsPod = podIP && (conn.destIp === podIP || conn.destIp === '0.0.0.0' || conn.destIp === '::');
                     const isOutbound = isListen ? false : srcIsPod;
                     const direction = isOutbound ? 'Outbound' : 'Inbound';
                     const remoteAddr = isOutbound ? `${conn.destIp ?? '—'}:${conn.destPort ?? 0}` : `${conn.sourceIp ?? '—'}:${conn.sourcePort ?? 0}`;
@@ -1213,10 +1249,11 @@ export const PodDetail: React.FC = () => {
               </table>
               </div>
             </div>
+            )
           ) : (
             <PageEmpty
               title="No network data"
-              description="Network connections are collected by the agent. Enable network collection on the agent. For cluster-wide “top destinations”, use Dashboard → Network activity → Top đích (cluster)."
+              description="Network connections are collected by the agent. Enable network collection on the agent. For cluster-wide topology, use Dashboard → Network activity → Topology graph."
               className="py-6"
             />
           )}
