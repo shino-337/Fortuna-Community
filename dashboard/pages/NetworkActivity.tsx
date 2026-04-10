@@ -39,6 +39,9 @@ import type {
 
 type NetworkMainTab = 'topology' | 'pods' | 'connections';
 
+/** Poll topology: chỉ tải cạnh (edges/connections). Full: destinations + talkers + inventory + cạnh. */
+type TopologyFetchOpts = { mode: 'quick' | 'full'; manual?: boolean };
+
 const TABLE_PAGE_SIZES = [25, 50, 100, 200] as const;
 
 function podTableLabel(name?: string, uid?: string): string {
@@ -416,7 +419,10 @@ export function NetworkActivity() {
   }, [namespaceDraft, clusterNamespaces]);
 
   const fetchTopology = useCallback(
-    async (manual = false) => {
+    async (opts: TopologyFetchOpts) => {
+      const { mode, manual = false } = opts;
+      const isFull = mode === 'full';
+
       if (!selectedClusterId) {
         fetchReqIdRef.current += 1;
         setGraphDestinations([]);
@@ -432,8 +438,8 @@ export function NetworkActivity() {
       }
       const myId = ++fetchReqIdRef.current;
       if (manual) setRefreshSpin(true);
-      setLoading(true);
-      if (manual) {
+      if (isFull) setLoading(true);
+      if (manual && isFull) {
         const invKey = `${selectedClusterId}\x1f${namespaceApplied ?? ''}`;
         inventoryPodNamesCache.delete(invKey);
       }
@@ -445,6 +451,33 @@ export function NetworkActivity() {
           q: searchApplied || undefined,
           sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
         };
+
+        if (!isFull) {
+          let edgeOrLegacy: Awaited<ReturnType<typeof api.getNetworkActivity>>;
+          try {
+            edgeOrLegacy = await api.getNetworkActivity({
+              ...commonList,
+              view: 'edges',
+              page: 1,
+              pageSize: TOPOLOGY_EDGE_PAGE_SIZE,
+            });
+          } catch {
+            try {
+              edgeOrLegacy = await api.getNetworkActivity({
+                ...commonList,
+                view: 'connections',
+                page: 1,
+                pageSize: NETWORK_SUMMARY_PAGE_SIZE,
+              });
+            } catch {
+              if (myId !== fetchReqIdRef.current) return;
+              return;
+            }
+          }
+          if (myId !== fetchReqIdRef.current) return;
+          setGraphConnections((edgeOrLegacy.items as NetworkActivityConnectionRow[]) ?? []);
+          return;
+        }
 
         let destData: Awaited<ReturnType<typeof api.getNetworkActivity>>;
         try {
@@ -554,7 +587,7 @@ export function NetworkActivity() {
         setTopologySupportIssue('Không tải được dữ liệu topology. Kiểm tra Core và kết nối.');
       } finally {
         if (myId === fetchReqIdRef.current) {
-          setLoading(false);
+          if (isFull) setLoading(false);
           if (manual) setRefreshSpin(false);
         }
       }
@@ -625,7 +658,7 @@ export function NetworkActivity() {
 
   useEffect(() => {
     if (mainTab !== 'topology') return;
-    void fetchTopology(false);
+    void fetchTopology({ mode: 'full' });
   }, [mainTab, fetchTopology]);
 
   useEffect(() => {
@@ -643,12 +676,19 @@ export function NetworkActivity() {
     mainTab === 'topology' ? TOPOLOGY_POLL_INTERVAL_MS : listPollIntervalMs;
   usePolling(
     () => {
-      if (mainTab === 'topology') void fetchTopology(false);
+      if (mainTab === 'topology') void fetchTopology({ mode: 'quick' });
       else void fetchTableData(false);
     },
     activePollIntervalMs,
     { refreshTrigger },
   );
+
+  /** Refresh toàn app: topology tải đầy đủ (không chỉ poll nhanh cạnh). */
+  useEffect(() => {
+    if (refreshTrigger <= 0) return;
+    if (mainTab !== 'topology') return;
+    void fetchTopology({ mode: 'full' });
+  }, [refreshTrigger, mainTab, fetchTopology]);
 
   const goPod = (podUid: string) => {
     navigate(`/resources/pods/uid/${encodeURIComponent(podUid)}`);
@@ -677,7 +717,7 @@ export function NetworkActivity() {
   }, []);
 
   const handleManualRefresh = useCallback(() => {
-    if (mainTab === 'topology') void fetchTopology(true);
+    if (mainTab === 'topology') void fetchTopology({ mode: 'full', manual: true });
     else void fetchTableData(true);
   }, [mainTab, fetchTopology, fetchTableData]);
 
@@ -766,10 +806,10 @@ export function NetworkActivity() {
                     )}
                     {mainTab === 'topology' && (
                       <span
-                        className="text-[10px] text-slate-600 leading-tight max-w-[11rem] xl:max-w-[14rem]"
-                        title="Tab Pods/Connections vẫn dùng chu kỳ làm mới ngắn từ cài đặt (~30s). Nút Làm mới và refresh toàn app luôn tải ngay."
+                        className="text-[10px] text-slate-600 leading-tight max-w-[14rem] xl:max-w-[18rem]"
+                        title="Mỗi chu kỳ chỉ cập nhật cạnh (edges/connections), không tải lại destinations/talkers/inventory. Tab Pods/Connections ~30s. «Làm mới» và refresh toàn app: tải đầy đủ topology."
                       >
-                        Topology: tự làm mới ~3 phút
+                        Topology: ~3 phút chỉ cập nhật cạnh; «Làm mới» = đầy đủ
                       </span>
                     )}
                   </div>
@@ -1514,6 +1554,14 @@ export function NetworkActivity() {
                 </div>
               )}
             </div>
+            {copyErrorToast && (
+              <div
+                className="pointer-events-none absolute bottom-3 left-1/2 z-[80] max-w-[min(100%,22rem)] -translate-x-1/2 rounded-lg border border-red-500/40 bg-slate-950/95 px-3 py-2 text-center text-[11px] leading-snug text-red-200 shadow-lg"
+                role="alert"
+              >
+                {copyErrorToast}
+              </div>
+            )}
           </Card>
         </div>
       )}
