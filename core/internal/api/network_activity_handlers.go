@@ -19,7 +19,8 @@ import (
 //   - view: "connections" (default) | "pods" | "destinations" | "talkers" | "edges" — edges = aggregated (pod_uid, dest_ip, dest_port, protocol) for topology (fewer rows, more pods)
 //   - namespace: filter source pod namespace (case-insensitive exact; suffix * = prefix match, e.g. kube*)
 //   - q: search pod name, namespace, dest IP/port (connections view); pod name / namespace (pods view)
-//   - podUid: optional exact filter on source pod UID (AND with namespace/q); index-friendly drill from dashboard
+//   - podUid: optional exact filter on source pod UID (AND with namespace/q); index-friendly drill from dashboard.
+//     Thứ tự WHERE trên mọi view (sau cluster_id): namespace → podUid → sinceBucket → q — toàn bộ AND.
 //   - sinceMinutes: only rows with bucket_5m >= floor5m(now - sinceMinutes) (aligned with stored buckets)
 //   - page, pageSize: pagination (default page=1, pageSize=50; max pageSize: standard views NETWORK_ACTIVITY_MAX_PAGE_SIZE default 200 cap 500; view=edges NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX default 2500 cap 8000)
 func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {

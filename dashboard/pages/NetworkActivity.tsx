@@ -312,10 +312,12 @@ export function NetworkActivity() {
   const fetchTableReqIdRef = useRef(0);
   const [copiedTableKey, setCopiedTableKey] = useState<string | null>(null);
   const [copyErrorToast, setCopyErrorToast] = useState<string | null>(null);
+  const [sinceCancelToast, setSinceCancelToast] = useState<string | null>(null);
   /** Gợi ý khi drill từ pod không có tên (tránh «q» = uid prefix không khớp backend). */
   const [connectionsScopeNote, setConnectionsScopeNote] = useState<string | null>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const sinceCancelTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const copyToClipboard = useCallback((key: string, text: string) => {
     void copyTextWithFallback(text).then((ok) => {
@@ -337,6 +339,7 @@ export function NetworkActivity() {
     () => () => {
       if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
       if (copyErrorTimerRef.current) window.clearTimeout(copyErrorTimerRef.current);
+      if (sinceCancelTimerRef.current) window.clearTimeout(sinceCancelTimerRef.current);
     },
     [],
   );
@@ -915,6 +918,10 @@ export function NetworkActivity() {
                           )
                         ) {
                           setSinceMinutes('');
+                        } else {
+                          if (sinceCancelTimerRef.current) window.clearTimeout(sinceCancelTimerRef.current);
+                          setSinceCancelToast('Đã hủy — giữ nguyên cửa sổ thời gian hiện tại.');
+                          sinceCancelTimerRef.current = window.setTimeout(() => setSinceCancelToast(null), 3200);
                         }
                         return;
                       }
@@ -993,6 +1000,14 @@ export function NetworkActivity() {
                     {podUidApplied.trim().length > 18
                       ? `${podUidApplied.trim().slice(0, 8)}…${podUidApplied.trim().slice(-6)}`
                       : podUidApplied.trim()}
+                  </span>
+                ) : null}
+                {podUidApplied.trim() && searchApplied.trim() ? (
+                  <span
+                    className="text-[10px] text-slate-500 max-w-[min(100%,20rem)] leading-snug"
+                    title="Core áp dụng podUid và q cùng lúc: kết quả là giao (AND) — trong pod đó khớp thêm tìm kiếm."
+                  >
+                    podUid + q: <span className="text-slate-400">AND</span>
                   </span>
                 ) : null}
                 {textDraftDiffersFromApplied && (
@@ -1114,12 +1129,25 @@ export function NetworkActivity() {
                     )}
                     {topologyLimitedFromConnectionsOnly && (
                       <div
-                        className="shrink-0 mx-2 mt-2 rounded-lg border border-sky-600/45 bg-sky-950/30 px-2.5 py-1.5 text-[11px] text-sky-100/95 leading-snug z-10"
+                        className="shrink-0 mx-2 mt-2 rounded-lg border border-sky-600/45 bg-sky-950/30 px-2.5 py-2 text-[11px] text-sky-100/95 leading-snug z-10 pointer-events-auto flex flex-wrap items-center gap-x-3 gap-y-2 justify-between"
                         role="note"
                       >
-                        <span className="font-medium text-sky-200/95">Topology rút gọn:</span> chỉ dựa trên cạnh từ
-                        edges/connections — không có dữ liệu «top đích» và «top nguồn». Đồ thị vẫn hiển thị pod→đích suy
-                        từ các cạnh. Bấm «Làm mới» để thử tải đầy đủ (destinations/talkers).
+                        <p className="min-w-0 flex-1 basis-[min(100%,28rem)] m-0">
+                          <span className="font-medium text-sky-200/95">Topology rút gọn:</span> chỉ dựa trên cạnh từ
+                          edges/connections — không có «top đích» / «top nguồn». Đồ thị suy từ cạnh. Nút bên phải tải
+                          đầy đủ (destinations/talkers) như «Làm mới» phía trên.
+                        </p>
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          type="button"
+                          className="h-8 shrink-0 text-xs border-sky-600/50 bg-sky-950/50 text-sky-100 hover:bg-sky-900/60"
+                          disabled={topologyBusy}
+                          onClick={() => void handleManualRefresh()}
+                        >
+                          <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshSpin ? 'animate-spin' : ''}`} />
+                          Làm mới đầy đủ
+                        </Button>
                       </div>
                     )}
                     {/* Chú thích trên đồ thị: đồng bộ với nút header «Ẩn/Hiện chú thích» */}
@@ -1608,6 +1636,15 @@ export function NetworkActivity() {
                 role="alert"
               >
                 {copyErrorToast}
+              </div>
+            )}
+            {sinceCancelToast && (
+              <div
+                className="pointer-events-none absolute z-[79] max-w-[min(100%,22rem)] -translate-x-1/2 rounded-lg border border-slate-600/60 bg-slate-900/95 px-3 py-2 text-center text-[11px] leading-snug text-slate-300 shadow-lg left-1/2"
+                style={{ bottom: copyErrorToast ? '4.25rem' : '0.75rem' }}
+                role="status"
+              >
+                {sinceCancelToast}
               </div>
             )}
           </Card>
