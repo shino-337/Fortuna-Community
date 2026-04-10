@@ -775,6 +775,8 @@ export const api = {
     view?: 'pods' | 'connections' | 'destinations' | 'talkers' | 'edges';
     namespace?: string;
     q?: string;
+    /** Lọc đúng theo pod nguồn (AND với namespace/q); drill khi thiếu podName. */
+    podUid?: string;
     sinceMinutes?: number;
     page?: number;
     pageSize?: number;
@@ -795,6 +797,7 @@ export const api = {
     q.set('view', params.view ?? 'connections');
     if (params.namespace) q.set('namespace', params.namespace);
     if (params.q) q.set('q', params.q);
+    if (params.podUid?.trim()) q.set('podUid', params.podUid.trim());
     if (params.sinceMinutes != null && params.sinceMinutes > 0) {
       q.set('sinceMinutes', String(params.sinceMinutes));
     }

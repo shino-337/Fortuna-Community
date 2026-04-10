@@ -19,6 +19,7 @@ import (
 //   - view: "connections" (default) | "pods" | "destinations" | "talkers" | "edges" — edges = aggregated (pod_uid, dest_ip, dest_port, protocol) for topology (fewer rows, more pods)
 //   - namespace: filter source pod namespace (case-insensitive exact; suffix * = prefix match, e.g. kube*)
 //   - q: search pod name, namespace, dest IP/port (connections view); pod name / namespace (pods view)
+//   - podUid: optional exact filter on source pod UID (AND with namespace/q); index-friendly drill from dashboard
 //   - sinceMinutes: only rows with bucket_5m >= floor5m(now - sinceMinutes) (aligned with stored buckets)
 //   - page, pageSize: pagination (default page=1, pageSize=50; max pageSize: standard views NETWORK_ACTIVITY_MAX_PAGE_SIZE default 200 cap 500; view=edges NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX default 2500 cap 8000)
 func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
@@ -38,6 +39,7 @@ func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
 
 		namespace := strings.TrimSpace(c.Query("namespace"))
 		q := strings.TrimSpace(c.Query("q"))
+		podUID := strings.TrimSpace(c.Query("podUid"))
 		sinceMin, _ := strconv.Atoi(strings.TrimSpace(c.Query("sinceMinutes")))
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
@@ -61,29 +63,30 @@ func GetNetworkActivity(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if view == "pods" {
-			handleNetworkActivityPodsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+			handleNetworkActivityPodsView(c, db, clusterID, namespace, q, podUID, sinceBucket, page, pageSize, offset)
 			return
 		}
 		if view == "destinations" {
-			handleNetworkActivityDestinationsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+			handleNetworkActivityDestinationsView(c, db, clusterID, namespace, q, podUID, sinceBucket, page, pageSize, offset)
 			return
 		}
 		if view == "talkers" {
-			handleNetworkActivityTalkersView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+			handleNetworkActivityTalkersView(c, db, clusterID, namespace, q, podUID, sinceBucket, page, pageSize, offset)
 			return
 		}
 		if view == "edges" {
-			handleNetworkActivityEdgesView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+			handleNetworkActivityEdgesView(c, db, clusterID, namespace, q, podUID, sinceBucket, page, pageSize, offset)
 			return
 		}
-		handleNetworkActivityConnectionsView(c, db, clusterID, namespace, q, sinceBucket, page, pageSize, offset)
+		handleNetworkActivityConnectionsView(c, db, clusterID, namespace, q, podUID, sinceBucket, page, pageSize, offset)
 	}
 }
 
-func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q, podUID string, sinceBucket *time.Time, page, pageSize, offset int) {
 	base := joinPodsForNetworkActivity(db.Table("pod_network_connections AS n")).
 		Where("n.cluster_id = ?", clusterID)
 	base = applyNetworkActivityNamespaceFilter(base, namespace)
+	base = applyNetworkActivityPodUidFilter(base, podUID)
 	if sinceBucket != nil {
 		base = base.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
@@ -126,6 +129,7 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 			p.name AS pod_name, p.owner_kind, p.owner_name, p.node_name`).
 		Where("n.cluster_id = ?", clusterID)
 	qb = applyNetworkActivityNamespaceFilter(qb, namespace)
+	qb = applyNetworkActivityPodUidFilter(qb, podUID)
 	if sinceBucket != nil {
 		qb = qb.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
@@ -151,10 +155,11 @@ func handleNetworkActivityConnectionsView(c *gin.Context, db *gorm.DB, clusterID
 
 // handleNetworkActivityEdgesView returns one row per (source pod × dest IP/port/protocol), ordered by observation volume.
 // Intended for dashboard topology (replaces sampling raw connection rows with the same 200-row cap).
-func handleNetworkActivityEdgesView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityEdgesView(c *gin.Context, db *gorm.DB, clusterID, namespace, q, podUID string, sinceBucket *time.Time, page, pageSize, offset int) {
 	filtered := joinPodsForNetworkActivity(db.Table("pod_network_connections AS n")).
 		Where("n.cluster_id = ?", clusterID)
 	filtered = applyNetworkActivityNamespaceFilter(filtered, namespace)
+	filtered = applyNetworkActivityPodUidFilter(filtered, podUID)
 	if sinceBucket != nil {
 		filtered = filtered.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
@@ -216,13 +221,14 @@ func handleNetworkActivityEdgesView(c *gin.Context, db *gorm.DB, clusterID, name
 	})
 }
 
-func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityPodsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q, podUID string, sinceBucket *time.Time, page, pageSize, offset int) {
 	// Subquery for grouping — count distinct pod groups matching filters
 	sub := joinPodsForNetworkActivity(db.Table("pod_network_connections AS n")).
 		Select("n.pod_uid, n.namespace, n.cluster_id, COUNT(*) AS connection_count, MAX(n.observed_at) AS last_observed_at, MAX(p.name) AS pod_name, MAX(p.owner_kind) AS owner_kind, MAX(p.owner_name) AS owner_name, MAX(p.node_name) AS node_name").
 		Where("n.cluster_id = ?", clusterID).
 		Group("n.pod_uid, n.namespace, n.cluster_id")
 	sub = applyNetworkActivityNamespaceFilter(sub, namespace)
+	sub = applyNetworkActivityPodUidFilter(sub, podUID)
 	if sinceBucket != nil {
 		sub = sub.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
@@ -285,11 +291,12 @@ type clusterDestinationRow struct {
 	DestWorkloadNS       string    `json:"destWorkloadNamespace,omitempty" gorm:"column:dest_workload_namespace"` // namespace of matched pod, if any
 }
 
-func handleNetworkActivityDestinationsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityDestinationsView(c *gin.Context, db *gorm.DB, clusterID, namespace, q, podUID string, sinceBucket *time.Time, page, pageSize, offset int) {
 	// INNER JOIN source pod (p) so chỉ cộng lưu lượng từ workload còn trong inventory; pdest join riêng cho tên đích (pod-to-pod).
 	filtered := joinPodsForNetworkActivity(db.Table("pod_network_connections AS n")).
 		Where("n.cluster_id = ?", clusterID)
 	filtered = applyNetworkActivityNamespaceFilter(filtered, namespace)
+	filtered = applyNetworkActivityPodUidFilter(filtered, podUID)
 	if sinceBucket != nil {
 		filtered = filtered.Where("n.bucket_5m >= ?", *sinceBucket)
 	}
@@ -352,10 +359,11 @@ type clusterTalkerRow struct {
 	DistinctDestCount   int64     `json:"distinctDestCount" gorm:"column:distinct_dest_count"`
 }
 
-func handleNetworkActivityTalkersView(c *gin.Context, db *gorm.DB, clusterID, namespace, q string, sinceBucket *time.Time, page, pageSize, offset int) {
+func handleNetworkActivityTalkersView(c *gin.Context, db *gorm.DB, clusterID, namespace, q, podUID string, sinceBucket *time.Time, page, pageSize, offset int) {
 	base := joinPodsForNetworkActivity(db.Table("pod_network_connections AS n")).
 		Where("n.cluster_id = ?", clusterID)
 	base = applyNetworkActivityNamespaceFilter(base, namespace)
+	base = applyNetworkActivityPodUidFilter(base, podUID)
 	if sinceBucket != nil {
 		base = base.Where("n.bucket_5m >= ?", *sinceBucket)
 	}

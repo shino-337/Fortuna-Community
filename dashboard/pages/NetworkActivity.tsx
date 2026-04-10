@@ -275,6 +275,8 @@ export function NetworkActivity() {
   const [searchDraft, setSearchDraft] = useState('');
   const [namespaceApplied, setNamespaceApplied] = useState('');
   const [searchApplied, setSearchApplied] = useState('');
+  /** Lọc chính xác theo pod nguồn (query podUid trên Core); drill khi không có podName. */
+  const [podUidApplied, setPodUidApplied] = useState('');
   const [sinceMinutes, setSinceMinutes] = useState(1440 as number | '');
   const [loading, setLoading] = useState(false);
   const [refreshSpin, setRefreshSpin] = useState(false);
@@ -341,6 +343,7 @@ export function NetworkActivity() {
 
   useEffect(() => {
     clearInventoryPodNamesCache();
+    setPodUidApplied('');
   }, [selectedClusterId]);
 
   useEffect(() => {
@@ -352,7 +355,7 @@ export function NetworkActivity() {
   }, [searchApplied, connectionsScopeNote]);
 
   const appliedPort = useMemo(() => parseAppliedPort(searchApplied), [searchApplied]);
-  const hasTextFilters = Boolean(namespaceApplied || searchApplied);
+  const hasTextFilters = Boolean(namespaceApplied || searchApplied || podUidApplied.trim());
   const hasDraftTextFilters = Boolean(namespaceDraft.trim() || searchDraft.trim());
   const textDraftDiffersFromApplied =
     namespaceDraft.trim() !== namespaceApplied || searchDraft.trim() !== searchApplied;
@@ -368,6 +371,7 @@ export function NetworkActivity() {
     setSearchDraft('');
     setNamespaceApplied('');
     setSearchApplied('');
+    setPodUidApplied('');
     setConnectionsScopeNote(null);
   }, []);
 
@@ -449,6 +453,7 @@ export function NetworkActivity() {
           cluster: selectedClusterId,
           namespace: namespaceApplied || undefined,
           q: searchApplied || undefined,
+          podUid: podUidApplied.trim() || undefined,
           sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
         };
 
@@ -592,7 +597,7 @@ export function NetworkActivity() {
         }
       }
     },
-    [selectedClusterId, namespaceApplied, searchApplied, sinceMinutes],
+    [selectedClusterId, namespaceApplied, searchApplied, podUidApplied, sinceMinutes],
   );
 
   const fetchTableData = useCallback(
@@ -615,6 +620,7 @@ export function NetworkActivity() {
           cluster: selectedClusterId,
           namespace: namespaceApplied || undefined,
           q: searchApplied || undefined,
+          podUid: podUidApplied.trim() || undefined,
           sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
           page: tablePage,
           pageSize: tablePageSize,
@@ -650,6 +656,7 @@ export function NetworkActivity() {
       mainTab,
       namespaceApplied,
       searchApplied,
+      podUidApplied,
       sinceMinutes,
       tablePage,
       tablePageSize,
@@ -668,7 +675,7 @@ export function NetworkActivity() {
 
   useEffect(() => {
     setTablePage(1);
-  }, [namespaceApplied, searchApplied, sinceMinutes, selectedClusterId, mainTab, tablePageSize]);
+  }, [namespaceApplied, searchApplied, podUidApplied, sinceMinutes, selectedClusterId, mainTab, tablePageSize]);
 
   const listPollIntervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
@@ -701,15 +708,17 @@ export function NetworkActivity() {
     setNamespaceDraft(ns);
     setNamespaceApplied(ns);
     if (name) {
+      setPodUidApplied('');
       setSearchDraft(name);
       setSearchApplied(name);
       setConnectionsScopeNote(null);
     } else {
       setSearchDraft('');
       setSearchApplied('');
+      setPodUidApplied(uid);
       setConnectionsScopeNote(
         uid
-          ? 'Chưa có tên pod từ API; chỉ lọc theo namespace. «q» để trống (tiền tố UID có thể không khớp backend). Dùng sao chép UID hoặc gõ tìm kiếm tay.'
+          ? 'Chưa có tên pod từ API; đang lọc theo namespace + podUid (API, khớp chính xác). Có thể thêm «q» để thu hẹp thêm.'
           : null,
       );
     }
@@ -727,6 +736,9 @@ export function NetworkActivity() {
   /** Topology: cạnh từ view=edges (hoặc connections nếu Core cũ); pod orphan từ talkers đã phân trang đầy đủ. */
   const hasGraphData =
     graphConnections.length > 0 || (graphDestinations.length > 0 && graphTalkers.length > 0);
+  /** Chỉ suy đồ thị từ cạnh — không có aggregate destinations/talkers (Core hạn chế hoặc lỗi view). */
+  const topologyLimitedFromConnectionsOnly =
+    graphConnections.length > 0 && graphDestinations.length === 0 && graphTalkers.length === 0;
   const emptyContextLine = `Khoảng thời gian: ${sinceHuman}.`;
 
   const legendToggleButton = (
@@ -789,7 +801,12 @@ export function NetworkActivity() {
                       <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshSpin ? 'animate-spin' : ''}`} />
                       Làm mới
                     </Button>
-                    {mainTab === 'topology' && !loading && (destTotal > 0 || talkerTotal > 0) && (
+                    {mainTab === 'topology' && !loading && topologyLimitedFromConnectionsOnly && (
+                      <span className="text-[10px] text-sky-500/90 leading-tight max-w-[14rem]">
+                        {graphConnections.length} cạnh · topology rút gọn (không có top đích/nguồn)
+                      </span>
+                    )}
+                    {mainTab === 'topology' && !loading && !topologyLimitedFromConnectionsOnly && (destTotal > 0 || talkerTotal > 0) && (
                       <span className="text-[10px] text-slate-500 leading-tight line-clamp-2 xl:line-clamp-3 max-w-[10rem] 2xl:max-w-[14rem]">
                         {destTotal} đích · {talkerTotal} nguồn · {graphConnections.length} cạnh
                       </span>
@@ -891,7 +908,17 @@ export function NetworkActivity() {
                     value={sinceMinutes === '' ? '' : String(sinceMinutes)}
                     onChange={(e) => {
                       const v = e.target.value;
-                      setSinceMinutes(v === '' ? '' : Number(v));
+                      if (v === '') {
+                        if (
+                          window.confirm(
+                            'Tắt lọc thời gian («Mọi thời điểm») có thể làm truy vấn rất chậm và tải rất nhiều dữ liệu. Bạn có chắc?',
+                          )
+                        ) {
+                          setSinceMinutes('');
+                        }
+                        return;
+                      }
+                      setSinceMinutes(Number(v));
                     }}
                     className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 text-sm text-slate-200 h-8 box-border"
                   >
@@ -922,7 +949,7 @@ export function NetworkActivity() {
                         size="sm"
                         type="button"
                         className="h-8 text-xs px-3 shrink-0"
-                        title="Xóa namespace / tìm kiếm và tải lại topology (bỏ lọc)"
+                        title="Xóa namespace / tìm kiếm / podUid và tải lại (bỏ lọc)"
                         onClick={() => clearTextFilters()}
                       >
                         Đặt lại
@@ -957,6 +984,17 @@ export function NetworkActivity() {
                 ) : (
                   <span className="text-[10px] text-slate-600">q: (trống)</span>
                 )}
+                {podUidApplied.trim() ? (
+                  <span
+                    className="inline-flex items-center rounded-full bg-slate-800/90 text-pink-200/90 px-2 py-0.5 text-[10px] border border-pink-600/50 font-mono max-w-[14rem] truncate"
+                    title={`podUid đầy đủ: ${podUidApplied.trim()}`}
+                  >
+                    podUid=
+                    {podUidApplied.trim().length > 18
+                      ? `${podUidApplied.trim().slice(0, 8)}…${podUidApplied.trim().slice(-6)}`
+                      : podUidApplied.trim()}
+                  </span>
+                ) : null}
                 {textDraftDiffersFromApplied && (
                   <span
                     className="text-[10px] text-amber-500/95"
@@ -1059,7 +1097,7 @@ export function NetworkActivity() {
                     {hasTextFilters && (
                       <div className="flex justify-center mt-4">
                         <Button variant="secondary" size="sm" onClick={clearTextFilters}>
-                          Xóa lọc namespace / tìm kiếm
+                          Xóa lọc (ns / q / podUid)
                         </Button>
                       </div>
                     )}
@@ -1072,6 +1110,16 @@ export function NetworkActivity() {
                         role="status"
                       >
                         {topologySupportIssue}
+                      </div>
+                    )}
+                    {topologyLimitedFromConnectionsOnly && (
+                      <div
+                        className="shrink-0 mx-2 mt-2 rounded-lg border border-sky-600/45 bg-sky-950/30 px-2.5 py-1.5 text-[11px] text-sky-100/95 leading-snug z-10"
+                        role="note"
+                      >
+                        <span className="font-medium text-sky-200/95">Topology rút gọn:</span> chỉ dựa trên cạnh từ
+                        edges/connections — không có dữ liệu «top đích» và «top nguồn». Đồ thị vẫn hiển thị pod→đích suy
+                        từ các cạnh. Bấm «Làm mới» để thử tải đầy đủ (destinations/talkers).
                       </div>
                     )}
                     {/* Chú thích trên đồ thị: đồng bộ với nút header «Ẩn/Hiện chú thích» */}
@@ -1188,7 +1236,7 @@ export function NetworkActivity() {
 
                     <div className="absolute inset-0 p-1.5 sm:p-2 md:p-3 flex flex-col min-h-0">
                       <NetworkTopologyGraph
-                        key={`${selectedClusterId}|${namespaceApplied}|${searchApplied}|${sinceMinutes}`}
+                        key={`${selectedClusterId}|${namespaceApplied}|${searchApplied}|${podUidApplied}|${sinceMinutes}`}
                         className="flex-1 min-h-0 w-full h-full"
                         destinations={graphDestinations}
                         talkers={graphTalkers}

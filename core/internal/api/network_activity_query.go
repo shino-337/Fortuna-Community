@@ -15,6 +15,15 @@ func joinPodsForNetworkActivity(db *gorm.DB) *gorm.DB {
 
 // applyNetworkActivityNamespaceFilter filters rows by source pod namespace on pod_network_connections (alias n).
 // Matching is case-insensitive. Suffix "*" means prefix match (e.g. kube* → kube%).
+// applyNetworkActivityPodUidFilter restricts to a single source pod (exact UID). Index-friendly vs broad q LIKE.
+func applyNetworkActivityPodUidFilter(db *gorm.DB, podUID string) *gorm.DB {
+	uid := strings.TrimSpace(podUID)
+	if uid == "" {
+		return db
+	}
+	return db.Where("n.pod_uid = ?", uid)
+}
+
 func applyNetworkActivityNamespaceFilter(db *gorm.DB, namespace string) *gorm.DB {
 	ns := strings.TrimSpace(namespace)
 	if ns == "" {
