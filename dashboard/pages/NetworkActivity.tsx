@@ -744,6 +744,10 @@ export function NetworkActivity() {
     graphConnections.length > 0 && graphDestinations.length === 0 && graphTalkers.length === 0;
   const emptyContextLine = `Khoảng thời gian: ${sinceHuman}.`;
 
+  const podUidLocksNamespace = Boolean(podUidApplied.trim());
+  const namespaceLockedByPodUidTitle =
+    'Đang lọc theo pod UID — namespace đi kèm drill. Bấm «Đặt lại» để đổi namespace hoặc bỏ lọc pod.';
+
   const legendToggleButton = (
     <Button
       variant="secondary"
@@ -835,22 +839,35 @@ export function NetworkActivity() {
                   </div>
                 </div>
 
-                <div className="flex flex-col gap-1 min-w-0">
-                  <label className="text-[10px] text-slate-500 leading-4 h-4 shrink-0" htmlFor="na-namespace-input">
+                <div
+                  className={`flex flex-col gap-1 min-w-0 ${podUidLocksNamespace ? 'opacity-80' : ''}`}
+                  title={podUidLocksNamespace ? namespaceLockedByPodUidTitle : undefined}
+                >
+                  <label
+                    className={`text-[10px] text-slate-500 leading-4 h-4 shrink-0 ${podUidLocksNamespace ? 'cursor-help' : ''}`}
+                    htmlFor="na-namespace-input"
+                    title={podUidLocksNamespace ? namespaceLockedByPodUidTitle : undefined}
+                  >
                     Namespace
+                    {podUidLocksNamespace ? (
+                      <span className="text-slate-600 font-normal"> (khóa khi có podUid)</span>
+                    ) : null}
                   </label>
                   <div className="flex flex-col sm:flex-row gap-2 sm:items-center min-h-8">
                     <div className="flex-1 min-w-0">
                       <input
                         id="na-namespace-input"
                         type="text"
-                        list={clusterNamespaces.length > 0 ? namespaceDatalistId : undefined}
+                        list={clusterNamespaces.length > 0 && !podUidLocksNamespace ? namespaceDatalistId : undefined}
                         value={namespaceDraft}
                         onChange={(e) => setNamespaceDraft(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
                         placeholder="Gõ hoặc chọn…"
                         autoComplete="off"
-                        className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 text-sm text-slate-200 placeholder:text-slate-600 h-8 box-border"
+                        disabled={podUidLocksNamespace}
+                        title={podUidLocksNamespace ? namespaceLockedByPodUidTitle : undefined}
+                        aria-disabled={podUidLocksNamespace}
+                        className="w-full bg-slate-900 border border-slate-700 rounded-md px-2 text-sm text-slate-200 placeholder:text-slate-600 h-8 box-border disabled:opacity-55 disabled:cursor-not-allowed"
                       />
                       {clusterNamespaces.length > 0 && (
                         <datalist id={namespaceDatalistId}>
@@ -862,8 +879,12 @@ export function NetworkActivity() {
                     </div>
                     <select
                       aria-label="Chọn namespace từ danh sách cluster"
-                      title="Danh sách namespace từ inventory cluster"
-                      disabled={clusterNsLoading || clusterNamespaces.length === 0}
+                      title={
+                        podUidLocksNamespace
+                          ? namespaceLockedByPodUidTitle
+                          : 'Danh sách namespace từ inventory cluster'
+                      }
+                      disabled={clusterNsLoading || clusterNamespaces.length === 0 || podUidLocksNamespace}
                       value={namespaceSelectValue}
                       onChange={(e) => setNamespaceDraft(e.target.value)}
                       className="w-full sm:w-[10.5rem] shrink-0 bg-slate-900 border border-slate-700 rounded-md px-2 text-sm text-slate-200 h-8 box-border disabled:opacity-50 disabled:cursor-not-allowed"
@@ -896,7 +917,16 @@ export function NetworkActivity() {
                       value={searchDraft}
                       onChange={(e) => setSearchDraft(e.target.value)}
                       onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-                      placeholder="Pod, uid, IP, cổng…"
+                      placeholder={
+                        podUidLocksNamespace
+                          ? 'Tìm kiếm trong pod này (AND với podUid)…'
+                          : 'Pod, uid, IP, cổng…'
+                      }
+                      title={
+                        podUidLocksNamespace
+                          ? 'Thu hẹp thêm bằng q; API: AND với podUid đã chọn.'
+                          : undefined
+                      }
                       className="w-full bg-slate-900 border border-slate-700 rounded-md pl-8 pr-2 text-sm text-slate-200 placeholder:text-slate-600 h-8 box-border"
                     />
                   </div>
