@@ -85,26 +85,70 @@ function formatBucket5mLine(iso?: string): { short: string; title: string } {
   }
 }
 
-function formatRemoteEndpoint(row: NetworkActivityConnectionRow): string {
+function isListenRow(row: NetworkActivityConnectionRow): boolean {
   const st = (row.state ?? '').toUpperCase();
-  if (st === 'LISTEN' || st === 'LISTENING') {
-    const p = row.destPort ?? row.sourcePort;
-    const dip = (row.destIp ?? '').trim();
-    const bind =
-      dip && dip !== '0.0.0.0' && dip !== '::' && dip !== '*' && dip !== '[::]'
-        ? ` @${dip}`
-        : '';
-    return `LISTEN :${p ?? '?'}${bind}`;
-  }
+  return st === 'LISTEN' || st === 'LISTENING';
+}
+
+/** Socket LISTEN — hiển thị ở cột Local; Remote = — (đúng ngữ nghĩa). */
+function formatListenLocal(row: NetworkActivityConnectionRow): string {
+  const p = row.destPort ?? row.sourcePort;
+  const dip = (row.destIp ?? '').trim();
+  const bind =
+    dip && dip !== '0.0.0.0' && dip !== '::' && dip !== '*' && dip !== '[::]'
+      ? ` @${dip}`
+      : '';
+  return `LISTEN :${p ?? '?'}${bind}`;
+}
+
+function formatLocalEndpoint(row: NetworkActivityConnectionRow): string {
+  if (isListenRow(row)) return formatListenLocal(row);
+  return `${(row.sourceIp ?? '—').trim()}:${row.sourcePort ?? '—'}`;
+}
+
+function formatRemoteEndpoint(row: NetworkActivityConnectionRow): string {
+  if (isListenRow(row)) return '—';
   const dip = (row.destIp ?? '').trim();
   const dp = row.destPort;
   if (!dip && (dp == null || Number.isNaN(Number(dp)))) return '—';
   return `${dip || '—'}:${dp ?? '—'}`;
 }
 
-/** Chuỗi copy cho điều tra — khớp cột Remote (ticket / grep). */
+/** Chuỗi copy — khớp cột Remote. */
 function remoteEndpointClipboard(row: NetworkActivityConnectionRow): string {
   return formatRemoteEndpoint(row);
+}
+
+/** Chuỗi copy — khớp cột Local (gồm LISTEN). */
+function localEndpointClipboard(row: NetworkActivityConnectionRow): string {
+  return formatLocalEndpoint(row);
+}
+
+async function copyTextWithFallback(text: string): Promise<boolean> {
+  const t = text.trim();
+  if (!t || t === '—') return false;
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(t);
+      return true;
+    }
+  } catch {
+    /* fallback */
+  }
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = t;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 /** Core view=edges: số nhóm (pod×đích×proto) tối đa / request — khớp NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX (mặc định 2500). */
@@ -113,6 +157,8 @@ const TOPOLOGY_EDGE_PAGE_SIZE = 2500;
 const NETWORK_SUMMARY_PAGE_SIZE = 200;
 /** Trần số trang talkers / lần tải topology (tránh >80 request khi cluster lớn). */
 const MAX_TALKER_FETCH_PAGES_CAP = 10;
+/** Tab topology: polling chậm hơn bảng để giảm tải định kỳ (vẫn có Làm mới + refreshTrigger). */
+const TOPOLOGY_POLL_INTERVAL_MS = 3 * 60 * 1000;
 
 /**
  * Vùng graph: tối thiểu theo viewport (svh) để không còn khoảng trống lớn dưới card;
@@ -183,7 +229,27 @@ async function fetchInventoryPodNamesByUid(clusterId: string, namespace?: string
 }
 
 const inventoryPodNamesCache = new Map<string, { at: number; data: Record<string, string> }>();
-const INVENTORY_POD_NAMES_CACHE_TTL_MS = 60_000;
+const INVENTORY_POD_NAMES_CACHE_TTL_MS = 30_000;
+const INVENTORY_CACHE_MAX_KEYS = 24;
+
+function clearInventoryPodNamesCache(): void {
+  inventoryPodNamesCache.clear();
+}
+
+function trimInventoryPodNamesCache(): void {
+  while (inventoryPodNamesCache.size > INVENTORY_CACHE_MAX_KEYS) {
+    let oldestK: string | null = null;
+    let oldestAt = Infinity;
+    for (const [k, v] of inventoryPodNamesCache) {
+      if (v.at < oldestAt) {
+        oldestAt = v.at;
+        oldestK = k;
+      }
+    }
+    if (oldestK == null) break;
+    inventoryPodNamesCache.delete(oldestK);
+  }
+}
 
 async function fetchInventoryPodNamesByUidCached(
   clusterId: string,
@@ -195,6 +261,7 @@ async function fetchInventoryPodNamesByUidCached(
   if (hit && now - hit.at < INVENTORY_POD_NAMES_CACHE_TTL_MS) return hit.data;
   const data = await fetchInventoryPodNamesByUid(clusterId, namespace);
   inventoryPodNamesCache.set(key, { at: now, data });
+  trimInventoryPodNamesCache();
   return data;
 }
 
@@ -239,24 +306,47 @@ export function NetworkActivity() {
   const fetchReqIdRef = useRef(0);
   const fetchTableReqIdRef = useRef(0);
   const [copiedTableKey, setCopiedTableKey] = useState<string | null>(null);
+  const [copyErrorToast, setCopyErrorToast] = useState<string | null>(null);
+  /** Gợi ý khi drill từ pod không có tên (tránh «q» = uid prefix không khớp backend). */
+  const [connectionsScopeNote, setConnectionsScopeNote] = useState<string | null>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copyErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const copyToClipboard = useCallback((key: string, text: string) => {
-    const t = text.trim();
-    if (!t || t === '—') return;
-    void navigator.clipboard.writeText(t).then(() => {
-      if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
-      setCopiedTableKey(key);
-      copyFeedbackTimerRef.current = window.setTimeout(() => setCopiedTableKey(null), 2000);
+    void copyTextWithFallback(text).then((ok) => {
+      if (ok) {
+        if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
+        setCopiedTableKey(key);
+        copyFeedbackTimerRef.current = window.setTimeout(() => setCopiedTableKey(null), 2000);
+      } else {
+        if (copyErrorTimerRef.current) window.clearTimeout(copyErrorTimerRef.current);
+        setCopyErrorToast(
+          'Không sao chép được (quyền trình duyệt, chính sách clipboard, hoặc ngữ cảnh không an toàn).',
+        );
+        copyErrorTimerRef.current = window.setTimeout(() => setCopyErrorToast(null), 4500);
+      }
     });
   }, []);
 
   useEffect(
     () => () => {
       if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
+      if (copyErrorTimerRef.current) window.clearTimeout(copyErrorTimerRef.current);
     },
     [],
   );
+
+  useEffect(() => {
+    clearInventoryPodNamesCache();
+  }, [selectedClusterId]);
+
+  useEffect(() => {
+    if (mainTab !== 'connections') setConnectionsScopeNote(null);
+  }, [mainTab]);
+
+  useEffect(() => {
+    if (connectionsScopeNote && searchApplied.trim().length > 0) setConnectionsScopeNote(null);
+  }, [searchApplied, connectionsScopeNote]);
 
   const appliedPort = useMemo(() => parseAppliedPort(searchApplied), [searchApplied]);
   const hasTextFilters = Boolean(namespaceApplied || searchApplied);
@@ -275,6 +365,7 @@ export function NetworkActivity() {
     setSearchDraft('');
     setNamespaceApplied('');
     setSearchApplied('');
+    setConnectionsScopeNote(null);
   }, []);
 
   /**
@@ -546,14 +637,16 @@ export function NetworkActivity() {
     setTablePage(1);
   }, [namespaceApplied, searchApplied, sinceMinutes, selectedClusterId, mainTab, tablePageSize]);
 
-  const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
+  const listPollIntervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
+  const activePollIntervalMs =
+    mainTab === 'topology' ? TOPOLOGY_POLL_INTERVAL_MS : listPollIntervalMs;
   usePolling(
     () => {
       if (mainTab === 'topology') void fetchTopology(false);
       else void fetchTableData(false);
     },
-    intervalMs,
+    activePollIntervalMs,
     { refreshTrigger },
   );
 
@@ -565,11 +658,21 @@ export function NetworkActivity() {
     const ns = (row.namespace ?? '').trim();
     const name = (row.podName ?? '').trim();
     const uid = (row.podUid ?? '').trim();
-    const q = name || (uid.length > 12 ? uid.slice(0, 12) : uid);
     setNamespaceDraft(ns);
-    setSearchDraft(q);
     setNamespaceApplied(ns);
-    setSearchApplied(q);
+    if (name) {
+      setSearchDraft(name);
+      setSearchApplied(name);
+      setConnectionsScopeNote(null);
+    } else {
+      setSearchDraft('');
+      setSearchApplied('');
+      setConnectionsScopeNote(
+        uid
+          ? 'Chưa có tên pod từ API; chỉ lọc theo namespace. «q» để trống (tiền tố UID có thể không khớp backend). Dùng sao chép UID hoặc gõ tìm kiếm tay.'
+          : null,
+      );
+    }
     setMainTab('connections');
   }, []);
 
@@ -629,7 +732,7 @@ export function NetworkActivity() {
         />
       ) : (
         <div className="flex flex-col flex-1 min-h-0 gap-1.5">
-          <Card className="overflow-hidden border-slate-800 bg-slate-950/20 flex flex-col flex-1 min-h-0">
+          <Card className="relative overflow-hidden border-slate-800 bg-slate-950/20 flex flex-col flex-1 min-h-0">
             {/* Hàng lọc: grid xl — cùng hàng nhãn + controls (h-8), căn đều; md/sm xếp cột */}
             <div className="px-2 py-2 sm:px-3 border-b border-border shrink-0">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,auto)_minmax(12rem,1.1fr)_minmax(12rem,1.1fr)_minmax(9.5rem,11rem)_minmax(0,auto)] xl:gap-x-3 xl:gap-y-0 xl:items-end">
@@ -659,6 +762,14 @@ export function NetworkActivity() {
                     {mainTab === 'connections' && !tableLoading && (
                       <span className="text-[10px] text-slate-500 tabular-nums">
                         {connTotal} dòng · trang {tablePage}/{tableTotalPages}
+                      </span>
+                    )}
+                    {mainTab === 'topology' && (
+                      <span
+                        className="text-[10px] text-slate-600 leading-tight max-w-[11rem] xl:max-w-[14rem]"
+                        title="Tab Pods/Connections vẫn dùng chu kỳ làm mới ngắn từ cài đặt (~30s). Nút Làm mới và refresh toàn app luôn tải ngay."
+                      >
+                        Topology: tự làm mới ~3 phút
                       </span>
                     )}
                   </div>
@@ -851,10 +962,20 @@ export function NetworkActivity() {
                 <span className="text-slate-300">queue bytes</span> (/proc/net) là snapshot, không phải tổng traffic.
               </div>
 
+              {mainTab === 'connections' && connectionsScopeNote && (
+                <div
+                  className="mt-2 rounded-lg border border-amber-600/45 bg-amber-950/35 px-2.5 py-1.5 text-[11px] text-amber-100/95 leading-snug"
+                  role="status"
+                >
+                  {connectionsScopeNote}
+                </div>
+              )}
+
               <p className="mt-2 text-[10px] text-slate-600 leading-snug hidden lg:block border-t border-slate-800/80 pt-2">
                 Namespace: inventory A→Z, <span className="font-mono">*</span> tiền tố. Tìm kiếm: LIKE tên pod/ns/IP; cổng số hoặc uid. Tối đa{' '}
                 {TOPOLOGY_EDGE_PAGE_SIZE} nhóm pod×đích / lần tải (topology). Talkers: tối đa {MAX_TALKER_FETCH_PAGES_CAP} trang / lần (theo{' '}
-                <span className="font-mono">total</span>), cache tên pod inventory 60s.
+                <span className="font-mono">total</span>). Cache tên pod inventory: TTL 30s, tối đa {INVENTORY_CACHE_MAX_KEYS} mục; xóa khi đổi
+                cluster.
               </p>
             </div>
 
@@ -1180,8 +1301,16 @@ export function NetworkActivity() {
                                 <th className="py-2 pr-3 font-medium" title="Nút sao chép pod UID">
                                   Pod
                                 </th>
-                                <th className="py-2 pr-3 font-medium">Local</th>
-                                <th className="py-2 pr-3 font-medium" title="Remote hiển thị + sao chép (điều tra)">
+                                <th
+                                  className="py-2 pr-3 font-medium"
+                                  title="Nguồn: IP:cổng. Trạng thái LISTEN: hiển thị socket lắng nghe (LISTEN :port @bind); nút sao chép cùng nội dung."
+                                >
+                                  Local
+                                </th>
+                                <th
+                                  className="py-2 pr-3 font-medium"
+                                  title="Đích từ xa. LISTEN: không dùng (hiện —); sao chép chỉ khi có đích."
+                                >
                                   Remote
                                 </th>
                                 <th className="py-2 pr-2 font-medium">Proto</th>
@@ -1253,8 +1382,31 @@ export function NetworkActivity() {
                                         ) : null}
                                       </div>
                                     </td>
-                                    <td className="py-2 pr-3 font-mono text-[11px] text-slate-400 align-top whitespace-nowrap">
-                                      {(row.sourceIp ?? '—') + ':' + (row.sourcePort ?? '—')}
+                                    <td className="py-2 pr-3 align-top">
+                                      <div className="flex items-start gap-0.5 min-w-0">
+                                        <span className="font-mono text-[11px] text-slate-400 whitespace-pre-wrap break-all min-w-0">
+                                          {formatLocalEndpoint(row)}
+                                        </span>
+                                        {localEndpointClipboard(row) !== '—' ? (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            type="button"
+                                            className="h-7 w-7 p-0 shrink-0 text-slate-500 hover:text-slate-200"
+                                            title="Sao chép Local (như cột hiển thị)"
+                                            aria-label="Sao chép Local"
+                                            onClick={() =>
+                                              copyToClipboard(`na-cl-${k}`, localEndpointClipboard(row))
+                                            }
+                                          >
+                                            {copiedTableKey === `na-cl-${k}` ? (
+                                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                            ) : (
+                                              <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                          </Button>
+                                        ) : null}
+                                      </div>
                                     </td>
                                     <td className="py-2 pr-3 align-top">
                                       <div className="flex items-start gap-0.5 min-w-0">
