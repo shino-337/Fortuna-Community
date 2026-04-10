@@ -1,6 +1,7 @@
 export const SPACING = {
   sectionY: 'space-y-8',
-  pageX: 'px-6',
+  /** Horizontal inset comes from Layout main; keep 0 here so content uses full usable width */
+  pageX: 'px-0',
   pageY: 'py-6',
   cardPrimary: 'p-6',
   cardSecondary: 'p-4',

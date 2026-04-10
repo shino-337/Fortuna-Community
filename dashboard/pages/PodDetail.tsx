@@ -22,6 +22,9 @@ import { formatRiskFindingReference, insightTypeUiLabel } from '../lib/riskDispl
 
 type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec';
 
+/** Preload failures merged with refreshAllData errors; cleared independently on successful SBOM / risk fetch. */
+const PRELOAD_DATA_ERROR_LABELS = new Set(['sbom', 'risk-report']);
+
 /** Short type label for SBOM (os-package -> os, library -> lib, etc.) */
 function sbomTypeLabel(type: string | undefined): string {
   if (!type) return '—';
@@ -76,6 +79,8 @@ export const PodDetail: React.FC = () => {
   const [specYaml, setSpecYaml] = useState<string>('');
   const [refreshing, setRefreshing] = useState(false);
   const [dataErrors, setDataErrors] = useState<string[]>([]);
+  const dataErrorsRef = useRef<string[]>([]);
+  dataErrorsRef.current = dataErrors;
   /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
   const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
 
@@ -169,62 +174,113 @@ export const PodDetail: React.FC = () => {
       if (!pod?.uid) return;
       setTabLoading(true);
       try {
+        const uid = pod.uid;
         if (tab === 'sbom') {
-          // Skip if already loaded by preload
-          if (!sbomLoaded) {
-            const data = await api.getPodSbom(pod.uid);
-            setSbom(data ?? null);
-            setSbomLoaded(true);
+          if (!sbomLoaded || dataErrorsRef.current.includes('sbom')) {
+            try {
+              const data = await api.getPodSbom(uid);
+              setSbom(data ?? null);
+              setSbomLoaded(true);
+              setDataErrors((p) => p.filter((e) => e !== 'sbom'));
+            } catch (e) {
+              console.error('sbom tab fetch', e);
+              setSbom(null);
+              setSbomLoaded(true);
+              setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
+            }
           }
         } else if (tab === 'risks') {
-          // Skip if already loaded by preload
-          if (relatedRisks.length === 0 && !podRiskReportSummary) {
-            const { insights } = await api.getPodRiskReport(pod.uid);
-            setRelatedRisks(insights);
+          if (dataErrorsRef.current.includes('risk-report') || (relatedRisks.length === 0 && !podRiskReportSummary)) {
+            try {
+              const { insights, summary } = await api.getPodRiskReport(uid);
+              setRelatedRisks(insights ?? []);
+              setPodRiskReportSummary(summary ?? null);
+              setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
+            } catch (e) {
+              console.error('risks tab fetch', e);
+              setRelatedRisks([]);
+              setPodRiskReportSummary(null);
+              setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
+            }
           }
         } else if (tab === 'processes') {
           if (processes.length === 0) {
-            const data = await api.getPodProcesses(pod.uid);
+            const data = await api.getPodProcesses(uid);
             setProcesses(data);
           }
         } else if (tab === 'network') {
           if (networkConnections.length === 0) {
             const [data, topDest] = await Promise.all([
-              api.getPodNetworkConnections(pod.uid),
-              api.getPodNetworkTopDestinations(pod.uid, { sinceMinutes: 1440 }),
+              api.getPodNetworkConnections(uid),
+              api.getPodNetworkTopDestinations(uid, { sinceMinutes: 1440 }),
             ]);
             setNetworkConnections(data);
             setNetworkTopDestinations(topDest);
+          } else if (networkTopDestinations.length === 0) {
+            const topDest = await api.getPodNetworkTopDestinations(uid, { sinceMinutes: 1440 });
+            setNetworkTopDestinations(topDest);
           }
         } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
-          // Only fetch if empty (preload already populates these)
-          if (runtimeSecurityEvents.length === 0 && runtimeFacts.length === 0) {
-            const [data, sec, facts, incidents, caps] = await Promise.all([
-              api.getPodEvents(pod.uid),
-              api.getPodRuntimeSecurityEvents(pod.uid, 150),
-              api.getPodRuntimeBehaviorFactsV2(pod.uid, 120),
-              api.getPodRuntimeIncidentsV2(pod.uid, 80),
-              api.getPodCapabilities(pod.uid),
-            ]);
-            setPodEvents(data);
-            setRuntimeSecurityEvents(sec);
-            setRuntimeFacts(facts);
-            setRuntimeIncidents(incidents);
-            setPodCapabilities(caps);
-            const signals = await api.getRuntimeSignalsByPod(pod.uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 });
-            setRuntimeSignals(signals);
-            const stats = await api.getRuntimeSignalSuppressionStats({ podUid: pod.uid, sinceMinutes: 60 });
-            setSignalStats(stats);
+          // GAP 4: fetch each slice independently — avoids skipping when only one of preload/API calls failed
+          const tasks: Promise<unknown>[] = [];
+          if (podEvents.length === 0) {
+            tasks.push(api.getPodEvents(uid).then(setPodEvents).catch((e) => console.error('pod events', e)));
           }
+          if (runtimeSecurityEvents.length === 0) {
+            tasks.push(
+              api.getPodRuntimeSecurityEvents(uid, 150).then(setRuntimeSecurityEvents).catch((e) => console.error('runtime security events', e)),
+            );
+          }
+          if (runtimeFacts.length === 0) {
+            tasks.push(api.getPodRuntimeBehaviorFactsV2(uid, 120).then(setRuntimeFacts).catch((e) => console.error('runtime facts', e)));
+          }
+          if (runtimeIncidents.length === 0) {
+            tasks.push(api.getPodRuntimeIncidentsV2(uid, 80).then(setRuntimeIncidents).catch((e) => console.error('runtime incidents', e)));
+          }
+          if (podCapabilities.length === 0) {
+            tasks.push(api.getPodCapabilities(uid).then(setPodCapabilities).catch((e) => console.error('capabilities', e)));
+          }
+          if (runtimeSignals.length === 0) {
+            tasks.push(
+              api
+                .getRuntimeSignalsByPod(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 })
+                .then(setRuntimeSignals)
+                .catch((e) => console.error('runtime signals', e)),
+            );
+          }
+          if (signalStats === null) {
+            tasks.push(
+              api
+                .getRuntimeSignalSuppressionStats({ podUid: uid, sinceMinutes: 60 })
+                .then(setSignalStats)
+                .catch((e) => console.error('signal stats', e)),
+            );
+          }
+          await Promise.all(tasks);
         } else if (tab === 'spec') {
-          const yaml = await api.getPodSpecYaml(pod.uid);
+          const yaml = await api.getPodSpecYaml(uid);
           setSpecYaml(yaml);
         }
       } finally {
         setTabLoading(false);
       }
     },
-    [pod, sbomLoaded, relatedRisks.length, podRiskReportSummary, processes.length, networkConnections.length, runtimeSecurityEvents.length, runtimeFacts.length]
+    [
+      pod,
+      sbomLoaded,
+      relatedRisks.length,
+      podRiskReportSummary,
+      processes.length,
+      networkConnections.length,
+      networkTopDestinations.length,
+      runtimeSecurityEvents.length,
+      runtimeFacts.length,
+      podEvents.length,
+      runtimeIncidents.length,
+      podCapabilities.length,
+      runtimeSignals.length,
+      signalStats,
+    ]
   );
 
   useEffect(() => {
@@ -234,7 +290,19 @@ export const PodDetail: React.FC = () => {
   // Load SBOM when pod is available (for Overview summary + SBOM tab)
   useEffect(() => {
     if (pod?.uid) {
-      api.getPodSbom(pod.uid).then((data) => { setSbom(data ?? null); setSbomLoaded(true); }).catch(() => { setSbom(null); setSbomLoaded(true); });
+      api
+        .getPodSbom(pod.uid)
+        .then((data) => {
+          setSbom(data ?? null);
+          setSbomLoaded(true);
+          setDataErrors((p) => p.filter((e) => e !== 'sbom'));
+        })
+        .catch((err) => {
+          console.error('sbom preload', err);
+          setSbom(null);
+          setSbomLoaded(true);
+          setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
+        });
     } else {
       setSbom(null);
       setSbomLoaded(false);
@@ -252,17 +320,23 @@ export const PodDetail: React.FC = () => {
       .then(({ insights, summary }) => {
         setRelatedRisks(insights ?? []);
         setPodRiskReportSummary(summary ?? null);
+        setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('risk report preload', err);
         setRelatedRisks([]);
         setPodRiskReportSummary(null);
+        setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
       });
   }, [pod?.uid]);
 
   // Helper to refresh all pod-detail data (used by preload + WS + manual refresh)
   const refreshAllData = useCallback((podUid: string) => {
     const errors: string[] = [];
-    const track = (label: string) => (err: unknown) => { errors.push(label); console.error(label, err); };
+    const track = (label: string) => (err: unknown) => {
+      errors.push(label);
+      console.error(label, err);
+    };
     Promise.all([
       api.getPodRuntimeMetrics(podUid).then(setRuntimeMetrics).catch(track('metrics')),
       api.getPodProcesses(podUid).then(setProcesses).catch(track('processes')),
@@ -276,8 +350,11 @@ export const PodDetail: React.FC = () => {
       api.getPodCapabilities(podUid).then(setPodCapabilities).catch(track('capabilities')),
       api.getRuntimeSignalSuppressionStats({ podUid, sinceMinutes: 60 }).then(setSignalStats).catch(track('signal-stats')),
     ]).then(() => {
-      if (errors.length > 0) setDataErrors(errors);
-      else setDataErrors([]);
+      setDataErrors((prev) => {
+        const kept = prev.filter((e) => PRELOAD_DATA_ERROR_LABELS.has(e));
+        if (errors.length > 0) return [...new Set([...kept, ...errors])];
+        return kept;
+      });
     });
   }, []);
 
@@ -383,9 +460,32 @@ export const PodDetail: React.FC = () => {
               try {
                 await fetchPod();
                 refreshAllData(pod.uid);
-                setSbomLoaded(false);
-                api.getPodSbom(pod.uid).then((d) => { setSbom(d ?? null); setSbomLoaded(true); }).catch(() => { setSbom(null); setSbomLoaded(true); });
-                api.getPodRiskReport(pod.uid).then(({ insights, summary }) => { setRelatedRisks(insights ?? []); setPodRiskReportSummary(summary ?? null); }).catch(() => {});
+                await api
+                  .getPodSbom(pod.uid)
+                  .then((d) => {
+                    setSbom(d ?? null);
+                    setSbomLoaded(true);
+                    setDataErrors((p) => p.filter((e) => e !== 'sbom'));
+                  })
+                  .catch((err) => {
+                    console.error('sbom refresh', err);
+                    setSbom(null);
+                    setSbomLoaded(true);
+                    setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
+                  });
+                await api
+                  .getPodRiskReport(pod.uid)
+                  .then(({ insights, summary }) => {
+                    setRelatedRisks(insights ?? []);
+                    setPodRiskReportSummary(summary ?? null);
+                    setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
+                  })
+                  .catch((err) => {
+                    console.error('risk report refresh', err);
+                    setRelatedRisks([]);
+                    setPodRiskReportSummary(null);
+                    setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
+                  });
               } finally {
                 setRefreshing(false);
               }
@@ -415,7 +515,19 @@ export const PodDetail: React.FC = () => {
             <div className="mt-1 text-slate-500 text-xs sm:text-sm font-mono break-all sm:break-normal">
               <span className="inline-block">{pod.namespace}</span>
               <span className="mx-2 opacity-50">|</span>
-              <span className="inline-block">{pod.nodeName ?? '—'}</span>
+              <span className="inline-block">
+                {pod.nodeName && pod.clusterId ? (
+                  <button
+                    type="button"
+                    className="text-pink-400 hover:underline text-left"
+                    onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName!)}`)}
+                  >
+                    {pod.nodeName}
+                  </button>
+                ) : (
+                  pod.nodeName ?? '—'
+                )}
+              </span>
             </div>
           </div>
         </div>
@@ -431,7 +543,43 @@ export const PodDetail: React.FC = () => {
       {dataErrors.length > 0 && (
         <div className="mb-3 p-2.5 rounded-lg border border-amber-700/50 bg-amber-950/30 flex items-center gap-2 text-xs text-amber-300">
           <AlertTriangle className="w-4 h-4 shrink-0" />
-          <span>Failed to load: {dataErrors.join(', ')}. <button type="button" className="underline hover:text-white" onClick={() => pod?.uid && refreshAllData(pod.uid)}>Retry</button></span>
+          <span>
+            Failed to load: {dataErrors.join(', ')}.{' '}
+            <button
+              type="button"
+              className="underline hover:text-white"
+              onClick={() => {
+                if (!pod?.uid) return;
+                refreshAllData(pod.uid);
+                void api
+                  .getPodSbom(pod.uid)
+                  .then((d) => {
+                    setSbom(d ?? null);
+                    setSbomLoaded(true);
+                    setDataErrors((p) => p.filter((e) => e !== 'sbom'));
+                  })
+                  .catch(() => {
+                    setSbom(null);
+                    setSbomLoaded(true);
+                    setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
+                  });
+                void api
+                  .getPodRiskReport(pod.uid)
+                  .then(({ insights, summary }) => {
+                    setRelatedRisks(insights ?? []);
+                    setPodRiskReportSummary(summary ?? null);
+                    setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
+                  })
+                  .catch(() => {
+                    setRelatedRisks([]);
+                    setPodRiskReportSummary(null);
+                    setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
+                  });
+              }}
+            >
+              Retry
+            </button>
+          </span>
         </div>
       )}
       <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 mb-6 min-w-0">
@@ -502,24 +650,10 @@ export const PodDetail: React.FC = () => {
               </div>
             )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-              <div>
+              <div className="sm:col-span-2">
                 <dt className="text-slate-500">UID</dt>
                 <dd className="text-slate-400 font-mono text-xs break-all">{pod.uid}</dd>
               </div>
-              {pod.nodeName && (
-                <div>
-                  <dt className="text-slate-500">Node</dt>
-                  <dd className="text-slate-300 font-mono">
-                    {pod.nodeName && pod.clusterId ? (
-                      <button type="button" className="text-pink-400 hover:underline" onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName!)}`)}>
-                        {pod.nodeName}
-                      </button>
-                    ) : (
-                      pod.nodeName ?? '—'
-                    )}
-                  </dd>
-                </div>
-              )}
             </dl>
             {(pod.ownerKind ?? pod.ownerName ?? pod.replicaSetName) && (
               <div className="mt-4 pt-4 border-t border-slate-800">

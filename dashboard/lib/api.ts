@@ -768,11 +768,11 @@ export const api = {
 
   /**
    * Cluster-wide network activity from pod_network_connections (same source as Pod Detail).
-   * @param view pods | connections | destinations | talkers
+   * @param view pods | connections | destinations | talkers | edges (edges = aggregated pod→dest for topology)
    */
   getNetworkActivity: async (params: {
     cluster: string;
-    view?: 'pods' | 'connections' | 'destinations' | 'talkers';
+    view?: 'pods' | 'connections' | 'destinations' | 'talkers' | 'edges';
     namespace?: string;
     q?: string;
     sinceMinutes?: number;

@@ -89,9 +89,9 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0">
       {/* ── KPI cards ── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 min-w-0">
         <Kpi label="Total connections" value={connections.length} />
         <Kpi label="Unique remotes" value={uniqueRemotes} />
         <Kpi label="Outbound" value={directions.outbound} accent="sky" />
@@ -127,39 +127,54 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
 
       {/* ── Top destinations ── */}
       {topDestinations.length > 0 && (
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-slate-500 mb-2 uppercase tracking-wider">
             Top destinations (aggregated, 24 h)
           </p>
-          <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-slate-800 bg-slate-900/95 text-left text-xs uppercase tracking-wide text-slate-500">
-                  <th className="px-3 py-2">Remote</th>
-                  <th className="px-3 py-2">Proto</th>
-                  <th className="px-3 py-2 text-right">Observations</th>
-                  <th className="px-3 py-2 text-right">Buckets</th>
-                  <th className="px-3 py-2">Last seen</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {topDestinations.map((d, idx) => (
-                  <tr key={`${d.destIp}:${d.destPort}:${d.protocol}-${idx}`} className="hover:bg-muted/30">
-                    <td className="px-3 py-2 font-mono text-xs text-slate-300 whitespace-nowrap">
-                      {d.destIp}:{d.destPort}
-                    </td>
-                    <td className="px-3 py-2 text-xs">{d.protocol ?? '—'}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-200">{d.observationCount}</td>
-                    <td className="px-3 py-2 text-right tabular-nums text-slate-400">
-                      {d.distinctBucketCount ?? '—'}
-                    </td>
-                    <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">
-                      {d.lastObservedAt ? formatDateTime(d.lastObservedAt) : '—'}
-                    </td>
+          <div className="rounded-lg border border-slate-800 bg-slate-950/30 overflow-hidden -mx-1 sm:mx-0">
+            <div className="ui-table-scroll max-h-[min(50vh,28rem)]">
+              <table className="w-full min-w-[640px] text-sm border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-800 bg-slate-900/95 backdrop-blur-sm text-left text-xs font-semibold uppercase tracking-wide text-slate-500 sticky top-0 z-10">
+                    <th className="px-3 py-2.5">Remote</th>
+                    <th className="px-3 py-2.5">Proto</th>
+                    <th className="px-3 py-2.5 text-right">Observations</th>
+                    <th className="px-3 py-2.5 text-right">Buckets</th>
+                    <th className="px-3 py-2.5">Last seen</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody className="divide-y divide-slate-800">
+                  {topDestinations.map((d, idx) => {
+                    const remote = `${d.destIp}:${d.destPort}`;
+                    return (
+                      <tr
+                        key={`${d.destIp}:${d.destPort}:${d.protocol}-${idx}`}
+                        className="hover:bg-muted/30"
+                      >
+                        <td
+                          className="px-3 py-2 font-mono text-xs text-slate-300 max-w-[14rem] sm:max-w-[18rem] truncate align-middle"
+                          title={remote}
+                        >
+                          {remote}
+                        </td>
+                        <td className="px-3 py-2 text-xs align-middle whitespace-nowrap">
+                          {d.protocol ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-200 align-middle">
+                          {d.observationCount}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums text-slate-400 align-middle">
+                          {d.distinctBucketCount ?? '—'}
+                        </td>
+                        <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap align-middle">
+                          {d.lastObservedAt ? formatDateTime(d.lastObservedAt) : '—'}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </div>
       )}

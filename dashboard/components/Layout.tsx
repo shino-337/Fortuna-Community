@@ -166,7 +166,7 @@ export const Layout: React.FC = () => {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Desktop Header — flex-wrap + min-w-0 so controls don’t overflow when the viewport is narrowed */}
-        <header className="hidden lg:flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 min-h-16 bg-base/60 backdrop-blur-md border-b border-border px-4 xl:px-8 z-10">
+        <header className="hidden lg:flex flex-wrap items-center justify-between gap-x-4 gap-y-2 py-2 min-h-16 bg-base/60 backdrop-blur-md border-b border-border px-3 sm:px-4 lg:px-5 z-10">
           <div className="flex flex-wrap items-center gap-3 min-w-0 flex-1 basis-[min(100%,22rem)]">
             <h2 className="text-lg font-semibold text-text shrink-0 min-w-0 max-w-[10rem] xl:max-w-[14rem] 2xl:max-w-none truncate">
               {currentTitle}
@@ -342,13 +342,21 @@ className={`w-full text-left px-4 py-2 text-sm truncate ${selectedClusterId === 
           </div>
         </header>
 
-        {/* Page Content: consistent padding, max-width, and min-height for proper page break */}
-        <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 relative scrollbar-thin min-h-0">
-          <div className="max-w-7xl mx-auto pb-12 w-full">
+        {/* Page Content: trên /network-activity bật flex column để topology flex-1 vừa khung; các trang khác giữ chiều cao theo nội dung */}
+        <main
+          className={`flex-1 px-3 sm:px-4 lg:px-5 py-3 sm:py-4 lg:py-5 relative scrollbar-thin min-h-0 flex flex-col ${
+            location.pathname === '/network-activity'
+              ? 'max-lg:overflow-y-auto lg:overflow-hidden'
+              : 'overflow-y-auto'
+          }`}
+        >
+          <div
+            className={`w-full max-w-none pb-4 sm:pb-6 min-h-0 ${location.pathname === '/network-activity' ? 'flex-1 flex flex-col' : ''}`}
+          >
             <Outlet />
           </div>
         </main>
-        <footer className="shrink-0 px-4 py-2 border-t border-border bg-surface/50 text-center text-[10px] text-muted-2" title="Build time (UTC). Use this to confirm which dashboard image is running.">
+        <footer className="shrink-0 px-3 sm:px-4 lg:px-5 py-2 border-t border-border bg-surface/50 text-center text-[10px] text-muted-2" title="Build time (UTC). Use this to confirm which dashboard image is running.">
           Fortuna Dashboard · build {typeof __BUILD_TIME__ !== 'undefined' ? __BUILD_TIME__ : 'dev'}
         </footer>
       </div>

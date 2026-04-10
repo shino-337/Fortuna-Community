@@ -1,6 +1,7 @@
-import React, { useRef, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import * as d3 from 'd3';
 import type {
+  NetworkActivityConnectionRow,
   NetworkActivityDestinationRow,
   NetworkActivityTalkerRow,
 } from '../types';
@@ -9,32 +10,76 @@ import type {
 
 interface NodeDatum extends d3.SimulationNodeDatum {
   id: string;
-  label: string;
-  /** 'pod' = source pod, 'dest' = destination endpoint */
+  /** Dòng 1: tên pod / đích (không dùng UID làm dòng chính khi đã có tên) */
+  line1: string;
+  /** Dòng 2: ns + gợi ý uid (pod) hoặc external / ns đích */
+  line2: string;
+  /** Tooltip đầy đủ */
+  fullLabel: string;
   kind: 'pod' | 'dest';
-  /** Metric used to size the node (observation count or connection count) */
   weight: number;
   namespace?: string;
   ownerLabel?: string;
 }
 
 interface LinkDatum extends d3.SimulationLinkDatum<NodeDatum> {
-  /** Observations / connections between source and dest */
   value: number;
+}
+
+/** Hạt chạy dọc path — chỉ visual, không gắn NetworkPolicy */
+interface ParticleDatum {
+  linkIndex: number;
+  phase: number;
+  speed: number;
 }
 
 export interface NetworkTopologyGraphProps {
   destinations: NetworkActivityDestinationRow[];
   talkers: NetworkActivityTalkerRow[];
-  /** Maximum nodes to render — avoids overwhelming the SVG. Default 80. */
+  /** Hàng kết nối thật (cùng bộ lọc API); ưu tiên dùng để vẽ cạnh pod→đích đúng với namespace/lọc. */
+  connections?: NetworkActivityConnectionRow[];
+  /** Pod có activity (talkers) nhưng không nằm trong tập cạnh hiện tại — thêm nút pod orphan vào đồ thị. */
+  supplementTalkers?: NetworkActivityTalkerRow[];
   maxNodes?: number;
   onNodeClick?: (nodeId: string, kind: 'pod' | 'dest') => void;
+  showCompactLegend?: boolean;
+  className?: string;
+  /** Mô phỏng lưu lượng: chấm xanh chạy dọc cạnh (decorative). Mặc định bật. */
+  showTrafficParticles?: boolean;
 }
 
 /* ─── helpers ─────────────────────────────────────────────────── */
 
-/** Max pods to link per destination node (avoids spaghetti) */
 const MAX_LINKS_PER_DESTINATION = 5;
+
+/** Màu theo spec UX: workload pod vs thực thể ngoài / đích */
+const COLOR_POD_FILL = '#db2777';
+const COLOR_POD_STROKE = '#be185d';
+const COLOR_DEST_FILL = '#64748b';
+const COLOR_DEST_STROKE = '#475569';
+/** Luồng quan sát (aggregate API — không phải NetworkPolicy allow/deny) */
+const COLOR_LINK = '#10b981';
+const COLOR_LINK_DIM = '#065f46';
+const COLOR_LINK_HOVER = '#34d399';
+const COLOR_PARTICLE = '#a7f3d0';
+const COLOR_PARTICLE_CORE = '#ecfdf5';
+const BG = '#020617';
+
+/** Giới hạn số hạt để rAF nhẹ (~2 hạt / cạnh tối đa 55 cạnh) */
+const MAX_LINK_INDICES_FOR_PARTICLES = 55;
+
+function truncateGraphLabel(text: string, max = 26): string {
+  const t = text.trim();
+  if (t.length <= max) return t;
+  return `${t.slice(0, max - 1)}…`;
+}
+
+/** 8 ký tự đầu + … nếu dài hơn — luôn hiển thị trên dòng phụ cho pod. */
+function uidFootprint(uid: string): string {
+  if (!uid) return '—';
+  if (uid.length <= 8) return uid;
+  return `${uid.slice(0, 8)}…`;
+}
 
 function buildGraph(
   destinations: NetworkActivityDestinationRow[],
@@ -44,14 +89,20 @@ function buildGraph(
   const nodeMap = new Map<string, NodeDatum>();
   const links: LinkDatum[] = [];
 
-  // Add top talker pods (source nodes)
   const topTalkers = talkers.slice(0, Math.min(talkers.length, Math.floor(maxNodes * 0.5)));
   for (const t of topTalkers) {
     const id = `pod:${t.podUid}`;
     if (!nodeMap.has(id)) {
+      const name = (t.podName ?? '').trim();
+      const ns = (t.namespace ?? '').trim() || '—';
+      const line1 = truncateGraphLabel(name || `Pod ${uidFootprint(t.podUid)}`, 28);
+      const line2 = `ns: ${ns} · ${uidFootprint(t.podUid)}`;
+      const fullLabel = name ? `${name} [uid ${t.podUid}]` : `Pod uid ${t.podUid}`;
       nodeMap.set(id, {
         id,
-        label: t.podName || t.podUid.slice(0, 12),
+        line1,
+        line2,
+        fullLabel,
         kind: 'pod',
         weight: t.observationCount,
         namespace: t.namespace,
@@ -60,16 +111,25 @@ function buildGraph(
     }
   }
 
-  // Add top destinations (dest nodes)
   const topDests = destinations.slice(0, Math.min(destinations.length, Math.floor(maxNodes * 0.5)));
   for (const d of topDests) {
     const destKey = `dest:${d.destIp}:${d.destPort}/${d.protocol ?? 'tcp'}`;
     if (!nodeMap.has(destKey)) {
+      const hasWorkload = Boolean((d.destWorkloadName ?? '').trim());
+      const line1 = truncateGraphLabel(
+        hasWorkload ? `${d.destWorkloadName}:${d.destPort}` : `${d.destIp}:${d.destPort}`,
+        28,
+      );
+      const ns = (d.destWorkloadNamespace ?? '').trim();
+      const line2 = ns ? `ns: ${ns}` : 'external';
+      const fullLabel = hasWorkload
+        ? `${d.destWorkloadName} · ${d.destIp}:${d.destPort}/${d.protocol ?? 'tcp'}`
+        : `${d.destIp}:${d.destPort}/${d.protocol ?? 'tcp'}`;
       nodeMap.set(destKey, {
         id: destKey,
-        label: d.destWorkloadName
-          ? `${d.destWorkloadName}:${d.destPort}`
-          : `${d.destIp}:${d.destPort}`,
+        line1,
+        line2,
+        fullLabel,
         kind: 'dest',
         weight: d.observationCount,
         namespace: d.destWorkloadNamespace,
@@ -77,22 +137,15 @@ function buildGraph(
     }
   }
 
-  // Build links: connect each talker to each destination (weighted by min observation)
-  // We use a simple heuristic since the API doesn't give per-pod->dest pairs:
-  // link each talker to every top destination with weight proportional to both.
   const podIds = topTalkers.map((t) => `pod:${t.podUid}`);
   for (const d of topDests) {
     const destKey = `dest:${d.destIp}:${d.destPort}/${d.protocol ?? 'tcp'}`;
-    // Connect to each pod that could reach this dest (top N by observation)
     const podsToLink = podIds.slice(0, Math.min(podIds.length, MAX_LINKS_PER_DESTINATION));
     for (const podId of podsToLink) {
       links.push({
         source: podId,
         target: destKey,
-        value: Math.min(
-          nodeMap.get(podId)?.weight ?? 1,
-          nodeMap.get(destKey)?.weight ?? 1,
-        ),
+        value: Math.min(nodeMap.get(podId)?.weight ?? 1, nodeMap.get(destKey)?.weight ?? 1),
       });
     }
   }
@@ -100,32 +153,210 @@ function buildGraph(
   return { nodes: Array.from(nodeMap.values()), links };
 }
 
-const COLOR_POD = '#38bdf8'; // sky-400
-const COLOR_DEST = '#f472b6'; // pink-400
-const COLOR_LINK = '#334155'; // slate-700
-const COLOR_LINK_HOVER = '#64748b'; // slate-500
-const BG = '#020617'; // slate-950
+const EDGE_SEP = '\x1f';
+const MAX_AGGREGATED_LINKS = 320;
+
+/** Gom các dòng connections hoặc edges (mỗi dòng có thể có observationCount > 1); giữ top pod/đích theo trọng số. */
+function buildGraphFromConnections(
+  rows: NetworkActivityConnectionRow[],
+  maxNodes: number,
+  supplementTalkers?: NetworkActivityTalkerRow[],
+): { nodes: NodeDatum[]; links: LinkDatum[] } {
+  type EdgeRec = {
+    podUid: string;
+    destIp: string;
+    destPort: number;
+    protocol: string;
+    weight: number;
+  };
+  const edgeMap = new Map<string, EdgeRec>();
+  const podMeta = new Map<
+    string,
+    { namespace?: string; name?: string; ownerKind?: string; ownerName?: string }
+  >();
+
+  for (const r of rows) {
+    const uid = (r.podUid ?? '').trim();
+    const dip = (r.destIp ?? '').trim();
+    const dport = r.destPort;
+    if (!uid || !dip || dport == null || Number.isNaN(Number(dport))) continue;
+    const proto = ((r.protocol ?? 'tcp') as string).trim() || 'tcp';
+    const k = `${uid}${EDGE_SEP}${dip}${EDGE_SEP}${dport}${EDGE_SEP}${proto}`;
+    const rowW =
+      typeof r.observationCount === 'number' && r.observationCount > 0
+        ? Number(r.observationCount)
+        : 1;
+    const cur = edgeMap.get(k);
+    if (cur) cur.weight += rowW;
+    else
+      edgeMap.set(k, {
+        podUid: uid,
+        destIp: dip,
+        destPort: Number(dport),
+        protocol: proto,
+        weight: rowW,
+      });
+
+    if (!podMeta.has(uid)) {
+      podMeta.set(uid, {
+        namespace: r.namespace,
+        name: r.podName,
+        ownerKind: r.ownerKind,
+        ownerName: r.ownerName,
+      });
+    }
+  }
+
+  if (edgeMap.size === 0) {
+    return { nodes: [], links: [] };
+  }
+
+  const podWeight = new Map<string, number>();
+  const destWeight = new Map<string, number>();
+  const destTuple = new Map<string, { destIp: string; destPort: number; protocol: string }>();
+
+  for (const e of edgeMap.values()) {
+    const destKey = `dest:${e.destIp}:${e.destPort}/${e.protocol}`;
+    podWeight.set(e.podUid, (podWeight.get(e.podUid) ?? 0) + e.weight);
+    destWeight.set(destKey, (destWeight.get(destKey) ?? 0) + e.weight);
+    if (!destTuple.has(destKey)) {
+      destTuple.set(destKey, { destIp: e.destIp, destPort: e.destPort, protocol: e.protocol });
+    }
+  }
+
+  if (supplementTalkers?.length) {
+    for (const t of supplementTalkers) {
+      const uid = (t.podUid ?? '').trim();
+      if (!uid || podWeight.has(uid)) continue;
+      podWeight.set(uid, Math.max(1, Number(t.observationCount) || 1));
+      if (!podMeta.has(uid)) {
+        podMeta.set(uid, {
+          namespace: t.namespace,
+          name: t.podName,
+          ownerKind: t.ownerKind,
+          ownerName: t.ownerName,
+        });
+      }
+    }
+  }
+
+  const maxPods = Math.max(1, Math.floor(maxNodes * 0.5));
+  const maxDests = Math.max(1, Math.floor(maxNodes * 0.5));
+  const topPodUids = [...podWeight.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxPods)
+    .map(([u]) => u);
+  const topDestKeys = [...destWeight.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, maxDests)
+    .map(([k]) => k);
+
+  const podSet = new Set(topPodUids);
+  const destSet = new Set(topDestKeys);
+
+  const nodeMap = new Map<string, NodeDatum>();
+
+  for (const uid of topPodUids) {
+    const id = `pod:${uid}`;
+    const meta = podMeta.get(uid) ?? {};
+    const name = (meta.name ?? '').trim();
+    const ns = (meta.namespace ?? '').trim() || '—';
+    const w = podWeight.get(uid) ?? 1;
+    const ownerLabel =
+      meta.ownerKind && meta.ownerName ? `${meta.ownerKind}/${meta.ownerName}` : undefined;
+    nodeMap.set(id, {
+      id,
+      line1: truncateGraphLabel(name || `Pod ${uidFootprint(uid)}`, 28),
+      line2: `ns: ${ns} · ${uidFootprint(uid)}`,
+      fullLabel: name ? `${name} [uid ${uid}]` : `Pod uid ${uid}`,
+      kind: 'pod',
+      weight: w,
+      namespace: meta.namespace,
+      ownerLabel,
+    });
+  }
+
+  for (const destKey of topDestKeys) {
+    const t = destTuple.get(destKey);
+    if (!t) continue;
+    const w = destWeight.get(destKey) ?? 1;
+    const line1 = truncateGraphLabel(`${t.destIp}:${t.destPort}`, 28);
+    nodeMap.set(destKey, {
+      id: destKey,
+      line1,
+      line2: 'external',
+      fullLabel: `${t.destIp}:${t.destPort}/${t.protocol}`,
+      kind: 'dest',
+      weight: w,
+    });
+  }
+
+  const linkCandidates: LinkDatum[] = [];
+  for (const e of edgeMap.values()) {
+    const destKey = `dest:${e.destIp}:${e.destPort}/${e.protocol}`;
+    if (!podSet.has(e.podUid) || !destSet.has(destKey)) continue;
+    linkCandidates.push({
+      source: `pod:${e.podUid}`,
+      target: destKey,
+      value: e.weight,
+    });
+  }
+  linkCandidates.sort((a, b) => b.value - a.value);
+  const links = linkCandidates.slice(0, MAX_AGGREGATED_LINKS);
+
+  return { nodes: Array.from(nodeMap.values()), links };
+}
+
+function linkCurvePath(d: LinkDatum, curve = 0.12): string {
+  const s = d.source as NodeDatum;
+  const t = d.target as NodeDatum;
+  const sx = s.x ?? 0;
+  const sy = s.y ?? 0;
+  const tx = t.x ?? 0;
+  const ty = t.y ?? 0;
+  const mx = (sx + tx) / 2;
+  const my = (sy + ty) / 2;
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const len = Math.hypot(dx, dy) || 1;
+  const off = len * curve;
+  const cx = mx + (-dy / len) * off;
+  const cy = my + (dx / len) * off;
+  return `M${sx},${sy} Q${cx},${cy} ${tx},${ty}`;
+}
 
 /* ─── component ───────────────────────────────────────────────── */
 
 export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
   destinations,
   talkers,
+  connections,
+  supplementTalkers,
   maxNodes = 80,
   onNodeClick,
+  showCompactLegend = true,
+  className = '',
+  showTrafficParticles = true,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const uid = useId().replace(/\W/g, '');
+  const arrowId = `arrow-${uid}`;
+  const glowId = `glow-${uid}`;
+
   const [dimensions, setDimensions] = useState({ width: 900, height: 500 });
   const [tooltip, setTooltip] = useState<{ x: number; y: number; content: string } | null>(null);
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const selectedNodeIdRef = useRef<string | null>(null);
+  selectedNodeIdRef.current = selectedNodeId;
 
-  // Build graph data from aggregated views
-  const { nodes, links } = useMemo(
-    () => buildGraph(destinations, talkers, maxNodes),
-    [destinations, talkers, maxNodes],
-  );
+  const { nodes, links } = useMemo(() => {
+    if (connections && connections.length > 0) {
+      return buildGraphFromConnections(connections, maxNodes, supplementTalkers);
+    }
+    return buildGraph(destinations, talkers, maxNodes);
+  }, [connections, destinations, talkers, supplementTalkers, maxNodes]);
 
-  // Observe container size
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -133,7 +364,8 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       for (const entry of entries) {
         const { width, height } = entry.contentRect;
         if (width > 0 && height > 0) {
-          setDimensions({ width, height: Math.max(height, 400) });
+          // Không ép min 360px — tránh SVG cao hơn container flex (tràn khung browser).
+          setDimensions({ width, height: Math.max(1, height) });
         }
       }
     });
@@ -141,85 +373,181 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
     return () => ro.disconnect();
   }, []);
 
-  // D3 force simulation
   useEffect(() => {
     if (!svgRef.current || nodes.length === 0) return;
 
     const { width, height } = dimensions;
     const svg = d3.select(svgRef.current);
     svg.selectAll('*').remove();
+    setSelectedNodeId(null);
 
-    // Scale for node radius
     const maxWeight = d3.max(nodes, (d) => d.weight) ?? 1;
-    const rScale = d3.scaleSqrt().domain([0, maxWeight]).range([4, 20]);
-
-    // Scale for link width
+    const rScale = d3.scaleSqrt().domain([0, maxWeight]).range([5, 22]);
     const maxLinkVal = d3.max(links, (d) => d.value) ?? 1;
-    const linkWidthScale = d3.scaleLinear().domain([0, maxLinkVal]).range([0.5, 3]);
+    const linkWidthScale = d3.scaleLinear().domain([0, maxLinkVal]).range([0.7, 3.2]);
 
-    // Create a copy so D3 doesn't mutate our memoised objects
     const nodesCopy: NodeDatum[] = nodes.map((n) => ({ ...n }));
     const linksCopy: LinkDatum[] = links.map((l) => ({ ...l }));
+
+    const diag = Math.sqrt(Math.max(1, width * height));
+    const linkDistance = Math.min(168, Math.max(76, diag / 13));
+    const chargeStrength = -Math.min(520, Math.max(220, diag * 0.42));
 
     const simulation = d3
       .forceSimulation(nodesCopy)
       .force(
         'link',
-        d3.forceLink<NodeDatum, LinkDatum>(linksCopy).id((d) => d.id).distance(100).strength(0.3),
+        d3
+          .forceLink<NodeDatum, LinkDatum>(linksCopy)
+          .id((d) => d.id)
+          .distance(linkDistance)
+          .strength(0.28),
       )
-      .force('charge', d3.forceManyBody().strength(-200))
+      .force('charge', d3.forceManyBody().strength(chargeStrength))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide<NodeDatum>().radius((d) => rScale(d.weight) + 4));
+      .force('collision', d3.forceCollide<NodeDatum>().radius((d) => rScale(d.weight) + 14))
+      .alphaDecay(0.06)
+      .velocityDecay(0.22);
 
-    // Container for zoom
-    const g = svg.append('g');
+    const defs = svg.append('defs');
 
-    // Zoom behavior
-    const zoom = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.2, 5])
-      .on('zoom', (event) => {
-        g.attr('transform', event.transform);
-      });
-    svg.call(zoom);
+    const glowFilter = defs
+      .append('filter')
+      .attr('id', glowId)
+      .attr('x', '-60%')
+      .attr('y', '-60%')
+      .attr('width', '220%')
+      .attr('height', '220%');
+    glowFilter.append('feGaussianBlur').attr('stdDeviation', 2.8).attr('result', 'coloredBlur');
+    const glowMerge = glowFilter.append('feMerge');
+    glowMerge.append('feMergeNode').attr('in', 'coloredBlur');
+    glowMerge.append('feMergeNode').attr('in', 'SourceGraphic');
 
-    // Arrow marker
-    svg
-      .append('defs')
+    defs
       .append('marker')
-      .attr('id', 'arrowhead')
+      .attr('id', arrowId)
       .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 20)
+      .attr('refX', 18)
       .attr('refY', 0)
-      .attr('markerWidth', 6)
-      .attr('markerHeight', 6)
+      .attr('markerWidth', 5.5)
+      .attr('markerHeight', 5.5)
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-4L8,0L0,4')
       .attr('fill', COLOR_LINK);
 
-    // Links
-    const link = g
-      .append('g')
-      .selectAll('line')
+    const gRoot = svg.append('g').attr('data-topology-root', '1');
+
+    const zoom = d3
+      .zoom<SVGSVGElement, unknown>()
+      .scaleExtent([0.08, 5])
+      .on('zoom', (event) => {
+        gRoot.attr('transform', event.transform);
+      });
+    svg.call(zoom);
+
+    const pad = 56;
+    const fitTopologyToView = () => {
+      if (!svgRef.current || nodesCopy.length === 0) return;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (const n of nodesCopy) {
+        const x = n.x ?? 0;
+        const y = n.y ?? 0;
+        const r = rScale(n.weight) + 26;
+        minX = Math.min(minX, x - r);
+        maxX = Math.max(maxX, x + r);
+        minY = Math.min(minY, y - r);
+        maxY = Math.max(maxY, y + r + 30);
+      }
+      if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
+      const bw = Math.max(maxX - minX, 64);
+      const bh = Math.max(maxY - minY, 64);
+      const k = Math.min((width - 2 * pad) / bw, (height - 2 * pad) / bh, 5);
+      if (!Number.isFinite(k) || k <= 0) return;
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const tx = width / 2 - k * cx;
+      const ty = height / 2 - k * cy;
+      d3.select(svgRef.current)
+        .transition()
+        .duration(380)
+        .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+    };
+
+    gRoot
+      .append('rect')
+      .attr('width', width)
+      .attr('height', height)
+      .attr('fill', 'transparent')
+      .style('cursor', 'grab')
+      .lower()
+      .on('click', (event) => {
+        event.stopPropagation();
+        setSelectedNodeId(null);
+      });
+
+    const linkG = gRoot.append('g').attr('fill', 'none');
+
+    const linkPath = linkG
+      .selectAll('path')
       .data(linksCopy)
-      .join('line')
+      .join('path')
       .attr('stroke', COLOR_LINK)
       .attr('stroke-width', (d) => linkWidthScale(d.value))
-      .attr('stroke-opacity', 0.6)
-      .attr('marker-end', 'url(#arrowhead)');
+      .attr('stroke-opacity', 0.55)
+      .attr('marker-end', `url(#${arrowId})`);
 
-    // Node groups
-    const node = g
+    const linkCountForParticles = Math.min(linksCopy.length, MAX_LINK_INDICES_FOR_PARTICLES);
+    const particleData: ParticleDatum[] = [];
+    if (showTrafficParticles && linkCountForParticles > 0) {
+      for (let i = 0; i < linkCountForParticles; i++) {
+        particleData.push({
+          linkIndex: i,
+          phase: Math.random(),
+          speed: 0.00011 + Math.random() * 0.00009,
+        });
+        particleData.push({
+          linkIndex: i,
+          phase: 0.35 + Math.random() * 0.3,
+          speed: 0.00009 + Math.random() * 0.00007,
+        });
+      }
+    }
+
+    const particleG = gRoot
       .append('g')
+      .attr('class', 'topology-particles')
+      .attr('fill', 'none')
+      .style('pointer-events', 'none');
+
+    const particleSel =
+      showTrafficParticles && particleData.length > 0
+        ? particleG
+            .selectAll<SVGCircleElement, ParticleDatum>('circle')
+            .data(particleData)
+            .join('circle')
+            .attr('r', 2.4)
+            .attr('fill', COLOR_PARTICLE_CORE)
+            .attr('stroke', COLOR_PARTICLE)
+            .attr('stroke-width', 0.6)
+            .attr('opacity', 0.82)
+        : null;
+
+    const nodeLayer = gRoot.append('g').attr('class', 'topology-nodes');
+    const node = nodeLayer
       .selectAll<SVGGElement, NodeDatum>('g')
       .data(nodesCopy)
       .join('g')
+      .attr('class', 'topology-node')
       .style('cursor', 'pointer')
       .call(
         d3
           .drag<SVGGElement, NodeDatum>()
           .on('start', (event, d) => {
-            if (!event.active) simulation.alphaTarget(0.3).restart();
+            if (!event.active) simulation.alphaTarget(0.28).restart();
             d.fx = d.x;
             d.fy = d.y;
           })
@@ -234,73 +562,193 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
           }),
       );
 
-    // Node circles
     node
       .append('circle')
+      .attr('data-node-id', (d) => d.id)
       .attr('r', (d) => rScale(d.weight))
-      .attr('fill', (d) => (d.kind === 'pod' ? COLOR_POD : COLOR_DEST))
-      .attr('fill-opacity', 0.85)
-      .attr('stroke', (d) => (d.kind === 'pod' ? '#0284c7' : '#db2777'))
-      .attr('stroke-width', 1.5);
+      .attr('fill', (d) => (d.kind === 'pod' ? COLOR_POD_FILL : COLOR_DEST_FILL))
+      .attr('fill-opacity', 0.92)
+      .attr('stroke', (d) => (d.kind === 'pod' ? COLOR_POD_STROKE : COLOR_DEST_STROKE))
+      .attr('stroke-width', 1.6);
 
-    // Node labels
     node
       .append('text')
-      .text((d) => d.label)
-      .attr('dy', (d) => rScale(d.weight) + 12)
       .attr('text-anchor', 'middle')
-      .attr('fill', '#94a3b8')
-      .attr('font-size', '10px')
-      .attr('pointer-events', 'none');
+      .attr('pointer-events', 'none')
+      .each(function (d) {
+        const r = rScale(d.weight);
+        const g = d3.select(this);
+        g.append('tspan')
+          .attr('x', 0)
+          .attr('dy', r + 12)
+          .attr('fill', '#e2e8f0')
+          .attr('font-size', '11px')
+          .attr('font-weight', '500')
+          .text(d.line1);
+        g.append('tspan')
+          .attr('x', 0)
+          .attr('dy', 12)
+          .attr('fill', '#94a3b8')
+          .attr('font-size', '9px')
+          .text(d.line2);
+      });
 
-    // Hover effects
+    const applyHighlight = (focusId: string | null) => {
+      const fadeOthers = focusId != null;
+      node.style('opacity', (d) => {
+        if (!fadeOthers) return 1;
+        const connected = linksCopy.some((l) => {
+          const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
+          const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
+          return s === focusId && d.id === t || t === focusId && d.id === s;
+        });
+        return d.id === focusId || connected ? 1 : 0.12;
+      });
+      linkPath
+        .attr('stroke', (l) => {
+          const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
+          const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
+          if (!focusId) return COLOR_LINK;
+          return s === focusId || t === focusId ? COLOR_LINK_HOVER : COLOR_LINK_DIM;
+        })
+        .attr('stroke-opacity', (l) => {
+          const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
+          const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
+          if (!focusId) return 0.55;
+          return s === focusId || t === focusId ? 0.95 : 0.08;
+        });
+
+      if (particleSel) {
+        particleSel.attr('opacity', (d) => {
+          if (!focusId) return 0.82;
+          const l = linksCopy[d.linkIndex];
+          if (!l) return 0.06;
+          const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
+          const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
+          const hit = s === focusId || t === focusId;
+          return hit ? 0.95 : 0.05;
+        });
+      }
+    };
+
     node
       .on('mouseenter', (event, d) => {
         const [x, y] = d3.pointer(event, svgRef.current);
-        const parts: string[] = [`${d.kind === 'pod' ? 'Pod' : 'Destination'}: ${d.label}`];
-        if (d.namespace) parts.push(`NS: ${d.namespace}`);
+        const parts: string[] = [`${d.kind === 'pod' ? 'Pod' : 'Đích / ngoài cluster'}: ${d.fullLabel}`];
+        if (d.namespace) parts.push(`Namespace: ${d.namespace}`);
         if (d.ownerLabel) parts.push(`Owner: ${d.ownerLabel}`);
-        parts.push(`Observations: ${d.weight}`);
+        parts.push(`Quan sát: ${d.weight}`);
         setTooltip({ x, y: y - 10, content: parts.join('\n') });
-
-        // Highlight connected links
-        link
-          .attr('stroke', (l) => {
-            const src = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
-            const tgt = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
-            return src === d.id || tgt === d.id ? COLOR_LINK_HOVER : COLOR_LINK;
-          })
-          .attr('stroke-opacity', (l) => {
-            const src = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
-            const tgt = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
-            return src === d.id || tgt === d.id ? 1 : 0.3;
-          });
+        applyHighlight(d.id);
       })
       .on('mouseleave', () => {
         setTooltip(null);
-        link.attr('stroke', COLOR_LINK).attr('stroke-opacity', 0.6);
+        applyHighlight(selectedNodeIdRef.current);
       })
-      .on('click', (_event, d) => {
-        if (onNodeClick) {
+      .on('click', (event, d) => {
+        event.stopPropagation();
+        const wasSelected = selectedNodeIdRef.current === d.id;
+        setSelectedNodeId((prev) => (prev === d.id ? null : d.id));
+        if (onNodeClick && d.kind === 'pod' && !wasSelected) {
           const rawId = d.id.replace(/^(pod|dest):/, '');
           onNodeClick(rawId, d.kind);
         }
       });
 
-    // Tick
     simulation.on('tick', () => {
-      link
-        .attr('x1', (d) => ((d.source as NodeDatum).x ?? 0))
-        .attr('y1', (d) => ((d.source as NodeDatum).y ?? 0))
-        .attr('x2', (d) => ((d.target as NodeDatum).x ?? 0))
-        .attr('y2', (d) => ((d.target as NodeDatum).y ?? 0));
+      linkPath.attr('d', (d) => linkCurvePath(d));
       node.attr('transform', (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     });
 
+    simulation.on('end', () => {
+      window.requestAnimationFrame(() => fitTopologyToView());
+    });
+    const fitTimer = window.setTimeout(() => fitTopologyToView(), 1100);
+
+    let rafId = 0;
+    if (particleSel && particleData.length > 0) {
+      let lastT = performance.now();
+      const step = (now: number) => {
+        const dt = Math.min(now - lastT, 48);
+        lastT = now;
+        const pathEls = linkPath.nodes() as SVGPathElement[];
+        particleSel.each(function (d) {
+          d.phase = (d.phase + d.speed * dt) % 1;
+          const pathEl = pathEls[d.linkIndex];
+          if (!pathEl) return;
+          const plen = pathEl.getTotalLength();
+          if (!Number.isFinite(plen) || plen < 2) return;
+          const pt = pathEl.getPointAtLength(d.phase * plen);
+          d3.select(this).attr('cx', pt.x).attr('cy', pt.y);
+        });
+        rafId = requestAnimationFrame(step);
+      };
+      rafId = requestAnimationFrame(step);
+    }
+
     return () => {
+      window.clearTimeout(fitTimer);
+      if (rafId) cancelAnimationFrame(rafId);
       simulation.stop();
     };
-  }, [nodes, links, dimensions, onNodeClick]);
+  }, [nodes, links, dimensions, onNodeClick, arrowId, glowId, showTrafficParticles]);
+
+  useEffect(() => {
+    const svgEl = svgRef.current;
+    if (!svgEl || nodes.length === 0) return;
+    const root = d3.select(svgEl).select('[data-topology-root]');
+    if (root.empty()) return;
+
+    const focusId = selectedNodeId;
+    root.selectAll<SVGGElement, NodeDatum>('g.topology-node').each(function (d) {
+      const on = d.id === focusId;
+      d3.select(this)
+        .select('circle')
+        .attr('stroke-width', on ? 3.4 : 1.6)
+        .attr('filter', on ? `url(#${glowId})` : null);
+    });
+
+    const fadeOthers = focusId != null;
+    root.selectAll<SVGGElement, NodeDatum>('g.topology-node').style('opacity', function (d) {
+      if (!fadeOthers) return 1;
+      const connected = links.some((l) => {
+        const s = typeof l.source === 'string' ? l.source : (l.source as NodeDatum).id;
+        const t = typeof l.target === 'string' ? l.target : (l.target as NodeDatum).id;
+        return (s === focusId && d.id === t) || (t === focusId && d.id === s);
+      });
+      return d.id === focusId || connected ? 1 : 0.12;
+    });
+
+    root.selectAll<SVGPathElement, LinkDatum>('path').each(function () {
+      const path = d3.select(this);
+      const l = path.datum() as LinkDatum;
+      const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : String(l.source);
+      const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : String(l.target);
+      if (!fadeOthers) {
+        path.attr('stroke', COLOR_LINK).attr('stroke-opacity', 0.55);
+        return;
+      }
+      const hit = s === focusId || t === focusId;
+      path.attr('stroke', hit ? COLOR_LINK_HOVER : COLOR_LINK_DIM).attr('stroke-opacity', hit ? 0.95 : 0.08);
+    });
+
+    root.select('g.topology-particles').selectAll<SVGCircleElement, ParticleDatum>('circle').each(function () {
+      const d = d3.select(this).datum() as ParticleDatum;
+      const l = links[d.linkIndex];
+      if (!l) {
+        d3.select(this).attr('opacity', 0.05);
+        return;
+      }
+      const s = typeof l.source === 'string' ? l.source : (l.source as NodeDatum).id;
+      const t = typeof l.target === 'string' ? l.target : (l.target as NodeDatum).id;
+      if (!fadeOthers) {
+        d3.select(this).attr('opacity', 0.82);
+        return;
+      }
+      const hit = s === focusId || t === focusId;
+      d3.select(this).attr('opacity', hit ? 0.95 : 0.05);
+    });
+  }, [selectedNodeId, nodes.length, glowId, links]);
 
   if (nodes.length === 0) {
     return (
@@ -311,24 +759,28 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
   }
 
   return (
-    <div ref={containerRef} className="relative w-full" style={{ minHeight: 420 }}>
-      {/* Legend */}
-      <div className="absolute top-2 left-2 z-10 flex gap-4 text-xs text-slate-400 bg-slate-900/80 backdrop-blur rounded-lg px-3 py-1.5 border border-slate-800">
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: COLOR_POD }} />
-          Pod (nguồn)
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="inline-block w-3 h-3 rounded-full" style={{ background: COLOR_DEST }} />
-          Đích (dest)
-        </span>
-        <span className="text-slate-600">Kéo node · Scroll zoom</span>
-      </div>
+    <div ref={containerRef} className={`relative w-full h-full min-h-0 ${className}`.trim()}>
+      {showCompactLegend && (
+        <div className="absolute top-2 left-2 z-10 flex flex-wrap gap-x-4 gap-y-1 text-xs text-slate-400 bg-slate-900/85 backdrop-blur rounded-lg px-3 py-1.5 border border-slate-800 max-w-[min(100%,28rem)]">
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ background: COLOR_POD_FILL }} />
+            Pod (workload)
+          </span>
+          <span className="flex items-center gap-1.5">
+            <span className="inline-block w-3 h-3 rounded-full shrink-0" style={{ background: COLOR_DEST_FILL }} />
+            Đích / ngoài
+          </span>
+          <span className="flex items-center gap-1.5 text-emerald-400/90">
+            <span className="inline-block w-4 h-0.5 bg-emerald-500 shrink-0" />
+            Luồng + hạt (minh họa)
+          </span>
+          <span className="text-slate-600 w-full sm:w-auto">Zoom · kéo node</span>
+        </div>
+      )}
 
-      {/* Tooltip */}
       {tooltip && (
         <div
-          className="absolute z-20 rounded-lg border border-slate-700 bg-slate-900/95 backdrop-blur px-3 py-2 text-xs text-slate-300 pointer-events-none whitespace-pre-line shadow-lg"
+          className="absolute z-20 rounded-lg border border-slate-700 bg-slate-900/95 backdrop-blur px-3 py-2 text-xs text-slate-300 pointer-events-none whitespace-pre-line shadow-lg max-w-xs"
           style={{ left: tooltip.x + 12, top: tooltip.y }}
         >
           {tooltip.content}

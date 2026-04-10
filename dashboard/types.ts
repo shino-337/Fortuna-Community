@@ -449,6 +449,8 @@ export interface NetworkActivityConnectionRow extends PodNetworkConnectionItem {
   ownerKind?: string;
   ownerName?: string;
   nodeName?: string;
+  /** view=edges: số dòng pod_network_connections gom trong nhóm (pod×đích×proto) */
+  observationCount?: number;
 }
 
 export interface PodK8sEventItem {

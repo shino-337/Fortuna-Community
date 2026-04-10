@@ -82,8 +82,8 @@ spec:
         - name: core
           # Use :latest after build (BUILD_TAG=latest)
           image: fortuna-core:latest
-          # Never pull: image must be built/loaded on node (e.g. build-and-load-containerd.sh on control-plane node)
-          imagePullPolicy: Never
+          # IfNotPresent: dùng image đã build/load trên node (nerdctl → k8s.io). Tránh kéo Docker Hub nếu đã có local.
+          imagePullPolicy: IfNotPresent
           
           ports:
             - name: http
