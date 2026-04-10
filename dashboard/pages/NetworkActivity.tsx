@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useId, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useId, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw,
@@ -17,6 +17,8 @@ import {
   ExternalLink,
   ChevronLeft,
   ChevronRight,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useClusterStore } from '../store/clusterStore';
@@ -56,6 +58,18 @@ function formatObservedAt(iso?: string): string {
   }
 }
 
+/** Tooltip: ghi rõ local vs ISO để không so sánh nhầm với bucket UTC. */
+function observedAtTooltip(iso?: string): string {
+  if (!iso) return '';
+  try {
+    const d = new Date(iso);
+    const local = d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+    return `Thời điểm quan sát — hiển thị: giờ địa phương (${local}). ISO (UTC): ${d.toISOString()}`;
+  } catch {
+    return iso;
+  }
+}
+
 /** Hiển thị mốc đầu bucket 5m UTC (ngắn gọn + tooltip đủ ISO). */
 function formatBucket5mLine(iso?: string): { short: string; title: string } {
   if (!iso) return { short: '—', title: '' };
@@ -88,11 +102,17 @@ function formatRemoteEndpoint(row: NetworkActivityConnectionRow): string {
   return `${dip || '—'}:${dp ?? '—'}`;
 }
 
+/** Chuỗi copy cho điều tra — khớp cột Remote (ticket / grep). */
+function remoteEndpointClipboard(row: NetworkActivityConnectionRow): string {
+  return formatRemoteEndpoint(row);
+}
+
 /** Core view=edges: số nhóm (pod×đích×proto) tối đa / request — khớp NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX (mặc định 2500). */
 const TOPOLOGY_EDGE_PAGE_SIZE = 2500;
 /** Phân trang talkers/destinations; khớp NETWORK_ACTIVITY_MAX_PAGE_SIZE (mặc định 200, tối đa 500). */
 const NETWORK_SUMMARY_PAGE_SIZE = 200;
-const MAX_TALKER_FETCH_PAGES = 50;
+/** Trần số trang talkers / lần tải topology (tránh >80 request khi cluster lớn). */
+const MAX_TALKER_FETCH_PAGES_CAP = 10;
 
 /**
  * Vùng graph: tối thiểu theo viewport (svh) để không còn khoảng trống lớn dưới card;
@@ -162,6 +182,22 @@ async function fetchInventoryPodNamesByUid(clusterId: string, namespace?: string
   return map;
 }
 
+const inventoryPodNamesCache = new Map<string, { at: number; data: Record<string, string> }>();
+const INVENTORY_POD_NAMES_CACHE_TTL_MS = 60_000;
+
+async function fetchInventoryPodNamesByUidCached(
+  clusterId: string,
+  namespace?: string,
+): Promise<Record<string, string>> {
+  const key = `${clusterId}\x1f${namespace ?? ''}`;
+  const now = Date.now();
+  const hit = inventoryPodNamesCache.get(key);
+  if (hit && now - hit.at < INVENTORY_POD_NAMES_CACHE_TTL_MS) return hit.data;
+  const data = await fetchInventoryPodNamesByUid(clusterId, namespace);
+  inventoryPodNamesCache.set(key, { at: now, data });
+  return data;
+}
+
 export function NetworkActivity() {
   const navigate = useNavigate();
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
@@ -176,6 +212,8 @@ export function NetworkActivity() {
   const [graphTalkers, setGraphTalkers] = useState([] as NetworkActivityTalkerRow[]);
   const [graphConnections, setGraphConnections] = useState([] as NetworkActivityConnectionRow[]);
   const [topologyPodNamesByUid, setTopologyPodNamesByUid] = useState<Record<string, string>>({});
+  /** Thông báo khi thiếu view API / fallback — tránh nhầm với «không có dữ liệu». */
+  const [topologySupportIssue, setTopologySupportIssue] = useState<string | null>(null);
   const [destTotal, setDestTotal] = useState(0);
   const [talkerTotal, setTalkerTotal] = useState(0);
   const [topologyLegendScale, setTopologyLegendScale] = useState(1);
@@ -184,6 +222,10 @@ export function NetworkActivity() {
   const [clusterNsLoading, setClusterNsLoading] = useState(false);
 
   const [mainTab, setMainTab] = useState<NetworkMainTab>('topology');
+  const filterDebounceMs = useMemo(
+    () => (mainTab === 'topology' ? 880 : 700),
+    [mainTab],
+  );
   const [tablePage, setTablePage] = useState(1);
   const [tablePageSize, setTablePageSize] = useState(50);
   const [podsRows, setPodsRows] = useState([] as NetworkActivityWorkloadRow[]);
@@ -196,6 +238,25 @@ export function NetworkActivity() {
   /** Tránh request cũ (vẫn đang pending) ghi đè state sau khi đã xóa lọc / đổi filter. */
   const fetchReqIdRef = useRef(0);
   const fetchTableReqIdRef = useRef(0);
+  const [copiedTableKey, setCopiedTableKey] = useState<string | null>(null);
+  const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const copyToClipboard = useCallback((key: string, text: string) => {
+    const t = text.trim();
+    if (!t || t === '—') return;
+    void navigator.clipboard.writeText(t).then(() => {
+      if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
+      setCopiedTableKey(key);
+      copyFeedbackTimerRef.current = window.setTimeout(() => setCopiedTableKey(null), 2000);
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      if (copyFeedbackTimerRef.current) window.clearTimeout(copyFeedbackTimerRef.current);
+    },
+    [],
+  );
 
   const appliedPort = useMemo(() => parseAppliedPort(searchApplied), [searchApplied]);
   const hasTextFilters = Boolean(namespaceApplied || searchApplied);
@@ -216,17 +277,21 @@ export function NetworkActivity() {
     setSearchApplied('');
   }, []);
 
-  /** Đồng bộ bản lọc đã áp dụng sau khi gõ (tránh quên bấm Áp dụng). Enter / nút vẫn áp dụng ngay. */
-  const FILTER_DEBOUNCE_MS = 450;
+  /**
+   * Đồng bộ bản lọc sau khi gõ (debounce dài hơn trên tab topology để giảm spam request).
+   * Tìm kiếm chỉ auto-apply khi rỗng, ≥3 ký tự, hoặc toàn số (vd cổng 1–5 chữ số).
+   */
   useEffect(() => {
+    const ns = namespaceDraft.trim();
+    const sq = searchDraft.trim();
+    const searchMayAutoApply =
+      sq.length === 0 || sq.length >= 3 || /^\d{1,5}$/.test(sq);
     const t = window.setTimeout(() => {
-      const ns = namespaceDraft.trim();
-      const sq = searchDraft.trim();
       setNamespaceApplied((p) => (p === ns ? p : ns));
-      setSearchApplied((p) => (p === sq ? p : sq));
-    }, FILTER_DEBOUNCE_MS);
+      if (searchMayAutoApply) setSearchApplied((p) => (p === sq ? p : sq));
+    }, filterDebounceMs);
     return () => window.clearTimeout(t);
-  }, [namespaceDraft, searchDraft]);
+  }, [namespaceDraft, searchDraft, filterDebounceMs]);
 
   useEffect(() => {
     if (!selectedClusterId) {
@@ -269,6 +334,7 @@ export function NetworkActivity() {
         setTopologyPodNamesByUid({});
         setDestTotal(0);
         setTalkerTotal(0);
+        setTopologySupportIssue(null);
         setLoading(false);
         setRefreshSpin(false);
         return;
@@ -276,6 +342,11 @@ export function NetworkActivity() {
       const myId = ++fetchReqIdRef.current;
       if (manual) setRefreshSpin(true);
       setLoading(true);
+      if (manual) {
+        const invKey = `${selectedClusterId}\x1f${namespaceApplied ?? ''}`;
+        inventoryPodNamesCache.delete(invKey);
+      }
+      let supportIssue: string | null = null;
       try {
         const commonList = {
           cluster: selectedClusterId,
@@ -284,46 +355,93 @@ export function NetworkActivity() {
           sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
         };
 
-        const [destData, edgeOrLegacy, invNames] = await Promise.all([
-          api.getNetworkActivity({
+        let destData: Awaited<ReturnType<typeof api.getNetworkActivity>>;
+        try {
+          destData = await api.getNetworkActivity({
             ...commonList,
             view: 'destinations',
             page: 1,
             pageSize: NETWORK_SUMMARY_PAGE_SIZE,
-          }),
-          (async () => {
-            try {
-              return await api.getNetworkActivity({
-                ...commonList,
-                view: 'edges',
-                page: 1,
-                pageSize: TOPOLOGY_EDGE_PAGE_SIZE,
-              });
-            } catch {
-              return await api.getNetworkActivity({
-                ...commonList,
-                view: 'connections',
-                page: 1,
-                pageSize: NETWORK_SUMMARY_PAGE_SIZE,
-              });
+          });
+        } catch {
+          supportIssue =
+            'Core không trả view «destinations» (cần bản Core hỗ trợ topology) hoặc lỗi mạng.';
+          destData = {
+            view: 'destinations',
+            clusterId: selectedClusterId,
+            total: 0,
+            page: 1,
+            pageSize: NETWORK_SUMMARY_PAGE_SIZE,
+            items: [],
+          };
+        }
+
+        let edgeOrLegacy: Awaited<ReturnType<typeof api.getNetworkActivity>>;
+        try {
+          edgeOrLegacy = await api.getNetworkActivity({
+            ...commonList,
+            view: 'edges',
+            page: 1,
+            pageSize: TOPOLOGY_EDGE_PAGE_SIZE,
+          });
+        } catch {
+          try {
+            edgeOrLegacy = await api.getNetworkActivity({
+              ...commonList,
+              view: 'connections',
+              page: 1,
+              pageSize: NETWORK_SUMMARY_PAGE_SIZE,
+            });
+            if (!supportIssue) {
+              supportIssue =
+                'Đang dùng view «connections» thay «edges»; đồ thị topology có thể hạn chế.';
             }
-          })(),
-          fetchInventoryPodNamesByUid(selectedClusterId, namespaceApplied || undefined).catch(() => ({})),
-        ]);
+          } catch {
+            supportIssue =
+              supportIssue ??
+              'Core không hỗ trợ «edges»/«connections» cho topology hoặc lỗi tải.';
+            edgeOrLegacy = {
+              view: 'connections',
+              clusterId: selectedClusterId,
+              total: 0,
+              page: 1,
+              pageSize: NETWORK_SUMMARY_PAGE_SIZE,
+              items: [],
+            };
+          }
+        }
+
+        const invNames = await fetchInventoryPodNamesByUidCached(
+          selectedClusterId,
+          namespaceApplied || undefined,
+        ).catch(() => ({}));
 
         const talkerRows: NetworkActivityTalkerRow[] = [];
         let talkerTotalAcc = 0;
-        for (let page = 1; page <= MAX_TALKER_FETCH_PAGES; page += 1) {
-          const talkerData = await api.getNetworkActivity({
-            ...commonList,
-            view: 'talkers',
-            page,
-            pageSize: NETWORK_SUMMARY_PAGE_SIZE,
-          });
-          if (page === 1) talkerTotalAcc = talkerData.total ?? 0;
-          const batch = (talkerData.items as NetworkActivityTalkerRow[]) ?? [];
-          talkerRows.push(...batch);
-          if (batch.length < NETWORK_SUMMARY_PAGE_SIZE) break;
+        let maxTalkerPages = MAX_TALKER_FETCH_PAGES_CAP;
+        try {
+          for (let page = 1; page <= maxTalkerPages; page += 1) {
+            const talkerData = await api.getNetworkActivity({
+              ...commonList,
+              view: 'talkers',
+              page,
+              pageSize: NETWORK_SUMMARY_PAGE_SIZE,
+            });
+            if (page === 1) {
+              talkerTotalAcc = talkerData.total ?? 0;
+              const needed = Math.ceil(
+                Math.max(0, talkerTotalAcc) / NETWORK_SUMMARY_PAGE_SIZE,
+              );
+              maxTalkerPages = Math.min(MAX_TALKER_FETCH_PAGES_CAP, Math.max(1, needed));
+            }
+            const batch = (talkerData.items as NetworkActivityTalkerRow[]) ?? [];
+            talkerRows.push(...batch);
+            if (batch.length < NETWORK_SUMMARY_PAGE_SIZE) break;
+          }
+        } catch {
+          supportIssue =
+            supportIssue ??
+            'Core không trả view «talkers» (cần bản Core hỗ trợ topology) hoặc lỗi tải.';
         }
 
         if (myId !== fetchReqIdRef.current) return;
@@ -333,6 +451,7 @@ export function NetworkActivity() {
         setTopologyPodNamesByUid(invNames);
         setDestTotal(destData.total ?? 0);
         setTalkerTotal(talkerTotalAcc);
+        setTopologySupportIssue(supportIssue);
       } catch {
         if (myId !== fetchReqIdRef.current) return;
         setGraphDestinations([]);
@@ -341,6 +460,7 @@ export function NetworkActivity() {
         setTopologyPodNamesByUid({});
         setDestTotal(0);
         setTalkerTotal(0);
+        setTopologySupportIssue('Không tải được dữ liệu topology. Kiểm tra Core và kết nối.');
       } finally {
         if (myId === fetchReqIdRef.current) {
           setLoading(false);
@@ -422,7 +542,7 @@ export function NetworkActivity() {
     void fetchTableData(false);
   }, [mainTab, fetchTableData]);
 
-  useLayoutEffect(() => {
+  useEffect(() => {
     setTablePage(1);
   }, [namespaceApplied, searchApplied, sinceMinutes, selectedClusterId, mainTab, tablePageSize]);
 
@@ -687,7 +807,10 @@ export function NetworkActivity() {
                   <span className="text-[10px] text-slate-600">q: (trống)</span>
                 )}
                 {textDraftDiffersFromApplied && (
-                  <span className="text-[10px] text-amber-500/95" title="Namespace/tìm kiếm đang gõ khác bản đã áp dụng (sẽ đồng bộ sau debounce hoặc bấm Áp dụng)">
+                  <span
+                    className="text-[10px] text-amber-500/95"
+                    title="Namespace đồng bộ sau debounce. Tìm kiếm: tự áp dụng khi rỗng, từ 3 ký tự, hoặc cổng số (1–5 chữ số); còn lại cần Áp dụng hoặc Enter. Tab Topology debounce dài hơn."
+                  >
                     Chưa áp dụng hết (draft)
                   </span>
                 )}
@@ -730,7 +853,8 @@ export function NetworkActivity() {
 
               <p className="mt-2 text-[10px] text-slate-600 leading-snug hidden lg:block border-t border-slate-800/80 pt-2">
                 Namespace: inventory A→Z, <span className="font-mono">*</span> tiền tố. Tìm kiếm: LIKE tên pod/ns/IP; cổng số hoặc uid. Tối đa{' '}
-                {TOPOLOGY_EDGE_PAGE_SIZE} nhóm pod×đích / lần tải (topology).
+                {TOPOLOGY_EDGE_PAGE_SIZE} nhóm pod×đích / lần tải (topology). Talkers: tối đa {MAX_TALKER_FETCH_PAGES_CAP} trang / lần (theo{' '}
+                <span className="font-mono">total</span>), cache tên pod inventory 60s.
               </p>
             </div>
 
@@ -759,8 +883,16 @@ export function NetworkActivity() {
                 ) : !hasGraphData ? (
                   <div className={`flex flex-col flex-1 min-h-0 py-8 px-4 overflow-y-auto ${GRAPH_AREA_CLASS}`}>
                     <PageEmpty
-                      title="Chưa đủ dữ liệu cho topology"
-                      description={`Cần đồng thời có bản ghi “top đích” và “top nguồn” sau khi lọc. Kiểm tra agent (Pod Detail network) và khoảng thời gian. ${emptyContextLine}`}
+                      title={
+                        topologySupportIssue
+                          ? 'Topology không khả dụng hoặc thiếu view API'
+                          : 'Chưa đủ dữ liệu cho topology'
+                      }
+                      description={
+                        topologySupportIssue
+                          ? `${topologySupportIssue} ${emptyContextLine}`
+                          : `Cần đồng thời có bản ghi “top đích” và “top nguồn” sau khi lọc. Kiểm tra agent (Pod Detail network) và khoảng thời gian. ${emptyContextLine}`
+                      }
                       className="py-8"
                     />
                     {hasTextFilters && (
@@ -773,6 +905,14 @@ export function NetworkActivity() {
                   </div>
                 ) : (
                   <>
+                    {topologySupportIssue && (
+                      <div
+                        className="shrink-0 mx-2 mt-2 rounded-lg border border-amber-600/50 bg-amber-950/40 px-2.5 py-1.5 text-[11px] text-amber-200/95 leading-snug z-10"
+                        role="status"
+                      >
+                        {topologySupportIssue}
+                      </div>
+                    )}
                     {/* Chú thích trên đồ thị: đồng bộ với nút header «Ẩn/Hiện chú thích» */}
                     <div className="absolute bottom-3 left-3 z-20 flex flex-col-reverse items-start gap-1.5 pointer-events-none">
                       {topologyLegendVisible ? (
@@ -946,25 +1086,64 @@ export function NetworkActivity() {
                                 </th>
                                 <th className="py-2 pr-3 font-medium">Cập nhật</th>
                                 <th className="py-2 pr-3 font-medium">Node</th>
-                                <th className="py-2 pl-2 text-right font-medium">Thao tác</th>
+                                <th
+                                  className="py-2 pl-2 text-right font-medium"
+                                  title="Sao chép UID · Connections · Pod detail"
+                                >
+                                  Thao tác
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
                               {podsRows.map((row) => (
-                                <tr key={row.podUid} className="border-b border-slate-800/80 hover:bg-slate-900/50">
+                                <tr
+                                  key={row.podUid}
+                                  className="border-b border-slate-800/80 hover:bg-slate-900/50 cursor-pointer"
+                                  onClick={(e) => {
+                                    if ((e.target as HTMLElement).closest('button')) return;
+                                    drillConnectionsForPod(row);
+                                  }}
+                                  title="Click dòng (ngoài nút) để mở tab Connections lọc theo pod"
+                                >
                                   <td className="py-2 pr-3 font-mono text-[11px] text-slate-300">{row.namespace}</td>
                                   <td className="py-2 pr-3">{podTableLabel(row.podName, row.podUid)}</td>
                                   <td className="py-2 pr-3 tabular-nums">{row.connectionCount}</td>
-                                  <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">{formatObservedAt(row.lastObservedAt)}</td>
+                                  <td
+                                    className="py-2 pr-3 text-slate-400 whitespace-nowrap"
+                                    title={observedAtTooltip(row.lastObservedAt)}
+                                  >
+                                    {formatObservedAt(row.lastObservedAt)}
+                                  </td>
                                   <td className="py-2 pr-3 text-slate-500 text-[11px]">{row.nodeName ?? '—'}</td>
                                   <td className="py-2 pl-2 text-right whitespace-nowrap">
                                     <Button
                                       variant="ghost"
                                       size="sm"
                                       type="button"
+                                      className="h-7 w-7 p-0 text-slate-500 hover:text-slate-200"
+                                      title="Sao chép pod UID"
+                                      aria-label="Sao chép pod UID"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        copyToClipboard(`na-pod-${row.podUid}`, row.podUid);
+                                      }}
+                                    >
+                                      {copiedTableKey === `na-pod-${row.podUid}` ? (
+                                        <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                      ) : (
+                                        <Copy className="w-3.5 h-3.5" />
+                                      )}
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      type="button"
                                       className="h-7 px-1.5 text-[10px]"
                                       title="Xem connections (lọc theo pod)"
-                                      onClick={() => drillConnectionsForPod(row)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        drillConnectionsForPod(row);
+                                      }}
                                     >
                                       <ChevronRight className="w-3.5 h-3.5 inline mr-0.5" />
                                       Conn
@@ -975,7 +1154,10 @@ export function NetworkActivity() {
                                       type="button"
                                       className="h-7 px-1.5"
                                       title="Pod detail"
-                                      onClick={() => goPod(row.podUid)}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        goPod(row.podUid);
+                                      }}
                                     >
                                       <ExternalLink className="w-3.5 h-3.5" />
                                     </Button>
@@ -985,19 +1167,23 @@ export function NetworkActivity() {
                             </tbody>
                           </table>
                         ) : (
-                          <table className="w-full text-left text-xs text-slate-200 border-collapse min-w-[56rem]">
+                          <table className="w-full text-left text-xs text-slate-200 border-collapse min-w-[64rem]">
                             <thead className="sticky top-0 z-10 bg-slate-900/98 border-b border-slate-700 shadow-sm">
                               <tr className="text-[10px] uppercase tracking-wide text-slate-500">
                                 <th
                                   className="py-2 pr-3 font-medium min-w-[9rem] cursor-help"
-                                  title="observedAt khi Core nhận; dòng phụ là mốc đầu bucket 5m UTC."
+                                  title="observedAt khi Core nhận (tooltip ô: giờ local + ISO UTC); dòng phụ là mốc đầu bucket 5m UTC."
                                 >
                                   Thời gian
                                 </th>
                                 <th className="py-2 pr-3 font-medium">NS</th>
-                                <th className="py-2 pr-3 font-medium">Pod</th>
+                                <th className="py-2 pr-3 font-medium" title="Nút sao chép pod UID">
+                                  Pod
+                                </th>
                                 <th className="py-2 pr-3 font-medium">Local</th>
-                                <th className="py-2 pr-3 font-medium">Remote</th>
+                                <th className="py-2 pr-3 font-medium" title="Remote hiển thị + sao chép (điều tra)">
+                                  Remote
+                                </th>
                                 <th className="py-2 pr-2 font-medium">Proto</th>
                                 <th className="py-2 pr-2 font-medium">State</th>
                                 <th
@@ -1013,7 +1199,13 @@ export function NetworkActivity() {
                                   Rx queue
                                 </th>
                                 <th className="py-2 pr-3 font-medium">Owner</th>
-                                <th className="py-2 font-medium">Node</th>
+                                <th className="py-2 pr-2 font-medium">Node</th>
+                                <th
+                                  className="py-2 pl-2 text-right font-medium w-[3.25rem]"
+                                  title="Mở Pod detail"
+                                >
+                                  Chi tiết
+                                </th>
                               </tr>
                             </thead>
                             <tbody>
@@ -1026,18 +1218,69 @@ export function NetworkActivity() {
                                 return (
                                   <tr key={k} className="border-b border-slate-800/80 hover:bg-slate-900/50">
                                     <td className="py-2 pr-3 align-top">
-                                      <div className="text-slate-200 whitespace-nowrap">{formatObservedAt(row.observedAt)}</div>
+                                      <div
+                                        className="text-slate-200 whitespace-nowrap"
+                                        title={observedAtTooltip(row.observedAt)}
+                                      >
+                                        {formatObservedAt(row.observedAt)}
+                                      </div>
                                       <div className="text-[10px] text-slate-500 mt-0.5 font-mono" title={bucket.title}>
                                         {bucket.short}
                                       </div>
                                     </td>
                                     <td className="py-2 pr-3 font-mono text-[11px] text-slate-300 align-top">{row.namespace ?? '—'}</td>
-                                    <td className="py-2 pr-3 align-top">{podTableLabel(row.podName, row.podUid)}</td>
+                                    <td className="py-2 pr-3 align-top">
+                                      <div className="flex items-center gap-0.5 min-w-0">
+                                        <span className="min-w-0">{podTableLabel(row.podName, row.podUid)}</span>
+                                        {(row.podUid ?? '').trim() ? (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            type="button"
+                                            className="h-7 w-7 p-0 shrink-0 text-slate-500 hover:text-slate-200"
+                                            title="Sao chép pod UID"
+                                            aria-label="Sao chép pod UID"
+                                            onClick={() =>
+                                              copyToClipboard(`na-cu-${k}`, (row.podUid ?? '').trim())
+                                            }
+                                          >
+                                            {copiedTableKey === `na-cu-${k}` ? (
+                                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                            ) : (
+                                              <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                          </Button>
+                                        ) : null}
+                                      </div>
+                                    </td>
                                     <td className="py-2 pr-3 font-mono text-[11px] text-slate-400 align-top whitespace-nowrap">
                                       {(row.sourceIp ?? '—') + ':' + (row.sourcePort ?? '—')}
                                     </td>
-                                    <td className="py-2 pr-3 font-mono text-[11px] text-slate-300 align-top whitespace-nowrap">
-                                      {formatRemoteEndpoint(row)}
+                                    <td className="py-2 pr-3 align-top">
+                                      <div className="flex items-start gap-0.5 min-w-0">
+                                        <span className="font-mono text-[11px] text-slate-300 whitespace-pre-wrap break-all min-w-0">
+                                          {formatRemoteEndpoint(row)}
+                                        </span>
+                                        {remoteEndpointClipboard(row) !== '—' ? (
+                                          <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            type="button"
+                                            className="h-7 w-7 p-0 shrink-0 text-slate-500 hover:text-slate-200"
+                                            title="Sao chép remote (như cột hiển thị)"
+                                            aria-label="Sao chép remote"
+                                            onClick={() =>
+                                              copyToClipboard(`na-cr-${k}`, remoteEndpointClipboard(row))
+                                            }
+                                          >
+                                            {copiedTableKey === `na-cr-${k}` ? (
+                                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                                            ) : (
+                                              <Copy className="w-3.5 h-3.5" />
+                                            )}
+                                          </Button>
+                                        ) : null}
+                                      </div>
                                     </td>
                                     <td className="py-2 pr-2 align-top">{row.protocol ?? '—'}</td>
                                     <td className="py-2 pr-2 align-top">{row.state ?? '—'}</td>
@@ -1048,7 +1291,24 @@ export function NetworkActivity() {
                                         ? `${row.ownerKind ?? ''}${row.ownerKind && row.ownerName ? '/' : ''}${row.ownerName ?? ''}`
                                         : '—'}
                                     </td>
-                                    <td className="py-2 text-[11px] text-slate-500 align-top">{row.nodeName ?? '—'}</td>
+                                    <td className="py-2 pr-2 text-[11px] text-slate-500 align-top">{row.nodeName ?? '—'}</td>
+                                    <td className="py-2 pl-2 text-right align-top whitespace-nowrap">
+                                      {(row.podUid ?? '').trim() ? (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          type="button"
+                                          className="h-7 w-7 p-0"
+                                          title="Mở Pod detail"
+                                          aria-label="Mở Pod detail"
+                                          onClick={() => goPod((row.podUid ?? '').trim())}
+                                        >
+                                          <ExternalLink className="w-3.5 h-3.5" />
+                                        </Button>
+                                      ) : (
+                                        <span className="text-slate-600">—</span>
+                                      )}
+                                    </td>
                                   </tr>
                                 );
                               })}
