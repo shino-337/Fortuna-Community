@@ -46,6 +46,8 @@ export interface NetworkTopologyGraphProps {
   className?: string;
   /** Mô phỏng lưu lượng: chấm xanh chạy dọc cạnh (decorative). Mặc định bật. */
   showTrafficParticles?: boolean;
+  /** uid → name từ GET /inventory/pods (bù khi edges/talkers không có podName từ JOIN). */
+  podNamesByUid?: Readonly<Record<string, string>>;
 }
 
 /* ─── helpers ─────────────────────────────────────────────────── */
@@ -68,6 +70,19 @@ const BG = '#020617';
 /** Giới hạn số hạt để rAF nhẹ (~2 hạt / cạnh tối đa 55 cạnh) */
 const MAX_LINK_INDICES_FOR_PARTICLES = 55;
 
+/**
+ * Bán kính node (đơn vị SVG trước khi zoom “fit”).
+ * Tăng so với [5,22] cũ để dễ nhìn; fitTopologyToView vẫn căn toàn bộ graph + nhãn trong khung.
+ */
+const NODE_RADIUS_MIN = 8;
+const NODE_RADIUS_MAX = 30;
+/** Đệm va chạm force = bán kính + pad (tránh chồng nhãn/node). */
+const NODE_COLLISION_EXTRA = 20;
+/** Đệm bbox khi fit: vòng tròn + 2 dòng text bên dưới. */
+const NODE_FIT_PADDING = 34;
+const NODE_STROKE_DEFAULT = 2;
+const NODE_STROKE_SELECTED = 4;
+
 function truncateGraphLabel(text: string, max = 26): string {
   const t = text.trim();
   if (t.length <= max) return t;
@@ -81,10 +96,70 @@ function uidFootprint(uid: string): string {
   return `${uid.slice(0, 8)}…`;
 }
 
+type PodMetaPatch = {
+  namespace?: string;
+  name?: string;
+  ownerKind?: string;
+  ownerName?: string;
+};
+
+/** Gộp meta theo uid: ưu tiên podName/namespace không rỗng từ bất kỳ dòng nào (tránh dòng đầu thiếu tên). */
+function mergePodMeta(
+  map: Map<string, PodMetaPatch>,
+  uid: string,
+  patch: PodMetaPatch,
+): void {
+  const prev = map.get(uid);
+  const nameMerged = (patch.name ?? '').trim() || (prev?.name ?? '').trim();
+  const namespaceMerged = (patch.namespace ?? '').trim() || (prev?.namespace ?? '').trim();
+  const ownerKindMerged = (patch.ownerKind ?? '').trim() || (prev?.ownerKind ?? '').trim();
+  const ownerNameMerged = (patch.ownerName ?? '').trim() || (prev?.ownerName ?? '').trim();
+  map.set(uid, {
+    name: nameMerged || undefined,
+    namespace: namespaceMerged || undefined,
+    ownerKind: ownerKindMerged || undefined,
+    ownerName: ownerNameMerged || undefined,
+  });
+}
+
+/** Dòng 1 node pod: tên pod → owner → fallback uid. */
+function podNodeLine1(
+  name: string | undefined,
+  uid: string,
+  ownerKind?: string,
+  ownerName?: string,
+): string {
+  const n = (name ?? '').trim();
+  if (n) return truncateGraphLabel(n, 28);
+  const ok = (ownerKind ?? '').trim();
+  const on = (ownerName ?? '').trim();
+  if (ok || on) return truncateGraphLabel([ok, on].filter(Boolean).join('/'), 28);
+  return truncateGraphLabel(`Pod ${uidFootprint(uid)}`, 28);
+}
+
+function podNodeFullLabel(
+  name: string | undefined,
+  ns: string,
+  uid: string,
+  ownerKind?: string,
+  ownerName?: string,
+): string {
+  const n = (name ?? '').trim();
+  const parts: string[] = [];
+  if (n) parts.push(n);
+  const ok = (ownerKind ?? '').trim();
+  const on = (ownerName ?? '').trim();
+  if (ok || on) parts.push(`owner ${[ok, on].filter(Boolean).join('/')}`);
+  parts.push(`uid ${uid}`);
+  if ((ns ?? '').trim()) parts.push(`ns ${ns.trim()}`);
+  return parts.join(' · ');
+}
+
 function buildGraph(
   destinations: NetworkActivityDestinationRow[],
   talkers: NetworkActivityTalkerRow[],
   maxNodes: number,
+  podNamesByUid?: Readonly<Record<string, string>>,
 ): { nodes: NodeDatum[]; links: LinkDatum[] } {
   const nodeMap = new Map<string, NodeDatum>();
   const links: LinkDatum[] = [];
@@ -93,11 +168,12 @@ function buildGraph(
   for (const t of topTalkers) {
     const id = `pod:${t.podUid}`;
     if (!nodeMap.has(id)) {
-      const name = (t.podName ?? '').trim();
+      const name =
+        (t.podName ?? '').trim() || (podNamesByUid?.[t.podUid] ?? '').trim();
       const ns = (t.namespace ?? '').trim() || '—';
-      const line1 = truncateGraphLabel(name || `Pod ${uidFootprint(t.podUid)}`, 28);
+      const line1 = podNodeLine1(name || undefined, t.podUid, t.ownerKind, t.ownerName);
       const line2 = `ns: ${ns} · ${uidFootprint(t.podUid)}`;
-      const fullLabel = name ? `${name} [uid ${t.podUid}]` : `Pod uid ${t.podUid}`;
+      const fullLabel = podNodeFullLabel(name || undefined, ns, t.podUid, t.ownerKind, t.ownerName);
       nodeMap.set(id, {
         id,
         line1,
@@ -161,6 +237,7 @@ function buildGraphFromConnections(
   rows: NetworkActivityConnectionRow[],
   maxNodes: number,
   supplementTalkers?: NetworkActivityTalkerRow[],
+  podNamesByUid?: Readonly<Record<string, string>>,
 ): { nodes: NodeDatum[]; links: LinkDatum[] } {
   type EdgeRec = {
     podUid: string;
@@ -170,10 +247,7 @@ function buildGraphFromConnections(
     weight: number;
   };
   const edgeMap = new Map<string, EdgeRec>();
-  const podMeta = new Map<
-    string,
-    { namespace?: string; name?: string; ownerKind?: string; ownerName?: string }
-  >();
+  const podMeta = new Map<string, PodMetaPatch>();
 
   for (const r of rows) {
     const uid = (r.podUid ?? '').trim();
@@ -197,14 +271,14 @@ function buildGraphFromConnections(
         weight: rowW,
       });
 
-    if (!podMeta.has(uid)) {
-      podMeta.set(uid, {
-        namespace: r.namespace,
-        name: r.podName,
-        ownerKind: r.ownerKind,
-        ownerName: r.ownerName,
-      });
-    }
+    const rowPodLabel =
+      (r.podName ?? '').trim() || (r.containerName ?? '').trim() || undefined;
+    mergePodMeta(podMeta, uid, {
+      namespace: r.namespace,
+      name: rowPodLabel,
+      ownerKind: r.ownerKind,
+      ownerName: r.ownerName,
+    });
   }
 
   if (edgeMap.size === 0) {
@@ -227,16 +301,26 @@ function buildGraphFromConnections(
   if (supplementTalkers?.length) {
     for (const t of supplementTalkers) {
       const uid = (t.podUid ?? '').trim();
-      if (!uid || podWeight.has(uid)) continue;
-      podWeight.set(uid, Math.max(1, Number(t.observationCount) || 1));
-      if (!podMeta.has(uid)) {
-        podMeta.set(uid, {
-          namespace: t.namespace,
-          name: t.podName,
-          ownerKind: t.ownerKind,
-          ownerName: t.ownerName,
-        });
+      if (!uid) continue;
+      mergePodMeta(podMeta, uid, {
+        namespace: t.namespace,
+        name: t.podName,
+        ownerKind: t.ownerKind,
+        ownerName: t.ownerName,
+      });
+      if (!podWeight.has(uid)) {
+        podWeight.set(uid, Math.max(1, Number(t.observationCount) || 1));
       }
+    }
+  }
+
+  if (podNamesByUid) {
+    for (const uid of podWeight.keys()) {
+      const inv = (podNamesByUid[uid] ?? '').trim();
+      if (!inv) continue;
+      const cur = podMeta.get(uid);
+      if ((cur?.name ?? '').trim()) continue;
+      mergePodMeta(podMeta, uid, { name: inv });
     }
   }
 
@@ -264,11 +348,13 @@ function buildGraphFromConnections(
     const w = podWeight.get(uid) ?? 1;
     const ownerLabel =
       meta.ownerKind && meta.ownerName ? `${meta.ownerKind}/${meta.ownerName}` : undefined;
+    const line1 = podNodeLine1(name || undefined, uid, meta.ownerKind, meta.ownerName);
+    const line2 = `ns: ${ns} · ${uidFootprint(uid)}`;
     nodeMap.set(id, {
       id,
-      line1: truncateGraphLabel(name || `Pod ${uidFootprint(uid)}`, 28),
-      line2: `ns: ${ns} · ${uidFootprint(uid)}`,
-      fullLabel: name ? `${name} [uid ${uid}]` : `Pod uid ${uid}`,
+      line1,
+      line2,
+      fullLabel: podNodeFullLabel(name || undefined, ns, uid, meta.ownerKind, meta.ownerName),
       kind: 'pod',
       weight: w,
       namespace: meta.namespace,
@@ -307,6 +393,26 @@ function buildGraphFromConnections(
   return { nodes: Array.from(nodeMap.values()), links };
 }
 
+/**
+ * Chuẩn hoá trọng số cạnh [0, 1] — sqrt để cạnh yếu vẫn phân biệt được, cạnh mạnh không chiếm hết dải.
+ */
+function linkWeightNorm(value: number, maxLinkVal: number): number {
+  const m = Math.max(maxLinkVal, 1e-9);
+  return Math.min(1, Math.sqrt(Math.max(0, value) / m));
+}
+
+function linkStyleScales(maxLinkVal: number) {
+  const maxV = Math.max(maxLinkVal, 1);
+  const linkWidthScale = d3.scaleLinear().domain([0, maxV]).range([0.65, 4.2]);
+  const linkOpacityScale = d3.scaleLinear().domain([0, maxV]).range([0.26, 0.92]);
+  const linkColorScale = d3
+    .scaleLinear<string>()
+    .domain([0, maxV])
+    .range([COLOR_LINK_DIM, COLOR_LINK])
+    .interpolate(d3.interpolateRgb);
+  return { maxV, linkWidthScale, linkOpacityScale, linkColorScale };
+}
+
 function linkCurvePath(d: LinkDatum, curve = 0.12): string {
   const s = d.source as NodeDatum;
   const t = d.target as NodeDatum;
@@ -337,6 +443,7 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
   showCompactLegend = true,
   className = '',
   showTrafficParticles = true,
+  podNamesByUid,
 }) => {
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -352,10 +459,10 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
 
   const { nodes, links } = useMemo(() => {
     if (connections && connections.length > 0) {
-      return buildGraphFromConnections(connections, maxNodes, supplementTalkers);
+      return buildGraphFromConnections(connections, maxNodes, supplementTalkers, podNamesByUid);
     }
-    return buildGraph(destinations, talkers, maxNodes);
-  }, [connections, destinations, talkers, supplementTalkers, maxNodes]);
+    return buildGraph(destinations, talkers, maxNodes, podNamesByUid);
+  }, [connections, destinations, talkers, supplementTalkers, maxNodes, podNamesByUid]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -382,16 +489,16 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
     setSelectedNodeId(null);
 
     const maxWeight = d3.max(nodes, (d) => d.weight) ?? 1;
-    const rScale = d3.scaleSqrt().domain([0, maxWeight]).range([5, 22]);
+    const rScale = d3.scaleSqrt().domain([0, maxWeight]).range([NODE_RADIUS_MIN, NODE_RADIUS_MAX]);
     const maxLinkVal = d3.max(links, (d) => d.value) ?? 1;
-    const linkWidthScale = d3.scaleLinear().domain([0, maxLinkVal]).range([0.7, 3.2]);
+    const { linkWidthScale, linkOpacityScale, linkColorScale } = linkStyleScales(maxLinkVal);
 
     const nodesCopy: NodeDatum[] = nodes.map((n) => ({ ...n }));
     const linksCopy: LinkDatum[] = links.map((l) => ({ ...l }));
 
     const diag = Math.sqrt(Math.max(1, width * height));
-    const linkDistance = Math.min(168, Math.max(76, diag / 13));
-    const chargeStrength = -Math.min(520, Math.max(220, diag * 0.42));
+    const linkDistance = Math.min(188, Math.max(88, diag / 12));
+    const chargeStrength = -Math.min(560, Math.max(240, diag * 0.44));
 
     const simulation = d3
       .forceSimulation(nodesCopy)
@@ -405,7 +512,7 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       )
       .force('charge', d3.forceManyBody().strength(chargeStrength))
       .force('center', d3.forceCenter(width / 2, height / 2))
-      .force('collision', d3.forceCollide<NodeDatum>().radius((d) => rScale(d.weight) + 14))
+      .force('collision', d3.forceCollide<NodeDatum>().radius((d) => rScale(d.weight) + NODE_COLLISION_EXTRA))
       .alphaDecay(0.06)
       .velocityDecay(0.22);
 
@@ -427,10 +534,10 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       .append('marker')
       .attr('id', arrowId)
       .attr('viewBox', '0 -5 10 10')
-      .attr('refX', 18)
+      .attr('refX', 24)
       .attr('refY', 0)
-      .attr('markerWidth', 5.5)
-      .attr('markerHeight', 5.5)
+      .attr('markerWidth', 6.2)
+      .attr('markerHeight', 6.2)
       .attr('orient', 'auto')
       .append('path')
       .attr('d', 'M0,-4L8,0L0,4')
@@ -456,11 +563,11 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       for (const n of nodesCopy) {
         const x = n.x ?? 0;
         const y = n.y ?? 0;
-        const r = rScale(n.weight) + 26;
+        const r = rScale(n.weight) + NODE_FIT_PADDING;
         minX = Math.min(minX, x - r);
         maxX = Math.max(maxX, x + r);
         minY = Math.min(minY, y - r);
-        maxY = Math.max(maxY, y + r + 30);
+        maxY = Math.max(maxY, y + r + 34);
       }
       if (!Number.isFinite(minX) || !Number.isFinite(minY)) return;
       const bw = Math.max(maxX - minX, 64);
@@ -495,24 +602,30 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       .selectAll('path')
       .data(linksCopy)
       .join('path')
-      .attr('stroke', COLOR_LINK)
+      .attr('stroke', (d) => linkColorScale(d.value))
       .attr('stroke-width', (d) => linkWidthScale(d.value))
-      .attr('stroke-opacity', 0.55)
+      .attr('stroke-opacity', (d) => linkOpacityScale(d.value))
       .attr('marker-end', `url(#${arrowId})`);
 
     const linkCountForParticles = Math.min(linksCopy.length, MAX_LINK_INDICES_FOR_PARTICLES);
     const particleData: ParticleDatum[] = [];
     if (showTrafficParticles && linkCountForParticles > 0) {
+      const speedMul = (linkIdx: number) => {
+        const v = linksCopy[linkIdx]?.value ?? 0;
+        const n = linkWeightNorm(v, maxLinkVal);
+        return 0.42 + 1.65 * n;
+      };
       for (let i = 0; i < linkCountForParticles; i++) {
+        const mul = speedMul(i);
         particleData.push({
           linkIndex: i,
           phase: Math.random(),
-          speed: 0.00011 + Math.random() * 0.00009,
+          speed: (0.00011 + Math.random() * 0.00009) * mul,
         });
         particleData.push({
           linkIndex: i,
           phase: 0.35 + Math.random() * 0.3,
-          speed: 0.00009 + Math.random() * 0.00007,
+          speed: (0.00009 + Math.random() * 0.00007) * mul,
         });
       }
     }
@@ -529,11 +642,20 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
             .selectAll<SVGCircleElement, ParticleDatum>('circle')
             .data(particleData)
             .join('circle')
-            .attr('r', 2.4)
+            .attr('r', (d) => {
+              const v = linksCopy[d.linkIndex]?.value ?? 0;
+              return 2.05 + 1.35 * linkWeightNorm(v, maxLinkVal);
+            })
             .attr('fill', COLOR_PARTICLE_CORE)
             .attr('stroke', COLOR_PARTICLE)
-            .attr('stroke-width', 0.6)
-            .attr('opacity', 0.82)
+            .attr('stroke-width', (d) => {
+              const v = linksCopy[d.linkIndex]?.value ?? 0;
+              return 0.45 + 0.45 * linkWeightNorm(v, maxLinkVal);
+            })
+            .attr('opacity', (d) => {
+              const v = linksCopy[d.linkIndex]?.value ?? 0;
+              return 0.58 + 0.32 * linkWeightNorm(v, maxLinkVal);
+            })
         : null;
 
     const nodeLayer = gRoot.append('g').attr('class', 'topology-nodes');
@@ -569,7 +691,7 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       .attr('fill', (d) => (d.kind === 'pod' ? COLOR_POD_FILL : COLOR_DEST_FILL))
       .attr('fill-opacity', 0.92)
       .attr('stroke', (d) => (d.kind === 'pod' ? COLOR_POD_STROKE : COLOR_DEST_STROKE))
-      .attr('stroke-width', 1.6);
+      .attr('stroke-width', NODE_STROKE_DEFAULT);
 
     node
       .append('text')
@@ -580,16 +702,16 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
         const g = d3.select(this);
         g.append('tspan')
           .attr('x', 0)
-          .attr('dy', r + 12)
+          .attr('dy', r + 14)
           .attr('fill', '#e2e8f0')
-          .attr('font-size', '11px')
+          .attr('font-size', '12px')
           .attr('font-weight', '500')
           .text(d.line1);
         g.append('tspan')
           .attr('x', 0)
-          .attr('dy', 12)
+          .attr('dy', 13)
           .attr('fill', '#94a3b8')
-          .attr('font-size', '9px')
+          .attr('font-size', '10px')
           .text(d.line2);
       });
 
@@ -608,25 +730,27 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
         .attr('stroke', (l) => {
           const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
           const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
-          if (!focusId) return COLOR_LINK;
+          if (!focusId) return linkColorScale(l.value);
           return s === focusId || t === focusId ? COLOR_LINK_HOVER : COLOR_LINK_DIM;
         })
         .attr('stroke-opacity', (l) => {
           const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
           const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
-          if (!focusId) return 0.55;
+          if (!focusId) return linkOpacityScale(l.value);
           return s === focusId || t === focusId ? 0.95 : 0.08;
         });
 
       if (particleSel) {
         particleSel.attr('opacity', (d) => {
-          if (!focusId) return 0.82;
           const l = linksCopy[d.linkIndex];
+          const base =
+            l != null ? 0.58 + 0.32 * linkWeightNorm(l.value, maxLinkVal) : 0.5;
+          if (!focusId) return base;
           if (!l) return 0.06;
           const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : l.source;
           const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : l.target;
           const hit = s === focusId || t === focusId;
-          return hit ? 0.95 : 0.05;
+          return hit ? Math.min(0.98, base + 0.12) : 0.05;
         });
       }
     };
@@ -704,7 +828,7 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       const on = d.id === focusId;
       d3.select(this)
         .select('circle')
-        .attr('stroke-width', on ? 3.4 : 1.6)
+        .attr('stroke-width', on ? NODE_STROKE_SELECTED : NODE_STROKE_DEFAULT)
         .attr('filter', on ? `url(#${glowId})` : null);
     });
 
@@ -719,13 +843,16 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       return d.id === focusId || connected ? 1 : 0.12;
     });
 
+    const maxL = d3.max(links, (x) => x.value) ?? 1;
+    const { linkOpacityScale: loScale, linkColorScale: lcScale } = linkStyleScales(maxL);
+
     root.selectAll<SVGPathElement, LinkDatum>('path').each(function () {
       const path = d3.select(this);
       const l = path.datum() as LinkDatum;
       const s = typeof l.source === 'object' ? (l.source as NodeDatum).id : String(l.source);
       const t = typeof l.target === 'object' ? (l.target as NodeDatum).id : String(l.target);
       if (!fadeOthers) {
-        path.attr('stroke', COLOR_LINK).attr('stroke-opacity', 0.55);
+        path.attr('stroke', lcScale(l.value)).attr('stroke-opacity', loScale(l.value));
         return;
       }
       const hit = s === focusId || t === focusId;
@@ -741,12 +868,13 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
       }
       const s = typeof l.source === 'string' ? l.source : (l.source as NodeDatum).id;
       const t = typeof l.target === 'string' ? l.target : (l.target as NodeDatum).id;
+      const baseOp = 0.58 + 0.32 * linkWeightNorm(l.value, maxL);
       if (!fadeOthers) {
-        d3.select(this).attr('opacity', 0.82);
+        d3.select(this).attr('opacity', baseOp);
         return;
       }
       const hit = s === focusId || t === focusId;
-      d3.select(this).attr('opacity', hit ? 0.95 : 0.05);
+      d3.select(this).attr('opacity', hit ? Math.min(0.98, baseOp + 0.12) : 0.05);
     });
   }, [selectedNodeId, nodes.length, glowId, links]);
 
@@ -772,7 +900,7 @@ export const NetworkTopologyGraph: React.FC<NetworkTopologyGraphProps> = ({
           </span>
           <span className="flex items-center gap-1.5 text-emerald-400/90">
             <span className="inline-block w-4 h-0.5 bg-emerald-500 shrink-0" />
-            Luồng + hạt (minh họa)
+            Cạnh: dày / sáng / hạt nhanh ≈ mức hoạt động
           </span>
           <span className="text-slate-600 w-full sm:w-auto">Zoom · kéo node</span>
         </div>

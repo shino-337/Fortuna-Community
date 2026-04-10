@@ -7,9 +7,10 @@ import (
 	"gorm.io/gorm"
 )
 
-// joinPodsForNetworkActivity adds the pods LEFT JOIN used for name-based search (alias n = pod_network_connections).
+// joinPodsForNetworkActivity INNER JOINs active inventory pod as source (alias p).
+// Chỉ giữ dòng pod_network_connections khi pod còn tồn tại trong pods (deleted_at IS NULL) — tránh hiển thị UID đã mất khỏi cluster.
 func joinPodsForNetworkActivity(db *gorm.DB) *gorm.DB {
-	return db.Joins(`LEFT JOIN pods p ON p.uid = n.pod_uid AND p.cluster_id = n.cluster_id AND p.deleted_at IS NULL`)
+	return db.Joins(`INNER JOIN pods p ON p.uid = n.pod_uid AND p.cluster_id = n.cluster_id AND p.deleted_at IS NULL`)
 }
 
 // applyNetworkActivityNamespaceFilter filters rows by source pod namespace on pod_network_connections (alias n).
@@ -33,7 +34,8 @@ func applyNetworkActivityNamespaceFilter(db *gorm.DB, namespace string) *gorm.DB
 	return db.Where("LOWER(TRIM(COALESCE(n.namespace,''))) = LOWER(?)", ns)
 }
 
-// applyNetworkActivityConnectionsSearch adds WHERE for q on table alias n (and p when join present).
+// applyNetworkActivityConnectionsSearch adds WHERE for q on alias n and p.
+// Caller must already apply joinPodsForNetworkActivity (INNER JOIN pods p) so p exists.
 // If q is a valid port number (1–65535), adds equality on dest_port/source_port in addition to text LIKEs.
 func applyNetworkActivityConnectionsSearch(db *gorm.DB, q string) *gorm.DB {
 	q = strings.TrimSpace(q)
@@ -41,7 +43,6 @@ func applyNetworkActivityConnectionsSearch(db *gorm.DB, q string) *gorm.DB {
 		return db
 	}
 	like := "%" + strings.ToLower(q) + "%"
-	db = joinPodsForNetworkActivity(db)
 	port, err := strconv.Atoi(q)
 	if err == nil && port > 0 && port <= 65535 {
 		return db.Where(`(n.dest_port = ? OR n.source_port = ? OR LOWER(COALESCE(p.name,'')) LIKE ? OR LOWER(n.namespace) LIKE ? OR LOWER(COALESCE(n.dest_ip,'')) LIKE ? OR CAST(n.dest_port AS TEXT) LIKE ? OR CAST(n.source_port AS TEXT) LIKE ? OR LOWER(CAST(n.pod_uid AS TEXT)) LIKE ? OR LOWER(CAST(p.uid AS TEXT)) LIKE ?)`,

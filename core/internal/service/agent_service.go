@@ -1729,6 +1729,10 @@ func (s *AgentService) cleanupStalePods(clusterID string) {
 			s.logger.Printf("❌ Failed to soft-delete stale pod %s/%s (%s): %v", p.Namespace, p.Name, p.UID, err)
 			continue
 		}
+		// Đồng bộ Pod Detail / network rows với inventory (giống full sync delete path)
+		s.db.Where("pod_uid = ?", p.UID).Delete(&models.PodProcess{})
+		s.db.Where("pod_uid = ?", p.UID).Delete(&models.PodRuntimeMetrics{})
+		s.db.Where("pod_uid = ?", p.UID).Delete(&models.PodNetworkConnection{})
 		s.logger.Printf("🧹 Soft-deleted stale pod %s/%s (%s), updated_at=%s", p.Namespace, p.Name, p.UID, p.UpdatedAt.Format(time.RFC3339))
 	}
 }

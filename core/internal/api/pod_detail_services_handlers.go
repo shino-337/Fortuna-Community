@@ -393,6 +393,44 @@ func normalizePodNetworkForUpsert(p *models.PodNetworkConnection) {
 	p.State = strings.TrimSpace(p.State)
 }
 
+// podNetworkUpsertDedupeKey matches the ON CONFLICT columns on pod_network_connections (migration 115).
+func podNetworkUpsertDedupeKey(r models.PodNetworkConnection) string {
+	return strings.Join([]string{
+		r.ClusterID, r.PodUID, r.Namespace, r.ContainerName,
+		r.SourceIP, strconv.Itoa(r.SourcePort), r.DestIP, strconv.Itoa(r.DestPort),
+		r.Protocol, r.State, r.Bucket5m.UTC().Format(time.RFC3339Nano),
+	}, "\x1f")
+}
+
+// dedupePodNetworkConnectionsForUpsert merges rows that would hit the same unique tuple in one INSERT.
+// PostgreSQL rejects ON CONFLICT DO UPDATE when two VALUES rows target the same existing row (SQLSTATE 21000).
+func dedupePodNetworkConnectionsForUpsert(rows []models.PodNetworkConnection) []models.PodNetworkConnection {
+	if len(rows) < 2 {
+		return rows
+	}
+	byKey := make(map[string]models.PodNetworkConnection, len(rows))
+	for i := range rows {
+		r := rows[i]
+		k := podNetworkUpsertDedupeKey(r)
+		if ex, ok := byKey[k]; ok {
+			if r.BytesSent > ex.BytesSent {
+				ex.BytesSent = r.BytesSent
+			}
+			if r.BytesRecv > ex.BytesRecv {
+				ex.BytesRecv = r.BytesRecv
+			}
+			byKey[k] = ex
+		} else {
+			byKey[k] = r
+		}
+	}
+	out := make([]models.PodNetworkConnection, 0, len(byKey))
+	for _, v := range byKey {
+		out = append(out, v)
+	}
+	return out
+}
+
 // IngestPodNetworkConnectionsPayload accepts POST from agent.
 func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -446,6 +484,7 @@ func IngestPodNetworkConnectionsPayload(db *gorm.DB) gin.HandlerFunc {
 				Bucket5m:      bucket,
 			}
 		}
+		normalized = dedupePodNetworkConnectionsForUpsert(normalized)
 		newNetworkEvents, err := buildNetworkQueueSpikeEvents(db, req.PodUID, req.Namespace, now, normalized)
 		if err != nil {
 			log.Printf("[PodDetail] R5 network anomaly detection skipped for pod %s: %v", req.PodUID, err)

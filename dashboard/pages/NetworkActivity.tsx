@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo, useId, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useCallback, useMemo, useId, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   RefreshCw,
@@ -11,6 +11,12 @@ import {
   RotateCcw,
   Eye,
   EyeOff,
+  Share2,
+  List,
+  Table2,
+  ExternalLink,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { api } from '../lib/api';
 import { useClusterStore } from '../store/clusterStore';
@@ -26,7 +32,61 @@ import type {
   NetworkActivityConnectionRow,
   NetworkActivityDestinationRow,
   NetworkActivityTalkerRow,
+  NetworkActivityWorkloadRow,
 } from '../types';
+
+type NetworkMainTab = 'topology' | 'pods' | 'connections';
+
+const TABLE_PAGE_SIZES = [25, 50, 100, 200] as const;
+
+function podTableLabel(name?: string, uid?: string): string {
+  const n = (name ?? '').trim();
+  if (n) return n;
+  const u = (uid ?? '').trim();
+  if (!u) return '—';
+  return u.length <= 12 ? u : `${u.slice(0, 12)}…`;
+}
+
+function formatObservedAt(iso?: string): string {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
+  } catch {
+    return iso;
+  }
+}
+
+/** Hiển thị mốc đầu bucket 5m UTC (ngắn gọn + tooltip đủ ISO). */
+function formatBucket5mLine(iso?: string): { short: string; title: string } {
+  if (!iso) return { short: '—', title: '' };
+  try {
+    const d = new Date(iso);
+    const full = d.toISOString();
+    return {
+      short: `${full.slice(0, 10)} ${full.slice(11, 16)} UTC`,
+      title: `Bucket 5m bắt đầu: ${full}`,
+    };
+  } catch {
+    return { short: iso, title: iso };
+  }
+}
+
+function formatRemoteEndpoint(row: NetworkActivityConnectionRow): string {
+  const st = (row.state ?? '').toUpperCase();
+  if (st === 'LISTEN' || st === 'LISTENING') {
+    const p = row.destPort ?? row.sourcePort;
+    const dip = (row.destIp ?? '').trim();
+    const bind =
+      dip && dip !== '0.0.0.0' && dip !== '::' && dip !== '*' && dip !== '[::]'
+        ? ` @${dip}`
+        : '';
+    return `LISTEN :${p ?? '?'}${bind}`;
+  }
+  const dip = (row.destIp ?? '').trim();
+  const dp = row.destPort;
+  if (!dip && (dp == null || Number.isNaN(Number(dp)))) return '—';
+  return `${dip || '—'}:${dp ?? '—'}`;
+}
 
 /** Core view=edges: số nhóm (pod×đích×proto) tối đa / request — khớp NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX (mặc định 2500). */
 const TOPOLOGY_EDGE_PAGE_SIZE = 2500;
@@ -81,6 +141,27 @@ function parseAppliedPort(q: string): number | null {
   return n;
 }
 
+/** Tên pod từ inventory — khớp uid với topology khi API network-activity thiếu podName. */
+async function fetchInventoryPodNamesByUid(clusterId: string, namespace?: string): Promise<Record<string, string>> {
+  const map: Record<string, string> = {};
+  const pageSize = 500;
+  for (let page = 1; page <= 30; page++) {
+    const { pods, total } = await api.getPods({
+      cluster: clusterId,
+      namespace: namespace || undefined,
+      page,
+      pageSize,
+    });
+    for (const p of pods) {
+      const u = (p.uid ?? '').trim();
+      const n = (p.name ?? '').trim();
+      if (u && n) map[u] = n;
+    }
+    if (pods.length < pageSize || page * pageSize >= total) break;
+  }
+  return map;
+}
+
 export function NetworkActivity() {
   const navigate = useNavigate();
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
@@ -94,6 +175,7 @@ export function NetworkActivity() {
   const [graphDestinations, setGraphDestinations] = useState([] as NetworkActivityDestinationRow[]);
   const [graphTalkers, setGraphTalkers] = useState([] as NetworkActivityTalkerRow[]);
   const [graphConnections, setGraphConnections] = useState([] as NetworkActivityConnectionRow[]);
+  const [topologyPodNamesByUid, setTopologyPodNamesByUid] = useState<Record<string, string>>({});
   const [destTotal, setDestTotal] = useState(0);
   const [talkerTotal, setTalkerTotal] = useState(0);
   const [topologyLegendScale, setTopologyLegendScale] = useState(1);
@@ -101,13 +183,25 @@ export function NetworkActivity() {
   const [clusterNamespaces, setClusterNamespaces] = useState([] as string[]);
   const [clusterNsLoading, setClusterNsLoading] = useState(false);
 
+  const [mainTab, setMainTab] = useState<NetworkMainTab>('topology');
+  const [tablePage, setTablePage] = useState(1);
+  const [tablePageSize, setTablePageSize] = useState(50);
+  const [podsRows, setPodsRows] = useState([] as NetworkActivityWorkloadRow[]);
+  const [podsTotal, setPodsTotal] = useState(0);
+  const [connRows, setConnRows] = useState([] as NetworkActivityConnectionRow[]);
+  const [connTotal, setConnTotal] = useState(0);
+  const [tableLoading, setTableLoading] = useState(false);
+
   const namespaceDatalistId = useId();
   /** Tránh request cũ (vẫn đang pending) ghi đè state sau khi đã xóa lọc / đổi filter. */
   const fetchReqIdRef = useRef(0);
+  const fetchTableReqIdRef = useRef(0);
 
   const appliedPort = useMemo(() => parseAppliedPort(searchApplied), [searchApplied]);
   const hasTextFilters = Boolean(namespaceApplied || searchApplied);
   const hasDraftTextFilters = Boolean(namespaceDraft.trim() || searchDraft.trim());
+  const textDraftDiffersFromApplied =
+    namespaceDraft.trim() !== namespaceApplied || searchDraft.trim() !== searchApplied;
   const sinceHuman = useMemo(() => sinceRangeHuman(sinceMinutes), [sinceMinutes]);
 
   const applyFilters = useCallback(() => {
@@ -172,6 +266,7 @@ export function NetworkActivity() {
         setGraphDestinations([]);
         setGraphTalkers([]);
         setGraphConnections([]);
+        setTopologyPodNamesByUid({});
         setDestTotal(0);
         setTalkerTotal(0);
         setLoading(false);
@@ -189,7 +284,7 @@ export function NetworkActivity() {
           sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
         };
 
-        const [destData, edgeOrLegacy] = await Promise.all([
+        const [destData, edgeOrLegacy, invNames] = await Promise.all([
           api.getNetworkActivity({
             ...commonList,
             view: 'destinations',
@@ -213,6 +308,7 @@ export function NetworkActivity() {
               });
             }
           })(),
+          fetchInventoryPodNamesByUid(selectedClusterId, namespaceApplied || undefined).catch(() => ({})),
         ]);
 
         const talkerRows: NetworkActivityTalkerRow[] = [];
@@ -234,6 +330,7 @@ export function NetworkActivity() {
         setGraphDestinations((destData.items as NetworkActivityDestinationRow[]) ?? []);
         setGraphTalkers(talkerRows);
         setGraphConnections((edgeOrLegacy.items as NetworkActivityConnectionRow[]) ?? []);
+        setTopologyPodNamesByUid(invNames);
         setDestTotal(destData.total ?? 0);
         setTalkerTotal(talkerTotalAcc);
       } catch {
@@ -241,6 +338,7 @@ export function NetworkActivity() {
         setGraphDestinations([]);
         setGraphTalkers([]);
         setGraphConnections([]);
+        setTopologyPodNamesByUid({});
         setDestTotal(0);
         setTalkerTotal(0);
       } finally {
@@ -253,17 +351,115 @@ export function NetworkActivity() {
     [selectedClusterId, namespaceApplied, searchApplied, sinceMinutes],
   );
 
+  const fetchTableData = useCallback(
+    async (manual = false) => {
+      if (!selectedClusterId || (mainTab !== 'pods' && mainTab !== 'connections')) {
+        fetchTableReqIdRef.current += 1;
+        setPodsRows([]);
+        setPodsTotal(0);
+        setConnRows([]);
+        setConnTotal(0);
+        setTableLoading(false);
+        if (manual) setRefreshSpin(false);
+        return;
+      }
+      const myId = ++fetchTableReqIdRef.current;
+      if (manual) setRefreshSpin(true);
+      setTableLoading(true);
+      try {
+        const commonList = {
+          cluster: selectedClusterId,
+          namespace: namespaceApplied || undefined,
+          q: searchApplied || undefined,
+          sinceMinutes: sinceMinutes === '' ? undefined : sinceMinutes,
+          page: tablePage,
+          pageSize: tablePageSize,
+        };
+        const view = mainTab === 'pods' ? 'pods' : 'connections';
+        const data = await api.getNetworkActivity({ ...commonList, view });
+        if (myId !== fetchTableReqIdRef.current) return;
+        if (view === 'pods') {
+          setPodsRows((data.items as NetworkActivityWorkloadRow[]) ?? []);
+          setPodsTotal(data.total ?? 0);
+        } else {
+          setConnRows((data.items as NetworkActivityConnectionRow[]) ?? []);
+          setConnTotal(data.total ?? 0);
+        }
+      } catch {
+        if (myId !== fetchTableReqIdRef.current) return;
+        if (mainTab === 'pods') {
+          setPodsRows([]);
+          setPodsTotal(0);
+        } else {
+          setConnRows([]);
+          setConnTotal(0);
+        }
+      } finally {
+        if (myId === fetchTableReqIdRef.current) {
+          setTableLoading(false);
+          if (manual) setRefreshSpin(false);
+        }
+      }
+    },
+    [
+      selectedClusterId,
+      mainTab,
+      namespaceApplied,
+      searchApplied,
+      sinceMinutes,
+      tablePage,
+      tablePageSize,
+    ],
+  );
+
   useEffect(() => {
+    if (mainTab !== 'topology') return;
     void fetchTopology(false);
-  }, [fetchTopology]);
+  }, [mainTab, fetchTopology]);
+
+  useEffect(() => {
+    if (mainTab !== 'pods' && mainTab !== 'connections') return;
+    void fetchTableData(false);
+  }, [mainTab, fetchTableData]);
+
+  useLayoutEffect(() => {
+    setTablePage(1);
+  }, [namespaceApplied, searchApplied, sinceMinutes, selectedClusterId, mainTab, tablePageSize]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
-  usePolling(() => void fetchTopology(false), intervalMs, { refreshTrigger });
+  usePolling(
+    () => {
+      if (mainTab === 'topology') void fetchTopology(false);
+      else void fetchTableData(false);
+    },
+    intervalMs,
+    { refreshTrigger },
+  );
 
   const goPod = (podUid: string) => {
     navigate(`/resources/pods/uid/${encodeURIComponent(podUid)}`);
   };
+
+  const drillConnectionsForPod = useCallback((row: NetworkActivityWorkloadRow) => {
+    const ns = (row.namespace ?? '').trim();
+    const name = (row.podName ?? '').trim();
+    const uid = (row.podUid ?? '').trim();
+    const q = name || (uid.length > 12 ? uid.slice(0, 12) : uid);
+    setNamespaceDraft(ns);
+    setSearchDraft(q);
+    setNamespaceApplied(ns);
+    setSearchApplied(q);
+    setMainTab('connections');
+  }, []);
+
+  const handleManualRefresh = useCallback(() => {
+    if (mainTab === 'topology') void fetchTopology(true);
+    else void fetchTableData(true);
+  }, [mainTab, fetchTopology, fetchTableData]);
+
+  const topologyBusy = loading && mainTab === 'topology';
+  const tableListBusy = tableLoading && (mainTab === 'pods' || mainTab === 'connections');
 
   /** Topology: cạnh từ view=edges (hoặc connections nếu Core cũ); pod orphan từ talkers đã phân trang đầy đủ. */
   const hasGraphData =
@@ -287,14 +483,23 @@ export function NetworkActivity() {
     </Button>
   );
 
+  const tableTotal = mainTab === 'pods' ? podsTotal : connTotal;
+  const tableRowsLen = mainTab === 'pods' ? podsRows.length : connRows.length;
+  const tableTotalPages = Math.max(1, Math.ceil(Math.max(0, tableTotal) / tablePageSize));
+
+  function formatQueueBytes(n?: number): string {
+    if (n == null || Number.isNaN(n)) return '—';
+    return n.toLocaleString();
+  }
+
   return (
     <PageLayout
       compact
       fillHeight
       className="!gap-2"
-      title="Network topology"
-      description="Pod → đích từ runtime (edges + talkers). Không phải NetworkPolicy. Cluster: header."
-      actions={legendToggleButton}
+      title="Network activity"
+      description="Topology pod→đích; bảng Pods / Connections từ runtime. Không phải NetworkPolicy. Cluster: header."
+      actions={mainTab === 'topology' ? legendToggleButton : undefined}
     >
       {!selectedClusterId ? (
         <PageEmpty
@@ -315,15 +520,25 @@ export function NetworkActivity() {
                       variant="secondary"
                       size="sm"
                       className="h-8 shrink-0"
-                      onClick={() => void fetchTopology(true)}
-                      disabled={loading}
+                      onClick={() => void handleManualRefresh()}
+                      disabled={topologyBusy || tableListBusy}
                     >
                       <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshSpin ? 'animate-spin' : ''}`} />
                       Làm mới
                     </Button>
-                    {!loading && (destTotal > 0 || talkerTotal > 0) && (
+                    {mainTab === 'topology' && !loading && (destTotal > 0 || talkerTotal > 0) && (
                       <span className="text-[10px] text-slate-500 leading-tight line-clamp-2 xl:line-clamp-3 max-w-[10rem] 2xl:max-w-[14rem]">
                         {destTotal} đích · {talkerTotal} nguồn · {graphConnections.length} cạnh
+                      </span>
+                    )}
+                    {mainTab === 'pods' && !tableLoading && (
+                      <span className="text-[10px] text-slate-500 tabular-nums">
+                        {podsTotal} pod · trang {tablePage}/{tableTotalPages}
+                      </span>
+                    )}
+                    {mainTab === 'connections' && !tableLoading && (
+                      <span className="text-[10px] text-slate-500 tabular-nums">
+                        {connTotal} dòng · trang {tablePage}/{tableTotalPages}
                       </span>
                     )}
                   </div>
@@ -445,9 +660,77 @@ export function NetworkActivity() {
                   </div>
                 </div>
               </div>
+
+              <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-800/80 pt-2">
+                <span className="text-[10px] text-slate-600 shrink-0">Đang áp dụng:</span>
+                <span
+                  className="inline-flex items-center rounded-full bg-slate-800/90 text-slate-300 px-2 py-0.5 text-[10px] border border-slate-600/80"
+                  title="Cửa sổ thời gian API"
+                >
+                  Thời gian: {sinceHuman}
+                </span>
+                {namespaceApplied ? (
+                  <span className="inline-flex items-center rounded-full bg-slate-800/90 text-slate-300 px-2 py-0.5 text-[10px] border border-slate-600/80 font-mono">
+                    ns={namespaceApplied}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-600">ns: (tất cả)</span>
+                )}
+                {searchApplied ? (
+                  <span
+                    className="inline-flex items-center rounded-full bg-slate-800/90 text-slate-300 px-2 py-0.5 text-[10px] border border-slate-600/80 font-mono max-w-[14rem] truncate"
+                    title={searchApplied}
+                  >
+                    q={searchApplied}
+                  </span>
+                ) : (
+                  <span className="text-[10px] text-slate-600">q: (trống)</span>
+                )}
+                {textDraftDiffersFromApplied && (
+                  <span className="text-[10px] text-amber-500/95" title="Namespace/tìm kiếm đang gõ khác bản đã áp dụng (sẽ đồng bộ sau debounce hoặc bấm Áp dụng)">
+                    Chưa áp dụng hết (draft)
+                  </span>
+                )}
+              </div>
+
+              <div className="mt-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Chế độ xem network">
+                {(
+                  [
+                    { id: 'topology' as const, label: 'Topology', icon: Share2 },
+                    { id: 'pods' as const, label: 'Pods', icon: List },
+                    { id: 'connections' as const, label: 'Connections', icon: Table2 },
+                  ] as const
+                ).map(({ id, label, icon: Icon }) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={mainTab === id}
+                    className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium border transition-colors ${
+                      mainTab === id
+                        ? 'bg-pink-600/20 border-pink-500/50 text-pink-100'
+                        : 'bg-slate-900/60 border-slate-700 text-slate-400 hover:text-slate-200 hover:border-slate-600'
+                    }`}
+                    onClick={() => setMainTab(id)}
+                  >
+                    <Icon className="w-3.5 h-3.5 shrink-0 opacity-90" />
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div
+                className="mt-2 rounded-lg border border-slate-700/80 bg-slate-900/40 px-2.5 py-2 text-[11px] text-slate-400 leading-snug"
+                role="note"
+              >
+                Dữ liệu được dedupe theo <span className="text-slate-300">bucket 5 phút (UTC)</span>. Mỗi dòng là{' '}
+                <span className="text-slate-300">snapshot cuối trong bucket</span>;{' '}
+                <span className="text-slate-300">queue bytes</span> (/proc/net) là snapshot, không phải tổng traffic.
+              </div>
+
               <p className="mt-2 text-[10px] text-slate-600 leading-snug hidden lg:block border-t border-slate-800/80 pt-2">
                 Namespace: inventory A→Z, <span className="font-mono">*</span> tiền tố. Tìm kiếm: LIKE tên pod/ns/IP; cổng số hoặc uid. Tối đa{' '}
-                {TOPOLOGY_EDGE_PAGE_SIZE} nhóm pod×đích / lần tải.
+                {TOPOLOGY_EDGE_PAGE_SIZE} nhóm pod×đích / lần tải (topology).
               </p>
             </div>
 
@@ -461,8 +744,9 @@ export function NetworkActivity() {
             )}
 
             <div className={`relative flex-1 flex flex-col min-h-0 ${GRAPH_AREA_CLASS}`}>
+              {mainTab === 'topology' && (
               <div className="relative w-full flex-1 flex flex-col min-h-0 border-t border-slate-800 bg-slate-950/50">
-                {loading &&
+                {topologyBusy &&
                 graphDestinations.length === 0 &&
                 graphTalkers.length === 0 &&
                 graphConnections.length === 0 ? (
@@ -611,6 +895,7 @@ export function NetworkActivity() {
                         supplementTalkers={graphTalkers}
                         maxNodes={180}
                         showCompactLegend={false}
+                        podNamesByUid={topologyPodNamesByUid}
                         onNodeClick={(id, kind) => {
                           if (kind === 'pod') goPod(id);
                         }}
@@ -619,6 +904,203 @@ export function NetworkActivity() {
                   </>
                 )}
               </div>
+              )}
+
+              {(mainTab === 'pods' || mainTab === 'connections') && (
+                <div
+                  className={`relative w-full flex-1 flex flex-col min-h-0 border-t border-slate-800 bg-slate-950/50 overflow-hidden ${GRAPH_AREA_CLASS}`}
+                >
+                  {tableListBusy && (mainTab === 'pods' ? podsRows.length === 0 : connRows.length === 0) ? (
+                    <div className="flex flex-col flex-1 min-h-0 justify-center items-center space-y-3 py-8">
+                      <div className="w-10 h-10 border-2 border-pink-500 border-t-transparent rounded-full animate-spin" />
+                      <span className="text-slate-500 text-sm">Đang tải…</span>
+                    </div>
+                  ) : mainTab === 'pods' && podsRows.length === 0 ? (
+                    <div className="flex flex-1 min-h-0 items-center justify-center p-4">
+                      <PageEmpty title="Không có pod" description={emptyContextLine} className="py-12 max-w-md" />
+                    </div>
+                  ) : mainTab === 'connections' && connRows.length === 0 ? (
+                    <div className="flex flex-1 min-h-0 items-center justify-center p-4">
+                      <PageEmpty title="Không có dòng connection" description={emptyContextLine} className="py-12 max-w-md" />
+                    </div>
+                  ) : (
+                    <>
+                      {tableListBusy && tableRowsLen > 0 && (
+                        <div className="absolute top-2 right-2 z-20 flex items-center gap-2 rounded-md bg-slate-900/95 border border-slate-600 px-2 py-1 text-[10px] text-slate-300 shadow-lg">
+                          <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
+                          Đang làm mới…
+                        </div>
+                      )}
+                      <div className="flex-1 min-h-0 overflow-auto p-2 sm:p-3">
+                        {mainTab === 'pods' ? (
+                          <table className="w-full text-left text-xs text-slate-200 border-collapse min-w-[640px]">
+                            <thead className="sticky top-0 z-10 bg-slate-900/98 border-b border-slate-700 shadow-sm">
+                              <tr className="text-[10px] uppercase tracking-wide text-slate-500">
+                                <th className="py-2 pr-3 font-medium">Namespace</th>
+                                <th className="py-2 pr-3 font-medium">Pod</th>
+                                <th
+                                  className="py-2 pr-3 font-medium cursor-help"
+                                  title="Số bản ghi snapshot theo bucket 5 phút, không phải số kết nối duy nhất."
+                                >
+                                  Quan sát (bucket)
+                                </th>
+                                <th className="py-2 pr-3 font-medium">Cập nhật</th>
+                                <th className="py-2 pr-3 font-medium">Node</th>
+                                <th className="py-2 pl-2 text-right font-medium">Thao tác</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {podsRows.map((row) => (
+                                <tr key={row.podUid} className="border-b border-slate-800/80 hover:bg-slate-900/50">
+                                  <td className="py-2 pr-3 font-mono text-[11px] text-slate-300">{row.namespace}</td>
+                                  <td className="py-2 pr-3">{podTableLabel(row.podName, row.podUid)}</td>
+                                  <td className="py-2 pr-3 tabular-nums">{row.connectionCount}</td>
+                                  <td className="py-2 pr-3 text-slate-400 whitespace-nowrap">{formatObservedAt(row.lastObservedAt)}</td>
+                                  <td className="py-2 pr-3 text-slate-500 text-[11px]">{row.nodeName ?? '—'}</td>
+                                  <td className="py-2 pl-2 text-right whitespace-nowrap">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      type="button"
+                                      className="h-7 px-1.5 text-[10px]"
+                                      title="Xem connections (lọc theo pod)"
+                                      onClick={() => drillConnectionsForPod(row)}
+                                    >
+                                      <ChevronRight className="w-3.5 h-3.5 inline mr-0.5" />
+                                      Conn
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      type="button"
+                                      className="h-7 px-1.5"
+                                      title="Pod detail"
+                                      onClick={() => goPod(row.podUid)}
+                                    >
+                                      <ExternalLink className="w-3.5 h-3.5" />
+                                    </Button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        ) : (
+                          <table className="w-full text-left text-xs text-slate-200 border-collapse min-w-[56rem]">
+                            <thead className="sticky top-0 z-10 bg-slate-900/98 border-b border-slate-700 shadow-sm">
+                              <tr className="text-[10px] uppercase tracking-wide text-slate-500">
+                                <th
+                                  className="py-2 pr-3 font-medium min-w-[9rem] cursor-help"
+                                  title="observedAt khi Core nhận; dòng phụ là mốc đầu bucket 5m UTC."
+                                >
+                                  Thời gian
+                                </th>
+                                <th className="py-2 pr-3 font-medium">NS</th>
+                                <th className="py-2 pr-3 font-medium">Pod</th>
+                                <th className="py-2 pr-3 font-medium">Local</th>
+                                <th className="py-2 pr-3 font-medium">Remote</th>
+                                <th className="py-2 pr-2 font-medium">Proto</th>
+                                <th className="py-2 pr-2 font-medium">State</th>
+                                <th
+                                  className="py-2 pr-2 font-medium text-right cursor-help"
+                                  title="tx_queue từ /proc/net (snapshot), không phải tổng traffic gửi."
+                                >
+                                  Tx queue
+                                </th>
+                                <th
+                                  className="py-2 pr-2 font-medium text-right cursor-help"
+                                  title="rx_queue từ /proc/net (snapshot), không phải tổng traffic nhận."
+                                >
+                                  Rx queue
+                                </th>
+                                <th className="py-2 pr-3 font-medium">Owner</th>
+                                <th className="py-2 font-medium">Node</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {connRows.map((row, i) => {
+                                const bucket = formatBucket5mLine(row.bucket5m);
+                                const k =
+                                  row.id != null
+                                    ? `c-${row.id}`
+                                    : `c-${i}-${row.podUid}-${row.bucket5m ?? ''}-${row.destIp}-${row.destPort}-${row.protocol}`;
+                                return (
+                                  <tr key={k} className="border-b border-slate-800/80 hover:bg-slate-900/50">
+                                    <td className="py-2 pr-3 align-top">
+                                      <div className="text-slate-200 whitespace-nowrap">{formatObservedAt(row.observedAt)}</div>
+                                      <div className="text-[10px] text-slate-500 mt-0.5 font-mono" title={bucket.title}>
+                                        {bucket.short}
+                                      </div>
+                                    </td>
+                                    <td className="py-2 pr-3 font-mono text-[11px] text-slate-300 align-top">{row.namespace ?? '—'}</td>
+                                    <td className="py-2 pr-3 align-top">{podTableLabel(row.podName, row.podUid)}</td>
+                                    <td className="py-2 pr-3 font-mono text-[11px] text-slate-400 align-top whitespace-nowrap">
+                                      {(row.sourceIp ?? '—') + ':' + (row.sourcePort ?? '—')}
+                                    </td>
+                                    <td className="py-2 pr-3 font-mono text-[11px] text-slate-300 align-top whitespace-nowrap">
+                                      {formatRemoteEndpoint(row)}
+                                    </td>
+                                    <td className="py-2 pr-2 align-top">{row.protocol ?? '—'}</td>
+                                    <td className="py-2 pr-2 align-top">{row.state ?? '—'}</td>
+                                    <td className="py-2 pr-2 text-right tabular-nums align-top">{formatQueueBytes(row.bytesSent)}</td>
+                                    <td className="py-2 pr-2 text-right tabular-nums align-top">{formatQueueBytes(row.bytesRecv)}</td>
+                                    <td className="py-2 pr-3 text-[11px] text-slate-400 align-top">
+                                      {row.ownerKind || row.ownerName
+                                        ? `${row.ownerKind ?? ''}${row.ownerKind && row.ownerName ? '/' : ''}${row.ownerName ?? ''}`
+                                        : '—'}
+                                    </td>
+                                    <td className="py-2 text-[11px] text-slate-500 align-top">{row.nodeName ?? '—'}</td>
+                                  </tr>
+                                );
+                              })}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                      <div className="shrink-0 border-t border-slate-800 px-2 py-2 flex flex-wrap items-center justify-between gap-2 bg-slate-950/90">
+                        <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                          <span>Số dòng/trang</span>
+                          <select
+                            value={tablePageSize}
+                            onChange={(e) => setTablePageSize(Number(e.target.value))}
+                            className="bg-slate-900 border border-slate-700 rounded px-1.5 py-1 text-slate-200"
+                          >
+                            {TABLE_PAGE_SIZES.map((n) => (
+                              <option key={n} value={n}>
+                                {n}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            type="button"
+                            className="h-8 px-2"
+                            disabled={tablePage <= 1 || tableListBusy}
+                            onClick={() => setTablePage((p) => Math.max(1, p - 1))}
+                          >
+                            <ChevronLeft className="w-4 h-4" />
+                          </Button>
+                          <span className="text-[11px] text-slate-400 tabular-nums min-w-[5rem] text-center">
+                            {tablePage} / {tableTotalPages}
+                          </span>
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            type="button"
+                            className="h-8 px-2"
+                            disabled={tablePage >= tableTotalPages || tableListBusy}
+                            onClick={() => setTablePage((p) => p + 1)}
+                          >
+                            <ChevronRight className="w-4 h-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
             </div>
           </Card>
         </div>
