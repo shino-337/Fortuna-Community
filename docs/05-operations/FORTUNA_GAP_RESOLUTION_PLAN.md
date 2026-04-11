@@ -42,8 +42,8 @@ Dựa trên phân tích toàn bộ tài liệu (`GAP_IMPLEMENTATION_STATUS.md`, 
 
 | ID | GAP | Trạng thái | Ưu tiên |
 |----|-----|------------|---------|
-| G1 | SBOM firewall (ingestion contract validation) | Todo | **P1** |
-| G2 | Backpressure survival policy | Todo | **P1** |
+| G1 | SBOM firewall (ingestion contract validation) | **In Progress → PR** | **P1** |
+| G2 | Backpressure survival policy | **In Progress → PR** | **P1** |
 | D2 | Real correlation calculation | Todo | P2 |
 | C2 | Extractor coverage parity report | Todo | P2 |
 | A2 | Build metadata wiring | Todo | P3 |
@@ -80,7 +80,7 @@ Dựa trên phân tích toàn bộ tài liệu (`GAP_IMPLEMENTATION_STATUS.md`, 
 | RP-2 | EPSS/KEV staleness | EPSS/KEV chỉ enrich lần đầu, không refresh | **P1** |
 | RP-3 | ExploitAvailable/ExploitMaturity plumbing | Có field nhưng Scorer không dùng | P2 |
 | RP-4 | Asset context — network exposure, tiers | ResourceInfoV2 fields luôn rỗng | P2 |
-| RP-5 | Persistent false-positive / exception model | Dismiss bị re-activate next scan | **P0** |
+| RP-5 | Persistent false-positive / exception model | **In Progress → PR** | **P0** |
 | RP-6 | Insight triage states incomplete | Acknowledge chỉ update timestamp, resolve ghi đè recommendation | P2 |
 | RP-7 | SLA tracking | Không có deadline/breach tracking | P2 |
 | RP-8 | CVE-to-Insight scan provenance | Insight không ghi resolver_version/mirror_version | P2 |
@@ -550,13 +550,13 @@ Mỗi batch cần đảm bảo:
 ### Phase 1: Foundation (Tuần 1-2)
 
 **Sprint 1 (Week 1):**
-- [ ] RP-5: Exception model (12h)
-- [ ] G1: SBOM firewall (8h)
-- [ ] DB Optimization indexes (4h)
+- [x] RP-5: Exception model (12h)
+- [x] G1: SBOM firewall (8h)
+- [x] DB Optimization indexes (4h)
 - **Exit criteria:** Exception policies work, malformed SBOM rejected, queries faster
 
 **Sprint 2 (Week 2):**
-- [ ] G2: Backpressure policy (8h)
+- [x] G2: Backpressure policy (8h)
 - [ ] Agent memory profiling + optimization bước 1 (16h)
 - **Exit criteria:** Queue overflow handled gracefully, agent ≤4Gi
 
@@ -710,7 +710,7 @@ Week 15-16: ████ Polish & Cleanup (P3)
 
 ### Batch 1 Migrations
 ```sql
--- 112_add_exception_policies.go
+-- 116_add_exception_policies.go (RP-5: implemented in this PR)
 CREATE TABLE exception_policies (
     id SERIAL PRIMARY KEY,
     resource_uid VARCHAR(255),
@@ -720,10 +720,20 @@ CREATE TABLE exception_policies (
     expires_at TIMESTAMP,
     created_by VARCHAR(255),
     created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
+    updated_at TIMESTAMP DEFAULT NOW(),
+    deleted_at TIMESTAMP
 );
 CREATE INDEX idx_exception_policies_lookup
-    ON exception_policies(resource_uid, cve_id, insight_type);
+    ON exception_policies(resource_uid, cve_id, insight_type)
+    WHERE deleted_at IS NULL;
+
+-- 117_add_risk_scoring_indexes.go (DB optimization: implemented in this PR)
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_insights_resource_type_status
+    ON insights(resource_uid, insight_type, status) WHERE deleted_at IS NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_cve_matches_sbom_severity
+    ON cve_matches(sbom_id, severity) WHERE deleted_at IS NULL;
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_insights_active
+    ON insights(status) WHERE status = 'active' AND deleted_at IS NULL;
 ```
 
 ### Batch 2 Migrations

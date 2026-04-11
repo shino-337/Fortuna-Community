@@ -122,6 +122,8 @@ var (
 	_ = Migration112_ExpandAdvisoryIDColumnsV2
 	_ = Migration114_AddOSVRangeTypeIndex
 	_ = Migration115_AddPodNetworkBucket5m
+	_ = Migration116_AddExceptionPolicies
+	_ = Migration117_AddRiskScoringIndexes
 	// Old migrations 030-039 (replaced by optimized versions above):
 	// _ = Migration030_MigrateInsightsToNewSchema (merged into 030_MigrateInsightsSchemaComplete)
 	// _ = Migration031_CleanupOldInsightsColumns (merged into 030_MigrateInsightsSchemaComplete)
@@ -257,6 +259,8 @@ func RunMigrations(db *gorm.DB) error {
 		Migration113_AddMalwareTables,                           // Supply-chain threat detection: malware_packages + malware_matches
 		Migration114_AddOSVRangeTypeIndex,                       // OSV mirror: index range_type for bulk join filtering
 		Migration115_AddPodNetworkBucket5m,                    // Pod network: 5m bucket + upsert signature + indexes
+		Migration116_AddExceptionPolicies,                      // RP-5: exception_policies table for false-positive suppression
+		Migration117_AddRiskScoringIndexes,                     // DB Optimization: composite indexes for risk scoring queries
 	}
 
 	log.Printf("Total migrations to execute: %d", len(migrations))

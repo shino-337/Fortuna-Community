@@ -25,6 +25,19 @@ func NewInsightManager(db *gorm.DB) *InsightManager {
 	return &InsightManager{db: db}
 }
 
+// isExempted checks whether an active (non-expired) exception policy exists for the
+// given resource_uid + cve_id + insight_type combination.  When true, the caller
+// should keep the insight dismissed instead of re-activating it.
+func isExempted(tx *gorm.DB, resourceUID, cveID, insightType string) bool {
+	now := time.Now()
+	var count int64
+	tx.Model(&models.ExceptionPolicy{}).
+		Where("resource_uid = ? AND cve_id = ? AND insight_type = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
+			resourceUID, cveID, insightType, now).
+		Count(&count)
+	return count > 0
+}
+
 // createOrUpdateInsightTx performs the actual work within a transaction
 // UPDATED: Uses new Insight schema (no AffectedResources JSONB, direct resource fields)
 func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.Insight) error {
@@ -79,6 +92,12 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 			"vulnerability", insight.ResourceUID, insight.CVEID, "resolved", "dismissed")
 
 		if queryResolved.First(&existingVuln).Error == nil {
+			// RP-5: respect active exception policies — keep dismissed if exempted.
+			if existingVuln.Status == "dismissed" && isExempted(tx, insight.ResourceUID, insight.CVEID, "vulnerability") {
+				log.Printf("[InsightManager] Keeping vulnerability insight ID=%d dismissed (exception policy active, resource_uid=%s, cve_id=%s)",
+					existingVuln.ID, insight.ResourceUID, insight.CVEID)
+				return nil
+			}
 			existingVuln.Status = "active"
 			existingVuln.Description = insight.Description
 			existingVuln.Recommendation = insight.Recommendation
@@ -108,6 +127,12 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		if tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND deleted_at IS NULL",
 			insight.InsightType, insight.ResourceUID, cveKey).First(&existingKey).Error == nil {
 			wasResolvedOrDismissed := existingKey.Status == "resolved" || existingKey.Status == "dismissed"
+			// RP-5: respect active exception policies — keep dismissed if exempted.
+			if existingKey.Status == "dismissed" && isExempted(tx, insight.ResourceUID, cveKey, insight.InsightType) {
+				log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, resource_uid=%s, type=%s, cve_id=%s)",
+					existingKey.ID, insight.ResourceUID, insight.InsightType, cveKey)
+				return nil
+			}
 			existingKey.Status = "active"
 			existingKey.Severity = insight.Severity
 			existingKey.Description = insight.Description
@@ -162,6 +187,12 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 
 	var resolved models.Insight
 	if keyQuery.Where("status IN (?, ?)", "resolved", "dismissed").First(&resolved).Error == nil {
+		// RP-5: respect active exception policies — keep dismissed if exempted.
+		if resolved.Status == "dismissed" && isExempted(tx, insight.ResourceUID, insight.CVEID, insight.InsightType) {
+			log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, resource_uid=%s, type=%s)",
+				resolved.ID, insight.ResourceUID, insight.InsightType)
+			return nil
+		}
 		resolved.Status = "active"
 		resolved.Severity = insight.Severity
 		resolved.Description = insight.Description

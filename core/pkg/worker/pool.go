@@ -64,9 +64,16 @@ func (p *Pool) SetRetryConfig(config RetryConfig) {
 	p.retryConfig = config
 }
 
-// SetBackpressureConfig sets the backpressure configuration
+// SetBackpressureConfig sets the backpressure configuration and propagates the policy
+// to any already-created load trackers.
 func (p *Pool) SetBackpressureConfig(config BackpressureConfig) {
 	p.backpressureConfig = config
+	// Propagate the new policy to existing trackers
+	p.loadTrackersMu.RLock()
+	for _, tracker := range p.loadTrackers {
+		tracker.SetPolicy(config.Policy)
+	}
+	p.loadTrackersMu.RUnlock()
 }
 
 // getOrCreateLoadTracker gets or creates a load tracker for a worker type
@@ -74,25 +81,26 @@ func (p *Pool) getOrCreateLoadTracker(workerType string) *WorkerLoadTracker {
 	p.loadTrackersMu.RLock()
 	tracker, exists := p.loadTrackers[workerType]
 	p.loadTrackersMu.RUnlock()
-	
+
 	if exists {
 		return tracker
 	}
-	
+
 	// Create new tracker
 	p.loadTrackersMu.Lock()
 	defer p.loadTrackersMu.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if tracker, exists := p.loadTrackers[workerType]; exists {
 		return tracker
 	}
-	
+
 	tracker = NewWorkerLoadTracker(workerType, p.backpressureConfig.MaxConcurrent)
+	tracker.SetPolicy(p.backpressureConfig.Policy)
 	p.loadTrackers[workerType] = tracker
-	log.Printf("[WorkerPool] Created load tracker for worker type %s (max concurrent: %d)", 
-		workerType, p.backpressureConfig.MaxConcurrent)
-	
+	log.Printf("[WorkerPool] Created load tracker for worker type %s (max concurrent: %d, policy: %s)",
+		workerType, p.backpressureConfig.MaxConcurrent, p.backpressureConfig.Policy)
+
 	return tracker
 }
 
