@@ -14,8 +14,9 @@ func registerGraphRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	g.GET("/shortest-path", GetShortestPath(db))
 	g.GET("/accessible/:uid", GetAccessibleResources(db))
 	g.POST("/query", ExecuteGraphQuery(db))
-	g.GET("/attack-paths/:uid", GetAttackPaths(db))
+	g.GET("/attack-paths/summary", GetAttackPathsSummary(db))
 	g.GET("/attack-paths/graph", AttackPathsGraph(db))
+	g.GET("/attack-paths/:uid", GetAttackPaths(db))
 	g.GET("/permissions/:uid", GetServiceAccountPermissionsGraph(db))
 	g.GET("/risky-pods", GetRiskyPods(db))
 }
