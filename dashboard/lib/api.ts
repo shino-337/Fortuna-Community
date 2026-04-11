@@ -35,6 +35,9 @@ import {
   CapabilityMetadata,
   PodAttackStep,
   AttackStepSummary,
+  AttackPath,
+  AttackPathSummary,
+  AttackPathGraphData,
   PromotionRule,
   RuntimeSignal,
   RuntimeSignalSuppressionStats,
@@ -1787,7 +1790,7 @@ export const api = {
   },
 
   // Attack Paths Graph
-  getAttackPathsGraph: async (): Promise<{ nodes: Array<{ id: string; label: string; type: string; risk?: string }>; links: Array<{ source: string; target: string; value: number }> }> => {
+  getAttackPathsGraph: async (): Promise<AttackPathGraphData> => {
     try {
       const data = await request<{ data: { nodes: any[]; links: any[] } }>('/graph/attack-paths/graph');
       // Transform API response to match component format
@@ -1800,12 +1803,34 @@ export const api = {
       const links = (data.data?.links || []).map((link: any) => ({
         source: link.source?.id || link.source || String(link.from),
         target: link.target?.id || link.target || String(link.to),
+        type: link.type || '',
         value: link.weight || link.value || 1,
       }));
       return { nodes, links };
     } catch (err) {
       // If API fails, return empty graph (no mock data)
       return { nodes: [], links: [] };
+    }
+  },
+
+  // Attack Paths Summary
+  getAttackPathsSummary: async (clusterId?: string): Promise<AttackPathSummary | null> => {
+    try {
+      const query = clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : '';
+      const data = await request<{ data: AttackPathSummary }>(`/graph/attack-paths/summary${query}`);
+      return data.data || null;
+    } catch {
+      return null;
+    }
+  },
+
+  // Attack Paths for a specific pod
+  getAttackPathsForPod: async (podUid: string): Promise<AttackPath[]> => {
+    try {
+      const data = await request<{ paths: AttackPath[]; count: number }>(`/graph/attack-paths/${encodeURIComponent(podUid)}`);
+      return data.paths || [];
+    } catch {
+      return [];
     }
   },
 };

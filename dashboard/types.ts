@@ -532,6 +532,51 @@ export interface AttackStepSummary {
   avgConfidence: number;
 }
 
+// Attack Paths (Phase 3 — graph visualization)
+export interface AttackPathNode {
+  id: string;
+  type: string; // Pod, ServiceAccount, RoleBinding, ClusterRoleBinding, Role, ClusterRole
+  properties: Record<string, unknown>;
+}
+
+export interface AttackPathEdge {
+  type: string; // USES_SERVICE_ACCOUNT, REFERENCED_BY, GRANTS_ROLE
+  source: string;
+  target: string;
+  properties?: Record<string, unknown>;
+}
+
+export interface AttackPath {
+  nodes: AttackPathNode[];
+  edges: AttackPathEdge[];
+  total_risk: number;
+  difficulty: number;
+  impact: number;
+  length: number;
+  description: string;
+}
+
+export interface AttackPathSummary {
+  totalPaths: number;
+  criticalPaths: number;
+  highPaths: number;
+  mediumPaths: number;
+  targetBreakdown: Record<string, number>;
+  topPods: Array<{
+    uid: string;
+    name: string;
+    namespace: string;
+    service_account_name: string;
+    risk_score: number;
+    risk_reason: string;
+  }>;
+}
+
+export interface AttackPathGraphData {
+  nodes: Array<{ id: string; label: string; type: string; risk?: string; [key: string]: unknown }>;
+  links: Array<{ source: string; target: string; type?: string; value: number }>;
+}
+
 // Phase 2.3: Promotion Rules
 export interface PromotionRule {
   id: number;

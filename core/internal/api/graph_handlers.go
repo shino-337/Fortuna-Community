@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"net/http"
 	"strconv"
 
@@ -182,13 +183,31 @@ func ExecuteGraphQuery(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// GetAttackPathsSummary returns attack path statistics.
+func GetAttackPathsSummary(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		clusterID := c.Query("cluster_id")
+		builder := graph.NewRelationalPathBuilder(db)
+		summary, err := builder.GetSummary(c.Request.Context(), clusterID)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"data": summary})
+	}
+}
+
 // Helper functions for fallback relational queries
 func getRelationalGraphData(db *gorm.DB) map[string]interface{} {
-	// Return basic relational data structure
-	return map[string]interface{}{
-		"nodes": []interface{}{},
-		"edges": []interface{}{},
+	builder := graph.NewRelationalPathBuilder(db)
+	data, err := builder.BuildGraphData(context.Background(), "")
+	if err != nil {
+		return map[string]interface{}{
+			"nodes": []interface{}{},
+			"links": []interface{}{},
+		}
 	}
+	return data
 }
 
 func getRelationalAccessibleResources(db *gorm.DB, saID, resourceType string) []interface{} {
@@ -215,15 +234,23 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 			maxDepth = 5
 		}
 
+		// Try AGE first, fallback to relational
 		queryService, err := graph.NewQueryService(db)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to create query service",
-			})
-			return
+		if err == nil {
+			paths, err := queryService.GetAttackPath(c.Request.Context(), podUID, maxDepth)
+			if err == nil && len(paths) > 0 {
+				c.JSON(http.StatusOK, gin.H{
+					"pod_uid": podUID,
+					"paths":   paths,
+					"count":   len(paths),
+				})
+				return
+			}
 		}
 
-		paths, err := queryService.GetAttackPath(c.Request.Context(), podUID, maxDepth)
+		// Fallback: relational path builder
+		builder := graph.NewRelationalPathBuilder(db)
+		paths, err := builder.BuildPathsForPod(c.Request.Context(), podUID)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": err.Error(),
