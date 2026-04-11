@@ -432,6 +432,13 @@ func buildPath(pod models.Pod, sa models.ServiceAccount, bindingName, bindingNS,
 	difficulty := difficultyFromRiskLevel(riskLevel)
 	impact := impactFromRiskLevel(riskLevel)
 
+	// Boost risk based on pod security posture
+	posture := podSecurityPostureBoost(pod)
+	totalRisk = clampFloat(totalRisk+posture, 0, 10.0)
+	if posture > 0 {
+		difficulty = clampFloat(difficulty-0.1, 0.1, 1.0)
+	}
+
 	podNode := PathNode{
 		ID:   pod.UID,
 		Type: "Pod",
@@ -641,4 +648,38 @@ func maxRisk(a, b string) string {
 		return b
 	}
 	return a
+}
+
+// podSecurityPostureBoost returns an additive risk score boost (0–1.5)
+// based on how privileged the pod's security posture is.
+// Pods with hostNetwork, hostPID, hostIPC, or disabled SA token automount
+// have an easier lateral-movement surface, so their attack paths are riskier.
+func podSecurityPostureBoost(pod models.Pod) float64 {
+	var boost float64
+	if pod.HostNetwork {
+		boost += 0.5
+	}
+	if pod.HostPID {
+		boost += 0.5
+	}
+	if pod.HostIPC {
+		boost += 0.3
+	}
+	// automountServiceAccountToken defaults to true; if explicitly false the
+	// token isn't mounted so the SA path is harder — no boost (handled implicitly).
+	if boost > 1.5 {
+		boost = 1.5
+	}
+	return boost
+}
+
+// clampFloat clamps v to [lo, hi].
+func clampFloat(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }
