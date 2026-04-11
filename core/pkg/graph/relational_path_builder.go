@@ -395,14 +395,13 @@ func classifyRoleRisk(roleName, rulesJSON string) string {
 			return "critical"
 		}
 
-		// Dangerous verbs on sensitive resources
-		dangerousVerbs := hasWildcardVerb || contains(verbs, "create") || contains(verbs, "update") || contains(verbs, "patch") || contains(verbs, "delete")
-		sensitiveResources := contains(resources, "secrets") || contains(resources, "pods") || contains(resources, "deployments") || contains(resources, "daemonsets") || contains(resources, "clusterroles") || contains(resources, "clusterrolebindings")
-
 		// Privilege escalation verbs
-		if contains(verbs, "escalate") || contains(verbs, "bind") || contains(verbs, "impersonate") {
+		if containsAny(verbs, "escalate", "bind", "impersonate") {
 			return "critical"
 		}
+
+		dangerousVerbs := hasDangerousVerbs(verbs, hasWildcardVerb)
+		sensitiveResources := hasSensitiveResources(resources)
 
 		if dangerousVerbs && sensitiveResources && hasWildcardAPI {
 			return "high"
@@ -564,4 +563,34 @@ func contains(s []string, v string) bool {
 		}
 	}
 	return false
+}
+
+func containsAny(s []string, vals ...string) bool {
+	for _, item := range s {
+		for _, v := range vals {
+			if item == v {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasDangerousVerbs returns true if the slice contains wildcard or mutating verbs.
+func hasDangerousVerbs(verbs []string, hasWildcard bool) bool {
+	return hasWildcard ||
+		contains(verbs, "create") ||
+		contains(verbs, "update") ||
+		contains(verbs, "patch") ||
+		contains(verbs, "delete")
+}
+
+// hasSensitiveResources returns true if the slice includes sensitive K8s resource types.
+func hasSensitiveResources(resources []string) bool {
+	return contains(resources, "secrets") ||
+		contains(resources, "pods") ||
+		contains(resources, "deployments") ||
+		contains(resources, "daemonsets") ||
+		contains(resources, "clusterroles") ||
+		contains(resources, "clusterrolebindings")
 }
