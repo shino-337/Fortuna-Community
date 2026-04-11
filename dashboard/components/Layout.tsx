@@ -69,7 +69,7 @@ export const Layout: React.FC = () => {
         { icon: <ShieldAlert size={18} />, label: 'Risk Operations', path: '/risks' },
         { icon: <Shield size={18} />, label: 'Capability Knowledge', path: '/capabilities' },
         { icon: <ScrollText size={18} />, label: 'Detection & Policy Catalog', path: '/rules' },
-        { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths', comingSoon: true },
+        { icon: <Network size={18} />, label: 'Attack Paths', path: '/attack-paths' },
       ],
     },
     {
