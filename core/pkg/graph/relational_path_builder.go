@@ -382,6 +382,7 @@ func classifyRoleRisk(roleName, rulesJSON string) string {
 		return "none"
 	}
 
+	highest := "none"
 	for _, rule := range rules {
 		verbs := toStringSlice(rule["verbs"])
 		resources := toStringSlice(rule["resources"])
@@ -400,19 +401,31 @@ func classifyRoleRisk(roleName, rulesJSON string) string {
 			return "critical"
 		}
 
+		// Read-only secret theft: get/list/watch on secrets is high risk
+		hasReadVerbs := containsAny(verbs, "get", "list", "watch") || hasWildcardVerb
+		if hasReadVerbs && containsAny(resources, "secrets", "*") {
+			highest = maxRisk(highest, "high")
+		}
+
 		dangerousVerbs := hasDangerousVerbs(verbs, hasWildcardVerb)
 		sensitiveResources := hasSensitiveResources(resources)
 
+		// Critical: mutate/wildcard on nodes or CSR/PKI or token-related resources
+		if dangerousVerbs && hasCriticalResources(resources) {
+			return "critical"
+		}
+
 		if dangerousVerbs && sensitiveResources && hasWildcardAPI {
-			return "high"
+			highest = maxRisk(highest, "high")
+			continue
 		}
 
 		if dangerousVerbs && sensitiveResources {
-			return "medium"
+			highest = maxRisk(highest, "medium")
 		}
 	}
 
-	return "none"
+	return highest
 }
 
 func buildPath(pod models.Pod, sa models.ServiceAccount, bindingName, bindingNS, bindingType, targetName, targetType, targetRules, riskLevel string) AttackPath {
@@ -585,12 +598,49 @@ func hasDangerousVerbs(verbs []string, hasWildcard bool) bool {
 		contains(verbs, "delete")
 }
 
+// hasCriticalResources returns true if the slice contains resources that grant
+// cluster-level privilege escalation when mutated (node takeover, CSR/PKI, token mint).
+func hasCriticalResources(resources []string) bool {
+	return containsAny(resources,
+		// Node takeover
+		"nodes", "nodes/proxy", "nodes/metrics", "nodes/stats",
+		// Mint/steal tokens
+		"serviceaccounts/token", "tokenreviews",
+		// CSR/PKI escalation
+		"certificatesigningrequests", "certificatesigningrequests/approval",
+	)
+}
+
 // hasSensitiveResources returns true if the slice includes sensitive K8s resource types.
 func hasSensitiveResources(resources []string) bool {
-	return contains(resources, "secrets") ||
-		contains(resources, "pods") ||
-		contains(resources, "deployments") ||
-		contains(resources, "daemonsets") ||
-		contains(resources, "clusterroles") ||
-		contains(resources, "clusterrolebindings")
+	return containsAny(resources,
+		// Secrets
+		"secrets",
+		// Core workloads
+		"pods", "deployments", "daemonsets",
+		"jobs", "cronjobs", "statefulsets", "replicasets",
+		// Pod exec/lateral movement
+		"pods/exec", "pods/portforward", "pods/proxy", "pods/attach",
+		// RBAC
+		"clusterroles", "clusterrolebindings",
+		"roles", "rolebindings",
+		// Service accounts & tokens
+		"serviceaccounts", "serviceaccounts/token", "tokenreviews",
+		// Node-related
+		"nodes", "nodes/proxy", "nodes/metrics", "nodes/stats",
+		// Data exfiltration
+		"configmaps", "persistentvolumeclaims", "persistentvolumes",
+		"endpoints", "services", "ingresses",
+		// CSR/PKI
+		"certificatesigningrequests", "certificatesigningrequests/approval",
+	)
+}
+
+// maxRisk returns the higher of two risk levels.
+func maxRisk(a, b string) string {
+	order := map[string]int{"none": 0, "medium": 1, "high": 2, "critical": 3}
+	if order[b] > order[a] {
+		return b
+	}
+	return a
 }
