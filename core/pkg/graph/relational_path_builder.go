@@ -417,7 +417,6 @@ func classifyRoleRisk(roleName, rulesJSON string) string {
 
 		if dangerousVerbs && sensitiveResources && hasWildcardAPI {
 			highest = maxRisk(highest, "high")
-			continue
 		}
 
 		if dangerousVerbs && sensitiveResources {
@@ -612,6 +611,9 @@ func hasCriticalResources(resources []string) bool {
 }
 
 // hasSensitiveResources returns true if the slice includes sensitive K8s resource types.
+// Note: critical resources (covered by hasCriticalResources) are intentionally included
+// here as well, because hasSensitiveResources is also used independently for medium-risk
+// classification when dangerous verbs are present but the resource is not in the critical set.
 func hasSensitiveResources(resources []string) bool {
 	return containsAny(resources,
 		// Secrets
@@ -625,14 +627,10 @@ func hasSensitiveResources(resources []string) bool {
 		"clusterroles", "clusterrolebindings",
 		"roles", "rolebindings",
 		// Service accounts & tokens
-		"serviceaccounts", "serviceaccounts/token", "tokenreviews",
-		// Node-related
-		"nodes", "nodes/proxy", "nodes/metrics", "nodes/stats",
+		"serviceaccounts",
 		// Data exfiltration
 		"configmaps", "persistentvolumeclaims", "persistentvolumes",
 		"endpoints", "services", "ingresses",
-		// CSR/PKI
-		"certificatesigningrequests", "certificatesigningrequests/approval",
 	)
 }
 
