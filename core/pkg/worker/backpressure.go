@@ -202,28 +202,26 @@ func ApplyBackpressure(ctx context.Context, msg *nats.Msg, workerType string, tr
 		metrics.QueuePressureTotal.WithLabelValues(workerType, string(PolicyDefer), "deferred").Inc()
 
 	case PolicyBlock:
-		// Spin-wait until a slot becomes free (or context is done).
+		// Spin-wait until the queue is no longer saturated (or context is done),
+		// then NAK so NATS redelivers the message for normal processing.
 		for {
 			select {
 			case <-ctx.Done():
-				// Context cancelled; NAK so NATS redelivers after restart.
 				_ = msg.Nak()
 				metrics.QueuePressureTotal.WithLabelValues(workerType, string(PolicyBlock), "blocked").Inc()
 				return
 			default:
 			}
-			if tracker.TryAcquire() {
-				// Slot acquired — caller must Release() after processing.
-				// We don't call Release here because the caller will defer Release.
-				tracker.Release() // undo the TryAcquire from above; pool.runWorker manages the slot
-				log.Printf("[Backpressure] PolicyBlock: slot freed for worker %s", workerType)
+			if !tracker.IsBackpressured() {
 				break
 			}
 			time.Sleep(10 * time.Millisecond)
 		}
-		// NAK so the message is redelivered immediately with the slot now available.
+		// NAK so the message is redelivered while a processing slot is likely available.
 		if err := msg.Nak(); err != nil {
 			log.Printf("[Backpressure] PolicyBlock: failed to NAK message for worker %s: %v", workerType, err)
+		} else {
+			log.Printf("[Backpressure] PolicyBlock: unblocked, NAKed for redelivery (worker %s)", workerType)
 		}
 		metrics.QueuePressureTotal.WithLabelValues(workerType, string(PolicyBlock), "blocked").Inc()
 
@@ -239,7 +237,8 @@ func ApplyBackpressure(ctx context.Context, msg *nats.Msg, workerType string, tr
 		metrics.QueuePressureTotal.WithLabelValues(workerType, string(PolicyRetry), "retried").Inc()
 	}
 
-	// Legacy metric for backward compatibility
+	// Legacy metric kept for backward compatibility with existing dashboards.
+	// The per-policy QueuePressureTotal metric (above) is preferred for new alerts.
 	metrics.WorkerMessagesProcessedTotal.WithLabelValues(workerType, "backpressure").Inc()
 }
 

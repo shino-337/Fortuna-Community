@@ -28,8 +28,10 @@ func CreateException(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body: " + err.Error()})
 			return
 		}
-		if req.ResourceUID == "" && req.CVEID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "at least one of resourceUid or cveId is required"})
+		// All three fields are required so that the exception matches the isExempted() lookup
+		// which queries on (resource_uid, cve_id, insight_type).
+		if req.ResourceUID == "" || req.CVEID == "" || req.InsightType == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "resourceUid, cveId, and insightType are all required"})
 			return
 		}
 

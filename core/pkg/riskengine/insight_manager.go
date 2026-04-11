@@ -126,10 +126,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		var existingKey models.Insight
 		if tx.Where("insight_type = ? AND resource_uid = ? AND cve_id = ? AND deleted_at IS NULL",
 			insight.InsightType, insight.ResourceUID, cveKey).First(&existingKey).Error == nil {
-			wasDismissed := existingKey.Status == "dismissed"
-			wasResolvedOrDismissed := existingKey.Status == "resolved" || wasDismissed
+			wasResolvedOrDismissed := existingKey.Status == "resolved" || existingKey.Status == "dismissed"
 			// RP-5: respect active exception policies — keep dismissed if exempted.
-			if wasDismissed && isExempted(tx, insight.ResourceUID, cveKey, insight.InsightType) {
+			if existingKey.Status == "dismissed" && isExempted(tx, insight.ResourceUID, cveKey, insight.InsightType) {
 				log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, resource_uid=%s, type=%s, cve_id=%s)",
 					existingKey.ID, insight.ResourceUID, insight.InsightType, cveKey)
 				return nil
