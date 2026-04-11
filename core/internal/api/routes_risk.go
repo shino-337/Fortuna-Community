@@ -55,6 +55,11 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.POST("/risk/insights/:id/dismiss", DismissInsight(db))
 	api.PATCH("/risk/insights/:id", UpdateInsightStatus(db))
 
+	// Exception policies (RP-5: false-positive / dismiss suppression)
+	api.POST("/risk/exceptions", CreateException(db))
+	api.GET("/risk/exceptions", ListExceptions(db))
+	api.DELETE("/risk/exceptions/:id", DeleteException(db))
+
 	// Pod-scoped risk
 	api.GET("/risk/pods/:uid/report", GetPodRiskReport(db))
 	api.GET("/risk/pods/:uid/attack-steps", GetPodAttackSteps(db))

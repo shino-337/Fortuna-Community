@@ -28,6 +28,7 @@ import (
 	"github.com/fortuna/core/internal/repository"
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/messaging"
+	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/sbom"
 	"github.com/fortuna/core/pkg/worker"
@@ -231,6 +232,30 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	if s.db == nil {
 		log.Printf("[SBOM] Warning: Database not available, returning unavailable status")
 		return nil, status.Errorf(codes.Unavailable, "database not available")
+	}
+
+	// G1: SBOM ingestion contract validation — reject structurally invalid payloads early.
+	{
+		components := make([]sbom.SBOMComponentInput, 0, len(req.Packages))
+		for _, pkg := range req.Packages {
+			components = append(components, sbom.SBOMComponentInput{PURL: pkg.GetPurl()})
+		}
+		imageRef := req.ImageName
+		if req.ImageTag != "" {
+			imageRef = req.ImageName + ":" + req.ImageTag
+		}
+		vr := sbom.ValidateSBOM(sbom.SBOMInput{
+			ImageRef:    imageRef,
+			ImageDigest: req.ImageDigest,
+			Components:  components,
+		})
+		if !vr.Valid {
+			metrics.SBOMValidationTotal.WithLabelValues("rejected").Inc()
+			log.Printf("[SBOM] correlation_id=%s SBOM ingestion validation failed (pod=%s): %v",
+				correlationID, req.PodName, vr.Errors)
+			return nil, status.Errorf(codes.InvalidArgument, "SBOM validation failed: %v", vr.Errors)
+		}
+		metrics.SBOMValidationTotal.WithLabelValues("accepted").Inc()
 	}
 
 	// Convert proto to internal model (Finding #8.4: sbom_source, confidence)

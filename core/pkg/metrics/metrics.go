@@ -137,6 +137,26 @@ var (
 		[]string{"status"}, // status: success, error
 	)
 
+	// SBOMValidationTotal tracks SBOM ingestion contract validation outcomes (G1).
+	// Labels: result = "accepted" | "rejected"
+	SBOMValidationTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_sbom_validation_total",
+			Help: "Total number of SBOM ingestion contract validations",
+		},
+		[]string{"result"}, // result: accepted, rejected
+	)
+
+	// QueuePressureTotal tracks backpressure events per queue and policy (G2).
+	// Labels: queue, policy (drop|retry|defer|block), result (dropped|retried|deferred|blocked)
+	QueuePressureTotal = promauto.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "fortuna_queue_pressure_total",
+			Help: "Total number of queue pressure events by queue, policy, and result",
+		},
+		[]string{"queue", "policy", "result"},
+	)
+
 	SBOMComponentsTotal = promauto.NewCounter(
 		prometheus.CounterOpts{
 			Name: "fortuna_sbom_components_total",
