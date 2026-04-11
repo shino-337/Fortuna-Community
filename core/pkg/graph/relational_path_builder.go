@@ -382,6 +382,7 @@ func classifyRoleRisk(roleName, rulesJSON string) string {
 		return "none"
 	}
 
+	highest := "none"
 	for _, rule := range rules {
 		verbs := toStringSlice(rule["verbs"])
 		resources := toStringSlice(rule["resources"])
@@ -400,25 +401,43 @@ func classifyRoleRisk(roleName, rulesJSON string) string {
 			return "critical"
 		}
 
+		// Read-only secret theft: get/list/watch on secrets is high risk
+		hasReadVerbs := containsAny(verbs, "get", "list", "watch") || hasWildcardVerb
+		if hasReadVerbs && containsAny(resources, "secrets", "*") {
+			highest = maxRisk(highest, "high")
+		}
+
 		dangerousVerbs := hasDangerousVerbs(verbs, hasWildcardVerb)
 		sensitiveResources := hasSensitiveResources(resources)
 
+		// Critical: mutate/wildcard on nodes or CSR/PKI or token-related resources
+		if dangerousVerbs && hasCriticalResources(resources) {
+			return "critical"
+		}
+
 		if dangerousVerbs && sensitiveResources && hasWildcardAPI {
-			return "high"
+			highest = maxRisk(highest, "high")
 		}
 
 		if dangerousVerbs && sensitiveResources {
-			return "medium"
+			highest = maxRisk(highest, "medium")
 		}
 	}
 
-	return "none"
+	return highest
 }
 
 func buildPath(pod models.Pod, sa models.ServiceAccount, bindingName, bindingNS, bindingType, targetName, targetType, targetRules, riskLevel string) AttackPath {
 	totalRisk := riskToScore(riskLevel)
 	difficulty := difficultyFromRiskLevel(riskLevel)
 	impact := impactFromRiskLevel(riskLevel)
+
+	// Boost risk based on pod security posture
+	posture := podSecurityPostureBoost(pod)
+	totalRisk = clampFloat(totalRisk+posture, 0, 10.0)
+	if posture > 0 {
+		difficulty = clampFloat(difficulty-0.1, 0.1, 1.0)
+	}
 
 	podNode := PathNode{
 		ID:   pod.UID,
@@ -585,12 +604,82 @@ func hasDangerousVerbs(verbs []string, hasWildcard bool) bool {
 		contains(verbs, "delete")
 }
 
+// hasCriticalResources returns true if the slice contains resources that grant
+// cluster-level privilege escalation when mutated (node takeover, CSR/PKI, token mint).
+func hasCriticalResources(resources []string) bool {
+	return containsAny(resources,
+		// Node takeover
+		"nodes", "nodes/proxy", "nodes/metrics", "nodes/stats",
+		// Mint/steal tokens
+		"serviceaccounts/token", "tokenreviews",
+		// CSR/PKI escalation
+		"certificatesigningrequests", "certificatesigningrequests/approval",
+	)
+}
+
 // hasSensitiveResources returns true if the slice includes sensitive K8s resource types.
+// Note: critical resources (covered by hasCriticalResources) are intentionally included
+// here as well, because hasSensitiveResources is also used independently for medium-risk
+// classification when dangerous verbs are present but the resource is not in the critical set.
 func hasSensitiveResources(resources []string) bool {
-	return contains(resources, "secrets") ||
-		contains(resources, "pods") ||
-		contains(resources, "deployments") ||
-		contains(resources, "daemonsets") ||
-		contains(resources, "clusterroles") ||
-		contains(resources, "clusterrolebindings")
+	return containsAny(resources,
+		// Secrets
+		"secrets",
+		// Core workloads
+		"pods", "deployments", "daemonsets",
+		"jobs", "cronjobs", "statefulsets", "replicasets",
+		// Pod exec/lateral movement
+		"pods/exec", "pods/portforward", "pods/proxy", "pods/attach",
+		// RBAC
+		"clusterroles", "clusterrolebindings",
+		"roles", "rolebindings",
+		// Service accounts & tokens
+		"serviceaccounts",
+		// Data exfiltration
+		"configmaps", "persistentvolumeclaims", "persistentvolumes",
+		"endpoints", "services", "ingresses",
+	)
+}
+
+// maxRisk returns the higher of two risk levels.
+func maxRisk(a, b string) string {
+	order := map[string]int{"none": 0, "medium": 1, "high": 2, "critical": 3}
+	if order[b] > order[a] {
+		return b
+	}
+	return a
+}
+
+// podSecurityPostureBoost returns an additive risk score boost (0–1.5)
+// based on how privileged the pod's security posture is.
+// Pods with hostNetwork, hostPID, hostIPC, or disabled SA token automount
+// have an easier lateral-movement surface, so their attack paths are riskier.
+func podSecurityPostureBoost(pod models.Pod) float64 {
+	var boost float64
+	if pod.HostNetwork {
+		boost += 0.5
+	}
+	if pod.HostPID {
+		boost += 0.5
+	}
+	if pod.HostIPC {
+		boost += 0.3
+	}
+	// automountServiceAccountToken defaults to true; if explicitly false the
+	// token isn't mounted so the SA path is harder — no boost (handled implicitly).
+	if boost > 1.5 {
+		boost = 1.5
+	}
+	return boost
+}
+
+// clampFloat clamps v to [lo, hi].
+func clampFloat(v, lo, hi float64) float64 {
+	if v < lo {
+		return lo
+	}
+	if v > hi {
+		return hi
+	}
+	return v
 }

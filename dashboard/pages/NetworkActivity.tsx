@@ -39,7 +39,7 @@ import type {
 
 type NetworkMainTab = 'topology' | 'pods' | 'connections';
 
-/** Poll topology: chỉ tải cạnh (edges/connections). Full: destinations + talkers + inventory + cạnh. */
+/** Poll topology: only loads edges (edges/connections). Full: destinations + talkers + inventory + edges. */
 type TopologyFetchOpts = { mode: 'quick' | 'full'; manual?: boolean };
 
 const TABLE_PAGE_SIZES = [25, 50, 100, 200] as const;
@@ -61,19 +61,19 @@ function formatObservedAt(iso?: string): string {
   }
 }
 
-/** Tooltip: ghi rõ local vs ISO để không so sánh nhầm với bucket UTC. */
+/** Tooltip: clarifies local vs ISO to avoid confusion with UTC bucket. */
 function observedAtTooltip(iso?: string): string {
   if (!iso) return '';
   try {
     const d = new Date(iso);
     const local = d.toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'medium' });
-    return `Thời điểm quan sát — hiển thị: giờ địa phương (${local}). ISO (UTC): ${d.toISOString()}`;
+    return `Observation time — displayed: local time (${local}). ISO (UTC): ${d.toISOString()}`;
   } catch {
     return iso;
   }
 }
 
-/** Hiển thị mốc đầu bucket 5m UTC (ngắn gọn + tooltip đủ ISO). */
+/** Display 5-min bucket start in UTC (short + full ISO tooltip). */
 function formatBucket5mLine(iso?: string): { short: string; title: string } {
   if (!iso) return { short: '—', title: '' };
   try {
@@ -81,7 +81,7 @@ function formatBucket5mLine(iso?: string): { short: string; title: string } {
     const full = d.toISOString();
     return {
       short: `${full.slice(0, 10)} ${full.slice(11, 16)} UTC`,
-      title: `Bucket 5m bắt đầu: ${full}`,
+      title: `5-min bucket starts: ${full}`,
     };
   } catch {
     return { short: iso, title: iso };
@@ -93,7 +93,7 @@ function isListenRow(row: NetworkActivityConnectionRow): boolean {
   return st === 'LISTEN' || st === 'LISTENING';
 }
 
-/** Socket LISTEN — hiển thị ở cột Local; Remote = — (đúng ngữ nghĩa). */
+/** Socket LISTEN — shown in Local column; Remote = — (correct semantics). */
 function formatListenLocal(row: NetworkActivityConnectionRow): string {
   const p = row.destPort ?? row.sourcePort;
   const dip = (row.destIp ?? '').trim();
@@ -117,12 +117,12 @@ function formatRemoteEndpoint(row: NetworkActivityConnectionRow): string {
   return `${dip || '—'}:${dp ?? '—'}`;
 }
 
-/** Chuỗi copy — khớp cột Remote. */
+/** Copy string — matches Remote column. */
 function remoteEndpointClipboard(row: NetworkActivityConnectionRow): string {
   return formatRemoteEndpoint(row);
 }
 
-/** Chuỗi copy — khớp cột Local (gồm LISTEN). */
+/** Copy string — matches Local column (including LISTEN). */
 function localEndpointClipboard(row: NetworkActivityConnectionRow): string {
   return formatLocalEndpoint(row);
 }
@@ -154,18 +154,18 @@ async function copyTextWithFallback(text: string): Promise<boolean> {
   }
 }
 
-/** Core view=edges: số nhóm (pod×đích×proto) tối đa / request — khớp NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX (mặc định 2500). */
+/** Core view=edges: max groups (pod×dest×proto) per request — matches NETWORK_ACTIVITY_TOPOLOGY_EDGES_MAX (default 2500). */
 const TOPOLOGY_EDGE_PAGE_SIZE = 2500;
-/** Phân trang talkers/destinations; khớp NETWORK_ACTIVITY_MAX_PAGE_SIZE (mặc định 200, tối đa 500). */
+/** Pagination for talkers/destinations; matches NETWORK_ACTIVITY_MAX_PAGE_SIZE (default 200, max 500). */
 const NETWORK_SUMMARY_PAGE_SIZE = 200;
-/** Trần số trang talkers / lần tải topology (tránh >80 request khi cluster lớn). */
+/** Cap on talker pages per topology load (prevents >80 requests on large clusters). */
 const MAX_TALKER_FETCH_PAGES_CAP = 10;
-/** Tab topology: polling chậm hơn bảng để giảm tải định kỳ (vẫn có Làm mới + refreshTrigger). */
+/** Topology tab: slower polling than tables to reduce periodic load (still has Refresh + refreshTrigger). */
 const TOPOLOGY_POLL_INTERVAL_MS = 3 * 60 * 1000;
 
 /**
- * Vùng graph: tối thiểu theo viewport (svh) để không còn khoảng trống lớn dưới card;
- * flex-1 vẫn cho phép cao hơn khi layout cha có đủ chỗ.
+ * Graph area: minimum height based on viewport (svh) to avoid large empty space below card;
+ * flex-1 still allows it to grow taller when parent layout has enough room.
  */
 const GRAPH_AREA_CLASS =
   'min-h-[max(17rem,calc(100svh-13.5rem))] sm:min-h-[max(19rem,calc(100svh-12.5rem))] lg:min-h-[max(20rem,calc(100svh-11.5rem))]';
@@ -179,26 +179,26 @@ function clampLegendScale(v: number): number {
 }
 
 const SINCE_OPTIONS: { label: string; value: number | '' }[] = [
-  { label: '15 phút', value: 15 },
-  { label: '1 giờ', value: 60 },
-  { label: '6 giờ', value: 360 },
-  { label: '24 giờ', value: 1440 },
-  { label: 'Mọi thời điểm (debug — có thể chậm)', value: '' },
+  { label: '15 min', value: 15 },
+  { label: '1 hour', value: 60 },
+  { label: '6 hours', value: 360 },
+  { label: '24 hours', value: 1440 },
+  { label: 'All time (debug — may be slow)', value: '' },
 ];
 
 function sinceRangeHuman(sinceMinutes: number | ''): string {
-  if (sinceMinutes === '') return 'Mọi thời điểm';
+  if (sinceMinutes === '') return 'All time';
   switch (sinceMinutes) {
     case 15:
-      return '15 phút';
+      return '15 min';
     case 60:
-      return '1 giờ';
+      return '1 hour';
     case 360:
-      return '6 giờ';
+      return '6 hours';
     case 1440:
-      return '24 giờ';
+      return '24 hours';
     default:
-      return `${sinceMinutes} phút`;
+      return `${sinceMinutes} min`;
   }
 }
 
@@ -210,7 +210,7 @@ function parseAppliedPort(q: string): number | null {
   return n;
 }
 
-/** Tên pod từ inventory — khớp uid với topology khi API network-activity thiếu podName. */
+/** Pod name from inventory — matches uid with topology when network-activity API lacks podName. */
 async function fetchInventoryPodNamesByUid(clusterId: string, namespace?: string): Promise<Record<string, string>> {
   const map: Record<string, string> = {};
   const pageSize = 500;
@@ -275,7 +275,7 @@ export function NetworkActivity() {
   const [searchDraft, setSearchDraft] = useState('');
   const [namespaceApplied, setNamespaceApplied] = useState('');
   const [searchApplied, setSearchApplied] = useState('');
-  /** Lọc chính xác theo pod nguồn (query podUid trên Core); drill khi không có podName. */
+  /** Exact filter by source pod (query podUid on Core); drill when podName is unavailable. */
   const [podUidApplied, setPodUidApplied] = useState('');
   const [sinceMinutes, setSinceMinutes] = useState(1440 as number | '');
   const [loading, setLoading] = useState(false);
@@ -284,7 +284,7 @@ export function NetworkActivity() {
   const [graphTalkers, setGraphTalkers] = useState([] as NetworkActivityTalkerRow[]);
   const [graphConnections, setGraphConnections] = useState([] as NetworkActivityConnectionRow[]);
   const [topologyPodNamesByUid, setTopologyPodNamesByUid] = useState<Record<string, string>>({});
-  /** Thông báo khi thiếu view API / fallback — tránh nhầm với «không có dữ liệu». */
+  /** Notice when view API is missing / fallback — avoids confusion with "no data". */
   const [topologySupportIssue, setTopologySupportIssue] = useState<string | null>(null);
   const [destTotal, setDestTotal] = useState(0);
   const [talkerTotal, setTalkerTotal] = useState(0);
@@ -307,13 +307,13 @@ export function NetworkActivity() {
   const [tableLoading, setTableLoading] = useState(false);
 
   const namespaceDatalistId = useId();
-  /** Tránh request cũ (vẫn đang pending) ghi đè state sau khi đã xóa lọc / đổi filter. */
+  /** Prevents stale request (still pending) from overwriting state after clearing filters / changing filter. */
   const fetchReqIdRef = useRef(0);
   const fetchTableReqIdRef = useRef(0);
   const [copiedTableKey, setCopiedTableKey] = useState<string | null>(null);
   const [copyErrorToast, setCopyErrorToast] = useState<string | null>(null);
   const [sinceCancelToast, setSinceCancelToast] = useState<string | null>(null);
-  /** Gợi ý khi drill từ pod không có tên (tránh «q» = uid prefix không khớp backend). */
+  /** Hint when drilling from a pod without a name (avoids "q" = uid prefix not matching backend). */
   const [connectionsScopeNote, setConnectionsScopeNote] = useState<string | null>(null);
   const copyFeedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const copyErrorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -328,7 +328,7 @@ export function NetworkActivity() {
       } else {
         if (copyErrorTimerRef.current) window.clearTimeout(copyErrorTimerRef.current);
         setCopyErrorToast(
-          'Không sao chép được (quyền trình duyệt, chính sách clipboard, hoặc ngữ cảnh không an toàn).',
+          'Could not copy (browser permissions, clipboard policy, or insecure context).',
         );
         copyErrorTimerRef.current = window.setTimeout(() => setCopyErrorToast(null), 4500);
       }
@@ -379,8 +379,8 @@ export function NetworkActivity() {
   }, []);
 
   /**
-   * Đồng bộ bản lọc sau khi gõ (debounce dài hơn trên tab topology để giảm spam request).
-   * Tìm kiếm chỉ auto-apply khi rỗng, ≥3 ký tự, hoặc toàn số (vd cổng 1–5 chữ số).
+   * Syncs filters after typing (longer debounce on topology tab to reduce request spam).
+   * Search only auto-applies when empty, ≥3 characters, or all digits (e.g. port 1–5 digits).
    */
   useEffect(() => {
     const ns = namespaceDraft.trim();
@@ -497,7 +497,7 @@ export function NetworkActivity() {
           });
         } catch {
           supportIssue =
-            'Core không trả view «destinations» (cần bản Core hỗ trợ topology) hoặc lỗi mạng.';
+            'Core did not return view "destinations" (requires Core version supporting topology) or network error.';
           destData = {
             view: 'destinations',
             clusterId: selectedClusterId,
@@ -526,12 +526,12 @@ export function NetworkActivity() {
             });
             if (!supportIssue) {
               supportIssue =
-                'Đang dùng view «connections» thay «edges»; đồ thị topology có thể hạn chế.';
+                'Using view "connections" instead of "edges"; topology graph may be limited.';
             }
           } catch {
             supportIssue =
               supportIssue ??
-              'Core không hỗ trợ «edges»/«connections» cho topology hoặc lỗi tải.';
+              'Core does not support "edges"/"connections" for topology or load error.';
             edgeOrLegacy = {
               view: 'connections',
               clusterId: selectedClusterId,
@@ -573,7 +573,7 @@ export function NetworkActivity() {
         } catch {
           supportIssue =
             supportIssue ??
-            'Core không trả view «talkers» (cần bản Core hỗ trợ topology) hoặc lỗi tải.';
+            'Core did not return view "talkers" (requires Core version supporting topology) or load error.';
         }
 
         if (myId !== fetchReqIdRef.current) return;
@@ -592,7 +592,7 @@ export function NetworkActivity() {
         setTopologyPodNamesByUid({});
         setDestTotal(0);
         setTalkerTotal(0);
-        setTopologySupportIssue('Không tải được dữ liệu topology. Kiểm tra Core và kết nối.');
+        setTopologySupportIssue('Failed to load topology data. Check Core and connectivity.');
       } finally {
         if (myId === fetchReqIdRef.current) {
           if (isFull) setLoading(false);
@@ -693,7 +693,7 @@ export function NetworkActivity() {
     { refreshTrigger },
   );
 
-  /** Refresh toàn app: topology tải đầy đủ (không chỉ poll nhanh cạnh). */
+  /** Full app refresh: topology loads fully (not just quick edge polling). */
   useEffect(() => {
     if (refreshTrigger <= 0) return;
     if (mainTab !== 'topology') return;
@@ -721,7 +721,7 @@ export function NetworkActivity() {
       setPodUidApplied(uid);
       setConnectionsScopeNote(
         uid
-          ? 'Chưa có tên pod từ API; đang lọc theo namespace + podUid (API, khớp chính xác). Có thể thêm «q» để thu hẹp thêm.'
+          ? 'Pod name not available from API; filtering by namespace + podUid (API, exact match). You can add "q" to narrow further.'
           : null,
       );
     }
@@ -736,17 +736,17 @@ export function NetworkActivity() {
   const topologyBusy = loading && mainTab === 'topology';
   const tableListBusy = tableLoading && (mainTab === 'pods' || mainTab === 'connections');
 
-  /** Topology: cạnh từ view=edges (hoặc connections nếu Core cũ); pod orphan từ talkers đã phân trang đầy đủ. */
+  /** Topology: edges from view=edges (or connections if older Core); orphan pods from fully paginated talkers. */
   const hasGraphData =
     graphConnections.length > 0 || (graphDestinations.length > 0 && graphTalkers.length > 0);
-  /** Chỉ suy đồ thị từ cạnh — không có aggregate destinations/talkers (Core hạn chế hoặc lỗi view). */
+  /** Graph inferred from edges only — no aggregate destinations/talkers (Core limited or view error). */
   const topologyLimitedFromConnectionsOnly =
     graphConnections.length > 0 && graphDestinations.length === 0 && graphTalkers.length === 0;
-  const emptyContextLine = `Khoảng thời gian: ${sinceHuman}.`;
+  const emptyContextLine = `Time range: ${sinceHuman}.`;
 
   const podUidLocksNamespace = Boolean(podUidApplied.trim());
   const namespaceLockedByPodUidTitle =
-    'Đang lọc theo pod UID — namespace đi kèm drill. Bấm «Đặt lại» để đổi namespace hoặc bỏ lọc pod.';
+    'Filtering by pod UID — namespace accompanies drill. Click "Reset" to change namespace or remove pod filter.';
 
   const legendToggleButton = (
     <Button
@@ -754,14 +754,14 @@ export function NetworkActivity() {
       size="sm"
       type="button"
       className="gap-1.5"
-      title={topologyLegendVisible ? 'Ẩn chú thích trên đồ thị' : 'Hiện chú thích trên đồ thị'}
+      title={topologyLegendVisible ? 'Hide graph legend' : 'Show graph legend'}
       aria-expanded={topologyLegendVisible}
       aria-controls="na-topology-legend"
       disabled={!selectedClusterId}
       onClick={() => setTopologyLegendVisible((v) => !v)}
     >
       {topologyLegendVisible ? <EyeOff className="w-4 h-4 shrink-0" /> : <Eye className="w-4 h-4 shrink-0" />}
-      <span className="hidden sm:inline">{topologyLegendVisible ? 'Ẩn chú thích' : 'Hiện chú thích'}</span>
+      <span className="hidden sm:inline">{topologyLegendVisible ? 'Hide legend' : 'Show legend'}</span>
     </Button>
   );
 
@@ -780,23 +780,23 @@ export function NetworkActivity() {
       fillHeight
       className="!gap-2"
       title="Network activity"
-      description="Topology pod→đích; bảng Pods / Connections từ runtime. Không phải NetworkPolicy. Cluster: header."
+      description="Topology pod→destination; Pods / Connections tables from runtime. Not NetworkPolicy. Cluster: header."
       actions={mainTab === 'topology' ? legendToggleButton : undefined}
     >
       {!selectedClusterId ? (
         <PageEmpty
-          title="Chưa chọn cluster"
-          description="Chọn một cluster trong menu để tải topology."
+          title="No cluster selected"
+          description="Select a cluster from the menu to load topology."
           className="py-16"
         />
       ) : (
         <div className="flex flex-col flex-1 min-h-0 gap-1.5">
           <Card className="relative overflow-hidden border-slate-800 bg-slate-950/20 flex flex-col flex-1 min-h-0">
-            {/* Hàng lọc: grid xl — cùng hàng nhãn + controls (h-8), căn đều; md/sm xếp cột */}
+            {/* Filter row: grid xl — same row for labels + controls (h-8), evenly spaced; md/sm stacks vertically */}
             <div className="px-2 py-2 sm:px-3 border-b border-border shrink-0">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-[minmax(0,auto)_minmax(12rem,1.1fr)_minmax(12rem,1.1fr)_minmax(9.5rem,11rem)_minmax(0,auto)] xl:gap-x-3 xl:gap-y-0 xl:items-end">
                 <div className="flex flex-col gap-1 min-w-0 md:col-span-2 xl:col-span-1 xl:max-w-[11rem]">
-                  <span className="text-[10px] text-slate-500 leading-4 h-4 shrink-0">Tải dữ liệu</span>
+                  <span className="text-[10px] text-slate-500 leading-4 h-4 shrink-0">Load data</span>
                   <div className="flex flex-wrap items-center gap-2 min-h-8">
                     <Button
                       variant="secondary"
@@ -806,34 +806,34 @@ export function NetworkActivity() {
                       disabled={topologyBusy || tableListBusy}
                     >
                       <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshSpin ? 'animate-spin' : ''}`} />
-                      Làm mới
+                      Refresh
                     </Button>
                     {mainTab === 'topology' && !loading && topologyLimitedFromConnectionsOnly && (
                       <span className="text-[10px] text-sky-500/90 leading-tight max-w-[14rem]">
-                        {graphConnections.length} cạnh · topology rút gọn (không có top đích/nguồn)
+                        {graphConnections.length} edges · simplified topology (no top destinations/sources)
                       </span>
                     )}
                     {mainTab === 'topology' && !loading && !topologyLimitedFromConnectionsOnly && (destTotal > 0 || talkerTotal > 0) && (
                       <span className="text-[10px] text-slate-500 leading-tight line-clamp-2 xl:line-clamp-3 max-w-[10rem] 2xl:max-w-[14rem]">
-                        {destTotal} đích · {talkerTotal} nguồn · {graphConnections.length} cạnh
+                        {destTotal} dest · {talkerTotal} sources · {graphConnections.length} edges
                       </span>
                     )}
                     {mainTab === 'pods' && !tableLoading && (
                       <span className="text-[10px] text-slate-500 tabular-nums">
-                        {podsTotal} pod · trang {tablePage}/{tableTotalPages}
+                        {podsTotal} pods · page {tablePage}/{tableTotalPages}
                       </span>
                     )}
                     {mainTab === 'connections' && !tableLoading && (
                       <span className="text-[10px] text-slate-500 tabular-nums">
-                        {connTotal} dòng · trang {tablePage}/{tableTotalPages}
+                        {connTotal} rows · page {tablePage}/{tableTotalPages}
                       </span>
                     )}
                     {mainTab === 'topology' && (
                       <span
                         className="text-[10px] text-slate-600 leading-tight max-w-[14rem] xl:max-w-[18rem]"
-                        title="Mỗi chu kỳ chỉ cập nhật cạnh (edges/connections), không tải lại destinations/talkers/inventory. Tab Pods/Connections ~30s. «Làm mới» và refresh toàn app: tải đầy đủ topology."
+                        title="Each cycle only updates edges/connections, does not reload destinations/talkers/inventory. Pods/Connections tab ~30s. &quot;Refresh&quot; and full app refresh: loads complete topology."
                       >
-                        Topology: ~3 phút chỉ cập nhật cạnh; «Làm mới» = đầy đủ
+                        Topology: ~3 min updates edges only; &quot;Refresh&quot; = full reload
                       </span>
                     )}
                   </div>
@@ -850,7 +850,7 @@ export function NetworkActivity() {
                   >
                     Namespace
                     {podUidLocksNamespace ? (
-                      <span className="text-slate-600 font-normal"> (khóa khi có podUid)</span>
+                      <span className="text-slate-600 font-normal"> (locked when podUid is set)</span>
                     ) : null}
                   </label>
                   <div className="flex flex-col sm:flex-row gap-2 sm:items-center min-h-8">
@@ -862,7 +862,7 @@ export function NetworkActivity() {
                         value={namespaceDraft}
                         onChange={(e) => setNamespaceDraft(e.target.value)}
                         onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
-                        placeholder="Gõ hoặc chọn…"
+                        placeholder="Type or select…"
                         autoComplete="off"
                         disabled={podUidLocksNamespace}
                         title={podUidLocksNamespace ? namespaceLockedByPodUidTitle : undefined}
@@ -878,11 +878,11 @@ export function NetworkActivity() {
                       )}
                     </div>
                     <select
-                      aria-label="Chọn namespace từ danh sách cluster"
+                      aria-label="Select namespace from cluster list"
                       title={
                         podUidLocksNamespace
                           ? namespaceLockedByPodUidTitle
-                          : 'Danh sách namespace từ inventory cluster'
+                          : 'Namespace list from cluster inventory'
                       }
                       disabled={clusterNsLoading || clusterNamespaces.length === 0 || podUidLocksNamespace}
                       value={namespaceSelectValue}
@@ -891,10 +891,10 @@ export function NetworkActivity() {
                     >
                       <option value="">
                         {clusterNsLoading
-                          ? 'Đang tải…'
+                          ? 'Loading…'
                           : clusterNamespaces.length === 0
-                            ? 'Không có NS'
-                            : '— Chọn NS —'}
+                            ? 'No NS'
+                            : '— Select NS —'}
                       </option>
                       {clusterNamespaces.map((ns) => (
                         <option key={ns} value={ns}>
@@ -907,7 +907,7 @@ export function NetworkActivity() {
 
                 <div className="flex flex-col gap-1 min-w-0">
                   <label className="text-[10px] text-slate-500 leading-4 h-4 shrink-0" htmlFor="na-search-input">
-                    Tìm kiếm
+                    Search
                   </label>
                   <div className="relative min-h-8 flex items-center">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none" />
@@ -919,12 +919,12 @@ export function NetworkActivity() {
                       onKeyDown={(e) => e.key === 'Enter' && applyFilters()}
                       placeholder={
                         podUidLocksNamespace
-                          ? 'Tìm kiếm trong pod này (AND với podUid)…'
-                          : 'Pod, uid, IP, cổng…'
+                          ? 'Search within this pod (AND with podUid)…'
+                          : 'Pod, uid, IP, port…'
                       }
                       title={
                         podUidLocksNamespace
-                          ? 'Thu hẹp thêm bằng q; API: AND với podUid đã chọn.'
+                          ? 'Narrow further with q; API: AND with selected podUid.'
                           : undefined
                       }
                       className="w-full bg-slate-900 border border-slate-700 rounded-md pl-8 pr-2 text-sm text-slate-200 placeholder:text-slate-600 h-8 box-border"
@@ -934,7 +934,7 @@ export function NetworkActivity() {
 
                 <div className="flex flex-col gap-1 min-w-0">
                   <label className="text-[10px] text-slate-500 leading-4 h-4 shrink-0" htmlFor="na-since-select">
-                    Thời gian
+                    Time
                   </label>
                   <select
                     id="na-since-select"
@@ -944,13 +944,13 @@ export function NetworkActivity() {
                       if (v === '') {
                         if (
                           window.confirm(
-                            'Tắt lọc thời gian («Mọi thời điểm») có thể làm truy vấn rất chậm và tải rất nhiều dữ liệu. Bạn có chắc?',
+                            'Disabling time filter ("All time") may cause very slow queries and load a large amount of data. Are you sure?',
                           )
                         ) {
                           setSinceMinutes('');
                         } else {
                           if (sinceCancelTimerRef.current) window.clearTimeout(sinceCancelTimerRef.current);
-                          setSinceCancelToast('Đã hủy — giữ nguyên cửa sổ thời gian hiện tại.');
+                          setSinceCancelToast('Cancelled — keeping current time window.');
                           sinceCancelTimerRef.current = window.setTimeout(() => setSinceCancelToast(null), 3200);
                         }
                         return;
@@ -967,7 +967,7 @@ export function NetworkActivity() {
                   </select>
                   {sinceMinutes === '' && (
                     <p className="text-[10px] text-amber-600/90 leading-snug mt-0.5">
-                      Không lọc thời gian — có thể chậm.
+                      No time filter — may be slow.
                     </p>
                   )}
                 </div>
@@ -977,8 +977,8 @@ export function NetworkActivity() {
                     ·
                   </span>
                   <div className="flex flex-wrap items-center gap-2 min-h-8 xl:justify-end">
-                    <Button size="sm" className="h-8 text-xs px-4 shrink-0" onClick={() => applyFilters()} title="Áp dụng ngay (không đợi debounce)">
-                      Áp dụng
+                    <Button size="sm" className="h-8 text-xs px-4 shrink-0" onClick={() => applyFilters()} title="Apply now (skip debounce)">
+                      Apply
                     </Button>
                     {(hasTextFilters || hasDraftTextFilters) && (
                       <Button
@@ -986,10 +986,10 @@ export function NetworkActivity() {
                         size="sm"
                         type="button"
                         className="h-8 text-xs px-3 shrink-0"
-                        title="Xóa namespace / tìm kiếm / podUid và tải lại (bỏ lọc)"
+                        title="Clear namespace / search / podUid and reload (remove filters)"
                         onClick={() => clearTextFilters()}
                       >
-                        Đặt lại
+                        Reset
                       </Button>
                     )}
                   </div>
@@ -997,19 +997,19 @@ export function NetworkActivity() {
               </div>
 
               <div className="mt-2 flex flex-wrap items-center gap-2 border-t border-slate-800/80 pt-2">
-                <span className="text-[10px] text-slate-600 shrink-0">Đang áp dụng:</span>
+                <span className="text-[10px] text-slate-600 shrink-0">Applied:</span>
                 <span
                   className="inline-flex items-center rounded-full bg-slate-800/90 text-slate-300 px-2 py-0.5 text-[10px] border border-slate-600/80"
-                  title="Cửa sổ thời gian API"
+                  title="API time window"
                 >
-                  Thời gian: {sinceHuman}
+                  Time: {sinceHuman}
                 </span>
                 {namespaceApplied ? (
                   <span className="inline-flex items-center rounded-full bg-slate-800/90 text-slate-300 px-2 py-0.5 text-[10px] border border-slate-600/80 font-mono">
                     ns={namespaceApplied}
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-600">ns: (tất cả)</span>
+                  <span className="text-[10px] text-slate-600">ns: (all)</span>
                 )}
                 {searchApplied ? (
                   <span
@@ -1019,12 +1019,12 @@ export function NetworkActivity() {
                     q={searchApplied}
                   </span>
                 ) : (
-                  <span className="text-[10px] text-slate-600">q: (trống)</span>
+                  <span className="text-[10px] text-slate-600">q: (empty)</span>
                 )}
                 {podUidApplied.trim() ? (
                   <span
                     className="inline-flex items-center rounded-full bg-slate-800/90 text-pink-200/90 px-2 py-0.5 text-[10px] border border-pink-600/50 font-mono max-w-[14rem] truncate"
-                    title={`podUid đầy đủ: ${podUidApplied.trim()}`}
+                    title={`Full podUid: ${podUidApplied.trim()}`}
                   >
                     podUid=
                     {podUidApplied.trim().length > 18
@@ -1035,7 +1035,7 @@ export function NetworkActivity() {
                 {podUidApplied.trim() && searchApplied.trim() ? (
                   <span
                     className="text-[10px] text-slate-500 max-w-[min(100%,20rem)] leading-snug"
-                    title="Core áp dụng podUid và q cùng lúc: kết quả là giao (AND) — trong pod đó khớp thêm tìm kiếm."
+                    title="Core applies podUid and q simultaneously: result is intersection (AND) — within that pod matches additional search."
                   >
                     podUid + q: <span className="text-slate-400">AND</span>
                   </span>
@@ -1043,14 +1043,14 @@ export function NetworkActivity() {
                 {textDraftDiffersFromApplied && (
                   <span
                     className="text-[10px] text-amber-500/95"
-                    title="Namespace đồng bộ sau debounce. Tìm kiếm: tự áp dụng khi rỗng, từ 3 ký tự, hoặc cổng số (1–5 chữ số); còn lại cần Áp dụng hoặc Enter. Tab Topology debounce dài hơn."
+                    title="Namespace syncs after debounce. Search: auto-applies when empty, from 3 characters, or port number (1–5 digits); otherwise needs Apply or Enter. Topology tab has longer debounce."
                   >
-                    Chưa áp dụng hết (draft)
+                    Not fully applied (draft)
                   </span>
                 )}
               </div>
 
-              <div className="mt-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Chế độ xem network">
+              <div className="mt-2 flex flex-wrap gap-1.5" role="tablist" aria-label="Network view mode">
                 {(
                   [
                     { id: 'topology' as const, label: 'Topology', icon: Share2 },
@@ -1080,9 +1080,9 @@ export function NetworkActivity() {
                 className="mt-2 rounded-lg border border-slate-700/80 bg-slate-900/40 px-2.5 py-2 text-[11px] text-slate-400 leading-snug"
                 role="note"
               >
-                Dữ liệu được dedupe theo <span className="text-slate-300">bucket 5 phút (UTC)</span>. Mỗi dòng là{' '}
-                <span className="text-slate-300">snapshot cuối trong bucket</span>;{' '}
-                <span className="text-slate-300">queue bytes</span> (/proc/net) là snapshot, không phải tổng traffic.
+                Data is deduped by <span className="text-slate-300">5-minute bucket (UTC)</span>. Each row is the{' '}
+                <span className="text-slate-300">last snapshot in the bucket</span>;{' '}
+                <span className="text-slate-300">queue bytes</span> (/proc/net) are snapshots, not total traffic.
               </div>
 
               {mainTab === 'connections' && connectionsScopeNote && (
@@ -1095,9 +1095,9 @@ export function NetworkActivity() {
               )}
 
               <p className="mt-2 text-[10px] text-slate-600 leading-snug hidden lg:block border-t border-slate-800/80 pt-2">
-                Namespace: inventory A→Z, <span className="font-mono">*</span> tiền tố. Tìm kiếm: LIKE tên pod/ns/IP; cổng số hoặc uid. Tối đa{' '}
-                {TOPOLOGY_EDGE_PAGE_SIZE} nhóm pod×đích / lần tải (topology). Talkers: tối đa {MAX_TALKER_FETCH_PAGES_CAP} trang / lần (theo{' '}
-                <span className="font-mono">total</span>). Cache tên pod inventory: TTL 30s, tối đa {INVENTORY_CACHE_MAX_KEYS} mục; xóa khi đổi
+                Namespace: inventory A→Z, <span className="font-mono">*</span> prefix. Search: LIKE pod name/ns/IP; port number or uid. Max{' '}
+                {TOPOLOGY_EDGE_PAGE_SIZE} pod×dest groups / load (topology). Talkers: max {MAX_TALKER_FETCH_PAGES_CAP} pages / load (by{' '}
+                <span className="font-mono">total</span>). Pod name inventory cache: TTL 30s, max {INVENTORY_CACHE_MAX_KEYS} entries; cleared on
                 cluster.
               </p>
             </div>
@@ -1107,7 +1107,7 @@ export function NetworkActivity() {
                 <span className="inline-flex items-center rounded-full bg-slate-800 text-slate-300 px-2.5 py-0.5 border border-slate-600">
                   Port = {appliedPort}
                 </span>
-                <span className="text-slate-600">Lọc cổng (index-friendly)</span>
+                <span className="text-slate-600">Port filter (index-friendly)</span>
               </div>
             )}
 
@@ -1122,27 +1122,27 @@ export function NetworkActivity() {
                     className={`flex flex-col flex-1 min-h-0 justify-center items-center space-y-3 py-8 ${GRAPH_AREA_CLASS}`}
                   >
                     <div className="w-10 h-10 border-2 border-pink-500 border-t-transparent rounded-full animate-spin" />
-                    <span className="text-slate-500 text-sm">Đang tải topology…</span>
+                    <span className="text-slate-500 text-sm">Loading topology…</span>
                   </div>
                 ) : !hasGraphData ? (
                   <div className={`flex flex-col flex-1 min-h-0 py-8 px-4 overflow-y-auto ${GRAPH_AREA_CLASS}`}>
                     <PageEmpty
                       title={
                         topologySupportIssue
-                          ? 'Topology không khả dụng hoặc thiếu view API'
-                          : 'Chưa đủ dữ liệu cho topology'
+                          ? 'Topology unavailable or missing view API'
+                          : 'Not enough data for topology'
                       }
                       description={
                         topologySupportIssue
                           ? `${topologySupportIssue} ${emptyContextLine}`
-                          : `Cần đồng thời có bản ghi “top đích” và “top nguồn” sau khi lọc. Kiểm tra agent (Pod Detail network) và khoảng thời gian. ${emptyContextLine}`
+                          : `Need both “top destinations” and “top sources” records after filtering. Check agent (Pod Detail network) and time range. ${emptyContextLine}`
                       }
                       className="py-8"
                     />
                     {hasTextFilters && (
                       <div className="flex justify-center mt-4">
                         <Button variant="secondary" size="sm" onClick={clearTextFilters}>
-                          Xóa lọc (ns / q / podUid)
+                          Clear filters (ns / q / podUid)
                         </Button>
                       </div>
                     )}
@@ -1163,9 +1163,9 @@ export function NetworkActivity() {
                         role="note"
                       >
                         <p className="min-w-0 flex-1 basis-[min(100%,28rem)] m-0">
-                          <span className="font-medium text-sky-200/95">Topology rút gọn:</span> chỉ dựa trên cạnh từ
-                          edges/connections — không có «top đích» / «top nguồn». Đồ thị suy từ cạnh. Nút bên phải tải
-                          đầy đủ (destinations/talkers) như «Làm mới» phía trên.
+                          <span className="font-medium text-sky-200/95">Simplified topology:</span> based only on edges from
+                          edges/connections — no "top destinations" / "top sources". Graph inferred from edges. Button on the right loads
+                          full data (destinations/talkers) like "Refresh" above.
                         </p>
                         <Button
                           variant="secondary"
@@ -1176,11 +1176,11 @@ export function NetworkActivity() {
                           onClick={() => void handleManualRefresh()}
                         >
                           <RefreshCw className={`w-3.5 h-3.5 mr-1 ${refreshSpin ? 'animate-spin' : ''}`} />
-                          Làm mới đầy đủ
+                          Full refresh
                         </Button>
                       </div>
                     )}
-                    {/* Chú thích trên đồ thị: đồng bộ với nút header «Ẩn/Hiện chú thích» */}
+                    {/* Graph legend: syncs with header "Hide/Show legend" button */}
                     <div className="absolute bottom-3 left-3 z-20 flex flex-col-reverse items-start gap-1.5 pointer-events-none">
                       {topologyLegendVisible ? (
                         <>
@@ -1193,7 +1193,7 @@ export function NetworkActivity() {
                             }}
                           >
                             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest border-b border-slate-800 pb-1.5">
-                              Chú thích
+                              Legend
                             </div>
                             <div className="space-y-1.5">
                               <div className="flex items-start gap-2">
@@ -1201,9 +1201,9 @@ export function NetworkActivity() {
                                   <Box size={12} className="text-pink-600" style={{ color: '#db2777' }} />
                                 </div>
                                 <div>
-                                  <div className="text-xs font-semibold text-white">Pod (nguồn)</div>
+                                  <div className="text-xs font-semibold text-white">Pod (source)</div>
                                   <p className="text-[10px] text-slate-500 leading-snug">
-                                    Hồng: workload; dòng 2: namespace + uid (8 ký tự). Tooltip đầy đủ khi hover.
+                                    Pink: workload; line 2: namespace + uid (8 chars). Full tooltip on hover.
                                   </p>
                                 </div>
                               </div>
@@ -1212,9 +1212,9 @@ export function NetworkActivity() {
                                   <Globe size={12} style={{ color: '#64748b' }} />
                                 </div>
                                 <div>
-                                  <div className="text-xs font-semibold text-white">Đích</div>
+                                  <div className="text-xs font-semibold text-white">Destination</div>
                                   <p className="text-[10px] text-slate-500 leading-snug">
-                                    Xám: IP:port hoặc pod đích; &quot;external&quot; khi không khớp workload trong cluster.
+                                    Gray: IP:port or destination pod; &quot;external&quot; when not matching a workload in the cluster.
                                   </p>
                                 </div>
                               </div>
@@ -1223,22 +1223,22 @@ export function NetworkActivity() {
                                   <Layers size={12} className="text-emerald-400" />
                                 </div>
                                 <div>
-                                  <div className="text-xs font-semibold text-white">Cạnh + hạt</div>
+                                  <div className="text-xs font-semibold text-white">Edge + particles</div>
                                   <p className="text-[10px] text-slate-500 leading-snug">
-                                    Minh họa luồng quan sát (không phải policy/băng thông). ≤55 cạnh có hạt.
+                                    Illustrates observed flows (not policy/bandwidth). ≤55 edges have particles.
                                   </p>
                                 </div>
                               </div>
                               <p className="text-[10px] text-slate-600 pt-1 border-t border-slate-800 leading-snug">
-                                Zoom · kéo canvas/node · click pod → chi tiết · click nền bỏ chọn.
+                                Zoom · drag canvas/node · click pod → detail · click background to deselect.
                               </p>
                             </div>
                           </div>
                           <div className="pointer-events-auto flex items-center gap-0.5 rounded-lg border border-slate-600/90 bg-slate-900/95 backdrop-blur-sm px-1 py-0.5 shadow-lg">
                             <button
                               type="button"
-                              title="Thu nhỏ chú thích"
-                              aria-label="Thu nhỏ chú thích topology"
+                              title="Zoom out legend"
+                              aria-label="Zoom out topology legend"
                               disabled={topologyLegendScale <= LEGEND_SCALE_MIN + 0.01}
                               className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none"
                               onClick={() => setTopologyLegendScale((s) => clampLegendScale(s - LEGEND_SCALE_STEP))}
@@ -1250,8 +1250,8 @@ export function NetworkActivity() {
                             </span>
                             <button
                               type="button"
-                              title="Phóng to chú thích"
-                              aria-label="Phóng to chú thích topology"
+                              title="Zoom in legend"
+                              aria-label="Zoom in topology legend"
                               disabled={topologyLegendScale >= LEGEND_SCALE_MAX - 0.01}
                               className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 disabled:opacity-30 disabled:pointer-events-none"
                               onClick={() => setTopologyLegendScale((s) => clampLegendScale(s + LEGEND_SCALE_STEP))}
@@ -1260,8 +1260,8 @@ export function NetworkActivity() {
                             </button>
                             <button
                               type="button"
-                              title="Đặt lại 100%"
-                              aria-label="Đặt lại tỷ lệ chú thích"
+                              title="Reset to 100%"
+                              aria-label="Reset legend scale"
                               className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 border-l border-slate-600 ml-0.5 pl-1.5"
                               onClick={() => setTopologyLegendScale(1)}
                             >
@@ -1269,8 +1269,8 @@ export function NetworkActivity() {
                             </button>
                             <button
                               type="button"
-                              title="Ẩn chú thích"
-                              aria-label="Ẩn chú thích topology"
+                              title="Hide legend"
+                              aria-label="Hide topology legend"
                               className="p-1 rounded text-slate-400 hover:text-white hover:bg-slate-700 border-l border-slate-600 ml-0.5 pl-1.5"
                               onClick={() => setTopologyLegendVisible(false)}
                             >
@@ -1281,13 +1281,13 @@ export function NetworkActivity() {
                       ) : (
                         <button
                           type="button"
-                          title="Hiện chú thích topology"
-                          aria-label="Hiện chú thích topology"
+                          title="Show topology legend"
+                          aria-label="Show topology legend"
                           className="pointer-events-auto flex items-center gap-1.5 rounded-lg border border-slate-600/90 bg-slate-900/95 backdrop-blur-sm px-2 py-1.5 shadow-lg text-[11px] text-slate-400 hover:text-white hover:bg-slate-800"
                           onClick={() => setTopologyLegendVisible(true)}
                         >
                           <Eye className="w-3.5 h-3.5 shrink-0" />
-                          <span>Chú thích</span>
+                          <span>Legend</span>
                         </button>
                       )}
                     </div>
@@ -1320,22 +1320,22 @@ export function NetworkActivity() {
                   {tableListBusy && (mainTab === 'pods' ? podsRows.length === 0 : connRows.length === 0) ? (
                     <div className="flex flex-col flex-1 min-h-0 justify-center items-center space-y-3 py-8">
                       <div className="w-10 h-10 border-2 border-pink-500 border-t-transparent rounded-full animate-spin" />
-                      <span className="text-slate-500 text-sm">Đang tải…</span>
+                      <span className="text-slate-500 text-sm">Loading…</span>
                     </div>
                   ) : mainTab === 'pods' && podsRows.length === 0 ? (
                     <div className="flex flex-1 min-h-0 items-center justify-center p-4">
-                      <PageEmpty title="Không có pod" description={emptyContextLine} className="py-12 max-w-md" />
+                      <PageEmpty title="No pods" description={emptyContextLine} className="py-12 max-w-md" />
                     </div>
                   ) : mainTab === 'connections' && connRows.length === 0 ? (
                     <div className="flex flex-1 min-h-0 items-center justify-center p-4">
-                      <PageEmpty title="Không có dòng connection" description={emptyContextLine} className="py-12 max-w-md" />
+                      <PageEmpty title="No connections" description={emptyContextLine} className="py-12 max-w-md" />
                     </div>
                   ) : (
                     <>
                       {tableListBusy && tableRowsLen > 0 && (
                         <div className="absolute top-2 right-2 z-20 flex items-center gap-2 rounded-md bg-slate-900/95 border border-slate-600 px-2 py-1 text-[10px] text-slate-300 shadow-lg">
                           <RefreshCw className="w-3 h-3 animate-spin shrink-0" />
-                          Đang làm mới…
+                          Refreshing…
                         </div>
                       )}
                       <div className="flex-1 min-h-0 overflow-auto p-2 sm:p-3">
@@ -1347,17 +1347,17 @@ export function NetworkActivity() {
                                 <th className="py-2 pr-3 font-medium">Pod</th>
                                 <th
                                   className="py-2 pr-3 font-medium cursor-help"
-                                  title="Số bản ghi snapshot theo bucket 5 phút, không phải số kết nối duy nhất."
+                                  title="Snapshot record count per 5-min bucket, not unique connection count."
                                 >
-                                  Quan sát (bucket)
+                                  Observed (bucket)
                                 </th>
-                                <th className="py-2 pr-3 font-medium">Cập nhật</th>
+                                <th className="py-2 pr-3 font-medium">Updated</th>
                                 <th className="py-2 pr-3 font-medium">Node</th>
                                 <th
                                   className="py-2 pl-2 text-right font-medium"
-                                  title="Sao chép UID · Connections · Pod detail"
+                                  title="Copy UID · Connections · Pod detail"
                                 >
-                                  Thao tác
+                                  Actions
                                 </th>
                               </tr>
                             </thead>
@@ -1370,7 +1370,7 @@ export function NetworkActivity() {
                                     if ((e.target as HTMLElement).closest('button')) return;
                                     drillConnectionsForPod(row);
                                   }}
-                                  title="Click dòng (ngoài nút) để mở tab Connections lọc theo pod"
+                                  title="Click row (outside buttons) to open Connections tab filtered by pod"
                                 >
                                   <td className="py-2 pr-3 font-mono text-[11px] text-slate-300">{row.namespace}</td>
                                   <td className="py-2 pr-3">{podTableLabel(row.podName, row.podUid)}</td>
@@ -1388,8 +1388,8 @@ export function NetworkActivity() {
                                       size="sm"
                                       type="button"
                                       className="h-7 w-7 p-0 text-slate-500 hover:text-slate-200"
-                                      title="Sao chép pod UID"
-                                      aria-label="Sao chép pod UID"
+                                      title="Copy pod UID"
+                                      aria-label="Copy pod UID"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         copyToClipboard(`na-pod-${row.podUid}`, row.podUid);
@@ -1406,7 +1406,7 @@ export function NetworkActivity() {
                                       size="sm"
                                       type="button"
                                       className="h-7 px-1.5 text-[10px]"
-                                      title="Xem connections (lọc theo pod)"
+                                      title="View connections (filtered by pod)"
                                       onClick={(e) => {
                                         e.stopPropagation();
                                         drillConnectionsForPod(row);
@@ -1439,23 +1439,23 @@ export function NetworkActivity() {
                               <tr className="text-[10px] uppercase tracking-wide text-slate-500">
                                 <th
                                   className="py-2 pr-3 font-medium min-w-[9rem] cursor-help"
-                                  title="observedAt khi Core nhận (tooltip ô: giờ local + ISO UTC); dòng phụ là mốc đầu bucket 5m UTC."
+                                  title="observedAt when Core received (cell tooltip: local time + ISO UTC); subline is 5-min bucket start UTC."
                                 >
-                                  Thời gian
+                                  Time
                                 </th>
                                 <th className="py-2 pr-3 font-medium">NS</th>
-                                <th className="py-2 pr-3 font-medium" title="Nút sao chép pod UID">
+                                <th className="py-2 pr-3 font-medium" title="Copy pod UID button">
                                   Pod
                                 </th>
                                 <th
                                   className="py-2 pr-3 font-medium"
-                                  title="Nguồn: IP:cổng. Trạng thái LISTEN: hiển thị socket lắng nghe (LISTEN :port @bind); nút sao chép cùng nội dung."
+                                  title="Source: IP:port. LISTEN state: shows listening socket (LISTEN :port @bind); copy button copies the same content."
                                 >
                                   Local
                                 </th>
                                 <th
                                   className="py-2 pr-3 font-medium"
-                                  title="Đích từ xa. LISTEN: không dùng (hiện —); sao chép chỉ khi có đích."
+                                  title="Remote destination. LISTEN: not used (shows —); copy only when destination exists."
                                 >
                                   Remote
                                 </th>
@@ -1463,13 +1463,13 @@ export function NetworkActivity() {
                                 <th className="py-2 pr-2 font-medium">State</th>
                                 <th
                                   className="py-2 pr-2 font-medium text-right cursor-help"
-                                  title="tx_queue từ /proc/net (snapshot), không phải tổng traffic gửi."
+                                  title="tx_queue from /proc/net (snapshot), not total sent traffic."
                                 >
                                   Tx queue
                                 </th>
                                 <th
                                   className="py-2 pr-2 font-medium text-right cursor-help"
-                                  title="rx_queue từ /proc/net (snapshot), không phải tổng traffic nhận."
+                                  title="rx_queue from /proc/net (snapshot), not total received traffic."
                                 >
                                   Rx queue
                                 </th>
@@ -1477,9 +1477,9 @@ export function NetworkActivity() {
                                 <th className="py-2 pr-2 font-medium">Node</th>
                                 <th
                                   className="py-2 pl-2 text-right font-medium w-[3.25rem]"
-                                  title="Mở Pod detail"
+                                  title="Open Pod detail"
                                 >
-                                  Chi tiết
+                                  Detail
                                 </th>
                               </tr>
                             </thead>
@@ -1513,8 +1513,8 @@ export function NetworkActivity() {
                                             size="sm"
                                             type="button"
                                             className="h-7 w-7 p-0 shrink-0 text-slate-500 hover:text-slate-200"
-                                            title="Sao chép pod UID"
-                                            aria-label="Sao chép pod UID"
+                                            title="Copy pod UID"
+                                            aria-label="Copy pod UID"
                                             onClick={() =>
                                               copyToClipboard(`na-cu-${k}`, (row.podUid ?? '').trim())
                                             }
@@ -1539,8 +1539,8 @@ export function NetworkActivity() {
                                             size="sm"
                                             type="button"
                                             className="h-7 w-7 p-0 shrink-0 text-slate-500 hover:text-slate-200"
-                                            title="Sao chép Local (như cột hiển thị)"
-                                            aria-label="Sao chép Local"
+                                            title="Copy Local (as displayed)"
+                                            aria-label="Copy Local"
                                             onClick={() =>
                                               copyToClipboard(`na-cl-${k}`, localEndpointClipboard(row))
                                             }
@@ -1565,8 +1565,8 @@ export function NetworkActivity() {
                                             size="sm"
                                             type="button"
                                             className="h-7 w-7 p-0 shrink-0 text-slate-500 hover:text-slate-200"
-                                            title="Sao chép remote (như cột hiển thị)"
-                                            aria-label="Sao chép remote"
+                                            title="Copy Remote (as displayed)"
+                                            aria-label="Copy Remote"
                                             onClick={() =>
                                               copyToClipboard(`na-cr-${k}`, remoteEndpointClipboard(row))
                                             }
@@ -1597,8 +1597,8 @@ export function NetworkActivity() {
                                           size="sm"
                                           type="button"
                                           className="h-7 w-7 p-0"
-                                          title="Mở Pod detail"
-                                          aria-label="Mở Pod detail"
+                                          title="Open Pod detail"
+                                          aria-label="Open Pod detail"
                                           onClick={() => goPod((row.podUid ?? '').trim())}
                                         >
                                           <ExternalLink className="w-3.5 h-3.5" />
@@ -1616,7 +1616,7 @@ export function NetworkActivity() {
                       </div>
                       <div className="shrink-0 border-t border-slate-800 px-2 py-2 flex flex-wrap items-center justify-between gap-2 bg-slate-950/90">
                         <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                          <span>Số dòng/trang</span>
+                          <span>Rows/page</span>
                           <select
                             value={tablePageSize}
                             onChange={(e) => setTablePageSize(Number(e.target.value))}

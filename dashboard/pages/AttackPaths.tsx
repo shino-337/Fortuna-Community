@@ -96,7 +96,7 @@ export const AttackPaths: React.FC = () => {
   return (
     <PageLayout
       title="Attack Paths"
-      description="Trực quan hoá đường tấn công từ Pod đến tài nguyên nhạy cảm (cluster-admin, Secrets, …)."
+      description="Visualize attack paths from Pods to sensitive resources (cluster-admin, Secrets, etc.)."
       actions={
         <button
           onClick={handleRefresh}
@@ -104,7 +104,7 @@ export const AttackPaths: React.FC = () => {
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-slate-700 bg-slate-800/60 text-sm text-slate-300 hover:bg-slate-700/80 transition disabled:opacity-50"
         >
           <RefreshCw size={14} className={refreshing ? 'animate-spin' : ''} />
-          Làm mới
+          Refresh
         </button>
       }
     >
@@ -112,7 +112,7 @@ export const AttackPaths: React.FC = () => {
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
         <StatCard
           icon={<Network size={18} className="text-pink-400" />}
-          label="Tổng Attack Paths"
+          label="Total Attack Paths"
           value={summary?.totalPaths ?? '–'}
           loading={loading}
         />
@@ -142,7 +142,7 @@ export const AttackPaths: React.FC = () => {
       {/* ─── Graph ─────────────────────────────────────────── */}
       <section className="mb-6">
         <h2 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-          <Layers size={14} /> Đồ thị Attack Path
+          <Layers size={14} /> Attack Path Graph
         </h2>
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -161,7 +161,7 @@ export const AttackPaths: React.FC = () => {
       {summary && summary.topPods && summary.topPods.length > 0 && (
         <section className="mb-6">
           <h2 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-1.5">
-            <Target size={14} /> Pods rủi ro cao nhất
+            <Target size={14} /> Highest Risk Pods
           </h2>
           <div className="overflow-x-auto rounded-lg border border-slate-800">
             <table className="w-full text-sm text-left text-slate-400">
@@ -171,7 +171,7 @@ export const AttackPaths: React.FC = () => {
                   <th className="px-4 py-2">Namespace</th>
                   <th className="px-4 py-2">Service Account</th>
                   <th className="px-4 py-2">Risk</th>
-                  <th className="px-4 py-2">Lý do</th>
+                  <th className="px-4 py-2">Reason</th>
                   <th className="px-4 py-2"></th>
                 </tr>
               </thead>
@@ -229,14 +229,14 @@ export const AttackPaths: React.FC = () => {
       {podUidParam && (
         <section>
           <h2 className="text-sm font-semibold text-slate-300 mb-2">
-            Attack Paths cho pod <code className="text-pink-400">{podUidParam.slice(0, 12)}…</code>
+            Attack Paths for pod <code className="text-pink-400">{podUidParam.slice(0, 12)}…</code>
           </h2>
           {selectedPodLoading ? (
             <div className="flex items-center justify-center py-8">
               <div className="w-6 h-6 border-4 border-pink-500 border-t-transparent rounded-full animate-spin" />
             </div>
           ) : selectedPodPaths.length === 0 ? (
-            <p className="text-xs text-slate-500">Không có attack path nào cho pod này.</p>
+            <p className="text-xs text-slate-500">No attack paths found for this pod.</p>
           ) : (
             <div className="space-y-3">
               {selectedPodPaths.map((path, idx) => (

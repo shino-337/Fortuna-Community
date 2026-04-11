@@ -721,6 +721,13 @@ func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.
 		return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
 	}
 
+	// Quick DB connectivity check: if PostgreSQL is unreachable, skip DB writes
+	// to avoid noisy GORM error logs on every Ping cycle.
+	sqlDB, err := s.db.DB()
+	if err != nil || sqlDB.PingContext(ctx) != nil {
+		return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
+	}
+
 	updated := false
 	if agentID != "" {
 		// Use raw Exec so last_seen_at is always updated (avoids GORM scope/zero-value issues)
