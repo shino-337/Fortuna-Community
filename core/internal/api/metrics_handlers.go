@@ -232,6 +232,97 @@ func parseIntDefault(s string, defaultVal int) (int, bool) {
 	return n, true
 }
 
+// GetWorkerStatus returns the status of background workers derived from DB activity.
+// Workers tracked: sbom, cve-matcher, correlator, risk, policy.
+func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		type workerStat struct {
+			name      string
+			tableName string
+			failField string
+		}
+
+		// Count SBOMs processed; sbom_match_runs tracks the SBOM pipeline (includes CVE matching stage)
+		var sbomProcessed, matchRunFailed int64
+		db.Table("sboms").Where("deleted_at IS NULL").Count(&sbomProcessed)
+		db.Table("sbom_match_runs").Where("status = ?", "failed").Count(&matchRunFailed)
+
+		// Count CVE matches; pipeline failures are shared with the SBOM match-run stage
+		var cveProcessed int64
+		db.Table("cve_matches").Where("deleted_at IS NULL").Count(&cveProcessed)
+
+		// Count insights (correlator output)
+		var correlatorProcessed int64
+		db.Table("insights").Where("deleted_at IS NULL").Count(&correlatorProcessed)
+
+		// Count risk scores
+		var riskProcessed int64
+		db.Table("risk_scores").Where("deleted_at IS NULL").Count(&riskProcessed)
+
+		// Count policy violations
+		var policyProcessed int64
+		db.Table("policy_violations").Where("deleted_at IS NULL").Count(&policyProcessed)
+
+		// workerStatus derives a health status from cumulative DB counts.
+		// "degraded" fires when failures exceed 10% of processed output AND there are more than
+		// 5 failures (to avoid false alarms on brand-new or lightly-used deployments).
+		workerStatus := func(processed, failed int64) string {
+			if processed == 0 && failed == 0 {
+				return "stopped"
+			}
+			if failed > processed/10 && failed > 5 {
+				return "degraded"
+			}
+			return "running"
+		}
+
+		workers := []map[string]interface{}{
+			{
+				"name":          "sbom",
+				"queueDepth":    0,
+				"activeWorkers": 0,
+				"processed":     sbomProcessed,
+				"failed":        matchRunFailed,
+				"status":        workerStatus(sbomProcessed, matchRunFailed),
+			},
+			{
+				"name":          "cve-matcher",
+				"queueDepth":    0,
+				"activeWorkers": 0,
+				"processed":     cveProcessed,
+				"failed":        int64(0),
+				"status":        workerStatus(cveProcessed, 0),
+			},
+			{
+				"name":          "correlator",
+				"queueDepth":    0,
+				"activeWorkers": 0,
+				"processed":     correlatorProcessed,
+				"failed":        int64(0),
+				"status":        workerStatus(correlatorProcessed, 0),
+			},
+			{
+				"name":          "risk",
+				"queueDepth":    0,
+				"activeWorkers": 0,
+				"processed":     riskProcessed,
+				"failed":        int64(0),
+				"status":        workerStatus(riskProcessed, 0),
+			},
+			{
+				"name":          "policy",
+				"queueDepth":    0,
+				"activeWorkers": 0,
+				"processed":     policyProcessed,
+				"failed":        int64(0),
+				"status":        workerStatus(policyProcessed, 0),
+			},
+		}
+
+		c.JSON(http.StatusOK, gin.H{"workers": workers})
+	}
+}
+
 // GetPolicyEvaluationCost returns policy evaluation cost metrics.
 // Only DB-derived totalEvaluations is real; other fields require metrics and are omitted.
 func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
