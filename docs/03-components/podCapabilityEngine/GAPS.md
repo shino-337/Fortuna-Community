@@ -9,11 +9,11 @@
 | PCE-1 | Attack Graph Phase 2 — use capability facts as input for automated attack path generation | P2 | **In Progress** |
 | PCE-2 | eBPF-based runtime detection — replace noop tracepoint with real syscall/namespace monitoring | P2 | Planned |
 | PCE-3 | Multi-signal chain scoring — combine static capabilities with runtime signals for chain detection | P2 | **In Progress** |
-| PCE-4 | Capability state race condition — CSC lacks locking when multiple sources update state simultaneously | P2 | Known |
+| PCE-4 | Capability state race condition — CSC lacks locking when multiple sources update state simultaneously | P2 | **Fixed** |
 | PCE-5 | "Catalog" vs "Metadata" UI naming inconsistency — two names for same data source confuse users | P3 | Known |
 | PCE-6 | Kill chain visualization — `kill_chain_stage` data seeded but not visualized in dashboard | P3 | Planned |
 | PCE-7 | REP detector governance — replay expectations and detector metadata versioning | P3 | Planned |
-| PCE-8 | False positive tuning — `false_positive_considerations` field seeded but not integrated into scoring | P3 | Planned |
+| PCE-8 | False positive tuning — `false_positive_considerations` field seeded but not integrated into scoring | P3 | **Fixed** |
 | PCE-9 | RBAC snapshot freshness — ServiceAccount/Role data may be stale when PCE evaluates | P3 | Known |
 
 ## Completed
@@ -55,3 +55,18 @@ The following items are partially implemented as part of the 5-Layer Unified Ris
 `rbac/analyzer.go` — Extracted shared RBAC logic:
 - PCE evaluator's `hasAPIWriteAccess()` and Attack Path's `classifyRoleRisk()` now both call `rbac.AnalyzePod()` / `rbac.ClassifyRoleRisk()`.
 - Eliminates the previous 3-way RBAC duplication.
+
+### PCE-4: Capability state race condition — Fixed
+
+`capability/state_controller.go` — `PromoteCapability()` now:
+- Wrapped in a DB transaction with `SELECT ... FOR UPDATE` row lock on the capability being promoted.
+- All queries within promotion (rules, signal count, required capabilities, update) execute inside the same transaction.
+- Concurrent promotions for the same `(pod_uid, capability_id)` are serialized by the row lock.
+
+### PCE-8: False positive tuning — Fixed
+
+`capability/evaluator.go` — `syncCapabilityInsights()` now:
+- Reads `false_positive_considerations` from `capability_metadata` for each detected capability.
+- Calls `matchFalsePositiveConsiderations(pod, fpConsiderations)` to check if the pod context matches known FP patterns (infrastructure components in kube-system, monitoring agents, storage drivers, etc.).
+- When a match is found, sets `MatchConfidence` and `FinalRiskConfidence` to `"LOW"` (instead of default `"HIGH"`) and appends the FP note to the insight description.
+- The V2 scorer's `confMultiplier()` already weights LOW-confidence insights at 0.4× (vs 1.0× for HIGH), so the scoring pipeline automatically reduces the base score contribution.

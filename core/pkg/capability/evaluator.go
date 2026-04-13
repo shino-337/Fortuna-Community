@@ -185,6 +185,18 @@ func syncCapabilityInsights(ctx context.Context, db *gorm.DB, pod *models.Pod, c
 		}
 		evidenceJSON, _ := json.Marshal(c.Evidence)
 
+		// PCE-8: Evaluate false_positive_considerations from capability metadata.
+		// When the pod context matches a known FP pattern (e.g., infrastructure
+		// components in kube-system), lower the confidence to indicate that the
+		// finding may be expected rather than adversarial.
+		matchConfidence := "HIGH"
+		if hasMetadata && len(md.FalsePositiveConsiderations) > 0 {
+			if fpMatch := matchFalsePositiveConsiderations(pod, md.FalsePositiveConsiderations); fpMatch != "" {
+				matchConfidence = "LOW"
+				description += fmt.Sprintf(" Note: %s", fpMatch)
+			}
+		}
+
 		insight := &models.Insight{
 			ResourceType:      "Pod",
 			ResourceNamespace: pod.Namespace,
@@ -200,6 +212,9 @@ func syncCapabilityInsights(ctx context.Context, db *gorm.DB, pod *models.Pod, c
 			ViolatedRules:     "[]",
 			Status:            "active",
 			DetectedAt:        time.Now(),
+			// PCE-8: Set confidence based on FP consideration match.
+			MatchConfidence:     matchConfidence,
+			FinalRiskConfidence: matchConfidence,
 			// CVEID used as logical key for DB unique constraint (resource_uid, cve_id, insight_type)
 			// so multiple capability insights per pod are allowed (one per capability ID).
 			CVEID: c.ID,
@@ -535,4 +550,67 @@ func isTableMissingError(err error) bool {
 	}
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist")
+}
+
+// matchFalsePositiveConsiderations checks whether the pod context matches any
+// of the false-positive consideration strings seeded in capability_metadata.
+// PCE-8: When a match is found, the returned string describes the matching
+// consideration so it can be included in the insight description and the
+// confidence can be lowered.
+//
+// Pattern matching heuristics:
+//   - "infrastructure components" / "cni" / "csi" / "dns" → matches pods in kube-system / kube-node-lease
+//   - "monitoring" / "prometheus" / "logging" / "fluentd" → matches pods in monitoring / observability namespaces
+//   - "init container" → matches if pod name contains "init" pattern
+func matchFalsePositiveConsiderations(pod *models.Pod, fpConsiderations []string) string {
+	ns := strings.ToLower(strings.TrimSpace(pod.Namespace))
+	name := strings.ToLower(strings.TrimSpace(pod.Name))
+
+	for _, fp := range fpConsiderations {
+		fpLower := strings.ToLower(strings.TrimSpace(fp))
+		if fpLower == "" {
+			continue
+		}
+
+		// Infrastructure pattern: CNI/CSI/DNS/system components commonly run in kube-system
+		if (strings.Contains(fpLower, "infrastructure") ||
+			strings.Contains(fpLower, "cni") ||
+			strings.Contains(fpLower, "csi") ||
+			strings.Contains(fpLower, "dns") ||
+			strings.Contains(fpLower, "system component")) &&
+			(ns == "kube-system" || ns == "kube-node-lease" || ns == "kube-public") {
+			return fp
+		}
+
+		// Monitoring/observability pattern
+		if (strings.Contains(fpLower, "monitoring") ||
+			strings.Contains(fpLower, "prometheus") ||
+			strings.Contains(fpLower, "logging") ||
+			strings.Contains(fpLower, "fluentd") ||
+			strings.Contains(fpLower, "fluentbit") ||
+			strings.Contains(fpLower, "datadog")) &&
+			(ns == "monitoring" || ns == "observability" || ns == "kube-system" ||
+				strings.Contains(name, "prometheus") ||
+				strings.Contains(name, "fluent") ||
+				strings.Contains(name, "datadog")) {
+			return fp
+		}
+
+		// Init container pattern
+		if strings.Contains(fpLower, "init container") &&
+			strings.Contains(name, "init") {
+			return fp
+		}
+
+		// Storage driver pattern
+		if (strings.Contains(fpLower, "storage driver") ||
+			strings.Contains(fpLower, "volume plugin")) &&
+			(ns == "kube-system" ||
+				strings.Contains(name, "csi-") ||
+				strings.Contains(name, "ebs-") ||
+				strings.Contains(name, "nfs-")) {
+			return fp
+		}
+	}
+	return ""
 }

@@ -24,11 +24,21 @@ func NewCapabilityStateController(db *gorm.DB) *CapabilityStateController {
 	return &CapabilityStateController{db: db}
 }
 
-// PromoteCapability promotes a capability state based on runtime signal
-// This is the ONLY way to update capability state from runtime signals
+// PromoteCapability promotes a capability state based on runtime signal.
+// This is the ONLY way to update capability state from runtime signals.
+// PCE-4: Wrapped in a serializable transaction with SELECT ... FOR UPDATE
+// to prevent data races when multiple signals arrive concurrently.
 func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, podUID, capabilityID, signalType string, signalConfidence float64) error {
-	// Query only columns needed for promotion logic to avoid scanning DB-specific timestamp formats
-	// into struct time pointers (notably in SQLite test environments).
+	return csc.db.WithContext(ctx).Transaction(func(txDB *gorm.DB) error {
+		return csc.promoteCapabilityTx(ctx, txDB, podUID, capabilityID, signalType, signalConfidence)
+	})
+}
+
+// promoteCapabilityTx performs the actual promotion logic within a transaction.
+func (csc *CapabilityStateController) promoteCapabilityTx(ctx context.Context, txDB *gorm.DB, podUID, capabilityID, signalType string, signalConfidence float64) error {
+	// PCE-4: SELECT ... FOR UPDATE — serialize concurrent promotions for the
+	// same (pod_uid, capability_id) row.  Any competing goroutine will block
+	// on the row lock until this transaction commits or rolls back.
 	type capabilityRow struct {
 		ID           uint
 		State        string
@@ -37,8 +47,9 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 		CapabilityID string
 	}
 	var cap capabilityRow
-	tx := csc.db.WithContext(ctx).
+	tx := txDB.
 		Model(&models.PodCapability{}).
+		Clauses(clause.Locking{Strength: "UPDATE"}).
 		Select("id", "state", "confidence", "evidence", "capability_id").
 		Where("pod_uid = ? AND capability_id = ?", podUID, capabilityID).
 		Limit(1).
@@ -53,7 +64,7 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 
 	// Get promotion rules for this capability + signal
 	var rules []models.PromotionRule
-	if err := csc.db.WithContext(ctx).
+	if err := txDB.
 		Where("capability_id = ? AND signal_type = ?", capabilityID, signalType).
 		Order("promote_to DESC"). // Prefer higher states first
 		Find(&rules).Error; err != nil {
@@ -85,7 +96,7 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 	// Count signal occurrences for this pod + signal type
 	var signalCount int64
 	// runtime_signals are de-duped by day in SignalAdapter, so we sum the persisted counter.
-	csc.db.WithContext(ctx).Model(&models.RuntimeSignal{}).
+	txDB.Model(&models.RuntimeSignal{}).
 		Select("COALESCE(SUM(count), 0)").
 		Where("pod_uid = ? AND signal_type = ?", podUID, signalType).
 		Scan(&signalCount)
@@ -113,7 +124,7 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 		// Check required capabilities if any
 		if len(rule.RequiredCapabilities) > 0 {
 			var requiredCount int64
-			csc.db.WithContext(ctx).Model(&models.PodCapability{}).
+			txDB.Model(&models.PodCapability{}).
 				Where("pod_uid = ? AND capability_id = ANY(?)", podUID, pq.Array(rule.RequiredCapabilities)).
 				Count(&requiredCount)
 			if int(requiredCount) < len(rule.RequiredCapabilities) {
@@ -163,7 +174,7 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 	updates["evidence"] = string(evidenceJSON)
 
 	// Update capability
-	if err := csc.db.WithContext(ctx).
+	if err := txDB.
 		Model(&models.PodCapability{}).
 		Where("id = ?", cap.ID).
 		Updates(updates).Error; err != nil {
@@ -175,7 +186,7 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 
 	// If promoted to "exploited", generate attack steps
 	if bestRule.PromoteTo == string(StateExploited) {
-		asi := &AttackStepInference{db: csc.db}
+		asi := &AttackStepInference{db: txDB}
 		if err := asi.InferAttackSteps(ctx, podUID); err != nil {
 			log.Printf("[CSC] ⚠️  Failed to generate attack steps after promotion: %v", err)
 			// Don't fail the promotion if attack step generation fails

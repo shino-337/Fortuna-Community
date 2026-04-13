@@ -303,15 +303,77 @@ func (s *Scorer) getVulnerabilityTypeBonus(insights []models.Insight) float64 {
 }
 
 // calculateExploitabilityScore calculates exploitability score (0-30)
-// Sum of 5 components, each 0-6 points
+// Sum of 5 components, each 0-6 points.
+// RP-1: When a CVSS vector is available, its AV/AC/PR components supplement
+// the heuristic sub-scores for attack vector, complexity, and auth.
 func (s *Scorer) calculateExploitabilityScore(insights []models.Insight, resourceInfo ResourceInfoV2) float64 {
+	// RP-1: Try to extract CVSS vector from the highest-severity CVE insight.
+	cvssVec := bestCVSSVector(insights)
+
 	attackVector := s.scoreAttackVector(resourceInfo)      // 0-6
 	complexity := s.scoreAttackComplexity(insights)        // 0-6
 	auth := s.scoreAuthRequirement(resourceInfo, insights) // 0-6
 	exposure := s.scoreNetworkExposure(resourceInfo)       // 0-6
 	exploit := s.scoreExploitAvailability(insights)        // 0-6
 
+	// RP-1: Override heuristic sub-scores with authoritative CVSS vector data
+	// when available.  We take the max of (heuristic, vector-derived) so the
+	// vector can only raise, never lower, the score.
+	if cvssVec != nil {
+		if vecAV := cvssVectorAttackVector(cvssVec); vecAV > attackVector {
+			attackVector = vecAV
+		}
+		if vecAC := cvssVectorAttackComplexity(cvssVec); vecAC > complexity {
+			complexity = vecAC
+		}
+		if vecPR := cvssVectorPrivilegesRequired(cvssVec); vecPR > auth {
+			auth = vecPR
+		}
+	}
+
 	return attackVector + complexity + auth + exposure + exploit
+}
+
+// cvssVectorAttackVector maps CVSS AV metric to 0-6 score.  RP-1.
+func cvssVectorAttackVector(v *CVSSVector) float64 {
+	switch v.AttackVector {
+	case "N": // Network
+		return 6.0
+	case "A": // Adjacent
+		return 4.5
+	case "L": // Local
+		return 3.0
+	case "P": // Physical
+		return 1.0
+	default:
+		return 0.0
+	}
+}
+
+// cvssVectorAttackComplexity maps CVSS AC metric to 0-6 score.  RP-1.
+func cvssVectorAttackComplexity(v *CVSSVector) float64 {
+	switch v.AttackComplexity {
+	case "L": // Low complexity → easy to exploit → high score
+		return 6.0
+	case "H": // High complexity → hard to exploit → low score
+		return 2.0
+	default:
+		return 0.0
+	}
+}
+
+// cvssVectorPrivilegesRequired maps CVSS PR metric to 0-6 score.  RP-1.
+func cvssVectorPrivilegesRequired(v *CVSSVector) float64 {
+	switch v.PrivilegesRequired {
+	case "N": // None
+		return 6.0
+	case "L": // Low
+		return 4.0
+	case "H": // High
+		return 2.0
+	default:
+		return 0.0
+	}
 }
 
 // scoreAttackVector scores attack vector (0-6)
@@ -426,26 +488,41 @@ func (s *Scorer) scoreNetworkExposure(resourceInfo ResourceInfoV2) float64 {
 }
 
 // scoreExploitAvailability scores exploit availability (0-6)
-// Enhanced to use CVE exploit_available field directly
+// RP-3: Uses structured exploit_available/exploit_maturity fields from Evidence JSON
+// in addition to description heuristics and EPSS/KEV.
 func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 	maxScore := 0.0
 
 	for _, insight := range insights {
 		score := 0.0
 
-		// For CVE insights: Check exploit maturity from description + optional EPSS (RISK-1).
+		// For CVE insights: Check exploit maturity from structured fields, description + EPSS.
 		if insight.InsightType == "vulnerability" {
-			// Check exploit maturity from description
-			desc := strings.ToLower(insight.Description)
-			if strings.Contains(desc, "functional") || strings.Contains(desc, "high") {
-				score = 6.0
-			} else if strings.Contains(desc, "poc") || strings.Contains(desc, "proof of concept") {
-				score = 4.0
+			// RP-3: First check structured exploit fields from Evidence JSON.
+			if ea, ok := parseExploitAvailableFromEvidence(insight.Evidence); ok && ea {
+				score = 5.5 // Known exploit available
+				if em, ok := parseExploitMaturityFromEvidence(insight.Evidence); ok {
+					switch strings.ToLower(em) {
+					case "high", "functional":
+						score = 6.0
+					case "poc", "proof-of-concept":
+						score = 4.5
+					}
+				}
 			} else {
-				score = 5.0 // Default for exploit available
+				// Fallback: heuristic from description text
+				desc := strings.ToLower(insight.Description)
+				if strings.Contains(desc, "functional") || strings.Contains(desc, "high") {
+					score = 6.0
+				} else if strings.Contains(desc, "poc") || strings.Contains(desc, "proof of concept") {
+					score = 4.0
+				} else {
+					score = 5.0
+				}
 			}
+
+			// Blend EPSS signal
 			if e, ok := parseEPSSFromInsightEvidence(insight.Evidence); ok {
-				// Blend structured exploit likelihood (EPSS 0..1) with heuristic text score.
 				switch {
 				case e >= 0.75:
 					score = math.Max(score, 6.0)
@@ -455,11 +532,11 @@ func (s *Scorer) scoreExploitAvailability(insights []models.Insight) float64 {
 					score = math.Max(score, 4.0+e*2.5)
 				}
 			}
+			// CISA KEV overrides to max
 			if kev, ok := parseCISAKEVFromInsightEvidence(insight.Evidence); ok && kev {
 				score = math.Max(score, 6.0)
 			}
 		} else if insight.InsightType == "supply_chain_malware" {
-			// Malicious dependency: code may execute in workload — treat as high exploit concern (no EPSS/KEV).
 			score = 5.5
 			if strings.EqualFold(strings.TrimSpace(insight.Severity), "critical") {
 				score = 6.0
@@ -525,6 +602,107 @@ func parseCISAKEVFromInsightEvidence(evidence string) (kev bool, ok bool) {
 	return v, ok
 }
 
+// RP-1: CVSSVector holds parsed CVSS v3 vector components.
+// Vector format: CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H
+type CVSSVector struct {
+	AttackVector          string // N(etwork), A(djacent), L(ocal), P(hysical)
+	AttackComplexity      string // L(ow), H(igh)
+	PrivilegesRequired    string // N(one), L(ow), H(igh)
+	UserInteraction       string // N(one), R(equired)
+	Scope                 string // U(nchanged), C(hanged)
+	ConfidentialityImpact string // N(one), L(ow), H(igh)
+	IntegrityImpact       string // N(one), L(ow), H(igh)
+	AvailabilityImpact    string // N(one), L(ow), H(igh)
+}
+
+// parseCVSSVectorFromEvidence extracts and parses the CVSS vector string from
+// Insight.Evidence JSON.  RP-1: allows sub-scores (AV, AC, PR, UI) to be used
+// directly instead of relying on description heuristics.
+func parseCVSSVectorFromEvidence(evidence string) (*CVSSVector, bool) {
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" {
+		return nil, false
+	}
+	var m map[string]interface{}
+	if err := json.Unmarshal([]byte(evidence), &m); err != nil {
+		return nil, false
+	}
+	vectorStr, _ := m["cvss_vector"].(string)
+	if vectorStr == "" {
+		return nil, false
+	}
+	return parseCVSSVectorString(vectorStr)
+}
+
+// parseCVSSVectorString parses a CVSS v3.x vector string.
+func parseCVSSVectorString(vs string) (*CVSSVector, bool) {
+	if vs == "" {
+		return nil, false
+	}
+	// e.g. "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H"
+	parts := strings.Split(vs, "/")
+	vec := &CVSSVector{}
+	found := 0
+	for _, part := range parts {
+		kv := strings.SplitN(part, ":", 2)
+		if len(kv) != 2 {
+			continue
+		}
+		switch kv[0] {
+		case "AV":
+			vec.AttackVector = kv[1]
+			found++
+		case "AC":
+			vec.AttackComplexity = kv[1]
+			found++
+		case "PR":
+			vec.PrivilegesRequired = kv[1]
+			found++
+		case "UI":
+			vec.UserInteraction = kv[1]
+			found++
+		case "S":
+			vec.Scope = kv[1]
+			found++
+		case "C":
+			vec.ConfidentialityImpact = kv[1]
+			found++
+		case "I":
+			vec.IntegrityImpact = kv[1]
+			found++
+		case "A":
+			vec.AvailabilityImpact = kv[1]
+			found++
+		}
+	}
+	if found < 3 { // Need at least a few components to be useful
+		return nil, false
+	}
+	return vec, true
+}
+
+// bestCVSSVector returns the "worst-case" CVSS vector across all CVE insights.
+// RP-1: Used to supplement heuristic-based sub-scores with authoritative vector data.
+func bestCVSSVector(insights []models.Insight) *CVSSVector {
+	var best *CVSSVector
+	var bestScore float64
+	for _, ins := range insights {
+		if ins.InsightType != "vulnerability" {
+			continue
+		}
+		vec, ok := parseCVSSVectorFromEvidence(ins.Evidence)
+		if !ok {
+			continue
+		}
+		score := float64(ins.CVSS)
+		if score > bestScore {
+			bestScore = score
+			best = vec
+		}
+	}
+	return best
+}
+
 // separateInsights separates CVE-like insights (CVSS path) from policy/runtime insights.
 // supply_chain_malware uses the same base-score path as CVE (severity → pseudo-CVSS when CVSS=0).
 func (s *Scorer) separateInsights(insights []models.Insight) ([]models.Insight, []models.Insight) {
@@ -544,8 +722,11 @@ func (s *Scorer) separateInsights(insights []models.Insight) ([]models.Insight, 
 	return cveInsights, policyInsights
 }
 
-// calculateCVEBaseScore calculates base score for CVE insights using CVSS
-// Formula: CVSS Score × 4.0 (scale 0-10 to 0-40), with exploit boost
+// calculateCVEBaseScore calculates base score for CVE insights using CVSS.
+// RP-12: Uses **max** strategy instead of weighted average so a single critical
+// CVE is not diluted by co-located lower-severity ones.  A small secondary-CVE
+// penalty (up to +4 pts for volume/diversity) rewards breadth without hurting
+// the primary signal.
 func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 	if len(cveInsights) == 0 {
 		return 0.0
@@ -562,21 +743,17 @@ func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 		case "VERY_LOW":
 			return 0.2
 		default:
-			// Backward compatible: insights without confidence should behave like HIGH.
 			return 1.0
 		}
 	}
 
-	var totalScore float64
-	var totalWeight float64
+	var maxScore float64
 
 	for _, insight := range cveInsights {
-		// Use CVSS score if available, otherwise map from severity
 		var cvssScore float64
 		if insight.CVSS > 0 {
 			cvssScore = float64(insight.CVSS)
 		} else {
-			// Fallback: map severity to CVSS
 			switch strings.ToUpper(insight.Severity) {
 			case "CRITICAL":
 				cvssScore = 9.0
@@ -591,40 +768,81 @@ func (s *Scorer) calculateCVEBaseScore(cveInsights []models.Insight) float64 {
 			}
 		}
 
-		// Scale CVSS (0-10) to base score range (0-40)
 		baseCVSS := cvssScore * 4.0
 
-		// Weight by exploit availability (check from description)
+		// RP-3: Use structured exploit fields from Evidence JSON when available,
+		// fall back to description heuristic.
 		exploitWeight := 1.0
-		desc := strings.ToLower(insight.Description)
-		if strings.Contains(desc, "exploit") || strings.Contains(desc, "poc") {
-			exploitWeight = 1.5 // 50% boost for exploits
+		if em, ok := parseExploitMaturityFromEvidence(insight.Evidence); ok {
+			switch strings.ToLower(em) {
+			case "high", "functional":
+				exploitWeight = 1.5
+			case "poc", "proof-of-concept":
+				exploitWeight = 1.3
+			}
+		} else {
+			desc := strings.ToLower(insight.Description)
+			if strings.Contains(desc, "exploit") || strings.Contains(desc, "poc") {
+				exploitWeight = 1.5
+			}
 		}
 
-		// Weight by freshness (newer CVEs are more urgent)
 		age := time.Since(insight.CreatedAt).Hours() / 24.0
 		freshnessWeight := 1.0
 		if age < 7 {
-			freshnessWeight = 1.2 // 20% boost for fresh CVEs (< 7 days)
+			freshnessWeight = 1.2
 		} else if age > 90 {
-			freshnessWeight = 0.9 // 10% reduction for old CVEs (> 90 days)
+			freshnessWeight = 0.9
 		}
 
-		score := baseCVSS * exploitWeight * freshnessWeight
-		score = score * confMultiplier(insight.FinalRiskConfidence)
-		totalScore += score
-		totalWeight += exploitWeight * freshnessWeight
+		score := baseCVSS * exploitWeight * freshnessWeight * confMultiplier(insight.FinalRiskConfidence)
+		if score > maxScore {
+			maxScore = score
+		}
 	}
 
-	// Weighted average, capped at 40
-	if totalWeight == 0 {
-		return 0.0
-	}
-	avgScore := totalScore / totalWeight
-	if avgScore > 40 {
+	// Secondary-CVE volume penalty: +1 pt per additional CVE, up to +4 pts.
+	volumeBonus := math.Min(4.0, float64(len(cveInsights)-1))
+	result := maxScore + volumeBonus
+
+	if result > 40 {
 		return 40.0
 	}
-	return avgScore
+	return result
+}
+
+// parseExploitMaturityFromEvidence reads the "exploit_maturity" field from the
+// Insight.Evidence JSON (populated by cve_processor during matching).  RP-3.
+func parseExploitMaturityFromEvidence(evidence string) (string, bool) {
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" {
+		return "", false
+	}
+	var v map[string]interface{}
+	if err := json.Unmarshal([]byte(evidence), &v); err != nil {
+		return "", false
+	}
+	if em, ok := v["exploit_maturity"].(string); ok && em != "" {
+		return em, true
+	}
+	return "", false
+}
+
+// parseExploitAvailableFromEvidence reads the "exploit_available" boolean from
+// Insight.Evidence JSON.  RP-3.
+func parseExploitAvailableFromEvidence(evidence string) (bool, bool) {
+	evidence = strings.TrimSpace(evidence)
+	if evidence == "" {
+		return false, false
+	}
+	var v map[string]interface{}
+	if err := json.Unmarshal([]byte(evidence), &v); err != nil {
+		return false, false
+	}
+	if ea, ok := v["exploit_available"].(bool); ok {
+		return ea, true
+	}
+	return false, false
 }
 
 // calculateBusinessImpactScore calculates business impact score (0-30)

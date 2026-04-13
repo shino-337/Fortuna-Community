@@ -76,18 +76,18 @@ Dựa trên phân tích toàn bộ tài liệu (`GAP_IMPLEMENTATION_STATUS.md`, 
 
 | ID | GAP | Mô tả | Ưu tiên |
 |----|-----|--------|---------|
-| RP-1 | CVSS vector decomposition | Scorer chỉ dùng scalar CVSS, không tách AV/AC/PR | **P1** |
+| RP-1 | CVSS vector decomposition | Scorer chỉ dùng scalar CVSS, không tách AV/AC/PR | **P1** → **Fixed** |
 | RP-2 | EPSS/KEV staleness | EPSS/KEV chỉ enrich lần đầu, không refresh | **P1** |
-| RP-3 | ExploitAvailable/ExploitMaturity plumbing | Có field nhưng Scorer không dùng | P2 |
+| RP-3 | ExploitAvailable/ExploitMaturity plumbing | Có field nhưng Scorer không dùng | P2 → **Fixed** |
 | RP-4 | Asset context — network exposure, tiers | ResourceInfoV2 fields luôn rỗng | P2 |
-| RP-5 | Persistent false-positive / exception model | **In Progress → PR** | **P0** |
+| RP-5 | Persistent false-positive / exception model | **Completed** (migration 116 + batch upsert fix) | **P0** → **Fixed** |
 | RP-6 | Insight triage states incomplete | Acknowledge chỉ update timestamp, resolve ghi đè recommendation | P2 |
 | RP-7 | SLA tracking | Không có deadline/breach tracking | P2 |
 | RP-8 | CVE-to-Insight scan provenance | Insight không ghi resolver_version/mirror_version | P2 |
 | RP-9 | Cross-resource CVE roll-up | N pod cùng image tạo N insight riêng | P2 |
 | RP-10 | License risk evaluation | License field stored nhưng không evaluate | P2 |
 | RP-11 | Dedup on pod spec hash | `LastEvaluatedHash` tồn tại nhưng không check | P2 |
-| RP-12 | CVSS base score avg vs max | `calculateCVEBaseScore()` dùng weighted average thay vì max | P2 |
+| RP-12 | CVSS base score avg vs max | `calculateCVEBaseScore()` dùng weighted average thay vì max | P2 → **Fixed** |
 | RP-13 | Network policy gap detection | Không detect pod thiếu NetworkPolicy | P2 |
 | RP-14 | Audit trail snapshot | Audit log chỉ ghi action, không snapshot state | P3 |
 

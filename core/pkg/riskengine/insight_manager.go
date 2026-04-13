@@ -477,10 +477,26 @@ DO UPDATE SET
 	severity = EXCLUDED.severity,
 	affected_version = EXCLUDED.affected_version,
 	status = CASE
+		WHEN insights.status = 'dismissed' AND EXISTS (
+			SELECT 1 FROM exception_policies ep
+			WHERE ep.resource_uid = insights.resource_uid
+			  AND ep.cve_id = insights.cve_id
+			  AND ep.insight_type = insights.insight_type
+			  AND ep.deleted_at IS NULL
+			  AND (ep.expires_at IS NULL OR ep.expires_at > NOW())
+		) THEN insights.status
 		WHEN insights.status IN ('resolved', 'dismissed') THEN 'active'
 		ELSE insights.status
 	END,
 	detected_at = CASE
+		WHEN insights.status = 'dismissed' AND EXISTS (
+			SELECT 1 FROM exception_policies ep
+			WHERE ep.resource_uid = insights.resource_uid
+			  AND ep.cve_id = insights.cve_id
+			  AND ep.insight_type = insights.insight_type
+			  AND ep.deleted_at IS NULL
+			  AND (ep.expires_at IS NULL OR ep.expires_at > NOW())
+		) THEN insights.detected_at
 		WHEN insights.status IN ('resolved', 'dismissed') THEN EXCLUDED.detected_at
 		ELSE insights.detected_at
 	END,
