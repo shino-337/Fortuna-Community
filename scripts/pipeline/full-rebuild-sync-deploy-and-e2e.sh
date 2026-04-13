@@ -6,8 +6,8 @@
 # deploy YAMLs and runs E2E report. Core runs DB migrations on startup (e.g. 062:
 # clusters.region/endpoint/kubeconfig — required for agent sync to succeed).
 #
-# 1. Clean: port-forwards, E2E ns, fortuna images (nerdctl), prune.
-# 2. Rebuild: core, agent, dashboard (NO_CACHE) via build-and-load-containerd.sh.
+# 1. Clean: port-forwards, E2E ns, fortuna images (nerdctl/docker), prune.
+# 2. Rebuild: core, agent, dashboard (NO_CACHE) via build-and-load-containerd.sh (supports nerdctl/docker/buildctl).
 # 3. Sync tag: get VERSION from build, update deploy/*.yaml image: fortuna-*:VERSION.
 # 4. Deploy: infra, RBAC, core, agent, dashboard; rollout restart.
 # 5. Push images to worker nodes if multi-node (optional, set WORKER_NODES).
@@ -58,10 +58,18 @@ pkill -f "kubectl.*port-forward" 2>/dev/null || true
 for ns in fortuna-e2e fortuna-e2e-2025; do
   kubectl get namespace "$ns" 2>/dev/null && kubectl delete namespace "$ns" --timeout=60s 2>/dev/null || true
 done
-log_info "Removing fortuna images from containerd (namespace=$CONTAINERD_NS)..."
-nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep fortuna | awk '{print $3}' | xargs -r nerdctl --namespace "$CONTAINERD_NS" rmi --force 2>/dev/null || true
-nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
-nerdctl builder prune --namespace "$CONTAINERD_NS" -a -f 2>/dev/null || true
+log_info "Removing fortuna images..."
+if command -v nerdctl &>/dev/null; then
+  nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep fortuna | awk '{print $3}' | xargs -r nerdctl --namespace "$CONTAINERD_NS" rmi --force 2>/dev/null || true
+  nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
+  nerdctl builder prune --namespace "$CONTAINERD_NS" -a -f 2>/dev/null || true
+fi
+if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+  for img in fortuna-core fortuna-agent fortuna-dashboard; do
+    docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${img}:" | xargs -r docker rmi --force 2>/dev/null || true
+  done
+  docker image prune -f 2>/dev/null || true
+fi
 log_ok "Clean complete"
 echo ""
 

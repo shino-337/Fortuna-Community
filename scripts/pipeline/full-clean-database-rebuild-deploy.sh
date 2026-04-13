@@ -1,10 +1,14 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Full Clean (images + optional DB) → Rebuild (nerdctl/containerd) → Deploy
+# Full Clean (images + optional DB) → Rebuild → Deploy
 # ============================================================================
 # Ensures all code changes are applied: clean removes ALL fortuna images + build
 # cache; rebuild uses NO_CACHE when clean was run; deploy rollout restarts core,
-# dashboard, agent so pods use the new images. See docs/FULL_CLEAN_REBUILD_DEPLOY_VERIFICATION.md
+# dashboard, agent so pods use the new images.
+#
+# Build tool: auto-detects nerdctl, docker, or buildctl (override: BUILD_TOOL=docker).
+# When using Docker, images are built with `docker build` then imported into
+# containerd via `ctr -n k8s.io images import` so kubelet sees them.
 #
 # 1. Clean: port-forwards, E2E namespaces, fortuna images by tag and by ID, system/builder prune.
 # 2. Optional DB: run clear_all_cluster_data.sql (--db) or reset_database_full.sql (--db-reset).
@@ -13,7 +17,7 @@
 #    Core runs all migrations on startup; --db-reset (DROP tables) ensures fresh schema
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
 #    DB reset now drops malware_packages/malware_matches + OSV/mirror/runtime/policy tables (updated 2026-04).
-# 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl → containerd k8s.io).
+# 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl/docker/buildctl → containerd k8s.io).
 # 4. Deploy: addons, Flannel, StorageClass, deploy-fortuna-robust.sh; Phase 3b rollout restart (Core, Dashboard, Agent).
 # 5. Post-deploy: Core auto-syncs Aikido malware feeds (122k packages, every 6h). No manual seed needed.
 #
@@ -26,13 +30,14 @@
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy    # clean + rebuild only
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-db-reset  # DB full reset only (no clean/rebuild/deploy)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core     # chỉ build + apply + rollout Core (bỏ qua clean mặc định)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-agent    # chỉ Agent (DaemonSet)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-dashboard # chỉ Dashboard (build-dashboard script + Deployment)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core --with-clean   # như trên + Phase 1 clean đầy đủ
-#   COMPONENT_ONLY=core ./scripts/pipeline/full-clean-database-rebuild-deploy.sh      # tương đương --only-core
-#   Chế độ only-*: bỏ Phase 2a/2a2/2c/2d/3a và deploy-fortuna-robust; không chạy --db/--db-reset (cảnh báo nếu có).
-#   PUSH_IMAGES_AFTER_REBUILD mặc định false khi only-* (multi-node: bật =1 hoặc chạy push-images-to-workers.sh thủ công).
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core     # build + apply + rollout Core only (skip default clean)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-agent    # Agent DaemonSet only
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-dashboard # Dashboard only
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core --with-clean   # same as above + full Phase 1 clean
+#   COMPONENT_ONLY=core ./scripts/pipeline/full-clean-database-rebuild-deploy.sh      # equivalent to --only-core
+#   BUILD_TOOL=docker ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full  # force Docker build backend
+#   Component-only mode: skips Phase 2a/2a2/2c/2d/3a and deploy-fortuna-robust; ignores --db/--db-reset (warns if set).
+#   PUSH_IMAGES_AFTER_REBUILD defaults to false in only-* mode (multi-node: set =1 or run push-images-to-workers.sh manually).
 #   RUN_ASYNC=1 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh  # run in background
 # ============================================================================
 
@@ -115,9 +120,9 @@ if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
   echo "  5) Clean + Rebuild only   Skip deploy"
   echo "  6) Run in background      Same as 1, log to /tmp/clean-rebuild-deploy.log"
   echo "  7) Only reset DB          DB full reset only (DROP tables; no clean/rebuild/deploy)"
-  echo "  8) Chỉ Core               Build + apply + rollout Core (minimal deploy)"
-  echo "  9) Chỉ Agent              Build + apply + rollout Agent DaemonSet"
-  echo " 10) Chỉ Dashboard          Build dashboard + apply + rollout Dashboard"
+  echo "  8) Core only              Build + apply + rollout Core (minimal deploy)"
+  echo "  9) Agent only             Build + apply + rollout Agent DaemonSet"
+  echo " 10) Dashboard only         Build dashboard + apply + rollout Dashboard"
   echo "  0) Cancel"
   echo ""
   printf "  Select [1-10, 0]: "
@@ -148,7 +153,7 @@ if [ $# -eq 0 ] || [ "$SHOW_MENU" = true ]; then
   esac
 fi
 
-# ---- Component-only: COMPONENT_ONLY từ env hoặc menu 8–10 (CLI --only-* đã set sẵn) ----
+# ---- Component-only: COMPONENT_ONLY from env or menu 8–10 (CLI --only-* already set) ----
 if [ -n "${COMPONENT_ONLY:-}" ]; then
   case "$COMPONENT_ONLY" in
     core|agent|dashboard)
@@ -197,21 +202,35 @@ if [ "$SKIP_CLEAN" = false ]; then
   for ns in fortuna-e2e fortuna-e2e-2025; do
     kubectl get namespace "$ns" 2>/dev/null && kubectl delete namespace "$ns" --timeout=60s 2>/dev/null || true
   done
-  log_info "Removing ALL fortuna images from containerd (namespace=$CONTAINERD_NS)..."
-  # Remove by tag first (so :latest and any VERSION tag are dropped)
-  for img in fortuna-core:latest fortuna-agent:latest fortuna-dashboard:latest; do
-    nerdctl --namespace "$CONTAINERD_NS" rmi --force "$img" 2>/dev/null || true
-  done
-  # Remove any remaining fortuna images by image ID (handles old/dangling refs)
-  # Use a list to avoid pipeline exit 1 when grep finds nothing (set -o pipefail would exit script)
-  fortuna_ids=""
-  fortuna_ids=$(nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep -E 'fortuna-(core|agent|dashboard)' | awk '{print $3}' | sort -u) || true
-  for id in $fortuna_ids; do
-    [ -n "$id" ] && [ "$id" != "ID" ] && nerdctl --namespace "$CONTAINERD_NS" rmi --force "$id" 2>/dev/null || true
-  done
-  log_info "Pruning containerd system and build cache..."
-  nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
-  nerdctl builder prune --namespace "$CONTAINERD_NS" -a -f 2>/dev/null || true
+  log_info "Removing ALL fortuna images (containerd namespace=$CONTAINERD_NS)..."
+  # Clean via nerdctl if available
+  if command -v nerdctl &>/dev/null; then
+    for img in fortuna-core:latest fortuna-agent:latest fortuna-dashboard:latest; do
+      nerdctl --namespace "$CONTAINERD_NS" rmi --force "$img" 2>/dev/null || true
+    done
+    fortuna_ids=""
+    fortuna_ids=$(nerdctl --namespace "$CONTAINERD_NS" images 2>/dev/null | grep -E 'fortuna-(core|agent|dashboard)' | awk '{print $3}' | sort -u) || true
+    for id in $fortuna_ids; do
+      [ -n "$id" ] && [ "$id" != "ID" ] && nerdctl --namespace "$CONTAINERD_NS" rmi --force "$id" 2>/dev/null || true
+    done
+    log_info "Pruning containerd system and build cache..."
+    nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
+    nerdctl builder prune --namespace "$CONTAINERD_NS" -a -f 2>/dev/null || true
+  fi
+  # Clean via docker if available
+  if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
+    log_info "Removing fortuna images from Docker..."
+    for img in fortuna-core fortuna-agent fortuna-dashboard; do
+      docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${img}:" | xargs -r docker rmi --force 2>/dev/null || true
+    done
+    docker image prune -f 2>/dev/null || true
+  fi
+  # Clean via ctr if available (catches images not managed by nerdctl/docker)
+  if command -v ctr &>/dev/null; then
+    ctr -n "$CONTAINERD_NS" images list 2>/dev/null | grep -E 'fortuna-(core|agent|dashboard)' | awk '{print $1}' | while read -r ref; do
+      [ -n "$ref" ] && ctr -n "$CONTAINERD_NS" images rm "$ref" 2>/dev/null || true
+    done
+  fi
   log_success "Clean complete"
 else
   log_info "Phase 1: Clean (skipped)"
@@ -314,7 +333,7 @@ if [ "$SKIP_REBUILD" = false ]; then
       log_info "Phase 2: Rebuild Agent only..."
       export BUILD_CORE_ONLY=false BUILD_AGENT_ONLY=true SKIP_DASHBOARD=true
     else
-      log_info "Phase 2: Rebuild (core, agent, dashboard) with nerdctl..."
+      log_info "Phase 2: Rebuild (core, agent, dashboard)..."
       unset BUILD_CORE_ONLY BUILD_AGENT_ONLY 2>/dev/null || true
     fi
     if [ -x "$SCRIPTS/build/build-and-load-containerd.sh" ]; then
