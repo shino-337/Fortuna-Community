@@ -58,6 +58,9 @@ import {
   PodRiskReportSummary,
   ThreatSummary,
   WorkerStatus,
+  UnifiedRiskScore,
+  PipelineHealth,
+  EnrichedAttackPath,
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 
@@ -1838,6 +1841,66 @@ export const api = {
   getAttackPathsForPod: async (podUid: string): Promise<AttackPath[]> => {
     try {
       const data = await request<{ paths: AttackPath[]; count: number }>(`/graph/attack-paths/${encodeURIComponent(podUid)}`);
+      return data.paths || [];
+    } catch {
+      return [];
+    }
+  },
+
+  // ---------------------------------------------------------------------------
+  // Phase 3.5: Unified Risk Pipeline — API functions
+  // ---------------------------------------------------------------------------
+
+  /**
+   * getUnifiedRiskScore returns the V3 unified risk score for a pod/resource.
+   * Calls GET /api/v1/risk/scores/:uid
+   */
+  getUnifiedRiskScore: async (uid: string): Promise<UnifiedRiskScore | null> => {
+    try {
+      const data = await request<{ data: UnifiedRiskScore }>(`/risk/scores/${encodeURIComponent(uid)}`);
+      return data.data || null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * getTopRiskyPods returns the top N pods by unified risk score.
+   * Calls GET /api/v1/risk/scores?sort=total_score&order=desc&limit=N
+   */
+  getTopRiskyPods: async (limit: number = 5): Promise<UnifiedRiskScore[]> => {
+    try {
+      const data = await request<{ data: UnifiedRiskScore[] }>(
+        `/risk/scores?sort=total_score&order=desc&limit=${limit}`
+      );
+      return data.data || [];
+    } catch {
+      return [];
+    }
+  },
+
+  /**
+   * getPipelineHealth returns the status of each layer of the Unified Risk Pipeline.
+   * Calls GET /api/v1/monitoring/pipeline-health
+   */
+  getPipelineHealth: async (): Promise<PipelineHealth | null> => {
+    try {
+      const data = await request<{ data: PipelineHealth }>('/monitoring/pipeline-health');
+      return data.data || null;
+    } catch {
+      return null;
+    }
+  },
+
+  /**
+   * getEnrichedAttackPaths returns PCE-enriched attack paths for a pod.
+   * Calls GET /api/v1/graph/attack-paths/:podUid (same endpoint, enrichedFromPce field added)
+   */
+  getEnrichedAttackPaths: async (podUid: string): Promise<EnrichedAttackPath[]> => {
+    try {
+      const data = await request<{ paths: EnrichedAttackPath[]; count: number }>(
+        `/graph/attack-paths/${encodeURIComponent(podUid)}`
+      );
       return data.paths || [];
     } catch {
       return [];

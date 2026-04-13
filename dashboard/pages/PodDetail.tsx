@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal, RuntimeSignalSuppressionStats, PodRiskReportSummary, PodRuntimeSecurityEvent, PodRuntimeBehaviorFact, PodRuntimeIncident, PodCapabilityDetail } from '../types';
+import { PodWithRisk, PodSbom, Insight, Vulnerability, RuntimeSignal, RuntimeSignalSuppressionStats, PodRiskReportSummary, PodRuntimeSecurityEvent, PodRuntimeBehaviorFact, PodRuntimeIncident, PodCapabilityDetail, UnifiedRiskScore } from '../types';
 import { RUNTIME_SIGNALS_LOOKBACK_MINUTES } from '../lib/runtimeLookback';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
@@ -10,7 +10,7 @@ import { Button } from '../components/ui/Button';
 import { PageLoading } from '../components/PageLoading';
 import { PageEmpty } from '../components/PageEmpty';
 import { PodNetworkSummary } from '../components/PodNetworkSummary';
-import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
@@ -83,6 +83,8 @@ export const PodDetail: React.FC = () => {
   dataErrorsRef.current = dataErrors;
   /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
   const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
+  /** Phase 3.1: Unified Risk Score V3 for this pod */
+  const [unifiedScore, setUnifiedScore] = useState<UnifiedRiskScore | null>(null);
 
   const idOrUid = uid ?? id;
 
@@ -166,6 +168,12 @@ export const PodDetail: React.FC = () => {
     // API only supports lookup by uid (Kubernetes UID). Legacy numeric id in URL causes 404.
     const data = await api.getPodByUid(idOrUid);
     setPod(data);
+    // Phase 3.1: load unified risk score V3 alongside pod data
+    if (data?.uid) {
+      api.getUnifiedRiskScore(data.uid).then((score) => {
+        if (score) setUnifiedScore(score);
+      }).catch(() => {/* non-critical */});
+    }
     setLoading(false);
   }, [idOrUid]);
 
@@ -625,6 +633,75 @@ export const PodDetail: React.FC = () => {
 
       {activeTab === 'overview' && (
         <div className="space-y-6">
+        {/* Phase 3.1: Unified Risk Summary card */}
+        {unifiedScore && (
+          <Card variant="secondary" className="border border-slate-700">
+            <h3 className="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+              <Shield className="w-4 h-4 text-pink-500" />
+              Unified Risk Score
+              <span className="text-[10px] text-slate-500 font-normal ml-1">V3 · {unifiedScore.scorerVersion}</span>
+              {unifiedScore.toxicCombos && unifiedScore.toxicCombos.length > 0 && (
+                <span className="ml-auto flex items-center gap-1 text-[10px] text-red-400 bg-red-500/10 border border-red-500/20 rounded-full px-2 py-0.5">
+                  <Zap className="w-2.5 h-2.5" /> {unifiedScore.toxicCombos.length} toxic combo{unifiedScore.toxicCombos.length > 1 ? 's' : ''}
+                </span>
+              )}
+            </h3>
+            <div className="flex items-center gap-4 mb-4">
+              <div className={`text-3xl font-bold font-mono ${
+                unifiedScore.priorityLevel === 'P0' ? 'text-red-400' :
+                unifiedScore.priorityLevel === 'P1' ? 'text-orange-400' :
+                unifiedScore.priorityLevel === 'P2' ? 'text-yellow-400' :
+                unifiedScore.priorityLevel === 'P3' ? 'text-sky-400' :
+                'text-slate-400'
+              }`}>{Math.round(unifiedScore.totalScore)}<span className="text-slate-500 font-normal text-xs ml-1">/100</span></div>
+              <div className={`text-sm font-bold px-3 py-1 rounded-lg ${
+                unifiedScore.priorityLevel === 'P0' ? 'text-red-400 bg-red-500/10 border border-red-500/20' :
+                unifiedScore.priorityLevel === 'P1' ? 'text-orange-400 bg-orange-500/10 border border-orange-500/20' :
+                unifiedScore.priorityLevel === 'P2' ? 'text-yellow-400 bg-yellow-500/10 border border-yellow-500/20' :
+                unifiedScore.priorityLevel === 'P3' ? 'text-sky-400 bg-sky-500/10 border border-sky-500/20' :
+                'text-slate-400 bg-slate-800 border border-slate-700'
+              }`}>{unifiedScore.priorityLevel}</div>
+              <div className="text-xs text-slate-500 ml-auto">calc: {unifiedScore.calculatedAt ? formatDateTime(unifiedScore.calculatedAt) : '—'}</div>
+            </div>
+            {/* 7-dimension breakdown */}
+            {unifiedScore.dimensions && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+                {[
+                  { label: 'Vuln', key: 'vulnerability', max: 15, color: 'bg-red-500' },
+                  { label: 'Cap', key: 'capabilityExposure', max: 15, color: 'bg-orange-500' },
+                  { label: 'Path', key: 'attackPath', max: 15, color: 'bg-yellow-500' },
+                  { label: 'RBAC', key: 'rbacPolicy', max: 15, color: 'bg-purple-500' },
+                  { label: 'Runtime', key: 'runtimeThreat', max: 15, color: 'bg-cyan-500' },
+                  { label: 'Exposure', key: 'exposure', max: 15, color: 'bg-blue-500' },
+                  { label: 'Blast', key: 'blastRadius', max: 10, color: 'bg-pink-500' },
+                ].map((dim) => {
+                  const val = (unifiedScore.dimensions as any)[dim.key] ?? 0;
+                  const pct = Math.min(100, (val / dim.max) * 100);
+                  return (
+                    <div key={dim.key} className="flex flex-col items-center gap-1">
+                      <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full ${dim.color}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-[10px] text-slate-400">{dim.label}</span>
+                      <span className="text-[10px] text-slate-300 font-mono">{val.toFixed(1)}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+            {/* Toxic combos */}
+            {unifiedScore.toxicCombos && unifiedScore.toxicCombos.length > 0 && (
+              <div className="mt-3 pt-3 border-t border-slate-800">
+                <div className="text-xs text-slate-500 mb-1">Active toxic combos:</div>
+                <div className="flex flex-wrap gap-1">
+                  {unifiedScore.toxicCombos.map((combo, i) => (
+                    <span key={i} className="text-[10px] text-red-300 bg-red-900/30 border border-red-700/30 rounded px-2 py-0.5">{combo}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Card>
+        )}
         <Card variant="secondary">
             <h3 className="text-base md:text-lg font-semibold text-white mb-4 flex items-center gap-2 flex-wrap">
               <Box className="w-5 h-5 text-pink-500" /> Overview
@@ -732,6 +809,35 @@ export const PodDetail: React.FC = () => {
             {!sbom && !sbomLoaded && (
               <div className="mt-4 pt-4 border-t border-slate-800">
                 <p className="text-slate-500 text-sm">Security summary loading…</p>
+              </div>
+            )}
+            {/* Phase 3.1: Capability list with state badge */}
+            {podCapabilities.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-800">
+                <h4 className="text-sm font-semibold text-slate-300 mb-2 flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-orange-400" /> Capabilities
+                  <button type="button" onClick={() => navigate('/capabilities')} className="ml-auto text-[10px] text-pink-500 hover:text-pink-400 flex items-center gap-0.5">
+                    View all <Target className="w-3 h-3" />
+                  </button>
+                </h4>
+                <div className="space-y-1.5">
+                  {podCapabilities.slice(0, 8).map((cap) => (
+                    <div key={cap.capabilityId} className="flex items-center justify-between text-xs bg-slate-900/50 rounded px-2 py-1.5">
+                      <span className="font-mono text-slate-200">{cap.capabilityId}</span>
+                      <div className="flex items-center gap-2">
+                        <span className={clsx('text-[10px]', getSeverityTextClass(cap.severity))}>{cap.severity}</span>
+                        <span className={clsx('text-[10px] px-1.5 py-0.5 rounded-full font-semibold uppercase', {
+                          'text-slate-400 bg-slate-800': cap.state === 'detected',
+                          'text-yellow-400 bg-yellow-500/10': cap.state === 'confirmed',
+                          'text-red-400 bg-red-500/10': cap.state === 'exploited' || cap.state === 'chained',
+                        })}>{cap.state}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {podCapabilities.length > 8 && (
+                    <p className="text-[10px] text-slate-500 pl-2">+{podCapabilities.length - 8} more</p>
+                  )}
+                </div>
               </div>
             )}
             <div className="mt-4 pt-4 border-t border-slate-800">

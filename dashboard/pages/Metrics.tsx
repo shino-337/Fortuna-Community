@@ -5,8 +5,8 @@ import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { Card } from '../components/ui/Card';
-import { Certificate, Agent, ErrorLog, SyncStatus, WorkerStatus } from '../types';
-import { Lock, Radio, RefreshCw, Download, History, AlertCircle, FileText, AlertTriangle, Activity } from 'lucide-react';
+import { Certificate, Agent, ErrorLog, SyncStatus, WorkerStatus, PipelineHealth } from '../types';
+import { Lock, Radio, RefreshCw, Download, History, AlertCircle, FileText, AlertTriangle, Activity, Layers, Shield, Target, Zap } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageLoading } from '../components/PageLoading';
@@ -20,6 +20,8 @@ export const Monitoring: React.FC = () => {
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus[]>([]);
+  // Phase 3.3: Pipeline health
+  const [pipelineHealth, setPipelineHealth] = useState<PipelineHealth | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +40,10 @@ export const Monitoring: React.FC = () => {
       setErrorLogs(logData.logs);
       setSyncStatus(syncData);
       setWorkerStatus(workerData);
+
+      // Phase 3.3: load pipeline health (non-critical, failure OK)
+      const ph = await api.getPipelineHealth().catch(() => null);
+      if (ph) setPipelineHealth(ph);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Không thể tải dữ liệu monitoring');
     } finally {
@@ -272,6 +278,108 @@ export const Monitoring: React.FC = () => {
           )}
         </Card>
       </div>
+
+      {/* Phase 3.3: Pipeline Health section */}
+      {pipelineHealth && (
+        <div className="mt-6">
+          <Card title="Pipeline Health" actions={<Layers className="w-4 h-4 text-slate-500" />}>
+            <p className="text-xs text-slate-500 mb-4">Status of each layer in the Unified Risk Pipeline. Data refreshes automatically.</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              {/* Layer 1 */}
+              <div className="p-3 rounded-lg bg-slate-950/50 border border-slate-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield className="w-4 h-4 text-blue-400" />
+                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Layer 1 · Fact Discovery</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Last PCE eval</span>
+                    <span className="text-slate-200">{pipelineHealth.layer1.lastPceEval ? formatDateTime(pipelineHealth.layer1.lastPceEval) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Last Risk Engine eval</span>
+                    <span className="text-slate-200">{pipelineHealth.layer1.lastRiskEngineEval ? formatDateTime(pipelineHealth.layer1.lastRiskEngineEval) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Active insights</span>
+                    <span className="text-slate-200 font-mono">{pipelineHealth.layer1.insightCount.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Layer 2 */}
+              <div className="p-3 rounded-lg bg-slate-950/50 border border-slate-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Zap className="w-4 h-4 text-yellow-400" />
+                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Layer 2 · Runtime</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Last state change</span>
+                    <span className="text-slate-200">{pipelineHealth.layer2.lastStateChange ? formatDateTime(pipelineHealth.layer2.lastStateChange) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Promotion rules</span>
+                    <span className="text-slate-200 font-mono">{pipelineHealth.layer2.activePromotionRules}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className={pipelineHealth.layer2.exploitedCapCount > 0 ? 'text-red-400' : ''}>Exploited caps</span>
+                    <span className={`font-mono ${pipelineHealth.layer2.exploitedCapCount > 0 ? 'text-red-400' : 'text-slate-200'}`}>{pipelineHealth.layer2.exploitedCapCount}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Layer 3 */}
+              <div className="p-3 rounded-lg bg-slate-950/50 border border-slate-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Target className="w-4 h-4 text-orange-400" />
+                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Layer 3 · Attack Paths</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Last path computation</span>
+                    <span className="text-slate-200">{pipelineHealth.layer3.lastPathComputation ? formatDateTime(pipelineHealth.layer3.lastPathComputation) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Total paths</span>
+                    <span className="text-slate-200 font-mono">{pipelineHealth.layer3.totalPaths.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className={pipelineHealth.layer3.criticalPaths > 0 ? 'text-red-400' : ''}>Critical paths</span>
+                    <span className={`font-mono ${pipelineHealth.layer3.criticalPaths > 0 ? 'text-red-400' : 'text-slate-200'}`}>{pipelineHealth.layer3.criticalPaths}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Layer 4 */}
+              <div className="p-3 rounded-lg bg-slate-950/50 border border-slate-800">
+                <div className="flex items-center gap-2 mb-2">
+                  <Activity className="w-4 h-4 text-emerald-400" />
+                  <span className="text-xs font-semibold text-slate-300 uppercase tracking-wide">Layer 4 · Unified Score</span>
+                </div>
+                <div className="space-y-1.5 text-xs text-slate-400">
+                  <div className="flex justify-between">
+                    <span>Last score calc</span>
+                    <span className="text-slate-200">{pipelineHealth.layer4.lastScoreCalc ? formatDateTime(pipelineHealth.layer4.lastScoreCalc) : '—'}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Resources scored</span>
+                    <span className="text-slate-200 font-mono">{pipelineHealth.layer4.resourcesScored.toLocaleString()}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Avg score</span>
+                    <span className="text-slate-200 font-mono">{pipelineHealth.layer4.avgScore.toFixed(1)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>V3 resources</span>
+                    <span className="text-emerald-400 font-mono">{pipelineHealth.layer4.v3Resources.toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </Card>
+        </div>
+      )}
     </PageLayout>
   );
 };

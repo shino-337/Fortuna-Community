@@ -59,7 +59,58 @@ Runtime admission risk gate for Kubernetes workloads (G-R10).
 
 ## Processing Flow
 
-### Risk Evaluation Pipeline
+### Unified Risk Pipeline (5-Layer Architecture — Phase 1–4, 2026-04-13)
+
+The codebase was refactored from 6 independent risk systems into a clear pipeline where each layer's output feeds into the next:
+
+```
+Layer 1: FACT DISCOVERY
+  PCE evaluator  → pod_capabilities (11 rules, state: detected/confirmed/exploited/chained)
+  Risk Engine    → insights (RBAC, capability, vulnerability, misconfiguration)
+  CVE Matcher    → vulnerability insights (CVSS, SBOM-linked)
+
+Layer 2: RUNTIME ENRICHMENT
+  CSC (CapabilityStateController) → state promotion
+  AttackStepInference             → pod_attack_steps
+
+Layer 3: PATH ANALYSIS  ← NEW: now reads PCE
+  RelationalPathBuilder.BuildPathsForPod()
+    reads pod_capabilities → adds escape edges (ESC_PRIV_POD, ESC_HOSTPATH_NODE, ESC_RUNTIME_ACTIVE)
+    reads pod_attack_steps → adds active step edges (e.g. NODE_CRED_DUMP → CAN_STEAL_CREDENTIALS)
+    boosts TotalRisk by capability state (confirmed +1.0, exploited +2.5/difficulty -0.3)
+    persists to attack_paths table (migration 118, upsert)
+
+Layer 4: UNIFIED SCORING  ← NEW: replaces 4 independent scoring systems
+  UnifiedScorerV3 (core/pkg/risk/unified_scorer.go)
+    reads: insights + pod_capabilities + attack_paths + runtime_signals
+    7 dimensions (max pts): VULNERABILITY(15), CAPABILITY_EXPOSURE(15), ATTACK_PATH(15),
+                            RBAC_POLICY(15), RUNTIME_THREAT(15), EXPOSURE(15), BLAST_RADIUS(10)
+    toxic-combo boosts: CVE critical + internet-exposed (+10),
+                        privileged + escape confirmed + cluster-admin path (+15),
+                        token theft + external egress (+10)
+    formula: min(100, (Σdimensions + toxic_boost) × time_decay)
+    persists to risk_scores with scorer_version="v3" and dimension columns (migration 119)
+    triggered by: PCE evaluator completion, InsightManager.scheduleRiskScoreCalculation()
+
+Layer 5: PRESENTATION
+  Dashboard reads risk_scores.total_score (V3) for authoritative number
+  PodDetail.tsx: Unified Risk Summary card with 7-dimension breakdown + toxic combos
+  Dashboard.tsx: Top Risky Pods card (V3 scores), exploited capability count, attack path count
+  Metrics.tsx: Pipeline Health section (Layer 1–4 status)
+```
+
+**Shared RBAC Analyzer (PCE-1 / PCE-3 gap closure):**
+- `core/pkg/rbac/analyzer.go` — single shared implementation for RBAC analysis
+- PCE evaluator's `hasAPIWriteAccess()` → calls `rbac.AnalyzePod()`
+- Attack Path's `classifyRoleRisk()` → replaced by `rbac.ClassifyRoleRisk()`
+- Eliminates the previous 3-way duplication
+
+**Backward Compatibility:**
+- V2 scorer (`core/pkg/risk/scorer.go`) continues to run unchanged alongside V3
+- `pod_risk_profiles` table still populated by PCE (not yet deprecated)
+- V3 records identified by `scorer_version="v3"` in `risk_scores`
+
+### Risk Evaluation Pipeline (V2 — unchanged)
 
 ```
 [Agent / Sync] → pods, pod_capabilities, SBOM (DB)
@@ -73,7 +124,7 @@ Runtime admission risk gate for Kubernetes workloads (G-R10).
     → ClearByPrefix("risks:list:", "insights:summary:", "risk:histogram:")
     → RisksWSHub.Broadcast({"type":"insights_updated"})
 [Dashboard: WebSocket /ws/risks] receives message → refetch getRisks()
-[Risk score] calculated per-resource → stored in risk_scores
+[Risk score] V2 + V3 calculated per-resource → stored in risk_scores
     GET /risk/insights?withScores=1 joins risk_scores → returns totalScore, priorityLevel
 ```
 
@@ -89,6 +140,20 @@ Runtime admission risk gate for Kubernetes workloads (G-R10).
 **Deduplication:** Vulnerability insights dedup by `(resource_uid, cve_id)`. Capability with cve_id: `(resource_uid, cve_id, insight_type)`. Others: `(resource_uid, insight_type, title)`. Re-activates resolved/dismissed insights on new evidence.
 
 **Real-time vs batch:** NATS messages trigger workers in real-time. WebSocket broadcasts `insights_updated` to Dashboard. Dashboard also uses `usePolling` with configurable intervals as fallback.
+
+### Pipeline Health API
+
+```
+GET /api/v1/monitoring/pipeline-health
+```
+
+Returns per-layer health status:
+- Layer 1: `lastPceEval`, `lastRiskEngineEval`, `insightCount`
+- Layer 2: `lastStateChange`, `activePromotionRules`, `exploitedCapCount`
+- Layer 3: `lastPathComputation`, `totalPaths`, `criticalPaths` (≥ 9.0 risk)
+- Layer 4: `lastScoreCalc`, `resourcesScored`, `avgScore`, `v3Resources`
+
+Visible in Dashboard → Monitoring page → "Pipeline Health" section.
 
 ### Runtime Security Detection
 

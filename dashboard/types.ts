@@ -868,3 +868,73 @@ export interface PodRiskReportSummary {
   overprivilegedRoles?: number;
   riskLevel?: string;
 }
+
+// ---------------------------------------------------------------------------
+// Phase 3: Unified Risk Pipeline — TypeScript types (Phase 3.4)
+// ---------------------------------------------------------------------------
+
+/**
+ * UnifiedRiskScore is the V3 unified risk score returned by
+ * GET /api/v1/risk/scores/:uid  (scorer_version = "v3").
+ *
+ * Dimensions sum to ≤90; remaining 10 pts come from blast_radius.
+ * Toxic combo boosts (+5–+15) are applied after the dimension sum.
+ */
+export interface UnifiedRiskScore {
+  resourceUid: string;
+  resourceName: string;
+  resourceType: string;
+  namespace: string;
+  clusterId: string;
+  totalScore: number;
+  priorityLevel: string;  // P0–P4
+  scorerVersion: string;  // "v3"
+  dimensions: {
+    vulnerability: number;       // 0–15
+    capabilityExposure: number;  // 0–15
+    attackPath: number;          // 0–15
+    rbacPolicy: number;          // 0–15
+    runtimeThreat: number;       // 0–15
+    exposure: number;            // 0–15
+    blastRadius: number;         // 0–10
+  };
+  toxicCombos: string[];
+  timeDecay: number;
+  calculatedAt: string;  // ISO-8601
+}
+
+/**
+ * PipelineHealth aggregates the status of each layer of the Unified Risk
+ * Pipeline and is returned by GET /api/v1/monitoring/pipeline-health.
+ */
+export interface PipelineHealth {
+  layer1: {
+    lastPceEval: string | null;
+    lastRiskEngineEval: string | null;
+    insightCount: number;
+  };
+  layer2: {
+    lastStateChange: string | null;
+    activePromotionRules: number;
+    exploitedCapCount: number;
+  };
+  layer3: {
+    lastPathComputation: string | null;
+    totalPaths: number;
+    criticalPaths: number;
+  };
+  layer4: {
+    lastScoreCalc: string | null;
+    resourcesScored: number;
+    avgScore: number;
+    v3Resources: number;
+  };
+}
+
+/**
+ * EnrichedAttackPath extends AttackPath with additional fields populated
+ * during PCE enrichment (Phase 1.2).
+ */
+export interface EnrichedAttackPath extends AttackPath {
+  enrichedFromPce: boolean;
+}
