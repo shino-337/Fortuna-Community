@@ -2,13 +2,15 @@ package graph
 
 // AttackPath represents an attack path from a source to a target
 type AttackPath struct {
-	Nodes      []PathNode `json:"nodes"`
-	Edges      []PathEdge `json:"edges"`
-	TotalRisk  float64    `json:"total_risk"`
-	Difficulty float64    `json:"difficulty"` // 0-1, how hard to execute
-	Impact     float64    `json:"impact"`      // 0-1, potential damage
-	Length     int        `json:"length"`
-	Description string    `json:"description"`
+	Nodes           []PathNode `json:"nodes"`
+	Edges           []PathEdge `json:"edges"`
+	TotalRisk       float64    `json:"total_risk"`
+	Difficulty      float64    `json:"difficulty"`     // 0-1, how hard to execute
+	Impact          float64    `json:"impact"`         // 0-1, potential damage
+	Length          int        `json:"length"`
+	Description     string     `json:"description"`
+	// EnrichedFromPCE is true when capability/attack-step edges were added (Phase 1.2)
+	EnrichedFromPCE bool       `json:"enrichedFromPce"`
 }
 
 // PathNode represents a node in an attack path

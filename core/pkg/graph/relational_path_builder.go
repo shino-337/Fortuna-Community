@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/rbac"
 )
 
 // RelationalPathBuilder computes attack paths using relational (SQL) queries
@@ -43,12 +44,12 @@ type subject struct {
 
 // AttackPathSummary provides aggregate statistics across all computed paths.
 type AttackPathSummary struct {
-	TotalPaths      int              `json:"totalPaths"`
-	CriticalPaths   int              `json:"criticalPaths"`
-	HighPaths       int              `json:"highPaths"`
-	MediumPaths     int              `json:"mediumPaths"`
-	TargetBreakdown map[string]int   `json:"targetBreakdown"` // target role name → count
-	TopPods         []RiskyPod       `json:"topPods"`
+	TotalPaths      int            `json:"totalPaths"`
+	CriticalPaths   int            `json:"criticalPaths"`
+	HighPaths       int            `json:"highPaths"`
+	MediumPaths     int            `json:"mediumPaths"`
+	TargetBreakdown map[string]int `json:"targetBreakdown"` // target role name → count
+	TopPods         []RiskyPod     `json:"topPods"`
 }
 
 // BuildAllPaths computes attack paths for all active pods in the cluster.
@@ -77,6 +78,9 @@ func (b *RelationalPathBuilder) BuildAllPaths(ctx context.Context, clusterID str
 }
 
 // BuildPathsForPod computes attack paths originating from a specific pod.
+// Phase 1.2: paths are enriched with pod_capabilities (escape edges) and
+// pod_attack_steps (active step edges) from the PCE pipeline.
+// Phase 1.3: computed paths are persisted to the attack_paths table via upsert.
 func (b *RelationalPathBuilder) BuildPathsForPod(ctx context.Context, podUID string) ([]AttackPath, error) {
 	// 1. Get the pod
 	var pod models.Pod
@@ -142,6 +146,26 @@ func (b *RelationalPathBuilder) BuildPathsForPod(ctx context.Context, podUID str
 		crMap[cr.Name] = cr
 	}
 
+	// Phase 1.2 — Load PCE capability facts for this pod
+	var podCaps []models.PodCapability
+	if b.db.Migrator().HasTable("pod_capabilities") {
+		if err := b.db.WithContext(ctx).
+			Where("pod_uid = ?", podUID).
+			Find(&podCaps).Error; err != nil {
+			log.Printf("[RelationalPathBuilder] warning: failed to load pod_capabilities for %s: %v", podUID, err)
+		}
+	}
+
+	// Phase 1.2 — Load PCE attack steps for this pod
+	var podAttackSteps []models.PodAttackStep
+	if b.db.Migrator().HasTable("pod_attack_steps") {
+		if err := b.db.WithContext(ctx).
+			Where("pod_uid = ?", podUID).
+			Find(&podAttackSteps).Error; err != nil {
+			log.Printf("[RelationalPathBuilder] warning: failed to load pod_attack_steps for %s: %v", podUID, err)
+		}
+	}
+
 	// 6. Resolve paths via RoleBindings
 	var paths []AttackPath
 
@@ -177,12 +201,14 @@ func (b *RelationalPathBuilder) BuildPathsForPod(ctx context.Context, podUID str
 			continue
 		}
 
-		riskLevel := classifyRoleRisk(targetName, targetRules)
+		riskLevel := rbac.ClassifyRoleRisk(targetName, targetRules)
 		if riskLevel == "none" {
 			continue // Skip low-interest paths
 		}
 
 		path := buildPath(pod, sa, rb.Name, rb.Namespace, "RoleBinding", targetName, targetType, targetRules, riskLevel)
+		// Phase 1.2: enrich with PCE facts
+		enrichPathWithPCE(&path, podCaps, podAttackSteps)
 		paths = append(paths, path)
 	}
 
@@ -205,13 +231,20 @@ func (b *RelationalPathBuilder) BuildPathsForPod(ctx context.Context, podUID str
 			continue
 		}
 
-		riskLevel := classifyRoleRisk(cr.Name, cr.Rules)
+		riskLevel := rbac.ClassifyRoleRisk(cr.Name, cr.Rules)
 		if riskLevel == "none" {
 			continue
 		}
 
 		path := buildPath(pod, sa, crb.Name, "", "ClusterRoleBinding", cr.Name, "ClusterRole", cr.Rules, riskLevel)
+		// Phase 1.2: enrich with PCE facts
+		enrichPathWithPCE(&path, podCaps, podAttackSteps)
 		paths = append(paths, path)
+	}
+
+	// Phase 1.3: persist computed paths (upsert by pod_uid + path_id)
+	if err := persistAttackPaths(ctx, b.db, podUID, paths); err != nil {
+		log.Printf("[RelationalPathBuilder] warning: failed to persist attack paths for pod %s: %v", podUID, err)
 	}
 
 	return paths, nil
@@ -362,71 +395,6 @@ func bindingRefersToSA(subjectsJSON, saName, saNamespace string) bool {
 	return false
 }
 
-// classifyRoleRisk returns "critical", "high", "medium", or "none".
-func classifyRoleRisk(roleName, rulesJSON string) string {
-	lower := strings.ToLower(roleName)
-	if lower == "cluster-admin" || strings.Contains(lower, "cluster-admin") {
-		return "critical"
-	}
-	if strings.Contains(lower, "admin") {
-		return "high"
-	}
-
-	// Parse rules to check for wildcard permissions
-	if rulesJSON == "" || rulesJSON == "null" {
-		return "none"
-	}
-
-	var rules []map[string]interface{}
-	if err := json.Unmarshal([]byte(rulesJSON), &rules); err != nil {
-		return "none"
-	}
-
-	highest := "none"
-	for _, rule := range rules {
-		verbs := toStringSlice(rule["verbs"])
-		resources := toStringSlice(rule["resources"])
-		apiGroups := toStringSlice(rule["apiGroups"])
-
-		hasWildcardVerb := contains(verbs, "*")
-		hasWildcardResource := contains(resources, "*")
-		hasWildcardAPI := contains(apiGroups, "*") || contains(apiGroups, "")
-
-		if hasWildcardVerb && hasWildcardResource {
-			return "critical"
-		}
-
-		// Privilege escalation verbs
-		if containsAny(verbs, "escalate", "bind", "impersonate") {
-			return "critical"
-		}
-
-		// Read-only secret theft: get/list/watch on secrets is high risk
-		hasReadVerbs := containsAny(verbs, "get", "list", "watch") || hasWildcardVerb
-		if hasReadVerbs && containsAny(resources, "secrets", "*") {
-			highest = maxRisk(highest, "high")
-		}
-
-		dangerousVerbs := hasDangerousVerbs(verbs, hasWildcardVerb)
-		sensitiveResources := hasSensitiveResources(resources)
-
-		// Critical: mutate/wildcard on nodes or CSR/PKI or token-related resources
-		if dangerousVerbs && hasCriticalResources(resources) {
-			return "critical"
-		}
-
-		if dangerousVerbs && sensitiveResources && hasWildcardAPI {
-			highest = maxRisk(highest, "high")
-		}
-
-		if dangerousVerbs && sensitiveResources {
-			highest = maxRisk(highest, "medium")
-		}
-	}
-
-	return highest
-}
-
 func buildPath(pod models.Pod, sa models.ServiceAccount, bindingName, bindingNS, bindingType, targetName, targetType, targetRules, riskLevel string) AttackPath {
 	totalRisk := riskToScore(riskLevel)
 	difficulty := difficultyFromRiskLevel(riskLevel)
@@ -558,6 +526,140 @@ func classifyRiskLabel(score float64) string {
 	return "low"
 }
 
+// enrichPathWithPCE adds PCE capability edges and attack-step edges to a path,
+// and boosts TotalRisk / reduces Difficulty based on capability state.
+// This implements Phase 1.2 of the Unified Risk Pipeline (PCE-1 gap closure).
+func enrichPathWithPCE(path *AttackPath, caps []models.PodCapability, steps []models.PodAttackStep) {
+	if len(caps) == 0 && len(steps) == 0 {
+		return
+	}
+
+	const (
+		capESCPrivPod      = "ESC_PRIV_POD"
+		capESCHostPath     = "ESC_HOSTPATH_NODE"
+		capESCRuntimeActive = "ESC_RUNTIME_ACTIVE"
+	)
+
+	escapeCapIDs := map[string]struct{}{
+		capESCPrivPod:       {},
+		capESCHostPath:      {},
+		capESCRuntimeActive: {},
+	}
+
+	enriched := false
+	podNodeID := ""
+	if len(path.Nodes) > 0 {
+		podNodeID = path.Nodes[0].ID
+	}
+
+	for _, cap := range caps {
+		if _, isEscape := escapeCapIDs[cap.CapabilityID]; !isEscape {
+			continue
+		}
+
+		// Add a capability node and escape edge
+		capNodeID := fmt.Sprintf("cap:%s:%s", cap.PodUID, cap.CapabilityID)
+		capNode := PathNode{
+			ID:   capNodeID,
+			Type: "Capability",
+			Properties: map[string]interface{}{
+				"capabilityId": cap.CapabilityID,
+				"severity":     cap.Severity,
+				"state":        cap.State,
+			},
+		}
+		path.Nodes = append(path.Nodes, capNode)
+		if podNodeID != "" {
+			path.Edges = append(path.Edges, PathEdge{
+				Type:   "HAS_CAPABILITY",
+				Source: podNodeID,
+				Target: capNodeID,
+			})
+		}
+
+		// Boost path risk based on capability state
+		switch cap.State {
+		case "confirmed":
+			path.TotalRisk = clampFloat(path.TotalRisk+1.0, 0, 10.0)
+			path.Difficulty = clampFloat(path.Difficulty-0.1, 0.1, 1.0)
+		case "exploited":
+			path.TotalRisk = clampFloat(path.TotalRisk+2.5, 0, 10.0)
+			path.Difficulty = clampFloat(path.Difficulty-0.3, 0.1, 1.0)
+		}
+
+		enriched = true
+	}
+
+	// Add edges for active attack steps
+	for _, step := range steps {
+		stepNodeID := fmt.Sprintf("step:%s:%s", step.PodUID, step.StepID)
+		stepNode := PathNode{
+			ID:   stepNodeID,
+			Type: "AttackStep",
+			Properties: map[string]interface{}{
+				"stepId":     step.StepID,
+				"category":   step.Category,
+				"confidence": step.Confidence,
+			},
+		}
+		path.Nodes = append(path.Nodes, stepNode)
+		if podNodeID != "" {
+			edgeType := "HAS_ATTACK_STEP"
+			if step.StepID == "NODE_CRED_DUMP" {
+				edgeType = "CAN_STEAL_CREDENTIALS"
+			}
+			path.Edges = append(path.Edges, PathEdge{
+				Type:   edgeType,
+				Source: podNodeID,
+				Target: stepNodeID,
+			})
+		}
+		enriched = true
+	}
+
+	if enriched {
+		path.EnrichedFromPCE = true
+		path.Length = len(path.Nodes) - 1
+	}
+}
+
+// persistAttackPaths upserts computed attack paths into the attack_paths table.
+// If the table does not yet exist (pre-migration environment), this is a no-op.
+func persistAttackPaths(ctx context.Context, db *gorm.DB, podUID string, paths []AttackPath) error {
+	if !db.Migrator().HasTable("attack_paths") {
+		return nil
+	}
+
+	for i, p := range paths {
+		nodesJSON, _ := json.Marshal(p.Nodes)
+		edgesJSON, _ := json.Marshal(p.Edges)
+
+		// Stable path ID: based on position so re-computation produces the same key.
+		pathID := fmt.Sprintf("%s-path-%d", podUID, i)
+
+		record := models.AttackPath{
+			PodUID:          podUID,
+			PathID:          pathID,
+			Nodes:           string(nodesJSON),
+			Edges:           string(edgesJSON),
+			TotalRisk:       p.TotalRisk,
+			Difficulty:      p.Difficulty,
+			Impact:          p.Impact,
+			Length:          p.Length,
+			Description:     p.Description,
+			EnrichedFromPCE: p.EnrichedFromPCE,
+		}
+
+		if err := db.WithContext(ctx).
+			Where("pod_uid = ? AND path_id = ?", podUID, pathID).
+			Assign(record).
+			FirstOrCreate(&record).Error; err != nil {
+			return fmt.Errorf("upsert path %s: %w", pathID, err)
+		}
+	}
+	return nil
+}
+
 func toStringSlice(val interface{}) []string {
 	if val == nil {
 		return nil
@@ -593,61 +695,6 @@ func containsAny(s []string, vals ...string) bool {
 		}
 	}
 	return false
-}
-
-// hasDangerousVerbs returns true if the slice contains wildcard or mutating verbs.
-func hasDangerousVerbs(verbs []string, hasWildcard bool) bool {
-	return hasWildcard ||
-		contains(verbs, "create") ||
-		contains(verbs, "update") ||
-		contains(verbs, "patch") ||
-		contains(verbs, "delete")
-}
-
-// hasCriticalResources returns true if the slice contains resources that grant
-// cluster-level privilege escalation when mutated (node takeover, CSR/PKI, token mint).
-func hasCriticalResources(resources []string) bool {
-	return containsAny(resources,
-		// Node takeover
-		"nodes", "nodes/proxy", "nodes/metrics", "nodes/stats",
-		// Mint/steal tokens
-		"serviceaccounts/token", "tokenreviews",
-		// CSR/PKI escalation
-		"certificatesigningrequests", "certificatesigningrequests/approval",
-	)
-}
-
-// hasSensitiveResources returns true if the slice includes sensitive K8s resource types.
-// Note: critical resources (covered by hasCriticalResources) are intentionally included
-// here as well, because hasSensitiveResources is also used independently for medium-risk
-// classification when dangerous verbs are present but the resource is not in the critical set.
-func hasSensitiveResources(resources []string) bool {
-	return containsAny(resources,
-		// Secrets
-		"secrets",
-		// Core workloads
-		"pods", "deployments", "daemonsets",
-		"jobs", "cronjobs", "statefulsets", "replicasets",
-		// Pod exec/lateral movement
-		"pods/exec", "pods/portforward", "pods/proxy", "pods/attach",
-		// RBAC
-		"clusterroles", "clusterrolebindings",
-		"roles", "rolebindings",
-		// Service accounts & tokens
-		"serviceaccounts",
-		// Data exfiltration
-		"configmaps", "persistentvolumeclaims", "persistentvolumes",
-		"endpoints", "services", "ingresses",
-	)
-}
-
-// maxRisk returns the higher of two risk levels.
-func maxRisk(a, b string) string {
-	order := map[string]int{"none": 0, "medium": 1, "high": 2, "critical": 3}
-	if order[b] > order[a] {
-		return b
-	}
-	return a
 }
 
 // podSecurityPostureBoost returns an additive risk score boost (0–1.5)

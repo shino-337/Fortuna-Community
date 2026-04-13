@@ -240,21 +240,37 @@ func (m *InsightManager) createInsightTx(tx *gorm.DB, insight *models.Insight) e
 
 // runRiskScoreCalculation calculates and saves risk score for one resource (blocking).
 // Used from scheduleRiskScoreCalculation in a goroutine so API is not blocked.
+// Phase 2.2: runs both V2 and V3 scorers so both results are persisted.
 func (m *InsightManager) runRiskScoreCalculation(ctx context.Context, resourceUID string) {
 	if resourceUID == "" {
 		return
 	}
+
+	// V2 scorer (backward compatibility — unchanged)
 	scorer := risk.NewScorer(m.db)
 	score, err := scorer.CalculateScore(ctx, resourceUID)
 	if err != nil {
-		log.Printf("[InsightManager] Risk score calculation failed for resource_uid=%s: %v", resourceUID, err)
+		log.Printf("[InsightManager] V2 risk score calculation failed for resource_uid=%s: %v", resourceUID, err)
+	} else {
+		if err := scorer.SaveScore(ctx, score); err != nil {
+			log.Printf("[InsightManager] V2 risk score save failed for resource_uid=%s: %v", resourceUID, err)
+		} else {
+			log.Printf("[InsightManager] V2 risk score updated for resource_uid=%s total=%.1f priority=%s", resourceUID, score.TotalScore, score.PriorityLevel)
+		}
+	}
+
+	// V3 unified scorer (Phase 2.2)
+	scorerV3 := risk.NewUnifiedScorerV3(m.db)
+	scoreV3, err := scorerV3.CalculateScoreV3(ctx, resourceUID)
+	if err != nil {
+		log.Printf("[InsightManager] V3 risk score calculation failed for resource_uid=%s: %v", resourceUID, err)
 		return
 	}
-	if err := scorer.SaveScore(ctx, score); err != nil {
-		log.Printf("[InsightManager] Risk score save failed for resource_uid=%s: %v", resourceUID, err)
+	if err := scorerV3.SaveScoreV3(ctx, scoreV3); err != nil {
+		log.Printf("[InsightManager] V3 risk score save failed for resource_uid=%s: %v", resourceUID, err)
 		return
 	}
-	log.Printf("[InsightManager] Risk score updated for resource_uid=%s total=%.1f priority=%s", resourceUID, score.TotalScore, score.PriorityLevel)
+	log.Printf("[InsightManager] V3 risk score updated for resource_uid=%s total=%.1f priority=%s", resourceUID, scoreV3.TotalScore, scoreV3.PriorityLevel)
 }
 
 // scheduleRiskScoreCalculation schedules risk score calculation for the resource of the given insight.

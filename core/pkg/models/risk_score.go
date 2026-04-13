@@ -25,7 +25,13 @@ type RiskScore struct {
 	// V2 Scoring fields
 	ExploitabilityScore float64 `gorm:"type:decimal(5,2);default:0.0" json:"exploitabilityScore"` // V2: 0-30
 	BusinessImpactScore float64 `gorm:"type:decimal(5,2);default:0.0" json:"businessImpactScore"` // V2: 0-30
-	ScorerVersion       string  `gorm:"type:varchar(10);default:'v1'" json:"scorerVersion"`       // "v1" or "v2"
+	ScorerVersion       string  `gorm:"type:varchar(10);default:'v1'" json:"scorerVersion"`       // "v1", "v2", or "v3"
+
+	// V3 Scoring dimension fields (Unified Scorer — Phase 2.3)
+	CapabilityExposureScore float64 `gorm:"type:float;default:0" json:"capabilityExposureScore"` // V3: 0-15
+	AttackPathScore         float64 `gorm:"type:float;default:0" json:"attackPathScore"`         // V3: 0-15
+	RuntimeThreatScore      float64 `gorm:"type:float;default:0" json:"runtimeThreatScore"`      // V3: 0-15
+	BlastRadiusScore        float64 `gorm:"type:float;default:0" json:"blastRadiusScore"`        // V3: 0-10
 
 	// Context
 	Factors         string `gorm:"type:jsonb;default:'{}'" json:"factors"` // JSON string

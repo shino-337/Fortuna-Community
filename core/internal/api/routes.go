@@ -156,6 +156,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.GET("/resources", GetResources(db))
 		v1.GET("/notifications", GetNotifications(db))
 		v1.GET("/monitoring/agents", GetAgentStatus(db))
+		v1.GET("/monitoring/pipeline-health", GetPipelineHealth(db))
 
 		// Internal: re-trigger CVE matching for an existing SBOM (e.g. after restoring soft-deleted components)
 		if publishSBOMCreated != nil {

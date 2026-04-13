@@ -11,6 +11,8 @@ import (
 	"github.com/lib/pq"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/rbac"
+	"github.com/fortuna/core/pkg/risk"
 	"github.com/fortuna/core/pkg/riskengine"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
@@ -22,21 +24,6 @@ type Capability struct {
 	Severity string
 	Evidence map[string]interface{}
 	Mitre    []string
-}
-
-type roleRef struct {
-	Kind string `json:"kind"`
-	Name string `json:"name"`
-}
-
-type subject struct {
-	Kind      string `json:"kind"`
-	Name      string `json:"name"`
-	Namespace string `json:"namespace"`
-}
-
-type policyRule struct {
-	Verbs []string `json:"verbs"`
 }
 
 // EvaluateAndUpsertPod evaluates capabilities for a single pod and persists results.
@@ -94,6 +81,11 @@ func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod, exp
 	if err := syncCapabilityInsights(ctx, db, pod, caps); err != nil {
 		return err
 	}
+
+	// Phase 2.2: trigger V3 unified scorer after PCE evaluation
+	go func(uid string) {
+		risk.NewUnifiedScorerV3(db).ScheduleUnifiedScoreCalculation(uid)
+	}(pod.UID)
 
 	// Only set last_evaluated_hash when spec_hash still matches (atomic; avoids overwriting after newer sync)
 	if expectedSpecHash != "" {
@@ -333,16 +325,18 @@ func EvaluatePod(ctx context.Context, db *gorm.DB, pod *models.Pod) ([]Capabilit
 	}
 
 	// API_RBAC_WRITE_CLUSTER (standardized ID)
-	hasWrite, evidence, err := hasAPIWriteAccess(ctx, db, pod)
+	// Use the shared RBAC analyzer for consistent classification across PCE,
+	// Attack Path Builder, and Risk Engine.
+	rbacAnalysis, err := rbac.AnalyzePod(ctx, db, pod)
 	if err != nil {
 		return caps, err
 	}
-	if hasWrite {
+	if rbacAnalysis.HasWrite {
 		caps = append(caps, Capability{
 			ID:       API_RBAC_WRITE_CLUSTER,
 			Group:    "API",
 			Severity: "HIGH",
-			Evidence: evidence,
+			Evidence: rbacAnalysis.Evidence,
 			Mitre:    []string{"T1609"},
 		})
 	}
@@ -541,104 +535,4 @@ func isTableMissingError(err error) bool {
 	}
 	s := strings.ToLower(err.Error())
 	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist")
-}
-
-func hasAPIWriteAccess(ctx context.Context, db *gorm.DB, pod *models.Pod) (bool, map[string]interface{}, error) {
-	if pod.ServiceAccount == "" {
-		return false, nil, nil
-	}
-
-	roles := make([]roleRef, 0)
-
-	var roleBindings []models.RoleBinding
-	if err := db.WithContext(ctx).Where("cluster_id = ? AND namespace = ? AND deleted_at IS NULL", pod.ClusterID, pod.Namespace).
-		Find(&roleBindings).Error; err != nil {
-		if isTableMissingError(err) {
-			// role_bindings table not present (e.g. test DB) — assume no bindings
-			roleBindings = nil
-		} else {
-			return false, nil, err
-		}
-	}
-	for _, rb := range roleBindings {
-		var subs []subject
-		if err := json.Unmarshal([]byte(rb.Subjects), &subs); err != nil {
-			continue
-		}
-		for _, s := range subs {
-			if s.Kind == "ServiceAccount" && s.Name == pod.ServiceAccount && s.Namespace == pod.Namespace {
-				var ref roleRef
-				if err := json.Unmarshal([]byte(rb.RoleRef), &ref); err == nil {
-					roles = append(roles, ref)
-				}
-				break
-			}
-		}
-	}
-
-	var clusterRoleBindings []models.ClusterRoleBinding
-	if err := db.WithContext(ctx).Where("cluster_id = ? AND deleted_at IS NULL", pod.ClusterID).
-		Find(&clusterRoleBindings).Error; err != nil {
-		if isTableMissingError(err) {
-			clusterRoleBindings = nil
-		} else {
-			return false, nil, err
-		}
-	}
-	for _, crb := range clusterRoleBindings {
-		var subs []subject
-		if err := json.Unmarshal([]byte(crb.Subjects), &subs); err != nil {
-			continue
-		}
-		for _, s := range subs {
-			if s.Kind == "ServiceAccount" && s.Name == pod.ServiceAccount && s.Namespace == pod.Namespace {
-				var ref roleRef
-				if err := json.Unmarshal([]byte(crb.RoleRef), &ref); err == nil {
-					roles = append(roles, ref)
-				}
-				break
-			}
-		}
-	}
-
-	for _, r := range roles {
-		switch r.Kind {
-		case "Role":
-			var role models.Role
-			if err := db.WithContext(ctx).Where("cluster_id = ? AND name = ? AND namespace = ? AND deleted_at IS NULL",
-				pod.ClusterID, r.Name, pod.Namespace).First(&role).Error; err != nil {
-				continue
-			}
-			if hasWriteVerbs(role.Rules) {
-				return true, map[string]interface{}{"role": r.Name, "roleKind": r.Kind}, nil
-			}
-		case "ClusterRole":
-			var cr models.ClusterRole
-			if err := db.WithContext(ctx).Where("cluster_id = ? AND name = ? AND deleted_at IS NULL",
-				pod.ClusterID, r.Name).First(&cr).Error; err != nil {
-				continue
-			}
-			if hasWriteVerbs(cr.Rules) {
-				return true, map[string]interface{}{"role": r.Name, "roleKind": r.Kind}, nil
-			}
-		}
-	}
-
-	return false, nil, nil
-}
-
-func hasWriteVerbs(rulesJSON string) bool {
-	var rules []policyRule
-	if err := json.Unmarshal([]byte(rulesJSON), &rules); err != nil {
-		return false
-	}
-	for _, r := range rules {
-		for _, verb := range r.Verbs {
-			v := strings.ToLower(verb)
-			if v == "*" || v == "create" || v == "update" || v == "delete" || v == "patch" {
-				return true
-			}
-		}
-	}
-	return false
 }
