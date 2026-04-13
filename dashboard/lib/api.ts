@@ -57,6 +57,7 @@ import {
   RiskRuleFull,
   PodRiskReportSummary,
   ThreatSummary,
+  WorkerStatus,
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 
@@ -1380,6 +1381,15 @@ export const api = {
         drift: false,
         resources: { pods: 0, sas: 0, roles: 0, bindings: 0 },
       };
+    }
+  },
+
+  getWorkerStatus: async (): Promise<WorkerStatus[]> => {
+    try {
+      const data = await request<{ workers: WorkerStatus[] }>('/metrics/workers');
+      return data.workers ?? [];
+    } catch (err) {
+      return [];
     }
   },
 

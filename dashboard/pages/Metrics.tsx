@@ -5,8 +5,8 @@ import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { Card } from '../components/ui/Card';
-import { Certificate, Agent, ErrorLog, SyncStatus } from '../types';
-import { Lock, Radio, RefreshCw, Download, History, AlertCircle, FileText } from 'lucide-react';
+import { Certificate, Agent, ErrorLog, SyncStatus, WorkerStatus } from '../types';
+import { Lock, Radio, RefreshCw, Download, History, AlertCircle, FileText, AlertTriangle, Activity } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageLoading } from '../components/PageLoading';
@@ -19,20 +19,27 @@ export const Monitoring: React.FC = () => {
   const [agents, setAgents] = useState<Agent[]>([]);
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>([]);
   const [syncStatus, setSyncStatus] = useState<SyncStatus | null>(null);
+  const [workerStatus, setWorkerStatus] = useState<WorkerStatus[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
+    setError(null);
     try {
-      const [certData, agentData, logData, syncData] = await Promise.all([
+      const [certData, agentData, logData, syncData, workerData] = await Promise.all([
         api.getCertificates(),
         api.getAgents(),
         api.getErrorLogs({ page: 1, pageSize: 10 }),
         api.getSyncStatus(),
+        api.getWorkerStatus(),
       ]);
       setCerts(certData);
       setAgents(agentData);
       setErrorLogs(logData.logs);
       setSyncStatus(syncData);
+      setWorkerStatus(workerData);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Không thể tải dữ liệu monitoring');
     } finally {
       setLoading(false);
     }
@@ -104,6 +111,15 @@ export const Monitoring: React.FC = () => {
         </div>
       }
     >
+      {error && (
+        <div className="mb-4 flex items-center gap-3 p-3 rounded-lg border border-red-800 bg-red-950/40 text-red-300">
+          <AlertTriangle className="w-4 h-4 shrink-0 text-red-400" />
+          <span className="text-sm flex-1">{error}</span>
+          <Button variant="secondary" size="sm" onClick={fetchData}>
+            <RefreshCw className="w-3 h-3 mr-1.5" /> Retry
+          </Button>
+        </div>
+      )}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mb-6">
         <Card variant="panel">
           <div className="space-y-1">
@@ -214,6 +230,47 @@ export const Monitoring: React.FC = () => {
             )}
           </Card>
         </div>
+      </div>
+
+      <div className="mt-6">
+        <Card title="Worker / Queue Status" actions={<Activity className="w-4 h-4 text-slate-500" />}>
+          {workerStatus.length === 0 ? (
+            <PageEmpty title="No worker data" description="Worker status unavailable." className="py-8" />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-800 text-slate-500 text-xs uppercase">
+                    <th className="text-left py-2 pr-4 font-medium">Worker</th>
+                    <th className="text-right py-2 px-4 font-medium">Queue Depth</th>
+                    <th className="text-right py-2 px-4 font-medium">Active</th>
+                    <th className="text-right py-2 px-4 font-medium">Processed</th>
+                    <th className="text-right py-2 px-4 font-medium">Failed</th>
+                    <th className="text-right py-2 pl-4 font-medium">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/50">
+                  {workerStatus.map((w) => (
+                    <tr key={w.name} className="hover:bg-slate-800/20">
+                      <td className="py-2.5 pr-4 font-mono text-slate-200">{w.name}</td>
+                      <td className="py-2.5 px-4 text-right text-slate-300">{w.queueDepth}</td>
+                      <td className="py-2.5 px-4 text-right text-slate-300">{w.activeWorkers}</td>
+                      <td className="py-2.5 px-4 text-right text-slate-300">{w.processed.toLocaleString()}</td>
+                      <td className={`py-2.5 px-4 text-right font-medium ${w.failed > 0 ? 'text-red-400' : 'text-slate-500'}`}>{w.failed}</td>
+                      <td className="py-2.5 pl-4 text-right">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold uppercase ${
+                          w.status === 'running' ? 'bg-emerald-900/40 text-emerald-400' :
+                          w.status === 'degraded' ? 'bg-yellow-900/40 text-yellow-400' :
+                          'bg-slate-800 text-slate-500'
+                        }`}>{w.status}</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </Card>
       </div>
     </PageLayout>
   );

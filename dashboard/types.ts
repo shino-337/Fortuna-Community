@@ -659,6 +659,15 @@ export interface SyncStatus {
   resources: { pods: number; sas: number; roles?: number; bindings?: number };
 }
 
+export interface WorkerStatus {
+  name: string;
+  queueDepth: number;
+  activeWorkers: number;
+  processed: number;
+  failed: number;
+  status: 'running' | 'stopped' | 'degraded';
+}
+
 export interface User {
   id: string;
   name?: string;

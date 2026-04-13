@@ -148,6 +148,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		// Metrics (Workers/Queue/API Latency removed – use Prometheus when needed)
 		v1.GET("/metrics/system", GetSystemMetrics(db))
 		v1.GET("/metrics/policy-evaluation-cost", GetPolicyEvaluationCost(db))
+		v1.GET("/metrics/workers", GetWorkerStatus(db))
 		v1.GET("/error-logs", GetErrorLogs(db))
 		v1.GET("/agents/status", GetAgentStatus(db))
 
