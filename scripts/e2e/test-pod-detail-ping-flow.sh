@@ -28,7 +28,7 @@ echo "Removing existing pod if present (K8s forbids changing pod spec command/im
 kubectl delete pod "$POD_NAME" -n "$TEST_NS" --ignore-not-found --wait=false 2>/dev/null || true
 sleep 2
 echo "Applying ping pod manifest..."
-kubectl apply -f "${PROJECT_ROOT}/deploy/e2e/ksam-e2e-poddetail-ping-pod.yaml"
+kubectl apply -f "${PROJECT_ROOT}/deploy/e2e/fortuna-e2e-poddetail-ping-pod.yaml"
 
 echo "Waiting for pod Ready..."
 kubectl wait --for=condition=Ready "pod/$POD_NAME" -n "$TEST_NS" --timeout=120s >/dev/null

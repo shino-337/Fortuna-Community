@@ -121,7 +121,7 @@ Dựa trên phân tích toàn bộ tài liệu (`GAP_IMPLEMENTATION_STATUS.md`, 
 #### A. Docs consolidation (Tiết kiệm ~40% docs size)
 
 **Vấn đề:** 229 markdown files, nhiều nội dung trùng lặp:
-- `docs/03-components/risk-center/` — 38 files, nhiều bản analysis trùng
+- `docs/03-components/risk-center/` — consolidated into `README.md` and `GAPS.md`
 - `docs/06-reference/` — nhiều doc cũ từ 2024-2025 chưa archive
 - `docs/06-reference/migration/` — 13 files migration docs đã xong
 

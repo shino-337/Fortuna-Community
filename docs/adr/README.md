@@ -9,5 +9,6 @@ Runtime / risk-center decisions for Fortuna. Listed in suggested reading order:
 | [003](003-asset-security-state-schema-groups.md) | `asset_security_state` five groups |
 | [004](004-rep-detector-governance.md) | REP-C detector governance & replay |
 | [005](005-pod-capability-single-table.md) | Pod capability single-table (G-DB-01) |
+| [006](006-version-comparison-strategy.md) | Version comparison strategy for CVE matching |
 
-Backlog cross-ref: `docs/03-components/risk-center/FORTUNA_RUNTIME_IMPLEMENTATION_BACKLOG.md` §9, `GAP_IMPLEMENTATION_STATUS.md`.
+Cross-references: [Risk Center GAPS](../03-components/risk-center/GAPS.md) | [Architecture](../02-architecture/ARCHITECTURE.md)

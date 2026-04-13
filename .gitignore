@@ -76,6 +76,7 @@ temp/
 *.zip
 dist/
 build/
+!scripts/build/
 
 # Certificates and secrets
 .certs/

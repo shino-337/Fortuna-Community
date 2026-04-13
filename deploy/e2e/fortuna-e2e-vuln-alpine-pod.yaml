@@ -6,13 +6,13 @@ metadata:
 apiVersion: v1
 kind: Pod
 metadata:
-  name: website-vuln-lodash
+  name: fortuna-e2e-vuln-alpine
   namespace: fortuna-e2e
   labels:
-    app: website-vuln
+    app: fortuna-e2e-vuln
     test: e2e-cve-sbom
 spec:
-  restartPolicy: Always
+  restartPolicy: Never
   # For portability: override nodeSelector per environment if needed
   # nodeSelector:
   #   kubernetes.io/hostname: k8s-master
@@ -21,9 +21,7 @@ spec:
       operator: Exists
       effect: NoSchedule
   containers:
-    - name: web
-      image: website-vuln-lodash:latest
+    - name: app
+      image: fortuna-e2e-vuln-alpine:latest
       imagePullPolicy: IfNotPresent
-      ports:
-        - containerPort: 3000
-          name: http
+      command: ["sleep", "3600"]

@@ -206,17 +206,17 @@ Fortuna requires:
 
 | Resource | Request | Limit |
 |----------|---------|-------|
-| **CPU** | 100m | 500m |
-| **Memory** | 256Mi | 512Mi |
+| **CPU** | 100m | 1000m |
+| **Memory** | 256Mi | 1Gi |
 
 ### Fortuna Agent
 
 | Resource | Request | Limit |
 |----------|---------|-------|
-| **CPU** | 50m | 200m |
-| **Memory** | 128Mi | 256Mi |
+| **CPU** | 100m | 1000m |
+| **Memory** | 1Gi | 6Gi |
 
-**Note**: Agent runs as DaemonSet (one per node)
+**Note**: Agent runs as DaemonSet (one per node). The Agent requires significant memory for eBPF-based runtime monitoring, SBOM extraction, and container image analysis. When Falco JSONL tail reader is enabled, ensure 6Gi limit and set `SBOM_WORKERS=1`.
 
 ### PostgreSQL
 
@@ -304,6 +304,6 @@ Fortuna requires:
 
 ---
 
-**Environment Requirements v1.0**
+**Environment Requirements v1.0.0**
 
 
