@@ -28,6 +28,7 @@ Scripts are grouped in subdirectories. **Always invoke by full path** `./scripts
 - **Deploy YAML:** Use `deploy/fortuna-core-deployment.yaml` (Service + Deployment), `deploy/fortuna-agent-daemonset.yaml`, `deploy/dashboard-deployment.yaml`, `deploy/fortuna-rbac.yaml` (RBAC for core + agent). Redundant files removed: `core-service.yaml`, `agent-rbac.yaml`.
 - **Image prefix:** `fortuna` (core, agent, dashboard). Containerd namespace: `k8s.io`.
 - **K8s namespace:** `fortuna`.
+- **Build tools:** Auto-detects **nerdctl** (requires buildkitd), **docker** (imports into containerd via `ctr`), or **buildctl** (OCI export + `ctr` import). Override with `BUILD_TOOL=docker|nerdctl|buildctl` environment variable.
 
 ---
 
@@ -155,32 +156,38 @@ Archive file migration orphan (codebase cleanup). Không liên quan runtime/K8s.
 
 ## Build
 
-### `build-and-load-containerd.sh` **(build chính)**
+### `build-and-load-containerd.sh` **(main build script)**
 
-Build core, agent, dashboard bằng nerdctl và load vào containerd (namespace `k8s.io`).
+Build core, agent, dashboard and load into containerd (namespace `k8s.io`).
+Auto-detects build backend: **nerdctl** (requires buildkitd), **docker** (imports via `ctr`), or **buildctl** (OCI export + ctr import). Override with `BUILD_TOOL=docker|nerdctl|buildctl`.
 
 ```bash
-./scripts/build/build-and-load-containerd.sh
-SKIP_DASHBOARD=true ./scripts/build/build-and-load-containerd.sh   # bỏ qua dashboard
-NO_CACHE=true ./scripts/build/build-and-load-containerd.sh        # build không cache
-EXPORT_IMAGES=true ./scripts/build/build-and-load-containerd.sh   # export tar sau khi build
+./scripts/build/build-and-load-containerd.sh                           # auto-detect tool
+BUILD_TOOL=docker ./scripts/build/build-and-load-containerd.sh         # force Docker backend
+SKIP_DASHBOARD=true ./scripts/build/build-and-load-containerd.sh       # skip dashboard
+NO_CACHE=true ./scripts/build/build-and-load-containerd.sh             # build without cache
+EXPORT_IMAGES=true ./scripts/build/build-and-load-containerd.sh        # export tarballs after build
+BUILD_CORE_ONLY=true ./scripts/build/build-and-load-containerd.sh      # build Core only
+BUILD_AGENT_ONLY=true ./scripts/build/build-and-load-containerd.sh     # build Agent only
+BUILD_DASHBOARD_ONLY=true ./scripts/build/build-and-load-containerd.sh # build Dashboard only
 ```
 
 ### `build-dashboard-containerd.sh`
 
-Chỉ build image dashboard (nerdctl → containerd).
+Build dashboard image only (wrapper around main build script).
 
 ```bash
 ./scripts/build/build-dashboard-containerd.sh
+BUILD_TOOL=docker ./scripts/build/build-dashboard-containerd.sh
 ```
 
 ### `build-production.sh`
 
-Build image cho production registry (Docker), có thể push.
+Build images for production registry (Docker). Optionally push to registry.
 
 ```bash
 ./scripts/build/build-production.sh
-PUSH_IMAGES=true ./scripts/build/build-production.sh
+REGISTRY=registry.company.com/fortuna PUSH_IMAGES=true ./scripts/build/build-production.sh
 ```
 
 ---

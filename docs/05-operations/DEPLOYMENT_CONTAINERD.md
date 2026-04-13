@@ -1,54 +1,58 @@
-# Build và Deploy Fortuna với Containerd / nerdctl
+# Build and Deploy Fortuna with Containerd
 
-*Cập nhật: 2026-02-02*
+*Updated: 2026-04-13*
 
-## 1. Cơ chế build và deploy
+## 1. Build and Deploy Architecture
 
-- **Runtime**: Kubernetes dùng **containerd** (CRI), namespace `k8s.io`.
-- **Build**: **nerdctl** build image và load vào containerd (không cần Docker daemon).
-- **Deploy**: **kubectl apply** các file trong `deploy/` (postgres, nats, RBAC, core, agent, dashboard).
+- **Runtime**: Kubernetes uses **containerd** (CRI), namespace `k8s.io`.
+- **Build**: Auto-detects **nerdctl**, **docker**, or **buildctl**. Override: `BUILD_TOOL=docker|nerdctl|buildctl`.
+- **Deploy**: **kubectl apply** manifests in `deploy/` (postgres, nats, RBAC, core, agent, dashboard).
 
-## 2. Yêu cầu
+## 2. Requirements
 
-- `nerdctl`, `ctr` (containerd), `go`, `kubectl`
-- Containerd socket: `/run/containerd/containerd.sock` hoặc `/var/run/containerd/containerd.sock`
-- Cluster Kubernetes (minikube, kubeadm, …) dùng containerd làm CRI
-- **Không cần npm/Node.js trên host**: Dashboard build trong Dockerfile (trong container).
+- One of: `nerdctl` + buildkitd, `docker`, or `buildctl` + buildkitd
+- `ctr` (containerd CLI) — for importing Docker-built images into containerd
+- `kubectl`
+- Containerd socket: `/run/containerd/containerd.sock` or `/var/run/containerd/containerd.sock`
+- Kubernetes cluster (minikube, kubeadm, …) using containerd as CRI
+- **No npm/Node.js needed on host**: Dashboard builds inside Dockerfile (container).
 
-## 3. Build (nerdctl → containerd)
+## 3. Build (auto-detect: nerdctl / docker / buildctl)
 
-Từ thư mục gốc repo:
+From repo root:
 
 ```bash
-# Build core, agent, dashboard và load vào containerd (namespace k8s.io)
+# Build core, agent, dashboard and load into containerd (namespace k8s.io)
 ./scripts/build/build-and-load-containerd.sh
 
-# Chỉ build core + agent (bỏ qua dashboard)
+# Force Docker backend (when buildkitd is not running)
+BUILD_TOOL=docker ./scripts/build/build-and-load-containerd.sh
+
+# Build core + agent only (skip dashboard)
 SKIP_DASHBOARD=true ./scripts/build/build-and-load-containerd.sh
 
-# Build không dùng cache
+# Build without cache
 NO_CACHE=true ./scripts/build/build-and-load-containerd.sh
 ```
 
-Image sau build: `fortuna-core:latest`, `fortuna-agent:latest`, `fortuna-dashboard:latest` (và tag `VERSION` nếu set).  
-Deployment YAML dùng `imagePullPolicy: Never` để dùng image local.
+Images after build: `fortuna-core:latest`, `fortuna-agent:latest`, `fortuna-dashboard:latest` (and `VERSION` tag if set).
+Deployment YAMLs use `imagePullPolicy: Never` for local images.
 
-### Đồng nhất digest mặc định (master + worker)
+### Image Digest Consistency (master + worker)
 
-Từ bản cập nhật hiện tại:
-- `scripts/build/build-and-load-containerd.sh` tự đồng bộ short tag `fortuna-*:<tag>` với canonical ref `docker.io/library/fortuna-*:<tag>`.
-- `scripts/utils/push-images-to-workers.sh` bật mặc định `VERIFY_REMOTE_DIGEST=true` và fail-fast khi digest remote không khớp digest local.
+- `scripts/build/build-and-load-containerd.sh` syncs short tag `fortuna-*:<tag>` with canonical ref `docker.io/library/fortuna-*:<tag>`.
+- `scripts/utils/push-images-to-workers.sh` defaults `VERIFY_REMOTE_DIGEST=true` and fails fast when remote digest doesn't match local.
 
-Luồng khuyến nghị:
+Recommended workflow:
 
 ```bash
-# 1) Build local (đồng bộ short/canonical refs)
+# 1) Build locally
 ./scripts/build/build-and-load-containerd.sh
 
-# 2) Push sang tất cả node với verify digest mặc định
+# 2) Push to all nodes with digest verification
 ./scripts/utils/push-images-to-workers.sh
 
-# 3) Rollout workload
+# 3) Rollout workloads
 kubectl -n fortuna rollout restart deployment/fortuna-core
 kubectl -n fortuna rollout restart daemonset/fortuna-agent
 ```
