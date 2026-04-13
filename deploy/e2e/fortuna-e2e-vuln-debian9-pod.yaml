@@ -13,8 +13,9 @@ metadata:
     test: e2e-cve-sbom
 spec:
   restartPolicy: Never
-  nodeSelector:
-    kubernetes.io/hostname: k8s-master
+  # For portability: override nodeSelector per environment if needed
+  # nodeSelector:
+  #   kubernetes.io/hostname: k8s-master
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists
