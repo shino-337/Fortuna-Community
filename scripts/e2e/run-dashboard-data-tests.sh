@@ -46,13 +46,13 @@ fi
 echo ""
 
 # 1b. Deploy E2E vuln pod (optional – more SBOM/CVE data for Threat Velocity)
-if [ -f "$PROJECT_ROOT/deploy/e2e/ksam-e2e-vuln-pod.yaml" ]; then
+if [ -f "$PROJECT_ROOT/deploy/e2e/fortuna-e2e-vuln-pod.yaml" ]; then
   log_info "Step 1b: Deploying E2E vuln pod (debian:10 for CVE insights)..."
-  kubectl apply -f "$PROJECT_ROOT/deploy/e2e/ksam-e2e-vuln-pod.yaml" 2>/dev/null || true
+  kubectl apply -f "$PROJECT_ROOT/deploy/e2e/fortuna-e2e-vuln-pod.yaml" 2>/dev/null || true
   sleep 30
   log_ok "E2E vuln pod applied (agent will sync and extract SBOM)"
 else
-  log_info "Step 1b: deploy/e2e/ksam-e2e-vuln-pod.yaml not found; skip"
+  log_info "Step 1b: deploy/e2e/fortuna-e2e-vuln-pod.yaml not found; skip"
 fi
 echo ""
 
