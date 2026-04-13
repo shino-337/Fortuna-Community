@@ -1,20 +1,25 @@
 # Reference Documentation
 
-API references, security policies, and migration guides.
+Technical reference documents for the FortunaK8s platform.
 
 ## 📚 Documents
 
 ### Security
-- **[SECURITY.md](./SECURITY.md)** - Security policies and best practices
+- **[SECURITY.md](./SECURITY.md)** - Comprehensive security policies and best practices
 
-### Migration
-- **[migration/](./migration/)** - KSAM to Fortuna migration guides
-  - **[MIGRATION_GUIDE_KSAM_TO_FORTUNA.md](./migration/MIGRATION_GUIDE_KSAM_TO_FORTUNA.md)** - Migration overview
-  - **[MIGRATION_EXECUTION_REPORT.md](./migration/MIGRATION_EXECUTION_REPORT.md)** - Execution report
-  - **[MIGRATION_COMPLETE.md](./migration/MIGRATION_COMPLETE.md)** - Completion status
-  - **[DATABASE_DEEP_ANALYSIS_REPORT.md](./migration/DATABASE_DEEP_ANALYSIS_REPORT.md)** - Database analysis
-  - **[FILE_MIGRATION_MAP.md](./migration/FILE_MIGRATION_MAP.md)** - File mapping
-  - **[FULL_PROJECT_REVIEW_SUMMARY.md](./migration/FULL_PROJECT_REVIEW_SUMMARY.md)** - Review summary
+### Technical Debt
+- **[Technical Debt Analysis](./technical-debt/TECHNICAL_DEBT_ANALYSIS.md)** - Current technical debt inventory and remediation plans
+
+### Architecture Decision Records
+- **[ADR-001: Version Comparison Strategy](./adr/ADR-001-Version-Comparison-Strategy.md)** - Ecosystem-specific comparator decision
+
+### Policy Engine
+- **[Policy Engine Implementation Plan](./POLICY_ENGINE_IMPLEMENTATION_PLAN.md)** - CEL-based policy engine roadmap
+- **[Policy Engine Action Plan](./POLICY_ENGINE_ACTION_PLAN.md)** - Detailed action items
+- **[Policy Engine Analysis](./policy-engine-analysis.md)** - Comprehensive design analysis
+
+### GAP Tracking
+- **[GAP Status (Current)](./GAP_STATUS_CURRENT.md)** - Up-to-date implementation status and pending items
 
 ---
 

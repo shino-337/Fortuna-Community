@@ -2,6 +2,56 @@
 
 Kubernetes manifests for **FortunaK8s** (Core, Agent, Dashboard, infrastructure). Deploy with **kubectl apply** or **Helm** (see [Helm](#helm)).
 
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Kubernetes Cluster                        │
+├─────────────────────────────────────────────────────────────┤
+│                                                              │
+│  ┌──────────────┐        ┌──────────────┐                   │
+│  │ Fortuna Agent│───────▶│ Fortuna Core │──▶ Dashboard      │
+│  │  (DaemonSet) │ gRPC   │ (Deployment) │   (Deployment)    │
+│  └──────────────┘ mTLS   └──────┬───────┘                   │
+│                                  │                           │
+│                         ┌────────┴────────┐                  │
+│                         │                 │                  │
+│                  ┌──────▼─────┐    ┌─────▼─────┐            │
+│                  │ PostgreSQL │    │   NATS    │            │
+│                  │  + AGE     │    │JetStream  │            │
+│                  └────────────┘    └───────────┘            │
+│                                                              │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Component Requirements
+
+| Component | Type | CPU (req/limit) | Memory (req/limit) | Storage |
+|-----------|------|-----------------|---------------------|---------|
+| **Core** | Deployment | 100m / 1000m | 256Mi / 1Gi | — |
+| **Agent** | DaemonSet | 100m / 1000m | 1Gi / 6Gi | — |
+| **Dashboard** | Deployment | 10m / 100m | 64Mi / 128Mi | — |
+| **PostgreSQL** | StatefulSet | 200m / 1000m | 512Mi / 2Gi | 20Gi+ SSD |
+| **NATS** | StatefulSet (3x) | 100m / 500m | 256Mi / 2Gi | 10Gi/replica |
+| **Redis** | Deployment | 50m / 200m | 64Mi / 256Mi | — |
+
+### Environment Requirements
+
+- **Kubernetes**: 1.28+
+- **Container Runtime**: containerd 1.7+ (recommended) or Docker 20.10+
+- **Nodes**: Min 2 (1 master + 1 worker), recommended 3+
+- **Network**: Pod-to-pod communication, DNS, ports 8080 (HTTP), 9090 (gRPC), 5432 (PostgreSQL), 4222 (NATS)
+- **StorageClass**: `local-path` or equivalent with ReadWriteOnce support
+
+See [Environment Requirements](../docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md) for full details.
+
+### ⚠️ Production Security Notes
+
+- **Change default credentials**: Default admin is `admin`/`admin123`. Override via Kubernetes Secret `fortuna-admin-creds`.
+- **Database credentials**: Replace hardcoded `postgres:postgres` in `core-secrets.yaml` with proper Secret management.
+- **Image tags**: Use versioned tags (e.g., `v1.0.0`) instead of `:latest` for reproducibility.
+- **mTLS**: Required for Agent↔Core communication. Generate certificates before deployment.
+
 ---
 
 ## Deploy checklist
