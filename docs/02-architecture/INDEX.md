@@ -10,23 +10,29 @@ This directory contains the architectural documentation for Fortuna K8s Manageme
 
 ### Core Architecture
 - **[README.md](./README.md)** - Architecture overview and system design
-- **[DATA_FLOWS.md](./DATA_FLOWS.md)** - Data flow diagrams and explanations
+- **[ARCHITECTURE.md](./ARCHITECTURE.md)** - Architecture decision framework
+- **[COMPONENTS.md](./COMPONENTS.md)** - Component specifications
 - **[Database Schema](./database/SCHEMA_ANALYSIS.md)** - PostgreSQL + Apache AGE schema
-- **[EVENT_SYSTEM.md](./EVENT_SYSTEM.md)** - NATS JetStream architecture
+- **[REPOSITORY_STRUCTURE.md](./REPOSITORY_STRUCTURE.md)** - Codebase organization
 
 ### Design Decisions
-- **[ADR (Architecture Decision Records)](./KSAM_ADR_FULL.md)** - Key architectural decisions
-- **[WHY_FORTUNA.md](./WHY_FORTUNA.md)** - Why we built Fortuna
-- **[DESIGN_PRINCIPLES.md](./DESIGN_PRINCIPLES.md)** - Core design principles
+- **[ADR-0010: Agent as Data Plane](./ADR-0010-AGENT-AS-DATA-PLANE-MANDATORY.md)** - Agent architecture decision
+- **[ADR-0011: Naming Migration](./ADR-0011-NAMING-MIGRATION.md)** - KSAM → Fortuna naming decision
+- **[ADR Index](../adr/)** - All architecture decision records
+
+### API Architecture
+- **[API Route Classification](./API_ROUTE_CLASSIFICATION_ABC.md)** - API route organization (ABC classification)
+- **[API Route Remediation Plan](./API_ROUTE_REMEDIATION_PLAN.md)** - API standardization roadmap
+- **[API Architect & Route Standard](./API-ARCHITECT_AND_ROUTE_STANDARD.md)** - API design standards
 
 ### Security
-- **[SECURITY_MODEL.md](./SECURITY_MODEL.md)** - Security architecture
-- **[MTLS_SETUP.md](./MTLS_SETUP.md)** - mTLS configuration
-- **[RBAC_DESIGN.md](./RBAC_DESIGN.md)** - RBAC implementation
+- **[Security Guide](../01-getting-started/SECURITY_GUIDE.md)** - Comprehensive security setup (mTLS, RBAC, secrets)
 
-### Components
-- **[COMPONENT_DIAGRAM.md](./COMPONENT_DIAGRAM.md)** - Component relationships
-- **[DEPLOYMENT_TOPOLOGY.md](./DEPLOYMENT_TOPOLOGY.md)** - Deployment patterns
+### UI/UX Design
+- **[UI Layout Patterns](./FORTUNA_UI_LAYOUT_PATTERNS.md)** - Dashboard UI patterns
+- **[UI Design System](./FORTUNA_UI_DESIGN_SYSTEM_03132026.md)** - Design system specification
+- **[Component Library](./FORTUNA_COMPONENT_LIBRARY.md)** - Reusable UI components
+- **[Data Visualization Guidelines](./FORTUNA_DATA_VISUALIZATION_GUIDELINES.md)** - Chart and visualization standards
 
 ---
 
@@ -151,11 +157,12 @@ Insights → Risk Engine → Calculate Score → PostgreSQL (risk_scores)
 
 ## 🗺️ Related Documentation
 
-- **[Getting Started](../getting-started/README.md)** - Deploy Fortuna
-- **[Components](../components/README.md)** - Component details
-- **[Operations](../operations/README.md)** - Run in production
+- **[Getting Started](../01-getting-started/README.md)** - Deploy Fortuna
+- **[Components](../03-components/)** - Component details
+- **[Operations](../05-operations/)** - Run in production
+- **[Reference](../06-reference/)** - Technical reference
 
 ---
 
-*Last Updated: December 2024 (v2.0 - Fortuna)*
+*Last Updated: April 2026 (v1.0.0)*
 

@@ -29,13 +29,18 @@ spec:
               echo "Starting risk evaluation at $(date)"
               
               # Get Core service endpoint
-              CORE_SERVICE="http://core.fortuna.svc.cluster.local:8080"
+              # NOTE: Uses fortuna-core service name as defined in fortuna-core-deployment.yaml
+              CORE_SERVICE="${CORE_SERVICE_URL:-http://fortuna-core.fortuna.svc.cluster.local:8080}"
               
               # Login to get token
+              # WARNING: For production, replace hardcoded credentials with Kubernetes Secret references.
+              # Use: kubectl create secret generic fortuna-admin-creds --from-literal=username=admin --from-literal=password=<secure-password>
               echo "Authenticating..."
+              ADMIN_USER="${ADMIN_USERNAME:-admin}"
+              ADMIN_PASS="${ADMIN_PASSWORD:-admin123}"
               TOKEN=$(curl -s -X POST ${CORE_SERVICE}/api/v1/auth/login \
                 -H "Content-Type: application/json" \
-                -d '{"username":"admin","password":"admin123"}' \
+                -d "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" \
                 | grep -o '"token":"[^"]*' | cut -d'"' -f4)
               
               if [ -z "$TOKEN" ]; then
@@ -63,6 +68,21 @@ spec:
                 echo "Response: $BODY"
                 exit 1
               fi
+            env:
+            # Override these with secretKeyRef in production
+            # Example:
+            #   - name: ADMIN_USERNAME
+            #     valueFrom:
+            #       secretKeyRef:
+            #         name: fortuna-admin-creds
+            #         key: username
+            #   - name: ADMIN_PASSWORD
+            #     valueFrom:
+            #       secretKeyRef:
+            #         name: fortuna-admin-creds
+            #         key: password
+            - name: CORE_SERVICE_URL
+              value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
             resources:
               requests:
                 memory: "32Mi"

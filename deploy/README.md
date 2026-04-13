@@ -54,9 +54,9 @@ deploy/
 │   ├── 01-root-ca.yaml
 │   ├── 02-core-server-cert.yaml
 │   └── 03-agent-client-cert.yaml
-├── infrastructure/                   # Hạ tầng
-│   ├── postgresql-with-age.yaml     # PostgreSQL + PVC (khuyến nghị)
-│   ├── postgresql.yaml              # PostgreSQL đơn giản
+├── infrastructure/                   # Infrastructure
+│   ├── postgresql-with-age.yaml     # PostgreSQL + PVC (recommended)
+│   ├── postgresql.yaml              # PostgreSQL simple
 │   ├── nats.yaml                    # NATS JetStream (StatefulSet 3 replica)
 │   └── redis.yaml                   # Redis (optional)
 └── e2e/                             # E2E / test
@@ -94,15 +94,15 @@ No monitoring stack (Grafana, Prometheus) is included. Core exposes `/metrics` f
 Build and deploy use **containerd / nerdctl**. See **`docs/05-operations/DEPLOYMENT_CONTAINERD.md`**. From repo root:
 
 ```bash
-# Clean toàn bộ image cũ + rebuild (nerdctl) + deploy
+# Clean all old images + rebuild (nerdctl) + deploy
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh
 
-# Thêm: xóa dữ liệu DB (DELETE, giữ schema) rồi rebuild + deploy
+# Also: delete DB data (DELETE, keep schema) then rebuild + deploy
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db
 
-# Clean images + DB + rebuild + deploy (script cũ, tùy chọn)
+# Clean images + DB + rebuild + deploy
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db
-# Hoặc full reset DB: ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset
+# Or full reset DB: ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset
 ```
 
 If the script times out during deploy (e.g. Flannel step), ensure Core is deployed:
@@ -133,10 +133,10 @@ Then run verification: `./scripts/verify/check-full-deployment.sh`, `./scripts/e
 
 ## Helm
 
-Fortuna có Helm chart tại **`helm/fortuna/`**. Cài đặt hoặc nâng cấp:
+Fortuna has a Helm chart at **`helm/fortuna/`**. Install or upgrade:
 
 ```bash
-# Thêm repo (nếu publish) hoặc dùng path local
+# Add repo (if published) or use local path
 helm upgrade --install fortuna ./helm/fortuna -n fortuna --create-namespace
 
 # Override image tag / registry

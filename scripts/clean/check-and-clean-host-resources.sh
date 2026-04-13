@@ -93,7 +93,7 @@ section_check_ctr() {
     COUNT=${COUNT:-0}
     echo "  Total image refs: $COUNT"
     if [ "$COUNT" -gt 0 ] 2>/dev/null; then
-      echo "  Fortuna/KSAM refs:"
+      echo "  Fortuna refs:"
       $CTR images ls -q 2>/dev/null | grep -E "${IMAGE_PREFIX}|ksam" || true
     fi
   else

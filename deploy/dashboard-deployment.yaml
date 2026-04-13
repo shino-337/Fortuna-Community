@@ -13,8 +13,9 @@ spec:
       labels:
         app: fortuna-dashboard
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: k8s-master
+      # For production: remove nodeSelector or use appropriate node labels
+      # nodeSelector:
+      #   kubernetes.io/hostname: k8s-master
       tolerations:
       - key: "node-role.kubernetes.io/control-plane"
         operator: "Exists"
@@ -22,7 +23,8 @@ spec:
       containers:
       - name: dashboard
         image: fortuna-dashboard:latest
-        # IfNotPresent: dùng image đã build/load trên node (cùng master).
+        # For production: use versioned tags (e.g., fortuna-dashboard:v1.0.0)
+        # IfNotPresent: uses pre-built/loaded image on the node
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80

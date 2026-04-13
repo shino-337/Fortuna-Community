@@ -70,7 +70,7 @@ FortunaK8s (K8S Security & Risk Management Platform) v1.0.0 is the first stable 
 ## Database
 
 - PostgreSQL 15+ with Apache AGE extension
-- 36 automatic migrations
+- 98 automatic migrations (117 migration files)
 - Complete schema documentation
 - Unique constraints and indexes
 
@@ -111,7 +111,7 @@ N/A - Initial release.
 
 ## Known Issues
 
-See [Troubleshooting Guide](docs/05-operations/PRODUCTION_DEPLOYMENT.md#troubleshooting) for known issues and solutions.
+See [Deployment Guide](docs/05-operations/DEPLOYMENT.md) for known issues and solutions.
 
 ---
 
@@ -124,9 +124,9 @@ Fortuna Development Team
 ## Links
 
 - [Documentation](docs/README.md)
-- [API Reference](docs/06-reference/API_REFERENCE.md)
-- [Deployment Guide](docs/05-operations/PRODUCTION_DEPLOYMENT.md)
-- [Architecture](docs/02-architecture/ARCHITECTURE.md)
+- [Deployment Guide](docs/05-operations/DEPLOYMENT.md)
+- [Architecture](docs/02-architecture/README.md)
+- [Security Reference](docs/06-reference/SECURITY.md)
 
 ---
 
