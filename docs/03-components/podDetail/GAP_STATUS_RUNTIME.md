@@ -2,7 +2,7 @@
 
 Cap nhat: 2026-03-28
 
-Tong hop GAP + roadmap day du theo phase: xem `docs/03-components/risk-center/FORTUNA_RUNTIME_IMPLEMENTATION_BACKLOG.md` **Muc 9**.
+Tong hop GAP + roadmap day du theo phase: xem `docs/03-components/risk-center/GAPS.md`.
 
 Cap nhat truoc: 2026-03-26 (Falco Helm + Pod Detail UI security runtime events)
 

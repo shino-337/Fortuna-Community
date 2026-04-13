@@ -146,7 +146,7 @@ Refs: `docs/02-architecture/API-ARCHITECT_AND_ROUTE_STANDARD.md`, `docs/03-compo
 **Core replicas: WebSocket, dedup, and sticky session (Finding #1.1)**  
 WebSocket hubs (`/api/v1/ws/risks`, `/api/v1/ws/pod/:uid`) and in-memory deduplication (e.g. pod-detail ingest) are **per Core process**, not shared across replicas. If a replica fails or the load balancer routes a client to a different replica, WebSocket connections can drop (client must reconnect) and dedup may allow duplicate events across replicas. **Sticky session** (load balancer affinity or cookie) is **optional for correctness** but **recommended for UX**: it keeps a given client on the same Core replica so WebSocket and in-memory state stay consistent. Future work may add shared coordination (e.g. Redis or NATS pub/sub) for WebSocket and dedup.
 
-Refs: `docs/02-architecture/COMPONENTS.md`, `docs/README.md`, `docs/03-components/risk-center/Risk-Center-Implementation-Plan-Detailed.md`, `docs/Fortuna–Principles_for_Non-Disruptive_Architecture_Improvements.md`.
+Refs: `docs/02-architecture/COMPONENTS.md`, `docs/README.md`, `docs/03-components/risk-center/README.md`, `docs/Fortuna–Principles_for_Non-Disruptive_Architecture_Improvements.md`.
 
 ### DR (Disaster recovery) / Geo
 
@@ -155,7 +155,7 @@ Refs: `docs/02-architecture/COMPONENTS.md`, `docs/README.md`, `docs/03-component
 - **Backup/restore:** Not specified; would be standard DB and (if needed) NATS backup.
 - **Insights/risk:** Described as “eventual consistency” (async workers); no multi-region replication configured.
 
-Refs: `docs/03-components/risk-center/Risk-Center_Review_Answers.md`, `docs/03-components/podDetail/podDetail_QA.md`.
+Refs: `docs/03-components/risk-center/README.md`, `docs/03-components/podDetail/podDetail_QA.md`.
 
 ---
 
