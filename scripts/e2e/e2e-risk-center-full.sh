@@ -130,7 +130,7 @@ echo "=============================================="
 info "Core pod: $CORE_POD"
 
 # Coverage pod matrix for risk center rules/runtime
-MATRIX_FILE="$PROJECT_ROOT/deploy/e2e/risk-center-pod-matrix.yaml"
+MATRIX_FILE="$PROJECT_ROOT/scripts/e2e/fixtures/deploy-e2e/risk-center-pod-matrix.yaml"
 if [ -f "$MATRIX_FILE" ]; then
   info "Applying pod matrix: $MATRIX_FILE"
   kubectl apply -f "$MATRIX_FILE" >/dev/null 2>&1 || true

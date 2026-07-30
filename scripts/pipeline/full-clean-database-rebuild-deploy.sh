@@ -771,7 +771,7 @@ if [ "$SKIP_DEPLOY" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true
     fi
     PG_CONTAINER="$PG_C_TMP"
     if [ "$DB_RESET" = true ]; then
-      SQL_FILE="$PROJECT_ROOT/deploy/e2e/reset_database_full.sql"
+      SQL_FILE="$PROJECT_ROOT/deploy/sql/reset_database_full.sql"
       if [ -f "$SQL_FILE" ]; then
         if ! kubectl cp "$SQL_FILE" "$POD:/tmp/reset_db.sql" -n "$NAMESPACE" -c "$PG_CONTAINER"; then
           log_error "kubectl cp reset_database_full.sql failed"
@@ -787,7 +787,7 @@ if [ "$SKIP_DEPLOY" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true
         exit 1
       fi
     else
-      SQL_FILE="$PROJECT_ROOT/deploy/e2e/clear_all_cluster_data.sql"
+      SQL_FILE="$PROJECT_ROOT/deploy/sql/clear_all_cluster_data.sql"
       if [ -f "$SQL_FILE" ]; then
         if ! kubectl cp "$SQL_FILE" "$POD:/tmp/clear_db.sql" -n "$NAMESPACE" -c "$PG_CONTAINER"; then
           log_error "kubectl cp clear_all_cluster_data.sql failed"
@@ -1093,7 +1093,7 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ] && { [ "$CLEAN_DB
     exit 1
   fi
   if [ "$DB_RESET" = true ]; then
-    SQL_FILE="$PROJECT_ROOT/deploy/e2e/reset_database_full.sql"
+    SQL_FILE="$PROJECT_ROOT/deploy/sql/reset_database_full.sql"
     if [ -f "$SQL_FILE" ]; then
       if ! kubectl cp "$SQL_FILE" "$POD:/tmp/reset_db.sql" -n "$NAMESPACE" -c "$PG_CONTAINER"; then
         log_error "kubectl cp reset_database_full.sql failed"
@@ -1109,7 +1109,7 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ] && { [ "$CLEAN_DB
       exit 1
     fi
   else
-    SQL_FILE="$PROJECT_ROOT/deploy/e2e/clear_all_cluster_data.sql"
+    SQL_FILE="$PROJECT_ROOT/deploy/sql/clear_all_cluster_data.sql"
     if [ -f "$SQL_FILE" ]; then
       if ! kubectl cp "$SQL_FILE" "$POD:/tmp/clear_db.sql" -n "$NAMESPACE" -c "$PG_CONTAINER"; then
         log_error "kubectl cp clear_all_cluster_data.sql failed"

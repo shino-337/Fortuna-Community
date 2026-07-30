@@ -37,9 +37,6 @@ spec:
       labels:
         app: postgres
     spec:
-      # Schedule PostgreSQL on master node to avoid network routing issues
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
       containers:
       - name: postgres
         image: postgres:15-alpine
@@ -67,7 +64,7 @@ spec:
         resources:
           requests:
             memory: "256Mi"
-            cpu: "10m"  # keep request tiny: omitting cpu makes request default to limit (500m). Master is CPU-saturated.
+            cpu: "10m"
           limits:
             memory: "512Mi"
             cpu: "500m"

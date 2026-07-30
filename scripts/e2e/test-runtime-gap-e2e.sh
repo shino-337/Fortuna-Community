@@ -47,7 +47,7 @@ pass "Core pod found: $CORE_POD"
 # Risk Center pod matrix (coverage expansion)
 echo ""
 echo "--- Pod matrix: ensure risk-center coverage pods ---"
-MATRIX_FILE="$PROJECT_ROOT/deploy/e2e/risk-center-pod-matrix.yaml"
+MATRIX_FILE="$PROJECT_ROOT/scripts/e2e/fixtures/deploy-e2e/risk-center-pod-matrix.yaml"
 if [ -f "$MATRIX_FILE" ]; then
   kubectl apply -f "$MATRIX_FILE" >/dev/null 2>&1 || true
   if kubectl -n risk-center-test wait --for=condition=Ready pod \

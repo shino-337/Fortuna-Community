@@ -82,7 +82,7 @@ data:
         END \$\$;
     EOSQL
     
-    echo "✅ PostgreSQL initialization complete"
+    echo "PostgreSQL initialization complete"
 ---
 apiVersion: apps/v1
 kind: Deployment

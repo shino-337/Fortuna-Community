@@ -7,12 +7,12 @@
 # - File must use Unix line endings (LF). If edited on Windows, run: sed -i 's/\r$//' push-images.config
 
 # Master node (Core runs here; image must be present)
-MASTER_NODE=192.168.56.100
+MASTER_NODE=<management-node-ip-or-dns>
 MASTER_SSH_USER=root
 MASTER_SSH_PASS=
 
 # Worker nodes (space-separated)
-WORKER_NODES=192.168.56.101
+WORKER_NODES=<worker-node-ip-or-dns>
 WORKER_SSH_USER=k8s
 WORKER_SSH_PASS=
 

@@ -13,21 +13,9 @@ spec:
       labels:
         app: fortuna-dashboard
     spec:
-      # Local registryless default: keep Dashboard on the control-plane/master
-      # where the image is built/loaded. Do not copy Dashboard image to workers
-      # unless this selector is intentionally changed.
-      # For registry-backed production, remove this selector or use appropriate labels.
-      nodeSelector:
-        kubernetes.io/hostname: k8s-master
-      tolerations:
-      - key: "node-role.kubernetes.io/control-plane"
-        operator: "Exists"
-        effect: "NoSchedule"
       containers:
       - name: dashboard
-        image: fortuna-dashboard:v1.5.1-75-ga734e53b9
-        # Pipeline syncs this tag to VERSION after a successful build.
-        # IfNotPresent: uses pre-built/loaded image on the node
+        image: ghcr.io/shino-337/fortuna-community/fortuna-dashboard:v1.0.0
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80

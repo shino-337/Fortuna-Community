@@ -535,7 +535,7 @@ push_image() {
 # Main
 # =============================================================================
 echo "=========================================="
-echo "FortunaK8s Image Builder"
+echo "Fortuna Image Builder"
 echo "=========================================="
 echo "  Tool:      $TOOL"
 echo "  Version:   $VERSION"

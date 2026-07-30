@@ -12,7 +12,7 @@
 #
 # Options:
 #   Mode A (auto build with nerdctl + containerd):
-#     - Uses deploy/e2e/images/distroless-hello/Dockerfile as build context
+#     - Uses scripts/e2e/fixtures/deploy-e2e/images/distroless-hello/Dockerfile as build context
 #     - Requires nerdctl (namespace k8s.io) and containerd socket
 #   Mode B (pre-built image):
 #     - Set TEST_DISTROLESS_IMAGE to an existing image tag
@@ -34,7 +34,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-IMAGES_DIR="${PROJECT_ROOT}/deploy/e2e/images/distroless-hello"
+IMAGES_DIR="${PROJECT_ROOT}/scripts/e2e/fixtures/deploy-e2e/images/distroless-hello"
 
 NAMESPACE="${NAMESPACE:-fortuna}"
 CORE_URL="${CORE_API_URL:-http://localhost:8080}"

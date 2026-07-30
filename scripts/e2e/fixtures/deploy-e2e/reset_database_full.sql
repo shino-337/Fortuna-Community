@@ -1,7 +1,7 @@
 -- Full database reset for clean redeploy (dev/test only).
 -- WARNING: Drops all Fortuna tables. Core will re-run migrations on next start.
 -- Usage:
---   kubectl cp deploy/e2e/reset_database_full.sql fortuna/<postgres-pod>:/tmp/
+--   kubectl cp scripts/e2e/fixtures/deploy-e2e/reset_database_full.sql fortuna/<postgres-pod>:/tmp/
 --   kubectl exec -n fortuna <postgres-pod> -- psql -U postgres -d fortuna -f /tmp/reset_database_full.sql
 --
 -- Alternatively use clear_all_cluster_data.sql to keep schema and only delete data.

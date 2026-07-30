@@ -58,11 +58,11 @@ spec:
               BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
               
               if [ "$HTTP_CODE" = "200" ]; then
-                echo "✅ Risk evaluation completed successfully"
+                echo "Risk evaluation completed successfully"
                 echo "Response: $BODY"
                 exit 0
               else
-                echo "❌ Risk evaluation failed with HTTP code: $HTTP_CODE"
+                echo "Risk evaluation failed with HTTP code: $HTTP_CODE"
                 echo "Response: $BODY"
                 exit 1
               fi

@@ -1,4 +1,4 @@
-# Prometheus alert rules for Risk Center (Phase 3.2)
+# Prometheus alert rules for Risk Center.
 # Use with Prometheus rule_files or Helm values. Metrics from core/pkg/metrics (fortuna_insights_*).
 # fortuna_insights_active_total is a gauge; fortuna_insights_created_total is a counter.
 groups:

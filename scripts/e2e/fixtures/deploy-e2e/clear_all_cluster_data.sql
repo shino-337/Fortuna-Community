@@ -2,7 +2,7 @@
 -- Run on dev/test only. Keeps schema intact (no DROP) and skips tables that do not
 -- exist in the current migration state.
 -- Usage:
---   kubectl cp deploy/e2e/clear_all_cluster_data.sql fortuna/<postgres-pod>:/tmp/
+--   kubectl cp scripts/e2e/fixtures/deploy-e2e/clear_all_cluster_data.sql fortuna/<postgres-pod>:/tmp/
 --   kubectl exec -n fortuna <postgres-pod> -- psql -U postgres -d fortuna -f /tmp/clear_all_cluster_data.sql
 
 DO $$

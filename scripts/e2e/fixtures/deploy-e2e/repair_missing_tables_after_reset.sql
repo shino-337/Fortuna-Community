@@ -1,7 +1,7 @@
 -- Run after reset-db if Core logs "relation does not exist" for agents or k8s_events.
 -- Prefer: restart Core with image built from current repo (migrations 093+094 apply automatically).
 --
---   kubectl exec -i -n fortuna deploy/postgres -- psql -U postgres -d fortuna -f - < deploy/e2e/repair_missing_tables_after_reset.sql
+--   kubectl exec -i -n fortuna deploy/postgres -- psql -U postgres -d fortuna -f - < scripts/e2e/fixtures/deploy-e2e/repair_missing_tables_after_reset.sql
 
 CREATE TABLE IF NOT EXISTS agents (
   id SERIAL PRIMARY KEY,
