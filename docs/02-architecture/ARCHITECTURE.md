@@ -32,7 +32,7 @@ In multi-cluster deployments, Core/Dashboard/PostgreSQL/NATS run once in the man
 | Core | Deployment + Service | REST API, gRPC ingest, migrations, workers, CVE matching, unified risk, policy/rule APIs, runtime ingest |
 | Agent | DaemonSet | Per-node pod inventory, SBOM extraction, pod detail snapshots, process/network collection, optional Falco/eBPF input |
 | Dashboard | Deployment + Service | React/Vite UI served by nginx, `/api/*` proxy to Core |
-| PostgreSQL | Deployment + PVC | Primary data store |
+| PostgreSQL | Deployment + PVC | Primary data store; bundled manifests support standard PostgreSQL or PostgreSQL with Apache AGE |
 | NATS JetStream | StatefulSet | Async queue for SBOM and event processing |
 
 ## Data Ownership
@@ -170,9 +170,9 @@ Core routes are grouped by product domain:
 | Inventory | `/api/v1/inventory/*` | Resources, pods, capabilities |
 | Risk | `/api/v1/risk/*` | Findings, scores, risk workflows |
 | Policy | `/api/v1/policy/*` | Rule catalog and policy metadata |
-| Runtime | `/api/v1/runtime/*` | Events, network, runtime visibility |
-| SBOM | `/api/v1/sbom/*` | SBOM and CVE evidence |
-| Cluster | `/api/v1/clusters/*` | Cluster list and scope |
+| Runtime | `/api/v1/runtime/*`, `/api/v2/runtime/*` | Events, network, runtime visibility |
+| SBOM | `/api/v1/inventory/sbom`, `/api/v1/inventory/pods/:uid/sbom` | SBOM and CVE evidence |
+| Cluster | `/api/v1/inventory/clusters/*`, `/api/v1/cluster/*` | Cluster list, detail, and operational cluster endpoints |
 | Agent | `/api/v1/agent/*` | Agent ingest endpoints |
 
 See [API_STANDARD.md](API_STANDARD.md) for response conventions.
@@ -185,7 +185,7 @@ See [API_STANDARD.md](API_STANDARD.md) for response conventions.
 | `api/` | gRPC definitions and generated code |
 | `core/` | Core API, workers, models, migrations |
 | `dashboard/` | React/Vite dashboard |
-| `deploy/` | Kubernetes manifests and Helm chart |
+| `deploy/` | Kubernetes manifests and deployment examples |
 | `scripts/` | Build, deploy, verify, and utility scripts |
 | `docs/` | Public documentation |
 

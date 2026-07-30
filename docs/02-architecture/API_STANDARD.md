@@ -1,136 +1,61 @@
 # API Architecture And Route Standard
 
-## Overview
+This document describes the public API shape used by Fortuna Core. It is intentionally a routing standard and domain map, not a full endpoint reference.
 
-This document defines the API architecture and routing standards for the Fortuna platform. Goals: standardize REST structure, eliminate route duplication, prevent router conflicts, simplify frontend integration.
+## Transport
 
-## System API Architecture
-
+```text
+Dashboard -> nginx -> Core REST API :8080
+Agent -> Core gRPC :9090 over mTLS
+Agent and sensors -> Core HTTP ingest :8080 with ingest token
 ```
-Dashboard (React + JWT) → Nginx proxy → Core API (Gin :8080)
-Agent (gRPC + mTLS) → Core gRPC (:9090) + HTTP fallback (:8080)
-```
 
-- **Authentication:** JWT Bearer token for user-facing API; mTLS for agent communication
-- **Format:** JSON (REST), Protobuf (gRPC)
-- **Versioning:** `/api/v1/*`
+- User-facing REST APIs use JSON under `/api/v1`.
+- Runtime layer APIs also expose selected `/api/v2/runtime` endpoints.
+- Agent gRPC traffic uses mTLS.
+- HTTP ingest routes require `FORTUNA_INGEST_TOKEN`.
+- Protected user routes require JWT auth when `AUTH_ENABLED=true`.
 
 ## Route Domains
 
-### Auth & Identity
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/auth/login` | User login → JWT |
-| POST | `/api/v1/auth/register` | User registration |
-| GET | `/api/v1/me` | Current user profile |
-| PUT | `/api/v1/change-password` | Change password |
-
-### Cluster & Inventory
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/clusters` | List clusters |
-| GET | `/api/v1/clusters/stats` | Cluster statistics |
-| GET | `/api/v1/clusters/:id` | Cluster detail |
-| GET | `/api/v1/inventory/pod-capabilities` | Pod capabilities list |
-| GET | `/api/v1/inventory/pod-capabilities/summary` | PCE summary |
-| GET | `/api/v1/inventory/pod-capabilities/trends` | PCE trends |
-
-### Risk & Insights
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/risk/insights` | List insights (risks) |
-| GET | `/api/v1/risk/insights/:id` | Insight detail |
-| POST | `/api/v1/risk/insights/:id/resolve` | Resolve insight |
-| POST | `/api/v1/risk/insights/:id/acknowledge` | Acknowledge insight |
-| POST | `/api/v1/risk/insights/:id/dismiss` | Dismiss insight |
-| GET | `/api/v1/risk/rules` | List risk rules |
-| POST | `/api/v1/risk/rules` | Create risk rule |
-| PUT | `/api/v1/risk/rules/:id` | Update risk rule |
-| DELETE | `/api/v1/risk/rules/:id` | Delete risk rule |
-| POST | `/api/v1/risk/rules/validate` | Validate rule (dry-run) |
-| POST | `/api/v1/risk/rules/import` | Import rule from YAML |
-| GET | `/api/v1/risk/rules/export` | Export rules to YAML |
-
-### Runtime
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/runtime/signals` | Runtime security signals |
-| POST | `/api/v1/runtime/events` | Ingest runtime events |
-| GET | `/api/v1/runtime/pods/:uid/metrics` | Pod runtime metrics |
-| GET | `/api/v1/runtime/pods/:uid/processes` | Pod processes |
-| GET | `/api/v1/runtime/pods/:uid/network` | Pod network connections |
-| GET | `/api/v1/runtime/pods/:uid/network/top-destinations` | Pod top destinations |
-| GET | `/api/v1/runtime/pods/:uid/events` | Pod K8s events |
-| GET | `/api/v1/runtime/network-activity` | Cluster-wide network activity |
-
-### Policy
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/policy/rules` | List policy rules (YAML catalog) |
-| GET | `/api/v1/policy/rules/uid/:uid` | Policy rule detail by stable UID |
-| POST | `/api/v1/policy/rules/reload` | Reload rules from YAML |
-| GET | `/api/v1/policy/templates` | Policy templates |
-| GET | `/api/v1/policy/instances` | Policy instances |
-
-### SBOM & CVE
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/sbom` | List SBOMs per pod |
-| GET | `/api/v1/sbom/:id` | SBOM detail |
-| GET | `/api/v1/sbom/:id/components` | SBOM components |
-| GET | `/api/v1/sbom/:id/cves` | CVE matches for SBOM |
-
-### Agent Ingest
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/api/v1/agent/sync` | Full pod sync (gRPC preferred) |
-| POST | `/api/v1/agent/pod-runtime-metrics` | Pod runtime metrics |
-| POST | `/api/v1/agent/pod-processes` | Pod processes |
-| POST | `/api/v1/agent/pod-network-connections` | Pod network connections |
-| POST | `/api/v1/agent/pod-events` | K8s events |
-
-### Dashboard Aggregates
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/dashboard/stats` | Global dashboard stats |
-| GET | `/api/v1/risk/insights/summary` | Risk breakdown by severity |
-
-### Utility
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/health` | Health check |
-| GET | `/api/v1/ws/pod/:uid` | WebSocket: pod detail live |
-| GET | `/api/v1/ws/risks` | WebSocket: risk updates |
-| GET | `/api/v1/capability-metadata` | Capability catalog |
-| GET | `/api/v1/notifications` | Notifications |
+| Domain | Prefix | Purpose |
+|--------|--------|---------|
+| Auth | `/api/v1/auth/*`, `/api/v1/me`, `/api/v1/change-password` | Login, registration, current user, password change |
+| Users and sessions | `/api/v1/users/*`, `/api/v1/sessions/*` | User and session administration |
+| Dashboard | `/api/v1/dashboard/*` | Dashboard summary and metric aggregates |
+| Inventory | `/api/v1/inventory/*`, `/api/v1/resources/*` | Pods, service accounts, deployments, replicasets, clusters, SBOM inventory |
+| Cluster operations | `/api/v1/cluster/*` | Cluster info, nodes, and certificate operations |
+| Risk | `/api/v1/risk/*` | Insights, findings workflow, risk scores, risk analytics, runtime risk, exceptions |
+| Policy | `/api/v1/policy/*` | Policy rules, templates, instances, rule metrics and matches |
+| Runtime | `/api/v1/runtime/*`, `/api/v2/runtime/*` | Runtime events, signals, process/network facts, runtime security state |
+| Graph | `/api/v1/graph/*` | Graph summary, blast radius, attack paths, permissions, advanced graph query |
+| Audit and governance | `/api/v1/audit/*`, `/api/v1/governance/*` | Audit logs, reports, security activity, access review |
+| Investigations | `/api/v1/investigations/*` | Investigation cases, timeline, pinned entities |
+| Malware | `/api/v1/malware/*` | Malware package checks and threat views |
+| Agent ingest | `/api/v1/agent/*` | Agent inventory/runtime HTTP ingest fallback |
+| WebSocket | `/api/v1/ws/*` | Live pod detail and risk updates |
+| Observability | `/api/v1/metrics/*`, `/api/v1/monitoring/*`, `/api/v1/error-logs` | System, worker, agent, pipeline, and log views |
 
 ## Route Design Principles
 
-1. **Domain-first:** Routes organized by business domain (risk, runtime, inventory, policy)
-2. **Ingest separated:** Agent ingest routes under `/agent/*`, separate from user-facing API
-3. **Dashboard as aggregate:** `/dashboard/*` for pre-computed/cached data, not domain logic
-4. **Consistent verbs:** GET (read), POST (create/action), PUT (update), DELETE (remove)
-5. **Nested resources:** `/:domain/:resource/:id/:sub-resource`
+1. Group routes by product domain.
+2. Keep agent ingest separate from user-facing read APIs.
+3. Use `/dashboard/*` for aggregate views, not domain ownership.
+4. Use stable Kubernetes UIDs for pod-scoped resources.
+5. Enforce cluster scope on cluster-owned records.
+6. Protect every user route with explicit permission middleware.
+7. Use POST for actions and ingest, PATCH for partial state changes, PUT for full updates, DELETE for removal.
 
-## Risk Rules vs Policy Rules
+## Common Endpoint Patterns
 
-| Aspect | Risk Rules | Policy Rules |
-|--------|-----------|--------------|
-| **API** | `/api/v1/risk/rules` (CRUD) | `/api/v1/policy/rules` (read + reload) |
-| **Storage** | Database (`risk_rules` table) | YAML files (`FORTUNA_RULES_DIR`) |
-| **UI** | Settings → Risk Rules | Rules page |
-| **Purpose** | Operational: evaluate resources → create insights | Catalog: browse rules, test, view metrics |
-| **Engine** | RiskWorker (DB priority, then YAML fallback) | RulesManager / YAMLEngine |
-| **Format support** | JSON + YAML (validate, import, export) | YAML only |
+| Pattern | Example | Notes |
+|---------|---------|-------|
+| Collection read | `GET /api/v1/risk/insights` | Supports filters where implemented by the handler |
+| Entity read | `GET /api/v1/inventory/pods/:uid` | Pod and resource routes prefer Kubernetes UID |
+| Action | `POST /api/v1/risk/insights/:id/acknowledge` | Workflow state transitions are action endpoints |
+| Partial update | `PATCH /api/v1/risk/insights/:id` | Used for partial status changes |
+| Bulk action | `POST /api/v1/risk/insights/bulk` | Used when a command targets multiple entities |
+| Ingest | `POST /api/v1/agent/sync` | Authenticated with ingest token, not user JWT |
 
 ## Error Response Format
 
@@ -142,4 +67,8 @@ Agent (gRPC + mTLS) → Core gRPC (:9090) + HTTP fallback (:8080)
 }
 ```
 
-Standard HTTP status codes: 200 (OK), 201 (Created), 400 (Bad Request), 401 (Unauthorized), 403 (Forbidden), 404 (Not Found), 500 (Internal Server Error).
+Standard HTTP status codes are used: `200`, `201`, `400`, `401`, `403`, `404`, and `500`.
+
+## Implementation Source
+
+The active route contract is registered in `core/internal/api/routes.go` and the domain route files beside it. When changing routes, update those registrations and this document together.
