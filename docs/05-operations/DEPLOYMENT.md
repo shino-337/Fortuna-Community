@@ -20,10 +20,11 @@ For local development, use the deploy script:
 # 1. Create namespace
 kubectl create namespace fortuna
 
-# 2. Generate certificates
-bash scripts/utils/create_mtls_secret.sh
+# 2. Generate certificates and secrets
+NAMESPACE=fortuna bash scripts/utils/create_mtls_secret.sh
+./scripts/utils/ensure-fortuna-secrets.sh fortuna
 
-# 3. Deploy infrastructure, RBAC, Core, Agent, Dashboard from local images
+# 3. Deploy infrastructure, RBAC, Core, Agent, and Dashboard
 bash scripts/deploy/deploy-fortuna-robust.sh
 ```
 
@@ -82,7 +83,7 @@ export REMOTE_KUBECONFIG=/path/to/remote.kubeconfig
 export MANAGEMENT_NODE=<management-node-ip-or-dns>
 export REMOTE_KUBECONFIGS="cluster02=${REMOTE_KUBECONFIG}"
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest"
+export FORTUNA_VERSION="v1.0.0"
 
 ./scripts/deploy/sync-remote-agent.sh
 ```

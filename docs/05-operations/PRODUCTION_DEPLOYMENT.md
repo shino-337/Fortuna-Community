@@ -16,7 +16,7 @@ Production deployments should use registry-published images, explicit secrets, a
 ```bash
 export NAMESPACE="fortuna"
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="<release-tag-or-sha>"
+export FORTUNA_VERSION="v1.0.0"
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>"
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
@@ -59,13 +59,13 @@ Production should set `FORTUNA_ADMIN_PASSWORD`. If it is omitted, the script wri
 ## Infrastructure
 
 ```bash
-kubectl apply -f deploy/infrastructure/postgresql.yaml
+kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
 kubectl apply -f deploy/infrastructure/nats.yaml
 kubectl -n "$NAMESPACE" wait --for=condition=ready pod -l app=postgres --timeout=300s
 kubectl -n "$NAMESPACE" wait --for=condition=ready pod -l app=nats --timeout=300s
 ```
 
-Use `deploy/infrastructure/postgresql-with-age.yaml` when graph/AGE features need the AGE-enabled image.
+Use `deploy/infrastructure/postgresql.yaml` only when the simpler PostgreSQL fallback is intentional.
 
 ## RBAC And Image Pull
 
@@ -147,5 +147,5 @@ kubectl -n "$NAMESPACE" rollout status daemonset/fortuna-agent --timeout=180s
 
 - Existing databases keep the current `admin` password. Core will not overwrite an existing admin with `Fortuna_ChangeMe_123!`.
 - If a rebuild appears deployed but behavior is old, compare `kubectl get deploy -o jsonpath='{.spec.template.spec.containers[0].image}'` with the expected tag and check pod `imageID`.
-- For local development only, `./scripts/utils/push-images-to-workers.sh` can copy Core/Agent runtime images to nodes. Dashboard stays on the control-plane/master by default in local registryless deployments. Production should use a registry.
+- For local development only, `./scripts/utils/push-images-to-workers.sh` can copy runtime images to nodes. Production should use a registry reachable by every node.
 - Use [Deployment](DEPLOYMENT.md) for image pull, migrations, DNS, and bootstrap auth checks.

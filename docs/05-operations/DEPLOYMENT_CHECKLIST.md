@@ -8,7 +8,7 @@ For the full command flow, start with [Quickstart](../01-getting-started/QUICKST
 Recommended for users and multi-node clusters:
 
 - Use published images from `ghcr.io/shino-337/fortuna-community`.
-- Set `FORTUNA_REGISTRY` and `FORTUNA_VERSION` to a published tag: `latest`, `sha-<12-char-commit>`, a pushed `v*` release tag, or a manual workflow tag.
+- Set `FORTUNA_REGISTRY` and `FORTUNA_VERSION` to a published tag. For the first public release use `v1.0.0`; `latest`, `sha-<12-char-commit>`, and manual workflow tags are also valid when published.
 - Create `ghcr-pull` only when GHCR packages are private.
 
 Developer/local path:
@@ -22,7 +22,7 @@ Developer/local path:
 
 ```bash
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest"
+export FORTUNA_VERSION="v1.0.0"
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
 export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
@@ -44,7 +44,7 @@ kubectl create namespace fortuna --dry-run=client -o yaml | kubectl apply -f -
 NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
 ./scripts/utils/ensure-fortuna-secrets.sh fortuna
 
-kubectl apply -f deploy/infrastructure/postgresql.yaml
+kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
 kubectl apply -f deploy/infrastructure/nats.yaml
 kubectl apply -f deploy/fortuna-rbac.yaml
 kubectl apply -f deploy/dashboard-nginx-configmap.yaml
