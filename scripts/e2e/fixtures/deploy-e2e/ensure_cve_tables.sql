@@ -1,6 +1,6 @@
 -- Ensure cves and package_vulnerabilities exist (same DDL as migration 019).
 -- Run after DB reset if Core migrations did not create them (e.g. migration order/skip).
--- Usage: kubectl cp deploy/e2e/ensure_cve_tables.sql fortuna/<postgres-pod>:/tmp/ && kubectl exec -n fortuna <postgres-pod> -- psql -U postgres -d fortuna -f /tmp/ensure_cve_tables.sql
+-- Usage: kubectl cp scripts/e2e/fixtures/deploy-e2e/ensure_cve_tables.sql fortuna/<postgres-pod>:/tmp/ && kubectl exec -n fortuna <postgres-pod> -- psql -U postgres -d fortuna -f /tmp/ensure_cve_tables.sql
 
 CREATE TABLE IF NOT EXISTS cves (
     id SERIAL PRIMARY KEY,

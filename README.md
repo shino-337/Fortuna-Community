@@ -262,7 +262,7 @@ GitHub Actions publishes images to GHCR on `main`, release tags, and manual disp
 
 ```bash
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest" # or a release tag, e.g. v1.5.0
+export FORTUNA_VERSION="latest" # or a release tag, e.g. v1.0.0
 export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>" # recommended; omit only for first-login bootstrap default
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
@@ -357,7 +357,7 @@ For multi-cluster, do not deploy Core or Dashboard on remote clusters. Deploy or
 
 ```bash
 REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
-MANAGEMENT_NODE=192.168.56.100 \
+MANAGEMENT_NODE=<management-node-ip-or-dns> \
 FORTUNA_REGISTRY=ghcr.io/shino-337/fortuna-community \
 FORTUNA_VERSION=latest \
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full

@@ -66,9 +66,7 @@ spec:
       
       containers:
         - name: agent
-          # Pipeline syncs this tag to VERSION after a successful build.
-          # IfNotPresent uses the local image loaded into node containerd; multi-node installs should push/load the same tag on every worker.
-          image: fortuna-agent:v1.5.1-75-ga734e53b9
+          image: ghcr.io/shino-337/fortuna-community/fortuna-agent:v1.0.0
           imagePullPolicy: IfNotPresent
           
           env:

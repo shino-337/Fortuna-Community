@@ -1,6 +1,6 @@
 #!/bin/bash
 # ============================================================================
-# Full Deployment Check - FortunaK8s
+# Full Deployment Check - Fortuna
 # ============================================================================
 # Verifies all components: Core, Dashboard, Agent, PostgreSQL, NATS, RBAC
 # Usage: ./scripts/verify/check-full-deployment.sh

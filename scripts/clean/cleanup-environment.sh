@@ -76,8 +76,8 @@ fi
 if [ "$CLEAN_DB" = true ]; then
   echo "[6/6] Removing E2E test data from Postgres..."
   POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
-  if [ -n "$POD" ] && [ -f "$PROJECT_ROOT/deploy/e2e/clear_e2e_test_data.sql" ]; then
-    kubectl cp "$PROJECT_ROOT/deploy/e2e/clear_e2e_test_data.sql" "$NAMESPACE/$POD:/tmp/clear_e2e.sql" 2>/dev/null || true
+  if [ -n "$POD" ] && [ -f "$PROJECT_ROOT/scripts/e2e/fixtures/deploy-e2e/clear_e2e_test_data.sql" ]; then
+    kubectl cp "$PROJECT_ROOT/scripts/e2e/fixtures/deploy-e2e/clear_e2e_test_data.sql" "$NAMESPACE/$POD:/tmp/clear_e2e.sql" 2>/dev/null || true
     kubectl exec -n "$NAMESPACE" "$POD" -- psql -U postgres -d fortuna -f /tmp/clear_e2e.sql 2>/dev/null || true
   fi
 else

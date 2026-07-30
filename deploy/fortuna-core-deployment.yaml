@@ -113,9 +113,7 @@ spec:
       
       containers:
         - name: core
-          # Pipeline syncs this tag to VERSION after a successful build.
-          image: fortuna-core:v1.5.1-75-ga734e53b9
-          # IfNotPresent: dùng image đã build/load trên node (nerdctl → k8s.io). Tránh kéo Docker Hub nếu đã có local.
+          image: ghcr.io/shino-337/fortuna-community/fortuna-core:v1.0.0
           imagePullPolicy: IfNotPresent
           
           ports:
@@ -181,7 +179,7 @@ spec:
             - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
               value: "true"
             - name: FORTUNA_WS_ALLOWED_ORIGINS
-              value: "http://localhost:8081,http://127.0.0.1:8081,http://192.168.56.100:8081,http://192.168.56.100:30956"
+              value: "http://localhost:8081,http://127.0.0.1:8081"
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -194,7 +192,7 @@ spec:
                   name: fortuna-secrets
                   key: ingest-token
                   optional: false
-            # Pod Detail encryption at-rest (Phase 4.2): base64-encoded 32-byte key. Optional; leave unset to disable.
+            # Pod Detail encryption at-rest: base64-encoded 32-byte key. Optional; leave unset to disable.
             # Option A: set value before deploy. Option B: use secret (e.g. fortuna-secrets, key: pod-detail-encryption-key).
             - name: POD_DETAIL_ENCRYPTION_KEY
               valueFrom:
@@ -202,7 +200,7 @@ spec:
                   name: fortuna-secrets
                   key: pod-detail-encryption-key
                   optional: true
-            # R5 Phase-2 network queue anomaly tuning (core-side baseline detector).
+            # network queue anomaly tuning (core-side baseline detector).
             - name: POD_DETAIL_NET_SPIKE_WINDOW_MINUTES
               value: "30"
             - name: POD_DETAIL_NET_SPIKE_MIN_SAMPLES
@@ -213,7 +211,7 @@ spec:
               value: "4096"
             - name: POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES
               value: "10"
-            # R10 hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
+            # hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
             - name: ADMISSION_RISK_GATE_ENABLED
               value: "true"
             - name: ADMISSION_RISK_SENSITIVE_NAMESPACES

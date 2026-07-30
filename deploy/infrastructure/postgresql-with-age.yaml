@@ -59,7 +59,7 @@ data:
         END \$\$;
     EOSQL
     
-    echo "✅ PostgreSQL initialization complete"
+    echo "PostgreSQL initialization complete"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -78,7 +78,6 @@ spec:
       labels:
         app: postgres
     spec:
-      # No nodeSelector: schedule where PVC is bound (worker01 has disk now). Optional: pin to master with nodeSelector if PVC is on master.
       containers:
       - name: postgres
         # Use custom image with AGE if available, otherwise fallback to standard
@@ -110,7 +109,7 @@ spec:
         resources:
           requests:
             memory: "256Mi"
-            cpu: "10m"  # keep request tiny: omitting cpu makes request default to limit (500m). Master is CPU-saturated.
+            cpu: "10m"
           limits:
             memory: "512Mi"
             cpu: "500m"

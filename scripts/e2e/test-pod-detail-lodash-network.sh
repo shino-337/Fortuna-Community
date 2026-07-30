@@ -6,7 +6,7 @@
 #   GET /runtime/pods/:uid/network returns >= 1 item (LISTEN on 3000).
 # =============================================================================
 # Prerequisites:
-#   - Image built: nerdctl build -t website-vuln-lodash:latest -f deploy/e2e/images/website-vuln-lodash/Dockerfile deploy/e2e/images/website-vuln-lodash
+#   - Image built: nerdctl build -t website-vuln-lodash:latest -f scripts/e2e/fixtures/deploy-e2e/images/website-vuln-lodash/Dockerfile scripts/e2e/fixtures/deploy-e2e/images/website-vuln-lodash
 #   - Agent on same node as pod (pod has nodeSelector: k8s-master).
 # =============================================================================
 
@@ -35,8 +35,8 @@ kubectl get namespace "$TEST_NS" &>/dev/null || kubectl create namespace "$TEST_
 
 # Deploy lodash pod if not present (do not delete existing – may be used for SBOM/CVE)
 if ! kubectl get pod "$POD_NAME" -n "$TEST_NS" &>/dev/null; then
-  echo "Deploying lodash website pod from deploy/e2e/website-vuln-lodash-pod.yaml ..."
-  kubectl apply -f "${PROJECT_ROOT}/deploy/e2e/website-vuln-lodash-pod.yaml"
+  echo "Deploying lodash website pod from scripts/e2e/fixtures/deploy-e2e/website-vuln-lodash-pod.yaml ..."
+  kubectl apply -f "${PROJECT_ROOT}/scripts/e2e/fixtures/deploy-e2e/website-vuln-lodash-pod.yaml"
 else
   echo "Pod $POD_NAME already exists in $TEST_NS."
 fi
@@ -44,7 +44,7 @@ fi
 echo "Waiting for pod Ready..."
 if ! kubectl wait --for=condition=Ready "pod/$POD_NAME" -n "$TEST_NS" --timeout=120s 2>/dev/null; then
   echo "⚠️  Pod not Ready (image website-vuln-lodash:latest may be missing). Build with:"
-  echo "   nerdctl --namespace k8s.io build -t website-vuln-lodash:latest -f deploy/e2e/images/website-vuln-lodash/Dockerfile deploy/e2e/images/website-vuln-lodash"
+  echo "   nerdctl --namespace k8s.io build -t website-vuln-lodash:latest -f scripts/e2e/fixtures/deploy-e2e/images/website-vuln-lodash/Dockerfile scripts/e2e/fixtures/deploy-e2e/images/website-vuln-lodash"
   kubectl get pod "$POD_NAME" -n "$TEST_NS" 2>/dev/null || true
   exit 1
 fi

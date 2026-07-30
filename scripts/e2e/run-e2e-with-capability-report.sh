@@ -433,7 +433,7 @@ if [ "$E2E_CLEANUP" = true ]; then
   # 3. Clean E2E test data from DB
   PG_POD=$(kubectl get pods -n "$NAMESPACE" -l app=postgres -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
   if [ -n "$PG_POD" ]; then
-    SQL_FILE="$REPO_ROOT/deploy/e2e/clear_e2e_test_data.sql"
+    SQL_FILE="$REPO_ROOT/scripts/e2e/fixtures/deploy-e2e/clear_e2e_test_data.sql"
     if [ -f "$SQL_FILE" ]; then
       echo "  Running clear_e2e_test_data.sql..."
       kubectl cp "$SQL_FILE" "$NAMESPACE/$PG_POD:/tmp/clear_e2e.sql" 2>/dev/null || true

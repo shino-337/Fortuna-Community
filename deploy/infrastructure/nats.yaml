@@ -38,12 +38,6 @@ spec:
       labels:
         app: nats
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: k8s-master
-      tolerations:
-      - key: node-role.kubernetes.io/control-plane
-        operator: Exists
-        effect: NoSchedule
       containers:
       - name: nats
         image: nats:2.10-alpine

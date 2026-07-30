@@ -1,6 +1,6 @@
 -- Create pod_capabilities table if missing (same as migration 041).
 -- Run if API returns "relation pod_capabilities does not exist".
--- Usage: kubectl cp deploy/e2e/ensure_pod_capabilities_table.sql fortuna/<postgres-pod>:/tmp/ && kubectl exec -n fortuna <postgres-pod> -- psql -U postgres -d fortuna -f /tmp/ensure_pod_capabilities_table.sql
+-- Usage: kubectl cp scripts/e2e/fixtures/deploy-e2e/ensure_pod_capabilities_table.sql fortuna/<postgres-pod>:/tmp/ && kubectl exec -n fortuna <postgres-pod> -- psql -U postgres -d fortuna -f /tmp/ensure_pod_capabilities_table.sql
 
 CREATE TABLE IF NOT EXISTS pod_capabilities (
     id SERIAL PRIMARY KEY,

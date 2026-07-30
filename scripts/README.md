@@ -119,14 +119,14 @@ Remote Agent sync:
 ```bash
 # Registry mode: remote clusters pull the published Agent image.
 REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
-MANAGEMENT_NODE=192.168.56.100 \
+MANAGEMENT_NODE=<management-node-ip-or-dns> \
 FORTUNA_REGISTRY=ghcr.io/shino-337/fortuna-community \
 FORTUNA_VERSION=latest \
 ./scripts/deploy/sync-remote-agent.sh
 
 # Local registryless mode: import the local Agent image into remote nodes through SSH.
 REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
-MANAGEMENT_NODE=192.168.56.100 \
+MANAGEMENT_NODE=<management-node-ip-or-dns> \
 REMOTE_IMAGE_MODE=local \
 VERSION="$(git describe --tags --always)" \
 ./scripts/deploy/sync-remote-agent.sh

@@ -16,10 +16,10 @@
 #
 # Config file: Set PUSH_CONFIG_FILE to path of a file with per-node credentials, or place
 #   push-images.config in this directory (see push-images.config.example). Format:
-#   MASTER_NODE=192.168.56.100
+#   MASTER_NODE=<management-node-ip-or-dns>
 #   MASTER_SSH_USER=root
 #   MASTER_SSH_PASS=
-#   WORKER_NODES=192.168.56.101
+#   WORKER_NODES=<worker-node-ip-or-dns>
 #   WORKER_SSH_USER=k8s
 #   WORKER_SSH_PASS=
 # If no config file, uses env SSH_USER, SSH_PASS, WORKER_NODES (single credential for all nodes).
@@ -75,18 +75,18 @@ NC='\033[0m'
 # Default image tags from deploy YAML so they match imagePullPolicy
 detect_core_image() {
     if [ -f "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" ]; then
-        grep -E '^\s+image:\s+fortuna-core:' "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" | sed -E 's/.*image:\s+//' | tr -d ' \r' | head -1
+        grep -E '^\s+image:\s+.*fortuna-core:' "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" | sed -E 's/.*image:\s+//' | tr -d ' \r' | head -1
     fi
 }
 detect_agent_image() {
     if [ -f "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" ]; then
-        grep -E '^\s+image:\s+fortuna-agent:' "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" | sed -E 's/.*image:\s+//' | tr -d ' \r' | head -1
+        grep -E '^\s+image:\s+.*fortuna-agent:' "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" | sed -E 's/.*image:\s+//' | tr -d ' \r' | head -1
     fi
 }
 detect_dashboard_image() {
     # Dashboard deploy is not a daemonset; detect from the dashboard Deployment manifest.
     if [ -f "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" ]; then
-        grep -E "^\s+image:\s+fortuna-dashboard:" "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" | sed -E "s/.*image:\s+//" | tr -d " \r" | head -1
+        grep -E "^\s+image:\s+.*fortuna-dashboard:" "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" | sed -E "s/.*image:\s+//" | tr -d " \r" | head -1
     fi
 }
 detect_all_node_ips() {
@@ -104,7 +104,7 @@ AGENT_IMAGE="${AGENT_IMAGE:-${_detected_agent:-fortuna-agent:latest}}"
 # Optional dashboard image (only exported/imported when INCLUDE_DASHBOARD=true)
 DASHBOARD_IMAGE="${DASHBOARD_IMAGE:-${_detected_dashboard:-fortuna-dashboard:latest}}"
 # Include all nodes (master + workers); Core runs on control-plane and needs the image there
-WORKER_NODES="${WORKER_NODES:-${_detected_nodes:-192.168.56.100 192.168.56.101}}"
+WORKER_NODES="${WORKER_NODES:-${_detected_nodes:-}}"
 # SSH_USER: set to k8s, root, or leave empty to try SSH_TRY_USERS. SSH_PASS for sshpass (optional).
 SSH_USER="${SSH_USER:-k8s}"
 SSH_PASS="${SSH_PASS:-}"
@@ -713,7 +713,7 @@ main() {
         log_info "Ensure SSH from this host to each node works. Example:"
         echo "  export SSH_USER=root   # or k8s, or leave unset to try \$USER, root, k8s"
         echo "  export SSH_PASS=<ssh-password>   # optional, for sshpass"
-        echo "  export WORKER_NODES=\"192.168.56.101\"   # or omit to use all node IPs from kubectl"
+        echo "  export WORKER_NODES=\"<worker-node-ip-or-dns>\"   # or omit to use all node IPs from kubectl"
         echo "  export REMOTE_TEMP_DIR=/var/tmp/fortuna-images   # if SCP fails with 'Permission denied' on /tmp"
         echo "  $SCRIPT_DIR/push-images-to-workers.sh"
         return 1
