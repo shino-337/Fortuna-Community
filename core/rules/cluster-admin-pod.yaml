@@ -1,0 +1,36 @@
+# Cluster Admin Pod Rule
+# Detects pods using ServiceAccounts bound to cluster-admin
+
+id: cluster-admin-pod
+name: "Pod using ServiceAccount with cluster-admin access"
+category: rbac
+severity: critical
+description: "Pod uses a ServiceAccount that has a RoleBinding or ClusterRoleBinding to the cluster-admin ClusterRole (correlated from Fortuna inventory)"
+enabled: true
+
+conditions:
+  # CEL: service_account_bound_to_cluster_admin is projected from asset_security_state (and legacy fortuna fallback).
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (has(object.securityState) &&
+          object.securityState.service_account_bound_to_cluster_admin == true)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.service_account_bound_to_cluster_admin == true)
+      )
+
+aggregation: AND
+base_score: 10.0
+tags:
+  - cluster-admin
+  - critical
+  - pod
+  - overprivileged
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Generic privilege escalation mapping (RBAC misconfig -> escalation)
+  - T1068
+

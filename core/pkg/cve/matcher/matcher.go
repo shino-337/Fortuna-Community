@@ -1,0 +1,1222 @@
+package matcher
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"regexp"
+	"sort"
+	"strings"
+
+	"github.com/fortuna/core/pkg/cve"
+	"github.com/fortuna/core/pkg/cve/database"
+	"github.com/fortuna/core/pkg/malware"
+	"github.com/fortuna/core/pkg/metrics"
+	"github.com/fortuna/core/pkg/models"
+	"github.com/hashicorp/go-version"
+	"gorm.io/gorm"
+)
+
+var goStrictSemver = regexp.MustCompile(`^v\d+\.\d+\.\d+(-[0-9A-Za-z.-]+)?$`)
+var goPseudoVersion = regexp.MustCompile(`^v\d+\.\d+\.\d+-(0\.)?\d{14}-[0-9a-f]{7,}$`)
+var goLooseSemver = regexp.MustCompile(`^v?\d+\.\d+$`)
+var constraintArchRE = regexp.MustCompile(`(?i)(?:^|[,\s])arch\s*=\s*([a-z0-9_:-]+)`)
+
+// sharedVersionComparator is stateless; reuse across matchers to avoid per-SBOM alloc.
+var sharedVersionComparator = NewVersionComparator()
+
+// Matcher matches CVEs against SBOM components
+type Matcher struct {
+	dbManager      *database.Manager
+	comparator     *VersionComparator
+	db             *gorm.DB
+	logger         *log.Logger
+	malwareManager MalwareChecker
+	osvCache       map[string][]models.OSVVulnerability
+}
+
+// MalwareChecker is satisfied by malware.Manager (avoids import cycle).
+type MalwareChecker interface {
+	Enabled() bool
+	BulkCheck(ctx context.Context, packages []malware.PkgVersion) map[string]*models.MalwarePackage
+}
+
+// NewMatcher creates a new CVE matcher
+func NewMatcher(
+	dbManager *database.Manager,
+	db *gorm.DB,
+) *Matcher {
+	return &Matcher{
+		dbManager:  dbManager,
+		comparator: sharedVersionComparator,
+		db:         db,
+		logger:     log.New(log.Writer(), "[CVEMatcher] ", log.LstdFlags),
+		osvCache:   make(map[string][]models.OSVVulnerability),
+	}
+}
+
+// SetMalwareChecker attaches a malware manager for supply-chain threat detection.
+func (m *Matcher) SetMalwareChecker(mc MalwareChecker) {
+	m.malwareManager = mc
+}
+
+// MatchSBOM matches CVEs against an SBOM. If componentsOverride is non-nil, use it (P1-5 snapshot);
+// otherwise load components from DB. This avoids race when components are soft-deleted after event publish.
+func (m *Matcher) MatchSBOM(
+	ctx context.Context,
+	sbom *models.SBOM,
+	componentsOverride []*models.SBOMComponent,
+) ([]*models.CVEMatch, error) {
+	// SBOM lifecycle: only match finalized SBOMs to avoid races with mutable components.
+	status := strings.ToLower(strings.TrimSpace(sbom.Status))
+	// SBOM status model (C0): pending|complete|partial|failed(+ legacy finalized).
+	// Matching is allowed for complete/partial and legacy finalized.
+	// Matching is skipped for pending/failed and unknown statuses (safe default).
+	switch status {
+	case "", "complete", "partial", "finalized":
+		// proceed
+	case "pending", "failed":
+		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q", sbom.ID, sbom.Status)
+		return nil, nil
+	default:
+		m.logger.Printf("Skipping CVE matching for SBOM ID %d: status=%q (unknown/unsafe)", sbom.ID, sbom.Status)
+		return nil, nil
+	}
+
+	m.logger.Printf("Matching CVEs for SBOM ID %d (%d packages) resolver_version=%s", sbom.ID, sbom.PackageCount, ResolverVersion)
+
+	var components []models.SBOMComponent
+	if componentsOverride != nil {
+		for _, c := range componentsOverride {
+			components = append(components, *c)
+		}
+		m.logger.Printf("Using %d components from snapshot (P1-5)", len(components))
+	} else {
+		if err := m.db.WithContext(ctx).
+			Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).
+			Find(&components).Error; err != nil {
+			return nil, fmt.Errorf("failed to load SBOM components: %w", err)
+		}
+	}
+
+	components = m.resolveComponentsForMatching(ctx, sbom, components)
+	m.logger.Printf("Found %d components to match (after resolution)", len(components))
+
+	matches := make([]*models.CVEMatch, 0)
+	const maxMatchesPerComponent = 25
+	matchCountByComponent := make(map[string]int)
+
+	// OPTIMIZATION: Group components by ecosystem and query CVEs in bulk.
+	// For Go: use prefix list + alias resolution (go_module_alias) so renames (e.g. coreos/etcd → go.etcd.io/etcd) still match.
+	ecosystemPackages := make(map[string]map[string]struct{})
+	type packageCandidate struct {
+		component *models.SBOMComponent
+		purl      *PURL
+	}
+	candidatesByEcoPkg := make(map[string][]packageCandidate)
+	// Go-only: resolved module name -> list of (component, purl) to run version check for
+	goResolvedToPairs := make(map[string][]struct {
+		component *models.SBOMComponent
+		purl      *PURL
+	})
+	goResolvedNamesSet := make(map[string]struct{})
+
+	// Optional: load K8s component → module prefix map once per MatchSBOM invocation.
+	k8sMap, k8sMapErr := cve.LoadK8sComponentMap()
+	if k8sMapErr != nil {
+		m.logger.Printf("⚠️  Failed to load K8s component map: %v (will continue without mapping)", k8sMapErr)
+		k8sMap = nil
+	}
+
+	for i := range components {
+		component := &components[i]
+
+		// Skip junk distroless heuristic components early
+		if isDistrolessHeuristicJunk(component) {
+			continue
+		}
+
+		// 1. Parse PURL (C0.4: ecosystem fallback without PURL)
+		// If PURL is missing/invalid, we still infer an ecosystem to avoid hard skips.
+		purl, err := ParsePURL(component.PURL)
+		if err != nil {
+			// Best-effort inference: keep matching deterministic and observable.
+			m.logger.Printf("⚠️  PURL unavailable for component=%q version=%q (purl=%q): %v; inferring ecosystem",
+				component.ComponentName, component.ComponentVersion, component.PURL, err)
+			purl = inferPURLFromComponent(component, sbom.OSName)
+		}
+
+		// Normalize ecosystem for DB queries (use OS to map generic→distro for OSV match)
+		queryEcosystem := normalizeQueryEcosystemWithOS(purl, sbom.OSName)
+
+		componentKey := component.ComponentName
+
+		// If K8s component mapping is available, try to map control-plane component → Go module prefix.
+		if k8sMap != nil {
+			normName := strings.ToLower(strings.TrimSpace(component.ComponentName))
+			if mapping, ok := k8sMap[normName]; ok && mapping.ModulePrefix != "" {
+				// Build a synthetic PURL-like view for the Go module.
+				moduleName := mapping.ModulePrefix
+				version := strings.TrimSpace(component.ComponentVersion)
+				if mapping.Ecosystem == "go" && version != "" && !strings.HasPrefix(version, "v") {
+					version = "v" + version
+				}
+
+				// We reuse the existing bulk query path by treating modulePrefix as package name
+				// in the "go" ecosystem (OSV Go mirror).
+				queryEcosystem = "go"
+				purl.Name = moduleName
+				purl.Ecosystem = "go"
+				// Note: we keep component.ComponentName/version as-is for persisted matches.
+				componentKey = moduleName
+			}
+		}
+
+		// For Go: use prefix list + alias resolution so OSV mirror lookup matches renames (e.g. github.com/coreos/etcd → go.etcd.io/etcd).
+		if queryEcosystem == "go" {
+			modulePath := strings.TrimSpace(purl.Name)
+			prefixes := normalizeGoModulePrefixes(modulePath)
+			for _, p := range prefixes {
+				candidates := m.dbManager.ResolveGoModuleAliasCandidates(ctx, p)
+				if len(candidates) == 0 {
+					candidates = []string{p}
+				}
+				for _, resolved := range candidates {
+					goResolvedNamesSet[resolved] = struct{}{}
+					goResolvedToPairs[resolved] = append(goResolvedToPairs[resolved], struct {
+						component *models.SBOMComponent
+						purl      *PURL
+					}{component, purl})
+				}
+			}
+			continue
+		}
+
+		// Group by ecosystem using the (possibly remapped) name. Keep all candidates so
+		// components that differ only by qualifiers (e.g., arch) are all matched.
+		if ecosystemPackages[queryEcosystem] == nil {
+			ecosystemPackages[queryEcosystem] = make(map[string]struct{})
+		}
+		ecosystemPackages[queryEcosystem][componentKey] = struct{}{}
+		ecoPkgKey := queryEcosystem + "|" + componentKey
+		candidatesByEcoPkg[ecoPkgKey] = append(candidatesByEcoPkg[ecoPkgKey], packageCandidate{
+			component: component,
+			purl:      purl,
+		})
+	}
+
+	// 2a. Go: bulk query by resolved names (prefix + alias), then run version check per (component, purl)
+	if len(goResolvedNamesSet) > 0 {
+		allResolved := make([]string, 0, len(goResolvedNamesSet))
+		for n := range goResolvedNamesSet {
+			allResolved = append(allResolved, n)
+		}
+		m.logger.Printf("Bulk querying Go CVEs for %d resolved module names (prefix+alias)", len(allResolved))
+		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, "go", allResolved)
+		if err != nil {
+			m.logger.Printf("⚠️  Failed to bulk query Go CVEs: %v", err)
+		} else {
+			for _, resolvedName := range allResolved {
+				cves := packageCVEs[resolvedName]
+				if len(cves) == 0 {
+					recordMatcherVulnerabilitySkip("no_candidate", "go")
+					continue
+				}
+				recordMatcherVulnerabilityCandidates("go", len(cves))
+			}
+			seenMatch := make(map[string]map[string]bool) // componentDedupKey -> CVEID -> true
+			for resolvedName, cves := range packageCVEs {
+				// D3: sort CVEs by severity before cap so we keep the most important CVEs deterministically.
+				sort.SliceStable(cves, func(i, j int) bool {
+					si := severityRank(cves[i].Severity)
+					sj := severityRank(cves[j].Severity)
+					if si != sj {
+						return si > sj
+					}
+					if cves[i].CVSSScore != cves[j].CVSSScore {
+						return cves[i].CVSSScore > cves[j].CVSSScore
+					}
+					return cves[i].ID < cves[j].ID
+				})
+				pairs := goResolvedToPairs[resolvedName]
+				for _, pair := range pairs {
+					comp := pair.component
+					purl := pair.purl
+					dedupKey := comp.PURL + "|" + comp.ComponentVersion + "|" + comp.ComponentName
+					if seenMatch[dedupKey] == nil {
+						seenMatch[dedupKey] = make(map[string]bool)
+					}
+					for _, cveData := range cves {
+						if seenMatch[dedupKey][cveData.ID] {
+							continue
+						}
+						if strings.TrimSpace(cveData.Constraint) == "" {
+							recordMatcherVulnerabilitySkip("no_constraint", "go")
+							continue
+						}
+						installedVersion := effectiveVersionForComparison(comp.ComponentVersion, purl)
+						vulnerable, err := m.comparator.IsVulnerable(installedVersion, cveData.Constraint, purl.Ecosystem)
+						if err != nil {
+							recordMatcherVulnerabilitySkip("version_compare_error", "go")
+							continue
+						}
+						if !vulnerable {
+							recordMatcherVulnerabilitySkip("not_vulnerable", "go")
+							continue
+						}
+						recordMatcherVulnerabilityVersionMatch("go")
+						seenMatch[dedupKey][cveData.ID] = true
+						matches = append(matches, &models.CVEMatch{
+							SBOMID:              sbom.ID,
+							PodUID:              sbom.PodUID,
+							ContainerName:       sbom.ContainerName,
+							CVEID:               cveData.ID,
+							PackageName:         comp.ComponentName,
+							PackageVersion:      comp.ComponentVersion,
+							PURL:                comp.PURL,
+							Severity:            strings.ToUpper(cveData.Severity),
+							CVSS:                float32(cveData.CVSSScore),
+							FixedVersion:        cveData.FixedVersion,
+							MatchedBy:           "fortuna-core-cve-matcher",
+							MatchedAt:           comp.CreatedAt,
+							HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+							ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
+						})
+					}
+				}
+			}
+		}
+	}
+
+	// 2. Bulk query CVEs for all packages per ecosystem
+	// When ecosystem is "generic" (unknown OS), also try common distro ecosystems
+	// so that packages like busybox still match Alpine/Debian CVEs.
+	expandedEcosystems := make(map[string]map[string]struct{})
+	for ecosystem, packageSet := range ecosystemPackages {
+		expandedEcosystems[ecosystem] = packageSet
+		if ecosystem == "generic" {
+			// When OS is unknown, avoid querying every distro feed (7× duplicate work). Use OS hint or a small default set.
+			for _, fallbackEco := range likelyDistroEcosystemsForGenericSBOM(sbom.OSName) {
+				if expandedEcosystems[fallbackEco] == nil {
+					expandedEcosystems[fallbackEco] = make(map[string]struct{})
+				}
+				for pkg := range packageSet {
+					expandedEcosystems[fallbackEco][pkg] = struct{}{}
+				}
+			}
+		}
+	}
+
+	for ecosystem, packageSet := range expandedEcosystems {
+		packageNames := make([]string, 0, len(packageSet))
+		for pkg := range packageSet {
+			packageNames = append(packageNames, pkg)
+		}
+		m.logger.Printf("Bulk querying CVEs for %d packages in ecosystem %s", len(packageNames), ecosystem)
+
+		packageCVEs, err := m.dbManager.GetVulnerabilitiesForPackages(ctx, ecosystem, packageNames)
+		if err != nil {
+			m.logger.Printf("⚠️  Failed to bulk query CVEs for ecosystem %s: %v", ecosystem, err)
+			continue
+		}
+
+		totalCVEs := 0
+		for _, cves := range packageCVEs {
+			totalCVEs += len(cves)
+		}
+		for _, packageName := range packageNames {
+			cves := packageCVEs[packageName]
+			if len(cves) == 0 {
+				recordMatcherVulnerabilitySkip("no_candidate", ecosystem)
+				continue
+			}
+			recordMatcherVulnerabilityCandidates(ecosystem, len(cves))
+		}
+		m.logger.Printf("Found %d total CVEs for %d packages in ecosystem %s", totalCVEs, len(packageNames), ecosystem)
+
+		// 3. Process each package's CVEs
+		for pkgName, cves := range packageCVEs {
+			// D3: sort CVEs by severity before cap so we keep the most important CVEs deterministically.
+			sort.SliceStable(cves, func(i, j int) bool {
+				si := severityRank(cves[i].Severity)
+				sj := severityRank(cves[j].Severity)
+				if si != sj {
+					return si > sj
+				}
+				if cves[i].CVSSScore != cves[j].CVSSScore {
+					return cves[i].CVSSScore > cves[j].CVSSScore
+				}
+				return cves[i].ID < cves[j].ID
+			})
+			candidates := candidatesByEcoPkg[ecosystem+"|"+pkgName]
+			// Cross-ecosystem fallback: when querying alpine/debian for generic packages,
+			// the candidates were stored under "generic|pkgName".
+			if len(candidates) == 0 {
+				candidates = candidatesByEcoPkg["generic|"+pkgName]
+			}
+			if len(candidates) == 0 {
+				continue
+			}
+
+			for _, cand := range candidates {
+				component := cand.component
+				purl := cand.purl
+				if component == nil || purl == nil {
+					continue
+				}
+				// Check version constraints for each CVE
+				for _, cveData := range cves {
+					if !isCVEApplicableToPackageArch(cveData, purl) {
+						recordMatcherVulnerabilitySkip("arch_mismatch", ecosystem)
+						continue
+					}
+					compKey := strings.ToLower(strings.TrimSpace(component.ComponentName)) + "|" + strings.TrimSpace(component.ComponentVersion)
+					if matchCountByComponent[compKey] >= maxMatchesPerComponent {
+						recordMatcherVulnerabilitySkip("cap_reached", ecosystem)
+						continue
+					}
+
+					unknownVersion := strings.EqualFold(strings.TrimSpace(component.ComponentVersion), "unknown")
+					if unknownVersion && strings.TrimSpace(cveData.Constraint) == "" && severityRank(cveData.Severity) < 3 {
+						// Unknown version + no range + non-high severity => skip to reduce false positives.
+						recordMatcherVulnerabilitySkip("low_confidence_unknown_version", ecosystem)
+						continue
+					}
+					if strings.TrimSpace(cveData.Constraint) == "" {
+						recordMatcherVulnerabilitySkip("no_constraint", ecosystem)
+						continue
+					}
+
+					installedVersion := effectiveVersionForComparison(component.ComponentVersion, purl)
+					compEco := comparatorEcosystemForBulkBatch(purl, ecosystem)
+					vulnerable, err := m.comparator.IsVulnerable(
+						installedVersion,
+						cveData.Constraint,
+						compEco,
+					)
+					if err != nil {
+						m.logger.Printf("⚠️  Version comparison failed for %s: %v", component.ComponentName, err)
+						recordMatcherVulnerabilitySkip("version_compare_error", ecosystem)
+						continue
+					}
+
+					if !vulnerable {
+						recordMatcherVulnerabilitySkip("not_vulnerable", ecosystem)
+						continue // Not vulnerable
+					}
+					recordMatcherVulnerabilityVersionMatch(ecosystem)
+
+					// 4. Create match
+					match := &models.CVEMatch{
+						SBOMID:              sbom.ID,
+						PodUID:              sbom.PodUID,
+						ContainerName:       sbom.ContainerName,
+						CVEID:               cveData.ID,
+						PackageName:         component.ComponentName,
+						PackageVersion:      component.ComponentVersion,
+						PURL:                component.PURL,
+						Severity:            strings.ToUpper(cveData.Severity),
+						CVSS:                float32(cveData.CVSSScore), // Convert to float32
+						FixedVersion:        cveData.FixedVersion,
+						MatchedBy:           "fortuna-core-cve-matcher",
+						MatchedAt:           component.CreatedAt,
+						HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
+						ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
+					}
+					if unknownVersion {
+						match.MatchedBy = "fortuna-core-cve-matcher-low-confidence"
+					}
+
+					matches = append(matches, match)
+					matchCountByComponent[compKey]++
+				}
+			}
+		}
+	}
+
+	m.logger.Printf("✅ Found %d CVE matches for SBOM ID %d", len(matches), sbom.ID)
+
+	// Go stdlib matcher (P2-x): match vulnerabilities based on sbom.GoVersion and OSV mirror stdlib entries.
+	m.matchGoStdlib(ctx, sbom, &matches)
+
+	// Deterministic output contract: sorted by package identity, then version, then CVE ID.
+	sort.Slice(matches, func(i, j int) bool {
+		if matches[i].PackageName != matches[j].PackageName {
+			return matches[i].PackageName < matches[j].PackageName
+		}
+		if matches[i].PackageVersion != matches[j].PackageVersion {
+			return matches[i].PackageVersion < matches[j].PackageVersion
+		}
+		if matches[i].CVEID != matches[j].CVEID {
+			return matches[i].CVEID < matches[j].CVEID
+		}
+		return matches[i].PURL < matches[j].PURL
+	})
+
+	return matches, nil
+}
+
+func severityRank(sev string) int {
+	switch strings.ToUpper(strings.TrimSpace(sev)) {
+	case "CRITICAL":
+		return 4
+	case "HIGH":
+		return 3
+	case "MEDIUM":
+		return 2
+	case "LOW":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func recordMatcherVulnerabilityCandidates(ecosystem string, count int) {
+	if count <= 0 {
+		return
+	}
+	metrics.MatcherVulnerabilityCandidatesTotal.
+		WithLabelValues(normalizeMetricLabel(ecosystem, "unknown"), ResolverVersion).
+		Add(float64(count))
+}
+
+func recordMatcherVulnerabilityVersionMatch(ecosystem string) {
+	metrics.MatcherVulnerabilityVersionMatchesTotal.
+		WithLabelValues(normalizeMetricLabel(ecosystem, "unknown"), ResolverVersion).
+		Inc()
+}
+
+func recordMatcherVulnerabilitySkip(reason string, ecosystem string) {
+	metrics.MatcherVulnerabilitySkipsTotal.
+		WithLabelValues(normalizeMetricLabel(reason, "unknown"), normalizeMetricLabel(ecosystem, "unknown"), ResolverVersion).
+		Inc()
+}
+
+func normalizeMetricLabel(value string, fallback string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+// inferPURLFromComponent provides a minimal inferred PURL for matching when the
+// real component.PURL is missing or unparseable (C0.4 ecosystem fallback).
+func inferPURLFromComponent(c *models.SBOMComponent, sbomOSName string) *PURL {
+	if c == nil {
+		return &PURL{Ecosystem: "generic", Name: "", Version: ""}
+	}
+	name := strings.TrimSpace(c.ComponentName)
+	version := strings.TrimSpace(c.ComponentVersion)
+
+	// Heuristic for Go modules when language-package artifacts are represented without PURL.
+	// This is intentionally conservative: only match well-known module host patterns.
+	n := strings.ToLower(name)
+	if strings.Contains(n, "github.com/") ||
+		strings.Contains(n, "gitlab.com/") ||
+		strings.Contains(n, "bitbucket.org/") ||
+		strings.Contains(n, "golang.org/") ||
+		strings.HasPrefix(n, "k8s.io/") {
+		return &PURL{Ecosystem: "go", Name: name, Version: version}
+	}
+
+	// Default: generic ecosystem mapped using SBOM OS for distro-specific OSV tables.
+	eco := normalizeQueryEcosystemWithOS(&PURL{Ecosystem: "generic"}, sbomOSName)
+	return &PURL{Ecosystem: eco, Name: name, Version: version}
+}
+
+// resolveComponentsForMatching applies noise-reduction and multi-source conflict resolution.
+// It is deterministic and does not mutate DB state.
+func (m *Matcher) resolveComponentsForMatching(
+	ctx context.Context,
+	sbom *models.SBOM,
+	components []models.SBOMComponent,
+) []models.SBOMComponent {
+	type candidate struct {
+		c   models.SBOMComponent
+		p   *PURL
+		eco string
+		key string
+		pri int
+	}
+
+	versionClass := func(eco string, v string) int {
+		eco = strings.ToLower(strings.TrimSpace(eco))
+		v = strings.TrimSpace(v)
+		if eco == "go" {
+			// STRICT: vX.Y.Z or pseudo-version; LOOSE: vX.Y; INVALID otherwise.
+			if goStrictSemver.MatchString(v) || goPseudoVersion.MatchString(v) {
+				return 2
+			}
+			if goLooseSemver.MatchString(v) {
+				return 1
+			}
+			return 0
+		}
+		return 1
+	}
+
+	trustRank := func(tl string) int {
+		switch strings.ToLower(strings.TrimSpace(tl)) {
+		case "high":
+			return 2
+		case "medium":
+			return 1
+		case "low":
+			return 0
+		default:
+			return 2
+		}
+	}
+
+	semverForSort := func(eco string, v string) *version.Version {
+		eco = strings.ToLower(strings.TrimSpace(eco))
+		if eco != "go" && eco != "npm" && eco != "pypi" && eco != "generic" {
+			return nil
+		}
+		v = strings.TrimPrefix(strings.TrimSpace(v), "v")
+		ver, err := version.NewVersion(v)
+		if err != nil {
+			return nil
+		}
+		return ver
+	}
+
+	priority := func(src string) int {
+		s := strings.ToLower(strings.TrimSpace(src))
+		switch s {
+		case "gobinary":
+			return 100
+		case "gomod":
+			return 80
+		case "os", "dpkg", "apk", "rpm":
+			return 60
+		case "distroless-heuristic", "label-metadata", "heuristic":
+			return 20
+		case "gobinary-main":
+			return 15
+		default:
+			return 10
+		}
+	}
+
+	cands := make([]candidate, 0, len(components))
+	var highCount, mediumCount, lowCount int
+	hasNonLow := false
+	for i := range components {
+		c := components[i]
+
+		// gobinary-main: keep for matching — the main Go module may have CVEs in OSV.
+		// Low priority (15) ensures it doesn't shadow higher-quality sources.
+		// Components with (devel) version naturally won't match any CVE constraints.
+
+		// Prefer canonical fields from snapshot (PR-3 full). Fall back to parsing PURL.
+		var p *PURL
+		var err error
+		inferredFromNoPURL := false
+		eco := strings.ToLower(strings.TrimSpace(c.Ecosystem))
+		if eco != "" && strings.TrimSpace(c.ComponentName) != "" && strings.TrimSpace(c.ComponentVersion) != "" {
+			p = &PURL{
+				Type:      "pkg",
+				Ecosystem: eco,
+				Namespace: strings.TrimSpace(c.Namespace),
+				Name:      strings.TrimSpace(c.ComponentName),
+				Version:   strings.TrimSpace(c.ComponentVersion),
+				Qualifiers: map[string]string{
+					"arch": strings.TrimSpace(c.Arch),
+				},
+			}
+		} else {
+			p, err = ParsePURL(c.PURL)
+			if err != nil || p == nil {
+				// C0.4: ecosystem fallback without PURL
+				// Infer a minimal PURL-like view from component fields so we don't hard-skip.
+				// Downgrade trust deterministically when inference is used.
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("invalid").Inc()
+				p = inferPURLFromComponent(&c, sbom.OSName)
+				inferredFromNoPURL = true
+			}
+		}
+		tl := strings.ToLower(strings.TrimSpace(c.TrustLevel))
+		if tl == "" {
+			tl = "high"
+		}
+		if inferredFromNoPURL {
+			tl = "low"
+		}
+		if tl == "high" || tl == "medium" {
+			hasNonLow = true
+		}
+		switch tl {
+		case "high":
+			highCount++
+		case "medium":
+			mediumCount++
+		default:
+			lowCount++
+		}
+
+		eco = normalizeQueryEcosystemWithOS(p, sbom.OSName)
+		// Canonical identity key:
+		// - go: full module path
+		// - distro ecosystems: include namespace if present
+		// - generic: name
+		nameKey := strings.TrimSpace(p.Name)
+		if eco != "go" {
+			ns := strings.TrimSpace(p.Namespace)
+			arch := ""
+			if p.Qualifiers != nil {
+				arch = strings.TrimSpace(p.Qualifiers["arch"])
+			}
+			if ns != "" && arch != "" {
+				nameKey = ns + ":" + arch + "/" + nameKey
+			} else if ns != "" {
+				nameKey = ns + "/" + nameKey
+			} else if arch != "" {
+				nameKey = ":" + arch + "/" + nameKey
+			}
+		}
+		key := eco + ":" + strings.ToLower(nameKey)
+
+		cands = append(cands, candidate{
+			c:   c,
+			p:   p,
+			eco: eco,
+			key: key,
+			pri: priority(c.Source),
+		})
+	}
+
+	metrics.MatcherComponentsTotal.Add(float64(len(cands)))
+	metrics.MatcherInvocationsTotal.Inc()
+	metrics.MatcherCandidatesTotal.Add(float64(len(cands)))
+	metrics.MatcherCandidatesLowTrustTotal.Add(float64(lowCount))
+	if len(cands) > 0 {
+		metrics.MatcherLowTrustRatio.Set(float64(lowCount) / float64(len(cands)))
+	}
+
+	// Graceful degradation: if we have any HIGH/MED components, drop LOW trust ones.
+	// If everything is LOW (e.g. distroless-only heuristic), allow matching in fallback mode.
+	if hasNonLow {
+		filtered := cands[:0]
+		var skippedLow int
+		for _, cand := range cands {
+			tl := strings.ToLower(strings.TrimSpace(cand.c.TrustLevel))
+			if tl == "" {
+				tl = "high"
+			}
+			if tl == "low" {
+				skippedLow++
+				continue
+			}
+			filtered = append(filtered, cand)
+		}
+		cands = filtered
+		if skippedLow > 0 {
+			metrics.MatcherComponentsSkippedLowTrustTotal.Add(float64(skippedLow))
+		}
+		m.logger.Printf("[MatcherTrust] sbom_id=%d high=%d medium=%d low=%d mode=normal", sbom.ID, highCount, mediumCount, lowCount)
+	} else {
+		metrics.MatcherComponentsFallbackModeTotal.Inc()
+		metrics.MatcherFallbackInvocationsTotal.Inc()
+		metrics.MatcherFallbackRatio.Set(1.0)
+		m.logger.Printf("[MatcherTrust] sbom_id=%d high=%d medium=%d low=%d mode=fallback", sbom.ID, highCount, mediumCount, lowCount)
+
+		// Fallback explosion guard: if all components are LOW trust and there are too many,
+		// limit the candidate set deterministically to reduce blast radius.
+		const fallbackLimit = 50
+		if len(cands) > fallbackLimit {
+			sort.Slice(cands, func(i, j int) bool {
+				// D4: prefer higher source/type priority first, so truncation keeps
+				// the most meaningful components deterministically.
+				if cands[i].pri != cands[j].pri {
+					return cands[i].pri > cands[j].pri
+				}
+				vi := versionClass(cands[i].eco, cands[i].p.Version)
+				vj := versionClass(cands[j].eco, cands[j].p.Version)
+				if vi != vj {
+					return vi > vj
+				}
+				if cands[i].key != cands[j].key {
+					return cands[i].key < cands[j].key
+				}
+				return cands[i].c.PURL < cands[j].c.PURL
+			})
+			dropped := len(cands) - fallbackLimit
+			cands = cands[:fallbackLimit]
+			metrics.MatcherComponentsFallbackLimitedTotal.Add(float64(dropped))
+		}
+	}
+	if hasNonLow {
+		metrics.MatcherFallbackRatio.Set(0.0)
+	}
+
+	// Group by canonical key, pick a single winner per key.
+	groups := make(map[string]candidate)
+	for _, cand := range cands {
+		cur, ok := groups[cand.key]
+		if !ok {
+			groups[cand.key] = cand
+			continue
+		}
+		// Deterministic winner selection:
+		// priority DESC, trust DESC, version DESC (semantic where possible), purl ASC.
+		if cand.pri != cur.pri {
+			if cand.pri > cur.pri {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("priority").Inc()
+				groups[cand.key] = cand
+			} else {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("priority").Inc()
+			}
+			continue
+		}
+		tr1, tr2 := trustRank(cand.c.TrustLevel), trustRank(cur.c.TrustLevel)
+		if tr1 != tr2 {
+			if tr1 > tr2 {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+				groups[cand.key] = cand
+			} else {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+			}
+			continue
+		}
+		v1, v2 := semverForSort(cand.eco, cand.p.Version), semverForSort(cur.eco, cur.p.Version)
+		if v1 != nil && v2 != nil {
+			if v1.GreaterThan(v2) {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+				groups[cand.key] = cand
+				continue
+			}
+			if v2.GreaterThan(v1) {
+				metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+				continue
+			}
+		} else if v1 == nil && v2 == nil {
+			// Explicit tie-break when semver parsing fails: version string ASC.
+			if cand.p.Version != cur.p.Version {
+				if cand.p.Version < cur.p.Version {
+					metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+					groups[cand.key] = cand
+				} else {
+					metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+				}
+				continue
+			}
+		}
+		// Final tie-breaker: stable by PURL string (ASC)
+		if cand.c.PURL < cur.c.PURL {
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+			groups[cand.key] = cand
+		} else {
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("conflict").Inc()
+		}
+	}
+
+	// Deterministic output order + duplicate collapse (eco,name,version).
+	out := make([]models.SBOMComponent, 0, len(groups))
+	for _, cand := range groups {
+		out = append(out, cand.c)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].PURL != out[j].PURL {
+			return out[i].PURL < out[j].PURL
+		}
+		return out[i].ComponentName < out[j].ComponentName
+	})
+	seen := make(map[string]bool)
+	deduped := out[:0]
+	for _, c := range out {
+		p, err := ParsePURL(c.PURL)
+		if err != nil || p == nil {
+			continue
+		}
+		eco := normalizeQueryEcosystemWithOS(p, sbom.OSName)
+		ns := strings.ToLower(strings.TrimSpace(p.Namespace))
+		arch := ""
+		if p.Qualifiers != nil {
+			arch = strings.ToLower(strings.TrimSpace(p.Qualifiers["arch"]))
+		}
+		k := eco + ":" + ns + ":" + arch + ":" + strings.ToLower(strings.TrimSpace(p.Name)) + "@" + strings.TrimSpace(p.Version)
+		if seen[k] {
+			metrics.MatcherComponentsShadowedTotal.WithLabelValues("duplicate").Inc()
+			continue
+		}
+		seen[k] = true
+		deduped = append(deduped, c)
+	}
+	out = deduped
+	return out
+}
+
+// normalizeGoModulePrefixes returns candidate Go module prefixes for a given module path.
+// Example: "k8s.io/kubernetes/cmd/kube-apiserver" ->
+// ["k8s.io/kubernetes/cmd/kube-apiserver", "k8s.io/kubernetes/cmd", "k8s.io/kubernetes"].
+// It stops when there are fewer than 3 segments (github.com/org/repo) to avoid matching non-modules (e.g. "k8s.io").
+func normalizeGoModulePrefixes(path string) []string {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return nil
+	}
+	parts := strings.Split(path, "/")
+	if len(parts) < 2 {
+		return []string{path}
+	}
+
+	// Minimum module depth varies by host:
+	// - github.com/org/repo (3 segments) is the common minimum for VCS hosts
+	// - k8s.io/kubernetes (2 segments) is a real Go module used by OSV
+	minParts := 2
+	host := strings.ToLower(parts[0])
+	switch host {
+	case "github.com", "gitlab.com", "bitbucket.org":
+		minParts = 3
+	}
+
+	out := make([]string, 0, len(parts))
+	for i := len(parts); i >= minParts; i-- {
+		prefix := strings.Join(parts[:i], "/")
+		out = append(out, prefix)
+
+		// Preserve major version modules like /v4: stop after emitting ".../v4".
+		if i >= minParts && isGoMajorVersionSegment(parts[i-1]) {
+			break
+		}
+	}
+	return out
+}
+
+func isGoMajorVersionSegment(seg string) bool {
+	seg = strings.TrimSpace(seg)
+	if len(seg) < 2 || seg[0] != 'v' {
+		return false
+	}
+	for i := 1; i < len(seg); i++ {
+		if seg[i] < '0' || seg[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+// isDistrolessHeuristicJunk returns true for components that should be skipped entirely:
+// version=unknown, source=distroless-heuristic, and name not in control-plane/runtime whitelist.
+func isDistrolessHeuristicJunk(c *models.SBOMComponent) bool {
+	if c == nil {
+		return true
+	}
+	if strings.TrimSpace(c.Source) != "distroless-heuristic" {
+		return false
+	}
+	// C0.3: Unknown version should not be skipped entirely; allow controlled matching.
+	if strings.TrimSpace(c.ComponentVersion) == "unknown" {
+		return false
+	}
+	// For known versions: only skip components that look like “file-artifacts” noise
+	// (e.g. Extend.pl, ISO-IR-197.so) and are not part of the control-plane/runtime allowlist.
+	// This avoids skipping legitimate module-like names used by tests and real Go deps.
+	if isDistrolessHeuristicAllowlisted(c.ComponentName) {
+		return false
+	}
+	n := normalizeDistrolessComponentName(c.ComponentName)
+	return strings.Contains(n, ".")
+}
+
+// registryCanonicalName maps known registry-style names to canonical product/component names.
+// e.g. "registry.k8s.io/coredns" → "coredns" (per SBOM_Flow_distroless_Remediation §4).
+var registryCanonicalName = map[string]string{
+	"registry.k8s.io/coredns": "coredns",
+	"registry.k8s.io/etcd":    "etcd",
+}
+
+// normalizeDistrolessComponentName normalizes component name for distroless-heuristic allowlist checks.
+// e.g. "registry.k8s.io/coredns/coredns" → "coredns", "coredns/coredns" → "coredns" (per SBOM_Flow_distroless_Remediation §4).
+// It also normalizes some known control-plane aliases (e.g. "kubernetes-apiserver" → "kube-apiserver").
+func normalizeDistrolessComponentName(name string) string {
+	n := strings.TrimSpace(name)
+	if n == "" {
+		return n
+	}
+	if idx := strings.LastIndex(n, "/"); idx >= 0 && idx < len(n)-1 {
+		n = strings.TrimSpace(n[idx+1:])
+	}
+	// Normalize known control-plane aliases to canonical component names
+	switch strings.ToLower(n) {
+	case "kubernetes-apiserver", "k8s-apiserver", "apiserver":
+		return "kube-apiserver"
+	case "kubernetes-controller-manager", "k8s-controller-manager":
+		return "kube-controller-manager"
+	case "kubernetes-scheduler", "k8s-scheduler":
+		return "kube-scheduler"
+	}
+	if canonical, ok := registryCanonicalName[n]; ok {
+		return canonical
+	}
+	return n
+}
+
+// isDistrolessHeuristicAllowlisted returns true for control-plane and runtime names we still
+// surface for distroless-heuristic SBOMs (openssl, glibc, kube-*, coredns, etcd, ...).
+// Uses normalizeDistrolessComponentName so "coredns/coredns" and "registry.k8s.io/coredns" match.
+func isDistrolessHeuristicAllowlisted(name string) bool {
+	raw := strings.TrimSpace(name)
+	// Go x/* repos: normalize() yields a useless short token ("crypto"); allow on full module path.
+	if strings.HasPrefix(strings.ToLower(raw), "golang.org/x/") {
+		return true
+	}
+	n := normalizeDistrolessComponentName(name)
+	n = strings.TrimSpace(n)
+	if n == "" {
+		return false
+	}
+	if strings.HasPrefix(n, "kube-") {
+		return true
+	}
+	allowed := map[string]bool{
+		"openssl": true, "libssl.so.3": true, "libssl.so.1.1": true,
+		"glibc": true, "libc.so.6": true, "libc.so": true,
+		"coredns": true, "etcd": true, "pause": true,
+		"containerd-shim": true, "containerd-shim-runc-v1": true,
+		"runc": true, "conntrack": true, "iptables": true,
+		"busybox": true, "busybox-binsh": true,
+		"curl": true, "wget": true, "postgres": true,
+		"musl": true, "zlib": true, "libcrypto": true, "libxml2": true,
+		"bash": true, "sudo": true, "openssh": true,
+		"flannel": true, "cni-plugins": true,
+	}
+	if allowed[n] {
+		return true
+	}
+
+	// Allow lib*.so* (e.g. libc.so.6 already above; other libs)
+	if strings.HasPrefix(n, "lib") && (strings.Contains(n, ".so") || strings.HasSuffix(n, ".so")) {
+		return true
+	}
+	return false
+}
+
+// likelyDistroEcosystemsForGenericSBOM returns 1–2 OSV ecosystem keys to try when SBOM ecosystem is "generic"
+// and we need cross-feed matching without blasting every RPM/Debian derivative.
+func likelyDistroEcosystemsForGenericSBOM(osName string) []string {
+	osLower := strings.ToLower(strings.TrimSpace(osName))
+	if osLower == "" {
+		return []string{"alpine", "debian"}
+	}
+	if strings.Contains(osLower, "alpine") {
+		return []string{"alpine"}
+	}
+	if strings.Contains(osLower, "ubuntu") {
+		return []string{"ubuntu"}
+	}
+	if strings.Contains(osLower, "debian") {
+		return []string{"debian"}
+	}
+	for _, tok := range []string{"red hat", "rhel", "centos", "rocky", "alma", "fedora", "oracle linux", "amazon linux"} {
+		if strings.Contains(osLower, tok) {
+			return []string{"redhat"}
+		}
+	}
+	return []string{"alpine", "debian"}
+}
+
+// comparatorEcosystemForBulkBatch selects VersionComparator semantics for CVE rows loaded via
+// GetVulnerabilitiesForPackages(ctx, bulkQueryEcosystem, ...). Constraints follow that feed
+// (dpkg, apk, rpm, semver), so we must not use purl.Ecosystem when it is "generic" and the batch
+// is a concrete distro (fixes false negatives when generic heuristic SBOMs expand to alpine/debian/redhat).
+func comparatorEcosystemForBulkBatch(purl *PURL, bulkQueryEcosystem string) string {
+	b := strings.ToLower(strings.TrimSpace(bulkQueryEcosystem))
+	switch b {
+	case "", "generic":
+		if purl != nil && strings.TrimSpace(purl.Ecosystem) != "" {
+			return purl.Ecosystem
+		}
+		return "generic"
+	case "linux":
+		// Ambiguous RPM bucket: keep PURL (usually rpm) for rpmver comparison.
+		if purl == nil {
+			return "linux"
+		}
+		return purl.Ecosystem
+	default:
+		return bulkQueryEcosystem
+	}
+}
+
+// normalizeQueryEcosystem maps PURL ecosystem/namespace into the ecosystem values
+// stored in PostgreSQL by the OSV loader (e.g., debian/ubuntu/alpine/go).
+func normalizeQueryEcosystem(p *PURL) string {
+	return normalizeQueryEcosystemWithOS(p, "")
+}
+
+// normalizeQueryEcosystemWithOS is like normalizeQueryEcosystem but uses SBOM OS name
+// to map generic components to the distro ecosystem when PURL is generic (e.g. from
+// distroless/heuristic), so OSV Debian/Ubuntu data is matched.
+func normalizeQueryEcosystemWithOS(p *PURL, sbomOSName string) string {
+	if p == nil {
+		return ""
+	}
+	eco := strings.ToLower(strings.TrimSpace(p.Ecosystem))
+	ns := strings.ToLower(strings.TrimSpace(p.Namespace))
+	osName := strings.ToLower(strings.TrimSpace(sbomOSName))
+
+	switch eco {
+	case "deb", "package_type_dpkg", "package_type_deb":
+		// OSV loader stores ecosystem as distro (debian/ubuntu)
+		// Handle both "deb", "package_type_dpkg", and "package_type_deb" formats
+		if ns != "" {
+			return ns
+		}
+		return "debian"
+	case "apk", "package_type_apk":
+		// OSV loader stores "alpine"
+		// Handle both "apk" and "package_type_apk" formats
+		if ns != "" {
+			return ns
+		}
+		return "alpine"
+	case "rpm", "package_type_rpm":
+		if ns != "" {
+			return ns
+		}
+		// Map SBOM OS to OSV-style ecosystem keys when namespace is missing (syft/rpm often omit ns).
+		if strings.Contains(osName, "red hat") || strings.Contains(osName, "rhel") {
+			return "redhat"
+		}
+		if strings.Contains(osName, "centos") {
+			return "centos"
+		}
+		if strings.Contains(osName, "fedora") {
+			return "fedora"
+		}
+		if strings.Contains(osName, "rocky") {
+			return "rocky"
+		}
+		if strings.Contains(osName, "alma") {
+			return "alma"
+		}
+		if strings.Contains(osName, "oracle linux") || strings.Contains(osName, "ol ") {
+			return "oraclelinux"
+		}
+		if strings.Contains(osName, "amazon linux") || strings.Contains(osName, "amzn") {
+			return "amazon"
+		}
+		if strings.Contains(osName, "opensuse") || strings.Contains(osName, "suse") {
+			return "opensuse"
+		}
+		if strings.Contains(osName, "photon") {
+			return "photon"
+		}
+		return "linux" // legacy / unknown RPM — keep previous default
+	case "golang", "go":
+		// OSV loader normalizes to "go"
+		return "go"
+	case "generic":
+		// Heuristic/distroless components: use SBOM OS to query OSV distro data
+		if strings.Contains(osName, "debian") {
+			return "debian"
+		}
+		if strings.Contains(osName, "ubuntu") {
+			return "ubuntu"
+		}
+		if strings.Contains(osName, "alpine") {
+			return "alpine"
+		}
+		if strings.Contains(osName, "rocky") {
+			return "rocky"
+		}
+		if strings.Contains(osName, "alma") {
+			return "alma"
+		}
+		if strings.Contains(osName, "centos") {
+			return "centos"
+		}
+		if strings.Contains(osName, "fedora") {
+			return "fedora"
+		}
+		if strings.Contains(osName, "red hat") || strings.Contains(osName, "rhel") {
+			return "redhat"
+		}
+		if strings.Contains(osName, "oracle linux") || strings.Contains(osName, "ol ") {
+			return "oraclelinux"
+		}
+		if strings.Contains(osName, "amazon linux") || strings.Contains(osName, "amzn") {
+			return "amazon"
+		}
+		if strings.Contains(osName, "opensuse") || strings.Contains(osName, "sles") {
+			return "opensuse"
+		}
+		if strings.Contains(osName, "photon") {
+			return "photon"
+		}
+		return "generic"
+	default:
+		// For unknown ecosystems, try to use namespace or return as-is
+		if ns != "" {
+			return ns
+		}
+		return eco
+	}
+}
+
+// effectiveVersionForComparison reconstructs distro qualifiers needed for precise
+// comparisons (e.g., Debian epoch carried in PURL qualifiers).
+func effectiveVersionForComparison(componentVersion string, purl *PURL) string {
+	v := strings.TrimSpace(componentVersion)
+	if purl == nil || purl.Qualifiers == nil {
+		return v
+	}
+	eco := strings.ToLower(strings.TrimSpace(purl.Ecosystem))
+	if eco == "deb" || eco == "debian" || eco == "ubuntu" {
+		epoch := strings.TrimSpace(purl.Qualifiers["epoch"])
+		if epoch != "" && epoch != "0" && !strings.Contains(v, ":") {
+			return epoch + ":" + v
+		}
+	}
+	return v
+}
+
+// isCVEApplicableToPackageArch provides architecture-aware filtering when
+// constraints explicitly carry arch metadata (e.g. "... , arch=amd64").
+// If no arch metadata exists in constraints, it returns true.
+func isCVEApplicableToPackageArch(cveData *cve.CVE, purl *PURL) bool {
+	if cveData == nil || purl == nil || purl.Qualifiers == nil {
+		return true
+	}
+	pkgArch := strings.ToLower(strings.TrimSpace(purl.Qualifiers["arch"]))
+	if pkgArch == "" {
+		return true
+	}
+	matches := constraintArchRE.FindAllStringSubmatch(cveData.Constraint, -1)
+	if len(matches) == 0 {
+		return true
+	}
+	for _, m := range matches {
+		if len(m) > 1 && strings.EqualFold(strings.TrimSpace(m[1]), pkgArch) {
+			return true
+		}
+	}
+	return false
+}
+
+// FilterBySeverity filters matches by severity
+func (m *Matcher) FilterBySeverity(
+	matches []*models.CVEMatch,
+	severities []string,
+) []*models.CVEMatch {
+	if len(severities) == 0 {
+		return matches // No filter
+	}
+
+	filtered := make([]*models.CVEMatch, 0)
+	severityMap := make(map[string]bool)
+	for _, sev := range severities {
+		severityMap[strings.ToUpper(sev)] = true
+	}
+
+	for _, match := range matches {
+		if severityMap[strings.ToUpper(match.Severity)] {
+			filtered = append(filtered, match)
+		}
+	}
+
+	return filtered
+}

@@ -1,0 +1,25 @@
+# Overprivileged Role Rule
+# Detects roles with excessive permissions
+
+id: overprivileged-role
+name: "Role with excessive permissions"
+category: rbac
+severity: high
+description: "Role grants permissions to sensitive resources (secrets, configmaps, pods)"
+enabled: true
+
+conditions:
+  # CEL: input is "object" (Role/ClusterRole). rules is list of policy rules; check resources list membership.
+  - type: expression
+    expression: "object.rules.exists(r, 'secrets' in r.resources) || object.rules.exists(r, 'configmaps' in r.resources) || object.rules.exists(r, 'pods' in r.resources)"
+
+aggregation: OR
+base_score: 7.0
+tags:
+  - overprivileged
+  - sensitive-resources
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Enterprise privilege escalation mapping (RBAC misconfig)
+  - T1068
+

@@ -1,0 +1,62 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortuna-dashboard
+  namespace: fortuna
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fortuna-dashboard
+  template:
+    metadata:
+      labels:
+        app: fortuna-dashboard
+    spec:
+      # Local registryless default: keep Dashboard on the control-plane/master
+      # where the image is built/loaded. Do not copy Dashboard image to workers
+      # unless this selector is intentionally changed.
+      # For registry-backed production, remove this selector or use appropriate labels.
+      nodeSelector:
+        kubernetes.io/hostname: k8s-master
+      tolerations:
+      - key: "node-role.kubernetes.io/control-plane"
+        operator: "Exists"
+        effect: "NoSchedule"
+      containers:
+      - name: dashboard
+        image: fortuna-dashboard:v1.5.1-75-ga734e53b9
+        # Pipeline syncs this tag to VERSION after a successful build.
+        # IfNotPresent: uses pre-built/loaded image on the node
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: nginx-config
+          mountPath: /etc/nginx/conf.d/default.conf
+          subPath: default.conf
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+      volumes:
+      - name: nginx-config
+        configMap:
+          name: fortuna-dashboard-nginx
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortuna-dashboard
+  namespace: fortuna
+spec:
+  type: LoadBalancer
+  ports:
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+  selector:
+    app: fortuna-dashboard

@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fortuna-e2e
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: website-vuln-lodash
+  namespace: fortuna-e2e
+  labels:
+    app: website-vuln
+    test: e2e-cve-sbom
+spec:
+  restartPolicy: Always
+  # For portability: override nodeSelector per environment if needed
+  # nodeSelector:
+  #   kubernetes.io/hostname: k8s-master
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: web
+      image: website-vuln-lodash:latest
+      imagePullPolicy: IfNotPresent
+      ports:
+        - containerPort: 3000
+          name: http

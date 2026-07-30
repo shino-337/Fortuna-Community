@@ -1,0 +1,215 @@
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fortuna-agent
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortuna
+      app.kubernetes.io/component: agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortuna
+        app.kubernetes.io/component: agent
+    spec:
+      serviceAccountName: fortuna-agent
+      hostNetwork: false
+      # hostPID: true required for host inspection (read /proc/<pid>/cgroup to map PID → container)
+      hostPID: true
+      
+      # Allow Agent to run on all nodes including master (if master has taints)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+      
+      volumes:
+        # mTLS certificates
+        - name: tls-certs
+          secret:
+            secretName: fortuna-agent-tls
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+        - name: ca-cert
+          secret:
+            secretName: fortuna-ca-cert
+            items:
+              - key: ca.crt
+                path: ca.crt
+        # Containerd socket
+        - name: containerd-socket
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
+        # Host /proc for host inspection (process/network from node, no exec)
+        - name: host-proc
+          hostPath:
+            path: /proc
+            type: Directory
+        # Falco JSONL (optional R9): ensure Falco writes e.g. /var/log/falco/events.jsonl on each node
+        - name: falco-events
+          hostPath:
+            path: /var/log/falco
+            type: DirectoryOrCreate
+      
+      containers:
+        - name: agent
+          # Pipeline syncs this tag to VERSION after a successful build.
+          # IfNotPresent uses the local image loaded into node containerd; multi-node installs should push/load the same tag on every worker.
+          image: fortuna-agent:v1.5.1-75-ga734e53b9
+          imagePullPolicy: IfNotPresent
+          
+          env:
+            # Core endpoints
+            - name: CORE_GRPC_ENDPOINT
+              value: "fortuna-core.fortuna.svc.cluster.local:9090"
+            - name: CORE_HTTP_ENDPOINT
+              value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
+            - name: FORTUNA_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: ingest-token
+                  optional: false
+            
+            # Cluster: name is discovered from cluster (kubeadm-config, node labels, default API service, or cluster-<shortID>).
+            # Optional override: set CLUSTER_ID/CLUSTER_NAME to force a specific id/name.
+            # - name: CLUSTER_ID
+            #   valueFrom:
+            #     configMapKeyRef:
+            #       name: fortuna-cluster-config
+            #       key: cluster_id
+            #       optional: true
+            # - name: CLUSTER_NAME
+            #   valueFrom:
+            #     configMapKeyRef:
+            #       name: fortuna-cluster-config
+            #       key: cluster_name
+            #       optional: true
+            - name: SYNC_INTERVAL
+              value: "5m"
+            # Heartbeat interval (Ping to Core); default 15s so last_seen_at stays fresh for dashboard
+            - name: HEARTBEAT_INTERVAL
+              value: "15s"
+            
+            # Node info (AgentID defaults to NODE_NAME-agent in agent config if AGENT_ID unset)
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: POD_UID
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            # Optional: override agent id (default: NODE_NAME-agent, unique per node)
+            # - name: AGENT_ID
+            #   value: "my-agent-1"
+            
+            # mTLS Configuration
+            - name: TLS_ENABLED
+              value: "true"
+            - name: TLS_CERT_PATH
+              value: "/etc/fortuna/certs/tls.crt"
+            - name: TLS_KEY_PATH
+              value: "/etc/fortuna/certs/tls.key"
+            - name: TLS_CA_CERT_PATH
+              value: "/etc/fortuna/ca-cert/ca.crt"
+            
+            # Containerd config
+            - name: CONTAINERD_SOCKET
+              value: "/run/containerd/containerd.sock"
+            - name: CONTAINERD_NAMESPACE
+              value: "k8s.io"
+            
+            # Logging
+            - name: LOG_LEVEL
+              value: "info"
+            # Pod Detail: host = collect from /proc (no exec); exec = current exec ps/ss (default when unset)
+            - name: POD_DETAIL_RUNTIME_SOURCE
+              value: "host"
+            # Explicit host proc root for runtime collectors (kept explicit for deploy clarity)
+            - name: POD_DETAIL_PROC_ROOT
+              value: "/host/proc"
+            # Approximate per-process CPU% from /proc; set false to disable
+            - name: POD_DETAIL_PROCESS_CPU_APPROX_FROM_PROC
+              value: "true"
+            # Falco JSONL → Core (R9). Agent tails from EOF on first open (see FalcoReader) to avoid
+            # reading multi-GB backlog into memory; rotate/truncate host /var/log/falco/events.jsonl if needed.
+            - name: FALCO_EVENTS_ENABLED
+              value: "true"
+            - name: FALCO_EVENTS_PATH
+              value: "/var/log/falco/events.jsonl"
+            - name: FALCO_EVENTS_POLL
+              value: "5s"
+            # Lower peak memory when many pods queue SBOM (default queue workers=2 in code).
+            - name: SBOM_WORKERS
+              value: "1"
+            # R9 eBPF sensor (phase-1 scaffold). Keep disabled by default for safe rollout.
+            - name: EBPF_ENABLED
+              value: "false"
+            - name: EBPF_MODE
+              value: "exec"
+            - name: EBPF_EVENT_FLUSH_INTERVAL
+              value: "5s"
+            - name: EBPF_EVENT_BUFFER_SIZE
+              value: "200"
+            # For canary verification only; keep false in production.
+            - name: EBPF_SIMULATE
+              value: "false"
+          
+          volumeMounts:
+            - name: tls-certs
+              mountPath: /etc/fortuna/certs
+              readOnly: true
+            - name: ca-cert
+              mountPath: /etc/fortuna/ca-cert
+              readOnly: true
+            - name: containerd-socket
+              mountPath: /run/containerd/containerd.sock
+              readOnly: true
+            - name: host-proc
+              mountPath: /host/proc
+              readOnly: true
+            - name: falco-events
+              mountPath: /var/log/falco
+              readOnly: true
+          
+          # SBOM + Falco JSONL poll: 2Gi limit caused OOM when Falco backlog was read before tail-from-EOF fix; keep headroom.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 6Gi
+          
+          # Security context - root required for containerd socket access
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: true
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - SYS_BPF
+                - SYS_RESOURCE
+                - PERFMON
+                - SYS_ADMIN

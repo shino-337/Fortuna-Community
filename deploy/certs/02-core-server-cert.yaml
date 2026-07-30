@@ -1,0 +1,58 @@
+---
+# Core gRPC Server Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: fortuna-core-server
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+    cert-type: server
+spec:
+  secretName: fortuna-core-server-tls
+  
+  # Certificate lifetime
+  duration: 8760h  # 1 year
+  renewBefore: 720h  # 30 days before expiry
+  
+  # Issuer
+  issuerRef:
+    name: fortuna-ca-issuer
+    kind: ClusterIssuer
+  
+  # Server identity
+  commonName: fortuna-core.fortuna.svc.cluster.local
+  
+  # DNS names (gRPC requires exact match)
+  dnsNames:
+    - fortuna-core
+    - fortuna-core.fortuna
+    - fortuna-core.fortuna.svc
+    - fortuna-core.fortuna.svc.cluster.local
+    - localhost  # For local testing
+  
+  # IP addresses (optional)
+  ipAddresses:
+    - 127.0.0.1
+  
+  # Subject
+  subject:
+    organizations:
+      - Fortuna Security Platform
+    organizationalUnits:
+      - Core Service
+    countries:
+      - US
+  
+  # Key configuration
+  privateKey:
+    algorithm: RSA
+    size: 2048
+  
+  # Key usage (server cert)
+  usages:
+    - digital signature
+    - key encipherment
+    - server auth
+

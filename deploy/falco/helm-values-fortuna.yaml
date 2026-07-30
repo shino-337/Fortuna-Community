@@ -1,0 +1,59 @@
+# Fortuna + Falco: JSON lines to hostPath so fortuna-agent can tail → POST /api/v1/runtime/events
+# Install: bash scripts/deploy/install-falco-fortuna.sh
+#
+# Requires: helm 3+, chart falcosecurity/falco
+driver:
+  # kmod works reliably on kernel 5.10–5.15; modern_ebpf may hang on < 5.19.
+  # Override: --set driver.kind=modern_ebpf on kernels >= 6.1.
+  kind: kmod
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+  limits:
+    cpu: 500m
+    memory: 512Mi
+
+falcoctl:
+  artifact:
+    install:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 200m
+          memory: 128Mi
+    follow:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 32Mi
+        limits:
+          cpu: 100m
+          memory: 128Mi
+
+mounts:
+  volumes:
+    - name: fortuna-falco-log
+      hostPath:
+        path: /var/log/falco
+        type: DirectoryOrCreate
+  volumeMounts:
+    - name: fortuna-falco-log
+      mountPath: /var/log/falco
+
+falco:
+  json_output: true
+  json_include_output_property: true
+  json_include_tags_property: true
+  priority: notice
+  stdout_output:
+    enabled: false
+  syslog_output:
+    enabled: false
+  file_output:
+    enabled: true
+    keep_alive: true
+    filename: /var/log/falco/events.jsonl

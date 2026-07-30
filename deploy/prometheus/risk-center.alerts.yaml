@@ -1,0 +1,26 @@
+# Prometheus alert rules for Risk Center (Phase 3.2)
+# Use with Prometheus rule_files or Helm values. Metrics from core/pkg/metrics (fortuna_insights_*).
+# fortuna_insights_active_total is a gauge; fortuna_insights_created_total is a counter.
+groups:
+  - name: risk-center
+    interval: 1m
+    rules:
+      # Critical active insights above threshold
+      - alert: RiskCenterCriticalInsightsHigh
+        expr: sum(fortuna_insights_active_total{severity="critical"}) > 50
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Risk Center: high number of critical insights"
+          description: "More than 50 critical active insights. Review Risk Center for critical findings."
+
+      # High insight creation rate (counter)
+      - alert: RiskCenterHighInsightCreationRate
+        expr: sum(rate(fortuna_insights_created_total[5m])) > 2
+        for: 2m
+        labels:
+          severity: info
+        annotations:
+          summary: "Risk Center: high insight creation rate"
+          description: "Insights created at > 2/sec (5m rate). May indicate bulk scan or new CVE ingestion."

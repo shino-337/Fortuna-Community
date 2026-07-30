@@ -1,0 +1,30 @@
+# CIS Kubernetes Benchmark 5.1.5: Minimize access to create pods in kube-system
+# RBAC cannot express namespaces directly in a ClusterRole; this rule flags roles that can create pods,
+# which should be further constrained by Role+namespace scoping.
+
+id: cis-5.1.5
+name: "Role allows creating pods (review kube-system scope)"
+category: rbac
+severity: high
+description: "Role/ClusterRole allows creating pods; ensure it is not usable in sensitive namespaces such as kube-system"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.rules.exists(r,
+        r.resources.exists(res, res == 'pods') &&
+        r.verbs.exists(v, v == 'create' || v == '*' )
+      )
+
+aggregation: AND
+base_score: 7.5
+tags:
+  - cis
+  - rbac
+  - pods
+  - create
+  - kube-system
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+

@@ -1,0 +1,33 @@
+# Correlates runtime "suspicious exec" signal (REP → runtime_signals)
+# into a dedicated risk rule with MITRE ATT&CK mapping.
+#
+# Note: This is evaluated on Pod-shaped object where risk engine enriches
+# `object.fortuna.has_suspicious_exec` from runtime_signals within lookback window.
+
+id: runtime-suspicious-exec-signal
+name: "Runtime suspicious exec signal"
+category: runtime-behavior
+severity: medium
+description: "Fortuna recorded suspicious exec-related runtime signals for this pod in the lookback window"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          object.securityState.has_suspicious_exec == true)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.has_suspicious_exec == true)
+      )
+
+aggregation: AND
+base_score: 6.0
+tags:
+  - runtime
+  - exec
+  # MITRE ATT&CK for Containers: Container CLI/API
+  - T1059.013
+

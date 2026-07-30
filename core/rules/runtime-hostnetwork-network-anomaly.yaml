@@ -1,0 +1,30 @@
+# Correlates inventory hostNetwork with NETWORK_QUEUE_ANOMALY-style signals (defense-in-depth).
+id: runtime-hostnetwork-network-anomaly
+name: "Host network pod with network anomaly signal"
+category: runtime-behavior
+severity: high
+description: "Pod uses host networking and Fortuna recorded a network-queue anomaly signal in the lookback window"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          object.securityState.host_network == true &&
+          object.securityState.has_network_queue_anomaly == true)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.host_network == true &&
+          object.fortuna.has_network_queue_anomaly == true)
+      )
+
+aggregation: AND
+base_score: 8.0
+tags:
+  - runtime
+  - network
+  - host-network
+  # MITRE ATT&CK: Network Sniffing (container/network telemetry anomaly)
+  - T1614

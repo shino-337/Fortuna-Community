@@ -1,0 +1,64 @@
+---
+# Namespace for certificates
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: fortuna-certs
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: certificates
+---
+# Self-signed issuer for root CA
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: fortuna-selfsigned-issuer
+  namespace: fortuna-certs
+spec:
+  selfSigned: {}
+---
+# Root CA Certificate
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: fortuna-root-ca
+  namespace: fortuna-certs
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: root-ca
+spec:
+  isCA: true
+  commonName: Fortuna Root CA
+  secretName: fortuna-root-ca-secret
+  duration: 87600h  # 10 years
+  renewBefore: 8760h  # 1 year before expiry
+  
+  issuerRef:
+    name: fortuna-selfsigned-issuer
+    kind: Issuer
+  
+  subject:
+    organizations:
+      - Fortuna Security Platform
+    organizationalUnits:
+      - Certificate Authority
+    countries:
+      - US
+  
+  # Key configuration
+  privateKey:
+    algorithm: RSA
+    size: 4096
+---
+# CA Issuer (uses root CA to sign other certs)
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: fortuna-ca-issuer
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: ca-issuer
+spec:
+  ca:
+    secretName: fortuna-root-ca-secret
+

@@ -1,0 +1,23 @@
+# RBAC: detect Roles/ClusterRoles that allow binding roles via the "bind" verb.
+
+id: rbac-bind-verb
+name: "Role allows RBAC binding (bind verb)"
+category: rbac
+severity: critical
+description: "Role/ClusterRole contains the 'bind' verb, which can allow binding subjects to high-privilege roles"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: "object.rules.exists(r, r.verbs.exists(v, v == 'bind'))"
+
+aggregation: AND
+base_score: 9.5
+tags:
+  - rbac
+  - binding
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+  # Privilege escalation mapping
+  - T1068
+

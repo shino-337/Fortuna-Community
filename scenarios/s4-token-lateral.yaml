@@ -1,0 +1,31 @@
+# S4 — Service account token use against apiserver (lateral / token abuse pattern)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sa-lateral
+  namespace: fortuna-test
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: lateral-pod
+  namespace: fortuna-test
+  labels:
+    fortuna.io/e2e-scenario: s4-token-lateral
+spec:
+  serviceAccountName: sa-lateral
+  containers:
+    - name: attacker
+      image: curlimages/curl:8.5.0
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          while true; do
+            TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+            curl -sk --connect-timeout 5 \
+              -H "Authorization: Bearer $TOKEN" \
+              https://kubernetes.default.svc/api || true
+            sleep 10
+          done

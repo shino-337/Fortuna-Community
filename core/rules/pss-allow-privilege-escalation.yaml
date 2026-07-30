@@ -1,0 +1,38 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects allowPrivilegeEscalation=true (common privilege escalation misconfig).
+
+id: pss-allow-privilege-escalation
+name: "Pod allows privilege escalation"
+category: pod-security
+severity: high
+description: "At least one container sets securityContext.allowPrivilegeEscalation=true; violates restricted PSS baseline"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (has(object.spec.containers) &&
+          object.spec.containers.exists(c,
+            has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == true
+          )
+        ) ||
+        (has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.securityContext) && c.securityContext.allowPrivilegeEscalation == true
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 8.5
+tags:
+  - pss
+  - pod-security
+  - privilege-escalation
+  - allow-privilege-escalation
+  # Generic privilege escalation mapping
+  - T1068
+

@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package fortuna.agent.v1;
+
+option go_package = "github.com/fortuna/api/proto/agent";
+
+import "google/protobuf/timestamp.proto";
+
+// SBOMSource indicates how the SBOM was produced (Finding #8.4)
+enum SBOMSource {
+  SBOM_SOURCE_UNKNOWN = 0;
+  SBOM_SOURCE_PARSERS = 1;              // Package managers (dpkg, apk, rpm, npm, etc.)
+  SBOM_SOURCE_DISTROLLESS_HEURISTIC = 2; // Synthetic/heuristic for distroless/system images
+  SBOM_SOURCE_LABEL_METADATA = 3;       // From OCI labels / image metadata only
+}
+
+// Confidence level for SBOM or component (Finding #8.4)
+enum Confidence {
+  CONFIDENCE_UNKNOWN = 0;
+  CONFIDENCE_LOW = 1;
+  CONFIDENCE_MEDIUM = 2;
+  CONFIDENCE_HIGH = 3;
+}
+
+// SBOMFinding represents SBOM data extracted by Agent
+message SBOMFinding {
+  // Schema version for evolution
+  int32 schema_version = 1;
+  
+  // Pod identity (required)
+  string pod_uid = 2;
+  string pod_name = 3;
+  string namespace = 4;
+  string container_name = 5;
+  
+  // Image info (required)
+  string image_name = 6;
+  string image_digest = 7;  // sha256:abc123...
+  string image_tag = 8;
+  
+  // Operating System (optional)
+  OSInfo os_info = 9;
+  
+  // Packages (required)
+  repeated Package packages = 10;
+  
+  // Metadata (required)
+  google.protobuf.Timestamp generated_at = 11;
+  string agent_id = 12;
+  string node_id = 13;
+  
+  // Additional context (optional)
+  map<string, string> labels = 14;
+  map<string, string> annotations = 15;
+  
+  // SBOM provenance (Finding #8.4) – Core uses for CVE matching policy (e.g. heuristic vs package-manager SBOMs)
+  SBOMSource sbom_source = 16;
+  Confidence confidence = 17;
+
+  // Go toolchain version used to build binaries in the image (e.g. go1.22.5 from buildinfo or
+  // GOLANG_VERSION label/env). Populated by Agent for Core Go stdlib CVE matching (package stdlib).
+  string go_version = 18;
+}
+
+// OSInfo describes the container OS
+message OSInfo {
+  string name = 1;        // e.g., "debian", "alpine", "ubuntu"
+  string version = 2;     // e.g., "11", "3.18", "22.04"
+  string variant = 3;     // e.g., "slim", "musl"
+  string architecture = 4; // e.g., "amd64", "arm64"
+}
+
+// Package represents a software package
+message Package {
+  string name = 1;         // e.g., "nginx"
+  string version = 2;      // e.g., "1.21.6"
+  PackageType type = 3;    // Enum of package types
+  string architecture = 4; // e.g., "amd64", "all"
+  repeated string licenses = 5;
+  string source = 6;       // e.g., source package name (Debian source pkg)
+  
+  // Optional metadata
+  string description = 7;
+  string homepage = 8;
+  string maintainer = 9;
+  
+  // Canonical PURL (Finding #8.2) – e.g. pkg:generic/coredns@1.11.0 for distroless
+  string purl = 10;
+}
+
+// PackageType enum
+enum PackageType {
+  PACKAGE_TYPE_UNKNOWN = 0;
+  PACKAGE_TYPE_DEB = 1;      // Debian/Ubuntu
+  PACKAGE_TYPE_RPM = 2;      // Red Hat/CentOS
+  PACKAGE_TYPE_APK = 3;      // Alpine
+  PACKAGE_TYPE_NPM = 4;      // Node.js
+  PACKAGE_TYPE_PYPI = 5;     // Python
+  PACKAGE_TYPE_GEM = 6;      // Ruby
+  PACKAGE_TYPE_GO_MOD = 7;   // Go modules
+  PACKAGE_TYPE_MAVEN = 8;    // Java Maven
+  PACKAGE_TYPE_CARGO = 9;    // Rust
+  PACKAGE_TYPE_GENERIC = 10; // Distroless/system heuristic (pkg:generic/...)
+}
+
+// SBOMFindingResponse returned by Core
+message SBOMFindingResponse {
+  bool success = 1;
+  string message = 2;
+  string sbom_id = 3;  // Used to reference in CVEFinding
+  google.protobuf.Timestamp received_at = 4;
+}
+

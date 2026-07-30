@@ -1,0 +1,29 @@
+# CIS Kubernetes Benchmark 5.1.9: Minimize access to create rolebindings and clusterrolebindings
+
+id: cis-5.1.9
+name: "Role allows creating RBAC bindings (rolebindings/clusterrolebindings)"
+category: rbac
+severity: critical
+description: "Role/ClusterRole allows creating or updating rolebindings/clusterrolebindings; can grant privileges to subjects"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.rules.exists(r,
+        (r.resources.exists(res, res == 'rolebindings') || r.resources.exists(res, res == 'clusterrolebindings')) &&
+        r.verbs.exists(v, v == 'create' || v == 'update' || v == 'patch' || v == '*' )
+      )
+
+aggregation: AND
+base_score: 9.5
+tags:
+  - cis
+  - rbac
+  - bindings
+  - escalation
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+  # Privilege escalation mapping
+  - T1068
+

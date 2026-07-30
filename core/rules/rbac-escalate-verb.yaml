@@ -1,0 +1,23 @@
+# RBAC: detect Roles/ClusterRoles that allow privilege escalation via the "escalate" verb.
+
+id: rbac-escalate-verb
+name: "Role allows RBAC escalation (escalate verb)"
+category: rbac
+severity: critical
+description: "Role/ClusterRole contains the 'escalate' verb, which can allow escalating privileges when combined with role modifications"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: "object.rules.exists(r, r.verbs.exists(v, v == 'escalate'))"
+
+aggregation: AND
+base_score: 9.5
+tags:
+  - rbac
+  - escalation
+  # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse
+  - T1612
+  # Privilege escalation mapping
+  - T1068
+

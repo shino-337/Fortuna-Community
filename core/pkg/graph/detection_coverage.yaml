@@ -1,0 +1,28 @@
+# MITRE IDs considered covered by Fortuna detection / runtime correlation rules.
+# Path-only MITRE not in runtime: if listed here → status "inferred"; else → "not_covered".
+version: 2
+# Optional: IDs we explicitly treat as “not covered” by product detection (shows as gap, not unknown).
+mitre_explicit_not_covered: []
+
+mitre_with_detection:
+  - T1046
+  - T1055
+  - T1068
+  - T1078
+  - T1078.004
+  - T1098
+  - T1098.006
+  - T1134
+  - T1486
+  - T1496
+  - T1499
+  - T1525
+  - T1530
+  - T1548
+  - T1548.001
+  - T1550.001
+  - T1552.001
+  - T1552.007
+  - T1609
+  - T1611
+  - T1613

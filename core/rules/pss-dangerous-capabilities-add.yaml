@@ -1,0 +1,64 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects containers adding high-risk Linux capabilities.
+
+id: pss-dangerous-capabilities-add
+name: "Pod adds dangerous Linux capabilities"
+category: pod-security
+severity: high
+description: "At least one container adds dangerous capabilities via securityContext.capabilities.add"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (has(object.spec.containers) &&
+          object.spec.containers.exists(c,
+            has(c.securityContext) &&
+            has(c.securityContext.capabilities) &&
+            has(c.securityContext.capabilities.add) &&
+            c.securityContext.capabilities.add.exists(cap,
+              cap == "SYS_ADMIN" ||
+              cap == "SYS_MODULE" ||
+              cap == "SYS_PTRACE" ||
+              cap == "NET_ADMIN" ||
+              cap == "NET_RAW" ||
+              cap == "DAC_OVERRIDE" ||
+              cap == "KILL" ||
+              cap == "SETUID" ||
+              cap == "SETGID"
+            )
+          )
+        ) ||
+        (has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.securityContext) &&
+            has(c.securityContext.capabilities) &&
+            has(c.securityContext.capabilities.add) &&
+            c.securityContext.capabilities.add.exists(cap,
+              cap == "SYS_ADMIN" ||
+              cap == "SYS_MODULE" ||
+              cap == "SYS_PTRACE" ||
+              cap == "NET_ADMIN" ||
+              cap == "NET_RAW" ||
+              cap == "DAC_OVERRIDE" ||
+              cap == "KILL" ||
+              cap == "SETUID" ||
+              cap == "SETGID"
+            )
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 9.0
+tags:
+  - pss
+  - pod-security
+  - capabilities
+  - privilege-escalation
+  # Generic privilege escalation mapping
+  - T1068
+

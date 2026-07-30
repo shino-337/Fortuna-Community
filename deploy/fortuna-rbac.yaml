@@ -1,0 +1,153 @@
+---
+# ServiceAccount for Fortuna Core
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+---
+# ClusterRole for Core (read-only for metadata)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fortuna-core
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+rules:
+# Read pods, services, namespaces for metadata
+- apiGroups: [""]
+  resources:
+    - pods
+    - services
+    - namespaces
+    - serviceaccounts
+  verbs: ["get", "list", "watch"]
+
+# Read RBAC resources
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+
+# Read network policies
+- apiGroups: ["networking.k8s.io"]
+  resources:
+    - networkpolicies
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding for Core
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fortuna-core
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fortuna-core
+subjects:
+- kind: ServiceAccount
+  name: fortuna-core
+  namespace: fortuna
+---
+# ServiceAccount for Fortuna Agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fortuna-agent
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+---
+# ClusterRole for Agent (read pods, SAs, RBAC for sync + container runtime + Pod Detail exec)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: fortuna-agent
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+rules:
+# Watch pods (sync payload)
+- apiGroups: [""]
+  resources:
+    - pods
+  verbs: ["get", "list", "watch"]
+
+# Pod Detail: exec into containers for process (ps) and network (ss/netstat) collection
+- apiGroups: [""]
+  resources:
+    - pods/exec
+  verbs: ["create"]
+
+# Watch Kubernetes events (Pod Detail – events collector informer)
+- apiGroups: [""]
+  resources:
+    - events
+  verbs: ["get", "list", "watch"]
+
+# Read node info
+- apiGroups: [""]
+  resources:
+    - nodes
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources:
+    - nodes/proxy
+  verbs: ["get"]
+
+
+# Read namespaces for context
+- apiGroups: [""]
+  resources:
+    - namespaces
+  verbs: ["get", "list"]
+
+# ServiceAccounts (sync payload – required for cluster sync; was missing, caused "serviceaccounts is forbidden")
+- apiGroups: [""]
+  resources:
+    - serviceaccounts
+  verbs: ["get", "list", "watch"]
+
+# RBAC resources (sync payload – roles, rolebindings, clusterroles, clusterrolebindings)
+- apiGroups: ["rbac.authorization.k8s.io"]
+  resources:
+    - roles
+    - rolebindings
+    - clusterroles
+    - clusterrolebindings
+  verbs: ["get", "list", "watch"]
+
+# Workload controller inventory (sync payload – deployments, replicasets)
+- apiGroups: ["apps"]
+  resources:
+    - deployments
+    - replicasets
+  verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding for Agent
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: fortuna-agent
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: fortuna-agent
+subjects:
+- kind: ServiceAccount
+  name: fortuna-agent
+  namespace: fortuna

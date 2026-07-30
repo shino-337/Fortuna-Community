@@ -1,0 +1,167 @@
+@import "./src/styles/variables.css";
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html {
+  /* Avoid accidental horizontal scroll when scaled or on narrow viewports */
+  overflow-x: hidden;
+}
+
+body {
+  background: radial-gradient(circle at top center, rgb(var(--color-surface)), rgb(var(--color-base)) 60%);
+  background-attachment: fixed;
+  color: rgb(var(--color-text));
+  font-kerning: normal;
+  font-optical-sizing: auto;
+  font-feature-settings: "kern" 1, "liga" 1, "tnum" 1, "lnum" 1;
+  text-rendering: optimizeLegibility;
+}
+
+/**
+ * UI typography scale (Tailwind theme fontSize):
+ * text-page-title, text-section-title, text-card-title, text-body, text-caption,
+ * text-meta (~11px), text-micro (~10px), text-nano (~9px), text-prose, text-metric, text-metric-lg,
+ * text-lead-muted (muted copy 12px/400).
+ */
+@layer components {
+  .fortuna-page-title {
+    @apply text-page-title text-text;
+  }
+  .fortuna-section-title {
+    @apply text-section-title text-text;
+  }
+  .fortuna-card-title {
+    @apply text-card-title text-text font-semibold;
+  }
+  .fortuna-body {
+    @apply text-body text-text font-normal;
+  }
+  .fortuna-caption {
+    @apply text-caption font-medium text-muted;
+  }
+  .fortuna-muted {
+    @apply text-caption font-normal text-muted-2;
+  }
+
+  .fortuna-prose {
+    @apply max-w-[68ch] text-prose font-normal text-muted;
+  }
+
+  .fortuna-prose-compact {
+    @apply max-w-[128ch] text-body font-normal text-muted;
+  }
+
+  .fortuna-metric {
+    @apply text-metric font-bold tabular-nums text-text;
+  }
+
+  .fortuna-metric-lg {
+    @apply text-metric-lg font-bold tabular-nums text-text;
+  }
+
+  .text-typo-meta {
+    @apply text-meta text-muted-2;
+  }
+  .text-typo-micro {
+    @apply text-micro uppercase tracking-wide text-muted-2;
+  }
+
+  .ui-table-scroll {
+    /* dvh tracks mobile dynamic toolbar; cap avoids huge tables on tall desktop */
+    @apply overflow-x-auto overflow-y-auto max-h-[min(60dvh,36rem)] overscroll-contain;
+  }
+
+  .ui-table-scroll-compact {
+    @apply overflow-x-auto overflow-y-auto;
+  }
+
+  .ui-code-scroll {
+    @apply overflow-auto max-h-[min(70dvh,42rem)] overscroll-contain;
+  }
+
+  .ui-filter-bar {
+    @apply rounded-lg border border-border bg-surface/60 px-4 py-3;
+  }
+
+  /* Field labels: caption scale, semibold for legibility on dark backgrounds */
+  .ui-micro-label {
+    @apply text-caption font-semibold uppercase tracking-wide text-muted;
+  }
+
+  .ui-badge-text {
+    @apply text-caption font-semibold;
+  }
+}
+
+/* Page-enter animation (replaces tailwindcss-animate dependency) */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in.fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+
+/* Slide / combined (replaces tailwindcss-animate slide-in-* utilities) */
+@keyframes slideInFromRight {
+  from { opacity: 0; transform: translateX(1rem); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.animate-in.slide-in-from-right-4 {
+  animation: slideInFromRight 0.35s ease-out both;
+}
+.animate-in.fade-in.slide-in-from-right-4 {
+  animation: slideInFromRight 0.3s ease-out both;
+}
+@keyframes slideInFromTop {
+  from { opacity: 0; transform: translateY(-0.5rem); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.animate-in.slide-in-from-top-2 {
+  animation: slideInFromTop 0.2s ease-out both;
+}
+
+/* Custom scrollbar for webkit */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-border));
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--color-muted-2));
+}
+
+.topology-loading-grid {
+  background-image:
+    linear-gradient(rgb(var(--color-muted-2) / 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgb(var(--color-muted-2) / 0.07) 1px, transparent 1px);
+  background-size: 36px 36px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+  }
+
+  .animate-in,
+  .fade-in,
+  .slide-in-from-right-4,
+  .slide-in-from-top-2 {
+    animation: none !important;
+    transform: none !important;
+  }
+}

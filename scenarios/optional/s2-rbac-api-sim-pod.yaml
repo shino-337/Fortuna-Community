@@ -1,0 +1,21 @@
+# Same SA as S2; image includes curl for valid TLS to the Kubernetes API (busybox wget often fails TLS handshake).
+# Optional: apply for API-based MITRE simulations. Remove when done: kubectl delete pod rbac-api-sim -n fortuna-test
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rbac-api-sim
+  namespace: fortuna-test
+  labels:
+    fortuna.io/e2e-scenario: s2-rbac-api-sim
+    fortuna.io/schedule: master
+spec:
+  serviceAccountName: sa-rbac
+  nodeName: k8s-master
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+  containers:
+    - name: app
+      image: curlimages/curl:8.5.0
+      command: ["/bin/sh", "-c", "sleep 3600"]

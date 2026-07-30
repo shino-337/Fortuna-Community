@@ -1,0 +1,6 @@
+
+{
+  "name": "Fortuna Dashboard",
+  "description": "A modern Kubernetes security monitoring dashboard featuring cluster insights, resource tracking, and threat visualization.",
+  "requestFramePermissions": []
+}

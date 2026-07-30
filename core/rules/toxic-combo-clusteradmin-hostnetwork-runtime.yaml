@@ -1,0 +1,32 @@
+id: toxic-combo-clusteradmin-hostnetwork-runtime
+name: "Toxic combo: cluster-admin SA + hostNetwork + runtime activity"
+category: runtime-behavior
+severity: critical
+description: "Pod combines cluster-admin ServiceAccount binding, hostNetwork exposure, and active runtime signals"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          object.securityState.service_account_bound_to_cluster_admin == true &&
+          object.securityState.host_network == true &&
+          object.securityState.signal_total_24h > 0)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.service_account_bound_to_cluster_admin == true &&
+          object.fortuna.host_network == true &&
+          object.fortuna.signal_total_24h > 0)
+      )
+
+aggregation: AND
+base_score: 10.0
+tags:
+  - toxic-combination
+  - runtime
+  - rbac
+  - host-network
+  - T1098.006
+  - T1611

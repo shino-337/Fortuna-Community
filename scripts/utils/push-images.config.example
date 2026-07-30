@@ -1,0 +1,25 @@
+# Push Images config: master and worker nodes with per-node SSH user/password
+# Copy to push-images.config (or set PUSH_CONFIG_FILE) and edit.
+# Used by: scripts/utils/push-images-to-workers.sh
+#
+# Requirements when using passwords:
+#   - Install sshpass: sudo apt-get install sshpass (or use SSH keys and leave *_SSH_PASS empty)
+# - File must use Unix line endings (LF). If edited on Windows, run: sed -i 's/\r$//' push-images.config
+
+# Master node (Core runs here; image must be present)
+MASTER_NODE=192.168.56.100
+MASTER_SSH_USER=root
+MASTER_SSH_PASS=
+
+# Worker nodes (space-separated)
+WORKER_NODES=192.168.56.101
+WORKER_SSH_USER=k8s
+WORKER_SSH_PASS=
+
+# Optional: override image names
+# CORE_IMAGE=fortuna-core:latest
+# AGENT_IMAGE=fortuna-agent:latest
+
+# If you only set WORKER_* (no MASTER_SSH_USER), the script uses WORKER_SSH_USER / WORKER_SSH_PASS
+# for SSH to every node in WORKER_NODES (and still prepends MASTER_NODE to the list when set).
+# Password auth requires: sudo apt-get install -y sshpass

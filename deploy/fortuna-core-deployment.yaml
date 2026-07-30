@@ -1,0 +1,306 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+spec:
+  selector:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortuna
+      app.kubernetes.io/component: core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortuna
+        app.kubernetes.io/component: core
+    spec:
+      serviceAccountName: fortuna-core
+      
+      # Schedule Core only on master/control-plane nodes
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+      
+      # Allow scheduling on master node (which may have taints)
+      tolerations:
+        - key: node-role.kubernetes.io/control-plane
+          operator: Exists
+          effect: NoSchedule
+        - key: node-role.kubernetes.io/master
+          operator: Exists
+          effect: NoSchedule
+        - key: node.kubernetes.io/disk-pressure
+          operator: Exists
+          effect: NoSchedule
+
+      # Avoid Core starting migrations before Postgres/NATS accept connections (reduces CrashLoopBackOff race).
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for PostgreSQL at postgres.fortuna.svc.cluster.local:5432 ..."
+              i=0
+              while ! nc -z postgres.fortuna.svc.cluster.local 5432; do
+                i=$((i + 1))
+                if [ "$i" -ge 600 ]; then echo "timeout after ${i}s"; exit 1; fi
+                sleep 1
+              done
+              echo "PostgreSQL is reachable."
+        - name: wait-for-nats
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for NATS at nats-client.fortuna.svc.cluster.local:4222 ..."
+              i=0
+              while ! nc -z nats-client.fortuna.svc.cluster.local 4222; do
+                i=$((i + 1))
+                if [ "$i" -ge 600 ]; then echo "timeout after ${i}s"; exit 1; fi
+                sleep 1
+              done
+              echo "NATS is reachable."
+
+      volumes:
+        # mTLS certificates
+        - name: fortuna-core-server-tls
+          secret:
+            secretName: fortuna-core-tls
+        - name: fortuna-ca-cert
+          secret:
+            secretName: fortuna-ca-cert
+        - name: webhook-certs
+          secret:
+            secretName: fortuna-webhook-tls
+        - name: containerd-sock
+          hostPath:
+            path: /run/containerd/containerd.sock
+            type: Socket
+      
+      containers:
+        - name: core
+          # Pipeline syncs this tag to VERSION after a successful build.
+          image: fortuna-core:v1.5.1-75-ga734e53b9
+          # IfNotPresent: dùng image đã build/load trên node (nerdctl → k8s.io). Tránh kéo Docker Hub nếu đã có local.
+          imagePullPolicy: IfNotPresent
+          
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+          
+          env:
+            # Database
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: database-url
+            
+            # NATS
+            - name: NATS_ENDPOINT
+              value: "nats://nats-client.fortuna.svc.cluster.local:4222"
+            
+            # Ports
+            - name: HTTP_PORT
+              value: "8080"
+            - name: GRPC_PORT
+              value: "9090"
+            
+            # mTLS Configuration
+            - name: TLS_ENABLED
+              value: "true"
+            - name: TLS_CERT_PATH
+              value: "/etc/fortuna/tls/server/tls.crt"
+            - name: TLS_KEY_PATH
+              value: "/etc/fortuna/tls/server/tls.key"
+            - name: TLS_CA_CERT_PATH
+              value: "/etc/fortuna/ca-cert/ca.crt"
+            
+            # Webhook TLS Configuration
+            - name: WEBHOOK_TLS_CERT_PATH
+              value: "/etc/webhook/certs/tls.crt"
+            - name: WEBHOOK_TLS_KEY_PATH
+              value: "/etc/webhook/certs/tls.key"
+            
+            # Logging
+            - name: LOG_LEVEL
+              value: "info"
+            # V3 risk: deployment tier for context multiplier (dev|staging|prod).
+            - name: FORTUNA_RISK_CONTEXT_TIER
+              value: "prod"
+            # Seed capability_metadata + promotion_rules (Capability Catalog & PCE). Required for catalog to show data.
+            - name: FORTUNA_ENABLE_SEED_DATA
+              value: "true"
+            # Active agent cutoff (minutes) for dashboard; agents with last_seen_at within this window are shown (default 15)
+            # - name: ACTIVE_AGENT_CUTOFF_MINUTES
+            #   value: "15"
+            
+            # Auth
+            - name: AUTH_ENABLED
+              value: "true"
+            # Browser WebSocket clients cannot set Authorization headers during the
+            # handshake, so local dashboard WS streams authenticate via ?token=.
+            - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
+              value: "true"
+            - name: FORTUNA_WS_ALLOWED_ORIGINS
+              value: "http://localhost:8081,http://127.0.0.1:8081,http://192.168.56.100:8081,http://192.168.56.100:30956"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: jwt-secret
+                  optional: false
+            - name: FORTUNA_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: ingest-token
+                  optional: false
+            # Pod Detail encryption at-rest (Phase 4.2): base64-encoded 32-byte key. Optional; leave unset to disable.
+            # Option A: set value before deploy. Option B: use secret (e.g. fortuna-secrets, key: pod-detail-encryption-key).
+            - name: POD_DETAIL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: pod-detail-encryption-key
+                  optional: true
+            # R5 Phase-2 network queue anomaly tuning (core-side baseline detector).
+            - name: POD_DETAIL_NET_SPIKE_WINDOW_MINUTES
+              value: "30"
+            - name: POD_DETAIL_NET_SPIKE_MIN_SAMPLES
+              value: "5"
+            - name: POD_DETAIL_NET_SPIKE_MULTIPLIER
+              value: "4.0"
+            - name: POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES
+              value: "4096"
+            - name: POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES
+              value: "10"
+            # R10 hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
+            - name: ADMISSION_RISK_GATE_ENABLED
+              value: "true"
+            - name: ADMISSION_RISK_SENSITIVE_NAMESPACES
+              value: "prod,fortuna"
+            - name: ADMISSION_RISK_BLOCK_THRESHOLD
+              value: "70"
+            - name: ADMISSION_RISK_GATE_MODE
+              value: "audit"
+            # Default admin (migrations). Password from Secret created by scripts/utils/ensure-fortuna-secrets.sh.
+            - name: FORTUNA_ADMIN_USERNAME
+              value: "admin"
+            - name: FORTUNA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: admin-password
+            - name: FORTUNA_BOOTSTRAP_DEFAULT_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: bootstrap-default-credential
+                  optional: true
+            - name: FORTUNA_ADMIN_EMAIL
+              value: "admin@fortuna.local"
+            
+            # PCE Scheduler
+            - name: PCE_SCHEDULER_ENABLED
+              value: "true"
+            - name: PCE_SCHEDULER_INTERVAL
+              value: "6h"
+          
+          volumeMounts:
+            - name: fortuna-core-server-tls
+              mountPath: /etc/fortuna/tls/server
+              readOnly: true
+            - name: fortuna-ca-cert
+              mountPath: /etc/fortuna/ca-cert
+              readOnly: true
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+            - name: containerd-sock
+              mountPath: /run/containerd/containerd.sock
+          
+          # Production-ready resource limits
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          
+          # Security context - non-root user
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false  # Core needs to write logs and temp files
+            capabilities:
+              drop:
+                - ALL
+          
+          # Long migration chains on cold DB can exceed default liveness window; startupProbe gates liveness/readiness until HTTP is up.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+          
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
