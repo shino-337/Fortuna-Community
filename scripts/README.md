@@ -54,6 +54,9 @@ Important environment variables:
 | Variable | Meaning |
 |----------|---------|
 | `VERSION` | Image tag used by local build/deploy scripts |
+| `FORTUNA_PACKAGE_SOURCE` | `github` by default; set `local` for registryless source builds |
+| `FORTUNA_REGISTRY` | GHCR registry namespace, default `ghcr.io/shino-337/fortuna-community` |
+| `FORTUNA_VERSION` | Published package tag, default `v1.0.0` |
 | `SYNC_DEPLOY_IMAGE_TAG` | Defaults to `true`; syncs built tag into deploy YAML |
 | `BUILD_TOOL` | `nerdctl`, `docker`, or `buildctl` |
 | `PUSH_IMAGES_AFTER_REBUILD` | Defaults to `true` only when current cluster has more than one node; controls registryless node image copy/import |

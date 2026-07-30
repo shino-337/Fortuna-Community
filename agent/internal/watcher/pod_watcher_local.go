@@ -165,7 +165,11 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 			}
 		},
 		DeleteFunc: func(obj interface{}) {
-			pod := obj.(*corev1.Pod)
+			pod, ok := podFromDeleteObject(obj)
+			if !ok {
+				w.logger.Printf("⚠️  Ignoring delete event with unexpected object type: %T", obj)
+				return
+			}
 			w.logger.Printf("🗑️  Pod deleted: %s/%s", pod.Namespace, pod.Name)
 			// Clean up processed pods map to prevent memory leaks
 			podUID := string(pod.UID)
@@ -227,6 +231,18 @@ func (w *LocalPodWatcher) Start(ctx context.Context) error {
 	w.logger.Printf("✅ Startup check complete: processed %d pods", processedCount)
 
 	return nil
+}
+
+func podFromDeleteObject(obj interface{}) (*corev1.Pod, bool) {
+	if pod, ok := obj.(*corev1.Pod); ok {
+		return pod, true
+	}
+	tombstone, ok := obj.(cache.DeletedFinalStateUnknown)
+	if !ok {
+		return nil, false
+	}
+	pod, ok := tombstone.Obj.(*corev1.Pod)
+	return pod, ok
 }
 
 // cleanupProcessedPods periodically cleans up old entries from processedPods map

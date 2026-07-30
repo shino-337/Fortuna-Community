@@ -16,7 +16,7 @@
 #
 # Common image env:
 #   REMOTE_AGENT_IMAGE=ghcr.io/org/repo/fortuna-agent:vX.Y.Z
-#   FORTUNA_REGISTRY=ghcr.io/org/repo
+#   FORTUNA_REGISTRY=ghcr.io/shino-337/fortuna-community
 #   FORTUNA_VERSION=v1.0.0
 #   VERSION=<local-build-tag>
 #   REMOTE_IMAGE_PULL_POLICY=Always|IfNotPresent
@@ -41,13 +41,16 @@ REMOTE_IMAGE_PULL_POLICY="${REMOTE_IMAGE_PULL_POLICY:-}"
 REMOTE_SET_CLUSTER_NAME="${REMOTE_SET_CLUSTER_NAME:-true}"
 REMOTE_ROLLOUT_TIMEOUT="${REMOTE_ROLLOUT_TIMEOUT:-180s}"
 SKIP_CORE_EXTERNAL_SERVICE="${SKIP_CORE_EXTERNAL_SERVICE:-false}"
+FORTUNA_PACKAGE_SOURCE="${FORTUNA_PACKAGE_SOURCE:-github}"
+FORTUNA_REGISTRY="${FORTUNA_REGISTRY:-ghcr.io/shino-337/fortuna-community}"
+FORTUNA_VERSION="${FORTUNA_VERSION:-v1.0.0}"
 
 VERSION="${VERSION:-$(cd "$PROJECT_ROOT" && git describe --tags --always 2>/dev/null || git rev-parse --short HEAD 2>/dev/null || echo latest)}"
 FORTUNA_VERSION="${FORTUNA_VERSION:-$VERSION}"
 
 if [ -n "${REMOTE_AGENT_IMAGE:-}" ]; then
   AGENT_IMAGE="$REMOTE_AGENT_IMAGE"
-elif [ -n "${FORTUNA_REGISTRY:-}" ]; then
+elif [ "$FORTUNA_PACKAGE_SOURCE" != "local" ]; then
   AGENT_IMAGE="${FORTUNA_REGISTRY%/}/fortuna-agent:${FORTUNA_VERSION}"
 else
   AGENT_IMAGE="fortuna-agent:${VERSION}"

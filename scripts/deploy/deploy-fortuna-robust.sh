@@ -25,6 +25,27 @@ USE_IP_FALLBACK="${USE_IP_FALLBACK:-true}"
 AUTO_LOAD_CVE_ON_DEPLOY="${AUTO_LOAD_CVE_ON_DEPLOY:-true}"
 PUSH_DASHBOARD="${PUSH_DASHBOARD:-false}"
 
+deploy_image_ref() {
+    local file="$1"
+    local name="$2"
+    [ -f "$file" ] || return 0
+    grep -E "image:[[:space:]]*([^[:space:]#]+/)?${name}:" "$file" 2>/dev/null \
+        | sed -E 's/.*image:[[:space:]]*([^[:space:]#]+).*/\1/' \
+        | tr -d '"' \
+        | head -1
+}
+
+deploy_uses_registry_images() {
+    local core agent dashboard
+    core="$(deploy_image_ref "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" "fortuna-core")"
+    agent="$(deploy_image_ref "$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml" "fortuna-agent")"
+    dashboard="$(deploy_image_ref "$PROJECT_ROOT/deploy/dashboard-deployment.yaml" "fortuna-dashboard")"
+    case "$core $agent $dashboard" in
+        */*) return 0 ;;
+        *)   return 1 ;;
+    esac
+}
+
 echo "=========================================="
 echo "Fortuna Robust Deployment"
 echo "=========================================="
@@ -196,7 +217,9 @@ echo ""
 echo -e "${BLUE}Step 5: Verifying images in containerd...${NC}"
 
 # Check if using containerd (group sockets: avoid (ctr && sockA) || sockB treating sockB alone as success)
-if command -v ctr >/dev/null 2>&1 && { [ -S /run/containerd/containerd.sock ] || [ -S /var/run/containerd/containerd.sock ]; }; then
+if deploy_uses_registry_images; then
+    echo "Registry images detected in deploy manifests; skipping local containerd image build check."
+elif command -v ctr >/dev/null 2>&1 && { [ -S /run/containerd/containerd.sock ] || [ -S /var/run/containerd/containerd.sock ]; }; then
     echo "Containerd detected, checking images..."
     # Accept both refs: fortuna-core:* and docker.io/library/fortuna-core:*
     if ctr -n k8s.io images ls 2>/dev/null | grep -qE '(docker.io/library/)?fortuna-core:'; then
@@ -218,7 +241,10 @@ fi
 # Step 5b: Push runtime images to nodes (multi-node) so workloads find images where scheduled.
 # Dashboard image push is optional for local registryless deployments.
 NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
-if [ "${NODE_COUNT:-0}" -gt 1 ] && [ -x "$SCRIPTS/utils/push-images-to-workers.sh" ]; then
+if deploy_uses_registry_images; then
+    echo ""
+    echo -e "${BLUE}Step 5b: Registry images configured; skipping registryless node image push.${NC}"
+elif [ "${NODE_COUNT:-0}" -gt 1 ] && [ -x "$SCRIPTS/utils/push-images-to-workers.sh" ]; then
     echo ""
     echo -e "${BLUE}Step 5b: Pushing Core/Agent images to cluster nodes...${NC}"
     push_dashboard_arg="--no-dashboard"
