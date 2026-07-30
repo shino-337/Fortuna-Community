@@ -16,7 +16,6 @@ Scripts are grouped by intent. Run scripts from the repository root and use full
 | Clean local host image/cache pressure | `./scripts/clean/check-and-clean-host-resources.sh --clean -y` |
 | Verify deployment health | `./scripts/verify/check-full-deployment.sh` |
 | Verify multi-cluster DB/API sync | `./scripts/verify/verify-multicluster-sync.sh` |
-| Run E2E suite | `./scripts/e2e/run-e2e.sh --suite=full` |
 | Open dashboard locally | `./scripts/utils/port-forward-dashboard.sh` |
 
 For normal user installs, prefer published images through the docs in `docs/01-getting-started/`. Local build scripts are for development, lab validation, and private forks.
@@ -121,7 +120,7 @@ Remote Agent sync:
 REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
 MANAGEMENT_NODE=<management-node-ip-or-dns> \
 FORTUNA_REGISTRY=ghcr.io/shino-337/fortuna-community \
-FORTUNA_VERSION=latest \
+FORTUNA_VERSION=v1.0.0 \
 ./scripts/deploy/sync-remote-agent.sh
 
 # Local registryless mode: import the local Agent image into remote nodes through SSH.
@@ -192,6 +191,8 @@ REMOTE_KUBECONFIGS="cluster101=/path/to/cluster101.kubeconfig" \
 
 ## E2E
 
+E2E suites are development and maintainer validation tools. They create test workloads and may write ignored local outputs such as `test-results/`.
+
 Main entrypoint:
 
 ```bash
@@ -221,6 +222,8 @@ Common suites:
 | `sbom-quality` | SBOM confidence, component quality, and audit trail checks |
 
 Keep direct calls to individual `scripts/e2e/*.sh` for local debugging only. Public validation should go through `run-e2e.sh` so suite names stay stable.
+
+Set `E2E_NODE_SELECTOR_HOST=<node-name>` only when a scenario must run on a specific node.
 
 Live-cluster attack-path validation remains a root-level exception:
 
@@ -256,7 +259,7 @@ Live-cluster attack-path validation remains a root-level exception:
 | `sync-package-vulnerability-source.sh` | Sync OSV bulk vulnerability source into local CVE data |
 | `create-github-release.sh` | Create and push a `v*` release tag |
 
-For multi-node clusters, prefer a registry. Use `push-images-to-workers.sh` only for local registryless environments; it pushes Core and Agent images by default. Dashboard stays on the control-plane/master for local deployments and is pushed only with `--include-dashboard` or `PUSH_DASHBOARD=true`. The full pipeline, including menu option `15`, passes the rebuilt `VERSION` explicitly to this script when the current cluster has more than one node. Single-node clusters skip this step unless `PUSH_IMAGES_AFTER_REBUILD=true` is set. Standalone use detects image tags from `deploy/*.yaml` unless `CORE_IMAGE`, `AGENT_IMAGE`, or `DASHBOARD_IMAGE` are provided. Configure private worker credentials in `scripts/utils/push-images.config`, which is ignored by Git.
+For multi-node clusters, prefer a registry. Use `push-images-to-workers.sh` only for local registryless environments; it pushes Core and Agent images by default. Add `--include-dashboard` or `PUSH_DASHBOARD=true` when the Dashboard image also needs to be imported onto worker nodes. The full pipeline passes the rebuilt `VERSION` explicitly to this script when the current cluster has more than one node. Single-node clusters skip this step unless `PUSH_IMAGES_AFTER_REBUILD=true` is set. Standalone use detects image tags from `deploy/*.yaml` unless `CORE_IMAGE`, `AGENT_IMAGE`, or `DASHBOARD_IMAGE` are provided. Configure private worker credentials in `scripts/utils/push-images.config`, which is ignored by Git.
 
 ## Adding Or Changing Scripts
 

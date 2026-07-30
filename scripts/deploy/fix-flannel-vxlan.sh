@@ -255,14 +255,16 @@ test_connectivity() {
     local core_svc_ip=$(kubectl get svc fortuna-core -n fortuna -o jsonpath='{.spec.clusterIP}' 2>/dev/null || echo "")
     
     if [ -n "$core_svc_ip" ]; then
-        # Get Agent pod on worker node (if exists)
+        # Prefer an Agent pod outside the detected control-plane nodes (if one exists).
+        local control_nodes
+        control_nodes=$(kubectl get nodes -l node-role.kubernetes.io/control-plane -o jsonpath='{.items[*].metadata.name}' 2>/dev/null || true)
         local agent_pod=""
         while IFS= read -r line; do
             local name node
             name="${line%%	*}"
             node="${line##*	}"
             node=$(echo "$node" | tr -d ' ')
-            if [ "$node" != "k8s-master" ] && [ -n "$node" ]; then
+            if [ -n "$node" ] && ! printf '%s\n' "$control_nodes" | tr ' ' '\n' | grep -Fxq "$node"; then
                 agent_pod="$name"
                 break
             fi
@@ -387,5 +389,4 @@ main() {
 }
 
 main "$@"
-
 

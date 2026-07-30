@@ -214,7 +214,7 @@ detect_build_tool() {
   # Proactively start root buildkitd when idle (speeds nerdctl probe and enables buildctl fallback).
   _maybe_start_buildkit_service
 
-  # Auto-detect: nerdctl → buildctl (buildkit) → docker (requires buildx for our Dockerfiles)
+  # Auto-detect: nerdctl -> buildctl (buildkit) -> docker (requires buildx for our Dockerfiles)
   if nerdctl_buildkit_available; then
     echo "nerdctl"
     return 0

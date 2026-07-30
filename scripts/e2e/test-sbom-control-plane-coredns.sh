@@ -87,8 +87,7 @@ spec:
       labels:
         app: ${DEPLOY_NAME}
     spec:
-      nodeSelector:
-        kubernetes.io/hostname: k8s-master
+$(e2e_node_selector_yaml 6)
       tolerations:
         - key: node-role.kubernetes.io/control-plane
           operator: Exists

@@ -215,8 +215,8 @@ if command -v ctr >/dev/null 2>&1 && { [ -S /run/containerd/containerd.sock ] ||
     fi
 fi
 
-# Step 5b: Push runtime images to nodes (multi-node) so Agent/Core find images where scheduled.
-# Dashboard stays on control-plane/master by default for local registryless deployments.
+# Step 5b: Push runtime images to nodes (multi-node) so workloads find images where scheduled.
+# Dashboard image push is optional for local registryless deployments.
 NODE_COUNT=$(kubectl get nodes --no-headers 2>/dev/null | wc -l)
 if [ "${NODE_COUNT:-0}" -gt 1 ] && [ -x "$SCRIPTS/utils/push-images-to-workers.sh" ]; then
     echo ""

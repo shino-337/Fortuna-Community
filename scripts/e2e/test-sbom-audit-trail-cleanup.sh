@@ -48,8 +48,7 @@ metadata:
     app: e2e-audit-trail
 spec:
   restartPolicy: Never
-  nodeSelector:
-    kubernetes.io/hostname: k8s-master
+$(e2e_node_selector_yaml 2)
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists

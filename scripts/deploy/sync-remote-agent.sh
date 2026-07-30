@@ -17,7 +17,7 @@
 # Common image env:
 #   REMOTE_AGENT_IMAGE=ghcr.io/org/repo/fortuna-agent:vX.Y.Z
 #   FORTUNA_REGISTRY=ghcr.io/org/repo
-#   FORTUNA_VERSION=latest
+#   FORTUNA_VERSION=v1.0.0
 #   VERSION=<local-build-tag>
 #   REMOTE_IMAGE_PULL_POLICY=Always|IfNotPresent
 #

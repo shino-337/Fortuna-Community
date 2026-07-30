@@ -15,7 +15,7 @@ spec:
   restartPolicy: Never
   # For portability: override nodeSelector per environment if needed
   # nodeSelector:
-  #   kubernetes.io/hostname: k8s-master
+  #   kubernetes.io/hostname: <node-name>
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists

@@ -12,7 +12,7 @@
 # Called by deploy-fortuna-robust.sh before deploying Core.
 #
 # Usage: ./scripts/deploy/ensure-control-plane-label.sh
-# Env:   CONTROL_PLANE_NODE_NAME=k8s-master  force this node name to label
+# Env:   CONTROL_PLANE_NODE_NAME=<control-plane-node-name>  force this node name to label
 # ============================================================================
 
 set -euo pipefail

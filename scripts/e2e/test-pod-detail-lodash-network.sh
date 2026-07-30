@@ -7,7 +7,7 @@
 # =============================================================================
 # Prerequisites:
 #   - Image built: nerdctl build -t website-vuln-lodash:latest -f scripts/e2e/fixtures/deploy-e2e/images/website-vuln-lodash/Dockerfile scripts/e2e/fixtures/deploy-e2e/images/website-vuln-lodash
-#   - Agent on same node as pod (pod has nodeSelector: k8s-master).
+#   - Agent can observe the node where the pod is scheduled. Set E2E_NODE_SELECTOR_HOST if a fixed node is required.
 # =============================================================================
 
 set -euo pipefail

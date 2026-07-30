@@ -34,6 +34,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# shellcheck source=/dev/null
+source "$SCRIPT_DIR/common.sh" 2>/dev/null || true
 IMAGES_DIR="${PROJECT_ROOT}/scripts/e2e/fixtures/deploy-e2e/images/distroless-hello"
 
 NAMESPACE="${NAMESPACE:-fortuna}"
@@ -138,8 +140,7 @@ metadata:
     app: sbom-distroless-hello
 spec:
   restartPolicy: Never
-  nodeSelector:
-    kubernetes.io/hostname: k8s-master
+$(e2e_node_selector_yaml 2)
   tolerations:
     - key: node-role.kubernetes.io/control-plane
       operator: Exists

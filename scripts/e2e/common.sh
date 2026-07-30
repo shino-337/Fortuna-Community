@@ -112,3 +112,11 @@ wait_for_pod_in_db() {
   done
   return 1
 }
+
+e2e_node_selector_yaml() {
+  local indent="${1:-2}"
+  local host="${E2E_NODE_SELECTOR_HOST:-}"
+  [ -z "$host" ] && return 0
+  printf '%*snodeSelector:\n' "$indent" ''
+  printf '%*skubernetes.io/hostname: %s\n' "$((indent + 2))" '' "$host"
+}

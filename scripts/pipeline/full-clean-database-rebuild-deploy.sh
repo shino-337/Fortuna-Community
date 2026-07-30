@@ -283,7 +283,7 @@ ensure_local_database_env() {
     if command -v openssl >/dev/null 2>&1; then
       pg_password="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
     else
-      pg_password="Fortuna_Postgres_Local_ChangeMe_123"
+      pg_password="$(od -An -N18 -tx1 /dev/urandom | tr -d ' \n' | cut -c1-24)"
     fi
     export FORTUNA_POSTGRES_PASSWORD="$pg_password"
     log_warn "FORTUNA_DATABASE_URL not set; generated local bundled PostgreSQL password for this deploy."

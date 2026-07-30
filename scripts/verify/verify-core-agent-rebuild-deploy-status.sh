@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Kiểm tra Core và Agent đã được rebuild và deploy theo cập nhật trong
-# docs/02-architecture/Architecture_Finding_Remediation_Plan.md hay chưa.
+# Kiểm tra Core và Agent đang chạy đúng image đã build/deploy cho workspace này.
 #
 # Cách kiểm tra:
 # 1. So sánh image ID: pod đang chạy vs image local (nerdctl) fortuna-core:latest, fortuna-agent:latest.
@@ -34,7 +33,6 @@ info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 echo "=========================================="
 echo "Kiểm tra Core/Agent – Rebuild & Deploy"
 echo "=========================================="
-echo "So với: docs/02-architecture/Architecture_Finding_Remediation_Plan.md"
 echo ""
 
 FAIL=0
@@ -43,12 +41,16 @@ FAIL=0
 echo "=== 1. Image trong deploy YAML ==="
 CORE_YAML="${DEPLOY_CORE_YAML:-$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml}"
 AGENT_YAML="${DEPLOY_AGENT_YAML:-$PROJECT_ROOT/deploy/fortuna-agent-daemonset.yaml}"
-# Extract tag from deploy YAML (image: fortuna-core:TAG); fallback latest nếu file không tồn tại hoặc không parse được
+# Extract tag from deploy YAML; supports local names and registry-qualified images.
+# Fallback latest nếu file không tồn tại hoặc không parse được.
 get_image_tag() {
   local file="$1"
   local name="$2"
   [ -f "$file" ] || return 0
-  grep -E "image:[[:space:]]*${name}:" "$file" 2>/dev/null | sed -E 's/.*'"${name}"':([^[:space:]#]+).*/\1/' | tr -d '"' | head -1
+  grep -E "image:[[:space:]]*([^[:space:]#]+/)?${name}:" "$file" 2>/dev/null \
+    | sed -E 's/.*'"${name}"':([^[:space:]#]+).*/\1/' \
+    | tr -d '"' \
+    | head -1
 }
 CORE_TAG=$(get_image_tag "$CORE_YAML" "fortuna-core")
 AGENT_TAG=$(get_image_tag "$AGENT_YAML" "fortuna-agent")
@@ -207,13 +209,13 @@ echo ""
 echo "=========================================="
 if [ "$CORE_MATCH" = true ] && [ "$AGENT_MATCH" = true ]; then
   echo -e "${GREEN}Kết luận: Core và Agent đang chạy image trùng với local (đã rebuild và deploy).${NC}"
-  echo "Nếu vừa cập nhật code theo Architecture plan, image local đã là bản mới và pod đã dùng đúng image."
+  echo "Image local đã là bản mới và pod đã dùng đúng image."
   exit 0
 fi
 
-echo -e "${YELLOW}Kết luận: Có thể chưa rebuild/deploy theo Architecture plan hoặc pod chưa restart.${NC}"
+echo -e "${YELLOW}Kết luận: Có thể chưa rebuild/deploy hoặc pod chưa restart.${NC}"
 echo ""
-echo "Để đảm bảo Core và Agent chạy code mới (docs/02-architecture/Architecture_Finding_Remediation_Plan.md):"
+echo "Để đảm bảo Core và Agent chạy code mới:"
 echo "  1. Rebuild:  ./scripts/build/build-and-load-containerd.sh"
 echo "     (hoặc:    NO_CACHE=true ./scripts/build/build-and-load-containerd.sh)"
 echo "  2. Deploy:   ./scripts/deploy/deploy-fortuna-robust.sh"
