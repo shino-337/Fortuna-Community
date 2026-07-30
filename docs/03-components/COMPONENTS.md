@@ -1,6 +1,6 @@
 # Component Reference
 
-This reference gives slightly more implementation detail than the component index without becoming a design backlog.
+This reference gives slightly more implementation detail than the component index while staying focused on public operation.
 
 ## Core
 
@@ -21,7 +21,7 @@ Operational checks:
 
 - `/healthz` should respond after PostgreSQL and NATS are reachable.
 - Core migrations run at startup.
-- DB-related errors in Core logs usually indicate missing migrations, stale data, or a secret/database mismatch.
+- Database-related errors in Core logs usually indicate missing migrations, stale data, or a secret/database mismatch.
 
 ## Agent
 

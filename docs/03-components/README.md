@@ -24,8 +24,8 @@ flowchart LR
 | Core | Deployment + Service | `core/` | REST API, gRPC ingest, workers, migrations, risk, policy, runtime and SBOM processing |
 | Agent | DaemonSet | `agent/` | Per-node inventory, SBOM extraction, runtime snapshots, network observations, optional Falco/eBPF event ingestion |
 | Dashboard | Deployment + Service | `dashboard/` | React UI served by nginx; proxies `/api/*` to Core |
-| PostgreSQL | Deployment + PVC | `deploy/infrastructure/` | Source of truth for inventory, SBOM, CVE, risk, runtime, users, and reports |
-| NATS JetStream | StatefulSet | `deploy/infrastructure/` | Async processing queue for SBOM and event pipelines |
+| PostgreSQL | Deployment + PVC | `deploy/infrastructure/postgresql-with-age.yaml` | Source of truth for inventory, SBOM, CVE, risk, runtime, users, and reports |
+| NATS JetStream | StatefulSet | `deploy/infrastructure/nats.yaml` | Async processing queue for SBOM and event pipelines |
 
 ## Product Domains
 
@@ -76,7 +76,7 @@ Policy Rules is the user-facing rule catalog. Rule detail URLs use stable rule U
 /#/rules/uid/<rule_uid>
 ```
 
-Legacy code-based rule identifiers may still exist internally, but UI and API detail links should prefer UIDs.
+Older code-based rule identifiers may still appear in imported data, but UI and API detail links should prefer UIDs.
 
 ## Runtime Sensors
 
