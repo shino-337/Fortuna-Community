@@ -1,0 +1,25 @@
+# Wildcard Permissions Rule
+# Detects roles with wildcard (*) permissions
+
+id: wildcard-permissions
+name: "Role with wildcard permissions"
+category: rbac
+severity: high
+description: "Role or ClusterRole contains wildcard (*) permissions"
+enabled: true
+
+conditions:
+  # CEL: input is "object" (Role/ClusterRole). rules is list; check resources/verbs membership.
+  - type: expression
+    expression: "object.rules.exists(r, '*' in r.resources) || object.rules.exists(r, '*' in r.verbs)"
+
+aggregation: OR
+base_score: 8.0
+tags:
+  - wildcard
+  - overprivileged
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Enterprise privilege escalation mapping
+  - T1068
+

@@ -1,0 +1,224 @@
+# Binaries
+/bin/
+/cmd
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+fortuna-core
+fortuna-agent
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go workspace file
+go.work
+go.work.sum
+
+# IDE / local agent metadata (do not commit)
+.cursor/
+.agents/
+.impeccable/
+
+*.swp
+
+# Certificates and keys
+.certs/
+certs/
+*.key
+*.crt
+*.pem
+*.csr
+*.srl
+
+# Production script local config and logs
+script-prod/config.env
+script-prod/logs/
+
+# Secrets
+*.secret
+.env
+.env.local
+deploy/secrets.env
+
+# Build artifacts
+bin/
+*.tar
+*.tar.gz
+
+# Test results and generated UI artifacts
+docs/test-results/
+dashboard/test-results/
+docs/assets/*
+!docs/assets/screenshots/
+!docs/assets/screenshots/*.png
+!docs/assets/screenshots/README.md
+docs/review/
+scripts/docs/
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+*.tar
+*.tar.gz
+*.tgz
+*.zip
+dist/
+build/
+!scripts/build/
+
+# Certificates and secrets
+.certs/
+*.key
+*.crt
+*.pem
+!deploy/certs/*.yaml
+secrets/
+*.secret
+
+# Logs
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Kubernetes
+kubeconfig
+*.kubeconfig
+
+# Containerd images (if exported)
+*.tar
+fortuna-*.tar
+agent-*.tar
+
+# Test results (keep structure, ignore generated)
+tests/e2e/results/*.md
+!tests/e2e/results/README.md
+!tests/e2e/results/E2E-TEST-EXECUTION-FULL-REPORT.md
+
+# Documentation build
+docs/_build/
+docs/.doctrees/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.pyc
+venv/
+env/
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Backup files
+*.bak
+*.backup
+*.OLD
+*~
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Project specific
+cve-data/
+prd.json
+PRODUCT.md
+.build-containerd-env
+pause-fortuna-workloads.sh
+resume-fortuna-workloads.sh
+*.old
+
+# Development/Debug Scripts (keep local only)
+scripts/fix-*.sh
+scripts/apply-*.sh
+scripts/clean-*.sh
+scripts/quick-*.sh
+scripts/validate-*.sh
+scripts/migrate-*.sh
+scripts/cleanup-*.sh
+scripts/import-*.sh
+scripts/copy-*.sh
+scripts/deploy-fortuna-robust.sh
+scripts/load-cve-database.sh
+scripts/build-and-import-containerd.sh
+scripts/build-with-containerd.sh
+scripts/apply-core-master-only.sh
+scripts/apply-nats-single-replica.sh
+scripts/fix_dns_isues.sh
+scripts/fix_nats_storage.sh
+# Temporary Documentation Files
+CLEANUP_SUMMARY.md
+HELM_CHART_UPDATE.md
+PROJECT_CLEANUP_ANALYSIS.md
+*.md.bak
+
+# Docker Compose (if not using)
+docker-compose.prod.yml
+docker-compose.override.yml.example
+
+# Archive directories (old migrations; scripts/archive/ removed - obsolete scripts deleted)
+core/migrations/archive/
+
+# Test documentation (development)
+tests/BUILD_AND_TEST_STATUS.md
+tests/TEST_EXECUTION_*.md
+tests/TEST_SUITE_SUMMARY.md
+tests/TESTING_SUMMARY.md
+tests/QUICK_START.md
+tests/README.md
+tests/TEST_EXECUTION_GUIDE.md
+tests/verification/
+tests/performance/
+
+!scripts/cleanup-repo.sh
+/tests/
+/helm/
+/scripts/utils/push-images.config
+
+# Local DB dumps (do not commit)
+postgres_fortuna_backup.sql
+
+# Local node access credentials (do not commit)
+node-cred.md
+/.claude
+/docs/logic_review
+/docs/reviews
+progress.txt
+SECURITY_FINDINGS_SUMMARY.md
+SECURITY_FIXES_PLAN.md

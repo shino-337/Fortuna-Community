@@ -1,0 +1,30 @@
+FROM postgres:15
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    git \
+    postgresql-server-dev-15 \
+    libreadline-dev \
+    zlib1g-dev \
+    flex \
+    bison \
+    && rm -rf /var/lib/apt/lists/*
+
+# Clone and build Apache AGE
+WORKDIR /tmp
+RUN git clone --depth 1 --branch v1.5.0 https://github.com/apache/age.git && \
+    cd age && \
+    make PG_CONFIG=/usr/lib/postgresql/15/bin/pg_config install
+
+# Clean up build dependencies
+RUN apt-get purge -y build-essential git postgresql-server-dev-15 libreadline-dev zlib1g-dev flex bison && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+# Copy init script
+COPY init-age.sh /docker-entrypoint-initdb.d/01-init-age.sh
+RUN chmod +x /docker-entrypoint-initdb.d/01-init-age.sh
+
+

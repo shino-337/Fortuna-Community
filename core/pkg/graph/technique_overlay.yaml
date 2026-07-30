@@ -1,0 +1,124 @@
+# MITRE + risk weights + execution scope (semantic layer).
+# tactic_modifiers are applied lightly; technique risk_weight is primary.
+version: 2
+defaults:
+  risk_weight: 1.0
+  half_life_hours: 72
+  mitre_boost_cap: 5.0
+  mitre_boost_scale: 0.42
+tactic_modifiers:
+  Discovery: 0.92
+  "Credential Access": 1.05
+  Execution: 1.0
+  "Lateral Movement": 1.08
+  Persistence: 1.06
+  "Privilege Escalation": 1.12
+overlays:
+  ESCAPE_HOSTPATH:
+    risk_weight: 1.15
+    context_scope: [pod, node]
+    mitre_techniques:
+      - id: T1611
+        name: Escape to Host
+        tactic: Privilege Escalation
+        url: https://attack.mitre.org/techniques/T1611/
+  ESCAPE_RUNTIME:
+    risk_weight: 1.12
+    context_scope: [pod, node]
+    mitre_techniques:
+      - id: T1611
+        name: Escape to Host
+        tactic: Privilege Escalation
+        url: https://attack.mitre.org/techniques/T1611/
+  ESCAPE_PROC_ROOT:
+    risk_weight: 1.12
+    context_scope: [pod, node]
+    mitre_techniques:
+      - id: T1611
+        name: Escape to Host
+        tactic: Privilege Escalation
+        url: https://attack.mitre.org/techniques/T1611/
+  ESCAPE_PRIVILEGED:
+    risk_weight: 1.18
+    context_scope: [pod, node]
+    mitre_techniques:
+      - id: T1611
+        name: Escape to Host
+        tactic: Privilege Escalation
+        url: https://attack.mitre.org/techniques/T1611/
+  ESCAPE_HOSTPID:
+    risk_weight: 1.1
+    context_scope: [pod, node]
+    mitre_techniques:
+      - id: T1611
+        name: Escape to Host
+        tactic: Privilege Escalation
+        url: https://attack.mitre.org/techniques/T1611/
+  KUBELET_TOKEN_HARVEST:
+    risk_weight: 1.25
+    context_scope: [node]
+    mitre_techniques:
+      - id: T1552.007
+        name: Unsecured Credentials — Container API
+        tactic: Credential Access
+        url: https://attack.mitre.org/techniques/T1552/007/
+      - id: T1552.001
+        name: Unsecured Credentials — Credentials In Files
+        tactic: Credential Access
+        url: https://attack.mitre.org/techniques/T1552/001/
+  RUNTIME_TOKEN_HARVEST:
+    risk_weight: 1.12
+    context_scope: [pod]
+    mitre_techniques:
+      - id: T1609
+        name: Container Administration Command
+        tactic: Execution
+        url: https://attack.mitre.org/techniques/T1609/
+      - id: T1552.007
+        name: Unsecured Credentials — Container API
+        tactic: Credential Access
+        url: https://attack.mitre.org/techniques/T1552/007/
+  KUBELET_API_PROBE:
+    risk_weight: 0.62
+    context_scope: [node, control_plane]
+    mitre_techniques:
+      - id: T1613
+        name: Container and Resource Discovery
+        tactic: Discovery
+        url: https://attack.mitre.org/techniques/T1613/
+      - id: T1046
+        name: Network Service Discovery
+        tactic: Discovery
+        url: https://attack.mitre.org/techniques/T1046/
+  RBAC_PRIV_ESC:
+    risk_weight: 1.5
+    context_scope: [control_plane]
+    mitre_techniques:
+      - id: T1098.006
+        name: Account Manipulation — Additional Container Cluster Roles
+        tactic: Persistence
+        url: https://attack.mitre.org/techniques/T1098/006/
+  CLUSTER_ADMIN_ESC:
+    risk_weight: 1.55
+    context_scope: [control_plane]
+    mitre_techniques:
+      - id: T1098.006
+        name: Account Manipulation — Additional Container Cluster Roles
+        tactic: Persistence
+        url: https://attack.mitre.org/techniques/T1098/006/
+  LATERAL_NETWORK:
+    risk_weight: 1.08
+    context_scope: [pod]
+    mitre_techniques:
+      - id: T1550.001
+        name: Application Access Token
+        tactic: Lateral Movement
+        url: https://attack.mitre.org/techniques/T1550/001/
+  SA_TOKEN_REUSE:
+    risk_weight: 1.1
+    context_scope: [pod]
+    mitre_techniques:
+      - id: T1550.001
+        name: Application Access Token
+        tactic: Lateral Movement
+        url: https://attack.mitre.org/techniques/T1550/001/

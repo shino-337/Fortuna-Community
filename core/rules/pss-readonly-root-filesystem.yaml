@@ -1,0 +1,40 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects writable root filesystem.
+
+id: pss-readonly-root-filesystem
+name: "Pod does not use read-only root filesystem"
+category: pod-security
+severity: medium
+description: "At least one container sets securityContext.readOnlyRootFilesystem=false (writable root filesystem)"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (has(object.spec.containers) &&
+          object.spec.containers.exists(c,
+            has(c.securityContext) &&
+            c.securityContext.readOnlyRootFilesystem == false
+          )
+        ) ||
+        (has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.securityContext) &&
+            c.securityContext.readOnlyRootFilesystem == false
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 6.0
+tags:
+  - pss
+  - pod-security
+  - filesystem
+  - defense-evasion
+  # Best-effort MITRE mapping for "writable filesystem" posture
+  - T1564
+

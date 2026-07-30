@@ -1,0 +1,38 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fortuna-agent
+  namespace: kube-system
+spec:
+  selector:
+    matchLabels:
+      app: fortuna-agent
+  template:
+    metadata:
+      labels:
+        app: fortuna-agent
+    spec:
+      serviceAccountName: fortuna-agent
+      containers:
+      - name: agent
+        image: fortuna/agent:latest
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: CORE_HTTP_ENDPOINT
+          value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
+        - name: CORE_GRPC_ENDPOINT
+          value: "fortuna-core.fortuna.svc.cluster.local:9090"
+        - name: SYNC_INTERVAL
+          value: "30s"
+        resources:
+          requests:
+            memory: "50Mi"
+            cpu: "50m"
+          limits:
+            memory: "100Mi"
+            cpu: "100m"
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true

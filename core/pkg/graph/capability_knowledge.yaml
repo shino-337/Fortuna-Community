@@ -1,0 +1,24 @@
+# Minimal Capability Knowledge DB (Phase 3) — short explanations + optional risk Points for scorer.
+# Keys align with LegacyCapabilityAliases / canonical caps where possible.
+version: 2
+entries:
+  CONTAINER_ACCESS:
+    explanation_short: "Workload foothold inside a container (starting point for many chains)."
+    blast_hint: "WORKLOAD"
+    risk_points: 0.35
+  SA_TOKEN:
+    explanation_short: "Use or reuse a Kubernetes service account token for API access."
+    blast_hint: "NAMESPACE"
+    risk_points: 1.2
+  NETWORK_ACCESS:
+    explanation_short: "Network reachability to another workload or control plane endpoint."
+    blast_hint: "CLUSTER"
+    risk_points: 0.65
+  NODE_SHELL_ACCESS:
+    explanation_short: "Interactive or effective access on the host/node filesystem or process space."
+    blast_hint: "NODE"
+    risk_points: 1.5
+  CLUSTER_ADMIN:
+    explanation_short: "Effective cluster-admin or equivalent cluster-wide control."
+    blast_hint: "CLUSTER"
+    risk_points: 2.0

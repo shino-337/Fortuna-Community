@@ -1,0 +1,28 @@
+# Maps high-severity agent signals (escape class) to risk insights.
+id: runtime-escape-class-signals
+name: "Container escape-class runtime signals"
+category: runtime-behavior
+severity: critical
+description: "Fortuna recorded escape-related runtime signals (e.g. pivot, namespace escape, capability misuse) for this pod"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      (
+        (has(object.securityState) &&
+          object.securityState.has_escape_related == true)
+        ||
+        (has(object.fortuna) &&
+          object.fortuna.has_escape_related == true)
+      )
+
+aggregation: AND
+base_score: 9.5
+tags:
+  - runtime
+  - escape
+  - critical
+  # MITRE ATT&CK for Containers: Escape to Host
+  - T1611

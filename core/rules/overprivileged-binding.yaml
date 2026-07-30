@@ -1,0 +1,25 @@
+# Overprivileged Binding Rule
+# Detects ServiceAccounts bound to overprivileged roles
+
+id: overprivileged-binding
+name: "ServiceAccount bound to overprivileged role"
+category: rbac
+severity: high
+description: "ServiceAccount is bound to a role with excessive permissions"
+enabled: true
+
+conditions:
+  # CEL: input is "object" (RoleBinding/ClusterRoleBinding). roleRef is under object.
+  - type: expression
+    expression: "object.roleRef.kind == 'Role' || object.roleRef.kind == 'ClusterRole'"
+
+aggregation: AND
+base_score: 6.0
+tags:
+  - overprivileged
+  - binding
+  # MITRE ATT&CK for Containers: Additional Container Cluster Roles
+  - T1098.006
+  # Enterprise privilege escalation mapping (RBAC misconfig)
+  - T1068
+

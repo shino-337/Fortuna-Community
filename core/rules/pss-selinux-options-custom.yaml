@@ -1,0 +1,49 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects custom SELinux user/role configuration in pod/container securityContext.
+
+id: pss-selinux-options-custom
+name: "Pod sets custom SELinux options"
+category: pod-security
+severity: medium
+description: "At least one container sets securityContext.seLinuxOptions.user and/or role; may relax enforcement if misconfigured"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (
+          has(object.spec.containers) &&
+          object.spec.containers.exists(c,
+            has(c.securityContext) &&
+            has(c.securityContext.seLinuxOptions) &&
+            (
+              (has(c.securityContext.seLinuxOptions.user) && c.securityContext.seLinuxOptions.user != "") ||
+              (has(c.securityContext.seLinuxOptions.role) && c.securityContext.seLinuxOptions.role != "")
+            )
+          )
+        ) ||
+        (
+          has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.securityContext) &&
+            has(c.securityContext.seLinuxOptions) &&
+            (
+              (has(c.securityContext.seLinuxOptions.user) && c.securityContext.seLinuxOptions.user != "") ||
+              (has(c.securityContext.seLinuxOptions.role) && c.securityContext.seLinuxOptions.role != "")
+            )
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 5.5
+tags:
+  - pss
+  - pod-security
+  - selinux
+  # Best-effort MITRE mapping: defense-evasion/defense-disable posture
+  - T1562
+

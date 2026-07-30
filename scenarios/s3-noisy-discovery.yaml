@@ -1,0 +1,22 @@
+# S3 — Noisy network discovery (runtime noise / T1046 class activity)
+# Requires: egress not blocked; runtime sensor (Falco/agent) ingesting process/network signals into Fortuna.
+apiVersion: v1
+kind: Pod
+metadata:
+  name: noisy-scanner
+  namespace: fortuna-test
+  labels:
+    fortuna.io/e2e-scenario: s3-noisy-discovery
+spec:
+  containers:
+    - name: scanner
+      image: nicolaka/netshoot:latest
+      command:
+        - /bin/sh
+        - -c
+        - |
+          set -e
+          while true; do
+            command -v nmap >/dev/null 2>&1 && nmap -sn 10.0.0.0/24 2>/dev/null || ping -c 2 10.0.0.1 2>/dev/null || true
+            sleep 5
+          done

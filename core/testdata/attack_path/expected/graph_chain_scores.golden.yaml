@@ -1,0 +1,30 @@
+# Range-based golden — operator context:
+#   docs/03-components/COMPONENTS.md#attack-path-and-risk-signals
+#
+# Summary:
+# - total / components.attack_path_* are Unified V3 outputs (attack_path dimension: 0–15).
+# - Current CI profile: sqlite + attack_paths + one pod_capability; no insights/signals.
+# - When adding insight/CVE/runtime seeds (TotalScore may land ~60–85): measure a new baseline then set
+#   min ≈ baseline×0.8, max ≈ baseline×1.2; tighten bands after tuning rounds.
+# - drift.baseline_total_score + max_delta_pct: soft % guard vs CI baseline.
+chains:
+  - id: ESCAPE_TO_PRIV_ESC
+    score:
+      min: 12
+      max: 24
+    components:
+      attack_path_min: 8
+      attack_path_max: 13
+      ckdb_capability_risk_points_max: 4
+      mitre_boost_max: 5
+    sanity:
+      requires_techniques:
+        - ESCAPE_HOSTPATH
+        - RBAC_PRIV_ESC
+      requires_mitre:
+        - T1611
+        - T1098.006
+    drift:
+      # % drift guard vs measured CI baseline (soft — tighten when stabilizing weights)
+      baseline_total_score: 16.61
+      max_delta_pct: 20

@@ -1,0 +1,44 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects pods running containers as root (runAsNonRoot disabled / runAsUser == 0).
+
+id: pss-run-as-root
+name: "Pod runs container as root"
+category: pod-security
+severity: high
+description: "At least one container sets runAsNonRoot=false and/or runAsUser=0; violates restricted PSS baseline"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        object.spec.containers.exists(c,
+          has(c.securityContext) &&
+          (
+            (has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == false) ||
+            (has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0)
+          )
+        ) ||
+        (has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.securityContext) &&
+            (
+              (has(c.securityContext.runAsNonRoot) && c.securityContext.runAsNonRoot == false) ||
+              (has(c.securityContext.runAsUser) && c.securityContext.runAsUser == 0)
+            )
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 8.0
+tags:
+  - pss
+  - pod-security
+  - run-as-root
+  - privilege-escalation
+  # MITRE ATT&CK for Containers: Generic privilege escalation mapping
+  - T1068
+

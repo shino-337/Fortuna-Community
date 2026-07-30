@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: fortuna
+data:
+  POSTGRES_DB: fortuna
+  POSTGRES_USER: postgres
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: fortuna
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path  # Use default storage class with WaitForFirstConsumer mode
+  resources:
+    requests:
+      storage: 20Gi
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: fortuna
+data:
+  01-init-age.sh: |
+    #!/bin/bash
+    set -e
+    
+    echo "=========================================="
+    echo "PostgreSQL Initialization"
+    echo "=========================================="
+    
+    # Note: Apache AGE extension installation
+    # AGE is not available in standard postgres:15-alpine image
+    # To enable AGE:
+    # 1. Build custom image with AGE (see deploy/infrastructure/postgres-with-age/Dockerfile)
+    # 2. Or install AGE manually after deployment
+    # 3. System will work in fallback mode (relational queries) if AGE not available
+    
+    psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        -- Try to create AGE extension (will fail gracefully if not available)
+        CREATE EXTENSION IF NOT EXISTS age;
+        
+        -- If AGE is available, initialize graph
+        DO \$\$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
+                LOAD 'age';
+                SET search_path = ag_catalog, "\$user", public;
+                PERFORM create_graph('fortuna_graph');
+                RAISE NOTICE 'Apache AGE initialized successfully';
+            ELSE
+                RAISE NOTICE 'Apache AGE extension not available. Graph features disabled.';
+            END IF;
+        END \$\$;
+    EOSQL
+    
+    echo "✅ PostgreSQL initialization complete"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: fortuna
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      # No nodeSelector: schedule where PVC is bound (worker01 has disk now). Optional: pin to master with nodeSelector if PVC is on master.
+      containers:
+      - name: postgres
+        # Use custom image with AGE if available, otherwise fallback to standard
+        # image: postgres-15-age:latest  # Uncomment when custom image is built
+        image: postgres:15-alpine
+        ports:
+        - containerPort: 5432
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            configMapKeyRef:
+              name: postgres-config
+              key: POSTGRES_USER
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-credentials
+              key: POSTGRES_PASSWORD
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+        - name: init-scripts
+          mountPath: /docker-entrypoint-initdb.d
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "10m"  # keep request tiny: omitting cpu makes request default to limit (500m). Master is CPU-saturated.
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+      - name: init-scripts
+        configMap:
+          name: postgres-init-scripts
+          defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: fortuna
+spec:
+  selector:
+    app: postgres
+  ports:
+  - port: 5432
+    targetPort: 5432
+  type: ClusterIP

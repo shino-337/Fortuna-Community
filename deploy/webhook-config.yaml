@@ -1,0 +1,37 @@
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingWebhookConfiguration
+metadata:
+  name: fortuna-policy-webhook
+  annotations:
+    cert-manager.io/inject-ca-from: fortuna/fortuna-webhook-cert
+webhooks:
+  - name: validate.fortuna.io
+    clientConfig:
+      service:
+        name: fortuna-webhook
+        namespace: fortuna
+        path: /admission/validate
+        port: 443
+      # caBundle is injected by cert-manager via annotation above.
+    
+    rules:
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: [""]
+        apiVersions: ["v1"]
+        resources: ["pods"]
+      - operations: ["CREATE", "UPDATE"]
+        apiGroups: ["apps"]
+        apiVersions: ["v1"]
+        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
+    
+    admissionReviewVersions: ["v1", "v1beta1"]
+    sideEffects: None
+    timeoutSeconds: 10
+    failurePolicy: Ignore  # Start with Ignore for testing
+    
+    namespaceSelector:
+      matchExpressions:
+        - key: fortuna.io/policy-enabled
+          operator: In
+          values: ["true"]
+

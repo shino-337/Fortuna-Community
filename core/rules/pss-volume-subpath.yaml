@@ -1,0 +1,50 @@
+# Pod Security Standards–style check on synced Pod spec (admission-like).
+# Detects volume mounts using subPath.
+
+id: pss-volume-subpath
+name: "Pod uses volumeMount subPath"
+category: pod-security
+severity: medium
+description: "At least one container mounts a volume with subPath; can be abused for host filesystem access and symlink tricks if combined with unsafe configs"
+enabled: true
+
+conditions:
+  - type: expression
+    expression: |
+      object.kind == "Pod" &&
+      object.spec != null &&
+      (
+        (
+          has(object.spec.containers) &&
+          object.spec.containers.exists(c,
+            has(c.volumeMounts) &&
+            c.volumeMounts.exists(vm,
+              has(vm.subPath) &&
+              vm.subPath != "" &&
+              vm.subPath != null
+            )
+          )
+        ) ||
+        (
+          has(object.spec.initContainers) &&
+          object.spec.initContainers.exists(c,
+            has(c.volumeMounts) &&
+            c.volumeMounts.exists(vm,
+              has(vm.subPath) &&
+              vm.subPath != "" &&
+              vm.subPath != null
+            )
+          )
+        )
+      )
+
+aggregation: AND
+base_score: 6.5
+tags:
+  - pss
+  - pod-security
+  - volume
+  - subpath
+  # Best-effort ATT&CK mapping: escape-like behaviors via filesystem tricks
+  - T1611
+

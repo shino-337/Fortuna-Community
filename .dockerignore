@@ -1,0 +1,25 @@
+.git
+.github
+.vscode
+.cursor
+.certs
+certs
+
+# Large generated/test artifacts
+docs
+docs/test-results
+cve-data
+postgres_fortuna_backup.sql
+scenarios
+
+# Go workspace file (each Dockerfile uses its own module)
+go.work
+go.work.sum
+
+# Local/ops files not needed for image build context
+helm
+*.tar
+*.tgz
+*.log
+*.tmp
+*.sql

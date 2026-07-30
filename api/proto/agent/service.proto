@@ -1,0 +1,96 @@
+syntax = "proto3";
+
+package fortuna.agent.v1;
+
+option go_package = "github.com/fortuna/api/proto/agent";
+
+import "proto/agent/sbom.proto";
+import "proto/agent/cve.proto";
+import "google/protobuf/timestamp.proto";
+
+// AgentService defines the gRPC service for Agent-Core communication
+service AgentService {
+  // RegisterAgent registers an agent with the core
+  rpc RegisterAgent(RegisterAgentRequest) returns (RegisterAgentResponse);
+  
+  // Heartbeat sends periodic health status
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  
+  // SendSBOMFinding sends a single SBOM finding (deprecated - use SendCombinedFinding)
+  rpc SendSBOMFinding(SBOMFinding) returns (SBOMFindingResponse);
+  
+  // BatchSendSBOMFindings sends multiple SBOM findings (deprecated)
+  rpc BatchSendSBOMFindings(stream SBOMFinding) returns (BatchSBOMFindingResponse);
+  
+  // SendCVEFinding sends CVE findings for a container
+  rpc SendCVEFinding(CVEFinding) returns (CVEFindingResponse);
+  
+  // SendCombinedFinding sends both SBOM and CVE findings together
+  rpc SendCombinedFinding(CombinedFinding) returns (CombinedFindingResponse);
+  
+  // Ping for health checking
+  rpc Ping(PingRequest) returns (PingResponse);
+}
+
+// RegisterAgentRequest contains agent registration info
+message RegisterAgentRequest {
+  string agent_id = 1;
+  string hostname = 2;
+  string node_name = 3;
+  string version = 4;
+  repeated string capabilities = 5;
+}
+
+// RegisterAgentResponse confirms agent registration
+message RegisterAgentResponse {
+  bool success = 1;
+  string message = 2;
+  string cluster_id = 3;
+}
+
+// HeartbeatRequest contains agent health status
+message HeartbeatRequest {
+  string agent_id = 1;
+  string status = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// HeartbeatResponse acknowledges heartbeat
+message HeartbeatResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+// BatchSBOMFindingResponse is returned after receiving batch SBOM findings
+message BatchSBOMFindingResponse {
+  bool success = 1;
+  string message = 2;
+  int32 received_count = 3;
+  int32 processed_count = 4;
+}
+
+// CombinedFinding combines SBOM and CVE data
+message CombinedFinding {
+  SBOMFinding sbom = 1;
+  CVEFinding cve = 2;
+}
+
+// CombinedFindingResponse is returned after receiving combined findings
+message CombinedFindingResponse {
+  bool success = 1;
+  string message = 2;
+  string sbom_id = 3;
+  string insights_created = 4;
+}
+
+// PingRequest for health check (agent_id/node_name optional; when set, Core updates last_seen_at)
+message PingRequest {
+  string agent_id = 1;
+  string node_name = 2;
+}
+
+// PingResponse for health check
+message PingResponse {
+  string status = 1;
+  string version = 2;
+}

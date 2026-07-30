@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: risk-center-test
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: rc-cluster-admin-sa
+  namespace: risk-center-test
+automountServiceAccountToken: true
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: rc-cluster-admin-sa-binding
+subjects:
+  - kind: ServiceAccount
+    name: rc-cluster-admin-sa
+    namespace: risk-center-test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rc-pss-privileged-host
+  namespace: risk-center-test
+  labels:
+    app: rc-pss-privileged-host
+    fortuna.io/e2e-suite: risk-center
+spec:
+  restartPolicy: Always
+  hostNetwork: true
+  hostPID: true
+  hostIPC: true
+  containers:
+    - name: main
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 36000"]
+      securityContext:
+        privileged: true
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rc-rbac-cluster-admin
+  namespace: risk-center-test
+  labels:
+    app: rc-rbac-cluster-admin
+    fortuna.io/e2e-suite: risk-center
+spec:
+  restartPolicy: Always
+  serviceAccountName: rc-cluster-admin-sa
+  automountServiceAccountToken: true
+  containers:
+    - name: main
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 36000"]
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rc-pss-cap-netraw-sysadmin
+  namespace: risk-center-test
+  labels:
+    app: rc-pss-cap-netraw-sysadmin
+    fortuna.io/e2e-suite: risk-center
+spec:
+  restartPolicy: Always
+  containers:
+    - name: main
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 36000"]
+      securityContext:
+        allowPrivilegeEscalation: true
+        capabilities:
+          add:
+            - NET_RAW
+            - SYS_ADMIN
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: rc-pss-no-limits
+  namespace: risk-center-test
+  labels:
+    app: rc-pss-no-limits
+    fortuna.io/e2e-suite: risk-center
+spec:
+  restartPolicy: Always
+  automountServiceAccountToken: true
+  containers:
+    - name: main
+      image: busybox:1.36
+      command: ["sh", "-c", "sleep 36000"]
+      securityContext:
+        readOnlyRootFilesystem: false
