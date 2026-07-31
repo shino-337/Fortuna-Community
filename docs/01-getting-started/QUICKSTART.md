@@ -102,6 +102,23 @@ kubectl rollout status -n fortuna deployment/fortuna-dashboard --timeout=180s
 kubectl get pods,svc -n fortuna -o wide
 ```
 
+For a full scripted deploy from published images, including a clean database reset and no local rebuild, use:
+
+```bash
+export FORTUNA_PACKAGE_SOURCE="github"
+export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
+export FORTUNA_VERSION="v1.0.0"
+export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>"
+export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
+export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
+export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
+
+CVE_CATALOG_POST_DEPLOY_CHECK=skip \
+  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --skip-rebuild
+```
+
+Use `PG_RECREATE_PVC=1` with that command only when you intentionally want to delete and recreate the PostgreSQL PVC files.
+
 ## 2. Developer Local Build
 
 Use this only when you want to build images on the cluster node or test local changes.

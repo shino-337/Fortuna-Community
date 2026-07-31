@@ -32,6 +32,8 @@
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db         # + clear DB data (DELETE, keep schema)
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB reset (DROP tables)
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
+#   FORTUNA_PACKAGE_SOURCE=github ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --skip-rebuild
+#       # deploy published GitHub/GHCR images and reset DB; no local rebuild/containerd image required
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy    # clean + rebuild only
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-db-reset  # DB full reset only (no clean/rebuild/deploy)
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-core     # build + apply + rollout Core only (skip default clean)
@@ -566,8 +568,8 @@ _sync_deploy_image_tags() {
     log_info "Deploy image tag sync skipped (SYNC_DEPLOY_IMAGE_TAG=false)"
     return 0
   fi
-  if [ "$SKIP_REBUILD" = true ]; then
-    log_info "Deploy image tag sync skipped because rebuild is skipped"
+  if [ "$SKIP_REBUILD" = true ] && [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
+    log_info "Deploy image tag sync skipped because local rebuild is skipped"
     return 0
   fi
 
@@ -581,7 +583,7 @@ _sync_deploy_image_tags() {
         echo "${name}:${VERSION}"
         ;;
       *)
-        log_error "Invalid FORTUNA_PACKAGE_SOURCE=$FORTUNA_PACKAGE_SOURCE (use: github or local)"
+        log_error "Invalid FORTUNA_PACKAGE_SOURCE=$FORTUNA_PACKAGE_SOURCE (use: github, ghcr, registry, or local)"
         exit 1
         ;;
     esac
@@ -616,7 +618,7 @@ _sync_deploy_image_tags() {
 }
 
 _set_workload_images_for_tag() {
-  if [ "$SKIP_REBUILD" = true ]; then
+  if [ "$SKIP_REBUILD" = true ] && [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
     return 0
   fi
   local core_image agent_image dashboard_image
@@ -945,7 +947,10 @@ if [ "$SKIP_REBUILD" = false ]; then
 else
   log_info "Phase 2: Rebuild (skipped)"
   if [ "$SKIP_DEPLOY" = false ]; then
-    if _phase2_required_images_present; then
+    if [ "$FORTUNA_PACKAGE_SOURCE" != "local" ]; then
+      log_info "Local image check skipped; workloads use GitHub/GHCR packages (${FORTUNA_REGISTRY%/}:$FORTUNA_VERSION)."
+      _sync_deploy_image_tags
+    elif _phase2_required_images_present; then
       log_success "Required images already visible in containerd"
     else
       log_error "--skip-rebuild was requested, but required Fortuna image(s) are missing in containerd namespace $CONTAINERD_NS."
