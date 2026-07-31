@@ -164,14 +164,25 @@ func (t *IncrementalTracker) MarkProcessingComplete(ctx context.Context, filePat
 		return nil
 	}
 
-	return t.db.WithContext(ctx).
-		Model(&FileMetadata{}).
-		Where("file_path IN ?", filePaths).
-		Updates(map[string]interface{}{
-			"processing_status": "success",
-			"last_processed_at": time.Now(),
-			"error_message":     "",
-		}).Error
+	const chunkSize = 10000
+	now := time.Now()
+	for i := 0; i < len(filePaths); i += chunkSize {
+		end := i + chunkSize
+		if end > len(filePaths) {
+			end = len(filePaths)
+		}
+		if err := t.db.WithContext(ctx).
+			Model(&FileMetadata{}).
+			Where("file_path IN ?", filePaths[i:end]).
+			Updates(map[string]interface{}{
+				"processing_status": "success",
+				"last_processed_at": now,
+				"error_message":     "",
+			}).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // MarkProcessingFailed marks files as failed
