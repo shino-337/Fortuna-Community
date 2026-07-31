@@ -1,0 +1,10 @@
+title = "Fortuna Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Public vulnerability datasets contain package/version strings that trigger noisy generic token rules."
+paths = [
+  '''^cve-data/''',
+]
