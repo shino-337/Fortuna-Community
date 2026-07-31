@@ -17,9 +17,9 @@ Use this checklist before making the repository public or publishing a new relea
 
 This repository currently has no tracked `.certs/` files in the working tree, but the local working tree may still contain ignored `.certs/*.key` files. Delete local `.certs/` before running a current-tree release scan or creating any source archive.
 
-Git history contains deleted `.certs/*.key` and certificate files in commits `6dbbf64f` and `6945742`. Before public launch, remove those objects from history with a history rewrite tool and force-push the sanitized branch, then rotate/regenerate the mTLS certificate authority and client/server certificates.
+The public branch history was rewritten to remove historical private key paths, deleted certificate directories, and stale docs/test artifacts that triggered secret scan findings. Re-run the full-history scan after every rewrite and before every public push.
 
-Gitleaks also reports historical findings in deleted docs/test artifacts and reset scripts, including archived JWT examples and kubeadm discovery token CA hashes. Treat these as rewrite candidates unless each value is proven synthetic and acceptable for public history.
+Rotate/regenerate the mTLS certificate authority and client/server certificates after rewriting history.
 
 The root-level `cmd` binary and `postgres_fortuna_backup.sql` are local untracked artifacts. They are ignored and should be deleted from any release staging directory before publishing.
 
