@@ -262,7 +262,7 @@ GitHub Actions publishes images to GHCR on `main`, release tags, and manual disp
 
 ```bash
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest" # or a release tag, e.g. v1.0.0
+export FORTUNA_VERSION="v1.0.0"
 export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>" # recommended; omit only for first-login bootstrap default
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
@@ -288,7 +288,7 @@ Deploy manifests and point workloads at published images:
 NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
 ./scripts/utils/ensure-fortuna-secrets.sh fortuna
 
-kubectl apply -f deploy/infrastructure/postgresql.yaml
+kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
 kubectl apply -f deploy/infrastructure/nats.yaml
 kubectl apply -f deploy/fortuna-rbac.yaml
 kubectl apply -f deploy/dashboard-nginx-configmap.yaml
@@ -309,6 +309,8 @@ kubectl -n fortuna set image deployment/fortuna-dashboard dashboard="${FORTUNA_R
 ```
 
 Anonymous pulls return `401 Unauthorized` when the GHCR package is private. Make the package public or use the pull secret above.
+
+YAML examples for private package pulls and tag overrides are available under `deploy/samples/`.
 
 Wait and open the dashboard:
 
@@ -342,16 +344,18 @@ Use this when testing source changes or when you do not want to pull from a regi
 Single command to clean, build, deploy, and verify:
 
 ```bash
+export FORTUNA_PACKAGE_SOURCE=local
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset
 ```
 
 With runtime security (Falco + eBPF):
 
 ```bash
+export FORTUNA_PACKAGE_SOURCE=local
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --with-runtime
 ```
 
-The pipeline derives `VERSION` from Git, builds `fortuna-core`, `fortuna-agent`, and `fortuna-dashboard`, and syncs the matching `deploy/*.yaml` image tags after a successful build. Set `SYNC_DEPLOY_IMAGE_TAG=false` only when intentionally preserving existing manifest tags.
+The pipeline derives `VERSION` from Git, builds `fortuna-core`, `fortuna-agent`, and `fortuna-dashboard`, and syncs the matching `deploy/*.yaml` image tags after a successful build when `FORTUNA_PACKAGE_SOURCE=local`. Without that setting, the pipeline keeps using GitHub/GHCR packages through `FORTUNA_REGISTRY` and `FORTUNA_VERSION`.
 
 For multi-cluster, do not deploy Core or Dashboard on remote clusters. Deploy or patch only the Agent there. The pipeline can sync remote Agent-only clusters when `REMOTE_KUBECONFIGS` is set:
 
@@ -359,7 +363,7 @@ For multi-cluster, do not deploy Core or Dashboard on remote clusters. Deploy or
 REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
 MANAGEMENT_NODE=<management-node-ip-or-dns> \
 FORTUNA_REGISTRY=ghcr.io/shino-337/fortuna-community \
-FORTUNA_VERSION=latest \
+FORTUNA_VERSION=v1.0.0 \
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full
 ```
 
@@ -368,6 +372,8 @@ Use `REMOTE_IMAGE_MODE=local` for registryless labs. That imports only `fortuna-
 ### Option 3: Step-by-step
 
 ```bash
+export FORTUNA_PACKAGE_SOURCE=local
+
 # 1. Build images
 ./scripts/build/build-and-load-containerd.sh
 

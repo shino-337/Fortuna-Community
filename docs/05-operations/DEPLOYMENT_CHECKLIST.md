@@ -13,6 +13,7 @@ Recommended for users and multi-node clusters:
 
 Developer/local path:
 
+- Set `FORTUNA_PACKAGE_SOURCE=local`.
 - Run `./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full`.
 - For multi-node without a registry, run `./scripts/utils/push-images-to-workers.sh`.
 - Prefer a registry over copying/importing images on every worker.
@@ -63,6 +64,8 @@ kubectl -n fortuna patch serviceaccount fortuna-core -p '{"imagePullSecrets":[{"
 kubectl -n fortuna patch serviceaccount fortuna-agent -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
 kubectl -n fortuna patch serviceaccount default -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
 ```
+
+Equivalent YAML templates are available in `deploy/samples/ghcr-pull-secret.example.yaml` and `deploy/samples/ghcr-imagepullsecrets.example.yaml`.
 
 ## 4. Workloads
 

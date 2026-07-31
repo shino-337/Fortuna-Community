@@ -17,6 +17,8 @@ For users, use the published-image path in [Quickstart](../01-getting-started/QU
 For local development, use the deploy script:
 
 ```bash
+export FORTUNA_PACKAGE_SOURCE=local
+
 # 1. Create namespace
 kubectl create namespace fortuna
 
@@ -27,6 +29,8 @@ NAMESPACE=fortuna bash scripts/utils/create_mtls_secret.sh
 # 3. Deploy infrastructure, RBAC, Core, Agent, and Dashboard
 bash scripts/deploy/deploy-fortuna-robust.sh
 ```
+
+Leave `FORTUNA_PACKAGE_SOURCE` unset for the default GitHub/GHCR package path.
 
 **Capability Catalog:** Core deployment sets `FORTUNA_ENABLE_SEED_DATA=true` so migrations 050/051/061 seed `capability_metadata` and `promotion_rules`. If the catalog is empty after deploy, ensure this environment variable is set on Core and consider a database reset so seed migrations run.
 

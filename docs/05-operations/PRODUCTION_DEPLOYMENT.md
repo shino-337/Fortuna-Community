@@ -36,6 +36,8 @@ kubectl -n "$NAMESPACE" create secret docker-registry ghcr-pull \
   --dry-run=client -o yaml | kubectl apply -f -
 ```
 
+YAML templates for private GHCR pulls are in `deploy/samples/`.
+
 ## Secrets
 
 Preferred path:

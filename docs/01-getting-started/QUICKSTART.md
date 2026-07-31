@@ -22,7 +22,7 @@ Set the image registry and version:
 
 ```bash
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest" # or a release tag, e.g. v1.0.0
+export FORTUNA_VERSION="v1.0.0"
 ```
 
 Set deployment secrets:
@@ -31,7 +31,7 @@ Set deployment secrets:
 export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>" # recommended; omit only for first-login bootstrap default
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 
-# Bundled PostgreSQL path. Use your external DB URL instead if you do not deploy deploy/infrastructure/postgresql.yaml.
+# Bundled PostgreSQL path. Use your external DB URL instead if you do not deploy deploy/infrastructure/postgresql-with-age.yaml.
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
 export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
 ```
@@ -55,7 +55,7 @@ Create namespace, secrets, and infrastructure:
 NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
 ./scripts/utils/ensure-fortuna-secrets.sh fortuna
 
-kubectl apply -f deploy/infrastructure/postgresql.yaml
+kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
 kubectl apply -f deploy/infrastructure/nats.yaml
 kubectl apply -f deploy/fortuna-rbac.yaml
 kubectl apply -f deploy/dashboard-nginx-configmap.yaml
@@ -87,6 +87,12 @@ kubectl -n fortuna set image deployment/fortuna-dashboard \
 
 Anonymous pulls fail with `401 Unauthorized` when the package is private. Either make the GHCR package public or use the pull secret above.
 
+YAML examples are available for private GHCR package pulls:
+
+- `deploy/samples/ghcr-pull-secret.example.yaml`
+- `deploy/samples/ghcr-imagepullsecrets.example.yaml`
+- `deploy/samples/github-packages-kustomization.example.yaml`
+
 Wait for workloads:
 
 ```bash
@@ -105,6 +111,7 @@ export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>" # recommended; omit only
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
 export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
+export FORTUNA_PACKAGE_SOURCE="local"
 
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --with-runtime
 ```
@@ -126,7 +133,7 @@ The local pipeline:
 Notes:
 
 - First local build needs internet access for Go modules, npm packages, base images, Syft, Helm charts, and Falco images.
-- Multi-node clusters need Core/Agent images on the nodes where those workloads run. Prefer a registry accessible to every node. If you are air-gapped or intentionally registryless, configure `scripts/utils/push-images.config` or SSH env variables and run `./scripts/utils/push-images-to-workers.sh`. The full pipeline, including option `15`, pushes the same rebuilt `VERSION` tag only when the current cluster has more than one node, or when `PUSH_IMAGES_AFTER_REBUILD=true` is set. Dashboard stays on the control-plane/master by default for local deployments.
+- Multi-node clusters need Core/Agent images on the nodes where those workloads run. Prefer a registry accessible to every node. If you are air-gapped or intentionally registryless, configure `scripts/utils/push-images.config` or SSH env variables and run `./scripts/utils/push-images-to-workers.sh`. The full pipeline pushes the same rebuilt `VERSION` tag only when `FORTUNA_PACKAGE_SOURCE=local` and the current cluster has more than one node, or when `PUSH_IMAGES_AFTER_REBUILD=true` is set.
 - After `--db-reset`, the pipeline verifies the CVE catalog. If the catalog is empty, `AUTO_LOAD_CVE_CATALOG=true` loads the public OSV/package catalog, currently a large download of about 1.2GB plus extract/import time. For a fast deployment smoke test, set `CVE_CATALOG_POST_DEPLOY_CHECK=skip`.
 
 ## 3. Add A Remote Cluster
@@ -158,7 +165,7 @@ export REMOTE_KUBECONFIG=/path/to/remote.kubeconfig
 export MANAGEMENT_NODE=<management-node-ip-or-dns>
 export REMOTE_KUBECONFIGS="cluster02=${REMOTE_KUBECONFIG}"
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest"
+export FORTUNA_VERSION="v1.0.0"
 
 ./scripts/deploy/sync-remote-agent.sh
 ```

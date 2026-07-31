@@ -16,6 +16,7 @@ Kubernetes manifests for running Fortuna Core, Agent, Dashboard, and the bundled
 | Certificates | `certs/` | cert-manager Certificate/Issuer manifests |
 | Webhook | `webhook-service.yaml` + `webhook-config.yaml` | Optional admission webhook wiring |
 | Operations SQL | `sql/` | Maintenance helpers only; not required for first install |
+| Samples | `samples/` | Optional YAML examples for GHCR pull secrets and package tag overlays |
 
 ## Required Setup
 
@@ -47,6 +48,8 @@ The public release manifests use GHCR images:
 - `ghcr.io/shino-337/fortuna-community/fortuna-dashboard:v1.0.0`
 
 For production, prefer immutable version tags or digests. For local registryless testing, build and load matching `fortuna-*:<tag>` images into the node runtime and update the image fields.
+
+If GHCR packages are private, use `deploy/samples/ghcr-pull-secret.example.yaml` as a template and attach it with `deploy/samples/ghcr-imagepullsecrets.example.yaml`. For Kustomize-based installs, `deploy/samples/github-packages-kustomization.example.yaml` shows the package image tag overlay.
 
 ## Deploy Order
 

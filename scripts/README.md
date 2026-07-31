@@ -49,6 +49,8 @@ Do not add one-off local maintenance scripts to `scripts/`. Keep private experim
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --with-e2e
 ```
 
+The default package source is `github`, which keeps workload images on `ghcr.io/shino-337/fortuna-community/*:${FORTUNA_VERSION}`. Set `FORTUNA_PACKAGE_SOURCE=local` when the pipeline should deploy locally built `fortuna-*:${VERSION}` images.
+
 Important environment variables:
 
 | Variable | Meaning |

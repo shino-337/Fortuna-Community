@@ -22,7 +22,7 @@ kubectl get nodes
 
 # 2. Choose the image tag to deploy, then follow QUICKSTART.md
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="latest"
+export FORTUNA_VERSION="v1.0.0"
 
 # 3. Verify after deploy
 kubectl get pods -n fortuna

@@ -33,6 +33,7 @@ The script builds `fortuna-core`, `fortuna-agent`, and `fortuna-dashboard`, then
 For a clean local rebuild and deploy:
 
 ```bash
+export FORTUNA_PACKAGE_SOURCE=local
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full
 ```
 
@@ -45,7 +46,7 @@ Common variants:
 ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --only-dashboard
 ```
 
-The pipeline derives `VERSION` from Git unless `VERSION` is set. By default it syncs `deploy/*.yaml` image tags to the built version after a successful build.
+The pipeline derives `VERSION` from Git unless `VERSION` is set. Use `FORTUNA_PACKAGE_SOURCE=local` when the rollout should use locally built `fortuna-*:${VERSION}` images. The default package source is `github`, which keeps workloads on `ghcr.io/shino-337/fortuna-community/*:${FORTUNA_VERSION}`.
 
 ## Multi-Node Clusters
 
