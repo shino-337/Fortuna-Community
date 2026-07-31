@@ -1,6 +1,11 @@
 # Binaries
 /bin/
 /cmd
+/agent/agent
+/core/bin/
+/core/main
+/core/cve-loader
+/core/cve-loader-optimized
 *.exe
 *.exe~
 *.dll

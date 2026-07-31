@@ -3,13 +3,13 @@
 **Version**: 1.0.0  
 **Status**: Production Ready
 
-Fortuna Core is the central processing and storage component of **FortunaK8s** (K8S Security & Risk Management Platform). It provides SBOM management, CVE matching, security insights generation, policy evaluation, and comprehensive REST/gRPC APIs.
+Fortuna Core is the central processing and storage component of **Fortuna**. It provides SBOM management, CVE matching, security insights generation, policy evaluation, and comprehensive REST/gRPC APIs.
 
 ---
 
 ## Overview
 
-Fortuna Core serves as the brain of FortunaK8s, orchestrating security analysis across Kubernetes clusters. It receives SBOM data from Agents, performs CVE matching, generates security insights, and exposes data via REST and gRPC APIs.
+Fortuna Core orchestrates security analysis across Kubernetes clusters. It receives SBOM data from Agents, performs CVE matching, generates security insights, and exposes data via REST and gRPC APIs.
 
 ### Key Responsibilities
 
@@ -182,7 +182,7 @@ See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST group
 - `FORTUNA_INGEST_TOKEN`: Shared Core/Agent HTTP ingest token. Requests must send `X-Fortuna-Ingest-Token` or `Authorization: Bearer <token>`.
 - `FORTUNA_ALLOWED_ORIGINS`: Comma-separated extra browser origins allowed for CORS, in addition to localhost dev origins.
 - `FORTUNA_ALLOW_AUTH_QUERY_TOKEN`: Set `true` only when browser WebSocket clients must authenticate with `?token=`; non-WebSocket routes ignore query tokens.
-- `FORTUNA_WS_ALLOWED_ORIGINS`: Comma-separated browser origins allowed by WebSocket `CheckOrigin`, for example the local dashboard host `http://192.168.56.100:8081` or NodePort origin `http://192.168.56.100:30956`.
+- `FORTUNA_WS_ALLOWED_ORIGINS`: Comma-separated browser origins allowed by WebSocket `CheckOrigin`, for example the local dashboard host `http://localhost:8081` or NodePort origin `http://dashboard.example.com:30956`.
 
 **NATS Durables**:
 - `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)

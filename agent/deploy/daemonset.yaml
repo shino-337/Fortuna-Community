@@ -2,20 +2,25 @@ apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: fortuna-agent
-  namespace: kube-system
+  namespace: fortuna
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: agent
 spec:
   selector:
     matchLabels:
-      app: fortuna-agent
+      app.kubernetes.io/name: fortuna
+      app.kubernetes.io/component: agent
   template:
     metadata:
       labels:
-        app: fortuna-agent
+        app.kubernetes.io/name: fortuna
+        app.kubernetes.io/component: agent
     spec:
       serviceAccountName: fortuna-agent
       containers:
       - name: agent
-        image: fortuna/agent:latest
+        image: ghcr.io/shino-337/fortuna-community/fortuna-agent:v1.0.0
         imagePullPolicy: IfNotPresent
         env:
         - name: CORE_HTTP_ENDPOINT

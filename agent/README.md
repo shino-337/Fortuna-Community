@@ -3,7 +3,7 @@
 **Version**: 1.0.0  
 **Status**: Production Ready
 
-Fortuna Agent is a lightweight DaemonSet of **FortunaK8s** (K8S Security & Risk Management Platform). It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
+Fortuna Agent is a lightweight DaemonSet for **Fortuna**. It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
 
 ---
 
@@ -156,17 +156,17 @@ go build -o bin/fortuna-agent ./cmd
 ### Build Docker Image
 
 ```bash
-docker build -t fortuna-agent:latest -f Dockerfile .
+docker build -t fortuna-agent:dev -f Dockerfile .
 ```
 
 Or using `nerdctl` (default namespace may **not** be what kubelet uses):
 
 ```bash
 # From repository root (Dockerfile expects repo context for api/ + agent/)
-nerdctl -n k8s.io build -t docker.io/library/fortuna-agent:latest -f agent/Dockerfile .
+nerdctl -n k8s.io build -t docker.io/library/fortuna-agent:dev -f agent/Dockerfile .
 ```
 
-**Why `-n k8s.io`:** On many clusters the kubelet pulls images from the **containerd `k8s.io` namespace**. Building only in the default nerdctl namespace can leave `fortuna-agent:latest` invisible to Kubernetes or with a stale digest. The sync script `scripts/utils/push-images-to-workers.sh` exports `docker.io/library/fortuna-agent:latest`; match that tag when loading on nodes.
+**Why `-n k8s.io`:** On many clusters the kubelet pulls images from the **containerd `k8s.io` namespace**. Building only in the default nerdctl namespace can leave the local image invisible to Kubernetes or with a stale digest. For release installs, prefer the published package image `ghcr.io/shino-337/fortuna-community/fortuna-agent:v1.0.0`.
 
 **Multi-node:** After building locally, import the same tarball on each node (the push script does this) or rebuild with `nerdctl -n k8s.io` on each host.
 

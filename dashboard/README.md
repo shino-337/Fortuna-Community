@@ -1,6 +1,6 @@
 # Fortuna Dashboard
 
-React/Vite frontend for **FortunaK8s** (K8S Security & Risk Management Platform). Connects to Core APIs (`/api/v1/...`) and displays SBOM analysis, threat velocity, and risk insights.
+React/Vite frontend for **Fortuna**. Connects to Core APIs (`/api/v1/...`) and displays SBOM analysis, threat velocity, and risk insights.
 
 ## Build Production Image (containerd only – no npm on host)
 

@@ -7,6 +7,8 @@ Fortuna combines static SBOM/CVE analysis with runtime behavioral signals (Falco
 
 The project name is **Fortuna**. The public repository is `shino-337/Fortuna-Community`, and published GHCR images use the lowercase repository namespace `ghcr.io/shino-337/fortuna-community`.
 
+**Project metadata:** [Apache-2.0 license](LICENSE) · [Security policy](SECURITY.md) · [Contributing guide](CONTRIBUTING.md) · [Code of conduct](CODE_OF_CONDUCT.md)
+
 **New to the project?** Open the [documentation hub](docs/README.md), then [Getting started](docs/01-getting-started/README.md) and the [API reference](#api-reference) (REST/gRPC overview + links to the full route standard).
 
 ---
@@ -645,7 +647,7 @@ The tables below are a **condensed** overview; new endpoints are defined in `cor
 # Fallback for air-gapped local builds: push Core/Agent runtime images to nodes.
 # Full pipeline option 15 passes the rebuilt VERSION tag explicitly, so node images
 # match the deployment manifests. Standalone use detects tags from deploy/*.yaml.
-# Dashboard stays on control-plane/master by default; use --include-dashboard only if scheduled elsewhere.
+# Add --include-dashboard only when dashboard image distribution is also required.
 ./scripts/utils/push-images-to-workers.sh --build-if-missing
 ```
 
