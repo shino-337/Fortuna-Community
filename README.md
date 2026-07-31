@@ -258,6 +258,16 @@ Generate agent/core mTLS secrets (required for gRPC communication):
 
 ## Quick Start
 
+This quick path deploys the Fortuna management stack into the `fortuna` namespace:
+
+- PostgreSQL with Apache AGE support and NATS JetStream.
+- Fortuna Core REST API and gRPC ingest service.
+- Fortuna Agent DaemonSet on each node.
+- Fortuna Dashboard.
+- Core/Agent mTLS secrets and application secrets.
+
+Use **Option 1** when you want to install a released package from GitHub/GHCR. Use **Option 2** or **Option 3** when changing source code or when your cluster cannot pull images from a registry.
+
 ### Option 1: Deploy Published Images (recommended for users)
 
 GitHub Actions publishes images to GHCR on `main`, release tags, and manual dispatch:
@@ -271,7 +281,7 @@ export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut
 export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
 ```
 
-Create the namespace first. If GHCR packages are private, create `ghcr-pull` after the namespace exists. `GITHUB_TOKEN` needs `read:packages`:
+Create the namespace first. If GHCR packages are private, create `ghcr-pull` after the namespace exists. `GITHUB_TOKEN` needs `read:packages`; public packages can skip the docker-registry secret:
 
 ```bash
 kubectl create namespace fortuna --dry-run=client -o yaml | kubectl apply -f -
@@ -314,12 +324,23 @@ Anonymous pulls return `401 Unauthorized` when the GHCR package is private. Make
 
 YAML examples for private package pulls and tag overrides are available under `deploy/samples/`.
 
+Expected workloads:
+
+| Workload | Type | Expected state |
+|----------|------|----------------|
+| `postgres` | Deployment | 1 ready pod |
+| `nats` | StatefulSet | 3 ready pods |
+| `fortuna-core` | Deployment | 1 ready pod, `/healthz` responds |
+| `fortuna-agent` | DaemonSet | 1 ready pod per schedulable node |
+| `fortuna-dashboard` | Deployment | 1 ready pod, service port `80` |
+
 Wait and open the dashboard:
 
 ```bash
 kubectl rollout status -n fortuna deployment/fortuna-core --timeout=180s
 kubectl rollout status -n fortuna daemonset/fortuna-agent --timeout=180s
 kubectl rollout status -n fortuna deployment/fortuna-dashboard --timeout=180s
+kubectl get pods,svc -n fortuna -o wide
 kubectl port-forward --address 0.0.0.0 -n fortuna svc/fortuna-dashboard 8081:80
 ```
 
@@ -338,6 +359,24 @@ Valid published tags are created by `.github/workflows/publish-images.yml`:
 - The supplied `version` and `sha-<12-char-commit>` when running the workflow manually.
 
 The checked-in `deploy/*.yaml` files may contain local containerd tags from the developer pipeline. For a registry-based install, always set the workload images to `FORTUNA_REGISTRY/FORTUNA_VERSION` as shown above.
+
+Basic troubleshooting:
+
+```bash
+# Image pull or scheduling issues
+kubectl describe pod -n fortuna -l app.kubernetes.io/name=fortuna
+
+# Core and Agent logs
+kubectl logs -n fortuna -l app.kubernetes.io/component=core --tail=100
+kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=100
+
+# Health checks through port-forward
+kubectl port-forward -n fortuna svc/fortuna-core 8080:8080
+
+# In another terminal:
+curl http://127.0.0.1:8080/healthz
+curl http://127.0.0.1:8080/ready
+```
 
 ### Option 2: Developer Local Build
 
@@ -396,6 +435,45 @@ kubectl port-forward -n fortuna svc/fortuna-core 8080:8080
 - Dashboard: http://localhost:8081
 - Core API: http://localhost:8080/healthz
 
+### First API Login
+
+Most user-facing API routes require a JWT. After forwarding Core to `localhost:8080`, login once and export the token:
+
+```bash
+export FORTUNA_ADMIN_PASSWORD="${FORTUNA_ADMIN_PASSWORD:-Fortuna_ChangeMe_123!}"
+export FORTUNA_JWT="$(
+  curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"${FORTUNA_ADMIN_PASSWORD}\"}" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))'
+)"
+```
+
+If the deployment used the bootstrap default and the login response indicates `mustChangePassword`, change it before calling data APIs:
+
+```bash
+export FORTUNA_NEW_ADMIN_PASSWORD="<new-strong-admin-password>"
+
+curl -s -X POST http://127.0.0.1:8080/api/v1/change-password \
+  -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  -H 'Content-Type: application/json' \
+  -d "{\"oldPassword\":\"${FORTUNA_ADMIN_PASSWORD}\",\"newPassword\":\"${FORTUNA_NEW_ADMIN_PASSWORD}\"}"
+
+export FORTUNA_ADMIN_PASSWORD="${FORTUNA_NEW_ADMIN_PASSWORD}"
+export FORTUNA_JWT="$(
+  curl -s -X POST http://127.0.0.1:8080/api/v1/auth/login \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"admin\",\"password\":\"${FORTUNA_ADMIN_PASSWORD}\"}" |
+  python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))'
+)"
+```
+
+Use it with:
+
+```bash
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" http://127.0.0.1:8080/api/v1/dashboard/stats
+```
+
 ### Pipeline Options Reference
 
 | Flag | Description |
@@ -422,6 +500,15 @@ kubectl port-forward -n fortuna svc/fortuna-core 8080:8080
 
 ## Use Cases
 
+The flows below assume:
+
+- Dashboard is available at `http://127.0.0.1:8081`.
+- Core is port-forwarded to `http://127.0.0.1:8080`.
+- `FORTUNA_JWT` is exported from [First API Login](#first-api-login).
+- Agent has completed at least one full sync. Check `/#/monitoring` or `kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=100`.
+
+Use the dashboard for investigation and the API examples for automation or verification.
+
 ### 1. Vulnerability Assessment
 
 Detect and prioritize CVEs across all cluster workloads:
@@ -430,11 +517,21 @@ Detect and prioritize CVEs across all cluster workloads:
 # After deployment, Agent auto-extracts SBOMs for all pods.
 # Core matches CVEs using OSV-backed tables in PostgreSQL plus Aikido malware feeds.
 # View results:
-curl http://localhost:8080/api/v1/inventory/sbom
-curl http://localhost:8080/api/v1/risk/insights
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/inventory/sbom
+
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/risk/insights
 ```
 
-Dashboard: **Findings Queue** shows CVE-based risk findings with unified risk score, affected pods, evidence, and workflow actions.
+Dashboard path:
+
+1. Open `/#/risks/findings`.
+2. Filter by severity, namespace, cluster, status, or source.
+3. Open a finding drawer and review affected pod, CVE/package evidence, risk factors, and workflow status.
+4. Jump to pod detail for SBOM components and runtime context.
+
+Expected output: SBOM inventory should contain discovered images/components; Findings Queue should show active CVE, malware, policy, or runtime findings after data has been ingested.
 
 ### 2. Runtime Threat Detection
 
@@ -449,10 +546,21 @@ Monitor live container behavior for suspicious activity:
 # eBPF sensor captures: execve, connect, attach syscalls
 
 # View runtime events per pod:
-curl http://localhost:8080/api/v1/runtime/pods/<pod-uid>/events
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/runtime/pods/<pod-uid>/events
+
+# Runtime pipeline health:
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/runtime/signals
 ```
 
-Dashboard: **Pod Detail** page → Runtime Events tab shows real-time security events.
+Dashboard path:
+
+1. Open `/#/monitoring` and confirm Agent/Falco/runtime freshness.
+2. Open `/#/resources`, select a pod, then inspect Runtime Events, Processes, Network, Events, and Spec tabs.
+3. Open `/#/network-activity` for cluster-wide runtime network topology.
+
+Expected output: process snapshots and network connections appear even without Falco; Falco/eBPF events appear only when runtime sensors are enabled and healthy.
 
 ### 3. Attack Path Analysis
 
@@ -463,14 +571,25 @@ Identify exploitable paths from compromised pods to cluster-level objectives:
 kubectl apply -f scenarios/
 
 # View attack paths
-curl http://localhost:8080/api/v1/graph/attack-paths/bundle
-curl http://localhost:8080/api/v1/graph/attack-paths/summary
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/graph/attack-paths/bundle
+
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/graph/attack-paths/summary
 
 # Per-pod attack paths
-curl http://localhost:8080/api/v1/graph/attack-paths/<pod-uid>
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/graph/attack-paths/<pod-uid>
 ```
 
-Dashboard: **Attack Paths** page shows interactive graph visualization with chain details.
+Dashboard path:
+
+1. Open `/#/attack-paths`.
+2. Sort by priority or confidence.
+3. Inspect graph nodes, edge labels, runtime evidence, RBAC links, and blast radius.
+4. Open the source pod or linked finding to validate the underlying evidence.
+
+Expected output: high-risk paths combine escape surfaces, privileged service accounts, RBAC reachability, runtime evidence, or toxic capability combinations. Scenario manifests under `scenarios/` can be used in non-production clusters to validate the graph.
 
 ### 4. Compliance & Audit
 
@@ -478,14 +597,26 @@ Track all security-relevant actions and maintain audit trails:
 
 ```bash
 # Audit logs
-curl http://localhost:8080/api/v1/audit/logs
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/audit/logs
 
 # Risk reports
-curl http://localhost:8080/api/v1/audit/reports
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/audit/reports
 
 # Pod-level SBOM inventory
-curl http://localhost:8080/api/v1/inventory/sbom
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/inventory/sbom
 ```
+
+Dashboard path:
+
+1. Open `/#/reports`.
+2. Select a time window such as 1 day, 3 days, 7 days, or 30 days.
+3. Review findings, workload changes, runtime events, and posture summary.
+4. Export only after verifying filters and cluster scope.
+
+Expected output: reports should align with Findings Queue and Inventory for the selected time window; audit logs show user and system actions relevant to security workflows.
 
 ### 5. Policy-Based Detection
 
@@ -493,11 +624,70 @@ Create custom detection rules and exception policies:
 
 ```bash
 # List detection rules
-curl http://localhost:8080/api/v1/policy/rules
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/policy/rules
 
 # Risk rules with YAML support
-curl http://localhost:8080/api/v1/risk/rules
+curl -H "Authorization: Bearer ${FORTUNA_JWT}" \
+  http://127.0.0.1:8080/api/v1/risk/rules
 ```
+
+Dashboard path:
+
+1. Open `/#/rules`.
+2. Search by rule UID, category, severity, source, or name.
+3. Open rule detail to review catalog metadata, matching behavior, affected findings, and linked capabilities.
+4. Use Findings Queue to acknowledge, dismiss, resolve, or escalate matched findings according to role permissions.
+
+Expected output: catalog-backed rules map to findings and capabilities; custom or YAML-backed rules should remain traceable through rule UID and evidence.
+
+### 6. Multi-Cluster Visibility
+
+Run one management stack and collect telemetry from remote clusters:
+
+```bash
+kubectl -n fortuna apply -f deploy/fortuna-core-external-service.yaml
+
+REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
+MANAGEMENT_NODE=<management-node-ip-or-dns> \
+FORTUNA_REGISTRY=ghcr.io/shino-337/fortuna-community \
+FORTUNA_VERSION=v1.0.0 \
+./scripts/deploy/sync-remote-agent.sh
+
+FORTUNA_JWT="${FORTUNA_JWT}" \
+CORE_URL="http://127.0.0.1:8080" \
+REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
+./scripts/verify/verify-multicluster-sync.sh
+```
+
+Dashboard path:
+
+1. Open `/#/` and verify platform integrity across clusters.
+2. Open `/#/resources` and filter by cluster, namespace, pod, image, or risk.
+3. Open `/#/attack-paths` and validate cluster scope before triage.
+
+Expected output: management cluster runs Core/Dashboard/PostgreSQL/NATS; remote clusters run Agent only. Cluster totals in Platform Integrity, Inventory, and API stats should agree after the remote Agent full sync.
+
+### 7. Operational Health and Upgrade Checks
+
+Confirm a deployment is healthy before investigations, upgrades, or releases:
+
+```bash
+./scripts/verify/check-full-deployment.sh
+./scripts/verify/verify-core-agent-rebuild-deploy-status.sh
+
+kubectl get pods -n fortuna -o wide
+kubectl logs -n fortuna -l app.kubernetes.io/component=core --tail=100
+kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=100
+```
+
+Dashboard path:
+
+1. Open `/#/` for telemetry reliability, governance, runtime coverage, and platform health.
+2. Open `/#/monitoring` for pipeline activity, agent freshness, runtime ingestion, and sensor state.
+3. Treat missing findings as inconclusive until ingestion and runtime coverage are healthy.
+
+Expected output: Core, Dashboard, PostgreSQL, NATS, and all expected Agent pods are ready; image tags match the intended package version; pipeline freshness timestamps are recent.
 
 ---
 
