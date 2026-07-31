@@ -101,6 +101,10 @@ RUN set -eux; \
 FROM debian:bookworm-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
+ARG FORTUNA_BUILD_VERSION=dev
+ARG FORTUNA_BUILD_COMMIT=none
+ARG FORTUNA_BUILD_TIME=unknown
+
 # Install only runtime dependencies
 # Note: docker-cli is needed for SBOM extraction
 # Retry apt-get update in case of network issues (up to 5 retries)
