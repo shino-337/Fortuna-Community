@@ -910,27 +910,36 @@ The tables below are a **condensed** overview; new endpoints are defined in `cor
 
 ## Roadmap
 
-- [x] Multi-cluster telemetry with centralized dashboard: one management stack receives Agent/Falco data from remote clusters and scopes UI/API data by `cluster_id`.
-- [ ] Advanced federation controls: per-cluster enrollment UI, remote agent lifecycle management, and cross-cluster policy rollout.
-- [ ] Admission webhook for real-time risk gating (`deploy/webhook-config.yaml`)
-- [ ] SIEM integration (Splunk, Elasticsearch export)
-- [ ] Database retention policies and automatic pruning
-- [ ] Reduce Agent memory footprint (streaming SBOM extraction)
-- [ ] Expand MITRE ATT&CK coverage and technique library
-- [ ] Prometheus metrics endpoint and Grafana dashboards (`deploy/prometheus/`)
-- [ ] OIDC/SAML authentication integration
-- [ ] Air-gapped deployment support with offline CVE database
+Fortuna 1.0 focuses on a runnable public package, core Kubernetes risk workflows, and clear source-build paths. Future work is grouped by operational value:
+
+| Status | Area | Scope |
+|--------|------|-------|
+| Done | Public release package | GHCR images for Core, Agent, and Dashboard; release tag install path; package/source quickstart |
+| Done | Multi-cluster telemetry | One management stack receives Agent/Falco telemetry from remote clusters and scopes UI/API data by `cluster_id` |
+| Done | Runtime and attack-path foundation | Falco JSONL ingestion, eBPF scaffold, process/network snapshots, attack-path graph, S1-S5 validation scenarios |
+| In progress | Remote cluster operations | Per-cluster enrollment guidance, remote Agent lifecycle workflows, and clearer remote rollout verification |
+| Planned | Admission risk gating | Admission webhook for real-time workload risk checks (`deploy/webhook-config.yaml`) |
+| Planned | Retention and scale controls | Database retention policies, pruning jobs, and lower Agent memory footprint through more streaming extraction paths |
+| Planned | Detection integrations | SIEM export, richer MITRE ATT&CK mapping, additional runtime/correlation rules, and external alert routing |
+| Planned | Observability package | Prometheus/Grafana deployment assets and operator-facing metrics dashboards |
+| Planned | Enterprise auth | OIDC/SAML support and stronger role/scope management for larger teams |
+| Planned | Offline operations | Air-gapped package bundle, offline CVE catalog workflow, and registryless multi-node install documentation |
+
+Roadmap items are directional and may change based on release validation, security findings, and contributor feedback. Open a feature request before starting large work so design, API, deploy, and documentation impact can be agreed upfront.
 
 ---
 
 ## Contributing
 
-Contributions are welcome.
+Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md), then open an issue or PR using the GitHub templates.
 
-- Open an issue for bugs or feature proposals.
-- Keep changes scoped and covered by tests.
-- Update related docs/specs when contracts change.
-- Run `go test ./...` (and any checks your change touches) before submitting PRs.
+Quick rules:
+
+- Keep changes focused and explain user/operational impact.
+- Update README, docs, deploy examples, and scripts when behavior or configuration changes.
+- Run the checks that match the touched area: Go tests for `core`/`agent`/`api`, dashboard typecheck/build for UI changes, and shell/YAML validation for scripts or manifests.
+- Do not commit generated binaries, package archives, local CVE datasets, kubeconfigs, secrets, database dumps, reports, or node-specific files.
+- Report security issues privately through [SECURITY.md](SECURITY.md).
 
 ---
 
