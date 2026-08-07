@@ -9,19 +9,22 @@ FORTUNA_JWT="${FORTUNA_JWT:-}"
 FORTUNA_NAMESPACE="${FORTUNA_NAMESPACE:-fortuna-test}"
 CURL_INSECURE="${CURL_INSECURE:-0}"
 
-die() { echo "ERROR: $*" >&2; exit 1; }
+fail() { echo "FAIL: $*" >&2; exit 1; }
+warn() { echo "WARN: $*" >&2; }
+pass() { echo "PASS: $*"; }
 log() { echo "[verify-k8s-e2e] $*"; }
-need_cmd() { command -v "$1" >/dev/null 2>&1 || die "missing command: $1"; }
+need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
 need_cmd kubectl
 need_cmd curl
 need_cmd jq
+need_cmd awk
 
-[[ -n "$FORTUNA_API_URL" ]] || die "set FORTUNA_API_URL"
-[[ -n "$FORTUNA_CLUSTER_ID" ]] || die "set FORTUNA_CLUSTER_ID"
+[[ -n "$FORTUNA_API_URL" ]] || fail "set FORTUNA_API_URL"
+[[ -n "$FORTUNA_CLUSTER_ID" ]] || fail "set FORTUNA_CLUSTER_ID"
 
 API_BASE="${FORTUNA_API_URL%/}"
-CURL_COMMON=(-sS)
+CURL_COMMON=(-fsS)
 [[ "$CURL_INSECURE" == "1" ]] && CURL_COMMON+=(-k)
 HDR=()
 [[ -n "${FORTUNA_JWT:-}" ]] && HDR=(-H "Authorization: Bearer ${FORTUNA_JWT}")
@@ -32,8 +35,8 @@ pod_uid() {
   kubectl get pod "$1" -n "$FORTUNA_NAMESPACE" -o jsonpath='{.metadata.uid}'
 }
 
-api_get() { curl "${CURL_COMMON[@]}" "${HDR[@]}" "${API_BASE}$1"; }
-api_post_empty() { curl "${CURL_COMMON[@]}" "${HDR[@]}" -X POST "${API_BASE}$1" >/dev/null || true; }
+api_get() { curl "${CURL_COMMON[@]}" "${HDR[@]}" "$API_BASE$1"; }
+api_post_empty() { curl "${CURL_COMMON[@]}" "${HDR[@]}" -X POST "$API_BASE$1" >/dev/null; }
 
 risk_recalc() { api_post_empty "/api/v1/risk/scores/$1/calculate?mode=v3"; }
 
@@ -65,6 +68,12 @@ has_escape_technique() {
   jq -e '[.[] | .steps[]?.technique_id // empty] | map(test("^ESCAPE_")) | any' <<<"$1" >/dev/null
 }
 
+chain_has_type() {
+  local chains=$1
+  local type=$2
+  jq -e --arg t "$type" 'map(select(.type == $t)) | length > 0' <<<"$chains" >/dev/null
+}
+
 main() {
   log "API=${API_BASE} cluster_id=${FORTUNA_CLUSTER_ID} ns=${FORTUNA_NAMESPACE}"
 
@@ -79,7 +88,7 @@ main() {
   log "GET attack-paths bundle..."
   local bundle
   bundle=$(bundle_json)
-  echo "$bundle" | jq -e .data >/dev/null || die "bundle response missing .data — check API URL / auth / cluster_id"
+  echo "$bundle" | jq -e .data >/dev/null || fail "bundle response missing .data — check API URL / auth / cluster_id"
 
   local CH1 CH2 CH3 CH4 CH5
   CH1=$(chains_for_pod "$U1" "$bundle")
@@ -88,73 +97,95 @@ main() {
   CH4=$(chains_for_pod "$U4" "$bundle")
   CH5=$(chains_for_pod "$U5" "$bundle")
 
-  local p1c
-  p1c=$(paths_for_pod "$U1" | jq '.count // (.paths | length)')
-  [[ "${p1c:-0}" =~ ^[0-9]+$ ]] || p1c=0
-  [[ "$p1c" -gt 0 ]] || die "S1: no attack paths for escape-pod (count=$p1c). Wait for inventory/path reconcile."
+  # S1: the evidence must belong to escape-pod, not merely exist somewhere in the cluster bundle.
+  local path_s1 path_s2 path_s5 p1c p2c p5c
+  path_s1=$(paths_for_pod "$U1")
+  path_s2=$(paths_for_pod "$U2")
+  path_s5=$(paths_for_pod "$U5")
 
-  echo "$bundle" | jq -e '.data.chains | map(select(.type == "ESCAPE_TO_PRIV_ESC")) | length > 0' >/dev/null \
-    || die "S1: cluster bundle must include ESCAPE_TO_PRIV_ESC chain (attack-path detection)"
+  p1c=$(jq '.count // (.paths | length) // 0' <<<"$path_s1")
+  p2c=$(jq '.count // (.paths | length) // 0' <<<"$path_s2")
+  p5c=$(jq '.count // (.paths | length) // 0' <<<"$path_s5")
 
-  echo "$bundle" | jq -e '.data.chains | map(select(.type == "ESCAPE_TO_PRIV_ESC")) | .[0].steps[]?.technique_id | select(. == "ESCAPE_HOSTPATH")' >/dev/null \
-    || log "WARN S1: ESCAPE_HOSTPATH step missing on global ESCAPE_TO_PRIV_ESC chain."
+  [[ "$p1c" =~ ^[0-9]+$ ]] || p1c=0
+  [[ "$p2c" =~ ^[0-9]+$ ]] || p2c=0
+  [[ "$p5c" =~ ^[0-9]+$ ]] || p5c=0
 
-  local path_rbac
-  path_rbac=$(paths_for_pod "$U2")
-  echo "$path_rbac" | jq -e 'all(.paths[]?; (.explainability.class // "") != "ESCAPE_PATH")' >/dev/null 2>&1 \
-    || die "S2: rbac-only pod must not carry ESCAPE_PATH class"
+  [[ "$p1c" -gt 0 ]] || fail "S1: no attack paths for escape-pod (count=$p1c). Wait for inventory/path reconcile."
+  pass "S1: escape-pod has $p1c attack path(s)"
 
-  if has_escape_technique "$CH2"; then
-    log "WARN S2: cluster-level chain list for this pod includes ESCAPE_* (bundle merges multi-pod paths; verify per-path classes above)."
+  chain_has_type "$CH1" "ESCAPE_TO_PRIV_ESC" \
+    && pass "S1: escape-pod has ESCAPE_TO_PRIV_ESC chain" \
+    || fail "S1: escape-pod has no ESCAPE_TO_PRIV_ESC chain"
+
+  echo "$CH1" | jq -e '[.[].steps[]?.technique_id // empty] | index("ESCAPE_HOSTPATH") != null' >/dev/null \
+    && pass "S1: ESCAPE_HOSTPATH evidence present" \
+    || fail "S1: ESCAPE_HOSTPATH evidence missing"
+
+  # S2: RBAC escalation must not be mislabeled as a host/escape path.
+  [[ "$p2c" -gt 0 ]] || fail "S2: no attack paths for rbac-pod (count=$p2c)"
+  echo "$path_s2" | jq -e 'all(.paths[]?; (.explainability.class // "") != "ESCAPE_PATH")' >/dev/null \
+    && pass "S2: RBAC-only path is not classified as ESCAPE_PATH" \
+    || fail "S2: RBAC-only pod was classified as ESCAPE_PATH"
+
+  # S5: intentionally broken chain must not produce an escape chain.
+  if chain_has_type "$CH5" "ESCAPE_TO_PRIV_ESC"; then
+    fail "S5: broken-chain produced ESCAPE_TO_PRIV_ESC"
+  else
+    pass "S5: broken-chain does not produce ESCAPE_TO_PRIV_ESC"
   fi
 
-  local gaps
-  gaps=$(echo "$CH5" | jq '[.[].capability_validation.gaps[]? // empty] | length')
-  [[ "${gaps:-0}" -eq 0 ]] && log "WARN S5: zero capability_validation gaps — may be OK if chain soft-validates."
+  # S3/S4 runtime assertions are optional because runtime ingestion may not be enabled.
+  local n cpSum
+  n=$(jq '[.[].mitre_summary.correlation_precision // empty] | length' <<<"$CH3")
+  if [[ "${n:-0}" -gt 0 ]]; then
+    cpSum=$(jq '[.[].mitre_summary.correlation_precision // empty] | add' <<<"$CH3")
+    if awk -v s="$cpSum" -v c="$n" 'BEGIN{exit !((s/c) < 0.6)}'; then
+      pass "S3: mean correlation_precision < 0.6"
+    else
+      warn "S3: mean correlation_precision is not < 0.6"
+    fi
+  else
+    warn "S3: no correlation_precision evidence; runtime ingestion may be disabled"
+  fi
 
-  local i u
-  for u in "$U1" "$U2" "$U3" "$U4" "$U5"; do
+  if echo "$CH4" | jq -e '[.[].steps[]?.technique_id // empty] | index("SA_TOKEN_REUSE") != null' >/dev/null; then
+    pass "S4: SA_TOKEN_REUSE evidence present"
+  else
+    warn "S4: SA_TOKEN_REUSE evidence not found; runtime correlation may be disabled"
+  fi
+
+  # Risk checks are intentionally bounded and evidence-based.
+  local u R1 R2 R5 SC1 SC2 SC5
+  for u in "$U1" "$U2" "$U5"; do
     risk_recalc "$u"
   done
   sleep 1
 
-  local R1 R2 R3 R4 R5
-  R1=$(risk_json "$U1"); R2=$(risk_json "$U2"); R3=$(risk_json "$U3")
-  R4=$(risk_json "$U4"); R5=$(risk_json "$U5")
+  R1=$(risk_json "$U1")
+  R2=$(risk_json "$U2")
+  R5=$(risk_json "$U5")
 
   score() { jq '.totalScore // .total_score // 0' <<<"$1"; }
-  local SC1 SC2 SC3 SC4 SC5
-  SC1=$(score "$R1"); SC2=$(score "$R2"); SC3=$(score "$R3"); SC4=$(score "$R4"); SC5=$(score "$R5")
+  SC1=$(score "$R1"); SC2=$(score "$R2"); SC5=$(score "$R5")
 
-  awk -v x="$SC1" 'BEGIN{exit !(x>0)}' || die "S1: totalScore must be > 0 (got $SC1)"
-  awk -v x="$SC2" 'BEGIN{exit !(x>0)}' || log "WARN S2: totalScore is 0"
-  awk -v a="$SC1" -v b="$SC2" 'BEGIN{exit !(a>b)}' || log "WARN ordering: expected S1 ($SC1) > S2 ($SC2)"
-  awk -v a="$SC2" -v b="$SC5" 'BEGIN{exit !(a>b)}' || log "WARN ordering: expected S2 ($SC2) > S5 ($SC5)"
+  awk -v x="$SC1" 'BEGIN{exit !(x>0)}' \
+    && pass "S1: totalScore > 0 ($SC1)" \
+    || fail "S1: totalScore must be > 0 (got $SC1)"
 
-  # S3 noisy: mean correlation_precision
-  local n cpSum
-  n=$(echo "$CH3" | jq '[.[].mitre_summary.correlation_precision // empty] | length')
-  if [[ "${n:-0}" -gt 0 ]]; then
-    cpSum=$(echo "$CH3" | jq '[.[].mitre_summary.correlation_precision // empty] | add')
-    awk -v s="$cpSum" -v c="$n" 'BEGIN{exit !((s/c) < 0.6)}' \
-      && log "S3: mean correlation_precision < 0.6 OK" \
-      || log "WARN S3: mean correlation_precision not < 0.6 (need runtime noise in DB)"
-  else
-    log "WARN S3: no mitre_summary.correlation_precision on chains (runtime_events likely empty)."
-  fi
+  awk -v x="$SC2" 'BEGIN{exit !(x>0)}' \
+    && pass "S2: totalScore > 0 ($SC2)" \
+    || warn "S2: totalScore is 0"
 
-  echo "$CH4" | jq -e '[.[].steps[]?.technique_id] | index("SA_TOKEN_REUSE") != null' >/dev/null \
-    && log "S4: SA_TOKEN_REUSE on chain OK" \
-    || log "WARN S4: SA_TOKEN_REUSE not found — inspect graph path labels."
+  awk -v a="$SC1" -v b="$SC2" 'BEGIN{exit !(a>b)}' \
+    && pass "Risk ordering: S1 ($SC1) > S2 ($SC2)" \
+    || warn "Risk ordering: expected S1 ($SC1) > S2 ($SC2)"
 
-  local mb1 mb3
-  mb1=$(echo "$R1" | jq -r '(if (.factors | type) == "string" then (.factors | fromjson) else (.factors // {}) end) | .mitre_runtime_attack_path_boost // 0' 2>/dev/null || echo 0)
-  mb3=$(echo "$R3" | jq -r '(if (.factors | type) == "string" then (.factors | fromjson) else (.factors // {}) end) | .mitre_runtime_attack_path_boost // 0' 2>/dev/null || echo 0)
-  awk -v a="$mb3" -v b="$mb1" 'BEGIN{exit !(a <= b+2.0)}' \
-    && log "S3 MITRE boost ($mb3) vs S1 ($mb1): no wild inflation vs +2 guard" \
-    || log "WARN S3: MITRE boost possibly inflated vs S1"
+  awk -v a="$SC2" -v b="$SC5" 'BEGIN{exit !(a>b)}' \
+    && pass "Risk ordering: S2 ($SC2) > S5 ($SC5)" \
+    || warn "Risk ordering: expected S2 ($SC2) > S5 ($SC5)"
 
-  log "DONE (review WARN lines — re-run after Fortuna full sync if needed)."
+  log "Verification complete. PASS assertions are required evidence; WARN assertions require optional runtime prerequisites."
 }
 
 main "$@"
