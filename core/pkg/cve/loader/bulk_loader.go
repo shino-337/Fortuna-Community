@@ -36,7 +36,8 @@ type BulkLoaderStats struct {
 	SkippedNoPackages  int64
 	StartTime          time.Time
 	LastCheckpointTime time.Time
-	mu                 sync.Mutex
+	// Pointer avoids copying a sync.Mutex when snapshots are returned by value.
+	mu                 *sync.Mutex
 	Errors             []string
 }
 
@@ -45,8 +46,10 @@ func (l *BulkLoader) Stats() BulkLoaderStats {
 	if l == nil || l.stats == nil {
 		return BulkLoaderStats{}
 	}
-	l.stats.mu.Lock()
-	defer l.stats.mu.Unlock()
+	if l.stats.mu != nil {
+		l.stats.mu.Lock()
+		defer l.stats.mu.Unlock()
+	}
 	return BulkLoaderStats{
 		TotalFiles:         atomic.LoadInt64(&l.stats.TotalFiles),
 		ProcessedFiles:     atomic.LoadInt64(&l.stats.ProcessedFiles),
@@ -72,6 +75,7 @@ func NewBulkLoader(db *gorm.DB, workers, batchSize, checkpointInterval int) *Bul
 		stats: &BulkLoaderStats{
 			StartTime:          time.Now(),
 			LastCheckpointTime: time.Now(),
+			mu:                 &sync.Mutex{},
 			Errors:             make([]string, 0),
 		},
 	}
