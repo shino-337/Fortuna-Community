@@ -1,0 +1,12 @@
+# Default ownership for repository changes.
+* @shino-337
+
+# Security-sensitive implementation areas.
+/core/ @shino-337
+/agent/ @shino-337
+/api/ @shino-337
+/deploy/ @shino-337
+/scenarios/ @shino-337
+/scripts/ @shino-337
+/.github/workflows/ @shino-337
+/SECURITY.md @shino-337
