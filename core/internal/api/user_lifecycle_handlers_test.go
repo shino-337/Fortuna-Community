@@ -27,6 +27,14 @@ func setupUserLifecycleDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	// SQLite :memory: databases are connection-local. Keep one connection
+	// so GORM tests cannot lose the migrated schema between operations.
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	if err := db.AutoMigrate(&models.User{}, &models.Cluster{}, &models.Pod{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
