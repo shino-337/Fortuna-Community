@@ -1,5 +1,8 @@
 name: CI
 
+# Validation gate for the supported repository toolchain.
+# Keep this workflow intentionally small: product behavior remains the source of truth.
+
 on:
   pull_request:
     branches: [main]
