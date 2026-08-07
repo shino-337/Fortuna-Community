@@ -1,0 +1,62 @@
+name: Security research
+description: Share a Kubernetes security research idea, finding, or detection gap.
+title: "research: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for defensive security research, attack-technique analysis, detection ideas, or evidence that can improve Fortuna.
+        Do not publish secrets or details of an undisclosed vulnerability.
+
+  - type: textarea
+    id: finding
+    attributes:
+      label: Research finding
+      description: What security behavior or observation did you identify?
+      placeholder: Describe the finding in concrete technical terms.
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: Security impact
+      description: What can an attacker achieve, and under what prerequisites?
+      placeholder: |
+        Preconditions:
+        Attacker capability:
+        Potential impact:
+    validations:
+      required: true
+
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or reproduction
+      description: Provide sanitized commands, manifests, logs, or a minimal reproducible scenario.
+      placeholder: Include enough evidence for another researcher to reproduce the observation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: detection
+    attributes:
+      label: Detection opportunity
+      description: Explain what Fortuna could detect, correlate, or score differently.
+      placeholder: |
+        Signal:
+        Correlation:
+        Expected finding:
+
+  - type: input
+    id: references
+    attributes:
+      label: References
+      description: Optional links or identifiers such as CVE, CWE, MITRE ATT&CK, Kubernetes documentation, or research papers.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional context
+      description: False-positive considerations, mitigation ideas, related scenarios, or implementation suggestions.
