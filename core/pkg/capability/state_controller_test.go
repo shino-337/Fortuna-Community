@@ -79,8 +79,13 @@ func setupTestDB(t *testing.T) *gorm.DB {
 			id INTEGER PRIMARY KEY,
 			pod_uid TEXT NOT NULL,
 			signal_type TEXT NOT NULL,
-			severity TEXT NOT NULL,
+			category TEXT NOT NULL DEFAULT 'test',
+			confidence REAL DEFAULT 0.5,
 			evidence TEXT,
+			evidence_refs TEXT,
+			count INTEGER DEFAULT 1,
+			first_seen_at TIMESTAMP,
+			last_seen_at TIMESTAMP,
 			observed_at TIMESTAMP,
 			created_at TIMESTAMP,
 			UNIQUE(pod_uid, signal_type, observed_at)
@@ -98,12 +103,35 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 
 	ctx := context.Background()
 
-	// Insert test data
-	_, err := controller.PromoteCapability(ctx, "pod-123", "CAP_NET_RAW", "runtime_signal")
+	// Seed a detected capability, a promotion rule, and one matching runtime
+	// signal so the test exercises the real promotion path rather than only the
+	// method signature.
+	err := db.Exec(`
+		INSERT INTO pod_capabilities
+			(pod_uid, namespace, capability_id, capability_group, severity, state, confidence, evidence, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, "pod-123", "default", "CAP_NET_RAW", "network", "high", "detected", 0.5, `{}`).Error
+	assert.NoError(t, err)
+
+	err = db.Exec(`
+		INSERT INTO promotion_rules
+			(capability_id, signal_type, min_occurrences, required_capabilities, promote_to, confidence_boost, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, "CAP_NET_RAW", "runtime_signal", 1, `[]`, "confirmed", 0.1).Error
+	assert.NoError(t, err)
+
+	err = db.Exec(`
+		INSERT INTO runtime_signals
+			(pod_uid, signal_type, category, confidence, evidence, count, observed_at, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+	`, "pod-123", "runtime_signal", "test", 0.9, `{}`, 1).Error
+	assert.NoError(t, err)
+
+	err = controller.PromoteCapability(ctx, "pod-123", "CAP_NET_RAW", "runtime_signal", 0.9)
 	assert.NoError(t, err)
 
 	var state string
 	err = db.Raw("SELECT state FROM pod_capabilities WHERE pod_uid = ? AND capability_id = ?", "pod-123", "CAP_NET_RAW").Scan(&state).Error
 	assert.NoError(t, err)
-	assert.Equal(t, "promoted", state)
+	assert.Equal(t, "confirmed", state)
 }
