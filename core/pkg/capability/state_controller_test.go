@@ -17,6 +17,21 @@ func setupTestDB(t *testing.T) *gorm.DB {
 		t.Fatalf("Failed to open database: %v", err)
 	}
 
+	// SQLite :memory: databases are connection-local. Keep a single connection so
+	// transactions and asynchronous attack-path rebuilds observe the same schema.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("Failed to get SQL database: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
+
+	// The promotion path may rebuild attack paths and read the pod inventory.
+	// Use the real model schema rather than silently relying on a missing table.
+	if err := db.Session(&gorm.Session{DisableForeignKeyConstraintWhenMigrating: true}).AutoMigrate(&models.Pod{}); err != nil {
+		t.Fatalf("Failed to create pods table: %v", err)
+	}
+
 	// Create tables
 	if err := db.Exec(`
 		CREATE TABLE pod_capabilities (
@@ -138,7 +153,6 @@ func TestCapabilityStateController_InitializeCapability(t *testing.T) {
 	})
 
 	t.Run("Initialize existing capability updates", func(t *testing.T) {
-		// Create existing capability
 		existing := models.PodCapability{
 			PodUID:       "pod-123",
 			Namespace:    "namespace-1",
@@ -148,7 +162,6 @@ func TestCapabilityStateController_InitializeCapability(t *testing.T) {
 		}
 		db.Create(&existing)
 
-		// Initialize again
 		err := csc.InitializeCapability(ctx, "pod-123", "namespace-1", "ESC_PRIV_POD", "ESCAPE", "CRITICAL", map[string]interface{}{
 			"hostPID": true,
 		})
@@ -157,7 +170,7 @@ func TestCapabilityStateController_InitializeCapability(t *testing.T) {
 
 		var cap models.PodCapability
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_PRIV_POD").First(&cap)
-		assert.Equal(t, "detected", cap.State) // State should remain
+		assert.Equal(t, "detected", cap.State)
 	})
 }
 
@@ -166,7 +179,6 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 	csc := NewCapabilityStateController(db)
 	ctx := context.Background()
 
-	// Create initial capability
 	cap := models.PodCapability{
 		PodUID:       "pod-123",
 		Namespace:    "namespace-1",
@@ -176,7 +188,6 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 	}
 	db.Create(&cap)
 
-	// Create promotion rule
 	rule := models.PromotionRule{
 		CapabilityID:    "ESC_HOSTPATH_NODE",
 		SignalType:      "PROC_ROOT_PIVOT",
@@ -186,7 +197,6 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 	}
 	db.Create(&rule)
 
-	// Create runtime signal
 	signal := models.RuntimeSignal{
 		PodUID:     "pod-123",
 		SignalType: "PROC_ROOT_PIVOT",
@@ -204,11 +214,10 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 		var updated models.PodCapability
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_HOSTPATH_NODE").First(&updated)
 		assert.Equal(t, "confirmed", updated.State)
-		assert.Greater(t, updated.Confidence, 0.5) // Confidence should be boosted
+		assert.Greater(t, updated.Confidence, 0.5)
 	})
 
 	t.Run("Promote capability without matching rule", func(t *testing.T) {
-		// Create capability without rule
 		cap2 := models.PodCapability{
 			PodUID:       "pod-456",
 			Namespace:    "namespace-1",
@@ -219,18 +228,16 @@ func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 		db.Create(&cap2)
 
 		err := csc.PromoteCapability(ctx, "pod-456", "ESC_PRIV_POD", "UNKNOWN_SIGNAL", 0.9)
-
-		assert.NoError(t, err) // Should not error, just skip
+		assert.NoError(t, err)
 
 		var updated models.PodCapability
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-456", "ESC_PRIV_POD").First(&updated)
-		assert.Equal(t, "detected", updated.State) // State should remain unchanged
+		assert.Equal(t, "detected", updated.State)
 	})
 
 	t.Run("Promote non-existent capability", func(t *testing.T) {
 		err := csc.PromoteCapability(ctx, "pod-999", "NON_EXISTENT", "PROC_ROOT_PIVOT", 0.9)
-
-		assert.NoError(t, err) // Should not error, just skip
+		assert.NoError(t, err)
 	})
 }
 
@@ -239,7 +246,6 @@ func TestCapabilityStateController_PromoteCapability_MinOccurrences(t *testing.T
 	csc := NewCapabilityStateController(db)
 	ctx := context.Background()
 
-	// Create initial capability
 	cap := models.PodCapability{
 		PodUID:       "pod-123",
 		Namespace:    "namespace-1",
@@ -249,7 +255,6 @@ func TestCapabilityStateController_PromoteCapability_MinOccurrences(t *testing.T
 	}
 	db.Create(&cap)
 
-	// Create promotion rule requiring 2 occurrences
 	rule := models.PromotionRule{
 		CapabilityID:    "ESC_HOSTPATH_NODE",
 		SignalType:      "PROC_ROOT_PIVOT",
@@ -259,7 +264,6 @@ func TestCapabilityStateController_PromoteCapability_MinOccurrences(t *testing.T
 	}
 	db.Create(&rule)
 
-	// Create 1 signal (not enough)
 	signal1 := models.RuntimeSignal{
 		PodUID:     "pod-123",
 		SignalType: "PROC_ROOT_PIVOT",
@@ -270,15 +274,13 @@ func TestCapabilityStateController_PromoteCapability_MinOccurrences(t *testing.T
 
 	t.Run("Promote with insufficient occurrences", func(t *testing.T) {
 		err := csc.PromoteCapability(ctx, "pod-123", "ESC_HOSTPATH_NODE", "PROC_ROOT_PIVOT", 0.9)
-
 		assert.NoError(t, err)
 
 		var updated models.PodCapability
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_HOSTPATH_NODE").First(&updated)
-		assert.Equal(t, "detected", updated.State) // Should not promote yet
+		assert.Equal(t, "detected", updated.State)
 	})
 
-	// Create 2nd signal (now enough)
 	signal2 := models.RuntimeSignal{
 		PodUID:     "pod-123",
 		SignalType: "PROC_ROOT_PIVOT",
@@ -289,12 +291,11 @@ func TestCapabilityStateController_PromoteCapability_MinOccurrences(t *testing.T
 
 	t.Run("Promote with sufficient occurrences", func(t *testing.T) {
 		err := csc.PromoteCapability(ctx, "pod-123", "ESC_HOSTPATH_NODE", "PROC_ROOT_PIVOT", 0.9)
-
 		assert.NoError(t, err)
 
 		var updated models.PodCapability
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_HOSTPATH_NODE").First(&updated)
-		assert.Equal(t, "confirmed", updated.State) // Should promote now
+		assert.Equal(t, "confirmed", updated.State)
 	})
 }
 
@@ -303,7 +304,6 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 	csc := NewCapabilityStateController(db)
 	ctx := context.Background()
 
-	// Create initial capability
 	cap := models.PodCapability{
 		PodUID:       "pod-123",
 		Namespace:    "namespace-1",
@@ -313,7 +313,6 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 	}
 	db.Create(&cap)
 
-	// Create signals
 	for i := 0; i < 3; i++ {
 		signal := models.RuntimeSignal{
 			PodUID:     "pod-123",
@@ -324,7 +323,6 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 		db.Create(&signal)
 	}
 
-	// Create rule to promote to confirmed
 	rule1 := models.PromotionRule{
 		CapabilityID:    "ESC_HOSTPATH_NODE",
 		SignalType:      "PROC_ROOT_PIVOT",
@@ -334,7 +332,6 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 	}
 	db.Create(&rule1)
 
-	// Create rule to promote to exploited
 	rule2 := models.PromotionRule{
 		CapabilityID:    "ESC_HOSTPATH_NODE",
 		SignalType:      "PROC_ROOT_PIVOT",
@@ -345,13 +342,11 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 	db.Create(&rule2)
 
 	t.Run("State progression: detected -> confirmed -> exploited", func(t *testing.T) {
-		// Reset capability to detected and clear signals
 		db.Model(&models.PodCapability{}).
 			Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_HOSTPATH_NODE").
 			Update("state", "detected")
 		db.Where("pod_uid = ?", "pod-123").Delete(&models.RuntimeSignal{})
 
-		// Create 1 signal (enough for confirmed, not enough for exploited)
 		signal1 := models.RuntimeSignal{
 			PodUID:     "pod-123",
 			SignalType: "PROC_ROOT_PIVOT",
@@ -360,7 +355,6 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 		}
 		db.Create(&signal1)
 
-		// First promotion: should go to confirmed (rule1: min 1 occurrence, best available)
 		err := csc.PromoteCapability(ctx, "pod-123", "ESC_HOSTPATH_NODE", "PROC_ROOT_PIVOT", 0.9)
 		assert.NoError(t, err)
 
@@ -368,7 +362,6 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_HOSTPATH_NODE").First(&updated)
 		assert.Equal(t, "confirmed", updated.State)
 
-		// Add 2 more signals (now 3 total, enough for exploited)
 		signal2 := models.RuntimeSignal{
 			PodUID:     "pod-123",
 			SignalType: "PROC_ROOT_PIVOT",
@@ -377,19 +370,18 @@ func TestCapabilityStateController_PromoteCapability_StateProgression(t *testing
 		}
 		db.Create(&signal2)
 		signal3 := models.RuntimeSignal{
-			PodUID:     "pod-123",
-			SignalType: "PROC_ROOT_PIVOT",
-			Category:   "ESCAPE",
-			Confidence: 0.9,
-		}
-		db.Create(&signal3)
+		PodUID:     "pod-123",
+		SignalType: "PROC_ROOT_PIVOT",
+		Category:   "ESCAPE",
+		Confidence: 0.9,
+	}
+	db.Create(&signal3)
 
-		// Second promotion: should go to exploited (rule2: min 3 occurrences, best rule)
 		err = csc.PromoteCapability(ctx, "pod-123", "ESC_HOSTPATH_NODE", "PROC_ROOT_PIVOT", 0.9)
 		assert.NoError(t, err)
 
 		db.Where("pod_uid = ? AND capability_id = ?", "pod-123", "ESC_HOSTPATH_NODE").First(&updated)
-		assert.Equal(t, "exploited", updated.State) // Should use best rule (exploited)
+		assert.Equal(t, "exploited", updated.State)
 	})
 }
 
@@ -398,7 +390,6 @@ func TestCapabilityStateController_GetCapabilityState(t *testing.T) {
 	csc := NewCapabilityStateController(db)
 	ctx := context.Background()
 
-	// Create capability
 	cap := models.PodCapability{
 		PodUID:       "pod-123",
 		Namespace:    "namespace-1",
@@ -410,14 +401,12 @@ func TestCapabilityStateController_GetCapabilityState(t *testing.T) {
 
 	t.Run("Get existing capability state", func(t *testing.T) {
 		state, err := csc.GetCapabilityState(ctx, "pod-123", "ESC_PRIV_POD")
-
 		assert.NoError(t, err)
 		assert.Equal(t, "confirmed", state)
 	})
 
 	t.Run("Get non-existent capability state", func(t *testing.T) {
 		state, err := csc.GetCapabilityState(ctx, "pod-999", "NON_EXISTENT")
-
 		assert.Error(t, err)
 		assert.Equal(t, "", state)
 	})
