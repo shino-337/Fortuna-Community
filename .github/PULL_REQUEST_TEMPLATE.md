@@ -1,13 +1,44 @@
 ## Summary
 
-Describe the change and why it is needed.
+Describe the change and the security or user problem it solves.
 
-## Verification
+## Change type
 
-List the commands or checks run.
+- [ ] Bug fix
+- [ ] Security detection / attack-path change
+- [ ] Feature
+- [ ] Performance
+- [ ] Documentation
+- [ ] CI / build / tooling
+- [ ] Refactor
 
-## Checklist
+## Validation
 
-- [ ] Documentation updated when behavior, setup, deploy, or configuration changed.
-- [ ] No secrets, kubeconfigs, database dumps, generated reports, package archives, or local build artifacts are included.
-- [ ] Release/package references use immutable tags when intended for users.
+List the commands, tests, or reproducible security scenario used to validate the change.
+
+```text
+# commands / scenario
+```
+
+## Security impact
+
+- [ ] No security impact
+- [ ] Changes security detection or risk scoring
+- [ ] Changes authentication, authorization, secrets, or trust boundaries
+- [ ] Changes container/Kubernetes privileges
+
+If security behavior changes, explain the expected impact and evidence.
+
+## Documentation
+
+- [ ] README/docs updated where user-visible behavior changed
+- [ ] No documentation update required
+
+## Operational impact
+
+- [ ] No migration/configuration impact
+- [ ] Requires deployment/configuration changes (describe below)
+
+## Reviewer notes
+
+Call out known limitations, follow-up work, or areas that deserve focused review.

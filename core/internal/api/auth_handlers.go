@@ -148,10 +148,18 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 			return
 		}
 
-		// Check if username already exists
+		// Check if username or email already exists. ErrRecordNotFound is expected
+		// for a new user; other database errors must fail the request.
 		var existingUser models.User
-		if err := db.Where("username = ? OR email = ?", req.Username, req.Email).First(&existingUser).Error; err == nil {
+		err := db.Where("username = ? OR email = ?", req.Username, req.Email).First(&existingUser).Error
+		switch {
+		case err == nil:
 			c.JSON(http.StatusConflict, gin.H{"error": "Username or email already exists"})
+			return
+		case errors.Is(err, gorm.ErrRecordNotFound):
+			// No matching user; continue with registration.
+		default:
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check existing user"})
 			return
 		}
 
