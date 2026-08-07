@@ -8,13 +8,15 @@ Instead of asking only *"Is this pod vulnerable?"*, Fortuna asks:
 
 > **"Can an attacker reach this workload, what can they do from it, and how far can the compromise spread?"**
 
+[![CI](https://github.com/shino-337/Fortuna-Community/actions/workflows/ci.yml/badge.svg)](https://github.com/shino-337/Fortuna-Community/actions/workflows/ci.yml)
+[![Secret Scan](https://github.com/shino-337/Fortuna-Community/actions/workflows/secret-scan.yml/badge.svg)](https://github.com/shino-337/Fortuna-Community/actions/workflows/secret-scan.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![Kubernetes](https://img.shields.io/badge/Kubernetes-1.28%2B-326CE5?logo=kubernetes&logoColor=white)](https://kubernetes.io/)
 [![Go](https://img.shields.io/badge/Go-1.24%2B-00ADD8?logo=go&logoColor=white)](https://go.dev/)
 [![Runtime Security](https://img.shields.io/badge/runtime-Falco%20%2B%20eBPF-orange)](docs/03-components/README.md)
 [![GHCR](https://img.shields.io/badge/images-GHCR-blue?logo=github)](https://github.com/shino-337/Fortuna-Community/pkgs/container/fortuna-community)
 
-**Website:** https://fortunahub.dev  ·  **Docs:** [Documentation](docs/README.md)  ·  **Release:** [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0)
+**Website:** https://fortunahub.dev  ·  **Docs:** [Documentation](docs/README.md)  ·  **Roadmap:** [ROADMAP.md](ROADMAP.md)  ·  **Release:** [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0)
 
 ---
 
@@ -255,6 +257,7 @@ Scenario definitions live under [`scenarios/`](scenarios/), with verification to
 | Understand operational workflows | [Use Cases](docs/04-user-guide/USE_CASES.md) |
 | Production deployment | [Production Deployment](docs/05-operations/PRODUCTION_DEPLOYMENT.md) |
 | Security / credentials | [Security Reference](docs/06-reference/SECURITY.md) |
+| Understand project direction | [Roadmap](ROADMAP.md) |
 
 ---
 
