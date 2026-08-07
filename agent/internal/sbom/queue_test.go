@@ -55,7 +55,7 @@ func TestPodKey_usesUID(t *testing.T) {
 		t.Errorf("podKey() = %q, want my-uid-123", got)
 	}
 	if got := podKey(nil); got != "" {
-		t.Errorf("podKey(nil) = %q, want \"\"")
+		t.Errorf("podKey(nil) = %q, want \"\"", got)
 	}
 }
 
