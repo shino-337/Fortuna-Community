@@ -1,13 +1,28 @@
 # Contributing to Fortuna
 
-Fortuna is a Kubernetes security and risk management platform. Public contributions should keep the repository runnable from the documented release packages and from source.
+Fortuna is an open-source Kubernetes security platform focused on **attack paths, runtime evidence, RBAC exposure, vulnerabilities, and unified risk**. Contributions should make the project easier to run, easier to validate, or better at answering a concrete Kubernetes security question.
 
 ## Start Here
 
-- Read [README.md](README.md) and the setup docs under [docs/01-getting-started](docs/01-getting-started).
-- Check [docs/README.md](docs/README.md) for the current documentation map.
-- For install or deploy work, read [deploy/README.md](deploy/README.md) and [docs/05-operations/DEPLOYMENT.md](docs/05-operations/DEPLOYMENT.md).
+- Read [README.md](README.md) for the product model and user paths.
+- Check the [Roadmap](ROADMAP.md) for security capabilities and community priorities.
+- Read [docs/README.md](docs/README.md) for the documentation map.
+- For installation and deployment work, start with [Getting Started](docs/01-getting-started/README.md).
 - For script changes, read [scripts/README.md](scripts/README.md) and keep scripts in the documented directory contract.
+
+## What Contributions Are Most Valuable?
+
+The highest-value contributions are concrete and reproducible:
+
+- **Attack paths:** new Kubernetes privilege-escalation, lateral-movement, or blast-radius scenarios.
+- **Detection engineering:** RBAC, pod-security, runtime, Falco, or eBPF detections.
+- **Security research:** reproducible research that exposes a detection gap or improves risk correlation.
+- **Vulnerability intelligence:** SBOM, CVE/OSV correlation, exploitability context, and evidence quality.
+- **Risk analytics:** better explainability, prioritization, and attack-path scoring.
+- **Validation:** regression tests and reproducible Kubernetes scenarios.
+- **Documentation:** installation, troubleshooting, security concepts, and practical examples.
+
+For attack-path or research contributions, use the GitHub issue templates to describe the scenario before implementing a large change.
 
 ## Repository Rules
 
@@ -56,15 +71,16 @@ Additional checks by touched area:
 | Dashboard UI | `npm run typecheck` and `npm run build`; run Playwright checks when changing UI flows |
 | Docs only | `git diff --check` and verify links/commands against current scripts/manifests |
 
-Use the scripts under [scripts](scripts) for local cluster workflows and image distribution. See [scripts/README.md](scripts/README.md) for the supported entrypoints.
+Use the scripts under [scripts](scripts) for local cluster workflows and image distribution. See [scripts/README.md](scripts/README.md) for supported entrypoints.
 
 ## Pull Requests
 
-- Keep changes focused and explain the operational impact.
+- Keep changes focused and explain the security or operational impact.
+- Use a user-facing PR title, for example `feat: detect cross-namespace privilege escalation`, rather than an internal batch/task identifier.
 - Include tests or a clear verification note for behavior changes.
 - Update README/docs/deploy examples when configuration or installation behavior changes.
 - Do not include generated binaries, packaged archives, local CVE datasets, or node-specific files.
-- For roadmap-sized work, open a feature request or design issue before implementing.
+- For roadmap-sized work, open a feature, attack-path, or research issue before implementing.
 - Keep release/package references consistent with the current public package layout.
 
 ## Documentation Changes
@@ -88,4 +104,4 @@ Release-facing changes must keep these aligned:
 
 ## Security Issues
 
-Do not open a public issue with exploit details or secrets. Follow [SECURITY.md](SECURITY.md).
+Do not open a public issue with exploit details or secrets. Follow [SECURITY.md](SECURITY.md) and use private vulnerability reporting when available.
