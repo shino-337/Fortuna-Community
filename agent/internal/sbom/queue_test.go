@@ -11,18 +11,16 @@ import (
 // TestEnqueue_DifferentUIDSameName ensures two pods with same namespace/name but different UIDs
 // are both queued (Finding #2: key by UID so recycled pods get processed).
 func TestEnqueue_DifferentUIDSameName(t *testing.T) {
-	proc := &Processor{} // nil extractor/client ok for enqueue-only
+	proc := &Processor{} // nil extractor/client/logger are safe because workers are not started
 	q := NewWorkQueue(proc, 2)
-	q.Start()
-	defer q.Stop()
 
 	pod1 := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "nginx", UID: "uid-111"},
-		Spec:      corev1.PodSpec{NodeName: "node-1"},
+		Spec:       corev1.PodSpec{NodeName: "node-1"},
 	}
 	pod2 := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "nginx", UID: "uid-222"},
-		Spec:      corev1.PodSpec{NodeName: "node-1"},
+		Spec:       corev1.PodSpec{NodeName: "node-1"},
 	}
 
 	ok1 := q.Enqueue(pod1)
@@ -34,7 +32,8 @@ func TestEnqueue_DifferentUIDSameName(t *testing.T) {
 		t.Fatal("expected second pod (uid-222) same name to be queued (key is UID)")
 	}
 
-	// Drain queue so workers don't block on nil processor
+	// Drain the queue directly. Starting a worker would invoke Processor.ProcessPod,
+	// which is outside the scope of this enqueue-only test and requires real dependencies.
 	var received int
 	for received < 2 {
 		select {
@@ -44,6 +43,7 @@ func TestEnqueue_DifferentUIDSameName(t *testing.T) {
 			t.Fatalf("timeout waiting for 2 pods, got %d", received)
 		}
 	}
+	q.Stop()
 }
 
 // TestPodKey_usesUID verifies podKey returns UID.
@@ -55,7 +55,7 @@ func TestPodKey_usesUID(t *testing.T) {
 		t.Errorf("podKey() = %q, want my-uid-123", got)
 	}
 	if got := podKey(nil); got != "" {
-		t.Errorf("podKey(nil) = %q, want \"\"", got)
+		t.Errorf("podKey(nil) = %q, want \"\"")
 	}
 }
 
@@ -67,7 +67,7 @@ func TestEnqueue_SameUIDIgnored(t *testing.T) {
 
 	pod := &corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{Namespace: "default", Name: "x", UID: "same-uid"},
-		Spec:      corev1.PodSpec{NodeName: "n"},
+		Spec:       corev1.PodSpec{NodeName: "n"},
 	}
 	if !q.Enqueue(pod) {
 		t.Fatal("first enqueue should succeed")
