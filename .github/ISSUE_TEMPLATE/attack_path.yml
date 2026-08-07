@@ -1,0 +1,63 @@
+name: Attack path / detection scenario
+description: Propose or report a reproducible Kubernetes attack path or detection scenario.
+title: "attack-path: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for Kubernetes privilege escalation, lateral movement, runtime-to-static correlation, or other reproducible security scenarios.
+        Do not include real credentials, production secrets, private infrastructure details, or undisclosed vulnerability information.
+
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Security scenario
+      description: What attacker behavior or security condition should Fortuna detect?
+      placeholder: |
+        Example: A pod with a low-privileged ServiceAccount can reach a RoleBinding that grants a dangerous permission.
+    validations:
+      required: true
+
+  - type: textarea
+    id: path
+    attributes:
+      label: Expected attack path
+      description: Describe the nodes and relationships that form the path.
+      placeholder: |
+        Pod → ServiceAccount → RoleBinding → ClusterRole → privilege escalation
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Provide sanitized YAML, commands, or a link to a reproducible scenario.
+      placeholder: |
+        1. Deploy ...
+        2. Configure ...
+        3. Trigger ...
+        4. Verify ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Fortuna result
+      description: Include the expected finding, risk level, evidence, or attack-path representation.
+    validations:
+      required: true
+
+  - type: input
+    id: references
+    attributes:
+      label: References
+      description: Optional CVE, CWE, MITRE ATT&CK, Kubernetes documentation, research, or related issue/PR.
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional notes
+      description: Detection gaps, false-positive concerns, or implementation ideas.
