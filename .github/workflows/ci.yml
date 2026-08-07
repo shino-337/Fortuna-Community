@@ -1,0 +1,86 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-test:
+    name: Go tests (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [core, agent, api]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: ${{ matrix.module }}/go.mod
+          cache: true
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+      - name: Test
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
+      - name: Vet
+        working-directory: ${{ matrix.module }}
+        run: go vet ./...
+
+  dashboard:
+    name: Dashboard validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install
+        working-directory: dashboard
+        run: npm ci
+      - name: Typecheck
+        working-directory: dashboard
+        run: npm run typecheck
+      - name: Build
+        working-directory: dashboard
+        run: npm run build
+
+  scripts:
+    name: Shell script validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Validate shell syntax
+        shell: bash
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            bash -n "$file"
+          done < <(find scripts -type f -name '*.sh' -print0)
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Reject generated/local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden='(^|/)(node_modules|\.venv|__pycache__|\.DS_Store)(/|$)|\.(pyc|pyo|tgz|zip|tar|tar\.gz)$'
+          if git ls-files -z | grep -zEq "$forbidden"; then
+            echo 'Forbidden generated/local artifact tracked in repository.'
+            git ls-files | grep -E "$forbidden" || true
+            exit 1
+          fi
