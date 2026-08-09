@@ -5,6 +5,9 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 S6="$ROOT_DIR/scenarios/s6-clusterrole-excessive-permission.yaml"
 S7="$ROOT_DIR/scenarios/s7-wildcard-rbac-permission.yaml"
 NS="fortuna-test"
+NEGATIVE_SA="sa-namespace-reader"
+NEGATIVE_ROLE="role-namespace-reader"
+NEGATIVE_BINDING="rb-namespace-reader"
 
 command -v kubectl >/dev/null 2>&1 || {
   echo "kubectl is required"
@@ -24,6 +27,9 @@ fi
 cleanup() {
   kubectl delete -f "$S6" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete -f "$S7" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete rolebinding "$NEGATIVE_BINDING" -n "$NS" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete role "$NEGATIVE_ROLE" -n "$NS" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete serviceaccount "$NEGATIVE_SA" -n "$NS" --ignore-not-found >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
@@ -38,6 +44,18 @@ if kubectl auth can-i get secrets --all-namespaces --as="system:serviceaccount:$
 else
   echo "FAIL: S6 service account does not have expected cluster-wide Secret read access"
   exit 1
+fi
+
+# S6 negative boundary: an equivalent namespace-local Role must not grant cluster-wide access.
+kubectl create serviceaccount "$NEGATIVE_SA" -n "$NS" >/dev/null
+kubectl create role "$NEGATIVE_ROLE" -n "$NS" --verb=get,list,watch --resource=secrets,configmaps >/dev/null
+kubectl create rolebinding "$NEGATIVE_BINDING" -n "$NS" --role="$NEGATIVE_ROLE" --serviceaccount="$NS:$NEGATIVE_SA" >/dev/null
+
+if kubectl auth can-i get secrets --all-namespaces --as="system:serviceaccount:${NS}:${NEGATIVE_SA}" | grep -qx 'yes'; then
+  echo "FAIL: S6 namespace-local Role unexpectedly grants cluster-wide Secret read access"
+  exit 1
+else
+  echo "PASS: S6 namespace-local Role remains namespace-scoped"
 fi
 
 # S7: wildcard Role must remain namespace-scoped.
