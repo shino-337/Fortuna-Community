@@ -1,3 +1,4 @@
+import { normalizeInsightStatus } from '../lib/api';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
@@ -758,7 +759,7 @@ export const RiskCenter: React.FC = () => {
         severity: String(d.severity ?? 'medium').toLowerCase() as Insight['severity'],
         score: d.totalScore != null ? Math.round(Number(d.totalScore)) : undefined,
         insightType: insightTypeRaw ? String(insightTypeRaw) : undefined,
-        status: (d.status === 'active' ? 'new' : d.status === 'resolved' ? 'resolved' : 'acknowledged') as Insight['status'],
+        status: normalizeInsightStatus(d.status) as Insight['status'],
         timestamp: ts != null ? String(ts) : undefined,
         clusterId: '',
         clusterName: '',
@@ -1089,6 +1090,8 @@ export const RiskCenter: React.FC = () => {
   }, [risks]);
 
   const statusLabelMap: Record<string, string> = {
+    dismissed: 'Dismissed',
+    unknown: 'Unknown',
     new: 'Active',
     acknowledged: 'In review',
     resolved: 'Resolved',
@@ -2706,6 +2709,7 @@ export const RiskCenter: React.FC = () => {
             </h2>
             <p className="text-caption text-muted mb-4">Runtime events used as supporting telemetry for risk investigation. Filtered to the Risk Operations time scope.</p>
             <RuntimeSignalsTable
+              clusterId={effectiveClusterId || undefined}
               podUid={podUidFromEvidenceUrl?.trim() || undefined}
               riskAlignedSinceMinutes={sinceMinutesForApi ?? null}
             />

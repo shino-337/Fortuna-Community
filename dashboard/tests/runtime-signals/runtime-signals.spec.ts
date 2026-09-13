@@ -47,3 +47,19 @@ test('successful evidence is rendered', async ({ page }) => {
   await expect(page.getByRole('alert')).toHaveCount(0);
   await expect(page.getByText('No runtime evidence found', { exact: true })).toHaveCount(0);
 });
+
+
+test('cluster, search and sort reach the server', async ({ page }) => {
+  const queries: URLSearchParams[] = [];
+  await page.route('**/runtime/signals?*', route => {
+    queries.push(new URL(route.request().url()).searchParams);
+    return route.fulfill({ json: { signals: [], count: 0, total: 0 } });
+  });
+  await page.goto(fixture);
+  await expect(page.getByText('No runtime evidence found', { exact: true })).toBeVisible();
+  await page.getByPlaceholder('Search signal, category, or pod UID').fill('pivot');
+  await expect.poll(() => queries.at(-1)?.get('search')).toBe('pivot');
+  expect(queries.at(-1)?.get('clusterId')).toBe('cluster-a');
+  await page.locator('select').filter({ has: page.locator('option[value="confidence_desc"]') }).selectOption('confidence_desc');
+  await expect.poll(() => queries.at(-1)?.get('sort')).toBe('confidence_desc');
+});

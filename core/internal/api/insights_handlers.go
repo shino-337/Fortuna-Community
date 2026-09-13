@@ -484,7 +484,7 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 		// Diagnostic: why summary might be 0 — log pod count, global insight count, and join result
 		var podCount, insightGlobal int64
 		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", clusterID).Scan(&podCount)
-		db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "active").Count(&insightGlobal)
+		db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status IN ? OR status IS NULL)", []string{"active", "acknowledged"}).Count(&insightGlobal)
 		log.Printf("[InsightsSummary] clusterId=%q normalized; pods_in_cluster=%d, insights_global=%d", clusterID, podCount, insightGlobal)
 		totalArgs := []interface{}{clusterID}
 		if sinceMinutes > 0 {
@@ -493,14 +493,14 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 		db.Raw(`
 				SELECT COUNT(*) FROM insights i
 				`+joinCond+`
-				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause,
+				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`+detectedSinceClause,
 			totalArgs...).Scan(&summary.Total)
 		log.Printf("[InsightsSummary] clusterId=%q join result total=%d", clusterID, summary.Total)
 		if summary.Total == 0 && podCount > 0 && insightGlobal > 0 {
 			var matchCount int64
 			db.Raw(`
 					SELECT COUNT(*) FROM insights i
-					WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+					WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)
 					AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)`,
 				clusterID).Scan(&matchCount)
 			log.Printf("[InsightsSummary] clusterId=%q uid-match check: insights_with_resource_uid_in_cluster_pods=%d (if 0, resource_uid format may not match pods.uid)", clusterID, matchCount)
@@ -518,7 +518,7 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 				SELECT LOWER(i.severity) as severity, COUNT(*) as count 
 				FROM insights i
 				`+joinCond+`
-				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause+`
+				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`+detectedSinceClause+`
 				GROUP BY LOWER(i.severity)`,
 			sevArgs...).Scan(&severityCounts)
 		for _, sc := range severityCounts {
@@ -546,7 +546,7 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 				SELECT i.insight_type, COUNT(*) as count 
 				FROM insights i
 				`+joinCond+`
-				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`+detectedSinceClause+`
+				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`+detectedSinceClause+`
 				GROUP BY i.insight_type`,
 			typeArgs...).Scan(&typeCounts)
 		for _, tc := range typeCounts {
@@ -555,7 +555,7 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 	} else {
 		// Global scope: only count insights for existing resources (Pod insights only when pod exists)
 		podFilter := "(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))"
-		query := db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "active").Where(podFilter)
+		query := db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status IN ? OR status IS NULL)", []string{"active", "acknowledged"}).Where(podFilter)
 		if sinceMinutes > 0 {
 			query = query.Where("detected_at >= ?", since)
 		}
@@ -569,13 +569,13 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 			db.Raw(`
 					SELECT LOWER(severity) as severity, COUNT(*) as count 
 					FROM insights 
-					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND `+podFilter+detectedSinceClauseNoAlias+`
+					WHERE deleted_at IS NULL AND (status IN ('active', 'acknowledged') OR status IS NULL) AND `+podFilter+detectedSinceClauseNoAlias+`
 					GROUP BY LOWER(severity)`, since).Scan(&severityCounts)
 		} else {
 			db.Raw(`
 					SELECT LOWER(severity) as severity, COUNT(*) as count 
 					FROM insights 
-					WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND ` + podFilter + `
+					WHERE deleted_at IS NULL AND (status IN ('active', 'acknowledged') OR status IS NULL) AND ` + podFilter + `
 					GROUP BY LOWER(severity)
 				`).Scan(&severityCounts)
 		}
@@ -597,7 +597,7 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 			Count int64  `gorm:"column:count"`
 		}
 		summaryQuery := db.Model(&models.Insight{}).
-			Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND " + podFilter)
+			Where("deleted_at IS NULL AND (status IN ('active', 'acknowledged') OR status IS NULL) AND " + podFilter)
 		if sinceMinutes > 0 {
 			summaryQuery = summaryQuery.Where("detected_at >= ?", since)
 		}
@@ -625,7 +625,7 @@ func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) Ins
 		COUNT(*) AS count
 	FROM insights i
 	INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS pref ON pref.resource_uid = i.resource_uid
-	WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`
+	WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`
 	rlcArgs := []interface{}{}
 	if clusterID != "" {
 		rlcSQL += " AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)"
@@ -743,7 +743,7 @@ func GetInsightsSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 			detectedClause = " AND i.detected_at >= ?"
 		}
 		joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL"
-		whereBase := "i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)"
+		whereBase := "i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)"
 		type row struct {
 			ClusterID string `gorm:"column:cluster_id"`
 			Total     int64  `gorm:"column:total"`
@@ -877,7 +877,7 @@ func DeleteInsight(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// AcknowledgeInsight acknowledges an insight (keeps status as 'active' but marks as acknowledged)
+// AcknowledgeInsight persists the review state without resolving the risk.
 func AcknowledgeInsight(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -894,20 +894,27 @@ func AcknowledgeInsight(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Update insight (acknowledgment doesn't change status, just updates timestamp)
+		if insight.Status == "resolved" || insight.Status == "dismissed" {
+			c.JSON(http.StatusConflict, gin.H{"error": "closed findings cannot be acknowledged"})
+			return
+		}
+		prevStatus := insight.Status
+		// Persist acknowledgement.
 		now := time.Now()
 		updates := map[string]interface{}{
 			"updated_at": now,
+			"status":     "acknowledged",
 		}
 
 		if err := db.Model(&insight).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		insight.Status = "acknowledged"
 		scheduleUnifiedScoreRecalculation(db, insight.ResourceUID)
 
 		createInsightAuditLog(db, c, "acknowledge", id, "{}")
-		appendInsightGovernanceEvent(db, c, securityaudit.ActionFindingsAcknowledge, id, insight.Status, insight.Status, map[string]any{"updatedAt": now.UTC().Format(time.RFC3339)})
+		appendInsightGovernanceEvent(db, c, securityaudit.ActionFindingsAcknowledge, id, prevStatus, insight.Status, map[string]any{"updatedAt": now.UTC().Format(time.RFC3339)})
 		c.JSON(http.StatusOK, gin.H{
 			"message":      "Insight acknowledged successfully",
 			"acknowledged": true,
@@ -945,7 +952,9 @@ func ResolveInsight(db *gorm.DB) gin.HandlerFunc {
 		prevStatus := insight.Status
 		// Update insight status to 'resolved'
 		insight.Status = "resolved"
-		insight.Recommendation = request.Resolution
+		// Resolution notes are preserved in the audit trail; keep the original recommendation.
+		resolvedAt := time.Now()
+		insight.ResolvedAt = &resolvedAt
 		insight.UpdatedAt = time.Now()
 
 		if err := db.Save(&insight).Error; err != nil {
@@ -1024,7 +1033,8 @@ func DismissInsight(db *gorm.DB) gin.HandlerFunc {
 
 const maxBulkInsightIDs = 500
 
-// BulkInsightsAction runs acknowledge, resolve, or dismiss on multiple insights in a transaction.
+// BulkInsightsAction validates scope for the whole selection before any write.
+// Storage failures are reported per item; successful items are audited and rescored.
 // POST /risk/insights/bulk body: { "action": "acknowledge"|"resolve"|"dismiss", "insight_ids": ["id1","id2"], "resolution"?: "", "reason"?: "" }
 func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -1049,32 +1059,50 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "insight_ids exceeds max " + strconv.Itoa(maxBulkInsightIDs)})
 			return
 		}
+		// Validate every selected resource before changing any of them. This avoids
+		// a late scope denial after earlier records have already been written.
+		selected := make(map[string]models.Insight)
+		uniqueIDs := make([]string, 0, len(body.InsightIDs))
+		seen := make(map[string]bool)
+		for _, raw := range body.InsightIDs {
+			id := strings.TrimSpace(raw)
+			if id == "" || seen[id] {
+				continue
+			}
+			seen[id] = true
+			uniqueIDs = append(uniqueIDs, id)
+			var item models.Insight
+			if err := db.First(&item, "id = ?", id).Error; err != nil {
+				if err != gorm.ErrRecordNotFound {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "could not validate selection"})
+					return
+				}
+				continue
+			}
+			if !requireInsightClusterScope(db, c, item) {
+				return
+			}
+			if body.Action == "acknowledge" && (item.Status == "resolved" || item.Status == "dismissed") {
+				c.JSON(http.StatusConflict, gin.H{"error": "closed findings cannot be acknowledged"})
+				return
+			}
+			selected[id] = item
+		}
+		body.InsightIDs = uniqueIDs
 		var successCount, failedCount int
 		var errors []map[string]interface{}
 		affectedResourceUIDs := make(map[string]struct{})
 
 		for _, id := range body.InsightIDs {
-			id = strings.TrimSpace(id)
-			if id == "" {
+			insight, found := selected[id]
+			if !found {
+				failedCount++
+				errors = append(errors, map[string]interface{}{"id": id, "error": "not found"})
 				continue
-			}
-			var insight models.Insight
-			if err := db.First(&insight, "id = ?", id).Error; err != nil {
-				if err == gorm.ErrRecordNotFound {
-					failedCount++
-					errors = append(errors, map[string]interface{}{"id": id, "error": "not found"})
-				} else {
-					failedCount++
-					errors = append(errors, map[string]interface{}{"id": id, "error": err.Error()})
-				}
-				continue
-			}
-			if !requireInsightClusterScope(db, c, insight) {
-				return
 			}
 			switch body.Action {
 			case "acknowledge":
-				if err := db.Model(&insight).Update("updated_at", time.Now()).Error; err != nil {
+				if err := db.Model(&insight).Updates(map[string]interface{}{"status": "acknowledged", "updated_at": time.Now()}).Error; err != nil {
 					failedCount++
 					errors = append(errors, map[string]interface{}{"id": id, "error": err.Error()})
 					continue
@@ -1086,7 +1114,8 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 				successCount++
 			case "resolve":
 				insight.Status = "resolved"
-				insight.Recommendation = body.Resolution
+				resolvedAt := time.Now()
+				insight.ResolvedAt = &resolvedAt
 				insight.UpdatedAt = time.Now()
 				if err := db.Save(&insight).Error; err != nil {
 					failedCount++

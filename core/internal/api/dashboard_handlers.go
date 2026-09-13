@@ -1119,6 +1119,15 @@ func UpdateInsightStatus(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		needed := authorization.PermissionFindingsAck
+		if payload.Status == "resolved" {
+			needed = authorization.PermissionFindingsResolve
+		}
+		if !authorization.HasPermission(middleware.GrantedPermissions(c), needed) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
+			return
+		}
+
 		var before models.Insight
 		if err := db.First(&before, "id = ?", id).Error; err != nil {
 			c.JSON(http.StatusNotFound, gin.H{"error": "insight not found"})
@@ -1127,11 +1136,20 @@ func UpdateInsightStatus(db *gorm.DB) gin.HandlerFunc {
 		if !requireInsightClusterScope(db, c, before) {
 			return
 		}
-		if err := db.Model(&models.Insight{}).Where("id = ?", id).Update("status", payload.Status).Error; err != nil {
+		if payload.Status == "acknowledged" && (before.Status == "resolved" || before.Status == "dismissed") {
+			c.JSON(http.StatusConflict, gin.H{"error": "closed findings cannot be acknowledged"})
+			return
+		}
+		updates := map[string]interface{}{"status": payload.Status, "updated_at": time.Now()}
+		if payload.Status == "resolved" {
+			updates["resolved_at"] = time.Now()
+		}
+		if err := db.Model(&models.Insight{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
+		scheduleUnifiedScoreRecalculation(db, before.ResourceUID)
 		appendInsightGovernanceEvent(db, c, securityaudit.ActionFindingsPatch, id, before.Status, payload.Status, map[string]any{"via": "PATCH"})
 
 		c.JSON(http.StatusOK, gin.H{"status": payload.Status})
