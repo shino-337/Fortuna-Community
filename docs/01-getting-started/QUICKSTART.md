@@ -1,6 +1,10 @@
 # Quickstart
 
-Use this guide when you want a working Fortuna deployment quickly.
+Use this guide when you want a working Fortuna deployment. Start in an isolated lab and review the [environment requirements](ENVIRONMENT_REQUIREMENTS.md).
+
+For a released version, use the documentation and manifests in the matching checkout (`git clone --branch v1.0.0 --depth 1 https://github.com/shino-337/Fortuna-Community.git`). This file on `main` may describe changes newer than that release.
+
+After installation, follow [Your first RBAC investigation](FIRST_FINDING.md) for one concrete result and a remediation check. A hosted demo and one-command lab are not available yet.
 
 The public repository is `shino-337/Fortuna-Community`, and published GHCR images use `ghcr.io/shino-337/fortuna-community`.
 
@@ -40,7 +44,11 @@ Create the namespace first. If GHCR packages are private, create and attach an i
 
 ```bash
 kubectl create namespace fortuna --dry-run=client -o yaml | kubectl apply -f -
+```
 
+Skip the following block for public packages. Run it only when your registry requires authentication and `GITHUB_USER` / `GITHUB_TOKEN` have been set:
+
+```bash
 kubectl -n fortuna create secret docker-registry ghcr-pull \
   --docker-server=ghcr.io \
   --docker-username="$GITHUB_USER" \
@@ -102,7 +110,12 @@ kubectl rollout status -n fortuna deployment/fortuna-dashboard --timeout=180s
 kubectl get pods,svc -n fortuna -o wide
 ```
 
-For a full scripted deploy from published images, including a clean database reset and no local rebuild, use:
+<details>
+<summary>Developer/operations only: reset an existing lab database</summary>
+
+This resets database state. It is not a first-install or upgrade command. Use it only when you intend to discard the existing lab data.
+
+For a scripted deploy from published images with a database reset and no local rebuild:
 
 ```bash
 export FORTUNA_PACKAGE_SOURCE="github"
@@ -118,6 +131,8 @@ CVE_CATALOG_POST_DEPLOY_CHECK=skip \
 ```
 
 Use `PG_RECREATE_PVC=1` with that command only when you intentionally want to delete and recreate the PostgreSQL PVC files.
+
+</details>
 
 ## 2. Developer Local Build
 
@@ -201,7 +216,7 @@ REMOTE_KUBECONFIGS="cluster101=${REMOTE_KUBECONFIG}" \
 ## 4. Open the Dashboard
 
 ```bash
-kubectl port-forward --address 0.0.0.0 -n fortuna svc/fortuna-dashboard 8081:80
+kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80
 ```
 
 Open `http://127.0.0.1:8081/`.
