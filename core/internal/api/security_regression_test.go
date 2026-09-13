@@ -29,6 +29,15 @@ func newSecurityRegressionDB(t *testing.T) *gorm.DB {
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	// SQLite :memory: databases belong to a connection. Insight actions start
+	// asynchronous scoring, so an unrestricted pool can open a second, empty
+	// database and make the next authenticated request lose its seeded user.
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("sql db: %v", err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	sqlDB.SetMaxIdleConns(1)
 	if err := db.AutoMigrate(&models.User{}, &models.UserSession{}, &models.ServiceAccount{}, &models.Pod{}, &models.ClusterRole{}, &models.Insight{}, &models.AuditLog{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
