@@ -2,8 +2,6 @@ apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   name: fortuna-policy-webhook
-  annotations:
-    cert-manager.io/inject-ca-from: fortuna/fortuna-webhook-cert
 webhooks:
   - name: validate.fortuna.io
     clientConfig:
@@ -12,7 +10,7 @@ webhooks:
         namespace: fortuna
         path: /admission/validate
         port: 443
-      # caBundle is injected by cert-manager via annotation above.
+      # Run scripts/deploy/enable-webhook.sh to inject the installed CA before applying.
     
     rules:
       - operations: ["CREATE", "UPDATE"]

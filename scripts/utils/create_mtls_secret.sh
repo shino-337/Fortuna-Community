@@ -123,6 +123,8 @@ DNS.1 = fortuna-core
 DNS.2 = fortuna-core.${NAMESPACE}
 DNS.3 = fortuna-core.${NAMESPACE}.svc.cluster.local
 DNS.4 = *.${NAMESPACE}.svc.cluster.local
+DNS.5 = fortuna-webhook.${NAMESPACE}.svc
+DNS.6 = fortuna-webhook.${NAMESPACE}.svc.cluster.local
 IP.1 = 127.0.0.1
 EOF
 

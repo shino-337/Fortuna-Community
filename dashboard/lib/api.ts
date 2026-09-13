@@ -2484,25 +2484,22 @@ export const api = {
 
   // Phase 2.3: Runtime Signals
   getRuntimeSignals: async (params?: { podUid?: string; signalType?: string; category?: string; startDate?: string; endDate?: string; sinceMinutes?: number; limit?: number; offset?: number }): Promise<{ signals: RuntimeSignal[]; count: number; total: number }> => {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params?.podUid) queryParams.append('podUid', params.podUid);
-      if (params?.signalType) queryParams.append('signalType', params.signalType);
-      if (params?.category) queryParams.append('category', params.category);
-      if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
-      if (params?.startDate) queryParams.append('startDate', params.startDate);
-      if (params?.endDate) queryParams.append('endDate', params.endDate);
-      if (params?.limit) queryParams.append('limit', params.limit.toString());
-      if (params?.offset) queryParams.append('offset', params.offset.toString());
-      
-      const query = queryParams.toString();
-      const url = query ? `/runtime/signals?${query}` : '/runtime/signals';
-      const data = await request<{ signals: RuntimeSignal[]; count: number; total: number; limit: number; offset: number }>(url);
-      return { signals: data.signals || [], count: data.count || 0, total: data.total || 0 };
-    } catch (err) {
-      return { signals: [], count: 0, total: 0 };
-    }
+    const queryParams = new URLSearchParams();
+    if (params?.podUid) queryParams.append('podUid', params.podUid);
+    if (params?.signalType) queryParams.append('signalType', params.signalType);
+    if (params?.category) queryParams.append('category', params.category);
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
+    if (params?.startDate) queryParams.append('startDate', params.startDate);
+    if (params?.endDate) queryParams.append('endDate', params.endDate);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    if (params?.offset) queryParams.append('offset', params.offset.toString());
+
+    const query = queryParams.toString();
+    const url = query ? `/runtime/signals?${query}` : '/runtime/signals';
+    const data = await request<{ signals: RuntimeSignal[]; count: number; total: number; limit: number; offset: number }>(url);
+    return { signals: data.signals || [], count: data.count || 0, total: data.total || 0 };
   },
+
 
   getRuntimeSignalsByPod: async (podUid: string, params?: { signalType?: string; category?: string; sinceMinutes?: number; limit?: number }): Promise<RuntimeSignal[]> => {
     try {

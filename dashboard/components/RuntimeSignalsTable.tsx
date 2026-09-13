@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import { api, isApiError } from '../lib/api';
 import { RuntimeSignal } from '../types';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 import { Search, AlertTriangle, Clock, TrendingUp, Shield, ChevronDown, ChevronRight, Copy, Check } from 'lucide-react';
@@ -41,6 +41,8 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   const [signals, setSignals] = useState<RuntimeSignal[]>([]);
   const [loading, setLoading] = useState(true);
   const [total, setTotal] = useState(0);
+  const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
   const [filters, setFilters] = useState({
     signalType: initialFilters?.signalType || '',
     category: initialFilters?.category || '',
@@ -55,9 +57,11 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'confidence_desc' | 'confidence_asc' | 'signal_asc'>('newest');
 
   useEffect(() => {
+    let active = true;
     const fetchSignals = async () => {
       try {
         setLoading(true);
+        setError(null);
         const params: Record<string, string | number> = {
           limit: pageSize,
           offset: (currentPage - 1) * pageSize,
@@ -82,18 +86,26 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
         }
 
         const data = await api.getRuntimeSignals(params);
+        if (!active) return;
         setSignals(data.signals);
         setTotal(data.total);
-      } catch {
+      } catch (err) {
+        if (!active) return;
         setSignals([]);
         setTotal(0);
+        setError(isApiError(err) && err.status === 401
+          ? 'Your session has expired. Sign in again to load runtime evidence.'
+          : isApiError(err) && err.status === 403
+            ? 'You do not have access to runtime evidence in this scope.'
+            : 'Runtime evidence could not be loaded. Check connectivity and try again.');
       } finally {
-        setLoading(false);
+        if (active) setLoading(false);
       }
     };
 
     fetchSignals();
-  }, [podUid, filters, currentPage, pageSize, sinceMinutesForQuery]);
+    return () => { active = false; };
+  }, [podUid, filters.signalType, filters.category, filters.startDate, filters.endDate, currentPage, pageSize, sinceMinutesForQuery, retry]);
 
   const getCategoryColor = (category: string | undefined) => {
     const colors: Record<string, string> = {
@@ -241,6 +253,15 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
         </select>
       </div>
 
+      {error && (
+        <div role="alert" className="rounded-lg border border-red-500/40 p-4">
+          <p className="text-body text-text">{error}</p>
+          <button type="button" className="mt-2 rounded border border-border px-3 py-1" onClick={() => setRetry((value) => value + 1)}>
+            Retry
+          </button>
+        </div>
+      )}
+      {!error && <>
       {/* Summary: total evidence and selected time window */}
       <div className="flex items-center text-caption text-muted">
         <span>
@@ -254,7 +275,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
         <div className="rounded-lg border border-border bg-base/25 py-10 text-center text-muted">
           <AlertTriangle size={24} className="mx-auto mb-2 opacity-50" />
           <p className="text-body text-text">No runtime evidence found</p>
-          <p className="text-caption mt-1 opacity-75">Runtime events appear here when agents detect suspicious behavior.</p>
+          <p className="text-caption mt-1 opacity-75">No matching evidence was returned. Check the time window, filters, and sensor health before drawing conclusions.</p>
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">
@@ -386,6 +407,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
         </div>
       )}
 
+      </>}
       {/* Pagination: use shared component for consistency */}
       {total > 0 && (
         <Pagination

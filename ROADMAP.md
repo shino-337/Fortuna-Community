@@ -31,7 +31,7 @@ The roadmap is organized around security capabilities rather than internal imple
 ## Runtime Security
 
 - [x] Falco event ingestion
-- [x] eBPF syscall telemetry
+- [ ] Native eBPF syscall telemetry (current Agent sensor is an experimental attach/preflight scaffold; exec/connect events are simulated only when explicitly enabled)
 - [x] Process snapshot and diffing
 - [x] Network connection tracking
 - [x] Runtime evidence promotion and correlation
