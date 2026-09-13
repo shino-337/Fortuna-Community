@@ -39,3 +39,18 @@ gitleaks detect --source . --redact --verbose
 ```
 
 For history rewrite, prefer a fresh protected backup plus `git filter-repo` or BFG Repo-Cleaner. After rewriting, re-run the full scan before pushing to the public remote.
+
+
+## First-user discovery and feedback
+
+Repository settings require a maintainer with administrative access; documentation changes alone do not apply them.
+
+- Set the repository description to: `Kubernetes attack-path analysis connecting workload permissions, RBAC relationships, and available runtime evidence.`
+- Keep the homepage set to `https://fortunahub.dev`.
+- Add relevant topics: `kubernetes-security`, `rbac`, `attack-path`, `privilege-escalation`; retain existing topics that still describe supported behavior.
+- Enable Issues in Settings → General → Features. Existing bug and research templates then become usable.
+- Verify private vulnerability reporting is available before pointing users to it; follow SECURITY.md for fallback handling.
+- Test anonymous pulls of every released image from a clean environment.
+- Confirm CI is green for the exact release commit; publishing images alone is not a passing test gate.
+- Run the first-finding walkthrough on a fresh lab and record before/after evidence before calling it a verified demo.
+- Invite 3–5 external testers after that verification. Track blockers and first successful investigations, alongside repository traffic and stars.
