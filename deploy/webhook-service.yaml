@@ -13,5 +13,6 @@ spec:
       protocol: TCP
       name: webhook
   selector:
-    app: fortuna-core
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
 

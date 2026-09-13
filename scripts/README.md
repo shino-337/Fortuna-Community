@@ -14,6 +14,7 @@ Scripts are grouped by intent. Run scripts from the repository root and use full
 | Build local containerd images | `./scripts/build/build-and-load-containerd.sh` |
 | Publish release tag | `./scripts/utils/create-github-release.sh vX.Y.Z` |
 | Clean local host image/cache pressure | `./scripts/clean/check-and-clean-host-resources.sh --clean -y` |
+| Enable optional admission webhook | `./scripts/deploy/enable-webhook.sh` (see [webhook guide](../docs/05-operations/WEBHOOK.md)) |
 | Verify deployment health | `./scripts/verify/check-full-deployment.sh` |
 | Verify multi-cluster DB/API sync | `./scripts/verify/verify-multicluster-sync.sh` |
 | Open dashboard locally | `./scripts/utils/port-forward-dashboard.sh` |

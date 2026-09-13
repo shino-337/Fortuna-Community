@@ -53,7 +53,7 @@ A hosted interactive demo and one-command demonstration environment are not avai
 ### Coverage and limits
 
 - This README describes the evolving `main` branch. The latest published release is [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0); use its versioned documentation and manifests for that release.
-- Runtime coverage depends on sensor configuration. The current Agent manifest disables `EBPF_ENABLED` by default; a runtime badge or an empty view does not establish coverage.
+- Runtime coverage depends on sensor configuration. The built-in eBPF sensor is an experimental no-op attach scaffold, not a real exec/connect collector. `EBPF_SIMULATE=true` emits synthetic events; keep it disabled for real-evidence demos. Falco ingestion is a separate path.
 - External ingress-to-workload modeling, network reachability correlation, and business-context weighting remain roadmap work.
 - Scenario manifests define expected behavior. They are not evidence that your deployment passed those checks.
 - Start in an isolated cluster. The current Agent uses host PID access, root, host mounts including the containerd socket, and additional Linux capabilities. Review the [manifest](deploy/fortuna-agent-daemonset.yaml) before installation.

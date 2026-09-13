@@ -90,3 +90,8 @@ Attack paths should prioritize high-signal information:
 Long narrative text belongs in detail panels, not graph labels or dense tables.
 
 ![Attack Paths workspace](../assets/screenshots/attack-analysis.png)
+
+
+### Native eBPF sensor status
+
+The built-in Agent eBPF sensor is experimental. It attaches no-op tracepoints and emits attach health events; it does not currently collect real exec/connect syscall events. `EBPF_SIMULATE=true` generates synthetic test events and must not be used as proof of observed workload behavior. Keep it disabled for real-evidence demos. Falco ingestion is a separate runtime path.

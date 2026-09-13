@@ -157,3 +157,8 @@ kubectl rollout restart deployment/fortuna-core -n fortuna
 - Rotate credentials if they were ever committed before history cleanup.
 - Keep mTLS enabled for Core and Agent traffic.
 - Restrict `FORTUNA_WS_ALLOWED_ORIGINS` to the real Dashboard origins used by your environment.
+
+
+## Optional admission webhook
+
+Use `./scripts/deploy/enable-webhook.sh` to validate the serving certificate and inject its CA. Do not apply the webhook configuration alone. See the [webhook guide](../docs/05-operations/WEBHOOK.md) for existing certificates, opt-in namespaces, verification, and disabling.
