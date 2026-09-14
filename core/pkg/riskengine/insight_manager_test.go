@@ -18,7 +18,8 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}); err != nil {
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}, &models.Pod{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -94,7 +95,8 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}); err != nil {
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}, &models.Pod{}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -171,7 +173,8 @@ func TestCreateOrUpdateInsight_NonVulnCVEIDKeyUpserts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Insight{}); err != nil {
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Insight{}, &models.Pod{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_insights_unique_resource_cve_type_all ON insights(resource_uid, cve_id, insight_type)`).Error; err != nil {
@@ -242,7 +245,8 @@ func TestCreateOrUpdateInsight_EmptyCVEKeyUpserts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Insight{}); err != nil {
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Insight{}, &models.Pod{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_insights_unique_resource_cve_type_all ON insights(resource_uid, cve_id, insight_type)`).Error; err != nil {

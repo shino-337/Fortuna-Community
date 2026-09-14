@@ -76,17 +76,19 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 
 	// Best-effort: last runtime activity timestamp for freshness/decay logic.
 	type maxRow struct {
-		MaxTime *time.Time `gorm:"column:max_time"`
+		MaxTime models.NullTime `gorm:"column:max_time"`
 	}
 	var maxSeen maxRow
-	_ = e.db.WithContext(ctx).
+	if err := e.db.WithContext(ctx).
 		Model(&models.RuntimeSignal{}).
 		Select("MAX(COALESCE(last_seen_at, created_at)) as max_time").
 		Where("pod_uid = ? AND (created_at >= ? OR last_seen_at >= ?)", podUID, since, since).
-		Scan(&maxSeen).Error
+		Scan(&maxSeen).Error; err != nil {
+		return err
+	}
 	var lastActivity *time.Time
-	if maxSeen.MaxTime != nil && !maxSeen.MaxTime.IsZero() {
-		t := maxSeen.MaxTime.UTC()
+	if maxSeen.MaxTime.Time != nil && !maxSeen.MaxTime.Time.IsZero() {
+		t := maxSeen.MaxTime.Time.UTC()
 		lastActivity = &t
 	}
 

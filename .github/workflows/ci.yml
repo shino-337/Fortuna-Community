@@ -40,6 +40,10 @@ jobs:
       - name: Test
         working-directory: ${{ matrix.module }}
         run: go test ./...
+      - name: Repeat SQLite risk engine regressions
+        if: matrix.module == 'core'
+        working-directory: core
+        run: go test ./pkg/riskengine -run 'TestCreateOrUpdateInsight|TestAssetSecurityState|TestEnrichPodFortunaContext|TestYAMLEnginePodRuntimeCorrelationRules' -count=20 -timeout=2m
       - name: Vet
         working-directory: ${{ matrix.module }}
         run: go vet ./...
