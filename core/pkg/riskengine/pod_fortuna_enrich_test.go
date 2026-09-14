@@ -14,11 +14,12 @@ import (
 )
 
 func TestEnrichPodFortunaContext(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}); err != nil {
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "11111111-1111-1111-1111-111111111111"
@@ -63,10 +64,11 @@ func TestEnrichPodFortunaContext(t *testing.T) {
 }
 
 func TestEnrichPodFortunaContext_SecurityStateAvailable(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -140,10 +142,11 @@ func TestRuntimeHostNetworkNetworkAnomalyRule_UsesSecurityState(t *testing.T) {
 		t.Skip("rules dir not found:", rulesDir)
 	}
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
@@ -206,10 +209,11 @@ func TestRuntimeNetworkQueueAnomalySignalRule_UsesSecurityState(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -252,10 +256,11 @@ func TestRuntimeSuspiciousExecSignalRule_UsesSecurityState(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -298,10 +303,11 @@ func TestRuntimeSignalsRecentRule_UsesSecurityState(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -344,10 +350,11 @@ func TestRuntimePrivilegedWithSignalsRule_UsesSecurityState(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -407,10 +414,11 @@ func TestRuntimeEscapeClassSignalsRule_UsesSecurityState(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -453,10 +461,11 @@ func TestClusterAdminPodRule_UsesSecurityState(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -501,10 +510,11 @@ func TestToxicComboClusterAdminHostNetworkRuntimeRule_UsesSecurityState(t *testi
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -534,10 +544,11 @@ func TestToxicComboClusterAdminEscapeRuntimeRule_UsesSecurityState(t *testing.T)
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -567,10 +578,11 @@ func TestToxicComboHostNamespacesEscapeRuntimeRule_UsesSecurityState(t *testing.
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	ye, err := NewYAMLEngine(db, rulesDir)
 	if err != nil {
 		t.Fatalf("NewYAMLEngine: %v", err)
@@ -617,10 +629,11 @@ func TestYAMLEngineClusterAdminPodRule_WithClusterRoleBinding(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.ClusterRoleBinding{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -670,10 +683,11 @@ func TestYAMLEnginePssHostNamespacesRule(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
+	configureRiskEngineTestDB(t, db)
 	if err := db.AutoMigrate(&models.Pod{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -720,11 +734,12 @@ func TestYAMLEnginePodRuntimeCorrelationRules(t *testing.T) {
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir not found:", rulesDir)
 	}
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}); err != nil {
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "22222222-2222-2222-2222-222222222222"
