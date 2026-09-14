@@ -8,8 +8,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fortuna/core/pkg/authorization"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 )
 
 const risksWSChannel = "risks"
@@ -105,7 +107,7 @@ func BroadcastRisksUpdateWithPayload(payload *RisksUpdatePayload) {
 }
 
 // RisksWS handles GET /api/v1/ws/risks — WebSocket for Risk Center live updates.
-func RisksWS() gin.HandlerFunc {
+func RisksWS(db *gorm.DB) gin.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -115,6 +117,11 @@ func RisksWS() gin.HandlerFunc {
 		upgrade := c.GetHeader("Upgrade")
 		if !strings.EqualFold(strings.TrimSpace(upgrade), "websocket") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "WebSocket upgrade required"})
+			return
+		}
+		guard, err := newWSAuthorization(db, c, authorization.PermissionFindingsRead, "")
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "websocket authorization required"})
 			return
 		}
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
@@ -147,18 +154,6 @@ func RisksWS() gin.HandlerFunc {
 			conn.Close()
 		}()
 
-		go func() {
-			for msg := range wc.send {
-				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-					return
-				}
-			}
-		}()
-
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				break
-			}
-		}
+		serveAuthorizedWebSocket(conn, wc.send, guard, wsAuthorizationInterval)
 	}
 }

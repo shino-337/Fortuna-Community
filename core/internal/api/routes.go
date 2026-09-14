@@ -140,8 +140,8 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.GET("/promotion-rules/capability/:capabilityId", p(authorization.PermissionRulesRead), GetPromotionRulesByCapability(db))
 		v1.GET("/promotion-rules/signal/:signalType", p(authorization.PermissionRulesRead), GetPromotionRulesBySignalType(db))
 
-		v1.GET("/ws/pod/:uid", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), PodDetailWS())
-		v1.GET("/ws/risks", p(authorization.PermissionFindingsRead), RisksWS())
+		v1.GET("/ws/pod/:uid", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), PodDetailWS(db))
+		v1.GET("/ws/risks", p(authorization.PermissionFindingsRead), RisksWS(db))
 
 		v1.GET("/dashboard/stats", p(authorization.PermissionFindingsRead), GetDashboardStats(db))
 		v1.GET("/dashboard/metrics/threat-velocity", p(authorization.PermissionFindingsRead), GetThreatVelocity(db))

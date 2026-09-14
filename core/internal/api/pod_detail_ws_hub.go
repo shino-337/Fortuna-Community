@@ -7,8 +7,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fortuna/core/pkg/authorization"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
 )
 
 // podDetailWSConn wraps a WebSocket connection with a per-connection send channel.
@@ -85,11 +87,9 @@ func BroadcastPodDetailUpdate(uid string, dataType string) {
 	defaultPodDetailHub.Broadcast(uid, msg)
 }
 
-const wsPodPathPrefix = "/ws/pod/"
-
 // PodDetailWS handles GET /api/v1/ws/pod/:uid — upgrades to WebSocket and pushes updates when ingest completes for that UID.
-// UID is taken from the path after "/ws/pod/" so it works even when the proxy or router does not set :uid.
-func PodDetailWS() gin.HandlerFunc {
+// Subscription identity is the route UID checked by the scope middleware.
+func PodDetailWS(db *gorm.DB) gin.HandlerFunc {
 	upgrader := websocket.Upgrader{
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
@@ -111,6 +111,11 @@ func PodDetailWS() gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "WebSocket upgrade required (Upgrade: websocket)"})
 			return
 		}
+		guard, err := newWSAuthorization(db, c, authorization.PermissionInventoryRead, uid)
+		if err != nil {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "websocket authorization required"})
+			return
+		}
 		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil)
 		if err != nil {
 			log.Printf("[PodDetail WS] upgrade error: %v (path=%q Upgrade=%q Connection=%q)", err, pathRaw, c.GetHeader("Upgrade"), c.GetHeader("Connection"))
@@ -124,20 +129,6 @@ func PodDetailWS() gin.HandlerFunc {
 			conn.Close()
 		}()
 
-		// Write loop: send pushed messages to client
-		go func() {
-			for msg := range wc.send {
-				if err := conn.WriteMessage(websocket.TextMessage, msg); err != nil {
-					return
-				}
-			}
-		}()
-
-		// Read loop: detect client close (ignore incoming messages)
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				break
-			}
-		}
+		serveAuthorizedWebSocket(conn, wc.send, guard, wsAuthorizationInterval)
 	}
 }

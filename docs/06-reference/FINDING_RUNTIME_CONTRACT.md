@@ -33,3 +33,13 @@ The global risk WebSocket emits only `{"type":"insights_updated"}`. Producer IDs
 Regression coverage warms caches as an unrestricted admin, then requests the same resources as users in two separate clusters, checks explicit cross-cluster denial, filtered list cache identity, SQL errors, score-history duplication and concurrent pod disconnect/broadcast.
 
 Remaining work: scope review of the other risk analytics/inventory/graph endpoints; WebSocket session expiry and permission revocation after connection; cluster-qualified agent identity (the current agent inventory identifies nodes by name); PostgreSQL and live multi-cluster integration. Generic global invalidation still reveals that some update occurred, without entity identifiers.
+
+## WebSocket authorization lifetime
+
+Risk and pod WebSocket connections now capture the validated JWT expiry and server session identity. They reload the user, session and required permission before each notification and every 15 seconds while idle. Pod connections also reload cluster scope and ownership. Revoked/expired sessions, disabled/deleted users, password-change restrictions, loss of permission/scope, or failed authorization queries close the socket with code 1008 and a generic reason. JWT expiry has its own timer.
+
+Idle revocation is detected on the next 15-second check, with a 3-second database timeout; this is not an instantaneous logout push. Each outgoing notification performs its own check. Writes have a five-second deadline capped by JWT expiry; input frames are limited to 4 KiB. Ping/pong detects an unresponsive peer after three intervals. No token value is added to notifications or close reasons.
+
+The explicit development principal continues to support auth-disabled local development. Production JWT connections require a validated expiry. Legacy databases without a session table retain the existing HTTP middleware compatibility behavior; session revocation requires the session schema.
+
+These changes cover both `/ws/risks` and `/ws/pod/:uid`. Other analytics/inventory/graph scope checks and cluster-qualified agent identity remain separate audit items.
