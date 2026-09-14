@@ -9,3 +9,15 @@ Acknowledging persists `acknowledged` (shown as In review). This remains an unre
 Bulk actions validate the scope of every existing selected finding before writing any item. IDs are deduplicated. An unauthorized selection returns 403 without changing earlier items. Missing records and storage failures remain per-item results; successful items are audited and scheduled for rescoring. This is a partial-success API, not an all-or-nothing database transaction.
 
 The dashboard preserves dismissed and unknown statuses instead of displaying them as In review. Runtime evidence follows the selected cluster; filter, sort, time scope, and page-size changes reset pagination.
+
+
+## Follow-up audit: scope guards and action feedback
+
+- Pod scope middleware checks soft-deleted inventory. Unknown pods return 403 to cluster-restricted users and 404 to unrestricted users; lookup failures return 500 without executing the downstream handler.
+- The combined permission/scope guard validates both checks before invoking the handler. Risk-score reads and recalculation routes now use the pod ownership guard.
+- Bulk actions require the individual acknowledge/resolve/dismiss permission as well as the route's bulk permission. Empty selections return 400.
+- HTTP 200 on a bulk action does not mean every record succeeded. The dashboard reports the server counts and per-item errors, retains failed IDs, and does not invoke single-finding completion on a failed response.
+- Dashboard unresolved counts include acknowledged findings.
+- Both runtime signal persistence paths use a UTC day boundary; regression coverage includes a UTC+7 host with UTC records.
+
+This audit covers these paths and their regression tests; it does not establish complete multi-cluster isolation. Aggregate analytics/list endpoints and broadcasts still require a separate scope audit, including counts, cache keys and subscriptions. PostgreSQL integration and live lab workflows also remain to be verified.

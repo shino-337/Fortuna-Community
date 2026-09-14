@@ -31,7 +31,7 @@ func persistSynthesizedSignalsFromFacts(
 	}
 
 	// Keep dedupe semantics aligned with SignalAdapter (it uses "now truncate to day").
-	today := time.Now().Truncate(24 * time.Hour)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	for _, s := range cands {
 		// Ignore empty/unknown signal types defensively.

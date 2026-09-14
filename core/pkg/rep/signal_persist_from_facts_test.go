@@ -11,10 +11,20 @@ import (
 )
 
 func TestPersistSynthesizedSignalsFromFacts_DoesNotInflateCount(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
+	// UTC inventory and a UTC+7 host must use the same persisted day boundary.
+	previousLocal := time.Local
+	time.Local = time.FixedZone("UTC+7", 7*60*60)
+	t.Cleanup(func() { time.Local = previousLocal })
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sqlDB.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = sqlDB.Close() })
 	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
@@ -60,6 +70,13 @@ func TestPersistSynthesizedSignalsFromFacts_DoesNotInflateCount(t *testing.T) {
 		t.Fatalf("query out: %v", err)
 	}
 
+	var count int64
+	if err := db.Model(&models.RuntimeSignal{}).Where("pod_uid = ? AND signal_type = ?", podUID, "SUSPICIOUS_EXEC_FROM_SNAPSHOT").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 1 {
+		t.Fatalf("expected one signal across timezone boundary, got %d", count)
+	}
 	if out.Count != 5 {
 		t.Fatalf("expected Count unchanged=5, got %d", out.Count)
 	}

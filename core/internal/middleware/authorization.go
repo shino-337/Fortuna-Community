@@ -82,14 +82,15 @@ func RequireAllPermissions(db *gorm.DB, required ...authorization.Permission) gi
 
 // RequireScopedPermission enforces an atomic permission then optional cluster scope on route param `param` (RBAC v2).
 func RequireScopedPermission(db *gorm.DB, param string, need authorization.Permission) gin.HandlerFunc {
-	perm := RequirePermission(db, need)
-	scope := RequireClusterScope(db, param)
 	return func(c *gin.Context) {
-		perm(c)
-		if c.IsAborted() {
+		granted := GrantedPermissions(c)
+		if !authorization.HasPermission(granted, need) {
+			auditAuthzDenied(db, c, string(need), granted)
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden", "required_permission": string(need)})
 			return
 		}
-		scope(c)
+		// Calling RequirePermission here would run c.Next before scope checking.
+		enforceClusterScope(c, db, strings.TrimSpace(c.Param(param)))
 	}
 }
 

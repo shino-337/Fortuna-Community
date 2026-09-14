@@ -1,3 +1,4 @@
+import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, User, ExternalLink, Loader2, X } from 'lucide-react';
@@ -201,12 +202,17 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
     }
     setActionBusy(action === 'acknowledge' ? 'ack' : action === 'resolve' ? 'resolve' : 'dismiss');
     try {
-      await api.bulkInsightsAction({
+      const result = await api.bulkInsightsAction({
         action,
         insightIds: [insight.id],
         resolution: action === 'resolve' ? reason : undefined,
         reason: action === 'dismiss' ? reason : undefined,
       });
+      const outcome = summarizeBulkFindingResult(result, [insight.id]);
+      if (!outcome.complete) {
+        setNotice(outcome.message);
+        return;
+      }
       setNotice(null);
       setPendingAction(null);
       setActionReason('');
