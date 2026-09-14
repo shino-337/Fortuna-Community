@@ -18,6 +18,9 @@ import (
 // CtxJWTSessionID holds the server-issued session UUID embedded in the JWT ("sid" claim).
 const CtxJWTSessionID = "jwt_session_id"
 
+// CtxJWTExpiresAt lets long-lived transports enforce the validated token deadline.
+const CtxJWTExpiresAt = "jwt_expires_at"
+
 // AuthMiddleware validates JWT token and attaches server-derived permissions (authoritative).
 func AuthMiddleware(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -95,6 +98,9 @@ func AuthMiddleware(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		c.Set("must_change_password", user.MustChangePassword)
 		c.Set(CtxNormalizedRole, normalized)
 		c.Set(CtxPermissions, perms)
+		if claims.ExpiresAt != nil {
+			c.Set(CtxJWTExpiresAt, claims.ExpiresAt.Time)
+		}
 		c.Set("auth_source", "jwt")
 		c.Set("permission_source", "server_role_map")
 
@@ -164,6 +170,9 @@ func OptionalAuth(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		c.Set("role", user.Role)
 		c.Set(CtxNormalizedRole, normalized)
 		c.Set(CtxPermissions, perms)
+		if claims.ExpiresAt != nil {
+			c.Set(CtxJWTExpiresAt, claims.ExpiresAt.Time)
+		}
 		c.Set("auth_source", "jwt")
 		c.Set("permission_source", "server_role_map")
 
