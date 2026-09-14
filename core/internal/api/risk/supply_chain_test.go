@@ -18,6 +18,7 @@ func TestSupplyChainCorrelation_DefaultScopesToActivePods(t *testing.T) {
 	seedSupplyChainRows(t, db)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("user", &models.User{Role: models.RoleAdmin}) })
 	router.GET("/risk/analytics/supply-chain", GetSupplyChainCorrelation(db))
 
 	w := httptest.NewRecorder()
@@ -48,6 +49,7 @@ func TestSupplyChainCorrelation_CanIncludeHistoricalSBOMs(t *testing.T) {
 	seedSupplyChainRows(t, db)
 
 	router := gin.New()
+	router.Use(func(c *gin.Context) { c.Set("user", &models.User{Role: models.RoleAdmin}) })
 	router.GET("/risk/analytics/supply-chain", GetSupplyChainCorrelation(db))
 
 	w := httptest.NewRecorder()

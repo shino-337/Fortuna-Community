@@ -43,3 +43,37 @@ Idle revocation is detected on the next 15-second check, with a 3-second databas
 The explicit development principal continues to support auth-disabled local development. Production JWT connections require a validated expiry. Legacy databases without a session table retain the existing HTTP middleware compatibility behavior; session revocation requires the session schema.
 
 These changes cover both `/ws/risks` and `/ws/pod/:uid`. Other analytics/inventory/graph scope checks and cluster-qualified agent identity remain separate audit items.
+
+### Risk analytics cluster authorization
+
+The five `/api/v1/risk/analytics/*` endpoints (trends, comparison, correlation,
+supply-chain, runtime-cve) resolve the authenticated user's cluster allow-list
+before querying data. Both `cluster` and `clusterId` are accepted and trimmed;
+conflicting nonempty values return 400, and an explicitly forbidden cluster
+returns 403. Omitting the filter means all authorized clusters. Admin and
+unrestricted users retain global access. Missing user context returns 401.
+
+Scope applies before aggregation and SQL limits, including optional entry lists.
+Supply-chain and runtime-CVE use SBOM pod UIDs to resolve cluster ownership;
+namespace and node names are not authorization keys. Restricted users can access
+historical SBOMs only while pod ownership remains in the database (soft-deleted
+pods retain ownership). Orphan SBOMs are excluded when any cluster filter applies.
+Supply-chain's default active-pod filter and `includeHistorical` option remain.
+
+Namespace correlation groups by both cluster and namespace and joins SBOMs via
+pod ownership. It averages scores before the CVE join so differing SBOM/CVE
+multiplicity cannot weight risk scores. Trends and comparison still measure stored
+score observations, rather than a latest-score inventory snapshot. Their calendar
+buckets use UTC. Database failures return 500, without raw SQL errors in responses.
+
+Audit continuation order:
+
+1. Remaining risk APIs: priorities, top/grouped scores, legacy trends, global score
+   synchronization and evaluation actions; confirm scope and score-history semantics.
+2. Inventory list/detail/export APIs and cluster-qualified agent identity.
+3. Graph traversal, caches, and node/edge authorization.
+4. Remaining runtime summaries, network APIs, and correlation count semantics.
+
+This patch does not certify those remaining APIs. Correlation summaries are based
+on the limited result set; runtime event/CVE pair counts are not distinct event or
+CVE counts. PostgreSQL behavior still requires integration validation in the lab.
