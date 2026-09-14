@@ -32,24 +32,29 @@ func RequireClusterQueryScope(db *gorm.DB, queryKey string) gin.HandlerFunc {
 // cluster ID, then applies the same per-user cluster allow-list as cluster routes.
 func RequirePodUIDClusterScope(db *gorm.DB, param string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		// Retained telemetry can outlive the active pod row. Resolve ownership
+		// against soft-deleted inventory too, and never bypass a failed lookup.
 		if db == nil {
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "pod scope lookup unavailable"})
 			return
 		}
 		podUID := strings.TrimSpace(c.Param(param))
 		if podUID == "" {
-			c.Next()
+			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "pod UID is required"})
 			return
 		}
 		var clusterID string
-		err := db.Model(&models.Pod{}).
-			Select("cluster_id").
-			Where("uid = ?", podUID).
-			Limit(1).
-			Scan(&clusterID).Error
-		if err != nil || strings.TrimSpace(clusterID) == "" {
-			// Unknown pod UIDs should be handled by the endpoint itself as 404/empty.
-			c.Next()
+		err := db.Unscoped().Model(&models.Pod{}).Select("cluster_id").Where("uid = ?", podUID).Limit(1).Scan(&clusterID).Error
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "could not verify pod scope"})
+			return
+		}
+		if strings.TrimSpace(clusterID) == "" {
+			if _, restricted := ScopedClusterIDs(c); restricted {
+				AbortClusterScopeDenied(db, c, "unknown-pod")
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "pod not found"})
 			return
 		}
 		enforceClusterScope(c, db, strings.TrimSpace(clusterID))

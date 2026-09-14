@@ -1055,6 +1055,15 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "action must be acknowledge, resolve, or dismiss"})
 			return
 		}
+		needed := map[string]authorization.Permission{
+			"acknowledge": authorization.PermissionFindingsAck,
+			"resolve":     authorization.PermissionFindingsResolve,
+			"dismiss":     authorization.PermissionFindingsDismiss,
+		}[body.Action]
+		if !authorization.HasPermission(middleware.GrantedPermissions(c), needed) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "forbidden", "required_permission": string(needed)})
+			return
+		}
 		if len(body.InsightIDs) > maxBulkInsightIDs {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "insight_ids exceeds max " + strconv.Itoa(maxBulkInsightIDs)})
 			return
@@ -1087,6 +1096,10 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			selected[id] = item
+		}
+		if len(uniqueIDs) == 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "at least one non-empty insight ID is required"})
+			return
 		}
 		body.InsightIDs = uniqueIDs
 		var successCount, failedCount int

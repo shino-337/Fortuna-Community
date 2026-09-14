@@ -1,3 +1,4 @@
+import type { BulkFindingResult } from './bulkFindingResult';
 
 import {
   Cluster,
@@ -1898,7 +1899,7 @@ export const api = {
     insightIds: string[];
     resolution?: string;
     reason?: string;
-  }): Promise<{ success_count: number; failed_count: number; action: string; errors?: Array<{ id: string; error: string }> }> => {
+  }): Promise<BulkFindingResult> => {
     const body: Record<string, unknown> = {
       action: params.action,
       insight_ids: params.insightIds,

@@ -1,3 +1,4 @@
+import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import { normalizeInsightStatus } from '../lib/api';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api } from '../lib/api';
@@ -672,16 +673,17 @@ export const RiskCenter: React.FC = () => {
     }
     setBulkActionBusy(true);
     try {
-      await api.bulkInsightsAction({
+      const result = await api.bulkInsightsAction({
         action: pendingBulkAction,
         insightIds: ids,
         resolution: pendingBulkAction === 'resolve' ? reason : undefined,
         reason: pendingBulkAction === 'dismiss' ? reason : undefined,
       });
-      setSelectedIds(new Set());
+      const outcome = summarizeBulkFindingResult(result, ids);
+      setSelectedIds(new Set(outcome.remainingIds));
       setPendingBulkAction(null);
       setBulkActionReason('');
-      setToast({ message: `${ids.length} finding(s) updated.`, variant: 'success' });
+      setToast({ message: outcome.message, variant: outcome.complete ? 'success' : 'error' });
       fetchDataRef.current();
     } catch (err) {
       setToast({ message: String(err instanceof Error ? err.message : err), variant: 'error' });

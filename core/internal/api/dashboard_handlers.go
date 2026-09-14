@@ -101,7 +101,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			}
 
 			// Risks: active insights for Pods in this cluster; optional time window; byType=all counts all insight types.
-			activeInsightClause := " AND (i.status = 'active' OR i.status IS NULL)"
+			activeInsightClause := " AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)"
 			if byType == "all" {
 				criticalArgs := []interface{}{clusterID, "critical"}
 				if sinceMinutes > 0 {
@@ -156,7 +156,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			db.Raw(`
 				SELECT COUNT(DISTINCT i.resource_uid) FROM insights i
 				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND i.resource_type = 'Pod'`+detectedSinceClause,
+				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL) AND i.resource_type = 'Pod'`+detectedSinceClause,
 				affectedArgs...).Scan(&affectedPodCount)
 		} else {
 			cutoff := time.Now().Add(-ActiveClusterCutoff)
@@ -190,7 +190,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 				FROM insights i
 				INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL
 				INNER JOIN clusters c ON c.id = p.cluster_id AND c.deleted_at IS NULL AND c.source IN (?, ?) AND c.last_sync >= ?
-				WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)`
+				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`
 			if byType == "all" {
 				criticalArgs := []interface{}{"auto", "env", cutoff, "critical"}
 				totalArgs := []interface{}{"auto", "env", cutoff}
@@ -237,7 +237,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 					SELECT COUNT(DISTINCT i.resource_uid) FROM insights i
 					INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL
 					INNER JOIN clusters c ON c.id = p.cluster_id AND c.deleted_at IS NULL AND c.source IN (?, ?) AND c.last_sync >= ?
-					WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+					WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)
 					AND i.resource_type = 'Pod'`+detectedSinceClause,
 					affectedArgs...).Scan(&affectedPodCount)
 			}
@@ -837,7 +837,7 @@ func GetRiskHistogram(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Base filter: insights joined to risk_scores, active only, optional cluster + since
-		joinWhere := "i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND rs.deleted_at IS NULL"
+		joinWhere := "i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL) AND rs.deleted_at IS NULL"
 		args := []interface{}{}
 		if clusterID != "" {
 			joinWhere += " AND i.resource_type = 'Pod' AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)"

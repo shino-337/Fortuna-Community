@@ -61,7 +61,7 @@ func (a *SignalAdapter) AdaptAndPersist(ctx context.Context, event *models.Runti
 
 	// Check if signal already exists (deduplication by pod_uid + signal_type + same day)
 	var existing models.RuntimeSignal
-	today := time.Now().Truncate(24 * time.Hour)
+	today := time.Now().UTC().Truncate(24 * time.Hour)
 	err = a.db.WithContext(ctx).
 		Where("pod_uid = ? AND signal_type = ? AND created_at >= ?",
 			signal.PodUID, signal.SignalType, today).

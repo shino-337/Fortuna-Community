@@ -26,8 +26,8 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/grouped", p(authorization.PermissionFindingsRead), risk.GetGroupedRisks(db))
 	api.GET("/risk/scores", p(authorization.PermissionFindingsRead), risk.GetRiskScores(db))
 	api.POST("/risk/scores/sync", p(authorization.PermissionRiskEvaluate), risk.SyncRiskScores(db))
-	api.GET("/risk/scores/:uid", p(authorization.PermissionFindingsRead), risk.GetRiskScore(db))
-	api.POST("/risk/scores/:uid/calculate", p(authorization.PermissionRiskEvaluate), risk.CalculateRiskScore(db))
+	api.GET("/risk/scores/:uid", p(authorization.PermissionFindingsRead), middleware.RequirePodUIDClusterScope(db, "uid"), risk.GetRiskScore(db))
+	api.POST("/risk/scores/:uid/calculate", p(authorization.PermissionRiskEvaluate), middleware.RequirePodUIDClusterScope(db, "uid"), risk.CalculateRiskScore(db))
 	api.GET("/risk/trends", p(authorization.PermissionFindingsRead), risk.GetRiskTrends(db))
 
 	api.GET("/risk/rules", p(authorization.PermissionRulesRead), GetRiskRulesList(db))

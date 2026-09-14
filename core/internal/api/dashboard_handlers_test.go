@@ -74,3 +74,30 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 		t.Fatalf("critical risks=%d, want 1", resp.CriticalRisks)
 	}
 }
+
+func TestDashboardStatsKeepsAcknowledgedRisks(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	db.Create(&models.Cluster{ID: "cluster-a", Name: "a", Source: "env", Status: "active", LastSync: now})
+	db.Create(&models.Pod{UID: "pod-a", ClusterID: "cluster-a", Name: "a", Namespace: "default"})
+	db.Create(&models.Insight{ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "critical", Title: "review", Description: "review", Status: "acknowledged", DetectedAt: now})
+	r := gin.New()
+	r.GET("/stats", GetDashboardStats(db))
+	for _, query := range []string{"?byType=all", "?byType=all&clusterId=cluster-a", "?clusterId=cluster-a"} {
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest("GET", "/stats"+query, nil))
+		var stats DashboardStatsDTO
+		if err = json.Unmarshal(w.Body.Bytes(), &stats); err != nil {
+			t.Fatal(err)
+		}
+		if w.Code != 200 || stats.TotalRisks != 1 || stats.CriticalRisks != 1 || stats.AffectedPodCount != 1 {
+			t.Fatalf("%s: %d %s", query, w.Code, w.Body.String())
+		}
+	}
+}

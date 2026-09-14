@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/fortuna/core/internal/api"
 	"github.com/fortuna/core/internal/middleware"
+	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"net/http/httptest"
@@ -115,5 +116,39 @@ func TestRuntimeScopeAndFindingActions(t *testing.T) {
 	db.First(&a, a.ID)
 	if a.Status != "resolved" || a.Recommendation != "Upgrade package" || a.ResolvedAt == nil {
 		t.Fatalf("resolution damaged finding: %+v", a)
+	}
+}
+
+func TestBulkRequiresActionPermissionAndNonemptySelection(t *testing.T) {
+	db := newSecurityRegressionDB(t)
+	item := models.Insight{ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "high", Title: "a", Description: "a", Status: "active"}
+	if err := db.Create(&item).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name, action, ids string
+		perms             []authorization.Permission
+		want              int
+	}{
+		{"bulk alone cannot resolve", "resolve", fmt.Sprintf(`["%d"]`, item.ID), []authorization.Permission{authorization.PermissionFindingsBulk}, 403},
+		{"ack cannot dismiss", "dismiss", fmt.Sprintf(`["%d"]`, item.ID), []authorization.Permission{authorization.PermissionFindingsBulk, authorization.PermissionFindingsAck}, 403},
+		{"blank selection", "acknowledge", `[" "]`, []authorization.Permission{authorization.PermissionFindingsBulk, authorization.PermissionFindingsAck}, 400},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := gin.New()
+			r.POST("/bulk", func(c *gin.Context) { c.Set(middleware.CtxPermissions, tc.perms) }, api.BulkInsightsAction(db))
+			w := httptest.NewRecorder()
+			req := httptest.NewRequest("POST", "/bulk", bytes.NewBufferString(fmt.Sprintf(`{"action":%q,"insight_ids":%s}`, tc.action, tc.ids)))
+			req.Header.Set("Content-Type", "application/json")
+			r.ServeHTTP(w, req)
+			if w.Code != tc.want {
+				t.Fatalf("%d %s", w.Code, w.Body.String())
+			}
+			var got models.Insight
+			db.First(&got, item.ID)
+			if got.Status != "active" {
+				t.Fatal("unauthorized mutation")
+			}
+		})
 	}
 }
