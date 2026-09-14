@@ -27,31 +27,24 @@ func TestMemoryRisksCache_GetSet(t *testing.T) {
 	}
 }
 
-func TestBuildRisksListCacheKey(t *testing.T) {
-	k := BuildRisksListCacheKey("c1", "active", "high", "foo", "", "", "", 60, 1, 20, 0, 0, "_")
-	if k != "risks:list:c1:_:_:60:active:high:foo:_:1:20:0:0:_" {
-		t.Errorf("got %q", k)
+func TestCacheKeysDoNotCollide(t *testing.T) {
+	key := func(cluster, namespace, search string, since int) string {
+		return BuildRisksListCacheKey(cluster, "active", "", search, "", namespace, "", since, 1, 20, 0, 0, "")
 	}
-	k2 := BuildRisksListCacheKey("", "all", "", "", "high", "default", "vulnerability", 0, 2, 50, 1, 0, "group")
-	if k2 != "risks:list:_:default:vulnerability:1:all:_:_:high:2:50:1:0:group" {
-		t.Errorf("got %q", k2)
+	pairs := [][2]string{
+		{key("a:b", "c", "", 0), key("a", "b:c", "", 0)},
+		{key("", "", "", 0), key("_", "", "", 0)},
+		{key("", "", "", 0), key("", "", "", 1)},
+		{key("", "", "", 0), key("", "", "_", 0)},
+		{BuildInsightsSummaryCacheKey("global", 0), BuildInsightsSummaryGlobalCacheKey(0)},
+		{BuildInsightsSummaryCacheKey("", 0), BuildInsightsSummaryCacheKey("_", 0)},
 	}
-}
-
-func TestBuildInsightsSummaryCacheKey(t *testing.T) {
-	if BuildInsightsSummaryCacheKey("c1", 30) != "insights:summary:c1:30" {
-		t.Error("unexpected key")
+	for _, pair := range pairs {
+		if pair[0] == pair[1] {
+			t.Fatalf("cache key collision: %s", pair[0])
+		}
 	}
-	if BuildInsightsSummaryCacheKey("", 0) != "insights:summary:_:0" {
-		t.Error("unexpected key for global")
-	}
-}
-
-func TestBuildInsightsSummaryGlobalCacheKey(t *testing.T) {
-	if BuildInsightsSummaryGlobalCacheKey(0) != "insights:summary:global:0" {
-		t.Errorf("got %q", BuildInsightsSummaryGlobalCacheKey(0))
-	}
-	if BuildInsightsSummaryGlobalCacheKey(60) != "insights:summary:global:60" {
-		t.Errorf("got %q", BuildInsightsSummaryGlobalCacheKey(60))
+	if key("c1", "default", "needle", 60) != key("c1", "default", "needle", 60) {
+		t.Fatal("unstable key")
 	}
 }

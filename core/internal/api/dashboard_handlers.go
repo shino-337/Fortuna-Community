@@ -39,223 +39,6 @@ type ThreatVelocityPoint struct {
 	LowCount      int64  `json:"low"`
 }
 
-// GetDashboardStats returns totals for active clusters, pods, agents, critical risks.
-// Query param clusterId: when set, all counts are scoped to that cluster.
-// Query param sinceMinutes: when > 0, insight counts limited to detected_at >= now - sinceMinutes.
-// Query param byType: "vulnerability" (default) = CVE + supply_chain_malware; "all" = all insight types for totalRisks and criticalRisks.
-func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		clusterID := strings.TrimSpace(c.Query("clusterId"))
-		if clusterID != "" {
-			clusterID = NormalizeClusterID(db, clusterID)
-		}
-		byType := strings.ToLower(strings.TrimSpace(c.DefaultQuery("byType", "vulnerability")))
-		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
-		var since time.Time
-		if sinceMinutes > 0 {
-			since = time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
-		}
-		detectedSinceClause := ""
-		if sinceMinutes > 0 {
-			detectedSinceClause = " AND i.detected_at >= ?"
-		}
-
-		var clusters int64
-		var pods int64
-		var agents int64
-		var critical int64
-		var totalRisks int64
-		var resolved24h int64
-		var affectedPodCount int64
-
-		var clusterName string
-		if clusterID != "" {
-			// Verify cluster exists and load display name (from K8s via agent sync) for dashboard labels
-			var cluster models.Cluster
-			if err := db.First(&cluster, "id = ?", clusterID).Error; err != nil || cluster.ID == "" {
-				c.JSON(http.StatusOK, DashboardStatsDTO{
-					TotalClusters:    0,
-					ActiveAgents:     0,
-					RunningPods:      0,
-					TotalRisks:       0,
-					CriticalRisks:    0,
-					Resolved24h:      0,
-					AffectedPodCount: 0,
-				})
-				return
-			}
-			clusters = 1
-			clusterName = cluster.Name
-
-			// Same as GetClustersStats: count distinct pod UIDs so dashboard and cluster cards match
-			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", clusterID).Scan(&pods)
-
-			if db.Migrator().HasTable("agents") {
-				db.Raw(`
-					SELECT COUNT(*) FROM agents a
-					WHERE a.deleted_at IS NULL AND (a.status = ? OR a.status IS NULL)
-					AND a.node_name IN (
-						SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''
-					)
-				`, "ready", clusterID).Scan(&agents)
-			}
-
-			// Risks: active insights for Pods in this cluster; optional time window; byType=all counts all insight types.
-			activeInsightClause := " AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)"
-			if byType == "all" {
-				criticalArgs := []interface{}{clusterID, "critical"}
-				if sinceMinutes > 0 {
-					criticalArgs = append(criticalArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(*) FROM insights i
-					INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-					WHERE LOWER(i.severity) = ? AND i.deleted_at IS NULL`+activeInsightClause+detectedSinceClause,
-					criticalArgs...).Scan(&critical)
-				totalArgs := []interface{}{clusterID}
-				if sinceMinutes > 0 {
-					totalArgs = append(totalArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(*) FROM insights i
-					INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-					WHERE i.deleted_at IS NULL`+activeInsightClause+detectedSinceClause,
-					totalArgs...).Scan(&totalRisks)
-			} else {
-				criticalArgs := []interface{}{clusterID, "vulnerability", "supply_chain_malware", "critical"}
-				if sinceMinutes > 0 {
-					criticalArgs = append(criticalArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(*) FROM insights i
-					INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-					WHERE i.insight_type IN (?, ?) AND LOWER(i.severity) = ? AND i.deleted_at IS NULL`+activeInsightClause+detectedSinceClause,
-					criticalArgs...).Scan(&critical)
-				totalArgs := []interface{}{clusterID, "vulnerability", "supply_chain_malware"}
-				if sinceMinutes > 0 {
-					totalArgs = append(totalArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(*) FROM insights i
-					INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-					WHERE i.insight_type IN (?, ?) AND i.deleted_at IS NULL`+activeInsightClause+detectedSinceClause,
-					totalArgs...).Scan(&totalRisks)
-			}
-
-			twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
-			db.Raw(`
-				SELECT COUNT(*) FROM insights i
-				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-				WHERE i.deleted_at IS NULL AND i.status = ? AND i.updated_at > ?
-			`, clusterID, "resolved", twentyFourHoursAgo).Scan(&resolved24h)
-
-			affectedArgs := []interface{}{clusterID}
-			if sinceMinutes > 0 {
-				affectedArgs = append(affectedArgs, since)
-			}
-			db.Raw(`
-				SELECT COUNT(DISTINCT i.resource_uid) FROM insights i
-				INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL) AND i.resource_type = 'Pod'`+detectedSinceClause,
-				affectedArgs...).Scan(&affectedPodCount)
-		} else {
-			cutoff := time.Now().Add(-ActiveClusterCutoff)
-			if db.Migrator().HasTable("clusters") {
-				db.Raw(`
-					SELECT COUNT(*) FROM clusters c
-					WHERE c.source IN (?, ?) AND c.last_sync >= ?
-					AND EXISTS (
-						SELECT 1 FROM pods p
-						WHERE p.cluster_id = c.id AND p.deleted_at IS NULL
-					)
-				`, "auto", "env", cutoff).Scan(&clusters)
-			} else {
-				db.Table("insights").Distinct("resource_namespace").Count(&clusters)
-			}
-			// Global pod count: all pods in DB (same scope as GET /pods) so Dashboard and Resources show the same total and match cluster reality.
-			db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE deleted_at IS NULL").Scan(&pods)
-			if db.Migrator().HasTable("agents") {
-				// Only agents whose node is in a pod of an active cluster (same definition as GetClustersStats)
-				db.Raw(`
-					SELECT COUNT(*) FROM agents a
-					WHERE a.deleted_at IS NULL AND (a.status = ? OR a.status IS NULL)
-					AND a.node_name IN (
-						SELECT DISTINCT p.node_name FROM pods p
-						INNER JOIN clusters c ON c.id = p.cluster_id AND c.source IN (?, ?) AND c.last_sync >= ?
-						WHERE p.deleted_at IS NULL AND p.node_name IS NOT NULL AND p.node_name != ''
-					)
-				`, "ready", "auto", "env", cutoff).Scan(&agents)
-			}
-			activeClusterInsightJoin := `
-				FROM insights i
-				INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL
-				INNER JOIN clusters c ON c.id = p.cluster_id AND c.deleted_at IS NULL AND c.source IN (?, ?) AND c.last_sync >= ?
-				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`
-			if byType == "all" {
-				criticalArgs := []interface{}{"auto", "env", cutoff, "critical"}
-				totalArgs := []interface{}{"auto", "env", cutoff}
-				if sinceMinutes > 0 {
-					criticalArgs = append(criticalArgs, since)
-					totalArgs = append(totalArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(*) `+activeClusterInsightJoin+`
-					AND LOWER(i.severity) = ?`+detectedSinceClause,
-					criticalArgs...).Scan(&critical)
-				db.Raw(`
-					SELECT COUNT(*) `+activeClusterInsightJoin+detectedSinceClause,
-					totalArgs...).Scan(&totalRisks)
-			} else {
-				supplyTypes := []string{"vulnerability", "supply_chain_malware"}
-				criticalArgs := []interface{}{"auto", "env", cutoff, supplyTypes, "critical"}
-				totalArgs := []interface{}{"auto", "env", cutoff, supplyTypes}
-				if sinceMinutes > 0 {
-					criticalArgs = append(criticalArgs, since)
-					totalArgs = append(totalArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(*) `+activeClusterInsightJoin+`
-					AND i.insight_type IN ? AND LOWER(i.severity) = ?`+detectedSinceClause,
-					criticalArgs...).Scan(&critical)
-				db.Raw(`
-					SELECT COUNT(*) `+activeClusterInsightJoin+`
-					AND i.insight_type IN ?`+detectedSinceClause,
-					totalArgs...).Scan(&totalRisks)
-			}
-			if db.Migrator().HasTable("insights") {
-				twentyFourHoursAgo := time.Now().Add(-24 * time.Hour)
-				db.Table("insights").
-					Where("deleted_at IS NULL AND status = ? AND updated_at > ?", "resolved", twentyFourHoursAgo).
-					Count(&resolved24h)
-			}
-			if db.Migrator().HasTable("insights") {
-				affectedArgs := []interface{}{"auto", "env", cutoff}
-				if sinceMinutes > 0 {
-					affectedArgs = append(affectedArgs, since)
-				}
-				db.Raw(`
-					SELECT COUNT(DISTINCT i.resource_uid) FROM insights i
-					INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL
-					INNER JOIN clusters c ON c.id = p.cluster_id AND c.deleted_at IS NULL AND c.source IN (?, ?) AND c.last_sync >= ?
-					WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)
-					AND i.resource_type = 'Pod'`+detectedSinceClause,
-					affectedArgs...).Scan(&affectedPodCount)
-			}
-		}
-
-		c.JSON(http.StatusOK, DashboardStatsDTO{
-			TotalClusters:    clusters,
-			ActiveAgents:     agents,
-			RunningPods:      pods,
-			TotalRisks:       totalRisks,
-			CriticalRisks:    critical,
-			Resolved24h:      resolved24h,
-			AffectedPodCount: affectedPodCount,
-			ClusterName:      clusterName,
-		})
-	}
-}
-
 // GetThreatVelocity returns daily counts of insights grouped by severity.
 // Query param days: 1–30 (default 7). Query param clusterId: optional.
 // Query param byType: "vulnerability" (default) = CVE + supply_chain_malware insights; "all" = every insight_type (RBAC, capability, etc.).
@@ -274,7 +57,11 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 			clusterID = NormalizeClusterID(db, clusterID)
 		}
 
-		start := time.Now().AddDate(0, 0, -days+1).Truncate(24 * time.Hour)
+		filter, ok := aggregateScope(db, c)
+		if !ok {
+			return
+		}
+		start := time.Now().UTC().AddDate(0, 0, -days+1).Truncate(24 * time.Hour)
 
 		var rows []struct {
 			Date     time.Time
@@ -297,11 +84,15 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 		if clusterID != "" {
 			baseQuery = baseQuery.Where("resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)", clusterID)
 		}
-		baseQuery.
+		baseQuery = scopedAggregateQuery(db, baseQuery, filter, "resource_uid")
+		if err := baseQuery.
 			Select("date_trunc('day', detected_at) as date, LOWER(severity) as severity, COUNT(*) as count").
 			Group("date_trunc('day', detected_at), LOWER(severity)").
 			Order("date_trunc('day', detected_at)").
-			Scan(&rows)
+			Scan(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load threat velocity"})
+			return
+		}
 
 		points := map[string]*ThreatVelocityPoint{}
 		for i := 0; i < days; i++ {
@@ -341,13 +132,13 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 }
 
 type RiskFilter struct {
-	Severity          string `form:"severity"`
-	Status            string `form:"status"`
-	Search            string `form:"search"`
-	Type              string `form:"type"`
-	ClusterID         string `form:"clusterId"`
+	Severity          string   `form:"severity"`
+	Status            string   `form:"status"`
+	Search            string   `form:"search"`
+	Type              string   `form:"type"`
+	ClusterID         string   `form:"clusterId"`
 	ScopedClusterIDs  []string `form:"-"`
-	ResourceNamespace string `form:"resourceNamespace"` // namespace filter (Phase 1)
+	ResourceNamespace string   `form:"resourceNamespace"` // namespace filter (Phase 1)
 	// SinceMinutes: when > 0, only insights with detected_at >= now - sinceMinutes.
 	// Not applied when Type is vulnerability or supply_chain_malware (SBOM-derived; detected_at is first-seen, not recurring).
 	SinceMinutes int    `form:"sinceMinutes"`
@@ -791,6 +582,7 @@ func GetInsightsListCached(db *gorm.DB) gin.HandlerFunc {
 			clusterID = "scope:" + strings.Join(filter.ScopedClusterIDs, ",")
 		}
 		key := BuildRisksListCacheKey(clusterID, statusFilter, filter.Severity, filter.Search, strings.TrimSpace(filter.FinalLevel), strings.TrimSpace(filter.ResourceNamespace), strings.TrimSpace(filter.Type), filter.SinceMinutes, page, pageSize, filter.WithScores, filter.ScoreBin, strings.ToLower(strings.TrimSpace(filter.View)))
+		key = authorizationCacheKey(c, key) + ":bin=" + strconv.FormatBool(hasScoreBin)
 		if b, ok := defaultRisksCache.Get(key); ok {
 			c.Data(http.StatusOK, "application/json", b)
 			return
@@ -818,17 +610,22 @@ type riskHistogramBin struct {
 
 // GetRiskHistogram returns score distribution (bins 0–100) for Risk Center histogram chart.
 // Query: clusterId, sinceMinutes (default 30), withScores=1. Cached 30s; invalidated on insights update.
+
 func GetRiskHistogram(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID := strings.TrimSpace(c.Query("clusterId"))
 		if clusterID != "" {
 			clusterID = NormalizeClusterID(db, clusterID)
 		}
+		filter, allowed := aggregateScope(db, c)
+		if !allowed {
+			return
+		}
 		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "30"))
-		if sinceMinutes <= 0 {
+		if sinceMinutes < 0 {
 			sinceMinutes = 30
 		}
-		key := BuildRiskHistogramCacheKey(clusterID, sinceMinutes)
+		key := authorizationCacheKey(c, BuildRiskHistogramCacheKey(clusterID, sinceMinutes))
 		if defaultRisksCache != nil {
 			if b, ok := defaultRisksCache.Get(key); ok {
 				c.Data(http.StatusOK, "application/json", b)
@@ -837,7 +634,7 @@ func GetRiskHistogram(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Base filter: insights joined to risk_scores, active only, optional cluster + since
-		joinWhere := "i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL) AND rs.deleted_at IS NULL"
+		joinWhere := "i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)"
 		args := []interface{}{}
 		if clusterID != "" {
 			joinWhere += " AND i.resource_type = 'Pod' AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)"
@@ -845,22 +642,26 @@ func GetRiskHistogram(db *gorm.DB) gin.HandlerFunc {
 		} else {
 			joinWhere += " AND (i.resource_type != 'Pod' OR i.resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))"
 		}
+		if len(filter.ScopedClusterIDs) > 0 {
+			joinWhere += " AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id IN ? AND deleted_at IS NULL)"
+			args = append(args, filter.ScopedClusterIDs)
+		}
 		if sinceMinutes > 0 {
 			joinWhere += " AND i.detected_at >= ?"
 			args = append(args, time.Now().Add(-time.Duration(sinceMinutes)*time.Minute))
 		}
 
 		// Bins: FLOOR(rs.total_score/10)*10, count and severity breakdown
-		binQuery := `SELECT (FLOOR(rs.total_score / 10) * 10)::int AS bin,
-  COUNT(*)::int AS count,
-  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'critical' THEN 1 ELSE 0 END), 0)::int AS critical_count,
-  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'high' THEN 1 ELSE 0 END), 0)::int AS high_count,
-  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'medium' THEN 1 ELSE 0 END), 0)::int AS medium_count,
-  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'low' THEN 1 ELSE 0 END), 0)::int AS low_count
+		binQuery := `SELECT (CASE WHEN rs.total_score >= 100 THEN 90 ELSE FLOOR(rs.total_score / 10) * 10 END) AS bin,
+  COUNT(*) AS count,
+  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'critical' THEN 1 ELSE 0 END), 0) AS critical_count,
+  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'high' THEN 1 ELSE 0 END), 0) AS high_count,
+  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'medium' THEN 1 ELSE 0 END), 0) AS medium_count,
+  COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'low' THEN 1 ELSE 0 END), 0) AS low_count
 FROM insights i
-INNER JOIN risk_scores rs ON rs.resource_uid = i.resource_uid
+INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS rs ON rs.resource_uid = i.resource_uid
 WHERE ` + joinWhere + `
-GROUP BY FLOOR(rs.total_score / 10) * 10
+GROUP BY CASE WHEN rs.total_score >= 100 THEN 90 ELSE FLOOR(rs.total_score / 10) * 10 END
 ORDER BY bin`
 		var bins []riskHistogramBin
 		if err := db.Raw(binQuery, args...).Scan(&bins).Error; err != nil {
@@ -869,11 +670,11 @@ ORDER BY bin`
 		}
 
 		// Totals and average score, P0 count
-		totQuery := `SELECT COUNT(*)::int AS total_findings,
-  COALESCE(AVG(rs.total_score), 0)::float AS average_score,
-  COALESCE(SUM(CASE WHEN rs.total_score >= 70 THEN 1 ELSE 0 END), 0)::int AS p0_count
+		totQuery := `SELECT COUNT(*) AS total_findings,
+  COALESCE(AVG(rs.total_score), 0) AS average_score,
+  COALESCE(SUM(CASE WHEN rs.total_score >= 70 THEN 1 ELSE 0 END), 0) AS p0_count
 FROM insights i
-INNER JOIN risk_scores rs ON rs.resource_uid = i.resource_uid
+INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS rs ON rs.resource_uid = i.resource_uid
 WHERE ` + joinWhere
 		var totalFindings int
 		var averageScore float64

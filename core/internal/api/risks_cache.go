@@ -1,7 +1,6 @@
 package api
 
 import (
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -89,70 +88,21 @@ func (c *MemoryRisksCache) cleanup() {
 
 // BuildRisksListCacheKey builds cache key for GET /risks from query params. withScores: 0 or 1; finalLevel, resourceNamespace, insightType, scoreBin optional. view: instance|group|_.
 func BuildRisksListCacheKey(clusterID, status, severity, search, finalLevel, resourceNamespace, insightType string, sinceMinutes, page, pageSize, withScores, scoreBin int, view string) string {
-	if clusterID == "" {
-		clusterID = "_"
-	}
 	if status == "" {
 		status = "active"
 	}
-	if severity == "" {
-		severity = "_"
-	}
-	if search == "" {
-		search = "_"
-	}
-	if finalLevel == "" {
-		finalLevel = "_"
-	}
-	if resourceNamespace == "" {
-		resourceNamespace = "_"
-	}
-	if insightType == "" {
-		insightType = "_"
-	}
-	viewTok := strings.ToLower(strings.TrimSpace(view))
-	if viewTok == "" {
-		viewTok = "_"
-	}
-	scoreSuffix := "0"
-	if withScores != 0 {
-		scoreSuffix = "1"
-	}
-	// scoreBin uses strconv.Itoa so 0 is "0" (itoa(0) is "1" for legacy page/since)
-	return "risks:list:" + clusterID + ":" + resourceNamespace + ":" + insightType + ":" + itoa(sinceMinutes) + ":" + status + ":" + severity + ":" + search + ":" + finalLevel + ":" + itoa(page) + ":" + itoa(pageSize) + ":" + scoreSuffix + ":" + strconv.Itoa(scoreBin) + ":" + viewTok
-}
-
-func itoa(i int) string {
-	if i <= 0 {
-		return "1"
-	}
-	b := []byte{}
-	for i > 0 {
-		b = append([]byte{byte('0' + i%10)}, b...)
-		i /= 10
-	}
-	return string(b)
+	return encodedCacheKey("risks:list:", []interface{}{clusterID, status, severity, search, finalLevel, resourceNamespace, insightType, sinceMinutes, page, pageSize, withScores, scoreBin, strings.ToLower(strings.TrimSpace(view))})
 }
 
 // BuildInsightsSummaryCacheKey builds cache key for GET /insights/summary.
 func BuildInsightsSummaryCacheKey(clusterID string, sinceMinutes int) string {
-	if clusterID == "" {
-		clusterID = "_"
-	}
-	return "insights:summary:" + clusterID + ":" + strconv.Itoa(sinceMinutes)
+	return encodedCacheKey("insights:summary:", []interface{}{"selection", clusterID, sinceMinutes})
 }
-
-// BuildInsightsSummaryGlobalCacheKey builds cache key for GET /insights/summary/global.
 func BuildInsightsSummaryGlobalCacheKey(sinceMinutes int) string {
-	return "insights:summary:global:" + strconv.Itoa(sinceMinutes)
+	return encodedCacheKey("insights:summary:", []interface{}{"global", sinceMinutes})
 }
-
-// BuildRiskHistogramCacheKey builds cache key for GET /risk/histogram (clusterId + sinceMinutes).
 func BuildRiskHistogramCacheKey(clusterID string, sinceMinutes int) string {
-	if clusterID == "" {
-		clusterID = "_"
-	}
-	return "risk:histogram:" + clusterID + ":" + strconv.Itoa(sinceMinutes)
+	return encodedCacheKey("risk:histogram:", []interface{}{clusterID, sinceMinutes})
 }
 
 // --- unit test helpers (used by risks_cache_test.go) ---

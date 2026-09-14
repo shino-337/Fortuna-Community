@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"os"
@@ -74,9 +73,9 @@ func (h *RisksWSHub) Broadcast(msg []byte) {
 	}
 }
 
-// RisksUpdatePayload is sent over WebSocket when insights change (delta: client can refetch only changed_ids if present).
+// RisksUpdatePayload accepts producer delta metadata. Browser notifications omit IDs until producers carry authoritative cluster ownership.
 type RisksUpdatePayload struct {
-	Type       string   `json:"type"`                 // "insights_updated"
+	Type       string   `json:"type"`                  // "insights_updated"
 	ChangedIDs []string `json:"changed_ids,omitempty"` // insight IDs created/updated/deleted
 	ChangeType string   `json:"change_type,omitempty"` // "create" | "update" | "delete" (optional)
 }
@@ -87,22 +86,15 @@ func BroadcastRisksUpdate() {
 	BroadcastRisksUpdateWithPayload(nil)
 }
 
-// BroadcastRisksUpdateWithPayload sends a delta payload to WS clients and invalidates risks cache.
-// If payload is nil or ChangedIDs is empty, clients should full refetch; otherwise they may refetch only affected data.
+// BroadcastRisksUpdateWithPayload invalidates caches and sends a generic refetch notification.
+// ChangedIDs and ChangeType are intentionally not sent on the global channel.
 func BroadcastRisksUpdateWithPayload(payload *RisksUpdatePayload) {
 	if defaultRisksHub == nil {
 		return
 	}
-	if payload == nil {
-		payload = &RisksUpdatePayload{Type: "insights_updated"}
-	}
-	if payload.Type == "" {
-		payload.Type = "insights_updated"
-	}
-	msg, err := json.Marshal(payload)
-	if err != nil {
-		return
-	}
+	// Producers do not carry authoritative cluster ownership. A generic
+	// invalidation makes each client refetch through scoped HTTP authorization.
+	msg := []byte(`{"type":"insights_updated"}`)
 	// Invalidate list, summary and histogram caches so next GET returns fresh data
 	if defaultRisksCache != nil {
 		defaultRisksCache.ClearByPrefix("risks:list:")
