@@ -61,3 +61,28 @@ func (s analyticsScope) sboms(db *gorm.DB) *gorm.DB {
 	}
 	return q
 }
+
+// currentScores selects the latest V3 observation per resource before display
+// filters. Filtering score first could resurrect an older, higher-risk row.
+func (s analyticsScope) currentScores(db *gorm.DB) *gorm.DB {
+	ranked := s.apply(db.Model(&models.RiskScore{}), "cluster_id").
+		Where("LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", "v3").
+		Select("id, ROW_NUMBER() OVER (PARTITION BY resource_type, resource_uid, cluster_id ORDER BY calculated_at DESC, id DESC) AS score_rank")
+	ids := db.Table("(?) AS ranked_scores", ranked).Select("id").Where("score_rank = 1")
+	return db.Model(&models.RiskScore{}).Where("id IN (?)", ids)
+}
+
+// Sync uses retained pod ownership when scope is restricted or explicitly selected.
+// Unrestricted requests retain the existing all-resource behavior.
+func (s analyticsScope) syncUIDs(db *gorm.DB) ([]string, error) {
+	query := db.Model(&models.Insight{}).
+		Where("status IN ?", []string{"active", "acknowledged"}).
+		Where("TRIM(resource_uid) != ''")
+	if s.restricted || s.clusterID != "" {
+		pods := s.apply(db.Unscoped().Model(&models.Pod{}).Select("uid"), "cluster_id")
+		query = query.Where("resource_uid IN (?)", pods)
+	}
+	var uids []string
+	err := query.Distinct("resource_uid").Order("resource_uid").Pluck("resource_uid", &uids).Error
+	return uids, err
+}
