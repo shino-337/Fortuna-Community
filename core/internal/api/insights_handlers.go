@@ -460,256 +460,102 @@ type InsightsSummaryResult struct {
 }
 
 // getInsightsSummaryData returns summary counts (for caching).
-func getInsightsSummaryData(db *gorm.DB, clusterID string, sinceMinutes int) InsightsSummaryResult {
-	var since time.Time
-	if sinceMinutes > 0 {
-		since = time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
-	}
-	detectedSinceClause := ""
-	if sinceMinutes > 0 {
-		detectedSinceClause = " AND i.detected_at >= ?"
-	}
-	detectedSinceClauseNoAlias := ""
-	if sinceMinutes > 0 {
-		detectedSinceClauseNoAlias = " AND detected_at >= ?"
-	}
-	var summary InsightsSummaryResult
-	summary.ByType = make(map[string]int64)
-
-	if clusterID != "" {
-		// Scope to insights whose resource_uid matches a pod in this cluster (same join as GetDashboardStats).
-		// Join: pods.uid = insights.resource_uid (no resource_type filter to avoid case/format mismatch).
-		// Count all insight types so summary returns risk data when any risks exist for the cluster.
-		joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL"
-		// Diagnostic: why summary might be 0 — log pod count, global insight count, and join result
-		var podCount, insightGlobal int64
-		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", clusterID).Scan(&podCount)
-		db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status IN ? OR status IS NULL)", []string{"active", "acknowledged"}).Count(&insightGlobal)
-		log.Printf("[InsightsSummary] clusterId=%q normalized; pods_in_cluster=%d, insights_global=%d", clusterID, podCount, insightGlobal)
-		totalArgs := []interface{}{clusterID}
+func getInsightsSummaryData(db *gorm.DB, filter RiskFilter, sinceMinutes int) (InsightsSummaryResult, error) {
+	summary := InsightsSummaryResult{ByType: make(map[string]int64)}
+	base := func() *gorm.DB {
+		q := db.Table("insights i").Where("i.deleted_at IS NULL AND (i.status IN ? OR i.status IS NULL)", []string{"active", "acknowledged"})
+		q = q.Where("(i.resource_type != 'Pod' OR i.resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+		q = scopedAggregateQuery(db, q, filter, "i.resource_uid")
 		if sinceMinutes > 0 {
-			totalArgs = append(totalArgs, since)
+			q = q.Where("i.detected_at >= ?", time.Now().Add(-time.Duration(sinceMinutes)*time.Minute))
 		}
-		db.Raw(`
-				SELECT COUNT(*) FROM insights i
-				`+joinCond+`
-				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`+detectedSinceClause,
-			totalArgs...).Scan(&summary.Total)
-		log.Printf("[InsightsSummary] clusterId=%q join result total=%d", clusterID, summary.Total)
-		if summary.Total == 0 && podCount > 0 && insightGlobal > 0 {
-			var matchCount int64
-			db.Raw(`
-					SELECT COUNT(*) FROM insights i
-					WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)
-					AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)`,
-				clusterID).Scan(&matchCount)
-			log.Printf("[InsightsSummary] clusterId=%q uid-match check: insights_with_resource_uid_in_cluster_pods=%d (if 0, resource_uid format may not match pods.uid)", clusterID, matchCount)
-		}
-
-		var severityCounts []struct {
-			Severity string `gorm:"column:severity"`
-			Count    int64  `gorm:"column:count"`
-		}
-		sevArgs := []interface{}{clusterID}
-		if sinceMinutes > 0 {
-			sevArgs = append(sevArgs, since)
-		}
-		db.Raw(`
-				SELECT LOWER(i.severity) as severity, COUNT(*) as count 
-				FROM insights i
-				`+joinCond+`
-				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`+detectedSinceClause+`
-				GROUP BY LOWER(i.severity)`,
-			sevArgs...).Scan(&severityCounts)
-		for _, sc := range severityCounts {
-			switch sc.Severity {
-			case "critical":
-				summary.Critical = sc.Count
-			case "high":
-				summary.High = sc.Count
-			case "medium":
-				summary.Medium = sc.Count
-			case "low":
-				summary.Low = sc.Count
-			}
-		}
-
-		var typeCounts []struct {
-			Type  string `gorm:"column:insight_type"`
-			Count int64  `gorm:"column:count"`
-		}
-		typeArgs := []interface{}{clusterID}
-		if sinceMinutes > 0 {
-			typeArgs = append(typeArgs, since)
-		}
-		db.Raw(`
-				SELECT i.insight_type, COUNT(*) as count 
-				FROM insights i
-				`+joinCond+`
-				WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`+detectedSinceClause+`
-				GROUP BY i.insight_type`,
-			typeArgs...).Scan(&typeCounts)
-		for _, tc := range typeCounts {
-			summary.ByType[tc.Type] = tc.Count
-		}
-	} else {
-		// Global scope: only count insights for existing resources (Pod insights only when pod exists)
-		podFilter := "(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))"
-		query := db.Model(&models.Insight{}).Where("deleted_at IS NULL AND (status IN ? OR status IS NULL)", []string{"active", "acknowledged"}).Where(podFilter)
-		if sinceMinutes > 0 {
-			query = query.Where("detected_at >= ?", since)
-		}
-		query.Count(&summary.Total)
-
-		var severityCounts []struct {
-			Severity string `gorm:"column:severity"`
-			Count    int64  `gorm:"column:count"`
-		}
-		if sinceMinutes > 0 {
-			db.Raw(`
-					SELECT LOWER(severity) as severity, COUNT(*) as count 
-					FROM insights 
-					WHERE deleted_at IS NULL AND (status IN ('active', 'acknowledged') OR status IS NULL) AND `+podFilter+detectedSinceClauseNoAlias+`
-					GROUP BY LOWER(severity)`, since).Scan(&severityCounts)
-		} else {
-			db.Raw(`
-					SELECT LOWER(severity) as severity, COUNT(*) as count 
-					FROM insights 
-					WHERE deleted_at IS NULL AND (status IN ('active', 'acknowledged') OR status IS NULL) AND ` + podFilter + `
-					GROUP BY LOWER(severity)
-				`).Scan(&severityCounts)
-		}
-		for _, sc := range severityCounts {
-			switch sc.Severity {
-			case "critical":
-				summary.Critical = sc.Count
-			case "high":
-				summary.High = sc.Count
-			case "medium":
-				summary.Medium = sc.Count
-			case "low":
-				summary.Low = sc.Count
-			}
-		}
-
-		var typeCounts []struct {
-			Type  string `gorm:"column:insight_type"`
-			Count int64  `gorm:"column:count"`
-		}
-		summaryQuery := db.Model(&models.Insight{}).
-			Where("deleted_at IS NULL AND (status IN ('active', 'acknowledged') OR status IS NULL) AND " + podFilter)
-		if sinceMinutes > 0 {
-			summaryQuery = summaryQuery.Where("detected_at >= ?", since)
-		}
-		summaryQuery.
-			Select("insight_type, COUNT(*) as count").
-			Group("insight_type").
-			Scan(&typeCounts)
-		for _, tc := range typeCounts {
-			summary.ByType[tc.Type] = tc.Count
+		return q
+	}
+	var rows []struct {
+		Severity    string
+		InsightType string
+		Count       int64
+	}
+	if err := base().Select("LOWER(i.severity) AS severity, i.insight_type, COUNT(*) AS count").Group("LOWER(i.severity), i.insight_type").Scan(&rows).Error; err != nil {
+		return summary, err
+	}
+	for _, r := range rows {
+		summary.Total += r.Count
+		summary.ByType[r.InsightType] += r.Count
+		switch r.Severity {
+		case "critical":
+			summary.Critical += r.Count
+		case "high":
+			summary.High += r.Count
+		case "medium":
+			summary.Medium += r.Count
+		case "low":
+			summary.Low += r.Count
 		}
 	}
-
-	// V3 unified risk level counts: group insights by their pod's preferred V3 risk score band
-	var rlcRows []struct {
-		Level string `gorm:"column:risk_level"`
-		Count int64  `gorm:"column:count"`
+	var levels []struct {
+		Level string
+		Count int64
 	}
-	rlcSQL := `SELECT
-		CASE
-			WHEN pref.total_score >= 70 THEN 'critical'
-			WHEN pref.total_score >= 40 THEN 'high'
-			WHEN pref.total_score >= 20 THEN 'medium'
-			ELSE 'low'
-		END AS risk_level,
-		COUNT(*) AS count
-	FROM insights i
-	INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS pref ON pref.resource_uid = i.resource_uid
-	WHERE i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)`
-	rlcArgs := []interface{}{}
-	if clusterID != "" {
-		rlcSQL += " AND i.resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)"
-		rlcArgs = append(rlcArgs, clusterID)
-	} else {
-		rlcSQL += " AND (i.resource_type != 'Pod' OR i.resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))"
+	band := "CASE WHEN pref.total_score >= 70 THEN 'critical' WHEN pref.total_score >= 40 THEN 'high' WHEN pref.total_score >= 20 THEN 'medium' ELSE 'low' END"
+	if err := base().Joins("INNER JOIN " + preferredRiskScoreSubquerySQL + " AS pref ON pref.resource_uid=i.resource_uid").Select(band + " AS level, COUNT(*) AS count").Group(band).Scan(&levels).Error; err != nil {
+		return summary, err
 	}
-	if sinceMinutes > 0 {
-		rlcSQL += " AND i.detected_at >= ?"
-		rlcArgs = append(rlcArgs, since)
-	}
-	rlcSQL += " GROUP BY risk_level"
-	if err := db.Raw(rlcSQL, rlcArgs...).Scan(&rlcRows).Error; err == nil && len(rlcRows) > 0 {
-		rlc := &RiskLevelCounts{}
-		for _, r := range rlcRows {
+	if len(levels) > 0 {
+		summary.RiskLevelCounts = &RiskLevelCounts{}
+		for _, r := range levels {
 			switch r.Level {
 			case "critical":
-				rlc.Critical = r.Count
+				summary.RiskLevelCounts.Critical += r.Count
 			case "high":
-				rlc.High = r.Count
+				summary.RiskLevelCounts.High += r.Count
 			case "medium":
-				rlc.Medium = r.Count
+				summary.RiskLevelCounts.Medium += r.Count
 			case "low":
-				rlc.Low = r.Count
+				summary.RiskLevelCounts.Low += r.Count
 			}
 		}
-		summary.RiskLevelCounts = rlc
 	}
-
-	return summary
+	return summary, nil
 }
 
 // GetInsightsSummary returns summary statistics of insights.
-func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		clusterID := strings.TrimSpace(c.Query("clusterId"))
-		if clusterID != "" {
-			clusterID = NormalizeClusterID(db, clusterID)
-		}
-		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
-		result := getInsightsSummaryData(db, clusterID, sinceMinutes)
-		c.JSON(http.StatusOK, result)
-	}
-}
-
-// GetInsightsSummaryCached uses defaultRisksCache when set (TTL 60s).
+func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc { return insightsSummaryHandler(db, false, false) }
 func GetInsightsSummaryCached(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		clusterID := strings.TrimSpace(c.Query("clusterId"))
-		if clusterID != "" {
-			clusterID = NormalizeClusterID(db, clusterID)
-		}
-		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
-		key := BuildInsightsSummaryCacheKey(clusterID, sinceMinutes)
-		if defaultRisksCache != nil {
-			if b, ok := defaultRisksCache.Get(key); ok {
-				c.Data(http.StatusOK, "application/json", b)
-				return
-			}
-		}
-		result := getInsightsSummaryData(db, clusterID, sinceMinutes)
-		if defaultRisksCache != nil {
-			if b, err := json.Marshal(result); err == nil {
-				defaultRisksCache.Set(key, b, risksCacheTTL)
-			}
-		}
-		c.JSON(http.StatusOK, result)
-	}
+	return insightsSummaryHandler(db, true, false)
+}
+func GetInsightsSummaryGlobalCached(db *gorm.DB) gin.HandlerFunc {
+	return insightsSummaryHandler(db, true, true)
 }
 
-// GetInsightsSummaryGlobalCached returns global (all-clusters) summary; same shape as GET /risk/insights/summary without clusterId. Cached (TTL 60s).
-// GET /risk/insights/summary/global?sinceMinutes=0
-func GetInsightsSummaryGlobalCached(db *gorm.DB) gin.HandlerFunc {
+func insightsSummaryHandler(db *gorm.DB, cached, global bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		sinceMinutes, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
-		key := BuildInsightsSummaryGlobalCacheKey(sinceMinutes)
-		if defaultRisksCache != nil {
-			if b, ok := defaultRisksCache.Get(key); ok {
+		filter, ok := aggregateScope(db, c)
+		if !ok {
+			return
+		}
+		if global {
+			filter.ClusterID = ""
+			filter.ScopedClusterIDs, _ = middleware.ScopedClusterIDs(c)
+		}
+		since, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
+		key := BuildInsightsSummaryCacheKey(filter.ClusterID, since)
+		if global {
+			key = BuildInsightsSummaryGlobalCacheKey(since)
+		}
+		key = authorizationCacheKey(c, key)
+		if cached && defaultRisksCache != nil {
+			if b, hit := defaultRisksCache.Get(key); hit {
 				c.Data(http.StatusOK, "application/json", b)
 				return
 			}
 		}
-		result := getInsightsSummaryData(db, "", sinceMinutes)
-		if defaultRisksCache != nil {
+		result, err := getInsightsSummaryData(db, filter, since)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load insight summary"})
+			return
+		}
+		if cached && defaultRisksCache != nil {
 			if b, err := json.Marshal(result); err == nil {
 				defaultRisksCache.Set(key, b, risksCacheTTL)
 			}
@@ -738,10 +584,6 @@ func GetInsightsSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 		if sinceMinutes > 0 {
 			since = time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
 		}
-		detectedClause := ""
-		if sinceMinutes > 0 {
-			detectedClause = " AND i.detected_at >= ?"
-		}
 		joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL"
 		whereBase := "i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)"
 		type row struct {
@@ -752,32 +594,23 @@ func GetInsightsSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 			Medium    int64  `gorm:"column:medium"`
 			Low       int64  `gorm:"column:low"`
 		}
+		filter, ok := aggregateScope(db, c)
+		if !ok {
+			return
+		}
 		var rows []row
+		query := db.Table("insights i").Joins(joinCond).Where(whereBase)
+		query = scopedAggregateQuery(db, query, filter, "i.resource_uid")
 		if sinceMinutes > 0 {
-			db.Raw(`
-				SELECT p.cluster_id,
-					COUNT(*)::bigint AS total,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'critical')::bigint AS critical,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'high')::bigint AS high,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'medium')::bigint AS medium,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'low')::bigint AS low
-				FROM insights i
-				`+joinCond+`
-				WHERE `+whereBase+detectedClause+`
-				GROUP BY p.cluster_id`,
-				since).Scan(&rows)
-		} else {
-			db.Raw(`
-				SELECT p.cluster_id,
-					COUNT(*)::bigint AS total,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'critical')::bigint AS critical,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'high')::bigint AS high,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'medium')::bigint AS medium,
-					COUNT(*) FILTER (WHERE LOWER(i.severity) = 'low')::bigint AS low
-				FROM insights i
-				` + joinCond + `
-				WHERE ` + whereBase + `
-				GROUP BY p.cluster_id`).Scan(&rows)
+			query = query.Where("i.detected_at >= ?", since)
+		}
+		if err := query.Select(`p.cluster_id, COUNT(*) AS total,
+          SUM(CASE WHEN LOWER(i.severity)='critical' THEN 1 ELSE 0 END) AS critical,
+          SUM(CASE WHEN LOWER(i.severity)='high' THEN 1 ELSE 0 END) AS high,
+          SUM(CASE WHEN LOWER(i.severity)='medium' THEN 1 ELSE 0 END) AS medium,
+          SUM(CASE WHEN LOWER(i.severity)='low' THEN 1 ELSE 0 END) AS low`).Group("p.cluster_id").Scan(&rows).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load cluster summary"})
+			return
 		}
 		clusterNames := make(map[string]string)
 		if len(rows) > 0 {

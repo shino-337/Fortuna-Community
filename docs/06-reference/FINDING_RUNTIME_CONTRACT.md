@@ -21,3 +21,15 @@ The dashboard preserves dismissed and unknown statuses instead of displaying the
 - Both runtime signal persistence paths use a UTC day boundary; regression coverage includes a UTC+7 host with UTC records.
 
 This audit covers these paths and their regression tests; it does not establish complete multi-cluster isolation. Aggregate analytics/list endpoints and broadcasts still require a separate scope audit, including counts, cache keys and subscriptions. PostgreSQL integration and live lab workflows also remain to be verified.
+
+## Aggregate and notification isolation
+
+Summary (including global and by-cluster), histogram, dashboard statistics and threat velocity now apply the current user's cluster scope before aggregation. An explicit unauthorized cluster returns 403 before cache lookup. Database failures return errors instead of successful empty summary/statistics responses.
+
+Cache keys use structured encoding and include authorization scope. Empty values, literal underscores, colon-containing values, zero versus one minute, and an absent versus explicit zero score bin remain distinct. Histogram counts use one preferred score per resource; score 100 is included in the last bin and `sinceMinutes=0` means all time.
+
+The global risk WebSocket emits only `{"type":"insights_updated"}`. Producer IDs and change types are not broadcast because producers do not supply authoritative cluster ownership. Clients refetch through scoped HTTP endpoints. Pod subscriptions use the same route UID as authorization, and the hub holds its read lock until sends finish so disconnect cannot close a channel during a broadcast.
+
+Regression coverage warms caches as an unrestricted admin, then requests the same resources as users in two separate clusters, checks explicit cross-cluster denial, filtered list cache identity, SQL errors, score-history duplication and concurrent pod disconnect/broadcast.
+
+Remaining work: scope review of the other risk analytics/inventory/graph endpoints; WebSocket session expiry and permission revocation after connection; cluster-qualified agent identity (the current agent inventory identifies nodes by name); PostgreSQL and live multi-cluster integration. Generic global invalidation still reveals that some update occurred, without entity identifiers.

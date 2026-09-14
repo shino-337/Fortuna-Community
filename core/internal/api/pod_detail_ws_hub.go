@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
-	"path"
 	"strings"
 	"sync"
 
@@ -60,8 +59,8 @@ func (h *PodDetailWSHub) Unregister(uid string, c *podDetailWSConn) {
 // Broadcast sends msg to all connections subscribed to uid. Non-blocking; drops if send buffer full.
 func (h *PodDetailWSHub) Broadcast(uid string, msg []byte) {
 	h.mu.RLock()
+	defer h.mu.RUnlock()
 	m, ok := h.conns[uid]
-	h.mu.RUnlock()
 	if !ok || len(m) == 0 {
 		return
 	}
@@ -98,22 +97,8 @@ func PodDetailWS() gin.HandlerFunc {
 	}
 	return func(c *gin.Context) {
 		pathRaw := c.Request.URL.Path
-		// Prefer uid from path: /api/v1/ws/pod/<uid> or /ws/pod/<uid> so proxies that strip or alter path still work.
-		uid := ""
-		if idx := strings.Index(pathRaw, wsPodPathPrefix); idx >= 0 {
-			uid = strings.TrimSpace(pathRaw[idx+len(wsPodPathPrefix):])
-			if i := strings.Index(uid, "?"); i >= 0 {
-				uid = strings.TrimSpace(uid[:i])
-			}
-			uid = strings.Trim(uid, "/")
-		}
-		if uid == "" {
-			uid = strings.TrimSpace(c.Param("uid"))
-		}
-		if uid == "" && c.Request.URL != nil {
-			base := strings.TrimSuffix(pathRaw, "/")
-			uid = path.Base(base)
-		}
+		// Subscribe to exactly the UID checked by route authorization.
+		uid := strings.TrimSpace(c.Param("uid"))
 		if uid == "" || uid == "pod" {
 			log.Printf("[PodDetail WS] 400: uid empty; path=%q", pathRaw)
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid required"})
