@@ -9,13 +9,46 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
+
+// scopeRuntimeQuery restricts both rows and counts to authorized pod identities.
+// Unscoped pod lookup preserves ownership for retained evidence of deleted pods.
+func scopeRuntimeQuery(db *gorm.DB, c *gin.Context, query *gorm.DB) (*gorm.DB, bool) {
+	clusterID := strings.TrimSpace(c.Query("clusterId"))
+	if clusterID != "" && !middleware.ClusterAllowed(c, clusterID) {
+		middleware.AbortClusterScopeDenied(db, c, clusterID)
+		return query, false
+	}
+	if uid := strings.TrimSpace(c.Query("podUid")); uid != "" {
+		if !requireResourceUIDClusterScope(db, c, uid) {
+			return query, false
+		}
+	}
+	pods := db.Unscoped().Model(&models.Pod{}).Select("uid")
+	restricted := false
+	if ids, scoped := middleware.ScopedClusterIDs(c); scoped {
+		pods = pods.Where("cluster_id IN ?", ids)
+		restricted = true
+	}
+	if clusterID != "" {
+		pods = pods.Where("cluster_id = ?", clusterID)
+		restricted = true
+	}
+	if restricted {
+		query = query.Where("pod_uid IN (?)", pods)
+	}
+	return query, true
+}
 
 // GetRuntimeSignalsList returns runtime signals with optional filters (active pods only when no podUid filter).
 func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query := db.Model(&models.RuntimeSignal{})
+		query, allowed := scopeRuntimeQuery(db, c, db.Model(&models.RuntimeSignal{}))
+		if !allowed {
+			return
+		}
 
 		// Filter by pod_uid
 		if podUID := c.Query("podUid"); podUID != "" {
@@ -35,8 +68,13 @@ func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("category = ?", category)
 		}
 
-		// Filter by last N minutes (takes precedence over date range for recent data)
-		if sinceStr := c.Query("sinceMinutes"); sinceStr != "" {
+		if search := strings.TrimSpace(c.Query("search")); search != "" {
+			pattern := "%" + strings.ToLower(search) + "%"
+			query = query.Where("LOWER(signal_type) LIKE ? OR LOWER(category) LIKE ? OR LOWER(pod_uid) LIKE ?", pattern, pattern, pattern)
+		}
+
+		// Explicit dates take precedence over the relative time window.
+		if sinceStr := c.Query("sinceMinutes"); sinceStr != "" && c.Query("startDate") == "" && c.Query("endDate") == "" {
 			if sinceMin, err := strconv.Atoi(sinceStr); err == nil && sinceMin > 0 && sinceMin <= 43200 {
 				since := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
 				query = query.Where("created_at >= ?", since)
@@ -79,8 +117,14 @@ func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Fetch signals
-		if err := query.Order("created_at DESC").
+		orders := map[string]string{"newest": "created_at DESC", "oldest": "created_at ASC", "confidence_desc": "confidence DESC", "confidence_asc": "confidence ASC", "signal_asc": "signal_type ASC"}
+		order := orders[c.DefaultQuery("sort", "newest")]
+		if order == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid sort"})
+			return
+		}
+		// Apply ordering before pagination, with a stable tie-breaker.
+		if err := query.Order(order).Order("id ASC").
 			Limit(limit).
 			Offset(offset).
 			Find(&signals).Error; err != nil {
@@ -111,6 +155,11 @@ func GetRuntimeSignalSuppressionStats(db *gorm.DB) gin.HandlerFunc {
 		from := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
 		query := db.Model(&models.RuntimeEvent{}).
 			Where("capability = ? AND created_at >= ?", "NETWORK_TXRX_QUEUE_SPIKE", from)
+		var allowed bool
+		query, allowed = scopeRuntimeQuery(db, c, query)
+		if !allowed {
+			return
+		}
 		if podUID := c.Query("podUid"); podUID != "" {
 			query = query.Where("pod_uid = ?", podUID)
 		}
@@ -177,6 +226,10 @@ func GetRuntimeSignalsByPod(db *gorm.DB) gin.HandlerFunc {
 		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
+			return
+		}
+
+		if !requireResourceUIDClusterScope(db, c, podUID) {
 			return
 		}
 

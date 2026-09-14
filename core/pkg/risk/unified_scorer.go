@@ -152,7 +152,7 @@ func (s *UnifiedScorerV3) CalculateScoreV3(ctx context.Context, resourceUID stri
 	// --- 2. Load insights ---
 	var insights []models.Insight
 	if err := s.db.WithContext(ctx).
-		Where("resource_uid = ? AND status = 'active' AND deleted_at IS NULL", resourceUID).
+		Where("resource_uid = ? AND status IN ('active', 'acknowledged') AND deleted_at IS NULL", resourceUID).
 		Find(&insights).Error; err != nil {
 		log.Printf("[UnifiedScorerV3] failed to load insights for %s: %v", resourceUID, err)
 	}

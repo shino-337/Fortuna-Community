@@ -451,6 +451,12 @@ function mapRiskSignals(raw: unknown): ResourceRiskSignals | undefined {
 // - getUsers(): GET /users (from users table; admin only when auth enabled)
 // - getRotationHistory(): GET /certificates/rotation/history (stub [] until rotation_history table)
 
+export function normalizeInsightStatus(status: unknown): string {
+  if (status === 'active' || status === 'new') return 'new';
+  if (status === 'acknowledged' || status === 'resolved' || status === 'dismissed') return status;
+  return 'unknown';
+}
+
 export const api = {
   login: async (username: string, password: string): Promise<{ user: User; token: string }> => {
     const resp = await request<{
@@ -807,7 +813,7 @@ export const api = {
         breakdown: Array.isArray(insight.breakdown) ? insight.breakdown : undefined,
         // Unified display standard: use authoritative score from risk_scores when present.
         score: finalScoreFromApi != null ? Math.round(finalScoreFromApi) : undefined,
-        status: insight.status === 'active' ? 'new' : insight.status === 'resolved' ? 'resolved' : 'acknowledged',
+        status: normalizeInsightStatus(insight.status),
         timestamp: (insight.detectedAt ?? insight.createdAt) != null ? String(insight.detectedAt ?? insight.createdAt) : undefined,
         affectedResources: [
           {
@@ -983,7 +989,7 @@ export const api = {
           score: finalScoreFromApi != null ? Math.min(100, Math.max(0, Math.round(finalScoreFromApi))) : undefined,
           category: itype === 'vulnerability' || itype === 'supply_chain_malware' ? 'sbom' : 'security',
           insightType: itype,
-          status: insight.status === 'active' ? 'new' : insight.status === 'resolved' ? 'resolved' : 'acknowledged',
+          status: normalizeInsightStatus(insight.status),
           timestamp: insight.detectedAt || insight.createdAt,
           updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
           clusterId: (insight.clusterId ?? insight.resourceNamespace) ?? '',
@@ -2119,7 +2125,7 @@ export const api = {
         description: i.description != null ? String(i.description) : undefined,
         severity: (i.severity || 'medium').toLowerCase(),
         score: i.cvss != null ? Math.round(Number(i.cvss) * 10) : undefined,
-        status: i.status === 'active' ? 'new' : i.status === 'resolved' ? 'resolved' : 'acknowledged',
+        status: normalizeInsightStatus(i.status),
         timestamp: i.detectedAt ?? i.createdAt,
         insightType:
           i.insightType != null
@@ -2483,8 +2489,11 @@ export const api = {
   },
 
   // Phase 2.3: Runtime Signals
-  getRuntimeSignals: async (params?: { podUid?: string; signalType?: string; category?: string; startDate?: string; endDate?: string; sinceMinutes?: number; limit?: number; offset?: number }): Promise<{ signals: RuntimeSignal[]; count: number; total: number }> => {
+  getRuntimeSignals: async (params?: { clusterId?: string; search?: string; sort?: string; podUid?: string; signalType?: string; category?: string; startDate?: string; endDate?: string; sinceMinutes?: number; limit?: number; offset?: number }): Promise<{ signals: RuntimeSignal[]; count: number; total: number }> => {
     const queryParams = new URLSearchParams();
+    if (params?.clusterId) queryParams.append('clusterId', params.clusterId);
+    if (params?.search) queryParams.append('search', params.search);
+    if (params?.sort) queryParams.append('sort', params.sort);
     if (params?.podUid) queryParams.append('podUid', params.podUid);
     if (params?.signalType) queryParams.append('signalType', params.signalType);
     if (params?.category) queryParams.append('category', params.category);

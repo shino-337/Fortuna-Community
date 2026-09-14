@@ -9,6 +9,7 @@ import { formatMinutesHuman } from '../lib/formatDuration';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 
 interface RuntimeSignalsTableProps {
+  clusterId?: string;
   podUid?: string;
   initialFilters?: {
     signalType?: string;
@@ -26,6 +27,7 @@ interface RuntimeSignalsTableProps {
 /** Table of runtime evidence signals — filterable by type/category/time and paginated. */
 export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   podUid,
+  clusterId,
   initialFilters,
   riskAlignedSinceMinutes,
 }) => {
@@ -57,6 +59,10 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
   const [sortBy, setSortBy] = useState<'newest' | 'oldest' | 'confidence_desc' | 'confidence_asc' | 'signal_asc'>('newest');
 
   useEffect(() => {
+    setCurrentPage(1);
+  }, [clusterId, podUid, filters, sortBy, pageSize, sinceMinutesForQuery]);
+
+  useEffect(() => {
     let active = true;
     const fetchSignals = async () => {
       try {
@@ -64,11 +70,14 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
         setError(null);
         const params: Record<string, string | number> = {
           limit: pageSize,
+          sort: sortBy,
+          search: filters.search,
           offset: (currentPage - 1) * pageSize,
         };
         if (sinceMinutesForQuery != null && sinceMinutesForQuery > 0) {
           params.sinceMinutes = sinceMinutesForQuery;
         }
+        if (clusterId) params.clusterId = clusterId;
         if (podUid) {
           params.podUid = podUid;
         }
@@ -105,7 +114,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
 
     fetchSignals();
     return () => { active = false; };
-  }, [podUid, filters.signalType, filters.category, filters.startDate, filters.endDate, currentPage, pageSize, sinceMinutesForQuery, retry]);
+  }, [clusterId, sortBy, filters.search, podUid, filters.signalType, filters.category, filters.startDate, filters.endDate, currentPage, pageSize, sinceMinutesForQuery, retry]);
 
   const getCategoryColor = (category: string | undefined) => {
     const colors: Record<string, string> = {
@@ -144,31 +153,7 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     };
   };
 
-  const filteredSignals = signals.filter((signal) => {
-    if (!filters.search) return true;
-    const searchLower = filters.search.toLowerCase();
-    return (
-      (signal.signalType || '').toLowerCase().includes(searchLower) ||
-      (signal.category || '').toLowerCase().includes(searchLower) ||
-      (signal.podUid || '').toLowerCase().includes(searchLower)
-    );
-  });
-
-  const sortedSignals = [...filteredSignals].sort((a, b) => {
-    switch (sortBy) {
-      case 'oldest':
-        return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
-      case 'confidence_desc':
-        return (b.confidence ?? 0) - (a.confidence ?? 0);
-      case 'confidence_asc':
-        return (a.confidence ?? 0) - (b.confidence ?? 0);
-      case 'signal_asc':
-        return (a.signalType || '').localeCompare(b.signalType || '');
-      case 'newest':
-      default:
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    }
-  });
+  const sortedSignals = signals;
 
   const toggleEvidence = (id: number) => setExpandedEvidence((prev) => ({ ...prev, [id]: !prev[id] }));
   const copyEvidence = (id: number, text: string) => {
@@ -178,17 +163,9 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
     });
   };
 
-  if (loading) {
-    return (
-      <div className="flex flex-col items-center justify-center gap-3 py-12">
-        <div className="w-10 h-10 border-4 border-brand border-t-transparent rounded-full animate-spin" />
-        <p className="text-caption text-muted">Loading runtime evidence...</p>
-      </div>
-    );
-  }
-
   return (
     <div className="space-y-4">
+      {loading && <p role="status" className="text-caption text-muted">Loading runtime evidence...</p>}
       {/* Filters */}
       <div className="flex flex-wrap gap-2">
         <div className="flex-1 min-w-[200px] relative">
@@ -261,17 +238,17 @@ export const RuntimeSignalsTable: React.FC<RuntimeSignalsTableProps> = ({
           </button>
         </div>
       )}
-      {!error && <>
+      {!error && !loading && <>
       {/* Summary: total evidence and selected time window */}
       <div className="flex items-center text-caption text-muted">
         <span>
           {total} runtime event{total !== 1 ? 's' : ''}
-          <span className="ml-2 text-amber-500/80">({formatMinutesHuman(sinceMinutesForQuery)})</span>
+          <span className="ml-2 text-amber-500/80">({filters.startDate || filters.endDate ? `${filters.startDate || 'Beginning'} – ${filters.endDate || 'Now'} (UTC)` : formatMinutesHuman(sinceMinutesForQuery)})</span>
         </span>
       </div>
 
       {/* Runtime evidence list */}
-      {filteredSignals.length === 0 ? (
+      {!loading && signals.length === 0 ? (
         <div className="rounded-lg border border-border bg-base/25 py-10 text-center text-muted">
           <AlertTriangle size={24} className="mx-auto mb-2 opacity-50" />
           <p className="text-body text-text">No runtime evidence found</p>
