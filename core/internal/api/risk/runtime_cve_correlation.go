@@ -17,45 +17,45 @@ import (
 
 // RuntimeCVEEntry is a single correlated record.
 type RuntimeCVEEntry struct {
-	PodUID          string    `json:"podUid"`
-	PodName         string    `json:"podName"`
-	Namespace       string    `json:"namespace"`
-	NodeName        string    `json:"nodeName,omitempty"`
-	EventType       string    `json:"eventType"`
-	Signal          string    `json:"signal,omitempty"`
-	Mitre           string    `json:"mitreTechnique,omitempty"`
-	EventSeverity   string    `json:"eventSeverity"`
-	EventObserved   time.Time `json:"eventObserved"`
-	Syscall         string    `json:"syscall,omitempty"`
-	TargetPath      string    `json:"targetPath,omitempty"`
-	CVEID           string    `json:"cveId"`
-	CVESeverity     string    `json:"cveSeverity"`
-	CVSS            float32   `json:"cvss"`
-	PackageName     string    `json:"packageName"`
-	PackageVersion  string    `json:"packageVersion"`
-	FixedVersion    string    `json:"fixedVersion,omitempty"`
+	PodUID         string    `json:"podUid"`
+	PodName        string    `json:"podName"`
+	Namespace      string    `json:"namespace"`
+	NodeName       string    `json:"nodeName,omitempty"`
+	EventType      string    `json:"eventType"`
+	Signal         string    `json:"signal,omitempty"`
+	Mitre          string    `json:"mitreTechnique,omitempty"`
+	EventSeverity  string    `json:"eventSeverity"`
+	EventObserved  time.Time `json:"eventObserved"`
+	Syscall        string    `json:"syscall,omitempty"`
+	TargetPath     string    `json:"targetPath,omitempty"`
+	CVEID          string    `json:"cveId"`
+	CVESeverity    string    `json:"cveSeverity"`
+	CVSS           float32   `json:"cvss"`
+	PackageName    string    `json:"packageName"`
+	PackageVersion string    `json:"packageVersion"`
+	FixedVersion   string    `json:"fixedVersion,omitempty"`
 }
 
 // RuntimeCVESummary is the aggregated response.
 type RuntimeCVESummary struct {
-	TotalCorrelations   int                     `json:"totalCorrelations"`
-	PodsWithBothSignals int                     `json:"podsWithBothSignals"`
-	CriticalPairCount   int                     `json:"criticalPairCount"`
-	TopRiskyPods        []RuntimeCVEPodSummary  `json:"topRiskyPods"`
-	Entries             []RuntimeCVEEntry       `json:"entries,omitempty"`
-	Insights            []string                `json:"insights"`
+	TotalCorrelations   int                    `json:"totalCorrelations"`
+	PodsWithBothSignals int                    `json:"podsWithBothSignals"`
+	CriticalPairCount   int                    `json:"criticalPairCount"`
+	TopRiskyPods        []RuntimeCVEPodSummary `json:"topRiskyPods"`
+	Entries             []RuntimeCVEEntry      `json:"entries,omitempty"`
+	Insights            []string               `json:"insights"`
 }
 
 // RuntimeCVEPodSummary aggregates per pod.
 type RuntimeCVEPodSummary struct {
-	PodUID          string `json:"podUid"`
-	PodName         string `json:"podName"`
-	Namespace       string `json:"namespace"`
-	RuntimeEvents   int    `json:"runtimeEvents"`
-	CVEMatches      int    `json:"cveMatches"`
-	CriticalCVEs    int    `json:"criticalCves"`
-	HighSevEvents   int    `json:"highSevEvents"`
-	CombinedScore   int    `json:"combinedScore"`
+	PodUID        string `json:"podUid"`
+	PodName       string `json:"podName"`
+	Namespace     string `json:"namespace"`
+	RuntimeEvents int    `json:"runtimeEvents"`
+	CVEMatches    int    `json:"cveMatches"`
+	CriticalCVEs  int    `json:"criticalCves"`
+	HighSevEvents int    `json:"highSevEvents"`
+	CombinedScore int    `json:"combinedScore"`
 }
 
 type runtimeCVERow struct {
@@ -68,6 +68,7 @@ type runtimeCVERow struct {
 	Mitre          string
 	EventSeverity  string
 	ObservedAt     time.Time
+	CreatedAt      time.Time
 	Syscall        string
 	TargetPath     string
 	CVEID          string
@@ -81,6 +82,10 @@ type runtimeCVERow struct {
 // GetRuntimeCVECorrelation returns pods where runtime events AND CVE matches co-occur.
 func GetRuntimeCVECorrelation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveAnalyticsScope(db, c)
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
@@ -94,7 +99,7 @@ func GetRuntimeCVECorrelation(db *gorm.DB) gin.HandlerFunc {
 		}
 		includeEntries := c.DefaultQuery("entries", "false") == "true"
 
-		rows, err := queryRuntimeCVE(ctx, db, namespace, podUID, minSeverity, limit)
+		rows, err := queryRuntimeCVE(ctx, db, namespace, podUID, minSeverity, limit, scope)
 		if err != nil {
 			log.Printf("[RuntimeCVE] query error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query runtime-CVE correlation"})
@@ -106,7 +111,7 @@ func GetRuntimeCVECorrelation(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func queryRuntimeCVE(ctx context.Context, db *gorm.DB, namespace, podUID, minSeverity string, limit int) ([]runtimeCVERow, error) {
+func queryRuntimeCVE(ctx context.Context, db *gorm.DB, namespace, podUID, minSeverity string, limit int, scope analyticsScope) ([]runtimeCVERow, error) {
 	sevFilter := sevMinFilter(minSeverity)
 
 	q := db.WithContext(ctx).Raw(`
@@ -119,7 +124,8 @@ SELECT
   COALESCE(re.signal, '') AS signal,
   COALESCE(re.mitre_technique, '') AS mitre,
   COALESCE(re.severity, '') AS event_severity,
-  COALESCE(re.observed_at, re.created_at) AS observed_at,
+  re.observed_at,
+  re.created_at,
   COALESCE(re.syscall, '') AS syscall,
   COALESCE(re.target_path, '') AS target_path,
   cm.cve_id,
@@ -129,18 +135,23 @@ SELECT
   cm.package_version,
   COALESCE(cm.fixed_version, '') AS fixed_version
 FROM runtime_events re
-JOIN sboms s ON s.pod_uid = re.pod_uid AND s.deleted_at IS NULL
+JOIN (?) s ON s.pod_uid = re.pod_uid AND s.deleted_at IS NULL
 JOIN cve_matches cm ON cm.sbom_id = s.id AND cm.deleted_at IS NULL
-WHERE ($1 = '' OR re.namespace = $1)
-  AND ($2 = '' OR re.pod_uid = $2)
+WHERE (? = '' OR re.namespace = ?)
+  AND (? = '' OR re.pod_uid = ?)
   AND cm.severity IN `+sevFilter+`
 ORDER BY cm.cvss DESC, re.observed_at DESC
-LIMIT $3
-`, namespace, podUID, limit)
+LIMIT ?
+`, scope.sboms(db.WithContext(ctx)), namespace, namespace, podUID, podUID, limit)
 
 	var rows []runtimeCVERow
 	if err := q.Scan(&rows).Error; err != nil {
 		return nil, err
+	}
+	for i := range rows {
+		if rows[i].ObservedAt.IsZero() {
+			rows[i].ObservedAt = rows[i].CreatedAt
+		}
 	}
 	return rows, nil
 }

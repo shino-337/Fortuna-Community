@@ -95,6 +95,10 @@ type supplyChainRow struct {
 // GetSupplyChainCorrelation returns the full CVE → package → container → pod → node correlation view.
 func GetSupplyChainCorrelation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveAnalyticsScope(db, c)
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
@@ -109,7 +113,7 @@ func GetSupplyChainCorrelation(db *gorm.DB) gin.HandlerFunc {
 		includeEntries := c.DefaultQuery("entries", "false") == "true"
 		includeHistorical := c.DefaultQuery("includeHistorical", "false") == "true"
 
-		rows, err := querySupplyChain(ctx, db, namespace, severity, nodeName, limit, includeHistorical)
+		rows, err := querySupplyChain(ctx, db, namespace, severity, nodeName, limit, includeHistorical, scope)
 		if err != nil {
 			log.Printf("[SupplyChain] query error: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to query supply chain data"})
@@ -126,7 +130,7 @@ func GetSupplyChainCorrelation(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func querySupplyChain(ctx context.Context, db *gorm.DB, namespace, severity, nodeName string, limit int, includeHistorical bool) ([]supplyChainRow, error) {
+func querySupplyChain(ctx context.Context, db *gorm.DB, namespace, severity, nodeName string, limit int, includeHistorical bool, scope analyticsScope) ([]supplyChainRow, error) {
 	query := db.WithContext(ctx).Raw(`
 SELECT
   cm.cve_id,
@@ -143,16 +147,16 @@ SELECT
   COALESCE(s.namespace, '') AS namespace,
   COALESCE(p.node_name, '') AS node_name
 FROM cve_matches cm
-JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
+JOIN (?) s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
 LEFT JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
 WHERE cm.deleted_at IS NULL
-  AND ($1 = '' OR s.namespace = $1)
-  AND ($2 = '' OR cm.severity = $2)
-  AND ($3 = '' OR p.node_name = $3)
-  AND ($4 = true OR p.id IS NOT NULL)
+  AND (? = '' OR s.namespace = ?)
+  AND (? = '' OR cm.severity = ?)
+  AND (? = '' OR p.node_name = ?)
+  AND (? = true OR p.id IS NOT NULL)
 ORDER BY cm.cvss DESC, cm.severity ASC
-LIMIT $5
-`, namespace, severity, nodeName, includeHistorical, limit)
+LIMIT ?
+`, scope.sboms(db.WithContext(ctx)), namespace, namespace, severity, severity, nodeName, nodeName, includeHistorical, limit)
 
 	var rows []supplyChainRow
 	if err := query.Scan(&rows).Error; err != nil {

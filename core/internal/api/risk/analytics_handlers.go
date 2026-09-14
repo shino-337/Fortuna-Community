@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"sort"
 	"strconv"
 	"time"
 
@@ -31,6 +32,10 @@ type TrendPoint struct {
 // GetRiskTrendsAnalytics returns risk trends over different time periods
 func GetRiskTrendsAnalytics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveAnalyticsScope(db, c)
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
@@ -41,18 +46,14 @@ func GetRiskTrendsAnalytics(db *gorm.DB) gin.HandlerFunc {
 			days = 30
 		}
 
-		clusterID := c.Query("cluster")
+		clusterID := scope.clusterID
 		namespace := c.Query("namespace")
 
-		cutoffDate := time.Now().AddDate(0, 0, -days)
+		cutoffDate := time.Now().UTC().AddDate(0, 0, -days)
 
 		// Build query
-		query := db.WithContext(ctx).Model(&models.RiskScore{}).
+		query := scope.apply(db.WithContext(ctx).Model(&models.RiskScore{}), "cluster_id").
 			Where("calculated_at >= ?", cutoffDate)
-
-		if clusterID != "" {
-			query = query.Where("cluster_id = ?", clusterID)
-		}
 
 		if namespace != "" {
 			query = query.Where("namespace = ?", namespace)
@@ -70,6 +71,7 @@ func GetRiskTrendsAnalytics(db *gorm.DB) gin.HandlerFunc {
 		trendsMap := make(map[string]*TrendAggregator)
 
 		for _, score := range scores {
+			score.CalculatedAt = score.CalculatedAt.UTC()
 			var dateKey string
 			switch period {
 			case "daily":
@@ -196,13 +198,16 @@ type PeriodMetrics struct {
 // GetRiskComparison compares risk metrics across time periods
 func GetRiskComparison(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveAnalyticsScope(db, c)
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
 		compareType := c.DefaultQuery("compare", "week-over-week") // week-over-week, month-over-month, year-over-year
-		clusterID := c.Query("cluster")
 
-		now := time.Now()
+		now := time.Now().UTC()
 		var currentStart, currentEnd, previousStart, previousEnd time.Time
 
 		switch compareType {
@@ -233,10 +238,18 @@ func GetRiskComparison(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Get current period metrics
-		currentMetrics := getPeriodMetrics(ctx, db, currentStart, currentEnd, clusterID)
+		currentMetrics, err := getPeriodMetrics(ctx, db, currentStart, currentEnd, scope)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch comparison"})
+			return
+		}
 
 		// Get previous period metrics
-		previousMetrics := getPeriodMetrics(ctx, db, previousStart, previousEnd, clusterID)
+		previousMetrics, err := getPeriodMetrics(ctx, db, previousStart, previousEnd, scope)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch comparison"})
+			return
+		}
 
 		// Calculate change
 		change := 0.0
@@ -291,24 +304,33 @@ type CorrelationPoint struct {
 // Supported factors: cve_count, cve_severity, namespace, node.
 func GetRiskCorrelation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveAnalyticsScope(db, c)
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
 
 		factor := c.DefaultQuery("factor", "cve_count")
-		clusterID := c.Query("cluster")
 
 		var result CorrelationResult
+		var err error
 
 		switch factor {
 		case "cve_count":
-			result = correlateCVECountVsRisk(ctx, db, clusterID)
+			result, err = correlateCVECountVsRisk(ctx, db, scope)
 		case "cve_severity":
-			result = correlateCVESeverityVsRisk(ctx, db, clusterID)
+			result, err = correlateCVESeverityVsRisk(ctx, db, scope)
 		default:
-			result = correlateCVECountVsRisk(ctx, db, clusterID)
+			result, err = correlateCVECountVsRisk(ctx, db, scope)
 			result.Factor = factor
 		}
 
+		if err != nil {
+			log.Printf("[RiskCorrelation] query error: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch correlation"})
+			return
+		}
 		c.JSON(http.StatusOK, result)
 	}
 }
@@ -320,37 +342,18 @@ type nsRiskRow struct {
 	CritCount int64
 }
 
-func correlateCVECountVsRisk(ctx context.Context, db *gorm.DB, clusterID string) CorrelationResult {
+func correlateCVECountVsRisk(ctx context.Context, db *gorm.DB, scope analyticsScope) (CorrelationResult, error) {
 	result := CorrelationResult{Factor: "cve_count", Insights: []string{}}
 
-	var rows []nsRiskRow
-	q := db.WithContext(ctx).Raw(`
-SELECT
-  rs.namespace,
-  AVG(rs.total_score) AS avg_score,
-  COUNT(DISTINCT cm.cve_id) AS cve_count,
-  COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) AS crit_count
-FROM risk_scores rs
-LEFT JOIN sboms s ON s.namespace = rs.namespace AND s.deleted_at IS NULL
-LEFT JOIN cve_matches cm ON cm.sbom_id = s.id AND cm.deleted_at IS NULL
-WHERE rs.namespace != ''
-  AND ($1 = '' OR rs.cluster_id = $1)
-GROUP BY rs.namespace
-HAVING COUNT(DISTINCT cm.cve_id) > 0
-ORDER BY cve_count DESC
-LIMIT 100
-`, clusterID)
-
-	if err := q.Scan(&rows).Error; err != nil {
-		log.Printf("[RiskCorrelation] query error: %v", err)
-		result.Insights = append(result.Insights, "Query failed: "+err.Error())
-		return result
+	rows, err := queryNamespaceCorrelation(ctx, db, scope, false)
+	if err != nil {
+		return result, err
 	}
 
 	if len(rows) < 3 {
 		result.Strength = "insufficient_data"
 		result.Insights = append(result.Insights, "Need at least 3 namespaces with CVE matches for correlation")
-		return result
+		return result, nil
 	}
 
 	xs := make([]float64, len(rows))
@@ -388,40 +391,21 @@ LIMIT 100
 			fmt.Sprintf("Most exposed namespace: %s (%d unique CVEs)", maxCVENs, maxCVE))
 	}
 
-	return result
+	return result, nil
 }
 
-func correlateCVESeverityVsRisk(ctx context.Context, db *gorm.DB, clusterID string) CorrelationResult {
+func correlateCVESeverityVsRisk(ctx context.Context, db *gorm.DB, scope analyticsScope) (CorrelationResult, error) {
 	result := CorrelationResult{Factor: "cve_severity", Insights: []string{}}
 
-	var rows []nsRiskRow
-	q := db.WithContext(ctx).Raw(`
-SELECT
-  rs.namespace,
-  AVG(rs.total_score) AS avg_score,
-  COUNT(DISTINCT cm.cve_id) AS cve_count,
-  COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) AS crit_count
-FROM risk_scores rs
-LEFT JOIN sboms s ON s.namespace = rs.namespace AND s.deleted_at IS NULL
-LEFT JOIN cve_matches cm ON cm.sbom_id = s.id AND cm.deleted_at IS NULL
-WHERE rs.namespace != ''
-  AND ($1 = '' OR rs.cluster_id = $1)
-GROUP BY rs.namespace
-HAVING COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) > 0
-ORDER BY crit_count DESC
-LIMIT 100
-`, clusterID)
-
-	if err := q.Scan(&rows).Error; err != nil {
-		log.Printf("[RiskCorrelation] severity query error: %v", err)
-		result.Insights = append(result.Insights, "Query failed")
-		return result
+	rows, err := queryNamespaceCorrelation(ctx, db, scope, true)
+	if err != nil {
+		return result, err
 	}
 
 	if len(rows) < 3 {
 		result.Strength = "insufficient_data"
 		result.Insights = append(result.Insights, "Need at least 3 namespaces with critical CVEs for severity correlation")
-		return result
+		return result, nil
 	}
 
 	xs := make([]float64, len(rows))
@@ -445,7 +429,7 @@ LIMIT 100
 	result.Insights = append(result.Insights,
 		fmt.Sprintf("Total critical CVEs across %d namespaces: %d", len(rows), totalCrit))
 
-	return result
+	return result, nil
 }
 
 func pearsonCorrelation(xs, ys []float64) float64 {
@@ -507,22 +491,18 @@ func getWeekStart(t time.Time) time.Time {
 	return time.Date(weekStart.Year(), weekStart.Month(), weekStart.Day(), 0, 0, 0, 0, weekStart.Location())
 }
 
-func getPeriodMetrics(ctx context.Context, db *gorm.DB, start, end time.Time, clusterID string) PeriodMetrics {
-	query := db.WithContext(ctx).Model(&models.RiskScore{}).
+func getPeriodMetrics(ctx context.Context, db *gorm.DB, start, end time.Time, scope analyticsScope) (PeriodMetrics, error) {
+	query := scope.apply(db.WithContext(ctx).Model(&models.RiskScore{}), "cluster_id").
 		Where("calculated_at >= ? AND calculated_at < ?", start, end)
-
-	if clusterID != "" {
-		query = query.Where("cluster_id = ?", clusterID)
-	}
 
 	var scores []models.RiskScore
 	if err := query.Find(&scores).Error; err != nil {
 		log.Printf("[getPeriodMetrics] Error: %v", err)
-		return PeriodMetrics{}
+		return PeriodMetrics{}, err
 	}
 
 	if len(scores) == 0 {
-		return PeriodMetrics{}
+		return PeriodMetrics{}, nil
 	}
 
 	var sumScore float64
@@ -567,17 +547,34 @@ func getPeriodMetrics(ctx context.Context, db *gorm.DB, start, end time.Time, cl
 		P3Count:  p3Count,
 		MaxScore: maxScore,
 		MinScore: minScore,
-	}
+	}, nil
 }
 
 func sortTrendsByDate(trends []TrendPoint) {
-	for i := 0; i < len(trends)-1; i++ {
-		for j := i + 1; j < len(trends); j++ {
-			if trends[i].Date > trends[j].Date {
-				trends[i], trends[j] = trends[j], trends[i]
-			}
-		}
+	sort.Slice(trends, func(i, j int) bool { return trends[i].Date < trends[j].Date })
+}
+
+// Aggregate scores before joining CVEs so SBOM multiplicity cannot weight scores.
+// Pod ownership keeps identically named namespaces in different clusters separate.
+func queryNamespaceCorrelation(ctx context.Context, db *gorm.DB, scope analyticsScope, critical bool) ([]nsRiskRow, error) {
+	db = db.WithContext(ctx)
+	scores := scope.apply(db.Model(&models.RiskScore{}), "cluster_id").
+		Select("cluster_id, namespace, AVG(total_score) AS avg_score").
+		Where("namespace != ''").Group("cluster_id, namespace")
+	q := db.Table("(?) AS rs", scores).
+		Select("rs.namespace, rs.avg_score, COUNT(DISTINCT cm.cve_id) AS cve_count, COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) AS crit_count").
+		Joins("JOIN pods p ON p.cluster_id = rs.cluster_id AND p.namespace = rs.namespace").
+		Joins("JOIN sboms s ON s.pod_uid = p.uid AND s.deleted_at IS NULL").
+		Joins("JOIN cve_matches cm ON cm.sbom_id = s.id AND cm.deleted_at IS NULL").
+		Group("rs.cluster_id, rs.namespace, rs.avg_score")
+	if critical {
+		q = q.Having("COUNT(DISTINCT CASE WHEN cm.severity = 'CRITICAL' THEN cm.cve_id END) > 0").Order("crit_count DESC")
+	} else {
+		q = q.Having("COUNT(DISTINCT cm.cve_id) > 0").Order("cve_count DESC")
 	}
+	var rows []nsRiskRow
+	err := q.Limit(100).Scan(&rows).Error
+	return rows, err
 }
 
 // init function to force link handlers and prevent dead code elimination
