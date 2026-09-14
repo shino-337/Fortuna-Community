@@ -36,8 +36,8 @@ func scorerRank(version string) int {
 	return 0
 }
 
-func scoreKey(s models.RiskScore) string {
-	return s.ResourceType + "|" + s.ResourceUID + "|" + s.ClusterID
+func scoreKey(s models.RiskScore) [3]string {
+	return [3]string{s.ResourceType, s.ResourceUID, s.ClusterID}
 }
 
 func includeLegacyRiskRootFields() bool {
@@ -47,7 +47,7 @@ func includeLegacyRiskRootFields() bool {
 
 // collapsePreferredScores selects one authoritative v3 score per resource.
 func collapsePreferredScores(scores []models.RiskScore) []models.RiskScore {
-	best := make(map[string]models.RiskScore, len(scores))
+	best := make(map[[3]string]models.RiskScore, len(scores))
 	for _, s := range scores {
 		if scorerRank(s.ScorerVersion) == 0 {
 			continue
@@ -104,7 +104,8 @@ func filterRiskScoresByFinalLevel(in []models.RiskScore, want string) []models.R
 }
 
 func sortCollapsedScores(scores []models.RiskScore, mode riskScoreSortMode) {
-	sort.Slice(scores, func(i, j int) bool {
+	sort.Slice(scores, func(i, j int) bool { return scores[i].ID < scores[j].ID })
+	sort.SliceStable(scores, func(i, j int) bool {
 		a, b := scores[i], scores[j]
 		switch mode {
 		case sortPriority:
@@ -155,13 +156,17 @@ func paginateScores(scores []models.RiskScore, page, pageSize int) []models.Risk
 	if pageSize < 1 {
 		pageSize = 50
 	}
+	// Check the quotient before multiplication to avoid integer overflow.
+	if len(scores) == 0 || page-1 > (len(scores)-1)/pageSize {
+		return []models.RiskScore{}
+	}
 	offset := (page - 1) * pageSize
 	if offset >= len(scores) {
 		return []models.RiskScore{}
 	}
-	end := offset + pageSize
-	if end > len(scores) {
-		end = len(scores)
+	end := len(scores)
+	if pageSize < len(scores)-offset {
+		end = offset + pageSize
 	}
 	return scores[offset:end]
 }
@@ -169,14 +174,15 @@ func paginateScores(scores []models.RiskScore, page, pageSize int) []models.Risk
 // GetRiskScores returns all risk scores with optional filtering
 func GetRiskScores(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, authorized := resolveAnalyticsScope(db, c)
+		if !authorized {
+			return
+		}
 		var rawScores []models.RiskScore
 		// Authoritative store: only unified V3 rows (legacy v1/v2 soft-deleted in migration 120).
-		query := db.Model(&models.RiskScore{}).Where("LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", "v3")
-
-		// Filter by cluster
-		if clusterID := c.Query("cluster"); clusterID != "" {
-			query = query.Where("cluster_id = ?", clusterID)
-		}
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+		query := scope.currentScores(db.WithContext(ctx))
 
 		// Filter by namespace
 		if namespace := c.Query("namespace"); namespace != "" {
@@ -205,10 +211,13 @@ func GetRiskScores(db *gorm.DB) gin.HandlerFunc {
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
+		if page < 1 { page = 1 }
+		if pageSize < 1 { pageSize = 50 }
+		if pageSize > 500 { pageSize = 500 }
 		// Load candidate rows then collapse to one authoritative score per resource
 		// v3-only authoritative selection.
 		if err := query.Find(&rawScores).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch risk scores"})
 			return
 		}
 		collapsed := collapsePreferredScores(rawScores)
@@ -387,6 +396,10 @@ func CalculateRiskScore(db *gorm.DB) gin.HandlerFunc {
 // Runs in background; returns 202 Accepted. Query mode must be v3 or omitted (default); V2/both rejected.
 func SyncRiskScores(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, authorized := resolveAnalyticsScope(db, c)
+		if !authorized {
+			return
+		}
 		mode := strings.ToLower(strings.TrimSpace(c.DefaultQuery("mode", "v3")))
 		if mode == "" {
 			mode = "v3"
@@ -397,21 +410,12 @@ func SyncRiskScores(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		var uids []string
-		err := db.Model(&models.Insight{}).
-			Where("status IN (?) AND deleted_at IS NULL", []string{"active", "acknowledged"}).
-			Distinct("resource_uid").
-			Pluck("resource_uid", &uids).Error
+		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer cancel()
+		filtered, err := scope.syncUIDs(db.WithContext(ctx))
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to select resources for sync"})
 			return
-		}
-		// Filter empty UIDs
-		filtered := make([]string, 0, len(uids))
-		for _, u := range uids {
-			if strings.TrimSpace(u) != "" {
-				filtered = append(filtered, u)
-			}
 		}
 		count := len(filtered)
 		if count == 0 {
@@ -419,13 +423,9 @@ func SyncRiskScores(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		go func() {
-			ctx := context.Background()
-			ok, fail, total, err := risk.BackfillV3RiskScoresFromActiveInsights(ctx, db)
-			if err != nil {
-				log.Printf("[SyncRiskScores] failed: %v", err)
-				return
-			}
-			log.Printf("[SyncRiskScores] Completed sync total=%d ok=%d fail=%d (mode=%s)", total, ok, fail, mode)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
+			defer cancel()
+			syncSelectedRiskScores(ctx, db, filtered)
 		}()
 		c.JSON(http.StatusAccepted, gin.H{
 			"message":   fmt.Sprintf("Risk score sync started (mode=%s)", mode),
@@ -439,13 +439,17 @@ func SyncRiskScores(db *gorm.DB) gin.HandlerFunc {
 // ✅ FIXED: Uses GORM Query Builder instead of Raw() to avoid SELECT clause stripping
 func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, authorized := resolveAnalyticsScope(db, c)
+		if !authorized {
+			return
+		}
 		// ✅ Step 1: Validate input
 		days, _ := strconv.Atoi(c.DefaultQuery("days", "30"))
 		if days <= 0 || days > 365 {
 			days = 30
 		}
 
-		clusterID := c.Query("cluster")
+		clusterID := scope.clusterID
 		if clusterID != "" && len(clusterID) > 255 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid cluster ID"})
 			return
@@ -454,7 +458,7 @@ func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 		log.Printf("[GetRiskTrends] Fetching trends for last %d days, cluster=%s", days, clusterID)
 
 		// ✅ Step 2: Fetch data using GORM Query Builder (NOT Raw!)
-		cutoffDate := time.Now().AddDate(0, 0, -days)
+		cutoffDate := time.Now().UTC().AddDate(0, 0, -days)
 
 		// Set query timeout
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
@@ -462,8 +466,7 @@ func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 
 		// Build query using GORM Query Builder (consistent with GetRiskScores)
 		// Use time.Time directly - GORM handles it correctly
-		query := db.WithContext(ctx).
-			Model(&models.RiskScore{}).
+		query := scope.apply(db.WithContext(ctx).Model(&models.RiskScore{}), "cluster_id").
 			Where("calculated_at >= ?", cutoffDate)
 
 		// Optional cluster filter
@@ -497,7 +500,7 @@ func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 		trendsMap := make(map[string]*TrendAggregator)
 
 		for _, score := range scores {
-			date := score.CalculatedAt.Format("2006-01-02")
+			date := score.CalculatedAt.UTC().Format("2006-01-02")
 
 			if _, exists := trendsMap[date]; !exists {
 				trendsMap[date] = &TrendAggregator{
@@ -566,5 +569,21 @@ func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 			"period_days": days,
 			"total_days":  len(trends),
 		})
+	}
+}
+
+func syncSelectedRiskScores(ctx context.Context, db *gorm.DB, uids []string) {
+	scorer := risk.NewUnifiedScorerV3(db)
+	for _, uid := range uids {
+		if ctx.Err() != nil {
+			return
+		}
+		score, err := scorer.CalculateScoreV3(ctx, uid)
+		if err == nil {
+			err = scorer.SaveScoreV3(ctx, score)
+		}
+		if err != nil {
+			log.Printf("[SyncRiskScores] resource_uid=%s failed: %v", uid, err)
+		}
 	}
 }

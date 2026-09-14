@@ -74,9 +74,17 @@ func analyticsFixture(t *testing.T) (*gorm.DB, func(string, string) *httptest.Re
 	r.GET("/correlation", GetRiskCorrelation(db))
 	r.GET("/supply-chain", GetSupplyChainCorrelation(db))
 	r.GET("/runtime-cve", GetRuntimeCVECorrelation(db))
+	r.GET("/scores", GetRiskScores(db))
+	r.GET("/priorities", GetPriorityStatistics(db))
+	r.GET("/top", GetTopRisks(db))
+	r.GET("/grouped", GetGroupedRisks(db))
+	r.GET("/legacy-trends", GetRiskTrends(db))
+	r.POST("/sync", SyncRiskScores(db))
 	return db, func(path, who string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
-		req := httptest.NewRequest("GET", path, nil)
+		method := "GET"
+		if strings.HasPrefix(path, "/sync") { method = "POST" }
+		req := httptest.NewRequest(method, path, nil)
 		req.Header.Set("Test-User", who)
 		r.ServeHTTP(w, req)
 		return w

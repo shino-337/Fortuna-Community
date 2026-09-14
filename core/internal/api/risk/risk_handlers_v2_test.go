@@ -34,6 +34,7 @@ func setupCalculateRiskScoreSQLite(t *testing.T) (*gin.Engine, *gorm.DB) {
 		t.Fatalf("create unique index: %v", err)
 	}
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user", &models.User{Role: models.RoleAdmin}) })
 	v1 := r.Group("/api/v1")
 	v1.GET("/risk/scores", GetRiskScores(db))
 	v1.GET("/risk/scores/:uid", GetRiskScore(db))

@@ -77,3 +77,34 @@ Audit continuation order:
 This patch does not certify those remaining APIs. Correlation summaries are based
 on the limited result set; runtime event/CVE pair counts are not distinct event or
 CVE counts. PostgreSQL behavior still requires integration validation in the lab.
+
+### Risk score lists, statistics and synchronization
+
+`GET /risk/scores`, `/risk/priorities`, `/risk/top`, `/risk/grouped`,
+`/risk/trends` and `POST /risk/scores/sync` now use the same authenticated
+cluster scope resolution as analytics, including both cluster filter aliases.
+
+Lists, priority statistics and groups select the latest non-deleted V3 row per
+(resource type, resource UID, cluster), breaking equal timestamps by descending
+row ID. Score, namespace and priority filters apply after that selection, so an
+old observation cannot reappear simply because the latest score fails a filter.
+Priority labels still reflect stored P0–P3 metadata; final risk levels remain
+derived from total score. Legacy trends retain historical score observations
+and use UTC calendar dates.
+
+Optional grouped entries are scoped as strictly as their counts; query failures
+return 500 instead of silently omitting entries. Score list page size is bounded
+at 500, invalid nonpositive pagination values are normalized, and large page
+numbers cannot overflow slice offsets. Equal-sort-value rows have stable ID
+ordering.
+
+Sync resolves a distinct UID set once, from active/acknowledged insights. Cluster
+filtered requests require retained pod ownership; unrestricted requests preserve
+all-resource selection. The background worker processes exactly that captured
+set with a 15-minute timeout; it does not invoke global backfill. The response
+count describes queued resources, not successful recalculations. Authorization
+is checked at acceptance, not continuously during the job.
+
+Remaining risk audit: global finding evaluation/historical evaluation, exceptions,
+and attack-step aggregates. Inventory, graph and other runtime surfaces follow.
+Live PostgreSQL validation and end-to-end lab validation remain pending.

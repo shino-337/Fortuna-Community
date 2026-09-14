@@ -25,12 +25,16 @@ type PriorityStats struct {
 // GetPriorityStatistics returns statistics for all priority levels
 func GetPriorityStatistics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, authorized := resolveAnalyticsScope(db, c)
+		if !authorized {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
 		// Get total count for percentage calculation
 		var totalCount int64
-		if err := db.WithContext(ctx).Model(&models.RiskScore{}).Count(&totalCount).Error; err != nil {
+		if err := scope.currentScores(db.WithContext(ctx)).Count(&totalCount).Error; err != nil {
 			log.Printf("[GetPriorityStatistics] Error counting total: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch statistics"})
 			return
@@ -46,8 +50,7 @@ func GetPriorityStatistics(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var results []PriorityResult
-		err := db.WithContext(ctx).
-			Model(&models.RiskScore{}).
+		err := scope.currentScores(db.WithContext(ctx)).
 			Select("priority_level, COUNT(*) as count, AVG(total_score) as avg_score, MAX(total_score) as max_score, MIN(total_score) as min_score").
 			Group("priority_level").
 			Find(&results).Error
@@ -113,6 +116,10 @@ func GetPriorityStatistics(db *gorm.DB) gin.HandlerFunc {
 // GetTopRisks returns top N risks, optionally filtered by priority
 func GetTopRisks(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, authorized := resolveAnalyticsScope(db, c)
+		if !authorized {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
 		defer cancel()
 
@@ -129,13 +136,13 @@ func GetTopRisks(db *gorm.DB) gin.HandlerFunc {
 		priority := c.Query("priority")
 
 		// Optional cluster filter
-		clusterID := c.Query("cluster")
+		clusterID := scope.clusterID
 
 		// Optional namespace filter
 		namespace := c.Query("namespace")
 
 		// Build query
-		query := db.WithContext(ctx).Model(&models.RiskScore{})
+		query := scope.currentScores(db.WithContext(ctx))
 
 		if priority != "" {
 			query = query.Where("priority_level = ?", priority)
@@ -151,7 +158,7 @@ func GetTopRisks(db *gorm.DB) gin.HandlerFunc {
 
 		// Fetch top risks ordered by score descending
 		var risks []models.RiskScore
-		err := query.Order("total_score DESC").Limit(limit).Find(&risks).Error
+		err := query.Order("total_score DESC, id ASC").Limit(limit).Find(&risks).Error
 
 		if err != nil {
 			log.Printf("[GetTopRisks] Error fetching top risks: %v", err)
@@ -182,6 +189,10 @@ type GroupedRisk struct {
 // GetGroupedRisks returns risks grouped by cluster, namespace, type, or priority
 func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, authorized := resolveAnalyticsScope(db, c)
+		if !authorized {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
 
@@ -196,7 +207,7 @@ func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 		priority := c.Query("priority")
 
 		// Optional cluster filter (when grouping by namespace or type)
-		clusterID := c.Query("cluster")
+		clusterID := scope.clusterID
 
 		// Optional namespace filter (when grouping by type)
 		namespace := c.Query("namespace")
@@ -205,7 +216,7 @@ func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 		includeRisks := c.Query("includeRisks") == "true"
 
 		// Build base query
-		query := db.WithContext(ctx).Model(&models.RiskScore{})
+		query := scope.currentScores(db.WithContext(ctx))
 
 		if priority != "" {
 			query = query.Where("priority_level = ?", priority)
@@ -268,7 +279,7 @@ func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 			// Optionally include actual risks
 			if includeRisks {
 				var risks []models.RiskScore
-				riskQuery := db.WithContext(ctx).Model(&models.RiskScore{})
+				riskQuery := scope.currentScores(db.WithContext(ctx))
 
 				// Apply same filters
 				if priority != "" {
@@ -293,9 +304,11 @@ func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 					riskQuery = riskQuery.Where("priority_level = ?", result.Key)
 				}
 
-				if err := riskQuery.Order("total_score DESC").Limit(10).Find(&risks).Error; err == nil {
-					gr.Risks = risks
+				if err := riskQuery.Order("total_score DESC, id ASC").Limit(10).Find(&risks).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch grouped risk entries"})
+					return
 				}
+				gr.Risks = risks
 			}
 
 			grouped[result.Key] = gr
