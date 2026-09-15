@@ -142,3 +142,29 @@ Invalid exception IDs return 400; query errors return generic 500 responses.
 
 Attack-step summaries include only active pods in the authorized clusters.
 Authorization and cluster filtering happen before grouping and averaging.
+
+### ServiceAccount inventory authorization
+
+ServiceAccount list totals and pages are restricted to authorized clusters;
+`cluster` and `clusterId` are supported with conflict/foreign-filter rejection.
+`pageSize=-1` remains capped at 1000 authorized records. Pages use stable ID ordering;
+nonpositive page numbers normalize to 1 and oversized offsets return empty pages.
+Detail, permission, update and delete handlers check the account's stored cluster
+before returning related data or performing mutations (including legacy ID handlers).
+
+Individual updates now accept **labels only**, either a JSON object of string
+values or its JSON-encoded string. They update local inventory metadata, not the
+Kubernetes object; subsequent agent synchronization can overwrite them. UID,
+cluster, name, namespace, credentials, relationships and lifecycle fields cannot
+be mass-assigned. Unknown fields reject the entire update.
+
+Individual deletion requires the target cluster's stored kubeconfig. Missing
+configuration returns 503; initialization/API failures return 502 and retain the
+inventory record. The handler no longer falls back to the server's default cluster
+or reports Kubernetes success when client initialization failed. Kubernetes and
+DB deletion are not an atomic transaction; live integration still needs lab testing.
+
+Remaining Inventory audit: RBAC permission calculation (including RoleBindings to
+ClusterRoles and namespace-qualified grants), bulk mutation semantics, deployment/
+ReplicaSet surfaces, capability summaries and cluster/agent identity. This change
+secures access to the permission view but does not certify its effective-rule calculation.
