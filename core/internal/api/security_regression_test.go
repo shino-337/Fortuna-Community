@@ -103,15 +103,15 @@ func TestBulkServiceAccountDeleteHonorsClusterScope(t *testing.T) {
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("bulk delete: want 200 got %d body=%s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("bulk delete: want 403 got %d body=%s", w.Code, w.Body.String())
 	}
 
 	var countA, countB int64
 	db.Unscoped().Model(&models.ServiceAccount{}).Where("id = ?", saA.ID).Count(&countA)
 	db.Unscoped().Model(&models.ServiceAccount{}).Where("id = ?", saB.ID).Count(&countB)
-	if countA != 0 {
-		t.Fatalf("expected in-scope service account hard-deleted, remaining count %d", countA)
+	if countA != 1 {
+		t.Fatalf("expected rejected batch to preserve in-scope service account, remaining count %d", countA)
 	}
 	if countB != 1 {
 		t.Fatalf("expected out-of-scope service account preserved, remaining count %d", countB)

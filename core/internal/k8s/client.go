@@ -3,8 +3,11 @@ package k8s
 import (
 	"context"
 	"fmt"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"path/filepath"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -112,3 +115,17 @@ func (c *Client) DeleteServiceAccount(namespace, name string) error {
 	)
 }
 
+// DeleteServiceAccountUID prevents deletion of a replacement object with the same name.
+func (c *Client) DeleteServiceAccountUID(ctx context.Context, namespace, name, uid string) error {
+	if uid == "" {
+		return fmt.Errorf("ServiceAccount UID required")
+	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	target := types.UID(uid)
+	err := c.Clientset.CoreV1().ServiceAccounts(namespace).Delete(ctx, name, metav1.DeleteOptions{Preconditions: &metav1.Preconditions{UID: &target}})
+	if apierrors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}

@@ -13,7 +13,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/fortuna/core/internal/k8s"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/graph"
@@ -993,47 +992,12 @@ func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Try to delete from Kubernetes cluster first
-		if sa.Cluster.Kubeconfig == "" {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster-specific Kubernetes credentials are required for deletion"})
+		code, message := deleteServiceAccountResource(db, c, &sa)
+		if code != http.StatusOK {
+			c.JSON(code, gin.H{"error": message})
 			return
 		}
-		k8sClient, k8sErr := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
-		if k8sErr != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to initialize the target cluster client"})
-			return
-		}
-		k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
-		if k8sErr != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Kubernetes deletion failed; inventory record retained"})
-			return
-		}
-
-		userID := auditUserID(c)
-		username := c.GetString("username")
-		auditLog := models.AuditLog{
-			ClusterID:  sa.ClusterID,
-			UserID:     userID,
-			Action:     "delete",
-			Resource:   "serviceaccount",
-			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username,
-			IP:         c.ClientIP(),
-		}
-
-		// Add K8s deletion result to audit details
-		auditLog.Details = `{"k8s_deletion":"success"}`
-		db.Create(&auditLog)
-
-		// Delete from database
-		if err := db.Delete(&sa).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Both Kubernetes and database deletion completed.
-		message := "ServiceAccount deleted from Kubernetes cluster and database"
-		c.JSON(http.StatusOK, gin.H{"message": message})
+		c.JSON(code, gin.H{"message": message})
 	}
 }
 
@@ -1108,42 +1072,12 @@ func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if sa.Cluster.Kubeconfig == "" {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster-specific Kubernetes credentials are required for deletion"})
+		code, message := deleteServiceAccountResource(db, c, &sa)
+		if code != http.StatusOK {
+			c.JSON(code, gin.H{"error": message})
 			return
 		}
-		k8sClient, k8sErr := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
-		if k8sErr != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to initialize the target cluster client"})
-			return
-		}
-		k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
-		if k8sErr != nil {
-			c.JSON(http.StatusBadGateway, gin.H{"error": "Kubernetes deletion failed; inventory record retained"})
-			return
-		}
-
-		userID := auditUserID(c)
-		username := c.GetString("username")
-		auditLog := models.AuditLog{
-			ClusterID:  sa.ClusterID,
-			UserID:     userID,
-			Action:     "delete",
-			Resource:   "serviceaccount",
-			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username,
-			IP:         c.ClientIP(),
-		}
-		auditLog.Details = `{"k8s_deletion":"success"}`
-		db.Create(&auditLog)
-
-		if err := db.Delete(&sa).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		message := "ServiceAccount deleted from Kubernetes cluster and database"
-		c.JSON(http.StatusOK, gin.H{"message": message})
+		c.JSON(code, gin.H{"message": message})
 	}
 }
 
