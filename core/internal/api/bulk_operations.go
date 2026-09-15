@@ -1,16 +1,14 @@
 package api
 
 import (
-	"net/http"
-	"strconv"
-
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
-
+	"github.com/fortuna/core/internal/k8s"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
-	"github.com/fortuna/core/pkg/securityaudit"
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+	"net/http"
+	"strconv"
 )
 
 func auditUserID(c *gin.Context) uint {
@@ -22,252 +20,137 @@ func auditUserID(c *gin.Context) uint {
 	return 0
 }
 
-func scopedServiceAccountsByIDs(db *gorm.DB, c *gin.Context, ids []uint, includeDeleted bool) ([]models.ServiceAccount, bool, error) {
-	allowedClusters, restricted := middleware.ScopedClusterIDs(c)
-	if restricted && len(allowedClusters) == 0 {
-		return nil, false, nil
-	}
-	q := db.Model(&models.ServiceAccount{}).Where("id IN ?", ids)
-	if includeDeleted {
-		q = q.Unscoped()
-	}
-	if restricted {
-		q = q.Where("cluster_id IN ?", allowedClusters)
-	}
-	var sas []models.ServiceAccount
-	if err := q.Find(&sas).Error; err != nil {
-		return nil, true, err
-	}
-	return sas, true, nil
+type bulkServiceAccountRequest struct {
+	IDs []uint `json:"ids" binding:"required,min=1,max=100"`
 }
 
-func serviceAccountIDs(sas []models.ServiceAccount) []uint {
-	ids := make([]uint, 0, len(sas))
-	for _, sa := range sas {
-		ids = append(ids, sa.ID)
+func bulkServiceAccountPermission(db *gorm.DB, c *gin.Context, action authorization.Permission) bool {
+	if _, ok := resolveRiskGovernanceScope(db, c); !ok {
+		return false
 	}
-	return ids
+	for _, permission := range []authorization.Permission{authorization.PermissionInventoryBulk, action} {
+		if !authorization.HasPermission(middleware.GrantedPermissions(c), permission) {
+			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden", "required_permission": permission})
+			return false
+		}
+	}
+	return true
 }
 
-// BulkDisableServiceAccounts disables multiple service accounts
+// Kubernetes has no ServiceAccount disabled field. Never substitute inventory deletion
+// for credential revocation. Keep legacy endpoints explicit until a revocation workflow exists.
 func BulkDisableServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		type BulkRequest struct {
-			IDs []uint `json:"ids" binding:"required,min=1,max=100"`
-		}
-
-		var req BulkRequest
+		var req bulkServiceAccountRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			c.JSON(400, gin.H{"error": "ids must contain 1 to 100 positive IDs"})
 			return
 		}
-
-		// Get user info for audit
-		uid := auditUserID(c)
-		username, _ := c.Get("username")
-
-		sas, allowed, err := scopedServiceAccountsByIDs(db, c, req.IDs, false)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if !bulkServiceAccountPermission(db, c, authorization.PermissionInventoryModify) {
 			return
 		}
-		if !allowed {
-			c.JSON(http.StatusForbidden, gin.H{"error": "no clusters in scope"})
-			return
-		}
-		scopedIDs := serviceAccountIDs(sas)
-
-		// Update service accounts (soft delete)
-		result := db.Where("id IN ?", scopedIDs).Delete(&models.ServiceAccount{})
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-
-		// Log audit for each disabled SA
-		for _, sa := range sas {
-			auditLog := models.AuditLog{
-				ClusterID:  sa.ClusterID,
-				Action:     "disable",
-				Resource:   "serviceaccount",
-				ResourceID: strconv.Itoa(int(sa.ID)),
-				User:       username.(string),
-				IP:         c.ClientIP(),
-			}
-			if uid > 0 {
-				auditLog.UserID = uid
-				db.Create(&auditLog)
-			} else {
-				db.Omit("UserID").Create(&auditLog)
-			}
-		}
-
-		ev := securityaudit.FromRequest(
-			c,
-			authorization.ToStrings(middleware.GrantedPermissions(c)),
-			c.GetString(middleware.CtxJWTSessionID),
-			securityaudit.ActionInventoryServiceAccountBulk+"_disable",
-			"serviceaccount",
-			"bulk",
-			"success",
-			"high",
-			"jwt",
-			nil,
-			map[string]any{"ids": req.IDs, "rowsAffected": result.RowsAffected},
-			nil,
-			nil,
-		)
-		securityaudit.Append(db, &ev)
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": "ServiceAccounts disabled successfully",
-			"count":   result.RowsAffected,
-		})
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "ServiceAccount disable is not implemented; no Kubernetes or inventory changes were made"})
 	}
 }
-
-// BulkDeleteServiceAccounts deletes multiple service accounts
-func BulkDeleteServiceAccounts(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		type BulkRequest struct {
-			IDs []uint `json:"ids" binding:"required,min=1,max=100"`
-		}
-
-		var req BulkRequest
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Get user info for audit
-		uid := auditUserID(c)
-		username, _ := c.Get("username")
-
-		// Get service accounts before deletion for audit and cluster-scope filtering.
-		sas, allowed, err := scopedServiceAccountsByIDs(db, c, req.IDs, false)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !allowed {
-			c.JSON(http.StatusForbidden, gin.H{"error": "no clusters in scope"})
-			return
-		}
-		scopedIDs := serviceAccountIDs(sas)
-
-		// Hard delete
-		result := db.Unscoped().Where("id IN ?", scopedIDs).Delete(&models.ServiceAccount{})
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-
-		// Log audit
-		for _, sa := range sas {
-			auditLog := models.AuditLog{
-				ClusterID:  sa.ClusterID,
-				Action:     "delete",
-				Resource:   "serviceaccount",
-				ResourceID: strconv.Itoa(int(sa.ID)),
-				User:       username.(string),
-				IP:         c.ClientIP(),
-			}
-			if uid > 0 {
-				auditLog.UserID = uid
-				db.Create(&auditLog)
-			} else {
-				db.Omit("UserID").Create(&auditLog)
-			}
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": "ServiceAccounts deleted successfully",
-			"count":   result.RowsAffected,
-		})
-	}
-}
-
-// DisableInactiveServiceAccounts disables service accounts that haven't been used
 func DisableInactiveServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		days, _ := strconv.Atoi(c.DefaultQuery("days", "90"))
-		if days <= 0 {
-			days = 90
-		}
-
-		// Find service accounts not used by any pods in the last N days
-		// This is a simplified version - in production, you'd check pod usage
-		var inactiveSAs []models.ServiceAccount
-		query := db.Model(&models.ServiceAccount{}).
-			Where("updated_at < NOW() - INTERVAL '? days'", days).
-			Where("deleted_at IS NULL")
-
-		// Optionally filter by cluster
-		if clusterID := c.Query("cluster"); clusterID != "" {
-			if !middleware.ClusterAllowed(c, clusterID) {
-				middleware.AbortClusterScopeDenied(db, c, clusterID)
-				return
-			}
-			query = query.Where("cluster_id = ?", clusterID)
-		} else if allowedClusters, restricted := middleware.ScopedClusterIDs(c); restricted {
-			if len(allowedClusters) == 0 {
-				c.JSON(http.StatusForbidden, gin.H{"error": "no clusters in scope"})
-				return
-			}
-			query = query.Where("cluster_id IN ?", allowedClusters)
-		}
-
-		if err := query.Find(&inactiveSAs).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if !bulkServiceAccountPermission(db, c, authorization.PermissionInventoryModify) {
 			return
 		}
-
-		if len(inactiveSAs) == 0 {
-			c.JSON(http.StatusOK, gin.H{
-				"message": "No inactive ServiceAccounts found",
-				"count":   0,
-			})
-			return
-		}
-
-		// Get user info for audit
-		uid := auditUserID(c)
-		username, _ := c.Get("username")
-
-		// Disable inactive SAs
-		ids := make([]uint, len(inactiveSAs))
-		for i, sa := range inactiveSAs {
-			ids[i] = sa.ID
-		}
-
-		result := db.Where("id IN ?", ids).Delete(&models.ServiceAccount{})
-		if result.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": result.Error.Error()})
-			return
-		}
-
-		// Log audit
-		for _, sa := range inactiveSAs {
-			auditLog := models.AuditLog{
-				ClusterID:  sa.ClusterID,
-				Action:     "disable",
-				Resource:   "serviceaccount",
-				ResourceID: strconv.Itoa(int(sa.ID)),
-				User:       username.(string),
-				IP:         c.ClientIP(),
-				Details:    `{"reason":"inactive","days":` + strconv.Itoa(days) + `}`,
-			}
-			if uid > 0 {
-				auditLog.UserID = uid
-				db.Create(&auditLog)
-			} else {
-				db.Omit("UserID").Create(&auditLog)
-			}
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Inactive ServiceAccounts disabled successfully",
-			"count":   result.RowsAffected,
-		})
+		c.JSON(http.StatusNotImplemented, gin.H{"error": "Automatic ServiceAccount disable requires verified usage and credential revocation; no changes were made"})
 	}
+}
+func BulkDeleteServiceAccounts(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !bulkServiceAccountPermission(db, c, authorization.PermissionInventoryDelete) {
+			return
+		}
+		var req bulkServiceAccountRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			c.JSON(400, gin.H{"error": "ids must contain 1 to 100 positive IDs"})
+			return
+		}
+		unique := map[uint]bool{}
+		ids := make([]uint, 0, len(req.IDs))
+		for _, id := range req.IDs {
+			if id == 0 {
+				c.JSON(400, gin.H{"error": "IDs must be positive"})
+				return
+			}
+			if !unique[id] {
+				unique[id] = true
+				ids = append(ids, id)
+			}
+		}
+		// Authorize the entire batch before starting an irreversible Kubernetes operation.
+		var sas []models.ServiceAccount
+		if err := db.WithContext(c.Request.Context()).Where("id IN ?", ids).Order("id ASC").Find(&sas).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Unable to load ServiceAccounts"})
+			return
+		}
+		if len(sas) != len(ids) {
+			c.JSON(403, gin.H{"error": "One or more ServiceAccounts are unavailable or outside your scope; no changes made"})
+			return
+		}
+		for i := range sas {
+			if !authorizeServiceAccount(db, c, &sas[i]) {
+				return
+			}
+		}
+		type result struct {
+			ID      uint   `json:"id"`
+			Status  int    `json:"status"`
+			Message string `json:"message"`
+		}
+		results := make([]result, 0, len(sas))
+		count := 0
+		for i := range sas {
+			sa := &sas[i]
+			code, message := deleteServiceAccountResource(db, c, sa)
+			if code == 200 {
+				count++
+			}
+			results = append(results, result{sa.ID, code, message})
+		}
+		code := http.StatusOK
+		if count != len(sas) {
+			code = http.StatusMultiStatus
+		}
+		c.JSON(code, gin.H{"count": count, "failed": len(sas) - count, "results": results, "message": "See each result for Kubernetes and inventory deletion status"})
+	}
+}
+
+func deleteServiceAccountResource(db *gorm.DB, c *gin.Context, sa *models.ServiceAccount) (int, string) {
+	if sa.UID == "" {
+		return 409, "Kubernetes UID is required; inventory record retained"
+	}
+	var cluster models.Cluster
+	if err := db.WithContext(c.Request.Context()).Where("id = ?", sa.ClusterID).First(&cluster).Error; err != nil {
+		return 503, "Target cluster is unavailable; inventory record retained"
+	}
+	if cluster.Kubeconfig == "" {
+		return 503, "cluster-specific Kubernetes credentials are required for deletion"
+	}
+	client, err := k8s.NewClientFromKubeconfig(cluster.Kubeconfig)
+	if err != nil {
+		return 502, "failed to initialize the target cluster client"
+	}
+	if err = client.DeleteServiceAccountUID(c.Request.Context(), sa.Namespace, sa.Name, sa.UID); err != nil {
+		return 502, "Kubernetes deletion failed or UID changed; inventory record retained"
+	}
+	// Persist the deletion and audit together. A retry accepts Kubernetes NotFound.
+	err = db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("id = ? AND uid = ? AND cluster_id = ?", sa.ID, sa.UID, sa.ClusterID).Delete(&models.ServiceAccount{}).Error; err != nil {
+			return err
+		}
+		row := models.AuditLog{ClusterID: sa.ClusterID, UserID: auditUserID(c), Action: "delete", Resource: "serviceaccount", ResourceID: strconv.FormatUint(uint64(sa.ID), 10), User: c.GetString("username"), IP: c.ClientIP(), Details: `{"k8s_deletion":"success"}`}
+		if row.UserID == 0 {
+			return tx.Omit("UserID").Create(&row).Error
+		}
+		return tx.Create(&row).Error
+	})
+	if err != nil {
+		return 500, "Kubernetes deletion completed but inventory/audit persistence failed; retry to reconcile"
+	}
+	return 200, "ServiceAccount deleted from Kubernetes and inventory"
 }
