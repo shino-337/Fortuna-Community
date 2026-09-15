@@ -39,3 +39,10 @@ Complete A–F before claiming the live investigation flow is validated. Keep
 unsupported disable and scoped legacy AGE behavior explicit until H/G land.
 The VMware lab should verify two-cluster isolation, populated migrations, agent
 identity, evidence loss/recovery, deletion retry and actual UI/API/worker flow.
+
+## Implementation progress
+
+- A: merged in PR #36; runtime evidence read failures propagate to reconciliation.
+- B: shared resolver implemented for permissions, Pod RBAC reports and the risk
+  cluster-admin projection; scope/subject/error regression matrix added.
+- Next: C, per-agent/per-cluster credential enforcement across HTTP and gRPC.

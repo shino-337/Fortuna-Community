@@ -18,7 +18,7 @@ func TestRuntimeInputFailureReachesEvaluators(t *testing.T) {
 				t.Fatal(err)
 			}
 			configureRiskEngineTestDB(t, db)
-			if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
+			if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 				t.Fatal(err)
 			}
 			const uid = "runtime-input-error-pod"
@@ -90,7 +90,7 @@ func TestRuntimeInputRejectsMalformedBindings(t *testing.T) {
 				t.Fatal(err)
 			}
 			configureRiskEngineTestDB(t, db)
-			if err := db.AutoMigrate(&models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
+			if err := db.AutoMigrate(&models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 				t.Fatal(err)
 			}
 			binding := models.RoleBinding{UID: "bad-binding", ClusterID: "c", Namespace: "ns", Name: "bad", Subjects: subjects, RoleRef: `{"kind":"ClusterRole","name":"cluster-admin"}`}
