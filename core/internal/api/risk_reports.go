@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/rbacinventory"
 )
 
 type SubjectReport struct {
@@ -39,16 +40,16 @@ type RoleReport struct {
 }
 
 type PodRiskReport struct {
-	PodUID          string          `json:"podUid"`
-	PodName         string          `json:"podName"`
-	Namespace       string          `json:"namespace"`
-	ClusterID       string          `json:"clusterId"`
-	ServiceAccount  string          `json:"serviceAccount"`
-	ServiceAccountUID string        `json:"serviceAccountUid"`
-	Bindings        []BindingReport `json:"bindings"`
-	Roles           []RoleReport    `json:"roles"`
-	Insights        []models.Insight `json:"insights"`
-	Summary         map[string]interface{} `json:"summary"`
+	PodUID            string                 `json:"podUid"`
+	PodName           string                 `json:"podName"`
+	Namespace         string                 `json:"namespace"`
+	ClusterID         string                 `json:"clusterId"`
+	ServiceAccount    string                 `json:"serviceAccount"`
+	ServiceAccountUID string                 `json:"serviceAccountUid"`
+	Bindings          []BindingReport        `json:"bindings"`
+	Roles             []RoleReport           `json:"roles"`
+	Insights          []models.Insight       `json:"insights"`
+	Summary           map[string]interface{} `json:"summary"`
 }
 
 // GetPodRiskReport builds a detailed RBAC risk report for a pod.
@@ -85,89 +86,49 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
-		var roleBindings []models.RoleBinding
-		db.Where("cluster_id = ? AND namespace = ? AND deleted_at IS NULL", pod.ClusterID, pod.Namespace).Find(&roleBindings)
-
-		var clusterRoleBindings []models.ClusterRoleBinding
-		db.Where("cluster_id = ? AND deleted_at IS NULL", pod.ClusterID).Find(&clusterRoleBindings)
-
-		matchedRoleRefs := make([]map[string]string, 0)
+		grants, err := rbacinventory.Resolve(db.WithContext(c.Request.Context()), &models.ServiceAccount{ClusterID: pod.ClusterID, Namespace: pod.Namespace, Name: pod.ServiceAccount})
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to resolve synchronized RBAC inventory"})
+			return
+		}
+		resolvedRoles := make([]RoleReport, 0)
 		resourceUIDs := []string{pod.UID}
 		if report.ServiceAccountUID != "" {
 			resourceUIDs = append(resourceUIDs, report.ServiceAccountUID)
 		}
-
-		for _, rb := range roleBindings {
+		for _, grant := range grants.RoleBindings {
+			rb := grant.RoleBinding
+			kind, name := "Role", ""
+			if grant.Role != nil {
+				name = grant.Role.Name
+			} else {
+				kind, name = "ClusterRole", grant.ClusterRole.Name
+			}
 			var subjects []SubjectReport
 			if err := json.Unmarshal([]byte(rb.Subjects), &subjects); err != nil {
-				continue
+				c.JSON(500, gin.H{"error": "Invalid binding subjects"})
+				return
 			}
-			matches := false
-			for _, sub := range subjects {
-				if sub.Kind == "ServiceAccount" && sub.Name == pod.ServiceAccount && sub.Namespace == pod.Namespace {
-					matches = true
-					break
-				}
+			report.Bindings = append(report.Bindings, BindingReport{Kind: "RoleBinding", Name: rb.Name, Namespace: rb.Namespace, RoleRefKind: kind, RoleRefName: name, Subjects: subjects, IsClusterAdmin: false})
+			if grant.Role != nil {
+				resourceUIDs = append(resourceUIDs, grant.Role.UID)
+				resolvedRoles = append(resolvedRoles, buildRoleReport("Role", grant.Role.Name, rb.Namespace, grant.Role.Rules))
+			} else {
+				resourceUIDs = append(resourceUIDs, grant.ClusterRole.UID)
+				resolvedRoles = append(resolvedRoles, buildRoleReport("ClusterRole", grant.ClusterRole.Name, "", grant.ClusterRole.Rules))
 			}
-			if !matches {
-				continue
-			}
-
-			var roleRef struct {
-				Kind string `json:"kind"`
-				Name string `json:"name"`
-			}
-			if err := json.Unmarshal([]byte(rb.RoleRef), &roleRef); err != nil {
-				continue
-			}
-
-			report.Bindings = append(report.Bindings, BindingReport{
-				Kind:           "RoleBinding",
-				Name:           rb.Name,
-				Namespace:      rb.Namespace,
-				RoleRefKind:    roleRef.Kind,
-				RoleRefName:    roleRef.Name,
-				Subjects:       subjects,
-				IsClusterAdmin: strings.EqualFold(roleRef.Name, "cluster-admin"),
-			})
-			matchedRoleRefs = append(matchedRoleRefs, map[string]string{"kind": roleRef.Kind, "name": roleRef.Name, "namespace": rb.Namespace})
 			resourceUIDs = append(resourceUIDs, rb.UID)
 		}
-
-		for _, crb := range clusterRoleBindings {
+		for _, grant := range grants.ClusterRoleBindings {
+			crb := grant.ClusterRoleBinding
 			var subjects []SubjectReport
 			if err := json.Unmarshal([]byte(crb.Subjects), &subjects); err != nil {
-				continue
+				c.JSON(500, gin.H{"error": "Invalid binding subjects"})
+				return
 			}
-			matches := false
-			for _, sub := range subjects {
-				if sub.Kind == "ServiceAccount" && sub.Name == pod.ServiceAccount && sub.Namespace == pod.Namespace {
-					matches = true
-					break
-				}
-			}
-			if !matches {
-				continue
-			}
-
-			var roleRef struct {
-				Kind string `json:"kind"`
-				Name string `json:"name"`
-			}
-			if err := json.Unmarshal([]byte(crb.RoleRef), &roleRef); err != nil {
-				continue
-			}
-
-			report.Bindings = append(report.Bindings, BindingReport{
-				Kind:           "ClusterRoleBinding",
-				Name:           crb.Name,
-				Namespace:      "",
-				RoleRefKind:    roleRef.Kind,
-				RoleRefName:    roleRef.Name,
-				Subjects:       subjects,
-				IsClusterAdmin: strings.EqualFold(roleRef.Name, "cluster-admin"),
-			})
-			matchedRoleRefs = append(matchedRoleRefs, map[string]string{"kind": roleRef.Kind, "name": roleRef.Name, "namespace": ""})
+			report.Bindings = append(report.Bindings, BindingReport{Kind: "ClusterRoleBinding", Name: crb.Name, RoleRefKind: "ClusterRole", RoleRefName: grant.ClusterRole.Name, Subjects: subjects, IsClusterAdmin: grant.ClusterRole.Name == "cluster-admin"})
+			resourceUIDs = append(resourceUIDs, grant.ClusterRole.UID)
+			resolvedRoles = append(resolvedRoles, buildRoleReport("ClusterRole", grant.ClusterRole.Name, "", grant.ClusterRole.Rules))
 			resourceUIDs = append(resourceUIDs, crb.UID)
 		}
 
@@ -180,39 +141,14 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
-		for _, ref := range matchedRoleRefs {
-			switch ref["kind"] {
-			case "Role":
-				var role models.Role
-				if err := db.Where("cluster_id = ? AND name = ? AND namespace = ? AND deleted_at IS NULL",
-					pod.ClusterID, ref["name"], ref["namespace"]).First(&role).Error; err != nil {
-					continue
-				}
-				resourceUIDs = append(resourceUIDs, role.UID)
-				roleReport := buildRoleReport("Role", role.Name, role.Namespace, role.Rules)
-				if roleReport.HasWildcard {
-					wildcardRoles++
-				}
-				if roleReport.HasSensitiveActions {
-					overprivilegedRoles++
-				}
-				report.Roles = append(report.Roles, roleReport)
-			case "ClusterRole":
-				var cr models.ClusterRole
-				if err := db.Where("cluster_id = ? AND name = ? AND deleted_at IS NULL",
-					pod.ClusterID, ref["name"]).First(&cr).Error; err != nil {
-					continue
-				}
-				resourceUIDs = append(resourceUIDs, cr.UID)
-				roleReport := buildRoleReport("ClusterRole", cr.Name, "", cr.Rules)
-				if roleReport.HasWildcard {
-					wildcardRoles++
-				}
-				if roleReport.HasSensitiveActions {
-					overprivilegedRoles++
-				}
-				report.Roles = append(report.Roles, roleReport)
+		for _, role := range resolvedRoles {
+			if role.HasWildcard {
+				wildcardRoles++
 			}
+			if role.HasSensitiveActions {
+				overprivilegedRoles++
+			}
+			report.Roles = append(report.Roles, role)
 		}
 
 		if len(resourceUIDs) > 0 {

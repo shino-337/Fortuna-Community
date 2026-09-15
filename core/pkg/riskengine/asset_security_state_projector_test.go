@@ -27,7 +27,7 @@ func TestAssetSecurityStateRuntimeTimestamp(t *testing.T) {
 						t.Fatal(err)
 					}
 					configureRiskEngineTestDB(t, db)
-					if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
+					if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 						t.Fatal(err)
 					}
 					const uid = "timestamp-pod"

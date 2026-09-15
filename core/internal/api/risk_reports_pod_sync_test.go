@@ -22,7 +22,7 @@ func TestGetPodRiskReport_IncludesPodRuntimeInsightsAndSummary(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RuntimeSignal{}); err != nil {
+	if err := db.AutoMigrate(&models.ServiceAccount{}, &models.Role{}, &models.ClusterRole{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RuntimeSignal{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -116,9 +116,9 @@ func TestGetRuntimeSignalsByPod_MatchesReportWindow(t *testing.T) {
 		t.Fatalf("status %d: %s", w.Code, w.Body.String())
 	}
 	var out struct {
-		PodUID  string                `json:"podUid"`
+		PodUID  string                 `json:"podUid"`
 		Signals []models.RuntimeSignal `json:"signals"`
-		Count   int                   `json:"count"`
+		Count   int                    `json:"count"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatal(err)

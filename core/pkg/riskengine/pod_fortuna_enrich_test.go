@@ -19,7 +19,7 @@ func TestEnrichPodFortunaContext(t *testing.T) {
 		t.Fatalf("sqlite: %v", err)
 	}
 	configureRiskEngineTestDB(t, db)
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "11111111-1111-1111-1111-111111111111"
@@ -634,7 +634,7 @@ func TestYAMLEngineClusterAdminPodRule_WithClusterRoleBinding(t *testing.T) {
 		t.Fatalf("sqlite: %v", err)
 	}
 	configureRiskEngineTestDB(t, db)
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.ClusterRoleBinding{}, &models.RoleBinding{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}); err != nil {
+	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.ClusterRoleBinding{}, &models.RoleBinding{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1"}).Error; err != nil {
@@ -647,9 +647,12 @@ func TestYAMLEngineClusterAdminPodRule_WithClusterRoleBinding(t *testing.T) {
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
+	if err := db.Create(&models.ClusterRole{ClusterID: "c1", UID: "admin-role", Name: "cluster-admin", Rules: `[{"verbs":["*"],"resources":["*"],"apiGroups":["*"]}]`}).Error; err != nil {
+		t.Fatal(err)
+	}
 	crb := models.ClusterRoleBinding{
 		ClusterID: "c1", Name: "power-sa-admin", UID: "crb-1",
-		RoleRef:  `{"kind":"ClusterRole","name":"cluster-admin"}`,
+		RoleRef:  `{"apiGroup":"rbac.authorization.k8s.io","kind":"ClusterRole","name":"cluster-admin"}`,
 		Subjects: `[{"kind":"ServiceAccount","name":"power-sa","namespace":"prod"}]`,
 	}
 	if err := db.Create(&crb).Error; err != nil {
@@ -688,7 +691,7 @@ func TestYAMLEnginePssHostNamespacesRule(t *testing.T) {
 		t.Fatalf("sqlite: %v", err)
 	}
 	configureRiskEngineTestDB(t, db)
-	if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "44444444-4444-4444-4444-444444444444"
@@ -739,7 +742,7 @@ func TestYAMLEnginePodRuntimeCorrelationRules(t *testing.T) {
 		t.Fatalf("sqlite: %v", err)
 	}
 	configureRiskEngineTestDB(t, db)
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "22222222-2222-2222-2222-222222222222"

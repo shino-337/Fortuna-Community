@@ -5,7 +5,7 @@ id: cluster-admin-pod
 name: "Pod using ServiceAccount with cluster-admin access"
 category: rbac
 severity: critical
-description: "Pod uses a ServiceAccount that has a RoleBinding or ClusterRoleBinding to the cluster-admin ClusterRole (correlated from Fortuna inventory)"
+description: "Pod uses a ServiceAccount that has a ClusterRoleBinding to the cluster-admin ClusterRole (correlated from Fortuna inventory)"
 enabled: true
 
 conditions:

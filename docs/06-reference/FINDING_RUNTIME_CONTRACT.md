@@ -190,3 +190,29 @@ interpreted as cluster-wide permission. Aggregated ClusterRoles use synchronized
 rules supplied by Kubernetes.
 
 Reference: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+
+## Shared RBAC resolution (work package B)
+
+Permissions API, Pod RBAC reports and the risk-engine cluster-admin projection
+use `core/pkg/rbacinventory`. The resolver matches ServiceAccount subjects,
+canonical ServiceAccount User identities and the standard authenticated/SA Groups.
+RoleBinding namespace defaults apply only to ServiceAccount subjects; an explicit
+SA namespace may differ from the binding's target namespace.
+
+A RoleBinding referencing `cluster-admin` remains a namespace grant. It is visible
+in the permissions/report response but does not set `isClusterAdmin` or
+`service_account_bound_to_cluster_admin`. Those flags require a resolved
+ClusterRoleBinding referencing the exact `cluster-admin` ClusterRole. RoleRef
+API group, kind and referenced inventory are validated consistently. Missing roles
+and storage/JSON failures return errors rather than successful empty evidence.
+
+This is a named-binding detector, not proof of effective superuser access. Custom
+roles with equivalent permissions, modifications to the built-in role, other
+authorizers and credential validity require separate analysis. EffectiveRules
+remain synchronized grants, not a live SubjectAccessReview. Namespaced grants
+omit non-resource URLs; Kubernetes resource discovery is not performed here.
+
+Existing security-state snapshots retain their five-minute cache lifetime before
+recomputation. Source freshness/invalidation remains work package D.
+
+Reference: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
