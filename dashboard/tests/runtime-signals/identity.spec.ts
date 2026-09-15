@@ -17,7 +17,7 @@ test('permissions failure can be retried and shows grant namespace', async ({ pa
   await page.route('**/inventory/serviceaccounts/sa-a', r => r.fulfill({ json: identity('sa-a') }));
   await page.route('**/inventory/serviceaccounts/sa-a/permissions', r => r.fulfill(++attempts === 1 ? { status: 500, json: { error: 'Permission lookup failed' } } : { json: permissions }));
   await page.goto(fixture);
-  await expect(page.getByRole('alert')).toContainText('Permission lookup failed');
+  await expect(page.getByRole('alert')).toContainText('Please try again');
   await expect(page.getByText('No effective rules', { exact: false })).toHaveCount(0);
   await page.getByRole('button', { name: 'Retry', exact: true }).click();
   await expect(page.getByRole('cell', { name: 'Namespace: team', exact: true })).toBeVisible();
