@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { PageLayout } from '../design-system/layouts/PageLayout';
@@ -32,6 +32,7 @@ export const IdentityDetail: React.FC = () => {
   const { id, uid } = useParams<{ id?: string; uid?: string }>();
   const location = useLocation();
   const navigate = useNavigate();
+  const requestSequence = useRef(0);
   const [sa, setSa] = useState<Record<string, unknown> | null>(null);
   const [effectiveRules, setEffectiveRules] = useState<K8sEffectiveRule[]>([]);
   const [roleBindings, setRoleBindings] = useState<K8sRoleBindingPermission[]>([]);
@@ -49,6 +50,7 @@ export const IdentityDetail: React.FC = () => {
 
   const fetchData = useCallback(async () => {
     if (!idOrUid) return;
+    const sequence = ++requestSequence.current;
     setLoading(true);
     setError(null);
     try {
@@ -60,11 +62,13 @@ export const IdentityDetail: React.FC = () => {
         const legacyMatch = list.serviceAccounts.find((sa) => String(sa.id) === idOrUid);
         saData = legacyMatch ? legacyMatch as unknown as Record<string, unknown> : null;
       }
+      if (sequence !== requestSequence.current) return;
       setSa(saData ?? null);
       if (saData) {
         const uidForPermissions = (saData as { uid?: string; id?: string }).uid ?? (saData as { id?: string }).id;
         if (uidForPermissions != null) {
           const permData = await api.getServiceAccountPermissions(String(uidForPermissions));
+          if (sequence !== requestSequence.current) return;
           const rb = permData.roleBindings ?? [];
           const crb = permData.clusterRoleBindings ?? [];
           setRoleBindings(rb);
@@ -85,6 +89,7 @@ export const IdentityDetail: React.FC = () => {
         const namespace = String((saData as { namespace?: unknown }).namespace ?? '');
         if (linkedPodUids.size > 0 && clusterId && namespace) {
           const podData = await api.getPods({ cluster: clusterId, namespace, pageSize: 1000 });
+          if (sequence !== requestSequence.current) return;
           setLinkedPods(podData.pods.filter((pod) => linkedPodUids.has(pod.uid)));
         } else {
           setLinkedPods([]);
@@ -97,14 +102,16 @@ export const IdentityDetail: React.FC = () => {
         setBindingCounts({ roleBindings: 0, clusterRoleBindings: 0 });
       }
     } catch (err) {
+      if (sequence !== requestSequence.current) return;
       setError(err instanceof Error ? err.message : 'Failed to load identity data');
     } finally {
-      setLoading(false);
+      if (sequence === requestSequence.current) setLoading(false);
     }
   }, [canonicalUid, idOrUid]);
 
   useEffect(() => {
-    fetchData();
+    void fetchData();
+    return () => { requestSequence.current++; };
   }, [fetchData]);
 
   if (loading || !idOrUid) {
@@ -113,7 +120,9 @@ export const IdentityDetail: React.FC = () => {
 
   if (error) {
     return (
-      <PageLayout title="Identity unavailable" description={error}>
+      <PageLayout title="Identity unavailable">
+        <p role="alert" className="mb-4 text-danger">{error}</p>
+        <Button variant="secondary" onClick={() => void fetchData()}>Retry</Button>
         <div className="flex flex-wrap gap-2">
           <Button variant="secondary" onClick={() => navigate('/resources?tab=ServiceAccount')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Service accounts
@@ -234,7 +243,7 @@ export const IdentityDetail: React.FC = () => {
         </h3>
         <p className="text-caption text-muted mb-4">
           Based on synchronized inventory; this is not a live authorization check. RoleBindings: {bindingCounts.roleBindings} · ClusterRoleBindings: {bindingCounts.clusterRoleBindings} · Rules
-          shown: {effectiveRules.length}
+          shown: {Math.min(effectiveRules.length, 200)} / {effectiveRules.length}
         </p>
         {effectiveRules.length > 0 ? (
           <div className="ui-table-scroll rounded-lg border border-border">
@@ -253,7 +262,7 @@ export const IdentityDetail: React.FC = () => {
                   <tr key={i} className={UI_TR}>
                     <td className={UI_TD_COMPACT_TIGHT}>{p.scope === "namespace" ? `Namespace: ${p.namespace}` : p.scope === "cluster" ? "Cluster" : "Unknown"}</td>
                     <td className={`${UI_TD_COMPACT_TIGHT} font-mono text-text text-caption`}>
-                      {(p.apiGroups ?? []).join(', ') || '—'}
+                      {(p.apiGroups ?? []).map(group => group || '(core)').join(', ') || '—'}
                     </td>
                     <td className={`${UI_TD_COMPACT_TIGHT} font-mono text-text text-caption`}>
                       {[...(p.resources ?? []), ...(p.nonResourceURLs ?? [])].join(', ') || '—'}

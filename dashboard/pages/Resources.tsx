@@ -1228,21 +1228,21 @@ export const Resources: React.FC = () => {
                   <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 xl:grid-cols-4">
                     <StatCard
                       title="Effective rules"
-                      value={selectedServiceAccountLoading ? '…' : (selectedServiceAccountPermissions?.effectiveRules?.length ?? 0).toLocaleString('en-US')}
+                      value={selectedServiceAccountLoading ? '…' : selectedServiceAccountError ? 'Unavailable' : (selectedServiceAccountPermissions?.effectiveRules?.length ?? 0).toLocaleString('en-US')}
                       icon={<Shield className="w-5 h-5" />}
                       tone="success"
                       subtitle="Permissions granted in scope"
                     />
                     <StatCard
                       title="Role bindings"
-                      value={selectedServiceAccountLoading ? '…' : (selectedServiceAccountPermissions?.roleBindings?.length ?? 0).toLocaleString('en-US')}
+                      value={selectedServiceAccountLoading ? '…' : selectedServiceAccountError ? 'Unavailable' : (selectedServiceAccountPermissions?.roleBindings?.length ?? 0).toLocaleString('en-US')}
                       icon={<Link2 className="w-5 h-5" />}
                       tone="brand"
                       subtitle="Namespace bindings"
                     />
                     <StatCard
                       title="Cluster role bindings"
-                      value={selectedServiceAccountLoading ? '…' : (selectedServiceAccountPermissions?.clusterRoleBindings?.length ?? 0).toLocaleString('en-US')}
+                      value={selectedServiceAccountLoading ? '…' : selectedServiceAccountError ? 'Unavailable' : (selectedServiceAccountPermissions?.clusterRoleBindings?.length ?? 0).toLocaleString('en-US')}
                       icon={<Link2 className="w-5 h-5" />}
                       tone="default"
                       subtitle="Cluster-wide bindings"
@@ -1294,6 +1294,8 @@ export const Resources: React.FC = () => {
                         <p className="text-caption text-muted-2">Binding sources</p>
                         {selectedServiceAccountLoading ? (
                           <div className="mt-2 rounded-lg border border-border bg-surface/60 px-3 py-4 text-caption text-muted">Loading bindings…</div>
+                        ) : selectedServiceAccountError ? (
+                          <p className="mt-2 text-caption text-muted">Bindings could not be loaded.</p>
                         ) : (selectedServiceAccountPermissions?.roleBindings?.length ?? 0) + (selectedServiceAccountPermissions?.clusterRoleBindings?.length ?? 0) > 0 ? (
                           <div className="mt-2 grid gap-2 md:grid-cols-2">
                             {(selectedServiceAccountPermissions?.roleBindings ?? []).map((row, index) => (
