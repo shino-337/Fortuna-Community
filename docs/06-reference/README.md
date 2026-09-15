@@ -10,3 +10,6 @@ Reference documents kept for public users:
 - [Public release checklist](PUBLIC_RELEASE_CHECKLIST.md): full-history secret scan, history rewrite, rotation, and release hygiene before public launch.
 
 For installation and operations, start with [../README.md](../README.md).
+
+- [Regression prevention](REGRESSION_PREVENTION.md): required test contract and merge controls.
+- [Agent credential foundation](AGENT_CREDENTIAL_FOUNDATION.md): C1 boundaries and C2/C3 enforcement work.
