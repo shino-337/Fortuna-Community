@@ -89,7 +89,7 @@ func (s *QueryService) GetServiceAccountPermissions(ctx context.Context, saUID s
 	if !s.engine.IsEnabled() {
 		// Fallback: return empty permissions if AGE not available
 		log.Printf("[QueryService] AGE not enabled, returning empty permissions")
-		return []Permission{}, nil
+		return nil, fmt.Errorf("graph engine or query unavailable")
 	}
 
 	query := `
@@ -106,7 +106,7 @@ func (s *QueryService) GetServiceAccountPermissions(ctx context.Context, saUID s
 	rows, err := s.engine.GetSQLDB().QueryContext(ctx, query, saUID)
 	if err != nil {
 		log.Printf("[QueryService] Failed to execute permissions query: %v", err)
-		return []Permission{}, nil
+		return nil, fmt.Errorf("graph engine or query unavailable")
 	}
 	defer rows.Close()
 
@@ -115,14 +115,14 @@ func (s *QueryService) GetServiceAccountPermissions(ctx context.Context, saUID s
 		var roleName, rulesData, namespace, roleType string
 		if err := rows.Scan(&roleName, &rulesData, &namespace, &roleType); err != nil {
 			log.Printf("[QueryService] Failed to scan permission: %v", err)
-			continue
+			return nil, err
 		}
 
 		// Parse rules from JSON
 		rules, err := s.parsePolicyRules(rulesData)
 		if err != nil {
 			log.Printf("[QueryService] Failed to parse rules: %v", err)
-			continue
+			return nil, err
 		}
 
 		permission := Permission{
@@ -134,14 +134,14 @@ func (s *QueryService) GetServiceAccountPermissions(ctx context.Context, saUID s
 		permissions = append(permissions, permission)
 	}
 
-	return permissions, nil
+	return permissions, rows.Err()
 }
 
 // GetPodsWithEscalationRisk finds pods that can escalate privileges
 func (s *QueryService) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPod, error) {
 	if !s.engine.IsEnabled() {
 		log.Printf("[QueryService] AGE not enabled, returning empty risky pods")
-		return []RiskyPod{}, nil
+		return nil, fmt.Errorf("graph engine or query unavailable")
 	}
 
 	query := `
@@ -163,7 +163,7 @@ func (s *QueryService) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPo
 	rows, err := s.engine.GetSQLDB().QueryContext(ctx, query)
 	if err != nil {
 		log.Printf("[QueryService] Failed to execute risky pods query: %v", err)
-		return []RiskyPod{}, nil
+		return nil, fmt.Errorf("graph engine or query unavailable")
 	}
 	defer rows.Close()
 
@@ -172,7 +172,7 @@ func (s *QueryService) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPo
 		var pod RiskyPod
 		if err := rows.Scan(&pod.UID, &pod.Name, &pod.Namespace, &pod.ServiceAccountName, &pod.RoleName); err != nil {
 			log.Printf("[QueryService] Failed to scan risky pod: %v", err)
-			continue
+			return nil, err
 		}
 
 		// Calculate risk score and reason
@@ -182,7 +182,7 @@ func (s *QueryService) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPo
 		riskyPods = append(riskyPods, pod)
 	}
 
-	return riskyPods, nil
+	return riskyPods, rows.Err()
 }
 
 // PathConstraint defines conditions for finding paths (BloodHound-style)
@@ -251,12 +251,12 @@ func (s *QueryService) parseAttackPath(pathData, pathLengthData string) (AttackP
 	// Simplified parsing - in production, would need proper AGTYPE parsing
 	// For now, return a basic structure
 	path := AttackPath{
-		Nodes:      []PathNode{},
-		Edges:      []PathEdge{},
-		TotalRisk:  7.5, // Default risk score
-		Difficulty: 0.3,  // Default difficulty
-		Impact:     0.9,  // Default impact
-		Length:     2,    // Default length
+		Nodes:       []PathNode{},
+		Edges:       []PathEdge{},
+		TotalRisk:   7.5, // Default risk score
+		Difficulty:  0.3, // Default difficulty
+		Impact:      0.9, // Default impact
+		Length:      2,   // Default length
 		Description: "Attack path from Pod to admin role",
 	}
 
@@ -340,4 +340,3 @@ func (s *QueryService) getRiskReason(roleName string) string {
 	}
 	return "Pod uses ServiceAccount with excessive permissions"
 }
-
