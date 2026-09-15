@@ -345,6 +345,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration146_SeedLegacyFindingCodeRules,                 // Policy Rules: map legacy finding codes into rule catalog
 		Migration147_UserPasswordBootstrapState,                 // Auth: bootstrap default credential state + first-login password change
 		Migration148_NotificationsContextFields,                 // Notifications: category, routing, dedupe and resource context
+		Migration150_AgentClusterIdentity,
 		Migration149_NotificationsResourceName,                  // Notifications: human-readable resource name for UI traceability
 	}
 

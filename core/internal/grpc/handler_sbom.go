@@ -158,9 +158,9 @@ func expectedPurlEcosystemForType(t pb.PackageType) string {
 
 // SBOMServiceServer implements the SBOM-related RPCs from AgentService
 type SBOMServiceServer struct {
-	db              *gorm.DB
-	natsClient      *messaging.NATSClient
-	clusterLimiter  *ingest.ClusterRateLimiter
+	db             *gorm.DB
+	natsClient     *messaging.NATSClient
+	clusterLimiter *ingest.ClusterRateLimiter
 	pb.UnimplementedAgentServiceServer
 }
 
@@ -326,41 +326,41 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 		}
 		if oldNorm == "complete" || oldNorm == "partial" {
 			return &pb.SBOMFindingResponse{
-				Success:  true,
-				Message:  "SBOM reused (monotonic state preserved; no new components)",
-				SbomId:    fmt.Sprintf("%d", existingSBOM.ID),
+				Success:    true,
+				Message:    "SBOM reused (monotonic state preserved; no new components)",
+				SbomId:     fmt.Sprintf("%d", existingSBOM.ID),
 				ReceivedAt: timestamppb.New(time.Now()),
 			}, nil
 		}
 	}
 
 	sbomModel := &models.SBOM{
-		PodUID:         req.PodUid,
-		PodName:        req.PodName,
-		Namespace:      req.Namespace,
-		ContainerName:  req.ContainerName,
-		ImageName:      req.ImageName,
-		ImageDigest:    req.ImageDigest,
-		ImageTag:       req.ImageTag,
-		OSName:         req.GetOsInfo().GetName(),
-		OSVersion:      req.GetOsInfo().GetVersion(),
-		OSArchitecture: req.GetOsInfo().GetArchitecture(),
-		GoVersion:      strings.TrimSpace(req.GetGoVersion()),
-		GeneratedAt:   req.GeneratedAt.AsTime(),
-		AgentID:       req.AgentId,
-		NodeID:        req.NodeId,
-		PackageCount:  len(req.Packages),
-		SBOMFormat:    "fortuna-agent",
-		SBOMContent:   "{}",
-		Labels:        make(map[string]string),
-		Annotations:   make(map[string]string),
-		LastUsedAt:    time.Now(),
-		UseCount:      1,
-		SbomSource:    sbomSource,
-		Confidence:    confidence,
-		Status:        sbomStatus,
-		StatusReason:  sbomStatusReason,
-		ResolverVersion:     resolverVersion,
+		PodUID:             req.PodUid,
+		PodName:            req.PodName,
+		Namespace:          req.Namespace,
+		ContainerName:      req.ContainerName,
+		ImageName:          req.ImageName,
+		ImageDigest:        req.ImageDigest,
+		ImageTag:           req.ImageTag,
+		OSName:             req.GetOsInfo().GetName(),
+		OSVersion:          req.GetOsInfo().GetVersion(),
+		OSArchitecture:     req.GetOsInfo().GetArchitecture(),
+		GoVersion:          strings.TrimSpace(req.GetGoVersion()),
+		GeneratedAt:        req.GeneratedAt.AsTime(),
+		AgentID:            req.AgentId,
+		NodeID:             req.NodeId,
+		PackageCount:       len(req.Packages),
+		SBOMFormat:         "fortuna-agent",
+		SBOMContent:        "{}",
+		Labels:             make(map[string]string),
+		Annotations:        make(map[string]string),
+		LastUsedAt:         time.Now(),
+		UseCount:           1,
+		SbomSource:         sbomSource,
+		Confidence:         confidence,
+		Status:             sbomStatus,
+		StatusReason:       sbomStatusReason,
+		ResolverVersion:    resolverVersion,
 		SignatureDBVersion: signatureDBVersion,
 	}
 
@@ -721,7 +721,7 @@ func (s *SBOMServiceServer) BatchSendSBOMFindings(stream pb.AgentService_BatchSe
 
 // Ping handles health check from agent; updates last_seen_at so dashboard shows agents in time.
 // Upserts agent by agent_id so dashboard updates even if Register failed or ran after first Ping.
-// Prefer agent_id; if empty (old agent image), fallback to node_name (update first matching agent).
+// Legacy pings without agent_id do not update another agent by node name.
 func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
 	agentID := ""
 	nodeName := ""
@@ -741,7 +741,6 @@ func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.
 		return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
 	}
 
-	updated := false
 	if agentID != "" {
 		// Use raw Exec so last_seen_at is always updated (avoids GORM scope/zero-value issues)
 		res := s.db.Exec(
@@ -750,9 +749,7 @@ func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.
 		)
 		if res.Error != nil {
 			log.Printf("[Agent] Ping: failed to update agent_id=%s: %v", agentID, res.Error)
-		} else if res.RowsAffected > 0 {
-			updated = true
-		} else {
+		} else if res.RowsAffected == 0 {
 			// No row: create from Ping so dashboard shows agent without waiting for Register
 			agent := models.Agent{
 				AgentID:    agentID,
@@ -765,21 +762,9 @@ func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.
 				log.Printf("[Agent] Ping: failed to create agent from Ping agent_id=%s: %v", agentID, err)
 			} else {
 				log.Printf("[Agent] Ping: created agent from Ping agent_id=%s node=%s", agentID, nodeName)
-				updated = true
 			}
 		}
 	}
-	if !updated && nodeName != "" {
-		// Fallback: old agent may not send agent_id; update first matching row by node_name (PostgreSQL: subquery for LIMIT)
-		res := s.db.Exec(
-			"UPDATE agents SET last_seen_at = ?, updated_at = ? WHERE id = (SELECT id FROM agents WHERE node_name = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL LIMIT 1)",
-			now, now, nodeName, "ready",
-		)
-		if res.Error != nil {
-			log.Printf("[Agent] Ping: fallback update by node_name=%s failed: %v", nodeName, res.Error)
-		}
-	}
-
 	return &pb.PingResponse{
 		Status:  "healthy",
 		Version: "1.0.0", // TODO: Get from build info

@@ -232,7 +232,7 @@ func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetClusterAgents returns agents whose node_name appears in pods of the given cluster.
+// GetClusterAgents returns agents explicitly assigned to this cluster.
 func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -249,21 +249,20 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"agents": []map[string]interface{}{}, "total": 0})
 			return
 		}
-		var nodeNames []string
-		db.Raw("SELECT DISTINCT node_name FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Scan(&nodeNames)
-		if len(nodeNames) == 0 {
-			c.JSON(http.StatusOK, gin.H{"agents": []map[string]interface{}{}, "total": 0})
+
+		var agents []models.Agent
+		if err := db.WithContext(c.Request.Context()).Where("cluster_id = ? AND (status = ? OR status IS NULL)", id, "ready").Order("last_seen_at DESC NULLS LAST").Find(&agents).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Unable to load cluster agents"})
 			return
 		}
-		var agents []models.Agent
-		db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND node_name IN ?", "ready", nodeNames).Order("last_seen_at DESC NULLS LAST").Find(&agents)
+
 		list := make([]map[string]interface{}, 0, len(agents))
 		for _, a := range agents {
 			status := "healthy"
-			if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 5*time.Minute {
-				status = "slow"
-			} else if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 15*time.Minute {
+			if a.LastSeenAt == nil || time.Since(*a.LastSeenAt) > 15*time.Minute {
 				status = "disconnected"
+			} else if time.Since(*a.LastSeenAt) > 5*time.Minute {
+				status = "slow"
 			}
 			lastHB := time.Time{}
 			if a.LastSeenAt != nil {
@@ -495,18 +494,17 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		podMap, deplMap, riskMap := toMap(podCounts), toMap(deplCounts), toMap(riskCounts)
 
 		type agentRow struct {
-			ClusterID string     `gorm:"column:cluster_id"`
-			Cnt       int64      `gorm:"column:cnt"`
-			MaxSeen   *time.Time `gorm:"column:max_seen"`
+			ClusterID string          `gorm:"column:cluster_id"`
+			Cnt       int64           `gorm:"column:cnt"`
+			MaxSeen   models.NullTime `gorm:"column:max_seen"`
 		}
 		agentByCluster := make(map[string]agentRow)
 		if hasTable(db, "agents") {
 			var agentRows []agentRow
 			db.Table("agents a").
-				Select("p.cluster_id, COUNT(DISTINCT a.id) AS cnt, MAX(a.last_seen_at) AS max_seen").
-				Joins("INNER JOIN pods p ON p.node_name = a.node_name AND p.deleted_at IS NULL AND p.node_name IS NOT NULL AND p.node_name != ''").
-				Where("a.deleted_at IS NULL AND (a.status = 'ready' OR a.status IS NULL) AND p.cluster_id IN ?", clusterIDs).
-				Group("p.cluster_id").Scan(&agentRows)
+				Select("a.cluster_id, COUNT(DISTINCT a.id) AS cnt, MAX(a.last_seen_at) AS max_seen").
+				Where("a.deleted_at IS NULL AND (a.status = 'ready' OR a.status IS NULL) AND a.cluster_id IN ?", clusterIDs).
+				Group("a.cluster_id").Scan(&agentRows)
 			for _, r := range agentRows {
 				agentByCluster[r.ClusterID] = r
 			}
@@ -545,8 +543,8 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 					stat.ConnectionStatus = "disconnected"
 				}
 				if stat.ConnectionStatus != "connected" {
-					if ar, ok := agentByCluster[cluster.ID]; ok && ar.MaxSeen != nil {
-						age := time.Since(*ar.MaxSeen)
+					if ar, ok := agentByCluster[cluster.ID]; ok && ar.MaxSeen.Time != nil {
+						age := time.Since(*ar.MaxSeen.Time)
 						if age < 15*time.Minute {
 							stat.ConnectionStatus = "connected"
 						} else if age < 2*time.Hour && stat.ConnectionStatus == "disconnected" {

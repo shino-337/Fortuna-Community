@@ -10,7 +10,6 @@ import (
 	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/service"
 	"github.com/fortuna/core/pkg/capability"
-	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -82,27 +81,13 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 		log.Printf("[AgentAPI] cluster=%s name=%s source=%s hasDelta=%v hasFull=%v",
 			clusterID, clusterName, source, hasDelta, hasFull)
 
-		// Keep agents table alive even if gRPC Register/Ping is unavailable.
-		if req.Agent != nil && req.Agent.AgentID != "" {
-			now := time.Now()
-			var existing models.Agent
-			if err := db.Where("agent_id = ?", req.Agent.AgentID).First(&existing).Error; err == nil {
-				_ = db.Model(&existing).Updates(map[string]interface{}{
-					"node_name":    req.Agent.NodeName,
-					"version":      req.Agent.Version,
-					"status":       "ready",
-					"last_seen_at": now,
-					"deleted_at":   nil,
-				}).Error
-			} else if errors.Is(err, gorm.ErrRecordNotFound) {
-				_ = db.Create(&models.Agent{
-					AgentID:    req.Agent.AgentID,
-					NodeName:   req.Agent.NodeName,
-					Version:    req.Agent.Version,
-					Status:     "ready",
-					LastSeenAt: &now,
-				}).Error
+		if err := upsertAgentClusterIdentity(c.Request.Context(), db, clusterID, req.Agent); err != nil {
+			if errors.Is(err, errAgentClusterConflict) {
+				c.JSON(409, gin.H{"error": "agent ID is assigned to another cluster"})
+				return
 			}
+			c.JSON(500, gin.H{"error": "Unable to persist agent identity"})
+			return
 		}
 
 		traceID := c.GetHeader("X-Correlation-ID")

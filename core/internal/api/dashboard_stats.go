@@ -68,8 +68,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 		}
 		activePods := func() *gorm.DB { return pods().Where("cluster_id IN (?)", clusters().Select("id")) }
 		if db.Migrator().HasTable(&models.Agent{}) {
-			nodes := activePods().Select("node_name").Where("node_name IS NOT NULL AND node_name != ''")
-			if fail(db.Model(&models.Agent{}).Where("(status = ? OR status IS NULL) AND node_name IN (?)", "ready", nodes).Count(&result.ActiveAgents).Error) {
+			if fail(db.Model(&models.Agent{}).Where("(status = ? OR status IS NULL) AND cluster_id IN (?)", "ready", clusters().Select("id")).Count(&result.ActiveAgents).Error) {
 				return
 			}
 		}
