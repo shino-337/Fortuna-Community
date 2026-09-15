@@ -714,8 +714,12 @@ func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 
 func GetDeployments(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var deployments []models.Deployment
-		query := db.Model(&models.Deployment{})
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		deployments := []models.Deployment{}
+		query := scopedInventoryQuery(db.WithContext(c.Request.Context()).Model(&models.Deployment{}), scope, "cluster_id")
 
 		if clusterID := c.Query("cluster"); clusterID != "" {
 			query = query.Where("cluster_id = ?", clusterID)
@@ -735,13 +739,20 @@ func GetDeployments(db *gorm.DB) gin.HandlerFunc {
 		if pageSize > 1000 {
 			pageSize = 1000
 		}
-		offset := (page - 1) * pageSize
 
 		var total int64
-		query.Count(&total)
+		if err := query.Count(&total).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Unable to count workloads"})
+			return
+		}
+		if total == 0 || int64(page-1) > (total-1)/int64(pageSize) {
+			c.JSON(200, gin.H{"deployments": deployments, "total": total, "page": page, "pageSize": pageSize})
+			return
+		}
+		offset := (page - 1) * pageSize
 
-		if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&deployments).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC, id DESC").Find(&deployments).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load workloads"})
 			return
 		}
 
@@ -757,14 +768,22 @@ func GetDeployments(db *gorm.DB) gin.HandlerFunc {
 // GetDeployment returns a specific deployment
 func GetDeployment(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.Param("id")
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			c.JSON(400, gin.H{"error": "invalid workload ID"})
+			return
+		}
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
 		var deployment models.Deployment
-		if err := db.Preload("Cluster").First(&deployment, id).Error; err != nil {
+		if err := scopedInventoryQuery(db.WithContext(c.Request.Context()), scope, "cluster_id").First(&deployment, id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Deployment not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load workload"})
 			return
 		}
 
@@ -817,8 +836,12 @@ func GetDeployment(db *gorm.DB) gin.HandlerFunc {
 // GetReplicaSets returns all replicasets with filters and pagination
 func GetReplicaSets(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var replicasets []models.ReplicaSet
-		query := db.Model(&models.ReplicaSet{})
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		replicasets := []models.ReplicaSet{}
+		query := scopedInventoryQuery(db.WithContext(c.Request.Context()).Model(&models.ReplicaSet{}), scope, "cluster_id")
 		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
 
 		// Filter by cluster
@@ -850,13 +873,20 @@ func GetReplicaSets(db *gorm.DB) gin.HandlerFunc {
 		if pageSize > 1000 {
 			pageSize = 1000
 		}
-		offset := (page - 1) * pageSize
 
 		var total int64
-		query.Count(&total)
+		if err := query.Count(&total).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Unable to count workloads"})
+			return
+		}
+		if total == 0 || int64(page-1) > (total-1)/int64(pageSize) {
+			c.JSON(200, gin.H{"replicasets": replicasets, "total": total, "page": page, "pageSize": pageSize})
+			return
+		}
+		offset := (page - 1) * pageSize
 
-		if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&replicasets).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if err := query.Offset(offset).Limit(pageSize).Order("created_at DESC, id DESC").Find(&replicasets).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load workloads"})
 			return
 		}
 
@@ -872,14 +902,22 @@ func GetReplicaSets(db *gorm.DB) gin.HandlerFunc {
 // GetReplicaSet returns a specific replicaset
 func GetReplicaSet(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		id := c.Param("id")
+		id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+		if err != nil || id == 0 {
+			c.JSON(400, gin.H{"error": "invalid workload ID"})
+			return
+		}
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
 		var replicaset models.ReplicaSet
-		if err := db.Preload("Cluster").First(&replicaset, id).Error; err != nil {
+		if err := scopedInventoryQuery(db.WithContext(c.Request.Context()), scope, "cluster_id").First(&replicaset, id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "ReplicaSet not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load workload"})
 			return
 		}
 

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -68,8 +69,13 @@ func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesList returns paginated pod capabilities with filters.
 func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"items": []interface{}{}, "total": 0, "limit": 50, "offset": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		limit := 50
@@ -88,6 +94,8 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		query := db.Model(&models.PodCapability{}).
 			Select("pod_capabilities.*, p.name as pod_name").
 			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL")
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
+
 		if podUID := c.Query("podUid"); podUID != "" {
 			query = query.Where("pod_capabilities.pod_uid = ?", podUID)
 		}
@@ -111,7 +119,10 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var total int64
-		query.Count(&total)
+		if err := query.Count(&total).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Unable to count capabilities"})
+			return
+		}
 
 		// Use Scan() instead of Find() to properly map custom SELECT fields
 		type ScanResult struct {
@@ -120,7 +131,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		}
 		var caps []ScanResult
 		if err := query.Order("pod_capabilities.created_at DESC").Offset(offset).Limit(limit).Scan(&caps).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
 			return
 		}
 
@@ -162,6 +173,11 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummary returns aggregated counts by cluster/namespace/capability.
 func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		type summaryRow struct {
 			ClusterID    string `json:"clusterId"`
 			Namespace    string `json:"namespace"`
@@ -171,7 +187,7 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		clusterID := c.Query("clusterId")
@@ -182,6 +198,8 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 		query := db.Table("pod_capabilities AS pc").
 			Select("p.cluster_id AS cluster_id, pc.namespace AS namespace, pc.capability_id AS capability_id, pc.severity AS severity, COUNT(*) AS count").
 			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
 		if clusterID != "" {
 			query = query.Where("p.cluster_id = ?", clusterID)
@@ -196,11 +214,11 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("pc.severity = ?", severity)
 		}
 
-		var rows []summaryRow
+		rows := []summaryRow{}
 		if err := query.Group("p.cluster_id, pc.namespace, pc.capability_id, pc.severity").
 			Order("p.cluster_id, pc.namespace, pc.capability_id, pc.severity").
 			Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
 			return
 		}
 
@@ -214,8 +232,13 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryByCluster returns aggregated counts by cluster only.
 func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		type row struct {
@@ -227,13 +250,15 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 			Select("p.cluster_id AS cluster_id, COUNT(*) AS count").
 			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
+
 		if clusterID := c.Query("clusterId"); clusterID != "" {
 			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
-		var rows []row
+		rows := []row{}
 		if err := query.Group("p.cluster_id").Order("p.cluster_id").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
 			return
 		}
 
@@ -247,8 +272,13 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryByCapability returns aggregated counts by capability only (active pods only).
 func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		type row struct {
@@ -261,6 +291,8 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 			Select("pc.capability_id AS capability_id, pc.severity AS severity, COUNT(*) AS count").
 			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
+
 		if capabilityID := c.Query("capabilityId"); capabilityID != "" {
 			query = query.Where("pc.capability_id = ?", capabilityID)
 		}
@@ -271,10 +303,10 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
-		var rows []row
+		rows := []row{}
 		if err := query.Group("pc.capability_id, pc.severity").
 			Order("pc.capability_id, pc.severity").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
 			return
 		}
 
@@ -288,8 +320,13 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryByNamespace returns aggregated counts by namespace and severity (active pods only).
 func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		type row struct {
@@ -301,6 +338,8 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 		query := db.Table("pod_capabilities AS pc").
 			Select("pc.namespace AS namespace, pc.severity AS severity, COUNT(*) AS count").
 			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
 		if namespace := c.Query("namespace"); namespace != "" {
 			query = query.Where("pc.namespace = ?", namespace)
@@ -315,10 +354,10 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
-		var rows []row
+		rows := []row{}
 		if err := query.Group("pc.namespace, pc.severity").
 			Order("pc.namespace, pc.severity").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
 			return
 		}
 
@@ -332,8 +371,13 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 // GetPodCapabilitiesSummaryBySeverity returns aggregated counts by severity only (active pods only).
 func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"summary": []interface{}{}, "total": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		type row struct {
@@ -345,6 +389,8 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 			Select("pc.severity AS severity, COUNT(*) AS count").
 			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
+
 		if severity := c.Query("severity"); severity != "" {
 			query = query.Where("pc.severity = ?", severity)
 		}
@@ -355,9 +401,9 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
-		var rows []row
+		rows := []row{}
 		if err := query.Group("pc.severity").Order("pc.severity").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
 			return
 		}
 
@@ -372,8 +418,13 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 // Always returns one point per day for the last `days` (fill missing days with zeros) so dashboard chart renders.
 func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"points": []interface{}{}, "total": 0})
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
 			return
 		}
 		type row struct {
@@ -391,16 +442,13 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
-		query := db.Table("pod_capabilities AS pc").
-			Select(`
-				TO_CHAR(pc.created_at::date, 'YYYY-MM-DD') AS date,
-				SUM(CASE WHEN LOWER(pc.severity) = 'critical' THEN 1 ELSE 0 END) AS critical,
-				SUM(CASE WHEN LOWER(pc.severity) = 'high' THEN 1 ELSE 0 END) AS high,
-				SUM(CASE WHEN LOWER(pc.severity) = 'medium' THEN 1 ELSE 0 END) AS medium,
-				SUM(CASE WHEN LOWER(pc.severity) = 'low' THEN 1 ELSE 0 END) AS low
-			`).
+		today := time.Now().UTC().Truncate(24 * time.Hour)
+		start := today.AddDate(0, 0, 1-days)
+		query := db.Table("pod_capabilities AS pc").Select("pc.created_at, pc.severity").
 			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL").
-			Where("pc.created_at >= NOW() - (? * INTERVAL '1 day')", days)
+			Where("pc.created_at >= ? AND pc.created_at < ?", start, today.AddDate(0, 0, 1))
+
+		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
 		if namespace := c.Query("namespace"); namespace != "" {
 			query = query.Where("pc.namespace = ?", namespace)
@@ -415,27 +463,33 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
-		var rows []row
-		if err := query.Group("pc.created_at::date").Order("pc.created_at::date").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		var observations []struct {
+			CreatedAt time.Time
+			Severity  string
+		}
+		if err := query.Scan(&observations).Error; err != nil {
+			c.JSON(500, gin.H{"error": "Unable to load capability trends"})
 			return
 		}
-
-		// Fill all days so chart always has 7 points (missing days = zeros)
-		byDate := make(map[string]*row)
-		for i := 0; i < days; i++ {
-			d := time.Now().AddDate(0, 0, -days+1+i).Truncate(24 * time.Hour)
-			key := d.Format("2006-01-02")
-			byDate[key] = &row{Date: key}
+		result := make([]row, days)
+		for i := range result {
+			result[i].Date = start.AddDate(0, 0, i).Format("2006-01-02")
 		}
-		for i := range rows {
-			byDate[rows[i].Date] = &rows[i]
-		}
-		result := make([]row, 0, days)
-		for i := 0; i < days; i++ {
-			d := time.Now().AddDate(0, 0, -days+1+i).Truncate(24 * time.Hour)
-			key := d.Format("2006-01-02")
-			result = append(result, *byDate[key])
+		for _, observation := range observations {
+			index := int(observation.CreatedAt.UTC().Sub(start) / (24 * time.Hour))
+			if index < 0 || index >= days {
+				continue
+			}
+			switch strings.ToLower(observation.Severity) {
+			case "critical":
+				result[index].Critical++
+			case "high":
+				result[index].High++
+			case "medium":
+				result[index].Medium++
+			case "low":
+				result[index].Low++
+			}
 		}
 
 		c.JSON(http.StatusOK, gin.H{
