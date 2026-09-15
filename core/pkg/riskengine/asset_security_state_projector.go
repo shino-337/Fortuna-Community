@@ -3,6 +3,9 @@ package riskengine
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"gorm.io/gorm"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -15,11 +18,14 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 		return nil
 	}
 
-	// Recompute only when missing or stale (best-effort cache).
+	// Recompute only when missing or stale; storage failures are not cache misses.
 	var prev models.AssetSecurityState
 	tx := e.db.WithContext(ctx).
 		Where("pod_uid = ?", podUID).
 		First(&prev)
+	if tx.Error != nil && !errors.Is(tx.Error, gorm.ErrRecordNotFound) {
+		return fmt.Errorf("read previous security state: %w", tx.Error)
+	}
 	if tx.Error == nil {
 		if time.Since(prev.UpdatedAt) < 5*time.Minute {
 			return nil
@@ -31,7 +37,7 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 	if err := e.db.WithContext(ctx).
 		Where("uid = ? AND deleted_at IS NULL", podUID).
 		First(&pod).Error; err != nil {
-		return nil
+		return fmt.Errorf("read pod: %w", err)
 	}
 
 	clusterID := pod.ClusterID
@@ -45,12 +51,14 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 		C          int64
 	}
 	var rows []row
-	_ = e.db.WithContext(ctx).
+	if err := e.db.WithContext(ctx).
 		Model(&models.RuntimeSignal{}).
 		Select("signal_type, COALESCE(SUM(count),0) as c").
 		Where("pod_uid = ? AND (created_at >= ? OR last_seen_at >= ?)", podUID, since, since).
 		Group("signal_type").
-		Scan(&rows).Error
+		Scan(&rows).Error; err != nil {
+		return fmt.Errorf("read runtime signals: %w", err)
+	}
 
 	var (
 		signalTotal   int64
@@ -98,11 +106,13 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 		CapabilityID string
 	}
 	var caps []capRow
-	_ = e.db.WithContext(ctx).
+	if err := e.db.WithContext(ctx).
 		Table("pod_capabilities").
 		Select("capability_id").
 		Where("pod_uid = ? AND state IN (?)", podUID, []string{"confirmed", "exploited", "chained"}).
-		Scan(&caps).Error
+		Scan(&caps).Error; err != nil {
+		return fmt.Errorf("read pod capabilities: %w", err)
+	}
 
 	effective := make([]string, 0, len(caps))
 	for _, c := range caps {
@@ -117,7 +127,11 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 	// cluster-admin binding context (reuses existing helper)
 	serviceAccountBound := false
 	if clusterID != "" && ns != "" && pod.ServiceAccount != "" {
-		serviceAccountBound = clusterAdminBindingForPod(ctx, e.db, clusterID, ns, pod.ServiceAccount)
+		var err error
+		serviceAccountBound, err = clusterAdminBindingForPod(ctx, e.db, clusterID, ns, pod.ServiceAccount)
+		if err != nil {
+			return err
+		}
 	}
 
 	now := time.Now()

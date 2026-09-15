@@ -87,20 +87,25 @@ func (e *Engine) ReloadFromDB() error {
 }
 
 // prepareEnrichedResourceData merges normalized + raw_json and, for Pods, Fortuna runtime context for CEL.
-func (e *Engine) prepareEnrichedResourceData(ctx context.Context, resourceType string, resourceData map[string]interface{}) map[string]interface{} {
+func (e *Engine) prepareEnrichedResourceData(ctx context.Context, resourceType string, resourceData map[string]interface{}) (map[string]interface{}, error) {
 	enriched := e.enrichResourceData(resourceData)
 	enriched["kind"] = strings.TrimSpace(resourceType)
 	if strings.EqualFold(strings.TrimSpace(resourceType), "Pod") {
-		e.enrichPodFortunaContext(ctx, enriched)
+		if err := e.enrichPodFortunaContext(ctx, enriched); err != nil {
+			return nil, err
+		}
 	}
-	return enriched
+	return enriched, nil
 }
 
 // EvaluateResource evaluates a resource against all rules
 func (e *Engine) EvaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
 	var insights []*models.Insight
 
-	enrichedData := e.prepareEnrichedResourceData(ctx, resourceType, resourceData)
+	enrichedData, err := e.prepareEnrichedResourceData(ctx, resourceType, resourceData)
+	if err != nil {
+		return nil, fmt.Errorf("enrich resource: %w", err)
+	}
 
 	e.mu.RLock()
 	applicableRules := e.getApplicableRules(resourceType)

@@ -161,3 +161,39 @@ func TestReconciliationPreservesDisabledDetector(t *testing.T) {
 		t.Fatal("disabled detector resolved finding")
 	}
 }
+
+func TestReconciliationPreservesFindingOnRuntimeInputFailure(t *testing.T) {
+	db := reconciliationTestDB(t)
+	dir := t.TempDir()
+	t.Setenv("FORTUNA_RULES_DIR", dir)
+	rule := []byte("id: runtime-input-test\nname: Runtime input test\ncategory: runtime\nseverity: high\nenabled: true\nbase_score: 5\nconditions:\n  - type: expression\n    expression: 'false'\n")
+	if err := os.WriteFile(filepath.Join(dir, "rule.yaml"), rule, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.Pod{UID: "existing-pod", Name: "pod", Namespace: "ns", ClusterID: "a", ServiceAccount: "sa", Containers: "[]"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	finding := models.Insight{ResourceType: "Pod", ResourceUID: "existing-pod", ResourceName: "pod", ResourceNamespace: "ns", CVEID: "runtime-input-test", Title: "Runtime input test", InsightType: "runtime", Status: "active"}
+	if err := db.Create(&finding).Error; err != nil {
+		t.Fatal(err)
+	}
+	// The detector is enabled and would return no findings. Required runtime tables
+	// are absent, so reconciliation must fail before treating that as remediation.
+	if err := NewInsightStatusUpdater(db).UpdateStatusForResolvedRisks(context.Background()); err == nil {
+		t.Fatal("unavailable runtime evidence reported success")
+	}
+	var actual models.Insight
+	if err := db.First(&actual, finding.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if actual.Status != "active" || actual.ResolvedAt != nil {
+		t.Fatal("runtime failure resolved finding")
+	}
+	var audits int64
+	if err := db.Model(&models.AuditLog{}).Where("action = ?", "auto_resolve").Count(&audits).Error; err != nil {
+		t.Fatal(err)
+	}
+	if audits != 0 {
+		t.Fatal("runtime failure produced resolution audit")
+	}
+}

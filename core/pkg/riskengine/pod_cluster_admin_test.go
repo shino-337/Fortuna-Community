@@ -15,7 +15,7 @@ func TestClusterAdminBindingForPod_Positive(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.RoleBinding{}); err != nil {
+	if err := db.AutoMigrate(&models.Cluster{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1"}).Error; err != nil {
@@ -30,10 +30,10 @@ func TestClusterAdminBindingForPod_Positive(t *testing.T) {
 		t.Fatal(err)
 	}
 	ctx := context.Background()
-	if !clusterAdminBindingForPod(ctx, db, "c1", "app", "workload-sa") {
+	if matched, err := clusterAdminBindingForPod(ctx, db, "c1", "app", "workload-sa"); err != nil || !matched {
 		t.Fatal("expected cluster-admin binding")
 	}
-	if clusterAdminBindingForPod(ctx, db, "c1", "app", "other-sa") {
+	if matched, err := clusterAdminBindingForPod(ctx, db, "c1", "app", "other-sa"); err != nil || matched {
 		t.Fatal("unexpected match for other SA")
 	}
 }
@@ -43,7 +43,7 @@ func TestClusterAdminBindingForPod_RequiresClusterRoleKind(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.RoleBinding{}); err != nil {
+	if err := db.AutoMigrate(&models.Cluster{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1"}).Error; err != nil {
@@ -57,7 +57,7 @@ func TestClusterAdminBindingForPod_RequiresClusterRoleKind(t *testing.T) {
 	if err := db.Create(&rb).Error; err != nil {
 		t.Fatal(err)
 	}
-	if clusterAdminBindingForPod(context.Background(), db, "c1", "app", "x") {
+	if matched, err := clusterAdminBindingForPod(context.Background(), db, "c1", "app", "x"); err != nil || matched {
 		t.Fatal("namespaced Role named cluster-admin must not count as cluster ClusterRole binding")
 	}
 }

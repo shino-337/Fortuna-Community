@@ -2,6 +2,8 @@
 
 Reference documents kept for public users:
 
+- [Next audit implementation plan](NEXT_AUDIT_PLAN.md): packages A–I, dependencies, acceptance gates and deployment criteria.
+
 - [Audit remediation status](AUDIT_REMEDIATION_STATUS.md): PR order, behavior changes, mitigations and lab validation.
 
 - [Security](SECURITY.md): credentials, JWT, mTLS, image pulls, runtime sensors, and repository hygiene.

@@ -63,7 +63,10 @@ func NewYAMLEngine(db *gorm.DB, rulesDir string) (*YAMLEngine, error) {
 // Calling EvaluateResource on *Engine after embedding loses method overrides; workers must call this when using YAML rules.
 func (ye *YAMLEngine) EvaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
 	var insights []*models.Insight
-	enrichedData := ye.prepareEnrichedResourceData(ctx, resourceType, resourceData)
+	enrichedData, err := ye.prepareEnrichedResourceData(ctx, resourceType, resourceData)
+	if err != nil {
+		return nil, fmt.Errorf("enrich resource: %w", err)
+	}
 	ye.mu.RLock()
 	applicableRules := ye.getApplicableRules(resourceType)
 	ye.mu.RUnlock()
@@ -96,7 +99,10 @@ func (ye *YAMLEngine) EvaluatePodRuntimeOnly(ctx context.Context, podData map[st
 	}
 
 	resourceType := "Pod"
-	enrichedData := ye.prepareEnrichedResourceData(ctx, resourceType, podData)
+	enrichedData, err := ye.prepareEnrichedResourceData(ctx, resourceType, podData)
+	if err != nil {
+		return nil, fmt.Errorf("enrich resource: %w", err)
+	}
 
 	ye.mu.RLock()
 	rules := make([]Rule, len(ye.rules))
