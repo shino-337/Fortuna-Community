@@ -230,7 +230,10 @@ func GetServiceAccountPermissions(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, buildServiceAccountPermissions(db, &sa))
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
+		}
+		c.JSON(http.StatusOK, buildServiceAccountPermissions(db.WithContext(c.Request.Context()), &sa))
 	}
 }
 
@@ -251,7 +254,10 @@ func GetServiceAccountPermissionsByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, buildServiceAccountPermissions(db, &sa))
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
+		}
+		c.JSON(http.StatusOK, buildServiceAccountPermissions(db.WithContext(c.Request.Context()), &sa))
 	}
 }
 

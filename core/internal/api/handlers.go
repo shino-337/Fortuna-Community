@@ -568,12 +568,19 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 // GetServiceAccounts returns all service accounts with optional filters
 func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		var serviceAccounts []models.ServiceAccount
-		query := db.Model(&models.ServiceAccount{})
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok {
+			return
+		}
+		serviceAccounts := make([]models.ServiceAccount, 0)
+		query := db.WithContext(c.Request.Context()).Model(&models.ServiceAccount{})
+		if scope.restricted {
+			query = query.Where("cluster_id IN ?", scope.clusterIDs)
+		}
 		// GORM automatically filters soft-deleted records (deleted_at IS NULL)
 
 		// Filter by cluster
-		if clusterID := c.Query("cluster"); clusterID != "" {
+		if clusterID := scope.clusterID; clusterID != "" {
 			query = query.Where("cluster_id = ?", clusterID)
 		}
 
@@ -584,6 +591,9 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+		if page < 1 {
+			page = 1
+		}
 		pageSizeParam, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
 
 		// Special handling: pageSize=-1 means return all records
@@ -610,13 +620,23 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 			responsePageSize = pageSize
 		}
 
-		offset := (page - 1) * pageSize
+		offset := 0
 
 		var total int64
-		query.Count(&total)
+		if err := query.Count(&total).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to count service accounts"})
+			return
+		}
+		if !fetchAll {
+			if total == 0 || int64(page-1) > (total-1)/int64(pageSize) {
+				c.JSON(http.StatusOK, gin.H{"serviceAccounts": serviceAccounts, "total": total, "page": page, "pageSize": responsePageSize})
+				return
+			}
+			offset = (page - 1) * pageSize
+		}
 
 		// Build query with pagination
-		resultQuery := query
+		resultQuery := query.Order("id ASC")
 		if fetchAll {
 			// For "all", apply limit but no offset (start from beginning)
 			resultQuery = resultQuery.Limit(pageSize)
@@ -645,6 +665,7 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 }
 
 // GetServiceAccount returns a specific service account
+
 func GetServiceAccount(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -657,11 +678,15 @@ func GetServiceAccount(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
+		}
 		c.JSON(http.StatusOK, sa)
 	}
 }
 
 // GetServiceAccountByUID returns a service account by UID (inventory domain).
+
 func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		saUID := c.Param("uid")
@@ -678,11 +703,15 @@ func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
+		}
 		c.JSON(http.StatusOK, sa)
 	}
 }
 
 // GetDeployments returns all deployments with filtering and pagination
+
 func GetDeployments(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var deployments []models.Deployment
@@ -914,10 +943,12 @@ func UpdateServiceAccount(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
+		}
 
-		var updateData map[string]interface{}
-		if err := c.ShouldBindJSON(&updateData); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		updateData, ok := serviceAccountMetadataUpdate(c)
+		if !ok {
 			return
 		}
 
@@ -927,15 +958,15 @@ func UpdateServiceAccount(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		// Log audit
-		userID, _ := c.Get("userID")
-		username, _ := c.Get("username")
+		userID := auditUserID(c)
+		username := c.GetString("username")
 		auditLog := models.AuditLog{
 			ClusterID:  sa.ClusterID,
-			UserID:     userID.(uint),
+			UserID:     userID,
 			Action:     "update",
 			Resource:   "serviceaccount",
 			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username.(string),
+			User:       username,
 			IP:         c.ClientIP(),
 		}
 		db.Create(&auditLog)
@@ -945,6 +976,7 @@ func UpdateServiceAccount(db *gorm.DB) gin.HandlerFunc {
 }
 
 // DeleteServiceAccount deletes a service account
+
 func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
@@ -957,42 +989,40 @@ func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		// Try to delete from Kubernetes cluster first
-		var k8sErr error
-		if sa.Cluster.Kubeconfig != "" {
-			// Use kubeconfig from cluster
-			k8sClient, err := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
-			if err == nil {
-				k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
-			}
-		} else {
-			// Try to use default kubeconfig or in-cluster config
-			k8sClient, err := k8s.NewClientFromPath("")
-			if err == nil {
-				k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
-			}
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
 		}
 
-		// Log audit before deletion
-		userID, _ := c.Get("userID")
-		username, _ := c.Get("username")
+		// Try to delete from Kubernetes cluster first
+		if sa.Cluster.Kubeconfig == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster-specific Kubernetes credentials are required for deletion"})
+			return
+		}
+		k8sClient, k8sErr := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
+		if k8sErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to initialize the target cluster client"})
+			return
+		}
+		k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
+		if k8sErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Kubernetes deletion failed; inventory record retained"})
+			return
+		}
+
+		userID := auditUserID(c)
+		username := c.GetString("username")
 		auditLog := models.AuditLog{
 			ClusterID:  sa.ClusterID,
-			UserID:     userID.(uint),
+			UserID:     userID,
 			Action:     "delete",
 			Resource:   "serviceaccount",
 			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username.(string),
+			User:       username,
 			IP:         c.ClientIP(),
 		}
 
 		// Add K8s deletion result to audit details
-		if k8sErr != nil {
-			auditLog.Details = fmt.Sprintf(`{"k8s_deletion":"failed","error":"%s"}`, k8sErr.Error())
-		} else {
-			auditLog.Details = `{"k8s_deletion":"success"}`
-		}
+		auditLog.Details = `{"k8s_deletion":"success"}`
 		db.Create(&auditLog)
 
 		// Delete from database
@@ -1001,19 +1031,14 @@ func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		// Return success even if K8s deletion failed (for backward compatibility)
-		message := "ServiceAccount deleted from database"
-		if k8sErr == nil {
-			message = "ServiceAccount deleted from Kubernetes cluster and database"
-		} else {
-			message = fmt.Sprintf("ServiceAccount deleted from database, but failed to delete from Kubernetes: %v", k8sErr)
-		}
-
+		// Both Kubernetes and database deletion completed.
+		message := "ServiceAccount deleted from Kubernetes cluster and database"
 		c.JSON(http.StatusOK, gin.H{"message": message})
 	}
 }
 
 // UpdateServiceAccountByUID updates a service account by Kubernetes UID (inventory domain).
+
 func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.Param("uid")
@@ -1030,10 +1055,12 @@ func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
+		}
 
-		var updateData map[string]interface{}
-		if err := c.ShouldBindJSON(&updateData); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		updateData, ok := serviceAccountMetadataUpdate(c)
+		if !ok {
 			return
 		}
 
@@ -1042,15 +1069,15 @@ func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		userID, _ := c.Get("userID")
-		username, _ := c.Get("username")
+		userID := auditUserID(c)
+		username := c.GetString("username")
 		auditLog := models.AuditLog{
 			ClusterID:  sa.ClusterID,
-			UserID:     userID.(uint),
+			UserID:     userID,
 			Action:     "update",
 			Resource:   "serviceaccount",
 			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username.(string),
+			User:       username,
 			IP:         c.ClientIP(),
 		}
 		db.Create(&auditLog)
@@ -1060,6 +1087,7 @@ func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 }
 
 // DeleteServiceAccountByUID deletes a service account by Kubernetes UID (inventory domain).
+
 func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		uid := c.Param("uid")
@@ -1076,36 +1104,37 @@ func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-
-		var k8sErr error
-		if sa.Cluster.Kubeconfig != "" {
-			k8sClient, err := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
-			if err == nil {
-				k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
-			}
-		} else {
-			k8sClient, err := k8s.NewClientFromPath("")
-			if err == nil {
-				k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
-			}
+		if !authorizeServiceAccount(db, c, &sa) {
+			return
 		}
 
-		userID, _ := c.Get("userID")
-		username, _ := c.Get("username")
+		if sa.Cluster.Kubeconfig == "" {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "cluster-specific Kubernetes credentials are required for deletion"})
+			return
+		}
+		k8sClient, k8sErr := k8s.NewClientFromKubeconfig(sa.Cluster.Kubeconfig)
+		if k8sErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "failed to initialize the target cluster client"})
+			return
+		}
+		k8sErr = k8sClient.DeleteServiceAccount(sa.Namespace, sa.Name)
+		if k8sErr != nil {
+			c.JSON(http.StatusBadGateway, gin.H{"error": "Kubernetes deletion failed; inventory record retained"})
+			return
+		}
+
+		userID := auditUserID(c)
+		username := c.GetString("username")
 		auditLog := models.AuditLog{
 			ClusterID:  sa.ClusterID,
-			UserID:     userID.(uint),
+			UserID:     userID,
 			Action:     "delete",
 			Resource:   "serviceaccount",
 			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username.(string),
+			User:       username,
 			IP:         c.ClientIP(),
 		}
-		if k8sErr != nil {
-			auditLog.Details = fmt.Sprintf(`{"k8s_deletion":"failed","error":"%s"}`, k8sErr.Error())
-		} else {
-			auditLog.Details = `{"k8s_deletion":"success"}`
-		}
+		auditLog.Details = `{"k8s_deletion":"success"}`
 		db.Create(&auditLog)
 
 		if err := db.Delete(&sa).Error; err != nil {
@@ -1113,12 +1142,7 @@ func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		message := "ServiceAccount deleted from database"
-		if k8sErr == nil {
-			message = "ServiceAccount deleted from Kubernetes cluster and database"
-		} else {
-			message = fmt.Sprintf("ServiceAccount deleted from database, but failed to delete from Kubernetes: %v", k8sErr)
-		}
+		message := "ServiceAccount deleted from Kubernetes cluster and database"
 		c.JSON(http.StatusOK, gin.H{"message": message})
 	}
 }
@@ -1129,6 +1153,7 @@ func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 // Platform-wide listing and arbitrary filters require system.audit.read (admin).
 // Callers with only findings.read may list rows for a single insight: GET /audit/logs?resource=insight&resource_id=<id>
 // (prevents cross-finding enumeration / IDOR).
+
 func GetAuditLogs(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		granted := middleware.GrantedPermissions(c)
