@@ -32,3 +32,18 @@ rollback, exact UID matching, and shipped RBAC rules. Runtime enrichment readers
 and source freshness remain separate concerns: this is not proof of end-to-end
 runtime coverage. PostgreSQL transactions and concurrent live ingestion remain
 lab validation gates.
+
+## Runtime input failures
+
+Pod evaluation now propagates failures from security-state projection and reads,
+runtime/capability queries, binding queries and malformed persisted evidence.
+A failed refresh cannot fall back to the previous snapshot or zero/false inputs.
+The base, YAML and runtime-only evaluators return the error; reconciliation retains
+the finding and reports an incomplete run instead of recording auto-resolution.
+
+Deploy the required runtime, capability, binding and security-state schema before
+enabling live Pod evaluation. Partial migrations now produce explicit errors.
+Database-free rule previews remain supported. The existing five-minute snapshot
+cache remains; telemetry completeness and invalidation are tracked in package D of
+[NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md). Successful reads alone do not prove that
+a sensor is healthy or that all events have arrived.

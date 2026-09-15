@@ -634,7 +634,7 @@ func TestYAMLEngineClusterAdminPodRule_WithClusterRoleBinding(t *testing.T) {
 		t.Fatalf("sqlite: %v", err)
 	}
 	configureRiskEngineTestDB(t, db)
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.ClusterRoleBinding{}); err != nil {
+	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.ClusterRoleBinding{}, &models.RoleBinding{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1"}).Error; err != nil {
@@ -688,7 +688,7 @@ func TestYAMLEnginePssHostNamespacesRule(t *testing.T) {
 		t.Fatalf("sqlite: %v", err)
 	}
 	configureRiskEngineTestDB(t, db)
-	if err := db.AutoMigrate(&models.Pod{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}, &models.RuntimeSignal{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "44444444-4444-4444-4444-444444444444"
