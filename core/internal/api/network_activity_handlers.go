@@ -240,7 +240,7 @@ func handleNetworkActivityEdgesView(c *gin.Context, db *gorm.DB, clusterID, name
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	enrichNetworkActivityEdgeServices(c.Request.Context(), items)
+	enrichNetworkActivityEdgeServices(c.Request.Context(), db, clusterID, items)
 
 	c.JSON(http.StatusOK, gin.H{
 		"view":      "edges",
@@ -368,7 +368,7 @@ func handleNetworkActivityDestinationsView(c *gin.Context, db *gorm.DB, clusterI
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	enrichNetworkActivityDestinationServices(c.Request.Context(), items)
+	enrichNetworkActivityDestinationServices(c.Request.Context(), db, clusterID, items)
 
 	c.JSON(http.StatusOK, gin.H{
 		"view":      "destinations",

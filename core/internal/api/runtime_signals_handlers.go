@@ -9,37 +9,25 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
-	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
 // scopeRuntimeQuery restricts both rows and counts to authorized pod identities.
 // Unscoped pod lookup preserves ownership for retained evidence of deleted pods.
 func scopeRuntimeQuery(db *gorm.DB, c *gin.Context, query *gorm.DB) (*gorm.DB, bool) {
-	clusterID := strings.TrimSpace(c.Query("clusterId"))
-	if clusterID != "" && !middleware.ClusterAllowed(c, clusterID) {
-		middleware.AbortClusterScopeDenied(db, c, clusterID)
+	scope, ok := resolveRiskGovernanceScope(db, c)
+	if !ok {
 		return query, false
 	}
 	if uid := strings.TrimSpace(c.Query("podUid")); uid != "" {
-		if !requireResourceUIDClusterScope(db, c, uid) {
+		if !scope.requireResource(db, c, uid) {
 			return query, false
 		}
 	}
-	pods := db.Unscoped().Model(&models.Pod{}).Select("uid")
-	restricted := false
-	if ids, scoped := middleware.ScopedClusterIDs(c); scoped {
-		pods = pods.Where("cluster_id IN ?", ids)
-		restricted = true
+	if scope.restricted || scope.clusterID != "" {
+		query = query.Where("pod_uid IN (?)", scope.podUIDs(db, true))
 	}
-	if clusterID != "" {
-		pods = pods.Where("cluster_id = ?", clusterID)
-		restricted = true
-	}
-	if restricted {
-		query = query.Where("pod_uid IN (?)", pods)
-	}
-	return query, true
+	return query.WithContext(c.Request.Context()), true
 }
 
 // GetRuntimeSignalsList returns runtime signals with optional filters (active pods only when no podUid filter).

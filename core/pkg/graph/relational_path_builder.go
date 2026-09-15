@@ -101,7 +101,7 @@ func (b *RelationalPathBuilder) BuildAllPaths(ctx context.Context, clusterID str
 	if err != nil {
 		return nil, err
 	}
-	return v.([]AttackPath), nil
+	return cloneAttackPaths(v.([]AttackPath))
 }
 
 func (b *RelationalPathBuilder) buildAllPathsNoCache(ctx context.Context, clusterID string, persist bool) ([]AttackPath, error) {

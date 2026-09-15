@@ -1,6 +1,7 @@
 package graph
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -42,9 +43,9 @@ func attackPathBuildCacheTTL() time.Duration {
 
 func attackPathCacheKey(clusterID string) string {
 	if strings.TrimSpace(clusterID) == "" {
-		return "__all_clusters__"
+		return "all:"
 	}
-	return strings.TrimSpace(clusterID)
+	return "cluster:" + strings.TrimSpace(clusterID)
 }
 
 func clearAttackPathBuildCache() {
@@ -69,7 +70,8 @@ func getCachedAttackPathsAll(clusterID string) ([]AttackPath, bool) {
 		attackPathBuildCache.Delete(key)
 		return nil, false
 	}
-	return ent.paths, true
+	paths, err := cloneAttackPaths(ent.paths)
+	return paths, err == nil
 }
 
 func setCachedAttackPathsAll(clusterID string, paths []AttackPath) {
@@ -77,9 +79,29 @@ func setCachedAttackPathsAll(clusterID string, paths []AttackPath) {
 	if ttl <= 0 {
 		return
 	}
+	paths, err := cloneAttackPaths(paths)
+	if err != nil {
+		return
+	}
 	key := attackPathCacheKey(clusterID)
 	attackPathBuildCache.Store(key, attackPathBuildCacheEntry{
 		paths:     paths,
 		expiresAt: time.Now().Add(ttl),
 	})
+}
+
+// Cached results must never be mutated by request-specific redaction or rendering.
+func cloneAttackPaths(paths []AttackPath) ([]AttackPath, error) {
+	if paths == nil {
+		return nil, nil
+	}
+	data, err := json.Marshal(paths)
+	if err != nil {
+		return nil, err
+	}
+	var copy []AttackPath
+	if err := json.Unmarshal(data, &copy); err != nil {
+		return nil, err
+	}
+	return copy, nil
 }

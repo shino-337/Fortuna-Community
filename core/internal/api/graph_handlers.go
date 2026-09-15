@@ -22,28 +22,25 @@ var errGraphRequestAborted = errors.New("graph request aborted")
 // GetGraph returns graph data (fallback to relational if AGE not available)
 func GetGraph(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Try to get graph engine
-		graphEngine, err := graph.NewAgeGraphEngine(db)
-		if err != nil || !graphEngine.IsEnabled() {
-			// Fallback to relational query
-			viewerGraphJSON(c, http.StatusOK, gin.H{
-				"message": "Graph engine not available, using relational data",
-				"data":    getRelationalGraphData(db),
-			})
+		clusterID, err := graphClusterIDOrDefault(db, c)
+		if err != nil {
 			return
 		}
-
-		// Use graph engine
-		viewerGraphJSON(c, http.StatusOK, gin.H{
-			"message": "Graph engine available",
-			"data":    getGraphData(graphEngine),
-		})
+		data, err := graph.NewRelationalPathBuilder(db).BuildGraphData(c.Request.Context(), clusterID)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "Unable to build graph from inventory"})
+			return
+		}
+		viewerGraphJSON(c, 200, gin.H{"message": "Graph from synchronized inventory", "data": data})
 	}
 }
 
 // GetBlastRadius returns blast radius for a resource
 func GetBlastRadius(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireUnrestrictedLegacyGraph(db, c) {
+			return
+		}
 		resourceID := c.Param("uid")
 		maxDepthStr := c.DefaultQuery("max_depth", "3")
 		maxDepth, _ := strconv.Atoi(maxDepthStr)
@@ -84,6 +81,9 @@ func GetBlastRadius(db *gorm.DB) gin.HandlerFunc {
 // GetShortestPath finds shortest path between two resources
 func GetShortestPath(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireUnrestrictedLegacyGraph(db, c) {
+			return
+		}
 		fromID := c.Query("from")
 		toID := c.Query("to")
 
@@ -121,16 +121,15 @@ func GetShortestPath(db *gorm.DB) gin.HandlerFunc {
 // GetAccessibleResources returns resources accessible by a ServiceAccount
 func GetAccessibleResources(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireUnrestrictedLegacyGraph(db, c) {
+			return
+		}
 		saID := c.Param("uid")
 		resourceType := c.DefaultQuery("type", "secrets")
 
 		graphEngine, err := graph.NewAgeGraphEngine(db)
 		if err != nil || !graphEngine.IsEnabled() {
-			// Fallback to relational query
-			viewerJSON(c, http.StatusOK, gin.H{
-				"message": "Graph engine not available, using relational data",
-				"data":    getRelationalAccessibleResources(db, saID, resourceType),
-			})
+			c.JSON(503, gin.H{"error": "Graph engine unavailable; accessible-resource fallback is not implemented"})
 			return
 		}
 
@@ -160,6 +159,9 @@ func GetAccessibleResources(db *gorm.DB) gin.HandlerFunc {
 // ExecuteGraphQuery executes a custom Cypher query
 func ExecuteGraphQuery(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireUnrestrictedLegacyGraph(db, c) {
+			return
+		}
 		var request struct {
 			Query  string                 `json:"query" binding:"required"`
 			Params map[string]interface{} `json:"params,omitempty"`
@@ -247,26 +249,51 @@ func ExecuteGraphQuery(db *gorm.DB) gin.HandlerFunc {
 }
 
 func graphClusterIDOrDefault(db *gorm.DB, c *gin.Context) (string, error) {
-	if id := strings.TrimSpace(c.Query("cluster_id")); id != "" {
-		id = NormalizeClusterID(db, id)
-		if !middleware.ClusterAllowed(c, id) {
-			middleware.AbortClusterScopeDenied(db, c, id)
+	scope, ok := resolveRiskGovernanceScope(db, c)
+	if !ok {
+		return "", errGraphRequestAborted
+	}
+	legacy := strings.TrimSpace(c.Query("cluster_id"))
+	if legacy != "" {
+		if scope.clusterID != "" && scope.clusterID != legacy {
+			c.AbortWithStatusJSON(400, gin.H{"error": "conflicting cluster filters"})
 			return "", errGraphRequestAborted
 		}
-		return id, nil
-	}
-	if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
-		if len(ids) == 1 {
-			return NormalizeClusterID(db, ids[0]), nil
+		if !middleware.ClusterAllowed(c, legacy) {
+			middleware.AbortClusterScopeDenied(db, c, legacy)
+			return "", errGraphRequestAborted
 		}
-		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-			"error":               "forbidden",
-			"reason":              "cluster_scope",
-			"required_cluster_id": "cluster_id query parameter",
-		})
+		scope.clusterID = legacy
+	}
+	if scope.clusterID != "" {
+		return scope.clusterID, nil
+	}
+	if scope.restricted {
+		if len(scope.clusterIDs) == 1 {
+			return scope.clusterIDs[0], nil
+		}
+		c.AbortWithStatusJSON(400, gin.H{"error": "Select one authorized cluster for this graph"})
 		return "", errGraphRequestAborted
 	}
 	return "", nil
+}
+
+// The legacy AGE traversal API has no cluster constraint on every node and edge.
+// A scoped caller must use the relational graph/attack-path APIs until that is implemented.
+func requireUnrestrictedLegacyGraph(db *gorm.DB, c *gin.Context) bool {
+	scope, ok := resolveRiskGovernanceScope(db, c)
+	if !ok {
+		return false
+	}
+	if scope.restricted {
+		c.AbortWithStatusJSON(403, gin.H{"error": "This legacy graph operation requires unrestricted cluster scope; use the scoped graph or attack-path views"})
+		return false
+	}
+	if scope.clusterID != "" || strings.TrimSpace(c.Query("cluster_id")) != "" {
+		c.AbortWithStatusJSON(400, gin.H{"error": "Cluster filters are not supported by this legacy graph operation"})
+		return false
+	}
+	return true
 }
 
 // GetAttackPathsSummary returns attack path statistics.
@@ -448,6 +475,9 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 // GetServiceAccountPermissionsGraph returns all permissions for a service account via graph
 func GetServiceAccountPermissionsGraph(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireUnrestrictedLegacyGraph(db, c) {
+			return
+		}
 		saUID := c.Param("uid")
 
 		queryService, err := graph.NewQueryService(db)
@@ -477,6 +507,9 @@ func GetServiceAccountPermissionsGraph(db *gorm.DB) gin.HandlerFunc {
 // GetRiskyPods returns pods with privilege escalation risk
 func GetRiskyPods(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireUnrestrictedLegacyGraph(db, c) {
+			return
+		}
 		queryService, err := graph.NewQueryService(db)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
