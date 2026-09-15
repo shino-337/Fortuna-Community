@@ -74,7 +74,7 @@ func (ye *YAMLEngine) EvaluateResource(ctx context.Context, resourceType string,
 		matched, score, err := ye.evaluateRule(ctx, rule, enrichedData)
 		if err != nil {
 			log.Printf("[RiskEngine] Failed to evaluate rule %s: %v", rule.ID, err)
-			continue
+			return nil, fmt.Errorf("rule %s evaluation failed: %w", rule.ID, err)
 		}
 		if matched {
 			insight := ye.createInsight(rule, resourceType, enrichedData, score)
@@ -116,7 +116,7 @@ func (ye *YAMLEngine) EvaluatePodRuntimeOnly(ctx context.Context, podData map[st
 		matched, score, err := ye.evaluateRule(ctx, rule, enrichedData)
 		if err != nil {
 			log.Printf("[YAMLEngine] Failed to evaluate runtime rule %s: %v", rule.ID, err)
-			continue
+			return nil, fmt.Errorf("rule %s evaluation failed: %w", rule.ID, err)
 		}
 		if matched {
 			insight := ye.createInsight(rule, resourceType, enrichedData, score)
@@ -177,7 +177,7 @@ func (ye *YAMLEngine) LoadYAMLRules() error {
 		return fmt.Errorf("failed to walk directory: %w", err)
 	}
 
-	if len(errors) > 0 && len(ye.yamlRules) == 0 {
+	if len(errors) > 0 {
 		return fmt.Errorf("failed to load any rules: %v", errors)
 	}
 
@@ -249,6 +249,21 @@ func (ye *YAMLEngine) mergeRulesUnlocked() {
 		log.Printf("[YAMLEngine] WARNING: failed to load DB rules: %v", err)
 	} else if len(dbRules) > 0 {
 		for _, rule := range dbRules {
+			// Existing DB overrides inherit the shipped resource-kind constraint unless
+			// the operator explicitly supplied one; preserve compatibility without widening scope.
+			explicit := false
+			for _, tag := range rule.Tags {
+				if strings.HasPrefix(tag, "resource-kind:") {
+					explicit = true
+				}
+			}
+			if !explicit {
+				for _, tag := range ruleMap[rule.ID].Tags {
+					if strings.HasPrefix(tag, "resource-kind:") {
+						rule.Tags = append(rule.Tags, tag)
+					}
+				}
+			}
 			ruleMap[rule.ID] = rule
 		}
 		log.Printf("[YAMLEngine] Loaded %d DB rules", len(dbRules))
@@ -426,4 +441,40 @@ func (ye *YAMLEngine) evaluateCondition(condition Condition, resourceData map[st
 // delegates to the base engine. The caller supplies the raw user resource JSON.
 func (ye *YAMLEngine) TestCELCondition(condition Condition, resource map[string]interface{}) (bool, error) {
 	return ye.evaluateCondition(condition, resource)
+}
+
+// NewConfiguredYAMLEngine preserves CEL dispatch and fails if the configured catalog
+// cannot be loaded. Workers must not silently switch to a different evaluator.
+func NewConfiguredYAMLEngine(db *gorm.DB) (*YAMLEngine, error) {
+	directory := getRulesDirectory()
+	if directory == "" {
+		return nil, fmt.Errorf("risk rule directory not found")
+	}
+	ye, err := NewYAMLEngine(db, directory)
+	if err != nil {
+		return nil, err
+	}
+	if len(ye.GetRules()) == 0 {
+		return nil, fmt.Errorf("risk rule catalog is empty")
+	}
+	if _, err := LoadRulesFromDB(db); err != nil {
+		return nil, fmt.Errorf("database rule catalog unavailable: %w", err)
+	}
+	return ye, nil
+}
+
+// CanReevaluateFinding requires the same enabled detector and resource scope.
+func (ye *YAMLEngine) CanReevaluateFinding(resourceType, ruleID, title, category string) bool {
+	ye.mu.RLock()
+	defer ye.mu.RUnlock()
+	for _, rule := range ye.rules {
+		same := rule.ID == ruleID
+		if ruleID == "" {
+			same = rule.Name == title
+		}
+		if same && rule.Enabled && string(rule.Category) == category && ruleMatchesResourceType(resourceType, rule) {
+			return true
+		}
+	}
+	return false
 }

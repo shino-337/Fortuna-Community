@@ -30,7 +30,7 @@ func TestRiskWorker_Process_NormalizedPodMessage_EndToEnd(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
+	if err := db.AutoMigrate(&models.AuditLog{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&models.Cluster{ID: "c-pipe", Name: "c-pipe"}).Error; err != nil {
@@ -87,7 +87,7 @@ func TestRiskWorker_Process_IdempotentInsightDedup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
+	if err := db.AutoMigrate(&models.AuditLog{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Create(&models.Cluster{ID: "c-ded", Name: "c-ded"})
@@ -130,7 +130,7 @@ func TestInsightStatusUpdater_PodResolvesWhenPSSNoLongerApplies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
+	if err := db.AutoMigrate(&models.AuditLog{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
 		t.Fatal(err)
 	}
 	_ = db.Create(&models.Cluster{ID: "c-upd", Name: "c-upd"})

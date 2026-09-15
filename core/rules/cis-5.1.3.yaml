@@ -21,6 +21,8 @@ conditions:
 aggregation: AND
 base_score: 10.0
 tags:
+  - "resource-kind:RoleBinding"
+  - "resource-kind:ClusterRoleBinding"
   - cis
   - cluster-admin
   - critical

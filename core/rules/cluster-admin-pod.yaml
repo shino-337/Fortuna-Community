@@ -25,6 +25,7 @@ conditions:
 aggregation: AND
 base_score: 10.0
 tags:
+  - "resource-kind:Pod"
   - cluster-admin
   - critical
   - pod

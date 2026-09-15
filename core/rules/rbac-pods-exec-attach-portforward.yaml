@@ -18,6 +18,8 @@ conditions:
 aggregation: AND
 base_score: 9.0
 tags:
+  - "resource-kind:Role"
+  - "resource-kind:ClusterRole"
   - rbac
   - pod-access
   - exec

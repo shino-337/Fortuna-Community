@@ -16,6 +16,8 @@ conditions:
 aggregation: OR
 base_score: 8.0
 tags:
+  - "resource-kind:Role"
+  - "resource-kind:ClusterRole"
   - wildcard
   - overprivileged
   # MITRE ATT&CK for Containers: Additional Container Cluster Roles

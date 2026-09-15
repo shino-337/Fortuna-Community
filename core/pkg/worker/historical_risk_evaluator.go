@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -15,6 +14,7 @@ import (
 
 // HistoricalRiskEvaluator processes historical data from database
 type HistoricalRiskEvaluator struct {
+	initErr    error
 	db         *gorm.DB
 	riskEngine *riskengine.Engine
 	yamlEngine *riskengine.YAMLEngine
@@ -23,32 +23,12 @@ type HistoricalRiskEvaluator struct {
 
 // NewHistoricalRiskEvaluator creates a new historical risk evaluator
 func NewHistoricalRiskEvaluator(db *gorm.DB) *HistoricalRiskEvaluator {
-	// Try YAML engine first, fallback to standard
-	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
-	var engine *riskengine.Engine
-	var yamlEngine *riskengine.YAMLEngine
-
-	if rulesDir != "" {
-		ye, err := riskengine.NewYAMLEngine(db, rulesDir)
-		if err == nil {
-			log.Printf("[HistoricalRiskEvaluator] Using YAMLEngine rulesDir=%q", rulesDir)
-			yamlEngine = ye
-			engine = ye.Engine
-		} else {
-			log.Printf("[HistoricalRiskEvaluator] NewYAMLEngine failed rulesDir=%q: %v; falling back to Engine", rulesDir, err)
-			engine = riskengine.NewEngine(db)
-		}
-	} else {
-		log.Printf("[HistoricalRiskEvaluator] FORTUNA_RULES_DIR not set; using standard Engine")
-		engine = riskengine.NewEngine(db)
+	ye, err := riskengine.NewConfiguredYAMLEngine(db)
+	instance := &HistoricalRiskEvaluator{db: db, yamlEngine: ye, initErr: err, insightMgr: riskengine.NewInsightManager(db)}
+	if ye != nil {
+		instance.riskEngine = ye.Engine
 	}
-
-	return &HistoricalRiskEvaluator{
-		db:         db,
-		riskEngine: engine,
-		yamlEngine: yamlEngine,
-		insightMgr: riskengine.NewInsightManager(db),
-	}
+	return instance
 }
 
 func (e *HistoricalRiskEvaluator) evaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
@@ -60,9 +40,15 @@ func (e *HistoricalRiskEvaluator) evaluateResource(ctx context.Context, resource
 
 // EvaluateAllResources evaluates all existing resources in the database
 func (e *HistoricalRiskEvaluator) EvaluateAllResources(ctx context.Context) error {
+	if e.initErr != nil {
+		return fmt.Errorf("risk catalog unavailable: %w", e.initErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	log.Printf("[HistoricalRiskEvaluator] Starting evaluation of all historical resources...")
 	startTime := time.Now()
-	
+
 	// Track statistics
 	stats := struct {
 		ServiceAccounts     int
@@ -195,7 +181,7 @@ func (e *HistoricalRiskEvaluator) evaluateRoles(ctx context.Context, stats *stru
 		} else {
 			rules = []interface{}{}
 		}
-		
+
 		normalizedData := map[string]interface{}{
 			"kind":       "Role",
 			"name":       role.Name,
@@ -381,4 +367,3 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoleBindings(ctx context.Contex
 
 	return nil
 }
-
