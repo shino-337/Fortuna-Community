@@ -110,6 +110,10 @@ func (e *HistoricalRiskEvaluator) EvaluateAllResources(ctx context.Context) erro
 		stats.ServiceAccounts, stats.Roles, stats.ClusterRoles, stats.RoleBindings, stats.ClusterRoleBindings,
 		stats.InsightsCreated, stats.Errors)
 
+	if stats.Errors > 0 {
+		return fmt.Errorf("historical evaluation incomplete: %d errors", stats.Errors)
+	}
+
 	return nil
 }
 
@@ -123,19 +127,8 @@ func (e *HistoricalRiskEvaluator) evaluateServiceAccounts(ctx context.Context, s
 	InsightsCreated     int
 	Errors              int
 }) error {
-	// Check if table exists first
-	var saTableExists bool
-	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='service_accounts')").Scan(&saTableExists).Error; err != nil {
-		return fmt.Errorf("check service_accounts table: %w", err)
-	}
-	
-	if !saTableExists {
-		log.Printf("[HistoricalRiskEvaluator] service_accounts table does not exist, skipping")
-		return nil
-	}
-	
 	var serviceAccounts []models.ServiceAccount
-	if err := e.db.Find(&serviceAccounts).Error; err != nil {
+	if err := e.db.WithContext(ctx).Find(&serviceAccounts).Error; err != nil {
 		return fmt.Errorf("failed to fetch service accounts: %w", err)
 	}
 
@@ -184,19 +177,8 @@ func (e *HistoricalRiskEvaluator) evaluateRoles(ctx context.Context, stats *stru
 	InsightsCreated     int
 	Errors              int
 }) error {
-	// Check if table exists first
-	var rolesTableExists bool
-	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='roles')").Scan(&rolesTableExists).Error; err != nil {
-		return fmt.Errorf("check roles table: %w", err)
-	}
-	
-	if !rolesTableExists {
-		log.Printf("[HistoricalRiskEvaluator] roles table does not exist, skipping")
-		return nil
-	}
-	
 	var roles []models.Role
-	if err := e.db.Find(&roles).Error; err != nil {
+	if err := e.db.WithContext(ctx).Find(&roles).Error; err != nil {
 		return fmt.Errorf("failed to fetch roles: %w", err)
 	}
 
@@ -253,19 +235,8 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoles(ctx context.Context, stat
 	InsightsCreated     int
 	Errors              int
 }) error {
-	// Check if table exists first
-	var crTableExists bool
-	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='cluster_roles')").Scan(&crTableExists).Error; err != nil {
-		return fmt.Errorf("check cluster_roles table: %w", err)
-	}
-	
-	if !crTableExists {
-		log.Printf("[HistoricalRiskEvaluator] cluster_roles table does not exist, skipping")
-		return nil
-	}
-	
 	var clusterRoles []models.ClusterRole
-	if err := e.db.Find(&clusterRoles).Error; err != nil {
+	if err := e.db.WithContext(ctx).Find(&clusterRoles).Error; err != nil {
 		return fmt.Errorf("failed to fetch cluster roles: %w", err)
 	}
 
@@ -311,19 +282,8 @@ func (e *HistoricalRiskEvaluator) evaluateRoleBindings(ctx context.Context, stat
 	InsightsCreated     int
 	Errors              int
 }) error {
-	// Check if table exists first
-	var rbTableExists bool
-	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='role_bindings')").Scan(&rbTableExists).Error; err != nil {
-		return fmt.Errorf("check role_bindings table: %w", err)
-	}
-	
-	if !rbTableExists {
-		log.Printf("[HistoricalRiskEvaluator] role_bindings table does not exist, skipping")
-		return nil
-	}
-	
 	var roleBindings []models.RoleBinding
-	if err := e.db.Find(&roleBindings).Error; err != nil {
+	if err := e.db.WithContext(ctx).Find(&roleBindings).Error; err != nil {
 		return fmt.Errorf("failed to fetch role bindings: %w", err)
 	}
 
@@ -370,19 +330,8 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoleBindings(ctx context.Contex
 	InsightsCreated     int
 	Errors              int
 }) error {
-	// Check if table exists first
-	var crbTableExists bool
-	if err := e.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='cluster_role_bindings')").Scan(&crbTableExists).Error; err != nil {
-		return fmt.Errorf("check cluster_role_bindings table: %w", err)
-	}
-	
-	if !crbTableExists {
-		log.Printf("[HistoricalRiskEvaluator] cluster_role_bindings table does not exist, skipping")
-		return nil
-	}
-	
 	var clusterRoleBindings []models.ClusterRoleBinding
-	if err := e.db.Find(&clusterRoleBindings).Error; err != nil {
+	if err := e.db.WithContext(ctx).Find(&clusterRoleBindings).Error; err != nil {
 		return fmt.Errorf("failed to fetch cluster role bindings: %w", err)
 	}
 

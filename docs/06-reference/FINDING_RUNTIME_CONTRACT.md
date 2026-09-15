@@ -108,3 +108,37 @@ is checked at acceptance, not continuously during the job.
 Remaining risk audit: global finding evaluation/historical evaluation, exceptions,
 and attack-step aggregates. Inventory, graph and other runtime surfaces follow.
 Live PostgreSQL validation and end-to-end lab validation remain pending.
+
+### Evaluation, exceptions and attack-step summaries
+
+The legacy `/risk/insights/evaluate` and `/risk/insights/evaluate/historical`
+operations run across the database. They still require `risk.evaluate`, and now
+also require unrestricted cluster scope. Restricted principals receive 403 before
+worker construction. Explicit `cluster` or `clusterId` filters are rejected (400
+for otherwise authorized global users); these workers do not implement selective
+cluster evaluation. Scoped score synchronization remains available via
+`/risk/scores/sync`.
+
+Historical evaluation reports resource-query, evaluation and persistence failures
+instead of always returning success. A failed evaluation does not proceed to
+status reconciliation. Reconciliation errors also return 500; both stages can
+have partially applied changes before failure and are not one atomic transaction.
+
+Status reconciliation locates ServiceAccounts, Roles and ClusterRoles by the
+finding's resource UID, as already done for Pods and bindings. Same-name resources
+in another cluster, or replacements with new UIDs, are distinct identities.
+Missing UID or database failures preserve status and report incomplete processing.
+Successfully resolved active/acknowledged findings record `resolved_at`; a
+concurrent status change to dismissed/resolved is not overwritten. Deeper rule
+engine error propagation and automatic score recalculation remain separate audit
+items.
+
+Exception lists and mutations accept both cluster filter aliases and enforce
+resource ownership. Scoped history uses retained pod records (including soft
+deletion), matching create/delete ownership checks. Orphan policies are hidden
+from scoped lists and cannot be changed by scoped users; unrestricted users retain
+global access. Non-pod ownership is still unsupported for scoped exception actions.
+Invalid exception IDs return 400; query errors return generic 500 responses.
+
+Attack-step summaries include only active pods in the authorized clusters.
+Authorization and cluster filtering happen before grouping and averaging.

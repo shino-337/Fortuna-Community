@@ -647,10 +647,13 @@ func GetInsightsSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 // This uses the HistoricalRiskEvaluator for database-based evaluation
 func TriggerRiskEvaluation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireGlobalRiskEvaluation(db, c) {
+			return
+		}
 		ctx := c.Request.Context()
 		evaluator := worker.NewHistoricalRiskEvaluator(db)
 		if err := evaluator.EvaluateAllResources(ctx); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "risk evaluation failed; some resources may already have been updated"})
 			return
 		}
 
@@ -664,20 +667,25 @@ func TriggerRiskEvaluation(db *gorm.DB) gin.HandlerFunc {
 // This processes historical data from database using the same engine as Risk Worker
 func TriggerHistoricalRiskEvaluation(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if !requireGlobalRiskEvaluation(db, c) {
+			return
+		}
 		ctx := c.Request.Context()
 
 		// Step 1: Re-evaluate all resources (creates/updates insights for existing risks)
 		evaluator := worker.NewHistoricalRiskEvaluator(db)
 		if err := evaluator.EvaluateAllResources(ctx); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "risk evaluation failed; some resources may already have been updated"})
 			return
 		}
 
 		// Step 2: Auto-resolve insights where risks no longer exist
 		statusUpdater := worker.NewInsightStatusUpdater(db)
 		if err := statusUpdater.UpdateStatusForResolvedRisks(ctx); err != nil {
-			// Log error but don't fail the request - evaluation was successful
+			// Evaluation succeeded, but reconciliation is incomplete.
 			log.Printf("[TriggerHistoricalRiskEvaluation] Error updating insight statuses: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "evaluation completed but status reconciliation failed"})
+			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
