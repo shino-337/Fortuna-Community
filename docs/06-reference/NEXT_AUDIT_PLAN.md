@@ -46,3 +46,8 @@ identity, evidence loss/recovery, deletion retry and actual UI/API/worker flow.
 - B: shared resolver implemented for permissions, Pod RBAC reports and the risk
   cluster-admin projection; scope/subject/error regression matrix added.
 - Next: C, per-agent/per-cluster credential enforcement across HTTP and gRPC.
+
+- B: merged in PR #37.
+- C1: credential registry/principal and explicit regression contract implemented;
+  transport enforcement is not active. C2 covers HTTP and C3 covers gRPC/storage
+  isolation; see [credential foundation](AGENT_CREDENTIAL_FOUNDATION.md).
