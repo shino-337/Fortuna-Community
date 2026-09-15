@@ -168,3 +168,25 @@ Remaining Inventory audit: RBAC permission calculation (including RoleBindings t
 ClusterRoles and namespace-qualified grants), bulk mutation semantics, deployment/
 ReplicaSet surfaces, capability summaries and cluster/agent identity. This change
 secures access to the permission view but does not certify its effective-rule calculation.
+
+### ServiceAccount RBAC grant resolution
+
+The permissions endpoint resolves Role and ClusterRole references separately within
+one cluster. RoleBinding grants retain the binding namespace; ClusterRoleBinding
+grants have cluster scope. Direct ServiceAccount subjects, the ServiceAccount user
+name, and its standard authenticated groups are supported. Duplicate matching
+subjects do not duplicate a binding. Non-resource URL rules are excluded from
+namespaced grants. The API batches inventory reads and returns HTTP 500 on a
+storage failure, malformed matching role reference, or missing referenced role.
+The dashboard displays these failures instead of an empty permission list.
+
+`effectiveRules` remains an array for existing clients, with additive `scope`,
+`namespace`, `bindingKind`, and `bindingName` fields. A RoleBinding referencing a
+ClusterRole uses `clusterRole` instead of `role` in its binding row. These are
+synchronized RBAC grants, not live authorization decisions. Resource discovery,
+other authorizers, admission policy, token validity, and inventory freshness are
+not evaluated. Cluster-scoped resource names in a namespaced grant must not be
+interpreted as cluster-wide permission. Aggregated ClusterRoles use synchronized
+rules supplied by Kubernetes.
+
+Reference: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
