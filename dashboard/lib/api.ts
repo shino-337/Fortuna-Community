@@ -1679,13 +1679,9 @@ export const api = {
 
   /** GET /api/v1/inventory/serviceaccounts/:uid/permissions (effectiveRules + roleBindings + clusterRoleBindings) */
   getServiceAccountPermissions: async (uid: string): Promise<ServiceAccountK8sPermissions> => {
-    try {
-      return await request<ServiceAccountK8sPermissions>(
-        `/inventory/serviceaccounts/${encodeURIComponent(uid)}/permissions`,
-      );
-    } catch {
-      return { effectiveRules: [] };
-    }
+    return request<ServiceAccountK8sPermissions>(
+      `/inventory/serviceaccounts/${encodeURIComponent(uid)}/permissions`,
+    );
   },
 
   getCertificates: async (): Promise<Certificate[]> => {

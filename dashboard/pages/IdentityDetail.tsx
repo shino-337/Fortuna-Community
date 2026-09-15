@@ -214,7 +214,7 @@ export const IdentityDetail: React.FC = () => {
             {roleBindings.map((row, index) => (
               <div key={`rb-${index}`} className="rounded-lg border border-border bg-base/40 px-3 py-2">
                 <p className="text-caption font-semibold text-text">RoleBinding: {bindingName(row.roleBinding)}</p>
-                <p className="mt-1 text-caption text-muted">Role: <span className="font-mono text-text">{roleName(row.role)}</span></p>
+                <p className="mt-1 text-caption text-muted">{row.clusterRole ? "ClusterRole" : "Role"}: <span className="font-mono text-text">{roleName(row.clusterRole ?? row.role)}</span></p>
               </div>
             ))}
             {clusterRoleBindings.map((row, index) => (
@@ -230,10 +230,10 @@ export const IdentityDetail: React.FC = () => {
       </Card>
       <Card className="p-6 mt-6">
         <h3 className="text-section-title text-text mb-2 flex items-center gap-2">
-          <Key className="w-5 h-5 text-brand" /> Effective rules (Kubernetes RBAC)
+          <Key className="w-5 h-5 text-brand" /> Synchronized RBAC grants
         </h3>
         <p className="text-caption text-muted mb-4">
-          RoleBindings: {bindingCounts.roleBindings} · ClusterRoleBindings: {bindingCounts.clusterRoleBindings} · Rules
+          Based on synchronized inventory; this is not a live authorization check. RoleBindings: {bindingCounts.roleBindings} · ClusterRoleBindings: {bindingCounts.clusterRoleBindings} · Rules
           shown: {effectiveRules.length}
         </p>
         {effectiveRules.length > 0 ? (
@@ -241,6 +241,7 @@ export const IdentityDetail: React.FC = () => {
             <table className={UI_TABLE}>
               <thead className={UI_THEAD_STICKY}>
                 <tr>
+                  <th className={UI_TH_COMPACT}>Scope</th>
                   <th className={UI_TH_COMPACT}>API groups</th>
                   <th className={UI_TH_COMPACT}>Resources</th>
                   <th className={UI_TH_COMPACT}>Verbs</th>
@@ -250,11 +251,12 @@ export const IdentityDetail: React.FC = () => {
               <tbody>
                 {effectiveRules.slice(0, 200).map((p, i) => (
                   <tr key={i} className={UI_TR}>
+                    <td className={UI_TD_COMPACT_TIGHT}>{p.scope === "namespace" ? `Namespace: ${p.namespace}` : p.scope === "cluster" ? "Cluster" : "Unknown"}</td>
                     <td className={`${UI_TD_COMPACT_TIGHT} font-mono text-text text-caption`}>
                       {(p.apiGroups ?? []).join(', ') || '—'}
                     </td>
                     <td className={`${UI_TD_COMPACT_TIGHT} font-mono text-text text-caption`}>
-                      {(p.resources ?? []).join(', ') || '—'}
+                      {[...(p.resources ?? []), ...(p.nonResourceURLs ?? [])].join(', ') || '—'}
                     </td>
                     <td className={`${UI_TD_COMPACT_TIGHT} text-muted font-mono text-caption`}>
                       {(p.verbs ?? []).join(', ') || '—'}

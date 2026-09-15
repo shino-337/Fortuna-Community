@@ -168,6 +168,7 @@ export const Resources: React.FC = () => {
   const [selectedAttackPaths, setSelectedAttackPaths] = useState<AttackPath[]>([]);
   const [selectedAttackPathsLoading, setSelectedAttackPathsLoading] = useState(false);
   const [selectedAttackPathsError, setSelectedAttackPathsError] = useState<AttackPathUiIssue | null>(null);
+  const [selectedServiceAccountError, setSelectedServiceAccountError] = useState<string | null>(null);
   const [selectedServiceAccountPermissions, setSelectedServiceAccountPermissions] = useState<ServiceAccountK8sPermissions | null>(null);
   const [selectedServiceAccountDetail, setSelectedServiceAccountDetail] = useState<Record<string, unknown> | null>(null);
   const [selectedServiceAccountPods, setSelectedServiceAccountPods] = useState<PodWithRisk[]>([]);
@@ -383,6 +384,7 @@ export const Resources: React.FC = () => {
     if (selectedResource.resource.kind === 'ServiceAccount') {
       let cancelled = false;
       setSelectedServiceAccountLoading(true);
+      setSelectedServiceAccountError(null);
       setSelectedAttackPaths([]);
       setSelectedAttackPathsError(null);
       setSelectedAttackPathsLoading(false);
@@ -403,6 +405,11 @@ export const Resources: React.FC = () => {
           if (!cancelled) setSelectedServiceAccountPods(pods.pods.filter((pod) => linkedUids.has(pod.uid)));
         } else {
           setSelectedServiceAccountPods([]);
+        }
+      }).catch((err: unknown) => {
+        if (!cancelled) {
+          setSelectedServiceAccountPermissions(null);
+          setSelectedServiceAccountError(err instanceof Error ? err.message : 'Unable to load ServiceAccount permissions');
         }
       }).finally(() => {
         if (!cancelled) setSelectedServiceAccountLoading(false);
@@ -1266,13 +1273,15 @@ export const Resources: React.FC = () => {
                         <p className="text-caption text-muted-2">Permissions</p>
                         {selectedServiceAccountLoading ? (
                           <div className="mt-2 rounded-lg border border-border bg-surface/60 px-3 py-4 text-caption text-muted">Loading permissions…</div>
+                        ) : selectedServiceAccountError ? (
+                          <p role="alert" className="mt-2 text-caption text-danger">{selectedServiceAccountError}</p>
                         ) : selectedServiceAccountPermissions?.effectiveRules?.length ? (
                           <div className="mt-2 space-y-2">
                             {selectedServiceAccountPermissions.effectiveRules.slice(0, 6).map((rule, index) => (
                               <div key={index} className="rounded-lg border border-border bg-surface/60 px-3 py-3">
-                                <p className="text-caption font-medium text-text">Rule {index + 1}</p>
+                                <p className="text-caption font-medium text-text">Rule {index + 1} · {rule.scope === "namespace" ? `Namespace: ${rule.namespace}` : rule.scope === "cluster" ? "Cluster" : "Unknown scope"}</p>
                                 <p className="mt-1 text-caption text-muted break-words">
-                                  {(rule.verbs ?? ['*']).join(', ')} on {(rule.resources ?? ['*']).join(', ')}
+                                  {(rule.verbs ?? []).join(', ')} on {[...(rule.resources ?? []), ...(rule.nonResourceURLs ?? [])].join(', ')}
                                 </p>
                               </div>
                             ))}
@@ -1290,7 +1299,7 @@ export const Resources: React.FC = () => {
                             {(selectedServiceAccountPermissions?.roleBindings ?? []).map((row, index) => (
                               <div key={`rb-${index}`} className="rounded-lg border border-border bg-surface/60 px-3 py-2">
                                 <p className="text-caption font-semibold text-text">RoleBinding: {objectName(row.roleBinding)}</p>
-                                <p className="mt-1 text-caption text-muted">Role: <span className="font-mono text-text">{objectName(row.role)}</span></p>
+                                <p className="mt-1 text-caption text-muted">{row.clusterRole ? "ClusterRole" : "Role"}: <span className="font-mono text-text">{objectName(row.clusterRole ?? row.role)}</span></p>
                               </div>
                             ))}
                             {(selectedServiceAccountPermissions?.clusterRoleBindings ?? []).map((row, index) => (
@@ -1447,7 +1456,7 @@ export const Resources: React.FC = () => {
                           <div className="mt-2 space-y-2">
                             {selectedRbacResourceDetail.rules.slice(0, 10).map((rule, index) => (
                               <div key={index} className="rounded-lg border border-border bg-surface/60 px-3 py-3">
-                                <p className="text-caption font-medium text-text">Rule {index + 1}</p>
+                                <p className="text-caption font-medium text-text">Rule {index + 1} · {rule.scope === "namespace" ? `Namespace: ${rule.namespace}` : rule.scope === "cluster" ? "Cluster" : "Unknown scope"}</p>
                                 <p className="mt-1 text-caption text-muted break-words">{ruleSummary(rule)}</p>
                               </div>
                             ))}

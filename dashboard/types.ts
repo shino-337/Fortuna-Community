@@ -1329,6 +1329,10 @@ export interface K8sRbacResourceDetail {
 
 /** GET /inventory/serviceaccounts/:uid/permissions — Kubernetes RBAC effective rules + bindings */
 export interface K8sEffectiveRule {
+  scope?: "cluster" | "namespace";
+  namespace?: string;
+  bindingKind?: string;
+  bindingName?: string;
   verbs?: string[];
   apiGroups?: string[];
   resources?: string[];
@@ -1339,6 +1343,7 @@ export interface K8sEffectiveRule {
 export interface K8sRoleBindingPermission {
   roleBinding?: Record<string, unknown>;
   role?: Record<string, unknown>;
+  clusterRole?: Record<string, unknown>;
 }
 
 export interface K8sClusterRoleBindingPermission {
