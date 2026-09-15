@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"os"
 	"strings"
 	"time"
 
@@ -18,6 +17,7 @@ import (
 // This is called after historical risk evaluation to auto-resolve insights
 // when risks no longer exist
 type InsightStatusUpdater struct {
+	initErr    error
 	db         *gorm.DB
 	riskEngine *riskengine.Engine
 	yamlEngine *riskengine.YAMLEngine
@@ -27,26 +27,12 @@ type InsightStatusUpdater struct {
 // NewInsightStatusUpdater creates a new insight status updater.
 // When FORTUNA_RULES_DIR is set, uses YAMLEngine.EvaluateResource (same as Risk worker) so Pod/runtime CEL rules re-evaluate correctly.
 func NewInsightStatusUpdater(db *gorm.DB) *InsightStatusUpdater {
-	rulesDir := os.Getenv("FORTUNA_RULES_DIR")
-	var engine *riskengine.Engine
-	var yamlEngine *riskengine.YAMLEngine
-	if rulesDir != "" {
-		if ye, err := riskengine.NewYAMLEngine(db, rulesDir); err == nil {
-			yamlEngine = ye
-			engine = ye.Engine
-		} else {
-			log.Printf("[InsightStatusUpdater] YAMLEngine unavailable: %v, using standard engine", err)
-			engine = riskengine.NewEngine(db)
-		}
-	} else {
-		engine = riskengine.NewEngine(db)
+	ye, err := riskengine.NewConfiguredYAMLEngine(db)
+	instance := &InsightStatusUpdater{db: db, yamlEngine: ye, initErr: err, insightMgr: riskengine.NewInsightManager(db)}
+	if ye != nil {
+		instance.riskEngine = ye.Engine
 	}
-	return &InsightStatusUpdater{
-		db:         db,
-		riskEngine: engine,
-		yamlEngine: yamlEngine,
-		insightMgr: riskengine.NewInsightManager(db),
-	}
+	return instance
 }
 
 func (u *InsightStatusUpdater) evaluateResource(ctx context.Context, resourceType string, resourceData map[string]interface{}) ([]*models.Insight, error) {
@@ -59,6 +45,12 @@ func (u *InsightStatusUpdater) evaluateResource(ctx context.Context, resourceTyp
 // UpdateStatusForResolvedRisks checks all active insights and auto-resolves
 // those where the risk no longer exists
 func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context) error {
+	if u.initErr != nil {
+		return fmt.Errorf("risk catalog unavailable: %w", u.initErr)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	log.Printf("[InsightStatusUpdater] Starting status update for resolved risks...")
 	startTime := time.Now()
 
@@ -89,15 +81,37 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 		if !stillHasRisk {
 			// Risk no longer exists - auto-resolve
 			updates := map[string]interface{}{
-				"status":     "resolved",
-				"updated_at": time.Now(),
+				"status":      "resolved",
+				"updated_at":  time.Now(),
 				"resolved_at": time.Now(),
 			}
-			if err := u.db.WithContext(ctx).Model(&insight).Where("status IN ? OR status IS NULL", []string{"active", "acknowledged"}).Updates(updates).Error; err != nil {
-				log.Printf("[InsightStatusUpdater] Failed to auto-resolve insight %d: %v", insight.ID, err)
+			changed := false
+			err := u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+				result := tx.Model(&models.Insight{}).Where("id = ?", insight.ID).
+					Where("status IN ? OR status IS NULL", []string{"active", "acknowledged"}).Updates(updates)
+				if result.Error != nil {
+					return result.Error
+				}
+				if result.RowsAffected == 0 {
+					return nil
+				}
+				details, _ := json.Marshal(map[string]any{"reason": "risk no longer matched", "resource_uid": insight.ResourceUID, "previous_status": insight.Status})
+				audit := models.AuditLog{Action: "auto_resolve", Resource: "insight", ResourceID: fmt.Sprint(insight.ID), User: "system:risk-reconciliation", Details: string(details)}
+				if err := tx.Omit("UserID").Create(&audit).Error; err != nil {
+					return err
+				}
+				changed = true
+				return nil
+			})
+			if err != nil {
 				errorCount++
+				log.Printf("[InsightStatusUpdater] Failed to persist resolution and audit: %v", err)
 				continue
 			}
+			if !changed {
+				continue
+			}
+
 			resolvedCount++
 			log.Printf("[InsightStatusUpdater] Auto-resolved insight ID=%d (risk no longer exists for %s/%s/%s)",
 				insight.ID, resourceType, resourceNamespace, resourceName)
@@ -156,7 +170,7 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 			}
 			return false, err
 		}
-		log.Printf("[InsightStatusUpdater] Loaded role %s/%s (UID: %s, updated_at: %v) for re-evaluation", 
+		log.Printf("[InsightStatusUpdater] Loaded role %s/%s (UID: %s, updated_at: %v) for re-evaluation",
 			resourceNamespace, resourceName, role.UID, role.UpdatedAt)
 		// Parse rules JSON
 		var rules interface{}
@@ -243,7 +257,7 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		var containers interface{}
 		if pod.Containers != "" {
 			if err := json.Unmarshal([]byte(pod.Containers), &containers); err != nil {
-				containers = []interface{}{}
+				return true, fmt.Errorf("invalid synchronized pod containers: %w", err)
 			}
 		} else {
 			containers = []interface{}{}
@@ -284,6 +298,13 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 	}
 
 	// Re-evaluate the resource
+	if u.yamlEngine == nil {
+		return true, fmt.Errorf("YAML evaluator unavailable")
+	}
+	if !u.yamlEngine.CanReevaluateFinding(resourceType, insight.CVEID, insight.Title, insight.InsightType) {
+		return true, fmt.Errorf("original finding detector is missing, disabled, or no longer applies")
+	}
+
 	insights, err := u.evaluateResource(ctx, resourceType, resourceData)
 	if err != nil {
 		log.Printf("[InsightStatusUpdater] Error re-evaluating resource %s/%s/%s: %v", resourceType, resourceNamespace, resourceName, err)
@@ -295,7 +316,7 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 	insightType := insight.InsightType
 	insightSeverity := insight.Severity
 	insightDescLower := strings.ToLower(insight.Description)
-	
+
 	for _, newInsight := range insights {
 		// Exact description match - risk still exists
 		if newInsight.Description == insight.Description {
@@ -315,9 +336,9 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		// Also check if both descriptions mention the same resource name/namespace
 		newInsightDescLower := strings.ToLower(newInsight.Description)
 		if (insightType == "rbac" && newInsight.InsightType == "rbac") &&
-		   (insightSeverity == newInsight.Severity) &&
-		   (contains(insightDescLower, "wildcard") || contains(insightDescLower, "overprivileged")) &&
-		   (contains(newInsightDescLower, "wildcard") || contains(newInsightDescLower, "overprivileged")) {
+			(insightSeverity == newInsight.Severity) &&
+			(contains(insightDescLower, "wildcard") || contains(insightDescLower, "overprivileged")) &&
+			(contains(newInsightDescLower, "wildcard") || contains(newInsightDescLower, "overprivileged")) {
 			// Additional check: if insight mentions specific resource name, ensure new insight mentions it too
 			// Extract resource name from description if present
 			resourceNameInDesc := extractResourceNameFromDescription(insight.Description)
@@ -367,4 +388,3 @@ func countRules(rules interface{}) int {
 	}
 	return 0
 }
-

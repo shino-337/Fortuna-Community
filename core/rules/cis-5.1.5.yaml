@@ -20,6 +20,8 @@ conditions:
 aggregation: AND
 base_score: 7.5
 tags:
+  - "resource-kind:Role"
+  - "resource-kind:ClusterRole"
   - cis
   - rbac
   - pods

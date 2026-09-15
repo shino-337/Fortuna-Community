@@ -157,6 +157,18 @@ func ruleAppliesToPod(rule Rule) bool {
 
 func ruleMatchesResourceType(resourceType string, rule Rule) bool {
 	rt := strings.TrimSpace(resourceType)
+	scoped := false
+	for _, tag := range rule.Tags {
+		if strings.HasPrefix(tag, "resource-kind:") {
+			scoped = true
+			if strings.TrimPrefix(tag, "resource-kind:") == rt {
+				return true
+			}
+		}
+	}
+	if scoped {
+		return false
+	}
 	switch rt {
 	case "ServiceAccount", "Role", "ClusterRole", "RoleBinding", "ClusterRoleBinding":
 		return rule.Category == CategoryRBAC

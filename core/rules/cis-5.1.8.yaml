@@ -18,6 +18,8 @@ conditions:
 aggregation: AND
 base_score: 9.5
 tags:
+  - "resource-kind:Role"
+  - "resource-kind:ClusterRole"
   - cis
   - rbac
   - roles

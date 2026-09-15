@@ -14,6 +14,8 @@ conditions:
 aggregation: AND
 base_score: 8.5
 tags:
+  - "resource-kind:Role"
+  - "resource-kind:ClusterRole"
   - rbac
   - impersonation
   # MITRE ATT&CK for Containers: Kubernetes RBAC Abuse

@@ -16,6 +16,8 @@ conditions:
 aggregation: AND
 base_score: 6.0
 tags:
+  - "resource-kind:RoleBinding"
+  - "resource-kind:ClusterRoleBinding"
   - overprivileged
   - binding
   # MITRE ATT&CK for Containers: Additional Container Cluster Roles

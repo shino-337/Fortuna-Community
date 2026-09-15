@@ -2,7 +2,7 @@ package riskengine
 
 import (
 	"encoding/json"
-	"log"
+	"fmt"
 
 	"gorm.io/gorm"
 
@@ -29,8 +29,7 @@ func LoadRulesFromDB(db *gorm.DB) ([]Rule, error) {
 	for i := range rows {
 		r, err := riskRuleToRule(&rows[i])
 		if err != nil {
-			log.Printf("[RiskEngine] Skip rule %s: %v", rows[i].RuleID, err)
-			continue
+			return nil, fmt.Errorf("invalid database rule %s: %w", rows[i].RuleID, err)
 		}
 		rules = append(rules, *r)
 	}

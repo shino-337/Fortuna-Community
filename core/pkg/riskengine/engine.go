@@ -89,6 +89,7 @@ func (e *Engine) ReloadFromDB() error {
 // prepareEnrichedResourceData merges normalized + raw_json and, for Pods, Fortuna runtime context for CEL.
 func (e *Engine) prepareEnrichedResourceData(ctx context.Context, resourceType string, resourceData map[string]interface{}) map[string]interface{} {
 	enriched := e.enrichResourceData(resourceData)
+	enriched["kind"] = strings.TrimSpace(resourceType)
 	if strings.EqualFold(strings.TrimSpace(resourceType), "Pod") {
 		e.enrichPodFortunaContext(ctx, enriched)
 	}
@@ -114,7 +115,7 @@ func (e *Engine) EvaluateResource(ctx context.Context, resourceType string, reso
 		matched, score, err := e.evaluateRule(ctx, rule, enrichedData)
 		if err != nil {
 			log.Printf("[RiskEngine] Failed to evaluate rule %s: %v", rule.ID, err)
-			continue
+			return nil, fmt.Errorf("rule %s evaluation failed: %w", rule.ID, err)
 		}
 
 		if matched {
