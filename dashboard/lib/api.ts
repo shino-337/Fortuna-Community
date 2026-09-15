@@ -1625,8 +1625,9 @@ export const api = {
   getServiceAccountByUid: async (uid: string): Promise<Record<string, unknown> | null> => {
     try {
       return await request<Record<string, unknown>>(`/inventory/serviceaccounts/${encodeURIComponent(uid)}`);
-    } catch {
-      return null;
+    } catch (error) {
+      if (isApiError(error) && error.status === 404) return null;
+      throw error;
     }
   },
   /** @deprecated Use getServiceAccountByUid */
