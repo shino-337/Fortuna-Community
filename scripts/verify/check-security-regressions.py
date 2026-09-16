@@ -84,6 +84,10 @@ REQUIRED = {
         "TestCredentialRegistryFailsClosed",
         "TestCredentialRequiresVerifiedTLS",
     ],
+    "./pkg/resourceidentity": [
+        "TestIdentityRequiresClusterAndUID",
+        "TestIdentitySeparatesDuplicateUIDAcrossClusters",
+    ],
 }
 
 AGENT_REQUIRED = {
