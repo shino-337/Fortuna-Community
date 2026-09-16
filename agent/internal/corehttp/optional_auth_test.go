@@ -46,19 +46,47 @@ func TestConfiguredScopedTokenFileFailsClosedWithoutLegacyFallback(t *testing.T)
 
 	req := newRequest(t, "/api/v1/agent/pod-events")
 	ApplyOptionalAuthorization(req)
-	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != "" {
-		t.Fatalf("missing scoped token file fell back to legacy token: %q", got)
+	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != invalidScopedAgentToken {
+		t.Fatalf("missing scoped token source did not force fail-closed header: %q", got)
+	}
+	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got == legacy {
+		t.Fatal("missing scoped token source fell back to legacy token")
 	}
 }
 
 func TestInvalidScopedTokenFileFailsClosedWithoutLegacyFallback(t *testing.T) {
 	t.Setenv(agentTokenFileEnv, writeTokenFile(t, "too-short"))
-	t.Setenv("FORTUNA_INGEST_TOKEN", strings.Repeat("l", 32))
+	legacy := strings.Repeat("l", 32)
+	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
 
 	req := newRequest(t, "/api/v1/agent/pod-processes")
 	ApplyOptionalAuthorization(req)
-	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != "" {
-		t.Fatalf("invalid scoped token fell back to legacy token: %q", got)
+	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != invalidScopedAgentToken {
+		t.Fatalf("invalid scoped token source did not force fail-closed header: %q", got)
+	}
+	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got == legacy {
+		t.Fatal("invalid scoped token source fell back to legacy token")
+	}
+}
+
+func TestScopedTokenFailureBlocksBearerAndStaleHeaderFallback(t *testing.T) {
+	t.Setenv(agentTokenFileEnv, filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("FORTUNA_INGEST_TOKEN", strings.Repeat("l", 32))
+	t.Setenv("FORTUNA_CORE_HTTP_AUTHORIZATION", "Bearer "+strings.Repeat("p", 32))
+
+	req := newRequest(t, "/api/v1/agent/sync")
+	req.Header.Set("X-Fortuna-Ingest-Token", strings.Repeat("stale", 8))
+	ApplyOptionalAuthorization(req)
+	if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != invalidScopedAgentToken {
+		t.Fatalf("scoped failure left a usable X header: %q", got)
+	}
+	if got := req.Header.Get("Authorization"); got == "" {
+		t.Fatal("proxy Authorization should remain present for the upstream proxy")
+	}
+	// Core's scoped middleware evaluates X-Fortuna-Ingest-Token first. The
+	// deliberately too-short sentinel therefore prevents fallback to Bearer.
+	if len(req.Header.Get("X-Fortuna-Ingest-Token")) >= 32 {
+		t.Fatal("fail-closed sentinel could be accepted by the Core token-length gate")
 	}
 }
 
