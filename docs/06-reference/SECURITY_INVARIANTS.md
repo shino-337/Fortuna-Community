@@ -25,11 +25,17 @@ Rules:
 - Storage keys, upserts, caches and reconciliation keys must retain cluster ID.
 - A request-supplied cluster cannot override the authenticated/scoped cluster.
 - Missing or ambiguous ownership fails closed. Migration/backfill must not guess.
+- Existing non-empty ownership that conflicts with authoritative Pod identity must
+  be rejected rather than silently rewritten.
+- Generic resource references without a trustworthy resource type must not be
+  guessed to be Pod references merely because their UID happens to match a Pod.
 - Image digest identifies reusable image content, not workload ownership.
 
 `core/pkg/resourceidentity` is the canonical in-process identity primitive.
 `scripts/verify/check-cluster-resource-models.py` is the first static ratchet: a
-persisted model carrying `PodUID` must also carry `ClusterID`.
+persisted model carrying `PodUID` must also carry `ClusterID`, and persisted Pod
+models plus explicitly classified resource-typed Pod models must remain represented
+in the cluster-resource migration manifest.
 
 ## Invariant 2 — incomplete evidence is not clean evidence
 
@@ -82,8 +88,9 @@ must fail startup explicitly until the migration framework is made identity-base
 ## Invariant 8 — real multi-cluster behavior is a release gate
 
 Unit and SQLite tests are necessary but do not establish end-to-end isolation.
-Package F (#51 plan) must provide reproducible PostgreSQL and two-cluster tests for
-at least:
+#45 includes a focused PostgreSQL migration gate for the cluster-resource identity
+foundation; package F (#51 plan) must still provide reproducible populated-database
+and real two-cluster tests for at least:
 
 - identical Pod UID in different clusters;
 - identical node/Agent names in different clusters;
@@ -91,7 +98,7 @@ at least:
 - concurrent ingestion and retry/replay;
 - certificate rotation/revocation on established streams;
 - missing/stale evidence and recovery;
-- populated-database schema migration;
+- populated-database schema migration and upgrade behavior;
 - authorization for restricted users and aggregate endpoints;
 - deletion/replacement UID race behavior.
 
