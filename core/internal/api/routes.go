@@ -63,11 +63,13 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		}
 	}
 
-	ingestAuth := middleware.RequireIngestToken(cfg.IngestToken)
+	legacyIngestAuth := middleware.RequireIngestToken(cfg.IngestToken)
+	agentIngestAuth := middleware.AgentIngestAuth(cfg.AgentCredentialRegistryPath, cfg.IngestToken)
 
-	// Agent ingest routes (no JWT) require FORTUNA_INGEST_TOKEN unless explicit local-dev unauth ingest is enabled.
+	// Agent ingest uses one explicit migration mode: a configured credential registry
+	// requires scoped per-agent identity and never falls back to the legacy shared token.
 	agent := router.Group("/api/v1/agent")
-	agent.Use(ingestAuth)
+	agent.Use(agentIngestAuth)
 	{
 		agent.POST("/sync", SyncDataFromAgent(db, clusterLimiter))
 		agent.POST("/pod-runtime-metrics", IngestPodRuntimeMetricsPayload(db))
@@ -77,16 +79,17 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	}
 	log.Printf("[API] Agent ingest routes registered: POST /api/v1/agent/sync, pod-runtime-metrics, pod-processes, pod-network-connections, pod-events")
 
-	// Runtime ingest routes (no JWT): sensors/agents publish runtime events here.
+	// Runtime ingest remains on the legacy sensor token until C2e defines and tests
+	// an explicit agent/sensor ownership contract for runtime event batches.
 	runtimeIngest := router.Group("/api/v1/runtime")
-	runtimeIngest.Use(ingestAuth)
+	runtimeIngest.Use(legacyIngestAuth)
 	{
 		runtimeIngest.POST("/events", PostRuntimeEvents(db))
 	}
 	log.Printf("[API] Runtime ingest routes registered: POST /api/v1/runtime/events")
 
 	runtimeIngestV2 := router.Group("/api/v2/runtime")
-	runtimeIngestV2.Use(ingestAuth)
+	runtimeIngestV2.Use(legacyIngestAuth)
 	{
 		runtimeIngestV2.POST("/events", PostRuntimeEventsV2(db))
 	}
