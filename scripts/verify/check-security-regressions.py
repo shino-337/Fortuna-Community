@@ -88,6 +88,10 @@ REQUIRED = {
         "TestIdentityRequiresClusterAndUID",
         "TestIdentitySeparatesDuplicateUIDAcrossClusters",
     ],
+    "./migrations": [
+        "TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership",
+        "TestClusterResourceIdentityFoundationFailsClosedWithoutPods",
+    ],
 }
 
 AGENT_REQUIRED = {
