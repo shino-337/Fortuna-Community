@@ -15,6 +15,7 @@ import (
 
 	"github.com/fortuna/core/internal/api"
 	"github.com/fortuna/core/internal/config"
+	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -45,10 +46,23 @@ func writeAgentCredentialRegistry(t *testing.T, token, clusterID, agentID string
 
 func TestAgentRegisteredRoutesUseScopedIdentityWithoutLegacyFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{DisableForeignKeyConstraintWhenMigrating: true})
 	if err != nil {
 		t.Fatal(err)
 	}
+	if err := db.AutoMigrate(&models.Pod{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.Pod{
+		UID:            "pod-1",
+		ClusterID:      "cluster-a",
+		Namespace:      "default",
+		Name:           "pod-1",
+		ServiceAccount: "default",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
 	scopedToken := strings.Repeat("s", 32)
 	legacyToken := strings.Repeat("l", 32)
 	cfg := &config.Config{
