@@ -67,6 +67,13 @@ REQUIRED = {
 }
 
 AGENT_REQUIRED = {
+    "./internal/corehttp": [
+        "TestAgentRoutePrefersScopedTokenFileOverLegacyToken",
+        "TestConfiguredScopedTokenFileFailsClosedWithoutLegacyFallback",
+        "TestInvalidScopedTokenFileFailsClosedWithoutLegacyFallback",
+        "TestRuntimeRoutesRemainOnLegacyTokenDuringC2Migration",
+        "TestScopedTokenFileIsRereadForRotation",
+    ],
     "./internal/runtime": [
         "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",
         "TestRuntimeReaderAdvancesPastInvalidOnlyInput",
