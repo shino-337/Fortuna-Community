@@ -5,10 +5,13 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/fortuna/core/internal/ingest"
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/internal/service"
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/gin-gonic/gin"
@@ -30,6 +33,32 @@ type AgentPayload struct {
 	Version  string `json:"version,omitempty"`
 }
 
+func validateScopedSyncClaims(c *gin.Context, legacyClusterID string, cluster *ClusterPayload, agent *AgentPayload) error {
+	principal, scoped := middleware.AgentPrincipal(c)
+	if !scoped {
+		return nil // Explicit legacy mode selected by route middleware.
+	}
+	legacyClusterID = strings.TrimSpace(legacyClusterID)
+	clusterObjectID := ""
+	if cluster != nil {
+		clusterObjectID = strings.TrimSpace(cluster.ID)
+	}
+	if legacyClusterID != "" && clusterObjectID != "" && legacyClusterID != clusterObjectID {
+		return errors.New("conflicting cluster identity aliases")
+	}
+	clusterID := clusterObjectID
+	if clusterID == "" {
+		clusterID = legacyClusterID
+	}
+	if clusterID == "" || agent == nil || strings.TrimSpace(agent.AgentID) == "" {
+		return errors.New("scoped sync requires cluster and agent identity claims")
+	}
+	if err := principal.CheckClaims(clusterID, strings.TrimSpace(agent.AgentID)); err != nil {
+		return agentidentity.ErrIdentityMismatch
+	}
+	return nil
+}
+
 // SyncDataFromAgent handles data sync from agent via HTTP.
 // Accepts cluster object (id, name, source, k8s_version, distribution) or legacy clusterId/clusterName.
 // When clusterLimiter is non-nil, enforces per-cluster rate limit (Finding #6).
@@ -48,13 +77,22 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			return
 		}
 
-		clusterID := req.ClusterID
+		if err := validateScopedSyncClaims(c, req.ClusterID, req.Cluster, req.Agent); err != nil {
+			if errors.Is(err, agentidentity.ErrIdentityMismatch) {
+				c.JSON(http.StatusForbidden, gin.H{"error": "authenticated agent identity does not match sync payload", "code": "agent_identity_mismatch"})
+				return
+			}
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "invalid_agent_identity_claims"})
+			return
+		}
+
+		clusterID := strings.TrimSpace(req.ClusterID)
 		clusterName := req.ClusterName
 		source := ""
 		k8sVersion := ""
 		distribution := ""
 		if req.Cluster != nil {
-			clusterID = req.Cluster.ID
+			clusterID = strings.TrimSpace(req.Cluster.ID)
 			clusterName = req.Cluster.Name
 			source = req.Cluster.Source
 			k8sVersion = req.Cluster.K8sVersion
@@ -67,7 +105,8 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 		if clusterName == "" {
 			clusterName = clusterID
 		}
-		// Normalize cluster_id so sync always uses canonical id (avoids duplicate cluster_id for same physical cluster).
+		// Normalize cluster_id only after scoped identity has been validated. This prevents
+		// an alias from being normalized into a cluster the authenticated principal did not claim.
 		clusterID = NormalizeClusterID(db, clusterID)
 
 		if clusterLimiter != nil && !clusterLimiter.AllowSync(clusterID) {

@@ -93,7 +93,8 @@ func (r *Reader) readAndSend() {
 	}
 	defer f.Close()
 
-	if _, err := f.Seek(r.offset, io.SeekStart); err != nil {
+	startOffset := r.offset
+	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek runtime events file: %v", err)
 		return
 	}
@@ -116,12 +117,20 @@ func (r *Reader) readAndSend() {
 
 	if err := scanner.Err(); err != nil {
 		r.logger.Printf("Runtime events read error: %v", err)
+		// Keep the previous offset so a transient read error cannot discard data.
+		return
 	}
 
-	pos, _ := f.Seek(0, io.SeekCurrent)
-	r.offset = pos
+	pos, err := f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		r.logger.Printf("Failed to determine runtime events offset: %v", err)
+		return
+	}
 
 	if len(events) == 0 {
+		// Invalid/empty records should not be retried forever when there is no
+		// deliverable event in this slice.
+		r.offset = pos
 		return
 	}
 
@@ -130,8 +139,13 @@ func (r *Reader) readAndSend() {
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send runtime events: %v", err)
 		r.logIngestionStats("send_failed")
+		// Do not advance. The same file slice is retried on the next poll. This is
+		// required when Core temporarily rejects ingest while inventory/identity
+		// state is converging.
+		r.offset = startOffset
 		return
 	}
+	r.offset = pos
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")

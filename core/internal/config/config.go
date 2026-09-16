@@ -29,8 +29,15 @@ type Config struct {
 	AuthEnabled          bool
 	JWTSecret            string
 	TokenExpirationHours int
-	// IngestToken when non-empty requires matching X-Fortuna-Ingest-Token or Authorization: Bearer on agent/runtime HTTP ingest routes.
+	// IngestToken is the legacy shared HTTP ingest credential. It is used only when
+	// AgentCredentialRegistryPath is empty. Once a registry is configured, HTTP
+	// agent ingest must authenticate through a scoped agent credential instead of
+	// silently falling back to this shared token.
 	IngestToken string
+	// AgentCredentialRegistryPath points to the operator-managed JSON registry used
+	// by scoped per-agent/per-cluster authentication. Empty preserves the legacy
+	// shared-token mode during migration.
+	AgentCredentialRegistryPath string
 
 	// TLS/mTLS Configuration for gRPC
 	TLSEnabled    bool
@@ -78,6 +85,7 @@ func Load(configPath string) (*Config, error) {
 		JWTSecret:                    jwtSecretFromEnv(),
 		TokenExpirationHours:         parseInt(getEnv("TOKEN_EXPIRATION_HOURS", "24")),
 		IngestToken:                  strings.TrimSpace(getEnv("FORTUNA_INGEST_TOKEN", "")),
+		AgentCredentialRegistryPath:  strings.TrimSpace(getEnv("FORTUNA_AGENT_CREDENTIAL_REGISTRY", "")),
 		TLSEnabled:                   tlsEnabled,
 		TLSCACertPath:                getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/server/ca.crt"),
 		TLSCertPath:                  getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/server/tls.crt"),
@@ -110,7 +118,9 @@ func Load(configPath string) (*Config, error) {
 	} else if len(cfg.JWTSecret) < 32 && !devMode {
 		return nil, fmt.Errorf("JWT_SECRET or FORTUNA_JWT_SECRET must be at least 32 bytes; current length %d", len(cfg.JWTSecret))
 	}
-	if cfg.IngestToken != "" {
+	if cfg.AgentCredentialRegistryPath != "" {
+		log.Printf("[Config] FORTUNA_AGENT_CREDENTIAL_REGISTRY is set: HTTP agent ingest uses scoped agent credentials; shared-token fallback is disabled for agent routes")
+	} else if cfg.IngestToken != "" {
 		log.Printf("[Config] FORTUNA_INGEST_TOKEN is set: HTTP agent/runtime ingest routes require ingest token")
 	} else if !envEnabled("FORTUNA_ALLOW_UNAUTHED_INGEST") {
 		log.Printf("[Config] FORTUNA_INGEST_TOKEN is not set: HTTP agent/runtime ingest routes will fail closed")
