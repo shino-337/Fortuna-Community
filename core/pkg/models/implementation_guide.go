@@ -41,13 +41,14 @@ type Policy struct {
 // Insight represents a security insight or finding
 // Updated for Agent-Based architecture with direct resource references
 type Insight struct {
-	ID uint `gorm:"primaryKey" json:"id"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	ClusterID string `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 
 	// Resource context (direct references, no JSONB)
 	ResourceType      string `gorm:"type:varchar(50);not null;index" json:"resourceType"` // Pod, Node, ServiceAccount, etc.
 	ResourceNamespace string `gorm:"type:varchar(255);index" json:"resourceNamespace"`
 	ResourceName      string `gorm:"type:varchar(255);not null;index" json:"resourceName"`
-	ResourceUID       string `gorm:"type:varchar(255);not null;index" json:"resourceUid"` // Unique identifier
+	ResourceUID       string `gorm:"type:varchar(255);not null;index" json:"resourceUid"` // Unique within cluster; pair with ClusterID
 
 	// Insight info
 	InsightType    string `gorm:"type:varchar(50);not null;index" json:"insightType"` // vulnerability, misconfiguration, rbac_risk, etc.
@@ -73,21 +74,21 @@ type Insight struct {
 
 	// Confidence model (Phase 2 - confidence propagation)
 	// These reflect data trust, not CVSS severity.
-	MatchConfidence      string `gorm:"type:varchar(20);default:'';index" json:"matchConfidence,omitempty"`
-	ComponentConfidence  string `gorm:"type:varchar(20);default:'';index" json:"componentConfidence,omitempty"`
-	SBOMConfidence       string `gorm:"type:varchar(20);default:'';index" json:"sbomConfidence,omitempty"`
-	FinalRiskConfidence  string `gorm:"type:varchar(20);default:'';index" json:"finalRiskConfidence,omitempty"`
-	Degraded             bool   `gorm:"type:boolean;default:false" json:"degraded"`
+	MatchConfidence     string `gorm:"type:varchar(20);default:'';index" json:"matchConfidence,omitempty"`
+	ComponentConfidence string `gorm:"type:varchar(20);default:'';index" json:"componentConfidence,omitempty"`
+	SBOMConfidence      string `gorm:"type:varchar(20);default:'';index" json:"sbomConfidence,omitempty"`
+	FinalRiskConfidence string `gorm:"type:varchar(20);default:'';index" json:"finalRiskConfidence,omitempty"`
+	Degraded            bool   `gorm:"type:boolean;default:false" json:"degraded"`
 
 	// Status & Timestamps
-	Status     string         `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed
+	Status string `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed
 	// Sensitivity is data classification for future ABAC / elevated controls (default internal).
 	Sensitivity string         `gorm:"type:varchar(32);default:internal;index" json:"sensitivity,omitempty"`
-	DetectedAt time.Time      `gorm:"not null;index" json:"detectedAt"`
-	ResolvedAt *time.Time     `json:"resolvedAt,omitempty"`
-	CreatedAt  time.Time      `json:"createdAt"`
-	UpdatedAt  time.Time      `json:"updatedAt"`
-	DeletedAt  gorm.DeletedAt `gorm:"index" json:"-"`
+	DetectedAt  time.Time      `gorm:"not null;index" json:"detectedAt"`
+	ResolvedAt  *time.Time     `json:"resolvedAt,omitempty"`
+	CreatedAt   time.Time      `json:"createdAt"`
+	UpdatedAt   time.Time      `json:"updatedAt"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // EventIndex represents an index entry pointing to raw events in ClickHouse/Timescale
