@@ -97,6 +97,9 @@ AGENT_REQUIRED = {
         "TestRuntimeRoutesUseLegacyTokenWhenScopedSourceNotConfigured",
         "TestScopedTokenFileIsRereadForRotation",
     ],
+    "./internal/collector": [
+        "TestCollectorRegisterUsesConfiguredAgentID",
+    ],
     "./internal/runtime": [
         "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",
         "TestRuntimeReaderAdvancesPastInvalidOnlyInput",
