@@ -107,6 +107,7 @@ jobs:
           while IFS= read -r -d '' file; do
             bash -n "$file"
           done < <(find scripts -type f -name '*.sh' -print0)
+          bash -n scenarios/verify-p0-rbac.sh
 
   hygiene:
     name: Repository hygiene

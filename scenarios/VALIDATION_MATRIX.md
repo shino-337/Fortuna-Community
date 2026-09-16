@@ -24,13 +24,15 @@ PASS / FAIL / WARN
 
 ## Scenario coverage
 
-| ID | Security claim | Required evidence | Negative boundary | Confidence |
-|---|---|---|---|---|
-| S1 | HostPath and privileged RBAC can create an escalation path | Workload identity, service account, RBAC binding, pod-specific escape path | Missing dangerous permission or unrelated workload | High |
-| S2 | RBAC escalation can be detected without classifying every RBAC issue as escape | Workload-specific RBAC path without escape classification | RBAC object exists without exploitable permission | High |
-| S3 | Discovery activity should not create inflated risk | Bounded risk/correlation evidence | Noise without privilege impact | Medium |
-| S4 | ServiceAccount token activity can support lateral movement correlation | Workload identity, token evidence, reachable target or runtime signal | Token mount without impact path | Medium |
-| S5 | Broken chains must not become complete escalation paths | Missing-edge validation evidence | Must not emit complete escalation classification | High |
+| ID | Security claim | Required evidence | Negative boundary | Confidence | Status |
+|---|---|---|---|---|---|
+| S1 | HostPath and privileged RBAC can create an escalation path | Workload identity, service account, RBAC binding, pod-specific escape path | Missing dangerous permission or unrelated workload | High | Existing |
+| S2 | RBAC escalation can be detected without classifying every RBAC issue as escape | Workload-specific RBAC path without escape classification | RBAC object exists without exploitable permission | High | Existing |
+| S3 | Discovery activity should not create inflated risk | Bounded risk/correlation evidence | Noise without privilege impact | Medium | Existing |
+| S4 | ServiceAccount token activity can support lateral movement correlation | Workload identity, token evidence, reachable target or runtime signal | Token mount without impact path | Medium | Existing |
+| S5 | Broken chains must not become complete escalation paths | Missing-edge validation evidence | Must not emit complete escalation classification | High | Existing |
+| S6 | Namespace workload has cluster-wide read access through ClusterRoleBinding | Workload, ServiceAccount, ClusterRoleBinding, ClusterRole, effective cluster scope | Equivalent namespace-local RoleBinding | High | P0 / Fixture |
+| S7 | Workload receives wildcard RBAC permissions | Workload, ServiceAccount, RoleBinding, wildcard rule, effective namespace scope | Wildcard namespace Role must not become cluster-wide without another edge | High | P0 / Fixture |
 
 ## Review criteria
 
@@ -41,3 +43,4 @@ Before marking a scenario production-ready:
 - Negative conditions are tested where applicable.
 - Runtime-dependent assertions degrade to WARN when runtime telemetry is unavailable.
 - Teardown removes all cluster-scoped objects.
+- A fixture is not described as runtime-verified until Fortuna's collector and correlation path has actually been exercised.
