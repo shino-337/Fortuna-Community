@@ -45,7 +45,7 @@ class ScopedAgentCredentialOverlayTest(unittest.TestCase):
         mount = named(core["volumeMounts"], "agent-credential-registry")
         self.assertTrue(mount["readOnly"])
 
-    def test_agent_patch_mounts_one_node_local_token_and_keeps_runtime_migration_boundary(self):
+    def test_agent_patch_mounts_one_node_local_token_and_preserves_legacy_base_mode(self):
         doc = load_one(AGENT_PATCH)
         self.assertEqual(doc["kind"], "DaemonSet")
         self.assertEqual(doc["metadata"]["name"], "fortuna-agent")
@@ -60,8 +60,10 @@ class ScopedAgentCredentialOverlayTest(unittest.TestCase):
         mount = named(agent["volumeMounts"], "agent-http-credential")
         self.assertTrue(mount["readOnly"])
 
-        # C2f intentionally leaves the shared token in the base DaemonSet because
-        # runtime v1/v2 routes are still legacy until C2e3.
+        # The base DaemonSet intentionally keeps FORTUNA_INGEST_TOKEN so existing
+        # installations remain on explicit legacy mode until operators opt into
+        # both the Core registry and Agent token-file overlay. In scoped mode the
+        # shared token is not used by Agent or runtime HTTP ingest routes.
         base_docs = [doc for doc in yaml.safe_load_all(AGENT_BASE.read_text(encoding="utf-8")) if doc]
         daemonset = next(doc for doc in base_docs if doc.get("kind") == "DaemonSet")
         base_agent = named(daemonset["spec"]["template"]["spec"]["containers"], "agent")
