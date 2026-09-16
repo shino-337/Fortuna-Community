@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import hashlib
 import json
-import os
 from pathlib import Path
 import stat
 import subprocess
@@ -79,6 +78,21 @@ class AgentCredentialToolTest(unittest.TestCase):
             match = [entry for entry in revoked["credentials"] if entry["id"] == new_id]
             self.assertEqual(len(match), 1)
             self.assertTrue(match[0]["revoked"])
+
+    def test_supports_explicit_agent_id_override(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = Path(td) / "out"
+            result = self.run_tool(
+                "issue",
+                "--cluster-id", "cluster-a",
+                "--identity", "node-a=custom-agent-a",
+                "--output-dir", str(out),
+            )
+            summary = json.loads(result.stdout)
+            self.assertEqual(summary["issued"][0]["node"], "node-a")
+            self.assertEqual(summary["issued"][0]["agent_id"], "custom-agent-a")
+            registry = json.loads((out / "registry.json").read_text(encoding="utf-8"))
+            self.assertEqual(registry["credentials"][0]["agent_id"], "custom-agent-a")
 
     def test_rejects_path_traversal_node_name(self):
         with tempfile.TemporaryDirectory() as td:
