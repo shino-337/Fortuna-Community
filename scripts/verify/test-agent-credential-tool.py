@@ -24,6 +24,18 @@ class AgentCredentialToolTest(unittest.TestCase):
         self.assertEqual(result.returncode, expect, msg=result.stderr + result.stdout)
         return result
 
+    def run_issue_with_existing(self, root: Path, entry: dict, expect=2):
+        registry = root / "registry.json"
+        registry.write_text(json.dumps({"credentials": [entry]}), encoding="utf-8")
+        return self.run_tool(
+            "issue",
+            "--cluster-id", "cluster-a",
+            "--node", "node-b",
+            "--existing-registry", str(registry),
+            "--output-dir", str(root / "out"),
+            expect=expect,
+        )
+
     def test_issue_rotation_and_revoke(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -126,25 +138,37 @@ class AgentCredentialToolTest(unittest.TestCase):
 
     def test_rejects_existing_registry_digest_not_accepted_by_core(self):
         with tempfile.TemporaryDirectory() as td:
+            self.run_issue_with_existing(Path(td), {
+                "id": "old",
+                "cluster_id": "cluster-a",
+                "agent_id": "node-a-agent",
+                "token_sha256": "A" * 64,
+                "expires_at": "2099-01-01T00:00:00Z",
+            })
+
+    def test_rejects_existing_registry_unknown_fields_and_invalid_time_window(self):
+        base = {
+            "id": "old",
+            "cluster_id": "cluster-a",
+            "agent_id": "node-a-agent",
+            "token_sha256": "a" * 64,
+            "expires_at": "2099-01-01T00:00:00Z",
+        }
+        with tempfile.TemporaryDirectory() as td:
             root = Path(td)
-            bad_registry = root / "registry.json"
-            bad_registry.write_text(json.dumps({
-                "credentials": [{
-                    "id": "old",
-                    "cluster_id": "cluster-a",
-                    "agent_id": "node-a-agent",
-                    "token_sha256": "A" * 64,
-                    "expires_at": "2099-01-01T00:00:00Z",
-                }]
-            }), encoding="utf-8")
-            self.run_tool(
-                "issue",
-                "--cluster-id", "cluster-a",
-                "--node", "node-a",
-                "--existing-registry", str(bad_registry),
-                "--output-dir", str(root / "out"),
-                expect=2,
-            )
+            unknown = dict(base, unexpected="value")
+            self.run_issue_with_existing(root / "unknown", unknown)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            missing_expiry = dict(base)
+            missing_expiry.pop("expires_at")
+            self.run_issue_with_existing(root / "missing-expiry", missing_expiry)
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad_window = dict(base, not_before="2099-01-01T00:00:00Z", expires_at="2099-01-01T00:00:00Z")
+            self.run_issue_with_existing(root / "bad-window", bad_window)
 
 
 if __name__ == "__main__":
