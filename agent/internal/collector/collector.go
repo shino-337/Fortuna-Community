@@ -43,7 +43,7 @@ type Collector struct {
 	mu          sync.Mutex    // Protects started channel
 }
 
-// NewCollector creates a new collector.
+// NewCollector creates a new collector
 func NewCollector(k8sClient kubernetes.Interface, grpcClient client.GRPCClient, agentID, clusterID, clusterName string) (*Collector, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Collector{
@@ -115,7 +115,7 @@ func (c *Collector) register() error {
 }
 
 // startWatchers starts all resource watchers
-// Bug 3 Fix: Signal when all watchers have started
+// Bug 3 Fix: Signal when all watchers are ready before returning
 func (c *Collector) startWatchers() error {
 	// Get all namespaces
 	namespaces, err := c.client.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
@@ -123,7 +123,9 @@ func (c *Collector) startWatchers() error {
 		return fmt.Errorf("failed to list namespaces: %w", err)
 	}
 
-	// Start namespace-scoped watchers
+	log.Printf("[Collector] Starting watchers for %d namespaces", len(namespaces.Items))
+
+	// Start watchers for each namespace
 	for _, ns := range namespaces.Items {
 		c.startNamespaceWatchers(ns.Name)
 	}
@@ -131,11 +133,11 @@ func (c *Collector) startWatchers() error {
 	// Start cluster-scoped watchers
 	c.startClusterWatchers()
 
-	// Signal that all watchers have been started
+	// Bug 3 Fix: Signal that all watchers have been started
 	c.mu.Lock()
 	select {
 	case <-c.started:
-		// Already closed
+		// Already closed, do nothing
 	default:
 		close(c.started)
 	}
@@ -256,58 +258,46 @@ func (c *Collector) startClusterWatchers() {
 	}
 }
 
-// handlePod handles pod events
+// handlePod handles Pod events
 func (c *Collector) handlePod(pod *corev1.Pod, eventType watch.EventType) error {
-	item, err := converter.ConvertPod(pod, eventType)
-	if err != nil {
-		return err
-	}
-	return c.grpcClient.StreamInventory(c.ctx, []interface{}{item})
+	item := converter.PodToInventoryItem(pod, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
 }
 
-// handleServiceAccount handles service account events
+// handleServiceAccount handles ServiceAccount events
 func (c *Collector) handleServiceAccount(sa *corev1.ServiceAccount, eventType watch.EventType) error {
-	item, err := converter.ConvertServiceAccount(sa, eventType)
-	if err != nil {
-		return err
-	}
-	return c.grpcClient.StreamInventory(c.ctx, []interface{}{item})
+	item := converter.ServiceAccountToInventoryItem(sa, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
 }
 
-// handleRole handles role events
+// handleRole handles Role events
 func (c *Collector) handleRole(role *rbacv1.Role, eventType watch.EventType) error {
-	item, err := converter.ConvertRole(role, eventType)
-	if err != nil {
-		return err
-	}
-	return c.grpcClient.StreamInventory(c.ctx, []interface{}{item})
+	item := converter.RoleToInventoryItem(role, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
 }
 
-// handleRoleBinding handles role binding events
+// handleRoleBinding handles RoleBinding events
 func (c *Collector) handleRoleBinding(rb *rbacv1.RoleBinding, eventType watch.EventType) error {
-	item, err := converter.ConvertRoleBinding(rb, eventType)
-	if err != nil {
-		return err
-	}
-	return c.grpcClient.StreamInventory(c.ctx, []interface{}{item})
+	item := converter.RoleBindingToInventoryItem(rb, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
 }
 
-// handleClusterRole handles cluster role events
+// handleClusterRole handles ClusterRole events
 func (c *Collector) handleClusterRole(cr *rbacv1.ClusterRole, eventType watch.EventType) error {
-	item, err := converter.ConvertClusterRole(cr, eventType)
-	if err != nil {
-		return err
-	}
-	return c.grpcClient.StreamInventory(c.ctx, []interface{}{item})
+	item := converter.ClusterRoleToInventoryItem(cr, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
 }
 
-// handleClusterRoleBinding handles cluster role binding events
+// handleClusterRoleBinding handles ClusterRoleBinding events
 func (c *Collector) handleClusterRoleBinding(crb *rbacv1.ClusterRoleBinding, eventType watch.EventType) error {
-	item, err := converter.ConvertClusterRoleBinding(crb, eventType)
-	if err != nil {
-		return err
-	}
-	return c.grpcClient.StreamInventory(c.ctx, []interface{}{item})
+	item := converter.ClusterRoleBindingToInventoryItem(crb, c.clusterID, eventType)
+	return c.sendInventoryItem(item)
+}
+
+// sendInventoryItem sends an inventory item to the core (no-op when using MTLS client; Core uses HTTP syncer)
+func (c *Collector) sendInventoryItem(item *converter.InventoryItem) error {
+	items := []*converter.InventoryItem{item}
+	return c.grpcClient.StreamInventory(context.Background(), items)
 }
 
 // heartbeat sends periodic heartbeat to the core
