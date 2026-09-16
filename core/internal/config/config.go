@@ -31,8 +31,8 @@ type Config struct {
 	TokenExpirationHours int
 	// IngestToken is the legacy shared HTTP ingest credential. It is used only when
 	// AgentCredentialRegistryPath is empty. Once a registry is configured, HTTP
-	// agent ingest must authenticate through a scoped agent credential instead of
-	// silently falling back to this shared token.
+	// agent and runtime ingest must authenticate through scoped agent credentials
+	// instead of silently falling back to this shared token.
 	IngestToken string
 	// AgentCredentialRegistryPath points to the operator-managed JSON registry used
 	// by scoped per-agent/per-cluster authentication. Empty preserves the legacy
@@ -119,7 +119,7 @@ func Load(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("JWT_SECRET or FORTUNA_JWT_SECRET must be at least 32 bytes; current length %d", len(cfg.JWTSecret))
 	}
 	if cfg.AgentCredentialRegistryPath != "" {
-		log.Printf("[Config] FORTUNA_AGENT_CREDENTIAL_REGISTRY is set: HTTP agent ingest uses scoped agent credentials; shared-token fallback is disabled for agent routes")
+		log.Printf("[Config] FORTUNA_AGENT_CREDENTIAL_REGISTRY is set: HTTP agent/runtime ingest uses scoped agent credentials; shared-token fallback is disabled for scoped ingest routes")
 	} else if cfg.IngestToken != "" {
 		log.Printf("[Config] FORTUNA_INGEST_TOKEN is set: HTTP agent/runtime ingest routes require ingest token")
 	} else if !envEnabled("FORTUNA_ALLOW_UNAUTHED_INGEST") {

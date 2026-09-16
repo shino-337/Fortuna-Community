@@ -25,8 +25,8 @@ type runtimeOwnershipClaim struct {
 
 // requireScopedRuntimeOwnership validates the entire runtime batch against the
 // authenticated principal's cluster before the handler can persist any event.
-// It is intentionally not wired into routes until agent credential provisioning
-// and retry behavior are ready for rollout (C2e2/C2f).
+// In explicit legacy mode AgentIngestAuth does not set a scoped principal, so the
+// guard preserves backward compatibility until operators opt into the registry.
 func requireScopedRuntimeOwnership(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		principal, scoped := middleware.AgentPrincipal(c)

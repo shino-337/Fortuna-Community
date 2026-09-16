@@ -63,7 +63,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		}
 	}
 
-	legacyIngestAuth := middleware.RequireIngestToken(cfg.IngestToken)
 	agentIngestAuth := middleware.AgentIngestAuth(cfg.AgentCredentialRegistryPath, cfg.IngestToken)
 
 	// Agent ingest uses one explicit migration mode: a configured credential registry
@@ -79,21 +78,24 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	}
 	log.Printf("[API] Agent ingest routes registered: POST /api/v1/agent/sync, pod-runtime-metrics, pod-processes, pod-network-connections, pod-events")
 
-	// Runtime ingest remains on the legacy sensor token until C2e defines and tests
-	// an explicit agent/sensor ownership contract for runtime event batches.
+	// Runtime ingest follows the same explicit migration mode as /api/v1/agent/*.
+	// When a credential registry is configured, authentication resolves a scoped
+	// principal first and the complete batch is ownership-validated before the
+	// runtime handler can persist any event. Legacy token mode remains available
+	// only when no scoped registry is configured.
 	runtimeIngest := router.Group("/api/v1/runtime")
-	runtimeIngest.Use(legacyIngestAuth)
+	runtimeIngest.Use(agentIngestAuth)
 	{
-		runtimeIngest.POST("/events", PostRuntimeEvents(db))
+		runtimeIngest.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEvents(db))
 	}
-	log.Printf("[API] Runtime ingest routes registered: POST /api/v1/runtime/events")
+	log.Printf("[API] Runtime ingest routes registered with scoped ownership guard: POST /api/v1/runtime/events")
 
 	runtimeIngestV2 := router.Group("/api/v2/runtime")
-	runtimeIngestV2.Use(legacyIngestAuth)
+	runtimeIngestV2.Use(agentIngestAuth)
 	{
-		runtimeIngestV2.POST("/events", PostRuntimeEventsV2(db))
+		runtimeIngestV2.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2(db))
 	}
-	log.Printf("[API] Runtime ingest routes registered: POST /api/v2/runtime/events")
+	log.Printf("[API] Runtime ingest routes registered with scoped ownership guard: POST /api/v2/runtime/events")
 
 	// Protected routes — every handler is wrapped with explicit permission middleware (deny-by-default when auth enabled).
 	v1 := router.Group("/api/v1")
