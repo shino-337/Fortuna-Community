@@ -15,12 +15,13 @@ const (
 //
 // Migration contract:
 //   - FORTUNA_CORE_HTTP_AUTHORIZATION is independent reverse-proxy Authorization.
-//   - /api/v1/agent/* prefers FORTUNA_AGENT_TOKEN_FILE when configured. The file
-//     is reread for every request so atomic replacement rotates credentials without
-//     restarting the agent. If the configured file is missing/invalid, auth fails
-//     closed and never falls back to the legacy shared token or a Bearer header.
-//   - Other HTTP ingest paths (notably /api/v1|v2/runtime/* during C2 migration)
-//     continue to use FORTUNA_INGEST_TOKEN until their scoped-auth cutover.
+//   - Scoped ingest routes (/api/v1/agent/* plus runtime v1/v2 events) prefer
+//     FORTUNA_AGENT_TOKEN_FILE when configured. The file is reread for every
+//     request so atomic replacement rotates credentials without restarting the
+//     agent. If the configured file is missing/invalid, auth fails closed and
+//     never falls back to the legacy shared token or a Bearer header.
+//   - Deployments that have not configured FORTUNA_AGENT_TOKEN_FILE keep using
+//     FORTUNA_INGEST_TOKEN for backward-compatible legacy mode.
 func ApplyOptionalAuthorization(req *http.Request) {
 	if req == nil {
 		return
@@ -29,7 +30,7 @@ func ApplyOptionalAuthorization(req *http.Request) {
 		req.Header.Set("Authorization", v)
 	}
 
-	if isScopedAgentHTTPRoute(req) {
+	if isScopedHTTPIngestRoute(req) {
 		if tokenFile := strings.TrimSpace(os.Getenv(agentTokenFileEnv)); tokenFile != "" {
 			if tok := readScopedAgentToken(tokenFile); tok != "" {
 				req.Header.Set("X-Fortuna-Ingest-Token", tok)
@@ -48,8 +49,14 @@ func ApplyOptionalAuthorization(req *http.Request) {
 	}
 }
 
-func isScopedAgentHTTPRoute(req *http.Request) bool {
-	return req != nil && req.URL != nil && strings.HasPrefix(req.URL.Path, "/api/v1/agent/")
+func isScopedHTTPIngestRoute(req *http.Request) bool {
+	if req == nil || req.URL == nil {
+		return false
+	}
+	path := req.URL.Path
+	return strings.HasPrefix(path, "/api/v1/agent/") ||
+		path == "/api/v1/runtime/events" ||
+		path == "/api/v2/runtime/events"
 }
 
 func readScopedAgentToken(path string) string {
