@@ -2,7 +2,9 @@
 """Run named security regressions; fail on removal, renaming, skip or failure.
 
 Run from any directory. Requires Go on PATH. CI uses this in addition to go test
-./...; an empty -run selection must never silently satisfy this gate.
+./...; an empty -run selection must never silently satisfy this gate. Critical
+subtests are listed explicitly so deleting one case cannot hide behind a passing
+parent test.
 """
 import json
 from pathlib import Path
@@ -16,6 +18,10 @@ REQUIRED = {
         "TestRuntimeInputRejectsCorruptSnapshot",
         "TestRuntimeInputRejectsMalformedBindings",
         "TestClusterAdminBindingForPod",
+        "TestClusterAdminBindingForPod/namespace-only",
+        "TestClusterAdminBindingForPod/foreign",
+        "TestClusterAdminBindingForPod/group",
+        "TestClusterAdminBindingForPod/wrong-role-kind",
         "TestEvaluationReportsRuleFailure",
         "TestConfiguredCatalogRejectsPartialAndEmptyLoad",
     ],
@@ -37,7 +43,6 @@ REQUIRED = {
         "TestAggregateCacheIsolation",
         "TestRuntimeScopeAndFindingActions",
         "TestBulkRequiresActionPermissionAndNonemptySelection",
-
     ],
     "./pkg/agentidentity": [
         "TestCredentialIdentityIsolation",
@@ -65,13 +70,21 @@ def validate_events(events, required):
     return problems
 
 
+def run_pattern(names):
+    # Go's -run matches slash-separated test/subtest components independently.
+    # Prefixing the escaped name and allowing an optional descendant suffix runs
+    # the required parent plus explicitly named subtests without silently
+    # broadening to unrelated tests.
+    roots = sorted({name.split("/", 1)[0] for name in names})
+    return "^(" + "|".join(re.escape(name) for name in roots) + ")$"
+
+
 def main():
     core = Path(__file__).resolve().parents[2] / "core"
     errors = []
     for package, names in REQUIRED.items():
-        pattern = "^(" + "|".join(re.escape(name) for name in names) + ")$"
         result = subprocess.run(
-            ["go", "test", "-json", "-count=1", "-timeout=2m", "-run", pattern, package],
+            ["go", "test", "-json", "-count=1", "-timeout=2m", "-run", run_pattern(names), package],
             cwd=core, capture_output=True, text=True, check=False,
         )
         events = []
@@ -90,7 +103,7 @@ def main():
                 if event.get("Action") == "output":
                     print(event.get("Output", ""), end="", file=sys.stderr)
         else:
-            print(f"PASS {package}: {len(names)} required regression tests")
+            print(f"PASS {package}: {len(names)} required regression tests/subtests")
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
