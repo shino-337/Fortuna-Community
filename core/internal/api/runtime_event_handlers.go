@@ -89,6 +89,8 @@ type runtimeEventV2Payload struct {
 }
 
 // PostRuntimeEvents ingests runtime escape probe events from agents/sensors.
+// Authentication and scoped Pod ownership are enforced by the registered route
+// middleware before this handler can process or persist an event.
 func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 	rescoreMgr := riskengine.NewRuntimeAttackRescoreManager(db)
 	return func(c *gin.Context) {
@@ -186,7 +188,8 @@ func PostRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 }
 
 // PostRuntimeEventsV2 ingests canonical runtime events (P0.1 minimal).
-// It is unauthenticated like v1 to support daemonset sensors.
+// Authentication and scoped Pod ownership are enforced by the registered route
+// middleware before this handler can process or persist an event.
 func PostRuntimeEventsV2(db *gorm.DB) gin.HandlerFunc {
 	rescoreMgr := riskengine.NewRuntimeAttackRescoreManager(db)
 	return func(c *gin.Context) {
