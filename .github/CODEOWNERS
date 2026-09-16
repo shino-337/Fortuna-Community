@@ -4,7 +4,14 @@
 /.github/workflows/ @shino-337
 /scripts/verify/ @shino-337
 /core/pkg/agentidentity/ @shino-337
+/core/pkg/resourceidentity/ @shino-337
 /core/pkg/rbacinventory/ @shino-337
+/core/pkg/models/ @shino-337
+/core/migrations/ @shino-337
 /core/internal/middleware/ @shino-337
+/core/internal/repository/ @shino-337
+/core/internal/grpc/ @shino-337
+/core/internal/storage/ @shino-337
 /core/internal/api/routes.go @shino-337
 /core/internal/api/route_security_inventory.go @shino-337
+/deploy/scoped-agent-credentials/ @shino-337
