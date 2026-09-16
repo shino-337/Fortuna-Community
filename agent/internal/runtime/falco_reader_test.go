@@ -3,6 +3,11 @@ package runtime
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -128,5 +133,69 @@ func TestFalcoReader_ToRuntimeEvent_PreservesResolutionStateFromTags(t *testing.
 	}
 	if ev.ResolutionState != "partial" {
 		t.Fatalf("resolution_state: %q", ev.ResolutionState)
+	}
+}
+
+func TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds(t *testing.T) {
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/runtime/events" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	prefix := `{"rule":"retry","priority":"Warning","output_fields":{"k8s.pod.uid":"pod-a"`
+	suffix := `,"k8s.ns.name":"default","evt.type":"execve"}}` + "\n"
+	path := filepath.Join(t.TempDir(), "falco.jsonl")
+	if err := os.WriteFile(path, []byte(prefix), 0600); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(suffix); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewFalcoReader(path, time.Second, srv.URL, "node-1", nil)
+	r.offset = int64(len(prefix))
+	r.lineBuf = []byte(prefix)
+	startOffset := r.offset
+
+	r.readAndSend(context.Background())
+	if r.offset != startOffset {
+		t.Fatalf("failed ingest advanced offset: got=%d want=%d", r.offset, startOffset)
+	}
+	if string(r.lineBuf) != prefix {
+		t.Fatalf("failed ingest did not restore partial prefix: %q", string(r.lineBuf))
+	}
+	if got := atomic.LoadInt32(&calls); got != 1 {
+		t.Fatalf("first attempt calls=%d", got)
+	}
+
+	r.readAndSend(context.Background())
+	if r.offset != int64(len(prefix)+len(suffix)) {
+		t.Fatalf("successful retry offset=%d want=%d", r.offset, len(prefix)+len(suffix))
+	}
+	if len(r.lineBuf) != 0 {
+		t.Fatalf("successful retry left partial buffer: %q", string(r.lineBuf))
+	}
+	if got := atomic.LoadInt32(&calls); got != 2 {
+		t.Fatalf("retry calls=%d", got)
+	}
+	if r.sentEvents != 1 || r.failedEvents != 1 {
+		t.Fatalf("unexpected counters sent=%d failed=%d", r.sentEvents, r.failedEvents)
 	}
 }
