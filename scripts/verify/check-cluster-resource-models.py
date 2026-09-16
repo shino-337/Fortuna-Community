@@ -32,6 +32,7 @@ POD_MODEL_TABLES = {
     "AssetSecurityState": "asset_security_state",
     "AttackPath": "attack_paths",
     "CVEMatch": "cve_matches",
+    "EventIndex": "events_index",
     "MalwareMatch": "malware_matches",
     "PodAttackStep": "pod_attack_steps",
     "PodCapability": "pod_capabilities",
@@ -109,7 +110,7 @@ def main() -> int:
     )
 
     expected_targets = {table: "pod_uid" for table in POD_MODEL_TABLES.values()}
-    expected_targets.update(table_uid for table_uid in SPECIAL_FOUNDATION_MODELS.values())
+    expected_targets.update(SPECIAL_FOUNDATION_MODELS.values())
 
     for name, (table, uid_column) in SPECIAL_FOUNDATION_MODELS.items():
         if name not in seen:
