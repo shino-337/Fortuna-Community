@@ -17,11 +17,15 @@ def load_one(path: Path):
     return docs[0]
 
 
-def named(items, name):
+def by_field(items, field, value):
     for item in items or []:
-        if item.get("name") == name:
+        if item.get(field) == value:
             return item
-    raise AssertionError(f"missing named item {name!r}")
+    raise AssertionError(f"missing item with {field}={value!r}")
+
+
+def named(items, name):
+    return by_field(items, "name", name)
 
 
 class ScopedAgentCredentialOverlayTest(unittest.TestCase):
@@ -32,7 +36,8 @@ class ScopedAgentCredentialOverlayTest(unittest.TestCase):
         pod_spec = doc["spec"]["template"]["spec"]
         volume = named(pod_spec["volumes"], "agent-credential-registry")
         self.assertEqual(volume["secret"]["secretName"], "fortuna-agent-credential-registry")
-        self.assertEqual(named(volume["secret"]["items"], "registry.json")["path"], "registry.json")
+        item = by_field(volume["secret"]["items"], "key", "registry.json")
+        self.assertEqual(item["path"], "registry.json")
 
         core = named(pod_spec["containers"], "core")
         env = named(core["env"], "FORTUNA_AGENT_CREDENTIAL_REGISTRY")
