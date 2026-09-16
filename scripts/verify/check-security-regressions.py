@@ -66,6 +66,12 @@ REQUIRED = {
         "TestRuntimeRegisteredRoutesApplyRevocationAndRegistryFailureImmediately",
         "TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode",
     ],
+    "./internal/grpc": [
+        "TestGRPCAgentUnaryInterceptorAuthenticatesVerifiedCertificate",
+        "TestGRPCAgentUnaryInterceptorRejectsUnverifiedRevokedAndUnavailableIdentity",
+        "TestGRPCAgentStreamReauthenticatesEveryReceivedMessage",
+        "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
+    ],
     "./pkg/agentidentity": [
         "TestCredentialIdentityIsolation",
         "TestCredentialRotationRevocationAndExpiry",
