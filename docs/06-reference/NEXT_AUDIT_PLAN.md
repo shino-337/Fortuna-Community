@@ -1,7 +1,8 @@
 # Post-merge audit implementation plan
 
-Baseline reviewed after PR #39 merged. Changes continue as focused PRs and are
-reviewed/merged manually. IDs below are work packages, not GitHub PR numbers.
+Baseline reviewed after PRs #40 and #41 merged. Changes continue as focused PRs
+and are reviewed/merged manually. IDs below are work packages, not GitHub PR
+numbers.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
@@ -50,19 +51,23 @@ identity, evidence loss/recovery, deletion retry and actual UI/API/worker flow.
   shared resolver with common subject/role/namespace semantics.
 - C1: merged in PR #38. Credential registry/principal and security regression
   foundation are present.
-- C2 HTTP agent ingest: merged in PR #39. `/api/v1/agent/*` uses scoped identity
+- C2 HTTP Agent ingest: merged in PR #39. `/api/v1/agent/*` uses scoped identity
   when the registry is configured; sync and Pod evidence enforce ownership before
-  effects. Runtime route ownership validation exists but is not yet wired.
-- C2e2: runtime sender reliability is the next dependency. Generic JSONL retry was
-  merged with #39; Falco/eBPF retry and named regressions are isolated in PR #40.
-- C2f: per-node credential rollout follows C2e2. The planned rollout uses a
-  node-local token file for `/api/v1/agent/*`, a digest-only Core registry,
-  overlap rotation/revocation, and an explicit dual-channel migration boundary so
-  runtime v1/v2 stays on the shared token until C2e3.
-- C2e3: pending. Cut runtime v1/v2 over to scoped authentication, wire the existing
-  runtime ownership validator into registered routes, and remove the runtime shared
-  token dependency after route-level cross-cluster tests pass.
-- C3: pending. gRPC unary/stream identity enforcement, per-message reauthentication
-  and SBOM/workload storage isolation.
-- D–I: pending after C reaches the required transport/storage boundary; D evidence
-  freshness remains the next functional package after C/F prerequisites are clear.
+  effects.
+- C2e2: merged in PR #40. Generic runtime JSONL, Falco and eBPF senders preserve
+  telemetry across transient Core rejection; the retry invariants are in the named
+  regression contract.
+- C2f: merged in PR #41. Per-node token-file provisioning, digest-only Core
+  registry, overlap rotation/revocation and deployment overlays are available.
+- C2e3: current change. Runtime v1/v2 use the same scoped HTTP identity when the
+  registry/token file are configured; complete runtime batches are ownership-
+  validated before handler effects. Registered-route tests prove cross-cluster,
+  mixed-batch, revocation and invalid-registry rejection while explicit legacy mode
+  remains backward compatible.
+- C2 HTTP implementation boundary is complete after C2e3 merges and its CI gates
+  pass. Two-cluster deployment evidence remains package F, not a code-level claim.
+- C3: next. Add gRPC unary/stream identity enforcement, per-message
+  reauthentication and SBOM/workload storage isolation.
+- D–I: pending. D evidence freshness remains the next functional package after the
+  required C transport/storage and F integration boundaries are sufficiently
+  established.
