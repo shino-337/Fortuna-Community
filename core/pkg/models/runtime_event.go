@@ -5,6 +5,7 @@ import "time"
 // RuntimeEvent stores raw runtime probe events (sensor/audit).
 type RuntimeEvent struct {
 	ID         uint       `gorm:"primaryKey" json:"id"`
+	ClusterID  string     `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	EventID    string     `gorm:"type:varchar(64);index" json:"eventId,omitempty"` // canonical id for replay/idempotency (agent provided)
 	ObservedAt *time.Time `gorm:"index" json:"observedAt,omitempty"`
 	IngestedAt *time.Time `gorm:"index" json:"ingestedAt,omitempty"`
