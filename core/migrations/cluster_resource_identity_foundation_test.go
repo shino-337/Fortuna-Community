@@ -38,7 +38,7 @@ func createClusterIdentityFoundationSchema(t *testing.T, db *gorm.DB, omittedTab
 			continue
 		}
 		columns := target.uidColumn + " TEXT"
-		if target.table == "insights" {
+		if target.extra != "" {
 			columns += ", resource_type TEXT NOT NULL"
 		}
 		stmt := fmt.Sprintf("CREATE TABLE %s (%s)", target.table, columns)
@@ -57,6 +57,8 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 		`INSERT INTO pods(uid,cluster_id) VALUES ('pod-dup','cluster-b')`,
 		`INSERT INTO runtime_events(pod_uid) VALUES ('pod-one'),('pod-dup')`,
 		`INSERT INTO insights(resource_uid,resource_type) VALUES ('pod-one','Pod'),('pod-dup','Pod'),('pod-one','ServiceAccount')`,
+		`INSERT INTO risk_scores(resource_uid,resource_type) VALUES ('pod-one','pod'),('pod-one','Node')`,
+		`INSERT INTO policy_violations(resource_uid,resource_type) VALUES ('pod-one','Pod')`,
 	} {
 		if err := db.Exec(stmt).Error; err != nil {
 			t.Fatalf("setup %q: %v", stmt, err)
@@ -88,20 +90,27 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 		t.Fatalf("ambiguous duplicate UID ownership was guessed: %q", got["pod-dup"].String)
 	}
 
-	var podInsightCluster sql.NullString
-	if err := db.Table("insights").Select("cluster_id").Where("resource_uid = ? AND resource_type = ?", "pod-one", "Pod").Scan(&podInsightCluster).Error; err != nil {
-		t.Fatal(err)
+	assertResourceCluster := func(table, resourceType string, wantCluster string) {
+		t.Helper()
+		var cluster sql.NullString
+		if err := db.Table(table).Select("cluster_id").Where("resource_uid = ? AND resource_type = ?", "pod-one", resourceType).Scan(&cluster).Error; err != nil {
+			t.Fatal(err)
+		}
+		if wantCluster == "" {
+			if cluster.Valid && cluster.String != "" {
+				t.Fatalf("%s/%s ownership must not be inferred from pod UID: %q", table, resourceType, cluster.String)
+			}
+			return
+		}
+		if !cluster.Valid || cluster.String != wantCluster {
+			t.Fatalf("%s/%s cluster=%v, want %s", table, resourceType, cluster, wantCluster)
+		}
 	}
-	if !podInsightCluster.Valid || podInsightCluster.String != "cluster-a" {
-		t.Fatalf("pod insight cluster=%v, want cluster-a", podInsightCluster)
-	}
-	var nonPodCluster sql.NullString
-	if err := db.Table("insights").Select("cluster_id").Where("resource_uid = ? AND resource_type = ?", "pod-one", "ServiceAccount").Scan(&nonPodCluster).Error; err != nil {
-		t.Fatal(err)
-	}
-	if nonPodCluster.Valid && nonPodCluster.String != "" {
-		t.Fatalf("non-Pod insight ownership must not be guessed from pod UID: %q", nonPodCluster.String)
-	}
+	assertResourceCluster("insights", "Pod", "cluster-a")
+	assertResourceCluster("insights", "ServiceAccount", "")
+	assertResourceCluster("risk_scores", "pod", "cluster-a")
+	assertResourceCluster("risk_scores", "Node", "")
+	assertResourceCluster("policy_violations", "Pod", "cluster-a")
 }
 
 func TestClusterResourceIdentityFoundationFailsClosedWithoutPods(t *testing.T) {
