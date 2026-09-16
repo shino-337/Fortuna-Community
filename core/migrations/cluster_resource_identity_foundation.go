@@ -2,7 +2,6 @@ package migrations
 
 import (
 	"fmt"
-	"sort"
 
 	"gorm.io/gorm"
 )
@@ -43,6 +42,11 @@ var clusterOwnedPodTables = []clusterOwnedPodTable{
 // versions are array indexes, so inserting/reordering a migration would corrupt
 // already-applied databases.
 //
+// Every table in clusterOwnedPodTables is required at this point in startup. The
+// legacy runner may continue after individual migration failures, so silently
+// skipping a missing security-critical table/UID column here would turn a broken
+// schema into an apparently healthy startup.
+//
 // The foundation is intentionally staged. It adds/backfills ClusterID and useful
 // indexes, but does not yet make the new columns NOT NULL or replace legacy
 // primary/unique keys. C3c query migration must move all readers/writers to
@@ -51,76 +55,119 @@ func EnsureClusterResourceIdentityFoundation(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("cluster resource identity foundation: database is nil")
 	}
-	if !db.Migrator().HasTable("pods") {
-		return fmt.Errorf("cluster resource identity foundation: pods table is missing")
+	if err := validateAuthoritativePodSchema(db); err != nil {
+		return err
 	}
-
-	for _, target := range clusterOwnedPodTables {
-		if !db.Migrator().HasTable(target.table) {
-			continue
-		}
-		if !db.Migrator().HasColumn(target.table, "cluster_id") {
-			if err := db.Exec("ALTER TABLE " + target.table + " ADD COLUMN cluster_id VARCHAR(255)").Error; err != nil {
-				return fmt.Errorf("add %s.cluster_id: %w", target.table, err)
-			}
-		}
+	if err := ensureClusterResourceIdentityColumns(db); err != nil {
+		return err
 	}
-
 	if err := backfillUnambiguousPodClusterOwnership(db); err != nil {
 		return err
 	}
 	if err := ensureClusterResourceIdentityIndexes(db); err != nil {
 		return err
 	}
+	if err := validateExistingClusterResourceOwnership(db); err != nil {
+		return err
+	}
 	return nil
 }
 
-type podClusterOwner struct {
-	UID       string `gorm:"column:uid"`
-	ClusterID string `gorm:"column:cluster_id"`
+func validateAuthoritativePodSchema(db *gorm.DB) error {
+	if !db.Migrator().HasTable("pods") {
+		return fmt.Errorf("cluster resource identity foundation: pods table is missing")
+	}
+	for _, column := range []string{"uid", "cluster_id"} {
+		if !db.Migrator().HasColumn("pods", column) {
+			return fmt.Errorf("cluster resource identity foundation: pods.%s is missing", column)
+		}
+	}
+	return nil
 }
 
-func backfillUnambiguousPodClusterOwnership(db *gorm.DB) error {
-	var owners []podClusterOwner
-	if err := db.Unscoped().Table("pods").
-		Select("uid, MIN(cluster_id) AS cluster_id").
-		Where("uid <> '' AND cluster_id <> ''").
-		Group("uid").
-		Having("COUNT(DISTINCT cluster_id) = 1").
-		Scan(&owners).Error; err != nil {
-		return fmt.Errorf("resolve unambiguous pod ownership: %w", err)
-	}
-
-	byCluster := make(map[string][]string)
-	for _, owner := range owners {
-		if owner.ClusterID == "" || owner.UID == "" {
-			continue
-		}
-		byCluster[owner.ClusterID] = append(byCluster[owner.ClusterID], owner.UID)
-	}
-	clusters := make([]string, 0, len(byCluster))
-	for clusterID := range byCluster {
-		clusters = append(clusters, clusterID)
-	}
-	sort.Strings(clusters)
-
+func ensureClusterResourceIdentityColumns(db *gorm.DB) error {
 	for _, target := range clusterOwnedPodTables {
-		if !db.Migrator().HasTable(target.table) ||
-			!db.Migrator().HasColumn(target.table, "cluster_id") ||
-			!db.Migrator().HasColumn(target.table, target.uidColumn) {
-			continue
+		if !db.Migrator().HasTable(target.table) {
+			return fmt.Errorf("cluster resource identity foundation: required table %s is missing", target.table)
 		}
-		for _, clusterID := range clusters {
-			uids := byCluster[clusterID]
-			q := db.Table(target.table).
-				Where(target.uidColumn+" IN ?", uids).
-				Where("COALESCE(cluster_id, '') = ''")
-			if target.extra != "" {
-				q = q.Where(target.extra)
+		if !db.Migrator().HasColumn(target.table, target.uidColumn) {
+			return fmt.Errorf("cluster resource identity foundation: required column %s.%s is missing", target.table, target.uidColumn)
+		}
+		if !db.Migrator().HasColumn(target.table, "cluster_id") {
+			if err := db.Exec("ALTER TABLE " + target.table + " ADD COLUMN cluster_id VARCHAR(255)").Error; err != nil {
+				return fmt.Errorf("add %s.cluster_id: %w", target.table, err)
 			}
-			if err := q.Update("cluster_id", clusterID).Error; err != nil {
-				return fmt.Errorf("backfill %s cluster ownership: %w", target.table, err)
+			if !db.Migrator().HasColumn(target.table, "cluster_id") {
+				return fmt.Errorf("cluster resource identity foundation: %s.cluster_id is still missing after ALTER TABLE", target.table)
 			}
+		}
+	}
+	return nil
+}
+
+// backfillUnambiguousPodClusterOwnership performs one set-based UPDATE per target
+// table. Ownership is copied only when the authoritative pods table maps a UID to
+// exactly one distinct cluster. This avoids the unbounded application-side UID IN
+// lists used by the first implementation and keeps ambiguous UIDs unresolved.
+func backfillUnambiguousPodClusterOwnership(db *gorm.DB) error {
+	for _, target := range clusterOwnedPodTables {
+		stmt := fmt.Sprintf(`UPDATE %s
+SET cluster_id = (
+	SELECT MIN(p.cluster_id)
+	FROM pods p
+	WHERE p.uid = %s.%s
+	  AND COALESCE(p.uid, '') <> ''
+	  AND COALESCE(p.cluster_id, '') <> ''
+	GROUP BY p.uid
+	HAVING COUNT(DISTINCT p.cluster_id) = 1
+)
+WHERE COALESCE(cluster_id, '') = ''
+  AND COALESCE(%s, '') <> ''`, target.table, target.table, target.uidColumn, target.uidColumn)
+		if target.extra != "" {
+			stmt += "\n  AND (" + target.extra + ")"
+		}
+		stmt += fmt.Sprintf(`
+  AND (
+	SELECT COUNT(DISTINCT p.cluster_id)
+	FROM pods p
+	WHERE p.uid = %s.%s
+	  AND COALESCE(p.cluster_id, '') <> ''
+  ) = 1`, target.table, target.uidColumn)
+
+		if err := db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("backfill %s cluster ownership: %w", target.table, err)
+		}
+	}
+	return nil
+}
+
+// validateExistingClusterResourceOwnership rejects already-populated cluster IDs
+// that do not correspond to an authoritative {cluster_id,pod_uid} pair. Existing
+// non-empty ownership is never silently rewritten because doing so would guess at
+// security-sensitive historical state.
+func validateExistingClusterResourceOwnership(db *gorm.DB) error {
+	for _, target := range clusterOwnedPodTables {
+		stmt := fmt.Sprintf(`SELECT COUNT(*)
+FROM %s t
+WHERE COALESCE(t.cluster_id, '') <> ''
+  AND COALESCE(t.%s, '') <> ''`, target.table, target.uidColumn)
+		if target.extra != "" {
+			stmt += "\n  AND (" + target.extra + ")"
+		}
+		stmt += fmt.Sprintf(`
+  AND NOT EXISTS (
+	SELECT 1
+	FROM pods p
+	WHERE p.uid = t.%s
+	  AND p.cluster_id = t.cluster_id
+  )`, target.uidColumn)
+
+		var inconsistent int64
+		if err := db.Raw(stmt).Scan(&inconsistent).Error; err != nil {
+			return fmt.Errorf("validate %s cluster ownership: %w", target.table, err)
+		}
+		if inconsistent > 0 {
+			return fmt.Errorf("cluster resource identity foundation: %s contains %d row(s) with cluster ownership inconsistent with pods", target.table, inconsistent)
 		}
 	}
 	return nil
@@ -128,13 +175,15 @@ func backfillUnambiguousPodClusterOwnership(db *gorm.DB) error {
 
 func ensureClusterResourceIdentityIndexes(db *gorm.DB) error {
 	for _, target := range clusterOwnedPodTables {
-		if !db.Migrator().HasTable(target.table) ||
-			!db.Migrator().HasColumn(target.table, "cluster_id") ||
-			!db.Migrator().HasColumn(target.table, target.uidColumn) {
-			continue
-		}
 		name := "idx_" + target.table + "_cluster_" + target.uidColumn
-		stmt := "CREATE INDEX IF NOT EXISTS " + name + " ON " + target.table + " (cluster_id, " + target.uidColumn + ")"
+		prefix := "CREATE INDEX IF NOT EXISTS "
+		if db.Dialector.Name() == "postgres" {
+			// Startup schema enforcement is intentionally outside a transaction. Use
+			// PostgreSQL's concurrent index build to avoid blocking normal table
+			// writes for the duration of a large historical index build.
+			prefix = "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+		}
+		stmt := prefix + name + " ON " + target.table + " (cluster_id, " + target.uidColumn + ")"
 		if err := db.Exec(stmt).Error; err != nil {
 			return fmt.Errorf("create %s: %w", name, err)
 		}
