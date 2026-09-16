@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+spec:
+  template:
+    spec:
+      volumes:
+        - name: agent-credential-registry
+          secret:
+            secretName: fortuna-agent-credential-registry
+            items:
+              - key: registry.json
+                path: registry.json
+      containers:
+        - name: core
+          env:
+            # Explicit C2 migration switch. When this path is configured,
+            # /api/v1/agent/* never falls back to FORTUNA_INGEST_TOKEN.
+            - name: FORTUNA_AGENT_CREDENTIAL_REGISTRY
+              value: /etc/fortuna/agent-credentials/registry.json
+          volumeMounts:
+            - name: agent-credential-registry
+              mountPath: /etc/fortuna/agent-credentials
+              readOnly: true
