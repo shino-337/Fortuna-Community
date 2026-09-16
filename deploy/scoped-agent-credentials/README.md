@@ -1,17 +1,22 @@
-# Scoped HTTP agent credentials — C2f rollout
+# Scoped HTTP agent credentials — C2 rollout
 
-This overlay enables the scoped HTTP identity path introduced in PR #39 without
-changing the base manifests. It is intentionally a migration step: `/api/v1/agent/*`
-uses a per-agent token while runtime v1/v2 continues to use the legacy shared
-`FORTUNA_INGEST_TOKEN` until C2e3.
+This overlay enables the scoped HTTP identity path for Agent inventory/evidence and
+runtime v1/v2 ingest without changing the base manifests. When the Core registry
+and Agent token file are configured, `/api/v1/agent/*`, `/api/v1/runtime/events`
+and `/api/v2/runtime/events` all use the same per-agent credential. Deployments
+that do not enable the overlay remain on the explicit legacy shared-token mode.
 
 ## Preconditions
 
-- Deploy an Agent build containing the runtime sender retry protections from C2e2.
+- Deploy Core and Agent builds containing C2e2 sender retry protection and the C2e3
+  runtime scoped-auth cutover.
 - Use the canonical `clusterId` produced by cluster discovery.
 - Confirm each Agent ID. The default is `<nodeName>-agent`; if `AGENT_ID` is
   overridden, provision with `--identity NODE=AGENT_ID`.
 - Keep generated plaintext tokens outside the repository and backup path.
+- Confirm the initial inventory sync can populate Pod ownership before runtime
+  telemetry is expected to be accepted. Sender retries cover temporary convergence
+  rejects; they are not a substitute for a healthy inventory path.
 
 ## 1. Issue per-node credentials
 
@@ -68,9 +73,8 @@ Kubernetes projected Secret updates therefore take effect without a Core restart
 ## 4. Enable scoped mode
 
 Apply both patches in the same maintenance window. Either order can create a short
-period of rejected `/api/v1/agent/*` requests while the other workload rolls; the
-sender/reconciliation paths must recover after convergence. Runtime ingest remains
-on the shared token and is not part of this cutover.
+period of rejected Agent or runtime requests while the other workload rolls; the
+sender/reconciliation paths must recover after convergence.
 
 ```bash
 kubectl -n fortuna patch deployment fortuna-core --type strategic \
@@ -86,9 +90,13 @@ Verify that:
 
 - Agent `/sync` succeeds for every node and Core records the expected Agent ID;
 - Pod metrics/process/network/event ingest succeeds after inventory convergence;
-- a node-A token cannot submit node/cluster-B identity claims;
-- Core does not log registry-unavailable, identity-mismatch, or repeated 401/403;
-- runtime event ingest still succeeds with the legacy shared token during C2f.
+- runtime v1/v2 event ingest succeeds with the node's scoped credential;
+- a node/cluster-A token cannot submit identity claims or runtime Pod UIDs owned by
+  cluster B;
+- a mixed runtime batch containing one foreign Pod is rejected as a whole and does
+  not create a partial `runtime_events` prefix;
+- Core does not log registry-unavailable, identity-mismatch, ownership-mismatch or
+  repeated 401/403 after convergence.
 
 ## Rotation with overlap
 
@@ -113,9 +121,10 @@ sudo mv /etc/fortuna/agent-credentials/token.new \
   /etc/fortuna/agent-credentials/token
 ```
 
-The Agent rereads `FORTUNA_AGENT_TOKEN_FILE` for each `/api/v1/agent/*` request, so
-an atomic file replacement does not require restarting the pod. After successful
-sync/evidence verification, revoke the old credential ID and republish the registry:
+The Agent rereads `FORTUNA_AGENT_TOKEN_FILE` for every scoped HTTP ingest request,
+including runtime v1/v2, so an atomic file replacement does not require restarting
+the pod. After successful sync/evidence/runtime verification, revoke the old
+credential ID and republish the registry:
 
 ```bash
 python3 scripts/deploy/agent-credential-tool.py revoke \
@@ -125,18 +134,24 @@ python3 scripts/deploy/agent-credential-tool.py revoke \
 
 ## Rollback
 
-Before old-credential revocation, rollback is simply restoring the previous node
-token file while the overlapping registry still accepts it. If the old credential
-has already been revoked, rollback requires an explicit operator registry rollback
-or a newly issued credential; the Agent never silently falls back to the shared
-token for `/api/v1/agent/*` once `FORTUNA_AGENT_TOKEN_FILE` is configured.
+Before old-credential revocation, rollback is restoring the previous node token
+file while the overlapping registry still accepts it. If the old credential has
+already been revoked, rollback requires an explicit operator registry rollback or
+a newly issued credential. Once `FORTUNA_AGENT_TOKEN_FILE` is configured, scoped
+Agent/runtime requests never silently fall back to the shared token.
+
+To roll an installation all the way back to explicit legacy mode, remove both the
+Core registry configuration and Agent token-file configuration in one controlled
+change, then verify the shared token path. Do not remove only one side and assume
+the other side will silently compensate.
 
 ## Security requirements
 
 - Node credential directory: `0700`; token file: `0600`, root/operator managed.
 - Never commit generated tokens, registry working directories, or copied Secrets.
 - Do not mount one plaintext token set into every DaemonSet pod.
-- Keep `FORTUNA_INGEST_TOKEN` only for the runtime migration boundary until C2e3;
-  remove that dependency when runtime routes use scoped identity.
+- `FORTUNA_INGEST_TOKEN` may remain in the base manifests for backward-compatible
+  installations, but scoped HTTP ingest does not use it while the registry/token
+  file are configured.
 - Registry entries should overlap only for controlled rotation and should have a
   bounded expiration time.
