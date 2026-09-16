@@ -6,6 +6,7 @@ import "time"
 // In P0 this table is introduced first; synthesizers are added incrementally.
 type RuntimeIncident struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
+	ClusterID    string    `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	IncidentID   string    `gorm:"type:varchar(64);not null;uniqueIndex" json:"incidentId"`
 	PodUID       string    `gorm:"type:varchar(255);not null;index" json:"podUid"`
 	Namespace    string    `gorm:"type:varchar(255);not null;index" json:"namespace"`
