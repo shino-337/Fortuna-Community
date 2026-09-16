@@ -94,6 +94,9 @@ REQUIRED = {
     "./migrations": [
         "TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership",
         "TestClusterResourceIdentityFoundationFailsClosedWithoutPods",
+        "TestClusterResourceIdentityFoundationFailsClosedOnMissingRequiredTarget",
+        "TestClusterResourceIdentityFoundationFailsClosedOnMissingUIDColumn",
+        "TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership",
     ],
 }
 
