@@ -4,6 +4,7 @@ import "time"
 
 // PodAttackStep represents a minimal attack step for a pod
 type PodAttackStep struct {
+	ClusterID   string    `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	PodUID      string    `gorm:"primaryKey;type:varchar(255)" json:"podUid"`
 	StepID      string    `gorm:"primaryKey;type:varchar(100);index" json:"stepId"`
 	Description string    `gorm:"type:text" json:"description,omitempty"`
