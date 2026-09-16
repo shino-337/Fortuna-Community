@@ -166,51 +166,60 @@ func authorizeScopedGRPCUnaryRequest(ctx context.Context, db *gorm.DB, fullMetho
 	switch fullMethod {
 	case pb.AgentService_RegisterAgent_FullMethodName:
 		r, ok := req.(*pb.RegisterAgentRequest)
-		if !ok || r == nil || authorizeScopedGRPCAgentClaim(principal, r.AgentId) != nil {
+		if !ok || r == nil {
 			return nil, agentidentity.Principal{}, scopedGRPCPermissionDenied()
+		}
+		if err := authorizeScopedGRPCAgentClaim(principal, r.AgentId); err != nil {
+			return nil, agentidentity.Principal{}, err
 		}
 		if err := authorizeScopedGRPCAgentRecord(db, principal); err != nil {
 			return nil, agentidentity.Principal{}, err
 		}
 	case pb.AgentService_Ping_FullMethodName:
 		r, ok := req.(*pb.PingRequest)
-		if !ok || r == nil || authorizeScopedGRPCAgentClaim(principal, r.AgentId) != nil {
+		if !ok || r == nil {
 			return nil, agentidentity.Principal{}, scopedGRPCPermissionDenied()
+		}
+		if err := authorizeScopedGRPCAgentClaim(principal, r.AgentId); err != nil {
+			return nil, agentidentity.Principal{}, err
 		}
 		if err := authorizeScopedGRPCAgentRecord(db, principal); err != nil {
 			return nil, agentidentity.Principal{}, err
 		}
 	case pb.AgentService_Heartbeat_FullMethodName:
 		r, ok := req.(*pb.HeartbeatRequest)
-		if !ok || r == nil || authorizeScopedGRPCAgentClaim(principal, r.AgentId) != nil {
+		if !ok || r == nil {
 			return nil, agentidentity.Principal{}, scopedGRPCPermissionDenied()
+		}
+		if err := authorizeScopedGRPCAgentClaim(principal, r.AgentId); err != nil {
+			return nil, agentidentity.Principal{}, err
 		}
 		if err := authorizeScopedGRPCAgentRecord(db, principal); err != nil {
 			return nil, agentidentity.Principal{}, err
 		}
 	case pb.AgentService_SendSBOMFinding_FullMethodName:
 		r, ok := req.(*pb.SBOMFinding)
-		if !ok || authorizeScopedGRPCSBOM(db, principal, r) != nil {
-			if ok {
-				return nil, agentidentity.Principal{}, authorizeScopedGRPCSBOM(db, principal, r)
-			}
+		if !ok {
 			return nil, agentidentity.Principal{}, scopedGRPCPermissionDenied()
+		}
+		if err := authorizeScopedGRPCSBOM(db, principal, r); err != nil {
+			return nil, agentidentity.Principal{}, err
 		}
 	case pb.AgentService_SendCVEFinding_FullMethodName:
 		r, ok := req.(*pb.CVEFinding)
-		if !ok || authorizeScopedGRPCCVE(db, principal, r) != nil {
-			if ok {
-				return nil, agentidentity.Principal{}, authorizeScopedGRPCCVE(db, principal, r)
-			}
+		if !ok {
 			return nil, agentidentity.Principal{}, scopedGRPCPermissionDenied()
+		}
+		if err := authorizeScopedGRPCCVE(db, principal, r); err != nil {
+			return nil, agentidentity.Principal{}, err
 		}
 	case pb.AgentService_SendCombinedFinding_FullMethodName:
 		r, ok := req.(*pb.CombinedFinding)
-		if !ok || authorizeScopedGRPCCombined(db, principal, r) != nil {
-			if ok {
-				return nil, agentidentity.Principal{}, authorizeScopedGRPCCombined(db, principal, r)
-			}
+		if !ok {
 			return nil, agentidentity.Principal{}, scopedGRPCPermissionDenied()
+		}
+		if err := authorizeScopedGRPCCombined(db, principal, r); err != nil {
+			return nil, agentidentity.Principal{}, err
 		}
 	default:
 		return nil, agentidentity.Principal{}, status.Error(codes.PermissionDenied, "scoped gRPC method authorization missing")
