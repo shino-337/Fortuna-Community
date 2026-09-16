@@ -34,7 +34,9 @@ var clusterOwnedPodTables = []clusterOwnedPodTable{
 	{table: "runtime_incidents", uidColumn: "pod_uid"},
 	{table: "runtime_signals", uidColumn: "pod_uid"},
 	{table: "sboms", uidColumn: "pod_uid"},
-	{table: "insights", uidColumn: "resource_uid", extra: "resource_type = 'Pod'"},
+	{table: "insights", uidColumn: "resource_uid", extra: "LOWER(resource_type) = 'pod'"},
+	{table: "risk_scores", uidColumn: "resource_uid", extra: "LOWER(resource_type) = 'pod'"},
+	{table: "policy_violations", uidColumn: "resource_uid", extra: "LOWER(resource_type) = 'pod'"},
 }
 
 // EnsureClusterResourceIdentityFoundation is an idempotent, fail-closed schema
