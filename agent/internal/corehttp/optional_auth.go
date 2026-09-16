@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-const agentTokenFileEnv = "FORTUNA_AGENT_TOKEN_FILE"
+const (
+	agentTokenFileEnv       = "FORTUNA_AGENT_TOKEN_FILE"
+	invalidScopedAgentToken = "invalid"
+)
 
 // ApplyOptionalAuthorization sets headers used by Core HTTP ingest.
 //
@@ -15,7 +18,7 @@ const agentTokenFileEnv = "FORTUNA_AGENT_TOKEN_FILE"
 //   - /api/v1/agent/* prefers FORTUNA_AGENT_TOKEN_FILE when configured. The file
 //     is reread for every request so atomic replacement rotates credentials without
 //     restarting the agent. If the configured file is missing/invalid, auth fails
-//     closed and never falls back to the legacy shared token.
+//     closed and never falls back to the legacy shared token or a Bearer header.
 //   - Other HTTP ingest paths (notably /api/v1|v2/runtime/* during C2 migration)
 //     continue to use FORTUNA_INGEST_TOKEN until their scoped-auth cutover.
 func ApplyOptionalAuthorization(req *http.Request) {
@@ -30,6 +33,11 @@ func ApplyOptionalAuthorization(req *http.Request) {
 		if tokenFile := strings.TrimSpace(os.Getenv(agentTokenFileEnv)); tokenFile != "" {
 			if tok := readScopedAgentToken(tokenFile); tok != "" {
 				req.Header.Set("X-Fortuna-Ingest-Token", tok)
+			} else {
+				// Core prefers X-Fortuna-Ingest-Token before Authorization: Bearer.
+				// Set a deliberately too-short value so a missing/invalid scoped source
+				// cannot fall through to a proxy Bearer credential or a stale header.
+				req.Header.Set("X-Fortuna-Ingest-Token", invalidScopedAgentToken)
 			}
 			return // configured scoped source is authoritative; never fall back
 		}
