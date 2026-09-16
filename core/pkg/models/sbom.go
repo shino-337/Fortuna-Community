@@ -11,6 +11,7 @@ import (
 // Updated for Agent-Based architecture
 type SBOM struct {
 	ID                    uint              `gorm:"primaryKey" json:"id"`
+	ClusterID             string            `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	ImageName             string            `gorm:"type:varchar(255);not null;index" json:"imageName"`
 	ImageTag              string            `gorm:"type:varchar(255);not null;index" json:"imageTag"`
 	ImageDigest           string            `gorm:"type:varchar(255);not null;index" json:"imageDigest"` // SHA256; one row per pod (multiple pods can share same image)
@@ -139,8 +140,9 @@ func (SBOMComponent) TableName() string {
 // CVEMatch represents a CVE matched to an SBOM component
 // Updated for Agent-Based architecture - contains package info directly
 type CVEMatch struct {
-	ID     uint `gorm:"primaryKey" json:"id"`
-	SBOMID uint `gorm:"not null;index" json:"sbomId"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	ClusterID string `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
+	SBOMID    uint   `gorm:"not null;index" json:"sbomId"`
 
 	// Pod context (from Agent)
 	PodUID        string `gorm:"type:varchar(255);index" json:"podUid"`
