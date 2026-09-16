@@ -9,54 +9,58 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
 )
 
-// ViolationEvent represents a policy violation event for async processing
-// Phase 2.7: Slow path event structure
-type ViolationEvent struct {
+// PolicyViolationEvent is emitted by admission webhook fast-path
+type PolicyViolationEvent struct {
 	Type       string                 `json:"type"`
 	Timestamp  int64                  `json:"timestamp"`
-	Violations []*Violation           `json:"violations"`
 	Resource   map[string]interface{} `json:"resource"`
+	Violations []*Violation           `json:"violations"`
 	Request    map[string]interface{} `json:"request"`
 }
 
 // PolicyWorker handles async policy violation processing
 // Phase 2.7: Slow path worker for violation storage, insights, alerts
 type PolicyWorker struct {
-	db            *gorm.DB
-	violationSvc  *ViolationService
+	db             *gorm.DB
+	violationSvc   *ViolationService
 	enforcementSvc *EnforcementService
+	js             nats.JetStreamContext
 }
 
 // NewPolicyWorker creates a new policy worker
-func NewPolicyWorker(db *gorm.DB, evaluator *Evaluator) *PolicyWorker {
+func NewPolicyWorker(db *gorm.DB, js nats.JetStreamContext) *PolicyWorker {
 	return &PolicyWorker{
-		db:            db,
-		violationSvc:  NewViolationService(db),
-		enforcementSvc: NewEnforcementService(db, evaluator),
+		db:             db,
+		violationSvc:   NewViolationService(db),
+		enforcementSvc: NewEnforcementService(db),
+		js:             js,
 	}
 }
 
-// ProcessViolationEvent processes a violation event from the event bus
-// Phase 2.7: Slow path processing - violation storage, insights, alerts
+// ProcessViolationEvent processes a policy violation event from the event bus
 func (w *PolicyWorker) ProcessViolationEvent(ctx context.Context, eventData []byte) error {
-	var event ViolationEvent
+	var event PolicyViolationEvent
 	if err := json.Unmarshal(eventData, &event); err != nil {
 		return fmt.Errorf("failed to unmarshal violation event: %w", err)
 	}
 
-	log.Printf("[PolicyWorker] Processing violation event: %d violations for %s/%s",
-		len(event.Violations), event.Resource["type"], event.Resource["name"])
+	log.Printf("[PolicyWorker] Processing violation event: %d violations for %v/%v",
+		len(event.Violations), event.Resource["kind"], event.Resource["name"])
 
-	// Process each violation
 	insightsToCreate := make([]*models.Insight, 0, len(event.Violations))
 	for _, violation := range event.Violations {
-		// Get policy instance from database
+		if violation == nil {
+			continue
+		}
+
+		// Get policy instance
 		var instance models.PolicyInstance
-		if err := w.db.WithContext(ctx).Where("id = ?", violation.InstanceID).First(&instance).Error; err != nil {
-			log.Printf("[PolicyWorker] Failed to get instance %d: %v", violation.InstanceID, err)
+		if err := w.db.WithContext(ctx).First(&instance, violation.InstanceID).Error; err != nil {
+			log.Printf("[PolicyWorker] Failed to get policy instance %d: %v", violation.InstanceID, err)
 			continue
 		}
 
@@ -88,6 +92,7 @@ func (w *PolicyWorker) ProcessViolationEvent(ctx context.Context, eventData []by
 		// Use stable keys (ResourceUID + template/action) so repeated events don't explode in DB.
 		title := fmt.Sprintf("Policy violation: %s (%s)", pv.TemplateName, pv.Action)
 		insightsToCreate = append(insightsToCreate, &models.Insight{
+			ClusterID:         pv.ClusterID,
 			ResourceType:      pv.ResourceType,
 			ResourceNamespace: pv.Namespace,
 			ResourceName:      pv.ResourceName,
@@ -124,4 +129,3 @@ func (w *PolicyWorker) ProcessRemediationEvent(ctx context.Context, eventData []
 	log.Printf("[PolicyWorker] Remediation event processing (not yet implemented)")
 	return nil
 }
-
