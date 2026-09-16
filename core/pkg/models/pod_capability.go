@@ -9,6 +9,7 @@ import (
 // PodCapability stores evaluated offensive capabilities for a pod
 type PodCapability struct {
 	ID              uint           `gorm:"primaryKey" json:"id"`
+	ClusterID       string         `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	PodUID          string         `gorm:"type:varchar(255);not null;index" json:"podUid"`
 	Namespace       string         `gorm:"type:varchar(255);not null;index" json:"namespace"`
 	CapabilityID    string         `gorm:"type:varchar(100);not null;index" json:"capabilityId"`
