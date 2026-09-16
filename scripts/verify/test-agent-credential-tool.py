@@ -25,6 +25,7 @@ class AgentCredentialToolTest(unittest.TestCase):
         return result
 
     def run_issue_with_existing(self, root: Path, entry: dict, expect=2):
+        root.mkdir(parents=True, exist_ok=True)
         registry = root / "registry.json"
         registry.write_text(json.dumps({"credentials": [entry]}), encoding="utf-8")
         return self.run_tool(
@@ -155,20 +156,17 @@ class AgentCredentialToolTest(unittest.TestCase):
             "expires_at": "2099-01-01T00:00:00Z",
         }
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
             unknown = dict(base, unexpected="value")
-            self.run_issue_with_existing(root / "unknown", unknown)
+            self.run_issue_with_existing(Path(td) / "unknown", unknown)
 
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
             missing_expiry = dict(base)
             missing_expiry.pop("expires_at")
-            self.run_issue_with_existing(root / "missing-expiry", missing_expiry)
+            self.run_issue_with_existing(Path(td) / "missing-expiry", missing_expiry)
 
         with tempfile.TemporaryDirectory() as td:
-            root = Path(td)
             bad_window = dict(base, not_before="2099-01-01T00:00:00Z", expires_at="2099-01-01T00:00:00Z")
-            self.run_issue_with_existing(root / "bad-window", bad_window)
+            self.run_issue_with_existing(Path(td) / "bad-window", bad_window)
 
 
 if __name__ == "__main__":
