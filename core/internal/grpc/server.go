@@ -16,6 +16,7 @@ import (
 	agentpb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/internal/ingest"
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/security"
 )
@@ -33,6 +34,10 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 	log.Printf("========================================")
 	log.Printf("[gRPC] NewServer called with TLSEnabled=%v", cfg.TLSEnabled)
 	log.Printf("========================================")
+
+	if cfg.GRPCAgentCredentialRegistryPath != "" && !cfg.TLSEnabled {
+		return nil, fmt.Errorf("FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY requires TLS_ENABLED=true")
+	}
 
 	// Setup TLS/mTLS if enabled
 	var certManager *security.CertManager
@@ -87,6 +92,17 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 		log.Printf("[gRPC] WARNING: gRPC server running without TLS (insecure)")
 	}
 
+	if cfg.GRPCAgentCredentialRegistryPath != "" {
+		store := agentidentity.Store{Path: cfg.GRPCAgentCredentialRegistryPath}
+		opts = append(opts,
+			grpc.UnaryInterceptor(grpcAgentUnaryAuthInterceptor(store)),
+			grpc.StreamInterceptor(grpcAgentStreamAuthInterceptor(store)),
+		)
+		log.Printf("[gRPC] ✅ scoped AgentService identity enabled with per-RPC/per-message certificate reauthentication")
+	} else {
+		log.Printf("[gRPC] scoped AgentService identity is not enabled; preserving current mTLS/legacy migration behavior")
+	}
+
 	grpcServer := grpc.NewServer(opts...)
 
 	// Register SBOM service (Phase 1: Agent→Core SBOM ingestion); per-cluster rate limit (Finding #6)
@@ -121,7 +137,7 @@ func (s *Server) Start(ctx context.Context) error {
 	} else {
 		log.Printf("Starting gRPC server on %s WITHOUT TLS (INSECURE)", addr)
 	}
-	
+
 	log.Printf("[gRPC] ✅ gRPC server listening on %s", addr)
 	err = s.server.Serve(lis)
 	if err != nil {
