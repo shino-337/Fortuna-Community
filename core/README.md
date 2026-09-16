@@ -50,7 +50,7 @@ core/
 │   └── service/                   # Business logic services
 ├── pkg/
 │   ├── messaging/                 # NATS JetStream client
-│   │   ├── nats_client.go        # NATS connection & streams
+│   │   ├── nats_client.go         # NATS connection & streams
 │   │   └── publisher.go          # Event publishing
 │   ├── worker/                    # Background workers
 │   │   ├── sbom_worker.go        # SBOM processing worker
@@ -147,9 +147,12 @@ See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST group
 ### 6. gRPC API
 
 - `RegisterAgent`: Agent registration
-- `Ping`: Health check
-- `SubmitSBOM`: SBOM submission from Agents
 - `Heartbeat`: Agent heartbeat
+- `Ping`: Health check
+- `SendSBOMFinding`: SBOM submission from Agents
+- `BatchSendSBOMFindings`: Client-streamed SBOM submission
+- `SendCVEFinding`: CVE finding submission
+- `SendCombinedFinding`: Combined SBOM/CVE submission
 
 ---
 
@@ -174,15 +177,19 @@ See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST group
 - `TLS_ENABLED`: Enable TLS (default: `false`)
 - `TLS_CERT_PATH`: Server certificate path
 - `TLS_KEY_PATH`: Server private key path
-- `TLS_CA_CERT_PATH`: CA certificate path
+- `TLS_CA_CERT_PATH`: CA certificate path used to verify gRPC client certificates
 
 **Authentication**:
 - `AUTH_ENABLED`: Enable JWT authentication (default: `true`)
 - `JWT_SECRET` / `FORTUNA_JWT_SECRET`: JWT signing secret; production startup requires at least 32 bytes.
-- `FORTUNA_INGEST_TOKEN`: Shared Core/Agent HTTP ingest token. Requests must send `X-Fortuna-Ingest-Token` or `Authorization: Bearer <token>`.
+- `FORTUNA_INGEST_TOKEN`: Legacy shared HTTP Agent/runtime ingest token. It is used only when scoped HTTP identity is not configured.
+- `FORTUNA_AGENT_CREDENTIAL_REGISTRY`: Operator-managed scoped HTTP Agent credential registry. When set, Agent/runtime HTTP ingest authenticates per Agent/cluster and does not silently fall back to `FORTUNA_INGEST_TOKEN`.
+- `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY`: Opt-in scoped gRPC Agent credential registry using client-certificate SHA-256 fingerprints. Requires `TLS_ENABLED=true`. C3a provides transport identity; RPC/resource ownership enforcement and certificate deployment provisioning are completed in later C3 packages.
 - `FORTUNA_ALLOWED_ORIGINS`: Comma-separated extra browser origins allowed for CORS, in addition to localhost dev origins.
 - `FORTUNA_ALLOW_AUTH_QUERY_TOKEN`: Set `true` only when browser WebSocket clients must authenticate with `?token=`; non-WebSocket routes ignore query tokens.
 - `FORTUNA_WS_ALLOWED_ORIGINS`: Comma-separated browser origins allowed by WebSocket `CheckOrigin`, for example the local dashboard host `http://localhost:8081` or NodePort origin `http://dashboard.example.com:30956`.
+
+See [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATION.md) for scoped HTTP/gRPC identity semantics and migration status.
 
 **NATS Durables**:
 - `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)
@@ -390,9 +397,10 @@ go test ./...
 - [Architecture](../docs/02-architecture/ARCHITECTURE.md)
 - [API route overview](../docs/02-architecture/API_STANDARD.md)
 - [Production Deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
+- [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATION.md)
 - [Migrations](migrations/README.md)
 
 ---
 
 **Version**: 1.0.0  
-**Last Updated**: 2026-01-06
+**Last Updated**: 2026-09-16
