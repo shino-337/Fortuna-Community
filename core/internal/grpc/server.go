@@ -95,10 +95,16 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 	if cfg.GRPCAgentCredentialRegistryPath != "" {
 		store := agentidentity.Store{Path: cfg.GRPCAgentCredentialRegistryPath}
 		opts = append(opts,
-			grpc.UnaryInterceptor(grpcAgentUnaryAuthInterceptor(store)),
-			grpc.StreamInterceptor(grpcAgentStreamAuthInterceptor(store)),
+			grpc.ChainUnaryInterceptor(
+				grpcAgentUnaryAuthInterceptor(store),
+				grpcAgentUnaryAuthorizationInterceptor(db),
+			),
+			grpc.ChainStreamInterceptor(
+				grpcAgentStreamAuthInterceptor(store),
+				grpcAgentStreamAuthorizationInterceptor(db),
+			),
 		)
-		log.Printf("[gRPC] ✅ scoped AgentService identity enabled with per-RPC/per-message certificate reauthentication")
+		log.Printf("[gRPC] ✅ scoped AgentService identity and RPC ownership enforcement enabled")
 	} else {
 		log.Printf("[gRPC] scoped AgentService identity is not enabled; preserving current mTLS/legacy migration behavior")
 	}
