@@ -30,6 +30,9 @@ REQUIRED = {
         "TestReconciliationAuditRollbackAndCatalogFailure",
         "TestReconciliationPreservesDisabledDetector",
     ],
+    "./pkg/policy": [
+        "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
+    ],
     "./internal/api": [
         "TestServiceAccountRBACResolution",
         "TestPodRiskReportUsesResolvedRBACScope",
