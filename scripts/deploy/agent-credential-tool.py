@@ -43,6 +43,27 @@ def validate_node(node: str) -> str:
     return node
 
 
+def requested_identities(args: argparse.Namespace) -> list[tuple[str, str]]:
+    identities: list[tuple[str, str]] = []
+    for raw_node in args.node or []:
+        node = validate_node(raw_node)
+        identities.append((node, validate_identity(f"{node}-agent", "agent id")))
+    for raw_mapping in args.identity or []:
+        if "=" not in raw_mapping:
+            raise ValueError("--identity must use NODE=AGENT_ID")
+        raw_node, raw_agent = raw_mapping.split("=", 1)
+        identities.append((validate_node(raw_node), validate_identity(raw_agent, "agent id")))
+    if not identities:
+        raise ValueError("at least one --node or --identity is required")
+    nodes = [node for node, _ in identities]
+    agents = [agent for _, agent in identities]
+    if len(nodes) != len(set(nodes)):
+        raise ValueError("duplicate node name")
+    if len(agents) != len(set(agents)):
+        raise ValueError("duplicate agent id")
+    return identities
+
+
 def load_registry(path: Path | None) -> dict:
     if path is None:
         return {"credentials": []}
@@ -96,9 +117,7 @@ def registry_bytes(registry: dict) -> bytes:
 
 def issue(args: argparse.Namespace) -> int:
     cluster_id = validate_identity(args.cluster_id, "cluster id")
-    nodes = [validate_node(node) for node in args.node]
-    if len(nodes) != len(set(nodes)):
-        raise ValueError("duplicate node name")
+    identities = requested_identities(args)
     if args.ttl_hours <= 0:
         raise ValueError("ttl-hours must be positive")
 
@@ -120,8 +139,7 @@ def issue(args: argparse.Namespace) -> int:
         pass
 
     issued = []
-    for node in nodes:
-        agent_id = validate_identity(f"{node}-agent", "agent id")
+    for node, agent_id in identities:
         token = secrets.token_urlsafe(48)
         digest = hashlib.sha256(token.encode("utf-8")).hexdigest()
         if digest in existing_digests:
@@ -180,7 +198,8 @@ def build_parser() -> argparse.ArgumentParser:
 
     issue_parser = sub.add_parser("issue", help="issue new per-node tokens and build/extend a Core registry")
     issue_parser.add_argument("--cluster-id", required=True)
-    issue_parser.add_argument("--node", action="append", required=True, help="Kubernetes node name; repeat for multiple nodes")
+    issue_parser.add_argument("--node", action="append", default=[], help="node using default AGENT_ID=<node>-agent; repeat as needed")
+    issue_parser.add_argument("--identity", action="append", default=[], help="explicit NODE=AGENT_ID mapping for AGENT_ID overrides")
     issue_parser.add_argument("--output-dir", required=True, help="private operator output directory")
     issue_parser.add_argument("--existing-registry", help="optional current registry to preserve for overlap rotation")
     issue_parser.add_argument("--ttl-hours", type=int, default=2160, help="credential lifetime; default 90 days")
