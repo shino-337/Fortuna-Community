@@ -90,8 +90,42 @@ func TestScopedTokenFailureBlocksBearerAndStaleHeaderFallback(t *testing.T) {
 	}
 }
 
-func TestRuntimeRoutesRemainOnLegacyTokenDuringC2Migration(t *testing.T) {
-	t.Setenv(agentTokenFileEnv, writeTokenFile(t, strings.Repeat("s", 32)))
+func TestRuntimeRoutesUseScopedTokenAfterC2Cutover(t *testing.T) {
+	scoped := strings.Repeat("s", 32)
+	legacy := strings.Repeat("l", 32)
+	t.Setenv(agentTokenFileEnv, writeTokenFile(t, scoped))
+	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
+
+	for _, path := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+		req := newRequest(t, path)
+		ApplyOptionalAuthorization(req)
+		if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != scoped {
+			t.Fatalf("runtime route %s token=%q want scoped token", path, got)
+		}
+		if got := req.Header.Get("X-Fortuna-Ingest-Token"); got == legacy {
+			t.Fatalf("runtime route %s fell back to legacy token in scoped mode", path)
+		}
+	}
+}
+
+func TestRuntimeRoutesFailClosedWhenScopedSourceUnavailable(t *testing.T) {
+	legacy := strings.Repeat("l", 32)
+	t.Setenv(agentTokenFileEnv, filepath.Join(t.TempDir(), "missing"))
+	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
+	t.Setenv("FORTUNA_CORE_HTTP_AUTHORIZATION", "Bearer "+strings.Repeat("p", 32))
+
+	for _, path := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+		req := newRequest(t, path)
+		req.Header.Set("X-Fortuna-Ingest-Token", strings.Repeat("stale", 8))
+		ApplyOptionalAuthorization(req)
+		if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != invalidScopedAgentToken {
+			t.Fatalf("runtime route %s did not fail closed: %q", path, got)
+		}
+	}
+}
+
+func TestRuntimeRoutesUseLegacyTokenWhenScopedSourceNotConfigured(t *testing.T) {
+	t.Setenv(agentTokenFileEnv, "")
 	legacy := strings.Repeat("l", 32)
 	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
 
@@ -99,7 +133,7 @@ func TestRuntimeRoutesRemainOnLegacyTokenDuringC2Migration(t *testing.T) {
 		req := newRequest(t, path)
 		ApplyOptionalAuthorization(req)
 		if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != legacy {
-			t.Fatalf("runtime route %s token=%q want legacy token", path, got)
+			t.Fatalf("legacy runtime route %s token=%q want legacy token", path, got)
 		}
 	}
 }
@@ -114,7 +148,7 @@ func TestScopedTokenFileIsRereadForRotation(t *testing.T) {
 	t.Setenv(agentTokenFileEnv, path)
 	t.Setenv("FORTUNA_INGEST_TOKEN", strings.Repeat("l", 32))
 
-	first := newRequest(t, "/api/v1/agent/sync")
+	first := newRequest(t, "/api/v1/runtime/events")
 	ApplyOptionalAuthorization(first)
 	if got := first.Header.Get("X-Fortuna-Ingest-Token"); got != oldToken {
 		t.Fatalf("initial token=%q", got)
@@ -127,7 +161,7 @@ func TestScopedTokenFileIsRereadForRotation(t *testing.T) {
 	if err := os.Rename(tmp, path); err != nil {
 		t.Fatal(err)
 	}
-	second := newRequest(t, "/api/v1/agent/sync")
+	second := newRequest(t, "/api/v2/runtime/events")
 	ApplyOptionalAuthorization(second)
 	if got := second.Header.Get("X-Fortuna-Ingest-Token"); got != newToken {
 		t.Fatalf("rotated token=%q want new token", got)
