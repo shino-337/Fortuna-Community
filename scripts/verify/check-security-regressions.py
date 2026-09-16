@@ -71,6 +71,7 @@ AGENT_REQUIRED = {
         "TestAgentRoutePrefersScopedTokenFileOverLegacyToken",
         "TestConfiguredScopedTokenFileFailsClosedWithoutLegacyFallback",
         "TestInvalidScopedTokenFileFailsClosedWithoutLegacyFallback",
+        "TestScopedTokenFailureBlocksBearerAndStaleHeaderFallback",
         "TestRuntimeRoutesRemainOnLegacyTokenDuringC2Migration",
         "TestScopedTokenFileIsRereadForRotation",
     ],
