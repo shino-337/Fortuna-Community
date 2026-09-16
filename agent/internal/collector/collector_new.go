@@ -35,7 +35,7 @@ func New(cfg *config.Config) (*Collector, error) {
 		clusterName = clusterID
 	}
 
-	return NewCollector(k8sClient, grpcClient, clusterID, clusterName)
+	return NewCollector(k8sClient, grpcClient, cfg.AgentID, clusterID, clusterName)
 }
 
 // createK8sClient creates a Kubernetes client from config
@@ -56,4 +56,3 @@ func createK8sClient(cfg *config.Config) (kubernetes.Interface, error) {
 	}
 	return kubernetes.NewForConfig(config)
 }
-
