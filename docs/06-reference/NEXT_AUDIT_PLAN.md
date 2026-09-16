@@ -1,8 +1,7 @@
 # Post-merge audit implementation plan
 
-Baseline reviewed after PRs #40 and #41 merged. Changes continue as focused PRs
-and are reviewed/merged manually. IDs below are work packages, not GitHub PR
-numbers.
+Baseline reviewed after PR #42 merged. Changes continue as focused PRs and are
+reviewed/merged manually. IDs below are work packages, not GitHub PR numbers.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
@@ -55,19 +54,25 @@ identity, evidence loss/recovery, deletion retry and actual UI/API/worker flow.
   when the registry is configured; sync and Pod evidence enforce ownership before
   effects.
 - C2e2: merged in PR #40. Generic runtime JSONL, Falco and eBPF senders preserve
-  telemetry across transient Core rejection; the retry invariants are in the named
-  regression contract.
+  telemetry across transient Core rejection; retry invariants are named regressions.
 - C2f: merged in PR #41. Per-node token-file provisioning, digest-only Core
   registry, overlap rotation/revocation and deployment overlays are available.
-- C2e3: current change. Runtime v1/v2 use the same scoped HTTP identity when the
-  registry/token file are configured; complete runtime batches are ownership-
-  validated before handler effects. Registered-route tests prove cross-cluster,
-  mixed-batch, revocation and invalid-registry rejection while explicit legacy mode
-  remains backward compatible.
-- C2 HTTP implementation boundary is complete after C2e3 merges and its CI gates
-  pass. Two-cluster deployment evidence remains package F, not a code-level claim.
-- C3: next. Add gRPC unary/stream identity enforcement, per-message
-  reauthentication and SBOM/workload storage isolation.
+- C2e3: merged in PR #42. Runtime v1/v2 use scoped HTTP identity when configured;
+  complete runtime batches are ownership-validated before handler effects and
+  registered-route regressions cover cross-cluster/mixed-batch/revocation cases.
+- C2 HTTP implementation boundary is complete at code/regression level. Live
+  two-cluster deployment evidence remains package F.
+- C3a: current. Add opt-in gRPC client-certificate identity using the shared
+  `agentidentity.Store`; require TLS when enabled; install unary/stream interceptors;
+  reauthenticate each received stream message; anchor revoke/expiry/fail-closed
+  behavior in named regressions.
+- C3b: next. Enforce trusted principal against AgentId, cluster and resource
+  ownership in every AgentService RPC, including each streamed SBOM message. Add
+  registered-service/in-process transport tests.
+- C3c: after C3b. Separate digest/content reuse from workload ownership and close
+  cross-cluster SBOM/Pod/finding association writes.
+- C3 provisioning: add per-Agent client-certificate registration/rotation/rollback
+  before enabling scoped gRPC identity in deployment manifests.
 - D–I: pending. D evidence freshness remains the next functional package after the
   required C transport/storage and F integration boundaries are sufficiently
   established.
