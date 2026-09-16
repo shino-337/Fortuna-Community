@@ -66,6 +66,18 @@ REQUIRED = {
     ],
 }
 
+AGENT_REQUIRED = {
+    "./internal/runtime": [
+        "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",
+        "TestRuntimeReaderAdvancesPastInvalidOnlyInput",
+        "TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds",
+    ],
+    "./internal/runtime/ebpf": [
+        "TestFlushLoopRetriesFailedBatchWithoutDroppingIt",
+        "TestFlushLoopAccountsRetainedBatchOnShutdownFailure",
+    ],
+}
+
 
 def validate_events(events, required):
     ran, passed = set(), set()
@@ -93,31 +105,36 @@ def run_pattern(names):
     return "^(" + "|".join(re.escape(name) for name in roots) + ")$"
 
 
-def main():
-    core = Path(__file__).resolve().parents[2] / "core"
-    errors = []
-    for package, names in REQUIRED.items():
+def run_required(module_dir, module_name, required_by_package, errors):
+    for package, names in required_by_package.items():
         result = subprocess.run(
             ["go", "test", "-json", "-count=1", "-timeout=2m", "-run", run_pattern(names), package],
-            cwd=core, capture_output=True, text=True, check=False,
+            cwd=module_dir, capture_output=True, text=True, check=False,
         )
         events = []
         for line in result.stdout.splitlines():
             try:
                 events.append(json.loads(line))
             except json.JSONDecodeError:
-                errors.append(f"{package}: unexpected non-JSON test output")
+                errors.append(f"{module_name}:{package}: unexpected non-JSON test output")
         problems = validate_events(events, names)
         if result.returncode:
             problems.append(f"go test exited {result.returncode}")
         if problems:
-            errors.extend(f"{package}: {p}" for p in problems)
+            errors.extend(f"{module_name}:{package}: {p}" for p in problems)
             print(result.stderr, file=sys.stderr)
             for event in events:
                 if event.get("Action") == "output":
                     print(event.get("Output", ""), end="", file=sys.stderr)
         else:
-            print(f"PASS {package}: {len(names)} required regression tests/subtests")
+            print(f"PASS {module_name}:{package}: {len(names)} required regression tests/subtests")
+
+
+def main():
+    repo = Path(__file__).resolve().parents[2]
+    errors = []
+    run_required(repo / "core", "core", REQUIRED, errors)
+    run_required(repo / "agent", "agent", AGENT_REQUIRED, errors)
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1
