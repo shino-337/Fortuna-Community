@@ -1,8 +1,11 @@
-# Agent credential foundation — C1
+# Agent credential foundation — C1/C2
 
-**Status: library and regression gate only. HTTP and gRPC endpoints do not yet
-use this registry. Existing authentication behavior is unchanged. Do not treat C1
-as completed per-cluster isolation.**
+**Status:** C1 credential registry/principal is merged. HTTP `/api/v1/agent/*`
+routes now use scoped agent identity whenever `FORTUNA_AGENT_CREDENTIAL_REGISTRY`
+is configured. Sync and Pod evidence paths validate cluster/agent/resource ownership
+before effects. Runtime HTTP routes remain on the legacy shared ingest token until
+C2e3, and gRPC enforcement/storage isolation remains C3. Do not treat the current
+state as completed end-to-end multi-cluster isolation.
 
 `core/pkg/agentidentity.Store` provides a shared trusted principal for transport
 adapters. A credential maps to exactly one cluster and one agent. A principal's
@@ -30,15 +33,37 @@ running. An empty credentials array denies all credentials.
 
 ## C2: HTTP enforcement
 
-- Define the explicit migration mode and configuration wiring; no silent fallback
-  from configured scoped credentials to the legacy shared token.
-- Authenticate once through shared middleware before deduplication or DB effects.
-- Validate every payload cluster/agent alias and every referenced resource UID.
-  Sync ingestion needs separate handling for new inventory identities.
-- Validate complete batches before writes; reject foreign references rather than
-  accepting the valid prefix of a batch.
-- Exercise actual registered routes, not only helper functions. Test missing and
-  conflicting aliases, foreign UIDs, revoked credentials and invalid registry.
+Implemented boundaries:
+
+- `FORTUNA_AGENT_CREDENTIAL_REGISTRY` is the explicit Core migration switch. When
+  configured, `/api/v1/agent/*` does not fall back to the legacy shared token.
+- Registered Agent routes authenticate through shared middleware before handler
+  work, deduplication or database effects.
+- `/sync` validates cluster aliases and Agent ID against the authenticated
+  principal before normalization/rate limiting/writes.
+- Pod metrics/process/network/event ingest validates Pod UID, namespace and
+  cluster ownership before effects; event batches are validated completely.
+- Runtime batch ownership validation exists, but runtime v1/v2 routes are not yet
+  wired to scoped identity.
+- Generic runtime JSONL, Falco and eBPF senders retain telemetry across transient
+  Core rejects so identity/inventory convergence does not silently discard data.
+- C2f provisioning supports a node-local `FORTUNA_AGENT_TOKEN_FILE`. The Agent
+  rereads it per `/api/v1/agent/*` request; once configured, an unreadable/invalid
+  file fails closed rather than falling back to `FORTUNA_INGEST_TOKEN`.
+- During C2f only, runtime routes intentionally continue to use
+  `FORTUNA_INGEST_TOKEN`; this dual-channel migration boundary is regression-tested.
+
+Deployment, issuance, overlap rotation, revocation and rollback procedures are in
+`deploy/scoped-agent-credentials/README.md`. The reference overlay is opt-in so
+existing installations are not silently switched to scoped mode.
+
+Remaining C2e3 work:
+
+- switch `/api/v1/runtime/events` and `/api/v2/runtime/events` to scoped identity;
+- install runtime ownership validation on the actual registered routes before
+  event processing;
+- prove cross-cluster and mixed-batch rejection through registered-route tests;
+- remove the runtime dependency on the shared ingest token after cutover.
 
 ## C3: gRPC and storage isolation
 
@@ -50,11 +75,12 @@ running. An empty credentials array denies all credentials.
 - Audit digest-based SBOM reuse separately from workload ownership: shared package
   content must not permit cross-cluster Pod links or finding updates.
 - Cover actual gRPC service registration with in-process transport tests.
-- Add safe provisioning and rollout instructions for per-node agent credentials,
-  certificate rotation and rollback; do not reuse one agent identity across a DS.
+- Extend provisioning to the gRPC credential/certificate path without reusing one
+  agent identity across a DaemonSet.
 
 ## Completion gate
 
-C is complete only after HTTP/gRPC wiring, cross-cluster storage tests, rotation/
-revocation on established streams and migration instructions pass. C1 is the
-prerequisite and is intentionally not enabled by deployment manifests.
+C is complete only after HTTP runtime cutover, gRPC wiring, cross-cluster storage
+tests, rotation/revocation on established streams, migration instructions and
+two-cluster integration evidence pass. C1/C2 foundations are prerequisites, not a
+claim that the full boundary is complete.

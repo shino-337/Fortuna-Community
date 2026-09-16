@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fortuna-agent
+  namespace: fortuna
+spec:
+  template:
+    spec:
+      volumes:
+        - name: agent-http-credential
+          hostPath:
+            # Provision a distinct token on every node before applying this patch.
+            path: /etc/fortuna/agent-credentials/token
+            type: File
+      containers:
+        - name: agent
+          env:
+            - name: FORTUNA_AGENT_TOKEN_FILE
+              value: /etc/fortuna/agent-credentials/token
+            # Keep FORTUNA_INGEST_TOKEN from the base DaemonSet during C2f.
+            # /api/v1/agent/* uses the token file; runtime v1/v2 still use the
+            # shared token until C2e3 switches those routes to scoped identity.
+          volumeMounts:
+            - name: agent-http-credential
+              mountPath: /etc/fortuna/agent-credentials/token
+              readOnly: true
