@@ -71,6 +71,12 @@ REQUIRED = {
         "TestGRPCAgentUnaryInterceptorRejectsUnverifiedRevokedAndUnavailableIdentity",
         "TestGRPCAgentStreamReauthenticatesEveryReceivedMessage",
         "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
+        "TestScopedGRPCControlRPCAuthorizationAndClusterBinding",
+        "TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster",
+        "TestScopedGRPCCombinedFindingRequiresOneOwnedResource",
+        "TestScopedGRPCBatchStreamRejectsForeignMessageBeforeHandler",
+        "TestScopedGRPCOwnershipStorageFailureIsUnavailable",
+        "TestScopedGRPCUnknownMethodFailsClosed",
     ],
     "./pkg/agentidentity": [
         "TestCredentialIdentityIsolation",
