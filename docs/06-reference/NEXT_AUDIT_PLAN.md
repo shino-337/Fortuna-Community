@@ -1,6 +1,6 @@
 # Post-merge audit implementation plan
 
-Baseline reviewed after PR #42 merged. Changes continue as focused PRs and are
+Baseline reviewed after PR #43 merged. Changes continue as focused PRs and are
 reviewed/merged manually. IDs below are work packages, not GitHub PR numbers.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
@@ -62,17 +62,22 @@ identity, evidence loss/recovery, deletion retry and actual UI/API/worker flow.
   registered-route regressions cover cross-cluster/mixed-batch/revocation cases.
 - C2 HTTP implementation boundary is complete at code/regression level. Live
   two-cluster deployment evidence remains package F.
-- C3a: current. Add opt-in gRPC client-certificate identity using the shared
-  `agentidentity.Store`; require TLS when enabled; install unary/stream interceptors;
-  reauthenticate each received stream message; anchor revoke/expiry/fail-closed
-  behavior in named regressions.
-- C3b: next. Enforce trusted principal against AgentId, cluster and resource
-  ownership in every AgentService RPC, including each streamed SBOM message. Add
-  registered-service/in-process transport tests.
-- C3c: after C3b. Separate digest/content reuse from workload ownership and close
-  cross-cluster SBOM/Pod/finding association writes.
-- C3 provisioning: add per-Agent client-certificate registration/rotation/rollback
-  before enabling scoped gRPC identity in deployment manifests.
+- C3a: merged in PR #43. Scoped gRPC identity is opt-in through
+  `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY`, requires verified mTLS, installs a
+  trusted principal for unary/stream calls and reauthenticates before each stream
+  receive so revocation/expiry applies to established streams.
+- C3b: current PR #44. Chain method/resource authorization after C3a: trusted
+  Principal is authoritative; forged cluster metadata is rejected/canonicalized;
+  control RPC Agent IDs and SBOM/CVE Pod ownership are checked before handlers;
+  each streamed SBOM is checked; unknown future scoped RPCs fail closed. Collector
+  Register/Heartbeat use configured `AGENT_ID` so client claims match provisioned
+  identity. All cases are named security regressions.
+- C3c: next. Separate globally reusable image/SBOM content from workload ownership.
+  Close global image-digest reuse/upsert paths that can overwrite or link Pod/SBOM/
+  finding state across clusters. Add two-cluster same-digest/concurrency regressions
+  and atomic ownership behavior for storage writes.
+- C3 provisioning: after storage boundary is defined, add per-Agent client-
+  certificate fingerprint registration/rotation/rollback and deployment overlay.
 - D–I: pending. D evidence freshness remains the next functional package after the
   required C transport/storage and F integration boundaries are sufficiently
   established.
