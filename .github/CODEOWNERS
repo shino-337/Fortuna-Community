@@ -1,0 +1,10 @@
+# Security-sensitive paths require explicit owner review when branch rules enforce CODEOWNERS.
+# Repository rules/branch protection still need owner-side verification.
+
+/.github/workflows/ @shino-337
+/scripts/verify/ @shino-337
+/core/pkg/agentidentity/ @shino-337
+/core/pkg/rbacinventory/ @shino-337
+/core/internal/middleware/ @shino-337
+/core/internal/api/routes.go @shino-337
+/core/internal/api/route_security_inventory.go @shino-337

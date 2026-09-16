@@ -40,6 +40,11 @@ jobs:
       - name: Test
         working-directory: ${{ matrix.module }}
         run: go test ./...
+      - name: Security regression contract
+        if: matrix.module == 'core'
+        run: |
+          python3 scripts/verify/test-security-regression-gate.py
+          python3 scripts/verify/check-security-regressions.py
       - name: Repeat SQLite risk engine regressions
         if: matrix.module == 'core'
         working-directory: core
