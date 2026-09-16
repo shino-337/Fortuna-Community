@@ -11,9 +11,17 @@ import (
 
 const agentPrincipalKey = "fortuna.agent.principal"
 
+// AgentIngestAuth selects one explicit migration mode. A non-empty registry path
+// always enables scoped agent identity and never falls back to the shared token.
+func AgentIngestAuth(registryPath, legacyToken string) gin.HandlerFunc {
+	if strings.TrimSpace(registryPath) != "" {
+		return RequireAgentIdentity(agentidentity.Store{Path: strings.TrimSpace(registryPath)})
+	}
+	return RequireIngestToken(legacyToken)
+}
+
 // RequireAgentIdentity authenticates HTTP agent ingest with a credential that is
-// explicitly bound to one agent and one cluster. A configured registry never
-// falls back to the legacy shared ingest token.
+// explicitly bound to one agent and one cluster.
 func RequireAgentIdentity(store agentidentity.Store) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		token := agentCredentialFromRequest(c)
