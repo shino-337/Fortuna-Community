@@ -96,6 +96,8 @@ jobs:
           python -m pip install PyYAML==6.0.2
           python scripts/verify/check-service-selectors.py
           python scripts/e2e/test-webhook-bootstrap.py
+      - name: Validate agent credential provisioning
+        run: python scripts/verify/test-agent-credential-tool.py
       - name: Validate shell syntax
         shell: bash
         run: |
