@@ -25,16 +25,16 @@ type ViolationEvent struct {
 // PolicyWorker handles async policy violation processing
 // Phase 2.7: Slow path worker for violation storage, insights, alerts
 type PolicyWorker struct {
-	db             *gorm.DB
-	violationSvc   *ViolationService
+	db            *gorm.DB
+	violationSvc  *ViolationService
 	enforcementSvc *EnforcementService
 }
 
 // NewPolicyWorker creates a new policy worker
 func NewPolicyWorker(db *gorm.DB, evaluator *Evaluator) *PolicyWorker {
 	return &PolicyWorker{
-		db:             db,
-		violationSvc:   NewViolationService(db),
+		db:            db,
+		violationSvc:  NewViolationService(db),
 		enforcementSvc: NewEnforcementService(db, evaluator),
 	}
 }
@@ -125,3 +125,4 @@ func (w *PolicyWorker) ProcessRemediationEvent(ctx context.Context, eventData []
 	log.Printf("[PolicyWorker] Remediation event processing (not yet implemented)")
 	return nil
 }
+
