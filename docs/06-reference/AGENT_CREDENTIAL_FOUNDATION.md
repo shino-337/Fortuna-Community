@@ -1,12 +1,10 @@
 # Agent credential foundation — C1/C2/C3
 
-**Status:** C1 credential registry/principal and C2 HTTP scoped identity are merged.
-HTTP Agent and runtime ingest use scoped agent identity whenever
-`FORTUNA_AGENT_CREDENTIAL_REGISTRY` is configured. C3a adds an independent,
-opt-in gRPC transport identity boundary through
-`FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY`; RPC claim/resource enforcement and
-SBOM/workload storage isolation remain C3b/C3c. Do not treat the current state as
-completed end-to-end multi-cluster isolation.
+**Status:** C1 credential registry/principal, C2 HTTP scoped identity and C3a gRPC
+transport identity are merged. C3b adds RPC claim/resource authorization on top of
+the authenticated gRPC principal. SBOM/workload storage isolation and deployable
+per-Agent gRPC certificate provisioning remain C3c/provisioning work. Do not treat
+the current state as completed end-to-end multi-cluster isolation.
 
 `core/pkg/agentidentity.Store` provides a shared trusted principal for transport
 adapters. A credential maps to exactly one cluster and one agent. A principal's
@@ -78,34 +76,63 @@ gRPC client-certificate credentials are not provisioned at the same time:
 - If `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` is empty, current gRPC behavior is
   preserved during migration.
 
-C3a is a transport boundary only. It is intentionally not enabled by the current
-C2 deployment overlay because per-Agent certificate fingerprint provisioning has
-not yet been implemented. Do not point the gRPC switch at a token-only registry
-and expect existing client certificates to authenticate.
+C3a is merged in PR #43. It remains opt-in because the current deployment overlay
+does not yet provision distinct per-Agent client-certificate fingerprints.
+
+## C3b: RPC claims and resource ownership
+
+C3b installs authorization directly after C3a authentication when the scoped gRPC
+registry is enabled:
+
+- The trusted Principal is the authorization source. A client-provided
+  `x-cluster-id` must either be absent or exactly match `Principal.ClusterID`;
+  handlers receive the canonical trusted cluster value.
+- `RegisterAgent`, `Ping` and `Heartbeat` require `agent_id` to match the trusted
+  Principal. Existing Agent rows already bound to another cluster cannot be
+  updated. Legacy Agent rows with an empty cluster are bound to the trusted
+  cluster after a successful scoped control operation.
+- Scoped `RegisterAgent` returns the trusted Principal cluster rather than
+  `DEFAULT_CLUSTER_ID`.
+- `SendSBOMFinding` and `SendCVEFinding` require an exact Agent claim and resolve
+  Pod ownership with `(pod_uid, principal.cluster_id)` before the handler runs;
+  namespace/name claims, when present, must also match inventory.
+- `SendCombinedFinding` requires both SBOM and CVE halves to describe the same
+  owned Pod and compatible image identity before handler effects.
+- Every `BatchSendSBOMFindings` message is transport-reauthenticated by C3a and
+  resource-authorized by C3b before it is returned to the stream handler.
+- Unknown future scoped AgentService RPCs/messages fail closed until an explicit
+  authorization rule is added.
+- Ownership database failures return `Unavailable`; they are not interpreted as
+  missing/clean/authorized state.
+- The Agent collector uses configured `AGENT_ID` for Register/Heartbeat, matching
+  the identity provisioned to the credential instead of implicitly using
+  `NODE_NAME`.
+
+The C3b regressions are named CI gates: foreign Agent claims, cross-cluster Pods,
+forged cluster metadata, mixed CombinedFinding identity, foreign stream messages,
+ownership-store failure, future-method fail-closed behavior and Agent ID client
+compatibility are all required to run and pass.
+
+C3b is a request/resource authorization boundary. It does not change the older
+SBOM storage data model enough to make global image-digest reuse cluster-safe; that
+is intentionally C3c.
 
 ## Remaining C3 work
 
-### C3b — RPC claims and resource ownership
-
-- Validate trusted principal against `agent_id` and cluster/resource ownership in
-  `Ping`, `RegisterAgent`, `Heartbeat`, `SendSBOMFinding`, `SendCVEFinding` and
-  `SendCombinedFinding`.
-- Validate every `BatchSendSBOMFindings` message after per-message transport
-  reauthentication and before any message-specific effects.
-- Stop using untrusted `x-cluster-id` metadata as an authorization source. It may
-  remain correlation/rate-limit input only after consistency with the trusted
-  principal is established.
-- Cover actual AgentService registration through in-process transport tests.
-
 ### C3c — storage isolation
 
-- Audit digest-based SBOM reuse separately from workload ownership: shared package
-  content may be reusable, but a credential for cluster A must not create/update
-  Pod/SBOM/finding associations owned by cluster B.
-- Define uniqueness and lookup keys so image-digest reuse cannot become a
-  cross-cluster write primitive.
-- Add two-cluster regression coverage for reused images, Pod UID ownership,
-  retries, replacement objects and concurrent ingestion.
+- Separate reusable image/SBOM content identity from workload ownership. Current
+  legacy combined-ingest code can locate/reuse SBOMs globally by image digest and
+  update workload fields; the same digest in two clusters must not become a
+  cross-cluster association/update primitive.
+- Define explicit workload-to-SBOM association keys and ensure every Pod/finding
+  link is scoped by cluster/resource identity even when package content is shared.
+- Audit repository/upsert conflict keys, CVE match linkage, event payloads and
+  reconciliation paths for assumptions that one digest implies one workload.
+- Add two-cluster regressions for the same image digest, duplicate Pod names/UID
+  boundaries, retries, replacement objects and concurrent ingestion.
+- Include atomic ownership behavior for control/storage writes so a failed bind or
+  persistence step cannot leave an ambiguous cross-cluster record.
 
 ### C3 provisioning
 
@@ -117,7 +144,7 @@ and expect existing client certificates to authenticate.
 
 ## Completion gate
 
-C is complete only after C3b/C3c, certificate migration instructions,
-cross-cluster storage tests, rotation/revocation on established streams and
-integration package F pass. C1/C2/C3a are required foundations, not a claim that
-the full HTTP + gRPC + storage boundary is complete.
+C is complete only after C3c, certificate migration instructions, cross-cluster
+storage tests, rotation/revocation on established streams and integration package
+F pass. C1/C2/C3a/C3b are required foundations, not a claim that the full HTTP +
+gRPC + storage boundary is complete.

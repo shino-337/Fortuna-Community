@@ -71,6 +71,12 @@ REQUIRED = {
         "TestGRPCAgentUnaryInterceptorRejectsUnverifiedRevokedAndUnavailableIdentity",
         "TestGRPCAgentStreamReauthenticatesEveryReceivedMessage",
         "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
+        "TestScopedGRPCControlRPCAuthorizationAndClusterBinding",
+        "TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster",
+        "TestScopedGRPCCombinedFindingRequiresOneOwnedResource",
+        "TestScopedGRPCBatchStreamRejectsForeignMessageBeforeHandler",
+        "TestScopedGRPCOwnershipStorageFailureIsUnavailable",
+        "TestScopedGRPCUnknownMethodFailsClosed",
     ],
     "./pkg/agentidentity": [
         "TestCredentialIdentityIsolation",
@@ -90,6 +96,9 @@ AGENT_REQUIRED = {
         "TestRuntimeRoutesFailClosedWhenScopedSourceUnavailable",
         "TestRuntimeRoutesUseLegacyTokenWhenScopedSourceNotConfigured",
         "TestScopedTokenFileIsRereadForRotation",
+    ],
+    "./internal/collector": [
+        "TestCollectorRegisterUsesConfiguredAgentID",
     ],
     "./internal/runtime": [
         "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",

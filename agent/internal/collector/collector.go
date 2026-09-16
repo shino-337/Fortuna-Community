@@ -32,6 +32,7 @@ type WatcherInterface interface {
 type Collector struct {
 	client      kubernetes.Interface
 	grpcClient  client.GRPCClient
+	agentID     string
 	clusterID   string
 	clusterName string
 	watchers    []WatcherInterface
@@ -43,11 +44,12 @@ type Collector struct {
 }
 
 // NewCollector creates a new collector
-func NewCollector(k8sClient kubernetes.Interface, grpcClient client.GRPCClient, clusterID, clusterName string) (*Collector, error) {
+func NewCollector(k8sClient kubernetes.Interface, grpcClient client.GRPCClient, agentID, clusterID, clusterName string) (*Collector, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Collector{
 		client:      k8sClient,
 		grpcClient:  grpcClient,
+		agentID:     agentID,
 		clusterID:   clusterID,
 		clusterName: clusterName,
 		ctx:         ctx,
@@ -93,7 +95,7 @@ func (c *Collector) register() error {
 	log.Printf("[Collector] Registering agent with core...")
 
 	req := &pb.RegisterAgentRequest{
-		AgentId:  getNodeName(),
+		AgentId:  c.agentID,
 		Hostname: getNodeName(),
 		NodeName: getNodeName(),
 		Version:  "1.0.0",
@@ -113,7 +115,7 @@ func (c *Collector) register() error {
 }
 
 // startWatchers starts all resource watchers
-// Bug 3 Fix: Signal when all watchers have started
+// Bug 3 Fix: Signal when all watchers are ready before returning
 func (c *Collector) startWatchers() error {
 	// Get all namespaces
 	namespaces, err := c.client.CoreV1().Namespaces().List(context.Background(), metav1.ListOptions{})
@@ -310,8 +312,8 @@ func (c *Collector) heartbeat() {
 			return
 		case <-ticker.C:
 			req := &pb.HeartbeatRequest{
-				AgentId:  getNodeName(),
-				Status:   "ok",
+				AgentId:   c.agentID,
+				Status:    "ok",
 				Timestamp: timestamppb.Now(),
 			}
 			if _, err := c.grpcClient.Heartbeat(context.Background(), req); err != nil {
