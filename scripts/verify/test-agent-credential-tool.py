@@ -106,6 +106,46 @@ class AgentCredentialToolTest(unittest.TestCase):
             )
             self.assertFalse((Path(td) / "evil").exists())
 
+    def test_rejects_outer_whitespace_in_cluster_and_agent_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            self.run_tool(
+                "issue",
+                "--cluster-id", " cluster-a",
+                "--node", "node-a",
+                "--output-dir", str(root / "cluster"),
+                expect=2,
+            )
+            self.run_tool(
+                "issue",
+                "--cluster-id", "cluster-a",
+                "--identity", "node-a= agent-a",
+                "--output-dir", str(root / "agent"),
+                expect=2,
+            )
+
+    def test_rejects_existing_registry_digest_not_accepted_by_core(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            bad_registry = root / "registry.json"
+            bad_registry.write_text(json.dumps({
+                "credentials": [{
+                    "id": "old",
+                    "cluster_id": "cluster-a",
+                    "agent_id": "node-a-agent",
+                    "token_sha256": "A" * 64,
+                    "expires_at": "2099-01-01T00:00:00Z",
+                }]
+            }), encoding="utf-8")
+            self.run_tool(
+                "issue",
+                "--cluster-id", "cluster-a",
+                "--node", "node-a",
+                "--existing-registry", str(bad_registry),
+                "--output-dir", str(root / "out"),
+                expect=2,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
