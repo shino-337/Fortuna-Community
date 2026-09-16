@@ -19,6 +19,7 @@ var clusterOwnedPodTables = []clusterOwnedPodTable{
 	{table: "asset_security_state", uidColumn: "pod_uid"},
 	{table: "attack_paths", uidColumn: "pod_uid"},
 	{table: "cve_matches", uidColumn: "pod_uid"},
+	{table: "events_index", uidColumn: "pod_uid"},
 	{table: "malware_matches", uidColumn: "pod_uid"},
 	{table: "pod_attack_steps", uidColumn: "pod_uid"},
 	{table: "pod_capabilities", uidColumn: "pod_uid"},
