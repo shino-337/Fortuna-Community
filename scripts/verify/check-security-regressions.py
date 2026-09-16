@@ -51,6 +51,12 @@ REQUIRED = {
         "TestScopedPodEvidenceOwnership/wrong-namespace",
         "TestScopedPodEventBatchValidatesWholeBatchBeforeHandler",
         "TestScopedPodOwnershipStorageFailureIsUnavailable",
+        "TestScopedRuntimeOwnershipValidatesWholeBatch",
+        "TestScopedRuntimeOwnershipSupportsLegacyPodUIDAliases",
+        "TestScopedRuntimeOwnershipRejectsUnknownAndNamespaceMismatch",
+        "TestScopedRuntimeOwnershipRejectsUnknownAndNamespaceMismatch/unknown-pod",
+        "TestScopedRuntimeOwnershipRejectsUnknownAndNamespaceMismatch/wrong-namespace",
+        "TestScopedRuntimeOwnershipStorageFailureIsUnavailable",
     ],
     "./pkg/agentidentity": [
         "TestCredentialIdentityIsolation",
