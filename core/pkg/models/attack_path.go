@@ -6,14 +6,15 @@ import "time"
 // Scorer (Layer 4) and displayed in the Dashboard without re-computing on every
 // request.
 //
-// Paths are identified by (PodUID, PathID) and upserted on re-computation so
-// stale paths are replaced in-place.
+// Paths are identified by (ClusterID, PodUID, PathID). Existing write paths are
+// migrated to the cluster-qualified key in C3c query migration.
 type AttackPath struct {
-	ID          uint   `gorm:"primaryKey" json:"id"`
-	PodUID      string `gorm:"type:varchar(255);not null;index" json:"podUid"`
-	PathID      string `gorm:"type:varchar(255);not null;index" json:"pathId"`
-	Nodes       string `gorm:"type:jsonb;not null;default:'[]'" json:"nodes"`
-	Edges       string `gorm:"type:jsonb;not null;default:'[]'" json:"edges"`
+	ID          uint    `gorm:"primaryKey" json:"id"`
+	ClusterID   string  `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
+	PodUID      string  `gorm:"type:varchar(255);not null;index" json:"podUid"`
+	PathID      string  `gorm:"type:varchar(255);not null;index" json:"pathId"`
+	Nodes       string  `gorm:"type:jsonb;not null;default:'[]'" json:"nodes"`
+	Edges       string  `gorm:"type:jsonb;not null;default:'[]'" json:"edges"`
 	TotalRisk   float64 `gorm:"type:float;not null;default:0" json:"totalRisk"`
 	Difficulty  float64 `gorm:"type:float;not null;default:1" json:"difficulty"`
 	Impact      float64 `gorm:"type:float;not null;default:0" json:"impact"`
