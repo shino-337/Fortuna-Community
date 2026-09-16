@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -77,11 +78,11 @@ func TestEventIncludesCapabilityField(t *testing.T) {
 func contains(s, sub string) bool { return strings.Contains(s, sub) }
 
 func TestFlushLoopDrainsQueuedEvents(t *testing.T) {
-	received := 0
+	var received int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var batch []runtime.Event
 		_ = json.NewDecoder(r.Body).Decode(&batch)
-		received += len(batch)
+		atomic.AddInt32(&received, int32(len(batch)))
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer srv.Close()
@@ -92,7 +93,99 @@ func TestFlushLoopDrainsQueuedEvents(t *testing.T) {
 	s.enqueueEvent(runtime.Event{Signal: "EBPF_CONNECT_EVENT", Syscall: "connect", Timestamp: time.Now().Unix()})
 	time.Sleep(120 * time.Millisecond)
 	cancel()
-	if received < 1 {
-		t.Fatalf("expected flushed events, got %d", received)
+	if atomic.LoadInt32(&received) < 1 {
+		t.Fatalf("expected flushed events, got %d", atomic.LoadInt32(&received))
+	}
+}
+
+func TestFlushLoopRetriesFailedBatchWithoutDroppingIt(t *testing.T) {
+	var calls int32
+	attempts := make(chan []runtime.Event, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var batch []runtime.Event
+		if err := json.NewDecoder(r.Body).Decode(&batch); err != nil {
+			t.Errorf("decode batch: %v", err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		attempts <- batch
+		if atomic.AddInt32(&calls, 1) == 1 {
+			http.Error(w, "not ready", http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-retry", 20*time.Millisecond, 4, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.flushLoop(ctx)
+		close(done)
+	}()
+
+	want := runtime.Event{Signal: "EBPF_RETRY", Syscall: "execve", Timestamp: time.Now().Unix()}
+	s.enqueueEvent(want)
+
+	readAttempt := func(label string) []runtime.Event {
+		t.Helper()
+		select {
+		case batch := <-attempts:
+			return batch
+		case <-time.After(2 * time.Second):
+			t.Fatalf("timed out waiting for %s attempt", label)
+			return nil
+		}
+	}
+	first := readAttempt("first")
+	second := readAttempt("retry")
+	if len(first) != 1 || len(second) != 1 || first[0].Signal != want.Signal || second[0].Signal != want.Signal {
+		t.Fatalf("failed batch was not retried intact: first=%+v second=%+v", first, second)
+	}
+
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("flush loop did not stop")
+	}
+	if got := atomic.LoadUint64(&s.droppedEvents); got != 0 {
+		t.Fatalf("transient send failure counted as dropped after successful retry: %d", got)
+	}
+}
+
+func TestFlushLoopAccountsRetainedBatchOnShutdownFailure(t *testing.T) {
+	attempted := make(chan struct{}, 2)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var batch []runtime.Event
+		_ = json.NewDecoder(r.Body).Decode(&batch)
+		attempted <- struct{}{}
+		http.Error(w, "still unavailable", http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-stop", 20*time.Millisecond, 4, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		s.flushLoop(ctx)
+		close(done)
+	}()
+	s.enqueueEvent(runtime.Event{Signal: "EBPF_STOP", Syscall: "execve", Timestamp: time.Now().Unix()})
+
+	select {
+	case <-attempted:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for failed send")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("flush loop did not stop")
+	}
+	if got := atomic.LoadUint64(&s.droppedEvents); got != 1 {
+		t.Fatalf("shutdown loss must be explicitly accounted: dropped=%d", got)
 	}
 }

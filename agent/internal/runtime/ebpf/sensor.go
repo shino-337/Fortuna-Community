@@ -100,27 +100,54 @@ func (s *Sensor) flushLoop(ctx context.Context) {
 	ticker := time.NewTicker(s.flushInterval)
 	defer ticker.Stop()
 	batch := make([]runtime.Event, 0, 50)
-	flush := func() {
+
+	flush := func() bool {
 		if len(batch) == 0 {
-			return
+			return true
 		}
 		if err := s.send(batch); err != nil {
-			log.Printf("[eBPF] send batch failed (%d): %v", len(batch), err)
+			log.Printf("[eBPF] send batch failed (%d), retaining for retry: %v", len(batch), err)
+			return false
 		}
 		batch = batch[:0]
+		return true
 	}
+	finalize := func() {
+		if flush() || len(batch) == 0 {
+			return
+		}
+		// A process shutdown is the only point where an in-memory retained batch can
+		// no longer be retried. Account for it explicitly instead of silently clearing.
+		atomic.AddUint64(&s.droppedEvents, uint64(len(batch)))
+		log.Printf("[eBPF] dropping %d retained events after final shutdown send failure", len(batch))
+	}
+
+	retryPending := false
 	for {
+		if retryPending {
+			// Keep memory bounded while a failed batch is pending. New events remain in
+			// the bounded channel; enqueueEvent's existing dropped counter records overflow.
+			select {
+			case <-ctx.Done():
+				finalize()
+				return
+			case <-ticker.C:
+				retryPending = !flush()
+			}
+			continue
+		}
+
 		select {
 		case <-ctx.Done():
-			flush()
+			finalize()
 			return
 		case evt := <-s.eventCh:
 			batch = append(batch, evt)
 			if len(batch) >= 50 {
-				flush()
+				retryPending = !flush()
 			}
 		case <-ticker.C:
-			flush()
+			retryPending = !flush()
 		}
 	}
 }

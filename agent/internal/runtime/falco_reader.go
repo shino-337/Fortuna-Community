@@ -119,6 +119,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	}
 
 	startOffset := r.offset
+	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek falco events file: %v", err)
 		return
@@ -130,7 +131,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		return
 	}
 
-	data := append(r.lineBuf, chunk...)
+	data := append(append([]byte(nil), startBuf...), chunk...)
 	r.lineBuf = nil
 
 	events := make([]Event, 0, 20)
@@ -160,10 +161,11 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		}
 	}
 
-	// Next read starts after all bytes we consumed from the file this poll (not after partial line).
-	r.offset = startOffset + int64(len(chunk))
-
+	nextOffset := startOffset + int64(len(chunk))
 	if len(events) == 0 {
+		// No deliverable event exists in this slice. Commit consumed bytes while
+		// preserving any incomplete trailing line in lineBuf for the next poll.
+		r.offset = nextOffset
 		return
 	}
 	if err := r.send(events); err != nil {
@@ -171,8 +173,14 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send falco events: %v", err)
 		r.logIngestionStats("send_failed")
+		// Roll back both durable cursor components. Retaining only the offset would
+		// corrupt an event that was split across polls because lineBuf contains the
+		// prefix that belongs immediately before startOffset.
+		r.offset = startOffset
+		r.lineBuf = startBuf
 		return
 	}
+	r.offset = nextOffset
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
