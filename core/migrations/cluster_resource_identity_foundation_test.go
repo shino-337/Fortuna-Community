@@ -1,6 +1,7 @@
 package migrations
 
 import (
+	"database/sql"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -71,12 +72,12 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 	if podInsightCluster != "cluster-a" {
 		t.Fatalf("pod insight cluster=%q, want cluster-a", podInsightCluster)
 	}
-	var nonPodCluster string
+	var nonPodCluster sql.NullString
 	if err := db.Table("insights").Select("cluster_id").Where("resource_uid = ? AND resource_type = ?", "pod-one", "ServiceAccount").Scan(&nonPodCluster).Error; err != nil {
 		t.Fatal(err)
 	}
-	if nonPodCluster != "" {
-		t.Fatalf("non-Pod insight ownership must not be guessed from pod UID: %q", nonPodCluster)
+	if nonPodCluster.Valid && nonPodCluster.String != "" {
+		t.Fatalf("non-Pod insight ownership must not be guessed from pod UID: %q", nonPodCluster.String)
 	}
 }
 
