@@ -20,6 +20,16 @@ from datetime import datetime, timedelta, timezone
 
 SAFE_NODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}[A-Za-z0-9]$|^[A-Za-z0-9]$")
 SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
+CREDENTIAL_KEYS = {
+    "id",
+    "cluster_id",
+    "agent_id",
+    "token_sha256",
+    "certificate_sha256",
+    "not_before",
+    "expires_at",
+    "revoked",
+}
 
 
 def utc_now() -> datetime:
@@ -28,6 +38,18 @@ def utc_now() -> datetime:
 
 def rfc3339(value: datetime) -> str:
     return value.astimezone(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_rfc3339(value, label: str) -> datetime:
+    if not isinstance(value, str) or not value or value != value.strip():
+        raise ValueError(f"invalid {label}")
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError(f"invalid {label}") from exc
+    if parsed.tzinfo is None:
+        raise ValueError(f"invalid {label}: timezone required")
+    return parsed
 
 
 def validate_identity(value: str, label: str) -> str:
@@ -67,7 +89,7 @@ def load_registry(path: Path | None) -> dict:
     if path is None:
         return {"credentials": []}
     data = json.loads(path.read_text(encoding="utf-8"))
-    if set(data.keys()) != {"credentials"} or not isinstance(data["credentials"], list):
+    if not isinstance(data, dict) or set(data.keys()) != {"credentials"} or not isinstance(data["credentials"], list):
         raise ValueError("registry must contain only a credentials array")
     seen_ids: set[str] = set()
     seen_tokens: set[str] = set()
@@ -75,13 +97,23 @@ def load_registry(path: Path | None) -> dict:
     for item in data["credentials"]:
         if not isinstance(item, dict):
             raise ValueError("credential entry must be an object")
+        unknown = set(item.keys()) - CREDENTIAL_KEYS
+        if unknown:
+            raise ValueError(f"credential contains unknown fields: {sorted(unknown)}")
         cid = validate_identity(str(item.get("id", "")), "credential id")
         validate_identity(str(item.get("cluster_id", "")), "cluster id")
         validate_identity(str(item.get("agent_id", "")), "agent id")
         if cid in seen_ids:
             raise ValueError(f"duplicate credential id: {cid!r}")
-        token_raw = str(item.get("token_sha256", ""))
-        cert_raw = str(item.get("certificate_sha256", ""))
+
+        token_value = item.get("token_sha256", "")
+        cert_value = item.get("certificate_sha256", "")
+        if token_value is not None and not isinstance(token_value, str):
+            raise ValueError(f"credential {cid!r} has non-string token_sha256")
+        if cert_value is not None and not isinstance(cert_value, str):
+            raise ValueError(f"credential {cid!r} has non-string certificate_sha256")
+        token_raw = token_value or ""
+        cert_raw = cert_value or ""
         if bool(token_raw) == bool(cert_raw):
             raise ValueError(f"credential {cid!r} must contain exactly one digest type")
         if token_raw:
@@ -96,6 +128,14 @@ def load_registry(path: Path | None) -> dict:
             if cert_raw in seen_certs:
                 raise ValueError("duplicate certificate digest in existing registry")
             seen_certs.add(cert_raw)
+
+        expires_at = parse_rfc3339(item.get("expires_at"), f"expires_at for {cid!r}")
+        if "not_before" in item:
+            not_before = parse_rfc3339(item.get("not_before"), f"not_before for {cid!r}")
+            if not not_before < expires_at:
+                raise ValueError(f"credential {cid!r} not_before must be before expires_at")
+        if "revoked" in item and not isinstance(item["revoked"], bool):
+            raise ValueError(f"credential {cid!r} revoked must be boolean")
         seen_ids.add(cid)
     return data
 
