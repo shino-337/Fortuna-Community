@@ -19,6 +19,7 @@ import tempfile
 from datetime import datetime, timedelta, timezone
 
 SAFE_NODE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,252}[A-Za-z0-9]$|^[A-Za-z0-9]$")
+SHA256_HEX = re.compile(r"^[0-9a-f]{64}$")
 
 
 def utc_now() -> datetime:
@@ -30,15 +31,13 @@ def rfc3339(value: datetime) -> str:
 
 
 def validate_identity(value: str, label: str) -> str:
-    value = value.strip()
     if not value or value != value.strip() or len(value) > 255:
         raise ValueError(f"invalid {label}")
     return value
 
 
 def validate_node(node: str) -> str:
-    node = node.strip()
-    if not SAFE_NODE.fullmatch(node):
+    if not node or node != node.strip() or not SAFE_NODE.fullmatch(node):
         raise ValueError(f"invalid node name: {node!r}")
     return node
 
@@ -71,18 +70,32 @@ def load_registry(path: Path | None) -> dict:
     if set(data.keys()) != {"credentials"} or not isinstance(data["credentials"], list):
         raise ValueError("registry must contain only a credentials array")
     seen_ids: set[str] = set()
-    seen_digests: set[str] = set()
+    seen_tokens: set[str] = set()
+    seen_certs: set[str] = set()
     for item in data["credentials"]:
         if not isinstance(item, dict):
             raise ValueError("credential entry must be an object")
-        cid = str(item.get("id", "")).strip()
-        digest = str(item.get("token_sha256", "")).strip()
-        if not cid or cid in seen_ids:
-            raise ValueError(f"duplicate or empty credential id: {cid!r}")
-        if digest:
-            if digest in seen_digests:
+        cid = validate_identity(str(item.get("id", "")), "credential id")
+        validate_identity(str(item.get("cluster_id", "")), "cluster id")
+        validate_identity(str(item.get("agent_id", "")), "agent id")
+        if cid in seen_ids:
+            raise ValueError(f"duplicate credential id: {cid!r}")
+        token_raw = str(item.get("token_sha256", ""))
+        cert_raw = str(item.get("certificate_sha256", ""))
+        if bool(token_raw) == bool(cert_raw):
+            raise ValueError(f"credential {cid!r} must contain exactly one digest type")
+        if token_raw:
+            if token_raw != token_raw.strip() or not SHA256_HEX.fullmatch(token_raw):
+                raise ValueError(f"credential {cid!r} has invalid token_sha256")
+            if token_raw in seen_tokens:
                 raise ValueError("duplicate token digest in existing registry")
-            seen_digests.add(digest)
+            seen_tokens.add(token_raw)
+        if cert_raw:
+            if cert_raw != cert_raw.strip() or not SHA256_HEX.fullmatch(cert_raw):
+                raise ValueError(f"credential {cid!r} has invalid certificate_sha256")
+            if cert_raw in seen_certs:
+                raise ValueError("duplicate certificate digest in existing registry")
+            seen_certs.add(cert_raw)
         seen_ids.add(cid)
     return data
 
