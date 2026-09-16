@@ -13,6 +13,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
@@ -218,7 +219,8 @@ func (s *scopedGRPCMessageStream) RecvMsg(m any) error {
 	if !ok {
 		return status.Error(codes.Internal, "unexpected test message type")
 	}
-	*target = *s.messages[s.recvCalls]
+	proto.Reset(target)
+	proto.Merge(target, s.messages[s.recvCalls])
 	s.recvCalls++
 	return nil
 }
