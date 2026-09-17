@@ -5,7 +5,8 @@ This is a ratchet, not proof that every query is already cluster-qualified. C3c
 query migration expands the gate to read/write paths. At the model boundary, any
 persisted struct carrying PodUID must also carry ClusterID, and every such model
 must remain represented in the startup cluster-resource migration manifest.
-Resource-typed security models that can refer to Pods are mapped explicitly too.
+Resource-typed security models and Pod-scoped governance state are mapped
+explicitly too.
 """
 from pathlib import Path
 import re
@@ -20,6 +21,7 @@ FIELD_RE = lambda name: re.compile(rf"\b{name}\s+string\b")
 TARGET_RE = re.compile(r'\{table:\s*"([^"]+)"\s*,\s*uidColumn:\s*"([^"]+)"')
 
 EXPLICIT_RESOURCE_MODELS = {
+    "ExceptionPolicy",
     "Insight",
     "PolicyViolation",
     "RiskScore",
@@ -51,9 +53,11 @@ POD_MODEL_TABLES = {
     "SBOM": "sboms",
 }
 
-# These models use ResourceUID rather than PodUID and carry ResourceType, so the
-# migration applies the Pod ownership invariant only to resource_type=pod rows.
+# These models use ResourceUID rather than PodUID. Insight/PolicyViolation/RiskScore
+# are generic resource models and the migration applies only to resource_type=pod.
+# ExceptionPolicy is Pod-scoped governance state, so all rows are cluster-owned.
 SPECIAL_FOUNDATION_MODELS = {
+    "ExceptionPolicy": ("exception_policies", "resource_uid"),
     "Insight": ("insights", "resource_uid"),
     "PolicyViolation": ("policy_violations", "resource_uid"),
     "RiskScore": ("risk_scores", "resource_uid"),
