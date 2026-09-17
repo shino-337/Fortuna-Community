@@ -2,9 +2,9 @@ package models
 
 import "time"
 
-// PodAttackStep represents a minimal attack step for a pod
+// PodAttackStep represents a minimal attack step for a pod.
 type PodAttackStep struct {
-	ClusterID   string    `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
+	ClusterID   string    `gorm:"primaryKey;type:varchar(255)" json:"clusterId,omitempty"`
 	PodUID      string    `gorm:"primaryKey;type:varchar(255)" json:"podUid"`
 	StepID      string    `gorm:"primaryKey;type:varchar(100);index" json:"stepId"`
 	Description string    `gorm:"type:text" json:"description,omitempty"`
@@ -15,7 +15,7 @@ type PodAttackStep struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
-// TableName overrides table name
+// TableName overrides table name.
 func (PodAttackStep) TableName() string {
 	return "pod_attack_steps"
 }
