@@ -24,6 +24,7 @@ REQUIRED = {
         "TestClusterAdminBindingForPod/wrong-role-kind",
         "TestEvaluationReportsRuleFailure",
         "TestConfiguredCatalogRejectsPartialAndEmptyLoad",
+        "TestCreateOrUpdateInsight_ExceptionPolicyDoesNotCrossCluster",
     ],
     "./pkg/worker": [
         "TestReconciliationPreservesFindingOnRuntimeInputFailure",
@@ -75,8 +76,10 @@ REQUIRED = {
         "TestGRPCAgentStreamReauthenticatesEveryReceivedMessage",
         "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
         "TestScopedGRPCControlRPCAuthorizationAndClusterBinding",
+        "TestScopedGRPCAgentRecordUnavailableFailsClosed",
         "TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster",
         "TestScopedGRPCCombinedFindingRequiresOneOwnedResource",
+        "TestScopedGRPCCombinedFindingRequiresExactContainerAndDigest",
         "TestScopedGRPCBatchStreamRejectsForeignMessageBeforeHandler",
         "TestScopedGRPCOwnershipStorageFailureIsUnavailable",
         "TestScopedGRPCUnknownMethodFailsClosed",
@@ -97,6 +100,7 @@ REQUIRED = {
         "TestClusterResourceIdentityFoundationFailsClosedOnMissingRequiredTarget",
         "TestClusterResourceIdentityFoundationFailsClosedOnMissingUIDColumn",
         "TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership",
+        "TestClusterResourceIdentityFoundationRejectsAmbiguousLegacyAgentState",
     ],
 }
 
