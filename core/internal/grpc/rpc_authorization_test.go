@@ -170,8 +170,8 @@ func TestScopedGRPCCombinedFindingRequiresOneOwnedResource(t *testing.T) {
 	interceptor := grpcAgentUnaryAuthorizationInterceptor(db)
 
 	bad := &pb.CombinedFinding{
-		Sbom: &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"},
-		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:b"},
+		Sbom: &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:a"},
+		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:b"},
 	}
 	_, err := interceptor(
 		scopedGRPCTestContext(principal, nil), bad,
@@ -184,8 +184,8 @@ func TestScopedGRPCCombinedFindingRequiresOneOwnedResource(t *testing.T) {
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	good := &pb.CombinedFinding{
-		Sbom: &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"},
-		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"},
+		Sbom: &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:a"},
+		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:a"},
 	}
 	called := false
 	_, err = interceptor(
