@@ -13,6 +13,7 @@ type clusterQualifiedUniqueIndex struct {
 	columns           string
 	legacyIndexes     []string
 	legacyConstraints []string
+	allowUnowned      bool
 }
 
 type clusterQualifiedPrimaryKey struct {
@@ -42,12 +43,22 @@ var clusterQualifiedPodUniqueIndexes = []clusterQualifiedUniqueIndex{
 		legacyConstraints: []string{"uq_attack_paths_pod_path"},
 	},
 	{
-		name:      "idx_pod_image_scan_identity",
-		table:     "pod_image_scans",
-		columns:   "cluster_id, pod_uid, container_name",
+		name:    "idx_pod_image_scan_identity",
+		table:   "pod_image_scans",
+		columns: "cluster_id, pod_uid, container_name",
 		legacyIndexes: []string{
 			"idx_pod_image_scans_unique_pod_uid_container_name",
 			"idx_pod_image_scans_unique_pod_uid_container_name_all",
+		},
+	},
+	{
+		name:         "idx_insight_resource_identity",
+		table:        "insights",
+		columns:      "cluster_id, resource_uid, cve_id, insight_type",
+		allowUnowned: true, // non-Pod legacy findings are outside the Pod ownership backfill contract
+		legacyIndexes: []string{
+			"idx_insights_unique_resource_cve_type",
+			"idx_insights_unique_resource_cve_type_all",
 		},
 	},
 }
@@ -76,12 +87,23 @@ func EnsureClusterQualifiedPodUniqueness(db *gorm.DB) error {
 		return fmt.Errorf("cluster-qualified pod uniqueness: database is nil")
 	}
 
+	// Legacy insight rows may contain NULL cve_id. Canonical writers normalize
+	// absence to an empty string, so normalize existing rows before creating the
+	// non-partial composite conflict target used by ON CONFLICT.
+	if db.Migrator().HasTable("insights") && db.Migrator().HasColumn("insights", "cve_id") {
+		if err := db.Exec("UPDATE insights SET cve_id = '' WHERE cve_id IS NULL").Error; err != nil {
+			return fmt.Errorf("normalize insights.cve_id: %w", err)
+		}
+	}
+
 	for _, target := range clusterQualifiedPodUniqueIndexes {
 		if err := validateClusterQualifiedKeyTarget(db, target.table, target.columns); err != nil {
 			return err
 		}
-		if err := rejectUnownedRowsForCanonicalKey(db, target.table); err != nil {
-			return err
+		if !target.allowUnowned {
+			if err := rejectUnownedRowsForCanonicalKey(db, target.table); err != nil {
+				return err
+			}
 		}
 		if err := ensureIndex(db, target.name, target.table, target.columns, true); err != nil {
 			return fmt.Errorf("ensure %s: %w", target.name, err)
