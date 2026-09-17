@@ -22,7 +22,7 @@ func registerInventoryRoutes(api *gin.RouterGroup, db *gorm.DB, cfg *config.Conf
 	pods.GET("", p(authorization.PermissionInventoryRead), GetPods(db))
 	pods.GET("/:uid", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), GetPodByUIDScoped(db))
 	pods.GET("/:uid/spec", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), GetPodSpecYAMLByUID(db))
-	pods.GET("/:uid/capabilities", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), GetPodCapabilities(db))
+	pods.GET("/:uid/capabilities", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), GetPodCapabilitiesScoped(db))
 	pods.GET("/:uid/sbom", p(authorization.PermissionInventoryRead), middleware.RequirePodUIDClusterScope(db, "uid"), GetSBOMDetail(db))
 
 	// SBOM list (standalone)
