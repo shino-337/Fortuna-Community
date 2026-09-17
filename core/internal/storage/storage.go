@@ -147,6 +147,14 @@ func Migrate(db *gorm.DB) error {
 		log.Printf("[Storage] ❌ Migration failed: %v", err)
 		return err
 	}
+	// The legacy migration runner versions by slice position and can continue past
+	// individual migration errors. Security-critical cluster ownership therefore
+	// has an idempotent post-migration invariant that must succeed before Core
+	// serves traffic.
+	if err := migrations.EnsureClusterResourceIdentityFoundation(db); err != nil {
+		log.Printf("[Storage] ❌ Cluster resource identity foundation failed: %v", err)
+		return fmt.Errorf("cluster resource identity foundation: %w", err)
+	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
 }

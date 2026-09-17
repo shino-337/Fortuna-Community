@@ -1,11 +1,11 @@
 package api
 
 import (
-	"log"
 	"context"
-	"strings"
+	"log"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -26,11 +26,45 @@ type createExceptionRequest struct {
 	ExpiresAt   *time.Time `json:"expiresAt,omitempty"`
 }
 
+// resolveExceptionCluster binds an exception to one authoritative cluster. A
+// globally unrestricted caller must provide clusterId when a Pod UID is present
+// in more than one cluster; ambiguous ownership is never guessed.
+func resolveExceptionCluster(db *gorm.DB, scope riskGovernanceScope, uid string) (string, error) {
+	q := db.Unscoped().Model(&models.Pod{}).
+		Distinct("cluster_id").
+		Where("uid = ? AND cluster_id <> ''", uid)
+	if scope.clusterID != "" {
+		q = q.Where("cluster_id = ?", scope.clusterID)
+	}
+	if scope.restricted {
+		q = q.Where("cluster_id IN ?", scope.clusterIDs)
+	}
+	var clusters []string
+	if err := q.Pluck("cluster_id", &clusters).Error; err != nil {
+		return "", err
+	}
+	if len(clusters) == 0 {
+		return "", gorm.ErrRecordNotFound
+	}
+	if len(clusters) != 1 {
+		return "", errAmbiguousExceptionResource
+	}
+	return clusters[0], nil
+}
+
+var errAmbiguousExceptionResource = &exceptionScopeError{"resource UID exists in multiple clusters; specify clusterId"}
+
+type exceptionScopeError struct{ message string }
+
+func (e *exceptionScopeError) Error() string { return e.message }
+
 // CreateException creates a new exception policy (POST /api/v1/risk/exceptions).
 func CreateException(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scope, ok := resolveRiskGovernanceScope(db, c)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
 		db := db.WithContext(ctx)
@@ -42,13 +76,27 @@ func CreateException(db *gorm.DB) gin.HandlerFunc {
 		req.ResourceUID = strings.TrimSpace(req.ResourceUID)
 		req.CVEID = strings.TrimSpace(req.CVEID)
 		req.InsightType = strings.TrimSpace(req.InsightType)
-		// All three fields are required so that the exception matches the isExempted() lookup
-		// which queries on (resource_uid, cve_id, insight_type).
 		if req.ResourceUID == "" || req.CVEID == "" || req.InsightType == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "resourceUid, cveId, and insightType are all required"})
 			return
 		}
-		if !scope.requireResource(db, c, req.ResourceUID) {
+
+		clusterID, err := resolveExceptionCluster(db, scope, req.ResourceUID)
+		if err != nil {
+			switch err {
+			case gorm.ErrRecordNotFound:
+				c.JSON(http.StatusNotFound, gin.H{"error": "resource not found in allowed cluster scope"})
+			case errAmbiguousExceptionResource:
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+			default:
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve resource ownership"})
+			}
+			return
+		}
+		if !middleware.ClusterAllowed(c, clusterID) {
+			// Do not disclose the foreign cluster identifier. The resolver normally
+			// filters it already; this is a final fail-closed guard.
+			c.JSON(http.StatusNotFound, gin.H{"error": "resource not found in allowed cluster scope"})
 			return
 		}
 
@@ -60,6 +108,7 @@ func CreateException(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		policy := &models.ExceptionPolicy{
+			ClusterID:   clusterID,
 			ResourceUID: req.ResourceUID,
 			CVEID:       req.CVEID,
 			InsightType: req.InsightType,
@@ -73,8 +122,8 @@ func CreateException(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		log.Printf("[ExceptionHandler] Created exception policy ID=%d resource_uid=%s cve_id=%s type=%s by=%s",
-			policy.ID, policy.ResourceUID, policy.CVEID, policy.InsightType, policy.CreatedBy)
+		log.Printf("[ExceptionHandler] Created exception policy ID=%d cluster_id=%s resource_uid=%s cve_id=%s type=%s by=%s",
+			policy.ID, policy.ClusterID, policy.ResourceUID, policy.CVEID, policy.InsightType, policy.CreatedBy)
 		ev := securityaudit.FromRequest(
 			c,
 			authorization.ToStrings(middleware.GrantedPermissions(c)),
@@ -86,7 +135,7 @@ func CreateException(db *gorm.DB) gin.HandlerFunc {
 			"medium",
 			"jwt",
 			nil,
-			map[string]any{"id": policy.ID, "resourceUid": policy.ResourceUID, "cveId": policy.CVEID, "insightType": policy.InsightType},
+			map[string]any{"id": policy.ID, "clusterId": policy.ClusterID, "resourceUid": policy.ResourceUID, "cveId": policy.CVEID, "insightType": policy.InsightType},
 			nil,
 			nil,
 		)
@@ -96,27 +145,31 @@ func CreateException(db *gorm.DB) gin.HandlerFunc {
 }
 
 // ListExceptions lists exception policies (GET /api/v1/risk/exceptions).
-// Optional query param: resource_uid — filter by resource UID.
 func ListExceptions(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scope, ok := resolveRiskGovernanceScope(db, c)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
 		db := db.WithContext(ctx)
 		query := db.Model(&models.ExceptionPolicy{})
 
-		if uid := c.Query("resource_uid"); uid != "" {
+		if uid := strings.TrimSpace(c.Query("resource_uid")); uid != "" {
 			query = query.Where("resource_uid = ?", uid)
 		}
-		if cveID := c.Query("cve_id"); cveID != "" {
+		if cveID := strings.TrimSpace(c.Query("cve_id")); cveID != "" {
 			query = query.Where("cve_id = ?", cveID)
 		}
-		if insightType := c.Query("insight_type"); insightType != "" {
+		if insightType := strings.TrimSpace(c.Query("insight_type")); insightType != "" {
 			query = query.Where("insight_type = ?", insightType)
 		}
-		if scope.restricted || scope.clusterID != "" {
-			query = query.Where("resource_uid IN (?)", scope.podUIDs(db, true))
+		if scope.clusterID != "" {
+			query = query.Where("cluster_id = ?", scope.clusterID)
+		}
+		if scope.restricted {
+			query = query.Where("cluster_id IN ?", scope.clusterIDs)
 		}
 
 		var policies []models.ExceptionPolicy
@@ -125,11 +178,7 @@ func ListExceptions(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list exception policies"})
 			return
 		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"exceptions": policies,
-			"total":      len(policies),
-		})
+		c.JSON(http.StatusOK, gin.H{"exceptions": policies, "total": len(policies)})
 	}
 }
 
@@ -137,7 +186,9 @@ func ListExceptions(db *gorm.DB) gin.HandlerFunc {
 func DeleteException(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scope, ok := resolveRiskGovernanceScope(db, c)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
 		db := db.WithContext(ctx)
@@ -147,8 +198,17 @@ func DeleteException(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		// Apply the caller's cluster scope in the lookup itself. A foreign object and
+		// a nonexistent object are intentionally indistinguishable to the caller.
+		query := db.Model(&models.ExceptionPolicy{}).Where("id = ? AND cluster_id <> ''", id)
+		if scope.clusterID != "" {
+			query = query.Where("cluster_id = ?", scope.clusterID)
+		}
+		if scope.restricted {
+			query = query.Where("cluster_id IN ?", scope.clusterIDs)
+		}
 		var policy models.ExceptionPolicy
-		if err := db.First(&policy, "id = ?", id).Error; err != nil {
+		if err := query.First(&policy).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "exception policy not found"})
 				return
@@ -156,7 +216,8 @@ func DeleteException(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch exception policy"})
 			return
 		}
-		if !scope.requireResource(db, c, policy.ResourceUID) {
+		if !middleware.ClusterAllowed(c, policy.ClusterID) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "exception policy not found"})
 			return
 		}
 
@@ -165,8 +226,7 @@ func DeleteException(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete exception policy"})
 			return
 		}
-
-		log.Printf("[ExceptionHandler] Deleted exception policy ID=%s", id)
+		log.Printf("[ExceptionHandler] Deleted exception policy ID=%s cluster_id=%s", id, policy.ClusterID)
 		c.JSON(http.StatusOK, gin.H{"message": "exception policy deleted", "id": id})
 	}
 }

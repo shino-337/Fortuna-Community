@@ -67,15 +67,16 @@ func authorizeScopedGRPCPod(db *gorm.DB, principal agentidentity.Principal, podU
 	return nil
 }
 
-// authorizeScopedGRPCAgentRecord prevents a scoped credential from updating an
-// existing Agent row owned by another cluster. Empty ClusterID is accepted only
-// as a legacy migration state and is bound after a successful control RPC.
+// authorizeScopedGRPCAgentRecord protects the legacy globally unique Agent row.
+// C3c deliberately defers duplicate AgentIDs until every control path is migrated
+// to trusted cluster-qualified identity. A credential therefore cannot claim an
+// Agent row already owned by another cluster.
 func authorizeScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Principal) error {
 	if db == nil {
-		return nil
+		return scopedGRPCUnavailable()
 	}
 	var agent models.Agent
-	err := db.Where("agent_id = ?", principal.AgentID).First(&agent).Error
+	err := db.Unscoped().Where("agent_id = ?", principal.AgentID).First(&agent).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
@@ -90,7 +91,7 @@ func authorizeScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Princip
 
 func bindScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Principal) error {
 	if db == nil {
-		return nil
+		return scopedGRPCUnavailable()
 	}
 	res := db.Model(&models.Agent{}).
 		Where("agent_id = ? AND (cluster_id = '' OR cluster_id = ?)", principal.AgentID, principal.ClusterID).
@@ -145,9 +146,16 @@ func authorizeScopedGRPCCombined(db *gorm.DB, principal agentidentity.Principal,
 	if err := authorizeScopedGRPCCVE(db, principal, req.Cve); err != nil {
 		return err
 	}
+	// Combined evidence must identify one exact container image. Empty identity
+	// fields are rejected because a Pod may contain several independent images.
 	if req.Cve.PodUid != req.Sbom.PodUid ||
 		(req.Cve.Namespace != "" && req.Cve.Namespace != req.Sbom.Namespace) ||
-		(req.Cve.ImageDigest != "" && req.Sbom.ImageDigest != "" && req.Cve.ImageDigest != req.Sbom.ImageDigest) {
+		strings.TrimSpace(req.Cve.ContainerName) == "" ||
+		strings.TrimSpace(req.Sbom.ContainerName) == "" ||
+		req.Cve.ContainerName != req.Sbom.ContainerName ||
+		strings.TrimSpace(req.Cve.ImageDigest) == "" ||
+		strings.TrimSpace(req.Sbom.ImageDigest) == "" ||
+		req.Cve.ImageDigest != req.Sbom.ImageDigest {
 		return scopedGRPCPermissionDenied()
 	}
 	return nil

@@ -24,12 +24,14 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 	}
 
 	m := NewInsightManager(db)
+	clusterID := "cluster-a"
 	uid := "cccccccc-dddd-dddd-dddd-cccccccccccc"
 	cveID := "CVE-2024-1234"
 	now := time.Now()
 
 	// 1. Create a vulnerability insight in dismissed state (simulating a user dismiss action).
 	dismissed := &models.Insight{
+		ClusterID:     clusterID,
 		ResourceType:  "Pod",
 		ResourceName:  "web-pod",
 		ResourceUID:   uid,
@@ -47,8 +49,9 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 		t.Fatal(err)
 	}
 
-	// 2. Create an active exception policy for this resource+CVE.
+	// 2. Create an active exception policy for this resource+CVE in the same cluster.
 	policy := &models.ExceptionPolicy{
+		ClusterID:   clusterID,
 		ResourceUID: uid,
 		CVEID:       cveID,
 		InsightType: "vulnerability",
@@ -61,6 +64,7 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 
 	// 3. Simulate a re-scan by calling CreateOrUpdateInsight with the same vulnerability.
 	rescan := &models.Insight{
+		ClusterID:     clusterID,
 		ResourceType:  "Pod",
 		ResourceName:  "web-pod",
 		ResourceUID:   uid,
@@ -80,7 +84,7 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 
 	// 4. Verify the insight is STILL dismissed.
 	var stored models.Insight
-	if err := db.Where("resource_uid = ? AND cve_id = ?", uid, cveID).First(&stored).Error; err != nil {
+	if err := db.Where("cluster_id = ? AND resource_uid = ? AND cve_id = ?", clusterID, uid, cveID).First(&stored).Error; err != nil {
 		t.Fatal(err)
 	}
 	if stored.Status != "dismissed" {
@@ -101,6 +105,7 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 	}
 
 	m := NewInsightManager(db)
+	clusterID := "cluster-a"
 	uid := "eeeeeeee-ffff-ffff-ffff-eeeeeeeeeeee"
 	cveID := "CVE-2024-5678"
 	now := time.Now()
@@ -108,6 +113,7 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 
 	// Create dismissed insight
 	dismissed := &models.Insight{
+		ClusterID:     clusterID,
 		ResourceType:  "Pod",
 		ResourceName:  "api-pod",
 		ResourceUID:   uid,
@@ -127,6 +133,7 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 
 	// Create an EXPIRED exception policy
 	expiredPolicy := &models.ExceptionPolicy{
+		ClusterID:   clusterID,
 		ResourceUID: uid,
 		CVEID:       cveID,
 		InsightType: "vulnerability",
@@ -140,6 +147,7 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 
 	// Re-scan should re-activate because policy is expired
 	rescan := &models.Insight{
+		ClusterID:     clusterID,
 		ResourceType:  "Pod",
 		ResourceName:  "api-pod",
 		ResourceUID:   uid,
@@ -158,11 +166,85 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 	}
 
 	var stored models.Insight
-	if err := db.Where("resource_uid = ? AND cve_id = ?", uid, cveID).First(&stored).Error; err != nil {
+	if err := db.Where("cluster_id = ? AND resource_uid = ? AND cve_id = ?", clusterID, uid, cveID).First(&stored).Error; err != nil {
 		t.Fatal(err)
 	}
 	if stored.Status != "active" {
 		t.Errorf("expected insight to be re-activated (expired exception), got status=%q", stored.Status)
+	}
+}
+
+// TestCreateOrUpdateInsight_ExceptionPolicyDoesNotCrossCluster locks the governance
+// boundary: a suppression in cluster A must never keep the same UID/CVE dismissed
+// in cluster B.
+func TestCreateOrUpdateInsight_ExceptionPolicyDoesNotCrossCluster(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	configureRiskEngineTestDB(t, db)
+	if err := db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}, &models.Pod{}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewInsightManager(db)
+	uid := "shared-pod-uid"
+	cveID := "CVE-2026-4242"
+	now := time.Now()
+
+	if err := db.Create(&models.ExceptionPolicy{
+		ClusterID:   "cluster-a",
+		ResourceUID: uid,
+		CVEID:       cveID,
+		InsightType: "vulnerability",
+		Reason:      "cluster-a only",
+		CreatedBy:   "test",
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.Insight{
+		ClusterID:    "cluster-b",
+		ResourceType: "Pod",
+		ResourceName: "same-uid-b",
+		ResourceUID:  uid,
+		InsightType:  "vulnerability",
+		Severity:     "high",
+		Title:        "Cluster B CVE",
+		Description:  "before rescan",
+		CVEID:        cveID,
+		Status:       "dismissed",
+		DetectedAt:   now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	rescan := &models.Insight{
+		ClusterID:    "cluster-b",
+		ResourceType: "Pod",
+		ResourceName: "same-uid-b",
+		ResourceUID:  uid,
+		InsightType:  "vulnerability",
+		Severity:     "high",
+		Title:        "Cluster B CVE",
+		Description:  "after rescan",
+		CVEID:        cveID,
+		Status:       "active",
+		DetectedAt:   now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}
+	if err := m.CreateOrUpdateInsight(rescan); err != nil {
+		t.Fatalf("CreateOrUpdateInsight failed: %v", err)
+	}
+
+	var stored models.Insight
+	if err := db.Where("cluster_id = ? AND resource_uid = ? AND cve_id = ?", "cluster-b", uid, cveID).First(&stored).Error; err != nil {
+		t.Fatal(err)
+	}
+	if stored.Status != "active" {
+		t.Fatalf("cluster-a exception suppressed cluster-b finding: status=%q", stored.Status)
 	}
 }
 

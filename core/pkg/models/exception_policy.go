@@ -7,10 +7,12 @@ import (
 )
 
 // ExceptionPolicy represents a user-created false-positive / suppress rule.
-// When an active (non-expired) exception policy matches an insight, the insight
-// is kept dismissed rather than re-activated on the next scan cycle.
+// Suppression is cluster-qualified: ResourceUID is only meaningful together with
+// ClusterID, otherwise duplicate Kubernetes UIDs across clusters could suppress
+// unrelated findings.
 type ExceptionPolicy struct {
 	ID          uint           `gorm:"primaryKey" json:"id"`
+	ClusterID   string         `gorm:"type:varchar(255);index;not null;default:''" json:"clusterId"`
 	ResourceUID string         `gorm:"type:varchar(255);index" json:"resourceUid"`
 	CVEID       string         `gorm:"type:varchar(100);index" json:"cveId"`
 	InsightType string         `gorm:"type:varchar(50);index" json:"insightType"`

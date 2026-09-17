@@ -88,6 +88,7 @@ func (w *PolicyWorker) ProcessViolationEvent(ctx context.Context, eventData []by
 		// Use stable keys (ResourceUID + template/action) so repeated events don't explode in DB.
 		title := fmt.Sprintf("Policy violation: %s (%s)", pv.TemplateName, pv.Action)
 		insightsToCreate = append(insightsToCreate, &models.Insight{
+			ClusterID:         pv.ClusterID,
 			ResourceType:      pv.ResourceType,
 			ResourceNamespace: pv.Namespace,
 			ResourceName:      pv.ResourceName,

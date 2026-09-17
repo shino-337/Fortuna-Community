@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/fortuna/core/pkg/models"
 	"testing"
 	"time"
+
+	"github.com/fortuna/core/pkg/models"
 )
 
 func TestAgentClusterIdentityIsolation(t *testing.T) {
@@ -50,5 +51,8 @@ func TestAgentClusterIdentityIsolation(t *testing.T) {
 	var row models.Agent
 	if err := db.Where("agent_id = ?", "legacy").First(&row).Error; err != nil || row.ClusterID != "a" {
 		t.Fatalf("legacy assignment: %+v %v", row, err)
+	}
+	if err := upsertAgentClusterIdentity(context.Background(), nil, "a", &AgentPayload{AgentID: "agent-a"}); err == nil {
+		t.Fatal("nil database must fail closed")
 	}
 }

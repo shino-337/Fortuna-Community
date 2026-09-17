@@ -24,11 +24,15 @@ REQUIRED = {
         "TestClusterAdminBindingForPod/wrong-role-kind",
         "TestEvaluationReportsRuleFailure",
         "TestConfiguredCatalogRejectsPartialAndEmptyLoad",
+        "TestCreateOrUpdateInsight_ExceptionPolicyDoesNotCrossCluster",
     ],
     "./pkg/worker": [
         "TestReconciliationPreservesFindingOnRuntimeInputFailure",
         "TestReconciliationAuditRollbackAndCatalogFailure",
         "TestReconciliationPreservesDisabledDetector",
+    ],
+    "./pkg/policy": [
+        "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
     ],
     "./internal/api": [
         "TestServiceAccountRBACResolution",
@@ -43,6 +47,8 @@ REQUIRED = {
         "TestAggregateCacheIsolation",
         "TestRuntimeScopeAndFindingActions",
         "TestBulkRequiresActionPermissionAndNonemptySelection",
+        "TestRiskGovernanceAggregateScope",
+        "TestRiskExceptionsMutationsRespectOwnership",
         "TestAgentRegisteredRoutesUseScopedIdentityWithoutLegacyFallback",
         "TestScopedSyncRejectsForeignClaimsBeforeDatabaseEffects",
         "TestScopedPodEvidenceOwnership",
@@ -72,8 +78,11 @@ REQUIRED = {
         "TestGRPCAgentStreamReauthenticatesEveryReceivedMessage",
         "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
         "TestScopedGRPCControlRPCAuthorizationAndClusterBinding",
+        "TestScopedGRPCAgentRecordUnavailableFailsClosed",
+        "TestScopedGRPCControlRPCRejectsCrossClusterAgentReuse",
         "TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster",
         "TestScopedGRPCCombinedFindingRequiresOneOwnedResource",
+        "TestScopedGRPCCombinedFindingRequiresExactContainerAndDigest",
         "TestScopedGRPCBatchStreamRejectsForeignMessageBeforeHandler",
         "TestScopedGRPCOwnershipStorageFailureIsUnavailable",
         "TestScopedGRPCUnknownMethodFailsClosed",
@@ -83,6 +92,17 @@ REQUIRED = {
         "TestCredentialRotationRevocationAndExpiry",
         "TestCredentialRegistryFailsClosed",
         "TestCredentialRequiresVerifiedTLS",
+    ],
+    "./pkg/resourceidentity": [
+        "TestIdentityRequiresClusterAndUID",
+        "TestIdentitySeparatesDuplicateUIDAcrossClusters",
+    ],
+    "./migrations": [
+        "TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership",
+        "TestClusterResourceIdentityFoundationFailsClosedWithoutPods",
+        "TestClusterResourceIdentityFoundationFailsClosedOnMissingRequiredTarget",
+        "TestClusterResourceIdentityFoundationFailsClosedOnMissingUIDColumn",
+        "TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership",
     ],
 }
 

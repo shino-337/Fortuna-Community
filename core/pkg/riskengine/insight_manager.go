@@ -26,16 +26,22 @@ func NewInsightManager(db *gorm.DB) *InsightManager {
 	return &InsightManager{db: db}
 }
 
-// isExempted checks whether an active (non-expired) exception policy exists for the
-// given resource_uid + cve_id + insight_type combination.  When true, the caller
-// should keep the insight dismissed instead of re-activating it.
-func isExempted(tx *gorm.DB, resourceUID, cveID, insightType string) bool {
+// isExempted checks whether an active (non-expired), cluster-qualified exception
+// policy exists. Empty cluster ownership fails closed: an exception must never be
+// applied to an ambiguous legacy finding merely because ResourceUID matches.
+func isExempted(tx *gorm.DB, clusterID, resourceUID, cveID, insightType string) bool {
+	clusterID = strings.TrimSpace(clusterID)
+	if clusterID == "" {
+		return false
+	}
 	now := time.Now()
 	var count int64
-	tx.Model(&models.ExceptionPolicy{}).
-		Where("resource_uid = ? AND cve_id = ? AND insight_type = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
-			resourceUID, cveID, insightType, now).
-		Count(&count)
+	if err := tx.Model(&models.ExceptionPolicy{}).
+		Where("cluster_id = ? AND resource_uid = ? AND cve_id = ? AND insight_type = ? AND deleted_at IS NULL AND (expires_at IS NULL OR expires_at > ?)",
+			clusterID, resourceUID, cveID, insightType, now).
+		Count(&count).Error; err != nil {
+		return false
+	}
 	return count > 0
 }
 
@@ -107,9 +113,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 
 		if queryResolved.First(&existingVuln).Error == nil {
 			// RP-5: respect active exception policies — keep dismissed if exempted.
-			if existingVuln.Status == "dismissed" && isExempted(tx, insight.ResourceUID, insight.CVEID, "vulnerability") {
-				log.Printf("[InsightManager] Keeping vulnerability insight ID=%d dismissed (exception policy active, resource_uid=%s, cve_id=%s)",
-					existingVuln.ID, insight.ResourceUID, insight.CVEID)
+			if existingVuln.Status == "dismissed" && isExempted(tx, existingVuln.ClusterID, insight.ResourceUID, insight.CVEID, "vulnerability") {
+				log.Printf("[InsightManager] Keeping vulnerability insight ID=%d dismissed (exception policy active, cluster_id=%s, resource_uid=%s, cve_id=%s)",
+					existingVuln.ID, existingVuln.ClusterID, insight.ResourceUID, insight.CVEID)
 				return nil
 			}
 			existingVuln.Status = "active"
@@ -125,8 +131,8 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 			if err := tx.Save(&existingVuln).Error; err != nil {
 				return fmt.Errorf("failed to re-activate insight: %w", err)
 			}
-			log.Printf("[InsightManager] Re-activated vulnerability insight ID=%d (was %s, now active, resource_uid=%s, cve_id=%s)",
-				existingVuln.ID, existingVuln.Status, insight.ResourceUID, insight.CVEID)
+			log.Printf("[InsightManager] Re-activated vulnerability insight ID=%d (resource_uid=%s, cve_id=%s)",
+				existingVuln.ID, insight.ResourceUID, insight.CVEID)
 			return nil
 		}
 	}
@@ -142,9 +148,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 			insight.InsightType, insight.ResourceUID, cveKey).First(&existingKey).Error == nil {
 			wasResolvedOrDismissed := existingKey.Status == "resolved" || existingKey.Status == "dismissed"
 			// RP-5: respect active exception policies — keep dismissed if exempted.
-			if existingKey.Status == "dismissed" && isExempted(tx, insight.ResourceUID, cveKey, insight.InsightType) {
-				log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, resource_uid=%s, type=%s, cve_id=%s)",
-					existingKey.ID, insight.ResourceUID, insight.InsightType, cveKey)
+			if existingKey.Status == "dismissed" && isExempted(tx, existingKey.ClusterID, insight.ResourceUID, cveKey, insight.InsightType) {
+				log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, cluster_id=%s, resource_uid=%s, type=%s, cve_id=%s)",
+					existingKey.ID, existingKey.ClusterID, insight.ResourceUID, insight.InsightType, cveKey)
 				return nil
 			}
 			existingKey.Status = "active"
@@ -172,9 +178,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		if tx.Where("insight_type = ? AND resource_uid = ? AND deleted_at IS NULL AND (cve_id IS NULL OR cve_id = '')",
 			insight.InsightType, insight.ResourceUID).First(&existingEmptyCVE).Error == nil {
 			wasResolvedOrDismissed := existingEmptyCVE.Status == "resolved" || existingEmptyCVE.Status == "dismissed"
-			if existingEmptyCVE.Status == "dismissed" && isExempted(tx, insight.ResourceUID, "", insight.InsightType) {
-				log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, resource_uid=%s, type=%s, empty cve_id)",
-					existingEmptyCVE.ID, insight.ResourceUID, insight.InsightType)
+			if existingEmptyCVE.Status == "dismissed" && isExempted(tx, existingEmptyCVE.ClusterID, insight.ResourceUID, "", insight.InsightType) {
+				log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, cluster_id=%s, resource_uid=%s, type=%s, empty cve_id)",
+					existingEmptyCVE.ID, existingEmptyCVE.ClusterID, insight.ResourceUID, insight.InsightType)
 				return nil
 			}
 			existingEmptyCVE.Status = "active"
@@ -236,9 +242,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 	var resolved models.Insight
 	if keyQuery.Where("status IN (?, ?)", "resolved", "dismissed").First(&resolved).Error == nil {
 		// RP-5: respect active exception policies — keep dismissed if exempted.
-		if resolved.Status == "dismissed" && isExempted(tx, insight.ResourceUID, insight.CVEID, insight.InsightType) {
-			log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, resource_uid=%s, type=%s)",
-				resolved.ID, insight.ResourceUID, insight.InsightType)
+		if resolved.Status == "dismissed" && isExempted(tx, resolved.ClusterID, insight.ResourceUID, insight.CVEID, insight.InsightType) {
+			log.Printf("[InsightManager] Keeping insight ID=%d dismissed (exception policy active, cluster_id=%s, resource_uid=%s, type=%s)",
+				resolved.ID, resolved.ClusterID, insight.ResourceUID, insight.InsightType)
 			return nil
 		}
 		resolved.Status = "active"
@@ -250,8 +256,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		if err := tx.Save(&resolved).Error; err != nil {
 			return fmt.Errorf("failed to re-activate insight: %w", err)
 		}
-		log.Printf("[InsightManager] Re-activated insight ID=%d (was %s, now active)",
-			resolved.ID, resolved.Status)
+		log.Printf("[InsightManager] Re-activated insight ID=%d", resolved.ID)
 		return nil
 	}
 
@@ -274,9 +279,9 @@ func (m *InsightManager) mergeInsightAfterUniqueConflict(tx *gorm.DB, insight *m
 	}
 
 	if insight.InsightType == "vulnerability" && insight.CVEID != "" {
-		if existing.Status == "dismissed" && isExempted(tx, insight.ResourceUID, insight.CVEID, "vulnerability") {
-			log.Printf("[InsightManager] Keeping vulnerability insight ID=%d dismissed after unique conflict (resource_uid=%s, cve_id=%s)",
-				existing.ID, insight.ResourceUID, insight.CVEID)
+		if existing.Status == "dismissed" && isExempted(tx, existing.ClusterID, insight.ResourceUID, insight.CVEID, "vulnerability") {
+			log.Printf("[InsightManager] Keeping vulnerability insight ID=%d dismissed after unique conflict (cluster_id=%s, resource_uid=%s, cve_id=%s)",
+				existing.ID, existing.ClusterID, insight.ResourceUID, insight.CVEID)
 			return nil
 		}
 		if existing.Status == "resolved" || existing.Status == "dismissed" {
@@ -327,9 +332,9 @@ func (m *InsightManager) mergeInsightAfterUniqueConflict(tx *gorm.DB, insight *m
 
 	cveKey := insight.CVEID
 	wasResolvedOrDismissed := existing.Status == "resolved" || existing.Status == "dismissed"
-	if existing.Status == "dismissed" && isExempted(tx, insight.ResourceUID, cveKey, insight.InsightType) {
-		log.Printf("[InsightManager] Keeping insight ID=%d dismissed after unique conflict (resource_uid=%s, type=%s, cve_id=%s)",
-			existing.ID, insight.ResourceUID, insight.InsightType, cveKey)
+	if existing.Status == "dismissed" && isExempted(tx, existing.ClusterID, insight.ResourceUID, cveKey, insight.InsightType) {
+		log.Printf("[InsightManager] Keeping insight ID=%d dismissed after unique conflict (cluster_id=%s, resource_uid=%s, type=%s, cve_id=%s)",
+			existing.ID, existing.ClusterID, insight.ResourceUID, insight.InsightType, cveKey)
 		return nil
 	}
 	existing.Status = "active"
@@ -523,7 +528,8 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 		return nil
 	}
 
-	// Deduplicate insights by (resource_uid, cve_id, insight_type) to avoid ON CONFLICT errors
+	// Deduplicate insights by (resource_uid, cve_id, insight_type) to avoid ON CONFLICT errors.
+	// The cluster-qualified uniqueness migration is intentionally deferred to #46.
 	seen := make(map[string]*models.Insight)
 	for _, insight := range insights {
 		key := fmt.Sprintf("%s:%s:%s", insight.ResourceUID, insight.CVEID, insight.InsightType)
@@ -545,7 +551,7 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 
 	// Prepare data for bulk insert
 	now := time.Now()
-	values := make([]interface{}, 0, len(deduplicated)*20) // Estimate 20 columns
+	values := make([]interface{}, 0, len(deduplicated)*23)
 	placeholders := make([]string, 0, len(deduplicated))
 
 	paramIndex := 1
@@ -558,16 +564,16 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			insight.Status = "active"
 		}
 
-		// Build placeholder for this row (22 columns: original 17 + 5 confidence fields)
-		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+		// Build placeholder for this row (23 columns: cluster_id + original fields).
+		placeholder := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
 			paramIndex, paramIndex+1, paramIndex+2, paramIndex+3, paramIndex+4, paramIndex+5,
 			paramIndex+6, paramIndex+7, paramIndex+8, paramIndex+9, paramIndex+10, paramIndex+11,
 			paramIndex+12, paramIndex+13, paramIndex+14, paramIndex+15, paramIndex+16, paramIndex+17,
-			paramIndex+18, paramIndex+19, paramIndex+20, paramIndex+21)
+			paramIndex+18, paramIndex+19, paramIndex+20, paramIndex+21, paramIndex+22)
 		placeholders = append(placeholders, placeholder)
 
-		// Add values in same order as placeholder (excluding FixedVersion)
 		values = append(values,
+			insight.ClusterID,
 			insight.ResourceType,
 			insight.ResourceNamespace,
 			insight.ResourceName,
@@ -592,14 +598,12 @@ func (m *InsightManager) batchUpsertVulnerabilityInsights(tx *gorm.DB, insights 
 			now, // updated_at
 		)
 
-		paramIndex += 22
+		paramIndex += 23
 	}
 
-	// Build the UPSERT query
-	// NOTE: fixed_version column may not exist in insights table, so we check and conditionally include it
 	query := fmt.Sprintf(`
 INSERT INTO insights (
-	resource_type, resource_namespace, resource_name, resource_uid,
+	cluster_id, resource_type, resource_namespace, resource_name, resource_uid,
 	insight_type, severity, title, description, status, recommendation,
 	match_confidence, component_confidence, sbom_confidence, final_risk_confidence, degraded,
 	cve_id, cvss, affected_component, affected_version,
@@ -634,9 +638,10 @@ DO UPDATE SET
 	severity = EXCLUDED.severity,
 	affected_version = EXCLUDED.affected_version,
 	status = CASE
-		WHEN insights.status = 'dismissed' AND EXISTS (
+		WHEN insights.status = 'dismissed' AND COALESCE(insights.cluster_id, '') <> '' AND EXISTS (
 			SELECT 1 FROM exception_policies ep
-			WHERE ep.resource_uid = insights.resource_uid
+			WHERE ep.cluster_id = insights.cluster_id
+			  AND ep.resource_uid = insights.resource_uid
 			  AND ep.cve_id = insights.cve_id
 			  AND ep.insight_type = insights.insight_type
 			  AND ep.deleted_at IS NULL
@@ -646,9 +651,10 @@ DO UPDATE SET
 		ELSE insights.status
 	END,
 	detected_at = CASE
-		WHEN insights.status = 'dismissed' AND EXISTS (
+		WHEN insights.status = 'dismissed' AND COALESCE(insights.cluster_id, '') <> '' AND EXISTS (
 			SELECT 1 FROM exception_policies ep
-			WHERE ep.resource_uid = insights.resource_uid
+			WHERE ep.cluster_id = insights.cluster_id
+			  AND ep.resource_uid = insights.resource_uid
 			  AND ep.cve_id = insights.cve_id
 			  AND ep.insight_type = insights.insight_type
 			  AND ep.deleted_at IS NULL
@@ -660,7 +666,6 @@ DO UPDATE SET
 	updated_at = EXCLUDED.updated_at
 `, strings.Join(placeholders, ", "))
 
-	// Execute the batch UPSERT
 	if err := tx.Exec(query, values...).Error; err != nil {
 		return fmt.Errorf("execute batch upsert: %w", err)
 	}

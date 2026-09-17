@@ -7,6 +7,9 @@ import (
 )
 
 // Agent represents a connected agent instance.
+// AgentID remains globally unique during the C3c resource-identity foundation.
+// Cluster-qualified Agent identity is activated only when every legacy control
+// path has been migrated to a trusted principal (planned C3 provisioning work).
 type Agent struct {
 	gorm.Model
 	ClusterID    string `gorm:"size:255;not null;default:'';index:idx_agents_cluster_node,priority:1"`

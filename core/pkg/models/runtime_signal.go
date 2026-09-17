@@ -5,6 +5,7 @@ import "time"
 // RuntimeSignal represents a semantic runtime behavior signal
 type RuntimeSignal struct {
 	ID           uint      `gorm:"primaryKey" json:"id"`
+	ClusterID    string    `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	PodUID       string    `gorm:"type:varchar(255);not null;index" json:"podUid"`
 	SignalType   string    `gorm:"type:varchar(100);not null;index" json:"signalType"`
 	Category     string    `gorm:"type:varchar(50);not null;index" json:"category"`

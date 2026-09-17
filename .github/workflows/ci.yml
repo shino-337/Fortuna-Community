@@ -53,6 +53,45 @@ jobs:
         working-directory: ${{ matrix.module }}
         run: go vet ./...
 
+  cluster-identity-postgres:
+    name: Cluster identity PostgreSQL migration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: fortuna_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d fortuna_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.24.x'
+          cache: true
+          cache-dependency-path: |
+            go.work
+            core/go.mod
+            core/go.sum
+      - name: Verify populated cluster identity migration on PostgreSQL
+        working-directory: core
+        env:
+          FORTUNA_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/fortuna_test?sslmode=disable
+        shell: bash
+        run: |
+          set -euo pipefail
+          go test -v ./migrations -run '^TestClusterResourceIdentityFoundationPostgres$' -count=1 -timeout=2m | tee /tmp/cluster-identity-postgres.log
+          grep -q -- '--- PASS: TestClusterResourceIdentityFoundationPostgres' /tmp/cluster-identity-postgres.log
+
   dashboard:
     name: Dashboard validation
     runs-on: ubuntu-latest
@@ -100,6 +139,8 @@ jobs:
         run: |
           python scripts/verify/test-agent-credential-tool.py
           python scripts/verify/test-scoped-agent-credential-overlay.py
+      - name: Validate cluster resource identity model contract
+        run: python scripts/verify/check-cluster-resource-models.py
       - name: Validate shell syntax
         shell: bash
         run: |

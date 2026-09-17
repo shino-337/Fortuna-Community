@@ -18,6 +18,7 @@ func newTestPolicyWorkerDB(t *testing.T) *gorm.DB {
 	require.NoError(t, db.Exec(`
 		CREATE TABLE IF NOT EXISTS insights (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			cluster_id TEXT,
 			created_at DATETIME,
 			updated_at DATETIME,
 			deleted_at DATETIME,
@@ -80,11 +81,11 @@ func TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights(t *testing.T
 		Action:          "block",
 		Severity:        "high",
 		// Keep empty collections for scope filters.
-		Clusters:      models.StringArray{},
-		Namespaces:    models.StringArray{},
-		ResourceTypes: models.StringArray{},
+		Clusters:       models.StringArray{},
+		Namespaces:     models.StringArray{},
+		ResourceTypes:  models.StringArray{},
 		LabelSelectors: "{}",
-		Exemptions:    "[]",
+		Exemptions:     "[]",
 	}
 	require.NoError(t, db.Create(&inst).Error)
 
@@ -108,11 +109,11 @@ func TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights(t *testing.T
 			},
 		},
 		Resource: map[string]interface{}{
-			"type":      "Pod",
-			"name":      "pod-1",
+			"type": "Pod",
+			"name": "pod-1",
 		},
 		Request: map[string]interface{}{
-			"uid":       "req-1",
+			"uid": "req-1",
 		},
 	}
 
@@ -131,8 +132,8 @@ func TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights(t *testing.T
 
 	var insight models.Insight
 	require.NoError(t, db.Where("insight_type = ?", "policy_violation").First(&insight).Error)
+	require.Equal(t, "cluster-1", insight.ClusterID)
 	require.Equal(t, "policy_violation", insight.InsightType)
 	require.Equal(t, "high", insight.Severity)
 	require.Contains(t, insight.Title, tpl.Name)
 }
-

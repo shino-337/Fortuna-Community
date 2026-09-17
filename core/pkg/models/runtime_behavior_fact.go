@@ -6,6 +6,7 @@ import "time"
 // from runtime_events. This is Layer 2 between raw telemetry and security semantics.
 type RuntimeBehaviorFact struct {
 	ID         uint      `gorm:"primaryKey" json:"id"`
+	ClusterID  string    `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
 	FactID     string    `gorm:"type:varchar(64);not null;uniqueIndex" json:"factId"` // deterministic id (e.g. event-id + fact-type)
 	EventID    uint      `gorm:"not null;index" json:"eventId"`                       // FK-ish link to runtime_events.id
 	PodUID     string    `gorm:"type:varchar(255);not null;index" json:"podUid"`
