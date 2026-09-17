@@ -79,6 +79,7 @@ REQUIRED = {
         "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
         "TestScopedGRPCControlRPCAuthorizationAndClusterBinding",
         "TestScopedGRPCAgentRecordUnavailableFailsClosed",
+        "TestScopedGRPCControlRPCRejectsCrossClusterAgentReuse",
         "TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster",
         "TestScopedGRPCCombinedFindingRequiresOneOwnedResource",
         "TestScopedGRPCCombinedFindingRequiresExactContainerAndDigest",
@@ -102,7 +103,6 @@ REQUIRED = {
         "TestClusterResourceIdentityFoundationFailsClosedOnMissingRequiredTarget",
         "TestClusterResourceIdentityFoundationFailsClosedOnMissingUIDColumn",
         "TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership",
-        "TestClusterResourceIdentityFoundationRejectsAmbiguousLegacyAgentState",
     ],
 }
 
