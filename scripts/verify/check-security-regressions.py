@@ -47,6 +47,8 @@ REQUIRED = {
         "TestAggregateCacheIsolation",
         "TestRuntimeScopeAndFindingActions",
         "TestBulkRequiresActionPermissionAndNonemptySelection",
+        "TestRiskGovernanceAggregateScope",
+        "TestRiskExceptionsMutationsRespectOwnership",
         "TestAgentRegisteredRoutesUseScopedIdentityWithoutLegacyFallback",
         "TestScopedSyncRejectsForeignClaimsBeforeDatabaseEffects",
         "TestScopedPodEvidenceOwnership",
