@@ -68,7 +68,7 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/attack-steps/summary", p(authorization.PermissionFindingsRead), GetAttackStepsSummary(db))
 
 	riskPods.GET("/:uid/runtime", p(authorization.PermissionRuntimeRead), GetPodRiskProfile(db))
-	riskPods.GET("/:uid/runtime/events", p(authorization.PermissionRuntimeRead), GetPodRuntimeEvents(db))
+	riskPods.GET("/:uid/runtime/events", p(authorization.PermissionRuntimeRead), GetPodRuntimeEventsScoped(db))
 	api.GET("/risk/runtime/summary", p(authorization.PermissionRuntimeRead), GetRuntimeRiskSummary(db))
 	api.GET("/risk/runtime/top", p(authorization.PermissionRuntimeRead), GetTopRuntimeRisks(db))
 }
