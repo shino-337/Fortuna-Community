@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/rbacinventory"
 )
@@ -56,8 +57,13 @@ type PodRiskReport struct {
 func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		podUID := c.Param("uid")
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
 		var pod models.Pod
-		if err := db.Where("uid = ? AND deleted_at IS NULL", podUID).First(&pod).Error; err != nil {
+		if err := db.Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, podUID).First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "pod not found"})
 				return
@@ -152,7 +158,7 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if len(resourceUIDs) > 0 {
-			if err := db.Where("resource_uid IN ? AND deleted_at IS NULL", resourceUIDs).
+			if err := db.Where("cluster_id = ? AND resource_uid IN ? AND deleted_at IS NULL", pod.ClusterID, resourceUIDs).
 				Order("detected_at DESC").Find(&report.Insights).Error; err != nil {
 				log.Printf("[GetPodRiskReport] Failed to load insights: %v", err)
 			}
@@ -162,13 +168,13 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 		signalsSince := time.Now().Add(-24 * time.Hour)
 		var runtimeSignals24h int64
 		_ = db.Model(&models.RuntimeSignal{}).
-			Where("pod_uid = ? AND created_at >= ?", pod.UID, signalsSince).
+			Where("cluster_id = ? AND pod_uid = ? AND created_at >= ?", pod.ClusterID, pod.UID, signalsSince).
 			Count(&runtimeSignals24h).Error
 
 		podDirectInsightCount := 0
 		runtimePolicyInsightCount := 0
 		for _, ins := range report.Insights {
-			if ins.ResourceUID == pod.UID {
+			if ins.ResourceUID == pod.UID && ins.ClusterID == pod.ClusterID {
 				podDirectInsightCount++
 				switch ins.InsightType {
 				case "runtime-behavior", "pod-security":
