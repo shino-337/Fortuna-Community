@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
@@ -74,7 +75,7 @@ func GetRuntimeSignalsByPodScoped(db *gorm.DB) gin.HandlerFunc {
 		query := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID)
 		if raw := c.Query("sinceMinutes"); raw != "" {
 			if minutes, err := strconv.Atoi(raw); err == nil && minutes > 0 && minutes <= 43200 {
-				query = query.Where("created_at >= datetime('now', ?)", "-"+strconv.Itoa(minutes)+" minutes")
+				query = query.Where("created_at >= ?", time.Now().Add(-time.Duration(minutes)*time.Minute))
 			}
 		}
 		if signalType := c.Query("signalType"); signalType != "" {
