@@ -174,10 +174,10 @@ func ensureClusterResourceIdentityIndexes(db *gorm.DB) error {
 }
 
 type postgresIndexDefinition struct {
-	Valid   bool
-	Unique  bool
-	Table   string
-	Columns string
+	Valid   bool   `gorm:"column:valid"`
+	Unique  bool   `gorm:"column:is_unique"`
+	Table   string `gorm:"column:table_name"`
+	Columns string `gorm:"column:column_names"`
 }
 
 // ensureIndex does not trust an index merely because its name exists. On
@@ -235,9 +235,9 @@ func postgresIndexDefinitionForName(db *gorm.DB, name string) (postgresIndexDefi
 	var row postgresIndexDefinition
 	res := db.Raw(`SELECT
   i.indisvalid AS valid,
-  i.indisunique AS unique,
-  tbl.relname AS table,
-  COALESCE(string_agg(att.attname, ',' ORDER BY keycols.ordinality), '') AS columns
+  i.indisunique AS is_unique,
+  tbl.relname::text AS table_name,
+  COALESCE(string_agg(att.attname::text, ',' ORDER BY keycols.ordinality), '') AS column_names
 FROM pg_index i
 JOIN pg_class idx ON idx.oid = i.indexrelid
 JOIN pg_class tbl ON tbl.oid = i.indrelid
