@@ -40,12 +40,12 @@ func scopedGRPCTestContext(principal agentidentity.Principal, md metadata.MD) co
 
 func TestScopedGRPCControlRPCAuthorizationAndClusterBinding(t *testing.T) {
 	db := openScopedGRPCAuthorizationDB(t)
-	principal := scopedGRPCTestPrincipal("cluster-a", "agent-a")
+	principalA := scopedGRPCTestPrincipal("cluster-a", "agent-a")
 	interceptor := grpcAgentUnaryAuthorizationInterceptor(db)
 
 	called := false
 	_, err := interceptor(
-		scopedGRPCTestContext(principal, nil),
+		scopedGRPCTestContext(principalA, nil),
 		&pb.RegisterAgentRequest{AgentId: "agent-b"},
 		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_RegisterAgent_FullMethodName},
 		func(context.Context, any) (any, error) {
@@ -57,39 +57,45 @@ func TestScopedGRPCControlRPCAuthorizationAndClusterBinding(t *testing.T) {
 	require.False(t, called, "foreign agent claim reached RegisterAgent handler")
 
 	respAny, err := interceptor(
-		scopedGRPCTestContext(principal, nil),
-		&pb.RegisterAgentRequest{AgentId: "agent-a", NodeName: "node-a"},
+		scopedGRPCTestContext(principalA, nil),
+		&pb.RegisterAgentRequest{AgentId: "agent-a", NodeName: "node-a", Version: "1.2.3", Capabilities: []string{"sbom"}},
 		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_RegisterAgent_FullMethodName},
-		func(ctx context.Context, req any) (any, error) {
-			r := req.(*pb.RegisterAgentRequest)
-			require.NoError(t, db.Create(&models.Agent{AgentID: r.AgentId, NodeName: r.NodeName, ClusterID: ""}).Error)
-			return &pb.RegisterAgentResponse{Success: true, ClusterId: "legacy-env"}, nil
+		func(context.Context, any) (any, error) {
+			t.Fatal("scoped RegisterAgent must use the cluster-qualified persistence path")
+			return nil, nil
 		},
 	)
 	require.NoError(t, err)
 	resp := respAny.(*pb.RegisterAgentResponse)
 	require.Equal(t, "cluster-a", resp.ClusterId, "RegisterAgent response must use trusted principal cluster")
 
-	var stored models.Agent
-	require.NoError(t, db.Where("agent_id = ?", "agent-a").First(&stored).Error)
-	require.Equal(t, "cluster-a", stored.ClusterID, "legacy empty cluster must be bound to trusted principal")
+	var storedA models.Agent
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&storedA).Error)
+	require.Equal(t, "node-a", storedA.NodeName)
 
-	foreignPrincipal := scopedGRPCTestPrincipal("cluster-b", "agent-a")
-	called = false
+	// The same AgentID is valid in another cluster. This is the canonical
+	// {cluster_id,agent_id} identity invariant and prevents node-name collisions
+	// between independent clusters.
+	principalB := scopedGRPCTestPrincipal("cluster-b", "agent-a")
 	_, err = interceptor(
-		scopedGRPCTestContext(foreignPrincipal, nil),
-		&pb.PingRequest{AgentId: "agent-a"},
+		scopedGRPCTestContext(principalB, nil),
+		&pb.PingRequest{AgentId: "agent-a", NodeName: "node-a"},
 		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_Ping_FullMethodName},
 		func(context.Context, any) (any, error) {
-			called = true
-			return &pb.PingResponse{Status: "healthy"}, nil
+			t.Fatal("scoped Ping must use the cluster-qualified persistence path")
+			return nil, nil
 		},
 	)
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	require.False(t, called, "foreign cluster credential reached Ping handler for existing agent")
+	require.NoError(t, err)
+
+	var storedB models.Agent
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-b", "agent-a").First(&storedB).Error)
+	var count int64
+	require.NoError(t, db.Model(&models.Agent{}).Where("agent_id = ?", "agent-a").Count(&count).Error)
+	require.EqualValues(t, 2, count, "same AgentID must coexist across clusters")
 
 	_, err = interceptor(
-		scopedGRPCTestContext(principal, nil),
+		scopedGRPCTestContext(principalA, nil),
 		&pb.HeartbeatRequest{AgentId: "agent-b"},
 		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_Heartbeat_FullMethodName},
 		func(context.Context, any) (any, error) {
@@ -98,6 +104,36 @@ func TestScopedGRPCControlRPCAuthorizationAndClusterBinding(t *testing.T) {
 		},
 	)
 	require.Equal(t, codes.PermissionDenied, status.Code(err))
+}
+
+func TestScopedGRPCAgentRecordUnavailableFailsClosed(t *testing.T) {
+	principal := scopedGRPCTestPrincipal("cluster-a", "agent-a")
+	interceptor := grpcAgentUnaryAuthorizationInterceptor(nil)
+
+	for _, tc := range []struct {
+		name   string
+		method string
+		req    any
+	}{
+		{name: "register", method: pb.AgentService_RegisterAgent_FullMethodName, req: &pb.RegisterAgentRequest{AgentId: "agent-a"}},
+		{name: "ping", method: pb.AgentService_Ping_FullMethodName, req: &pb.PingRequest{AgentId: "agent-a"}},
+		{name: "heartbeat", method: pb.AgentService_Heartbeat_FullMethodName, req: &pb.HeartbeatRequest{AgentId: "agent-a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			called := false
+			_, err := interceptor(
+				scopedGRPCTestContext(principal, nil),
+				tc.req,
+				&ggrpc.UnaryServerInfo{FullMethod: tc.method},
+				func(context.Context, any) (any, error) {
+					called = true
+					return nil, nil
+				},
+			)
+			require.Equal(t, codes.Unavailable, status.Code(err))
+			require.False(t, called, "ownership-store failure must stop before handler effects")
+		})
+	}
 }
 
 func TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster(t *testing.T) {
@@ -163,32 +199,42 @@ func TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster(t *testing.
 	require.True(t, called)
 }
 
-func TestScopedGRPCCombinedFindingRequiresOneOwnedResource(t *testing.T) {
+func TestScopedGRPCCombinedFindingRequiresExactContainerAndDigest(t *testing.T) {
 	db := openScopedGRPCAuthorizationDB(t)
 	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: "pod-a", Name: "app", Namespace: "ns-a", ServiceAccount: "default"}).Error)
 	principal := scopedGRPCTestPrincipal("cluster-a", "agent-a")
 	interceptor := grpcAgentUnaryAuthorizationInterceptor(db)
 
-	bad := &pb.CombinedFinding{
-		Sbom: &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"},
-		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:b"},
+	baseSBOM := &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:a"}
+	for _, tc := range []struct {
+		name string
+		cve  *pb.CVEFinding
+	}{
+		{name: "digest mismatch", cve: &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:b"}},
+		{name: "container mismatch", cve: &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "backend", ImageDigest: "sha256:a"}},
+		{name: "missing digest", cve: &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend"}},
+		{name: "missing container", cve: &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := interceptor(
+				scopedGRPCTestContext(principal, nil),
+				&pb.CombinedFinding{Sbom: baseSBOM, Cve: tc.cve},
+				&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_SendCombinedFinding_FullMethodName},
+				func(context.Context, any) (any, error) {
+					t.Fatal("mismatched CombinedFinding reached handler")
+					return nil, nil
+				},
+			)
+			require.Equal(t, codes.PermissionDenied, status.Code(err))
+		})
 	}
-	_, err := interceptor(
-		scopedGRPCTestContext(principal, nil), bad,
-		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_SendCombinedFinding_FullMethodName},
-		func(context.Context, any) (any, error) {
-			t.Fatal("mixed-resource CombinedFinding reached handler")
-			return nil, nil
-		},
-	)
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
 
 	good := &pb.CombinedFinding{
-		Sbom: &pb.SBOMFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"},
-		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ImageDigest: "sha256:a"},
+		Sbom: baseSBOM,
+		Cve:  &pb.CVEFinding{AgentId: "agent-a", PodUid: "pod-a", PodName: "app", Namespace: "ns-a", ContainerName: "frontend", ImageDigest: "sha256:a"},
 	}
 	called := false
-	_, err = interceptor(
+	_, err := interceptor(
 		scopedGRPCTestContext(principal, nil), good,
 		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_SendCombinedFinding_FullMethodName},
 		func(context.Context, any) (any, error) {
