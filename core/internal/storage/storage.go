@@ -36,11 +36,10 @@ func New(cfg *config.Config) (*gorm.DB, error) {
 	// Increased retries and delays for cross-node connectivity
 	var db *gorm.DB
 	var err error
-	maxRetries := 20             // Increased from 10 to 20 for network routing issues
-	baseDelay := 3 * time.Second // Increased from 2s to 3s
+	maxRetries := 20
+	baseDelay := 3 * time.Second
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		// Add connection timeout to database URL if not present
 		dbURL := cfg.DatabaseURL
 		if !strings.Contains(dbURL, "connect_timeout") {
 			if strings.Contains(dbURL, "?") {
@@ -57,9 +56,9 @@ func New(cfg *config.Config) (*gorm.DB, error) {
 		}
 
 		if attempt < maxRetries {
-			delay := baseDelay * time.Duration(1<<uint(attempt-1)) // Exponential backoff: 3s, 6s, 12s, 24s...
+			delay := baseDelay * time.Duration(1<<uint(attempt-1))
 			if delay > 60*time.Second {
-				delay = 60 * time.Second // Cap at 60 seconds for network issues
+				delay = 60 * time.Second
 			}
 			log.Printf("[Storage] Database connection failed (attempt %d/%d): %v. Retrying in %v...",
 				attempt, maxRetries, err, delay)
@@ -74,20 +73,16 @@ func New(cfg *config.Config) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	// Get underlying sql.DB to configure connection pool
 	sqlDB, err := db.DB()
 	if err != nil {
 		return nil, err
 	}
 
-	// Set connection pool settings for performance and reliability
-	// Reduced pool size for better stability with network issues
-	sqlDB.SetMaxIdleConns(5)                   // Maximum idle connections (reduced for stability)
-	sqlDB.SetMaxOpenConns(25)                  // Maximum open connections (reduced for stability)
-	sqlDB.SetConnMaxLifetime(30 * time.Minute) // Connection max lifetime (reduced to detect stale connections)
-	sqlDB.SetConnMaxIdleTime(5 * time.Minute)  // Idle connection timeout (reduced for network issues)
+	sqlDB.SetMaxIdleConns(5)
+	sqlDB.SetMaxOpenConns(25)
+	sqlDB.SetConnMaxLifetime(30 * time.Minute)
+	sqlDB.SetConnMaxIdleTime(5 * time.Minute)
 
-	// Test connection immediately to verify connectivity
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := sqlDB.PingContext(ctx); err != nil {
@@ -95,19 +90,16 @@ func New(cfg *config.Config) (*gorm.DB, error) {
 	}
 	log.Printf("[Storage] Database ping successful")
 
-	// Start connection pool metrics monitoring
 	go monitorConnectionPool(context.Background(), sqlDB)
-
 	return db, nil
 }
 
-// monitorConnectionPool monitors database connection pool stats and exports as metrics
+// monitorConnectionPool monitors database connection pool stats and exports as metrics.
 func monitorConnectionPool(ctx context.Context, sqlDB *sql.DB) {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
 	log.Printf("[Storage] Started connection pool monitoring (interval: 10s)")
-
 	for {
 		select {
 		case <-ctx.Done():
@@ -115,22 +107,17 @@ func monitorConnectionPool(ctx context.Context, sqlDB *sql.DB) {
 			return
 		case <-ticker.C:
 			stats := sqlDB.Stats()
-
-			// Update Prometheus metrics
 			metrics.DBConnectionsOpen.Set(float64(stats.OpenConnections))
 			metrics.DBConnectionsInUse.Set(float64(stats.InUse))
 			metrics.DBConnectionsIdle.Set(float64(stats.Idle))
 			metrics.DBConnectionsWaitCount.Add(float64(stats.WaitCount))
 			metrics.DBConnectionsWaitDuration.Add(float64(stats.WaitDuration.Milliseconds()))
 
-			// Log if approaching connection limit
 			utilizationPct := float64(stats.OpenConnections) / float64(stats.MaxOpenConnections) * 100
 			if utilizationPct > 80 {
 				log.Printf("⚠️  [Storage] High connection pool utilization: %d/%d (%.1f%%)",
 					stats.OpenConnections, stats.MaxOpenConnections, utilizationPct)
 			}
-
-			// Log if connections are waiting
 			if stats.WaitCount > 0 {
 				log.Printf("⚠️  [Storage] Connections waiting: %d (total wait duration: %v)",
 					stats.WaitCount, stats.WaitDuration)
@@ -140,8 +127,6 @@ func monitorConnectionPool(ctx context.Context, sqlDB *sql.DB) {
 }
 
 func Migrate(db *gorm.DB) error {
-	// Use migration system
-	// CRITICAL: This must be called on every startup to ensure schema is up-to-date
 	log.Printf("[Storage] Running database migrations...")
 	if err := migrations.RunMigrations(db); err != nil {
 		log.Printf("[Storage] ❌ Migration failed: %v", err)
@@ -149,11 +134,14 @@ func Migrate(db *gorm.DB) error {
 	}
 	// The legacy migration runner versions by slice position and can continue past
 	// individual migration errors. Security-critical cluster ownership therefore
-	// has an idempotent post-migration invariant that must succeed before Core
-	// serves traffic.
+	// has idempotent post-migration invariants that must succeed before Core serves traffic.
 	if err := migrations.EnsureClusterResourceIdentityFoundation(db); err != nil {
 		log.Printf("[Storage] ❌ Cluster resource identity foundation failed: %v", err)
 		return fmt.Errorf("cluster resource identity foundation: %w", err)
+	}
+	if err := migrations.EnsureClusterQualifiedPodUniqueness(db); err != nil {
+		log.Printf("[Storage] ❌ Cluster-qualified Pod writer uniqueness failed: %v", err)
+		return fmt.Errorf("cluster-qualified pod writer uniqueness: %w", err)
 	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
