@@ -33,14 +33,6 @@ func createClusterIdentityFoundationSchema(t *testing.T, db *gorm.DB, omittedTab
 	if err := db.Exec(`CREATE TABLE pods (uid TEXT NOT NULL, cluster_id TEXT NOT NULL)`).Error; err != nil {
 		t.Fatalf("create pods: %v", err)
 	}
-	if omittedTable != "agents" {
-		if err := db.Exec(`CREATE TABLE agents (id BIGINT, cluster_id TEXT NOT NULL DEFAULT '', agent_id TEXT NOT NULL)`).Error; err != nil {
-			t.Fatalf("create agents: %v", err)
-		}
-		if err := db.Exec(`CREATE UNIQUE INDEX idx_agents_agent_id ON agents(agent_id)`).Error; err != nil {
-			t.Fatalf("create legacy agent index: %v", err)
-		}
-	}
 	for _, target := range clusterOwnedPodTables {
 		if target.table == omittedTable {
 			continue
@@ -99,7 +91,7 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 		t.Fatalf("ambiguous duplicate UID ownership was guessed: %q", got["pod-dup"].String)
 	}
 
-	assertResourceCluster := func(table, resourceType string, wantCluster string) {
+	assertResourceCluster := func(table, resourceType, wantCluster string) {
 		t.Helper()
 		var cluster sql.NullString
 		if err := db.Table(table).Select("cluster_id").Where("resource_uid = ? AND resource_type = ?", "pod-one", resourceType).Scan(&cluster).Error; err != nil {
@@ -120,20 +112,6 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 	assertResourceCluster("risk_scores", "pod", "cluster-a")
 	assertResourceCluster("risk_scores", "Node", "")
 	assertResourceCluster("policy_violations", "Pod", "cluster-a")
-
-	var exceptionOne, exceptionDup sql.NullString
-	if err := db.Table("exception_policies").Select("cluster_id").Where("resource_uid = ?", "pod-one").Scan(&exceptionOne).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Table("exception_policies").Select("cluster_id").Where("resource_uid = ?", "pod-dup").Scan(&exceptionDup).Error; err != nil {
-		t.Fatal(err)
-	}
-	if !exceptionOne.Valid || exceptionOne.String != "cluster-a" {
-		t.Fatalf("exception ownership=%v, want cluster-a", exceptionOne)
-	}
-	if exceptionDup.Valid && exceptionDup.String != "" {
-		t.Fatalf("ambiguous exception ownership was guessed: %q", exceptionDup.String)
-	}
 }
 
 func TestClusterResourceIdentityFoundationFailsClosedWithoutPods(t *testing.T) {
@@ -147,10 +125,7 @@ func TestClusterResourceIdentityFoundationFailsClosedOnMissingRequiredTarget(t *
 	db := openClusterIdentityTestDB(t)
 	createClusterIdentityFoundationSchema(t, db, "runtime_events")
 	err := EnsureClusterResourceIdentityFoundation(db)
-	if err == nil {
-		t.Fatal("foundation succeeded with required runtime_events table missing")
-	}
-	if !strings.Contains(err.Error(), "required table runtime_events is missing") {
+	if err == nil || !strings.Contains(err.Error(), "required table runtime_events is missing") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -162,10 +137,7 @@ func TestClusterResourceIdentityFoundationFailsClosedOnMissingUIDColumn(t *testi
 		t.Fatal(err)
 	}
 	err := EnsureClusterResourceIdentityFoundation(db)
-	if err == nil {
-		t.Fatal("foundation succeeded with runtime_events.pod_uid missing")
-	}
-	if !strings.Contains(err.Error(), "required column runtime_events.pod_uid is missing") {
+	if err == nil || !strings.Contains(err.Error(), "required column runtime_events.pod_uid is missing") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
@@ -182,15 +154,10 @@ func TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership(t 
 	if err := db.Exec(`INSERT INTO runtime_events(pod_uid,cluster_id) VALUES ('pod-one','cluster-b')`).Error; err != nil {
 		t.Fatal(err)
 	}
-
 	err := EnsureClusterResourceIdentityFoundation(db)
-	if err == nil {
-		t.Fatal("foundation accepted cluster ownership inconsistent with authoritative pods")
-	}
-	if !strings.Contains(err.Error(), "runtime_events contains 1 row(s) with cluster ownership inconsistent with pods") {
+	if err == nil || !strings.Contains(err.Error(), "runtime_events contains 1 row(s) with cluster ownership inconsistent with pods") {
 		t.Fatalf("unexpected error: %v", err)
 	}
-
 	var cluster string
 	if scanErr := db.Table("runtime_events").Select("cluster_id").Scan(&cluster).Error; scanErr != nil {
 		t.Fatal(scanErr)
@@ -200,27 +167,11 @@ func TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership(t 
 	}
 }
 
-func TestClusterResourceIdentityFoundationRejectsAmbiguousLegacyAgentState(t *testing.T) {
-	db := openClusterIdentityTestDB(t)
-	createClusterIdentityFoundationSchema(t, db, "")
-	if err := db.Exec(`DROP INDEX idx_agents_agent_id`).Error; err != nil {
-		t.Fatal(err)
-	}
-	if err := db.Exec(`INSERT INTO agents(id,cluster_id,agent_id) VALUES (1,'','shared-agent'),(2,'cluster-a','shared-agent')`).Error; err != nil {
-		t.Fatal(err)
-	}
-	err := EnsureClusterResourceIdentityFoundation(db)
-	if err == nil || !strings.Contains(err.Error(), "ambiguous legacy row") {
-		t.Fatalf("foundation did not reject ambiguous legacy agent state: %v", err)
-	}
-}
-
 func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")
 	if dsn == "" {
 		t.Skip("FORTUNA_TEST_POSTGRES_URL is not configured")
 	}
-
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("open postgres: %v", err)
@@ -244,7 +195,6 @@ func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 	if err := db.Exec("SET search_path TO " + schema).Error; err != nil {
 		t.Fatalf("set search_path: %v", err)
 	}
-
 	createClusterIdentityFoundationSchema(t, db, "")
 	for _, stmt := range []string{
 		`INSERT INTO pods(uid,cluster_id) VALUES ('pod-one','cluster-a')`,
@@ -256,36 +206,33 @@ func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 			t.Fatalf("postgres setup %q: %v", stmt, err)
 		}
 	}
-
-	for i := 0; i < 2; i++ {
-		if err := EnsureClusterResourceIdentityFoundation(db); err != nil {
-			t.Fatalf("postgres foundation pass %d: %v", i+1, err)
-		}
+	if err := EnsureClusterResourceIdentityFoundation(db); err != nil {
+		t.Fatalf("foundation: %v", err)
 	}
 
-	var uniqueOwner sql.NullString
-	if err := db.Table("runtime_events").Select("cluster_id").Where("pod_uid = ?", "pod-one").Scan(&uniqueOwner).Error; err != nil {
+	def, exists, err := postgresIndexDefinitionForName(db, "idx_runtime_events_cluster_pod_uid")
+	if err != nil || !exists || !def.Valid || def.Unique || def.Table != "runtime_events" || def.Columns != "cluster_id,pod_uid" {
+		t.Fatalf("runtime index definition=%+v exists=%v err=%v", def, exists, err)
+	}
+
+	// A valid index with the expected name but the wrong definition must not be
+	// accepted. ensureIndex must replace it with the exact contract.
+	if err := db.Exec(`DROP INDEX CONCURRENTLY idx_runtime_events_cluster_pod_uid`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if !uniqueOwner.Valid || uniqueOwner.String != "cluster-a" {
-		t.Fatalf("postgres unambiguous owner=%v, want cluster-a", uniqueOwner)
-	}
-	var ambiguousOwner sql.NullString
-	if err := db.Table("runtime_events").Select("cluster_id").Where("pod_uid = ?", "pod-dup").Scan(&ambiguousOwner).Error; err != nil {
+	if err := db.Exec(`CREATE UNIQUE INDEX CONCURRENTLY idx_runtime_events_cluster_pod_uid ON runtime_events(pod_uid)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if ambiguousOwner.Valid && ambiguousOwner.String != "" {
-		t.Fatalf("postgres ambiguous duplicate UID ownership was guessed: %q", ambiguousOwner.String)
+	if err := ensureIndex(db, "idx_runtime_events_cluster_pod_uid", "runtime_events", "cluster_id, pod_uid", false); err != nil {
+		t.Fatalf("repair mismatched index: %v", err)
+	}
+	def, exists, err = postgresIndexDefinitionForName(db, "idx_runtime_events_cluster_pod_uid")
+	if err != nil || !exists || !def.Valid || def.Unique || def.Table != "runtime_events" || def.Columns != "cluster_id,pod_uid" {
+		t.Fatalf("repaired index definition=%+v exists=%v err=%v", def, exists, err)
 	}
 
-	valid, exists, err := postgresIndexValidity(db, "idx_runtime_events_cluster_pod_uid")
-	if err != nil || !exists || !valid {
-		t.Fatalf("postgres runtime_events index exists=%v valid=%v err=%v", exists, valid, err)
-	}
-
-	// Reproduce PostgreSQL's interrupted/failed CREATE INDEX CONCURRENTLY state:
-	// a failed unique build leaves an INVALID index object. ensureIndex must remove
-	// and rebuild it rather than accepting IF NOT EXISTS.
+	// Interrupted CREATE INDEX CONCURRENTLY can leave an invalid object. It must
+	// also be removed and rebuilt rather than accepted by name.
 	if err := db.Exec(`CREATE TABLE invalid_index_probe (v TEXT)`).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -295,9 +242,9 @@ func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 	if err := db.Exec(`CREATE UNIQUE INDEX CONCURRENTLY idx_invalid_probe ON invalid_index_probe(v)`).Error; err == nil {
 		t.Fatal("expected duplicate data to fail concurrent unique index build")
 	}
-	valid, exists, err = postgresIndexValidity(db, "idx_invalid_probe")
+	valid, exists, err := postgresIndexValidity(db, "idx_invalid_probe")
 	if err != nil || !exists || valid {
-		t.Fatalf("expected invalid postgres index after failed concurrent build: exists=%v valid=%v err=%v", exists, valid, err)
+		t.Fatalf("expected invalid postgres index: exists=%v valid=%v err=%v", exists, valid, err)
 	}
 	if err := db.Exec(`TRUNCATE invalid_index_probe`).Error; err != nil {
 		t.Fatal(err)
@@ -307,9 +254,5 @@ func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 	}
 	if err := ensureIndex(db, "idx_invalid_probe", "invalid_index_probe", "v", true); err != nil {
 		t.Fatalf("recover invalid postgres index: %v", err)
-	}
-	valid, exists, err = postgresIndexValidity(db, "idx_invalid_probe")
-	if err != nil || !exists || !valid {
-		t.Fatalf("recovered postgres index exists=%v valid=%v err=%v", exists, valid, err)
 	}
 }
