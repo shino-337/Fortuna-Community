@@ -2,6 +2,7 @@ package migrations
 
 import (
 	"fmt"
+	"strings"
 
 	"gorm.io/gorm"
 )
@@ -41,8 +42,11 @@ func EnsureClusterQualifiedPodUniqueness(db *gorm.DB) error {
 		if !db.Migrator().HasTable(target.table) {
 			return fmt.Errorf("cluster-qualified pod uniqueness: required table %s is missing", target.table)
 		}
-		for _, column := range normalizeIndexColumns(target.columns) {
-			_ = column
+		for _, column := range strings.Split(target.columns, ",") {
+			column = strings.TrimSpace(column)
+			if column == "" || !db.Migrator().HasColumn(target.table, column) {
+				return fmt.Errorf("cluster-qualified pod uniqueness: required column %s.%s is missing", target.table, column)
+			}
 		}
 		if err := ensureIndex(db, target.name, target.table, target.columns, true); err != nil {
 			return fmt.Errorf("ensure %s: %w", target.name, err)
