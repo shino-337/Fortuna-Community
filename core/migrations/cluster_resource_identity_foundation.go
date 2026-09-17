@@ -97,7 +97,28 @@ func ensureAgentCompositeIdentity(db *gorm.DB) error {
 	if err := db.Exec("DROP INDEX IF EXISTS idx_agents_agent_id").Error; err != nil {
 		return fmt.Errorf("drop legacy global agent identity index: %w", err)
 	}
-	return ensureIndex(db, "idx_agents_cluster_agent", "agents", "cluster_id, agent_id", true)
+	if err := ensureIndex(db, "idx_agents_cluster_agent", "agents", "cluster_id, agent_id", true); err != nil {
+		return err
+	}
+
+	// A legacy empty-cluster row and an exact composite row for the same AgentID
+	// cannot be safely merged automatically. Refuse startup instead of letting a
+	// later control RPC hit a uniqueness race or silently choose one identity.
+	var ambiguous int64
+	if err := db.Raw(`SELECT COUNT(*)
+FROM agents legacy
+WHERE COALESCE(legacy.cluster_id, '') = ''
+  AND EXISTS (
+    SELECT 1 FROM agents exact
+    WHERE exact.agent_id = legacy.agent_id
+      AND COALESCE(exact.cluster_id, '') <> ''
+  )`).Scan(&ambiguous).Error; err != nil {
+		return fmt.Errorf("validate legacy agent identity state: %w", err)
+	}
+	if ambiguous > 0 {
+		return fmt.Errorf("cluster resource identity foundation: agents contains %d ambiguous legacy row(s) that coexist with cluster-qualified identities", ambiguous)
+	}
+	return nil
 }
 
 func ensureClusterResourceIdentityColumns(db *gorm.DB) error {
@@ -245,7 +266,9 @@ func postgresIndexValidity(db *gorm.DB, name string) (valid bool, exists bool, e
 	res := db.Raw(`SELECT i.indisvalid AS valid
 FROM pg_index i
 JOIN pg_class c ON c.oid = i.indexrelid
-WHERE c.relname = ?`, name).Scan(&row)
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relname = ?
+  AND n.nspname = current_schema()`, name).Scan(&row)
 	if res.Error != nil {
 		return false, false, res.Error
 	}
