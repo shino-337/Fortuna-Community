@@ -20,6 +20,7 @@ var clusterOwnedPodTables = []clusterOwnedPodTable{
 	{table: "attack_paths", uidColumn: "pod_uid"},
 	{table: "cve_matches", uidColumn: "pod_uid"},
 	{table: "events_index", uidColumn: "pod_uid"},
+	{table: "exception_policies", uidColumn: "resource_uid"},
 	{table: "malware_matches", uidColumn: "pod_uid"},
 	{table: "pod_attack_steps", uidColumn: "pod_uid"},
 	{table: "pod_capabilities", uidColumn: "pod_uid"},
@@ -44,21 +45,14 @@ var clusterOwnedPodTables = []clusterOwnedPodTable{
 // the positional schema_migrations list deliberately: historical migration
 // versions are array indexes, so inserting/reordering a migration would corrupt
 // already-applied databases.
-//
-// Every table in clusterOwnedPodTables is required at this point in startup. The
-// legacy runner may continue after individual migration failures, so silently
-// skipping a missing security-critical table/UID column here would turn a broken
-// schema into an apparently healthy startup.
-//
-// The foundation is intentionally staged. It adds/backfills ClusterID and useful
-// indexes, but does not yet make the new columns NOT NULL or replace legacy
-// primary/unique keys. C3c query migration must move all readers/writers to
-// {cluster_id, pod_uid} before those constraints are tightened.
 func EnsureClusterResourceIdentityFoundation(db *gorm.DB) error {
 	if db == nil {
 		return fmt.Errorf("cluster resource identity foundation: database is nil")
 	}
 	if err := validateAuthoritativePodSchema(db); err != nil {
+		return err
+	}
+	if err := ensureAgentCompositeIdentity(db); err != nil {
 		return err
 	}
 	if err := ensureClusterResourceIdentityColumns(db); err != nil {
@@ -88,6 +82,24 @@ func validateAuthoritativePodSchema(db *gorm.DB) error {
 	return nil
 }
 
+// ensureAgentCompositeIdentity removes the legacy global AgentID uniqueness and
+// replaces it with {cluster_id,agent_id}. This permits identical node/Agent names
+// in independent clusters while preserving one Agent row per cluster identity.
+func ensureAgentCompositeIdentity(db *gorm.DB) error {
+	if !db.Migrator().HasTable("agents") {
+		return fmt.Errorf("cluster resource identity foundation: required table agents is missing")
+	}
+	for _, column := range []string{"cluster_id", "agent_id"} {
+		if !db.Migrator().HasColumn("agents", column) {
+			return fmt.Errorf("cluster resource identity foundation: required column agents.%s is missing", column)
+		}
+	}
+	if err := db.Exec("DROP INDEX IF EXISTS idx_agents_agent_id").Error; err != nil {
+		return fmt.Errorf("drop legacy global agent identity index: %w", err)
+	}
+	return ensureIndex(db, "idx_agents_cluster_agent", "agents", "cluster_id, agent_id", true)
+}
+
 func ensureClusterResourceIdentityColumns(db *gorm.DB) error {
 	for _, target := range clusterOwnedPodTables {
 		if !db.Migrator().HasTable(target.table) {
@@ -110,8 +122,7 @@ func ensureClusterResourceIdentityColumns(db *gorm.DB) error {
 
 // backfillUnambiguousPodClusterOwnership performs one set-based UPDATE per target
 // table. Ownership is copied only when the authoritative pods table maps a UID to
-// exactly one distinct cluster. This avoids the unbounded application-side UID IN
-// lists used by the first implementation and keeps ambiguous UIDs unresolved.
+// exactly one distinct cluster. Ambiguous duplicate UIDs remain unresolved.
 func backfillUnambiguousPodClusterOwnership(db *gorm.DB) error {
 	for _, target := range clusterOwnedPodTables {
 		stmt := fmt.Sprintf(`UPDATE %s
@@ -146,8 +157,7 @@ WHERE COALESCE(cluster_id, '') = ''
 
 // validateExistingClusterResourceOwnership rejects already-populated cluster IDs
 // that do not correspond to an authoritative {cluster_id,pod_uid} pair. Existing
-// non-empty ownership is never silently rewritten because doing so would guess at
-// security-sensitive historical state.
+// non-empty ownership is never silently rewritten.
 func validateExistingClusterResourceOwnership(db *gorm.DB) error {
 	for _, target := range clusterOwnedPodTables {
 		stmt := fmt.Sprintf(`SELECT COUNT(*)
@@ -179,17 +189,68 @@ WHERE COALESCE(t.cluster_id, '') <> ''
 func ensureClusterResourceIdentityIndexes(db *gorm.DB) error {
 	for _, target := range clusterOwnedPodTables {
 		name := "idx_" + target.table + "_cluster_" + target.uidColumn
-		prefix := "CREATE INDEX IF NOT EXISTS "
-		if db.Dialector.Name() == "postgres" {
-			// Startup schema enforcement is intentionally outside a transaction. Use
-			// PostgreSQL's concurrent index build to avoid blocking normal table
-			// writes for the duration of a large historical index build.
-			prefix = "CREATE INDEX CONCURRENTLY IF NOT EXISTS "
+		if err := ensureIndex(db, name, target.table, "cluster_id, "+target.uidColumn, false); err != nil {
+			return err
 		}
-		stmt := prefix + name + " ON " + target.table + " (cluster_id, " + target.uidColumn + ")"
+	}
+	return nil
+}
+
+// ensureIndex creates an index and, on PostgreSQL, verifies pg_index.indisvalid.
+// CREATE INDEX CONCURRENTLY can leave an INVALID object after interruption; an
+// IF NOT EXISTS retry would otherwise silently accept it forever.
+func ensureIndex(db *gorm.DB, name, table, columns string, unique bool) error {
+	uniqueSQL := ""
+	if unique {
+		uniqueSQL = "UNIQUE "
+	}
+	if db.Dialector.Name() != "postgres" {
+		stmt := "CREATE " + uniqueSQL + "INDEX IF NOT EXISTS " + name + " ON " + table + " (" + columns + ")"
+		if err := db.Exec(stmt).Error; err != nil {
+			return fmt.Errorf("create %s: %w", name, err)
+		}
+		return nil
+	}
+
+	valid, exists, err := postgresIndexValidity(db, name)
+	if err != nil {
+		return fmt.Errorf("inspect %s: %w", name, err)
+	}
+	if exists && !valid {
+		if err := db.Exec("DROP INDEX CONCURRENTLY IF EXISTS " + name).Error; err != nil {
+			return fmt.Errorf("drop invalid %s: %w", name, err)
+		}
+		exists = false
+	}
+	if !exists {
+		stmt := "CREATE " + uniqueSQL + "INDEX CONCURRENTLY " + name + " ON " + table + " (" + columns + ")"
 		if err := db.Exec(stmt).Error; err != nil {
 			return fmt.Errorf("create %s: %w", name, err)
 		}
 	}
+	valid, exists, err = postgresIndexValidity(db, name)
+	if err != nil {
+		return fmt.Errorf("verify %s: %w", name, err)
+	}
+	if !exists || !valid {
+		return fmt.Errorf("cluster resource identity foundation: required PostgreSQL index %s is missing or invalid", name)
+	}
 	return nil
+}
+
+func postgresIndexValidity(db *gorm.DB, name string) (valid bool, exists bool, err error) {
+	var row struct {
+		Valid bool
+	}
+	res := db.Raw(`SELECT i.indisvalid AS valid
+FROM pg_index i
+JOIN pg_class c ON c.oid = i.indexrelid
+WHERE c.relname = ?`, name).Scan(&row)
+	if res.Error != nil {
+		return false, false, res.Error
+	}
+	if res.RowsAffected == 0 {
+		return false, false, nil
+	}
+	return row.Valid, true, nil
 }
