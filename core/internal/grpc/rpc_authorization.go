@@ -2,10 +2,8 @@ package grpc
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"strings"
-	"time"
 
 	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/core/pkg/agentidentity"
@@ -15,7 +13,6 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 )
 
 func scopedGRPCPermissionDenied() error {
@@ -70,117 +67,50 @@ func authorizeScopedGRPCPod(db *gorm.DB, principal agentidentity.Principal, podU
 	return nil
 }
 
-// authorizeScopedGRPCAgentRecord verifies that the ownership store is available.
-// AgentID is not globally unique: exact ownership is the pair {cluster_id,agent_id}.
-// A legacy empty-cluster row may be claimed by the authenticated principal during
-// the scoped control-RPC write path; a same AgentID in another cluster is valid.
+// authorizeScopedGRPCAgentRecord protects the legacy globally unique Agent row.
+// C3c deliberately defers duplicate AgentIDs until every control path is migrated
+// to trusted cluster-qualified identity. A credential therefore cannot claim an
+// Agent row already owned by another cluster.
 func authorizeScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Principal) error {
 	if db == nil {
 		return scopedGRPCUnavailable()
 	}
 	var agent models.Agent
-	err := db.Unscoped().Where(
-		"agent_id = ? AND (cluster_id = ? OR cluster_id = '')",
-		principal.AgentID, principal.ClusterID,
-	).First(&agent).Error
+	err := db.Unscoped().Where("agent_id = ?", principal.AgentID).First(&agent).Error
 	if errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil
 	}
 	if err != nil {
 		return scopedGRPCUnavailable()
 	}
+	if agent.ClusterID != "" && agent.ClusterID != principal.ClusterID {
+		return scopedGRPCPermissionDenied()
+	}
 	return nil
 }
 
-// upsertScopedAgentRecord persists control-RPC state using the canonical
-// {cluster_id,agent_id} key. Scoped mode deliberately bypasses legacy handlers
-// that still use agent_id alone. Legacy empty-cluster rows are claimed atomically
-// before a new composite row is created.
-func upsertScopedAgentRecord(db *gorm.DB, principal agentidentity.Principal, nodeName, version, statusValue string, capabilities []string) error {
+func bindScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Principal) error {
 	if db == nil {
 		return scopedGRPCUnavailable()
 	}
-	now := time.Now()
-	return db.Transaction(func(tx *gorm.DB) error {
-		var legacy models.Agent
-		legacyErr := tx.Unscoped().Where("agent_id = ? AND cluster_id = ''", principal.AgentID).First(&legacy).Error
-		if legacyErr != nil && !errors.Is(legacyErr, gorm.ErrRecordNotFound) {
+	res := db.Model(&models.Agent{}).
+		Where("agent_id = ? AND (cluster_id = '' OR cluster_id = ?)", principal.AgentID, principal.ClusterID).
+		Update("cluster_id", principal.ClusterID)
+	if res.Error != nil {
+		return scopedGRPCUnavailable()
+	}
+	if res.RowsAffected == 0 {
+		var count int64
+		if err := db.Model(&models.Agent{}).
+			Where("agent_id = ? AND cluster_id = ?", principal.AgentID, principal.ClusterID).
+			Count(&count).Error; err != nil {
 			return scopedGRPCUnavailable()
 		}
-		if legacyErr == nil {
-			updates := map[string]interface{}{
-				"cluster_id":   principal.ClusterID,
-				"status":       statusValue,
-				"last_seen_at": now,
-				"deleted_at":   nil,
-				"updated_at":   now,
-			}
-			if nodeName != "" {
-				updates["node_name"] = nodeName
-			}
-			if version != "" {
-				updates["version"] = version
-			}
-			if capabilities != nil {
-				encoded, err := json.Marshal(capabilities)
-				if err != nil {
-					return status.Error(codes.InvalidArgument, "invalid agent capabilities")
-				}
-				updates["capabilities"] = string(encoded)
-			}
-			res := tx.Model(&models.Agent{}).
-				Unscoped().
-				Where("id = ? AND cluster_id = ''", legacy.ID).
-				Updates(updates)
-			if res.Error != nil {
-				return scopedGRPCUnavailable()
-			}
-			if res.RowsAffected == 1 {
-				return nil
-			}
-			// Another concurrent claimant moved the legacy row. Continue with the
-			// authenticated cluster's independent composite identity.
+		if count == 0 {
+			return scopedGRPCPermissionDenied()
 		}
-
-		agent := models.Agent{
-			ClusterID:  principal.ClusterID,
-			AgentID:    principal.AgentID,
-			NodeName:   nodeName,
-			Version:    version,
-			Status:     statusValue,
-			LastSeenAt: &now,
-		}
-		if capabilities != nil {
-			encoded, err := json.Marshal(capabilities)
-			if err != nil {
-				return status.Error(codes.InvalidArgument, "invalid agent capabilities")
-			}
-			agent.Capabilities = string(encoded)
-		}
-
-		updates := map[string]interface{}{
-			"status":       statusValue,
-			"last_seen_at": now,
-			"deleted_at":   nil,
-			"updated_at":   now,
-		}
-		if nodeName != "" {
-			updates["node_name"] = nodeName
-		}
-		if version != "" {
-			updates["version"] = version
-		}
-		if capabilities != nil {
-			updates["capabilities"] = agent.Capabilities
-		}
-		if err := tx.Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "cluster_id"}, {Name: "agent_id"}},
-			DoUpdates: clause.Assignments(updates),
-		}).Create(&agent).Error; err != nil {
-			return scopedGRPCUnavailable()
-		}
-		return nil
-	})
+	}
+	return nil
 }
 
 func authorizeScopedGRPCSBOM(db *gorm.DB, principal agentidentity.Principal, req *pb.SBOMFinding) error {
@@ -216,9 +146,8 @@ func authorizeScopedGRPCCombined(db *gorm.DB, principal agentidentity.Principal,
 	if err := authorizeScopedGRPCCVE(db, principal, req.Cve); err != nil {
 		return err
 	}
-	// CVE evidence carried in CombinedFinding must describe exactly the same
-	// workload image as the SBOM. Allowing an empty digest/container here would
-	// let evidence for another container in the same Pod be linked to this SBOM.
+	// Combined evidence must identify one exact container image. Empty identity
+	// fields are rejected because a Pod may contain several independent images.
 	if req.Cve.PodUid != req.Sbom.PodUid ||
 		(req.Cve.Namespace != "" && req.Cve.Namespace != req.Sbom.Namespace) ||
 		strings.TrimSpace(req.Cve.ContainerName) == "" ||
@@ -312,35 +241,23 @@ func grpcAgentUnaryAuthorizationInterceptor(db *gorm.DB) ggrpc.UnaryServerInterc
 		if err != nil {
 			return nil, err
 		}
-
-		// Scoped control RPCs use a cluster-qualified persistence path and do not
-		// call legacy handlers that still key Agent rows by agent_id alone.
-		switch info.FullMethod {
-		case pb.AgentService_RegisterAgent_FullMethodName:
-			r := req.(*pb.RegisterAgentRequest)
-			if err := upsertScopedAgentRecord(db, principal, r.NodeName, r.Version, "ready", r.Capabilities); err != nil {
-				return nil, err
-			}
-			return &pb.RegisterAgentResponse{Success: true, Message: "Agent registered successfully", ClusterId: principal.ClusterID}, nil
-		case pb.AgentService_Ping_FullMethodName:
-			r := req.(*pb.PingRequest)
-			if err := upsertScopedAgentRecord(db, principal, r.NodeName, "", "ready", nil); err != nil {
-				return nil, err
-			}
-			return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
-		case pb.AgentService_Heartbeat_FullMethodName:
-			r := req.(*pb.HeartbeatRequest)
-			statusValue := strings.TrimSpace(r.Status)
-			if statusValue == "" {
-				statusValue = "ready"
-			}
-			if err := upsertScopedAgentRecord(db, principal, "", "", statusValue, nil); err != nil {
-				return nil, err
-			}
-			return &pb.HeartbeatResponse{Success: true, Message: "heartbeat received"}, nil
+		resp, err := handler(trustedCtx, req)
+		if err != nil {
+			return resp, err
 		}
 
-		return handler(trustedCtx, req)
+		switch info.FullMethod {
+		case pb.AgentService_RegisterAgent_FullMethodName, pb.AgentService_Ping_FullMethodName:
+			if err := bindScopedGRPCAgentRecord(db, principal); err != nil {
+				return nil, err
+			}
+		}
+		if info.FullMethod == pb.AgentService_RegisterAgent_FullMethodName {
+			if registerResp, ok := resp.(*pb.RegisterAgentResponse); ok && registerResp != nil {
+				registerResp.ClusterId = principal.ClusterID
+			}
+		}
+		return resp, nil
 	}
 }
 
