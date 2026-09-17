@@ -1,6 +1,11 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	"github.com/fortuna/core/pkg/resourceidentity"
+	"gorm.io/gorm"
+)
 
 // RuntimeEvent stores raw runtime probe events (sensor/audit).
 type RuntimeEvent struct {
@@ -32,6 +37,19 @@ type RuntimeEvent struct {
 	TargetPath string    `gorm:"type:varchar(500)" json:"targetPath"`
 	Capability string    `gorm:"type:varchar(100)" json:"capability"`
 	CreatedAt  time.Time `json:"createdAt"`
+}
+
+// BeforeCreate copies only a cluster identity that has already crossed a trusted
+// ownership boundary. Direct/legacy unit calls without that context keep their
+// existing behavior; production runtime routes always attach it first.
+func (e *RuntimeEvent) BeforeCreate(tx *gorm.DB) error {
+	if e.ClusterID != "" || tx == nil || tx.Statement == nil {
+		return nil
+	}
+	if clusterID, ok := resourceidentity.ClusterIDFromContext(tx.Statement.Context); ok {
+		e.ClusterID = clusterID
+	}
+	return nil
 }
 
 // TableName overrides table name.

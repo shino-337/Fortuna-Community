@@ -13,7 +13,6 @@ import (
 )
 
 // correlateAndPersistRuntimeIncidents is REP-C minimal correlator entry point.
-// P0 implementation adds first stateful detector: RECON_BURST.
 func correlateAndPersistRuntimeIncidents(ctx context.Context, db *gorm.DB, event *models.RuntimeEvent, facts []models.RuntimeBehaviorFact) error {
 	if db == nil || event == nil || event.ID == 0 || strings.TrimSpace(event.PodUID) == "" {
 		return nil
@@ -34,7 +33,6 @@ func correlateAndPersistRuntimeIncidents(ctx context.Context, db *gorm.DB, event
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -42,11 +40,10 @@ func correlateReconBurst(ctx context.Context, db *gorm.DB, event *models.Runtime
 	d := DetectorReconBurst
 	since := event.CreatedAt.Add(-d.Window)
 	var count int64
-	// Count unique fact ids to avoid duplicates across sources/replays.
 	if err := db.WithContext(ctx).
 		Model(&models.RuntimeBehaviorFact{}).
 		Select("COUNT(DISTINCT fact_id)").
-		Where("pod_uid = ? AND observed_at >= ? AND fact_type IN ?", event.PodUID, since, d.InputFactTypes).
+		Where("cluster_id = ? AND pod_uid = ? AND observed_at >= ? AND fact_type IN ?", event.ClusterID, event.PodUID, since, d.InputFactTypes).
 		Scan(&count).Error; err != nil {
 		return err
 	}
@@ -55,7 +52,7 @@ func correlateReconBurst(ctx context.Context, db *gorm.DB, event *models.Runtime
 	}
 
 	bucket := d.Bucket(event.CreatedAt)
-	incidentID := fmt.Sprintf("%s:%s:%d", event.PodUID, d.IncidentType, bucket)
+	incidentID := runtimeIncidentID(event.ClusterID, event.PodUID, d.IncidentType, bucket)
 
 	evidenceRefs := make([]string, 0, len(facts))
 	for i := range facts {
@@ -76,6 +73,7 @@ func correlateReconBurst(ctx context.Context, db *gorm.DB, event *models.Runtime
 	})
 
 	row := models.RuntimeIncident{
+		ClusterID:    event.ClusterID,
 		IncidentID:   incidentID,
 		PodUID:       event.PodUID,
 		Namespace:    event.Namespace,
@@ -90,7 +88,6 @@ func correlateReconBurst(ctx context.Context, db *gorm.DB, event *models.Runtime
 		CreatedAt:    event.CreatedAt,
 		UpdatedAt:    event.CreatedAt,
 	}
-
 	return upsertOrUpdateLatestIncident(ctx, db, &row, d.Cooldown)
 }
 
@@ -106,7 +103,7 @@ func correlatePostExploitExecChain(ctx context.Context, db *gorm.DB, event *mode
 	if err := db.WithContext(ctx).
 		Model(&models.RuntimeBehaviorFact{}).
 		Select("DISTINCT fact_type").
-		Where("pod_uid = ? AND observed_at >= ? AND fact_type IN ?", event.PodUID, since, required).
+		Where("cluster_id = ? AND pod_uid = ? AND observed_at >= ? AND fact_type IN ?", event.ClusterID, event.PodUID, since, required).
 		Scan(&got).Error; err != nil {
 		return err
 	}
@@ -114,10 +111,9 @@ func correlatePostExploitExecChain(ctx context.Context, db *gorm.DB, event *mode
 		return nil
 	}
 
-	// Collect recent evidence refs for explainability.
 	var refs []models.RuntimeBehaviorFact
 	_ = db.WithContext(ctx).
-		Where("pod_uid = ? AND observed_at >= ? AND fact_type IN ?", event.PodUID, since, required).
+		Where("cluster_id = ? AND pod_uid = ? AND observed_at >= ? AND fact_type IN ?", event.ClusterID, event.PodUID, since, required).
 		Order("observed_at DESC").
 		Limit(12).
 		Find(&refs).Error
@@ -140,9 +136,9 @@ func correlatePostExploitExecChain(ctx context.Context, db *gorm.DB, event *mode
 	})
 
 	bucket := d.Bucket(event.CreatedAt)
-	incidentID := fmt.Sprintf("%s:%s:%d", event.PodUID, d.IncidentType, bucket)
-
+	incidentID := runtimeIncidentID(event.ClusterID, event.PodUID, d.IncidentType, bucket)
 	row := models.RuntimeIncident{
+		ClusterID:    event.ClusterID,
 		IncidentID:   incidentID,
 		PodUID:       event.PodUID,
 		Namespace:    event.Namespace,
@@ -166,7 +162,7 @@ func correlateExfilLikeSequence(ctx context.Context, db *gorm.DB, event *models.
 
 	var tokenRead models.RuntimeBehaviorFact
 	err := db.WithContext(ctx).
-		Where("pod_uid = ? AND observed_at >= ? AND fact_type = ?", event.PodUID, since, "SERVICEACCOUNT_TOKEN_READ").
+		Where("cluster_id = ? AND pod_uid = ? AND observed_at >= ? AND fact_type = ?", event.ClusterID, event.PodUID, since, "SERVICEACCOUNT_TOKEN_READ").
 		Order("observed_at DESC").
 		Limit(1).
 		Find(&tokenRead).Error
@@ -179,7 +175,7 @@ func correlateExfilLikeSequence(ctx context.Context, db *gorm.DB, event *models.
 
 	var extConnect models.RuntimeBehaviorFact
 	err = db.WithContext(ctx).
-		Where("pod_uid = ? AND observed_at >= ? AND fact_type = ?", event.PodUID, since, "EXTERNAL_CONNECT").
+		Where("cluster_id = ? AND pod_uid = ? AND observed_at >= ? AND fact_type = ?", event.ClusterID, event.PodUID, since, "EXTERNAL_CONNECT").
 		Order("observed_at DESC").
 		Limit(1).
 		Find(&extConnect).Error
@@ -189,8 +185,6 @@ func correlateExfilLikeSequence(ctx context.Context, db *gorm.DB, event *models.
 	if extConnect.ID == 0 {
 		return nil
 	}
-
-	// Best-effort ordering to reduce false positives.
 	if extConnect.ObservedAt.Before(tokenRead.ObservedAt) {
 		return nil
 	}
@@ -215,9 +209,9 @@ func correlateExfilLikeSequence(ctx context.Context, db *gorm.DB, event *models.
 	})
 
 	bucket := d.Bucket(event.CreatedAt)
-	incidentID := fmt.Sprintf("%s:%s:%d", event.PodUID, d.IncidentType, bucket)
-
+	incidentID := runtimeIncidentID(event.ClusterID, event.PodUID, d.IncidentType, bucket)
 	row := models.RuntimeIncident{
+		ClusterID:    event.ClusterID,
 		IncidentID:   incidentID,
 		PodUID:       event.PodUID,
 		Namespace:    event.Namespace,
@@ -235,6 +229,12 @@ func correlateExfilLikeSequence(ctx context.Context, db *gorm.DB, event *models.
 	return upsertOrUpdateLatestIncident(ctx, db, &row, d.Cooldown)
 }
 
+func runtimeIncidentID(clusterID, podUID, incidentType string, bucket int64) string {
+	// Length-prefix the cluster component so cluster names containing separators
+	// cannot collide. Empty cluster_id remains a distinct legacy namespace.
+	return fmt.Sprintf("%d:%s:%s:%s:%d", len(clusterID), clusterID, podUID, incidentType, bucket)
+}
+
 func upsertIncident(ctx context.Context, db *gorm.DB, row *models.RuntimeIncident) error {
 	if row == nil {
 		return nil
@@ -243,6 +243,7 @@ func upsertIncident(ctx context.Context, db *gorm.DB, row *models.RuntimeInciden
 		Clauses(clause.OnConflict{
 			Columns: []clause.Column{{Name: "incident_id"}},
 			DoUpdates: clause.Assignments(map[string]interface{}{
+				"cluster_id":    row.ClusterID,
 				"last_seen_at":  row.LastSeenAt,
 				"confidence":    row.Confidence,
 				"severity_hint": row.SeverityHint,
@@ -254,17 +255,15 @@ func upsertIncident(ctx context.Context, db *gorm.DB, row *models.RuntimeInciden
 		Create(&row).Error
 }
 
-// upsertOrUpdateLatestIncident enforces minimal suppression:
-// - If there is an existing incident of the same type for the pod whose LastSeenAt is within cooldown,
-//   update that latest incident instead of inserting a new one (avoids incident spam across buckets).
-// - Otherwise, upsert deterministically by incident_id (pod_uid:type:bucket).
+// upsertOrUpdateLatestIncident enforces suppression within one canonical Pod
+// identity. Incidents from the same UID in another cluster are never candidates.
 func upsertOrUpdateLatestIncident(ctx context.Context, db *gorm.DB, row *models.RuntimeIncident, cooldown time.Duration) error {
 	if row == nil || db == nil {
 		return nil
 	}
 	var latest models.RuntimeIncident
 	err := db.WithContext(ctx).
-		Where("pod_uid = ? AND incident_type = ?", row.PodUID, row.IncidentType).
+		Where("cluster_id = ? AND pod_uid = ? AND incident_type = ?", row.ClusterID, row.PodUID, row.IncidentType).
 		Order("last_seen_at DESC").
 		Limit(1).
 		Find(&latest).Error
@@ -273,7 +272,6 @@ func upsertOrUpdateLatestIncident(ctx context.Context, db *gorm.DB, row *models.
 	}
 
 	if latest.ID != 0 && row.LastSeenAt.Sub(latest.LastSeenAt) < cooldown {
-		// Suppress: update latest instead of creating new bucket incident.
 		prevN := evidenceRefCountJSON(latest.EvidenceRefs)
 		newN := evidenceRefCountJSON(row.EvidenceRefs)
 		mergedConf := mergeIncidentConfidenceOnSuppress(latest.Confidence, row.Confidence, prevN, newN)
@@ -287,8 +285,6 @@ func upsertOrUpdateLatestIncident(ctx context.Context, db *gorm.DB, row *models.
 		}
 		return db.WithContext(ctx).Model(&latest).Updates(update).Error
 	}
-
-	// Not suppressed: normal deterministic upsert by incident_id.
 	return upsertIncident(ctx, db, row)
 }
 

@@ -37,6 +37,7 @@ func (a *SignalAdapter) AdaptEvent(ctx context.Context, event *models.RuntimeEve
 	lastSeen := event.CreatedAt.UTC().Format(time.RFC3339Nano)
 
 	signal := &models.RuntimeSignal{
+		ClusterID:    event.ClusterID,
 		PodUID:       event.PodUID,
 		SignalType:   signalType,
 		Category:     category,
@@ -52,29 +53,29 @@ func (a *SignalAdapter) AdaptEvent(ctx context.Context, event *models.RuntimeEve
 	return signal, nil
 }
 
-// AdaptAndPersist converts and persists a runtime event as a signal
+// AdaptAndPersist converts and persists a runtime event as a signal.
 func (a *SignalAdapter) AdaptAndPersist(ctx context.Context, event *models.RuntimeEvent) error {
 	signal, err := a.AdaptEvent(ctx, event)
 	if err != nil {
 		return err
 	}
 
-	// Check if signal already exists (deduplication by pod_uid + signal_type + same day)
+	// Deduplication is cluster-qualified. Empty cluster_id remains an isolated
+	// legacy bucket for direct compatibility calls and cannot collide with a
+	// trusted cluster-owned signal.
 	var existing models.RuntimeSignal
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 	err = a.db.WithContext(ctx).
-		Where("pod_uid = ? AND signal_type = ? AND created_at >= ?",
-			signal.PodUID, signal.SignalType, today).
+		Where("cluster_id = ? AND pod_uid = ? AND signal_type = ? AND created_at >= ?",
+			signal.ClusterID, signal.PodUID, signal.SignalType, today).
 		First(&existing).Error
 
 	if err == gorm.ErrRecordNotFound {
-		// New signal, create it
 		return a.db.WithContext(ctx).Create(signal).Error
 	} else if err != nil {
 		return err
 	}
 
-	// Signal exists for today: bump occurrence count and keep best evidence/confidence.
 	existing.Count++
 	lastSeen := signal.CreatedAt.UTC().Format(time.RFC3339Nano)
 	existing.LastSeenAt = &lastSeen

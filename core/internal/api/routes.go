@@ -19,15 +19,12 @@ import (
 	"github.com/fortuna/core/pkg/security"
 )
 
-// Force link analytics handlers to prevent dead code elimination
-// This ensures handlers are included in binary even if only referenced indirectly
 var (
 	_ = risk.GetRiskTrendsAnalytics
 	_ = risk.GetRiskComparison
 	_ = risk.GetRiskCorrelation
 	_ = risk.GetSupplyChainCorrelation
 	_ = risk.GetRuntimeCVECorrelation
-	// Policy handlers
 	_ = policy.NewPolicyHandler
 )
 
@@ -35,11 +32,8 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, cfg *config.Config) {
 	SetupRoutesWithCertManager(router, db, cfg, nil, nil, nil)
 }
 
-// SetupRoutesWithCertManager sets up routes with certificate manager and optional per-cluster rate limiter (Finding #6).
-// If publishSBOMCreated is non-nil, registers POST /api/v1/internal/trigger-cve-match to re-publish sbom.created for a given sbom_id.
 func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter, publishSBOMCreated PublishSBOMCreatedFunc) {
 	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey)
-	// Phase 2.1: in-memory cache for GET /risk/insights (list) and GET /risk/insights/summary (TTL 60s)
 	defaultRisksCache = NewMemoryRisksCache(60 * time.Second)
 	log.Printf("[API] ========================================")
 	log.Printf("[API] SetupRoutesWithCertManager CALLED")
@@ -52,7 +46,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		return middleware.RequirePermission(db, perm)
 	}
 
-	// Public auth routes
 	auth := router.Group("/api/v1/auth")
 	{
 		auth.POST("/login", middleware.LoginRateLimit(), Login(db, cfg.JWTSecret, cfg.TokenExpirationHours))
@@ -65,39 +58,33 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 	agentIngestAuth := middleware.AgentIngestAuth(cfg.AgentCredentialRegistryPath, cfg.IngestToken)
 
-	// Agent ingest uses one explicit migration mode: a configured credential registry
-	// requires scoped per-agent identity and never falls back to the legacy shared token.
 	agent := router.Group("/api/v1/agent")
 	agent.Use(agentIngestAuth)
 	{
 		agent.POST("/sync", SyncDataFromAgent(db, clusterLimiter))
 		agent.POST("/pod-runtime-metrics", requireScopedPodEvidenceOwnership(db, false), IngestPodRuntimeMetricsPayload(db))
-		agent.POST("/pod-processes", requireScopedPodEvidenceOwnership(db, false), IngestPodProcessesPayload(db))
-		agent.POST("/pod-network-connections", requireScopedPodEvidenceOwnership(db, false), IngestPodNetworkConnectionsPayload(db))
+		agent.POST("/pod-processes", requireScopedPodEvidenceOwnership(db, false), IngestPodProcessesPayloadScoped(db))
+		agent.POST("/pod-network-connections", requireScopedPodEvidenceOwnership(db, false), IngestPodNetworkConnectionsPayloadScoped(db))
 		agent.POST("/pod-events", requireScopedPodEvidenceOwnership(db, true), IngestPodEventsPayload(db))
 	}
 	log.Printf("[API] Agent ingest routes registered: POST /api/v1/agent/sync, pod-runtime-metrics, pod-processes, pod-network-connections, pod-events")
 
-	// Runtime ingest follows the same explicit migration mode as /api/v1/agent/*.
-	// When a credential registry is configured, authentication resolves a scoped
-	// principal first and the complete batch is ownership-validated before the
-	// runtime handler can persist any event. Legacy token mode remains available
-	// only when no scoped registry is configured.
+	// Runtime ownership middleware resolves and validates the complete batch, then
+	// the scoped handler carries that canonical cluster identity through REP.
 	runtimeIngest := router.Group("/api/v1/runtime")
 	runtimeIngest.Use(agentIngestAuth)
 	{
-		runtimeIngest.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEvents(db))
+		runtimeIngest.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsScoped(db))
 	}
 	log.Printf("[API] Runtime ingest routes registered with scoped ownership guard: POST /api/v1/runtime/events")
 
 	runtimeIngestV2 := router.Group("/api/v2/runtime")
 	runtimeIngestV2.Use(agentIngestAuth)
 	{
-		runtimeIngestV2.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2(db))
+		runtimeIngestV2.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 	}
 	log.Printf("[API] Runtime ingest routes registered with scoped ownership guard: POST /api/v2/runtime/events")
 
-	// Protected routes — every handler is wrapped with explicit permission middleware (deny-by-default when auth enabled).
 	v1 := router.Group("/api/v1")
 	if cfg.AuthEnabled {
 		v1.Use(middleware.AuthMiddleware(db, cfg.JWTSecret))

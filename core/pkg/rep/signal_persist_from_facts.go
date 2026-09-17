@@ -14,8 +14,9 @@ import (
 // It fills gaps when facts-based synthesis produces signals not already present
 // in runtime_signals for the current day window.
 //
-// Safety: if a signal already exists for (pod_uid, signal_type) in the "today" window,
-// we update evidence/confidence (if higher) but we DO NOT increment Count to avoid double-counting.
+// Safety: if a signal already exists for the same cluster-qualified Pod,
+// signal type and "today" window, we update evidence/confidence (if higher) but
+// do not increment Count to avoid double-counting.
 func persistSynthesizedSignalsFromFacts(
 	ctx context.Context,
 	db *gorm.DB,
@@ -30,11 +31,9 @@ func persistSynthesizedSignalsFromFacts(
 		return nil
 	}
 
-	// Keep dedupe semantics aligned with SignalAdapter (it uses "now truncate to day").
 	today := time.Now().UTC().Truncate(24 * time.Hour)
 
 	for _, s := range cands {
-		// Ignore empty/unknown signal types defensively.
 		if strings.TrimSpace(s.SignalType) == "" || strings.EqualFold(strings.TrimSpace(s.SignalType), "UNKNOWN") {
 			continue
 		}
@@ -56,16 +55,15 @@ func persistSynthesizedSignalsFromFacts(
 		firstSeen := event.CreatedAt.UTC().Format(time.RFC3339Nano)
 		lastSeen := event.CreatedAt.UTC().Format(time.RFC3339Nano)
 
-		// Check existing runtime signal for today window.
 		var existing models.RuntimeSignal
 		err := db.WithContext(ctx).
-			Where("pod_uid = ? AND signal_type = ? AND created_at >= ?", event.PodUID, s.SignalType, today).
+			Where("cluster_id = ? AND pod_uid = ? AND signal_type = ? AND created_at >= ?", event.ClusterID, event.PodUID, s.SignalType, today).
 			First(&existing).Error
 
 		if err != nil {
-			if err.Error() == gorm.ErrRecordNotFound.Error() {
-				// New signal for today.
+			if err == gorm.ErrRecordNotFound {
 				row := &models.RuntimeSignal{
+					ClusterID:    event.ClusterID,
 					PodUID:       event.PodUID,
 					SignalType:   s.SignalType,
 					Category:     s.Category,
@@ -85,8 +83,6 @@ func persistSynthesizedSignalsFromFacts(
 			return err
 		}
 
-		// Exists already: update without changing Count to avoid inflation.
-		// Update evidence/confidence only when confidence is higher.
 		update := map[string]interface{}{
 			"evidence":      string(evidenceJSON),
 			"evidence_refs": string(evidenceRefsJSON),
@@ -97,9 +93,6 @@ func persistSynthesizedSignalsFromFacts(
 		if s.Confidence > existing.Confidence {
 			update["confidence"] = s.Confidence
 		}
-		// Always refresh evidence to keep latest facts-based details.
-		update["evidence"] = string(evidenceJSON)
-
 		if err2 := db.WithContext(ctx).
 			Model(&existing).
 			Updates(update).Error; err2 != nil {
@@ -138,7 +131,6 @@ func factIDsForSynthesizedSignal(signalType string, facts []models.RuntimeBehavi
 }
 
 func itoaUint(id uint) string {
-	// small helper to avoid pulling strconv everywhere
 	if id == 0 {
 		return "0"
 	}

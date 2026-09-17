@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
 )
@@ -116,7 +117,8 @@ func GetPodSpecYAML(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetPodSpecYAMLByUID returns the pod specification as YAML by UID.
+// GetPodSpecYAMLByUID returns the pod specification as YAML by the canonical
+// {cluster_id, pod_uid} identity resolved by RequirePodUIDClusterScope.
 func GetPodSpecYAMLByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		podUID := c.Param("uid")
@@ -124,8 +126,13 @@ func GetPodSpecYAMLByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
 		var pod models.Pod
-		if err := db.Where("uid = ?", podUID).First(&pod).Error; err != nil {
+		if err := db.Where("cluster_id = ? AND uid = ?", clusterID, podUID).First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Pod not found"})
 				return
