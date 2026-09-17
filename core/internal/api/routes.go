@@ -63,8 +63,8 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	{
 		agent.POST("/sync", SyncDataFromAgent(db, clusterLimiter))
 		agent.POST("/pod-runtime-metrics", requireScopedPodEvidenceOwnership(db, false), IngestPodRuntimeMetricsPayload(db))
-		agent.POST("/pod-processes", requireScopedPodEvidenceOwnership(db, false), IngestPodProcessesPayload(db))
-		agent.POST("/pod-network-connections", requireScopedPodEvidenceOwnership(db, false), IngestPodNetworkConnectionsPayload(db))
+		agent.POST("/pod-processes", requireScopedPodEvidenceOwnership(db, false), IngestPodProcessesPayloadScoped(db))
+		agent.POST("/pod-network-connections", requireScopedPodEvidenceOwnership(db, false), IngestPodNetworkConnectionsPayloadScoped(db))
 		agent.POST("/pod-events", requireScopedPodEvidenceOwnership(db, true), IngestPodEventsPayload(db))
 	}
 	log.Printf("[API] Agent ingest routes registered: POST /api/v1/agent/sync, pod-runtime-metrics, pod-processes, pod-network-connections, pod-events")
