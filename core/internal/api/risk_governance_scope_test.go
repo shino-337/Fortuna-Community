@@ -31,12 +31,14 @@ func governanceFixture(t *testing.T) (*gorm.DB, func(string, string, string, str
 		for _, row := range []any{
 			&models.Pod{UID: uid, Name: "shared", Namespace: "shared", ClusterID: cluster},
 			&models.PodAttackStep{PodUID: uid, StepID: "escape", Category: "escape", Confidence: float64(i+1)/4},
-			&models.ExceptionPolicy{ResourceUID: uid, CVEID: "CVE-test", InsightType: "vulnerability", Reason: uid},
+			&models.ExceptionPolicy{ClusterID: cluster, ResourceUID: uid, CVEID: "CVE-test", InsightType: "vulnerability", Reason: uid},
 		} {
 			if err := db.Create(row).Error; err != nil { t.Fatal(err) }
 		}
 	}
 	if err := db.Where("uid = ?", "a-history").Delete(&models.Pod{}).Error; err != nil { t.Fatal(err) }
+	// Deliberately retain one legacy unscoped exception. It is visible only to an
+	// unrestricted caller and must never match a cluster-qualified suppression.
 	if err := db.Create(&models.ExceptionPolicy{ResourceUID: "orphan", CVEID: "CVE-test", InsightType: "vulnerability"}).Error; err != nil { t.Fatal(err) }
 	r := gin.New()
 	group := r.Group("/api/v1")
@@ -99,8 +101,10 @@ func TestRiskGovernanceAggregateScope(t *testing.T) {
 func TestRiskExceptionsMutationsRespectOwnership(t *testing.T) {
 	db, request := governanceFixture(t)
 	body := func(uid string) string { return "{\"resourceUid\":\""+uid+"\",\"cveId\":\"CVE-new\",\"insightType\":\"vulnerability\",\"reason\":\"test\"}" }
+	// The ownership resolver deliberately does not disclose whether a UID exists in
+	// another cluster. Both foreign and unknown resources fail before persistence.
 	for _, uid := range []string{"b", "orphan"} {
-		if w := request("POST", "/exceptions", "a", body(uid)); w.Code != 403 { t.Fatalf("create %s: %d %s", uid, w.Code, w.Body) }
+		if w := request("POST", "/exceptions", "a", body(uid)); w.Code != 404 { t.Fatalf("create %s: %d %s", uid, w.Code, w.Body) }
 	}
 	if w := request("DELETE", "/exceptions/2", "a", ""); w.Code != 403 { t.Fatalf("delete foreign: %d", w.Code) }
 	if w := request("DELETE", "/exceptions/not-a-number", "a", ""); w.Code != 400 { t.Fatalf("bad ID: %d", w.Code) }
