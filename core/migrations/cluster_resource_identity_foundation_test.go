@@ -33,6 +33,14 @@ func createClusterIdentityFoundationSchema(t *testing.T, db *gorm.DB, omittedTab
 	if err := db.Exec(`CREATE TABLE pods (uid TEXT NOT NULL, cluster_id TEXT NOT NULL)`).Error; err != nil {
 		t.Fatalf("create pods: %v", err)
 	}
+	if omittedTable != "agents" {
+		if err := db.Exec(`CREATE TABLE agents (id BIGINT, cluster_id TEXT NOT NULL DEFAULT '', agent_id TEXT NOT NULL)`).Error; err != nil {
+			t.Fatalf("create agents: %v", err)
+		}
+		if err := db.Exec(`CREATE UNIQUE INDEX idx_agents_agent_id ON agents(agent_id)`).Error; err != nil {
+			t.Fatalf("create legacy agent index: %v", err)
+		}
+	}
 	for _, target := range clusterOwnedPodTables {
 		if target.table == omittedTable {
 			continue
@@ -59,6 +67,7 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 		`INSERT INTO insights(resource_uid,resource_type) VALUES ('pod-one','Pod'),('pod-dup','Pod'),('pod-one','ServiceAccount')`,
 		`INSERT INTO risk_scores(resource_uid,resource_type) VALUES ('pod-one','pod'),('pod-one','Node')`,
 		`INSERT INTO policy_violations(resource_uid,resource_type) VALUES ('pod-one','Pod')`,
+		`INSERT INTO exception_policies(resource_uid) VALUES ('pod-one'),('pod-dup')`,
 	} {
 		if err := db.Exec(stmt).Error; err != nil {
 			t.Fatalf("setup %q: %v", stmt, err)
@@ -111,6 +120,20 @@ func TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership(t *t
 	assertResourceCluster("risk_scores", "pod", "cluster-a")
 	assertResourceCluster("risk_scores", "Node", "")
 	assertResourceCluster("policy_violations", "Pod", "cluster-a")
+
+	var exceptionOne, exceptionDup sql.NullString
+	if err := db.Table("exception_policies").Select("cluster_id").Where("resource_uid = ?", "pod-one").Scan(&exceptionOne).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Table("exception_policies").Select("cluster_id").Where("resource_uid = ?", "pod-dup").Scan(&exceptionDup).Error; err != nil {
+		t.Fatal(err)
+	}
+	if !exceptionOne.Valid || exceptionOne.String != "cluster-a" {
+		t.Fatalf("exception ownership=%v, want cluster-a", exceptionOne)
+	}
+	if exceptionDup.Valid && exceptionDup.String != "" {
+		t.Fatalf("ambiguous exception ownership was guessed: %q", exceptionDup.String)
+	}
 }
 
 func TestClusterResourceIdentityFoundationFailsClosedWithoutPods(t *testing.T) {
@@ -177,6 +200,21 @@ func TestClusterResourceIdentityFoundationRejectsConflictingExistingOwnership(t 
 	}
 }
 
+func TestClusterResourceIdentityFoundationRejectsAmbiguousLegacyAgentState(t *testing.T) {
+	db := openClusterIdentityTestDB(t)
+	createClusterIdentityFoundationSchema(t, db, "")
+	if err := db.Exec(`DROP INDEX idx_agents_agent_id`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO agents(id,cluster_id,agent_id) VALUES (1,'','shared-agent'),(2,'cluster-a','shared-agent')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	err := EnsureClusterResourceIdentityFoundation(db)
+	if err == nil || !strings.Contains(err.Error(), "ambiguous legacy row") {
+		t.Fatalf("foundation did not reject ambiguous legacy agent state: %v", err)
+	}
+}
+
 func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")
 	if dsn == "" {
@@ -240,11 +278,38 @@ func TestClusterResourceIdentityFoundationPostgres(t *testing.T) {
 		t.Fatalf("postgres ambiguous duplicate UID ownership was guessed: %q", ambiguousOwner.String)
 	}
 
-	var indexCount int64
-	if err := db.Raw(`SELECT COUNT(*) FROM pg_indexes WHERE schemaname = current_schema() AND indexname = ?`, "idx_runtime_events_cluster_pod_uid").Scan(&indexCount).Error; err != nil {
+	valid, exists, err := postgresIndexValidity(db, "idx_runtime_events_cluster_pod_uid")
+	if err != nil || !exists || !valid {
+		t.Fatalf("postgres runtime_events index exists=%v valid=%v err=%v", exists, valid, err)
+	}
+
+	// Reproduce PostgreSQL's interrupted/failed CREATE INDEX CONCURRENTLY state:
+	// a failed unique build leaves an INVALID index object. ensureIndex must remove
+	// and rebuild it rather than accepting IF NOT EXISTS.
+	if err := db.Exec(`CREATE TABLE invalid_index_probe (v TEXT)`).Error; err != nil {
 		t.Fatal(err)
 	}
-	if indexCount != 1 {
-		t.Fatalf("postgres cluster-qualified runtime_events index count=%d, want 1", indexCount)
+	if err := db.Exec(`INSERT INTO invalid_index_probe(v) VALUES ('dup'),('dup')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`CREATE UNIQUE INDEX CONCURRENTLY idx_invalid_probe ON invalid_index_probe(v)`).Error; err == nil {
+		t.Fatal("expected duplicate data to fail concurrent unique index build")
+	}
+	valid, exists, err = postgresIndexValidity(db, "idx_invalid_probe")
+	if err != nil || !exists || valid {
+		t.Fatalf("expected invalid postgres index after failed concurrent build: exists=%v valid=%v err=%v", exists, valid, err)
+	}
+	if err := db.Exec(`TRUNCATE invalid_index_probe`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Exec(`INSERT INTO invalid_index_probe(v) VALUES ('ok')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := ensureIndex(db, "idx_invalid_probe", "invalid_index_probe", "v", true); err != nil {
+		t.Fatalf("recover invalid postgres index: %v", err)
+	}
+	valid, exists, err = postgresIndexValidity(db, "idx_invalid_probe")
+	if err != nil || !exists || !valid {
+		t.Fatalf("recovered postgres index exists=%v valid=%v err=%v", exists, valid, err)
 	}
 }
