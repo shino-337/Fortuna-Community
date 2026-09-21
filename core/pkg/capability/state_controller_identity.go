@@ -134,7 +134,7 @@ func (csc *CapabilityStateController) promoteCapabilityForIdentityTx(ctx context
 		if len(rule.RequiredCapabilities) > 0 {
 			var requiredCount int64
 			if err := txDB.Model(&models.PodCapability{}).
-				Where("cluster_id = ? AND pod_uid = ? AND capability_id = ANY(?)", id.ClusterID, id.ResourceUID, pq.Array(rule.RequiredCapabilities)).
+				Where("cluster_id = ? AND pod_uid = ? AND capability_id IN ?", id.ClusterID, id.ResourceUID, rule.RequiredCapabilities).
 				Count(&requiredCount).Error; err != nil {
 				return false, err
 			}
