@@ -13,6 +13,7 @@ import (
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/rbac"
 	"github.com/fortuna/core/pkg/riskengine"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -35,12 +36,17 @@ func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod, exp
 		return nil
 	}
 
+	id, err := resourceidentity.New(pod.ClusterID, pod.UID)
+	if err != nil {
+		return fmt.Errorf("invalid pod identity: %w", err)
+	}
+
 	// Check if pod instance is active (if pod_instances table exists)
 	var isActive bool
 	if db.Migrator().HasTable(&models.PodInstance{}) {
 		var count int64
 		db.Model(&models.PodInstance{}).
-			Where("pod_uid = ? AND status = ?", pod.UID, "active").
+			Where("cluster_id = ? AND pod_uid = ? AND status = ?", id.ClusterID, id.ResourceUID, "active").
 			Count(&count)
 		isActive = count > 0
 	} else {
@@ -83,7 +89,7 @@ func EvaluateAndUpsertPod(ctx context.Context, db *gorm.DB, pod *models.Pod, exp
 
 	// Phase 2.2 + Layer 3 orchestration:
 	// Centralized orchestrator now rebuilds Layer 3 and refreshes V3 score.
-	ScheduleAttackPathRebuild(db, pod.UID)
+	ScheduleAttackPathRebuildForIdentity(db, id)
 
 	// Only set last_evaluated_hash when spec_hash still matches (atomic; avoids overwriting after newer sync)
 	if expectedSpecHash != "" {
@@ -101,7 +107,7 @@ func EvaluateAllPods(ctx context.Context, db *gorm.DB) error {
 	// Filter by active pod instances if table exists
 	if db.Migrator().HasTable(&models.PodInstance{}) {
 		if err := db.Table("pods").
-			Joins("INNER JOIN pod_instances ON pods.uid = pod_instances.pod_uid").
+			Joins("INNER JOIN pod_instances ON pods.cluster_id = pod_instances.cluster_id AND pods.uid = pod_instances.pod_uid").
 			Where("pods.deleted_at IS NULL AND pod_instances.status = ?", "active").
 			Find(&pods).Error; err != nil {
 			return err
@@ -125,16 +131,20 @@ func EvaluateAllPods(ctx context.Context, db *gorm.DB) error {
 }
 
 func syncPodCapabilities(ctx context.Context, db *gorm.DB, pod *models.Pod, caps []Capability) error {
+	id, err := resourceidentity.New(pod.ClusterID, pod.UID)
+	if err != nil {
+		return err
+	}
 	csc := NewCapabilityStateController(db)
 	capIDs := make([]string, 0, len(caps))
 	for _, c := range caps {
 		capIDs = append(capIDs, c.ID)
-		if err := csc.InitializeCapability(ctx, pod.UID, pod.Namespace, c.ID, c.Group, c.Severity, c.Evidence); err != nil {
+		if err := csc.InitializeCapabilityForIdentity(ctx, id, pod.Namespace, c.ID, c.Group, c.Severity, c.Evidence); err != nil {
 			log.Printf("[PCE] Failed to initialize capability %s for pod %s/%s: %v", c.ID, pod.Namespace, pod.Name, err)
 		}
 	}
 
-	staleQuery := db.WithContext(ctx).Where("pod_uid = ?", pod.UID)
+	staleQuery := db.WithContext(ctx).Where("cluster_id = ? AND pod_uid = ?", pod.ClusterID, pod.UID)
 	if len(capIDs) > 0 {
 		staleQuery = staleQuery.Where("capability_id NOT IN ?", capIDs)
 	}
@@ -196,6 +206,7 @@ func syncCapabilityInsights(ctx context.Context, db *gorm.DB, pod *models.Pod, c
 		}
 
 		insight := &models.Insight{
+			ClusterID:         pod.ClusterID,
 			ResourceType:      "Pod",
 			ResourceNamespace: pod.Namespace,
 			ResourceName:      pod.Name,
@@ -217,15 +228,15 @@ func syncCapabilityInsights(ctx context.Context, db *gorm.DB, pod *models.Pod, c
 			// so multiple capability insights per pod are allowed (one per capability ID).
 			CVEID: c.ID,
 		}
-		if err := insightMgr.CreateOrUpdateInsight(insight); err != nil {
+		if err := insightMgr.CreateOrUpdatePodInsight(insight); err != nil {
 			return fmt.Errorf("create/update capability insight for %s on pod %s: %w", c.ID, pod.UID, err)
 		}
 	}
 
 	resolveQuery := db.WithContext(ctx).
 		Model(&models.Insight{}).
-		Where("resource_uid = ? AND insight_type = ? AND deleted_at IS NULL AND (status = ? OR status IS NULL)",
-			pod.UID, "capability", "active")
+		Where("cluster_id = ? AND resource_uid = ? AND insight_type = ? AND deleted_at IS NULL AND (status = ? OR status IS NULL)",
+			pod.ClusterID, pod.UID, "capability", "active")
 	if len(activeTitles) > 0 {
 		resolveQuery = resolveQuery.Where("title NOT IN ?", activeTitles)
 	}
