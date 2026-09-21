@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -25,6 +26,7 @@ func TestGetPodCapabilities_ClassFilter(t *testing.T) {
 		t.Fatalf("seed pod: %v", err)
 	}
 	if err := db.Create(&models.PodCapability{
+		ClusterID:       "c1",
 		PodUID:          "pod-cap-ui-1",
 		Namespace:       "default",
 		CapabilityID:    "ESC_RUNTIME_ACTIVE",
@@ -58,8 +60,8 @@ func TestGetPodCapabilities_ClassFilter(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := gin.New()
-			r.GET("/api/v1/inventory/pods/:uid/capabilities", GetPodCapabilities(db))
-			r.GET("/api/v2/runtime/pods/:uid/capabilities", GetPodCapabilities(db))
+			r.GET("/api/v1/inventory/pods/:uid/capabilities", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodCapabilitiesScoped(db))
+			r.GET("/api/v2/runtime/pods/:uid/capabilities", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodCapabilitiesScoped(db))
 
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodGet, tc.path, nil)
