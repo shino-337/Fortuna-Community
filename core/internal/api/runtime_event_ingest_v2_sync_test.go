@@ -20,13 +20,14 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
-	r.POST("/api/v2/runtime/events", PostRuntimeEventsV2(db))
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
+	if err := db.Create(&models.Pod{UID: "pod-v2-1", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-1",
 		"observed_at":      "2026-03-26T00:00:00Z",
@@ -79,13 +80,14 @@ func TestPostRuntimeEventsV2_AcceptsFlattenedSourceFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
-	r.POST("/api/v2/runtime/events", PostRuntimeEventsV2(db))
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
+	if err := db.Create(&models.Pod{UID: "pod-v2-2", ClusterID: "c1", Namespace: "ns", Name: "demo2"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-2",
 		"observed_at":      "2026-03-26T00:00:00Z",
@@ -136,13 +138,14 @@ func TestPostRuntimeEventsV2_PreservesPartialResolutionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
-	r.POST("/api/v2/runtime/events", PostRuntimeEventsV2(db))
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
+	if err := db.Create(&models.Pod{UID: "pod-v2-3", ClusterID: "c1", Namespace: "ns", Name: "demo3"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-3",
 		"observed_at":      "2026-03-26T01:00:00Z",
