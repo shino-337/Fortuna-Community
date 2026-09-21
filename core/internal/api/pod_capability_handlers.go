@@ -32,27 +32,7 @@ func hasPodCapabilitiesTable(db *gorm.DB) bool {
 	return db.Migrator().HasTable("pod_capabilities")
 }
 
-func getPodCapabilitiesByUID(c *gin.Context, db *gorm.DB, podUID string) {
-	if !hasPodCapabilitiesTable(db) {
-		c.JSON(http.StatusOK, gin.H{"podUid": podUID, "capabilities": []PodCapabilityDTO{}, "total": 0})
-		return
-	}
-	q := db.Where("pod_uid = ?", podUID)
-	if class := c.Query("class"); class != "" {
-		q = q.Where("capability_class = ?", class)
-	}
-	var caps []models.PodCapability
-	if err := q.Order("created_at DESC").Find(&caps).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return
-	}
-	dtos := mapPodCapabilities(caps)
-	c.JSON(http.StatusOK, gin.H{
-		"podUid":       podUID,
-		"capabilities": dtos,
-		"total":        len(dtos),
-	})
-}
+
 
 // GetPodCapabilities returns capabilities for a specific pod (by UID). Used by /pods/:podUid/capabilities.
 // GetPodCapabilities is retained only for source compatibility.
