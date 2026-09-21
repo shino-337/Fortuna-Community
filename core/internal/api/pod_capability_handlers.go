@@ -55,16 +55,10 @@ func getPodCapabilitiesByUID(c *gin.Context, db *gorm.DB, podUID string) {
 }
 
 // GetPodCapabilities returns capabilities for a specific pod (by UID). Used by /pods/:podUid/capabilities.
-func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		podUID := c.Param("uid")
-		if podUID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
-			return
-		}
-		getPodCapabilitiesByUID(c, db, podUID)
-	}
-}
+// GetPodCapabilities is retained only for source compatibility.
+// Production routes must use GetPodCapabilitiesScoped and CI rejects legacy registration.
+func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc { return GetPodCapabilitiesScoped(db) }
+
 
 // GetPodCapabilitiesList returns paginated pod capabilities with filters.
 func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
