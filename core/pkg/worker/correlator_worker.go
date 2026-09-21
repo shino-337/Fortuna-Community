@@ -17,6 +17,7 @@ import (
 
 	"github.com/fortuna/core/pkg/lifecycle"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 // CorrelatorWorker builds relationships between resources
@@ -26,7 +27,7 @@ type CorrelatorWorker struct {
 	graphEngine interface{} // AgeGraphEngine interface (optional, for dual-write)
 	k8sClient   kubernetes.Interface
 	// Layer 2: Cache validation results (1 min)
-	validationCache map[string]time.Time // uid -> validation time
+	validationCache map[string]time.Time // canonical cluster/pod key -> validation time
 	cacheMutex       sync.RWMutex
 }
 
@@ -118,9 +119,13 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 			log.Printf("[CorrelatorWorker] DELETE event missing UID, skipping")
 			return nil
 		}
+		id, err := resourceidentity.New(clusterID, uid)
+		if err != nil {
+			return fmt.Errorf("invalid pod identity on delete: %w", err)
+		}
 		
 		// Soft delete pod
-		result := w.db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", uid).Update("deleted_at", time.Now())
+		result := w.db.Model(&models.Pod{}).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", id.ClusterID, id.ResourceUID).Update("deleted_at", time.Now())
 		if result.Error != nil {
 			return fmt.Errorf("failed to soft delete pod: %w", result.Error)
 		}
@@ -128,7 +133,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 		// Terminate pod instance if pod_instances table exists
 		if w.db.Migrator().HasTable(&models.PodInstance{}) {
 			lifecycleManager := lifecycle.NewPodInstanceManager(w.db)
-			if err := lifecycleManager.TerminateInstance(context.Background(), uid); err != nil {
+			if err := lifecycleManager.TerminateInstanceForIdentity(context.Background(), id); err != nil {
 				log.Printf("[CorrelatorWorker] Failed to terminate pod instance %s: %v", uid, err)
 			} else {
 				log.Printf("[CorrelatorWorker] Terminated pod instance %s/%s (UID: %s)", namespace, name, uid)
@@ -137,7 +142,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Delete PCE data (pod_capabilities) for this pod so counts stay correct
 		if w.db.Migrator().HasTable(&models.PodCapability{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodCapability{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.PodCapability{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to delete pod_capabilities for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Deleted %d pod_capabilities for pod %s/%s (UID: %s)", del.RowsAffected, namespace, name, uid)
@@ -146,7 +151,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Delete risk profile for this pod
 		if w.db.Migrator().HasTable(&models.PodRiskProfile{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodRiskProfile{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.PodRiskProfile{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to delete pod_risk_profiles for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Deleted %d pod_risk_profiles for pod %s/%s", del.RowsAffected, namespace, name)
@@ -155,7 +160,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Soft-delete insights for this pod (resource_uid = pod UID)
 		if w.db.Migrator().HasTable(&models.Insight{}) {
-			if del := w.db.Where("resource_type = ? AND resource_uid = ?", "Pod", uid).Delete(&models.Insight{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND resource_type = ? AND resource_uid = ?", id.ClusterID, "Pod", id.ResourceUID).Delete(&models.Insight{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to soft-delete insights for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Soft-deleted %d insights for pod %s/%s", del.RowsAffected, namespace, name)
@@ -164,7 +169,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Soft-delete CVE matches (per-pod) so CVE/SBOM counts stay correct
 		if w.db.Migrator().HasTable(&models.CVEMatch{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.CVEMatch{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.CVEMatch{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to soft-delete cve_matches for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Soft-deleted %d cve_matches for pod %s/%s", del.RowsAffected, namespace, name)
@@ -173,7 +178,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Soft-delete SBOMs for this pod
 		if w.db.Migrator().HasTable(&models.SBOM{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.SBOM{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.SBOM{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to soft-delete sboms for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Soft-deleted %d sboms for pod %s/%s", del.RowsAffected, namespace, name)
@@ -182,21 +187,21 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Delete runtime-related rows (no soft-delete on these tables)
 		if w.db.Migrator().HasTable(&models.RuntimeSignal{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.RuntimeSignal{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.RuntimeSignal{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to delete runtime_signals for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Deleted %d runtime_signals for pod %s/%s", del.RowsAffected, namespace, name)
 			}
 		}
 		if w.db.Migrator().HasTable(&models.PodAttackStep{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodAttackStep{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.PodAttackStep{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to delete pod_attack_steps for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Deleted %d pod_attack_steps for pod %s/%s", del.RowsAffected, namespace, name)
 			}
 		}
 		if w.db.Migrator().HasTable(&models.RuntimeEvent{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.RuntimeEvent{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.RuntimeEvent{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to delete runtime_events for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Deleted %d runtime_events for pod %s/%s", del.RowsAffected, namespace, name)
@@ -205,7 +210,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 
 		// Soft-delete pod_image_scans for this pod
 		if w.db.Migrator().HasTable(&models.PodImageScan{}) {
-			if del := w.db.Where("pod_uid = ?", uid).Delete(&models.PodImageScan{}); del.Error != nil {
+			if del := w.db.Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).Delete(&models.PodImageScan{}); del.Error != nil {
 				log.Printf("[CorrelatorWorker] Failed to soft-delete pod_image_scans for pod %s: %v", uid, del.Error)
 			} else if del.RowsAffected > 0 {
 				log.Printf("[CorrelatorWorker] Soft-deleted %d pod_image_scans for pod %s/%s", del.RowsAffected, namespace, name)
@@ -227,6 +232,10 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 	name, _ := data["name"].(string)
 	namespace, _ := data["namespace"].(string)
 	rawJSON, _ := data["raw_json"].(string)
+	id, err := resourceidentity.New(clusterID, uid)
+	if err != nil {
+		return fmt.Errorf("invalid pod identity: %w", err)
+	}
 
 	// Parse raw JSON to extract service account
 	var k8sPod map[string]interface{}
@@ -287,7 +296,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 	// Use raw SQL with jsonb cast to avoid GORM encoding issues
 	// Check if pod exists (only active pods, not soft-deleted)
 	var existingPod models.Pod
-	exists := w.db.Where("uid = ? AND deleted_at IS NULL", uid).First(&existingPod).Error == nil
+	exists := w.db.Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", id.ClusterID, id.ResourceUID).First(&existingPod).Error == nil
 
 	if exists {
 		// Update existing pod using raw SQL for jsonb field
@@ -298,19 +307,19 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 			service_account = ?, 
 			containers = ?::jsonb,
 			updated_at = ?
-			WHERE uid = ? AND deleted_at IS NULL`
-		if err := w.db.Exec(updateSQL, clusterID, name, namespace, serviceAccountName, containersJSON, time.Now(), uid).Error; err != nil {
+			WHERE cluster_id = ? AND uid = ? AND deleted_at IS NULL`
+		if err := w.db.Exec(updateSQL, id.ClusterID, name, namespace, serviceAccountName, containersJSON, time.Now(), id.ClusterID, id.ResourceUID).Error; err != nil {
 			return fmt.Errorf("failed to update pod: %w", err)
 		}
 	} else {
 		// Check if pod was soft-deleted - only restore if it's recent (within last hour)
 		// This prevents restoring old deleted pods from NATS stream
 		var deletedPod models.Pod
-		deletedExists := w.db.Unscoped().Where("uid = ? AND deleted_at IS NOT NULL AND deleted_at > NOW() - INTERVAL '1 hour'", uid).First(&deletedPod).Error == nil
+		deletedExists := w.db.Unscoped().Where("cluster_id = ? AND uid = ? AND deleted_at IS NOT NULL AND deleted_at > NOW() - INTERVAL '1 hour'", id.ClusterID, id.ResourceUID).First(&deletedPod).Error == nil
 		
 		if deletedExists {
 			// Layer 2: Validate pod exists in K8s before restoring
-			if w.validatePodExists(namespace, name, uid) {
+			if w.validatePodExists(id.ClusterID, namespace, name, id.ResourceUID) {
 				// Restore recently soft-deleted pod (likely just deleted, now back in K8s)
 				restoreSQL := `UPDATE pods SET 
 					cluster_id = ?, 
@@ -320,8 +329,8 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 					containers = ?::jsonb,
 					deleted_at = NULL,
 					updated_at = ?
-					WHERE uid = ?`
-				if err := w.db.Exec(restoreSQL, clusterID, name, namespace, serviceAccountName, containersJSON, time.Now(), uid).Error; err != nil {
+					WHERE cluster_id = ? AND uid = ?`
+				if err := w.db.Exec(restoreSQL, id.ClusterID, name, namespace, serviceAccountName, containersJSON, time.Now(), id.ClusterID, id.ResourceUID).Error; err != nil {
 					return fmt.Errorf("failed to restore pod: %w", err)
 				}
 				log.Printf("[CorrelatorWorker] Restored recently soft-deleted pod: %s/%s", namespace, name)
@@ -330,7 +339,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 			}
 		} else {
 			// Layer 2: Validate pod exists in K8s before creating
-			if !w.validatePodExists(namespace, name, uid) {
+			if !w.validatePodExists(id.ClusterID, namespace, name, id.ResourceUID) {
 				log.Printf("[CorrelatorWorker] Skipped creating pod %s/%s (not found in K8s - likely ghost pod from old NATS message)", namespace, name)
 				return nil // Skip creating ghost pods
 			}
@@ -594,15 +603,16 @@ func (w *CorrelatorWorker) Name() string {
 
 // validatePodExists validates if a pod exists in Kubernetes (Layer 2: Real-time Validation)
 // Uses cache to avoid excessive K8s API calls (1 min cache)
-func (w *CorrelatorWorker) validatePodExists(namespace, name, uid string) bool {
+func (w *CorrelatorWorker) validatePodExists(clusterID, namespace, name, uid string) bool {
 	// If no K8s client, skip validation (for development/testing)
 	if w.k8sClient == nil {
 		return true // Allow if validation disabled
 	}
 
-	// Layer 2: Check cache first (1 min TTL)
+	// Layer 2: Check cache first (1 min TTL). Never share a validation cache entry across clusters.
+	cacheKey := clusterID + "\x00" + uid
 	w.cacheMutex.RLock()
-	cachedTime, cached := w.validationCache[uid]
+	cachedTime, cached := w.validationCache[cacheKey]
 	w.cacheMutex.RUnlock()
 
 	if cached && time.Since(cachedTime) < 1*time.Minute {
@@ -621,7 +631,7 @@ func (w *CorrelatorWorker) validatePodExists(namespace, name, uid string) bool {
 		
 		// Cache negative result (shorter TTL - 30 seconds)
 		w.cacheMutex.Lock()
-		w.validationCache[uid] = time.Now()
+		w.validationCache[cacheKey] = time.Now()
 		w.cacheMutex.Unlock()
 		
 		return false
@@ -636,7 +646,7 @@ func (w *CorrelatorWorker) validatePodExists(namespace, name, uid string) bool {
 
 	// Valid pod - cache result
 	w.cacheMutex.Lock()
-	w.validationCache[uid] = time.Now()
+	w.validationCache[cacheKey] = time.Now()
 	w.cacheMutex.Unlock()
 
 	return true

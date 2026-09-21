@@ -32,7 +32,7 @@ func TestGetInsightsList_WithScores_Empty(t *testing.T) {
 	db := setupRisksListTestDB(t)
 	now := time.Now()
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "Test", Description: "Desc",
 		Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
@@ -49,7 +49,7 @@ func TestGetInsightsList_WithScores_Empty(t *testing.T) {
 	}
 	var out struct {
 		Insights []map[string]interface{} `json:"insights"`
-		Total    int                     `json:"total"`
+		Total    int                      `json:"total"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("parse json: %v", err)
@@ -67,7 +67,7 @@ func TestGetInsightsList_WithScores_IncludesScore(t *testing.T) {
 	db := setupRisksListTestDB(t)
 	now := time.Now()
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "Test", Description: "Desc",
 		Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
@@ -88,14 +88,14 @@ func TestGetInsightsList_WithScores_IncludesScore(t *testing.T) {
 	}
 	var out struct {
 		Insights []struct {
-			TotalScore           *float64 `json:"totalScore"`
-			SeverityHint         string   `json:"severity_hint"`
-			FinalScore           *float64 `json:"final_score"`
-			FinalLevel           string   `json:"final_level"`
-			ExploitabilityScore  *float64 `json:"exploitabilityScore"`
-			BusinessImpactScore  *float64 `json:"businessImpactScore"`
-			TimeDecay            *float64 `json:"timeDecay"`
-			Title                string   `json:"title"`
+			TotalScore          *float64 `json:"totalScore"`
+			SeverityHint        string   `json:"severity_hint"`
+			FinalScore          *float64 `json:"final_score"`
+			FinalLevel          string   `json:"final_level"`
+			ExploitabilityScore *float64 `json:"exploitabilityScore"`
+			BusinessImpactScore *float64 `json:"businessImpactScore"`
+			TimeDecay           *float64 `json:"timeDecay"`
+			Title               string   `json:"title"`
 		} `json:"insights"`
 		Total int `json:"total"`
 	}
@@ -133,7 +133,7 @@ func TestGetInsightsList_WithScores_NoMatchingScore(t *testing.T) {
 	db := setupRisksListTestDB(t)
 	now := time.Now()
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "Test", Description: "Desc",
 		Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
@@ -155,13 +155,13 @@ func TestGetInsightsList_WithScores_NoMatchingScore(t *testing.T) {
 	}
 	var out struct {
 		Insights []struct {
-			TotalScore           *float64 `json:"totalScore"`
-			SeverityHint         string   `json:"severity_hint"`
-			FinalScore           *float64 `json:"final_score"`
-			FinalLevel           string   `json:"final_level"`
-			ExploitabilityScore  *float64 `json:"exploitabilityScore"`
-			BusinessImpactScore  *float64 `json:"businessImpactScore"`
-			TimeDecay            *float64 `json:"timeDecay"`
+			TotalScore          *float64 `json:"totalScore"`
+			SeverityHint        string   `json:"severity_hint"`
+			FinalScore          *float64 `json:"final_score"`
+			FinalLevel          string   `json:"final_level"`
+			ExploitabilityScore *float64 `json:"exploitabilityScore"`
+			BusinessImpactScore *float64 `json:"businessImpactScore"`
+			TimeDecay           *float64 `json:"timeDecay"`
 		} `json:"insights"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
@@ -198,7 +198,7 @@ func TestGetInsightsList_WithScores_UsesV3(t *testing.T) {
 	db := setupRisksListTestDB(t)
 	now := time.Now()
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "Test", Description: "Desc",
 		Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
@@ -220,8 +220,8 @@ func TestGetInsightsList_WithScores_UsesV3(t *testing.T) {
 	}
 	var out struct {
 		Insights []struct {
-			TotalScore  *float64 `json:"totalScore"`
-			FinalLevel  string   `json:"final_level"`
+			TotalScore *float64 `json:"totalScore"`
+			FinalLevel string   `json:"final_level"`
 		} `json:"insights"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
@@ -242,12 +242,12 @@ func TestGetInsightsList_ScoreBinFiltersByPreferredScore(t *testing.T) {
 	_ = db.Create(&models.Pod{UID: "pod-2", Name: "p2", Namespace: "default", ClusterID: "c1"}).Error
 
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "A", Description: "D",
 		CVEID: "CVE-2024-1", Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-2", ResourceName: "p2", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-2", ResourceName: "p2", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "medium", Title: "B", Description: "D",
 		CVEID: "CVE-2024-2", Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
@@ -273,7 +273,7 @@ func TestGetInsightsList_ScoreBinFiltersByPreferredScore(t *testing.T) {
 	}
 	var out struct {
 		Insights []json.RawMessage `json:"insights"`
-		Total      int64             `json:"total"`
+		Total    int64             `json:"total"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
 		t.Fatalf("parse json: %v", err)
@@ -290,12 +290,12 @@ func TestGetInsightsList_View_Group(t *testing.T) {
 	_ = db.Create(&models.Pod{UID: "pod-2", Name: "p2", Namespace: "default", ClusterID: "c1"}).Error
 
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "Same CVE", Description: "D",
 		CVEID: "CVE-2024-999", Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-2", ResourceName: "p2", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-2", ResourceName: "p2", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "medium", Title: "Same CVE other pod", Description: "D",
 		CVEID: "CVE-2024-999", Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error

@@ -121,8 +121,8 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		// De-dup: if this pod/container/image already linked to an SBOM, skip event
 		var existing models.PodImageScan
 		if err := w.db.WithContext(ctx).
-			Where("pod_uid = ? AND container_name = ? AND container_image = ? AND sbom_id IS NOT NULL AND deleted_at IS NULL",
-				podUID, c.name, imageRef).
+			Where("cluster_id = ? AND pod_uid = ? AND container_name = ? AND container_image = ? AND sbom_id IS NOT NULL AND deleted_at IS NULL",
+				clusterID, podUID, c.name, imageRef).
 			First(&existing).Error; err == nil {
 			continue
 		}

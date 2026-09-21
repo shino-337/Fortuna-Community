@@ -88,7 +88,7 @@ func assertNoRuntimeEvents(t *testing.T, db *gorm.DB) {
 
 func TestRuntimeRegisteredRoutesRequireScopedIdentityAndOwnership(t *testing.T) {
 	h := newRuntimeRouteHarness(t, true)
-	for _, route := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+	for _, route := range []string{"/api/v2/runtime/events"} {
 		t.Run(strings.ReplaceAll(route, "/", "_"), func(t *testing.T) {
 			validForA := `[{"pod":{"uid":"pod-a","namespace":"team-a"},"syscall":"execve","confidence":1}]`
 			if w := h.post(t, route, h.legacyToken, validForA); w.Code != http.StatusUnauthorized {
@@ -110,7 +110,7 @@ func TestRuntimeRegisteredRoutesRejectMixedBatchBeforeEffects(t *testing.T) {
 		`{"pod":{"uid":"pod-a","namespace":"team-a"},"syscall":"execve","confidence":1},` +
 		`{"pod":{"uid":"pod-b","namespace":"team-b"},"syscall":"connect","confidence":1}]`
 
-	for _, route := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+	for _, route := range []string{"/api/v2/runtime/events"} {
 		t.Run(strings.ReplaceAll(route, "/", "_"), func(t *testing.T) {
 			if w := h.post(t, route, h.scopedToken, mixed); w.Code != http.StatusForbidden {
 				t.Fatalf("mixed cluster batch was not rejected on %s: %d %s", route, w.Code, w.Body.String())
@@ -142,7 +142,7 @@ func TestRuntimeRegisteredRoutesApplyRevocationAndRegistryFailureImmediately(t *
 	if err := os.WriteFile(h.registry, updated, 0600); err != nil {
 		t.Fatal(err)
 	}
-	if w := h.post(t, "/api/v1/runtime/events", h.scopedToken, body); w.Code != http.StatusUnauthorized {
+	if w := h.post(t, "/api/v2/runtime/events", h.scopedToken, body); w.Code != http.StatusUnauthorized {
 		t.Fatalf("revoked runtime credential accepted: %d %s", w.Code, w.Body.String())
 	}
 	assertNoRuntimeEvents(t, h.db)
@@ -162,7 +162,7 @@ func TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode(t *testing.T) {
 	// intentionally preserves compatibility. The handler receives an event that
 	// lacks syscall and therefore performs no write while proving route reachability.
 	body := `[{"pod":{"uid":"pod-b","namespace":"team-b"}}]`
-	for _, route := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+	for _, route := range []string{"/api/v2/runtime/events"} {
 		if w := h.post(t, route, h.legacyToken, body); w.Code != http.StatusOK {
 			t.Fatalf("legacy runtime mode unexpectedly rejected on %s: %d %s", route, w.Code, w.Body.String())
 		}

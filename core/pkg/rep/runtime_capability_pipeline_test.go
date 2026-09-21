@@ -46,6 +46,9 @@ func TestProcessRuntimeEvent_RuntimeFirstCapabilityInitAndPromotion(t *testing.T
 
 	podUID := "capability-runtime-first-pod-1"
 	ns := "ns"
+	if err := db.Create(&models.Pod{ClusterID: "c1", UID: podUID, Name: "p", Namespace: ns}).Error; err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 
 	// /proc/1/root with open syscall maps to PROC_ROOT_PIVOT (score 90 -> ESC_RUNTIME_ACTIVE).

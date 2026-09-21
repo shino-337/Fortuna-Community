@@ -119,156 +119,125 @@ func orphanGracePeriod() time.Duration {
 	return defaultOrphanGracePeriod
 }
 
+func podIdentityKey(clusterID, podUID string) string {
+	return strings.TrimSpace(clusterID) + "\x00" + strings.TrimSpace(podUID)
+}
+
 // cleanupOrphanedSBOMs soft-deletes SBOMs for pods that have been deleted (or missing for too long)
 // Only treats SBOM as orphaned when: (1) pod exists in DB and is soft-deleted, or
 // (2) pod is not in DB at all AND SBOM is older than orphanGracePeriod (avoids deleting SBOM when pod sync simply hasn't arrived yet)
 func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *ReconciliationStats) error {
-	// Find all active SBOMs (non-deleted), need created_at for grace period
 	var activeSBOMs []models.SBOM
 	if err := r.db.WithContext(ctx).
 		Where("deleted_at IS NULL").
-		Select("id, pod_uid, pod_name, namespace, created_at").
+		Select("id, cluster_id, pod_uid, pod_name, namespace, image_name, image_tag, created_at").
 		Find(&activeSBOMs).Error; err != nil {
 		return fmt.Errorf("query active SBOMs: %w", err)
 	}
-
 	stats.TotalSBOMs = len(activeSBOMs)
-
 	if len(activeSBOMs) == 0 {
 		return nil
 	}
 
-	// Collect pod_uid -> sbom (id + created_at)
-	type sbomInfo struct {
-		id        uint
-		createdAt time.Time
-	}
-	sbomByPodUID := make(map[string]sbomInfo)
-	for _, sbom := range activeSBOMs {
-		if sbom.PodUID != "" {
-			sbomByPodUID[sbom.PodUID] = sbomInfo{id: sbom.ID, createdAt: sbom.CreatedAt}
-		}
-	}
-	podUIDs := make([]string, 0, len(sbomByPodUID))
-	for uid := range sbomByPodUID {
-		podUIDs = append(podUIDs, uid)
-	}
-
-	// Check if pods table exists first
-	var tableExists bool
-	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
-		return fmt.Errorf("check pods table: %w", err)
-	}
-
-	var orphanedSBOMIDs []uint
+	tableExists := r.db.Migrator().HasTable(&models.Pod{})
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping orphan SBOM cleanup")
-		stats.OrphanedSBOMs = 0
 		return nil
 	}
 
-	// Active pod UIDs
-	var existingPods []models.Pod
+	var activePods []models.Pod
 	if err := r.db.WithContext(ctx).
-		Where("uid IN ? AND deleted_at IS NULL", podUIDs).
-		Select("uid").
-		Find(&existingPods).Error; err != nil {
-		return fmt.Errorf("query existing pods: %w", err)
+		Select("cluster_id, uid").
+		Where("deleted_at IS NULL").
+		Find(&activePods).Error; err != nil {
+		return fmt.Errorf("query active pods: %w", err)
 	}
-	existingPodUIDs := make(map[string]bool)
-	for _, pod := range existingPods {
-		existingPodUIDs[pod.UID] = true
+	activeKeys := make(map[string]struct{}, len(activePods))
+	for _, pod := range activePods {
+		activeKeys[podIdentityKey(pod.ClusterID, pod.UID)] = struct{}{}
 	}
 
-	// Pods that exist but are soft-deleted (explicitly deleted → SBOM can be removed)
-	var deletedPods []struct{ UID string }
+	var deletedPods []models.Pod
 	if err := r.db.WithContext(ctx).Unscoped().
-		Where("uid IN ? AND deleted_at IS NOT NULL", podUIDs).
-		Model(&models.Pod{}).
-		Select("uid").
+		Select("cluster_id, uid").
+		Where("deleted_at IS NOT NULL").
 		Find(&deletedPods).Error; err != nil {
 		return fmt.Errorf("query deleted pods: %w", err)
 	}
-	deletedPodUIDs := make(map[string]bool)
-	for _, p := range deletedPods {
-		deletedPodUIDs[p.UID] = true
+	deletedKeys := make(map[string]struct{}, len(deletedPods))
+	for _, pod := range deletedPods {
+		deletedKeys[podIdentityKey(pod.ClusterID, pod.UID)] = struct{}{}
 	}
 
 	now := time.Now()
-	orphanedSBOMIDs = make([]uint, 0)
-	for podUID, info := range sbomByPodUID {
-		if existingPodUIDs[podUID] {
-			continue // pod is active, keep SBOM
+	orphanedSBOMIDs := make([]uint, 0)
+	reasonByID := make(map[uint]string)
+	for _, sbom := range activeSBOMs {
+		if strings.TrimSpace(sbom.ClusterID) == "" || strings.TrimSpace(sbom.PodUID) == "" {
+			r.logger.Printf("Keep unresolved SBOM id=%d: ownership remediation required", sbom.ID)
+			continue // ambiguity is not proof that the workload was deleted
 		}
-		if deletedPodUIDs[podUID] {
-			// Pod was explicitly soft-deleted → SBOM is orphaned
-			orphanedSBOMIDs = append(orphanedSBOMIDs, info.id)
+		key := podIdentityKey(sbom.ClusterID, sbom.PodUID)
+		if _, ok := activeKeys[key]; ok {
 			continue
 		}
-		// Pod not in DB at all: avoid race with pod sync — only treat as orphan if SBOM is old enough
-		if now.Sub(info.createdAt) > orphanGracePeriod() {
-			// Keep SBOM if runtime security evidence still references this pod UID.
-			if keep, reason, err := r.hasRuntimeSecurityEvidence(ctx, podUID); err == nil && keep {
-				r.logger.Printf("⏭️  Keep SBOM id=%d pod_uid=%s due to %s evidence", info.id, podUID, reason)
-				continue
-			}
-			orphanedSBOMIDs = append(orphanedSBOMIDs, info.id)
+		if _, ok := deletedKeys[key]; ok {
+			orphanedSBOMIDs = append(orphanedSBOMIDs, sbom.ID)
+			reasonByID[sbom.ID] = "pod_deleted"
+			continue
 		}
+		if now.Sub(sbom.CreatedAt) <= orphanGracePeriod() {
+			continue
+		}
+		keep, reason, err := r.hasRuntimeSecurityEvidence(ctx, sbom.ClusterID, sbom.PodUID)
+		if err != nil {
+			return err
+		}
+		if keep {
+			r.logger.Printf("⏭️  Keep SBOM id=%d cluster=%s pod_uid=%s due to %s evidence", sbom.ID, sbom.ClusterID, sbom.PodUID, reason)
+			continue
+		}
+		orphanedSBOMIDs = append(orphanedSBOMIDs, sbom.ID)
+		reasonByID[sbom.ID] = "pod_missing_grace_expired"
 	}
 
 	stats.OrphanedSBOMs = len(orphanedSBOMIDs)
-
 	if len(orphanedSBOMIDs) == 0 {
 		r.logger.Printf("No orphaned SBOMs found")
 		return nil
 	}
 
-	// Collect audit details before deletion (pod_uid, namespace, pod_name per SBOM).
 	auditSBOMs := make([]models.SBOM, 0, len(orphanedSBOMIDs))
 	if err := r.db.WithContext(ctx).
 		Where("id IN ?", orphanedSBOMIDs).
-		Select("id, pod_uid, pod_name, namespace, image_name, image_tag").
+		Select("id, cluster_id, pod_uid, pod_name, namespace, image_name, image_tag").
 		Find(&auditSBOMs).Error; err != nil {
 		r.logger.Printf("⚠️  Failed to pre-load SBOM audit data: %v (proceeding with deletion)", err)
 	}
 
-	// Soft delete orphaned SBOMs
-	result := r.db.WithContext(ctx).
-		Where("id IN ?", orphanedSBOMIDs).
-		Delete(&models.SBOM{})
-
+	result := r.db.WithContext(ctx).Where("id IN ?", orphanedSBOMIDs).Delete(&models.SBOM{})
 	if result.Error != nil {
 		return fmt.Errorf("soft delete orphaned SBOMs: %w", result.Error)
 	}
-
 	r.logger.Printf("✅ Soft-deleted %d orphaned SBOMs", result.RowsAffected)
 	stats.DeletedSBOMs = int(result.RowsAffected)
 
-	// G8: Write audit trail for each deleted SBOM so compliance investigations
-	// can trace when and why an SBOM was removed.
 	for _, s := range auditSBOMs {
-		reason := "pod_deleted"
-		if !deletedPodUIDs[s.PodUID] {
-			reason = "pod_missing_grace_expired"
-		}
-		details := fmt.Sprintf(`{"sbom_id":%d,"pod_uid":%q,"pod_name":%q,"namespace":%q,"image":"%s:%s","reason":%q}`,
-			s.ID, s.PodUID, s.PodName, s.Namespace, s.ImageName, s.ImageTag, reason)
+		reason := reasonByID[s.ID]
+		details := fmt.Sprintf(`{"sbom_id":%d,"cluster_id":%q,"pod_uid":%q,"pod_name":%q,"namespace":%q,"image":"%s:%s","reason":%q}`,
+			s.ID, s.ClusterID, s.PodUID, s.PodName, s.Namespace, s.ImageName, s.ImageTag, reason)
 		audit := models.AuditLog{
-			Action:     "delete",
-			Resource:   "sbom",
-			ResourceID: fmt.Sprintf("%d", s.ID),
-			User:       "system/sbom-reconciler",
-			Details:    details,
+			Action: "delete", Resource: "sbom", ResourceID: fmt.Sprintf("%d", s.ID),
+			User: "system/sbom-reconciler", Details: details,
 		}
 		if err := r.db.WithContext(ctx).Create(&audit).Error; err != nil {
 			r.logger.Printf("⚠️  Failed to write audit log for SBOM id=%d: %v", s.ID, err)
 		}
 	}
-
 	return nil
 }
 
-func (r *SBOMReconciler) hasRuntimeSecurityEvidence(ctx context.Context, podUID string) (bool, string, error) {
+func (r *SBOMReconciler) hasRuntimeSecurityEvidence(ctx context.Context, clusterID, podUID string) (bool, string, error) {
 	checks := []struct {
 		table string
 		name  string
@@ -282,8 +251,10 @@ func (r *SBOMReconciler) hasRuntimeSecurityEvidence(ctx context.Context, podUID 
 			continue
 		}
 		var count int64
-		if err := r.db.WithContext(ctx).Table(check.table).Where("resource_uid = ?", podUID).Count(&count).Error; err != nil {
-			return false, "", fmt.Errorf("query %s for pod_uid=%s: %w", check.table, podUID, err)
+		if err := r.db.WithContext(ctx).Table(check.table).
+			Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).
+			Count(&count).Error; err != nil {
+			return false, "", fmt.Errorf("query %s for cluster=%s pod_uid=%s: %w", check.table, clusterID, podUID, err)
 		}
 		if count > 0 {
 			return true, check.name, nil
@@ -294,68 +265,45 @@ func (r *SBOMReconciler) hasRuntimeSecurityEvidence(ctx context.Context, podUID 
 
 // identifyMissingSBOMs identifies pods that don't have SBOMs (informational only)
 func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *ReconciliationStats) error {
-	// Check if pods table exists first
-	var tableExists bool
-	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
-		return fmt.Errorf("check pods table: %w", err)
-	}
-
+	tableExists := r.db.Migrator().HasTable(&models.Pod{})
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping missing SBOM identification")
 		return nil
 	}
 
-	// Find all running pods
 	var runningPods []models.Pod
 	if err := r.db.WithContext(ctx).
 		Where("deleted_at IS NULL").
-		Select("uid, name, namespace").
+		Select("cluster_id, uid, name, namespace").
 		Find(&runningPods).Error; err != nil {
 		return fmt.Errorf("query running pods: %w", err)
 	}
-
 	stats.TotalPods = len(runningPods)
-
 	if len(runningPods) == 0 {
 		return nil
 	}
 
-	// Collect all pod UIDs
-	podUIDs := make([]string, 0, len(runningPods))
-	for _, pod := range runningPods {
-		if pod.UID != "" {
-			podUIDs = append(podUIDs, pod.UID)
-		}
-	}
-
-	// Query for SBOMs for these pods
 	var existingSBOMs []models.SBOM
 	if err := r.db.WithContext(ctx).
-		Where("pod_uid IN ? AND deleted_at IS NULL", podUIDs).
-		Select("pod_uid").
+		Where("deleted_at IS NULL").
+		Select("cluster_id, pod_uid").
 		Find(&existingSBOMs).Error; err != nil {
 		return fmt.Errorf("query existing SBOMs: %w", err)
 	}
-
-	// Build set of pod UIDs that have SBOMs
-	podsWithSBOMs := make(map[string]bool)
+	podsWithSBOMs := make(map[string]struct{}, len(existingSBOMs))
 	for _, sbom := range existingSBOMs {
-		podsWithSBOMs[sbom.PodUID] = true
+		podsWithSBOMs[podIdentityKey(sbom.ClusterID, sbom.PodUID)] = struct{}{}
 	}
 
-	// Identify pods without SBOMs
 	podsWithoutSBOMs := make([]string, 0)
 	for _, pod := range runningPods {
-		if !podsWithSBOMs[pod.UID] {
-			podsWithoutSBOMs = append(podsWithoutSBOMs, fmt.Sprintf("%s/%s", pod.Namespace, pod.Name))
+		if _, ok := podsWithSBOMs[podIdentityKey(pod.ClusterID, pod.UID)]; !ok {
+			podsWithoutSBOMs = append(podsWithoutSBOMs, fmt.Sprintf("%s:%s/%s", pod.ClusterID, pod.Namespace, pod.Name))
 		}
 	}
-
 	stats.MissingSBOMs = len(podsWithoutSBOMs)
-
 	if len(podsWithoutSBOMs) > 0 {
 		r.logger.Printf("⚠️  Found %d pods without SBOMs (agents should create these):", len(podsWithoutSBOMs))
-		// Log first 10 for visibility
 		for i, podName := range podsWithoutSBOMs {
 			if i >= 10 {
 				r.logger.Printf("   ... and %d more", len(podsWithoutSBOMs)-10)
@@ -364,49 +312,31 @@ func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *Reconc
 			r.logger.Printf("   - %s", podName)
 		}
 	}
-
 	return nil
 }
 
 // updateActiveSBOMTimestamps updates last_used_at for SBOMs of running pods
 func (r *SBOMReconciler) updateActiveSBOMTimestamps(ctx context.Context, stats *ReconciliationStats) error {
-	// Check if pods table exists first
-	var tableExists bool
-	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
-		return fmt.Errorf("check pods table: %w", err)
-	}
-
+	tableExists := r.db.Migrator().HasTable(&models.Pod{})
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping SBOM timestamp update")
 		return nil
 	}
 
-	// Find all running pods
-	var runningPodUIDs []string
-	if err := r.db.WithContext(ctx).
-		Model(&models.Pod{}).
-		Where("deleted_at IS NULL").
-		Pluck("uid", &runningPodUIDs).Error; err != nil {
-		return fmt.Errorf("query running pod UIDs: %w", err)
-	}
-
-	if len(runningPodUIDs) == 0 {
-		return nil
-	}
-
-	// Update last_used_at for SBOMs of running pods
 	result := r.db.WithContext(ctx).
 		Model(&models.SBOM{}).
-		Where("pod_uid IN ? AND deleted_at IS NULL", runningPodUIDs).
+		Where(`deleted_at IS NULL AND EXISTS (
+			SELECT 1 FROM pods p
+			WHERE p.cluster_id = sboms.cluster_id
+			  AND p.uid = sboms.pod_uid
+			  AND p.deleted_at IS NULL
+		)`).
 		Update("last_used_at", time.Now())
-
 	if result.Error != nil {
 		return fmt.Errorf("update SBOM timestamps: %w", result.Error)
 	}
-
 	stats.UpdatedTimestamps = int(result.RowsAffected)
 	r.logger.Printf("✅ Updated timestamps for %d active SBOMs", result.RowsAffected)
-
 	return nil
 }
 

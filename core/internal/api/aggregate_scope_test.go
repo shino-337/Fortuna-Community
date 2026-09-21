@@ -25,7 +25,7 @@ func TestAggregateCacheIsolation(t *testing.T) {
 		for _, row := range []interface{}{
 			&models.Cluster{ID: cluster, Name: cluster, Source: "env", LastSync: now},
 			&models.Pod{UID: "pod-" + cluster, ClusterID: cluster, Name: cluster, Namespace: "default"},
-			&models.Insight{ResourceType: "Pod", ResourceUID: "pod-" + cluster, ResourceName: cluster, InsightType: "vulnerability", Severity: "critical", Title: cluster, Description: cluster, Status: "acknowledged", DetectedAt: now.Add(-2 * time.Hour)},
+			&models.Insight{ClusterID: cluster, ResourceType: "Pod", ResourceUID: "pod-" + cluster, ResourceName: cluster, InsightType: "vulnerability", Severity: "critical", Title: cluster, Description: cluster, Status: "acknowledged", DetectedAt: now.Add(-2 * time.Hour)},
 			&models.RiskScore{ResourceType: "Pod", ResourceUID: "pod-" + cluster, ClusterID: cluster, TotalScore: 100, ScorerVersion: "v3", CalculatedAt: now},
 		} {
 			if err = db.Create(row).Error; err != nil {

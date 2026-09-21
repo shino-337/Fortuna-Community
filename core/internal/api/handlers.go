@@ -411,7 +411,7 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 				}
 				db.Model(&models.Insight{}).
 					Select("resource_uid, COUNT(*) as count").
-					Where("deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?", uids).
+					Where("cluster_id = ? AND deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?", clusterID, uids).
 					Group("resource_uid").Scan(&rows)
 				for _, r := range rows {
 					riskByUID[r.ResourceUID] = r.Count
@@ -485,7 +485,7 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		db.Model(&models.Deployment{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&deplCounts)
 		db.Table("insights i").
 			Select("p.cluster_id, COUNT(*) AS cnt").
-			Joins("INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL").
+			Joins("INNER JOIN pods p ON p.cluster_id = i.cluster_id AND p.uid = i.resource_uid AND p.deleted_at IS NULL").
 			Where("i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND p.cluster_id IN ?", clusterIDs).
 			Group("p.cluster_id").Scan(&riskCounts)
 
@@ -658,27 +658,6 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 			"page":            page,
 			"pageSize":        responsePageSize,
 		})
-	}
-}
-
-// GetServiceAccount returns a specific service account
-
-func GetServiceAccount(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-		c.JSON(http.StatusOK, sa)
 	}
 }
 
@@ -962,78 +941,6 @@ func GetReplicaSet(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, response)
-	}
-}
-
-// UpdateServiceAccount updates a service account
-func UpdateServiceAccount(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-
-		updateData, ok := serviceAccountMetadataUpdate(c)
-		if !ok {
-			return
-		}
-
-		if err := db.Model(&sa).Updates(updateData).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Log audit
-		userID := auditUserID(c)
-		username := c.GetString("username")
-		auditLog := models.AuditLog{
-			ClusterID:  sa.ClusterID,
-			UserID:     userID,
-			Action:     "update",
-			Resource:   "serviceaccount",
-			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username,
-			IP:         c.ClientIP(),
-		}
-		db.Create(&auditLog)
-
-		c.JSON(http.StatusOK, sa)
-	}
-}
-
-// DeleteServiceAccount deletes a service account
-
-func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-
-		code, message := deleteServiceAccountResource(db, c, &sa)
-		if code != http.StatusOK {
-			c.JSON(code, gin.H{"error": message})
-			return
-		}
-		c.JSON(code, gin.H{"message": message})
 	}
 }
 
@@ -1408,7 +1315,7 @@ func loadActiveInsightCountsByPodUID(db *gorm.DB, pods []models.Pod) map[string]
 	return riskByUID
 }
 
-// podDetailEnvelope is the JSON shape for GET pod by id / by uid (inventory + legacy routes).
+// podDetailEnvelope is the JSON shape for cluster-qualified inventory Pod detail.
 type podDetailEnvelope struct {
 	models.Pod
 	RiskCount     int64                     `json:"riskCount"`
@@ -1438,59 +1345,6 @@ func newPodDetailResponse(c *gin.Context, db *gorm.DB, pod models.Pod, riskCount
 	}
 	row.RiskSignals = podResourceRiskSignalsWithScore(ctx, db, pod, uval)
 	return row
-}
-
-// GetPod returns a specific pod by ID, with riskCount (active insights for this pod UID).
-func GetPod(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var pod models.Pod
-		// GORM automatically filters soft-deleted records
-		if err := db.Preload("Cluster").First(&pod, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Pod not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		var riskCount int64
-		if hasTable(db, "insights") {
-			db.Raw(`
-				SELECT COUNT(*) FROM insights
-				WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid = ?
-			`, pod.UID).Scan(&riskCount)
-		}
-		c.JSON(http.StatusOK, newPodDetailResponse(c, db, pod, riskCount))
-	}
-}
-
-// GetPodByUID returns a pod by UID (for Risk Detail → Pod Detail link). Same response shape as GetPod.
-func GetPodByUID(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		uid := c.Param("uid")
-		if uid == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
-			return
-		}
-		var pod models.Pod
-		if err := db.Preload("Cluster").Where("uid = ?", uid).First(&pod).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Pod not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		var riskCount int64
-		if hasTable(db, "insights") {
-			db.Raw(`
-				SELECT COUNT(*) FROM insights
-				WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid = ?
-			`, pod.UID).Scan(&riskCount)
-		}
-		c.JSON(http.StatusOK, newPodDetailResponse(c, db, pod, riskCount))
-	}
 }
 
 // GetAuditReports returns audit reports

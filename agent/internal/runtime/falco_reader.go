@@ -56,7 +56,6 @@ type FalcoReader struct {
 	failedBatches uint64
 	failedEvents  uint64
 	v2Success     uint64
-	v1Fallback    uint64
 }
 
 type podUIDCacheEntry struct {
@@ -216,8 +215,9 @@ func parseFalcoJSONLines(line []byte) ([]falcoEvent, error) {
 }
 
 func (r *FalcoReader) send(events []Event) error {
+	PrepareEventsV2(events)
 	body, _ := json.Marshal(events)
-	// Prefer v2 endpoint (canonical contract). Fallback to v1 on 404.
+	// Canonical v2 endpoint; failed batches are retried without protocol downgrade.
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", r.coreURL), bytes.NewReader(body))
 	if err != nil {
 		return err
@@ -225,39 +225,20 @@ func (r *FalcoReader) send(events []Event) error {
 	req.Header.Set("Content-Type", "application/json")
 	corehttp.ApplyOptionalAuthorization(req)
 	resp, err := r.httpClient.Do(req)
-	if err == nil {
-		defer resp.Body.Close()
-		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-			atomic.AddUint64(&r.v2Success, 1)
-			return nil
-		}
-		if resp.StatusCode != http.StatusNotFound {
-			return fmt.Errorf("falco events POST v2 failed: %s", resp.Status)
-		}
+	if err != nil {
+		return err
 	}
-
-	// Fallback to v1
-	req2, err2 := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/runtime/events", r.coreURL), bytes.NewReader(body))
-	if err2 != nil {
-		return err2
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fmt.Errorf("falco events v2 POST failed: %s", resp.Status)
 	}
-	req2.Header.Set("Content-Type", "application/json")
-	corehttp.ApplyOptionalAuthorization(req2)
-	resp2, err3 := r.httpClient.Do(req2)
-	if err3 != nil {
-		return err3
-	}
-	defer resp2.Body.Close()
-	if resp2.StatusCode < 200 || resp2.StatusCode >= 300 {
-		return fmt.Errorf("falco events POST failed: %s", resp2.Status)
-	}
-	atomic.AddUint64(&r.v1Fallback, 1)
+	atomic.AddUint64(&r.v2Success, 1)
 	return nil
 }
 
 func (r *FalcoReader) logIngestionStats(status string) {
 	r.logger.Printf(
-		"[IngestQuality] status=%s sent_batches=%d sent_events=%d failed_batches=%d failed_events=%d invalid_lines=%d v2_success=%d v1_fallback=%d",
+		"[IngestQuality] status=%s sent_batches=%d sent_events=%d failed_batches=%d failed_events=%d invalid_lines=%d v2_success=%d",
 		status,
 		atomic.LoadUint64(&r.sentBatches),
 		atomic.LoadUint64(&r.sentEvents),
@@ -265,7 +246,6 @@ func (r *FalcoReader) logIngestionStats(status string) {
 		atomic.LoadUint64(&r.failedEvents),
 		atomic.LoadUint64(&r.invalidLines),
 		atomic.LoadUint64(&r.v2Success),
-		atomic.LoadUint64(&r.v1Fallback),
 	)
 }
 

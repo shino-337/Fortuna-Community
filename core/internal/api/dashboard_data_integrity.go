@@ -279,12 +279,12 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 	if db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
 		db.Raw(`
 			SELECT COUNT(*) FROM sboms s
-			INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL
 		`).Scan(&health.ActiveSBOMs)
 		db.Raw(`
 			SELECT COUNT(*) FROM sboms s
-			LEFT JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL AND p.id IS NULL
 		`).Scan(&health.StaleSBOMs)
 	}
@@ -293,7 +293,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 		db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM sboms s
-			INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			INNER JOIN sbom_match_runs r ON r.sbom_id = s.id
 				AND r.version = s.version
 				AND r.mirror_version = ?
@@ -314,7 +314,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 		db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM sboms s
-			INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			INNER JOIN sbom_match_runs r ON r.sbom_id = s.id
 				AND r.version = s.version
 				AND r.catalog_generation_id = ?
@@ -336,14 +336,14 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
-			INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE cm.deleted_at IS NULL
 		`).Scan(&health.ActivePodCVEMatches)
 		db.Raw(`
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
-			LEFT JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE cm.deleted_at IS NULL AND p.id IS NULL
 		`).Scan(&health.StalePodCVEMatches)
 	}

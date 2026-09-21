@@ -23,8 +23,20 @@ func newTestRepo(t *testing.T) (*SBOMRepository, *gorm.DB) {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
-	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.SBOMMatchRun{}))
+	require.NoError(t, db.AutoMigrate(&models.SBOM{
+		ClusterID: "cluster-a"}, &models.SBOMComponent{}, &models.SBOMMatchRun{}))
 	return NewSBOMRepository(db), db
+}
+
+func TestSBOMRepositoryRejectsMissingOwnership(t *testing.T) {
+	repo, db := newTestRepo(t)
+	for _, sb := range []*models.SBOM{{PodUID: "pod"}, {ClusterID: "a"}, {ClusterID: " a", PodUID: "pod"}} {
+		_, _, err := repo.UpsertSBOMWithComponents(context.Background(), sb, nil)
+		require.ErrorContains(t, err, "SBOM ownership")
+	}
+	var n int64
+	require.NoError(t, db.Model(&models.SBOM{}).Count(&n).Error)
+	require.Zero(t, n)
 }
 
 // createSBOM creates an SBOM with the given status via the repo (with mutation flag so create/update succeeds).
@@ -38,6 +50,7 @@ func createSBOM(t *testing.T, repo *SBOMRepository, status string) *models.SBOM 
 		st = "pending"
 	}
 	sbom := &models.SBOM{
+		ClusterID:     "cluster-a",
 		PodUID:        podUID,
 		ImageName:     "test/image",
 		ImageTag:      "latest",
@@ -67,6 +80,7 @@ func TestSBOMRepository_BlockMutation_WhenFinalized(t *testing.T) {
 
 	ctx := context.Background() // no mutation flag
 	updateSBOM := &models.SBOM{
+		ClusterID:     "cluster-a",
 		PodUID:        sbom.PodUID,
 		ImageName:     "hacked",
 		ImageTag:      sbom.ImageTag,
@@ -93,6 +107,7 @@ func TestSBOMRepository_AllowMutation_WithContextFlag(t *testing.T) {
 
 	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
 	updateSBOM := &models.SBOM{
+		ClusterID:     "cluster-a",
 		PodUID:        sbom.PodUID,
 		ImageName:     "legit-update",
 		ImageTag:      sbom.ImageTag,
@@ -117,6 +132,7 @@ func TestSBOMRepository_RejectCompleteWithZeroComponents(t *testing.T) {
 	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
 
 	sbom := &models.SBOM{
+		ClusterID:     "cluster-a",
 		PodUID:        "pod-complete-zero-components",
 		ImageName:     "test/image",
 		ImageTag:      "latest",
@@ -286,6 +302,7 @@ func TestSBOMRepository_NormalizeSourceAndConfidence(t *testing.T) {
 	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
 
 	sb := &models.SBOM{
+		ClusterID:     "cluster-a",
 		PodUID:        "normalize-source-confidence",
 		ImageName:     "test/image",
 		ImageTag:      "latest",

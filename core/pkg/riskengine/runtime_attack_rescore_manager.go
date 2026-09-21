@@ -13,13 +13,14 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/risk"
 )
 
 // RuntimeAttackRescoreManager debounces "attack-like" runtime events (Falco, etc.)
 // and triggers:
-//   1) runtime-behavior insight evaluation for the affected pod (YAML runtime rules)
-//   2) unified V3 risk score recomputation
+//  1. runtime-behavior insight evaluation for the affected pod (YAML runtime rules)
+//  2. unified V3 risk score recomputation
 //
 // Motivation: runtime ingest persists runtime_events/runtime_signals but does not
 // naturally re-trigger Pod risk evaluation (normalized inventory may be unchanged),
@@ -30,13 +31,13 @@ import (
 type RuntimeAttackRescoreManager struct {
 	db *gorm.DB
 
-	enabled       bool
-	debounce      time.Duration
-	minSeverity   int
-	maxBatchPods  int
-	yamlEngine    *YAMLEngine
-	insightMgr    *InsightManager
-	rulesDir      string
+	enabled      bool
+	debounce     time.Duration
+	minSeverity  int
+	maxBatchPods int
+	yamlEngine   *YAMLEngine
+	insightMgr   *InsightManager
+	rulesDir     string
 
 	mu    sync.Mutex
 	items map[string]*runtimeAttackItem
@@ -53,6 +54,7 @@ type runtimeAttackItem struct {
 // RuntimeEventMeta is a minimal, stable contract for deciding whether a runtime
 // event should trigger a rescore.
 type RuntimeEventMeta struct {
+	ClusterID       string
 	PodUID          string
 	Runtime         string
 	SourceKind      string
@@ -76,7 +78,7 @@ func NewRuntimeAttackRescoreManager(db *gorm.DB) *RuntimeAttackRescoreManager {
 			}
 			return n
 		}(),
-		items:     make(map[string]*runtimeAttackItem),
+		items:      make(map[string]*runtimeAttackItem),
 		insightMgr: NewInsightManager(db),
 	}
 
@@ -103,14 +105,15 @@ func (m *RuntimeAttackRescoreManager) Notify(meta RuntimeEventMeta) {
 	if m == nil || !m.enabled || m.db == nil {
 		return
 	}
-	podUID := strings.TrimSpace(meta.PodUID)
-	if podUID == "" {
+	id, err := resourceidentity.New(meta.ClusterID, meta.PodUID)
+	if err != nil {
 		return
 	}
 	if !m.shouldTrigger(meta) {
 		return
 	}
 
+	key, _ := id.Key()
 	delay := m.debounce
 	if delay < 0 {
 		delay = 0
@@ -118,35 +121,35 @@ func (m *RuntimeAttackRescoreManager) Notify(meta RuntimeEventMeta) {
 	now := time.Now()
 
 	m.mu.Lock()
-	item, ok := m.items[podUID]
+	item, ok := m.items[key]
 	if !ok {
 		item = &runtimeAttackItem{firstSeenAt: now}
-		m.items[podUID] = item
+		m.items[key] = item
 	}
 	item.lastSeenAt = now
 	item.eventCount++
 	item.maxSeverity = max(item.maxSeverity, severityRank(meta.Severity))
 
 	if item.timer == nil {
-		item.timer = time.AfterFunc(delay, func() { m.flush(podUID) })
+		item.timer = time.AfterFunc(delay, func() { m.flush(id) })
 	} else {
 		item.timer.Reset(delay)
 	}
 	m.mu.Unlock()
 }
 
-func (m *RuntimeAttackRescoreManager) flush(podUID string) {
+func (m *RuntimeAttackRescoreManager) flush(id resourceidentity.Identity) {
 	if m == nil || m.db == nil {
 		return
 	}
-	podUID = strings.TrimSpace(podUID)
-	if podUID == "" {
+	key, err := id.Key()
+	if err != nil {
 		return
 	}
 
 	m.mu.Lock()
-	item := m.items[podUID]
-	delete(m.items, podUID)
+	item := m.items[key]
+	delete(m.items, key)
 	m.mu.Unlock()
 	if item == nil {
 		return
@@ -154,13 +157,15 @@ func (m *RuntimeAttackRescoreManager) flush(podUID string) {
 
 	ctx := context.Background()
 	// 1) Best-effort: create/update runtime-behavior insights from latest runtime_signals/runtime state.
-	_ = m.evaluateAndUpsertRuntimeInsights(ctx, podUID)
+	if err := m.evaluateAndUpsertRuntimeInsights(ctx, id); err != nil {
+		log.Printf("[RuntimeAttackRescore] insight evaluation failed for %s: %v", key, err)
+	}
 
 	// 2) Always recompute unified score so runtime_signals are reflected even if no YAML insight fired.
-	risk.NewUnifiedScorerV3(m.db).ScheduleUnifiedScoreCalculation(podUID)
+	risk.NewUnifiedScorerV3(m.db).ScheduleUnifiedScoreCalculationForIdentity(id)
 
 	log.Printf("[RuntimeAttackRescore] flushed pod_uid=%s events=%d max_severity=%d window=%s",
-		podUID, item.eventCount, item.maxSeverity, time.Since(item.firstSeenAt).Truncate(time.Second))
+		key, item.eventCount, item.maxSeverity, time.Since(item.firstSeenAt).Truncate(time.Second))
 }
 
 func (m *RuntimeAttackRescoreManager) shouldTrigger(meta RuntimeEventMeta) bool {
@@ -196,16 +201,20 @@ func (m *RuntimeAttackRescoreManager) shouldTrigger(meta RuntimeEventMeta) bool 
 	}
 }
 
-func (m *RuntimeAttackRescoreManager) evaluateAndUpsertRuntimeInsights(ctx context.Context, podUID string) error {
+func (m *RuntimeAttackRescoreManager) evaluateAndUpsertRuntimeInsights(ctx context.Context, id resourceidentity.Identity) error {
 	if m == nil || m.db == nil || m.yamlEngine == nil || m.insightMgr == nil {
 		return nil
 	}
 
 	var pod models.Pod
 	if err := m.db.WithContext(ctx).
-		Where("uid = ? AND deleted_at IS NULL", podUID).
+		Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", id.ClusterID, id.ResourceUID).
 		First(&pod).Error; err != nil {
 		return nil
+	}
+
+	if err := m.yamlEngine.Engine.projectAssetSecurityStateForIdentity(ctx, id, true); err != nil {
+		return err
 	}
 
 	normalized, err := normalizedPodForRuleEval(&pod)
@@ -222,7 +231,11 @@ func (m *RuntimeAttackRescoreManager) evaluateAndUpsertRuntimeInsights(ctx conte
 	}
 
 	// Batch upsert reduces chatter and schedules a single score calc per resource UID.
-	return m.insightMgr.BatchCreateOrUpdateInsights(insights)
+	for _, insight := range insights {
+		insight.ClusterID = id.ClusterID
+		insight.ResourceType = "Pod"
+	}
+	return m.insightMgr.BatchCreateOrUpdatePodInsights(insights)
 }
 
 func normalizedPodForRuleEval(pod *models.Pod) (map[string]interface{}, error) {

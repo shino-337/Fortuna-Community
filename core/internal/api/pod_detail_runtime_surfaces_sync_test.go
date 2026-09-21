@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -20,6 +21,7 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 		t.Fatalf("open sqlite: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.Pod{},
 		&models.RuntimeEvent{},
 		&models.RuntimeSignal{},
 		&models.RuntimeBehaviorFact{},
@@ -29,9 +31,14 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 	}
 
 	podUID := "pod-ui-sync-1"
+	clusterID := "c1"
+	if err := db.Create(&models.Pod{UID: podUID, Name: "ui-pod", Namespace: "default", ClusterID: clusterID}).Error; err != nil {
+		t.Fatalf("seed pod: %v", err)
+	}
 	now := time.Now().UTC()
 	nowStr := now.Format(time.RFC3339Nano)
 	ev := &models.RuntimeEvent{
+		ClusterID:  clusterID,
 		EventID:    "evt-ui-1",
 		PodUID:     podUID,
 		PodName:    "ui-pod",
@@ -53,6 +60,7 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 		t.Fatalf("seed runtime event: %v", err)
 	}
 	if err := db.Create(&models.RuntimeSignal{
+		ClusterID:    clusterID,
 		PodUID:       podUID,
 		SignalType:   "SUSPICIOUS_EXEC_FROM_SNAPSHOT",
 		Category:     "EXECUTION",
@@ -67,6 +75,7 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 		t.Fatalf("seed runtime signal: %v", err)
 	}
 	if err := db.Create(&models.RuntimeBehaviorFact{
+		ClusterID:  clusterID,
 		FactID:     "fact-ui-1",
 		PodUID:     podUID,
 		Namespace:  "default",
@@ -80,6 +89,7 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 		t.Fatalf("seed runtime fact: %v", err)
 	}
 	if err := db.Create(&models.RuntimeIncident{
+		ClusterID:    clusterID,
 		IncidentID:   "inc-ui-1",
 		PodUID:       podUID,
 		Namespace:    "default",
@@ -95,11 +105,12 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 	}
 
 	r := gin.New()
-	r.GET("/api/v1/risk/pods/:uid/runtime/events", GetPodRuntimeEvents(db))
+	r.Use(func(c *gin.Context) { c.Set("user", &models.User{Role: models.RoleAdmin}); c.Next() })
+	r.GET("/api/v1/risk/pods/:uid/runtime/events", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeEventsScoped(db))
 	rt := r.Group("/api/v1/runtime")
-	rt.GET("/pods/:uid/signals", GetRuntimeSignalsByPod(db))
-	r.GET("/api/v2/runtime/pods/:uid/facts", GetPodRuntimeBehaviorFacts(db))
-	r.GET("/api/v2/runtime/pods/:uid/incidents", GetPodRuntimeIncidents(db))
+	rt.GET("/pods/:uid/signals", middleware.RequirePodUIDClusterScope(db, "uid"), GetRuntimeSignalsByPodScoped(db))
+	r.GET("/api/v2/runtime/pods/:uid/facts", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeBehaviorFactsScoped(db))
+	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
 
 	assertCount := func(path string, key string) {
 		t.Helper()

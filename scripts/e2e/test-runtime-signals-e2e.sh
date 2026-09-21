@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # Runtime Signals E2E – test cases thực tế
-# 1. POST /api/v1/runtime/events (ingest event)
+# 1. POST /api/v2/runtime/events (ingest event)
 # 2. Kiểm tra DB: runtime_events, runtime_signals
 # 3. GET /api/v1/runtime/signals
 # 4. GET /api/v1/runtime/pods/:uid/signals
@@ -12,13 +12,16 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NAMESPACE="${NAMESPACE:-fortuna}"
+# Credential must own the synchronized test pod; dashboard JWT is not an ingest credential.
+: "${FORTUNA_E2E_INGEST_TOKEN:?Set the ingest credential for the test pod cluster}"
 
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 ok()  { echo -e "${GREEN}[OK]${NC} $*"; }
-fail() { echo -e "${RED}[FAIL]${NC} $*"; }
+FAILURES=0
+fail() { echo -e "${RED}[FAIL]${NC} $*"; FAILURES=$((FAILURES + 1)); }
 warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
 
 cd "$PROJECT_ROOT"
@@ -66,11 +69,10 @@ api_get() {
 api_post() {
   local url="$1"
   local body="$2"
-  if [ -n "$AUTH_HEADER" ]; then
-    kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -X POST -H "Content-Type: application/json" -H "$AUTH_HEADER" -d "$body" "$url" 2>/dev/null || echo "ERROR"
-  else
-    kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -X POST -H "Content-Type: application/json" -d "$body" "$url" 2>/dev/null || echo "ERROR"
-  fi
+  printf '%s' "$body" | kubectl -n "$NAMESPACE" exec -i "$CORE_POD" -- curl --fail-with-body -s -S -X POST \
+    -H "Content-Type: application/json" -H "X-Fortuna-Ingest-Token: $FORTUNA_E2E_INGEST_TOKEN" \
+    --data-binary @- "$url"
+
 }
 
 db_query() {
@@ -83,17 +85,23 @@ echo "========== Runtime Signals E2E =========="
 echo "Core pod: $CORE_POD | PG pod: ${PG_POD:-none}"
 echo ""
 
-# --- Test 1: POST /api/v1/runtime-events ---
-echo "--- Test 1: POST /api/v1/runtime-events ---"
-TEST_POD_UID="e2e-test-pod-$(date +%s)"
-TS=$(date +%s)
-PAYLOAD="[{\"event_type\":\"escape_attempt\",\"mitre_technique\":\"T1611.001\",\"signal\":\"PROC_ROOT_PIVOT\",\"severity\":\"high\",\"pod\":{\"name\":\"e2e-pod\",\"namespace\":\"default\",\"uid\":\"$TEST_POD_UID\"},\"syscall\":\"openat\",\"target\":\"/proc/1/root\",\"timestamp\":$TS}]"
-RESP=$(api_post "http://localhost:8080/api/v1/runtime/events" "$PAYLOAD")
+# --- Test 1: POST /api/v2/runtime/events ---
+echo "--- Test 1: POST /api/v2/runtime/events ---"
+# Use a real inventory Pod owned by the ingest credential.
+: "${FORTUNA_E2E_POD_UID:?Set an already synchronized test Pod UID}"
+: "${FORTUNA_E2E_CLUSTER_ID:?Set the test Pod cluster ID}"
+TEST_POD_UID="$FORTUNA_E2E_POD_UID"
+TEST_POD_NAMESPACE="${FORTUNA_E2E_POD_NAMESPACE:-default}"
+OBSERVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+PAYLOAD="[{\"event_type\":\"escape_attempt\",\"mitre_technique\":\"T1611.001\",\"signal\":\"PROC_ROOT_PIVOT\",\"severity\":\"high\",\"pod\":{\"name\":\"e2e-pod\",\"namespace\":\"$TEST_POD_NAMESPACE\",\"uid\":\"$TEST_POD_UID\"},\"syscall\":\"openat\",\"target\":\"/proc/1/root\",\"confidence\":0.9,\"observed_at\":\"$OBSERVED_AT\"}]"
+RESP=$(api_post "http://localhost:8080/api/v2/runtime/events" "$PAYLOAD")
 if echo "$RESP" | grep -q "processed"; then
   PROCESSED=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('processed', 0))" 2>/dev/null || echo "0")
+  [ "$PROCESSED" -gt 0 ] || { fail "No event persisted"; exit 1; }
   ok "POST /runtime-events returned processed=$PROCESSED"
 else
   fail "POST /runtime-events failed: $RESP"
+  exit 1
 fi
 echo ""
 
@@ -113,8 +121,8 @@ fi
 echo ""
 
 # --- Test 3: GET /api/v1/runtime/signals ---
-echo "--- Test 3: GET /api/v1/runtime/signals?limit=5 ---"
-RESP=$(api_get "http://localhost:8080/api/v1/runtime/signals?limit=5")
+echo "--- Test 3: GET /api/v1/runtime/signals?limit=5&clusterId=$FORTUNA_E2E_CLUSTER_ID ---"
+RESP=$(api_get "http://localhost:8080/api/v1/runtime/signals?limit=5&clusterId=$FORTUNA_E2E_CLUSTER_ID")
 if echo "$RESP" | grep -q '"signals"'; then
   TOTAL=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('total', 0))" 2>/dev/null || echo "0")
   ok "GET /runtime-signals total=$TOTAL"
@@ -135,7 +143,7 @@ try:
 except: pass
 " 2>/dev/null || echo "")
 if [ -n "$POD_UID_FROM_API" ]; then
-  RESP2=$(api_get "http://localhost:8080/api/v1/runtime/pods/$POD_UID_FROM_API/signals")
+  RESP2=$(api_get "http://localhost:8080/api/v1/runtime/pods/$POD_UID_FROM_API/signals?clusterId=$FORTUNA_E2E_CLUSTER_ID")
   if echo "$RESP2" | grep -q '"signals"'; then
     CNT=$(echo "$RESP2" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('signals', [])))" 2>/dev/null || echo "0")
     ok "GET /runtime/pods/$POD_UID_FROM_API/signals count: $CNT"
@@ -149,7 +157,7 @@ echo ""
 
 # --- Test 5: GET by test pod UID (we just posted) ---
 echo "--- Test 5: GET /runtime/pods/$TEST_POD_UID/signals ---"
-RESP3=$(api_get "http://localhost:8080/api/v1/runtime/pods/$TEST_POD_UID/signals")
+RESP3=$(api_get "http://localhost:8080/api/v1/runtime/pods/$TEST_POD_UID/signals?clusterId=$FORTUNA_E2E_CLUSTER_ID")
 if echo "$RESP3" | grep -q '"signals"'; then
   CNT3=$(echo "$RESP3" | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('signals', [])))" 2>/dev/null || echo "0")
   ok "Signals for test pod: $CNT3"
@@ -159,3 +167,5 @@ fi
 echo ""
 
 echo "========== Runtime Signals E2E done =========="
+
+[ "$FAILURES" -eq 0 ]

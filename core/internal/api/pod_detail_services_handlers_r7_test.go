@@ -26,10 +26,8 @@ func TestBuildProcessDiffEvents_FirstSnapshotNoBaseline(t *testing.T) {
 	db := newR7TestDB(t)
 	now := time.Now().UTC()
 
-	current := []models.PodProcess{
-		{ContainerName: "app", PID: 1, BinaryPath: "/app/start"},
-	}
-	events, err := buildProcessDiffEvents(db, "pod-a", "ns-a", now, current)
+	current := []models.PodProcess{{ContainerName: "app", PID: 1, BinaryPath: "/app/start"}}
+	events, err := buildProcessDiffEventsScoped(db, "c1", "pod-a", "ns-a", now, current)
 	if err != nil {
 		t.Fatalf("buildProcessDiffEvents error: %v", err)
 	}
@@ -44,27 +42,25 @@ func TestBuildProcessDiffEvents_OnlyNewProcessesAreEmitted(t *testing.T) {
 	ns := "fortuna"
 
 	prevTs := time.Now().UTC().Add(-30 * time.Second)
-	prev := []models.PodProcess{
-		{
-			PodUID:        podUID,
-			ClusterID:     "c1",
-			Namespace:     ns,
-			ContainerName: "app",
-			PID:           100,
-			ObservedAt:    prevTs,
-			CreatedAt:     prevTs,
-		},
+	prev := []models.PodProcess{{
+		PodUID:        podUID,
+		ClusterID:     "c1",
+		Namespace:     ns,
+		ContainerName: "app",
+		PID:           100,
+		ObservedAt:    prevTs,
+		CreatedAt:     prevTs,
+	},
 	}
 	if err := db.Create(&prev).Error; err != nil {
 		t.Fatalf("seed previous snapshot: %v", err)
 	}
 
 	now := prevTs.Add(30 * time.Second)
-	current := []models.PodProcess{
-		{ContainerName: "app", PID: 100, BinaryPath: "/usr/bin/existing"},
+	current := []models.PodProcess{{ContainerName: "app", PID: 100, BinaryPath: "/usr/bin/existing"},
 		{ContainerName: "app", PID: 200, BinaryPath: "/usr/bin/newproc"},
 	}
-	events, err := buildProcessDiffEvents(db, podUID, ns, now, current)
+	events, err := buildProcessDiffEventsScoped(db, "c1", podUID, ns, now, current)
 	if err != nil {
 		t.Fatalf("buildProcessDiffEvents error: %v", err)
 	}
@@ -103,10 +99,8 @@ func TestBuildProcessDiffEvents_TargetFallbackAndTruncate(t *testing.T) {
 
 	longCmd := strings.Repeat("x", 700)
 	now := prevTs.Add(1 * time.Minute)
-	current := []models.PodProcess{
-		{ContainerName: "app", PID: 2, Command: longCmd},
-	}
-	events, err := buildProcessDiffEvents(db, podUID, ns, now, current)
+	current := []models.PodProcess{{ContainerName: "app", PID: 2, Command: longCmd}}
+	events, err := buildProcessDiffEventsScoped(db, "c1", podUID, ns, now, current)
 	if err != nil {
 		t.Fatalf("buildProcessDiffEvents error: %v", err)
 	}

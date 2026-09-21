@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -155,7 +156,7 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		var total int64
 		countQuery := db.Model(&models.SBOM{}).Where("sboms.deleted_at IS NULL")
 		if !includeStale {
-			countQuery = countQuery.Joins("INNER JOIN pods ON pods.uid = sboms.pod_uid AND pods.deleted_at IS NULL")
+			countQuery = countQuery.Joins("INNER JOIN pods ON pods.cluster_id = sboms.cluster_id AND pods.uid = sboms.pod_uid AND pods.deleted_at IS NULL")
 		}
 		if podNameFilter != "" {
 			countQuery = countQuery.Where("sboms.pod_name ILIKE ?", "%"+podNameFilter+"%")
@@ -170,7 +171,7 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 
 		joinActivePods := ""
 		if !includeStale {
-			joinActivePods = "INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL"
+			joinActivePods = "INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL"
 		}
 		query := `
 			SELECT * FROM (
@@ -302,14 +303,19 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
 			return
 		}
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
 		includeStale := strings.EqualFold(strings.TrimSpace(c.Query("includeStale")), "true") ||
 			strings.EqualFold(strings.TrimSpace(c.Query("scope")), "all") ||
 			strings.EqualFold(strings.TrimSpace(c.Query("scope")), "historical")
 
 		var sbom models.SBOM
-		sbomQuery := db.Where("pod_uid = ? AND deleted_at IS NULL", podUID)
+		sbomQuery := db.Where("cluster_id = ? AND pod_uid = ? AND deleted_at IS NULL", clusterID, podUID)
 		if !includeStale {
-			sbomQuery = sbomQuery.Where("EXISTS (SELECT 1 FROM pods p WHERE p.uid = sboms.pod_uid AND p.deleted_at IS NULL)")
+			sbomQuery = sbomQuery.Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = sboms.cluster_id AND p.uid = sboms.pod_uid AND p.deleted_at IS NULL)")
 		}
 		if err := sbomQuery.Order("created_at DESC").Limit(1).Find(&sbom).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
@@ -318,7 +324,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		if sbom.ID == 0 {
 			if !includeStale {
 				var staleCount int64
-				db.Model(&models.SBOM{}).Where("pod_uid = ? AND deleted_at IS NULL", podUID).Count(&staleCount)
+				db.Model(&models.SBOM{}).Where("cluster_id = ? AND pod_uid = ? AND deleted_at IS NULL", clusterID, podUID).Count(&staleCount)
 				if staleCount > 0 {
 					c.JSON(http.StatusNotFound, gin.H{
 						"error":        "active sbom not found for pod",
@@ -382,7 +388,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		}
 		vulnerablePackageCount := len(byName)
 
-		activePod := sbomHasActivePod(db, sbom.PodUID)
+		activePod := sbomHasActivePod(db, sbom.ClusterID, sbom.PodUID)
 		dto := SBOMDetailDTO{
 			PodID:                  sbom.PodUID,
 			Image:                  fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
@@ -483,12 +489,12 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func sbomHasActivePod(db *gorm.DB, podUID string) bool {
-	if db == nil || strings.TrimSpace(podUID) == "" || !db.Migrator().HasTable("pods") {
+func sbomHasActivePod(db *gorm.DB, clusterID, podUID string) bool {
+	if db == nil || strings.TrimSpace(clusterID) == "" || strings.TrimSpace(podUID) == "" || !db.Migrator().HasTable("pods") {
 		return false
 	}
 	var count int64
-	if err := db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", podUID).Count(&count).Error; err != nil {
+	if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, podUID).Count(&count).Error; err != nil {
 		return false
 	}
 	return count > 0

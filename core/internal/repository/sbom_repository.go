@@ -13,6 +13,7 @@ import (
 	"github.com/fortuna/core/internal/contextkeys"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 const (
@@ -117,6 +118,9 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 	if sbom == nil {
 		return nil, false, errors.New("sbom is required")
 	}
+	if _, err := resourceidentity.New(sbom.ClusterID, sbom.PodUID); err != nil {
+		return nil, false, fmt.Errorf("SBOM ownership: %w", err)
+	}
 	sbom.SbomSource = models.NormalizeSBOMSource(sbom.SbomSource)
 	sbom.Confidence = models.NormalizeSBOMConfidence(sbom.Confidence)
 
@@ -157,7 +161,7 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 
 	// Row-level lock to serialize concurrent writers for the same pod_uid + image_digest.
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", sbom.PodUID, sbom.ImageDigest).
+		Where("cluster_id = ? AND pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", sbom.ClusterID, sbom.PodUID, sbom.ImageDigest).
 		First(&existing).Error
 	switch {
 	case err == nil:
@@ -261,7 +265,7 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 			var prev models.SBOM
 			// Find the latest SBOM for the pod_uid excluding this image_digest.
 			// (SQLite and Postgres both support LIMIT in raw queries; we use First with ordering.)
-			prevErr := tx.Where("pod_uid = ? AND image_digest <> ? AND deleted_at IS NULL", sbom.PodUID, sbom.ImageDigest).
+			prevErr := tx.Where("cluster_id = ? AND pod_uid = ? AND image_digest <> ? AND deleted_at IS NULL", sbom.ClusterID, sbom.PodUID, sbom.ImageDigest).
 				Order("version DESC").
 				First(&prev).Error
 			if prevErr == nil && normalizeSBOMStatus(prev.Status) != "failed" && prev.NormalizedFingerprint != "" && prev.NormalizedFingerprint != sbom.NormalizedFingerprint {

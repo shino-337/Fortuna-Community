@@ -2,9 +2,9 @@ package models
 
 import "time"
 
-// PodInstance represents a pod instance with explicit lifecycle
+// PodInstance represents a pod instance with explicit lifecycle.
 type PodInstance struct {
-	ClusterID    string     `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
+	ClusterID    string     `gorm:"primaryKey;type:varchar(255)" json:"clusterId,omitempty"`
 	PodUID       string     `gorm:"primaryKey;type:varchar(255)" json:"podUid"`
 	WorkloadID   *string    `gorm:"type:varchar(255);index" json:"workloadId,omitempty"`
 	Namespace    string     `gorm:"type:varchar(255);not null;index" json:"namespace"`
@@ -15,7 +15,7 @@ type PodInstance struct {
 	Status       string     `gorm:"type:varchar(20);not null;default:active;check:status IN ('active', 'terminated')" json:"status"`
 }
 
-// TableName overrides table name
+// TableName overrides table name.
 func (PodInstance) TableName() string {
 	return "pod_instances"
 }

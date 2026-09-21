@@ -36,7 +36,7 @@ func governanceFixture(t *testing.T) (*gorm.DB, func(string, string, string, str
 		}
 		for _, row := range []any{
 			&models.Pod{UID: uid, Name: "shared", Namespace: "shared", ClusterID: cluster},
-			&models.PodAttackStep{PodUID: uid, StepID: "escape", Category: "escape", Confidence: float64(i+1) / 4},
+			&models.PodAttackStep{ClusterID: cluster, PodUID: uid, StepID: "escape", Category: "escape", Confidence: float64(i+1) / 4},
 			&models.ExceptionPolicy{ClusterID: cluster, ResourceUID: uid, CVEID: "CVE-test", InsightType: "vulnerability", Reason: uid},
 		} {
 			if err := db.Create(row).Error; err != nil {

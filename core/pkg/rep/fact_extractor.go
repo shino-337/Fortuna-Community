@@ -34,6 +34,7 @@ func extractAndPersistBehaviorFacts(ctx context.Context, db *gorm.DB, event *mod
 			"event_id":    event.ID,
 		})
 		row := models.RuntimeBehaviorFact{
+			ClusterID:  event.ClusterID,
 			FactID:     fmt.Sprintf("%d:%s", event.ID, f.FactType),
 			EventID:    event.ID,
 			PodUID:     event.PodUID,

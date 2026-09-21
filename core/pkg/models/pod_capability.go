@@ -6,13 +6,13 @@ import (
 	"github.com/lib/pq"
 )
 
-// PodCapability stores evaluated offensive capabilities for a pod
+// PodCapability stores evaluated offensive capabilities for a pod.
 type PodCapability struct {
 	ID              uint           `gorm:"primaryKey" json:"id"`
-	ClusterID       string         `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
-	PodUID          string         `gorm:"type:varchar(255);not null;index" json:"podUid"`
+	ClusterID       string         `gorm:"type:varchar(255);index;uniqueIndex:idx_pod_capability_identity" json:"clusterId,omitempty"`
+	PodUID          string         `gorm:"type:varchar(255);not null;index;uniqueIndex:idx_pod_capability_identity" json:"podUid"`
 	Namespace       string         `gorm:"type:varchar(255);not null;index" json:"namespace"`
-	CapabilityID    string         `gorm:"type:varchar(100);not null;index" json:"capabilityId"`
+	CapabilityID    string         `gorm:"type:varchar(100);not null;index;uniqueIndex:idx_pod_capability_identity" json:"capabilityId"`
 	CapabilityGroup string         `gorm:"type:varchar(50);not null;index;column:capability_group" json:"group"`
 	Severity        string         `gorm:"type:varchar(20);not null;index" json:"severity"`
 	State           string         `gorm:"type:varchar(20);default:detected;index;check:state IN ('detected', 'confirmed', 'exploited', 'chained')" json:"state"`
@@ -27,7 +27,7 @@ type PodCapability struct {
 	UpdatedAt       time.Time      `json:"updatedAt"`
 }
 
-// TableName overrides table name
+// TableName overrides table name.
 func (PodCapability) TableName() string {
 	return "pod_capabilities"
 }

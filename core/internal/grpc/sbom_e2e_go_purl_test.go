@@ -73,6 +73,8 @@ func TestE2E_Core_SendSBOMFinding_GoMultiSegmentPURL_AliasMatch(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -98,4 +100,3 @@ func TestE2E_Core_SendSBOMFinding_GoMultiSegmentPURL_AliasMatch(t *testing.T) {
 	}
 	require.True(t, found, "expected alias-resolved match for github.com/coreos/etcd/client/v3@v3.3.0")
 }
-

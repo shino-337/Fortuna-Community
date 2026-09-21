@@ -211,15 +211,26 @@ func clusterIDFromContext(ctx context.Context) string {
 func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFinding) (*pb.SBOMFindingResponse, error) {
 	correlationID := correlationIDFromContext(ctx)
 	eventID := newEventID()
-	clusterID := clusterIDFromContext(ctx)
+	clusterID := ""
+	if principal, ok := grpcAgentPrincipalFromContext(ctx); ok {
+		clusterID = strings.TrimSpace(principal.ClusterID)
+	}
+	if clusterID == "" {
+		clusterID = strings.TrimSpace(clusterIDFromContext(ctx))
+	}
 	if clusterID == "" && s.db != nil {
-		var pod models.Pod
-		if err := s.db.Where("uid = ? AND deleted_at IS NULL", req.PodUid).First(&pod).Error; err == nil {
-			clusterID = pod.ClusterID
+		var owners []string
+		if err := s.db.Model(&models.Pod{}).
+			Where("uid = ? AND deleted_at IS NULL", req.PodUid).
+			Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
+			return nil, status.Error(codes.Unavailable, "pod ownership verification unavailable")
+		}
+		if len(owners) == 1 && strings.TrimSpace(owners[0]) != "" {
+			clusterID = strings.TrimSpace(owners[0])
 		}
 	}
 	if clusterID == "" {
-		clusterID = "unknown"
+		return nil, status.Error(codes.PermissionDenied, "cluster-qualified pod identity required")
 	}
 	if s.clusterLimiter != nil && !s.clusterLimiter.AllowSBOM(clusterID) {
 		log.Printf("[SBOM] correlation_id=%s rate limit exceeded for cluster_id=%s", correlationID, clusterID)
@@ -289,7 +300,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	oldSBOMStatus := ""
 	oldSBOMStatusReason := ""
 	oldSBOMFound := false
-	if err := s.db.Where("pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", req.PodUid, req.ImageDigest).First(&existingSBOM).Error; err == nil {
+	if err := s.db.Where("cluster_id = ? AND pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", clusterID, req.PodUid, req.ImageDigest).First(&existingSBOM).Error; err == nil {
 		oldSBOMFound = true
 		oldSBOMStatus = existingSBOM.Status
 		oldSBOMStatusReason = existingSBOM.StatusReason
@@ -335,6 +346,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	}
 
 	sbomModel := &models.SBOM{
+		ClusterID:          clusterID,
 		PodUID:             req.PodUid,
 		PodName:            req.PodName,
 		Namespace:          req.Namespace,

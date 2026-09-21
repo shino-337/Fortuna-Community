@@ -174,6 +174,7 @@ func ensureClusterResourceIdentityIndexes(db *gorm.DB) error {
 }
 
 type postgresIndexDefinition struct {
+	Plain   bool   `gorm:"column:is_plain"`
 	Valid   bool   `gorm:"column:valid"`
 	Unique  bool   `gorm:"column:is_unique"`
 	Table   string `gorm:"column:table_name"`
@@ -201,7 +202,7 @@ func ensureIndex(db *gorm.DB, name, table, columns string, unique bool) error {
 	if err != nil {
 		return fmt.Errorf("inspect %s: %w", name, err)
 	}
-	if exists && (!def.Valid || def.Unique != unique || def.Table != table || def.Columns != expectedColumns) {
+	if exists && (!def.Valid || !def.Plain || def.Unique != unique || def.Table != table || def.Columns != expectedColumns) {
 		if err := db.Exec("DROP INDEX CONCURRENTLY IF EXISTS " + name).Error; err != nil {
 			return fmt.Errorf("drop invalid or mismatched %s: %w", name, err)
 		}
@@ -217,7 +218,7 @@ func ensureIndex(db *gorm.DB, name, table, columns string, unique bool) error {
 	if err != nil {
 		return fmt.Errorf("verify %s: %w", name, err)
 	}
-	if !exists || !def.Valid || def.Unique != unique || def.Table != table || def.Columns != expectedColumns {
+	if !exists || !def.Valid || !def.Plain || def.Unique != unique || def.Table != table || def.Columns != expectedColumns {
 		return fmt.Errorf("cluster resource identity foundation: required PostgreSQL index %s has wrong definition", name)
 	}
 	return nil
@@ -235,6 +236,7 @@ func postgresIndexDefinitionForName(db *gorm.DB, name string) (postgresIndexDefi
 	var row postgresIndexDefinition
 	res := db.Raw(`SELECT
   i.indisvalid AS valid,
+  (i.indpred IS NULL AND i.indexprs IS NULL) AS is_plain,
   i.indisunique AS is_unique,
   tbl.relname::text AS table_name,
   COALESCE(string_agg(att.attname::text, ',' ORDER BY keycols.ordinality), '') AS column_names
@@ -246,7 +248,7 @@ LEFT JOIN LATERAL unnest(i.indkey) WITH ORDINALITY AS keycols(attnum, ordinality
 LEFT JOIN pg_attribute att ON att.attrelid = i.indrelid AND att.attnum = keycols.attnum
 WHERE idx.relname = ?
   AND n.nspname = current_schema()
-GROUP BY i.indisvalid, i.indisunique, tbl.relname`, name).Scan(&row)
+GROUP BY i.indisvalid, i.indisunique, tbl.relname, (i.indpred IS NULL AND i.indexprs IS NULL)`, name).Scan(&row)
 	if res.Error != nil {
 		return postgresIndexDefinition{}, false, res.Error
 	}

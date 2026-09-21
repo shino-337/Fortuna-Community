@@ -113,7 +113,8 @@ func materializePathsForPod(t *testing.T, podUID, podName, namespace string, pat
 		edges, err := json.Marshal(p.Edges)
 		require.NoError(t, err)
 		rec := models.AttackPath{
-			PodUID: podUID, PathID: pid,
+			ClusterID: fixtureClusterID,
+			PodUID:    podUID, PathID: pid,
 			Nodes: string(nodes), Edges: string(edges),
 			TotalRisk: p.TotalRisk, Difficulty: p.Difficulty, Impact: p.Impact, Length: p.Length,
 			Description: p.Description, EnrichedFromPCE: p.EnrichedFromPCE,
@@ -124,7 +125,8 @@ func materializePathsForPod(t *testing.T, podUID, podName, namespace string, pat
 
 	if insertEscCapability {
 		require.NoError(t, db.Create(&models.PodCapability{
-			PodUID: podUID, Namespace: namespace, CapabilityID: "ESC_HOSTPATH_NODE",
+			ClusterID: fixtureClusterID,
+			PodUID:    podUID, Namespace: namespace, CapabilityID: "ESC_HOSTPATH_NODE",
 			CapabilityGroup: "ESC", Severity: "critical", State: "confirmed",
 			Confidence: 0.9, Evidence: "{}", DerivedFrom: "{}",
 			CreatedAt: now, UpdatedAt: now,
@@ -457,12 +459,14 @@ func TestGolden_GraphChain_NoisyRuntimeMitigation(t *testing.T) {
 	const noiseMitre = "T_GOLDEN_FIXTURE_NOISE_UNMAPPED"
 	for i := 0; i < 8; i++ {
 		require.NoError(t, db.Create(&models.RuntimeEvent{
-			PodUID: fixturePodUID, Namespace: "ns-fix", Mitre: noiseMitre,
+			ClusterID: fixtureClusterID,
+			PodUID:    fixturePodUID, Namespace: "ns-fix", Mitre: noiseMitre,
 			Syscall: "execve", CreatedAt: now, Confidence: 0.85,
 		}).Error)
 	}
 	require.NoError(t, db.Create(&models.RuntimeEvent{
-		PodUID: fixturePodUID, Namespace: "ns-fix", Mitre: "T1098.006",
+		ClusterID: fixtureClusterID,
+		PodUID:    fixturePodUID, Namespace: "ns-fix", Mitre: "T1098.006",
 		Syscall: "open", CreatedAt: now, Confidence: 0.85,
 	}).Error)
 
@@ -512,7 +516,8 @@ func TestGolden_GraphChain_ScoreDropsWithoutAttackPaths(t *testing.T) {
 		CreatedAt: now, UpdatedAt: now,
 	}).Error)
 	require.NoError(t, dbEmpty.Create(&models.PodCapability{
-		PodUID: fixturePodUID, Namespace: "ns-fix", CapabilityID: "ESC_HOSTPATH_NODE",
+		ClusterID: fixtureClusterID,
+		PodUID:    fixturePodUID, Namespace: "ns-fix", CapabilityID: "ESC_HOSTPATH_NODE",
 		CapabilityGroup: "ESC", Severity: "critical", State: "confirmed",
 		Confidence: 0.9, Evidence: "{}", DerivedFrom: "{}",
 		CreatedAt: now, UpdatedAt: now,
@@ -619,6 +624,7 @@ func TestGolden_FalseEscalationIllusion_RbacShellNetworkNoiseWithoutK8sAPI(t *te
 		},
 	}
 	for i := range signals {
+		signals[i].ClusterID = fixtureClusterID
 		require.NoError(t, db.Create(&signals[i]).Error)
 	}
 
@@ -657,10 +663,12 @@ func TestGolden_FalseEscalationIllusion_RbacShellNetworkNoiseWithoutK8sAPI(t *te
 	// comparing illusion to clean escape is misleading once RUNTIME_THREAT and capability lifts apply.
 	dbAB := materializePathsForPod(t, fixtureRbacPodUID, "rbac-fix", "ns-rbac", pathsRBAC, false)
 	for i := range signals {
+		signals[i].ClusterID = fixtureClusterID
 		require.NoError(t, dbAB.Create(&signals[i]).Error)
 	}
 	require.NoError(t, dbAB.Create(&models.RuntimeEvent{
-		PodUID: fixtureRbacPodUID, Namespace: "ns-rbac", Syscall: "connect",
+		ClusterID: fixtureClusterID,
+		PodUID:    fixtureRbacPodUID, Namespace: "ns-rbac", Syscall: "connect",
 		SourceRule: "Contact K8s API Server From Container", Confidence: 0.9,
 		CreatedAt: now,
 	}).Error)

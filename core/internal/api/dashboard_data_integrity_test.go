@@ -69,7 +69,7 @@ func TestDashboardDataIntegrity_CatalogHealthCurrentMirrorCoverage(t *testing.T)
 		t.Fatalf("seed pod: %v", err)
 	}
 	if err := db.Create(&models.SBOM{
-		ID:            101,
+		ClusterID: "c1", ID: 101,
 		PodUID:        "pod-active",
 		PodName:       "api",
 		Namespace:     "default",
@@ -82,7 +82,7 @@ func TestDashboardDataIntegrity_CatalogHealthCurrentMirrorCoverage(t *testing.T)
 		t.Fatalf("seed active sbom: %v", err)
 	}
 	if err := db.Create(&models.SBOM{
-		ID:            102,
+		ClusterID: "c1", ID: 102,
 		PodUID:        "pod-stale",
 		PodName:       "old",
 		Namespace:     "default",
@@ -174,7 +174,7 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenActiveSBOMNotMatchedCurren
 	_ = db.Create(&models.OSVPackage{VulnID: "GO-2023-2402", Ecosystem: "go", PackageName: "golang.org/x/crypto"}).Error
 	_ = db.Create(&models.MalwarePackage{PackageName: "bad", Version: "1.0.0", Reason: "MALWARE"}).Error
 	_ = db.Create(&models.Pod{UID: "pod-active", ClusterID: "c1", Name: "api", Namespace: "default", ServiceAccount: "default"}).Error
-	_ = db.Create(&models.SBOM{ID: 201, PodUID: "pod-active", ImageName: "api", ImageTag: "1", Version: 3, Status: "complete"}).Error
+	_ = db.Create(&models.SBOM{ClusterID: "c1", ID: 201, PodUID: "pod-active", ImageName: "api", ImageTag: "1", Version: 3, Status: "complete"}).Error
 	_ = db.Create(&models.SBOMMatchRun{SBOMID: 201, Version: 3, MirrorVersion: "7", Status: "succeeded"}).Error
 
 	router := gin.New()
@@ -233,7 +233,7 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenMirrorMatchedButGeneration
 	_ = db.Create(&models.OSVPackage{VulnID: "GO-2023-2402", Ecosystem: "go", PackageName: "golang.org/x/crypto"}).Error
 	_ = db.Create(&models.MalwarePackage{PackageName: "bad", Version: "1.0.0", Reason: "MALWARE"}).Error
 	_ = db.Create(&models.Pod{UID: "pod-active", ClusterID: "c1", Name: "api", Namespace: "default", ServiceAccount: "default"}).Error
-	_ = db.Create(&models.SBOM{ID: 301, PodUID: "pod-active", ImageName: "api", ImageTag: "1", Version: 3, Status: "complete"}).Error
+	_ = db.Create(&models.SBOM{ClusterID: "c1", ID: 301, PodUID: "pod-active", ImageName: "api", ImageTag: "1", Version: 3, Status: "complete"}).Error
 	_ = db.Create(&models.SBOMMatchRun{SBOMID: 301, Version: 3, MirrorVersion: "8", Status: "succeeded"}).Error
 
 	router := gin.New()

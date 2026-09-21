@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 const envRuntimeRiskLookbackHours = "FORTUNA_RUNTIME_RISK_LOOKBACK_HOURS"
@@ -45,13 +46,31 @@ func (e *Engine) enrichPodFortunaContext(ctx context.Context, enriched map[strin
 		"service_account_bound_to_cluster_admin": false,
 	}
 
-	if err := e.UpsertAssetSecurityState(ctx, uid); err != nil {
+	clusterID, _ := enriched["cluster_id"].(string)
+	if clusterID == "" {
+		// Compatibility for UID-only internal callers: never pick the first owner.
+		var owners []string
+		if err := e.db.WithContext(ctx).Model(&models.Pod{}).
+			Where("uid = ? AND deleted_at IS NULL", uid).
+			Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
+			return fmt.Errorf("resolve pod security-state ownership: %w", err)
+		}
+		if len(owners) != 1 {
+			return fmt.Errorf("cluster-qualified pod identity required for enrichment: uid=%s owners=%d", uid, len(owners))
+		}
+		clusterID = owners[0]
+	}
+	id, err := resourceidentity.New(clusterID, uid)
+	if err != nil {
+		return err
+	}
+	if err := e.UpsertAssetSecurityStateForIdentity(ctx, id); err != nil {
 		return fmt.Errorf("project pod security state: %w", err)
 	}
 
 	var state models.AssetSecurityState
 	if err := e.db.WithContext(ctx).
-		Where("pod_uid = ?", uid).
+		Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, id.ResourceUID).
 		First(&state).Error; err == nil {
 		fortuna["signal_total_24h"] = state.SignalTotal24h
 		fortuna["has_suspicious_exec"] = state.HasSuspiciousExec

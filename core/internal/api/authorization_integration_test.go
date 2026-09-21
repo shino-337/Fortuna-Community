@@ -119,36 +119,6 @@ func TestAuthorizationIntegration_OperatorCanEvaluate(t *testing.T) {
 	}
 }
 
-func TestAuthorizationIntegration_GraphQueryAdvancedOnly(t *testing.T) {
-	db := setupAuthzIntegrationDB(t)
-	const secret = "integration-test-secret-key-32b!!"
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	v1 := r.Group("/api/v1")
-	v1.Use(middleware.AuthMiddleware(db, secret))
-	v1.POST("/graph/query", middleware.RequirePermission(db, authorization.PermissionGraphQueryAdvanced), func(c *gin.Context) {
-		c.Status(http.StatusNoContent)
-	})
-
-	operatorToken := loginToken(t, db, secret, "operator1")
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/graph/query", bytes.NewReader([]byte("{}")))
-	req.Header.Set("Authorization", "Bearer "+operatorToken)
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusForbidden {
-		t.Fatalf("operator graph query: want 403 got %d body=%s", w.Code, w.Body.String())
-	}
-
-	adminToken := loginToken(t, db, secret, "admin1")
-	w = httptest.NewRecorder()
-	req = httptest.NewRequest(http.MethodPost, "/api/v1/graph/query", bytes.NewReader([]byte("{}")))
-	req.Header.Set("Authorization", "Bearer "+adminToken)
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNoContent {
-		t.Fatalf("admin graph query: want 204 got %d body=%s", w.Code, w.Body.String())
-	}
-}
-
 func TestAuthorizationIntegration_AttackPathsEnforceClusterScope(t *testing.T) {
 	db := setupAuthzIntegrationDB(t)
 	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}); err != nil {

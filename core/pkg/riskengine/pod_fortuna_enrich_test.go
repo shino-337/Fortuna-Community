@@ -30,13 +30,15 @@ func TestEnrichPodFortunaContext(t *testing.T) {
 		t.Fatalf("pod: %v", err)
 	}
 	if err := db.Create(&models.RuntimeSignal{
-		PodUID: podUID, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK",
+		ClusterID: "c1",
+		PodUID:    podUID, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK",
 		Evidence: "{}", CreatedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("signal: %v", err)
 	}
 	if err := db.Create(&models.RuntimeSignal{
-		PodUID: podUID, SignalType: "PROC_ROOT_PIVOT", Category: "ESCAPE",
+		ClusterID: "c1",
+		PodUID:    podUID, SignalType: "PROC_ROOT_PIVOT", Category: "ESCAPE",
 		Evidence: "{}", CreatedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("signal2: %v", err)
@@ -753,7 +755,8 @@ func TestYAMLEnginePodRuntimeCorrelationRules(t *testing.T) {
 		t.Fatalf("pod: %v", err)
 	}
 	if err := db.Create(&models.RuntimeSignal{
-		PodUID: podUID, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK",
+		ClusterID: "c1",
+		PodUID:    podUID, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK",
 		Evidence: "{}", CreatedAt: time.Now(),
 	}).Error; err != nil {
 		t.Fatalf("signal: %v", err)

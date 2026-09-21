@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/rbac"
 )
 
@@ -132,7 +133,12 @@ func (b *RelationalPathBuilder) buildAllPathsNoCache(ctx context.Context, cluste
 		}
 		for i := range plist {
 			pod := plist[i]
-			paths, err := b.buildPathsForPodWithSnapshot(ctx, &pod, snap, persist)
+			id, idErr := resourceidentity.New(cid, pod.UID)
+			if idErr != nil {
+				log.Printf("[RelationalPathBuilder] invalid pod identity %s/%s: %v", cid, pod.UID, idErr)
+				continue
+			}
+			paths, err := b.buildPathsForPodIdentityWithSnapshot(ctx, id, &pod, snap, persist)
 			if err != nil {
 				log.Printf("[RelationalPathBuilder] failed to build paths for pod %s: %v", pod.UID, err)
 				continue
@@ -230,7 +236,7 @@ func (b *RelationalPathBuilder) loadClusterPathSnapshot(ctx context.Context, clu
 		RoleMap:             roleMap,
 		CrMap:               crMap,
 		ClusterPods:         clusterPods,
-		DenyCache:           b.loadDenyCache(ctx),
+		DenyCache:           b.loadDenyCache(ctx, clusterID),
 		HardeningHints:      deriveHardeningHints(clusterPods),
 	}, nil
 }
@@ -295,95 +301,20 @@ func deriveHardeningHints(pods []models.Pod) ClusterHardeningHints {
 // pod_attack_steps (active step edges) from the PCE pipeline.
 // Phase 1.3: when persist=true, paths are written to attack_paths (background reconcile / explicit rebuild only).
 func (b *RelationalPathBuilder) BuildPathsForPod(ctx context.Context, podUID string, persist bool) ([]AttackPath, error) {
-	var pod models.Pod
-	if err := b.db.WithContext(ctx).
+	var owners []string
+	if err := b.db.WithContext(ctx).Model(&models.Pod{}).
 		Where("uid = ? AND deleted_at IS NULL", podUID).
-		First(&pod).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return []AttackPath{}, nil
-		}
-		return nil, fmt.Errorf("failed to fetch pod: %w", err)
+		Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
+		return nil, err
 	}
-	snap, err := b.loadClusterPathSnapshot(ctx, pod.ClusterID)
+	if len(owners) != 1 {
+		return nil, fmt.Errorf("cluster-qualified pod identity required: uid=%s owners=%d", podUID, len(owners))
+	}
+	id, err := resourceidentity.New(owners[0], podUID)
 	if err != nil {
 		return nil, err
 	}
-	return b.buildPathsForPodWithSnapshot(ctx, &pod, snap, persist)
-}
-
-func (b *RelationalPathBuilder) buildPathsForPodWithSnapshot(ctx context.Context, pod *models.Pod, snap *clusterPathSnapshot, persist bool) ([]AttackPath, error) {
-	podUID := pod.UID
-	if _, ok := snap.SaByNSName[pod.Namespace+"/"+pod.ServiceAccount]; !ok {
-		return []AttackPath{}, nil
-	}
-	sa := snap.SaByNSName[pod.Namespace+"/"+pod.ServiceAccount]
-
-	observedDestIPs := map[string]time.Time{}
-	if b.db.Migrator().HasTable(&models.PodNetworkConnection{}) {
-		var conns []models.PodNetworkConnection
-		since := time.Now().Add(-attackPathObservedEgressWindowFromEnv())
-		if err := b.db.WithContext(ctx).
-			Where("pod_uid = ? AND observed_at >= ?", podUID, since).
-			Find(&conns).Error; err == nil {
-			for _, c := range conns {
-				if strings.TrimSpace(c.DestIP) != "" {
-					ip := strings.TrimSpace(c.DestIP)
-					if prev, ok := observedDestIPs[ip]; !ok || c.ObservedAt.After(prev) {
-						observedDestIPs[ip] = c.ObservedAt
-					}
-				}
-			}
-		}
-	}
-	reachCtx := ReachabilityContext{
-		ObservedEgressIPs: observedDestIPs,
-		DenyCache:         snap.DenyCache,
-		Now:               time.Now(),
-		FallbackTTL:       attackPathFallbackTTLFromEnv(),
-		DenyTTL:           attackPathDenyTTLFromEnv(),
-	}
-
-	var podCaps []models.PodCapability
-	if b.db.Migrator().HasTable("pod_capabilities") {
-		if err := b.db.WithContext(ctx).
-			Where("pod_uid = ?", podUID).
-			Find(&podCaps).Error; err != nil {
-			log.Printf("[RelationalPathBuilder] warning: failed to load pod_capabilities for %s: %v", podUID, err)
-		}
-	}
-
-	var podAttackSteps []models.PodAttackStep
-	if b.db.Migrator().HasTable("pod_attack_steps") {
-		if err := b.db.WithContext(ctx).
-			Where("pod_uid = ?", podUID).
-			Find(&podAttackSteps).Error; err != nil {
-			log.Printf("[RelationalPathBuilder] warning: failed to load pod_attack_steps for %s: %v", podUID, err)
-		}
-	}
-
-	var paths []AttackPath
-	if isServiceAccountPathFeasible(*pod, podCaps) {
-		criticalCVE := b.hasCriticalCVEInsight(ctx, podUID)
-		highRiskSource := pod.HostNetwork || hasEscapeCapability(podCaps) || criticalCVE
-		paths = buildDeterministicPaths(
-			*pod, sa,
-			snap.ClusterPods,
-			snap.SaByNSName,
-			snap.RoleBindings, snap.ClusterRoleBindings,
-			snap.RoleMap, snap.CrMap,
-			podCaps, podAttackSteps,
-			reachCtx,
-			highRiskSource,
-		)
-	}
-
-	if persist {
-		if err := persistAttackPaths(ctx, b.db, podUID, paths); err != nil {
-			log.Printf("[RelationalPathBuilder] warning: failed to persist attack paths for pod %s: %v", podUID, err)
-		}
-	}
-
-	return paths, nil
+	return b.BuildPathsForPodIdentity(ctx, id, persist)
 }
 
 func isServiceAccountPathFeasible(pod models.Pod, podCaps []models.PodCapability) bool {
@@ -405,17 +336,6 @@ func hasEscapeCapability(caps []models.PodCapability) bool {
 		}
 	}
 	return false
-}
-
-func (b *RelationalPathBuilder) hasCriticalCVEInsight(ctx context.Context, podUID string) bool {
-	if !b.db.Migrator().HasTable("insights") {
-		return false
-	}
-	var count int64
-	_ = b.db.WithContext(ctx).Model(&models.Insight{}).
-		Where("resource_uid = ? AND deleted_at IS NULL AND status = 'active' AND lower(insight_type) = 'vulnerability' AND lower(severity) = 'critical'", podUID).
-		Count(&count).Error
-	return count > 0
 }
 
 func buildDeterministicPaths(
@@ -1339,91 +1259,19 @@ func classifyRiskLabel(score float64) string {
 
 // persistAttackPaths upserts computed attack paths into the attack_paths table.
 // If the table does not yet exist (pre-migration environment), this is a no-op.
-func persistAttackPaths(ctx context.Context, db *gorm.DB, podUID string, paths []AttackPath) error {
-	if !db.Migrator().HasTable("attack_paths") {
-		return nil
-	}
-
-	newByPathID := map[string]AttackPath{}
-	for i, p := range paths {
-		nodesJSON, _ := json.Marshal(p.Nodes)
-		edgesJSON, _ := json.Marshal(p.Edges)
-
-		// Stable path ID: based on position so re-computation produces the same key.
-		pathID := fmt.Sprintf("%s-path-%d", podUID, i)
-		newByPathID[pathID] = AttackPath{
-			Nodes:       p.Nodes,
-			Edges:       p.Edges,
-			TotalRisk:   p.TotalRisk,
-			Difficulty:  p.Difficulty,
-			Impact:      p.Impact,
-			Length:      p.Length,
-			Description: p.Description,
-		}
-
-		record := models.AttackPath{
-			PodUID:          podUID,
-			PathID:          pathID,
-			Nodes:           string(nodesJSON),
-			Edges:           string(edgesJSON),
-			TotalRisk:       p.TotalRisk,
-			Difficulty:      p.Difficulty,
-			Impact:          p.Impact,
-			Length:          p.Length,
-			Description:     p.Description,
-			EnrichedFromPCE: p.EnrichedFromPCE,
-		}
-
-		if err := db.WithContext(ctx).
-			Where("pod_uid = ? AND path_id = ?", podUID, pathID).
-			Assign(record).
-			FirstOrCreate(&record).Error; err != nil {
-			return fmt.Errorf("upsert path %s: %w", pathID, err)
-		}
-	}
-
-	// Hysteresis for disappeared paths: keep for grace period with decay to avoid UI/score flapping.
-	grace := attackPathHysteresisGraceFromEnv()
-	decay := attackPathHysteresisDecayFromEnv()
-	if grace > 0 {
-		var existing []models.AttackPath
-		if err := db.WithContext(ctx).Where("pod_uid = ?", podUID).Find(&existing).Error; err == nil {
-			now := time.Now()
-			for _, old := range existing {
-				if _, stillPresent := newByPathID[old.PathID]; stillPresent {
-					continue
-				}
-				age := now.Sub(old.UpdatedAt)
-				if age > grace {
-					_ = db.WithContext(ctx).Where("id = ?", old.ID).Delete(&models.AttackPath{}).Error
-					continue
-				}
-				old.TotalRisk = clampFloat(old.TotalRisk*decay, 0, 10)
-				old.Impact = clampFloat(old.Impact*decay, 0, 1)
-				old.Difficulty = clampFloat(1.0-(1.0-old.Difficulty)*decay, 0.1, 1.0)
-				old.Description = strings.TrimSpace(old.Description + " [hysteresis]")
-				_ = db.WithContext(ctx).Save(&old).Error
-			}
-		}
-	}
-	return nil
-}
-
 func cleanupStaleAttackPaths(ctx context.Context, db *gorm.DB, clusterID string) error {
 	if db == nil || !db.Migrator().HasTable("attack_paths") || !db.Migrator().HasTable("pods") {
 		return nil
 	}
 	stalePredicate := `NOT EXISTS (
 		SELECT 1 FROM pods
-		WHERE pods.uid = attack_paths.pod_uid
+		WHERE pods.cluster_id = attack_paths.cluster_id
+			AND pods.uid = attack_paths.pod_uid
 			AND pods.deleted_at IS NULL
 	)`
 	q := db.WithContext(ctx).Where(stalePredicate)
 	if strings.TrimSpace(clusterID) != "" {
-		q = q.Where(`pod_uid IN (
-			SELECT uid FROM pods
-			WHERE cluster_id = ?
-		)`, clusterID)
+		q = q.Where("attack_paths.cluster_id = ?", clusterID)
 	}
 	if err := q.Delete(&models.AttackPath{}).Error; err != nil {
 		return fmt.Errorf("delete stale attack paths: %w", err)
@@ -1455,12 +1303,13 @@ func attackPathHysteresisDecayFromEnv() float64 {
 	return v
 }
 
-func (b *RelationalPathBuilder) loadDenyCache(ctx context.Context) map[string]time.Time {
+func (b *RelationalPathBuilder) loadDenyCache(ctx context.Context, clusterID string) map[string]time.Time {
 	out := map[string]time.Time{}
 	if b == nil || b.db == nil || !b.db.Migrator().HasTable(&models.RuntimeSignal{}) {
 		return out
 	}
 	type denyRow struct {
+		ClusterID  string
 		PodUID     string
 		Evidence   string
 		CreatedAt  time.Time
@@ -1470,8 +1319,8 @@ func (b *RelationalPathBuilder) loadDenyCache(ctx context.Context) map[string]ti
 	since := time.Now().Add(-attackPathDenyTTLFromEnv())
 	_ = b.db.WithContext(ctx).
 		Model(&models.RuntimeSignal{}).
-		Select("pod_uid, evidence, created_at, signal_type").
-		Where("created_at >= ? AND signal_type IN ?", since, []string{"NETWORK_POLICY_DENY", "NETWORK_DENY"}).
+		Select("cluster_id, pod_uid, evidence, created_at, signal_type").
+		Where("cluster_id = ? AND created_at >= ? AND signal_type IN ?", clusterID, since, []string{"NETWORK_POLICY_DENY", "NETWORK_DENY"}).
 		Find(&rows).Error
 	for _, r := range rows {
 		targetUID := ""

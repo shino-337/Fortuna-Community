@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -16,23 +15,27 @@ import (
 )
 
 // TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal verifies agent→core contract:
-// POST /api/v1/runtime/events with pod.uid + syscall + target persists runtime_events and runtime_signals (REP).
+// POST /api/v2/runtime/events with pod.uid + syscall + target persists runtime_events and runtime_signals (REP).
 func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
-	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
+	podUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+	if err := db.Create(&models.Pod{UID: podUID, ClusterID: "c1", Namespace: "ns", Name: "work"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	payload := []map[string]interface{}{{
 		"pod": map[string]interface{}{
-			"uid":       "cccccccc-cccc-cccc-cccc-cccccccccccc",
+			"uid":       podUID,
 			"namespace": "ns",
 			"name":      "work",
 		},
@@ -41,7 +44,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 		"confidence": 0.9,
 	}}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtime/events", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -56,7 +59,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("runtime_events: want 1 got %d", len(events))
 	}
-	if events[0].PodUID != "cccccccc-cccc-cccc-cccc-cccccccccccc" || events[0].Syscall != "open" {
+	if events[0].ClusterID != "c1" || events[0].PodUID != podUID || events[0].Syscall != "open" {
 		t.Fatalf("event: %+v", events[0])
 	}
 
@@ -79,49 +82,50 @@ func TestRuntimeEventPayload_UnmarshalAgentShape(t *testing.T) {
 		"pod": {"uid": "ddd", "namespace": "n", "name": "p"},
 		"syscall": "openat",
 		"target": "/proc/1/root",
-		"timestamp": 1700000000
+		"observed_at": "2023-11-14T22:13:20Z"
 	}`
-	var p runtimeEventPayload
+	var p runtimeEventV2Payload
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		t.Fatal(err)
 	}
 	if p.Pod.UID != "ddd" || p.Syscall != "openat" || p.Target != "/proc/1/root" {
 		t.Fatalf("unmarshal: %+v", p)
 	}
-	if p.Timestamp != 1700000000 {
-		t.Fatalf("timestamp: %d", p.Timestamp)
+	if p.ObservedAt != "2023-11-14T22:13:20Z" {
+		t.Fatalf("observed_at: %s", p.ObservedAt)
 	}
-	// Core accepts timestamp 0 as "now" path — sanity only
-	_ = time.Unix(p.Timestamp, 0)
+
 }
 
 // TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal locks the R6/R9 e2e contract:
-// flat pod_uid + execve + EBPF_EXEC_TRACE -> processed>=1 and runtime_signals.signal_type EBPF_EXEC_ACTIVITY.
+// nested pod.uid + execve + EBPF_EXEC_TRACE -> processed>=1 and runtime_signals.signal_type EBPF_EXEC_ACTIVITY.
 func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
-	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	podUID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	if err := db.Create(&models.Pod{UID: podUID, ClusterID: "c1", Namespace: "fortuna", Name: "ebpf"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	body := []byte(`[{
-		"pod_uid": "` + podUID + `",
-		"namespace": "fortuna",
+		"pod": {"uid": "` + podUID + `", "namespace": "fortuna"},
 		"syscall": "execve",
-		"target_path": "/bin/sh-e2e-test",
+		"target": "/bin/sh-e2e-test",
 		"capability": "EBPF_EXEC_TRACE",
 		"confidence": 0.9,
-		"timestamp": 1700000001
+		"observed_at": "2023-11-14T22:13:21Z"
 	}]`)
 
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtime/events", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

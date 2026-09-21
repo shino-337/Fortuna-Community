@@ -40,6 +40,16 @@ func resolveRiskGovernanceScope(db *gorm.DB, c *gin.Context) (riskGovernanceScop
 	return s, true
 }
 
+func (s riskGovernanceScope) apply(q *gorm.DB, column string) *gorm.DB {
+	if s.clusterID != "" {
+		q = q.Where(column+" = ?", s.clusterID)
+	}
+	if s.restricted {
+		q = q.Where(column+" IN ?", s.clusterIDs)
+	}
+	return q
+}
+
 func (s riskGovernanceScope) podUIDs(db *gorm.DB, historical bool) *gorm.DB {
 	q := db.Model(&models.Pod{}).Select("uid")
 	if historical {

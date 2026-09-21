@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"net/http/httptest"
@@ -24,7 +25,8 @@ func TestPodRiskReportUsesResolvedRBACScope(t *testing.T) {
 		}
 	}
 	router := gin.New()
-	router.GET("/pods/:uid/report", GetPodRiskReport(db))
+	useAdminTestPrincipal(router)
+	router.GET("/pods/:uid/report", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRiskReport(db))
 	check := func(want int) {
 		t.Helper()
 		w := httptest.NewRecorder()

@@ -12,8 +12,16 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
+
+func useAdminTestPrincipal(r *gin.Engine) {
+	r.Use(func(c *gin.Context) {
+		c.Set("user", &models.User{Role: models.RoleAdmin})
+		c.Next()
+	})
+}
 
 // TestRuntimeFlow_AgentToCoreToDBToV2API verifies end-to-end flow:
 // agent-shape payload -> core REP processing -> DB facts/incidents -> v2 read API.
@@ -24,6 +32,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 		t.Fatalf("db: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.Pod{},
 		&models.RuntimeEvent{},
 		&models.RuntimeSignal{},
 		&models.RuntimeBehaviorFact{},
@@ -33,12 +42,17 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	r := gin.New()
-	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
-	r.GET("/api/v2/runtime/pods/:uid/facts", GetPodRuntimeBehaviorFacts(db))
-	r.GET("/api/v2/runtime/pods/:uid/incidents", GetPodRuntimeIncidents(db))
-
 	podUID := "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"
+	clusterID := "c1"
+	if err := db.Create(&models.Pod{UID: podUID, Name: "demo", Namespace: "ns", ClusterID: clusterID}).Error; err != nil {
+		t.Fatalf("seed pod: %v", err)
+	}
+
+	r := gin.New()
+	useAdminTestPrincipal(r)
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+	r.GET("/api/v2/runtime/pods/:uid/facts", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeBehaviorFactsScoped(db))
+	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
 	payload := []map[string]interface{}{
 		{
 			"pod": map[string]interface{}{
@@ -62,7 +76,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 		},
 	}
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtime/events", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -72,7 +86,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 
 	// DB verify: incidents should contain EXFIL_LIKE_SEQUENCE from REP-C.
 	var incidentsDB []models.RuntimeIncident
-	if err := db.Where("pod_uid = ?", podUID).Find(&incidentsDB).Error; err != nil {
+	if err := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).Find(&incidentsDB).Error; err != nil {
 		t.Fatalf("query incidents: %v", err)
 	}
 	if len(incidentsDB) == 0 {
@@ -117,12 +131,16 @@ func TestGetPodAssetSecurityState_NotFoundWhenTableMissing(t *testing.T) {
 		t.Fatalf("db: %v", err)
 	}
 	// Intentionally do NOT migrate AssetSecurityState table.
-	if err := db.AutoMigrate(&models.RuntimeEvent{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}); err != nil {
 		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Create(&models.Pod{UID: "pod-x", Name: "pod-x", Namespace: "ns", ClusterID: "c1"}).Error; err != nil {
+		t.Fatalf("seed pod: %v", err)
 	}
 
 	r := gin.New()
-	r.GET("/api/v2/runtime/pods/:uid/security-state", GetPodAssetSecurityState(db))
+	useAdminTestPrincipal(r)
+	r.GET("/api/v2/runtime/pods/:uid/security-state", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodAssetSecurityState(db))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/pods/pod-x/security-state", nil)
@@ -138,16 +156,20 @@ func TestGetPodAssetSecurityState_OK(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.AssetSecurityState{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "state-pod-1"
+	clusterID := "c1"
+	if err := db.Create(&models.Pod{UID: podUID, Name: "state-pod-1", Namespace: "ns", ClusterID: clusterID}).Error; err != nil {
+		t.Fatalf("seed pod: %v", err)
+	}
 	now := time.Now().UTC()
 	row := models.AssetSecurityState{
 		AssetType:              "pod",
 		PodUID:                 podUID,
 		Namespace:              "ns",
-		ClusterID:              "c1",
+		ClusterID:              clusterID,
 		SignalTotal24h:         3,
 		HasSuspiciousExec:      true,
 		HasNetworkQueueAnomaly: true,
@@ -162,7 +184,8 @@ func TestGetPodAssetSecurityState_OK(t *testing.T) {
 	}
 
 	r := gin.New()
-	r.GET("/api/v2/runtime/pods/:uid/security-state", GetPodAssetSecurityState(db))
+	useAdminTestPrincipal(r)
+	r.GET("/api/v2/runtime/pods/:uid/security-state", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodAssetSecurityState(db))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/pods/"+podUID+"/security-state", nil)
@@ -186,6 +209,7 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 		t.Fatalf("db: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.Pod{},
 		&models.RuntimeEvent{},
 		&models.RuntimeSignal{},
 		&models.RuntimeBehaviorFact{},
@@ -195,11 +219,17 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 		t.Fatalf("migrate: %v", err)
 	}
 
-	r := gin.New()
-	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
-	r.GET("/api/v2/runtime/pods/:uid/incidents", GetPodRuntimeIncidents(db))
-
 	podUID := "iiiiiiii-iiii-iiii-iiii-iiiiiiiiiiii"
+	clusterID := "c1"
+	if err := db.Create(&models.Pod{UID: podUID, Name: "demo", Namespace: "ns", ClusterID: clusterID}).Error; err != nil {
+		t.Fatalf("seed pod: %v", err)
+	}
+
+	r := gin.New()
+	useAdminTestPrincipal(r)
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
+
 	basePod := map[string]interface{}{
 		"uid":       podUID,
 		"namespace": "ns",
@@ -225,7 +255,7 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 	)
 
 	body, _ := json.Marshal(payload)
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/runtime/events", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)

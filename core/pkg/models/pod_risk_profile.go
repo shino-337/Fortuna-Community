@@ -9,8 +9,8 @@ import (
 // PodRiskProfile stores static/runtime risk signals for a pod.
 type PodRiskProfile struct {
 	ID           uint           `gorm:"primaryKey" json:"id"`
-	ClusterID    string         `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
-	PodUID       string         `gorm:"type:varchar(255);not null;index" json:"podUid"`
+	ClusterID    string         `gorm:"type:varchar(255);index;uniqueIndex:idx_pod_risk_profile_identity" json:"clusterId,omitempty"`
+	PodUID       string         `gorm:"type:varchar(255);not null;index;uniqueIndex:idx_pod_risk_profile_identity" json:"podUid"`
 	Namespace    string         `gorm:"type:varchar(255);not null;index" json:"namespace"`
 	StaticRisk   int            `gorm:"not null;default:0" json:"staticRisk"`
 	RuntimeScore int            `gorm:"not null;default:0" json:"runtimeScore"`

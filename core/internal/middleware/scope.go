@@ -12,6 +12,10 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
+// CtxPodClusterID contains the cluster half of a Pod identity after
+// RequirePodUIDClusterScope has resolved it without ambiguity.
+const CtxPodClusterID = "pod_cluster_id"
+
 // RequireClusterScope enforces optional per-user cluster scope from users.scope_json (RBAC v2).
 // Admins are unrestricted. Empty/missing scope = unrestricted. When cluster allow-list is non-empty,
 // requests with :id route param must match one of the listed IDs (string match).
@@ -28,8 +32,11 @@ func RequireClusterQueryScope(db *gorm.DB, queryKey string) gin.HandlerFunc {
 	}
 }
 
-// RequirePodUIDClusterScope resolves a Kubernetes pod UID route parameter to its
-// cluster ID, then applies the same per-user cluster allow-list as cluster routes.
+// RequirePodUIDClusterScope resolves a Kubernetes pod UID route parameter to
+// exactly one cluster ID, then applies the same per-user cluster allow-list as
+// cluster routes. A duplicated UID across clusters and legacy rows with missing
+// cluster ownership are ambiguous identities and fail closed instead of selecting
+// an arbitrary row.
 func RequirePodUIDClusterScope(db *gorm.DB, param string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Retained telemetry can outlive the active pod row. Resolve ownership
@@ -43,13 +50,17 @@ func RequirePodUIDClusterScope(db *gorm.DB, param string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusBadRequest, gin.H{"error": "pod UID is required"})
 			return
 		}
-		var clusterID string
-		err := db.Unscoped().Model(&models.Pod{}).Select("cluster_id").Where("uid = ?", podUID).Limit(1).Scan(&clusterID).Error
+
+		var rawClusterIDs []string
+		err := db.Unscoped().Model(&models.Pod{}).
+			Distinct("cluster_id").
+			Where("uid = ?", podUID).
+			Pluck("cluster_id", &rawClusterIDs).Error
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "could not verify pod scope"})
 			return
 		}
-		if strings.TrimSpace(clusterID) == "" {
+		if len(rawClusterIDs) == 0 {
 			if _, restricted := ScopedClusterIDs(c); restricted {
 				AbortClusterScopeDenied(db, c, "unknown-pod")
 				return
@@ -57,8 +68,48 @@ func RequirePodUIDClusterScope(db *gorm.DB, param string) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "pod not found"})
 			return
 		}
-		enforceClusterScope(c, db, strings.TrimSpace(clusterID))
+
+		unique := make(map[string]struct{}, len(rawClusterIDs))
+		unresolved := false
+		for _, raw := range rawClusterIDs {
+			clusterID := strings.TrimSpace(raw)
+			if clusterID == "" {
+				unresolved = true
+				continue
+			}
+			unique[clusterID] = struct{}{}
+		}
+		if unresolved || len(unique) != 1 {
+			// Do not disclose the set of owning clusters to a cluster-scoped user.
+			if _, restricted := ScopedClusterIDs(c); restricted {
+				AbortClusterScopeDenied(db, c, "ambiguous-pod")
+				return
+			}
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"error":  "pod identity is ambiguous",
+				"reason": "cluster_qualified_identity_required",
+			})
+			return
+		}
+
+		var clusterID string
+		for id := range unique {
+			clusterID = id
+		}
+		c.Set(CtxPodClusterID, clusterID)
+		enforceClusterScope(c, db, clusterID)
 	}
+}
+
+// ResolvedPodClusterID returns the cluster ownership resolved by
+// RequirePodUIDClusterScope. Handlers on Pod UID routes should use this value and
+// include it in storage predicates rather than querying by UID alone.
+func ResolvedPodClusterID(c *gin.Context) (string, bool) {
+	if c == nil {
+		return "", false
+	}
+	clusterID := strings.TrimSpace(c.GetString(CtxPodClusterID))
+	return clusterID, clusterID != ""
 }
 
 func enforceClusterScope(c *gin.Context, db *gorm.DB, clusterKey string) {

@@ -141,25 +141,6 @@ func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// QueryPrometheusMetrics queries Prometheus for specific metrics
-// Note: This is a placeholder - in production, you'd query Prometheus API
-func QueryPrometheusMetrics(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		query := c.Query("query")
-		if query == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "query parameter required"})
-			return
-		}
-
-		// For now, return placeholder response
-		// In production, this would query Prometheus API
-		c.JSON(http.StatusOK, gin.H{
-			"message": "Prometheus query endpoint - requires Prometheus client configuration",
-			"query":   query,
-		})
-	}
-}
-
 // GetErrorLogs returns error logs from the error_logs table (real data) with pagination.
 // Query: page (default 1), pageSize (default 20, max 200), level (optional), source (optional).
 func GetErrorLogs(db *gorm.DB) gin.HandlerFunc {

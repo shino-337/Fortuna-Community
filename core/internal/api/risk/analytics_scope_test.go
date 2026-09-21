@@ -43,16 +43,16 @@ func analyticsFixture(t *testing.T) (*gorm.DB, func(string, string) *httptest.Re
 			}
 			must(&models.Pod{UID: uid, ClusterID: cluster, Namespace: ns, Name: uid, NodeName: "shared-node"})
 			must(&models.RiskScore{ResourceUID: uid, ResourceType: "Pod", ClusterID: cluster, Namespace: ns, TotalScore: score, ScorerVersion: "v3", CalculatedAt: now})
-			sbom := models.SBOM{PodUID: uid, PodName: uid, Namespace: ns, ImageName: uid, ImageTag: "latest"}
+			sbom := models.SBOM{ClusterID: cluster, PodUID: uid, PodName: uid, Namespace: ns, ImageName: uid, ImageTag: "latest"}
 			must(&sbom)
 			count := i + 1
 			if cluster == "b" {
 				count = 5
 			}
 			for j := 0; j < count; j++ {
-				must(&models.CVEMatch{SBOMID: sbom.ID, CVEID: fmt.Sprintf("CVE-%s-%d-%d", cluster, i, j), Severity: "CRITICAL", CVSS: cvss, PackageName: "pkg"})
+				must(&models.CVEMatch{ClusterID: cluster, PodUID: uid, SBOMID: sbom.ID, CVEID: fmt.Sprintf("CVE-%s-%d-%d", cluster, i, j), Severity: "CRITICAL", CVSS: cvss, PackageName: "pkg"})
 			}
-			must(&models.RuntimeEvent{PodUID: uid, PodName: uid, Namespace: ns, Severity: "high", ObservedAt: &now, CreatedAt: now})
+			must(&models.RuntimeEvent{ClusterID: cluster, PodUID: uid, PodName: uid, Namespace: ns, Severity: "high", ObservedAt: &now, CreatedAt: now})
 		}
 	}
 	r := gin.New()
@@ -83,7 +83,9 @@ func analyticsFixture(t *testing.T) (*gorm.DB, func(string, string) *httptest.Re
 	return db, func(path, who string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		method := "GET"
-		if strings.HasPrefix(path, "/sync") { method = "POST" }
+		if strings.HasPrefix(path, "/sync") {
+			method = "POST"
+		}
 		req := httptest.NewRequest(method, path, nil)
 		req.Header.Set("Test-User", who)
 		r.ServeHTTP(w, req)

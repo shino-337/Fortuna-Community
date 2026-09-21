@@ -22,8 +22,8 @@ type EnrichedRefs struct {
 }
 
 // LoadFactSummaries loads runtime_behavior_facts for the given pod and fact_id list (best-effort).
-func LoadFactSummaries(ctx context.Context, db *gorm.DB, podUID string, factIDs []string) ([]EnrichedFactRef, error) {
-	if db == nil || strings.TrimSpace(podUID) == "" || len(factIDs) == 0 {
+func LoadFactSummaries(ctx context.Context, db *gorm.DB, clusterID, podUID string, factIDs []string) ([]EnrichedFactRef, error) {
+	if db == nil || strings.TrimSpace(clusterID) == "" || strings.TrimSpace(podUID) == "" || len(factIDs) == 0 {
 		return nil, nil
 	}
 	clean := make([]string, 0, len(factIDs))
@@ -44,7 +44,7 @@ func LoadFactSummaries(ctx context.Context, db *gorm.DB, podUID string, factIDs 
 	}
 	var rows []models.RuntimeBehaviorFact
 	if err := db.WithContext(ctx).
-		Where("pod_uid = ? AND fact_id IN ?", podUID, clean).
+		Where("cluster_id = ? AND pod_uid = ? AND fact_id IN ?", clusterID, podUID, clean).
 		Order("observed_at DESC").
 		Find(&rows).Error; err != nil {
 		return nil, err
@@ -65,8 +65,8 @@ func LoadFactSummaries(ctx context.Context, db *gorm.DB, podUID string, factIDs 
 }
 
 // BuildEnrichedRefs returns a bundle suitable for JSON embedding on GET /risk/insights/:id?enrich=1.
-func BuildEnrichedRefs(ctx context.Context, db *gorm.DB, podUID string, factIDs []string) (*EnrichedRefs, error) {
-	facts, err := LoadFactSummaries(ctx, db, podUID, factIDs)
+func BuildEnrichedRefs(ctx context.Context, db *gorm.DB, clusterID, podUID string, factIDs []string) (*EnrichedRefs, error) {
+	facts, err := LoadFactSummaries(ctx, db, clusterID, podUID, factIDs)
 	if err != nil {
 		return nil, err
 	}

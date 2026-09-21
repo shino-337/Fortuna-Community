@@ -25,9 +25,9 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/top", p(authorization.PermissionFindingsRead), risk.GetTopRisks(db))
 	api.GET("/risk/grouped", p(authorization.PermissionFindingsRead), risk.GetGroupedRisks(db))
 	api.GET("/risk/scores", p(authorization.PermissionFindingsRead), risk.GetRiskScores(db))
-	api.POST("/risk/scores/sync", p(authorization.PermissionRiskEvaluate), risk.SyncRiskScores(db))
-	api.GET("/risk/scores/:uid", p(authorization.PermissionFindingsRead), middleware.RequirePodUIDClusterScope(db, "uid"), risk.GetRiskScore(db))
-	api.POST("/risk/scores/:uid/calculate", p(authorization.PermissionRiskEvaluate), middleware.RequirePodUIDClusterScope(db, "uid"), risk.CalculateRiskScore(db))
+	api.POST("/risk/scores/sync", p(authorization.PermissionRiskEvaluate), risk.SyncRiskScoresByIdentity(db))
+	api.GET("/risk/scores/:uid", p(authorization.PermissionFindingsRead), middleware.RequirePodUIDClusterScope(db, "uid"), risk.GetRiskScoreForPodIdentity(db))
+	api.POST("/risk/scores/:uid/calculate", p(authorization.PermissionRiskEvaluate), middleware.RequirePodUIDClusterScope(db, "uid"), risk.CalculateRiskScoreForPodIdentity(db))
 	api.GET("/risk/trends", p(authorization.PermissionFindingsRead), risk.GetRiskTrends(db))
 
 	api.GET("/risk/rules", p(authorization.PermissionRulesRead), GetRiskRulesList(db))
@@ -68,7 +68,7 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/attack-steps/summary", p(authorization.PermissionFindingsRead), GetAttackStepsSummary(db))
 
 	riskPods.GET("/:uid/runtime", p(authorization.PermissionRuntimeRead), GetPodRiskProfile(db))
-	riskPods.GET("/:uid/runtime/events", p(authorization.PermissionRuntimeRead), GetPodRuntimeEvents(db))
+	riskPods.GET("/:uid/runtime/events", p(authorization.PermissionRuntimeRead), GetPodRuntimeEventsScoped(db))
 	api.GET("/risk/runtime/summary", p(authorization.PermissionRuntimeRead), GetRuntimeRiskSummary(db))
 	api.GET("/risk/runtime/top", p(authorization.PermissionRuntimeRead), GetTopRuntimeRisks(db))
 }

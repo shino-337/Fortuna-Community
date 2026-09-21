@@ -25,18 +25,19 @@ func TestRuntimeScopeAndFindingActions(t *testing.T) {
 		if err := db.Create(&models.Pod{UID: "pod-" + cluster, Name: "pod-" + cluster, Namespace: "default", ClusterID: "cluster-" + cluster}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Create(&models.RuntimeSignal{PodUID: "pod-" + cluster, SignalType: "PROC_ROOT_PIVOT", Category: "PROCESS", Evidence: "{}", Confidence: 0.8, CreatedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}).Error; err != nil {
+		if err := db.Create(&models.RuntimeSignal{ClusterID: "cluster-" + cluster, PodUID: "pod-" + cluster, SignalType: "PROC_ROOT_PIVOT", Category: "PROCESS", Evidence: "{}", Confidence: 0.8, CreatedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, uid := range []string{"pod-a", "pod-b"} {
-		if err := db.Create(&models.RuntimeEvent{PodUID: uid, Namespace: "default", Syscall: "sendto", Capability: "NETWORK_TXRX_QUEUE_SPIKE", TargetPath: "key=" + uid, CreatedAt: time.Now()}).Error; err != nil {
+		if err := db.Create(&models.RuntimeEvent{ClusterID: "cluster-" + uid[len("pod-"):], PodUID: uid, Namespace: "default", Syscall: "sendto", Capability: "NETWORK_TXRX_QUEUE_SPIKE", TargetPath: "key=" + uid, CreatedAt: time.Now()}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}
-	a := models.Insight{ResourceUID: "pod-a", ResourceType: "Pod", ResourceName: "pod-a", Title: "finding a", Description: "test", InsightType: "vulnerability", Severity: "high", Status: "active", Recommendation: "Upgrade package"}
+	a := models.Insight{ClusterID: "cluster-a", ResourceUID: "pod-a", ResourceType: "Pod", ResourceName: "pod-a", Title: "finding a", Description: "test", InsightType: "vulnerability", Severity: "high", Status: "active", Recommendation: "Upgrade package"}
 	b := a
 	b.ResourceUID = "pod-b"
+	b.ClusterID = "cluster-b"
 	if err := db.Create(&a).Error; err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +122,7 @@ func TestRuntimeScopeAndFindingActions(t *testing.T) {
 
 func TestBulkRequiresActionPermissionAndNonemptySelection(t *testing.T) {
 	db := newSecurityRegressionDB(t)
-	item := models.Insight{ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "high", Title: "a", Description: "a", Status: "active"}
+	item := models.Insight{ClusterID: "cluster-a", ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "high", Title: "a", Description: "a", Status: "active"}
 	if err := db.Create(&item).Error; err != nil {
 		t.Fatal(err)
 	}

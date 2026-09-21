@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -20,8 +21,13 @@ func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
 		var steps []models.PodAttackStep
-		if err := db.Where("pod_uid = ?", podUID).
+		if err := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).
 			Order("created_at DESC").
 			Find(&steps).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attack steps"})
@@ -52,11 +58,13 @@ func GetAttackStepsSummary(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		summaries := make([]Summary, 0)
-		if err := queryDB.Model(&models.PodAttackStep{}).
-			Where("pod_uid IN (?)", scope.podUIDs(queryDB, false)).
-			Select("step_id, category, COUNT(*) as count, AVG(confidence) as avg_confidence").
-			Group("step_id, category").
-			Order("count DESC, step_id ASC, category ASC").
+		query := queryDB.Model(&models.PodAttackStep{}).
+			Joins("JOIN pods p ON p.cluster_id = pod_attack_steps.cluster_id AND p.uid = pod_attack_steps.pod_uid AND p.deleted_at IS NULL")
+		query = scope.apply(query, "p.cluster_id")
+		if err := query.
+			Select("pod_attack_steps.step_id, pod_attack_steps.category, COUNT(*) as count, AVG(pod_attack_steps.confidence) as avg_confidence").
+			Group("pod_attack_steps.step_id, pod_attack_steps.category").
+			Order("count DESC, pod_attack_steps.step_id ASC, pod_attack_steps.category ASC").
 			Scan(&summaries).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attack steps"})
 			return

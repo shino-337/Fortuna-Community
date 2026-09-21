@@ -30,6 +30,9 @@ func TestProcessRuntimeEvent_EventFactSignalChain_StatelessDetectors(t *testing.
 
 	podUID := "stateless-chain-pod-1"
 	ns := "ns"
+	if err := db.Create(&models.Pod{ClusterID: "c1", UID: podUID, Name: "p", Namespace: ns}).Error; err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 
 	inputs := []RuntimeEventInput{

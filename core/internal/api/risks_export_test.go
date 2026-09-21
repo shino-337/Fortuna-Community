@@ -56,7 +56,7 @@ func TestExportRisksCSV_WithInsights(t *testing.T) {
 	db := setupExportTestDB(t)
 	now := time.Now()
 	_ = db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: "pod-1", ResourceName: "p1", ResourceNamespace: "default",
 		InsightType: "vulnerability", Severity: "high", Title: "CVE-2024-1", Description: "Test",
 		Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error

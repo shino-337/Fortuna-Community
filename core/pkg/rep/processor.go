@@ -9,12 +9,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lib/pq"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 type RuntimeEventInput struct {
@@ -55,131 +54,23 @@ type ProcessResult struct {
 }
 
 func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInput) (*ProcessResult, error) {
-	if input.Confidence <= 0 {
-		return nil, fmt.Errorf("rep: runtime event confidence must be > 0")
+	if strings.TrimSpace(input.PodUID) == "" {
+		return nil, fmt.Errorf("rep: pod uid is required")
 	}
-
-	payloadJSON := strings.TrimSpace(input.PayloadJSON)
-	if payloadJSON == "" || !json.Valid([]byte(payloadJSON)) {
-		payloadJSON = "{}"
-	}
-
-	// Step 1: Create raw runtime event
-	event := models.RuntimeEvent{
-		EventID:         strings.TrimSpace(input.EventID),
-		ObservedAt:      input.ObservedAt,
-		IngestedAt:      input.IngestedAt,
-		ResolutionState: strings.TrimSpace(input.ResolutionState),
-		SourceKind:      strings.TrimSpace(input.SourceKind),
-		SourceSensorID:  strings.TrimSpace(input.SourceSensorID),
-		SourceRule:      strings.TrimSpace(input.SourceRule),
-		PayloadJSON:     payloadJSON,
-		PayloadHash:     strings.TrimSpace(input.PayloadHash),
-		PodName:         input.PodName,
-		PodUID:          input.PodUID,
-		Namespace:       input.Namespace,
-		NodeName:        input.NodeName,
-		Runtime:         input.Runtime,
-		EventType:       input.EventType,
-		Signal:          input.Signal,
-		Mitre:           input.MitreTechnique,
-		Severity:        input.Severity,
-		Confidence:      input.Confidence,
-		Syscall:         input.Syscall,
-		TargetPath:      input.TargetPath,
-		Capability:      input.Capability,
-	}
-	if input.Timestamp != nil {
-		event.CreatedAt = *input.Timestamp
-	} else {
-		event.CreatedAt = time.Now()
-	}
-	if err := db.WithContext(ctx).Create(&event).Error; err != nil {
+	var owners []string
+	if err := db.WithContext(ctx).Model(&models.Pod{}).
+		Where("uid = ? AND deleted_at IS NULL", input.PodUID).
+		Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
 		return nil, err
 	}
-
-	// Step 1.5 (P0): extract normalized behavior facts from raw runtime event.
-	// This runs in parallel with existing REP v1 signal path to keep compatibility.
-	facts, err := extractAndPersistBehaviorFacts(ctx, db, &event)
+	if len(owners) != 1 {
+		return nil, fmt.Errorf("rep: cluster-qualified pod identity required: uid=%s owners=%d", input.PodUID, len(owners))
+	}
+	id, err := resourceidentity.New(owners[0], input.PodUID)
 	if err != nil {
-		log.Printf("[REP] Failed to extract behavior facts: %v", err)
-		// non-fatal: keep existing runtime_signals pipeline alive
+		return nil, err
 	}
-	// Step 1.5b (P0.2+/REP-B): facts -> synthesized semantic signals (persist path).
-	// This fills missing signals without double-counting within the current day window.
-	if facts != nil && len(facts) > 0 {
-		cands := synthesizeSignalsFromFacts(facts)
-		if err2 := persistSynthesizedSignalsFromFacts(ctx, db, &event, facts, cands); err2 != nil {
-			log.Printf("[REP] Failed to persist signals from facts: %v", err2)
-		}
-	}
-	// Step 1.6 (P0): REP-C minimal correlator (stateful incidents).
-	if err := correlateAndPersistRuntimeIncidents(ctx, db, &event, facts); err != nil {
-		log.Printf("[REP] Failed to correlate runtime incidents: %v", err)
-	}
-
-	// Step 2: Convert to semantic signal using SignalAdapter
-	signalAdapter := NewSignalAdapter(db)
-	if err := signalAdapter.AdaptAndPersist(ctx, &event); err != nil {
-		log.Printf("[REP] Failed to adapt event to signal: %v", err)
-		// Continue even if signal adaptation fails
-	}
-
-	// Step 3: Get signal type for promotion
-	signal, mitre, baseScore := classifySignal(input.Syscall, input.TargetPath, input.Capability, input.Runtime, input.SourceRule, db, ctx, input.PodUID)
-	if signal == "" {
-		// Compare-only mode for REP v2: observe where fact-based synthesis sees signals while legacy path misses.
-		if cands := synthesizeSignalsFromFacts(facts); len(cands) > 0 {
-			log.Printf("[REPv2-compare] legacy=no-match pod_uid=%s facts=%d synthesized=%v",
-				input.PodUID, len(facts), signalTypes(cands))
-		}
-		return nil, nil
-	}
-
-	// Compare-only mode for REP v2: no persistence yet, just parity visibility.
-	if cands := synthesizeSignalsFromFacts(facts); len(cands) > 0 {
-		match := containsSignalType(cands, signal)
-		if !match {
-			log.Printf("[REPv2-compare] mismatch pod_uid=%s legacy=%s synthesized=%v", input.PodUID, signal, signalTypes(cands))
-		}
-	}
-
-	// Step 4: Update risk profile
-	_, namespace := ensurePodRiskProfile(ctx, db, input.PodUID, input.Namespace)
-	runtimeScore := upsertRuntimeScore(ctx, db, input.PodUID, namespace, baseScore)
-
-	// Step 5: Use CSC to promote capabilities based on signal
-	csc := capability.NewCapabilityStateController(db)
-	capabilityID, severity := scoreToCapability(runtimeScore)
-	if capabilityID != "" {
-		// P0.3 runtime-first capability init:
-		// ensure capability exists even if no promotion_rule matches this signal yet.
-		runtimeEvidence := map[string]interface{}{
-			"source":        "runtime",
-			"signal_type":   signal,
-			"runtime_score": runtimeScore,
-			"base_score":    baseScore,
-			"mitre":         mitre,
-		}
-		if err := csc.InitializeCapability(ctx, input.PodUID, namespace, capabilityID, "ESC", severity, runtimeEvidence); err != nil {
-			log.Printf("[REP] Failed to initialize runtime capability %s for pod %s: %v", capabilityID, input.PodUID, err)
-		}
-
-		// Get signal type from adapted signal (use same logic as classifySignal for now)
-		signalType := signal
-		if err := csc.PromoteCapability(ctx, input.PodUID, capabilityID, signalType, 0.9); err != nil {
-			log.Printf("[REP] Failed to promote capability %s for pod %s: %v", capabilityID, input.PodUID, err)
-			// Continue even if promotion fails
-		}
-	}
-
-	return &ProcessResult{
-		Signal:       signal,
-		Mitre:        mitre,
-		BaseScore:    baseScore,
-		CapabilityID: capabilityID,
-		Severity:     severity,
-	}, nil
+	return ProcessRuntimeEventForIdentity(ctx, db, id, input)
 }
 
 func containsSignalType(cands []synthesizedSignal, signal string) bool {
@@ -416,80 +307,6 @@ func podAllowsCapability(containerSecurityContexts, capName string) bool {
 		}
 	}
 	return false
-}
-
-func ensurePodRiskProfile(ctx context.Context, db *gorm.DB, podUID, namespace string) (int, string) {
-	var pod models.Pod
-	if err := db.WithContext(ctx).Where("uid = ?", podUID).First(&pod).Error; err == nil {
-		staticRisk := capability.ComputeStaticRisk(&pod)
-		profile := models.PodRiskProfile{
-			PodUID:       podUID,
-			Namespace:    pod.Namespace,
-			StaticRisk:   staticRisk,
-			RuntimeScore: 0,
-			Capabilities: pq.StringArray{},
-			CreatedAt:    time.Now(),
-			UpdatedAt:    time.Now(),
-		}
-		_ = db.Clauses(clause.OnConflict{
-			Columns:   []clause.Column{{Name: "pod_uid"}},
-			DoUpdates: clause.AssignmentColumns([]string{"namespace", "static_risk", "updated_at"}),
-		}).Create(&profile).Error
-		return staticRisk, pod.Namespace
-	}
-
-	if namespace == "" {
-		namespace = "default"
-	}
-	profile := models.PodRiskProfile{
-		PodUID:       podUID,
-		Namespace:    namespace,
-		StaticRisk:   0,
-		RuntimeScore: 0,
-		Capabilities: pq.StringArray{},
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
-	}
-	_ = db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "pod_uid"}},
-		DoUpdates: clause.AssignmentColumns([]string{"namespace", "updated_at"}),
-	}).Create(&profile).Error
-	return 0, namespace
-}
-
-func upsertRuntimeScore(ctx context.Context, db *gorm.DB, podUID, namespace string, score int) int {
-	var profile models.PodRiskProfile
-	if err := db.WithContext(ctx).Where("pod_uid = ?", podUID).First(&profile).Error; err != nil {
-		return score
-	}
-	newScore := profile.RuntimeScore + score
-	if newScore > 100 {
-		newScore = 100
-	}
-	profile.RuntimeScore = newScore
-	profile.Namespace = namespace
-	now := time.Now()
-	profile.LastEventAt = &now
-	profile.UpdatedAt = now
-
-	// Update capabilities array based on runtime score
-	capabilityID, _ := scoreToCapability(newScore)
-	if capabilityID != "" {
-		capabilities := profile.Capabilities
-		found := false
-		for _, cap := range capabilities {
-			if cap == capabilityID {
-				found = true
-				break
-			}
-		}
-		if !found {
-			profile.Capabilities = append(capabilities, capabilityID)
-		}
-	}
-
-	_ = db.WithContext(ctx).Save(&profile).Error
-	return newScore
 }
 
 func scoreToCapability(score int) (string, string) {

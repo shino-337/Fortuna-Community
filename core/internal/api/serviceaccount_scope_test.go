@@ -58,11 +58,6 @@ func serviceAccountScopeFixture(t *testing.T) (*gorm.DB, func(string, string, st
 		c.Set("user", u)
 	})
 	registerInventoryRoutes(group, db, nil)
-	// Legacy handlers are also protected if reused by older route wiring.
-	group.GET("/legacy/:id", GetServiceAccount(db))
-	group.PUT("/legacy/:id", UpdateServiceAccount(db))
-	group.DELETE("/legacy/:id", DeleteServiceAccount(db))
-	group.GET("/legacy/:id/permissions", GetServiceAccountPermissions(db))
 	return db, func(method, path, who, body string) *httptest.ResponseRecorder {
 		w := httptest.NewRecorder()
 		req := httptest.NewRequest(method, "/api/v1"+path, strings.NewReader(body))
@@ -93,7 +88,7 @@ func TestServiceAccountInventoryScope(t *testing.T) {
 			t.Fatalf("%+v: %d %s", tc, w.Code, w.Body)
 		}
 	}
-	for _, path := range []string{"/inventory/serviceaccounts/sa-b", "/inventory/serviceaccounts/sa-b/permissions", "/legacy/2", "/legacy/2/permissions"} {
+	for _, path := range []string{"/inventory/serviceaccounts/sa-b", "/inventory/serviceaccounts/sa-b/permissions"} {
 		w := request("GET", path, "a", "")
 		if w.Code != 403 {
 			t.Fatalf("foreign %s: %d %s", path, w.Code, w.Body)
@@ -120,7 +115,7 @@ func TestServiceAccountInventoryScope(t *testing.T) {
 
 func TestServiceAccountMutationsProtectIdentity(t *testing.T) {
 	db, request := serviceAccountScopeFixture(t)
-	for _, path := range []string{"/inventory/serviceaccounts/sa-b", "/legacy/2"} {
+	for _, path := range []string{"/inventory/serviceaccounts/sa-b"} {
 		for _, method := range []string{"PUT", "DELETE"} {
 			if w := request(method, path, "a", `{"labels":{}}`); w.Code != 403 {
 				t.Fatalf("%s %s: %d %s", method, path, w.Code, w.Body)

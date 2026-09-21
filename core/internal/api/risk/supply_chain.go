@@ -148,7 +148,7 @@ SELECT
   COALESCE(p.node_name, '') AS node_name
 FROM cve_matches cm
 JOIN (?) s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
-LEFT JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL
+LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 WHERE cm.deleted_at IS NULL
   AND (? = '' OR s.namespace = ?)
   AND (? = '' OR cm.severity = ?)

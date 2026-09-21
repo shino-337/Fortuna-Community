@@ -21,31 +21,6 @@ func buildServiceAccountPermissions(db *gorm.DB, sa *models.ServiceAccount) (Ser
 	return rbacinventory.Resolve(db, sa)
 }
 
-// GetServiceAccountPermissions returns permissions for a specific ServiceAccount (by DB id).
-func GetServiceAccountPermissions(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load ServiceAccount"})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-		permissions, err := buildServiceAccountPermissions(db.WithContext(c.Request.Context()), &sa)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to resolve permissions from synchronized RBAC inventory"})
-			return
-		}
-		c.JSON(http.StatusOK, permissions)
-	}
-}
-
 // GetServiceAccountPermissionsByUID returns permissions for a ServiceAccount by Kubernetes UID (inventory domain).
 func GetServiceAccountPermissionsByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {

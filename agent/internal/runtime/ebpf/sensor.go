@@ -159,8 +159,9 @@ func (s *Sensor) send(events []runtime.Event) error {
 	if s.coreURL == "" {
 		return fmt.Errorf("coreURL is empty")
 	}
+	runtime.PrepareEventsV2(events)
 	body, _ := json.Marshal(events)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v1/runtime/events", s.coreURL), bytes.NewReader(body))
+	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", s.coreURL), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}

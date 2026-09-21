@@ -89,8 +89,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test -v ./migrations -run '^TestClusterResourceIdentityFoundationPostgres$' -count=1 -timeout=2m | tee /tmp/cluster-identity-postgres.log
+          go test -v ./migrations -run '^Test(ClusterResourceIdentityFoundation|ClusterQualifiedPodUniqueness)Postgres$' -count=1 -timeout=2m | tee /tmp/cluster-identity-postgres.log
           grep -q -- '--- PASS: TestClusterResourceIdentityFoundationPostgres' /tmp/cluster-identity-postgres.log
+          grep -q -- '--- PASS: TestClusterQualifiedPodUniquenessPostgres' /tmp/cluster-identity-postgres.log
+          go test -v ./pkg/riskengine -run '^TestPodInsightLifecyclePostgres$' -count=1 -timeout=2m | tee /tmp/insight-identity-postgres.log
+          grep -q -- '--- PASS: TestPodInsightLifecyclePostgres' /tmp/insight-identity-postgres.log
 
   dashboard:
     name: Dashboard validation
@@ -141,6 +144,12 @@ jobs:
           python scripts/verify/test-scoped-agent-credential-overlay.py
       - name: Validate cluster resource identity model contract
         run: python scripts/verify/check-cluster-resource-models.py
+      - name: Enforce cluster-qualified Pod access
+        run: |
+          python scripts/verify/check-cluster-qualified-pod-routes.py
+          python scripts/verify/test-cluster-qualified-pod-routes.py
+          python scripts/verify/check-retired-routes.py
+          python scripts/verify/test-retired-routes.py
       - name: Validate shell syntax
         shell: bash
         run: |

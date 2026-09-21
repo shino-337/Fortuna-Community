@@ -9,41 +9,54 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
 // scopeRuntimeQuery restricts both rows and counts to authorized pod identities.
 // Unscoped pod lookup preserves ownership for retained evidence of deleted pods.
-func scopeRuntimeQuery(db *gorm.DB, c *gin.Context, query *gorm.DB) (*gorm.DB, bool) {
+func scopeRuntimeQuery(db *gorm.DB, c *gin.Context, query *gorm.DB) (*gorm.DB, string, bool) {
 	scope, ok := resolveRiskGovernanceScope(db, c)
 	if !ok {
-		return query, false
+		return query, "", false
 	}
+
+	podClusterID := ""
 	if uid := strings.TrimSpace(c.Query("podUid")); uid != "" {
-		if !scope.requireResource(db, c, uid) {
-			return query, false
+		resolved, err := resourceUIDClusterID(db, uid)
+		if err != nil {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+				"error": "cluster-qualified pod identity required",
+				"code":  "cluster_qualified_identity_required",
+			})
+			return query, "", false
 		}
+		if resolved == "" || !middleware.ClusterAllowed(c, resolved) || (scope.clusterID != "" && scope.clusterID != resolved) {
+			middleware.AbortClusterScopeDenied(db, c, resolved)
+			return query, "", false
+		}
+		podClusterID = resolved
+		query = query.Where("cluster_id = ?", resolved)
 	}
-	if scope.restricted || scope.clusterID != "" {
-		query = query.Where("pod_uid IN (?)", scope.podUIDs(db, true))
-	}
-	return query.WithContext(c.Request.Context()), true
+
+	query = scope.apply(query, "cluster_id")
+	return query.WithContext(c.Request.Context()), podClusterID, true
 }
 
 // GetRuntimeSignalsList returns runtime signals with optional filters (active pods only when no podUid filter).
 func GetRuntimeSignalsList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		query, allowed := scopeRuntimeQuery(db, c, db.Model(&models.RuntimeSignal{}))
+		query, podClusterID, allowed := scopeRuntimeQuery(db, c, db.Model(&models.RuntimeSignal{}))
 		if !allowed {
 			return
 		}
 
 		// Filter by pod_uid
 		if podUID := c.Query("podUid"); podUID != "" {
-			query = query.Where("pod_uid = ?", podUID)
+			query = query.Where("cluster_id = ? AND pod_uid = ?", podClusterID, podUID)
 		} else {
 			// Only show signals for pods that still exist (not soft-deleted)
-			query = query.Where("pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)")
+			query = query.Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = runtime_signals.cluster_id AND p.uid = runtime_signals.pod_uid AND p.deleted_at IS NULL)")
 		}
 
 		// Filter by signal_type
@@ -143,13 +156,12 @@ func GetRuntimeSignalSuppressionStats(db *gorm.DB) gin.HandlerFunc {
 		from := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
 		query := db.Model(&models.RuntimeEvent{}).
 			Where("capability = ? AND created_at >= ?", "NETWORK_TXRX_QUEUE_SPIKE", from)
-		var allowed bool
-		query, allowed = scopeRuntimeQuery(db, c, query)
+		query, podClusterID, allowed := scopeRuntimeQuery(db, c, query)
 		if !allowed {
 			return
 		}
 		if podUID := c.Query("podUid"); podUID != "" {
-			query = query.Where("pod_uid = ?", podUID)
+			query = query.Where("cluster_id = ? AND pod_uid = ?", podClusterID, podUID)
 		}
 		type row struct {
 			PodUID     string
@@ -206,57 +218,4 @@ func parseTargetTokenFloat(target, key string) float64 {
 		return 0
 	}
 	return n
-}
-
-// GetRuntimeSignalsByPod returns runtime signals for a specific pod
-func GetRuntimeSignalsByPod(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		podUID := c.Param("uid")
-		if podUID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "pod_uid is required"})
-			return
-		}
-
-		if !requireResourceUIDClusterScope(db, c, podUID) {
-			return
-		}
-
-		// Optional filters
-		query := db.Where("pod_uid = ?", podUID)
-
-		if sinceStr := c.Query("sinceMinutes"); sinceStr != "" {
-			if sinceMin, err := strconv.Atoi(sinceStr); err == nil && sinceMin > 0 && sinceMin <= 43200 {
-				since := time.Now().Add(-time.Duration(sinceMin) * time.Minute)
-				query = query.Where("created_at >= ?", since)
-			}
-		}
-		if signalType := c.Query("signalType"); signalType != "" {
-			query = query.Where("signal_type = ?", signalType)
-		}
-		if category := c.Query("category"); category != "" {
-			query = query.Where("category = ?", category)
-		}
-
-		// Limit
-		limit := 100
-		if limitStr := c.Query("limit"); limitStr != "" {
-			if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 1000 {
-				limit = l
-			}
-		}
-
-		var signals []models.RuntimeSignal
-		if err := query.Order("created_at DESC").
-			Limit(limit).
-			Find(&signals).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"podUid":  podUID,
-			"signals": signals,
-			"count":   len(signals),
-		})
-	}
 }

@@ -9,7 +9,7 @@ import (
 )
 
 // registerRuntimeRoutes registers /api/v1/runtime/* (processes, network, events, metrics, signals).
-// Pod-scoped routes use :uid (Kubernetes pod UID).
+// Pod-scoped routes use :uid (Kubernetes pod UID) and resolve cluster ownership before handlers run.
 func registerRuntimeRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	rt := api.Group("/runtime")
 	p := func(perm authorization.Permission) gin.HandlerFunc {
@@ -20,12 +20,12 @@ func registerRuntimeRoutes(api *gin.RouterGroup, db *gorm.DB) {
 
 	pods := rt.Group("/pods")
 	pods.Use(middleware.RequirePodUIDClusterScope(db, "uid"))
-	pods.GET("/:uid/processes", p(authorization.PermissionRuntimeRead), GetPodProcessesByUID(db))
-	pods.GET("/:uid/network/top-destinations", p(authorization.PermissionRuntimeRead), GetPodNetworkTopDestinationsByUID(db))
-	pods.GET("/:uid/network", p(authorization.PermissionRuntimeRead), GetPodNetworkConnectionsByUID(db))
-	pods.GET("/:uid/events", p(authorization.PermissionRuntimeRead), GetPodEventsByUID(db))
-	pods.GET("/:uid/metrics", p(authorization.PermissionRuntimeRead), GetPodRuntimeMetricsByUID(db))
-	pods.GET("/:uid/signals", p(authorization.PermissionRuntimeRead), GetRuntimeSignalsByPod(db))
+	pods.GET("/:uid/processes", p(authorization.PermissionRuntimeRead), GetPodProcessesByUIDScoped(db))
+	pods.GET("/:uid/network/top-destinations", p(authorization.PermissionRuntimeRead), GetPodNetworkTopDestinationsByUIDScoped(db))
+	pods.GET("/:uid/network", p(authorization.PermissionRuntimeRead), GetPodNetworkConnectionsByUIDScoped(db))
+	pods.GET("/:uid/events", p(authorization.PermissionRuntimeRead), GetPodEventsByUIDScoped(db))
+	pods.GET("/:uid/metrics", p(authorization.PermissionRuntimeRead), GetPodRuntimeMetricsByUIDScoped(db))
+	pods.GET("/:uid/signals", p(authorization.PermissionRuntimeRead), GetRuntimeSignalsByPodScoped(db))
 	rt.GET("/signals", p(authorization.PermissionRuntimeRead), GetRuntimeSignalsList(db))
 	rt.GET("/signals/suppression-stats", p(authorization.PermissionRuntimeRead), GetRuntimeSignalSuppressionStats(db))
 	rt.GET("/signal-step-mappings", p(authorization.PermissionRuntimeRead), GetRuntimeSignalStepMappings(db))
@@ -42,7 +42,7 @@ func registerRuntimeV2Routes(api *gin.RouterGroup, db *gorm.DB) {
 	pods := rt.Group("/pods")
 	pods.Use(middleware.RequirePodUIDClusterScope(db, "uid"))
 	pods.GET("/:uid/security-state", p(authorization.PermissionRuntimeRead), GetPodAssetSecurityState(db))
-	pods.GET("/:uid/facts", p(authorization.PermissionRuntimeRead), GetPodRuntimeBehaviorFacts(db))
-	pods.GET("/:uid/incidents", p(authorization.PermissionRuntimeRead), GetPodRuntimeIncidents(db))
-	pods.GET("/:uid/capabilities", p(authorization.PermissionInventoryRead), GetPodCapabilities(db))
+	pods.GET("/:uid/facts", p(authorization.PermissionRuntimeRead), GetPodRuntimeBehaviorFactsScoped(db))
+	pods.GET("/:uid/incidents", p(authorization.PermissionRuntimeRead), GetPodRuntimeIncidentsScoped(db))
+	pods.GET("/:uid/capabilities", p(authorization.PermissionInventoryRead), GetPodCapabilitiesScoped(db))
 }

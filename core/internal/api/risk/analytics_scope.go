@@ -51,13 +51,12 @@ func (s analyticsScope) apply(q *gorm.DB, column string) *gorm.DB {
 	return q
 }
 
-// Historical rows require retained pod ownership when a cluster filter applies.
-// Orphan SBOMs cannot establish authorization from namespace or node names.
+// SBOM rows carry their canonical cluster ownership; scope them directly rather
+// than projecting ownership through a UID-only Pod subquery.
 func (s analyticsScope) sboms(db *gorm.DB) *gorm.DB {
 	q := db.Model(&models.SBOM{})
 	if s.clusterID != "" || s.restricted {
-		pods := s.apply(db.Unscoped().Model(&models.Pod{}).Select("uid"), "cluster_id")
-		q = q.Where("pod_uid IN (?)", pods)
+		q = s.apply(q, "cluster_id").Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = sboms.cluster_id AND p.uid = sboms.pod_uid)")
 	}
 	return q
 }

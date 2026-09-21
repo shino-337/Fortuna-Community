@@ -55,7 +55,6 @@ func isScopedHTTPIngestRoute(req *http.Request) bool {
 	}
 	path := req.URL.Path
 	return strings.HasPrefix(path, "/api/v1/agent/") ||
-		path == "/api/v1/runtime/events" ||
 		path == "/api/v2/runtime/events"
 }
 

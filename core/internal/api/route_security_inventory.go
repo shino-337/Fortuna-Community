@@ -24,15 +24,12 @@ const (
 )
 
 const (
-	authPublic     = "public"
-	authJWT        = "jwt"
-	authIngest     = "ingest_token"
-	graphNone      = "none"
-	graphSummary   = "summary"
-	graphPaths     = "paths"
-	graphTraversal = "traversal"
-	graphEntity    = "entity"
-	graphCypher    = "cypher"
+	authPublic   = "public"
+	authJWT      = "jwt"
+	authIngest   = "ingest_token"
+	graphNone    = "none"
+	graphSummary = "summary"
+	graphPaths   = "paths"
 )
 
 // RouteSecuritySpec is the governance contract for a single HTTP route (method + full path).
@@ -120,7 +117,6 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	} {
 		add(routeB{"POST", p, authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 	}
-	add(routeB{"POST", "/api/v1/runtime/events", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 	add(routeB{"POST", "/api/v2/runtime/events", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 
 	// --- JWT /api/v1 (alphabetical by path prefix groups) ---
@@ -189,8 +185,6 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"DELETE", "/api/v1/inventory/serviceaccounts/:uid", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryDelete})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/bulk/delete", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/bulk/disable", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
-	add(routeB{"POST", "/api/v1/bulk/serviceaccounts/disable", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
-	add(routeB{"DELETE", "/api/v1/bulk/serviceaccounts/delete", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/disable-inactive", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
 
 	cveOpt := !opts.CVEMatchRouteRegistered
@@ -205,7 +199,6 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"GET", "/api/v1/metrics/policy-evaluation-cost", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"GET", "/api/v1/metrics/system", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"GET", "/api/v1/metrics/workers", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
-	add(routeB{"GET", "/api/v1/monitoring/agents", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityAgentsRead})
 	add(routeB{"GET", "/api/v1/monitoring/pipeline-health", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"GET", "/api/v1/notifications", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"PATCH", "/api/v1/notifications/:id/read", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionObservabilityMetricsRead})
@@ -218,20 +211,14 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"POST", "/api/v1/policy/instances", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDraft})
 	add(routeB{"PUT", "/api/v1/policy/instances/:instanceName", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDraft})
 	add(routeB{"DELETE", "/api/v1/policy/rules/uid/:uid", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDelete})
-	add(routeB{"DELETE", "/api/v1/policy/rules/:id", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDelete})
 	add(routeB{"GET", "/api/v1/policy/rules", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
 	add(routeB{"GET", "/api/v1/policy/rules/uid/:uid", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
-	add(routeB{"GET", "/api/v1/policy/rules/:id", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
 	add(routeB{"GET", "/api/v1/policy/rules/uid/:uid/matches", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
-	add(routeB{"GET", "/api/v1/policy/rules/:id/matches", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
 	add(routeB{"GET", "/api/v1/policy/rules/uid/:uid/metrics", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
-	add(routeB{"GET", "/api/v1/policy/rules/:id/metrics", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
 	add(routeB{"POST", "/api/v1/policy/rules", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDraft})
 	add(routeB{"POST", "/api/v1/policy/rules/uid/:uid/test", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
-	add(routeB{"POST", "/api/v1/policy/rules/:id/test", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
 	add(routeB{"POST", "/api/v1/policy/rules/reload", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesPublish})
 	add(routeB{"PUT", "/api/v1/policy/rules/uid/:uid", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDraft})
-	add(routeB{"PUT", "/api/v1/policy/rules/:id", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDraft})
 	add(routeB{"DELETE", "/api/v1/policy/templates/:templateId/:version", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionPoliciesDelete})
 	add(routeB{"GET", "/api/v1/policy/templates", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
 	add(routeB{"GET", "/api/v1/policy/templates/:templateId", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionPoliciesRead})
@@ -320,18 +307,12 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 
 	// Graph
 	add(routeB{"GET", "/api/v1/graph", authJWT, auditSensitiveRead, graphSummary, false, false, false, false, false, authorization.PermissionGraphReadSummary})
-	add(routeB{"GET", "/api/v1/graph/accessible/:uid", authJWT, auditSensitiveRead, graphTraversal, false, false, false, false, false, authorization.PermissionGraphQueryTraversal})
 	add(routeB{"GET", "/api/v1/graph/attack-paths/:uid", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
 	add(routeB{"GET", "/api/v1/graph/attack-paths/bundle", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
 	add(routeB{"GET", "/api/v1/graph/attack-paths/chains", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
 	add(routeB{"GET", "/api/v1/graph/attack-paths/graph", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
 	add(routeB{"GET", "/api/v1/graph/attack-paths/objectives", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
 	add(routeB{"GET", "/api/v1/graph/attack-paths/summary", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
-	add(routeB{"GET", "/api/v1/graph/blast-radius/:uid", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
-	add(routeB{"GET", "/api/v1/graph/permissions/:uid", authJWT, auditSensitiveRead, graphEntity, false, false, false, false, false, authorization.PermissionGraphQueryEntity})
-	add(routeB{"POST", "/api/v1/graph/query", authJWT, auditSensitiveRead, graphCypher, false, false, false, false, false, authorization.PermissionGraphQueryAdvanced})
-	add(routeB{"GET", "/api/v1/graph/risky-pods", authJWT, auditSensitiveRead, graphPaths, false, false, false, false, false, authorization.PermissionGraphReadPaths})
-	add(routeB{"GET", "/api/v1/graph/shortest-path", authJWT, auditSensitiveRead, graphTraversal, false, false, false, false, false, authorization.PermissionGraphQueryTraversal})
 
 	// Audit logs (legacy operational)
 	add(routeB{"GET", "/api/v1/audit/logs", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemAuditRead})

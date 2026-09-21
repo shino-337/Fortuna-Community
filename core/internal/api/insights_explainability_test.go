@@ -17,7 +17,7 @@ import (
 
 func TestBuildInsightEvidenceRefs_ParsesEvidenceAndRules(t *testing.T) {
 	in := models.Insight{
-		Evidence: `{
+		ClusterID: "c1", Evidence: `{
 			"event_id": 123,
 			"evidence_fact_ids": ["f1","f2"],
 			"signal_type": "EXTERNAL_EGRESS",
@@ -57,7 +57,7 @@ func TestGetInsight_IncludesEvidenceRefs(t *testing.T) {
 	}
 	now := time.Now()
 	ins := models.Insight{
-		ResourceType:      "Pod",
+		ClusterID: "c1", ResourceType: "Pod",
 		ResourceUID:       "pod-1",
 		ResourceName:      "p1",
 		ResourceNamespace: "ns",
@@ -107,7 +107,7 @@ func TestGetInsight_EnrichQueryLoadsFacts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Insight{}, &models.Pod{}, &models.RuntimeBehaviorFact{}); err != nil {
+	if err := db.AutoMigrate(&models.Insight{}, &models.Pod{}, &models.RuntimeBehaviorFact{ClusterID: "c1"}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
@@ -119,14 +119,14 @@ func TestGetInsight_EnrichQueryLoadsFacts(t *testing.T) {
 		t.Fatal(err)
 	}
 	ins := models.Insight{
-		ResourceType: "Pod", ResourceUID: podUID, ResourceName: "p", ResourceNamespace: "ns",
+		ClusterID: "c1", ResourceType: "Pod", ResourceUID: podUID, ResourceName: "p", ResourceNamespace: "ns",
 		InsightType: "runtime", Severity: "high", Title: "t", Status: "active", DetectedAt: now,
 		Evidence: `{"evidence_fact_ids":["fact-a"]}`,
 	}
 	if err := db.Create(&ins).Error; err != nil {
 		t.Fatal(err)
 	}
-	if err := db.Create(&models.RuntimeBehaviorFact{
+	if err := db.Create(&models.RuntimeBehaviorFact{ClusterID: "c1",
 		FactID: "fact-a", PodUID: podUID, Namespace: "ns", FactType: "NETWORK_CONNECT",
 		Domain: "network", Attributes: "{}", SourceRef: "{}", ObservedAt: now, CreatedAt: now,
 	}).Error; err != nil {
@@ -157,7 +157,7 @@ func TestGetInsight_EnrichQueryLoadsFacts(t *testing.T) {
 
 func TestBuildExplanationChain_FromRefs(t *testing.T) {
 	refs := buildInsightEvidenceRefs(models.Insight{
-		Evidence:      `{"event_id":1,"evidence_fact_ids":["f1"],"signal_type":"S","incident_type":"I","capability_id":"C"}`,
+		ClusterID: "c1", Evidence: `{"event_id":1,"evidence_fact_ids":["f1"],"signal_type":"S","incident_type":"I","capability_id":"C"}`,
 		ViolatedRules: `[{"ruleId":"r1"}]`,
 	})
 	ch := buildExplanationChain(refs)
@@ -168,4 +168,3 @@ func TestBuildExplanationChain_FromRefs(t *testing.T) {
 		t.Fatalf("unexpected order: %+v", ch)
 	}
 }
-
