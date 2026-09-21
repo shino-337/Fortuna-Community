@@ -58,11 +58,13 @@ func GetAttackStepsSummary(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		summaries := make([]Summary, 0)
-		if err := queryDB.Model(&models.PodAttackStep{}).
-			Where("pod_uid IN (?)", scope.podUIDs(queryDB, false)).
-			Select("step_id, category, COUNT(*) as count, AVG(confidence) as avg_confidence").
-			Group("step_id, category").
-			Order("count DESC, step_id ASC, category ASC").
+		query := queryDB.Model(&models.PodAttackStep{}).
+			Joins("JOIN pods p ON p.cluster_id = pod_attack_steps.cluster_id AND p.uid = pod_attack_steps.pod_uid AND p.deleted_at IS NULL")
+		query = scope.apply(query, "p.cluster_id")
+		if err := query.
+			Select("pod_attack_steps.step_id, pod_attack_steps.category, COUNT(*) as count, AVG(pod_attack_steps.confidence) as avg_confidence").
+			Group("pod_attack_steps.step_id, pod_attack_steps.category").
+			Order("count DESC, pod_attack_steps.step_id ASC, pod_attack_steps.category ASC").
 			Scan(&summaries).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attack steps"})
 			return
