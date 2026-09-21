@@ -147,7 +147,7 @@ func (w *PodWatcher) linkPodToScan(ctx context.Context, pod *corev1.Pod, contain
 
 	// Upsert
 	return w.db.WithContext(ctx).
-		Where("pod_uid = ? AND container_name = ?", pod.UID, containerName).
+		Where("cluster_id = ? AND pod_uid = ? AND container_name = ?", w.clusterID, pod.UID, containerName).
 		Assign(podScan).
 		FirstOrCreate(podScan).Error
 }
