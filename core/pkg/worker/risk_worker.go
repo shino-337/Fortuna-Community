@@ -103,15 +103,34 @@ func (w *RiskWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		return fmt.Errorf("failed to evaluate risks: %w", err)
 	}
 
-	// Create or update insights (use batch processing for efficiency)
+	// Create or update insights. Pod findings must retain canonical cluster ownership;
+	// non-Pod resources keep the generic path because their identity semantics differ.
 	if len(insights) > 0 {
 		start := time.Now()
-		if err := w.insightMgr.BatchCreateOrUpdateInsights(insights); err != nil {
+		podInsights := kind == "Pod"
+		if podInsights {
+			for _, insight := range insights {
+				if insight == nil {
+					continue
+				}
+				insight.ClusterID = clusterID
+				insight.ResourceType = "Pod"
+			}
+		}
+		batchWrite := w.insightMgr.BatchCreateOrUpdateInsights
+		if podInsights {
+			batchWrite = w.insightMgr.BatchCreateOrUpdatePodInsights
+		}
+		if err := batchWrite(insights); err != nil {
 			log.Printf("[RiskWorker] Failed to batch create/update insights: %v", err)
 			// Fallback to individual processing
 			createdCount := 0
 			for _, insight := range insights {
-				if err := w.insightMgr.CreateOrUpdateInsight(insight); err != nil {
+				writeOne := w.insightMgr.CreateOrUpdateInsight
+				if podInsights {
+					writeOne = w.insightMgr.CreateOrUpdatePodInsight
+				}
+				if err := writeOne(insight); err != nil {
 					log.Printf("[RiskWorker] Failed to create/update insight: %v", err)
 					continue
 				}
