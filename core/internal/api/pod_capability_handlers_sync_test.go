@@ -39,6 +39,7 @@ func TestGetPodCapabilities_ClassFilter(t *testing.T) {
 		t.Fatalf("seed capability effective: %v", err)
 	}
 	if err := db.Create(&models.PodCapability{
+		ClusterID:       "c1",
 		PodUID:          "pod-cap-ui-1",
 		Namespace:       "default",
 		CapabilityID:    "OBSERVED_EXECUTION",
