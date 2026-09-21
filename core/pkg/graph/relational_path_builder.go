@@ -133,7 +133,12 @@ func (b *RelationalPathBuilder) buildAllPathsNoCache(ctx context.Context, cluste
 		}
 		for i := range plist {
 			pod := plist[i]
-			paths, err := b.buildPathsForPodWithSnapshot(ctx, &pod, snap, persist)
+			id, idErr := resourceidentity.New(cid, pod.UID)
+			if idErr != nil {
+				log.Printf("[RelationalPathBuilder] invalid pod identity %s/%s: %v", cid, pod.UID, idErr)
+				continue
+			}
+			paths, err := b.buildPathsForPodIdentityWithSnapshot(ctx, id, &pod, snap, persist)
 			if err != nil {
 				log.Printf("[RelationalPathBuilder] failed to build paths for pod %s: %v", pod.UID, err)
 				continue
@@ -1260,15 +1265,13 @@ func cleanupStaleAttackPaths(ctx context.Context, db *gorm.DB, clusterID string)
 	}
 	stalePredicate := `NOT EXISTS (
 		SELECT 1 FROM pods
-		WHERE pods.uid = attack_paths.pod_uid
+		WHERE pods.cluster_id = attack_paths.cluster_id
+			AND pods.uid = attack_paths.pod_uid
 			AND pods.deleted_at IS NULL
 	)`
 	q := db.WithContext(ctx).Where(stalePredicate)
 	if strings.TrimSpace(clusterID) != "" {
-		q = q.Where(`pod_uid IN (
-			SELECT uid FROM pods
-			WHERE cluster_id = ?
-		)`, clusterID)
+		q = q.Where("attack_paths.cluster_id = ?", clusterID)
 	}
 	if err := q.Delete(&models.AttackPath{}).Error; err != nil {
 		return fmt.Errorf("delete stale attack paths: %w", err)
