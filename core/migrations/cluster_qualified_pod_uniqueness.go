@@ -31,6 +31,12 @@ var clusterQualifiedPodUniqueIndexes = []clusterQualifiedUniqueIndex{
 		legacyIndexes: []string{"idx_pod_capabilities_unique"},
 	},
 	{
+		name:          "idx_asset_security_state_identity",
+		table:         "asset_security_state",
+		columns:       "cluster_id, pod_uid",
+		legacyIndexes: []string{"idx_asset_security_state_pod_uid"},
+	},
+	{
 		name:          "idx_pod_risk_profile_identity",
 		table:         "pod_risk_profiles",
 		columns:       "cluster_id, pod_uid",
