@@ -449,8 +449,15 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 	allInsights = append(allInsights, malInsights...)
 
 	if len(allInsights) > 0 {
+		for _, insight := range allInsights {
+			if insight == nil {
+				continue
+			}
+			insight.ClusterID = ev.ClusterID
+			insight.ResourceType = "Pod"
+		}
 		start := time.Now()
-		if err := w.insightMgr.BatchCreateOrUpdateInsights(allInsights); err != nil {
+		if err := w.insightMgr.BatchCreateOrUpdatePodInsights(allInsights); err != nil {
 			w.logger.Printf("⚠️  Failed to batch create/update insights: %v", err)
 			return fmt.Errorf("batch create insights: %w", err)
 		}
