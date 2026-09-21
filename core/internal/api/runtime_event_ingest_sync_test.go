@@ -23,16 +23,18 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
-	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
+	r.POST("/api/v1/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsScoped(db))
 
+	podUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
+	if err := db.Create(&models.Pod{UID: podUID, ClusterID: "c1", Namespace: "ns", Name: "work"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"pod": map[string]interface{}{
-			"uid":       "cccccccc-cccc-cccc-cccc-cccccccccccc",
+			"uid":       podUID,
 			"namespace": "ns",
 			"name":      "work",
 		},
@@ -56,7 +58,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("runtime_events: want 1 got %d", len(events))
 	}
-	if events[0].PodUID != "cccccccc-cccc-cccc-cccc-cccccccccccc" || events[0].Syscall != "open" {
+	if events[0].ClusterID != "c1" || events[0].PodUID != podUID || events[0].Syscall != "open" {
 		t.Fatalf("event: %+v", events[0])
 	}
 
@@ -108,9 +110,10 @@ func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 	}
 
 	r := gin.New()
-	r.POST("/api/v1/runtime/events", PostRuntimeEvents(db))
+	r.POST("/api/v1/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsScoped(db))
 
 	podUID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	if err := db.Create(&models.Pod{UID: podUID, ClusterID: "c1", Namespace: "fortuna", Name: "ebpf"}).Error; err != nil { t.Fatal(err) }
 	body := []byte(`[{
 		"pod_uid": "` + podUID + `",
 		"namespace": "fortuna",
