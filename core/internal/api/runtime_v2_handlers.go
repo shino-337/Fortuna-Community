@@ -43,65 +43,13 @@ func GetPodAssetSecurityState(db *gorm.DB) gin.HandlerFunc {
 }
 
 // GetPodRuntimeBehaviorFacts returns Layer-2 behavior facts for a pod.
-func GetPodRuntimeBehaviorFacts(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		podUID := c.Param("uid")
-		if podUID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
-			return
-		}
-		if !db.Migrator().HasTable(&models.RuntimeBehaviorFact{}) {
-			c.JSON(http.StatusOK, gin.H{"podUid": podUID, "facts": []models.RuntimeBehaviorFact{}, "total": 0})
-			return
-		}
+// GetPodRuntimeBehaviorFacts is retained only for source compatibility.
+// Production routes must use GetPodRuntimeBehaviorFactsScoped and CI rejects legacy registration.
+func GetPodRuntimeBehaviorFacts(db *gorm.DB) gin.HandlerFunc { return GetPodRuntimeBehaviorFactsScoped(db) }
 
-		limit := 100
-		if s := c.Query("limit"); s != "" {
-			if v, err := strconv.Atoi(s); err == nil && v > 0 && v <= 1000 {
-				limit = v
-			}
-		}
-
-		var facts []models.RuntimeBehaviorFact
-		if err := db.Where("pod_uid = ?", podUID).
-			Order("observed_at DESC").
-			Limit(limit).
-			Find(&facts).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"podUid": podUID, "facts": facts, "total": len(facts)})
-	}
-}
 
 // GetPodRuntimeIncidents returns Layer-3 incidents for a pod.
-func GetPodRuntimeIncidents(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		podUID := c.Param("uid")
-		if podUID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
-			return
-		}
-		if !db.Migrator().HasTable(&models.RuntimeIncident{}) {
-			c.JSON(http.StatusOK, gin.H{"podUid": podUID, "incidents": []models.RuntimeIncident{}, "total": 0})
-			return
-		}
+// GetPodRuntimeIncidents is retained only for source compatibility.
+// Production routes must use GetPodRuntimeIncidentsScoped and CI rejects legacy registration.
+func GetPodRuntimeIncidents(db *gorm.DB) gin.HandlerFunc { return GetPodRuntimeIncidentsScoped(db) }
 
-		limit := 100
-		if s := c.Query("limit"); s != "" {
-			if v, err := strconv.Atoi(s); err == nil && v > 0 && v <= 1000 {
-				limit = v
-			}
-		}
-
-		var incidents []models.RuntimeIncident
-		if err := db.Where("pod_uid = ?", podUID).
-			Order("last_seen_at DESC").
-			Limit(limit).
-			Find(&incidents).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, gin.H{"podUid": podUID, "incidents": incidents, "total": len(incidents)})
-	}
-}
