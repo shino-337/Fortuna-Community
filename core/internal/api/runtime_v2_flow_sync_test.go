@@ -16,6 +16,13 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
+func useAdminTestPrincipal(r *gin.Engine) {
+	r.Use(func(c *gin.Context) {
+		c.Set("user", &models.User{Role: models.RoleAdmin})
+		c.Next()
+	})
+}
+
 // TestRuntimeFlow_AgentToCoreToDBToV2API verifies end-to-end flow:
 // agent-shape payload -> core REP processing -> DB facts/incidents -> v2 read API.
 func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
@@ -42,6 +49,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 	}
 
 	r := gin.New()
+	useAdminTestPrincipal(r)
 	r.POST("/api/v1/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsScoped(db))
 	r.GET("/api/v2/runtime/pods/:uid/facts", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeBehaviorFactsScoped(db))
 	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
@@ -131,6 +139,7 @@ func TestGetPodAssetSecurityState_NotFoundWhenTableMissing(t *testing.T) {
 	}
 
 	r := gin.New()
+	useAdminTestPrincipal(r)
 	r.GET("/api/v2/runtime/pods/:uid/security-state", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodAssetSecurityState(db))
 
 	w := httptest.NewRecorder()
@@ -175,6 +184,7 @@ func TestGetPodAssetSecurityState_OK(t *testing.T) {
 	}
 
 	r := gin.New()
+	useAdminTestPrincipal(r)
 	r.GET("/api/v2/runtime/pods/:uid/security-state", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodAssetSecurityState(db))
 
 	w := httptest.NewRecorder()
@@ -216,6 +226,7 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 	}
 
 	r := gin.New()
+	useAdminTestPrincipal(r)
 	r.POST("/api/v1/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsScoped(db))
 	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
 
