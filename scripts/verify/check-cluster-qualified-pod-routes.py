@@ -82,6 +82,27 @@ JOIN_SCOPED_FILTERS = {
     "n.pod_uid = ?",
 }
 
+# These completed ownership paths must also qualify resource_uid / pods.uid and
+# raw SQL. Generic non-Pod resource APIs elsewhere are deliberately not inferred.
+STRICT_IDENTITY_FILES = {
+    "core/pkg/riskengine/backfill_malware_insights.go",
+    "core/pkg/riskengine/insight_manager_identity.go",
+    "core/pkg/riskengine/runtime_attack_rescore_manager.go",
+    "core/internal/repository/sbom_repository.go",
+}
+SQL_LITERAL = re.compile(r'"([^"\n]*)"|`([^`]*)`', re.DOTALL)
+IDENTITY_PREDICATE = re.compile(r'\b(?:pod_uid|resource_uid|uid)\s*(?:=|IN\b)', re.IGNORECASE)
+
+def strict_identity_errors(source):
+    result = []
+    for match in SQL_LITERAL.finditer(source):
+        sql = match.group(1) if match.group(1) is not None else match.group(2)
+        if IDENTITY_PREDICATE.search(sql) and "cluster_id" not in sql.lower() and "%" not in sql:
+            result.append("identity SQL lacks cluster predicate: " + sql)
+    if re.search(r'items\s*\[\s*(?:podUID|uid|meta\.PodUID)\s*\]', source):
+        result.append("runtime cache uses UID-only key")
+    return result
+
 errors = []
 
 for path in ROUTE_FILES:
@@ -100,6 +121,8 @@ for path in Path("core").rglob("*.go"):
     if path.name.endswith("_test.go"):
         continue
     text = path.read_text(encoding="utf-8")
+    if path.as_posix() in STRICT_IDENTITY_FILES:
+        errors.extend(f"{path}: {error}" for error in strict_identity_errors(text))
 
     for token, reason in FORBIDDEN_PRODUCTION_SYMBOLS.items():
         if token in text:

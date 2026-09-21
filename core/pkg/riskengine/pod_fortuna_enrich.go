@@ -46,16 +46,21 @@ func (e *Engine) enrichPodFortunaContext(ctx context.Context, enriched map[strin
 		"service_account_bound_to_cluster_admin": false,
 	}
 
-	var owners []string
-	if err := e.db.WithContext(ctx).Model(&models.Pod{}).
-		Where("uid = ? AND deleted_at IS NULL", uid).
-		Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
-		return fmt.Errorf("resolve pod security-state ownership: %w", err)
+	clusterID, _ := enriched["cluster_id"].(string)
+	if clusterID == "" {
+		// Compatibility for UID-only internal callers: never pick the first owner.
+		var owners []string
+		if err := e.db.WithContext(ctx).Model(&models.Pod{}).
+			Where("uid = ? AND deleted_at IS NULL", uid).
+			Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
+			return fmt.Errorf("resolve pod security-state ownership: %w", err)
+		}
+		if len(owners) != 1 {
+			return fmt.Errorf("cluster-qualified pod identity required for enrichment: uid=%s owners=%d", uid, len(owners))
+		}
+		clusterID = owners[0]
 	}
-	if len(owners) != 1 {
-		return fmt.Errorf("cluster-qualified pod identity required for enrichment: uid=%s owners=%d", uid, len(owners))
-	}
-	id, err := resourceidentity.New(owners[0], uid)
+	id, err := resourceidentity.New(clusterID, uid)
 	if err != nil {
 		return err
 	}

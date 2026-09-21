@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"github.com/fortuna/core/internal/middleware"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,8 +22,15 @@ func TestGetSBOMDetail_DefaultScopeExcludesStalePodSBOM(t *testing.T) {
 	if err := db.AutoMigrate(&models.Pod{}, &models.SBOM{}, &models.SBOMComponent{}, &models.CVEMatch{}, &models.CVE{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
+	stale := models.Pod{UID: "pod-stale", ClusterID: "c1", Name: "old-api", Namespace: "default"}
+	if err := db.Create(&stale).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Delete(&stale).Error; err != nil {
+		t.Fatal(err)
+	}
 	if err := db.Create(&models.SBOM{
-		PodUID:        "pod-stale",
+		ClusterID: "c1", PodUID: "pod-stale",
 		PodName:       "old-api",
 		Namespace:     "default",
 		ContainerName: "api",
@@ -35,7 +43,8 @@ func TestGetSBOMDetail_DefaultScopeExcludesStalePodSBOM(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/sbom/:uid", GetSBOMDetail(db))
+	useAdminTestPrincipal(router)
+	router.GET("/sbom/:uid", middleware.RequirePodUIDClusterScope(db, "uid"), GetSBOMDetail(db))
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/sbom/pod-stale", nil)
@@ -86,7 +95,7 @@ func TestGetSBOMDetail_DefaultScopeAllowsActivePodSBOM(t *testing.T) {
 		t.Fatalf("seed pod: %v", err)
 	}
 	if err := db.Create(&models.SBOM{
-		PodUID:        "pod-active",
+		ClusterID: "c1", PodUID: "pod-active",
 		PodName:       "api",
 		Namespace:     "default",
 		ContainerName: "api",
@@ -100,7 +109,8 @@ func TestGetSBOMDetail_DefaultScopeAllowsActivePodSBOM(t *testing.T) {
 	}
 
 	router := gin.New()
-	router.GET("/sbom/:uid", GetSBOMDetail(db))
+	useAdminTestPrincipal(router)
+	router.GET("/sbom/:uid", middleware.RequirePodUIDClusterScope(db, "uid"), GetSBOMDetail(db))
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/sbom/pod-active", nil)
 	router.ServeHTTP(w, req)

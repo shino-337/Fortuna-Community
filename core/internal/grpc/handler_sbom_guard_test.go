@@ -24,12 +24,14 @@ import (
 func TestService_CannotBypassSBOMGuard(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.Pod{}))
+	require.NoError(t, db.AutoMigrate(&models.SBOM{
+		ClusterID: "cluster-a"}, &models.SBOMComponent{}, &models.Pod{}))
 
 	// Create finalized SBOM for pod via repo (with flag)
 	repo := repository.NewSBOMRepository(db)
 	ctxAllow := contextkeys.WithSBOMMutationAllowed(context.Background())
 	sbom := &models.SBOM{
+		ClusterID:     "cluster-a",
 		PodUID:        "pod-uid-finalized",
 		ImageName:     "test/image",
 		ImageTag:      "latest",
@@ -45,6 +47,8 @@ func TestService_CannotBypassSBOMGuard(t *testing.T) {
 	}
 	_, _, err = repo.UpsertSBOMWithComponents(ctxAllow, sbom, nil)
 	require.NoError(t, err)
+
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: sbom.PodUID, Name: "test-pod", Namespace: "default"}).Error)
 
 	// Handler must use repo with flag so this second "update" for same pod succeeds
 	svc := NewSBOMServiceServer(db, nil, nil)

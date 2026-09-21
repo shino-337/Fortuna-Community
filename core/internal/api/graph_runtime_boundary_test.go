@@ -43,7 +43,7 @@ func TestLegacyGraphFailsBeforeGlobalQuery(t *testing.T) {
 	for _, query := range []string{"?cluster=b", "?clusterId=b"} {
 		c, w := testGraphContext(query)
 		c.Set("user", &models.User{Role: models.RoleOperator, ScopeJSON: `{"cluster_ids":["a"]}`})
-		if _, ok := scopeRuntimeQuery(db, c, db); ok || w.Code != 403 {
+		if _, _, ok := scopeRuntimeQuery(db, c, db); ok || w.Code != 403 {
 			t.Fatal("runtime forbidden alias accepted")
 		}
 	}

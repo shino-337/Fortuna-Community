@@ -46,6 +46,7 @@ func TestUnifiedScorerV3_UsesAttackPathAndCapabilitySignals(t *testing.T) {
 	}
 
 	if err := db.Create(&models.Insight{
+		ClusterID:         "c1",
 		ResourceType:      "Pod",
 		ResourceUID:       podUID,
 		ResourceName:      "wave5-pod",
@@ -63,6 +64,7 @@ func TestUnifiedScorerV3_UsesAttackPathAndCapabilitySignals(t *testing.T) {
 	}
 
 	if err := db.Create(&models.PodCapability{
+		ClusterID:       "c1",
 		PodUID:          podUID,
 		Namespace:       "default",
 		CapabilityID:    "ESC_PRIV_POD",
@@ -77,6 +79,7 @@ func TestUnifiedScorerV3_UsesAttackPathAndCapabilitySignals(t *testing.T) {
 	}
 
 	if err := db.Create(&models.AttackPath{
+		ClusterID:       "c1",
 		PodUID:          podUID,
 		PathID:          "p1",
 		Nodes:           `[{"id":"step:pod-wave5-1:NETWORK_SNIFFING","type":"attack_step","properties":{"stepId":"NETWORK_SNIFFING"}}]`,
@@ -93,6 +96,7 @@ func TestUnifiedScorerV3_UsesAttackPathAndCapabilitySignals(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create(&models.RuntimeSignal{
+		ClusterID:  "c1",
 		PodUID:     podUID,
 		SignalType: "CAPABILITY_MISUSE",
 		Category:   "runtime",
@@ -184,6 +188,7 @@ func TestUnifiedScorerV3_NoAttackPathNoHeuristicFloor(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := db.Create(&models.Insight{
+		ClusterID:         "c1",
 		ResourceType:      "Pod",
 		ResourceUID:       podUID,
 		ResourceName:      "cni-node-agent",

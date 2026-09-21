@@ -13,6 +13,7 @@ import (
 	"github.com/fortuna/core/internal/contextkeys"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 const (
@@ -116,6 +117,9 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 ) (*models.SBOM, bool, error) {
 	if sbom == nil {
 		return nil, false, errors.New("sbom is required")
+	}
+	if _, err := resourceidentity.New(sbom.ClusterID, sbom.PodUID); err != nil {
+		return nil, false, fmt.Errorf("SBOM ownership: %w", err)
 	}
 	sbom.SbomSource = models.NormalizeSBOMSource(sbom.SbomSource)
 	sbom.Confidence = models.NormalizeSBOMConfidence(sbom.Confidence)

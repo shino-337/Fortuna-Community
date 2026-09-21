@@ -139,10 +139,7 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 		return nil
 	}
 
-	var tableExists bool
-	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
-		return fmt.Errorf("check pods table: %w", err)
-	}
+	tableExists := r.db.Migrator().HasTable(&models.Pod{})
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping orphan SBOM cleanup")
 		return nil
@@ -177,11 +174,8 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 	reasonByID := make(map[uint]string)
 	for _, sbom := range activeSBOMs {
 		if strings.TrimSpace(sbom.ClusterID) == "" || strings.TrimSpace(sbom.PodUID) == "" {
-			if now.Sub(sbom.CreatedAt) > orphanGracePeriod() {
-				orphanedSBOMIDs = append(orphanedSBOMIDs, sbom.ID)
-				reasonByID[sbom.ID] = "unowned_legacy_sbom"
-			}
-			continue
+			r.logger.Printf("Keep unresolved SBOM id=%d: ownership remediation required", sbom.ID)
+			continue // ambiguity is not proof that the workload was deleted
 		}
 		key := podIdentityKey(sbom.ClusterID, sbom.PodUID)
 		if _, ok := activeKeys[key]; ok {
@@ -195,7 +189,11 @@ func (r *SBOMReconciler) cleanupOrphanedSBOMs(ctx context.Context, stats *Reconc
 		if now.Sub(sbom.CreatedAt) <= orphanGracePeriod() {
 			continue
 		}
-		if keep, reason, err := r.hasRuntimeSecurityEvidence(ctx, sbom.ClusterID, sbom.PodUID); err == nil && keep {
+		keep, reason, err := r.hasRuntimeSecurityEvidence(ctx, sbom.ClusterID, sbom.PodUID)
+		if err != nil {
+			return err
+		}
+		if keep {
 			r.logger.Printf("⏭️  Keep SBOM id=%d cluster=%s pod_uid=%s due to %s evidence", sbom.ID, sbom.ClusterID, sbom.PodUID, reason)
 			continue
 		}
@@ -267,10 +265,7 @@ func (r *SBOMReconciler) hasRuntimeSecurityEvidence(ctx context.Context, cluster
 
 // identifyMissingSBOMs identifies pods that don't have SBOMs (informational only)
 func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *ReconciliationStats) error {
-	var tableExists bool
-	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
-		return fmt.Errorf("check pods table: %w", err)
-	}
+	tableExists := r.db.Migrator().HasTable(&models.Pod{})
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping missing SBOM identification")
 		return nil
@@ -322,10 +317,7 @@ func (r *SBOMReconciler) identifyMissingSBOMs(ctx context.Context, stats *Reconc
 
 // updateActiveSBOMTimestamps updates last_used_at for SBOMs of running pods
 func (r *SBOMReconciler) updateActiveSBOMTimestamps(ctx context.Context, stats *ReconciliationStats) error {
-	var tableExists bool
-	if err := r.db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema='public' AND table_name='pods')").Scan(&tableExists).Error; err != nil {
-		return fmt.Errorf("check pods table: %w", err)
-	}
+	tableExists := r.db.Migrator().HasTable(&models.Pod{})
 	if !tableExists {
 		r.logger.Printf("⚠️  Pods table does not exist, skipping SBOM timestamp update")
 		return nil

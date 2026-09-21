@@ -184,7 +184,7 @@ func validateClusterQualifiedKeyTarget(db *gorm.DB, table, columns string) error
 
 func rejectUnownedRowsForCanonicalKey(db *gorm.DB, table string) error {
 	var count int64
-	if err := db.Raw("SELECT COUNT(*) FROM "+table+" WHERE COALESCE(cluster_id, '') = ''").Scan(&count).Error; err != nil {
+	if err := db.Raw("SELECT COUNT(*) FROM " + table + " WHERE COALESCE(cluster_id, '') = ''").Scan(&count).Error; err != nil {
 		return fmt.Errorf("validate %s cluster ownership completeness: %w", table, err)
 	}
 	if count != 0 {
@@ -253,7 +253,7 @@ func verifyClusterQualifiedPodUniqueness(db *gorm.DB) error {
 		if err != nil {
 			return fmt.Errorf("verify %s: %w", target.name, err)
 		}
-		if !exists || !def.Valid || !def.Unique || def.Table != target.table || def.Columns != normalizeIndexColumns(target.columns) {
+		if !exists || !def.Valid || !def.Plain || !def.Unique || def.Table != target.table || def.Columns != normalizeIndexColumns(target.columns) {
 			return fmt.Errorf("cluster-qualified pod uniqueness: %s has wrong definition", target.name)
 		}
 		for _, legacy := range target.legacyIndexes {

@@ -9,6 +9,7 @@ import (
 
 	"github.com/fortuna/core/pkg/rep"
 	"github.com/fortuna/core/pkg/resourceidentity"
+	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -56,6 +57,7 @@ func bindRuntimeV2Payloads(c *gin.Context) ([]runtimeEventV2Payload, error) {
 
 // PostRuntimeEventsScoped is the production v1 ingest path after ownership middleware.
 func PostRuntimeEventsScoped(db *gorm.DB) gin.HandlerFunc {
+	rescoreMgr := riskengine.NewRuntimeAttackRescoreManager(db)
 	return func(c *gin.Context) {
 		clusterID, ok := trustedRuntimeCluster(c)
 		if !ok {
@@ -111,6 +113,11 @@ func PostRuntimeEventsScoped(db *gorm.DB) gin.HandlerFunc {
 				log.Printf("[RuntimeEvent] scoped processing failed cluster=%s pod_uid=%s: %v", clusterID, podUID, err)
 				continue
 			}
+			rescoreMgr.Notify(riskengine.RuntimeEventMeta{
+				ClusterID: clusterID, PodUID: podUID, Runtime: strings.TrimSpace(p.Runtime),
+				SourceKind: strings.TrimSpace(p.Runtime), SourceRule: strings.TrimSpace(p.Signal),
+				Syscall: strings.TrimSpace(p.Syscall), Severity: strings.TrimSpace(p.Severity), ObservedAt: observedAt,
+			})
 			if result != nil {
 				processed++
 			}
@@ -121,6 +128,7 @@ func PostRuntimeEventsScoped(db *gorm.DB) gin.HandlerFunc {
 
 // PostRuntimeEventsV2Scoped is the production v2 ingest path after ownership middleware.
 func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
+	rescoreMgr := riskengine.NewRuntimeAttackRescoreManager(db)
 	return func(c *gin.Context) {
 		clusterID, ok := trustedRuntimeCluster(c)
 		if !ok {
@@ -190,6 +198,11 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				log.Printf("[RuntimeEventV2] scoped processing failed cluster=%s event_id=%s pod_uid=%s: %v", clusterID, p.EventID, podUID, err)
 				continue
 			}
+			rescoreMgr.Notify(riskengine.RuntimeEventMeta{
+				ClusterID: clusterID, PodUID: podUID, Runtime: strings.TrimSpace(p.Runtime),
+				SourceKind: sourceKind, SourceRule: sourceRule, ResolutionState: strings.TrimSpace(p.ResolutionState),
+				Syscall: strings.TrimSpace(p.Syscall), Severity: strings.TrimSpace(p.Severity), ObservedAt: observedAt,
+			})
 			if result != nil {
 				processed++
 			}

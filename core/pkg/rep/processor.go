@@ -9,9 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/lib/pq"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 
 	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/models"

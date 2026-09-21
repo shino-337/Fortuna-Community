@@ -36,6 +36,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err := db.Exec(`
 		CREATE TABLE pod_capabilities (
 			id INTEGER PRIMARY KEY,
+			cluster_id TEXT NOT NULL DEFAULT 'c1',
 			pod_uid TEXT NOT NULL,
 			namespace TEXT NOT NULL,
 			capability_id TEXT NOT NULL,
@@ -77,6 +78,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	if err := db.Exec(`
 		CREATE TABLE runtime_signals (
 			id INTEGER PRIMARY KEY,
+			cluster_id TEXT NOT NULL DEFAULT 'c1',
 			pod_uid TEXT NOT NULL,
 			signal_type TEXT NOT NULL,
 			category TEXT NOT NULL DEFAULT 'test',
@@ -100,6 +102,7 @@ func setupTestDB(t *testing.T) *gorm.DB {
 func TestCapabilityStateController_PromoteCapability(t *testing.T) {
 	db := setupTestDB(t)
 	controller := NewCapabilityStateController(db)
+	assert.NoError(t, db.Create(&models.Pod{ClusterID: "c1", UID: "pod-123", Name: "p", Namespace: "default"}).Error)
 
 	ctx := context.Background()
 

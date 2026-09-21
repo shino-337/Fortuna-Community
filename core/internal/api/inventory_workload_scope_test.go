@@ -17,7 +17,7 @@ func TestInventoryWorkloadCapabilityScope(t *testing.T) {
 			&models.Deployment{UID: "dep-" + cl, ClusterID: cl, Name: "shared", Namespace: "shared"},
 			&models.ReplicaSet{UID: "rs-" + cl, ClusterID: cl, Name: "shared", Namespace: "shared"},
 			&models.Pod{UID: "pod-" + cl, ClusterID: cl, Name: "shared", Namespace: "shared"},
-			&models.PodCapability{PodUID: "pod-" + cl, Namespace: "shared", CapabilityID: "TEST", Severity: "high", CreatedAt: time.Now().UTC()},
+			&models.PodCapability{ClusterID: cl, PodUID: "pod-" + cl, Namespace: "shared", CapabilityID: "TEST", Severity: "high", CreatedAt: time.Now().UTC()},
 		} {
 			if err := db.Create(row).Error; err != nil {
 				t.Fatal(err)

@@ -1,7 +1,6 @@
 package api
 
 import (
-	"log"
 	"net/http"
 	"os"
 	"strconv"
@@ -9,11 +8,11 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
-	"github.com/fortuna/core/pkg/networkbucket"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
+
 func rejectPodUid(uid string) bool {
 	return uid == "" || uid == "0"
 }

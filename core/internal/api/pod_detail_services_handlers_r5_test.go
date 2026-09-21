@@ -60,7 +60,7 @@ func TestBuildNetworkQueueSpikeEvents_EmitsSpikeEvent(t *testing.T) {
 			BytesRecv:     2000,
 		},
 	}
-	events, err := buildNetworkQueueSpikeEvents(db, podUID, ns, now, current)
+	events, err := buildNetworkQueueSpikeEventsScoped(db, "c1", podUID, ns, now, current)
 	if err != nil {
 		t.Fatalf("buildNetworkQueueSpikeEvents error: %v", err)
 	}
@@ -85,7 +85,7 @@ func TestBuildNetworkQueueSpikeEvents_NoBaselineNoEvent(t *testing.T) {
 			BytesRecv:     1000,
 		},
 	}
-	events, err := buildNetworkQueueSpikeEvents(db, "pod-empty", "ns", now, current)
+	events, err := buildNetworkQueueSpikeEventsScoped(db, "c1", "pod-empty", "ns", now, current)
 	if err != nil {
 		t.Fatalf("buildNetworkQueueSpikeEvents error: %v", err)
 	}
@@ -120,7 +120,7 @@ func TestBuildNetworkQueueSpikeEvents_CooldownSuppressesRepeatedSpike(t *testing
 		}
 	}
 	// Existing spike event in cooldown window.
-	existing := models.RuntimeEvent{
+	existing := models.RuntimeEvent{ClusterID: "c1",
 		PodUID:     podUID,
 		Namespace:  ns,
 		Syscall:    "connect",
@@ -142,7 +142,7 @@ func TestBuildNetworkQueueSpikeEvents_CooldownSuppressesRepeatedSpike(t *testing
 		},
 	}
 	t.Setenv("POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES", "10")
-	events, err := buildNetworkQueueSpikeEvents(db, podUID, ns, now, current)
+	events, err := buildNetworkQueueSpikeEventsScoped(db, "c1", podUID, ns, now, current)
 	if err != nil {
 		t.Fatalf("buildNetworkQueueSpikeEvents error: %v", err)
 	}

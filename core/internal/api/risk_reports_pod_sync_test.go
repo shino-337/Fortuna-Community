@@ -11,6 +11,7 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -38,21 +39,22 @@ func TestGetPodRiskReport_IncludesPodRuntimeInsightsAndSummary(t *testing.T) {
 	}
 	now := time.Now().UTC()
 	if err := db.Create(&models.Insight{
-		ResourceType: "Pod", ResourceNamespace: "ns", ResourceName: "app", ResourceUID: podUID,
+		ClusterID: clusterID, ResourceType: "Pod", ResourceNamespace: "ns", ResourceName: "app", ResourceUID: podUID,
 		InsightType: "runtime-behavior", Severity: "high", Title: "Runtime behavior signals observed for this pod",
 		Description: "test", Status: "active", DetectedAt: now, CreatedAt: now, UpdatedAt: now,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Create(&models.RuntimeSignal{
-		PodUID: podUID, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK",
+		ClusterID: clusterID, PodUID: podUID, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK",
 		Evidence: "{}", CreatedAt: now,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
 
 	r := gin.New()
-	r.GET("/api/v1/risk/pods/:uid/report", GetPodRiskReport(db))
+	useAdminTestPrincipal(r)
+	r.GET("/api/v1/risk/pods/:uid/report", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRiskReport(db))
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/risk/pods/"+podUID+"/report", nil)
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
@@ -93,21 +95,25 @@ func TestGetRuntimeSignalsByPod_MatchesReportWindow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeSignal{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 	podUID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
+	if err := db.Create(&models.Pod{UID: podUID, ClusterID: "c1", Name: "app", Namespace: "ns"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	now := time.Now().UTC()
 	if err := db.Create(&models.RuntimeSignal{
-		PodUID: podUID, SignalType: "PROC_ROOT_PIVOT", Category: "ESCAPE",
+		ClusterID: "c1", PodUID: podUID, SignalType: "PROC_ROOT_PIVOT", Category: "ESCAPE",
 		Evidence: "{}", CreatedAt: now,
 	}).Error; err != nil {
 		t.Fatal(err)
 	}
 
 	r := gin.New()
+	useAdminTestPrincipal(r)
 	rt := r.Group("/api/v1/runtime")
-	rt.GET("/pods/:uid/signals", GetRuntimeSignalsByPod(db))
+	rt.GET("/pods/:uid/signals", middleware.RequirePodUIDClusterScope(db, "uid"), GetRuntimeSignalsByPodScoped(db))
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/runtime/pods/"+podUID+"/signals?sinceMinutes=1440&limit=50", nil)
 	w := httptest.NewRecorder()

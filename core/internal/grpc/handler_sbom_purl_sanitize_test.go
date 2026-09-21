@@ -59,6 +59,8 @@ func TestCore_DoesNotOverrideValidPURL(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -95,6 +97,8 @@ func TestCore_InvalidPURL_Fallback(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.NotNil(t, resp)
@@ -132,6 +136,8 @@ func TestCore_PURL_EcosystemMismatch_Regenerates(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
@@ -167,6 +173,8 @@ func TestCore_GoVersionBuildMetadata_StrippedInPURL(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
@@ -202,6 +210,8 @@ func TestCore_GoModuleName_PathTraversalRejected(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
@@ -238,6 +248,8 @@ func TestCore_GoModuleName_NonASCII_Rejected(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)
@@ -273,6 +285,8 @@ func TestCore_GoModuleName_TrailingSlash_Normalized(t *testing.T) {
 		},
 	}
 
+	require.NoError(t, db.AutoMigrate(&models.Pod{}))
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 	resp, err := svc.SendSBOMFinding(context.Background(), req)
 	require.NoError(t, err)
 	require.True(t, resp.Success)

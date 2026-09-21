@@ -56,7 +56,7 @@ func (s analyticsScope) apply(q *gorm.DB, column string) *gorm.DB {
 func (s analyticsScope) sboms(db *gorm.DB) *gorm.DB {
 	q := db.Model(&models.SBOM{})
 	if s.clusterID != "" || s.restricted {
-		q = s.apply(q, "cluster_id")
+		q = s.apply(q, "cluster_id").Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = sboms.cluster_id AND p.uid = sboms.pod_uid)")
 	}
 	return q
 }

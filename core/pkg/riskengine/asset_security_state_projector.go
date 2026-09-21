@@ -36,6 +36,10 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 
 // UpsertAssetSecurityStateForIdentity projects one canonical {cluster_id,pod_uid} asset.
 func (e *Engine) UpsertAssetSecurityStateForIdentity(ctx context.Context, id resourceidentity.Identity) error {
+	return e.projectAssetSecurityStateForIdentity(ctx, id, false)
+}
+
+func (e *Engine) projectAssetSecurityStateForIdentity(ctx context.Context, id resourceidentity.Identity, force bool) error {
 	if e == nil || e.db == nil {
 		return nil
 	}
@@ -53,7 +57,7 @@ func (e *Engine) UpsertAssetSecurityStateForIdentity(ctx context.Context, id res
 		return fmt.Errorf("read previous security state: %w", tx.Error)
 	}
 	if tx.Error == nil {
-		if time.Since(prev.UpdatedAt) < 5*time.Minute {
+		if !force && time.Since(prev.UpdatedAt) < 5*time.Minute {
 			return nil
 		}
 	}

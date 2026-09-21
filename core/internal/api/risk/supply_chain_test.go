@@ -89,8 +89,8 @@ func seedSupplyChainRows(t *testing.T, db *gorm.DB) {
 		t.Fatalf("seed pod: %v", err)
 	}
 	sboms := []models.SBOM{
-		{ID: 101, PodUID: "pod-active", PodName: "api", Namespace: "default", ImageName: "repo/api", ImageTag: "1", Status: "complete"},
-		{ID: 102, PodUID: "pod-stale", PodName: "old", Namespace: "default", ImageName: "repo/old", ImageTag: "1", Status: "complete"},
+		{ClusterID: "c1", ID: 101, PodUID: "pod-active", PodName: "api", Namespace: "default", ImageName: "repo/api", ImageTag: "1", Status: "complete"},
+		{ClusterID: "c1", ID: 102, PodUID: "pod-stale", PodName: "old", Namespace: "default", ImageName: "repo/old", ImageTag: "1", Status: "complete"},
 	}
 	if err := db.Create(&sboms).Error; err != nil {
 		t.Fatalf("seed sboms: %v", err)

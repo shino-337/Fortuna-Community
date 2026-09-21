@@ -346,6 +346,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	}
 
 	sbomModel := &models.SBOM{
+		ClusterID:          clusterID,
 		PodUID:             req.PodUid,
 		PodName:            req.PodName,
 		Namespace:          req.Namespace,

@@ -132,19 +132,19 @@ func podResourceRiskSignalsWithScore(ctx context.Context, db *gorm.DB, pod model
 
 type podRowSortable struct {
 	models.Pod
-	RiskCount      int64                     `json:"riskCount"`
-	UnifiedScore   *float64                  `json:"unifiedScore,omitempty"`
-	TotalScore     *float64                  `json:"total_score,omitempty"`
-	FinalLevel     string                    `json:"finalLevel,omitempty"`
-	ScorerVersion  string                    `json:"scorerVersion,omitempty"`
-	RiskSignals    graph.ResourceRiskSignals `json:"risk_signals"`
+	RiskCount     int64                     `json:"riskCount"`
+	UnifiedScore  *float64                  `json:"unifiedScore,omitempty"`
+	TotalScore    *float64                  `json:"total_score,omitempty"`
+	FinalLevel    string                    `json:"finalLevel,omitempty"`
+	ScorerVersion string                    `json:"scorerVersion,omitempty"`
+	RiskSignals   graph.ResourceRiskSignals `json:"risk_signals"`
 	// PathPreview is a short human-readable chain hint for table rows (persisted description or step names).
 	PathPreview string `json:"path_preview,omitempty"`
 	// BlastEntityCount = distinct graph node IDs on touching chains (workloads + identities + …).
 	BlastEntityCount int `json:"blast_entity_count,omitempty"`
 	// RiskFixHintPct is an advisory “up to ~X% reduction if remediated” heuristic from unified score (not a guarantee).
-	RiskFixHintPct int `json:"risk_fix_hint_pct,omitempty"`
-	unifiedSortVal float64                   `json:"-"`
+	RiskFixHintPct int     `json:"risk_fix_hint_pct,omitempty"`
+	unifiedSortVal float64 `json:"-"`
 }
 
 func truncateRunes(s string, max int) string {
@@ -245,11 +245,14 @@ func sortPodRowsByAttackPathPriority(rows []podRowSortable) {
 }
 
 func buildPodRowsWithRiskSignals(ctx context.Context, db *gorm.DB, pods []models.Pod, riskByUID map[string]int64, scores map[string]podV3ScoreRec, chainCache map[string]*clusterChainsCacheEntry) []podRowSortable {
-	uidsForPaths := make([]string, 0, len(pods))
+	uidsByCluster := make(map[string][]string)
 	for _, p := range pods {
-		uidsForPaths = append(uidsForPaths, p.UID)
+		uidsByCluster[p.ClusterID] = append(uidsByCluster[p.ClusterID], p.UID)
 	}
-	persistedByPod := loadPersistedAttackPathSummariesByPodUID(db, uidsForPaths)
+	persistedByCluster := make(map[string]map[string][]graph.PersistedAttackPathSummary)
+	for clusterID, uids := range uidsByCluster {
+		persistedByCluster[clusterID] = loadPersistedAttackPathSummariesByPodUID(db, clusterID, uids)
+	}
 
 	out := make([]podRowSortable, 0, len(pods))
 	for _, p := range pods {
@@ -271,8 +274,8 @@ func buildPodRowsWithRiskSignals(ctx context.Context, db *gorm.DB, pods []models
 			sv = "v3"
 			uval = ts
 		}
-		sig := graph.BuildResourceRiskSignals(p.UID, uval, chains, pathByID, persistedByPod[p.UID])
-		pathPreview, blastN := buildPathPreviewAndBlast(p.UID, chains, persistedByPod[p.UID])
+		sig := graph.BuildResourceRiskSignals(p.UID, uval, chains, pathByID, persistedByCluster[p.ClusterID][p.UID])
+		pathPreview, blastN := buildPathPreviewAndBlast(p.UID, chains, persistedByCluster[p.ClusterID][p.UID])
 		fixPct := 0
 		if us != nil {
 			fixPct = riskFixHintPct(*us)

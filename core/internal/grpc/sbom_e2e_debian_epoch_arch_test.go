@@ -53,6 +53,8 @@ func TestE2E_Core_SendSBOMFinding_DebianEpochQualifier_ArchConstraint_AffectsMat
 			},
 		}
 
+		require.NoError(t, db.AutoMigrate(&models.Pod{}))
+		require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 		resp, err := svc.SendSBOMFinding(context.Background(), req)
 		require.NoError(t, err)
 		require.True(t, resp.Success)
@@ -108,6 +110,8 @@ func TestE2E_Core_SendSBOMFinding_DebianEpochQualifier_ArchConstraint_AffectsMat
 			},
 		}
 
+		require.NoError(t, db.AutoMigrate(&models.Pod{}))
+		require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 		resp, err := svc.SendSBOMFinding(context.Background(), req)
 		require.NoError(t, err)
 		require.True(t, resp.Success)
@@ -161,6 +165,8 @@ func TestE2E_Core_SendSBOMFinding_DebianArchQualifier_FiltersByArch(t *testing.T
 			},
 		}
 
+		require.NoError(t, db.AutoMigrate(&models.Pod{}))
+		require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 		resp, err := svc.SendSBOMFinding(context.Background(), req)
 		require.NoError(t, err)
 		require.True(t, resp.Success)
@@ -215,6 +221,8 @@ func TestE2E_Core_SendSBOMFinding_DebianArchQualifier_FiltersByArch(t *testing.T
 			},
 		}
 
+		require.NoError(t, db.AutoMigrate(&models.Pod{}))
+		require.NoError(t, db.Create(&models.Pod{ClusterID: "cluster-a", UID: req.PodUid, Name: req.PodName, Namespace: req.Namespace}).Error)
 		resp, err := svc.SendSBOMFinding(context.Background(), req)
 		require.NoError(t, err)
 		require.True(t, resp.Success)
@@ -324,13 +332,12 @@ func seedDebianEpochArchCase(t *testing.T, db *gorm.DB, cveID, eco, pkgName, aff
 	require.NoError(t, db.Create(&models.PackageVulnerability{
 		CVEID:                 cveID,
 		Ecosystem:             eco,
-		PackageName:          pkgName,
-		AffectedRange:        affectedRange,
-		FixedVersion:         fixedVersion,
-		VersionEndIncluding: "",
-		VersionEndExcluding: "",
+		PackageName:           pkgName,
+		AffectedRange:         affectedRange,
+		FixedVersion:          fixedVersion,
+		VersionEndIncluding:   "",
+		VersionEndExcluding:   "",
 		VersionStartIncluding: "",
 		VersionStartExcluding: "",
 	}).Error)
 }
-

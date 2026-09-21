@@ -13,7 +13,13 @@ import subprocess
 import sys
 
 REQUIRED = {
+    "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership"],
+    "./pkg/reconciler": ["TestSBOMReconcilePreservesActiveAndUnresolvedOwnership"],
     "./pkg/riskengine": [
+        "TestPodInsightRestorePreservesClusterAndException",
+        "TestMalwareMaintenanceSeparatesDuplicatePodUID",
+        "TestRuntimeRescoreDebounceSeparatesClusters",
+        "TestRuntimeEnrichmentUsesExplicitClusterForDuplicateUID",
         "TestRuntimeInputFailureReachesEvaluators",
         "TestRuntimeInputRejectsCorruptSnapshot",
         "TestRuntimeInputRejectsMalformedBindings",
@@ -35,6 +41,9 @@ REQUIRED = {
         "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
     ],
     "./internal/api": [
+        "TestRuntimeIngestTriggersScopedRescore",
+        "TestRuntimeIngestTriggersScopedRescore/v1",
+        "TestRuntimeIngestTriggersScopedRescore/v2",
         "TestServiceAccountRBACResolution",
         "TestPodRiskReportUsesResolvedRBACScope",
         "TestServiceAccountInventoryScope",
@@ -73,6 +82,7 @@ REQUIRED = {
         "TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode",
     ],
     "./internal/grpc": [
+        "TestSBOMIngestPreservesTrustedClusterIdentity",
         "TestGRPCAgentUnaryInterceptorAuthenticatesVerifiedCertificate",
         "TestGRPCAgentUnaryInterceptorRejectsUnverifiedRevokedAndUnavailableIdentity",
         "TestGRPCAgentStreamReauthenticatesEveryReceivedMessage",
@@ -98,6 +108,7 @@ REQUIRED = {
         "TestIdentitySeparatesDuplicateUIDAcrossClusters",
     ],
     "./migrations": [
+        "TestClusterQualifiedPodUniquenessRejectsUnowned",
         "TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership",
         "TestClusterResourceIdentityFoundationFailsClosedWithoutPods",
         "TestClusterResourceIdentityFoundationFailsClosedOnMissingRequiredTarget",

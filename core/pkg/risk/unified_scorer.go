@@ -27,8 +27,6 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"github.com/fortuna/core/pkg/graph"
-	"github.com/fortuna/core/pkg/k8scorroboration"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/resourceidentity"
 )

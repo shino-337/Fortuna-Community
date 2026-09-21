@@ -61,6 +61,7 @@ func TestGetPodCapabilities_ClassFilter(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			r := gin.New()
+			useAdminTestPrincipal(r)
 			r.GET("/api/v1/inventory/pods/:uid/capabilities", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodCapabilitiesScoped(db))
 			r.GET("/api/v2/runtime/pods/:uid/capabilities", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodCapabilitiesScoped(db))
 

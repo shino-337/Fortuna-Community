@@ -22,6 +22,7 @@ func TestGoldenReasoningChain_E2E(t *testing.T) {
 	now := time.Now().UTC()
 
 	require.NoError(t, db.Create(&models.RuntimeEvent{
+		ClusterID:  fixtureClusterID,
 		PodUID:     fixturePodUID,
 		Namespace:  "ns-fix",
 		Syscall:    "connect",
@@ -33,6 +34,7 @@ func TestGoldenReasoningChain_E2E(t *testing.T) {
 	}).Error)
 
 	require.NoError(t, db.Create(&models.RuntimeSignal{
+		ClusterID:  fixtureClusterID,
 		PodUID:     fixturePodUID,
 		SignalType: "INTERACTIVE_SHELL_EXEC",
 		Category:   "EXECUTION",

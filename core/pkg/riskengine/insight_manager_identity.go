@@ -54,8 +54,8 @@ func normalizePodInsightForWrite(insight *models.Insight) {
 }
 
 func scopedPodInsightQuery(tx *gorm.DB, id resourceidentity.Identity, insightType, cveID string) *gorm.DB {
-	return tx.Where(
-		"cluster_id = ? AND resource_uid = ? AND insight_type = ? AND cve_id = ? AND deleted_at IS NULL",
+	return tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where(
+		"cluster_id = ? AND resource_uid = ? AND insight_type = ? AND cve_id = ?",
 		id.ClusterID, id.ResourceUID, insightType, cveID,
 	)
 }
@@ -87,6 +87,7 @@ func mergePodInsight(existing, incoming *models.Insight, reactivate bool) {
 	existing.Degraded = incoming.Degraded
 	existing.Sensitivity = incoming.Sensitivity
 	if reactivate {
+		existing.DeletedAt = gorm.DeletedAt{}
 		existing.Status = "active"
 		existing.ResolvedAt = nil
 		existing.DetectedAt = incoming.DetectedAt
@@ -114,12 +115,12 @@ func (m *InsightManager) createOrUpdatePodInsightTx(tx *gorm.DB, insight *models
 		if existing.Status == "dismissed" && isExempted(tx, id.ClusterID, id.ResourceUID, insight.CVEID, insight.InsightType) {
 			return id, nil
 		}
-		reactivate := existing.Status == "resolved" || existing.Status == "dismissed"
+		reactivate := existing.DeletedAt.Valid || existing.Status == "resolved" || existing.Status == "dismissed"
 		mergePodInsight(&existing, insight, reactivate)
 		if !reactivate && strings.TrimSpace(existing.Status) == "" {
 			existing.Status = "active"
 		}
-		if err := tx.Save(&existing).Error; err != nil {
+		if err := tx.Unscoped().Save(&existing).Error; err != nil {
 			return resourceidentity.Identity{}, fmt.Errorf("update scoped pod insight: %w", err)
 		}
 		insight.ID = existing.ID
@@ -143,9 +144,9 @@ func (m *InsightManager) createOrUpdatePodInsightTx(tx *gorm.DB, insight *models
 	if existing.Status == "dismissed" && isExempted(tx, id.ClusterID, id.ResourceUID, insight.CVEID, insight.InsightType) {
 		return id, nil
 	}
-	reactivate := existing.Status == "resolved" || existing.Status == "dismissed"
+	reactivate := existing.DeletedAt.Valid || existing.Status == "resolved" || existing.Status == "dismissed"
 	mergePodInsight(&existing, insight, reactivate)
-	if err := tx.Save(&existing).Error; err != nil {
+	if err := tx.Unscoped().Save(&existing).Error; err != nil {
 		return resourceidentity.Identity{}, fmt.Errorf("merge concurrent scoped pod insight: %w", err)
 	}
 	insight.ID = existing.ID
