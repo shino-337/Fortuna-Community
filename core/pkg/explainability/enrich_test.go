@@ -15,12 +15,12 @@ func TestLoadFactSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.RuntimeBehaviorFact{}); err != nil {
+	if err := db.AutoMigrate(&models.RuntimeBehaviorFact{ClusterID: "c1", }); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
 	pod := "pod-enrich-1"
-	row := models.RuntimeBehaviorFact{
+	row := models.RuntimeBehaviorFact{ClusterID: "c1", 
 		FactID:     "f-enrich-1",
 		PodUID:     pod,
 		Namespace:  "ns",
