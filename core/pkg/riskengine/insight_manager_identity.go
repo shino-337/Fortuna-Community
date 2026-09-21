@@ -129,15 +129,7 @@ func (m *InsightManager) createOrUpdatePodInsightTx(tx *gorm.DB, insight *models
 	// DoNothing makes concurrent insert races safe on PostgreSQL without putting
 	// the transaction into the aborted state. We then load the canonical row and
 	// merge if another writer won the race.
-	result := tx.Clauses(clause.OnConflict{
-		Columns: []clause.Column{
-			{Name: "cluster_id"},
-			{Name: "resource_uid"},
-			{Name: "cve_id"},
-			{Name: "insight_type"},
-		},
-		DoNothing: true,
-	}).Create(insight)
+	result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(insight)
 	if result.Error != nil {
 		return resourceidentity.Identity{}, fmt.Errorf("create scoped pod insight: %w", result.Error)
 	}
