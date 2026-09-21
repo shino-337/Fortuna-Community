@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"strconv"
@@ -16,6 +17,7 @@ import (
 	"github.com/fortuna/core/pkg/explainability"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/risk"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/securityaudit"
 	"github.com/fortuna/core/pkg/worker"
 )
@@ -40,14 +42,20 @@ func resourceUIDClusterID(db *gorm.DB, resourceUID string) (string, error) {
 	if db == nil || resourceUID == "" {
 		return "", nil
 	}
-	var clusterID string
-	err := db.Model(&models.Pod{}).
-		Select("cluster_id").
+	var clusterIDs []string
+	if err := db.Model(&models.Pod{}).
 		Unscoped().
 		Where("uid = ?", resourceUID).
-		Limit(1).
-		Scan(&clusterID).Error
-	return strings.TrimSpace(clusterID), err
+		Distinct().Order("cluster_id").Pluck("cluster_id", &clusterIDs).Error; err != nil {
+		return "", err
+	}
+	if len(clusterIDs) == 0 {
+		return "", nil
+	}
+	if len(clusterIDs) != 1 {
+		return "", fmt.Errorf("ambiguous resource ownership for pod uid %q", resourceUID)
+	}
+	return strings.TrimSpace(clusterIDs[0]), nil
 }
 
 func requireResourceUIDClusterScope(db *gorm.DB, c *gin.Context, resourceUID string) bool {
@@ -71,7 +79,18 @@ func requireResourceUIDClusterScope(db *gorm.DB, c *gin.Context, resourceUID str
 }
 
 func requireInsightClusterScope(db *gorm.DB, c *gin.Context, insight models.Insight) bool {
-	return requireResourceUIDClusterScope(db, c, insight.ResourceUID)
+	if _, restricted := middleware.ScopedClusterIDs(c); !restricted {
+		return true
+	}
+	clusterID := strings.TrimSpace(insight.ClusterID)
+	if clusterID == "" {
+		return requireResourceUIDClusterScope(db, c, insight.ResourceUID)
+	}
+	if middleware.ClusterAllowed(c, clusterID) {
+		return true
+	}
+	middleware.AbortClusterScopeDenied(db, c, clusterID)
+	return false
 }
 
 // createInsightAuditLog writes an audit log entry for a Risk Center insight action (acknowledge, resolve, dismiss).
@@ -127,12 +146,15 @@ func appendInsightGovernanceEvent(db *gorm.DB, c *gin.Context, action, insightID
 	securityaudit.Append(db, &ev)
 }
 
-func scheduleUnifiedScoreRecalculation(db *gorm.DB, resourceUID string) {
-	resourceUID = strings.TrimSpace(resourceUID)
-	if resourceUID == "" {
+func scheduleUnifiedScoreRecalculation(db *gorm.DB, insight models.Insight) {
+	if !strings.EqualFold(strings.TrimSpace(insight.ResourceType), "pod") {
 		return
 	}
-	risk.NewUnifiedScorerV3(db).ScheduleUnifiedScoreCalculation(resourceUID)
+	id, err := resourceidentity.New(insight.ClusterID, insight.ResourceUID)
+	if err != nil {
+		return
+	}
+	risk.NewUnifiedScorerV3(db).ScheduleUnifiedScoreCalculationForIdentity(id)
 }
 
 // insightWithResourceExists is used by GetInsight to add resourceExists when resource is Pod.
@@ -149,14 +171,15 @@ type insightWithResourceExists struct {
 	Breakdown         []RiskBreakdownItem               `json:"breakdown,omitempty"`
 }
 
-func preferredScoreForResource(db *gorm.DB, resourceUID string) *models.RiskScore {
+func preferredScoreForResource(db *gorm.DB, clusterID, resourceUID string) *models.RiskScore {
+	clusterID = strings.TrimSpace(clusterID)
 	resourceUID = strings.TrimSpace(resourceUID)
-	if resourceUID == "" {
+	if clusterID == "" || resourceUID == "" {
 		return nil
 	}
 	var rs models.RiskScore
 	if err := db.Model(&models.RiskScore{}).
-		Where("resource_uid = ? AND deleted_at IS NULL AND LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", resourceUID, "v3").
+		Where("cluster_id = ? AND resource_uid = ? AND deleted_at IS NULL AND LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", clusterID, resourceUID, "v3").
 		Order("calculated_at DESC, id DESC").
 		First(&rs).Error; err != nil {
 		return nil
@@ -190,7 +213,7 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 			EvidenceChainRefs: explainability.FlattenChainToEvidenceRefs(chain),
 			SeverityHint:      insight.Severity,
 		}
-		if s := preferredScoreForResource(db, insight.ResourceUID); s != nil {
+		if s := preferredScoreForResource(db, insight.ClusterID, insight.ResourceUID); s != nil {
 			resp.FinalScore = &s.TotalScore
 			resp.FinalLevel = risk.DeriveFinalLevelFromScore(s.TotalScore)
 			resp.Breakdown = risk.ParseBreakdownFromFactorsJSON(s.Factors)
@@ -202,7 +225,7 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 		}
 		if insight.ResourceType == "Pod" && insight.ResourceUID != "" {
 			var podExists int64
-			db.Model(&models.Pod{}).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).Count(&podExists)
+			db.Model(&models.Pod{}).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).Count(&podExists)
 			exists := podExists > 0
 			resp.ResourceExists = &exists
 		}
@@ -752,7 +775,7 @@ func AcknowledgeInsight(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		insight.Status = "acknowledged"
-		scheduleUnifiedScoreRecalculation(db, insight.ResourceUID)
+		scheduleUnifiedScoreRecalculation(db, insight)
 
 		createInsightAuditLog(db, c, "acknowledge", id, "{}")
 		appendInsightGovernanceEvent(db, c, securityaudit.ActionFindingsAcknowledge, id, prevStatus, insight.Status, map[string]any{"updatedAt": now.UTC().Format(time.RFC3339)})
@@ -802,7 +825,7 @@ func ResolveInsight(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		scheduleUnifiedScoreRecalculation(db, insight.ResourceUID)
+		scheduleUnifiedScoreRecalculation(db, insight)
 
 		details := "{}"
 		if request.Resolution != "" {
@@ -854,7 +877,7 @@ func DismissInsight(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		scheduleUnifiedScoreRecalculation(db, insight.ResourceUID)
+		scheduleUnifiedScoreRecalculation(db, insight)
 
 		details := "{}"
 		if request.Reason != "" {
@@ -945,7 +968,7 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 		body.InsightIDs = uniqueIDs
 		var successCount, failedCount int
 		var errors []map[string]interface{}
-		affectedResourceUIDs := make(map[string]struct{})
+		affectedPodInsights := make(map[string]models.Insight)
 
 		for _, id := range body.InsightIDs {
 			insight, found := selected[id]
@@ -962,8 +985,10 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 					continue
 				}
 				createInsightAuditLog(db, c, "acknowledge", id, "{}")
-				if uid := strings.TrimSpace(insight.ResourceUID); uid != "" {
-					affectedResourceUIDs[uid] = struct{}{}
+				if strings.EqualFold(strings.TrimSpace(insight.ResourceType), "pod") {
+					if key, err := (resourceidentity.Identity{ClusterID: insight.ClusterID, ResourceUID: insight.ResourceUID}).Key(); err == nil {
+						affectedPodInsights[key] = insight
+					}
 				}
 				successCount++
 			case "resolve":
@@ -983,8 +1008,10 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 					}
 				}
 				createInsightAuditLog(db, c, "resolve", id, details)
-				if uid := strings.TrimSpace(insight.ResourceUID); uid != "" {
-					affectedResourceUIDs[uid] = struct{}{}
+				if strings.EqualFold(strings.TrimSpace(insight.ResourceType), "pod") {
+					if key, err := (resourceidentity.Identity{ClusterID: insight.ClusterID, ResourceUID: insight.ResourceUID}).Key(); err == nil {
+						affectedPodInsights[key] = insight
+					}
 				}
 				successCount++
 			case "dismiss":
@@ -1002,8 +1029,10 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 					}
 				}
 				createInsightAuditLog(db, c, "dismiss", id, details)
-				if uid := strings.TrimSpace(insight.ResourceUID); uid != "" {
-					affectedResourceUIDs[uid] = struct{}{}
+				if strings.EqualFold(strings.TrimSpace(insight.ResourceType), "pod") {
+					if key, err := (resourceidentity.Identity{ClusterID: insight.ClusterID, ResourceUID: insight.ResourceUID}).Key(); err == nil {
+						affectedPodInsights[key] = insight
+					}
 				}
 				successCount++
 			}
@@ -1011,8 +1040,8 @@ func BulkInsightsAction(db *gorm.DB) gin.HandlerFunc {
 
 		// Recalculate once per affected resource to keep bulk actions efficient
 		// while preserving consistent scoring behavior across all bulk actions.
-		for uid := range affectedResourceUIDs {
-			scheduleUnifiedScoreRecalculation(db, uid)
+		for _, insight := range affectedPodInsights {
+			scheduleUnifiedScoreRecalculation(db, insight)
 		}
 
 		resp := gin.H{
