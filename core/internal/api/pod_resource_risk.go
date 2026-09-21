@@ -77,7 +77,7 @@ func getAttackChainsCached(ctx context.Context, db *gorm.DB, cache map[string]*c
 }
 
 // loadPersistedAttackPathSummariesByPodUID returns attack_paths rows (description + strength) keyed by pod_uid for signal merge.
-func loadPersistedAttackPathSummariesByPodUID(db *gorm.DB, podUIDs []string) map[string][]graph.PersistedAttackPathSummary {
+func loadPersistedAttackPathSummariesByPodUID(db *gorm.DB, clusterID string, podUIDs []string) map[string][]graph.PersistedAttackPathSummary {
 	out := make(map[string][]graph.PersistedAttackPathSummary)
 	if db == nil || len(podUIDs) == 0 || !hasTable(db, "attack_paths") {
 		return out
@@ -98,7 +98,7 @@ func loadPersistedAttackPathSummariesByPodUID(db *gorm.DB, podUIDs []string) map
 	var rows []models.AttackPath
 	if err := db.Model(&models.AttackPath{}).
 		Select("pod_uid, path_id, description, total_risk").
-		Where("pod_uid IN ?", uids).
+		Where("cluster_id = ? AND pod_uid IN ?", clusterID, uids).
 		Find(&rows).Error; err != nil {
 		return out
 	}
@@ -126,7 +126,7 @@ func podResourceRiskSignalsWithScore(ctx context.Context, db *gorm.DB, pod model
 		chains = bundle.chains
 		pathByID = bundle.pathByID
 	}
-	persisted := loadPersistedAttackPathSummariesByPodUID(db, []string{pod.UID})
+	persisted := loadPersistedAttackPathSummariesByPodUID(db, pod.ClusterID, []string{pod.UID})
 	return graph.BuildResourceRiskSignals(pod.UID, unifiedTotal, chains, pathByID, persisted[pod.UID])
 }
 
