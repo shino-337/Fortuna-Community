@@ -67,9 +67,9 @@ func TestSBOMConcurrentOwnershipPostgres(t *testing.T) {
 	require.Error(t, db.Exec("UPDATE sbom_image_contents SET payload='{}' WHERE id=?", *legacy[0].ContentID).Error)
 	require.Error(t, db.Exec("UPDATE sboms SET cluster_id='foreign' WHERE id=?", legacy[0].ID).Error)
 	require.NoError(t, db.Create(&models.MalwareMatch{ClusterID: "legacy-a", PodUID: "legacy", SBOMID: legacy[0].ID, PackageName: "evil", PackageVersion: "1", Reason: "MALWARE"}).Error)
-	require.Error(t, db.Create(&models.MalwareMatch{ClusterID: "legacy-b", PodUID: "legacy", SBOMID: legacy[0].ID, PackageName: "evil", PackageVersion: "1", Reason: "MALWARE"}).Error)
-	require.Error(t, db.Create(&models.PodImageScan{ClusterID: "legacy-b", PodUID: "legacy", ContainerName: "app", SBOMID: &legacy[0].ID}).Error)
-	require.Error(t, db.Create(&models.CVEMatch{ClusterID: "legacy-b", PodUID: "legacy", ContainerName: "app", SBOMID: legacy[0].ID, PackageName: "lib", PackageVersion: "1", CVEID: "CVE-test", Severity: "high"}).Error)
+	require.ErrorContains(t, db.Create(&models.MalwareMatch{ClusterID: "legacy-b", PodUID: "legacy", SBOMID: legacy[0].ID, PackageName: "evil", PackageVersion: "1", Reason: "MALWARE"}).Error, "SBOM association ownership mismatch")
+	require.ErrorContains(t, db.Create(&models.PodImageScan{ClusterID: "legacy-b", PodUID: "legacy", ContainerName: "app", SBOMID: &legacy[0].ID}).Error, "SBOM association ownership mismatch")
+	require.ErrorContains(t, db.Create(&models.CVEMatch{ClusterID: "legacy-b", PodUID: "legacy", ContainerName: "app", SBOMID: legacy[0].ID, PackageName: "lib", PackageVersion: "1", CVEID: "CVE-test", Severity: "high"}).Error, "SBOM association ownership mismatch")
 	repo := NewSBOMRepository(db)
 	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
 	var wg sync.WaitGroup

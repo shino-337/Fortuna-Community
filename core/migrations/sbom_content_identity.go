@@ -18,7 +18,17 @@ func EnsureSBOMContentIdentity(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&models.SBOM{}) {
 		return fmt.Errorf("SBOM table is missing")
 	}
-	if err := db.AutoMigrate(&models.SBOMImageContent{}); err != nil {
+	// Avoid re-running generic AutoMigrate over a populated immutable table;
+	// explicit invariants make startup reruns independent of driver introspection.
+	if !db.Migrator().HasTable(&models.SBOMImageContent{}) {
+		if err := db.Migrator().CreateTable(&models.SBOMImageContent{}); err != nil {
+			return err
+		}
+	}
+	if err := db.Exec("SELECT id,content_hash,payload,created_at FROM sbom_image_contents LIMIT 0").Error; err != nil {
+		return err
+	}
+	if err := ensureIndex(db, "idx_sbom_image_contents_content_hash", "sbom_image_contents", "content_hash", true); err != nil {
 		return err
 	}
 	if !db.Migrator().HasColumn(&models.SBOM{}, "ContentID") {
