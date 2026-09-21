@@ -96,8 +96,6 @@ func GetPodRiskProfile(db *gorm.DB) gin.HandlerFunc {
 
 // GetPodRuntimeEvents returns runtime events for a specific pod UID.
 // GetPodRuntimeEvents is retained only for source compatibility.
-// Production routes must use GetPodRuntimeEventsScoped and CI rejects legacy registration.
-func GetPodRuntimeEvents(db *gorm.DB) gin.HandlerFunc { return GetPodRuntimeEventsScoped(db) }
 
 
 // GetRuntimeRiskSummary returns summary of runtime risks across all pods.
