@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -23,8 +24,13 @@ func GetPodAssetSecurityState(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
 		var state models.AssetSecurityState
-		if err := db.Where("pod_uid = ?", podUID).First(&state).Error; err != nil {
+		if err := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).First(&state).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "asset security state not found"})
 				return
