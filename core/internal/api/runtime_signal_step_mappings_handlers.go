@@ -369,7 +369,7 @@ func affectedTopNamespaces(db *gorm.DB, signalType string, limit int) []string {
 	_ = db.Raw(`
 		SELECT p.namespace AS namespace, COUNT(*) AS count
 		FROM runtime_signals rs
-		JOIN pods p ON p.uid = rs.pod_uid
+		JOIN pods p ON p.cluster_id = rs.cluster_id AND p.uid = rs.pod_uid
 		WHERE rs.signal_type = ? AND p.deleted_at IS NULL
 		GROUP BY p.namespace
 		ORDER BY count DESC
