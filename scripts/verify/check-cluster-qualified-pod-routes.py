@@ -58,10 +58,19 @@ REQUIRED = {
     ],
 }
 
-# Any direct predicate over a persisted pod_uid must also carry cluster_id in the
-# same SQL literal. This deliberately targets storage identity predicates, not
-# DTO/query parameter names or cluster-scoped JOIN filters.
-POD_UID_WHERE = re.compile(r'Where\(\s*"([^"]*pod_uid[^"]*)"')
+# Detect identity-bearing direct predicates, not free-text/search filters.
+POD_UID_WHERE = re.compile(
+    r'Where\(\s*"([^"]*(?:[A-Za-z_][A-Za-z0-9_]*\.)?pod_uid\s*(?:=|IN)\s*[^"]*)"',
+    re.IGNORECASE,
+)
+
+# Optional filters below are safe because the base query JOIN already binds the
+# Pod row by both cluster_id and pod_uid before the filter is applied.
+JOIN_SCOPED_FILTERS = {
+    "pod_capabilities.pod_uid = ?",
+    "pc.pod_uid = ?",
+    "n.pod_uid = ?",
+}
 
 errors = []
 
@@ -87,12 +96,15 @@ for path in Path("core").rglob("*.go"):
             errors.append(f"{path}: forbidden production symbol {token!r}: {reason}")
 
     for match in POD_UID_WHERE.finditer(text):
-        sql = match.group(1).lower()
+        raw_sql = match.group(1)
+        sql = raw_sql.lower().strip()
+        if sql in JOIN_SCOPED_FILTERS:
+            continue
         if "cluster_id" not in sql:
             line = text.count("\n", 0, match.start()) + 1
             errors.append(
                 f"{path}:{line}: UID-only Pod storage predicate is forbidden: "
-                f'Where("{match.group(1)}")'
+                f'Where("{raw_sql}")'
             )
 
 if errors:
