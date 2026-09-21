@@ -236,7 +236,7 @@ func (b *RelationalPathBuilder) loadClusterPathSnapshot(ctx context.Context, clu
 		RoleMap:             roleMap,
 		CrMap:               crMap,
 		ClusterPods:         clusterPods,
-		DenyCache:           b.loadDenyCache(ctx),
+		DenyCache:           b.loadDenyCache(ctx, clusterID),
 		HardeningHints:      deriveHardeningHints(clusterPods),
 	}, nil
 }
@@ -1303,12 +1303,13 @@ func attackPathHysteresisDecayFromEnv() float64 {
 	return v
 }
 
-func (b *RelationalPathBuilder) loadDenyCache(ctx context.Context) map[string]time.Time {
+func (b *RelationalPathBuilder) loadDenyCache(ctx context.Context, clusterID string) map[string]time.Time {
 	out := map[string]time.Time{}
 	if b == nil || b.db == nil || !b.db.Migrator().HasTable(&models.RuntimeSignal{}) {
 		return out
 	}
 	type denyRow struct {
+		ClusterID  string
 		PodUID     string
 		Evidence   string
 		CreatedAt  time.Time
@@ -1318,8 +1319,8 @@ func (b *RelationalPathBuilder) loadDenyCache(ctx context.Context) map[string]ti
 	since := time.Now().Add(-attackPathDenyTTLFromEnv())
 	_ = b.db.WithContext(ctx).
 		Model(&models.RuntimeSignal{}).
-		Select("pod_uid, evidence, created_at, signal_type").
-		Where("created_at >= ? AND signal_type IN ?", since, []string{"NETWORK_POLICY_DENY", "NETWORK_DENY"}).
+		Select("cluster_id, pod_uid, evidence, created_at, signal_type").
+		Where("cluster_id = ? AND created_at >= ? AND signal_type IN ?", clusterID, since, []string{"NETWORK_POLICY_DENY", "NETWORK_DENY"}).
 		Find(&rows).Error
 	for _, r := range rows {
 		targetUID := ""
