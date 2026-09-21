@@ -26,6 +26,10 @@ FORBIDDEN_ROUTE_HANDLERS = {
 }
 
 FORBIDDEN_PRODUCTION_SYMBOLS = {
+    "GetPod(": "legacy numeric Pod detail handler",
+    "GetPodByUID(": "legacy UID-only Pod detail handler",
+    "PostRuntimeEvents(": "legacy UID-only runtime ingest handler",
+    "PostRuntimeEventsV2(": "legacy UID-only runtime ingest handler",
     "GetPodRuntimeBehaviorFacts(": "legacy UID-only runtime fact handler",
     "GetPodRuntimeIncidents(": "legacy UID-only runtime incident handler",
     "GetPodRuntimeEvents(": "legacy UID-only runtime event handler",
@@ -64,6 +68,12 @@ POD_UID_WHERE = re.compile(
     re.IGNORECASE,
 )
 
+# Any join that correlates a Pod-owned row to pods by UID must also bind cluster_id.
+POD_UID_JOIN = re.compile(
+    r'JOIN\s+pods\s+\w+\s+ON\s+([^\n"]*\.uid\s*=\s*[^\n"]*)',
+    re.IGNORECASE,
+)
+
 # Optional filters below are safe because the base query JOIN already binds the
 # Pod row by both cluster_id and pod_uid before the filter is applied.
 JOIN_SCOPED_FILTERS = {
@@ -94,6 +104,14 @@ for path in Path("core").rglob("*.go"):
     for token, reason in FORBIDDEN_PRODUCTION_SYMBOLS.items():
         if token in text:
             errors.append(f"{path}: forbidden production symbol {token!r}: {reason}")
+
+    for match in POD_UID_JOIN.finditer(text):
+        join_sql = match.group(1).lower()
+        if "cluster_id" not in join_sql:
+            line = text.count("\n", 0, match.start()) + 1
+            errors.append(
+                f"{path}:{line}: UID-only Pod join is forbidden: {match.group(0)!r}"
+            )
 
     for match in POD_UID_WHERE.finditer(text):
         raw_sql = match.group(1)
