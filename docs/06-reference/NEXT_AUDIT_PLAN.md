@@ -81,14 +81,17 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   readers/writers and hard constraints intentionally remain for #46/#47.
 - #46 merged: Pod reads/writes, risk/cache/reconciliation paths use cluster-qualified
   keys. Retired HTTP routes and dead handlers are removed; runtime senders use v2.
-- #47 in progress (association isolation): mutable SBOM observations are keyed by
-  cluster/Pod/container/digest; digest is content identity, never workload authority.
-  Retire combined finding writes, validate event/scan ownership, propagate cluster
-  to CVE/malware matches, and serialize concurrent first ingest. Named regressions
-  and a PostgreSQL concurrency gate accompany this change.
-  Remaining acceptance work: physically separate reusable immutable content from
-  workload observations, migrate populated duplicate snapshots, and enforce the
-  database ownership/uniqueness invariants for all writers. Do not close C3c yet.
+- #47 implemented, awaiting review/CI: mutable observations use
+  cluster/Pod/container/digest; immutable `sbom_image_contents` deduplicates the
+  actual package snapshot and extraction provenance independently of ownership.
+  Existing component rows remain a workload-local read projection.
+  Startup backfills only resolved active observations, checks partial uniqueness,
+  rejects conflicting duplicates/associations without deleting evidence, and
+  installs PostgreSQL ownership/content guards. Ingest locks concurrent first
+  inserts; matching validates event ownership; CVE/malware carry cluster identity.
+  Combined finding writes are retired. The mandatory PostgreSQL gate exercises a
+  populated pre-content schema, reruns, concurrent ingest, and rejected cross-owner
+  writes. Live two-cluster deployment validation remains work package F (#51).
 - #48 planned: remove or explicitly quarantine legacy gRPC finding paths as
   compatibility requires; provision per-Agent client certificates and define
   rotation/revocation/rollback. Resolve global AgentID collision semantics.

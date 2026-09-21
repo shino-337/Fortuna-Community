@@ -15,6 +15,7 @@ import (
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/resourceidentity"
+	"github.com/fortuna/core/pkg/sbomcontent"
 )
 
 const (
@@ -121,6 +122,13 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 	}
 	if _, err := resourceidentity.New(sbom.ClusterID, sbom.PodUID); err != nil {
 		return nil, false, fmt.Errorf("SBOM ownership: %w", err)
+	}
+	// The optional legacy JSONB document must still be valid JSON in PostgreSQL.
+	if strings.TrimSpace(sbom.SBOMContent) == "" {
+		sbom.SBOMContent = "{}"
+	}
+	if !json.Valid([]byte(sbom.SBOMContent)) {
+		return nil, false, fmt.Errorf("invalid SBOM JSON content")
 	}
 	sbom.SbomSource = models.NormalizeSBOMSource(sbom.SbomSource)
 	sbom.Confidence = models.NormalizeSBOMConfidence(sbom.Confidence)
@@ -342,6 +350,13 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 			return nil, false, fmt.Errorf("insert components: %w", err)
 		}
 	}
+
+	contentID, err := sbomcontent.Attach(tx, sbom.ID)
+	if err != nil {
+		tx.Rollback()
+		return nil, false, fmt.Errorf("attach immutable SBOM content: %w", err)
+	}
+	sbom.ContentID = &contentID
 
 	if err := tx.Commit().Error; err != nil {
 		return nil, false, fmt.Errorf("commit sbom upsert: %w", err)

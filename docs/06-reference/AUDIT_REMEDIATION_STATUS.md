@@ -1,11 +1,13 @@
 # Audit remediation status — September 2026
 
 PRs #29–#46 are merged. Review and merge subsequent pull requests manually.
-The current SBOM association change is the first slice of work package #47:
+PR #47 adds immutable image-content snapshots with separate workload observations,
 container-qualified ingest, ownership validation before matching/linking, retired
-combined finding writes, and cluster propagation to CVE/malware matches.
-Shared immutable content storage and populated migration remain open; see
-[NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md) for acceptance criteria and sequencing.
+combined finding writes, and cluster propagation to CVE/malware matches. Its startup
+migration backfills resolved observations, rejects conflicting legacy evidence,
+and enforces PostgreSQL uniqueness and ownership guards. Review/CI and the live
+multi-cluster gate are tracked separately in
+[NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md).
 A passing test suite confirms the tested source behavior, not live deployment
 coverage or a guarantee that the repository has no further defects.
 

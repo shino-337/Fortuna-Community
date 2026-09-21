@@ -14,7 +14,7 @@ import sys
 
 REQUIRED = {
     "./pkg/sbom": ["TestPodImageScanRejectsForeignSBOM"],
-    "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership", "TestSBOMWorkloadIdentitySeparatesContainers"],
+    "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership", "TestSBOMWorkloadIdentitySeparatesContainers", "TestSBOMContentDoesNotReuseDifferentProvenance"],
     "./pkg/reconciler": ["TestSBOMReconcilePreservesActiveAndUnresolvedOwnership"],
     "./pkg/riskengine": [
         "TestPodInsightRestorePreservesClusterAndException",
