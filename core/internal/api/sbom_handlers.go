@@ -156,7 +156,7 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		var total int64
 		countQuery := db.Model(&models.SBOM{}).Where("sboms.deleted_at IS NULL")
 		if !includeStale {
-			countQuery = countQuery.Joins("INNER JOIN pods ON pods.uid = sboms.pod_uid AND pods.deleted_at IS NULL")
+			countQuery = countQuery.Joins("INNER JOIN pods ON pods.cluster_id = sboms.cluster_id AND pods.uid = sboms.pod_uid AND pods.deleted_at IS NULL")
 		}
 		if podNameFilter != "" {
 			countQuery = countQuery.Where("sboms.pod_name ILIKE ?", "%"+podNameFilter+"%")
@@ -171,7 +171,7 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 
 		joinActivePods := ""
 		if !includeStale {
-			joinActivePods = "INNER JOIN pods p ON p.uid = s.pod_uid AND p.deleted_at IS NULL"
+			joinActivePods = "INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL"
 		}
 		query := `
 			SELECT * FROM (
