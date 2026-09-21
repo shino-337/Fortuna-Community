@@ -8,10 +8,10 @@ type AssetSecurityState struct {
 	ID uint `gorm:"primaryKey" json:"id"`
 
 	AssetType string `gorm:"type:varchar(32);not null;index" json:"assetType"` // currently "pod"
-	PodUID    string `gorm:"type:varchar(255);not null;uniqueIndex" json:"podUid"`
+	PodUID    string `gorm:"type:varchar(255);not null;uniqueIndex:idx_asset_security_state_identity,priority:2" json:"podUid"`
 
 	Namespace string `gorm:"type:varchar(255);not null;index" json:"namespace"`
-	ClusterID string `gorm:"type:varchar(255);not null;index" json:"clusterId"`
+	ClusterID string `gorm:"type:varchar(255);not null;index;uniqueIndex:idx_asset_security_state_identity,priority:1" json:"clusterId"`
 
 	// Identity / privilege snapshot (minimal)
 	HostNetwork bool `gorm:"default:false" json:"hostNetwork"`
