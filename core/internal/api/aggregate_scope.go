@@ -5,10 +5,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"github.com/fortuna/core/internal/middleware"
-	"github.com/fortuna/core/pkg/models"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 	"sort"
+	"strings"
 )
 
 // Authorize before cache lookup. Query scope is always narrower than user scope.
@@ -18,16 +18,21 @@ func aggregateScope(db *gorm.DB, c *gin.Context) (RiskFilter, bool) {
 	return filter, ok
 }
 
-func scopedAggregateQuery(db *gorm.DB, query *gorm.DB, filter RiskFilter, column string) *gorm.DB {
-	pods := db.Model(&models.Pod{}).Select("uid")
-	if filter.ClusterID != "" {
-		pods = pods.Where("cluster_id = ?", filter.ClusterID)
-	} else if len(filter.ScopedClusterIDs) > 0 {
-		pods = pods.Where("cluster_id IN ?", filter.ScopedClusterIDs)
-	} else {
-		return query
+func scopedAggregateQuery(_ *gorm.DB, query *gorm.DB, filter RiskFilter, column string) *gorm.DB {
+	// All current callers scope Insight rows. Scope directly by the persisted
+	// cluster identity instead of projecting through Pod UID, because Pod UID is
+	// only unique inside a cluster.
+	clusterColumn := "cluster_id"
+	if dot := strings.LastIndex(column, "."); dot >= 0 {
+		clusterColumn = column[:dot+1] + "cluster_id"
 	}
-	return query.Where(column+" IN (?)", pods)
+	if filter.ClusterID != "" {
+		return query.Where(clusterColumn+" = ?", filter.ClusterID)
+	}
+	if len(filter.ScopedClusterIDs) > 0 {
+		return query.Where(clusterColumn+" IN ?", filter.ScopedClusterIDs)
+	}
+	return query
 }
 
 func authorizationCacheKey(c *gin.Context, key string) string {
