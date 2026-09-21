@@ -94,6 +94,11 @@ func TestSBOMConcurrentOwnershipPostgres(t *testing.T) {
 	var contents int64
 	require.NoError(t, db.Model(&models.SBOMImageContent{}).Count(&contents).Error)
 	require.EqualValues(t, 2, contents, "legacy and current digest content, shared across all owners")
+	var current models.SBOM
+	require.NoError(t, db.Where("pod_uid = ?", "same").First(&current).Error)
+	require.NotNil(t, current.ContentID)
+	require.ErrorContains(t, db.Exec("UPDATE sboms SET content_id=? WHERE id=?", *current.ContentID, legacy[0].ID).Error, "SBOM content digest mismatch")
+
 	duplicate := models.SBOM{ClusterID: "cluster-0", PodUID: "same", ContainerName: "container-0", ImageDigest: "sha256:same", SBOMContent: "{}", GeneratedAt: time.Now()}
 	require.Error(t, db.Create(&duplicate).Error, "direct writers must obey the unique ownership key")
 	require.NoError(t, db.Exec("DROP INDEX idx_sbom_active_workload_identity").Error)

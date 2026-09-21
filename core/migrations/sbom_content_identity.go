@@ -82,6 +82,9 @@ BEGIN
  IF TG_OP = 'INSERT' AND (COALESCE(NEW.cluster_id,'')='' OR COALESCE(NEW.pod_uid,'')='' OR COALESCE(NEW.container_name,'')='' OR COALESCE(NEW.image_digest,'')='') THEN
   RAISE EXCEPTION 'SBOM workload identity is required';
  END IF;
+ IF NEW.content_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM sbom_image_contents c WHERE c.id=NEW.content_id AND c.payload::jsonb->>'imageDigest'=NEW.image_digest) THEN
+  RAISE EXCEPTION 'SBOM content digest mismatch';
+ END IF;
  IF TG_OP = 'UPDATE' AND (NEW.cluster_id,NEW.pod_uid,NEW.container_name,NEW.image_digest) IS DISTINCT FROM (OLD.cluster_id,OLD.pod_uid,OLD.container_name,OLD.image_digest) THEN
   RAISE EXCEPTION 'SBOM workload ownership is immutable';
  END IF;
@@ -92,7 +95,7 @@ END $$`).Error; err != nil {
 		if err := db.Exec("DROP TRIGGER IF EXISTS sbom_owner_immutable ON sboms").Error; err != nil {
 			return err
 		}
-		if err := db.Exec("CREATE TRIGGER sbom_owner_immutable BEFORE INSERT OR UPDATE OF cluster_id,pod_uid,container_name,image_digest ON sboms FOR EACH ROW EXECUTE FUNCTION fortuna_sbom_owner_immutable()").Error; err != nil {
+		if err := db.Exec("CREATE TRIGGER sbom_owner_immutable BEFORE INSERT OR UPDATE OF cluster_id,pod_uid,container_name,image_digest,content_id ON sboms FOR EACH ROW EXECUTE FUNCTION fortuna_sbom_owner_immutable()").Error; err != nil {
 			return err
 		}
 
