@@ -20,7 +20,7 @@ func (e *Engine) UpsertAssetSecurityState(ctx context.Context, podUID string) er
 	}
 	var clusterIDs []string
 	if err := e.db.WithContext(ctx).Model(&models.Pod{}).
-		Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", id.ClusterID, podUID).
+		Where("uid = ? AND deleted_at IS NULL", podUID).
 		Distinct().Order("cluster_id").Pluck("cluster_id", &clusterIDs).Error; err != nil {
 		return fmt.Errorf("resolve pod security-state ownership: %w", err)
 	}
@@ -61,7 +61,7 @@ func (e *Engine) UpsertAssetSecurityStateForIdentity(ctx context.Context, id res
 	// Identity + privilege context from pods
 	var pod models.Pod
 	if err := e.db.WithContext(ctx).
-		Where("uid = ? AND deleted_at IS NULL", podUID).
+		Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", id.ClusterID, podUID).
 		First(&pod).Error; err != nil {
 		return fmt.Errorf("read pod: %w", err)
 	}
@@ -188,11 +188,11 @@ func (e *Engine) UpsertAssetSecurityStateForIdentity(ctx context.Context, id res
 		return err
 	}
 
-	// Upsert by pod_uid (unique)
+	// Upsert by canonical {cluster_id,pod_uid} identity
 	if prev.ID != 0 {
 		newState.ID = prev.ID
 		return e.db.WithContext(ctx).Model(&models.AssetSecurityState{}).
-			Where("pod_uid = ?", podUID).
+			Where("cluster_id = ? AND pod_uid = ?", id.ClusterID, podUID).
 			Updates(map[string]interface{}{
 				"asset_type":                             "pod",
 				"namespace":                              newState.Namespace,
