@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/networkbucket"
 	"github.com/gin-gonic/gin"
@@ -30,6 +31,11 @@ func GetPodNetworkTopDestinationsByUID(db *gorm.DB) gin.HandlerFunc {
 		podUID := c.Param("uid")
 		if podUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
+			return
+		}
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
 			return
 		}
 
@@ -58,7 +64,7 @@ func GetPodNetworkTopDestinationsByUID(db *gorm.DB) gin.HandlerFunc {
 				COUNT(*) AS observation_count,
 				MAX(observed_at) AS last_observed_at,
 				COUNT(DISTINCT bucket_5m) AS distinct_bucket_count`).
-			Where("pod_uid = ? AND bucket_5m >= ?", podUID, sinceBucket).
+			Where("cluster_id = ? AND pod_uid = ? AND bucket_5m >= ?", clusterID, podUID, sinceBucket).
 			Group("dest_ip, dest_port, protocol").
 			Order("observation_count DESC").
 			Limit(limit).
