@@ -95,65 +95,10 @@ func GetPodRiskProfile(db *gorm.DB) gin.HandlerFunc {
 }
 
 // GetPodRuntimeEvents returns runtime events for a specific pod UID.
-func GetPodRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		podUID := c.Param("uid")
-		if podUID == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "podUid is required"})
-			return
-		}
+// GetPodRuntimeEvents is retained only for source compatibility.
+// Production routes must use GetPodRuntimeEventsScoped and CI rejects legacy registration.
+func GetPodRuntimeEvents(db *gorm.DB) gin.HandlerFunc { return GetPodRuntimeEventsScoped(db) }
 
-		limit := 100
-		if l := c.Query("limit"); l != "" {
-			if parsed, err := parseInt(l); err == nil && parsed > 0 && parsed <= 1000 {
-				limit = parsed
-			}
-		}
-
-		var events []models.RuntimeEvent
-		if err := db.Where("pod_uid = ?", podUID).
-			Order("created_at DESC").
-			Limit(limit).
-			Find(&events).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		dtos := make([]RuntimeEventDTO, len(events))
-		for i, e := range events {
-			dtos[i] = RuntimeEventDTO{
-				ID:              e.ID,
-				EventID:         e.EventID,
-				ObservedAt:      e.ObservedAt,
-				IngestedAt:      e.IngestedAt,
-				ResolutionState: e.ResolutionState,
-				SourceKind:      e.SourceKind,
-				SourceSensorID:  e.SourceSensorID,
-				SourceRule:      e.SourceRule,
-				PodUID:          e.PodUID,
-				PodName:         e.PodName,
-				Namespace:       e.Namespace,
-				NodeName:        e.NodeName,
-				Runtime:         e.Runtime,
-				EventType:       e.EventType,
-				Signal:          e.Signal,
-				Mitre:           e.Mitre,
-				Severity:        e.Severity,
-				Confidence:      e.Confidence,
-				Syscall:         e.Syscall,
-				TargetPath:      e.TargetPath,
-				Capability:      e.Capability,
-				CreatedAt:       e.CreatedAt,
-			}
-		}
-
-		c.JSON(http.StatusOK, gin.H{
-			"podUid": podUID,
-			"events": dtos,
-			"total":  len(dtos),
-		})
-	}
-}
 
 // GetRuntimeRiskSummary returns summary of runtime risks across all pods.
 func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
