@@ -93,7 +93,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Model(&models.PodCapability{}).
 			Select("pod_capabilities.*, p.name as pod_name").
-			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL")
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
 		if podUID := c.Query("podUid"); podUID != "" {
@@ -197,7 +197,7 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Table("pod_capabilities AS pc").
 			Select("p.cluster_id AS cluster_id, pc.namespace AS namespace, pc.capability_id AS capability_id, pc.severity AS severity, COUNT(*) AS count").
-			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
@@ -248,7 +248,7 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Table("pod_capabilities AS pc").
 			Select("p.cluster_id AS cluster_id, COUNT(*) AS count").
-			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
@@ -289,7 +289,7 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Table("pod_capabilities AS pc").
 			Select("pc.capability_id AS capability_id, pc.severity AS severity, COUNT(*) AS count").
-			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
@@ -337,7 +337,7 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Table("pod_capabilities AS pc").
 			Select("pc.namespace AS namespace, pc.severity AS severity, COUNT(*) AS count").
-			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
@@ -387,7 +387,7 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 
 		query := db.Table("pod_capabilities AS pc").
 			Select("pc.severity AS severity, COUNT(*) AS count").
-			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL")
+			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL")
 
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
 
@@ -445,7 +445,7 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 		today := time.Now().UTC().Truncate(24 * time.Hour)
 		start := today.AddDate(0, 0, 1-days)
 		query := db.Table("pod_capabilities AS pc").Select("pc.created_at, pc.severity").
-			Joins("JOIN pods p ON p.uid = pc.pod_uid AND p.deleted_at IS NULL").
+			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL").
 			Where("pc.created_at >= ? AND pc.created_at < ?", start, today.AddDate(0, 0, 1))
 
 		query = scopedInventoryQuery(query, scope, "p.cluster_id")
