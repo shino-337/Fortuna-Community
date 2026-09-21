@@ -37,7 +37,7 @@ func TestAssetSecurityStateRuntimeTimestamp(t *testing.T) {
 					now := time.Now().UTC().Truncate(time.Second)
 					want := now.Add(-time.Hour)
 					if scenario == "created fallback" || scenario == "last seen" {
-						signal := models.RuntimeSignal{PodUID: uid, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK", Evidence: "{}", CreatedAt: want}
+						signal := models.RuntimeSignal{ClusterID: "c1", PodUID: uid, SignalType: "NETWORK_QUEUE_ANOMALY", Category: "NETWORK", Evidence: "{}", CreatedAt: want}
 						if scenario == "last seen" {
 							want = now.Add(-time.Minute)
 							seen := want.In(time.FixedZone("UTC+7", 7*3600)).Format(time.RFC3339)
