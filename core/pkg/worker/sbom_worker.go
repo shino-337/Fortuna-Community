@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/sbom"
 	"github.com/nats-io/nats.go"
 	"gorm.io/gorm"
@@ -70,12 +72,8 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 
 	clusterID, _ := normalized["cluster_id"].(string)
-	if clusterID == "" {
-		if v := os.Getenv("DEFAULT_CLUSTER_ID"); v != "" {
-			clusterID = v
-		} else {
-			clusterID = "unknown"
-		}
+	if _, err := resourceidentity.New(clusterID, podUID); err != nil {
+		return fmt.Errorf("normalized pod ownership: %w", err)
 	}
 
 	rawJSON, _ := normalized["raw_json"].(string)
@@ -118,25 +116,26 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 			continue
 		}
 
-		// De-dup: if this pod/container/image already linked to an SBOM, skip event
-		var existing models.PodImageScan
-		if err := w.db.WithContext(ctx).
-			Where("cluster_id = ? AND pod_uid = ? AND container_name = ? AND container_image = ? AND sbom_id IS NOT NULL AND deleted_at IS NULL",
-				clusterID, podUID, c.name, imageRef).
-			First(&existing).Error; err == nil {
+		// Publish even when the association already exists: a prior publish may
+		// have failed after linking. The matcher owns event/run deduplication.
+		// Tags are mutable; only reuse this workload's immutable digest observation.
+		digest := imageRef
+		if at := strings.LastIndex(digest, "@"); at >= 0 {
+			digest = digest[at+1:]
+		}
+		if !strings.HasPrefix(digest, "sha256:") {
 			continue
 		}
-
-		// EnsureSBOM is deprecated - SBOM is already stored by handler
-		// Just verify it exists
 		var sbomModel models.SBOM
-		if err := w.db.WithContext(ctx).Where("image_digest = ? AND deleted_at IS NULL", imageRef).First(&sbomModel).Error; err != nil {
-			w.logger.Printf("⚠️  SBOM not found for %s (pod %s/%s): %v", imageRef, podNS, podName, err)
-			continue
+		if err := w.db.WithContext(ctx).Where("cluster_id = ? AND pod_uid = ? AND container_name = ? AND image_digest = ? AND deleted_at IS NULL", clusterID, podUID, c.name, digest).First(&sbomModel).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				continue
+			}
+			return fmt.Errorf("load workload SBOM: %w", err)
 		}
 
 		if err := w.service.UpsertPodImageScan(ctx, clusterID, podUID, podName, podNS, c.name, imageRef, sbomModel.ID); err != nil {
-			w.logger.Printf("⚠️  UpsertPodImageScan failed for pod %s/%s container %s: %v", podNS, podName, c.name, err)
+			return fmt.Errorf("link SBOM to pod %s/%s container %s: %w", podNS, podName, c.name, err)
 		}
 
 		ev := sbom.SBOMCreatedEvent{
@@ -153,8 +152,7 @@ func (w *SBOMWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		}
 
 		if err := w.publisher.PublishSBOMCreated(ev); err != nil {
-			w.logger.Printf("⚠️  Failed to publish sbom.created for %s: %v", imageRef, err)
-			continue
+			return fmt.Errorf("publish sbom.created: %w", err)
 		}
 		createdEvents++
 	}

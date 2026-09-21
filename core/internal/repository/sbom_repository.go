@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -108,7 +109,7 @@ func assertTransition(oldStatus, newStatus string) error {
 	return fmt.Errorf("invalid sbom_status transition: %s -> %s", oldS, newS)
 }
 
-// UpsertSBOMWithComponents upserts an SBOM (keyed by pod_uid + image_digest) and replaces its components.
+// UpsertSBOMWithComponents upserts an SBOM (keyed by cluster + pod + container + image digest) and replaces its components.
 // It is the single write entrypoint for the SBOM ingest path.
 func (r *SBOMRepository) UpsertSBOMWithComponents(
 	ctx context.Context,
@@ -125,9 +126,21 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 	sbom.Confidence = models.NormalizeSBOMConfidence(sbom.Confidence)
 
 	tx := r.db.WithContext(ctx).Begin()
+	if tx.Error != nil {
+		return nil, false, tx.Error
+	}
+	// Lock the identity before lookup: a row lock cannot serialize the first insert.
+	if tx.Dialector.Name() == "postgres" {
+		key, _ := json.Marshal([]string{sbom.ClusterID, sbom.PodUID, sbom.ContainerName, sbom.ImageDigest})
+		if err := tx.Exec("SELECT pg_advisory_xact_lock(hashtextextended(?, 0))", string(key)).Error; err != nil {
+			tx.Rollback()
+			return nil, false, err
+		}
+	}
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			panic(r)
 		}
 	}()
 
@@ -161,7 +174,7 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 
 	// Row-level lock to serialize concurrent writers for the same pod_uid + image_digest.
 	err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-		Where("cluster_id = ? AND pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", sbom.ClusterID, sbom.PodUID, sbom.ImageDigest).
+		Where("cluster_id = ? AND pod_uid = ? AND container_name = ? AND image_digest = ? AND deleted_at IS NULL", sbom.ClusterID, sbom.PodUID, sbom.ContainerName, sbom.ImageDigest).
 		First(&existing).Error
 	switch {
 	case err == nil:
@@ -265,7 +278,7 @@ func (r *SBOMRepository) UpsertSBOMWithComponents(
 			var prev models.SBOM
 			// Find the latest SBOM for the pod_uid excluding this image_digest.
 			// (SQLite and Postgres both support LIMIT in raw queries; we use First with ordering.)
-			prevErr := tx.Where("cluster_id = ? AND pod_uid = ? AND image_digest <> ? AND deleted_at IS NULL", sbom.ClusterID, sbom.PodUID, sbom.ImageDigest).
+			prevErr := tx.Where("cluster_id = ? AND pod_uid = ? AND container_name = ? AND image_digest <> ? AND deleted_at IS NULL", sbom.ClusterID, sbom.PodUID, sbom.ContainerName, sbom.ImageDigest).
 				Order("version DESC").
 				First(&prev).Error
 			if prevErr == nil && normalizeSBOMStatus(prev.Status) != "failed" && prev.NormalizedFingerprint != "" && prev.NormalizedFingerprint != sbom.NormalizedFingerprint {

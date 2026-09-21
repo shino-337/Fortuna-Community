@@ -300,7 +300,7 @@ func (s *SBOMServiceServer) SendSBOMFinding(ctx context.Context, req *pb.SBOMFin
 	oldSBOMStatus := ""
 	oldSBOMStatusReason := ""
 	oldSBOMFound := false
-	if err := s.db.Where("cluster_id = ? AND pod_uid = ? AND image_digest = ? AND deleted_at IS NULL", clusterID, req.PodUid, req.ImageDigest).First(&existingSBOM).Error; err == nil {
+	if err := s.db.Where("cluster_id = ? AND pod_uid = ? AND container_name = ? AND image_digest = ? AND deleted_at IS NULL", clusterID, req.PodUid, req.ContainerName, req.ImageDigest).First(&existingSBOM).Error; err == nil {
 		oldSBOMFound = true
 		oldSBOMStatus = existingSBOM.Status
 		oldSBOMStatusReason = existingSBOM.StatusReason

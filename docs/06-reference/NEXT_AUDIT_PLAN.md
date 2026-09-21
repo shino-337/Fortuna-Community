@@ -74,15 +74,21 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   trusted Principal as authoritative, canonicalizes cluster metadata, verifies
   Agent claims and Pod ownership before handlers, reauthorizes streamed SBOMs and
   fails closed for unknown future scoped RPCs.
-- C3c foundation: current draft PR #45. Introduces canonical
+- C3c foundation: merged in PR #45. Introduces canonical
   `{cluster_id, resource_uid}`, adds ClusterID storage fields to workload-derived
   state, performs only unambiguous legacy ownership backfill, runs a fail-closed
   startup schema invariant, and adds static/named CI ratchets. Legacy UID-only
   readers/writers and hard constraints intentionally remain for #46/#47.
-- #46 planned: migrate authorization/query/read/write/cache/reconciliation paths
-  to cluster-qualified keys; remove ambiguous UID-only ownership resolution.
-- #47 planned: separate reusable image/SBOM content from workload ownership, repair
-  legacy digest upserts/conflict keys and cluster-qualify CVE/malware associations.
+- #46 merged: Pod reads/writes, risk/cache/reconciliation paths use cluster-qualified
+  keys. Retired HTTP routes and dead handlers are removed; runtime senders use v2.
+- #47 in progress (association isolation): mutable SBOM observations are keyed by
+  cluster/Pod/container/digest; digest is content identity, never workload authority.
+  Retire combined finding writes, validate event/scan ownership, propagate cluster
+  to CVE/malware matches, and serialize concurrent first ingest. Named regressions
+  and a PostgreSQL concurrency gate accompany this change.
+  Remaining acceptance work: physically separate reusable immutable content from
+  workload observations, migrate populated duplicate snapshots, and enforce the
+  database ownership/uniqueness invariants for all writers. Do not close C3c yet.
 - #48 planned: remove or explicitly quarantine legacy gRPC finding paths as
   compatibility requires; provision per-Agent client certificates and define
   rotation/revocation/rollback. Resolve global AgentID collision semantics.

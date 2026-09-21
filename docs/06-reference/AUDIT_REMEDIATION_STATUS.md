@@ -1,6 +1,11 @@
 # Audit remediation status — September 2026
 
-These changes follow merged PR #28. Review and merge the pull requests manually.
+PRs #29–#46 are merged. Review and merge subsequent pull requests manually.
+The current SBOM association change is the first slice of work package #47:
+container-qualified ingest, ownership validation before matching/linking, retired
+combined finding writes, and cluster propagation to CVE/malware matches.
+Shared immutable content storage and populated migration remain open; see
+[NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md) for acceptance criteria and sequencing.
 A passing test suite confirms the tested source behavior, not live deployment
 coverage or a guarantee that the repository has no further defects.
 
@@ -35,11 +40,11 @@ Behavior changes worth reviewing:
   inventory.bulk and inventory.delete. HTTP 207 identifies partial failures.
 - Disable and disable-inactive intentionally return 501. Inventory disappearance
   is not credential revocation. A real revocation workflow remains unimplemented.
-- Legacy AGE traversal with limited cluster scope is intentionally denied. Scoped
+- Legacy AGE HTTP routes and handlers were removed in #46. Scoped
   relational graph/attack-path views remain available; scoped AGE support remains
   unimplemented.
 - Existing agents without cluster assignment temporarily disappear from cluster
-  counts until HTTP sync. This change does not add per-cluster mTLS attestation.
+  counts until HTTP sync. Scoped mTLS authorization exists in #43/#44; per-Agent certificate lifecycle and global AgentID collisions remain in work package #48.
 - Risk reconciliation stops on invalid catalogs/evaluation errors. Missing or
   disabled detectors preserve findings; operators must inspect reported failures.
 

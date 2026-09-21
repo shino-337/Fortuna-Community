@@ -323,3 +323,28 @@ func TestSBOMRepository_NormalizeSourceAndConfidence(t *testing.T) {
 	require.Equal(t, models.SBOMSourceUnknown, persisted.SbomSource)
 	require.Equal(t, models.SBOMConfidenceUnknown, persisted.Confidence)
 }
+
+func TestSBOMWorkloadIdentitySeparatesContainers(t *testing.T) {
+	repo, db := newTestRepo(t)
+	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
+	ids := map[uint]bool{}
+	for _, cluster := range []string{"a", "b"} {
+		for _, container := range []string{"app", "sidecar"} {
+			incoming := func() *models.SBOM {
+				return &models.SBOM{ClusterID: cluster, PodUID: "same", ContainerName: container, ImageDigest: "sha256:same", Status: "pending", GeneratedAt: time.Now()}
+			}
+			row, created, err := repo.UpsertSBOMWithComponents(ctx, incoming(), nil)
+			require.NoError(t, err)
+			require.True(t, created)
+			require.False(t, ids[row.ID])
+			ids[row.ID] = true
+			again, created, err := repo.UpsertSBOMWithComponents(ctx, incoming(), nil)
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, row.ID, again.ID)
+		}
+	}
+	var count int64
+	require.NoError(t, db.Model(&models.SBOM{}).Count(&count).Error)
+	require.EqualValues(t, 4, count)
+}

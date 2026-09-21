@@ -3,6 +3,7 @@ package worker
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -20,6 +21,7 @@ import (
 	"github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/metrics"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/sbom"
 	"github.com/nats-io/nats.go"
@@ -137,11 +139,23 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 	if err := w.db.WithContext(ctx).
 		Where("id = ? AND deleted_at IS NULL", ev.SBOMID).
 		First(&sbomModel).Error; err != nil {
+		if !errors.Is(err, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("load SBOM: %w", err)
+		}
 		// If SBOM doesn't exist (deleted or never created), skip silently to avoid retry loops
 		w.logger.Printf("⚠️  SBOM id=%d not found (may have been deleted), skipping CVE matching", ev.SBOMID)
 		incCVEMatcherRun("skipped")
 		return nil // Don't retry deleted SBOMs
 	}
+
+	// Validate ownership before replay claims, match runs, or writes.
+	if _, err := resourceidentity.New(ev.ClusterID, ev.PodUID); err != nil {
+		return fmt.Errorf("SBOM event ownership: %w", err)
+	}
+	if ev.ClusterID != sbomModel.ClusterID || ev.PodUID != sbomModel.PodUID || ev.ContainerName != sbomModel.ContainerName || ev.ContainerName == "" || ev.ImageDigest != sbomModel.ImageDigest {
+		return fmt.Errorf("SBOM event ownership mismatch for sbom_id=%d", ev.SBOMID)
+	}
+	ev.PodName, ev.PodNamespace = sbomModel.PodName, sbomModel.Namespace
 
 	// Resolve mirror version once, then freeze on ctx for the whole run (avoid mid-run mirror_state bump drift).
 	mirrorVersion := w.dbManager.GetMirrorVersion(ctx, "osv")
@@ -237,11 +251,15 @@ func (w *CVEMatcherWorker) ProcessSBOMCreatedEvent(ctx context.Context, ev sbom.
 			}
 		}
 	} else {
-		w.db.WithContext(ctx).Where("sbom_id = ? AND deleted_at IS NULL", sbomModel.ID).Find(&allComponents)
+		if err := w.db.WithContext(ctx).Where("sbom_id = ? AND deleted_at IS NULL", sbomModel.ID).Find(&allComponents).Error; err != nil {
+			return fmt.Errorf("load malware components: %w", err)
+		}
 	}
 	malwareMatches := w.matcher.MatchMalware(ctx, &sbomModel, allComponents)
 	if len(malwareMatches) > 0 {
-		w.persistMalwareMatches(ctx, malwareMatches)
+		if err := w.persistMalwareMatches(ctx, malwareMatches); err != nil {
+			return err
+		}
 		w.logger.Printf("[MalwareMatch] sbom_id=%d malware_hits=%d", sbomModel.ID, len(malwareMatches))
 	}
 
@@ -511,18 +529,16 @@ func (w *CVEMatcherWorker) persistMatches(ctx context.Context, matches []*models
 	return nil
 }
 
-func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, matches []*models.MalwareMatch) {
-	if len(matches) == 0 {
-		return
-	}
+func (w *CVEMatcherWorker) persistMalwareMatches(ctx context.Context, matches []*models.MalwareMatch) error {
 	for _, m := range matches {
 		if err := w.db.WithContext(ctx).
 			Where("sbom_id = ? AND package_name = ? AND package_version = ?",
 				m.SBOMID, m.PackageName, m.PackageVersion).
 			FirstOrCreate(m).Error; err != nil {
-			w.logger.Printf("[MalwareMatch] persist error: %v", err)
+			return fmt.Errorf("persist malware match: %w", err)
 		}
 	}
+	return nil
 }
 
 func buildVulnInsightFromEvent(ev sbom.SBOMCreatedEvent, sbomStatus string, component *models.SBOMComponent, match *models.CVEMatch) *models.Insight {

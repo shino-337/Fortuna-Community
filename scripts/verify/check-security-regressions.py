@@ -13,7 +13,8 @@ import subprocess
 import sys
 
 REQUIRED = {
-    "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership"],
+    "./pkg/sbom": ["TestPodImageScanRejectsForeignSBOM"],
+    "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership", "TestSBOMWorkloadIdentitySeparatesContainers"],
     "./pkg/reconciler": ["TestSBOMReconcilePreservesActiveAndUnresolvedOwnership"],
     "./pkg/riskengine": [
         "TestPodInsightRestorePreservesClusterAndException",
@@ -33,6 +34,9 @@ REQUIRED = {
         "TestCreateOrUpdateInsight_ExceptionPolicyDoesNotCrossCluster",
     ],
     "./pkg/worker": [
+        "TestSBOMEventRejectsForeignOwnershipBeforeEffects",
+        "TestMalwarePersistenceFailureIsReturned",
+        "TestSBOMWorkerNeverGuessesOwnerFromDigestOrDefault",
         "TestReconciliationPreservesFindingOnRuntimeInputFailure",
         "TestReconciliationAuditRollbackAndCatalogFailure",
         "TestReconciliationPreservesDisabledDetector",
@@ -81,6 +85,7 @@ REQUIRED = {
         "TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode",
     ],
     "./internal/grpc": [
+        "TestCombinedFindingRetiredWithoutDatabaseEffects",
         "TestSBOMIngestPreservesTrustedClusterIdentity",
         "TestGRPCAgentUnaryInterceptorAuthenticatesVerifiedCertificate",
         "TestGRPCAgentUnaryInterceptorRejectsUnverifiedRevokedAndUnavailableIdentity",
