@@ -219,7 +219,7 @@ func GetInsight(db *gorm.DB) gin.HandlerFunc {
 			resp.Breakdown = risk.ParseBreakdownFromFactorsJSON(s.Factors)
 		}
 		if c.Query("enrich") == "1" && insight.ResourceType == "Pod" && strings.TrimSpace(insight.ResourceUID) != "" {
-			if er, err := explainability.BuildEnrichedRefs(c.Request.Context(), db, insight.ResourceUID, refs.FactIDs); err == nil && er != nil {
+			if er, err := explainability.BuildEnrichedRefs(c.Request.Context(), db, insight.ClusterID, insight.ResourceUID, refs.FactIDs); err == nil && er != nil {
 				resp.EnrichedRefs = er
 			}
 		}
