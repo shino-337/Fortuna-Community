@@ -36,8 +36,6 @@ func hasPodCapabilitiesTable(db *gorm.DB) bool {
 
 // GetPodCapabilities returns capabilities for a specific pod (by UID). Used by /pods/:podUid/capabilities.
 // GetPodCapabilities is retained only for source compatibility.
-// Production routes must use GetPodCapabilitiesScoped and CI rejects legacy registration.
-func GetPodCapabilities(db *gorm.DB) gin.HandlerFunc { return GetPodCapabilitiesScoped(db) }
 
 
 // GetPodCapabilitiesList returns paginated pod capabilities with filters.
