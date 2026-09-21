@@ -42,24 +42,22 @@ func TestScopedGRPCAgentRecordUnavailableFailsClosed(t *testing.T) {
 	}
 }
 
-func TestScopedGRPCControlRPCRejectsCrossClusterAgentReuse(t *testing.T) {
+func TestScopedGRPCControlRPCSeparatesDuplicateAgentIDs(t *testing.T) {
 	db := openScopedGRPCAuthorizationDB(t)
-	require.NoError(t, db.Create(&models.Agent{ClusterID: "cluster-a", AgentID: "shared-agent", NodeName: "node-a"}).Error)
-	principal := scopedGRPCTestPrincipal("cluster-b", "shared-agent")
+	svc := NewSBOMServiceServer(db, nil, nil)
 	interceptor := grpcAgentUnaryAuthorizationInterceptor(db)
-
-	called := false
-	_, err := interceptor(
-		scopedGRPCTestContext(principal, nil),
-		&pb.RegisterAgentRequest{AgentId: "shared-agent", NodeName: "node-b"},
-		&ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_RegisterAgent_FullMethodName},
-		func(context.Context, any) (any, error) {
-			called = true
-			return nil, nil
-		},
-	)
-	require.Equal(t, codes.PermissionDenied, status.Code(err))
-	require.False(t, called, "cross-cluster AgentID reuse reached legacy control handler")
+	for _, cluster := range []string{"cluster-a", "cluster-b"} {
+		ctx := scopedGRPCTestContext(scopedGRPCTestPrincipal(cluster, "shared-agent"), nil)
+		_, err := interceptor(ctx, &pb.RegisterAgentRequest{AgentId: "shared-agent", NodeName: cluster}, &ggrpc.UnaryServerInfo{FullMethod: pb.AgentService_RegisterAgent_FullMethodName}, func(ctx context.Context, req any) (any, error) {
+			return svc.RegisterAgent(ctx, req.(*pb.RegisterAgentRequest))
+		})
+		require.NoError(t, err)
+	}
+	var rows []models.Agent
+	require.NoError(t, db.Order("cluster_id").Find(&rows).Error)
+	require.Len(t, rows, 2)
+	require.Equal(t, "cluster-a", rows[0].NodeName)
+	require.Equal(t, "cluster-b", rows[1].NodeName)
 }
 
 func TestScopedGRPCCombinedFindingRequiresExactContainerAndDigest(t *testing.T) {

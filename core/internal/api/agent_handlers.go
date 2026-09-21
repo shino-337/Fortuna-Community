@@ -121,10 +121,6 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			clusterID, clusterName, source, hasDelta, hasFull)
 
 		if err := upsertAgentClusterIdentity(c.Request.Context(), db, clusterID, req.Agent); err != nil {
-			if errors.Is(err, errAgentClusterConflict) {
-				c.JSON(409, gin.H{"error": "agent ID is assigned to another cluster"})
-				return
-			}
 			c.JSON(500, gin.H{"error": "Unable to persist agent identity"})
 			return
 		}

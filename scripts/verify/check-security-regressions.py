@@ -85,6 +85,8 @@ REQUIRED = {
         "TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode",
     ],
     "./internal/grpc": [
+        "TestLegacyGRPCServerQuarantinesWrites",
+        "TestGRPCRevocationWhileReceiveBlocked",
         "TestCombinedFindingRetiredWithoutDatabaseEffects",
         "TestSBOMIngestPreservesTrustedClusterIdentity",
         "TestGRPCAgentUnaryInterceptorAuthenticatesVerifiedCertificate",
@@ -93,7 +95,7 @@ REQUIRED = {
         "TestNewServerRejectsScopedGRPCIdentityWithoutTLS",
         "TestScopedGRPCControlRPCAuthorizationAndClusterBinding",
         "TestScopedGRPCAgentRecordUnavailableFailsClosed",
-        "TestScopedGRPCControlRPCRejectsCrossClusterAgentReuse",
+        "TestScopedGRPCControlRPCSeparatesDuplicateAgentIDs",
         "TestScopedGRPCPodRPCRejectsForeignClaimsAndCanonicalizesCluster",
         "TestScopedGRPCCombinedFindingRequiresOneOwnedResource",
         "TestScopedGRPCCombinedFindingRequiresExactContainerAndDigest",
@@ -122,6 +124,7 @@ REQUIRED = {
 }
 
 AGENT_REQUIRED = {
+    "./internal/client": ["TestClientCertificateRotationFailsClosed"],
     "./internal/corehttp": [
         "TestAgentRoutePrefersScopedTokenFileOverLegacyToken",
         "TestConfiguredScopedTokenFileFailsClosedWithoutLegacyFallback",

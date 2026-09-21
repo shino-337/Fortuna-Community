@@ -6,11 +6,9 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log"
-	"os"
 	"regexp"
 	"sort"
 	"strings"
@@ -26,6 +24,7 @@ import (
 	"github.com/fortuna/core/internal/contextkeys"
 	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/repository"
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/cve/matcher"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/metrics"
@@ -731,110 +730,37 @@ func (s *SBOMServiceServer) BatchSendSBOMFindings(stream pb.AgentService_BatchSe
 	return stream.SendAndClose(resp)
 }
 
-// Ping handles health check from agent; updates last_seen_at so dashboard shows agents in time.
-// Upserts agent by agent_id so dashboard updates even if Register failed or ran after first Ping.
-// Legacy pings without agent_id do not update another agent by node name.
+// Ping without a trusted principal is a read-only transport probe.
 func (s *SBOMServiceServer) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error) {
-	agentID := ""
-	nodeName := ""
-	if req != nil {
-		agentID = req.AgentId
-		nodeName = req.NodeName
-	}
-	now := time.Now()
-	if s.db == nil {
+	principal, ok := grpcAgentPrincipalFromContext(ctx)
+	if !ok {
 		return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
 	}
-
-	// Quick DB connectivity check: if PostgreSQL is unreachable, skip DB writes
-	// to avoid noisy GORM error logs on every Ping cycle.
-	sqlDB, err := s.db.DB()
-	if err != nil || sqlDB.PingContext(ctx) != nil {
-		return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
+	if req == nil || principal.CheckClaims(principal.ClusterID, req.AgentId) != nil {
+		return nil, scopedGRPCPermissionDenied()
 	}
-
-	if agentID != "" {
-		// Use raw Exec so last_seen_at is always updated (avoids GORM scope/zero-value issues)
-		res := s.db.Exec(
-			"UPDATE agents SET last_seen_at = ?, node_name = ?, status = ?, updated_at = ?, deleted_at = NULL WHERE agent_id = ?",
-			now, nodeName, "ready", now, agentID,
-		)
-		if res.Error != nil {
-			log.Printf("[Agent] Ping: failed to update agent_id=%s: %v", agentID, res.Error)
-		} else if res.RowsAffected == 0 {
-			// No row: create from Ping so dashboard shows agent without waiting for Register
-			agent := models.Agent{
-				AgentID:    agentID,
-				NodeName:   nodeName,
-				Version:    "",
-				Status:     "ready",
-				LastSeenAt: &now,
-			}
-			if err := s.db.Create(&agent).Error; err != nil {
-				log.Printf("[Agent] Ping: failed to create agent from Ping agent_id=%s: %v", agentID, err)
-			} else {
-				log.Printf("[Agent] Ping: created agent from Ping agent_id=%s node=%s", agentID, nodeName)
-			}
-		}
+	if err := agentidentity.UpsertRecord(ctx, s.db, &models.Agent{ClusterID: principal.ClusterID, AgentID: principal.AgentID, NodeName: req.NodeName}); err != nil {
+		return nil, scopedGRPCUnavailable()
 	}
-	return &pb.PingResponse{
-		Status:  "healthy",
-		Version: "1.0.0", // TODO: Get from build info
-	}, nil
+	return &pb.PingResponse{Status: "healthy", Version: "1.0.0"}, nil
 }
 
-// RegisterAgent handles agent registration
 func (s *SBOMServiceServer) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
-	log.Printf("[Agent] Register: id=%s, node=%s, version=%s, capabilities=%v",
-		req.AgentId, req.NodeName, req.Version, req.Capabilities)
-
-	if s.db == nil {
-		log.Printf("[Agent] Warning: database not available during registration")
-		return nil, status.Errorf(codes.Unavailable, "database not available")
+	principal, ok := grpcAgentPrincipalFromContext(ctx)
+	if !ok {
+		return nil, status.Error(codes.Unauthenticated, "trusted agent principal required")
 	}
-
-	capJSON, _ := json.Marshal(req.Capabilities)
-	now := time.Now()
-
-	var existing models.Agent
-	err := s.db.Where("agent_id = ?", req.AgentId).First(&existing).Error
-	switch {
-	case err == nil:
-		if err := s.db.Model(&existing).Updates(map[string]interface{}{
-			"node_name":    req.NodeName,
-			"version":      req.Version,
-			"status":       "ready",
-			"capabilities": string(capJSON),
-			"last_seen_at": now,
-			"deleted_at":   nil,
-		}).Error; err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to update agent: %v", err)
-		}
-	case errors.Is(err, gorm.ErrRecordNotFound):
-		agent := models.Agent{
-			AgentID:      req.AgentId,
-			NodeName:     req.NodeName,
-			Version:      req.Version,
-			Status:       "ready",
-			Capabilities: string(capJSON),
-			LastSeenAt:   &now,
-		}
-		if err := s.db.Create(&agent).Error; err != nil {
-			return nil, status.Errorf(codes.Internal, "failed to create agent: %v", err)
-		}
-	default:
-		return nil, status.Errorf(codes.Internal, "failed to query agent: %v", err)
+	if req == nil || principal.CheckClaims(principal.ClusterID, req.AgentId) != nil {
+		return nil, scopedGRPCPermissionDenied()
 	}
-
-	clusterID := os.Getenv("DEFAULT_CLUSTER_ID")
-	if clusterID == "" {
-		clusterID = "unknown"
+	capabilities, err := json.Marshal(req.Capabilities)
+	if err != nil {
+		return nil, status.Error(codes.InvalidArgument, "invalid capabilities")
 	}
-	return &pb.RegisterAgentResponse{
-		Success:   true,
-		Message:   "Agent registered successfully",
-		ClusterId: clusterID, // From env only; no hardcoded default
-	}, nil
+	if err := agentidentity.UpsertRecord(ctx, s.db, &models.Agent{ClusterID: principal.ClusterID, AgentID: principal.AgentID, NodeName: req.NodeName, Version: req.Version, Capabilities: string(capabilities)}); err != nil {
+		return nil, scopedGRPCUnavailable()
+	}
+	return &pb.RegisterAgentResponse{Success: true, Message: "Agent registered successfully", ClusterId: principal.ClusterID}, nil
 }
 
 // computeNormalizedSBOMFingerprint hashes a canonical representation of component identity:

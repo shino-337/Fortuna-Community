@@ -106,7 +106,8 @@ func NewServer(cfg *config.Config, db *gorm.DB, natsClient *messaging.NATSClient
 		)
 		log.Printf("[gRPC] ✅ scoped AgentService identity and RPC ownership enforcement enabled")
 	} else {
-		log.Printf("[gRPC] scoped AgentService identity is not enabled; preserving current mTLS/legacy migration behavior")
+		opts = append(opts, grpc.ChainUnaryInterceptor(quarantinedLegacyUnaryInterceptor), grpc.ChainStreamInterceptor(quarantinedLegacyStreamInterceptor))
+		log.Printf("[gRPC] AgentService writes quarantined: configure scoped mTLS registry to enable ingest")
 	}
 
 	grpcServer := grpc.NewServer(opts...)

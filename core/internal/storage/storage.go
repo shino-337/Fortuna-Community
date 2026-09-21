@@ -146,6 +146,9 @@ func Migrate(db *gorm.DB) error {
 	if err := migrations.EnsureSBOMContentIdentity(db); err != nil {
 		return fmt.Errorf("SBOM content identity: %w", err)
 	}
+	if err := migrations.EnsureAgentCompositeIdentity(db); err != nil {
+		return fmt.Errorf("Agent composite identity: %w", err)
+	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
 }

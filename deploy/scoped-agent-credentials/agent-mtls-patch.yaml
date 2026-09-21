@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fortuna-agent
+  namespace: fortuna
+spec:
+  template:
+    spec:
+      volumes:
+        - name: agent-mtls-credential
+          hostPath:
+            # Contains versioned releases and an atomically switched current symlink.
+            path: /etc/fortuna/agent-mtls
+            type: Directory
+      containers:
+        - name: agent
+          env:
+            - name: TLS_ENABLED
+              value: "true"
+            - name: TLS_CERT_PATH
+              value: /etc/fortuna/agent-mtls/current/tls.crt
+            - name: TLS_KEY_PATH
+              value: /etc/fortuna/agent-mtls/current/tls.key
+            - name: TLS_CA_CERT_PATH
+              value: /etc/fortuna/agent-mtls/current/ca.crt
+          volumeMounts:
+            - name: agent-mtls-credential
+              mountPath: /etc/fortuna/agent-mtls
+              readOnly: true
