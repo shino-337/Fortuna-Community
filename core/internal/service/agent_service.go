@@ -26,6 +26,7 @@ import (
 	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/lifecycle"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 const (
@@ -1152,7 +1153,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				s.logger.Printf("🔄 Updated Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
 				// Ensure pod instance is active
 				ctx := context.Background()
-				if err := s.podInstanceManager.EnsureActiveInstance(ctx, uid, namespace, name); err != nil {
+				if err := s.podInstanceManager.EnsureActiveInstanceForIdentity(ctx, resourceidentity.Identity{ClusterID: clusterID, ResourceUID: uid}, namespace, name); err != nil {
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
 				// PCE only when spec_hash changed or agent didn't send hash (existing.SpecHash == ""); run async to not block sync
@@ -1221,7 +1222,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				s.logger.Printf("🔄 Restored Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
 				// Ensure pod instance is active
 				ctx := context.Background()
-				if err := s.podInstanceManager.EnsureActiveInstance(ctx, uid, namespace, name); err != nil {
+				if err := s.podInstanceManager.EnsureActiveInstanceForIdentity(ctx, resourceidentity.Identity{ClusterID: clusterID, ResourceUID: uid}, namespace, name); err != nil {
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
 				// Restore: always run PCE (risk may be stale); pass current specHash for race protection
@@ -1235,7 +1236,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 				s.logger.Printf("✨ Created Pod %s/%s (SA: %s)", namespace, name, serviceAccount)
 				// Ensure pod instance is active
 				ctx := context.Background()
-				if err := s.podInstanceManager.EnsureActiveInstance(ctx, uid, namespace, name); err != nil {
+				if err := s.podInstanceManager.EnsureActiveInstanceForIdentity(ctx, resourceidentity.Identity{ClusterID: clusterID, ResourceUID: uid}, namespace, name); err != nil {
 					s.logger.Printf("⚠️  Failed to ensure pod instance: %v", err)
 				}
 				go s.evaluatePodCapabilities(clusterID, uid, pod.SpecHash)
@@ -1271,9 +1272,9 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 		for _, pod := range toDelete {
 			s.db.Delete(&pod) // Soft delete
 			// Clean Pod Detail data so DB does not keep orphaned process/metrics/network rows
-			s.db.Where("pod_uid = ?", pod.UID).Delete(&models.PodProcess{})
-			s.db.Where("pod_uid = ?", pod.UID).Delete(&models.PodRuntimeMetrics{})
-			s.db.Where("pod_uid = ?", pod.UID).Delete(&models.PodNetworkConnection{})
+			s.db.Where("cluster_id = ? AND pod_uid = ?", pod.ClusterID, pod.UID).Delete(&models.PodProcess{})
+			s.db.Where("cluster_id = ? AND pod_uid = ?", pod.ClusterID, pod.UID).Delete(&models.PodRuntimeMetrics{})
+			s.db.Where("cluster_id = ? AND pod_uid = ?", pod.ClusterID, pod.UID).Delete(&models.PodNetworkConnection{})
 			s.logger.Printf("🗑️  Soft-deleted Pod %s/%s (UID: %s) - not in full sync", pod.Namespace, pod.Name, pod.UID)
 		}
 
@@ -1754,9 +1755,9 @@ func (s *AgentService) cleanupStalePods(clusterID string) {
 			continue
 		}
 		// Align Pod Detail / network rows with inventory (same as full sync delete path)
-		s.db.Where("pod_uid = ?", p.UID).Delete(&models.PodProcess{})
-		s.db.Where("pod_uid = ?", p.UID).Delete(&models.PodRuntimeMetrics{})
-		s.db.Where("pod_uid = ?", p.UID).Delete(&models.PodNetworkConnection{})
+		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodProcess{})
+		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodRuntimeMetrics{})
+		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodNetworkConnection{})
 		s.logger.Printf("🧹 Soft-deleted stale pod %s/%s (%s), updated_at=%s", p.Namespace, p.Name, p.UID, p.UpdatedAt.Format(time.RFC3339))
 	}
 }
