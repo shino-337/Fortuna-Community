@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -20,8 +21,13 @@ func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
 		var steps []models.PodAttackStep
-		if err := db.Where("pod_uid = ?", podUID).
+		if err := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).
 			Order("created_at DESC").
 			Find(&steps).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attack steps"})
