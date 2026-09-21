@@ -950,7 +950,7 @@ func UpdateInsightStatus(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		scheduleUnifiedScoreRecalculation(db, before.ResourceUID)
+		scheduleUnifiedScoreRecalculation(db, before)
 		appendInsightGovernanceEvent(db, c, securityaudit.ActionFindingsPatch, id, before.Status, payload.Status, map[string]any{"via": "PATCH"})
 
 		c.JSON(http.StatusOK, gin.H{"status": payload.Status})
