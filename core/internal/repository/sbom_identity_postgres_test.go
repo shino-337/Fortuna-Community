@@ -47,7 +47,7 @@ func TestSBOMConcurrentOwnershipPostgres(t *testing.T) {
 	require.NoError(t, err)
 	defer sqlDB.Close()
 	sqlDB.SetMaxOpenConns(8)
-	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.SBOMMatchRun{}, &models.PodImageScan{}, &models.MalwareMatch{}))
+	require.NoError(t, db.AutoMigrate(&models.SBOM{}, &models.SBOMComponent{}, &models.SBOMMatchRun{}, &models.PodImageScan{}, &models.MalwareMatch{}, &models.CVEMatch{}))
 	// Reproduce the schema before content separation, not only fresh AutoMigrate.
 	require.NoError(t, db.Exec("ALTER TABLE sboms DROP COLUMN content_id CASCADE").Error)
 	require.NoError(t, db.Exec("DROP TABLE sbom_image_contents").Error)
