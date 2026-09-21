@@ -74,15 +74,15 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 		if byType == "all" {
 			baseQuery = db.Model(&models.Insight{}).
 				Where("detected_at >= ? AND deleted_at IS NULL", start).
-				Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+				Where("(resource_type != 'Pod' OR EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = insights.cluster_id AND p.uid = insights.resource_uid AND p.deleted_at IS NULL))")
 		} else {
 			// Default "vulnerability" mode: CVE findings plus supply-chain malware (same operational slice as Risk Findings / SBOM threats).
 			baseQuery = db.Model(&models.Insight{}).
 				Where("insight_type IN ? AND detected_at >= ? AND deleted_at IS NULL", []string{"vulnerability", "supply_chain_malware"}, start).
-				Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+				Where("(resource_type != 'Pod' OR EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = insights.cluster_id AND p.uid = insights.resource_uid AND p.deleted_at IS NULL))")
 		}
 		if clusterID != "" {
-			baseQuery = baseQuery.Where("resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)", clusterID)
+			baseQuery = baseQuery.Where("insights.cluster_id = ?", clusterID)
 		}
 		baseQuery = scopedAggregateQuery(db, baseQuery, filter, "resource_uid")
 		if err := baseQuery.
@@ -274,17 +274,19 @@ func applyInsightsListFinalLevelFilter(query *gorm.DB, finalLevel string) *gorm.
 	default:
 		return query
 	}
-	return query.Where(`insights.resource_uid IN (
-		SELECT s.resource_uid FROM `+preferredRiskScoreSubquerySQL+` AS s
-		WHERE s.total_score >= ? AND s.total_score < ?
+	return query.Where(`EXISTS (
+		SELECT 1 FROM `+preferredRiskScoreSubquerySQL+` AS s
+		WHERE s.cluster_id = insights.cluster_id
+		  AND s.resource_uid = insights.resource_uid
+		  AND s.total_score >= ? AND s.total_score < ?
 	)`, lo, hi)
 }
 
 // preferredRiskScoreSubquerySQL returns one authoritative v3 total_score per resource_uid.
-const preferredRiskScoreSubquerySQL = `(SELECT z.resource_uid, z.total_score FROM (
-	SELECT rs.resource_uid AS resource_uid, rs.total_score AS total_score,
+const preferredRiskScoreSubquerySQL = `(SELECT z.cluster_id, z.resource_uid, z.total_score FROM (
+	SELECT rs.cluster_id AS cluster_id, rs.resource_uid AS resource_uid, rs.total_score AS total_score,
 		ROW_NUMBER() OVER (
-			PARTITION BY rs.resource_uid
+			PARTITION BY rs.cluster_id, rs.resource_uid
 			ORDER BY CASE LOWER(TRIM(COALESCE(rs.scorer_version, ''))) WHEN 'v3' THEN 1 ELSE 0 END DESC,
 				rs.calculated_at DESC
 		) AS rn
@@ -301,9 +303,11 @@ func applyInsightsListScoreBinFilter(query *gorm.DB, hasScoreBin bool, scoreBin 
 	}
 	hi := float64(scoreBin + 10)
 	lo := float64(scoreBin)
-	return query.Where(`insights.resource_uid IN (
-		SELECT s.resource_uid FROM `+preferredRiskScoreSubquerySQL+` AS s
-		WHERE s.total_score >= ? AND s.total_score < ?
+	return query.Where(`EXISTS (
+		SELECT 1 FROM `+preferredRiskScoreSubquerySQL+` AS s
+		WHERE s.cluster_id = insights.cluster_id
+		  AND s.resource_uid = insights.resource_uid
+		  AND s.total_score >= ? AND s.total_score < ?
 	)`, lo, hi)
 }
 
@@ -332,7 +336,7 @@ func getInsightsGroupListData(db *gorm.DB, filter RiskFilter, page, pageSize int
 	base = insightsListApplyFilters(base, db, filter, statusFilter)
 	base = applyInsightsListScoreBinFilter(base, hasScoreBin, filter.ScoreBin)
 
-	joinPreferred := `LEFT JOIN ` + preferredRiskScoreSubquerySQL + ` AS pref ON pref.resource_uid = insights.resource_uid`
+	joinPreferred := `LEFT JOIN ` + preferredRiskScoreSubquerySQL + ` AS pref ON pref.cluster_id = insights.cluster_id AND pref.resource_uid = insights.resource_uid`
 	groupKeyExpr := `COALESCE(NULLIF(TRIM(LOWER(insights.cve_id)), ''), LOWER(TRIM(insights.title)))`
 	sevRankExpr := `MAX(CASE LOWER(insights.severity) WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END)`
 
@@ -659,7 +663,7 @@ func GetRiskHistogram(db *gorm.DB) gin.HandlerFunc {
   COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'medium' THEN 1 ELSE 0 END), 0) AS medium_count,
   COALESCE(SUM(CASE WHEN LOWER(i.severity) = 'low' THEN 1 ELSE 0 END), 0) AS low_count
 FROM insights i
-INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS rs ON rs.resource_uid = i.resource_uid
+INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS rs ON rs.cluster_id = i.cluster_id AND rs.resource_uid = i.resource_uid
 WHERE ` + joinWhere + `
 GROUP BY CASE WHEN rs.total_score >= 100 THEN 90 ELSE FLOOR(rs.total_score / 10) * 10 END
 ORDER BY bin`
@@ -674,7 +678,7 @@ ORDER BY bin`
   COALESCE(AVG(rs.total_score), 0) AS average_score,
   COALESCE(SUM(CASE WHEN rs.total_score >= 70 THEN 1 ELSE 0 END), 0) AS p0_count
 FROM insights i
-INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS rs ON rs.resource_uid = i.resource_uid
+INNER JOIN ` + preferredRiskScoreSubquerySQL + ` AS rs ON rs.cluster_id = i.cluster_id AND rs.resource_uid = i.resource_uid
 WHERE ` + joinWhere
 		var totalFindings int
 		var averageScore float64
@@ -771,7 +775,7 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 				"Pod", clusterID,
 			)
 		} else {
-			query = query.Where("(resource_type != 'Pod' OR resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+			query = query.Where("(resource_type != 'Pod' OR EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = insights.cluster_id AND p.uid = insights.resource_uid AND p.deleted_at IS NULL))")
 		}
 		if filter.Severity != "" {
 			query = query.Where("LOWER(severity) = ?", filter.Severity)
