@@ -34,7 +34,7 @@ func TestLoadFactSummaries(t *testing.T) {
 	if err := db.Create(&row).Error; err != nil {
 		t.Fatal(err)
 	}
-	out, err := LoadFactSummaries(context.Background(), db, pod, []string{"f-enrich-1", "missing"})
+	out, err := LoadFactSummaries(context.Background(), db, "c1", pod, []string{"f-enrich-1", "missing"})
 	if err != nil {
 		t.Fatal(err)
 	}
