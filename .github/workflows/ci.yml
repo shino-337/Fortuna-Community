@@ -148,6 +148,8 @@ jobs:
         run: |
           python scripts/verify/check-cluster-qualified-pod-routes.py
           python scripts/verify/test-cluster-qualified-pod-routes.py
+          python scripts/verify/check-retired-routes.py
+          python scripts/verify/test-retired-routes.py
       - name: Validate shell syntax
         shell: bash
         run: |

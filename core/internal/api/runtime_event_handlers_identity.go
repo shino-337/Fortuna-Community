@@ -23,22 +23,6 @@ func trustedRuntimeCluster(c *gin.Context) (string, bool) {
 	return clusterID, true
 }
 
-func bindRuntimeV1Payloads(c *gin.Context) ([]runtimeEventPayload, error) {
-	body, err := c.GetRawData()
-	if err != nil {
-		return nil, err
-	}
-	var batch []runtimeEventPayload
-	if err := json.Unmarshal(body, &batch); err == nil {
-		return batch, nil
-	}
-	var single runtimeEventPayload
-	if err := json.Unmarshal(body, &single); err != nil {
-		return nil, err
-	}
-	return []runtimeEventPayload{single}, nil
-}
-
 func bindRuntimeV2Payloads(c *gin.Context) ([]runtimeEventV2Payload, error) {
 	body, err := c.GetRawData()
 	if err != nil {
@@ -53,77 +37,6 @@ func bindRuntimeV2Payloads(c *gin.Context) ([]runtimeEventV2Payload, error) {
 		return nil, err
 	}
 	return []runtimeEventV2Payload{single}, nil
-}
-
-// PostRuntimeEventsScoped is the production v1 ingest path after ownership middleware.
-func PostRuntimeEventsScoped(db *gorm.DB) gin.HandlerFunc {
-	rescoreMgr := riskengine.NewRuntimeAttackRescoreManager(db)
-	return func(c *gin.Context) {
-		clusterID, ok := trustedRuntimeCluster(c)
-		if !ok {
-			return
-		}
-		payloads, err := bindRuntimeV1Payloads(c)
-		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-			return
-		}
-		processed := 0
-		for _, p := range payloads {
-			podUID := strings.TrimSpace(p.Pod.UID)
-			if podUID == "" {
-				podUID = strings.TrimSpace(p.PodUID)
-			}
-			if podUID == "" {
-				podUID = strings.TrimSpace(p.PodUid)
-			}
-			if podUID == "" || strings.TrimSpace(p.Syscall) == "" || p.Confidence <= 0 {
-				continue
-			}
-			id, err := resourceidentity.New(clusterID, podUID)
-			if err != nil {
-				continue
-			}
-			namespace := strings.TrimSpace(p.Pod.Namespace)
-			if namespace == "" {
-				namespace = strings.TrimSpace(p.Namespace)
-			}
-			target := strings.TrimSpace(p.Target)
-			if target == "" {
-				target = strings.TrimSpace(p.TargetPath)
-			}
-			capabilityName := strings.TrimSpace(p.Capability)
-			if capabilityName == "" {
-				capabilityName = deriveCapabilityFromSignal(p.Signal)
-			}
-			var observedAt *time.Time
-			if p.Timestamp > 0 {
-				t := time.Unix(p.Timestamp, 0).UTC()
-				observedAt = &t
-			}
-			result, err := rep.ProcessRuntimeEventForIdentity(c.Request.Context(), db, id, rep.RuntimeEventInput{
-				PodUID: podUID, PodName: strings.TrimSpace(p.Pod.Name), Namespace: namespace,
-				NodeName: strings.TrimSpace(p.Pod.Node), Syscall: strings.TrimSpace(p.Syscall),
-				TargetPath: target, Capability: capabilityName, Timestamp: observedAt,
-				Runtime: strings.TrimSpace(p.Runtime), EventType: strings.TrimSpace(p.EventType),
-				Signal: strings.TrimSpace(p.Signal), MitreTechnique: strings.TrimSpace(p.MitreTechnique),
-				Severity: strings.TrimSpace(p.Severity), Confidence: p.Confidence,
-			})
-			if err != nil {
-				log.Printf("[RuntimeEvent] scoped processing failed cluster=%s pod_uid=%s: %v", clusterID, podUID, err)
-				continue
-			}
-			rescoreMgr.Notify(riskengine.RuntimeEventMeta{
-				ClusterID: clusterID, PodUID: podUID, Runtime: strings.TrimSpace(p.Runtime),
-				SourceKind: strings.TrimSpace(p.Runtime), SourceRule: strings.TrimSpace(p.Signal),
-				Syscall: strings.TrimSpace(p.Syscall), Severity: strings.TrimSpace(p.Severity), ObservedAt: observedAt,
-			})
-			if result != nil {
-				processed++
-			}
-		}
-		c.JSON(http.StatusOK, runtimeEventResponse{Processed: processed})
-	}
 }
 
 // PostRuntimeEventsV2Scoped is the production v2 ingest path after ownership middleware.

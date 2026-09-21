@@ -96,7 +96,7 @@ func TestRuntimeRoutesUseScopedTokenAfterC2Cutover(t *testing.T) {
 	t.Setenv(agentTokenFileEnv, writeTokenFile(t, scoped))
 	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
 
-	for _, path := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+	for _, path := range []string{"/api/v2/runtime/events"} {
 		req := newRequest(t, path)
 		ApplyOptionalAuthorization(req)
 		if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != scoped {
@@ -114,7 +114,7 @@ func TestRuntimeRoutesFailClosedWhenScopedSourceUnavailable(t *testing.T) {
 	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
 	t.Setenv("FORTUNA_CORE_HTTP_AUTHORIZATION", "Bearer "+strings.Repeat("p", 32))
 
-	for _, path := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+	for _, path := range []string{"/api/v2/runtime/events"} {
 		req := newRequest(t, path)
 		req.Header.Set("X-Fortuna-Ingest-Token", strings.Repeat("stale", 8))
 		ApplyOptionalAuthorization(req)
@@ -129,7 +129,7 @@ func TestRuntimeRoutesUseLegacyTokenWhenScopedSourceNotConfigured(t *testing.T) 
 	legacy := strings.Repeat("l", 32)
 	t.Setenv("FORTUNA_INGEST_TOKEN", legacy)
 
-	for _, path := range []string{"/api/v1/runtime/events", "/api/v2/runtime/events"} {
+	for _, path := range []string{"/api/v2/runtime/events"} {
 		req := newRequest(t, path)
 		ApplyOptionalAuthorization(req)
 		if got := req.Header.Get("X-Fortuna-Ingest-Token"); got != legacy {
@@ -148,7 +148,7 @@ func TestScopedTokenFileIsRereadForRotation(t *testing.T) {
 	t.Setenv(agentTokenFileEnv, path)
 	t.Setenv("FORTUNA_INGEST_TOKEN", strings.Repeat("l", 32))
 
-	first := newRequest(t, "/api/v1/runtime/events")
+	first := newRequest(t, "/api/v2/runtime/events")
 	ApplyOptionalAuthorization(first)
 	if got := first.Header.Get("X-Fortuna-Ingest-Token"); got != oldToken {
 		t.Fatalf("initial token=%q", got)
@@ -172,7 +172,7 @@ func TestReverseProxyAuthorizationRemainsIndependent(t *testing.T) {
 	t.Setenv("FORTUNA_CORE_HTTP_AUTHORIZATION", "Bearer proxy-token")
 	t.Setenv("FORTUNA_INGEST_TOKEN", strings.Repeat("l", 32))
 
-	req := newRequest(t, "/api/v1/runtime/events")
+	req := newRequest(t, "/api/v2/runtime/events")
 	ApplyOptionalAuthorization(req)
 	if got := req.Header.Get("Authorization"); got != "Bearer proxy-token" {
 		t.Fatalf("proxy authorization=%q", got)

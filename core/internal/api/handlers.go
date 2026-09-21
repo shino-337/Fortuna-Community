@@ -661,27 +661,6 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// GetServiceAccount returns a specific service account
-
-func GetServiceAccount(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-		c.JSON(http.StatusOK, sa)
-	}
-}
-
 // GetServiceAccountByUID returns a service account by UID (inventory domain).
 
 func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
@@ -962,78 +941,6 @@ func GetReplicaSet(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, response)
-	}
-}
-
-// UpdateServiceAccount updates a service account
-func UpdateServiceAccount(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-
-		updateData, ok := serviceAccountMetadataUpdate(c)
-		if !ok {
-			return
-		}
-
-		if err := db.Model(&sa).Updates(updateData).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-
-		// Log audit
-		userID := auditUserID(c)
-		username := c.GetString("username")
-		auditLog := models.AuditLog{
-			ClusterID:  sa.ClusterID,
-			UserID:     userID,
-			Action:     "update",
-			Resource:   "serviceaccount",
-			ResourceID: strconv.Itoa(int(sa.ID)),
-			User:       username,
-			IP:         c.ClientIP(),
-		}
-		db.Create(&auditLog)
-
-		c.JSON(http.StatusOK, sa)
-	}
-}
-
-// DeleteServiceAccount deletes a service account
-
-func DeleteServiceAccount(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").First(&sa, id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-
-		code, message := deleteServiceAccountResource(db, c, &sa)
-		if code != http.StatusOK {
-			c.JSON(code, gin.H{"error": message})
-			return
-		}
-		c.JSON(code, gin.H{"message": message})
 	}
 }
 
@@ -1408,7 +1315,7 @@ func loadActiveInsightCountsByPodUID(db *gorm.DB, pods []models.Pod) map[string]
 	return riskByUID
 }
 
-// podDetailEnvelope is the JSON shape for GET pod by id / by uid (inventory + legacy routes).
+// podDetailEnvelope is the JSON shape for cluster-qualified inventory Pod detail.
 type podDetailEnvelope struct {
 	models.Pod
 	RiskCount     int64                     `json:"riskCount"`

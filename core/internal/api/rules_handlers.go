@@ -43,12 +43,7 @@ type ruleDecoration struct {
 
 var safeRuleIDPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$`)
 
-func policyRuleUID(c *gin.Context) string {
-	if uid := strings.TrimSpace(c.Param("uid")); uid != "" {
-		return uid
-	}
-	return strings.TrimSpace(c.Param("id"))
-}
+func policyRuleUID(c *gin.Context) string { return strings.TrimSpace(c.Param("uid")) }
 
 func resolveRuleFile(rulesDir, ruleID string) (string, error) {
 	ruleID = strings.TrimSpace(ruleID)

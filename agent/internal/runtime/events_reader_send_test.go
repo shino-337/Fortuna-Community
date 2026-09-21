@@ -36,9 +36,6 @@ func TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics(t *testing.T) {
 	if atomic.LoadUint64(&r.v2Success) != 1 {
 		t.Fatalf("expected v2Success=1, got %d", atomic.LoadUint64(&r.v2Success))
 	}
-	if atomic.LoadUint64(&r.v1Fallback) != 0 {
-		t.Fatalf("expected v1Fallback=0, got %d", atomic.LoadUint64(&r.v1Fallback))
-	}
 	if len(got) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(got))
 	}
@@ -47,40 +44,6 @@ func TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics(t *testing.T) {
 	}
 	if got[0].ResolutionState != "partial" {
 		t.Fatalf("resolution_state mismatch, got %q", got[0].ResolutionState)
-	}
-}
-
-func TestReaderSend_V1Fallback_MetricsUpdated(t *testing.T) {
-	var v1Calls int32
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/api/v2/runtime/events" {
-			w.WriteHeader(http.StatusNotFound)
-			return
-		}
-		if r.URL.Path == "/api/v1/runtime/events" {
-			atomic.AddInt32(&v1Calls, 1)
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer ts.Close()
-
-	r := NewReader("/tmp/unused", time.Second, ts.URL)
-	err := r.send([]Event{{
-		Pod:       map[string]interface{}{"uid": "pod-2"},
-		Syscall:   "connect",
-		Target:    "1.1.1.1:443",
-		Timestamp: time.Now().Unix(),
-	}})
-	if err != nil {
-		t.Fatalf("send error: %v", err)
-	}
-	if atomic.LoadInt32(&v1Calls) != 1 {
-		t.Fatalf("expected exactly 1 v1 call, got %d", atomic.LoadInt32(&v1Calls))
-	}
-	if atomic.LoadUint64(&r.v1Fallback) != 1 {
-		t.Fatalf("expected v1Fallback=1, got %d", atomic.LoadUint64(&r.v1Fallback))
 	}
 }
 
@@ -96,5 +59,37 @@ func TestNormalizeResolutionState(t *testing.T) {
 		if got := normalizeResolutionState(in); got != want {
 			t.Fatalf("normalizeResolutionState(%q)=%q want %q", in, got, want)
 		}
+	}
+}
+
+// A 404, server failure, or authorization failure must never downgrade protocol.
+// Returning the error lets the existing retry queues retain the batch.
+func TestRuntimeSendersNeverDowngrade(t *testing.T) {
+	for _, status := range []int{404, 401, 403, 500} {
+		t.Run(http.StatusText(status), func(t *testing.T) {
+			for _, kind := range []string{"file", "falco"} {
+				t.Run(kind, func(t *testing.T) {
+					var calls int32
+					srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+						atomic.AddInt32(&calls, 1)
+						if req.URL.Path != "/api/v2/runtime/events" {
+							t.Errorf("protocol downgrade: %s", req.URL.Path)
+						}
+						w.WriteHeader(status)
+					}))
+					defer srv.Close()
+					events := []Event{{Pod: map[string]interface{}{"uid": "p"}, Syscall: "execve", Confidence: 0.9}}
+					var err error
+					if kind == "file" {
+						err = NewReader("/unused", time.Second, srv.URL).send(events)
+					} else {
+						err = NewFalcoReader("/unused", time.Second, srv.URL, "node", nil).send(events)
+					}
+					if err == nil || atomic.LoadInt32(&calls) != 1 {
+						t.Fatalf("want one failed v2 request, calls=%d err=%v", calls, err)
+					}
+				})
+			}
+		})
 	}
 }

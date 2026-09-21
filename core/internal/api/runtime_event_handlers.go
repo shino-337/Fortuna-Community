@@ -3,37 +3,7 @@ package api
 import (
 	"encoding/json"
 	"strings"
-
-
 )
-
-type runtimeEventPayload struct {
-	EventType      string `json:"event_type"`
-	MitreTechnique string `json:"mitre_technique"`
-	Signal         string `json:"signal"`
-	Severity       string `json:"severity"`
-
-	Pod struct {
-		Name      string `json:"name"`
-		Namespace string `json:"namespace"`
-		UID       string `json:"uid"`
-		Node      string `json:"node"`
-	} `json:"pod"`
-
-	PodUID string `json:"pod_uid"`
-	PodUid string `json:"podUid"`
-
-	Namespace  string `json:"namespace"`
-	Syscall    string `json:"syscall"`
-	Target     string `json:"target"`
-	TargetPath string `json:"target_path"`
-	Capability string `json:"capability"`
-	Timestamp  int64  `json:"timestamp"`
-	Runtime    string `json:"runtime"`
-
-	// Confidence in (0,1] — required for ingest (sensors must supply explicit confidence).
-	Confidence float64 `json:"confidence"`
-}
 
 type runtimeEventResponse struct {
 	Processed int `json:"processed"`

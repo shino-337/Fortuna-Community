@@ -10,31 +10,8 @@ import (
 	"time"
 )
 
-func TestLegacyGraphFailsBeforeGlobalQuery(t *testing.T) {
+func TestGraphAndRuntimeClusterAliases(t *testing.T) {
 	db, _ := serviceAccountScopeFixture(t)
-	handlers := []gin.HandlerFunc{GetBlastRadius(db), GetShortestPath(db), GetAccessibleResources(db), ExecuteGraphQuery(db), GetServiceAccountPermissionsGraph(db), GetRiskyPods(db)}
-	for i, handler := range handlers {
-		for _, tc := range []struct {
-			scope, query string
-			missing      bool
-			status       int
-		}{
-			{`{"cluster_ids":["a"]}`, "", false, 403}, {`{}`, "?cluster_id=a", false, 400}, {`{}`, "", true, 401},
-		} {
-			c, w := testGraphContext(tc.query)
-			if !tc.missing {
-				role := models.RoleOperator
-				if tc.scope == `{}` {
-					role = models.RoleAdmin
-				}
-				c.Set("user", &models.User{Role: role, ScopeJSON: tc.scope})
-			}
-			handler(c)
-			if w.Code != tc.status {
-				t.Errorf("handler %d %+v: %d %s", i, tc, w.Code, w.Body)
-			}
-		}
-	}
 	c, w := testGraphContext("?cluster_id=a&clusterId=b")
 	c.Set("user", &models.User{Role: models.RoleAdmin})
 	if _, err := graphClusterIDOrDefault(db, c); err == nil || w.Code != 400 {

@@ -6,8 +6,8 @@ import (
 	"time"
 )
 
-// Core unmarshals POST /api/v1/runtime/events into runtimeEventPayload (see fortuna/core/internal/api/runtime_event_handlers.go).
-// Agent Reader and eBPF sensor must emit JSON where pod.uid, syscall, and target/target_path are visible to that struct.
+// Core unmarshals POST /api/v2/runtime/events into runtimeEventV2Payload (see fortuna/core/internal/api/runtime_event_handlers.go).
+// Agent Reader and eBPF sensor must emit JSON where pod.uid, syscall, and target are visible to that struct.
 func TestEvent_JSON_CoreIngestContract(t *testing.T) {
 	ev := Event{
 		EventType: "runtime.exec",

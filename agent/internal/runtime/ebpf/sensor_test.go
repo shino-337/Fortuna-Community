@@ -36,7 +36,7 @@ func TestNormalizeEBPFMode(t *testing.T) {
 func TestSendBatchToCoreRuntimeEvents(t *testing.T) {
 	var got []runtime.Event
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/api/v1/runtime/events" {
+		if r.URL.Path != "/api/v2/runtime/events" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		if r.Method != http.MethodPost {
@@ -56,6 +56,9 @@ func TestSendBatchToCoreRuntimeEvents(t *testing.T) {
 	}
 	if len(got) != 1 || got[0].Signal != "EBPF_EXEC_EVENT" {
 		t.Fatalf("unexpected payload: %+v", got)
+	}
+	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
+		t.Fatalf("eBPF did not emit canonical v2 metadata: %+v", got[0])
 	}
 }
 

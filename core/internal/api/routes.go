@@ -71,13 +71,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 	// Runtime ownership middleware resolves and validates the complete batch, then
 	// the scoped handler carries that canonical cluster identity through REP.
-	runtimeIngest := router.Group("/api/v1/runtime")
-	runtimeIngest.Use(agentIngestAuth)
-	{
-		runtimeIngest.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsScoped(db))
-	}
-	log.Printf("[API] Runtime ingest routes registered with scoped ownership guard: POST /api/v1/runtime/events")
-
 	runtimeIngestV2 := router.Group("/api/v2/runtime")
 	runtimeIngestV2.Use(agentIngestAuth)
 	{
@@ -158,12 +151,9 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 		v1.GET("/resources", p(authorization.PermissionInventoryRead), GetResources(db))
 		v1.GET("/resources/:kind/:uid", p(authorization.PermissionInventoryRead), GetResourceDetail(db))
-		v1.POST("/bulk/serviceaccounts/disable", p(authorization.PermissionInventoryBulk), BulkDisableServiceAccounts(db))
-		v1.DELETE("/bulk/serviceaccounts/delete", p(authorization.PermissionInventoryBulk), BulkDeleteServiceAccounts(db))
 		v1.GET("/notifications", p(authorization.PermissionObservabilityMetricsRead), GetNotifications(db))
 		v1.PATCH("/notifications/:id/read", p(authorization.PermissionObservabilityMetricsRead), MarkNotificationRead(db))
 		v1.POST("/notifications/read-all", p(authorization.PermissionObservabilityMetricsRead), MarkAllNotificationsRead(db))
-		v1.GET("/monitoring/agents", p(authorization.PermissionObservabilityAgentsRead), GetAgentStatus(db))
 		v1.GET("/monitoring/pipeline-health", p(authorization.PermissionObservabilityMetricsRead), GetPipelineHealth(db))
 
 		if publishSBOMCreated != nil {

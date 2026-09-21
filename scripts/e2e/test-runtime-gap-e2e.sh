@@ -8,6 +8,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 NAMESPACE="${NAMESPACE:-fortuna}"
+# Credential must own the synchronized test pod; dashboard JWT is not an ingest credential.
+: "${FORTUNA_E2E_INGEST_TOKEN:?Set the ingest credential for the test pod cluster}"
 
 # shellcheck source=./common.sh
 source "${SCRIPT_DIR}/common.sh"
@@ -93,7 +95,7 @@ if [ -z "$TEST_UID" ]; then
 fi
 if [ -z "$TEST_UID" ]; then
   fail_case "Cannot resolve a running pod UID for runtime event injection"
-  TEST_UID="gap-e2e-$(date +%s)"
+  exit 1
 fi
 TS="$(date +%s)"
 PROCESSED=0
@@ -111,13 +113,14 @@ for i in 1 2 3; do
     "syscall": "execve",
     "target": "$TARGET",
     "capability": "EBPF_EXEC_TRACE",
-    "timestamp": $((TS + i))
+    "confidence": 0.9,
+    "observed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   }
 ]
 PAYLOADEOF
 )"
-  # POST /api/v1/runtime/events is unauthenticated; pipe JSON on stdin so kubectl+curl never mangles quotes.
-  POST_RESP="$(printf '%s' "$PAYLOAD" | kubectl -n "$NAMESPACE" exec -i "$CORE_POD" --     curl -s -S -X POST -H "Content-Type: application/json" --data-binary @-     "http://localhost:8080/api/v1/runtime/events" 2>/dev/null || echo "{}")"
+  # Use the cluster-owned ingest credential and canonical v2 payload.
+  POST_RESP="$(printf '%s' "$PAYLOAD" | kubectl -n "$NAMESPACE" exec -i "$CORE_POD" --     curl --fail-with-body -s -S -X POST -H "X-Fortuna-Ingest-Token: $FORTUNA_E2E_INGEST_TOKEN" -H "Content-Type: application/json" --data-binary @-     "http://localhost:8080/api/v2/runtime/events" 2>/dev/null || echo "{}")"
   PROCESSED="$(echo "$POST_RESP" | python3 -c 'import sys,json
 try:
  d=json.load(sys.stdin); print(d.get("processed", 0))

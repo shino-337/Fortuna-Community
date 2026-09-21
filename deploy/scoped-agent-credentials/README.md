@@ -1,9 +1,8 @@
 # Scoped HTTP agent credentials — C2 rollout
 
 This overlay enables the scoped HTTP identity path for Agent inventory/evidence and
-runtime v1/v2 ingest without changing the base manifests. When the Core registry
-and Agent token file are configured, `/api/v1/agent/*`, `/api/v1/runtime/events`
-and `/api/v2/runtime/events` all use the same per-agent credential. Deployments
+runtime v2 ingest without changing the base manifests. When the Core registry
+and Agent token file are configured, `/api/v1/agent/*` and `/api/v2/runtime/events` use the same per-agent credential. Deployments
 that do not enable the overlay remain on the explicit legacy shared-token mode.
 
 ## Preconditions

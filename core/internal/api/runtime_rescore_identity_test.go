@@ -20,7 +20,7 @@ func TestRuntimeIngestTriggersScopedRescore(t *testing.T) {
 	t.Setenv("RUNTIME_ATTACK_RESCORE_ENABLED", "true")
 	t.Setenv("RUNTIME_ATTACK_RESCORE_DEBOUNCE", "1ms")
 	t.Setenv("FORTUNA_RULES_DIR", t.TempDir())
-	for _, version := range []string{"v1", "v2"} {
+	for _, version := range []string{"v2"} {
 		t.Run(version, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 			require.NoError(t, err)
@@ -37,10 +37,7 @@ func TestRuntimeIngestTriggersScopedRescore(t *testing.T) {
 			r.Use(func(c *gin.Context) {
 				c.Request = c.Request.WithContext(resourceidentity.WithClusterID(c.Request.Context(), "a"))
 			})
-			handler := PostRuntimeEventsScoped(db)
-			if version == "v2" {
-				handler = PostRuntimeEventsV2Scoped(db)
-			}
+			handler := PostRuntimeEventsV2Scoped(db)
 			r.POST("/events", handler)
 			payload := `[{"pod":{"uid":"same","namespace":"ns"},"runtime":"falco","source":{"kind":"falco","rule":"test-rule"},"syscall":"open","target":"/tmp/ordinary","severity":"high","confidence":0.9}]`
 			w := httptest.NewRecorder()

@@ -16,8 +16,8 @@ import (
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/explainability"
 	"github.com/fortuna/core/pkg/models"
-	"github.com/fortuna/core/pkg/risk"
 	"github.com/fortuna/core/pkg/resourceidentity"
+	"github.com/fortuna/core/pkg/risk"
 	"github.com/fortuna/core/pkg/securityaudit"
 	"github.com/fortuna/core/pkg/worker"
 )
@@ -554,7 +554,6 @@ func getInsightsSummaryData(db *gorm.DB, filter RiskFilter, sinceMinutes int) (I
 }
 
 // GetInsightsSummary returns summary statistics of insights.
-func GetInsightsSummary(db *gorm.DB) gin.HandlerFunc { return insightsSummaryHandler(db, false, false) }
 func GetInsightsSummaryCached(db *gorm.DB) gin.HandlerFunc {
 	return insightsSummaryHandler(db, true, false)
 }

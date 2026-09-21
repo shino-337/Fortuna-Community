@@ -1,4 +1,4 @@
-# Fortuna + Falco: JSON lines to hostPath so fortuna-agent can tail → POST /api/v1/runtime/events
+# Fortuna + Falco: JSON lines to hostPath so fortuna-agent can tail → POST /api/v2/runtime/events
 # Install: bash scripts/deploy/install-falco-fortuna.sh
 #
 # Requires: helm 3+, chart falcosecurity/falco

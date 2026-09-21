@@ -33,8 +33,7 @@ its secret/certificate, then revoke or remove the old entry.
 Implemented boundaries:
 
 - `FORTUNA_AGENT_CREDENTIAL_REGISTRY` is the explicit HTTP migration switch. When
-  configured, `/api/v1/agent/*`, `/api/v1/runtime/events` and
-  `/api/v2/runtime/events` do not fall back to the legacy shared token.
+  configured, `/api/v1/agent/*` and `/api/v2/runtime/events` do not fall back to the legacy shared token.
 - Registered ingest routes authenticate through shared middleware before handler
   work, deduplication or database effects.
 - `/sync` validates cluster aliases and Agent ID against the authenticated

@@ -21,11 +21,13 @@ FORBIDDEN_ROUTE_HANDLERS = {
     "GetPodEventsByUID(": "use GetPodEventsByUIDScoped",
     "GetPodRuntimeMetricsByUID(": "use GetPodRuntimeMetricsByUIDScoped",
     "GetRuntimeSignalsByPod(": "use GetRuntimeSignalsByPodScoped",
-    "PostRuntimeEvents(db)": "use PostRuntimeEventsScoped",
+    "PostRuntimeEvents(db)": "use PostRuntimeEventsV2Scoped",
     "PostRuntimeEventsV2(db)": "use PostRuntimeEventsV2Scoped",
 }
 
 FORBIDDEN_PRODUCTION_SYMBOLS = {
+    "PostRuntimeEventsScoped(": "removed v1 runtime ingest",
+    "GetPodNetworkTopDestinationsByUID(": "unused duplicate handler",
     "GetPod(": "legacy numeric Pod detail handler",
     "GetPodByUID(": "legacy UID-only Pod detail handler",
     "PostRuntimeEvents(": "legacy UID-only runtime ingest handler",
@@ -57,7 +59,6 @@ REQUIRED = {
         "GetPodCapabilitiesScoped(db)",
     ],
     Path("core/internal/api/routes.go"): [
-        "PostRuntimeEventsScoped(db)",
         "PostRuntimeEventsV2Scoped(db)",
     ],
 }
