@@ -413,15 +413,26 @@ func GetInsightContext(db *gorm.DB) gin.HandlerFunc {
 			Rules:   []models.RiskRule{},
 		}
 
-		// Related pods and cluster (only for Pod-scoped insights)
+		// Related Pod context is resolved by canonical {cluster_id,resource_uid}.
 		if strings.EqualFold(insight.ResourceType, "Pod") && insight.ResourceUID != "" {
-			var pods []models.Pod
-			if err := db.Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).Find(&pods).Error; err == nil {
-				resp.Pods = pods
-				if len(pods) > 0 && pods[0].ClusterID != "" {
-					var cluster models.Cluster
-					if err := db.Where("id = ? AND deleted_at IS NULL", pods[0].ClusterID).First(&cluster).Error; err == nil {
-						resp.Cluster = &cluster
+			clusterID := strings.TrimSpace(insight.ClusterID)
+			if clusterID == "" {
+				resolved, err := resourceUIDClusterID(db, insight.ResourceUID)
+				if err != nil {
+					c.JSON(http.StatusConflict, gin.H{"error": "cluster-qualified insight identity required", "code": "cluster_qualified_identity_required"})
+					return
+				}
+				clusterID = resolved
+			}
+			if clusterID != "" {
+				var pods []models.Pod
+				if err := db.Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, insight.ResourceUID).Find(&pods).Error; err == nil {
+					resp.Pods = pods
+					if len(pods) > 0 {
+						var cluster models.Cluster
+						if err := db.Where("id = ? AND deleted_at IS NULL", clusterID).First(&cluster).Error; err == nil {
+							resp.Cluster = &cluster
+						}
 					}
 				}
 			}
@@ -487,7 +498,7 @@ func getInsightsSummaryData(db *gorm.DB, filter RiskFilter, sinceMinutes int) (I
 	summary := InsightsSummaryResult{ByType: make(map[string]int64)}
 	base := func() *gorm.DB {
 		q := db.Table("insights i").Where("i.deleted_at IS NULL AND (i.status IN ? OR i.status IS NULL)", []string{"active", "acknowledged"})
-		q = q.Where("(i.resource_type != 'Pod' OR i.resource_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL))")
+		q = q.Where("(i.resource_type != 'Pod' OR EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = i.cluster_id AND p.uid = i.resource_uid AND p.deleted_at IS NULL))")
 		q = scopedAggregateQuery(db, q, filter, "i.resource_uid")
 		if sinceMinutes > 0 {
 			q = q.Where("i.detected_at >= ?", time.Now().Add(-time.Duration(sinceMinutes)*time.Minute))
@@ -521,7 +532,7 @@ func getInsightsSummaryData(db *gorm.DB, filter RiskFilter, sinceMinutes int) (I
 		Count int64
 	}
 	band := "CASE WHEN pref.total_score >= 70 THEN 'critical' WHEN pref.total_score >= 40 THEN 'high' WHEN pref.total_score >= 20 THEN 'medium' ELSE 'low' END"
-	if err := base().Joins("INNER JOIN " + preferredRiskScoreSubquerySQL + " AS pref ON pref.resource_uid=i.resource_uid").Select(band + " AS level, COUNT(*) AS count").Group(band).Scan(&levels).Error; err != nil {
+	if err := base().Joins("INNER JOIN " + preferredRiskScoreSubquerySQL + " AS pref ON pref.cluster_id=i.cluster_id AND pref.resource_uid=i.resource_uid").Select(band + " AS level, COUNT(*) AS count").Group(band).Scan(&levels).Error; err != nil {
 		return summary, err
 	}
 	if len(levels) > 0 {
@@ -607,7 +618,7 @@ func GetInsightsSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 		if sinceMinutes > 0 {
 			since = time.Now().Add(-time.Duration(sinceMinutes) * time.Minute)
 		}
-		joinCond := "INNER JOIN pods p ON p.uid = i.resource_uid AND p.deleted_at IS NULL"
+		joinCond := "INNER JOIN pods p ON p.cluster_id = i.cluster_id AND p.uid = i.resource_uid AND p.deleted_at IS NULL"
 		whereBase := "i.deleted_at IS NULL AND (i.status IN ('active', 'acknowledged') OR i.status IS NULL)"
 		type row struct {
 			ClusterID string `gorm:"column:cluster_id"`
