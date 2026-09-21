@@ -1,6 +1,13 @@
 # Audit remediation status — September 2026
 
-These changes follow merged PR #28. Review and merge the pull requests manually.
+PRs #29–#46 are merged. Review and merge subsequent pull requests manually.
+PR #47 adds immutable image-content snapshots with separate workload observations,
+container-qualified ingest, ownership validation before matching/linking, retired
+combined finding writes, and cluster propagation to CVE/malware matches. Its startup
+migration backfills resolved observations, rejects conflicting legacy evidence,
+and enforces PostgreSQL uniqueness and ownership guards. Review/CI and the live
+multi-cluster gate are tracked separately in
+[NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md).
 A passing test suite confirms the tested source behavior, not live deployment
 coverage or a guarantee that the repository has no further defects.
 
@@ -35,11 +42,11 @@ Behavior changes worth reviewing:
   inventory.bulk and inventory.delete. HTTP 207 identifies partial failures.
 - Disable and disable-inactive intentionally return 501. Inventory disappearance
   is not credential revocation. A real revocation workflow remains unimplemented.
-- Legacy AGE traversal with limited cluster scope is intentionally denied. Scoped
+- Legacy AGE HTTP routes and handlers were removed in #46. Scoped
   relational graph/attack-path views remain available; scoped AGE support remains
   unimplemented.
 - Existing agents without cluster assignment temporarily disappear from cluster
-  counts until HTTP sync. This change does not add per-cluster mTLS attestation.
+  counts until HTTP sync. Scoped mTLS authorization exists in #43/#44; per-Agent certificate lifecycle and global AgentID collisions remain in work package #48.
 - Risk reconciliation stops on invalid catalogs/evaluation errors. Missing or
   disabled detectors preserve findings; operators must inspect reported failures.
 

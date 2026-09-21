@@ -94,6 +94,8 @@ jobs:
           grep -q -- '--- PASS: TestClusterQualifiedPodUniquenessPostgres' /tmp/cluster-identity-postgres.log
           go test -v ./pkg/riskengine -run '^TestPodInsightLifecyclePostgres$' -count=1 -timeout=2m | tee /tmp/insight-identity-postgres.log
           grep -q -- '--- PASS: TestPodInsightLifecyclePostgres' /tmp/insight-identity-postgres.log
+          go test -v ./internal/repository -run '^TestSBOMConcurrentOwnershipPostgres$' -count=1 -timeout=2m | tee /tmp/sbom-identity-postgres.log
+          grep -q -- '--- PASS: TestSBOMConcurrentOwnershipPostgres' /tmp/sbom-identity-postgres.log
 
   dashboard:
     name: Dashboard validation

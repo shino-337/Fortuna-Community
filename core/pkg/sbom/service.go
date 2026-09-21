@@ -2,10 +2,12 @@ package sbom
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -22,7 +24,7 @@ func NewService(db *gorm.DB) *Service {
 	}
 }
 
-// UpsertPodImageScan links a pod container to an SBOM (digest-based scan cache).
+// UpsertPodImageScan links a container only to its own workload SBOM observation.
 func (s *Service) UpsertPodImageScan(
 	ctx context.Context,
 	clusterID string,
@@ -33,6 +35,16 @@ func (s *Service) UpsertPodImageScan(
 	containerImage string,
 	sbomID uint,
 ) error {
+	if _, err := resourceidentity.New(clusterID, podUID); err != nil {
+		return err
+	}
+	if strings.TrimSpace(containerName) == "" || sbomID == 0 {
+		return fmt.Errorf("container and SBOM ID are required")
+	}
+	var owned models.SBOM
+	if err := s.db.WithContext(ctx).Where("id = ? AND cluster_id = ? AND pod_uid = ? AND container_name = ?", sbomID, clusterID, podUID, containerName).First(&owned).Error; err != nil {
+		return fmt.Errorf("SBOM workload association: %w", err)
+	}
 	imageName, imageTag := parseImageRef(containerImage)
 
 	scan := models.PodImageScan{
@@ -48,13 +60,12 @@ func (s *Service) UpsertPodImageScan(
 		UpdatedAt:      time.Now(),
 	}
 
-	// Unique key is (pod_uid, container_name)
+	// Unique key is (cluster_id, pod_uid, container_name)
 	return s.db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "pod_uid"}, {Name: "container_name"}},
+		Columns: []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}, {Name: "container_name"}},
 		DoUpdates: clause.Assignments(map[string]interface{}{
 			"pod_name":        scan.PodName,
 			"pod_namespace":   scan.PodNamespace,
-			"cluster_id":      scan.ClusterID,
 			"container_image": scan.ContainerImage,
 			"image_name":      scan.ImageName,
 			"image_tag":       scan.ImageTag,

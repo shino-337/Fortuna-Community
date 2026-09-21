@@ -267,6 +267,7 @@ func (m *Matcher) MatchSBOM(
 						recordMatcherVulnerabilityVersionMatch("go")
 						seenMatch[dedupKey][cveData.ID] = true
 						matches = append(matches, &models.CVEMatch{
+							ClusterID:           sbom.ClusterID,
 							SBOMID:              sbom.ID,
 							PodUID:              sbom.PodUID,
 							ContainerName:       sbom.ContainerName,
@@ -408,6 +409,7 @@ func (m *Matcher) MatchSBOM(
 
 					// 4. Create match
 					match := &models.CVEMatch{
+						ClusterID:           sbom.ClusterID,
 						SBOMID:              sbom.ID,
 						PodUID:              sbom.PodUID,
 						ContainerName:       sbom.ContainerName,

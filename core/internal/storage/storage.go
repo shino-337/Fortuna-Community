@@ -143,6 +143,9 @@ func Migrate(db *gorm.DB) error {
 		log.Printf("[Storage] ❌ Cluster-qualified Pod writer uniqueness failed: %v", err)
 		return fmt.Errorf("cluster-qualified pod writer uniqueness: %w", err)
 	}
+	if err := migrations.EnsureSBOMContentIdentity(db); err != nil {
+		return fmt.Errorf("SBOM content identity: %w", err)
+	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
 }

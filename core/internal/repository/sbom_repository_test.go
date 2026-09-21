@@ -323,3 +323,53 @@ func TestSBOMRepository_NormalizeSourceAndConfidence(t *testing.T) {
 	require.Equal(t, models.SBOMSourceUnknown, persisted.SbomSource)
 	require.Equal(t, models.SBOMConfidenceUnknown, persisted.Confidence)
 }
+
+func TestSBOMWorkloadIdentitySeparatesContainers(t *testing.T) {
+	repo, db := newTestRepo(t)
+	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
+	ids := map[uint]bool{}
+	var sharedContent uint
+	for _, cluster := range []string{"a", "b"} {
+		for _, container := range []string{"app", "sidecar"} {
+			incoming := func() *models.SBOM {
+				return &models.SBOM{ClusterID: cluster, PodUID: "same", ContainerName: container, ImageDigest: "sha256:same", Status: "pending", GeneratedAt: time.Now()}
+			}
+			row, created, err := repo.UpsertSBOMWithComponents(ctx, incoming(), nil)
+			require.NoError(t, err)
+			require.NotNil(t, row.ContentID)
+			if sharedContent == 0 {
+				sharedContent = *row.ContentID
+			} else {
+				require.Equal(t, sharedContent, *row.ContentID)
+			}
+			require.True(t, created)
+			require.False(t, ids[row.ID])
+			ids[row.ID] = true
+			again, created, err := repo.UpsertSBOMWithComponents(ctx, incoming(), nil)
+			require.NoError(t, err)
+			require.False(t, created)
+			require.Equal(t, row.ID, again.ID)
+		}
+	}
+	var count int64
+	require.NoError(t, db.Model(&models.SBOM{}).Count(&count).Error)
+	require.EqualValues(t, 4, count)
+}
+
+func TestSBOMContentDoesNotReuseDifferentProvenance(t *testing.T) {
+	repo, db := newTestRepo(t)
+	ctx := contextkeys.WithSBOMMutationAllowed(context.Background())
+	var ids []uint
+	for _, resolver := range []string{"resolver-1", "resolver-2"} {
+		row, _, err := repo.UpsertSBOMWithComponents(ctx, &models.SBOM{ClusterID: "a", PodUID: resolver, ContainerName: "app", ImageDigest: "sha256:same", ResolverVersion: resolver, Status: "pending"}, nil)
+		require.NoError(t, err)
+		require.NotNil(t, row.ContentID)
+		ids = append(ids, *row.ContentID)
+	}
+	require.NotEqual(t, ids[0], ids[1])
+	var content models.SBOMImageContent
+	require.NoError(t, db.First(&content, ids[0]).Error)
+	require.NotContains(t, content.Payload, "podUid")
+	require.NotContains(t, content.Payload, "clusterId")
+	require.ErrorContains(t, db.Model(&content).Update("payload", "{}").Error, "immutable")
+}

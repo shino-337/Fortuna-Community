@@ -7,8 +7,8 @@ import (
 	"gorm.io/gorm"
 )
 
-// SBOM represents a Software Bill of Materials for a container image
-// Updated for Agent-Based architecture
+// SBOM is a workload observation. Shared immutable packages live in SBOMImageContent;
+// component rows are a workload-local projection retained for existing readers.
 type SBOM struct {
 	ID                    uint              `gorm:"primaryKey" json:"id"`
 	ClusterID             string            `gorm:"type:varchar(255);index" json:"clusterId,omitempty"`
@@ -46,8 +46,10 @@ type SBOM struct {
 	DeletedAt             gorm.DeletedAt    `gorm:"index" json:"-"`
 
 	// Relationships
-	Components []SBOMComponent `gorm:"foreignKey:SBOMID" json:"components,omitempty"`
-	CVEMatches []CVEMatch      `gorm:"foreignKey:SBOMID" json:"cveMatches,omitempty"`
+	ContentID  *uint             `gorm:"index" json:"contentId,omitempty"`
+	ContentRef *SBOMImageContent `gorm:"foreignKey:ContentID" json:"-"`
+	Components []SBOMComponent   `gorm:"foreignKey:SBOMID" json:"components,omitempty"`
+	CVEMatches []CVEMatch        `gorm:"foreignKey:SBOMID" json:"cveMatches,omitempty"`
 }
 
 const (

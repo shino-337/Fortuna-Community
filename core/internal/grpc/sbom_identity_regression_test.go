@@ -1,9 +1,12 @@
 package grpc
 
 import (
+	"context"
 	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"strconv"
 	"testing"
@@ -32,4 +35,14 @@ func TestSBOMIngestPreservesTrustedClusterIdentity(t *testing.T) {
 		require.EqualValues(t, 1, visible)
 	}
 	require.NotEqual(t, ids[0], ids[1], "same UID/digest cannot reuse another cluster's SBOM")
+}
+
+func TestCombinedFindingRetiredWithoutDatabaseEffects(t *testing.T) {
+	// A nil database makes any accidental legacy write fail immediately.
+	svc := NewSBOMServiceServer(nil, nil, nil)
+	for _, request := range []*pb.CombinedFinding{nil, {}, {Sbom: &pb.SBOMFinding{ImageDigest: "sha256:same"}}} {
+		response, err := svc.SendCombinedFinding(context.Background(), request)
+		require.Nil(t, response)
+		require.Equal(t, codes.Unimplemented, status.Code(err))
+	}
 }

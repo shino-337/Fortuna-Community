@@ -32,21 +32,21 @@ func (m *Matcher) matchGoStdlib(
 			continue
 		}
 		*matches = append(*matches, &models.CVEMatch{
-			SBOMID:         sbom.ID,
-			PodUID:         sbom.PodUID,
-			ContainerName:  sbom.ContainerName,
-			CVEID:          cveData.ID,
-			PackageName:    "stdlib",
-			PackageVersion: v,
-			PURL:           "",
-			Severity:       strings.ToUpper(cveData.Severity),
-			CVSS:           float32(cveData.CVSSScore),
-			FixedVersion:   cveData.FixedVersion,
-			MatchedBy:      "fortuna-go-stdlib-matcher",
+			ClusterID:           sbom.ClusterID,
+			SBOMID:              sbom.ID,
+			PodUID:              sbom.PodUID,
+			ContainerName:       sbom.ContainerName,
+			CVEID:               cveData.ID,
+			PackageName:         "stdlib",
+			PackageVersion:      v,
+			PURL:                "",
+			Severity:            strings.ToUpper(cveData.Severity),
+			CVSS:                float32(cveData.CVSSScore),
+			FixedVersion:        cveData.FixedVersion,
+			MatchedBy:           "fortuna-go-stdlib-matcher",
 			HasConstraint:       strings.TrimSpace(cveData.Constraint) != "",
 			ConstraintSatisfied: strings.TrimSpace(cveData.Constraint) != "",
-			MatchedAt:      time.Now(),
+			MatchedAt:           time.Now(),
 		})
 	}
 }
-

@@ -48,6 +48,7 @@ func newReplayWorkerTestDB(t *testing.T) *gorm.DB {
 func seedFinalizedSBOM(t *testing.T, db *gorm.DB) models.SBOM {
 	t.Helper()
 	sb := models.SBOM{
+		ClusterID:     "cluster-1",
 		ImageName:     "test/image",
 		ImageTag:      "latest",
 		ImageDigest:   "sha256:test",
@@ -88,7 +89,8 @@ func TestWorker_SchemaMismatch_SkipsProcessing(t *testing.T) {
 		EventID:       "ev-schema-warn",
 		SchemaVersion: "legacy-v0", // intentionally mismatched
 		SBOMID:        sb.ID,
-		ImageDigest:   sb.ImageDigest,
+		ClusterID:     sb.ClusterID, PodUID: sb.PodUID, ContainerName: sb.ContainerName,
+		ImageDigest: sb.ImageDigest,
 	})
 
 	var runs int64
@@ -112,7 +114,8 @@ func TestWorker_Replay_SameTimestampSameEventID_Idempotent(t *testing.T) {
 		EventID:       "ev-same",
 		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
 		SBOMID:        sb.ID,
-		ImageDigest:   sb.ImageDigest,
+		ClusterID:     sb.ClusterID, PodUID: sb.PodUID, ContainerName: sb.ContainerName,
+		ImageDigest: sb.ImageDigest,
 	}
 	runWorkerEvent(t, w, ev)
 	runWorkerEvent(t, w, ev)
@@ -138,7 +141,8 @@ func TestWorker_Replay_SameTimestampDifferentEventID_UpdatesWatermark(t *testing
 		EventID:       "ev-A",
 		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
 		SBOMID:        sb.ID,
-		ImageDigest:   sb.ImageDigest,
+		ClusterID:     sb.ClusterID, PodUID: sb.PodUID, ContainerName: sb.ContainerName,
+		ImageDigest: sb.ImageDigest,
 	})
 	runWorkerEvent(t, w, sbom.SBOMCreatedEvent{
 		Type:          "sbom.created",
@@ -146,7 +150,8 @@ func TestWorker_Replay_SameTimestampDifferentEventID_UpdatesWatermark(t *testing
 		EventID:       "ev-B",
 		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
 		SBOMID:        sb.ID,
-		ImageDigest:   sb.ImageDigest,
+		ClusterID:     sb.ClusterID, PodUID: sb.PodUID, ContainerName: sb.ContainerName,
+		ImageDigest: sb.ImageDigest,
 	})
 
 	var latestID string
@@ -169,7 +174,8 @@ func TestWorker_Replay_OlderTimestampSkipped_AfterNewerProcessed(t *testing.T) {
 		EventID:       "ev-new",
 		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
 		SBOMID:        sb.ID,
-		ImageDigest:   sb.ImageDigest,
+		ClusterID:     sb.ClusterID, PodUID: sb.PodUID, ContainerName: sb.ContainerName,
+		ImageDigest: sb.ImageDigest,
 	})
 	runWorkerEvent(t, w, sbom.SBOMCreatedEvent{
 		Type:          "sbom.created",
@@ -177,7 +183,8 @@ func TestWorker_Replay_OlderTimestampSkipped_AfterNewerProcessed(t *testing.T) {
 		EventID:       "ev-old",
 		SchemaVersion: sbom.SBOMCreatedEventSchemaVersion,
 		SBOMID:        sb.ID,
-		ImageDigest:   sb.ImageDigest,
+		ClusterID:     sb.ClusterID, PodUID: sb.PodUID, ContainerName: sb.ContainerName,
+		ImageDigest: sb.ImageDigest,
 	})
 
 	var latestTS int64
@@ -189,4 +196,3 @@ func TestWorker_Replay_OlderTimestampSkipped_AfterNewerProcessed(t *testing.T) {
 		t.Fatalf("expected watermark to remain newest (200, ev-new), got (%d, %q)", latestTS, latestID)
 	}
 }
-
