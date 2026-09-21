@@ -43,12 +43,9 @@ func GetPodAssetSecurityState(db *gorm.DB) gin.HandlerFunc {
 
 // GetPodRuntimeBehaviorFacts returns Layer-2 behavior facts for a pod.
 // GetPodRuntimeBehaviorFacts is retained only for source compatibility.
-// Production routes must use GetPodRuntimeBehaviorFactsScoped and CI rejects legacy registration.
-func GetPodRuntimeBehaviorFacts(db *gorm.DB) gin.HandlerFunc { return GetPodRuntimeBehaviorFactsScoped(db) }
 
 
 // GetPodRuntimeIncidents returns Layer-3 incidents for a pod.
 // GetPodRuntimeIncidents is retained only for source compatibility.
-// Production routes must use GetPodRuntimeIncidentsScoped and CI rejects legacy registration.
-func GetPodRuntimeIncidents(db *gorm.DB) gin.HandlerFunc { return GetPodRuntimeIncidentsScoped(db) }
+
 
