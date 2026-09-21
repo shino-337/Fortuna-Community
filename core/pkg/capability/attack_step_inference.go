@@ -3,12 +3,13 @@ package capability
 import (
 	"context"
 	"encoding/json"
-	"log"
+	"fmt"
 	"time"
 
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 // AttackStepInference generates attack steps from exploited capabilities
@@ -21,108 +22,28 @@ func NewAttackStepInference(db *gorm.DB) *AttackStepInference {
 	return &AttackStepInference{db: db}
 }
 
-// InferAttackSteps generates attack steps for a pod based on exploited capabilities
-// Only generates steps for capabilities in "exploited" state
-func (asi *AttackStepInference) InferAttackSteps(ctx context.Context, podUID string) error {
-	// Get all exploited capabilities for this pod
-	var exploitedCaps []models.PodCapability
-	if err := asi.db.WithContext(ctx).
-		Where("pod_uid = ? AND state = ?", podUID, string(StateExploited)).
-		Find(&exploitedCaps).Error; err != nil {
-		return err
+// resolveUniquePodIdentity is the compatibility bridge for legacy UID-only
+// callers. It fails closed unless the UID maps to exactly one active cluster.
+func resolveUniquePodIdentity(ctx context.Context, db *gorm.DB, podUID string) (resourceidentity.Identity, error) {
+	var owners []string
+	if err := db.WithContext(ctx).Model(&models.Pod{}).
+		Where("uid = ? AND deleted_at IS NULL", podUID).
+		Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
+		return resourceidentity.Identity{}, err
 	}
-
-	if len(exploitedCaps) == 0 {
-		return nil // No exploited capabilities, no attack steps
+	if len(owners) != 1 {
+		return resourceidentity.Identity{}, fmt.Errorf("cluster-qualified pod identity required: uid=%s owners=%d", podUID, len(owners))
 	}
-
-	log.Printf("[AttackStepInference] Found %d exploited capabilities for pod %s", len(exploitedCaps), podUID)
-
-	// For each exploited capability, get metadata and generate attack steps
-	for _, cap := range exploitedCaps {
-		if err := asi.generateStepsFromCapability(ctx, podUID, &cap); err != nil {
-			log.Printf("[AttackStepInference] Failed to generate steps for capability %s: %v", cap.CapabilityID, err)
-			continue
-		}
-	}
-
-	return nil
+	return resourceidentity.New(owners[0], podUID)
 }
 
-// generateStepsFromCapability generates attack steps from a single exploited capability
-func (asi *AttackStepInference) generateStepsFromCapability(ctx context.Context, podUID string, cap *models.PodCapability) error {
-	// Get capability metadata
-	var metadata models.CapabilityMetadata
-	if err := asi.db.WithContext(ctx).
-		Where("capability_id = ?", cap.CapabilityID).
-		First(&metadata).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
-			// No metadata, skip
-			return nil
-		}
+// InferAttackSteps remains only as a fail-closed compatibility wrapper.
+func (asi *AttackStepInference) InferAttackSteps(ctx context.Context, podUID string) error {
+	id, err := resolveUniquePodIdentity(ctx, asi.db, podUID)
+	if err != nil {
 		return err
 	}
-
-	// Check if capability produces attack steps
-	if len(metadata.ProducesAttackSteps) == 0 {
-		return nil // No attack steps defined
-	}
-
-	// Generate attack step for each step ID
-	now := time.Now()
-	for _, stepID := range metadata.ProducesAttackSteps {
-		// Check if step already exists
-		var existing models.PodAttackStep
-		err := asi.db.WithContext(ctx).
-			Where("pod_uid = ? AND step_id = ?", podUID, stepID).
-			First(&existing).Error
-
-		if err == nil {
-			// Step already exists, update confidence if higher
-			if cap.Confidence > existing.Confidence {
-				existing.Confidence = cap.Confidence
-				existing.UpdatedAt = now
-				asi.updateStepEvidence(ctx, &existing, cap)
-				if err := asi.db.WithContext(ctx).Save(&existing).Error; err != nil {
-					log.Printf("[AttackStepInference] Failed to update step %s: %v", stepID, err)
-				}
-			}
-			continue
-		} else if err != gorm.ErrRecordNotFound {
-			return err
-		}
-
-		// Create new attack step
-		step := models.PodAttackStep{
-			PodUID:      podUID,
-			StepID:      stepID,
-			Category:    getStepCategory(stepID),
-			Confidence:  cap.Confidence,
-			Description: getStepDescription(stepID),
-			CreatedAt:   now,
-			UpdatedAt:   now,
-		}
-
-		// Set evidence
-		evidence := map[string]interface{}{
-			"capability_id": cap.CapabilityID,
-			"capability_state": cap.State,
-			"generated_at": now.Format(time.RFC3339),
-		}
-		evidenceJSON, _ := json.Marshal(evidence)
-		step.Evidence = string(evidenceJSON)
-
-		// Create step
-		if err := asi.db.WithContext(ctx).Create(&step).Error; err != nil {
-			log.Printf("[AttackStepInference] Failed to create step %s: %v", stepID, err)
-			continue
-		}
-
-		log.Printf("[AttackStepInference] ✅ Generated attack step %s for pod %s (from capability %s)",
-			stepID, podUID, cap.CapabilityID)
-	}
-
-	return nil
+	return asi.InferAttackStepsForIdentity(ctx, id)
 }
 
 // updateStepEvidence updates evidence for existing step
