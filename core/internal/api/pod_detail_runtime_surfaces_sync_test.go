@@ -105,6 +105,7 @@ func TestPodDetailRuntimeSurfaces_ReturnDataAcrossLayers(t *testing.T) {
 	}
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) { c.Set("user", &models.User{Role: models.RoleAdmin}); c.Next() })
 	r.GET("/api/v1/risk/pods/:uid/runtime/events", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeEventsScoped(db))
 	rt := r.Group("/api/v1/runtime")
 	rt.GET("/pods/:uid/signals", middleware.RequirePodUIDClusterScope(db, "uid"), GetRuntimeSignalsByPodScoped(db))
