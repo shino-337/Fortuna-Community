@@ -158,6 +158,8 @@ func GetPodRuntimeEvents(db *gorm.DB) gin.HandlerFunc {
 // GetRuntimeRiskSummary returns summary of runtime risks across all pods.
 func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok { return }
 		var stats struct {
 			TotalPods           int64 `json:"totalPods"`
 			PodsWithRuntimeRisk int64 `json:"podsWithRuntimeRisk"`
@@ -166,24 +168,27 @@ func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 			MediumCount         int64 `json:"mediumCount"`
 		}
 
-		db.Model(&models.PodRiskProfile{}).Where("pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").Count(&stats.TotalPods)
-		db.Model(&models.PodRiskProfile{}).Where("runtime_score > 0 AND pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").Count(&stats.PodsWithRuntimeRisk)
+		profileBase := db.Model(&models.PodRiskProfile{}).
+			Joins("JOIN pods p ON p.cluster_id = pod_risk_profiles.cluster_id AND p.uid = pod_risk_profiles.pod_uid AND p.deleted_at IS NULL")
+		profileBase = scope.apply(profileBase, "p.cluster_id")
+		profileBase.Count(&stats.TotalPods)
+		profileBase.Where("pod_risk_profiles.runtime_score > 0").Count(&stats.PodsWithRuntimeRisk)
 		
 		// Count by severity from pod_capabilities with runtime capabilities (active pods only)
-		db.Model(&models.PodCapability{}).
-			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL").
+		scope.apply(db.Model(&models.PodCapability{}).
+			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL"), "p.cluster_id").
 			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
 			Where("pod_capabilities.severity = ?", "CRITICAL").
 			Count(&stats.CriticalCount)
 		
-		db.Model(&models.PodCapability{}).
-			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL").
+		scope.apply(db.Model(&models.PodCapability{}).
+			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL"), "p.cluster_id").
 			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
 			Where("pod_capabilities.severity = ?", "HIGH").
 			Count(&stats.HighCount)
 		
-		db.Model(&models.PodCapability{}).
-			Joins("JOIN pods p ON p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL").
+		scope.apply(db.Model(&models.PodCapability{}).
+			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL"), "p.cluster_id").
 			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
 			Where("pod_capabilities.severity = ?", "MEDIUM").
 			Count(&stats.MediumCount)
@@ -195,6 +200,8 @@ func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 // GetTopRuntimeRisks returns pods with highest runtime scores (active pods only).
 func GetTopRuntimeRisks(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		scope, ok := resolveRiskGovernanceScope(db, c)
+		if !ok { return }
 		limit := 10
 		if l := c.Query("limit"); l != "" {
 			if parsed, err := parseInt(l); err == nil && parsed > 0 && parsed <= 100 {
@@ -203,8 +210,12 @@ func GetTopRuntimeRisks(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var profiles []models.PodRiskProfile
-		if err := db.Where("runtime_score > 0 AND pod_uid IN (SELECT uid FROM pods WHERE deleted_at IS NULL)").
-			Order("runtime_score DESC, updated_at DESC").
+		query := db.Model(&models.PodRiskProfile{}).
+			Select("pod_risk_profiles.*").
+			Joins("JOIN pods p ON p.cluster_id = pod_risk_profiles.cluster_id AND p.uid = pod_risk_profiles.pod_uid AND p.deleted_at IS NULL")
+		query = scope.apply(query, "p.cluster_id")
+		if err := query.Where("pod_risk_profiles.runtime_score > 0").
+			Order("pod_risk_profiles.runtime_score DESC, pod_risk_profiles.updated_at DESC").
 			Limit(limit).
 			Find(&profiles).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
