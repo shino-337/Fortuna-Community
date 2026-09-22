@@ -87,7 +87,47 @@ func TestInventoryCollectionPostgres(t *testing.T) {
 	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&acceptedAgent).Error)
 	require.Equal(t, "node-a", acceptedAgent.NodeName)
 	require.NotNil(t, acceptedAgent.LastSeenAt)
+
+	// DaemonSet topology is intentionally multi-writer. A newer failed Agent may
+	// make evidence unavailable, but it must not mutate the accepted projection;
+	// an older writer must not roll the receipt back, and a later complete writer
+	// must recover deterministically.
+	multi := c
+	multi.ID = "postgres-agent-b-fail"
+	multi.Status = "failed"
+	multi.StartedAt = c.StartedAt.Add(2 * time.Second)
+	failedReceipt, err := NewAgentService(db).
+		WithAgentRecord(&models.Agent{ClusterID: "cluster-a", AgentID: "agent-b", NodeName: "node-b", Version: "v50"}).
+		SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-b", nil, "", multi)
+	require.NoError(t, err)
+	require.Equal(t, "failed", failedReceipt.Status)
+	var unchanged models.Role
+	require.NoError(t, db.Where("cluster_id = ? AND uid = ?", "cluster-a", "role-a").First(&unchanged).Error)
+	require.Equal(t, "role", unchanged.Name)
+
+	older := c
+	older.ID = "postgres-agent-a-older"
+	older.StartedAt = c.StartedAt.Add(time.Second)
+	_, err = NewAgentService(db).
+		WithAgentRecord(&models.Agent{ClusterID: "cluster-a", AgentID: "agent-a", NodeName: "node-a", Version: "v50"}).
+		SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", older)
+	require.ErrorIs(t, err, ErrCollectionConflict)
+
+	recovered := c
+	recovered.ID = "postgres-agent-a-recover"
+	recovered.StartedAt = c.StartedAt.Add(3 * time.Second)
+	recoveredReceipt, err := NewAgentService(db).
+		WithAgentRecord(&models.Agent{ClusterID: "cluster-a", AgentID: "agent-a", NodeName: "node-a", Version: "v50"}).
+		SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", recovered)
+	require.NoError(t, err)
+	require.Equal(t, "complete", recoveredReceipt.Status)
+	require.Equal(t, "agent-a", recoveredReceipt.AgentID)
+
+	// Continue failure/rollback checks from the latest accepted ordering watermark.
+	c = recovered
 	beforeFailureSeen := *acceptedAgent.LastSeenAt
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&acceptedAgent).Error)
+	beforeFailureSeen = *acceptedAgent.LastSeenAt
 	// Real PostgreSQL error aborts the transaction; neither projection nor receipt
 	// can report success. Persist the failed attempt only after rollback.
 	require.NoError(t, db.Exec(`CREATE FUNCTION deny_role_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected failure'; END $$`).Error)
