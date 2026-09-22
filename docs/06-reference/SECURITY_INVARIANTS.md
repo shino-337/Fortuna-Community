@@ -138,9 +138,9 @@ Runtime silence and expiry of a lookback window never prove remediation.
 
 D1 permits automatic resolution only for self-contained Role/ClusterRole CEL
 checks reading fields from that exact static snapshot. D2 inventory additionally
-requires an authenticated collection receipt: observation at most ten minutes old,
-not future-dated, not older than the finding, and a digest matching that exact
-cluster/kind/UID/name/namespace/rules projection. A missing, failed, unverified or
+requires an authenticated collection receipt: the exact resource-kind observation
+must be at most ten minutes old, not future-dated, not older than the finding, and
+its digest must match that exact cluster/kind/UID/name/namespace/rules projection. A missing, failed, unverified or
 stale receipt blocks resolution. The rules array must be structurally valid. CEL dependencies are checked
 from the parsed expression; aliases/bracket access cannot introduce unverified
 runtime or cross-resource inputs. Unknown dependencies are denied.
@@ -164,11 +164,17 @@ remain D2 runtime/E work; inventory receipts do not establish sensor coverage.
 
 ## Inventory receipt integrity (D2 inventory)
 
-Only scoped Agent identity can issue a verified receipt. Legacy HTTP ingestion
-remains explicitly unverified and invalidates prior verified status. Core startup
+Only scoped Agent identity can issue a verified receipt. Agent health metadata
+from the same HTTP sync commits with the inventory transaction; failed inventory
+persistence must not advance Agent liveness. Scoped HTTP mode is exclusive when
+the credential registry is configured and does not fall back to the legacy shared
+token. Any explicit unverified compatibility write still invalidates prior verified
+status because it may alter the projection without trustworthy evidence. Core startup
 must establish the receipt schema before accepting traffic; old rows are never
-backfilled as complete. Collection namespace and all eight list counts are checked
-before inventory effects. Missing/null lists, pagination left by Kubernetes and
+backfilled as complete. Collection namespace, all eight list counts and all eight per-kind observation
+timestamps are checked before inventory effects. The eight List calls are
+sequential: the receipt is a bounded interval, not an atomic Kubernetes snapshot.
+Cross-resource consistency must not be inferred from it. Missing/null lists, pagination left by Kubernetes and
 collection errors cannot be represented as successful empty observations.
 
 Inventory writes and receipts commit in one transaction serialized per cluster.
@@ -182,7 +188,7 @@ by collecting a new attempt ID, as Syncer does on its next cycle.
 
 A complete receipt covers the received inventory projection, not derived risk/PCE
 processing or proof that absent objects were deleted in Kubernetes. Existing
-empty/partial deletion safeguards remain. Namespace-limited collections must not
-prune namespaced inventory elsewhere. ClusterRole/ClusterRoleBinding lists still
+empty/partial deletion safeguards remain. Namespace-limited collections must reject out-of-scope namespaced rows and must
+not prune namespaced inventory elsewhere. ClusterRole/ClusterRoleBinding lists still
 cover cluster-scoped objects. The PostgreSQL CI gate exercises concurrent replay,
 SQL-trigger failure, rollback and recovery, including timestamp precision.
