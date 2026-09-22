@@ -1,7 +1,7 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #49 merged on 2026-09-22. Changes continue as focused
-PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
+Status verified after PR #50 merged on 2026-09-22 (merge commit `5024e15`).
+Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
@@ -106,7 +106,7 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   eligibility, exact cluster/UID lookups, detector dependency checks and concurrent
   update guards. All 11 merge-commit checks passed. Missing resources, runtime
   silence and incomplete evidence preserve findings.
-- D2 inventory / #50 implemented, pending exact-head CI/review: authenticated collection
+- D2 inventory / #50 merged (merge commit `5024e15`): authenticated collection
   ID, bounded collection interval, exact per-kind List start bounds, namespace scope
   and per-kind counts; complete-empty and failed collections are distinct. Agent
   liveness plus inventory projection/receipt commit atomically, so failed inventory
@@ -125,10 +125,16 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   DaemonSet plus different WATCH_NAMESPACE scopes on one cluster and either validate
   the supported topology or promote the receipt key to include scope before
   multi-scope aggregation is claimed.
-- D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
-  reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
-  dependencies. Runtime/Pod auto-resolution stays blocked. Persisted/API/UI
-  explanations and availability remain coordinated with E. D is not complete.
+- D2 runtime / #52 is now the active draft. #51 was retired after #50 merged
+  because its stacked branch carried stale inventory history. #52 was rebuilt from
+  `5024e15` and contains runtime-only changes. Current scope: authenticated
+  producer coverage windows for file/Falco/eBPF, explicit drop/invalid/error
+  accounting, immutable coverage retry, continuity tracking and complete-empty
+  runtime intervals. A transient delivery failure breaks continuity even if a later
+  retry succeeds. Runtime/Pod/cross-resource auto-resolution remains blocked until
+  producer semantics, persistence and live topology gates are complete.
+  Persisted/API/UI explanations and availability remain coordinated with E. D is
+  not complete.
 - E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
 - F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
@@ -151,8 +157,8 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. After that point, #51 must be rebuilt/rebased on
-the merged #50 head before further runtime coverage work; it must not reintroduce
+security regression gates passed. #51 was retired rather than reused. Active runtime work is #52 on a fresh branch
+from merge commit `5024e15`; it must remain runtime-only and must not reintroduce
 an older inventory contract.
 
 
