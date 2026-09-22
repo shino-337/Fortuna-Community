@@ -44,7 +44,7 @@ tags: ["resource-kind:Role", "resource-kind:ClusterRole"]
 	hashes, _ := json.Marshal(map[string]string{inventoryevidence.Key("Role", "same"): digest})
 	now := time.Now().UTC()
 	kindTimes, _ := json.Marshal(map[string]time.Time{"roles": now, "clusterRoles": now})
-	require.NoError(t, db.Create(&models.InventoryCollection{ClusterID: "a", AgentID: "agent-a", Status: "complete", StartedAt: now.Add(-time.Second), ObservedAt: now, KindObservedAt: string(kindTimes), RoleDigests: string(hashes)}).Error)
+	require.NoError(t, db.Create(&models.InventoryCollection{ClusterID: "a", AgentID: "agent-a", Status: "complete", StartedAt: now.Add(-time.Second), ObservedAt: now, KindStartedAt: string(kindTimes), RoleDigests: string(hashes)}).Error)
 	return db, &InsightStatusUpdater{db: db, yamlEngine: ye, riskEngine: ye.Engine}, f
 }
 
@@ -98,10 +98,10 @@ func TestResolutionEvidenceBoundaries(t *testing.T) {
 				findingAt := receipt.StartedAt.Add(500 * time.Millisecond)
 				require.NoError(t, db.Model(&f).UpdateColumn("detected_at", findingAt).Error)
 				times, _ := json.Marshal(map[string]time.Time{"roles": receipt.StartedAt.Add(250 * time.Millisecond), "clusterRoles": receipt.ObservedAt})
-				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_observed_at", string(times)).Error)
+				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_started_at", string(times)).Error)
 			case "missing-kind-time":
 				times, _ := json.Marshal(map[string]time.Time{"clusterRoles": time.Now().UTC()})
-				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_observed_at", string(times)).Error)
+				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_started_at", string(times)).Error)
 			case "runtime":
 				require.NoError(t, db.Model(&f).Updates(map[string]any{"resource_type": "Pod", "insight_type": "runtime-behavior"}).Error)
 			case "collection-error":
