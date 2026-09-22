@@ -59,6 +59,7 @@ type AgentService struct {
 	namespaceScope     string
 	deferWork          bool
 	afterCommit        []func()
+	agentRecord        *models.Agent
 	db                 *gorm.DB
 	logger             *log.Logger
 	systemUserID       uint
