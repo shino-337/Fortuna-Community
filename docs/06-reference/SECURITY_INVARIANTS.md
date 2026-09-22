@@ -164,7 +164,9 @@ remain D2 runtime/E work; inventory receipts do not establish sensor coverage.
 
 ## Inventory receipt integrity (D2 inventory)
 
-Only scoped Agent identity can issue a verified receipt. Agent health metadata
+Only scoped Agent identity can issue a verified receipt. A request authenticated
+as a scoped Agent must include collection evidence; missing collection metadata is
+a hard reject and must never downgrade into an unverified write. Agent health metadata
 from the same HTTP sync commits with the inventory transaction; failed inventory
 persistence must not advance Agent liveness. Scoped HTTP mode is exclusive when
 the credential registry is configured and does not fall back to the legacy shared
@@ -186,10 +188,15 @@ ordering during resolution. Identical accepted replays are idempotent; changed
 replays and older observations are rejected. Failed attempts are terminal: retry
 by collecting a new attempt ID, as Syncer does on its next cycle.
 
-A complete receipt covers the received inventory projection, not derived risk/PCE
-processing or proof that absent objects were deleted in Kubernetes. Existing
+A complete receipt proves the collection completed and its included rows were
+accepted. It does not claim authoritative projection reconciliation or deletion.
+The HTTP contract must expose non-authoritative deletion semantics, and retained
+rows absent from a complete-empty collection must not become eligible for
+auto-resolution. Existing
 empty/partial deletion safeguards remain. Namespace-limited collections must reject out-of-scope namespaced rows and must
-not prune namespaced inventory elsewhere. ClusterRole/ClusterRoleBinding lists still
+not prune namespaced inventory elsewhere. Namespaced object upsert identity is
+`cluster_id + namespace + uid`; a same UID already persisted in another namespace
+is an integrity conflict and must fail closed rather than move/adopt that row. ClusterRole/ClusterRoleBinding lists still
 cover cluster-scoped objects. The PostgreSQL CI gate exercises concurrent replay,
 SQL-trigger failure, rollback and recovery, including timestamp precision.
 
