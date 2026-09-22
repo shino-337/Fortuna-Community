@@ -16,7 +16,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/fortuna/agent/internal/corehttp"
 )
 
 type Event struct {
@@ -188,6 +187,15 @@ func PrepareEventsV2(events []Event) {
 				ev.SourceKind = "agent"
 			}
 		}
+		if ev.Confidence <= 0 {
+			// Missing confidence used to be silently skipped by Core while Agent
+			// treated HTTP 200 as delivery. Use a conservative neutral default;
+			// source-specific producers may provide a stronger explicit value.
+			ev.Confidence = 0.5
+		}
+		if ev.Confidence > 1 {
+			ev.Confidence = 1
+		}
 
 		if strings.TrimSpace(ev.EventID) == "" {
 			h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", podUID, ev.Syscall, ev.Target, ts)))
@@ -211,22 +219,8 @@ func PrepareEventsV2(events []Event) {
 }
 
 func (r *Reader) send(events []Event) error {
-	PrepareEventsV2(events)
-	body, _ := json.Marshal(events)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", r.coreURL), bytes.NewReader(body))
-	if err != nil {
+	if _, err := PostEventsV2(context.Background(), r.httpClient, r.coreURL, events); err != nil {
 		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	corehttp.ApplyOptionalAuthorization(req)
-
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("runtime events v2 POST failed: %s", resp.Status)
 	}
 	atomic.AddUint64(&r.v2Success, 1)
 	return nil
