@@ -170,11 +170,11 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 	}
 	c.StartedAt = c.StartedAt.UTC().Truncate(time.Microsecond)
 	c.ObservedAt = c.ObservedAt.UTC().Truncate(time.Microsecond)
-	normalizedKindObservedAt := make(map[string]time.Time, len(c.KindObservedAt))
-	for kind, observed := range c.KindObservedAt {
-		normalizedKindObservedAt[kind] = observed.UTC().Truncate(time.Microsecond)
+	normalizedKindStartedAt := make(map[string]time.Time, len(c.KindStartedAt))
+	for kind, observed := range c.KindStartedAt {
+		normalizedKindStartedAt[kind] = observed.UTC().Truncate(time.Microsecond)
 	}
-	c.KindObservedAt = normalizedKindObservedAt
+	c.KindStartedAt = normalizedKindStartedAt
 	if err := ValidateInventoryPayload(c, data, time.Now().UTC()); err != nil {
 		return nil, err
 	}
@@ -185,8 +185,8 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 	hash := sha256.Sum256(raw)
 	digest := hex.EncodeToString(hash[:])
 	counts, _ := json.Marshal(c.Counts)
-	kindObservedAt, _ := json.Marshal(c.KindObservedAt)
-	result := models.InventoryCollection{ClusterID: clusterID, AgentID: agentID, CollectionID: c.ID, Namespace: c.Namespace, Status: c.Status, StartedAt: c.StartedAt, ObservedAt: c.ObservedAt, ReceivedAt: time.Now().UTC().Truncate(time.Microsecond), PayloadSHA256: digest, Counts: string(counts), KindObservedAt: string(kindObservedAt)}
+	kindStartedAt, _ := json.Marshal(c.KindStartedAt)
+	result := models.InventoryCollection{ClusterID: clusterID, AgentID: agentID, CollectionID: c.ID, Namespace: c.Namespace, Status: c.Status, StartedAt: c.StartedAt, ObservedAt: c.ObservedAt, ReceivedAt: time.Now().UTC().Truncate(time.Microsecond), PayloadSHA256: digest, Counts: string(counts), KindStartedAt: string(kindStartedAt)}
 	if c.Status == "failed" {
 		result.FailureStage = "collection"
 	}
@@ -226,7 +226,7 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 			return err
 		}
 		if prior.CollectionID == c.ID {
-			if prior.PayloadSHA256 != digest || prior.AgentID != agentID || prior.Namespace != c.Namespace || prior.Status != c.Status || prior.KindObservedAt != result.KindObservedAt || !prior.StartedAt.Equal(c.StartedAt) || !prior.ObservedAt.Equal(c.ObservedAt) {
+			if prior.PayloadSHA256 != digest || prior.AgentID != agentID || prior.Namespace != c.Namespace || prior.Status != c.Status || prior.KindStartedAt != result.KindStartedAt || !prior.StartedAt.Equal(c.StartedAt) || !prior.ObservedAt.Equal(c.ObservedAt) {
 				return ErrCollectionConflict
 			}
 			result = prior
@@ -255,7 +255,7 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 			failed := result
 			failed.Status = "failed"
 			failed.FailureStage = "persistence"
-			persistErr := s.db.WithContext(failureCtx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "cluster_id"}}, DoUpdates: clause.AssignmentColumns([]string{"agent_id", "collection_id", "namespace", "status", "started_at", "observed_at", "received_at", "payload_sha256", "counts", "kind_observed_at", "role_digests", "failure_stage"}), Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "inventory_collections.started_at < excluded.started_at"}}}}).Create(&failed).Error
+			persistErr := s.db.WithContext(failureCtx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "cluster_id"}}, DoUpdates: clause.AssignmentColumns([]string{"agent_id", "collection_id", "namespace", "status", "started_at", "observed_at", "received_at", "payload_sha256", "counts", "kind_started_at", "role_digests", "failure_stage"}), Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "inventory_collections.started_at < excluded.started_at"}}}}).Create(&failed).Error
 			if persistErr != nil {
 				return nil, fmt.Errorf("inventory sync: %v; failed to record collection failure: %w", err, persistErr)
 			}
@@ -333,7 +333,7 @@ func (s *AgentService) SyncUnverifiedData(ctx context.Context, clusterID, cluste
 		if c != nil {
 			namespace = c.Namespace
 		}
-		return tx.Model(&state).Updates(map[string]interface{}{"status": "unknown", "failure_stage": "", "received_at": now, "started_at": now, "observed_at": time.Time{}, "agent_id": "", "collection_id": "", "namespace": namespace, "payload_sha256": "", "role_digests": "{}", "counts": "{}", "kind_observed_at": "{}"}).Error
+		return tx.Model(&state).Updates(map[string]interface{}{"status": "unknown", "failure_stage": "", "received_at": now, "started_at": now, "observed_at": time.Time{}, "agent_id": "", "collection_id": "", "namespace": namespace, "payload_sha256": "", "role_digests": "{}", "counts": "{}", "kind_started_at": "{}"}).Error
 	})
 	if err == nil && child != nil {
 		child.db = s.db
