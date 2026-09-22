@@ -1400,7 +1400,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 		// Clean up duplicate pods (same UID) - keep only the latest one per UID
 		for uid := range syncedUIDs {
 			var duplicates []models.Pod
-			if err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).Order("created_at DESC").Find(&duplicates).Error; err != nil {
+			if err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).Order("created_at DESC").Find(&duplicates).Error; err != nil {
 				return err
 			}
 
@@ -1444,7 +1444,7 @@ func (s *AgentService) evaluatePodCapabilities(clusterID, uid, specHash string) 
 	defer cancel()
 
 	var pod models.Pod
-	if err := s.db.WithContext(ctx).Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&pod).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&pod).Error; err != nil {
 		// Avoid noisy logs in tests: in-memory DB may be gone when goroutine runs after test exit
 		if isTableMissingErr(err) {
 			return
