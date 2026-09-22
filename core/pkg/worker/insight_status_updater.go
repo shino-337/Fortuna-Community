@@ -96,7 +96,7 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 			err := u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 				guard := *u
 				guard.db = tx
-				evidenceObservedAt, err := guard.requireResolutionEvidence(ctx, &insight)
+				evidenceListStartedAt, err := guard.requireResolutionEvidence(ctx, &insight)
 				if err != nil {
 					return err
 				}
@@ -119,7 +119,7 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 				if result.RowsAffected == 0 {
 					return nil
 				}
-				details, _ := json.Marshal(map[string]any{"reason": "risk no longer matched", "resource_uid": insight.ResourceUID, "previous_status": insight.Status, "evidence_source": "authenticated_inventory", "collection_id": collectionReceipt.CollectionID, "observed_at": evidenceObservedAt, "agent_id": collectionReceipt.AgentID, "snapshot_updated_at": snapshotVersion, "max_age_seconds": resolutionSnapshotMaxAge.Seconds()})
+				details, _ := json.Marshal(map[string]any{"reason": "risk no longer matched", "resource_uid": insight.ResourceUID, "previous_status": insight.Status, "evidence_source": "authenticated_inventory", "collection_id": collectionReceipt.CollectionID, "list_started_at": evidenceListStartedAt, "collection_end_at": collectionReceipt.ObservedAt, "agent_id": collectionReceipt.AgentID, "snapshot_updated_at": snapshotVersion, "max_age_seconds": resolutionSnapshotMaxAge.Seconds()})
 				audit := models.AuditLog{ClusterID: insight.ClusterID, Action: "auto_resolve", Resource: "insight", ResourceID: fmt.Sprint(insight.ID), User: "system:risk-reconciliation", Details: string(details)}
 				if err := tx.Omit("UserID").Create(&audit).Error; err != nil {
 					return err
