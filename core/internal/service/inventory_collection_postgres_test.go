@@ -60,11 +60,11 @@ func TestInventoryCollectionPostgres(t *testing.T) {
 	data["roles"] = []interface{}{map[string]interface{}{"uid": "role-a", "name": "role", "namespace": "ns", "rules": []interface{}{}}}
 	counts["roles"] = 1
 	now := time.Now().UTC()
-	kindObservedAt := map[string]time.Time{}
+	kindStartedAt := map[string]time.Time{}
 	for _, kind := range collection.InventoryKinds {
-		kindObservedAt[kind] = now.Add(-time.Second)
+		kindStartedAt[kind] = now.Add(-time.Second)
 	}
-	c := collection.Inventory{Version: 1, ID: "postgres-attempt-0001", Namespace: "ns", Status: "complete", StartedAt: now.Add(-time.Minute), ObservedAt: now, KindObservedAt: kindObservedAt, Counts: counts}
+	c := collection.Inventory{Version: 1, ID: "postgres-attempt-0001", Namespace: "ns", Status: "complete", StartedAt: now.Add(-time.Minute), ObservedAt: now, KindStartedAt: kindStartedAt, Counts: counts}
 	var wg sync.WaitGroup
 	errs := make(chan error, 12)
 	for i := 0; i < 12; i++ {
