@@ -152,6 +152,9 @@ func Migrate(db *gorm.DB) error {
 	if err := migrations.EnsureInventoryCollection(db); err != nil {
 		return fmt.Errorf("inventory collection schema: %w", err)
 	}
+	if err := migrations.EnsureRuntimeCoverage(db); err != nil {
+		return fmt.Errorf("runtime coverage schema: %w", err)
+	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
 }
