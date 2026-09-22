@@ -107,12 +107,12 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   update guards. All 11 merge-commit checks passed. Missing resources, runtime
   silence and incomplete evidence preserve findings.
 - D2 inventory / #50 implemented, pending final CI/review: authenticated collection
-  ID, bounded collection interval, exact per-kind observation times, namespace scope
+  ID, bounded collection interval, exact per-kind List start bounds, namespace scope
   and per-kind counts; complete-empty and failed collections are distinct. Agent
   liveness plus inventory projection/receipt commit atomically, so failed inventory
   persistence cannot advance Agent health. Core rejects altered replays/older
   attempts and propagates persistence errors. Role/ClusterRole eligibility requires
-  the exact kind observation to post-date the finding plus a digest matching the
+  the kind List start bound to post-date the finding plus a digest matching the
   stored snapshot; batch-end time and row UpdatedAt are never freshness surrogates.
   Sequential multi-kind List calls are explicitly not an atomic Kubernetes snapshot,
   so cross-resource resolution remains blocked.
