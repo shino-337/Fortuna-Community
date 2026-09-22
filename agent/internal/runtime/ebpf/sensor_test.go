@@ -222,3 +222,82 @@ type runtimeCoverageEnvelope struct {
 	Status string `json:"status"`
 	Errors uint64 `json:"errors"`
 }
+
+
+func TestCoverageSnapshotDoesNotSplitInflightDelivery(t *testing.T) {
+	eventEntered := make(chan struct{})
+	releaseEvent := make(chan struct{})
+	coverageGot := make(chan runtimeCoverageWindow, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/events":
+			close(eventEntered)
+			<-releaseEvent
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/coverage":
+			var got runtimeCoverageWindow
+			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+				t.Errorf("decode coverage: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			coverageGot <- got
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-a", time.Second, 4, false)
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- s.send([]runtime.Event{{Signal: "EBPF_EXEC", Syscall: "execve", Timestamp: time.Now().Unix()}})
+	}()
+
+	select {
+	case <-eventEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for event delivery")
+	}
+
+	reportDone := make(chan struct{})
+	go func() {
+		s.reportCoverage()
+		close(reportDone)
+	}()
+
+	select {
+	case <-reportDone:
+		t.Fatal("coverage snapshot completed while event delivery was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseEvent)
+	if err := <-sendDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reportDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("coverage snapshot did not complete")
+	}
+
+	select {
+	case got := <-coverageGot:
+		if got.Status != "complete" || got.Emitted != 1 || got.Delivered != 1 || got.Errors != 0 {
+			t.Fatalf("delivery accounting split across windows: %+v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("coverage report missing")
+	}
+}
+
+type runtimeCoverageWindow struct {
+	Status    string `json:"status"`
+	Emitted   uint64 `json:"emitted"`
+	Delivered uint64 `json:"delivered"`
+	Errors    uint64 `json:"errors"`
+}
