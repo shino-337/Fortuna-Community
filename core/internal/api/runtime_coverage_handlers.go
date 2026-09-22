@@ -52,6 +52,10 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", row.ClusterID, row.AgentID, row.ProducerID).
 				First(&prior).Error
 			if errors.Is(err, gorm.ErrRecordNotFound) {
+				if row.Status == "complete" {
+					start := row.WindowStart
+					row.ContinuousSince = &start
+				}
 				return tx.Create(&row).Error
 			}
 			if err != nil {
@@ -71,10 +75,23 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 			if !row.WindowEnd.After(prior.WindowEnd) {
 				return errRuntimeCoverageConflict
 			}
+			row.ContinuousSince = nil
+			if row.Status == "complete" {
+				start := row.WindowStart
+				switch {
+				case prior.Status == "complete" && prior.ContinuousSince != nil && !row.WindowStart.After(prior.WindowEnd):
+					start = *prior.ContinuousSince
+				case prior.Status != "complete" && row.WindowStart.Before(prior.WindowEnd):
+					// A later successful retry/window cannot erase a previously
+					// recorded failure by backdating its start across the failed span.
+					start = prior.WindowEnd
+				}
+				row.ContinuousSince = &start
+			}
 			return tx.Model(&prior).Updates(map[string]interface{}{
 				"coverage_id": row.CoverageID, "source_kind": row.SourceKind, "status": row.Status,
 				"window_start": row.WindowStart, "window_end": row.WindowEnd, "received_at": row.ReceivedAt,
-				"emitted": row.Emitted, "delivered": row.Delivered, "dropped": row.Dropped,
+				"continuous_since": row.ContinuousSince, "emitted": row.Emitted, "delivered": row.Delivered, "dropped": row.Dropped,
 				"invalid": row.Invalid, "reason": row.Reason,
 			}).Error
 		})
