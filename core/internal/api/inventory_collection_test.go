@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -19,7 +20,7 @@ import (
 
 func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, tc := range []string{"empty", "failed", "invalid", "foreign", "legacy"} {
+	for _, tc := range []string{"empty", "failed", "invalid", "foreign", "legacy", "persistence-failure"} {
 		t.Run(tc, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
@@ -61,6 +62,15 @@ func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 				cid = "b"
 				want = http.StatusForbidden
 			}
+			if tc == "persistence-failure" {
+				want = http.StatusInternalServerError
+				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("test:http-cluster-failure", func(tx *gorm.DB) {
+					if tx.Statement.Table == "clusters" {
+						tx.AddError(errors.New("injected cluster persistence failure"))
+					}
+				}))
+				defer db.Callback().Create().Remove("test:http-cluster-failure")
+			}
 			payload := map[string]interface{}{"clusterId": cid, "agent": map[string]interface{}{"agentId": "agent-a"}, "data": data, "collection": meta}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
@@ -72,10 +82,16 @@ func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 			var receipts []models.InventoryCollection
 			require.NoError(t, db.Find(&receipts).Error)
 			if want != http.StatusOK {
-				require.Empty(t, receipts)
+				if tc == "persistence-failure" {
+					require.Len(t, receipts, 1)
+					require.Equal(t, "failed", receipts[0].Status)
+					require.Equal(t, "persistence", receipts[0].FailureStage)
+				} else {
+					require.Empty(t, receipts)
+				}
 				var n int64
 				require.NoError(t, db.Model(&models.Agent{}).Count(&n).Error)
-				require.Zero(t, n)
+				require.Zero(t, n, "failed inventory request must not commit Agent liveness")
 				return
 			}
 			require.Len(t, receipts, 1)
