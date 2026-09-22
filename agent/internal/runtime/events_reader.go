@@ -204,7 +204,6 @@ func (r *Reader) readAndSend() {
 
 // PrepareEventsV2 fills canonical metadata for every runtime producer while preserving sensor values.
 func PrepareEventsV2(events []Event) {
-	now := time.Now().UTC()
 	for i := range events {
 		ev := &events[i]
 
@@ -216,18 +215,12 @@ func PrepareEventsV2(events []Event) {
 		}
 		podUID = strings.TrimSpace(podUID)
 
-		ts := ev.Timestamp
-		if ts <= 0 {
-			ts = now.Unix()
+		if ev.Timestamp > 0 && strings.TrimSpace(ev.ObservedAt) == "" {
+			ev.ObservedAt = time.Unix(ev.Timestamp, 0).UTC().Format(time.RFC3339)
 		}
-
-		observedAt := time.Unix(ts, 0).UTC()
-		if strings.TrimSpace(ev.ObservedAt) == "" {
-			ev.ObservedAt = observedAt.Format(time.RFC3339)
-		}
-		if strings.TrimSpace(ev.IngestedAt) == "" {
-			ev.IngestedAt = now.Format(time.RFC3339)
-		}
+		// ingested_at is intentionally left empty when the producer did not
+		// supply one. Core stamps the durable receipt time. Injecting time.Now()
+		// here would make the same retained event change across retries.
 		if strings.TrimSpace(ev.ResolutionState) == "" {
 			ev.ResolutionState = "unresolved"
 		} else {
@@ -241,18 +234,10 @@ func PrepareEventsV2(events []Event) {
 			}
 		}
 		if ev.Confidence <= 0 {
-			// Missing confidence used to be silently skipped by Core while Agent
-			// treated HTTP 200 as delivery. Use a conservative neutral default;
-			// source-specific producers may provide a stronger explicit value.
 			ev.Confidence = 0.5
 		}
 		if ev.Confidence > 1 {
 			ev.Confidence = 1
-		}
-
-		if strings.TrimSpace(ev.EventID) == "" {
-			h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", podUID, ev.Syscall, ev.Target, ts)))
-			ev.EventID = hex.EncodeToString(h[:])
 		}
 
 		if ev.PayloadJSON == nil {
@@ -267,6 +252,13 @@ func PrepareEventsV2(events []Event) {
 			b, _ := json.Marshal(ev.PayloadJSON)
 			h := sha256.Sum256(b)
 			ev.PayloadHash = hex.EncodeToString(h[:])
+		}
+		if strings.TrimSpace(ev.EventID) == "" {
+			stable := fmt.Sprintf("%s|%s|%s|%d|%s|%s|%s|%s|%s|%s|%s|%s",
+				podUID, ev.Syscall, ev.Target, ev.Timestamp, ev.Runtime, ev.SourceKind,
+				ev.SourceSensorID, ev.SourceRule, ev.Signal, ev.EventType, ev.Capability, ev.PayloadHash)
+			h := sha256.Sum256([]byte(stable))
+			ev.EventID = hex.EncodeToString(h[:])
 		}
 	}
 }
