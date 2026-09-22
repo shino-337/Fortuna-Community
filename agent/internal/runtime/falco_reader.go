@@ -19,7 +19,6 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/fortuna/agent/internal/corehttp"
 )
 
 // Falco JSON event format (minimal subset).
@@ -215,22 +214,8 @@ func parseFalcoJSONLines(line []byte) ([]falcoEvent, error) {
 }
 
 func (r *FalcoReader) send(events []Event) error {
-	PrepareEventsV2(events)
-	body, _ := json.Marshal(events)
-	// Canonical v2 endpoint; failed batches are retried without protocol downgrade.
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", r.coreURL), bytes.NewReader(body))
-	if err != nil {
+	if _, err := PostEventsV2(context.Background(), r.httpClient, r.coreURL, events); err != nil {
 		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	corehttp.ApplyOptionalAuthorization(req)
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("falco events v2 POST failed: %s", resp.Status)
 	}
 	atomic.AddUint64(&r.v2Success, 1)
 	return nil
