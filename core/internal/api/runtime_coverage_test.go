@@ -122,6 +122,26 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 		require.Equal(t, http.StatusUnauthorized, w.Code)
 	})
 
+	t.Run("historical-window-accepted-but-stale", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		oldStart := now.Add(-2 * time.Hour)
+		oldEnd := oldStart.Add(time.Minute)
+		c := coverageWindow("coverage-000000000099", oldStart, oldEnd)
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var row models.RuntimeCoverage
+		require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+		require.Equal(t, "stale", row.EffectiveStatus(now))
+	})
+
+	t.Run("producer-source-mismatch", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000098", now.Add(-time.Second), now)
+		c.ProducerID = "runtime-file"
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
 	t.Run("complete-with-error", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		c := coverageWindow("coverage-000000000011", now.Add(-time.Second), now)
