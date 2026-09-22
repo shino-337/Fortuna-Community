@@ -10,12 +10,17 @@ import (
 const Version = 1
 const MaxAge = 10 * time.Minute
 
+// ProjectionSemanticsNonAuthoritativeDeletion means a complete collection proves
+// observation/persistence of the included lists, but absence is not authoritative
+// deletion evidence and may be intentionally retained in the Core projection.
+const ProjectionSemanticsNonAuthoritativeDeletion = "non_authoritative_deletion"
+
 var InventoryKinds = []string{"pods", "serviceAccounts", "roles", "roleBindings", "clusterRoles", "clusterRoleBindings", "deployments", "replicasets"}
 
 type Inventory struct {
 	Version    int            `json:"version"`
 	ID         string         `json:"id"`
-	Status     string         `json:"status"`    // complete or failed; never inferred from an empty list
+	Status     string         `json:"status"`    // collection complete/failed only; never means the DB projection is fully reconciled
 	Namespace  string         `json:"namespace"` // empty means all namespaces
 	StartedAt  time.Time      `json:"startedAt"`
 	ObservedAt    time.Time            `json:"observedAt"` // end of the multi-kind collection interval
