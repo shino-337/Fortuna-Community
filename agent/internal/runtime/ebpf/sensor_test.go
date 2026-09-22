@@ -5,12 +5,15 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/fortuna/agent/internal/runtime"
+	"github.com/fortuna/api/collection"
 )
 
 func TestNormalizeEBPFMode(t *testing.T) {
@@ -196,5 +199,61 @@ func TestFlushLoopAccountsRetainedBatchOnShutdownFailure(t *testing.T) {
 	}
 	if got := atomic.LoadUint64(&s.droppedEvents); got != 1 {
 		t.Fatalf("shutdown loss must be explicitly accounted: dropped=%d", got)
+	}
+}
+
+
+func TestEBPFQueueDropProducesFailedCoverage(t *testing.T) {
+	token := strings.Repeat("s", 32)
+	tokenFile := filepath.Join(t.TempDir(), "agent.token")
+	if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil { t.Fatal(err) }
+	t.Setenv("FORTUNA_AGENT_TOKEN_FILE", tokenFile)
+
+	coverageCh := make(chan collection.RuntimeCoverage, 8)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/events":
+			var batch []runtime.Event
+			_ = json.NewDecoder(r.Body).Decode(&batch)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]int{"accepted": len(batch)})
+		case "/api/v2/runtime/coverage":
+			var receipt collection.RuntimeCoverage
+			if err := json.NewDecoder(r.Body).Decode(&receipt); err != nil { t.Error(err); return }
+			coverageCh <- receipt
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-drop", 20*time.Millisecond, 1, false)
+	s.enqueueEvent(runtime.Event{Pod: map[string]interface{}{"uid": "pod-a"}, Signal: "A", Syscall: "execve", Timestamp: time.Now().Unix()})
+	s.enqueueEvent(runtime.Event{Pod: map[string]interface{}{"uid": "pod-a"}, Signal: "B", Syscall: "execve", Timestamp: time.Now().Unix()})
+	if atomic.LoadUint64(&s.droppedEvents) != 1 {
+		t.Fatalf("expected one queue overflow, got %d", atomic.LoadUint64(&s.droppedEvents))
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { s.flushLoop(ctx); close(done) }()
+	found := false
+	deadline := time.After(2 * time.Second)
+	for !found {
+		select {
+		case receipt := <-coverageCh:
+			if receipt.Status == "failed" && receipt.Dropped >= 1 {
+				found = true
+			}
+		case <-deadline:
+			t.Fatal("timed out waiting for failed eBPF coverage receipt")
+		}
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("eBPF flush loop did not stop")
 	}
 }
