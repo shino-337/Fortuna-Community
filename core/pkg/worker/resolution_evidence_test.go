@@ -93,9 +93,11 @@ func TestResolutionEvidenceBoundaries(t *testing.T) {
 			case "before-finding":
 				require.NoError(t, db.Model(&f).UpdateColumn("detected_at", time.Now().Add(time.Minute)).Error)
 			case "kind-before-finding":
-				var current models.Insight
-				require.NoError(t, db.First(&current, f.ID).Error)
-				times, _ := json.Marshal(map[string]time.Time{"roles": current.DetectedAt.Add(-time.Second), "clusterRoles": time.Now().UTC()})
+				var receipt models.InventoryCollection
+				require.NoError(t, db.Where("cluster_id = ?", "a").First(&receipt).Error)
+				findingAt := receipt.StartedAt.Add(500 * time.Millisecond)
+				require.NoError(t, db.Model(&f).UpdateColumn("detected_at", findingAt).Error)
+				times, _ := json.Marshal(map[string]time.Time{"roles": receipt.StartedAt.Add(250 * time.Millisecond), "clusterRoles": receipt.ObservedAt})
 				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_observed_at", string(times)).Error)
 			case "missing-kind-time":
 				times, _ := json.Marshal(map[string]time.Time{"clusterRoles": time.Now().UTC()})
