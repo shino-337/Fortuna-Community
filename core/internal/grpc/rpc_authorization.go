@@ -67,24 +67,15 @@ func authorizeScopedGRPCPod(db *gorm.DB, principal agentidentity.Principal, podU
 	return nil
 }
 
-// authorizeScopedGRPCAgentRecord protects the legacy globally unique Agent row.
-// C3c deliberately defers duplicate AgentIDs until every control path is migrated
-// to trusted cluster-qualified identity. A credential therefore cannot claim an
-// Agent row already owned by another cluster.
+// A credential may register its own cluster/AgentID even if another cluster
+// uses the same display ID. Verify storage availability before handler effects.
 func authorizeScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Principal) error {
 	if db == nil {
 		return scopedGRPCUnavailable()
 	}
-	var agent models.Agent
-	err := db.Unscoped().Where("agent_id = ?", principal.AgentID).First(&agent).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
-	}
-	if err != nil {
+	var count int64
+	if err := db.Model(&models.Agent{}).Where("cluster_id = ? AND agent_id = ?", principal.ClusterID, principal.AgentID).Count(&count).Error; err != nil {
 		return scopedGRPCUnavailable()
-	}
-	if agent.ClusterID != "" && agent.ClusterID != principal.ClusterID {
-		return scopedGRPCPermissionDenied()
 	}
 	return nil
 }
@@ -93,22 +84,12 @@ func bindScopedGRPCAgentRecord(db *gorm.DB, principal agentidentity.Principal) e
 	if db == nil {
 		return scopedGRPCUnavailable()
 	}
-	res := db.Model(&models.Agent{}).
-		Where("agent_id = ? AND (cluster_id = '' OR cluster_id = ?)", principal.AgentID, principal.ClusterID).
-		Update("cluster_id", principal.ClusterID)
-	if res.Error != nil {
+	var count int64
+	if err := db.Model(&models.Agent{}).Where("cluster_id = ? AND agent_id = ?", principal.ClusterID, principal.AgentID).Count(&count).Error; err != nil {
 		return scopedGRPCUnavailable()
 	}
-	if res.RowsAffected == 0 {
-		var count int64
-		if err := db.Model(&models.Agent{}).
-			Where("agent_id = ? AND cluster_id = ?", principal.AgentID, principal.ClusterID).
-			Count(&count).Error; err != nil {
-			return scopedGRPCUnavailable()
-		}
-		if count == 0 {
-			return scopedGRPCPermissionDenied()
-		}
+	if count == 0 {
+		return scopedGRPCPermissionDenied()
 	}
 	return nil
 }

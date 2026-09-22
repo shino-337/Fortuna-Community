@@ -110,7 +110,7 @@ func (c *MTLSClient) dialLocked(ctx context.Context) error {
 		c.logger.Printf("  Key:  %s", c.keyPath)
 		c.logger.Printf("  CA:   %s", c.caPath)
 
-		cert, err := tls.LoadX509KeyPair(c.certPath, c.keyPath)
+		_, err := loadClientCertificate(c.certPath, c.keyPath)
 		if err != nil {
 			return fmt.Errorf("failed to load client cert/key: %w", err)
 		}
@@ -126,10 +126,12 @@ func (c *MTLSClient) dialLocked(ctx context.Context) error {
 		}
 
 		tlsConfig := &tls.Config{
-			Certificates: []tls.Certificate{cert},
-			RootCAs:      certPool,
-			ServerName:   "fortuna-core.fortuna.svc.cluster.local",
-			MinVersion:   tls.VersionTLS13,
+			GetClientCertificate: func(*tls.CertificateRequestInfo) (*tls.Certificate, error) {
+				return loadClientCertificate(c.certPath, c.keyPath)
+			},
+			RootCAs:    certPool,
+			ServerName: "fortuna-core.fortuna.svc.cluster.local",
+			MinVersion: tls.VersionTLS13,
 		}
 
 		creds := credentials.NewTLS(tlsConfig)

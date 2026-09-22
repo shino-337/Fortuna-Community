@@ -3,7 +3,6 @@ package api
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"testing"
 	"time"
 
@@ -20,7 +19,7 @@ func TestAgentClusterIdentityIsolation(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := upsertAgentClusterIdentity(context.Background(), db, "b", &AgentPayload{AgentID: "agent-a", NodeName: "hijack"}); !errors.Is(err, errAgentClusterConflict) {
+	if err := upsertAgentClusterIdentity(context.Background(), db, "b", &AgentPayload{AgentID: "agent-a", NodeName: "hijack"}); err != nil {
 		t.Fatalf("cluster reassignment: %v", err)
 	}
 	old := time.Now().Add(-20 * time.Minute)
@@ -49,8 +48,8 @@ func TestAgentClusterIdentityIsolation(t *testing.T) {
 		t.Fatal(err)
 	}
 	var row models.Agent
-	if err := db.Where("agent_id = ?", "legacy").First(&row).Error; err != nil || row.ClusterID != "a" {
-		t.Fatalf("legacy assignment: %+v %v", row, err)
+	if err := db.Where("agent_id = ? AND cluster_id = ?", "legacy", "").First(&row).Error; err != nil || row.ClusterID != "" {
+		t.Fatalf("legacy quarantine changed: %+v %v", row, err)
 	}
 	if err := upsertAgentClusterIdentity(context.Background(), nil, "a", &AgentPayload{AgentID: "agent-a"}); err == nil {
 		t.Fatal("nil database must fail closed")

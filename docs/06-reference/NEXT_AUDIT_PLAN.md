@@ -81,7 +81,7 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   readers/writers and hard constraints intentionally remain for #46/#47.
 - #46 merged: Pod reads/writes, risk/cache/reconciliation paths use cluster-qualified
   keys. Retired HTTP routes and dead handlers are removed; runtime senders use v2.
-- #47 implemented, awaiting review/CI: mutable observations use
+- #47 merged: mutable observations use
   cluster/Pod/container/digest; immutable `sbom_image_contents` deduplicates the
   actual package snapshot and extraction provenance independently of ownership.
   Existing component rows remain a workload-local read projection.
@@ -92,9 +92,14 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   Combined finding writes are retired. The mandatory PostgreSQL gate exercises a
   populated pre-content schema, reruns, concurrent ingest, and rejected cross-owner
   writes. Live two-cluster deployment validation remains work package F (#51).
-- #48 planned: remove or explicitly quarantine legacy gRPC finding paths as
-  compatibility requires; provision per-Agent client certificates and define
-  rotation/revocation/rollback. Resolve global AgentID collision semantics.
+- #48 implemented, awaiting review and validation: Agent writes/uniqueness use
+  `{cluster_id, agent_id}`; unowned legacy records remain quarantined. Unscoped
+  gRPC writes/streams are denied and its Ping reports identity_required. Operator
+  tooling issues separate client certificates with digest-only registry bindings;
+  versioned node-local mounts support overlap rotation/revocation. Agent TLS reloads
+  credentials on new handshakes, and streams recheck revocation after blocked reads.
+  Populated PostgreSQL/concurrency and credential lifecycle regressions are required.
+  Live multi-cluster rollout remains package F; source tests do not close that gate.
 - #49 planned: D evidence freshness and auto-resolution eligibility.
 - #50 planned: E API/UI availability and scoped observability, including Agent status.
 - #51 planned: F permanent PostgreSQL/two-cluster integration gate and populated

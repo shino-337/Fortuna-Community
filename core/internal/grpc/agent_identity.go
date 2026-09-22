@@ -91,7 +91,18 @@ func (s *grpcAgentAuthenticatedStream) RecvMsg(m any) error {
 	if principal != s.principal {
 		return status.Error(codes.Unauthenticated, "agent credential identity changed during stream")
 	}
-	return s.ServerStream.RecvMsg(m)
+	if err := s.ServerStream.RecvMsg(m); err != nil {
+		return err
+	}
+	// RecvMsg may block while an operator revokes the certificate.
+	current, err := authenticateGRPCAgent(s.ServerStream.Context(), s.store)
+	if err != nil {
+		return err
+	}
+	if current != s.principal {
+		return status.Error(codes.Unauthenticated, "agent credential identity changed during stream")
+	}
+	return nil
 }
 
 func grpcAgentStreamAuthInterceptor(store agentidentity.Store) ggrpc.StreamServerInterceptor {

@@ -1,0 +1,26 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+spec:
+  template:
+    spec:
+      volumes:
+        - name: agent-mtls-registry
+          secret:
+            secretName: fortuna-agent-mtls-registry
+            items:
+              - key: registry.json
+                path: registry.json
+      containers:
+        - name: core
+          env:
+            - name: TLS_ENABLED
+              value: "true"
+            - name: FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY
+              value: /etc/fortuna/agent-mtls-registry/registry.json
+          volumeMounts:
+            - name: agent-mtls-registry
+              mountPath: /etc/fortuna/agent-mtls-registry
+              readOnly: true

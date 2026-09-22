@@ -89,7 +89,7 @@ Verify that:
 
 - Agent `/sync` succeeds for every node and Core records the expected Agent ID;
 - Pod metrics/process/network/event ingest succeeds after inventory convergence;
-- runtime v1/v2 event ingest succeeds with the node's scoped credential;
+- runtime v2 event ingest succeeds with the node's scoped credential;
 - a node/cluster-A token cannot submit identity claims or runtime Pod UIDs owned by
   cluster B;
 - a mixed runtime batch containing one foreign Pod is rejected as a whole and does
@@ -154,3 +154,6 @@ the other side will silently compensate.
   file are configured.
 - Registry entries should overlap only for controlled rotation and should have a
   bounded expiration time.
+
+Per-Agent gRPC certificates and the mandatory gRPC identity cutover are documented
+in [MTLS.md](MTLS.md). The HTTP token overlay does not enable gRPC authentication.

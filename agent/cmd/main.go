@@ -343,10 +343,12 @@ func pingCore(ctx context.Context, grpcClient client.GRPCClient, cfg *config.Con
 		return err
 	}
 
-	// PingResponse fields may vary - check proto definition
-	// For now, assume success if no error
+	// A quarantined endpoint is reachable but cannot accept authenticated work.
 	if resp == nil {
 		return fmt.Errorf("ping response is nil")
+	}
+	if resp.Status != "healthy" {
+		return fmt.Errorf("Core is not ready for Agent ingest: %s", resp.Status)
 	}
 
 	return nil

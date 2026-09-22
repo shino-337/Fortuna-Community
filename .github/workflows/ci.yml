@@ -96,6 +96,8 @@ jobs:
           grep -q -- '--- PASS: TestPodInsightLifecyclePostgres' /tmp/insight-identity-postgres.log
           go test -v ./internal/repository -run '^TestSBOMConcurrentOwnershipPostgres$' -count=1 -timeout=2m | tee /tmp/sbom-identity-postgres.log
           grep -q -- '--- PASS: TestSBOMConcurrentOwnershipPostgres' /tmp/sbom-identity-postgres.log
+          go test -v ./migrations -run '^TestAgentCompositeIdentityPostgres$' -count=1 -timeout=2m | tee /tmp/agent-identity-postgres.log
+          grep -q -- '--- PASS: TestAgentCompositeIdentityPostgres' /tmp/agent-identity-postgres.log
 
   dashboard:
     name: Dashboard validation
@@ -143,6 +145,7 @@ jobs:
       - name: Validate agent credential provisioning
         run: |
           python scripts/verify/test-agent-credential-tool.py
+          python scripts/verify/test-agent-certificate-tool.py
           python scripts/verify/test-scoped-agent-credential-overlay.py
       - name: Validate cluster resource identity model contract
         run: python scripts/verify/check-cluster-resource-models.py

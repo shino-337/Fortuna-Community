@@ -45,6 +45,33 @@ class ScopedAgentCredentialOverlayTest(unittest.TestCase):
         mount = named(core["volumeMounts"], "agent-credential-registry")
         self.assertTrue(mount["readOnly"])
 
+    def test_mtls_rotation_mounts_parent_directories_without_subpath(self):
+        directory = CORE_PATCH.parent
+        for filename, container_name, volume_name, registry_env in [
+            ("agent-mtls-patch.yaml", "agent", "agent-mtls-credential", "TLS_CERT_PATH"),
+            ("core-mtls-registry-patch.yaml", "core", "agent-mtls-registry", "FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY"),
+        ]:
+            with self.subTest(filename=filename):
+                pod = load_one(directory / filename)["spec"]["template"]["spec"]
+                container = named(pod["containers"], container_name)
+                self.assertEqual(named(container["env"], "TLS_ENABLED")["value"], "true")
+                mount = named(container["volumeMounts"], volume_name)
+                self.assertTrue(mount["readOnly"])
+                self.assertNotIn("subPath", mount)
+                self.assertNotIn("subPathExpr", mount)
+                path = named(container["env"], registry_env)["value"]
+                self.assertTrue(path.startswith(mount["mountPath"] + "/"))
+                volume = named(pod["volumes"], volume_name)
+                if container_name == "agent":
+                    self.assertEqual(volume["hostPath"]["type"], "Directory")
+                    self.assertEqual(volume["hostPath"]["path"], mount["mountPath"])
+                    self.assertNotIn("secret", volume)
+                    for env_name, basename in [("TLS_CERT_PATH", "tls.crt"), ("TLS_KEY_PATH", "tls.key"), ("TLS_CA_CERT_PATH", "ca.crt")]:
+                        self.assertEqual(named(container["env"], env_name)["value"], mount["mountPath"] + "/current/" + basename)
+                else:
+                    self.assertEqual(volume["secret"]["secretName"], "fortuna-agent-mtls-registry")
+                    self.assertEqual(volume["secret"]["items"], [{"key": "registry.json", "path": "registry.json"}])
+
     def test_agent_patch_mounts_one_node_local_token_and_preserves_legacy_base_mode(self):
         doc = load_one(AGENT_PATCH)
         self.assertEqual(doc["kind"], "DaemonSet")
