@@ -60,11 +60,11 @@ func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f 
 	if receipt.AgentID == "" || receipt.EffectiveStatus(now) != "complete" {
 		return time.Time{}, fmt.Errorf("resolution evidence: inventory collection is incomplete, unverified or stale")
 	}
-	var kindObservedAt map[string]time.Time
-	if err := json.Unmarshal([]byte(receipt.KindObservedAt), &kindObservedAt); err != nil {
+	var kindStartedAt map[string]time.Time
+	if err := json.Unmarshal([]byte(receipt.KindStartedAt), &kindStartedAt); err != nil {
 		return time.Time{}, fmt.Errorf("resolution evidence: per-kind observation metadata unavailable")
 	}
-	resourceObservedAt, ok := kindObservedAt[kind]
+	resourceObservedAt, ok := kindStartedAt[kind]
 	if !ok || resourceObservedAt.IsZero() || resourceObservedAt.Before(receipt.StartedAt) || resourceObservedAt.After(receipt.ObservedAt) ||
 		resourceObservedAt.After(now) || now.Sub(resourceObservedAt) > resolutionSnapshotMaxAge {
 		return time.Time{}, fmt.Errorf("resolution evidence: resource observation is missing, invalid or stale")
