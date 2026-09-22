@@ -118,11 +118,13 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   so cross-resource resolution remains blocked.
   PostgreSQL replay/concurrency, real rollback/recovery, Agent rollback, namespace
   scope/pruning, Agent failure and HTTP identity regressions are permanent gates.
-  Receipt completeness does not prove deletion or runtime sensor coverage. Receipt
-  state is currently latest-per-cluster; package F must exercise different
-  WATCH_NAMESPACE scopes on one cluster and either validate a supported single-scope
-  topology or promote the receipt key to include scope before multi-scope operation
-  is claimed.
+  Receipt completeness does not prove deletion or runtime sensor coverage. The
+  Agent DaemonSet is a normal multi-writer topology; latest-per-cluster arbitration
+  is fail-closed and now has PostgreSQL regression coverage for newer failure,
+  older-writer rejection and later recovery. Package F must exercise the real
+  DaemonSet plus different WATCH_NAMESPACE scopes on one cluster and either validate
+  the supported topology or promote the receipt key to include scope before
+  multi-scope aggregation is claimed.
 - D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
   reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
   dependencies. Runtime/Pod auto-resolution stays blocked. Persisted/API/UI
@@ -140,3 +142,15 @@ Security-sensitive paths are covered by CODEOWNERS, but repository rules must
 require CODEOWNER review and required CI checks on `main`. Direct/force pushes or
 merges that bypass those checks defeat the regression-prevention contract and must
 remain disabled by owner-side branch/ruleset configuration.
+
+
+## Merge-readiness discipline
+
+For #50 and subsequent security packages, runtime code is reviewed as one complete
+state machine rather than a sequence of isolated findings. Any runtime-code commit
+resets readiness and requires re-review of identity, scope, failure/replay,
+concurrency, rollback, alternate writers, migrations and deployment topology.
+Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
+security regression gates passed. After that point, #51 must be rebuilt/rebased on
+the merged #50 head before further runtime coverage work; it must not reintroduce
+an older inventory contract.
