@@ -1,8 +1,8 @@
 # Post-merge audit implementation plan
 
-Baseline reviewed after PR #44 merged. Changes continue as focused PRs and are
-reviewed/merged manually. IDs below are work packages; PR #45–#51 references are
-the current implementation sequence, not a claim that later work is already done.
+Status verified after PR #48 merged on 2026-09-22. Changes continue as focused
+PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
+unopened work are estimates: D is split into D1/D2, so later PR numbers may shift.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
@@ -19,8 +19,8 @@ the current implementation sequence, not a claim that later work is already done
 ## Permanent regression-prevention contract
 
 `SECURITY_INVARIANTS.md` defines the rules that survive the individual fixing PRs.
-Every security finding fixed in #45–#51 must become a named regression or static CI
-invariant. The #51 PostgreSQL/two-cluster integration suite becomes a permanent
+Every security finding fixed in packages C–F must become a named regression or static CI
+invariant. The package F PostgreSQL/two-cluster integration suite becomes a permanent
 gate for later changes touching cluster identity, ingest, authorization, storage,
 runtime evidence, findings or migrations.
 
@@ -79,8 +79,8 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   state, performs only unambiguous legacy ownership backfill, runs a fail-closed
   startup schema invariant, and adds static/named CI ratchets. Legacy UID-only
   readers/writers and hard constraints intentionally remain for #46/#47.
-- #46 merged: Pod reads/writes, risk/cache/reconciliation paths use cluster-qualified
-  keys. Retired HTTP routes and dead handlers are removed; runtime senders use v2.
+- #46 merged: Pod reads/writes and risk/cache paths use cluster-qualified
+  keys. The remaining UID-only InsightStatusUpdater lookups are addressed by D1. Retired HTTP routes and dead handlers are removed; runtime senders use v2.
 - #47 merged: mutable observations use
   cluster/Pod/container/digest; immutable `sbom_image_contents` deduplicates the
   actual package snapshot and extraction provenance independently of ownership.
@@ -91,19 +91,29 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   inserts; matching validates event ownership; CVE/malware carry cluster identity.
   Combined finding writes are retired. The mandatory PostgreSQL gate exercises a
   populated pre-content schema, reruns, concurrent ingest, and rejected cross-owner
-  writes. Live two-cluster deployment validation remains work package F (#51).
-- #48 implemented, awaiting review and validation: Agent writes/uniqueness use
+  writes. Live two-cluster deployment validation remains work package F.
+- #48 merged (2026-09-22, merge commit `6fda0c6`): Agent writes/uniqueness use
   `{cluster_id, agent_id}`; unowned legacy records remain quarantined. Unscoped
   gRPC writes/streams are denied and its Ping reports identity_required. Operator
   tooling issues separate client certificates with digest-only registry bindings;
   versioned node-local mounts support overlap rotation/revocation. Agent TLS reloads
   credentials on new handshakes, and streams recheck revocation after blocked reads.
-  Populated PostgreSQL/concurrency and credential lifecycle regressions are required.
+  Populated PostgreSQL/concurrency and credential lifecycle regressions passed.
+  All 11 merge-commit checks passed; the separate PR AI scanner failed before
+  analysis because its selected model was unsupported. That scan remains unverified.
   Live multi-cluster rollout remains package F; source tests do not close that gate.
-- #49 planned: D evidence freshness and auto-resolution eligibility.
-- #50 planned: E API/UI availability and scoped observability, including Agent status.
-- #51 planned: F permanent PostgreSQL/two-cluster integration gate and populated
-  migration evidence. Completing #51 is the point at which A–F behavior can be
+- D1 / #49 implemented, pending CI/review: fail-closed auto-resolution eligibility. Exact cluster/UID,
+  fresh static snapshots and detector dependency checks; preserve missing resources,
+  runtime silence and incomplete evidence. Static snapshot timestamps are not
+  collector observation/completeness receipts.
+- D2 pending after D1: end-to-end collection status, observation timestamps and
+  coverage receipts from Agent; eliminate sync error swallowing before permitting
+  runtime/cross-resource absence to resolve findings; expose persisted status and
+  reasons through API/UI with E. D remains open until this
+  producer-to-evaluator contract is implemented and tested.
+- E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
+- F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
+  migration evidence. Completing package F is the point at which A–F behavior can be
   claimed as validated end to end.
 - G–I remain pending after the A–F gate: scoped AGE, explicit mutation/revocation
   workflows, then performance/load validation and the first-investigation demo.

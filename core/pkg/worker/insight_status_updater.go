@@ -70,6 +70,13 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 		resourceName := insight.ResourceName
 		resourceNamespace := insight.ResourceNamespace
 
+		snapshotVersion, versionErr := u.resolutionSnapshotVersion(ctx, &insight, false)
+		if versionErr != nil {
+			log.Printf("[InsightStatusUpdater] Snapshot unavailable for insight %d: %v", insight.ID, versionErr)
+			errorCount++
+			continue
+		}
+
 		// Check if resource still exists and has the risk
 		stillHasRisk, err := u.checkIfRiskStillExists(ctx, resourceType, resourceName, resourceNamespace, &insight)
 		if err != nil {
@@ -87,7 +94,19 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 			}
 			changed := false
 			err := u.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-				result := tx.Model(&models.Insight{}).Where("id = ?", insight.ID).
+				guard := *u
+				guard.db = tx
+				currentVersion, err := guard.resolutionSnapshotVersion(ctx, &insight, true)
+				if err != nil {
+					return err
+				}
+				if !currentVersion.Equal(snapshotVersion) {
+					return fmt.Errorf("resource snapshot changed during evaluation")
+				}
+				if err := guard.requireResolutionEvidence(ctx, &insight); err != nil {
+					return err
+				}
+				result := tx.Model(&models.Insight{}).Where("id = ? AND cluster_id = ? AND updated_at = ?", insight.ID, insight.ClusterID, insight.UpdatedAt).
 					Where("status IN ? OR status IS NULL", []string{"active", "acknowledged"}).Updates(updates)
 				if result.Error != nil {
 					return result.Error
@@ -95,8 +114,8 @@ func (u *InsightStatusUpdater) UpdateStatusForResolvedRisks(ctx context.Context)
 				if result.RowsAffected == 0 {
 					return nil
 				}
-				details, _ := json.Marshal(map[string]any{"reason": "risk no longer matched", "resource_uid": insight.ResourceUID, "previous_status": insight.Status})
-				audit := models.AuditLog{Action: "auto_resolve", Resource: "insight", ResourceID: fmt.Sprint(insight.ID), User: "system:risk-reconciliation", Details: string(details)}
+				details, _ := json.Marshal(map[string]any{"reason": "risk no longer matched", "resource_uid": insight.ResourceUID, "previous_status": insight.Status, "evidence_source": "static_role_snapshot", "snapshot_updated_at": snapshotVersion, "max_age_seconds": resolutionSnapshotMaxAge.Seconds()})
+				audit := models.AuditLog{ClusterID: insight.ClusterID, Action: "auto_resolve", Resource: "insight", ResourceID: fmt.Sprint(insight.ID), User: "system:risk-reconciliation", Details: string(details)}
 				if err := tx.Omit("UserID").Create(&audit).Error; err != nil {
 					return err
 				}
@@ -136,6 +155,10 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		return true, nil
 	}
 
+	if err := u.requireResolutionEvidence(ctx, insight); err != nil {
+		return true, err
+	}
+
 	if strings.TrimSpace(insight.ResourceUID) == "" {
 		return true, fmt.Errorf("cannot reconcile insight %d without resource UID", insight.ID)
 	}
@@ -145,10 +168,10 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 	switch resourceType {
 	case "ServiceAccount":
 		var sa models.ServiceAccount
-		if err := u.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&sa).Error; err != nil {
+		if err := u.db.WithContext(ctx).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).First(&sa).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				// Resource doesn't exist - risk is resolved
-				return false, nil
+				// Missing inventory is not a verified Kubernetes deletion.
+				return true, fmt.Errorf("resolution evidence: resource missing; database absence is not confirmed deletion")
 			}
 			return false, err
 		}
@@ -162,11 +185,11 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 	case "Role":
 		var role models.Role
 		// Reconcile the exact observed resource. A same-name replacement is a different identity.
-		if err := u.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).
+		if err := u.db.WithContext(ctx).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).
 			Order("updated_at DESC").First(&role).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				log.Printf("[InsightStatusUpdater] Role %s/%s not found in database - risk resolved", resourceNamespace, resourceName)
-				return false, nil
+				log.Printf("[InsightStatusUpdater] Role %s/%s not found in database - preserve finding", resourceNamespace, resourceName)
+				return true, fmt.Errorf("resolution evidence: resource missing; database absence is not confirmed deletion")
 			}
 			return false, err
 		}
@@ -188,9 +211,9 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		}
 	case "ClusterRole":
 		var cr models.ClusterRole
-		if err := u.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&cr).Error; err != nil {
+		if err := u.db.WithContext(ctx).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).First(&cr).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return false, nil
+				return true, fmt.Errorf("resolution evidence: resource missing; database absence is not confirmed deletion")
 			}
 			return false, err
 		}
@@ -205,9 +228,9 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		}
 	case "RoleBinding":
 		var rb models.RoleBinding
-		if err := u.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&rb).Error; err != nil {
+		if err := u.db.WithContext(ctx).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).First(&rb).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return false, nil
+				return true, fmt.Errorf("resolution evidence: resource missing; database absence is not confirmed deletion")
 			}
 			return true, err
 		}
@@ -226,9 +249,9 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		}
 	case "ClusterRoleBinding":
 		var crb models.ClusterRoleBinding
-		if err := u.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&crb).Error; err != nil {
+		if err := u.db.WithContext(ctx).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).First(&crb).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				return false, nil
+				return true, fmt.Errorf("resolution evidence: resource missing; database absence is not confirmed deletion")
 			}
 			return true, err
 		}
@@ -247,10 +270,10 @@ func (u *InsightStatusUpdater) checkIfRiskStillExists(ctx context.Context, resou
 		}
 	case "Pod":
 		var pod models.Pod
-		if err := u.db.WithContext(ctx).Where("uid = ? AND deleted_at IS NULL", insight.ResourceUID).First(&pod).Error; err != nil {
+		if err := u.db.WithContext(ctx).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", insight.ClusterID, insight.ResourceUID).First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				log.Printf("[InsightStatusUpdater] Pod with uid=%s not found in DB - risk resolved (orphan insight)", insight.ResourceUID)
-				return false, nil
+				log.Printf("[InsightStatusUpdater] Pod with uid=%s not found in DB - preserve finding", insight.ResourceUID)
+				return true, fmt.Errorf("resolution evidence: resource missing; database absence is not confirmed deletion")
 			}
 			return true, err
 		}

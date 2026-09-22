@@ -55,8 +55,8 @@ func TestReconciliationDoesNotEvaluateSameNameReplacement(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	// The original UID is absent. The updater must resolve that deleted identity
-	// without evaluating a same-name object from another cluster.
+	// The original UID is absent: preserve it until authoritative deletion evidence
+	// exists, without evaluating a same-name object from another cluster.
 	u := &InsightStatusUpdater{db: db}
 	for _, kind := range []string{"ServiceAccount", "Role", "ClusterRole"} {
 		insight := &models.Insight{ResourceType: kind, ResourceUID: "deleted-" + kind, ResourceName: "shared", ResourceNamespace: "shared", InsightType: "rbac", Status: "active", Title: "old"}
@@ -64,15 +64,15 @@ func TestReconciliationDoesNotEvaluateSameNameReplacement(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := u.UpdateStatusForResolvedRisks(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := u.UpdateStatusForResolvedRisks(context.Background()); err == nil {
+		t.Fatal("missing original resource must be incomplete")
 	}
 	var rows []models.Insight
 	if err := db.Find(&rows).Error; err != nil {
 		t.Fatal(err)
 	}
 	for _, row := range rows {
-		if row.Status != "resolved" || row.ResolvedAt == nil {
+		if row.Status != "active" || row.ResolvedAt != nil {
 			t.Fatalf("reconciliation: %+v", row)
 		}
 	}
@@ -107,15 +107,10 @@ func TestReconciliationPreservesUnknownAndFailedResources(t *testing.T) {
 }
 
 func TestReconciliationAuditRollbackAndCatalogFailure(t *testing.T) {
-	db := reconciliationTestDB(t)
-	row := models.Insight{ResourceType: "Role", ResourceUID: "deleted-role", Status: "active", InsightType: "rbac", Title: "old risk"}
-	if err := db.Create(&row).Error; err != nil {
-		t.Fatal(err)
-	}
+	db, u, row := resolutionFixture(t)
 	if err := db.Migrator().DropTable(&models.AuditLog{}); err != nil {
 		t.Fatal(err)
 	}
-	u := &InsightStatusUpdater{db: db}
 	if err := u.UpdateStatusForResolvedRisks(context.Background()); err == nil {
 		t.Fatal("audit failure must abort resolution")
 	}

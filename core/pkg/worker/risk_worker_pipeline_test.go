@@ -119,14 +119,14 @@ func TestRiskWorker_Process_IdempotentInsightDedup(t *testing.T) {
 	}
 }
 
-func TestInsightStatusUpdater_PodResolvesWhenPSSNoLongerApplies(t *testing.T) {
+func TestInsightStatusUpdater_PodPreservedWithoutCollectionCoverage(t *testing.T) {
 	rulesDir := filepath.Join("..", "..", "rules")
 	if _, err := os.Stat(rulesDir); err != nil {
 		t.Skip("rules dir:", rulesDir, err)
 	}
 	t.Setenv("FORTUNA_RULES_DIR", rulesDir)
 
-	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestInsightStatusUpdater_PodResolvesWhenPSSNoLongerApplies(t *testing.T) {
 	now := time.Now()
 	title := "Pod uses host namespaces (hostNetwork, hostPID, and/or hostIPC)"
 	ins := models.Insight{
-		ResourceType: "Pod", ResourceNamespace: "ns", ResourceName: "p", ResourceUID: podUID,
+		ClusterID: "c-upd", ResourceType: "Pod", ResourceNamespace: "ns", ResourceName: "p", ResourceUID: podUID,
 		InsightType: "pod-security", Severity: "high", Title: title,
 		Description: title + ": test", Status: "active",
 		DetectedAt: now, CreatedAt: now, UpdatedAt: now,
@@ -157,15 +157,15 @@ func TestInsightStatusUpdater_PodResolvesWhenPSSNoLongerApplies(t *testing.T) {
 	}
 
 	u := NewInsightStatusUpdater(db)
-	if err := u.UpdateStatusForResolvedRisks(context.Background()); err != nil {
-		t.Fatal(err)
+	if err := u.UpdateStatusForResolvedRisks(context.Background()); err == nil {
+		t.Fatal("a changed Pod field without collection coverage must not prove remediation")
 	}
 
 	var st string
 	if err := db.Model(&models.Insight{}).Where("id = ?", ins.ID).Select("status").Scan(&st).Error; err != nil {
 		t.Fatal(err)
 	}
-	if st != "resolved" {
-		t.Fatalf("expected insight resolved after Pod re-eval without host namespaces, got status=%q", st)
+	if st != "active" {
+		t.Fatalf("expected finding preserved without collection coverage, got status=%q", st)
 	}
 }
