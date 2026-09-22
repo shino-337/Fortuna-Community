@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -51,6 +50,9 @@ type Reader struct {
 	httpClient *http.Client
 	logger     *log.Logger
 	offset     int64
+	lineBuf    []byte
+	fileInfo   os.FileInfo
+	coverage   *CoverageReporter
 	// ingestion quality counters
 	invalidLines  uint64
 	sentBatches   uint64
@@ -61,13 +63,18 @@ type Reader struct {
 }
 
 func NewReader(path string, poll time.Duration, coreURL string) *Reader {
-	return &Reader{
+	if poll <= 0 {
+		poll = 5 * time.Second
+	}
+	r := &Reader{
 		path:       path,
 		poll:       poll,
 		coreURL:    strings.TrimRight(coreURL, "/"),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		logger:     log.New(log.Writer(), "[RuntimeEvents] ", log.LstdFlags),
 	}
+	r.coverage = NewCoverageReporter(r.coreURL, "runtime-file", "file", r.httpClient)
+	return r
 }
 
 func (r *Reader) Start(ctx context.Context) {
@@ -85,65 +92,111 @@ func (r *Reader) Start(ctx context.Context) {
 }
 
 func (r *Reader) readAndSend() {
+	obs := CoverageObservation{}
+	defer func() {
+		obs.End = time.Now().UTC()
+		if r.coverage != nil {
+			if err := r.coverage.Report(context.Background(), obs); err != nil {
+				r.logger.Printf("Runtime coverage report failed: %v", err)
+			}
+		}
+	}()
+
 	f, err := os.Open(r.path)
 	if err != nil {
+		obs.Failed = true
+		obs.Reason = "source_open_failed"
 		return
 	}
 	defer f.Close()
 
+	st, err := f.Stat()
+	if err != nil {
+		obs.Failed = true
+		obs.Reason = "source_stat_failed"
+		return
+	}
+	if r.fileInfo != nil && !os.SameFile(r.fileInfo, st) {
+		// Rotation can strand unread bytes in the old inode. Reset the cursor for
+		// the new file, but break coverage continuity because loss is possible.
+		r.offset = 0
+		r.lineBuf = nil
+		obs.Failed = true
+		obs.Reason = "source_rotated"
+	} else if r.offset > st.Size() {
+		r.offset = 0
+		r.lineBuf = nil
+		obs.Failed = true
+		obs.Reason = "source_truncated"
+	}
+	r.fileInfo = st
+
 	startOffset := r.offset
+	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
-		r.logger.Printf("Failed to seek runtime events file: %v", err)
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "source_seek_failed")
+		return
+	}
+	chunk, err := io.ReadAll(f)
+	if err != nil {
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "source_read_failed")
 		return
 	}
 
-	scanner := bufio.NewScanner(f)
+	data := append(append([]byte(nil), startBuf...), chunk...)
+	r.lineBuf = nil
 	events := make([]Event, 0, 10)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	for len(data) > 0 {
+		idx := bytes.IndexByte(data, '\n')
+		if idx < 0 {
+			r.lineBuf = append([]byte(nil), data...)
+			break
+		}
+		line := bytes.TrimSpace(data[:idx])
+		data = data[idx+1:]
 		if len(line) == 0 {
 			continue
 		}
 		var evt Event
 		if err := json.Unmarshal(line, &evt); err != nil {
 			atomic.AddUint64(&r.invalidLines, 1)
+			obs.Invalid++
 			r.logger.Printf("Invalid runtime event JSON: %v", err)
 			continue
 		}
 		events = append(events, evt)
 	}
 
-	if err := scanner.Err(); err != nil {
-		r.logger.Printf("Runtime events read error: %v", err)
-		// Keep the previous offset so a transient read error cannot discard data.
-		return
-	}
-
-	pos, err := f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		r.logger.Printf("Failed to determine runtime events offset: %v", err)
-		return
+	nextOffset := startOffset + int64(len(chunk))
+	if len(r.lineBuf) != 0 {
+		// A half-written record may later become a real event whose timestamp
+		// falls inside this interval. Do not claim clean silence across it.
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "partial_record_pending")
 	}
 
 	if len(events) == 0 {
-		// Invalid/empty records should not be retried forever when there is no
-		// deliverable event in this slice.
-		r.offset = pos
+		r.offset = nextOffset
 		return
 	}
 
+	obs.Emitted = uint64(len(events))
 	if err := r.send(events); err != nil {
 		atomic.AddUint64(&r.failedBatches, 1)
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "delivery_failed_retained")
 		r.logger.Printf("Failed to send runtime events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Do not advance. The same file slice is retried on the next poll. This is
-		// required when Core temporarily rejects ingest while inventory/identity
-		// state is converging.
+		// Restore both cursor components: the exact same byte slice is retried.
 		r.offset = startOffset
+		r.lineBuf = startBuf
 		return
 	}
-	r.offset = pos
+	obs.Delivered = uint64(len(events))
+	r.offset = nextOffset
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
