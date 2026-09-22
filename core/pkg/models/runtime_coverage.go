@@ -17,8 +17,9 @@ type RuntimeCoverage struct {
 	Status      string    `gorm:"size:32;index" json:"status"`
 	WindowStart time.Time `json:"windowStart"`
 	WindowEnd   time.Time `gorm:"index" json:"windowEnd"`
-	ReceivedAt  time.Time `json:"receivedAt"`
-	Emitted     uint64    `json:"emitted"`
+	ReceivedAt      time.Time  `json:"receivedAt"`
+	ContinuousSince *time.Time `gorm:"index" json:"continuousSince,omitempty"`
+	Emitted         uint64    `json:"emitted"`
 	Delivered   uint64    `json:"delivered"`
 	Dropped     uint64    `json:"dropped"`
 	Invalid     uint64    `json:"invalid"`
@@ -29,8 +30,18 @@ func (c RuntimeCoverage) EffectiveStatus(now time.Time) string {
 	if c.Status != "complete" {
 		return c.Status
 	}
+	if c.ContinuousSince == nil || c.ContinuousSince.IsZero() {
+		return "unknown"
+	}
 	if c.WindowEnd.IsZero() || c.WindowEnd.After(now) || now.Sub(c.WindowEnd) > collection.RuntimeCoverageMaxAge {
 		return "stale"
 	}
 	return "complete"
+}
+
+// CoversSince is the fail-closed primitive for future absence-based reasoning.
+// A recent complete window is insufficient if continuity started after required.
+func (c RuntimeCoverage) CoversSince(required, now time.Time) bool {
+	return !required.IsZero() && c.EffectiveStatus(now) == "complete" &&
+		c.ContinuousSince != nil && !c.ContinuousSince.After(required)
 }
