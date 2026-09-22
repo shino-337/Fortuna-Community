@@ -84,10 +84,19 @@ Changes after the observation invalidate its digest. Unknown/stale/failed eviden
 preserves the finding. The resolution audit records collection ID and observation
 time. No legacy data is backfilled into verified evidence during migration.
 
-Upgrade Core and Agent, configure the scoped HTTP token/registry described in
-`deploy/scoped-agent-credentials/README.md`, then check the sync response's
-`inventoryStatus`/`collection`. Old Agents continue ingesting in the configured
-compatibility mode, but cannot provide verified receipts. The response always
+Roll out **Core first, then Agent**. Core #50 with an older Agent accepts the
+compatibility write as unverified and therefore blocks receipt-based resolution.
+The inverse order is not equivalent: Core #49 ignores the new `collection`
+envelope and retains D1's older static-snapshot freshness semantics. Do not use
+Agent-first rollout as evidence that #50 protections are active.
+
+Upgrade Core, verify the inventory receipt schema/startup invariant, then roll out
+the Agent and configure the scoped HTTP token/registry described in
+`deploy/scoped-agent-credentials/README.md`. Check the sync response's
+`inventoryStatus`/`collection`. Old Agents continue ingesting in the configured compatibility mode, but cannot
+provide verified receipts. Rolling Core back to #49 also rolls back the stronger
+receipt requirement; treat that as a security-semantic rollback requiring explicit
+risk acceptance rather than an ordinary transparent application rollback. The response always
 reports runtime coverage as `unknown`: inventory lists and Agent heartbeats do not
 prove runtime sensor coverage. Runtime/Pod/cross-resource auto-resolution remains
 blocked pending D2 runtime producer windows, loss/error/recovery reporting and
