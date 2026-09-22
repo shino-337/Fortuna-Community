@@ -192,3 +192,33 @@ func TestFlushLoopAccountsRetainedBatchOnShutdownFailure(t *testing.T) {
 		t.Fatalf("shutdown loss must be explicitly accounted: dropped=%d", got)
 	}
 }
+
+
+func TestCoverageReportsPendingDeliveryAsFailed(t *testing.T) {
+	var got runtimeCoverageEnvelope
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/runtime/coverage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-a", time.Second, 4, false)
+	atomic.StoreUint64(&s.coverageEmitted, 1)
+	atomic.StoreUint64(&s.coverageErrors, 1)
+	atomic.StoreUint32(&s.deliveryPending, 1)
+	s.reportCoverage()
+
+	if got.Status != "failed" || got.Errors == 0 {
+		t.Fatalf("pending delivery did not fail coverage: %+v", got)
+	}
+}
+
+type runtimeCoverageEnvelope struct {
+	Status string `json:"status"`
+	Errors uint64 `json:"errors"`
+}
