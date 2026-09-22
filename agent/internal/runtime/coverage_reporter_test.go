@@ -15,7 +15,7 @@ import (
 
 func TestCoverageReporterRetainsPendingWindowUntilCoreACK(t *testing.T) {
 	tokenFile := filepath.Join(t.TempDir(), "agent.token")
-	if err := os.WriteFile(tokenFile, []byte("scoped-token"), 0600); err != nil {
+	if err := os.WriteFile(tokenFile, []byte("scoped-token-0123456789abcdef0123456789"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("FORTUNA_AGENT_TOKEN_FILE", tokenFile)
@@ -26,7 +26,7 @@ func TestCoverageReporterRetainsPendingWindowUntilCoreACK(t *testing.T) {
 		if r.URL.Path != "/api/v2/runtime/coverage" {
 			t.Fatalf("unexpected path %s", r.URL.Path)
 		}
-		if r.Header.Get("X-Fortuna-Ingest-Token") != "scoped-token" {
+		if r.Header.Get("X-Fortuna-Ingest-Token") != "scoped-token-0123456789abcdef0123456789" {
 			t.Fatalf("missing scoped token")
 		}
 		var receipt collection.RuntimeCoverage
@@ -71,7 +71,7 @@ func TestCoverageReporterRetainsPendingWindowUntilCoreACK(t *testing.T) {
 
 func TestCoverageReporterKeepsFailureUntilFailureReceiptACK(t *testing.T) {
 	tokenFile := filepath.Join(t.TempDir(), "agent.token")
-	if err := os.WriteFile(tokenFile, []byte("scoped-token"), 0600); err != nil {
+	if err := os.WriteFile(tokenFile, []byte("scoped-token-0123456789abcdef0123456789"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("FORTUNA_AGENT_TOKEN_FILE", tokenFile)
