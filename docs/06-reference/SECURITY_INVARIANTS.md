@@ -138,7 +138,7 @@ Runtime silence and expiry of a lookback window never prove remediation.
 
 D1 permits automatic resolution only for self-contained Role/ClusterRole CEL
 checks reading fields from that exact static snapshot. D2 inventory additionally
-requires an authenticated collection receipt: the exact resource-kind observation
+requires an authenticated collection receipt: the resource-kind List start bound
 must be at most ten minutes old, not future-dated, not older than the finding, and
 its digest must match that exact cluster/kind/UID/name/namespace/rules projection. A missing, failed, unverified or
 stale receipt blocks resolution. The rules array must be structurally valid. CEL dependencies are checked
