@@ -18,8 +18,9 @@ type Inventory struct {
 	Status     string         `json:"status"`    // complete or failed; never inferred from an empty list
 	Namespace  string         `json:"namespace"` // empty means all namespaces
 	StartedAt  time.Time      `json:"startedAt"`
-	ObservedAt time.Time      `json:"observedAt"`
-	Counts     map[string]int `json:"counts,omitempty"`
+	ObservedAt    time.Time            `json:"observedAt"` // end of the multi-kind collection interval
+	KindObservedAt map[string]time.Time `json:"kindObservedAt,omitempty"`
+	Counts         map[string]int       `json:"counts,omitempty"`
 }
 
 func (c Inventory) Validate(now time.Time) error {
@@ -36,12 +37,16 @@ func (c Inventory) Validate(now time.Time) error {
 		return fmt.Errorf("invalid inventory namespace scope")
 	}
 	if c.Status == "complete" {
-		if len(c.Counts) != len(InventoryKinds) {
-			return fmt.Errorf("inventory collection counts incomplete")
+		if len(c.Counts) != len(InventoryKinds) || len(c.KindObservedAt) != len(InventoryKinds) {
+			return fmt.Errorf("inventory collection metadata incomplete")
 		}
 		for _, kind := range InventoryKinds {
 			if n, ok := c.Counts[kind]; !ok || n < 0 {
 				return fmt.Errorf("invalid inventory count for %s", kind)
+			}
+			observed, ok := c.KindObservedAt[kind]
+			if !ok || observed.IsZero() || observed.Before(c.StartedAt) || observed.After(c.ObservedAt) || observed.After(now.Add(time.Minute)) {
+				return fmt.Errorf("invalid observation time for %s", kind)
 			}
 		}
 	}
