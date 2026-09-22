@@ -185,6 +185,9 @@ func TestInventoryCollectionEmptyMissingReplayAndScope(t *testing.T) {
 					require.NoError(t, db.Model(check.model).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", "cluster-a", check.uid).Count(&n).Error)
 					require.EqualValues(t, 1, n, "namespace-scoped sync pruned foreign namespace resource %s", check.uid)
 				}
+			case "empty":
+				require.Equal(t, "complete", receipt.Status, "complete describes collection status, not authoritative deletion")
+				require.JSONEq(t, "{}", receipt.RoleDigests, "empty Role observation must not authenticate retained Role rows")
 			default:
 				require.Equal(t, "complete", receipt.Status)
 			}
@@ -211,6 +214,93 @@ func TestInventoryCollectionRejectsCrossNamespaceRows(t *testing.T) {
 			data[kind] = []interface{}{row}
 			meta.Counts[kind] = 1
 			require.ErrorIs(t, ValidateInventoryPayload(meta, data, time.Now()), ErrInvalidCollection)
+		})
+	}
+}
+
+
+func TestInventoryCollectionRejectsDuplicateUIDAcrossNamespacesInPayload(t *testing.T) {
+	_, _, data, meta := collectionFixture(t)
+	meta.Namespace = ""
+	data["roles"] = []interface{}{
+		map[string]interface{}{"uid": "same", "name": "one", "namespace": "ns-a", "rules": []interface{}{}},
+		map[string]interface{}{"uid": "same", "name": "two", "namespace": "ns-b", "rules": []interface{}{}},
+	}
+	meta.Counts["roles"] = 2
+	require.ErrorIs(t, ValidateInventoryPayload(meta, data, time.Now()), ErrInvalidCollection)
+}
+
+func TestInventoryCollectionRejectsPersistedCrossNamespaceUIDCollision(t *testing.T) {
+	cases := []struct {
+		name  string
+		kind  string
+		setup func(*gorm.DB) error
+		row   map[string]interface{}
+	}{
+		{
+			name: "serviceaccount", kind: "serviceAccounts",
+			setup: func(db *gorm.DB) error { return db.Create(&models.ServiceAccount{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error },
+			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns"},
+		},
+		{
+			name: "role", kind: "roles",
+			setup: func(db *gorm.DB) error { return db.Create(&models.Role{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", Rules: "[]"}).Error },
+			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns", "rules": []interface{}{}},
+		},
+		{
+			name: "rolebinding", kind: "roleBindings",
+			setup: func(db *gorm.DB) error { return db.Create(&models.RoleBinding{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", RoleRef: "{}", Subjects: "[]"}).Error },
+			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns", "roleRef": map[string]interface{}{"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "r"}, "subjects": []interface{}{}},
+		},
+		{
+			name: "pod", kind: "pods",
+			setup: func(db *gorm.DB) error { return db.Create(&models.Pod{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", ServiceAccount: "default", Containers: "[]", ImageDigests: "[]"}).Error },
+			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns", "hostNetwork": false, "hostPID": false, "hostIPC": false, "automountServiceAccountToken": true, "containers": []interface{}{map[string]interface{}{"name": "c"}}},
+		},
+		{
+			name: "deployment", kind: "deployments",
+			setup: func(db *gorm.DB) error { return db.Create(&models.Deployment{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error },
+			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns"},
+		},
+		{
+			name: "replicaset", kind: "replicasets",
+			setup: func(db *gorm.DB) error { return db.Create(&models.ReplicaSet{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error },
+			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns"},
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			db, s, data, meta := collectionFixture(t)
+			require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "A"}).Error)
+			require.NoError(t, tc.setup(db))
+			meta.Namespace = "ns"
+			data[tc.kind] = []interface{}{tc.row}
+			meta.Counts[tc.kind] = 1
+
+			_, err := s.SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", meta)
+			require.ErrorIs(t, err, ErrInvalidCollection)
+
+			var total int64
+			require.NoError(t, db.Table(map[string]string{
+				"serviceAccounts": "service_accounts",
+				"roles": "roles",
+				"roleBindings": "role_bindings",
+				"pods": "pods",
+				"deployments": "deployments",
+				"replicasets": "replica_sets",
+			}[tc.kind]).Where("cluster_id = ? AND uid = ?", "cluster-a", "same").Count(&total).Error)
+			require.EqualValues(t, 1, total, "collision must not create a second row")
+
+			var foreign int64
+			require.NoError(t, db.Table(map[string]string{
+				"serviceAccounts": "service_accounts",
+				"roles": "roles",
+				"roleBindings": "role_bindings",
+				"pods": "pods",
+				"deployments": "deployments",
+				"replicasets": "replica_sets",
+			}[tc.kind]).Where("cluster_id = ? AND uid = ? AND namespace = ?", "cluster-a", "same", "other").Count(&foreign).Error)
+			require.EqualValues(t, 1, foreign, "collision must not move the existing row across namespaces")
 		})
 	}
 }
