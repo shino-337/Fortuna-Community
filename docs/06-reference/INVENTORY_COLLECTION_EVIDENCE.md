@@ -1,7 +1,7 @@
 # Inventory observation receipts
 
 The HTTP Syncer now sends a version-1 `collection` envelope alongside `data`:
-collection ID, collection start/end timestamps, per-kind observation timestamps,
+collection ID, collection start/end timestamps, per-kind List start bounds,
 namespace scope and counts for Pods, ServiceAccounts, Roles, RoleBindings,
 ClusterRoles, ClusterRoleBindings, Deployments and ReplicaSets. All eight lists must be explicit arrays on success.
 An empty array is a successful empty observation; an absent/null array is not.
@@ -31,9 +31,10 @@ outages can prevent failure recording; this error is returned, and no successful
 receipt is fabricated. Dependent asynchronous work starts after commit.
 
 The eight Kubernetes List calls are sequential. The receipt therefore describes a
-bounded collection interval, not one atomic Kubernetes/etcd snapshot. Each kind
-records the time its own List completed. Role/ClusterRole resolution uses that
-per-kind time rather than the batch end time. Cross-resource absence or consistency
+bounded collection interval, not one atomic Kubernetes/etcd snapshot. For each kind,
+the Agent records a conservative lower bound immediately before starting the List
+request. Role/ClusterRole resolution requires that List start bound to be at or
+after the finding; the later batch-end timestamp cannot substitute for it. Cross-resource absence or consistency
 is not inferred from this interval and remains ineligible for auto-resolution.
 
 Identical accepted replay is idempotent. Changed replay or an older observation
@@ -63,14 +64,14 @@ Derived PCE/risk processing and audit export are separate from collection covera
 
 Role/ClusterRole auto-resolution requires all D1 detector constraints plus:
 
-- a complete, fresh, authenticated receipt whose exact resource-kind observation
+- a complete, fresh, authenticated receipt whose resource-kind List start bound
   is at or after finding detection;
 - the correct namespace coverage;
 - a digest binding the current cluster/kind/UID/name/namespace/rules snapshot to
   that observation;
 - unchanged receipt/resource/finding state at the resolution transaction.
 
-The batch end timestamp cannot substitute for the Role/ClusterRole observation
+The batch end timestamp cannot substitute for the Role/ClusterRole List start bound
 time. An unchanged Role can still have a fresh observation without changing
 UpdatedAt.
 Changes after the observation invalidate its digest. Unknown/stale/failed evidence
