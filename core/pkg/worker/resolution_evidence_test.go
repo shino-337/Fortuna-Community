@@ -42,12 +42,14 @@ tags: ["resource-kind:Role", "resource-kind:ClusterRole"]
 	digest, err := inventoryevidence.RoleDigest("a", "Role", "same", "role", "ns", "[]")
 	require.NoError(t, err)
 	hashes, _ := json.Marshal(map[string]string{inventoryevidence.Key("Role", "same"): digest})
-	require.NoError(t, db.Create(&models.InventoryCollection{ClusterID: "a", AgentID: "agent-a", Status: "complete", ObservedAt: time.Now().UTC(), RoleDigests: string(hashes)}).Error)
+	now := time.Now().UTC()
+	kindTimes, _ := json.Marshal(map[string]time.Time{"roles": now, "clusterRoles": now})
+	require.NoError(t, db.Create(&models.InventoryCollection{ClusterID: "a", AgentID: "agent-a", Status: "complete", StartedAt: now.Add(-time.Second), ObservedAt: now, KindObservedAt: string(kindTimes), RoleDigests: string(hashes)}).Error)
 	return db, &InsightStatusUpdater{db: db, yamlEngine: ye, riskEngine: ye.Engine}, f
 }
 
 func TestResolutionEvidenceBoundaries(t *testing.T) {
-	for _, tc := range []string{"fresh-static", "fresh-clusterrole", "old-snapshot-fresh-observation", "missing-receipt", "failed-receipt", "legacy-receipt", "snapshot-not-observed", "foreign-duplicate", "ambiguous", "stale", "future", "missing", "foreign-cluster", "unknown-owner", "malformed", "null-rules", "incomplete-rules", "before-finding", "runtime", "collection-error"} {
+	for _, tc := range []string{"fresh-static", "fresh-clusterrole", "old-snapshot-fresh-observation", "missing-receipt", "failed-receipt", "legacy-receipt", "snapshot-not-observed", "foreign-duplicate", "ambiguous", "stale", "future", "missing", "foreign-cluster", "unknown-owner", "malformed", "null-rules", "incomplete-rules", "before-finding", "kind-before-finding", "missing-kind-time", "runtime", "collection-error"} {
 		t.Run(tc, func(t *testing.T) {
 			db, u, f := resolutionFixture(t)
 			switch tc {
@@ -90,6 +92,14 @@ func TestResolutionEvidenceBoundaries(t *testing.T) {
 				require.NoError(t, db.Model(&models.Role{}).Where("uid = ?", f.ResourceUID).UpdateColumn("rules", "[{}]").Error)
 			case "before-finding":
 				require.NoError(t, db.Model(&f).UpdateColumn("detected_at", time.Now().Add(time.Minute)).Error)
+			case "kind-before-finding":
+				var current models.Insight
+				require.NoError(t, db.First(&current, f.ID).Error)
+				times, _ := json.Marshal(map[string]time.Time{"roles": current.DetectedAt.Add(-time.Second), "clusterRoles": time.Now().UTC()})
+				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_observed_at", string(times)).Error)
+			case "missing-kind-time":
+				times, _ := json.Marshal(map[string]time.Time{"clusterRoles": time.Now().UTC()})
+				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("kind_observed_at", string(times)).Error)
 			case "runtime":
 				require.NoError(t, db.Model(&f).Updates(map[string]any{"resource_type": "Pod", "insight_type": "runtime-behavior"}).Error)
 			case "collection-error":
