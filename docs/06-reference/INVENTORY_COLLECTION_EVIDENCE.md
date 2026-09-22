@@ -4,13 +4,19 @@ The HTTP Syncer now sends a version-1 `collection` envelope alongside `data`:
 collection ID, collection start/end timestamps, per-kind List start bounds,
 namespace scope and counts for Pods, ServiceAccounts, Roles, RoleBindings,
 ClusterRoles, ClusterRoleBindings, Deployments and ReplicaSets. All eight lists must be explicit arrays on success.
-An empty array is a successful empty observation; an absent/null array is not.
+An empty array is a successful empty **collection observation**; an absent/null
+array is not. `status=complete` never means the persisted projection was
+authoritatively reconciled to empty. V1 explicitly reports
+`projectionSemantics=non_authoritative_deletion` and
+`deletionAuthoritative=false`.
 Unfinished Kubernetes pagination or any list error sends a failed observation,
 without applying a partial inventory. If Core cannot be reached, the previous
 receipt ages out after ten minutes; failure detection is not instantaneous.
 
 Core validates the full envelope/batch before applying inventory. Scoped HTTP
-credentials bind the receipt to the authenticated cluster and Agent. Agent
+credentials bind the receipt to the authenticated cluster and Agent. A scoped
+authenticated sync without a `collection` envelope is rejected; it cannot fall
+through to the unverified compatibility writer. Agent
 liveness/node/version updates are staged in the same transaction: a failed
 inventory persistence cannot advance Agent health while rolling back the evidence
 that justified it.
@@ -46,7 +52,10 @@ future-dated receipt within that tolerance still cannot authorize resolution unt
 its observation time is in the past.
 
 Namespace-limited collections require exact namespace equality for every
-namespaced payload row and prune only within that namespace. ClusterRole and
+namespaced payload row and prune only within that namespace. Namespaced upserts
+lookup by `cluster_id + namespace + uid` and reject a persisted same-UID row in
+another namespace instead of adopting/moving it. Duplicate UIDs across namespaces
+inside one collection are also rejected. ClusterRole and
 ClusterRoleBinding collections remain cluster scoped and are still collected when
 the namespaced scope is restricted.
 
