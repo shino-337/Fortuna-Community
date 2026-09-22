@@ -89,6 +89,14 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			return
 		}
 
+		if _, scoped := middleware.AgentPrincipal(c); scoped && req.Collection == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "scoped agent sync requires collection evidence",
+				"code":  "inventory_collection_required",
+			})
+			return
+		}
+
 		clusterID := strings.TrimSpace(req.ClusterID)
 		clusterName := req.ClusterName
 		source := ""
@@ -166,7 +174,7 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			if receipt != nil {
 				inventoryStatus = receipt.EffectiveStatus(time.Now())
 			}
-			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Collection report accepted; inventory unchanged", "collection": receipt, "inventoryStatus": inventoryStatus, "runtimeCoverage": "unknown"})
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Collection report accepted; inventory unchanged", "collection": receipt, "inventoryStatus": inventoryStatus, "projectionSemantics": collection.ProjectionSemanticsNonAuthoritativeDeletion, "deletionAuthoritative": false, "runtimeCoverage": "unknown"})
 			return
 		}
 
@@ -199,8 +207,10 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			"success":         true,
 			"message":         "Data synced successfully",
 			"collection":      receipt,
-			"inventoryStatus": inventoryStatus,
-			"runtimeCoverage": "unknown",
+			"inventoryStatus":       inventoryStatus,
+			"projectionSemantics":   collection.ProjectionSemanticsNonAuthoritativeDeletion,
+			"deletionAuthoritative": false,
+			"runtimeCoverage":       "unknown",
 		})
 	}
 }
