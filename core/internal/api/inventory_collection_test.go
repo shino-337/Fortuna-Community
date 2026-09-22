@@ -43,11 +43,11 @@ func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 				data[kind] = []interface{}{}
 			}
 			now := time.Now()
-			kindObservedAt := map[string]time.Time{}
+			kindStartedAt := map[string]time.Time{}
 			for _, kind := range collection.InventoryKinds {
-				kindObservedAt[kind] = now.Add(-100 * time.Millisecond)
+				kindStartedAt[kind] = now.Add(-100 * time.Millisecond)
 			}
-			meta := collection.Inventory{Version: 1, ID: "http-attempt-00001", Status: "complete", StartedAt: now.Add(-time.Second), ObservedAt: now, KindObservedAt: kindObservedAt, Counts: counts}
+			meta := collection.Inventory{Version: 1, ID: "http-attempt-00001", Status: "complete", StartedAt: now.Add(-time.Second), ObservedAt: now, KindStartedAt: kindStartedAt, Counts: counts}
 			cid := "a"
 			want := http.StatusOK
 			if tc == "failed" {
