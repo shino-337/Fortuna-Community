@@ -104,6 +104,7 @@ func (r *CoverageReporter) Flush() error {
 func (r *CoverageReporter) mergeBacklog(next coverageAggregate) {
 	if r.backlog == nil {
 		copy := next
+		copy.reason = truncateCoverageReason(copy.reason)
 		r.backlog = &copy
 		return
 	}
