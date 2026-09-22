@@ -7,9 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/fortuna/api/collection"
 )
 
 func TestFalcoReader_ToRuntimeEvent_MinimalMapping(t *testing.T) {
@@ -226,5 +229,61 @@ func TestFalcoRuntimeEventIdentityStableAcrossRetry(t *testing.T) {
 	}
 	if first.IngestedAt != "" || second.IngestedAt != "" {
 		t.Fatal("Falco producer must leave ingested_at to Core")
+	}
+}
+
+
+func TestFalcoUnresolvedPodIsReportedAsCoverageDrop(t *testing.T) {
+	token := strings.Repeat("s", 32)
+	tokenFile := filepath.Join(t.TempDir(), "agent.token")
+	if err := os.WriteFile(tokenFile, []byte(token), 0600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FORTUNA_AGENT_TOKEN_FILE", tokenFile)
+
+	var receipts []collection.RuntimeCoverage
+	var eventCalls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/coverage":
+			var receipt collection.RuntimeCoverage
+			if err := json.NewDecoder(r.Body).Decode(&receipt); err != nil { t.Fatal(err) }
+			receipts = append(receipts, receipt)
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/events":
+			atomic.AddInt32(&eventCalls, 1)
+			t.Fatal("unresolved Falco event must not be sent as owned runtime event")
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "falco.jsonl")
+	if err := os.WriteFile(path, nil, 0600); err != nil { t.Fatal(err) }
+	r := NewFalcoReader(path, time.Second, srv.URL, "node-a", nil)
+	r.readAndSend(context.Background()) // establish initial file identity/coverage
+
+	line := `{"time":"2026-09-22T08:00:00Z","rule":"unresolved","priority":"Warning","output_fields":{"evt.type":"execve","proc.cmdline":"/bin/sh"}}` + "\n"
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil { t.Fatal(err) }
+	_, _ = file.WriteString(line)
+	_ = file.Close()
+
+	r.readAndSend(context.Background())
+	if atomic.LoadUint64(&r.droppedEvents) != 1 {
+		t.Fatalf("expected unresolved Falco alert to count as dropped, got %d", atomic.LoadUint64(&r.droppedEvents))
+	}
+	if atomic.LoadInt32(&eventCalls) != 0 {
+		t.Fatalf("unexpected runtime event calls: %d", eventCalls)
+	}
+	found := false
+	for _, receipt := range receipts {
+		if receipt.Dropped == 1 && receipt.Status == "failed" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("no failed coverage receipt captured for unresolved Falco alert: %+v", receipts)
 	}
 }
