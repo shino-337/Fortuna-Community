@@ -117,8 +117,12 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   Sequential multi-kind List calls are explicitly not an atomic Kubernetes snapshot,
   so cross-resource resolution remains blocked.
   PostgreSQL replay/concurrency, real rollback/recovery, Agent rollback, namespace
-  scope/pruning, Agent failure and HTTP identity regressions are permanent gates. Receipt completeness does not prove
-  deletion or runtime sensor coverage.
+  scope/pruning, Agent failure and HTTP identity regressions are permanent gates.
+  Receipt completeness does not prove deletion or runtime sensor coverage. Receipt
+  state is currently latest-per-cluster; package F must exercise different
+  WATCH_NAMESPACE scopes on one cluster and either validate a supported single-scope
+  topology or promote the receipt key to include scope before multi-scope operation
+  is claimed.
 - D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
   reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
   dependencies. Runtime/Pod auto-resolution stays blocked. Persisted/API/UI
