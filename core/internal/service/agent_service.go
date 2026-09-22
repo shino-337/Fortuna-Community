@@ -85,7 +85,7 @@ func NewAgentService(db *gorm.DB) *AgentService {
 func (s *AgentService) ensureNamespacedUIDOwnership(model interface{}, clusterID, namespace, uid, kind string) error {
 	var count int64
 	if err := s.db.Unscoped().Model(model).
-		Where("cluster_id = ? AND uid = ? AND namespace <> ?", clusterID, uid, namespace).
+		Where("cluster_id = ? AND uid = ? AND (namespace <> ? OR namespace IS NULL)", clusterID, uid, namespace).
 		Count(&count).Error; err != nil {
 		return err
 	}
