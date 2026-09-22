@@ -1,8 +1,8 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #48 merged on 2026-09-22. Changes continue as focused
+Status verified after PR #49 merged on 2026-09-22. Changes continue as focused
 PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
-unopened work are estimates: D is split into D1/D2, so later PR numbers may shift.
+unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
@@ -102,15 +102,24 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   All 11 merge-commit checks passed; the separate PR AI scanner failed before
   analysis because its selected model was unsupported. That scan remains unverified.
   Live multi-cluster rollout remains package F; source tests do not close that gate.
-- D1 / #49 implemented, pending CI/review: fail-closed auto-resolution eligibility. Exact cluster/UID,
-  fresh static snapshots and detector dependency checks; preserve missing resources,
-  runtime silence and incomplete evidence. Static snapshot timestamps are not
-  collector observation/completeness receipts.
-- D2 pending after D1: end-to-end collection status, observation timestamps and
-  coverage receipts from Agent; eliminate sync error swallowing before permitting
-  runtime/cross-resource absence to resolve findings; expose persisted status and
-  reasons through API/UI with E. D remains open until this
-  producer-to-evaluator contract is implemented and tested.
+- D1 / #49 merged (merge commit `f2128b7`): fail-closed auto-resolution
+  eligibility, exact cluster/UID lookups, detector dependency checks and concurrent
+  update guards. All 11 merge-commit checks passed. Missing resources, runtime
+  silence and incomplete evidence preserve findings.
+- D2 inventory / #50 implemented, pending CI/review: authenticated collection ID,
+  observation interval, namespace scope and per-kind counts; complete-empty and
+  failed collections are distinct. Core commits projection and receipt atomically,
+  rejects altered replays/older attempts, propagates inventory persistence errors,
+  and invalidates verified status for legacy writes. Role/ClusterRole eligibility
+  now requires a fresh verified receipt whose digest matches the stored snapshot;
+  row UpdatedAt is only a concurrency version, never a freshness surrogate.
+  PostgreSQL replay/concurrency, real rollback/recovery, Agent failure and HTTP
+  identity regressions are permanent gates. Receipt completeness does not prove
+  deletion or runtime sensor coverage.
+- D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
+  reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
+  dependencies. Runtime/Pod auto-resolution stays blocked. Persisted/API/UI
+  explanations and availability remain coordinated with E. D is not complete.
 - E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
 - F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be

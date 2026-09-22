@@ -3,10 +3,12 @@ package syncer
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/fortuna/api/collection"
 	"log"
 	"net/http"
 	"sort"
@@ -121,11 +123,12 @@ type ClusterPayload struct {
 }
 
 type SyncPayload struct {
-	ClusterID   string          `json:"clusterId"`             // backward compat; must be from cluster.Discover (s.clusterInfo.ID) only
-	ClusterName string          `json:"clusterName,omitempty"` // backward compat
-	Cluster     *ClusterPayload `json:"cluster,omitempty"`     // full contract for Core SSOT
-	Agent       *AgentPayload   `json:"agent,omitempty"`
-	Data        SyncData        `json:"data"`
+	Collection  *collection.Inventory `json:"collection,omitempty"`
+	ClusterID   string                `json:"clusterId"`             // backward compat; must be from cluster.Discover (s.clusterInfo.ID) only
+	ClusterName string                `json:"clusterName,omitempty"` // backward compat
+	Cluster     *ClusterPayload       `json:"cluster,omitempty"`     // full contract for Core SSOT
+	Agent       *AgentPayload         `json:"agent,omitempty"`
+	Data        SyncData              `json:"data"`
 }
 
 type AgentPayload struct {
@@ -198,10 +201,24 @@ func (s *Syncer) Start(ctx context.Context) {
 }
 
 func (s *Syncer) SyncOnce(ctx context.Context) error {
+	started := time.Now().UTC()
+	attempt := rand.Text()
 	payload, err := s.buildPayload(ctx)
 	if err != nil {
+		if ctx.Err() == nil && s.clusterInfo != nil {
+			failed := &SyncPayload{ClusterID: s.clusterInfo.ID, Agent: &AgentPayload{AgentID: s.agentID, NodeName: s.nodeName, Version: s.version}, Collection: &collection.Inventory{Version: collection.Version, ID: attempt, Status: "failed", Namespace: s.namespace, StartedAt: started, ObservedAt: time.Now().UTC()}}
+			if reportErr := s.postPayload(ctx, failed); reportErr != nil {
+				log.Printf("[Syncer] Unable to report inventory collection failure: %v", reportErr)
+			}
+		}
 		return err
 	}
+	payload.Collection.ID = attempt
+	payload.Collection.StartedAt = started
+	return s.postPayload(ctx, payload)
+}
+
+func (s *Syncer) postPayload(ctx context.Context, payload *SyncPayload) error {
 
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -225,11 +242,14 @@ func (s *Syncer) SyncOnce(ctx context.Context) error {
 		return fmt.Errorf("sync failed: status=%d", resp.StatusCode)
 	}
 
-	log.Printf("[Syncer] ✅ Full sync completed")
+	if payload.Collection != nil && payload.Collection.Status == "complete" {
+		log.Printf("[Syncer] Full inventory observation accepted")
+	}
 	return nil
 }
 
 func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
+	started := time.Now().UTC()
 	namespace := s.namespace
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
@@ -268,6 +288,9 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 		return nil, fmt.Errorf("list replicasets: %w", err)
 	}
 
+	if pods.Continue != "" || serviceAccounts.Continue != "" || roles.Continue != "" || roleBindings.Continue != "" || clusterRoles.Continue != "" || clusterRoleBindings.Continue != "" || deployments.Continue != "" || replicaSets.Continue != "" {
+		return nil, fmt.Errorf("inventory listing is incomplete: pagination remains")
+	}
 	linkedPodsBySA := make(map[string][]string)
 	podPayloads := make([]PodPayload, 0, len(pods.Items))
 	for _, p := range pods.Items {
@@ -389,6 +412,9 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 
 	rolePayloads := make([]RolePayload, 0, len(roles.Items))
 	for _, role := range roles.Items {
+		if role.Rules == nil {
+			role.Rules = []rbacv1.PolicyRule{}
+		}
 		rolePayloads = append(rolePayloads, RolePayload{
 			Name:      role.Name,
 			Namespace: role.Namespace,
@@ -399,6 +425,9 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 
 	roleBindingPayloads := make([]RoleBindingPayload, 0, len(roleBindings.Items))
 	for _, rb := range roleBindings.Items {
+		if rb.Subjects == nil {
+			rb.Subjects = []rbacv1.Subject{}
+		}
 		roleBindingPayloads = append(roleBindingPayloads, RoleBindingPayload{
 			Name:      rb.Name,
 			Namespace: rb.Namespace,
@@ -410,6 +439,9 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 
 	clusterRolePayloads := make([]ClusterRolePayload, 0, len(clusterRoles.Items))
 	for _, cr := range clusterRoles.Items {
+		if cr.Rules == nil {
+			cr.Rules = []rbacv1.PolicyRule{}
+		}
 		clusterRolePayloads = append(clusterRolePayloads, ClusterRolePayload{
 			Name:  cr.Name,
 			UID:   string(cr.UID),
@@ -419,6 +451,9 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 
 	clusterRoleBindingPayloads := make([]ClusterRoleBindingPayload, 0, len(clusterRoleBindings.Items))
 	for _, crb := range clusterRoleBindings.Items {
+		if crb.Subjects == nil {
+			crb.Subjects = []rbacv1.Subject{}
+		}
 		clusterRoleBindingPayloads = append(clusterRoleBindingPayloads, ClusterRoleBindingPayload{
 			Name:     crb.Name,
 			UID:      string(crb.UID),
@@ -458,6 +493,7 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 		Distribution: s.clusterInfo.Distribution,
 	}
 	return &SyncPayload{
+		Collection:  &collection.Inventory{Version: collection.Version, ID: rand.Text(), Status: "complete", Namespace: s.namespace, StartedAt: started, ObservedAt: time.Now().UTC(), Counts: map[string]int{"pods": len(podPayloads), "serviceAccounts": len(saPayloads), "roles": len(rolePayloads), "roleBindings": len(roleBindingPayloads), "clusterRoles": len(clusterRolePayloads), "clusterRoleBindings": len(clusterRoleBindingPayloads), "deployments": len(deploymentPayloads), "replicasets": len(replicaSetPayloads)}},
 		ClusterID:   s.clusterInfo.ID,
 		ClusterName: s.clusterInfo.Name,
 		Cluster:     cp,

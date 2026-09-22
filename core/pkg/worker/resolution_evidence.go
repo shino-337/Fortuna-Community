@@ -6,15 +6,17 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fortuna/api/collection"
+	"github.com/fortuna/core/pkg/inventoryevidence"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/resourceidentity"
 	"gorm.io/gorm/clause"
 )
 
-const resolutionSnapshotMaxAge = 10 * time.Minute
+const resolutionSnapshotMaxAge = collection.MaxAge
 
-// A snapshot update is not a collector coverage receipt. D1 permits only
-// self-contained static Role checks; runtime/cross-resource absence stays unknown.
+// Static Role resolution requires a fresh authenticated inventory observation
+// whose digest matches the current snapshot. Runtime coverage remains unknown.
 func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f *models.Insight) error {
 	if _, err := resourceidentity.New(f.ClusterID, f.ResourceUID); err != nil {
 		return fmt.Errorf("resolution evidence: unknown resource ownership: %w", err)
@@ -25,12 +27,18 @@ func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f 
 	var snapshot struct {
 		UpdatedAt time.Time
 		Rules     string
+		Name      string
+		Namespace string
 	}
 	table := "roles"
 	if f.ResourceType == "ClusterRole" {
 		table = "cluster_roles"
 	}
-	result := u.db.WithContext(ctx).Table(table).Select("updated_at, rules").Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", f.ClusterID, f.ResourceUID).Take(&snapshot)
+	columns := "updated_at, rules, name, namespace"
+	if f.ResourceType == "ClusterRole" {
+		columns = "updated_at, rules, name"
+	}
+	result := u.db.WithContext(ctx).Table(table).Select(columns).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", f.ClusterID, f.ResourceUID).Take(&snapshot)
 	if result.Error != nil {
 		return fmt.Errorf("resolution evidence: exact resource snapshot unavailable: %w", result.Error)
 	}
@@ -42,12 +50,29 @@ func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f 
 		return fmt.Errorf("resolution evidence: ambiguous resource snapshot")
 	}
 	now := time.Now()
-	if snapshot.UpdatedAt.IsZero() || snapshot.UpdatedAt.After(now) || now.Sub(snapshot.UpdatedAt) > resolutionSnapshotMaxAge {
-		return fmt.Errorf("resolution evidence: static snapshot stale or timestamp invalid")
+	var receipt models.InventoryCollection
+	// Lock receipt before the resource snapshot, matching inventory transaction order.
+	if err := u.db.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).Where("cluster_id = ?", f.ClusterID).First(&receipt).Error; err != nil {
+		return fmt.Errorf("resolution evidence: inventory receipt unavailable: %w", err)
 	}
-	if f.DetectedAt.IsZero() || snapshot.UpdatedAt.Before(f.DetectedAt) {
-		return fmt.Errorf("resolution evidence: snapshot predates finding")
+	if receipt.AgentID == "" || receipt.EffectiveStatus(now) != "complete" {
+		return fmt.Errorf("resolution evidence: inventory collection is incomplete, unverified or stale")
 	}
+	if f.DetectedAt.IsZero() || receipt.ObservedAt.Before(f.DetectedAt) {
+		return fmt.Errorf("resolution evidence: observation predates finding")
+	}
+	if f.ResourceType == "Role" && receipt.Namespace != "" && receipt.Namespace != snapshot.Namespace {
+		return fmt.Errorf("resolution evidence: collection namespace mismatch")
+	}
+	digest, err := inventoryevidence.RoleDigest(f.ClusterID, f.ResourceType, f.ResourceUID, snapshot.Name, snapshot.Namespace, snapshot.Rules)
+	if err != nil {
+		return fmt.Errorf("resolution evidence: malformed static snapshot: %w", err)
+	}
+	var hashes map[string]string
+	if json.Unmarshal([]byte(receipt.RoleDigests), &hashes) != nil || hashes[inventoryevidence.Key(f.ResourceType, f.ResourceUID)] != digest {
+		return fmt.Errorf("resolution evidence: current snapshot was not in the verified collection")
+	}
+
 	var rules []map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(snapshot.Rules), &rules); err != nil || rules == nil {
 		return fmt.Errorf("resolution evidence: incomplete or malformed role rules")

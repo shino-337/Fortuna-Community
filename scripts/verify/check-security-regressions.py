@@ -13,6 +13,21 @@ import subprocess
 import sys
 
 REQUIRED = {
+    "./internal/service": [
+        "TestInventoryCollectionCommitAndFailure", "TestInventoryCollectionEmptyMissingReplayAndScope",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/empty",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/missing",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/null",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/count",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/duplicate",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/scope",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/stale",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/failed",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/replay-change",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/out-of-order",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/namespace-prune",
+        "TestInventoryCollectionEmptyMissingReplayAndScope/legacy-invalidate",
+    ],
     "./pkg/sbom": ["TestPodImageScanRejectsForeignSBOM"],
     "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership", "TestSBOMWorkloadIdentitySeparatesContainers", "TestSBOMContentDoesNotReuseDifferentProvenance"],
     "./pkg/reconciler": ["TestSBOMReconcilePreservesActiveAndUnresolvedOwnership"],
@@ -37,7 +52,13 @@ REQUIRED = {
     "./pkg/worker": [
         "TestInsightStatusUpdater_PodPreservedWithoutCollectionCoverage",
         "TestResolutionEvidenceBoundaries",
+        "TestResolutionEvidenceBoundaries/old-snapshot-fresh-observation",
+        "TestResolutionEvidenceBoundaries/missing-receipt",
+        "TestResolutionEvidenceBoundaries/failed-receipt",
+        "TestResolutionEvidenceBoundaries/legacy-receipt",
+        "TestResolutionEvidenceBoundaries/snapshot-not-observed",
         "TestResolutionEvidenceBoundaries/fresh-static",
+        "TestResolutionEvidenceBoundaries/fresh-clusterrole",
         "TestResolutionEvidenceBoundaries/foreign-duplicate",
         "TestResolutionEvidenceBoundaries/ambiguous",
         "TestResolutionEvidenceBoundaries/stale",
@@ -65,6 +86,12 @@ REQUIRED = {
         "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
     ],
     "./internal/api": [
+        "TestScopedInventoryCollectionHTTPContract",
+        "TestScopedInventoryCollectionHTTPContract/empty",
+        "TestScopedInventoryCollectionHTTPContract/failed",
+        "TestScopedInventoryCollectionHTTPContract/invalid",
+        "TestScopedInventoryCollectionHTTPContract/foreign",
+        "TestScopedInventoryCollectionHTTPContract/legacy",
         "TestRuntimeIngestTriggersScopedRescore",
         "TestRuntimeIngestTriggersScopedRescore/v2",
         "TestServiceAccountRBACResolution",
@@ -144,6 +171,12 @@ REQUIRED = {
 }
 
 AGENT_REQUIRED = {
+    "./internal/syncer": ["TestInventoryCollectionAgentReportsEmptyAndFailure",
+        "TestInventoryCollectionAgentReportsEmptyAndFailure/empty",
+        "TestInventoryCollectionAgentReportsEmptyAndFailure/list-error",
+        "TestInventoryCollectionAgentReportsEmptyAndFailure/pagination",
+        "TestInventoryCollectionAgentReportsEmptyAndFailure/core-rejected",
+    ],
     "./internal/client": ["TestClientCertificateRotationFailsClosed"],
     "./internal/corehttp": [
         "TestAgentRoutePrefersScopedTokenFileOverLegacyToken",

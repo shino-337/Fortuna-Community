@@ -129,7 +129,7 @@ For every security finding fixed during #45–#51:
 A finding is not considered permanently closed merely because its current code
 path was patched.
 
-## Evidence eligibility for automatic resolution (D1)
+## Evidence eligibility for automatic resolution (D1 + D2 inventory)
 
 Database absence is not an authoritative deletion observation. Reconciliation
 must retain findings for missing/ambiguous owners, stale/invalid snapshots,
@@ -137,9 +137,11 @@ malformed evidence, unavailable detectors and unknown collection coverage.
 Runtime silence and expiry of a lookback window never prove remediation.
 
 D1 permits automatic resolution only for self-contained Role/ClusterRole CEL
-checks reading fields from that exact static snapshot. The snapshot must be no
-older than ten minutes, not future-dated and not older than the finding. The
-rules array must be present and structurally valid. CEL dependencies are checked
+checks reading fields from that exact static snapshot. D2 inventory additionally
+requires an authenticated collection receipt: observation at most ten minutes old,
+not future-dated, not older than the finding, and a digest matching that exact
+cluster/kind/UID/name/namespace/rules projection. A missing, failed, unverified or
+stale receipt blocks resolution. The rules array must be structurally valid. CEL dependencies are checked
 from the parsed expression; aliases/bracket access cannot introduce unverified
 runtime or cross-resource inputs. Unknown dependencies are denied.
 
@@ -156,5 +158,31 @@ sync/detection/manual update must preserve the newer state. The status change an
 cluster-qualified resolution audit commit together or both roll back.
 
 Diagnostics are emitted by InsightStatusUpdater with a resolution-evidence reason.
-Persisted/API/UI evidence status, collection observation times, successful empty
-collection and loss/recovery coverage remain D2/E work; this PR does not claim them.
+Inventory observation status/timestamps and complete-empty lists are persisted
+and returned to the scoped Agent. Runtime coverage windows and API/UI presentation
+remain D2 runtime/E work; inventory receipts do not establish sensor coverage.
+
+## Inventory receipt integrity (D2 inventory)
+
+Only scoped Agent identity can issue a verified receipt. Legacy HTTP ingestion
+remains explicitly unverified and invalidates prior verified status. Core startup
+must establish the receipt schema before accepting traffic; old rows are never
+backfilled as complete. Collection namespace and all eight list counts are checked
+before inventory effects. Missing/null lists, pagination left by Kubernetes and
+collection errors cannot be represented as successful empty observations.
+
+Inventory writes and receipts commit in one transaction serialized per cluster.
+Asynchronous capability/cleanup work starts after commit. Persistence errors roll
+back the projection and record a failed attempt when storage is available; request
+cancellation does not prevent this bounded failure recording. Failures to persist
+the failure are returned, never hidden. Receipt and resource locks have consistent
+ordering during resolution. Identical accepted replays are idempotent; changed
+replays and older observations are rejected. Failed attempts are terminal: retry
+by collecting a new attempt ID, as Syncer does on its next cycle.
+
+A complete receipt covers the received inventory projection, not derived risk/PCE
+processing or proof that absent objects were deleted in Kubernetes. Existing
+empty/partial deletion safeguards remain. Namespace-limited collections must not
+prune namespaced inventory elsewhere. ClusterRole/ClusterRoleBinding lists still
+cover cluster-scoped objects. The PostgreSQL CI gate exercises concurrent replay,
+SQL-trigger failure, rollback and recovery, including timestamp precision.
