@@ -134,16 +134,14 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			}
 		}
 
-		if err := upsertAgentClusterIdentity(c.Request.Context(), db, clusterID, req.Agent); err != nil {
-			c.JSON(500, gin.H{"error": "Unable to persist agent identity"})
-			return
-		}
-
 		traceID := c.GetHeader("X-Correlation-ID")
 		if traceID == "" {
 			traceID = c.GetHeader("x-correlation-id")
 		}
 		agentService := service.NewAgentService(db)
+		if req.Agent != nil && strings.TrimSpace(req.Agent.AgentID) != "" {
+			agentService.WithAgentRecord(&models.Agent{ClusterID: clusterID, AgentID: strings.TrimSpace(req.Agent.AgentID), NodeName: req.Agent.NodeName, Version: req.Agent.Version})
+		}
 		var receipt *models.InventoryCollection
 		var syncErr error
 		principal, scoped := middleware.AgentPrincipal(c)
