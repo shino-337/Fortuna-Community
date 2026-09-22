@@ -186,6 +186,7 @@ AGENT_REQUIRED = {
         "TestInventoryCollectionAgentReportsEmptyAndFailure/list-error",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/pagination",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/core-rejected",
+        "TestInventoryCollectionRecordsListStartBeforeResponse",
     ],
     "./internal/client": ["TestClientCertificateRotationFailsClosed"],
     "./internal/corehttp": [
