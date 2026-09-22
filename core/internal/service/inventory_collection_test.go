@@ -130,8 +130,18 @@ func TestInventoryCollectionEmptyMissingReplayAndScope(t *testing.T) {
 				data = nil
 			case "namespace-prune":
 				c.Namespace = "ns"
+				require.NoError(t, db.Create(&models.ServiceAccount{ClusterID: "cluster-a", UID: "sa-foreign", Name: "sa-foreign", Namespace: "other"}).Error)
+				require.NoError(t, db.Create(&models.RoleBinding{ClusterID: "cluster-a", UID: "rb-foreign", Name: "rb-foreign", Namespace: "other", RoleRef: "{}", Subjects: "[]"}).Error)
+				require.NoError(t, db.Create(&models.Deployment{ClusterID: "cluster-a", UID: "dep-foreign", Name: "dep-foreign", Namespace: "other"}).Error)
+				require.NoError(t, db.Create(&models.ReplicaSet{ClusterID: "cluster-a", UID: "rs-foreign", Name: "rs-foreign", Namespace: "other"}).Error)
+				data["serviceAccounts"] = []interface{}{map[string]interface{}{"uid": "sa-local", "name": "sa-local", "namespace": "ns"}}
 				data["roles"] = []interface{}{map[string]interface{}{"uid": "r", "name": "r", "namespace": "ns", "rules": []interface{}{}}}
-				c.Counts["roles"] = 1
+				data["roleBindings"] = []interface{}{map[string]interface{}{"uid": "rb-local", "name": "rb-local", "namespace": "ns", "roleRef": map[string]interface{}{"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "r"}, "subjects": []interface{}{}}}
+				data["deployments"] = []interface{}{map[string]interface{}{"uid": "dep-local", "name": "dep-local", "namespace": "ns"}}
+				data["replicasets"] = []interface{}{map[string]interface{}{"uid": "rs-local", "name": "rs-local", "namespace": "ns"}}
+				for _, kind := range []string{"serviceAccounts", "roles", "roleBindings", "deployments", "replicasets"} {
+					c.Counts[kind] = 1
+				}
 			}
 			receipt, err := s.SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", c)
 			if wantErr {
@@ -156,11 +166,47 @@ func TestInventoryCollectionEmptyMissingReplayAndScope(t *testing.T) {
 				var state models.InventoryCollection
 				require.NoError(t, db.First(&state, "cluster_id = ?", "cluster-a").Error)
 				require.Equal(t, "unknown", state.Status)
+			case "namespace-prune":
+				require.Equal(t, "complete", receipt.Status)
+				for _, check := range []struct {
+					model interface{}
+					uid   string
+				}{
+					{&models.ServiceAccount{}, "sa-foreign"},
+					{&models.RoleBinding{}, "rb-foreign"},
+					{&models.Deployment{}, "dep-foreign"},
+					{&models.ReplicaSet{}, "rs-foreign"},
+				} {
+					var n int64
+					require.NoError(t, db.Model(check.model).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", "cluster-a", check.uid).Count(&n).Error)
+					require.EqualValues(t, 1, n, "namespace-scoped sync pruned foreign namespace resource %s", check.uid)
+				}
 			default:
 				require.Equal(t, "complete", receipt.Status)
 			}
 			var foreign models.Role
 			require.NoError(t, db.Where("uid = ?", "foreign-ns").First(&foreign).Error)
+		})
+	}
+}
+
+
+func TestInventoryCollectionRejectsCrossNamespaceRows(t *testing.T) {
+	cases := map[string]map[string]interface{}{
+		"serviceAccounts": {"uid": "sa", "name": "sa", "namespace": "other"},
+		"roles": {"uid": "role", "name": "role", "namespace": "other", "rules": []interface{}{}},
+		"roleBindings": {"uid": "rb", "name": "rb", "namespace": "other", "roleRef": map[string]interface{}{"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "role"}, "subjects": []interface{}{}},
+		"deployments": {"uid": "dep", "name": "dep", "namespace": "other"},
+		"replicasets": {"uid": "rs", "name": "rs", "namespace": "other"},
+		"pods": {"uid": "pod", "name": "pod", "namespace": "other", "hostNetwork": false, "hostPID": false, "hostIPC": false, "automountServiceAccountToken": true, "containers": []interface{}{map[string]interface{}{"name": "c"}}},
+	}
+	for kind, row := range cases {
+		t.Run(kind, func(t *testing.T) {
+			_, _, data, meta := collectionFixture(t)
+			meta.Namespace = "ns"
+			data[kind] = []interface{}{row}
+			meta.Counts[kind] = 1
+			require.ErrorIs(t, ValidateInventoryPayload(meta, data, time.Now()), ErrInvalidCollection)
 		})
 	}
 }
