@@ -1,10 +1,7 @@
 package ebpf
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
 	"io"
 	"log"
 	"net/http"
@@ -14,7 +11,6 @@ import (
 	"time"
 
 	ciliumebpf "github.com/cilium/ebpf"
-	"github.com/fortuna/agent/internal/corehttp"
 	"github.com/fortuna/agent/internal/runtime"
 )
 
@@ -33,6 +29,7 @@ type Sensor struct {
 	links         []io.Closer
 	emittedEvents uint64
 	droppedEvents uint64
+	coverage      *runtime.CoverageReporter
 }
 
 func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, bufferSize int, simulate bool) *Sensor {
@@ -42,7 +39,7 @@ func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, buff
 	if bufferSize <= 0 {
 		bufferSize = 200
 	}
-	return &Sensor{
+	s := &Sensor{
 		mode:          normalizeEBPFMode(mode),
 		coreURL:       strings.TrimRight(coreURL, "/"),
 		nodeName:      nodeName,
@@ -52,6 +49,8 @@ func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, buff
 		eventCh:       make(chan runtime.Event, bufferSize),
 		simulate:      simulate,
 	}
+	s.coverage = runtime.NewCoverageReporter(s.coreURL, "ebpf-"+s.mode, "ebpf", s.httpClient)
+	return s
 }
 
 func (s *Sensor) Start(ctx context.Context) {
@@ -60,6 +59,13 @@ func (s *Sensor) Start(ctx context.Context) {
 	pf := RunPreflight()
 	if !pf.Ready {
 		log.Printf("[eBPF] preflight not ready (%s); fail-open: disabling eBPF sensor", pf.Reason)
+		if s.coverage != nil {
+			ctxReport, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			_ = s.coverage.Report(ctxReport, runtime.CoverageObservation{
+				End: time.Now().UTC(), Failed: true, Reason: "preflight_not_ready:" + pf.Reason,
+			})
+			cancel()
+		}
 		return
 	}
 	s.mode = normalizeEBPFMode(s.mode)
@@ -101,53 +107,122 @@ func (s *Sensor) flushLoop(ctx context.Context) {
 	defer ticker.Stop()
 	batch := make([]runtime.Event, 0, 50)
 
-	flush := func() bool {
-		if len(batch) == 0 {
-			return true
+	var windowEmitted, windowDelivered uint64
+	windowFailed := false
+	windowReason := ""
+	lastDropped := atomic.LoadUint64(&s.droppedEvents)
+
+	recordAttempt := func(attempted, delivered uint64, err error) {
+		windowEmitted += attempted
+		windowDelivered += delivered
+		if err != nil {
+			windowFailed = true
+			windowReason = "delivery_failed_retained"
 		}
-		if err := s.send(batch); err != nil {
-			log.Printf("[eBPF] send batch failed (%d), retaining for retry: %v", len(batch), err)
-			return false
-		}
-		batch = batch[:0]
-		return true
 	}
-	finalize := func() {
-		if flush() || len(batch) == 0 {
-			return
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
 		}
-		// A process shutdown is the only point where an in-memory retained batch can
-		// no longer be retried. Account for it explicitly instead of silently clearing.
-		atomic.AddUint64(&s.droppedEvents, uint64(len(batch)))
-		log.Printf("[eBPF] dropping %d retained events after final shutdown send failure", len(batch))
+		n := uint64(len(batch))
+		if err := s.send(batch); err != nil {
+			recordAttempt(n, 0, err)
+			log.Printf("[eBPF] send batch failed (%d), retaining for retry: %v", len(batch), err)
+			return err
+		}
+		recordAttempt(n, n, nil)
+		batch = batch[:0]
+		return nil
+	}
+	drainAvailable := func() error {
+		for {
+			select {
+			case evt := <-s.eventCh:
+				batch = append(batch, evt)
+				if len(batch) >= 50 {
+					if err := flush(); err != nil {
+						return err
+					}
+				}
+			default:
+				return nil
+			}
+		}
+	}
+	report := func(reportCtx context.Context, forceFailed bool, reason string) {
+		currentDropped := atomic.LoadUint64(&s.droppedEvents)
+		droppedDelta := currentDropped - lastDropped
+		lastDropped = currentDropped
+		obs := runtime.CoverageObservation{
+			End: time.Now().UTC(), Emitted: windowEmitted, Delivered: windowDelivered,
+			Dropped: droppedDelta, Failed: windowFailed || forceFailed,
+			Reason: windowReason,
+		}
+		if reason != "" {
+			if obs.Reason == "" {
+				obs.Reason = reason
+			} else if !strings.Contains(obs.Reason, reason) {
+				obs.Reason += ";" + reason
+			}
+		}
+		if s.coverage != nil {
+			if err := s.coverage.Report(reportCtx, obs); err != nil {
+				log.Printf("[eBPF] coverage report failed: %v", err)
+			}
+		}
+		windowEmitted, windowDelivered = 0, 0
+		windowFailed = false
+		windowReason = ""
 	}
 
 	retryPending := false
 	for {
 		if retryPending {
-			// Keep memory bounded while a failed batch is pending. New events remain in
-			// the bounded channel; enqueueEvent's existing dropped counter records overflow.
 			select {
 			case <-ctx.Done():
-				finalize()
+				// A retained batch that still cannot be delivered at shutdown is
+				// permanent loss. Account it before the final coverage receipt.
+				if err := flush(); err != nil && len(batch) != 0 {
+					atomic.AddUint64(&s.droppedEvents, uint64(len(batch)))
+					log.Printf("[eBPF] dropping %d retained events after final shutdown send failure", len(batch))
+					batch = batch[:0]
+				}
+				reportCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				report(reportCtx, true, "shutdown")
+				cancel()
 				return
 			case <-ticker.C:
-				retryPending = !flush()
+				retryPending = flush() != nil
+				report(context.Background(), retryPending, "")
 			}
 			continue
 		}
 
 		select {
 		case <-ctx.Done():
-			finalize()
+			_ = drainAvailable()
+			finalErr := flush()
+			if finalErr != nil && len(batch) != 0 {
+				atomic.AddUint64(&s.droppedEvents, uint64(len(batch)))
+				log.Printf("[eBPF] dropping %d retained events after final shutdown send failure", len(batch))
+				batch = batch[:0]
+			}
+			reportCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			report(reportCtx, finalErr != nil, "shutdown")
+			cancel()
 			return
 		case evt := <-s.eventCh:
 			batch = append(batch, evt)
 			if len(batch) >= 50 {
-				retryPending = !flush()
+				retryPending = flush() != nil
 			}
 		case <-ticker.C:
-			retryPending = !flush()
+			if err := drainAvailable(); err != nil {
+				retryPending = true
+			} else {
+				retryPending = flush() != nil
+			}
+			report(context.Background(), retryPending, "")
 		}
 	}
 }
@@ -156,26 +231,8 @@ func (s *Sensor) send(events []runtime.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
-	if s.coreURL == "" {
-		return fmt.Errorf("coreURL is empty")
-	}
-	runtime.PrepareEventsV2(events)
-	body, _ := json.Marshal(events)
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", s.coreURL), bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Content-Type", "application/json")
-	corehttp.ApplyOptionalAuthorization(req)
-	resp, err := s.httpClient.Do(req)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("runtime events POST failed: %s", resp.Status)
-	}
-	return nil
+	_, err := runtime.PostEventsV2(context.Background(), s.httpClient, s.coreURL, events)
+	return err
 }
 
 func (s *Sensor) simulateLoop(ctx context.Context) {
