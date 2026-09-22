@@ -28,7 +28,7 @@ func TestRuntimeIngestTriggersScopedRescore(t *testing.T) {
 			require.NoError(t, err)
 			sqlDB.SetMaxOpenConns(1)
 			defer sqlDB.Close()
-			require.NoError(t, db.AutoMigrate(&models.Pod{}, &models.Insight{}, &models.RiskScore{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}))
+			require.NoError(t, db.AutoMigrate(&models.Pod{}, &models.Insight{}, &models.RiskScore{}, &models.RuntimeEvent{}, &models.RuntimeEventIngestClaim{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}))
 			require.NoError(t, db.Exec("CREATE UNIQUE INDEX risk_identity ON risk_scores(resource_type,resource_uid,cluster_id)").Error)
 			for _, cluster := range []string{"a", "b"} {
 				require.NoError(t, db.Create(&models.Pod{ClusterID: cluster, UID: "same", Name: "p", Namespace: "ns"}).Error)
@@ -39,7 +39,7 @@ func TestRuntimeIngestTriggersScopedRescore(t *testing.T) {
 			})
 			handler := PostRuntimeEventsV2Scoped(db)
 			r.POST("/events", handler)
-			payload := `[{"pod":{"uid":"same","namespace":"ns"},"runtime":"falco","source":{"kind":"falco","rule":"test-rule"},"syscall":"open","target":"/tmp/ordinary","severity":"high","confidence":0.9}]`
+			payload := `[{"event_id":"rescore-event-0001","pod":{"uid":"same","namespace":"ns"},"runtime":"falco","source":{"kind":"falco","rule":"test-rule"},"syscall":"open","target":"/tmp/ordinary","severity":"high","confidence":0.9}]`
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewBufferString(payload))
 			req.Header.Set("Content-Type", "application/json")
