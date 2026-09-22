@@ -71,3 +71,10 @@ func readScopedAgentToken(path string) string {
 	}
 	return tok
 }
+
+
+// ScopedAgentCredentialConfigured reports whether this Agent is configured with
+// the scoped HTTP credential source required for verified runtime coverage.
+func ScopedAgentCredentialConfigured() bool {
+	return strings.TrimSpace(os.Getenv(agentTokenFileEnv)) != ""
+}
