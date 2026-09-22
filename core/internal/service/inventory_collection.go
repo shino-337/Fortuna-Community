@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/fortuna/api/collection"
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/inventoryevidence"
 	"github.com/fortuna/core/pkg/lifecycle"
 	"github.com/fortuna/core/pkg/models"
@@ -19,6 +20,27 @@ import (
 
 var ErrInvalidCollection = errors.New("invalid inventory collection")
 var ErrCollectionConflict = errors.New("inventory collection replay or ordering conflict")
+
+// WithAgentRecord stages Agent liveness/metadata so it commits only with the
+// inventory transaction that justified the heartbeat.
+func (s *AgentService) WithAgentRecord(row *models.Agent) *AgentService {
+	s.agentRecord = row
+	return s
+}
+
+func (s *AgentService) persistAgentRecord(ctx context.Context, db *gorm.DB, clusterID, requiredAgentID string) error {
+	if s.agentRecord == nil {
+		return nil
+	}
+	record := *s.agentRecord
+	if record.ClusterID != clusterID || (requiredAgentID != "" && record.AgentID != requiredAgentID) {
+		return fmt.Errorf("%w: staged agent identity does not match inventory principal", ErrInvalidCollection)
+	}
+	if err := agentidentity.UpsertRecord(ctx, db, &record); err != nil {
+		return fmt.Errorf("persist agent identity: %w", err)
+	}
+	return nil
+}
 
 func (s *AgentService) launchAfterSync(fn func()) {
 	if s.deferWork {
@@ -148,6 +170,9 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 	}
 	c.StartedAt = c.StartedAt.UTC().Truncate(time.Microsecond)
 	c.ObservedAt = c.ObservedAt.UTC().Truncate(time.Microsecond)
+	for kind, observed := range c.KindObservedAt {
+		c.KindObservedAt[kind] = observed.UTC().Truncate(time.Microsecond)
+	}
 	if err := ValidateInventoryPayload(c, data, time.Now().UTC()); err != nil {
 		return nil, err
 	}
@@ -158,7 +183,8 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 	hash := sha256.Sum256(raw)
 	digest := hex.EncodeToString(hash[:])
 	counts, _ := json.Marshal(c.Counts)
-	result := models.InventoryCollection{ClusterID: clusterID, AgentID: agentID, CollectionID: c.ID, Namespace: c.Namespace, Status: c.Status, StartedAt: c.StartedAt, ObservedAt: c.ObservedAt, ReceivedAt: time.Now().UTC().Truncate(time.Microsecond), PayloadSHA256: digest, Counts: string(counts)}
+	kindObservedAt, _ := json.Marshal(c.KindObservedAt)
+	result := models.InventoryCollection{ClusterID: clusterID, AgentID: agentID, CollectionID: c.ID, Namespace: c.Namespace, Status: c.Status, StartedAt: c.StartedAt, ObservedAt: c.ObservedAt, ReceivedAt: time.Now().UTC().Truncate(time.Microsecond), PayloadSHA256: digest, Counts: string(counts), KindObservedAt: string(kindObservedAt)}
 	if c.Status == "failed" {
 		result.FailureStage = "collection"
 	}
@@ -187,6 +213,9 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 	var child *AgentService
 	replay := false
 	err = s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.persistAgentRecord(ctx, tx, clusterID, agentID); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.InventoryCollection{ClusterID: clusterID, Status: "unknown"}).Error; err != nil {
 			return err
 		}
@@ -195,7 +224,7 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 			return err
 		}
 		if prior.CollectionID == c.ID {
-			if prior.PayloadSHA256 != digest || prior.AgentID != agentID || prior.Namespace != c.Namespace || prior.Status != c.Status || !prior.StartedAt.Equal(c.StartedAt) || !prior.ObservedAt.Equal(c.ObservedAt) {
+			if prior.PayloadSHA256 != digest || prior.AgentID != agentID || prior.Namespace != c.Namespace || prior.Status != c.Status || prior.KindObservedAt != result.KindObservedAt || !prior.StartedAt.Equal(c.StartedAt) || !prior.ObservedAt.Equal(c.ObservedAt) {
 				return ErrCollectionConflict
 			}
 			result = prior
@@ -224,7 +253,7 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 			failed := result
 			failed.Status = "failed"
 			failed.FailureStage = "persistence"
-			persistErr := s.db.WithContext(failureCtx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "cluster_id"}}, DoUpdates: clause.AssignmentColumns([]string{"agent_id", "collection_id", "namespace", "status", "started_at", "observed_at", "received_at", "payload_sha256", "counts", "role_digests", "failure_stage"}), Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "inventory_collections.started_at < excluded.started_at"}}}}).Create(&failed).Error
+			persistErr := s.db.WithContext(failureCtx).Clauses(clause.OnConflict{Columns: []clause.Column{{Name: "cluster_id"}}, DoUpdates: clause.AssignmentColumns([]string{"agent_id", "collection_id", "namespace", "status", "started_at", "observed_at", "received_at", "payload_sha256", "counts", "kind_observed_at", "role_digests", "failure_stage"}), Where: clause.Where{Exprs: []clause.Expression{clause.Expr{SQL: "inventory_collections.started_at < excluded.started_at"}}}}).Create(&failed).Error
 			if persistErr != nil {
 				return nil, fmt.Errorf("inventory sync: %v; failed to record collection failure: %w", err, persistErr)
 			}
@@ -254,10 +283,32 @@ func (s *AgentService) SyncUnverifiedData(ctx context.Context, clusterID, cluste
 		if c != nil {
 			return fmt.Errorf("inventory collection schema unavailable")
 		}
-		return s.applySyncData(clusterID, clusterName, source, k8sVersion, distribution, data, traceID)
+		var compatibilityChild *AgentService
+		err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+			if err := s.persistAgentRecord(ctx, tx, clusterID, ""); err != nil {
+				return err
+			}
+			compatibilityChild = NewAgentService(tx)
+			compatibilityChild.deferWork = true
+			if err := compatibilityChild.applySyncData(clusterID, clusterName, source, k8sVersion, distribution, data, traceID); err != nil {
+				return err
+			}
+			return nil
+		})
+		if err == nil && compatibilityChild != nil {
+			compatibilityChild.db = s.db
+			compatibilityChild.podInstanceManager = lifecycle.NewPodInstanceManager(s.db)
+			for _, fn := range compatibilityChild.afterCommit {
+				go fn()
+			}
+		}
+		return err
 	}
 	var child *AgentService
 	err := s.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := s.persistAgentRecord(ctx, tx, clusterID, ""); err != nil {
+			return err
+		}
 		if err := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.InventoryCollection{ClusterID: clusterID, Status: "unknown"}).Error; err != nil {
 			return err
 		}
@@ -280,7 +331,7 @@ func (s *AgentService) SyncUnverifiedData(ctx context.Context, clusterID, cluste
 		if c != nil {
 			namespace = c.Namespace
 		}
-		return tx.Model(&state).Updates(map[string]interface{}{"status": "unknown", "failure_stage": "", "received_at": now, "started_at": now, "observed_at": time.Time{}, "agent_id": "", "collection_id": "", "namespace": namespace, "payload_sha256": "", "role_digests": "{}", "counts": "{}"}).Error
+		return tx.Model(&state).Updates(map[string]interface{}{"status": "unknown", "failure_stage": "", "received_at": now, "started_at": now, "observed_at": time.Time{}, "agent_id": "", "collection_id": "", "namespace": namespace, "payload_sha256": "", "role_digests": "{}", "counts": "{}", "kind_observed_at": "{}"}).Error
 	})
 	if err == nil && child != nil {
 		child.db = s.db
