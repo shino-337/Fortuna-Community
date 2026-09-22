@@ -287,7 +287,7 @@ func TestInventoryCollectionRejectsPersistedCrossNamespaceUIDCollision(t *testin
 				"roleBindings": "role_bindings",
 				"pods": "pods",
 				"deployments": "deployments",
-				"replicasets": "replica_sets",
+				"replicasets": "replicasets",
 			}[tc.kind]).Where("cluster_id = ? AND uid = ?", "cluster-a", "same").Count(&total).Error)
 			require.EqualValues(t, 1, total, "collision must not create a second row")
 
@@ -298,7 +298,7 @@ func TestInventoryCollectionRejectsPersistedCrossNamespaceUIDCollision(t *testin
 				"roleBindings": "role_bindings",
 				"pods": "pods",
 				"deployments": "deployments",
-				"replicasets": "replica_sets",
+				"replicasets": "replicasets",
 			}[tc.kind]).Where("cluster_id = ? AND uid = ? AND namespace = ?", "cluster-a", "same", "other").Count(&foreign).Error)
 			require.EqualValues(t, 1, foreign, "collision must not move the existing row across namespaces")
 		})
