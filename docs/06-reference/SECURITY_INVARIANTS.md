@@ -129,7 +129,7 @@ For every security finding fixed during #45–#51:
 A finding is not considered permanently closed merely because its current code
 path was patched.
 
-## Evidence eligibility for automatic resolution (D1)
+## Evidence eligibility for automatic resolution (D1 + D2 inventory)
 
 Database absence is not an authoritative deletion observation. Reconciliation
 must retain findings for missing/ambiguous owners, stale/invalid snapshots,
@@ -137,9 +137,11 @@ malformed evidence, unavailable detectors and unknown collection coverage.
 Runtime silence and expiry of a lookback window never prove remediation.
 
 D1 permits automatic resolution only for self-contained Role/ClusterRole CEL
-checks reading fields from that exact static snapshot. The snapshot must be no
-older than ten minutes, not future-dated and not older than the finding. The
-rules array must be present and structurally valid. CEL dependencies are checked
+checks reading fields from that exact static snapshot. D2 inventory additionally
+requires an authenticated collection receipt: the resource-kind List start bound
+must be at most ten minutes old, not future-dated, not older than the finding, and
+its digest must match that exact cluster/kind/UID/name/namespace/rules projection. A missing, failed, unverified or
+stale receipt blocks resolution. The rules array must be structurally valid. CEL dependencies are checked
 from the parsed expression; aliases/bracket access cannot introduce unverified
 runtime or cross-resource inputs. Unknown dependencies are denied.
 
@@ -156,5 +158,87 @@ sync/detection/manual update must preserve the newer state. The status change an
 cluster-qualified resolution audit commit together or both roll back.
 
 Diagnostics are emitted by InsightStatusUpdater with a resolution-evidence reason.
-Persisted/API/UI evidence status, collection observation times, successful empty
-collection and loss/recovery coverage remain D2/E work; this PR does not claim them.
+Inventory observation status/timestamps and complete-empty lists are persisted
+and returned to the scoped Agent. Runtime coverage windows and API/UI presentation
+remain D2 runtime/E work; inventory receipts do not establish sensor coverage.
+
+## Inventory receipt integrity (D2 inventory)
+
+Only scoped Agent identity can issue a verified receipt. A request authenticated
+as a scoped Agent must include collection evidence; missing collection metadata is
+a hard reject and must never downgrade into an unverified write. Agent health metadata
+from the same HTTP sync commits with the inventory transaction; failed inventory
+persistence must not advance Agent liveness. Scoped HTTP mode is exclusive when
+the credential registry is configured and does not fall back to the legacy shared
+token. Any explicit unverified compatibility write still invalidates prior verified
+status because it may alter the projection without trustworthy evidence. Core startup
+must establish the receipt schema before accepting traffic; old rows are never
+backfilled as complete. Collection namespace, all eight list counts and all eight
+per-kind Kubernetes List start bounds are checked before inventory effects. The eight List calls are
+sequential: the receipt is a bounded interval, not an atomic Kubernetes snapshot.
+Cross-resource consistency must not be inferred from it. Missing/null lists, pagination left by Kubernetes and
+collection errors cannot be represented as successful empty observations.
+
+Inventory writes and receipts commit in one transaction serialized per cluster.
+Asynchronous capability/cleanup work starts after commit. Persistence errors roll
+back the projection and record a failed attempt when storage is available; request
+cancellation does not prevent this bounded failure recording. Failures to persist
+the failure are returned, never hidden. Receipt and resource locks have consistent
+ordering during resolution. Identical accepted replays are idempotent; changed
+replays and older observations are rejected. Failed attempts are terminal: retry
+by collecting a new attempt ID, as Syncer does on its next cycle.
+
+A complete receipt proves the collection completed and its included rows were
+accepted. It does not claim authoritative projection reconciliation or deletion.
+The HTTP contract must expose non-authoritative deletion semantics, and retained
+rows absent from a complete-empty collection must not become eligible for
+auto-resolution. Existing
+empty/partial deletion safeguards remain. Namespace-limited collections must reject out-of-scope namespaced rows and must
+not prune namespaced inventory elsewhere. Namespaced object upsert identity is
+`cluster_id + namespace + uid`; a same UID already persisted in another namespace
+is an integrity conflict and must fail closed rather than move/adopt that row. ClusterRole/ClusterRoleBinding lists still
+cover cluster-scoped objects. The PostgreSQL CI gate exercises concurrent replay,
+SQL-trigger failure, rollback and recovery, including timestamp precision.
+
+
+### Multi-Agent arbitration
+
+The production Agent is a DaemonSet: more than one scoped Agent in the same
+cluster can submit full inventory. The current receipt is intentionally the latest
+accepted attempt per cluster. Ordering is by collection start time and the receipt
+row is serialized with a database lock. Therefore:
+
+- a newer failed Agent attempt may make resolution evidence unavailable but must
+  not mutate the previously accepted inventory projection;
+- an older Agent attempt must not roll the receipt or projection backwards;
+- a newer complete Agent attempt must recover the receipt deterministically;
+- different namespace scopes may supersede one another and reduce eligibility,
+  but a scope mismatch must preserve findings rather than resolve them.
+
+This is a fail-closed availability trade-off, not proof of multi-scope aggregation.
+Package F must exercise the real DaemonSet topology and decide whether
+latest-per-cluster remains acceptable or the receipt key must become scope-qualified.
+
+## Security-change review protocol
+
+For security-sensitive changes after #50, review the complete state machine before
+writing the fix. Every PR touching identity, ingest, persistence, reconciliation,
+runtime evidence or migrations must explicitly map these dimensions:
+
+1. trust boundary and authoritative identity;
+2. cluster / agent / namespace / resource ownership keys;
+3. success, empty, partial, failed, replay and out-of-order states;
+4. concurrent writers and transaction lock ordering;
+5. rollback behavior and side effects that occur before/after commit;
+6. legacy/admin/compatibility writers that can mutate the same projection;
+7. evidence freshness, loss and negative evidence semantics;
+8. migration from populated data and restart/rerun behavior;
+9. supported deployment topology, including DaemonSet multi-writer behavior;
+10. permanent named regression tests for every accepted invariant and every
+    fail-closed boundary.
+
+A code change resets merge readiness. After the final runtime-code commit, rerun
+the full invariant review against the resulting diff, then require Core, Agent,
+API, PostgreSQL and security-regression gates to pass on that exact head. Test/doc
+commits may follow, but any further runtime-code change requires the review cycle
+again.

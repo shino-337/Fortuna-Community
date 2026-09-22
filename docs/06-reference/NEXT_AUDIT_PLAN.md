@@ -1,8 +1,8 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #48 merged on 2026-09-22. Changes continue as focused
+Status verified after PR #49 merged on 2026-09-22. Changes continue as focused
 PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
-unopened work are estimates: D is split into D1/D2, so later PR numbers may shift.
+unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
 | --- | --- | --- | --- | --- |
@@ -102,15 +102,33 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   All 11 merge-commit checks passed; the separate PR AI scanner failed before
   analysis because its selected model was unsupported. That scan remains unverified.
   Live multi-cluster rollout remains package F; source tests do not close that gate.
-- D1 / #49 implemented, pending CI/review: fail-closed auto-resolution eligibility. Exact cluster/UID,
-  fresh static snapshots and detector dependency checks; preserve missing resources,
-  runtime silence and incomplete evidence. Static snapshot timestamps are not
-  collector observation/completeness receipts.
-- D2 pending after D1: end-to-end collection status, observation timestamps and
-  coverage receipts from Agent; eliminate sync error swallowing before permitting
-  runtime/cross-resource absence to resolve findings; expose persisted status and
-  reasons through API/UI with E. D remains open until this
-  producer-to-evaluator contract is implemented and tested.
+- D1 / #49 merged (merge commit `f2128b7`): fail-closed auto-resolution
+  eligibility, exact cluster/UID lookups, detector dependency checks and concurrent
+  update guards. All 11 merge-commit checks passed. Missing resources, runtime
+  silence and incomplete evidence preserve findings.
+- D2 inventory / #50 implemented, pending exact-head CI/review: authenticated collection
+  ID, bounded collection interval, exact per-kind List start bounds, namespace scope
+  and per-kind counts; complete-empty and failed collections are distinct. Agent
+  liveness plus inventory projection/receipt commit atomically, so failed inventory
+  persistence cannot advance Agent health. Core rejects altered replays/older
+  attempts and propagates persistence errors. Role/ClusterRole eligibility requires
+  the kind List start bound to post-date the finding plus a digest matching the
+  stored snapshot; batch-end time and row UpdatedAt are never freshness surrogates.
+  Sequential multi-kind List calls are explicitly not an atomic Kubernetes snapshot,
+  so cross-resource resolution remains blocked.
+  PostgreSQL replay/concurrency, real rollback/recovery, Agent rollback, namespace
+  scope/pruning, Agent failure and HTTP identity regressions are permanent gates.
+  Receipt completeness does not prove deletion or runtime sensor coverage. The
+  Agent DaemonSet is a normal multi-writer topology; latest-per-cluster arbitration
+  is fail-closed and now has PostgreSQL regression coverage for newer failure,
+  older-writer rejection and later recovery. Package F must exercise the real
+  DaemonSet plus different WATCH_NAMESPACE scopes on one cluster and either validate
+  the supported topology or promote the receipt key to include scope before
+  multi-scope aggregation is claimed.
+- D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
+  reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
+  dependencies. Runtime/Pod auto-resolution stays blocked. Persisted/API/UI
+  explanations and availability remain coordinated with E. D is not complete.
 - E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
 - F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
@@ -124,3 +142,32 @@ Security-sensitive paths are covered by CODEOWNERS, but repository rules must
 require CODEOWNER review and required CI checks on `main`. Direct/force pushes or
 merges that bypass those checks defeat the regression-prevention contract and must
 remain disabled by owner-side branch/ruleset configuration.
+
+
+## Merge-readiness discipline
+
+For #50 and subsequent security packages, runtime code is reviewed as one complete
+state machine rather than a sequence of isolated findings. Any runtime-code commit
+resets readiness and requires re-review of identity, scope, failure/replay,
+concurrency, rollback, alternate writers, migrations and deployment topology.
+Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
+security regression gates passed. After that point, #51 must be rebuilt/rebased on
+the merged #50 head before further runtime coverage work; it must not reintroduce
+an older inventory contract.
+
+
+### Final #50 merge blockers closed
+
+Before merge, #50 must retain permanent regression coverage for these four
+boundaries:
+
+- namespaced upserts use `cluster_id + namespace + uid` and reject persisted
+  cross-namespace UID collisions;
+- `complete-empty` means collection-complete only; deletion remains
+  non-authoritative and retained rows cannot auto-resolve;
+- scoped authenticated HTTP sync without a collection envelope is rejected and
+  cannot enter the unverified compatibility path;
+- duplicate UID across namespaces is rejected both inside one payload and against
+  already persisted inventory.
+
+Any future change weakening one of these tests resets merge/release readiness.

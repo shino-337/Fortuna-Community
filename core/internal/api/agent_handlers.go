@@ -8,11 +8,13 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/api/collection"
 	"github.com/fortuna/core/internal/ingest"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/internal/service"
 	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/capability"
+	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -65,6 +67,7 @@ func validateScopedSyncClaims(c *gin.Context, legacyClusterID string, cluster *C
 func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var req struct {
+			Collection  *collection.Inventory  `json:"collection,omitempty"`
 			ClusterID   string                 `json:"clusterId"`
 			ClusterName string                 `json:"clusterName"`
 			Cluster     *ClusterPayload        `json:"cluster"`
@@ -83,6 +86,14 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 				return
 			}
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "code": "invalid_agent_identity_claims"})
+			return
+		}
+
+		if _, scoped := middleware.AgentPrincipal(c); scoped && req.Collection == nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": "scoped agent sync requires collection evidence",
+				"code":  "inventory_collection_required",
+			})
 			return
 		}
 
@@ -107,7 +118,11 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 		}
 		// Normalize cluster_id only after scoped identity has been validated. This prevents
 		// an alias from being normalized into a cluster the authenticated principal did not claim.
-		clusterID = NormalizeClusterID(db, clusterID)
+		if principal, scoped := middleware.AgentPrincipal(c); scoped {
+			clusterID = principal.ClusterID
+		} else {
+			clusterID = NormalizeClusterID(db, clusterID)
+		}
 
 		if clusterLimiter != nil && !clusterLimiter.AllowSync(clusterID) {
 			log.Printf("[AgentAPI] rate limit exceeded for cluster=%s", clusterID)
@@ -120,9 +135,11 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 		log.Printf("[AgentAPI] cluster=%s name=%s source=%s hasDelta=%v hasFull=%v",
 			clusterID, clusterName, source, hasDelta, hasFull)
 
-		if err := upsertAgentClusterIdentity(c.Request.Context(), db, clusterID, req.Agent); err != nil {
-			c.JSON(500, gin.H{"error": "Unable to persist agent identity"})
-			return
+		if req.Collection != nil {
+			if err := service.ValidateInventoryPayload(*req.Collection, req.Data, time.Now()); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 		}
 
 		traceID := c.GetHeader("X-Correlation-ID")
@@ -130,8 +147,34 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			traceID = c.GetHeader("x-correlation-id")
 		}
 		agentService := service.NewAgentService(db)
-		if err := agentService.SyncData(clusterID, clusterName, source, k8sVersion, distribution, req.Data, traceID); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if req.Agent != nil && strings.TrimSpace(req.Agent.AgentID) != "" {
+			agentService.WithAgentRecord(&models.Agent{ClusterID: clusterID, AgentID: strings.TrimSpace(req.Agent.AgentID), NodeName: req.Agent.NodeName, Version: req.Agent.Version})
+		}
+		var receipt *models.InventoryCollection
+		var syncErr error
+		principal, scoped := middleware.AgentPrincipal(c)
+		if scoped && req.Collection != nil {
+			receipt, syncErr = agentService.SyncObservedData(c.Request.Context(), clusterID, clusterName, source, k8sVersion, distribution, principal.AgentID, req.Data, traceID, *req.Collection)
+		} else {
+			syncErr = agentService.SyncUnverifiedData(c.Request.Context(), clusterID, clusterName, source, k8sVersion, distribution, req.Data, traceID, req.Collection)
+		}
+		if syncErr != nil {
+			code := http.StatusInternalServerError
+			if errors.Is(syncErr, service.ErrInvalidCollection) {
+				code = http.StatusBadRequest
+			}
+			if errors.Is(syncErr, service.ErrCollectionConflict) {
+				code = http.StatusConflict
+			}
+			c.JSON(code, gin.H{"error": syncErr.Error()})
+			return
+		}
+		if req.Collection != nil && req.Collection.Status == "failed" {
+			inventoryStatus := "unknown"
+			if receipt != nil {
+				inventoryStatus = receipt.EffectiveStatus(time.Now())
+			}
+			c.JSON(http.StatusOK, gin.H{"success": true, "message": "Collection report accepted; inventory unchanged", "collection": receipt, "inventoryStatus": inventoryStatus, "projectionSemantics": collection.ProjectionSemanticsNonAuthoritativeDeletion, "deletionAuthoritative": false, "runtimeCoverage": "unknown"})
 			return
 		}
 
@@ -156,9 +199,18 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			}()
 		}
 
+		inventoryStatus := "unknown"
+		if receipt != nil {
+			inventoryStatus = receipt.EffectiveStatus(time.Now())
+		}
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"message": "Data synced successfully",
+			"success":         true,
+			"message":         "Data synced successfully",
+			"collection":      receipt,
+			"inventoryStatus":       inventoryStatus,
+			"projectionSemantics":   collection.ProjectionSemanticsNonAuthoritativeDeletion,
+			"deletionAuthoritative": false,
+			"runtimeCoverage":       "unknown",
 		})
 	}
 }

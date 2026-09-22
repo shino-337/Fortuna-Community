@@ -149,6 +149,9 @@ func Migrate(db *gorm.DB) error {
 	if err := migrations.EnsureAgentCompositeIdentity(db); err != nil {
 		return fmt.Errorf("Agent composite identity: %w", err)
 	}
+	if err := migrations.EnsureInventoryCollection(db); err != nil {
+		return fmt.Errorf("inventory collection schema: %w", err)
+	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
 }

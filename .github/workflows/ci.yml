@@ -98,6 +98,8 @@ jobs:
           grep -q -- '--- PASS: TestSBOMConcurrentOwnershipPostgres' /tmp/sbom-identity-postgres.log
           go test -v ./migrations -run '^TestAgentCompositeIdentityPostgres$' -count=1 -timeout=2m | tee /tmp/agent-identity-postgres.log
           grep -q -- '--- PASS: TestAgentCompositeIdentityPostgres' /tmp/agent-identity-postgres.log
+          go test -v ./internal/service -run '^TestInventoryCollectionPostgres$' -count=1 -timeout=2m | tee /tmp/inventory-collection-postgres.log
+          grep -q -- '--- PASS: TestInventoryCollectionPostgres' /tmp/inventory-collection-postgres.log
 
   dashboard:
     name: Dashboard validation

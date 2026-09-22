@@ -6,67 +6,103 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/fortuna/api/collection"
+	"github.com/fortuna/core/pkg/inventoryevidence"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/resourceidentity"
 	"gorm.io/gorm/clause"
 )
 
-const resolutionSnapshotMaxAge = 10 * time.Minute
+const resolutionSnapshotMaxAge = collection.MaxAge
 
-// A snapshot update is not a collector coverage receipt. D1 permits only
-// self-contained static Role checks; runtime/cross-resource absence stays unknown.
-func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f *models.Insight) error {
+// Static Role resolution requires a fresh authenticated inventory observation
+// whose digest matches the current snapshot. Runtime coverage remains unknown.
+func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f *models.Insight) (time.Time, error) {
 	if _, err := resourceidentity.New(f.ClusterID, f.ResourceUID); err != nil {
-		return fmt.Errorf("resolution evidence: unknown resource ownership: %w", err)
+		return time.Time{}, fmt.Errorf("resolution evidence: unknown resource ownership: %w", err)
 	}
 	if u.yamlEngine == nil || !u.yamlEngine.CanResolveFromRoleSnapshot(f) {
-		return fmt.Errorf("resolution evidence: complete runtime/cross-resource collection coverage is unavailable")
+		return time.Time{}, fmt.Errorf("resolution evidence: complete runtime/cross-resource collection coverage is unavailable")
 	}
 	var snapshot struct {
 		UpdatedAt time.Time
 		Rules     string
+		Name      string
+		Namespace string
 	}
 	table := "roles"
+	kind := "roles"
 	if f.ResourceType == "ClusterRole" {
 		table = "cluster_roles"
+		kind = "clusterRoles"
 	}
-	result := u.db.WithContext(ctx).Table(table).Select("updated_at, rules").Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", f.ClusterID, f.ResourceUID).Take(&snapshot)
+	columns := "updated_at, rules, name, namespace"
+	if f.ResourceType == "ClusterRole" {
+		columns = "updated_at, rules, name"
+	}
+	result := u.db.WithContext(ctx).Table(table).Select(columns).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", f.ClusterID, f.ResourceUID).Take(&snapshot)
 	if result.Error != nil {
-		return fmt.Errorf("resolution evidence: exact resource snapshot unavailable: %w", result.Error)
+		return time.Time{}, fmt.Errorf("resolution evidence: exact resource snapshot unavailable: %w", result.Error)
 	}
 	var count int64
 	if err := u.db.WithContext(ctx).Table(table).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", f.ClusterID, f.ResourceUID).Count(&count).Error; err != nil {
-		return fmt.Errorf("resolution evidence: ownership query failed: %w", err)
+		return time.Time{}, fmt.Errorf("resolution evidence: ownership query failed: %w", err)
 	}
 	if count != 1 {
-		return fmt.Errorf("resolution evidence: ambiguous resource snapshot")
+		return time.Time{}, fmt.Errorf("resolution evidence: ambiguous resource snapshot")
 	}
 	now := time.Now()
-	if snapshot.UpdatedAt.IsZero() || snapshot.UpdatedAt.After(now) || now.Sub(snapshot.UpdatedAt) > resolutionSnapshotMaxAge {
-		return fmt.Errorf("resolution evidence: static snapshot stale or timestamp invalid")
+	var receipt models.InventoryCollection
+	// Lock receipt before the resource snapshot, matching inventory transaction order.
+	if err := u.db.WithContext(ctx).Clauses(clause.Locking{Strength: "SHARE"}).Where("cluster_id = ?", f.ClusterID).First(&receipt).Error; err != nil {
+		return time.Time{}, fmt.Errorf("resolution evidence: inventory receipt unavailable: %w", err)
 	}
-	if f.DetectedAt.IsZero() || snapshot.UpdatedAt.Before(f.DetectedAt) {
-		return fmt.Errorf("resolution evidence: snapshot predates finding")
+	if receipt.AgentID == "" || receipt.EffectiveStatus(now) != "complete" {
+		return time.Time{}, fmt.Errorf("resolution evidence: inventory collection is incomplete, unverified or stale")
 	}
+	var kindStartedAt map[string]time.Time
+	if err := json.Unmarshal([]byte(receipt.KindStartedAt), &kindStartedAt); err != nil {
+		return time.Time{}, fmt.Errorf("resolution evidence: per-kind List start metadata unavailable")
+	}
+	resourceListStartedAt, ok := kindStartedAt[kind]
+	if !ok || resourceListStartedAt.IsZero() || resourceListStartedAt.Before(receipt.StartedAt) || resourceListStartedAt.After(receipt.ObservedAt) ||
+		resourceListStartedAt.After(now) || now.Sub(resourceListStartedAt) > resolutionSnapshotMaxAge {
+		return time.Time{}, fmt.Errorf("resolution evidence: resource List start is missing, invalid or stale")
+	}
+	if f.DetectedAt.IsZero() || resourceListStartedAt.Before(f.DetectedAt) {
+		return time.Time{}, fmt.Errorf("resolution evidence: resource List started before finding")
+	}
+	if f.ResourceType == "Role" && receipt.Namespace != "" && receipt.Namespace != snapshot.Namespace {
+		return time.Time{}, fmt.Errorf("resolution evidence: collection namespace mismatch")
+	}
+	digest, err := inventoryevidence.RoleDigest(f.ClusterID, f.ResourceType, f.ResourceUID, snapshot.Name, snapshot.Namespace, snapshot.Rules)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("resolution evidence: malformed static snapshot: %w", err)
+	}
+	var hashes map[string]string
+	if json.Unmarshal([]byte(receipt.RoleDigests), &hashes) != nil || hashes[inventoryevidence.Key(f.ResourceType, f.ResourceUID)] != digest {
+		return time.Time{}, fmt.Errorf("resolution evidence: current snapshot was not in the verified collection")
+	}
+
 	var rules []map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(snapshot.Rules), &rules); err != nil || rules == nil {
-		return fmt.Errorf("resolution evidence: incomplete or malformed role rules")
+		return time.Time{}, fmt.Errorf("resolution evidence: incomplete or malformed role rules")
 	}
 	for _, r := range rules {
 		var verbs []string
 		if err := json.Unmarshal(r["verbs"], &verbs); err != nil || len(verbs) == 0 {
-			return fmt.Errorf("resolution evidence: incomplete role verbs")
+			return time.Time{}, fmt.Errorf("resolution evidence: incomplete role verbs")
 		}
 		for _, verb := range verbs {
 			if verb == "" {
-				return fmt.Errorf("resolution evidence: empty role verb")
+				return time.Time{}, fmt.Errorf("resolution evidence: empty role verb")
 			}
 		}
 		for _, key := range []string{"resources", "apiGroups", "resourceNames", "nonResourceURLs"} {
 			if raw, ok := r[key]; ok {
 				var values []string
 				if json.Unmarshal(raw, &values) != nil || values == nil {
-					return fmt.Errorf("resolution evidence: malformed role %s", key)
+					return time.Time{}, fmt.Errorf("resolution evidence: malformed role %s", key)
 				}
 			}
 		}
@@ -76,21 +112,21 @@ func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f 
 		}
 		var targets []string
 		if json.Unmarshal(r[target], &targets) != nil || len(targets) == 0 {
-			return fmt.Errorf("resolution evidence: incomplete role targets")
+			return time.Time{}, fmt.Errorf("resolution evidence: incomplete role targets")
 		}
 		for _, v := range targets {
 			if v == "" {
-				return fmt.Errorf("resolution evidence: empty role target")
+				return time.Time{}, fmt.Errorf("resolution evidence: empty role target")
 			}
 		}
 		if target == "resources" {
 			var groups []string
 			if json.Unmarshal(r["apiGroups"], &groups) != nil || len(groups) == 0 {
-				return fmt.Errorf("resolution evidence: incomplete API groups")
+				return time.Time{}, fmt.Errorf("resolution evidence: incomplete API groups")
 			}
 		}
 	}
-	return nil
+	return resourceListStartedAt, nil
 }
 
 // Lock the exact snapshot at commit and compare it with the version preceding
