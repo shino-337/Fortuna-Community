@@ -6,7 +6,9 @@ import (
 )
 
 type runtimeEventResponse struct {
-	Processed int `json:"processed"`
+	Accepted  int `json:"accepted"`  // base runtime events durably accepted or idempotently replayed
+	Processed int `json:"processed"` // events that produced a classified REP result
+	Replayed  int `json:"replayed"`
 }
 
 // runtimeEventV2Payload is canonical-ish DTO for POST /api/v2/runtime/events (P0.1 minimal).
