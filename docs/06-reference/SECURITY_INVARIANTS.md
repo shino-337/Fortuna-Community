@@ -128,3 +128,33 @@ For every security finding fixed during #45–#51:
 
 A finding is not considered permanently closed merely because its current code
 path was patched.
+
+## Evidence eligibility for automatic resolution (D1)
+
+Database absence is not an authoritative deletion observation. Reconciliation
+must retain findings for missing/ambiguous owners, stale/invalid snapshots,
+malformed evidence, unavailable detectors and unknown collection coverage.
+Runtime silence and expiry of a lookback window never prove remediation.
+
+D1 permits automatic resolution only for self-contained Role/ClusterRole CEL
+checks reading fields from that exact static snapshot. The snapshot must be no
+older than ten minutes, not future-dated and not older than the finding. The
+rules array must be present and structurally valid. CEL dependencies are checked
+from the parsed expression; aliases/bracket access cannot introduce unverified
+runtime or cross-resource inputs. Unknown dependencies are denied.
+
+A snapshot update timestamp is NOT a collector observation or completeness
+receipt. Agent heartbeats, Cluster.LastSync, runtime event timestamps and projector
+UpdatedAt must not be substituted for such receipts. Runtime, Pod and
+cross-resource auto-resolution remains blocked until D2 provides a verified
+producer-to-evaluator coverage contract. This is intentionally conservative:
+findings may remain active after remediation and need explicit human review.
+
+The resource snapshot is locked and version-checked before committing resolution;
+the finding update compares its original UpdatedAt and active status. A concurrent
+sync/detection/manual update must preserve the newer state. The status change and
+cluster-qualified resolution audit commit together or both roll back.
+
+Diagnostics are emitted by InsightStatusUpdater with a resolution-evidence reason.
+Persisted/API/UI evidence status, collection observation times, successful empty
+collection and loss/recovery coverage remain D2/E work; this PR does not claim them.
