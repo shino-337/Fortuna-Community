@@ -115,6 +115,8 @@ REQUIRED = {
         "TestRuntimeCoverageScopedContinuityAndReplay",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
+        "TestRuntimeCoverageRejectsUnsafeWindows/historical-window-accepted-but-stale",
+        "TestRuntimeCoverageRejectsUnsafeWindows/producer-source-mismatch",
         "TestRuntimeCoverageRejectsUnsafeWindows/complete-with-error",
         "TestRuntimeCoverageRejectsUnsafeWindows/overlap",
         "TestRuntimeCoverageRejectsUnsafeWindows/source-kind-rebind",
@@ -245,6 +247,7 @@ AGENT_REQUIRED = {
         "TestFlushLoopRetriesFailedBatchWithoutDroppingIt",
         "TestFlushLoopAccountsRetainedBatchOnShutdownFailure",
         "TestCoverageReportsPendingDeliveryAsFailed",
+        "TestCoverageSnapshotDoesNotSplitInflightDelivery",
     ],
 }
 
