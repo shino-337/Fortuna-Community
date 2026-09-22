@@ -49,7 +49,7 @@ tags: ["resource-kind:Role", "resource-kind:ClusterRole"]
 }
 
 func TestResolutionEvidenceBoundaries(t *testing.T) {
-	for _, tc := range []string{"fresh-static", "fresh-clusterrole", "old-snapshot-fresh-observation", "missing-receipt", "failed-receipt", "legacy-receipt", "snapshot-not-observed", "foreign-duplicate", "ambiguous", "stale", "future", "missing", "foreign-cluster", "unknown-owner", "malformed", "null-rules", "incomplete-rules", "before-finding", "kind-before-finding", "missing-kind-time", "runtime", "collection-error"} {
+	for _, tc := range []string{"fresh-static", "fresh-clusterrole", "old-snapshot-fresh-observation", "missing-receipt", "failed-receipt", "legacy-receipt", "complete-empty-retained", "snapshot-not-observed", "foreign-duplicate", "ambiguous", "stale", "future", "missing", "foreign-cluster", "unknown-owner", "malformed", "null-rules", "incomplete-rules", "before-finding", "kind-before-finding", "missing-kind-time", "runtime", "collection-error"} {
 		t.Run(tc, func(t *testing.T) {
 			db, u, f := resolutionFixture(t)
 			switch tc {
@@ -68,6 +68,13 @@ func TestResolutionEvidenceBoundaries(t *testing.T) {
 				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("status", "failed").Error)
 			case "legacy-receipt":
 				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").UpdateColumn("agent_id", "").Error)
+			case "complete-empty-retained":
+				emptyCounts := map[string]int{}
+				for _, kind := range []string{"pods", "serviceAccounts", "roles", "roleBindings", "clusterRoles", "clusterRoleBindings", "deployments", "replicasets"} {
+					emptyCounts[kind] = 0
+				}
+				countsJSON, _ := json.Marshal(emptyCounts)
+				require.NoError(t, db.Model(&models.InventoryCollection{}).Where("cluster_id = ?", "a").Updates(map[string]interface{}{"counts": string(countsJSON), "role_digests": "{}"}).Error)
 			case "snapshot-not-observed":
 				require.NoError(t, db.Model(&models.Role{}).Where("uid = ?", f.ResourceUID).UpdateColumn("name", "changed").Error)
 			case "foreign-duplicate":
