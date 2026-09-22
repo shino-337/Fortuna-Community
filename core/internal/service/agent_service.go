@@ -735,7 +735,7 @@ func (s *AgentService) processSyncedClusterRoles(clusterID string, data map[stri
 
 		// Upsert cluster role
 		var existing models.ClusterRole
-		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != clusterRole.Name ||
@@ -963,7 +963,7 @@ func (s *AgentService) processSyncedClusterRoleBindings(clusterID string, data m
 
 		// Upsert cluster role binding
 		var existing models.ClusterRoleBinding
-		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != clusterRoleBinding.Name ||
