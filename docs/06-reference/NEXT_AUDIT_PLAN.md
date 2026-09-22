@@ -106,7 +106,7 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   eligibility, exact cluster/UID lookups, detector dependency checks and concurrent
   update guards. All 11 merge-commit checks passed. Missing resources, runtime
   silence and incomplete evidence preserve findings.
-- D2 inventory / #50 implemented, pending final CI/review: authenticated collection
+- D2 inventory / #50 implemented, pending exact-head CI/review: authenticated collection
   ID, bounded collection interval, exact per-kind List start bounds, namespace scope
   and per-kind counts; complete-empty and failed collections are distinct. Agent
   liveness plus inventory projection/receipt commit atomically, so failed inventory
@@ -154,3 +154,20 @@ Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
 security regression gates passed. After that point, #51 must be rebuilt/rebased on
 the merged #50 head before further runtime coverage work; it must not reintroduce
 an older inventory contract.
+
+
+### Final #50 merge blockers closed
+
+Before merge, #50 must retain permanent regression coverage for these four
+boundaries:
+
+- namespaced upserts use `cluster_id + namespace + uid` and reject persisted
+  cross-namespace UID collisions;
+- `complete-empty` means collection-complete only; deletion remains
+  non-authoritative and retained rows cannot auto-resolve;
+- scoped authenticated HTTP sync without a collection envelope is rejected and
+  cannot enter the unverified compatibility path;
+- duplicate UID across namespaces is rejected both inside one payload and against
+  already persisted inventory.
+
+Any future change weakening one of these tests resets merge/release readiness.
