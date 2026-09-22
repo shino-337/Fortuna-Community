@@ -50,11 +50,17 @@ namespaced payload row and prune only within that namespace. ClusterRole and
 ClusterRoleBinding collections remain cluster scoped and are still collected when
 the namespaced scope is restricted.
 
-The receipt store currently keeps the latest inventory receipt per cluster. If
-multiple Agents for one cluster are intentionally configured with different
-`WATCH_NAMESPACE` values, their receipts can supersede one another. This fails
-closed for resolution because a namespace mismatch preserves the finding, but it
-can reduce automatic-resolution eligibility for the displaced scope. A live
+The Agent is deployed as a DaemonSet, so multiple scoped Agents in one cluster
+normally submit full inventory. The receipt store keeps the latest accepted
+inventory attempt per cluster and serializes writers by the receipt row. A newer
+failed Agent attempt may temporarily replace a complete receipt, but does not
+apply its inventory projection; an older attempt is rejected and a later complete
+attempt recovers the receipt. This is fail-closed availability behavior.
+
+If multiple Agents for one cluster are configured with different
+`WATCH_NAMESPACE` values, their receipts can also supersede one another. This
+fails closed for resolution because a namespace mismatch preserves the finding,
+but it can reduce automatic-resolution eligibility for the displaced scope. A live
 multi-scope topology test (and a scope-qualified receipt key if that topology is
 required) remains part of package F; this PR does not claim concurrent
 namespace-scope aggregation. A complete receipt proves
@@ -88,7 +94,7 @@ blocked pending D2 runtime producer windows, loss/error/recovery reporting and
 complete evidence dependencies. User-facing evidence views remain package E.
 
 CI covers HTTP ownership, Agent collection failure/empty/pagination behavior,
-per-kind timestamps, cross-namespace rejection/pruning boundaries, receipt
-freshness/digests, Agent-liveness rollback and PostgreSQL concurrent replay plus
-SQL-trigger rollback/recovery. Real two-cluster deployment
+per-kind List start bounds, cross-namespace rejection/pruning boundaries, receipt
+freshness/digests, Agent-liveness rollback, DaemonSet multi-writer arbitration and
+PostgreSQL concurrent replay plus SQL-trigger rollback/recovery. Real two-cluster deployment
 acceptance remains package F.
