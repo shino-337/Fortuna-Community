@@ -20,7 +20,7 @@ import (
 
 func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	for _, tc := range []string{"empty", "failed", "invalid", "foreign", "legacy", "persistence-failure"} {
+	for _, tc := range []string{"empty", "failed", "invalid", "foreign", "legacy", "persistence-failure", "scoped-missing-collection"} {
 		t.Run(tc, func(t *testing.T) {
 			db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 			require.NoError(t, err)
@@ -62,6 +62,9 @@ func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 				cid = "b"
 				want = http.StatusForbidden
 			}
+			if tc == "scoped-missing-collection" {
+				want = http.StatusBadRequest
+			}
 			if tc == "persistence-failure" {
 				want = http.StatusInternalServerError
 				require.NoError(t, db.Callback().Create().Before("gorm:create").Register("test:http-cluster-failure", func(tx *gorm.DB) {
@@ -72,6 +75,9 @@ func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 				defer db.Callback().Create().Remove("test:http-cluster-failure")
 			}
 			payload := map[string]interface{}{"clusterId": cid, "agent": map[string]interface{}{"agentId": "agent-a"}, "data": data, "collection": meta}
+			if tc == "scoped-missing-collection" {
+				delete(payload, "collection")
+			}
 			raw, err := json.Marshal(payload)
 			require.NoError(t, err)
 			req := httptest.NewRequest(http.MethodPost, "/sync", bytes.NewReader(raw))
@@ -102,6 +108,8 @@ func TestScopedInventoryCollectionHTTPContract(t *testing.T) {
 				require.Equal(t, meta.Status, receipts[0].Status)
 				require.Equal(t, "agent-a", receipts[0].AgentID)
 			}
+			require.Contains(t, w.Body.String(), `"projectionSemantics":"non_authoritative_deletion"`)
+			require.Contains(t, w.Body.String(), `"deletionAuthoritative":false`)
 			require.Contains(t, w.Body.String(), `"runtimeCoverage":"unknown"`)
 		})
 	}
