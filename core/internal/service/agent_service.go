@@ -79,6 +79,22 @@ func NewAgentService(db *gorm.DB) *AgentService {
 	}
 }
 
+// ensureNamespacedUIDOwnership prevents a namespaced sync from adopting or moving
+// an existing object that carries the same UID in another namespace. Kubernetes
+// UIDs are expected to be cluster-unique; a collision is untrustworthy inventory.
+func (s *AgentService) ensureNamespacedUIDOwnership(model interface{}, clusterID, namespace, uid, kind string) error {
+	var count int64
+	if err := s.db.Unscoped().Model(model).
+		Where("cluster_id = ? AND uid = ? AND namespace <> ?", clusterID, uid, namespace).
+		Count(&count).Error; err != nil {
+		return err
+	}
+	if count != 0 {
+		return fmt.Errorf("%w: %s uid %q already belongs to another namespace", ErrInvalidCollection, kind, uid)
+	}
+	return nil
+}
+
 // getSystemUserID retrieves or creates a system user for audit logs
 func (s *AgentService) getSystemUserID() uint {
 	s.systemUserOnce.Do(func() {
@@ -393,6 +409,10 @@ func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[s
 			continue
 		}
 
+		if err := s.ensureNamespacedUIDOwnership(&models.ServiceAccount{}, clusterID, namespace, uid, "ServiceAccount"); err != nil {
+			return err
+		}
+
 		syncedUIDs[uid] = true
 
 		// Parse labels
@@ -441,7 +461,7 @@ func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[s
 
 		// Check if SA exists in DB
 		var existingSA models.ServiceAccount
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existingSA).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existingSA).Error
 
 		if err == nil {
 			// SA exists - check if it changed
@@ -477,7 +497,7 @@ func (s *AgentService) processSyncedServiceAccounts(clusterID string, data map[s
 			// SA doesn't exist - create new
 			// Check if it was soft-deleted
 			var deletedSA models.ServiceAccount
-			errDeleted := s.db.Unscoped().Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&deletedSA).Error
+			errDeleted := s.db.Unscoped().Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&deletedSA).Error
 			if errDeleted != nil && !errors.Is(errDeleted, gorm.ErrRecordNotFound) {
 				return errDeleted
 			}
@@ -566,6 +586,10 @@ func (s *AgentService) processSyncedRoles(clusterID string, data map[string]inte
 			continue
 		}
 
+		if err := s.ensureNamespacedUIDOwnership(&models.Role{}, clusterID, namespace, uid, "Role"); err != nil {
+			return err
+		}
+
 		syncedUIDs[uid] = true
 
 		// Parse rules
@@ -587,7 +611,7 @@ func (s *AgentService) processSyncedRoles(clusterID string, data map[string]inte
 		// Upsert role - check by UID first, then by name+namespace if UID not found
 		// This handles cases where role was deleted and recreated with new UID
 		var existing models.Role
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != role.Name ||
@@ -711,7 +735,7 @@ func (s *AgentService) processSyncedClusterRoles(clusterID string, data map[stri
 
 		// Upsert cluster role
 		var existing models.ClusterRole
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != clusterRole.Name ||
@@ -793,6 +817,10 @@ func (s *AgentService) processSyncedRoleBindings(clusterID string, data map[stri
 			continue
 		}
 
+		if err := s.ensureNamespacedUIDOwnership(&models.RoleBinding{}, clusterID, namespace, uid, "RoleBinding"); err != nil {
+			return err
+		}
+
 		syncedUIDs[uid] = true
 
 		// Parse roleRef
@@ -822,7 +850,7 @@ func (s *AgentService) processSyncedRoleBindings(clusterID string, data map[stri
 
 		// Upsert role binding
 		var existing models.RoleBinding
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != roleBinding.Name ||
@@ -935,7 +963,7 @@ func (s *AgentService) processSyncedClusterRoleBindings(clusterID string, data m
 
 		// Upsert cluster role binding
 		var existing models.ClusterRoleBinding
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != clusterRoleBinding.Name ||
@@ -1017,6 +1045,10 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 		uid, uidOK := podMap["uid"].(string)
 		if !nameOK || !nsOK || !uidOK || uid == "" {
 			continue
+		}
+
+		if err := s.ensureNamespacedUIDOwnership(&models.Pod{}, clusterID, namespace, uid, "Pod"); err != nil {
+			return err
 		}
 
 		syncedUIDs[uid] = true
@@ -1160,7 +1192,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 
 		// Upsert pod - use UID as unique identifier
 		var existing models.Pod
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Update existing pod (avoid duplicates)
 			changed := existing.Name != pod.Name ||
@@ -1260,7 +1292,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			// Check if soft-deleted pod exists
 			var deletedPod models.Pod
-			errDeleted := s.db.Unscoped().Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&deletedPod).Error
+			errDeleted := s.db.Unscoped().Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&deletedPod).Error
 			if errDeleted != nil && !errors.Is(errDeleted, gorm.ErrRecordNotFound) {
 				return errDeleted
 			}
@@ -1368,7 +1400,7 @@ func (s *AgentService) processSyncedPods(clusterID string, data map[string]inter
 		// Clean up duplicate pods (same UID) - keep only the latest one per UID
 		for uid := range syncedUIDs {
 			var duplicates []models.Pod
-			if err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).Order("created_at DESC").Find(&duplicates).Error; err != nil {
+			if err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).Order("created_at DESC").Find(&duplicates).Error; err != nil {
 				return err
 			}
 
@@ -1412,7 +1444,7 @@ func (s *AgentService) evaluatePodCapabilities(clusterID, uid, specHash string) 
 	defer cancel()
 
 	var pod models.Pod
-	if err := s.db.WithContext(ctx).Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&pod).Error; err != nil {
+	if err := s.db.WithContext(ctx).Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&pod).Error; err != nil {
 		// Avoid noisy logs in tests: in-memory DB may be gone when goroutine runs after test exit
 		if isTableMissingErr(err) {
 			return
@@ -1452,6 +1484,10 @@ func (s *AgentService) processSyncedDeployments(clusterID string, data map[strin
 		uid, uidOK := depMap["uid"].(string)
 		if !nameOK || !nsOK || !uidOK || uid == "" {
 			continue
+		}
+
+		if err := s.ensureNamespacedUIDOwnership(&models.Deployment{}, clusterID, namespace, uid, "Deployment"); err != nil {
+			return err
 		}
 
 		syncedUIDs[uid] = true
@@ -1543,7 +1579,7 @@ func (s *AgentService) processSyncedDeployments(clusterID string, data map[strin
 
 		// Upsert deployment
 		var existing models.Deployment
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != deployment.Name ||
@@ -1643,6 +1679,10 @@ func (s *AgentService) processSyncedReplicaSets(clusterID string, data map[strin
 			continue
 		}
 
+		if err := s.ensureNamespacedUIDOwnership(&models.ReplicaSet{}, clusterID, namespace, uid, "ReplicaSet"); err != nil {
+			return err
+		}
+
 		syncedUIDs[uid] = true
 
 		// Extract replica counts
@@ -1737,7 +1777,7 @@ func (s *AgentService) processSyncedReplicaSets(clusterID string, data map[strin
 
 		// Upsert replicaset
 		var existing models.ReplicaSet
-		err := s.db.Where("cluster_id = ? AND uid = ?", clusterID, uid).First(&existing).Error
+		err := s.db.Where("cluster_id = ? AND namespace = ? AND uid = ?", clusterID, namespace, uid).First(&existing).Error
 		if err == nil {
 			// Check if changed
 			changed := existing.Name != replicaset.Name ||
