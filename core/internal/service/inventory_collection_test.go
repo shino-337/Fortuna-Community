@@ -48,11 +48,15 @@ func TestInventoryCollectionCommitAndFailure(t *testing.T) {
 	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&acceptedAgent).Error)
 	require.Equal(t, "node-a", acceptedAgent.NodeName)
 	require.Equal(t, "v50", acceptedAgent.Version)
-	acceptedSeen := *acceptedAgent.LastSeenAt
-	// Replay succeeds without touching the previously persisted snapshot.
+	// Replay is idempotent for inventory evidence. The accepted request may still
+	// refresh Agent liveness, so capture the rollback baseline after the replay.
 	replay, err := s.SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", c)
 	require.NoError(t, err)
 	require.Equal(t, receipt.ReceivedAt, replay.ReceivedAt)
+	var beforeFailureAgent models.Agent
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&beforeFailureAgent).Error)
+	require.NotNil(t, beforeFailureAgent.LastSeenAt)
+	beforeFailureSeen := *beforeFailureAgent.LastSeenAt
 	// A storage failure rolls back all inventory changes and records failed status.
 	require.NoError(t, db.Callback().Create().Before("gorm:create").Register("test:role-write-failure", func(tx *gorm.DB) {
 		if tx.Statement.Table == "roles" {
@@ -77,7 +81,7 @@ func TestInventoryCollectionCommitAndFailure(t *testing.T) {
 	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&rolledBackAgent).Error)
 	require.Equal(t, "node-a", rolledBackAgent.NodeName)
 	require.Equal(t, "v50", rolledBackAgent.Version)
-	require.True(t, rolledBackAgent.LastSeenAt.Equal(acceptedSeen), "failed inventory must not advance Agent liveness")
+	require.True(t, rolledBackAgent.LastSeenAt.Equal(beforeFailureSeen), "failed inventory must not advance Agent liveness")
 	var count int64
 	require.NoError(t, db.Model(&models.Role{}).Where("uid = ?", "new-role").Count(&count).Error)
 	require.Zero(t, count)
