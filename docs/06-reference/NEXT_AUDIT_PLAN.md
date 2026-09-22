@@ -106,15 +106,18 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   eligibility, exact cluster/UID lookups, detector dependency checks and concurrent
   update guards. All 11 merge-commit checks passed. Missing resources, runtime
   silence and incomplete evidence preserve findings.
-- D2 inventory / #50 implemented, pending CI/review: authenticated collection ID,
-  observation interval, namespace scope and per-kind counts; complete-empty and
-  failed collections are distinct. Core commits projection and receipt atomically,
-  rejects altered replays/older attempts, propagates inventory persistence errors,
-  and invalidates verified status for legacy writes. Role/ClusterRole eligibility
-  now requires a fresh verified receipt whose digest matches the stored snapshot;
-  row UpdatedAt is only a concurrency version, never a freshness surrogate.
-  PostgreSQL replay/concurrency, real rollback/recovery, Agent failure and HTTP
-  identity regressions are permanent gates. Receipt completeness does not prove
+- D2 inventory / #50 implemented, pending final CI/review: authenticated collection
+  ID, bounded collection interval, exact per-kind observation times, namespace scope
+  and per-kind counts; complete-empty and failed collections are distinct. Agent
+  liveness plus inventory projection/receipt commit atomically, so failed inventory
+  persistence cannot advance Agent health. Core rejects altered replays/older
+  attempts and propagates persistence errors. Role/ClusterRole eligibility requires
+  the exact kind observation to post-date the finding plus a digest matching the
+  stored snapshot; batch-end time and row UpdatedAt are never freshness surrogates.
+  Sequential multi-kind List calls are explicitly not an atomic Kubernetes snapshot,
+  so cross-resource resolution remains blocked.
+  PostgreSQL replay/concurrency, real rollback/recovery, Agent rollback, namespace
+  scope/pruning, Agent failure and HTTP identity regressions are permanent gates. Receipt completeness does not prove
   deletion or runtime sensor coverage.
 - D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
   reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
