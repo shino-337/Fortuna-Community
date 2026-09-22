@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/fortuna/agent/internal/corehttp"
+	"github.com/fortuna/api/collection"
 )
 
 type Event struct {
@@ -59,6 +60,7 @@ type Reader struct {
 	failedBatches uint64
 	failedEvents  uint64
 	v2Success     uint64
+	coverage      *CoverageReporter
 }
 
 func NewReader(path string, poll time.Duration, coreURL string) *Reader {
@@ -68,6 +70,7 @@ func NewReader(path string, poll time.Duration, coreURL string) *Reader {
 		coreURL:    strings.TrimRight(coreURL, "/"),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		logger:     log.New(log.Writer(), "[RuntimeEvents] ", log.LstdFlags),
+		coverage:   NewCoverageReporter(coreURL, "runtime-file", collection.RuntimeSourceFile),
 	}
 }
 
@@ -78,6 +81,9 @@ func (r *Reader) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			if err := r.coverage.Flush(); err != nil {
+				r.logger.Printf("Runtime coverage final flush failed: %v", err)
+			}
 			return
 		case <-ticker.C:
 			r.readAndSend()
@@ -86,8 +92,18 @@ func (r *Reader) Start(ctx context.Context) {
 }
 
 func (r *Reader) readAndSend() {
+	stats := CoverageStats{}
+	reason := ""
+	defer func() {
+		if err := r.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
+			r.logger.Printf("Runtime coverage report failed: %v", err)
+		}
+	}()
+
 	f, err := os.Open(r.path)
 	if err != nil {
+		stats.Errors++
+		reason = "runtime event file unavailable"
 		return
 	}
 	defer f.Close()
@@ -95,6 +111,8 @@ func (r *Reader) readAndSend() {
 	startOffset := r.offset
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek runtime events file: %v", err)
+		stats.Errors++
+		reason = "runtime event seek failed"
 		return
 	}
 
@@ -108,6 +126,8 @@ func (r *Reader) readAndSend() {
 		var evt Event
 		if err := json.Unmarshal(line, &evt); err != nil {
 			atomic.AddUint64(&r.invalidLines, 1)
+			stats.Invalid++
+			reason = mergeCoverageReason(reason, "invalid runtime event JSON")
 			r.logger.Printf("Invalid runtime event JSON: %v", err)
 			continue
 		}
@@ -116,6 +136,8 @@ func (r *Reader) readAndSend() {
 
 	if err := scanner.Err(); err != nil {
 		r.logger.Printf("Runtime events read error: %v", err)
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event read failed")
 		// Keep the previous offset so a transient read error cannot discard data.
 		return
 	}
@@ -123,6 +145,8 @@ func (r *Reader) readAndSend() {
 	pos, err := f.Seek(0, io.SeekCurrent)
 	if err != nil {
 		r.logger.Printf("Failed to determine runtime events offset: %v", err)
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event offset failed")
 		return
 	}
 
@@ -133,7 +157,10 @@ func (r *Reader) readAndSend() {
 		return
 	}
 
+	stats.Emitted += uint64(len(events))
 	if err := r.send(events); err != nil {
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event delivery failed")
 		atomic.AddUint64(&r.failedBatches, 1)
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send runtime events: %v", err)
@@ -145,6 +172,7 @@ func (r *Reader) readAndSend() {
 		return
 	}
 	r.offset = pos
+	stats.Delivered += uint64(len(events))
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
