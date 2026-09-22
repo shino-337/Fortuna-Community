@@ -170,9 +170,11 @@ func (s *AgentService) SyncObservedData(ctx context.Context, clusterID, clusterN
 	}
 	c.StartedAt = c.StartedAt.UTC().Truncate(time.Microsecond)
 	c.ObservedAt = c.ObservedAt.UTC().Truncate(time.Microsecond)
+	normalizedKindObservedAt := make(map[string]time.Time, len(c.KindObservedAt))
 	for kind, observed := range c.KindObservedAt {
-		c.KindObservedAt[kind] = observed.UTC().Truncate(time.Microsecond)
+		normalizedKindObservedAt[kind] = observed.UTC().Truncate(time.Microsecond)
 	}
+	c.KindObservedAt = normalizedKindObservedAt
 	if err := ValidateInventoryPayload(c, data, time.Now().UTC()); err != nil {
 		return nil, err
 	}
