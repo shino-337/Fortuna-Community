@@ -43,16 +43,28 @@ func (c RuntimeCoverage) Validate(now time.Time) error {
 	if strings.TrimSpace(c.ProducerID) == "" || len(c.ProducerID) > 128 || strings.TrimSpace(c.ProducerID) != c.ProducerID {
 		return fmt.Errorf("runtime coverage producer required")
 	}
+	validProducer := false
 	switch c.SourceKind {
-	case RuntimeSourceFile, RuntimeSourceFalco, RuntimeSourceEBPF:
+	case RuntimeSourceFile:
+		validProducer = c.ProducerID == "runtime-file"
+	case RuntimeSourceFalco:
+		validProducer = c.ProducerID == "falco"
+	case RuntimeSourceEBPF:
+		validProducer = c.ProducerID == "ebpf-exec" || c.ProducerID == "ebpf-connect" || c.ProducerID == "ebpf-all"
 	default:
 		return fmt.Errorf("unsupported runtime coverage source")
+	}
+	if !validProducer {
+		return fmt.Errorf("runtime coverage producer/source mismatch")
 	}
 	if c.Status != "complete" && c.Status != "failed" {
 		return fmt.Errorf("invalid runtime coverage status")
 	}
-	if c.WindowStart.IsZero() || c.WindowEnd.Before(c.WindowStart) || c.WindowEnd.After(now.Add(time.Minute)) || c.WindowStart.Before(now.Add(-RuntimeCoverageMaxAge)) {
-		return fmt.Errorf("invalid or stale runtime coverage interval")
+	// Historical windows are accepted so an immutable pending report can drain
+	// after a long Core outage. Freshness is enforced by EffectiveStatus/CoversSince,
+	// never by rejecting the historical report and wedging the producer queue.
+	if c.WindowStart.IsZero() || c.WindowEnd.Before(c.WindowStart) || c.WindowEnd.After(now.Add(time.Minute)) {
+		return fmt.Errorf("invalid runtime coverage interval")
 	}
 	if c.Delivered > c.Emitted {
 		return fmt.Errorf("runtime delivered count exceeds emitted count")
