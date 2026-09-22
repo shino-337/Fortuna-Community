@@ -19,7 +19,7 @@ type Inventory struct {
 	Namespace  string         `json:"namespace"` // empty means all namespaces
 	StartedAt  time.Time      `json:"startedAt"`
 	ObservedAt    time.Time            `json:"observedAt"` // end of the multi-kind collection interval
-	KindStartedAt map[string]time.Time `json:"kindStartedAt,omitempty"`
+	KindStartedAt map[string]time.Time `json:"kindStartedAt,omitempty"` // conservative lower bound captured immediately before each List request
 	Counts         map[string]int       `json:"counts,omitempty"`
 }
 
@@ -44,9 +44,9 @@ func (c Inventory) Validate(now time.Time) error {
 			if n, ok := c.Counts[kind]; !ok || n < 0 {
 				return fmt.Errorf("invalid inventory count for %s", kind)
 			}
-			observed, ok := c.KindStartedAt[kind]
-			if !ok || observed.IsZero() || observed.Before(c.StartedAt) || observed.After(c.ObservedAt) || observed.After(now.Add(time.Minute)) {
-				return fmt.Errorf("invalid observation time for %s", kind)
+			started, ok := c.KindStartedAt[kind]
+			if !ok || started.IsZero() || started.Before(c.StartedAt) || started.After(c.ObservedAt) || started.After(now.Add(time.Minute)) {
+				return fmt.Errorf("invalid List start time for %s", kind)
 			}
 		}
 	}
