@@ -254,39 +254,48 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 	if namespace == "" {
 		namespace = metav1.NamespaceAll
 	}
+	kindObservedAt := make(map[string]time.Time, len(collection.InventoryKinds))
 
 	pods, err := s.client.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list pods: %w", err)
 	}
+	kindObservedAt["pods"] = time.Now().UTC()
 	serviceAccounts, err := s.client.CoreV1().ServiceAccounts(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list serviceaccounts: %w", err)
 	}
+	kindObservedAt["serviceAccounts"] = time.Now().UTC()
 	roles, err := s.client.RbacV1().Roles(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list roles: %w", err)
 	}
+	kindObservedAt["roles"] = time.Now().UTC()
 	roleBindings, err := s.client.RbacV1().RoleBindings(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list rolebindings: %w", err)
 	}
+	kindObservedAt["roleBindings"] = time.Now().UTC()
 	clusterRoles, err := s.client.RbacV1().ClusterRoles().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list clusterroles: %w", err)
 	}
+	kindObservedAt["clusterRoles"] = time.Now().UTC()
 	clusterRoleBindings, err := s.client.RbacV1().ClusterRoleBindings().List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list clusterrolebindings: %w", err)
 	}
+	kindObservedAt["clusterRoleBindings"] = time.Now().UTC()
 	deployments, err := s.client.AppsV1().Deployments(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list deployments: %w", err)
 	}
+	kindObservedAt["deployments"] = time.Now().UTC()
 	replicaSets, err := s.client.AppsV1().ReplicaSets(namespace).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("list replicasets: %w", err)
 	}
+	kindObservedAt["replicasets"] = time.Now().UTC()
 
 	if pods.Continue != "" || serviceAccounts.Continue != "" || roles.Continue != "" || roleBindings.Continue != "" || clusterRoles.Continue != "" || clusterRoleBindings.Continue != "" || deployments.Continue != "" || replicaSets.Continue != "" {
 		return nil, fmt.Errorf("inventory listing is incomplete: pagination remains")
@@ -493,7 +502,7 @@ func (s *Syncer) buildPayload(ctx context.Context) (*SyncPayload, error) {
 		Distribution: s.clusterInfo.Distribution,
 	}
 	return &SyncPayload{
-		Collection:  &collection.Inventory{Version: collection.Version, ID: rand.Text(), Status: "complete", Namespace: s.namespace, StartedAt: started, ObservedAt: time.Now().UTC(), Counts: map[string]int{"pods": len(podPayloads), "serviceAccounts": len(saPayloads), "roles": len(rolePayloads), "roleBindings": len(roleBindingPayloads), "clusterRoles": len(clusterRolePayloads), "clusterRoleBindings": len(clusterRoleBindingPayloads), "deployments": len(deploymentPayloads), "replicasets": len(replicaSetPayloads)}},
+		Collection:  &collection.Inventory{Version: collection.Version, ID: rand.Text(), Status: "complete", Namespace: s.namespace, StartedAt: started, ObservedAt: time.Now().UTC(), KindObservedAt: kindObservedAt, Counts: map[string]int{"pods": len(podPayloads), "serviceAccounts": len(saPayloads), "roles": len(rolePayloads), "roleBindings": len(roleBindingPayloads), "clusterRoles": len(clusterRolePayloads), "clusterRoleBindings": len(clusterRoleBindingPayloads), "deployments": len(deploymentPayloads), "replicasets": len(replicaSetPayloads)}},
 		ClusterID:   s.clusterInfo.ID,
 		ClusterName: s.clusterInfo.Name,
 		Cluster:     cp,
