@@ -20,7 +20,7 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeEventIngestClaim{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -80,7 +80,7 @@ func TestPostRuntimeEventsV2_AcceptsFlattenedSourceFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeEventIngestClaim{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -138,7 +138,7 @@ func TestPostRuntimeEventsV2_PreservesPartialResolutionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeEventIngestClaim{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
