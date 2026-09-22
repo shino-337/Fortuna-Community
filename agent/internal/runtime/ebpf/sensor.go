@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -35,6 +36,7 @@ type Sensor struct {
 	emittedEvents uint64
 	droppedEvents uint64
 
+	coverageMu        sync.Mutex
 	coverage          *runtime.CoverageReporter
 	coverageEmitted   uint64
 	coverageDelivered uint64
@@ -81,7 +83,11 @@ func (s *Sensor) Start(ctx context.Context) {
 	s.attachSelectedTracepoints()
 	defer s.closeLinks()
 
-	go s.flushLoop(ctx)
+	flushDone := make(chan struct{})
+	go func() {
+		defer close(flushDone)
+		s.flushLoop(ctx)
+	}()
 	if s.simulate {
 		go s.simulateLoop(ctx)
 	}
@@ -91,6 +97,14 @@ func (s *Sensor) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for flushLoop to account the final retained batch before closing
+			// the last coverage window.
+			select {
+			case <-flushDone:
+			case <-time.After(12 * time.Second):
+				atomic.AddUint64(&s.coverageErrors, 1)
+				atomic.StoreUint32(&s.deliveryPending, 1)
+			}
 			s.reportCoverage()
 			if err := s.coverage.Flush(); err != nil {
 				log.Printf("[eBPF] coverage final flush failed: %v", err)
@@ -175,6 +189,10 @@ func (s *Sensor) send(events []runtime.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
+	// Keep emitted/delivered/error accounting in one coverage window. Without
+	// this lock a heartbeat could split an in-flight HTTP attempt across windows.
+	s.coverageMu.Lock()
+	defer s.coverageMu.Unlock()
 	atomic.AddUint64(&s.coverageEmitted, uint64(len(events)))
 	fail := func(err error) error {
 		atomic.AddUint64(&s.coverageErrors, 1)
@@ -206,6 +224,8 @@ func (s *Sensor) send(events []runtime.Event) error {
 }
 
 func (s *Sensor) reportCoverage() {
+	s.coverageMu.Lock()
+	defer s.coverageMu.Unlock()
 	stats := runtime.CoverageStats{
 		Emitted: atomic.SwapUint64(&s.coverageEmitted, 0),
 		Delivered: atomic.SwapUint64(&s.coverageDelivered, 0),
