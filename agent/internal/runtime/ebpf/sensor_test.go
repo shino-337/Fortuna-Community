@@ -45,7 +45,8 @@ func TestSendBatchToCoreRuntimeEvents(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
 			t.Fatalf("decode body: %v", err)
 		}
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"accepted": len(got), "processed": 0, "replayed": 0})
 	}))
 	defer srv.Close()
 
@@ -57,8 +58,11 @@ func TestSendBatchToCoreRuntimeEvents(t *testing.T) {
 	if len(got) != 1 || got[0].Signal != "EBPF_EXEC_EVENT" {
 		t.Fatalf("unexpected payload: %+v", got)
 	}
-	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
+	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].PayloadHash == "" {
 		t.Fatalf("eBPF did not emit canonical v2 metadata: %+v", got[0])
+	}
+	if got[0].IngestedAt != "" {
+		t.Fatalf("Agent must not inject retry-variant ingested_at: %+v", got[0])
 	}
 }
 
@@ -86,7 +90,8 @@ func TestFlushLoopDrainsQueuedEvents(t *testing.T) {
 		var batch []runtime.Event
 		_ = json.NewDecoder(r.Body).Decode(&batch)
 		atomic.AddInt32(&received, int32(len(batch)))
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"accepted": len(batch), "processed": 0, "replayed": 0})
 	}))
 	defer srv.Close()
 
@@ -116,7 +121,8 @@ func TestFlushLoopRetriesFailedBatchWithoutDroppingIt(t *testing.T) {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"accepted": len(batch), "processed": 0, "replayed": 0})
 	}))
 	defer srv.Close()
 
