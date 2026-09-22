@@ -16,6 +16,7 @@ import (
 	ciliumebpf "github.com/cilium/ebpf"
 	"github.com/fortuna/agent/internal/corehttp"
 	"github.com/fortuna/agent/internal/runtime"
+	"github.com/fortuna/api/collection"
 )
 
 // Sensor is phase-1 scaffold for R9.
@@ -33,6 +34,14 @@ type Sensor struct {
 	links         []io.Closer
 	emittedEvents uint64
 	droppedEvents uint64
+
+	coverage          *runtime.CoverageReporter
+	coverageEmitted   uint64
+	coverageDelivered uint64
+	coverageDropped   uint64
+	coverageInvalid   uint64
+	coverageErrors    uint64
+	deliveryPending   uint32
 }
 
 func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, bufferSize int, simulate bool) *Sensor {
@@ -42,8 +51,9 @@ func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, buff
 	if bufferSize <= 0 {
 		bufferSize = 200
 	}
+	normalizedMode := normalizeEBPFMode(mode)
 	return &Sensor{
-		mode:          normalizeEBPFMode(mode),
+		mode:          normalizedMode,
 		coreURL:       strings.TrimRight(coreURL, "/"),
 		nodeName:      nodeName,
 		podUID:        strings.TrimSpace(os.Getenv("POD_UID")),
@@ -51,6 +61,7 @@ func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, buff
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		eventCh:       make(chan runtime.Event, bufferSize),
 		simulate:      simulate,
+		coverage:      runtime.NewCoverageReporter(coreURL, "ebpf-"+normalizedMode, collection.RuntimeSourceEBPF),
 	}
 }
 
@@ -60,6 +71,9 @@ func (s *Sensor) Start(ctx context.Context) {
 	pf := RunPreflight()
 	if !pf.Ready {
 		log.Printf("[eBPF] preflight not ready (%s); fail-open: disabling eBPF sensor", pf.Reason)
+		if err := s.coverage.Observe(time.Now().UTC(), runtime.CoverageStats{Errors: 1}, "ebpf preflight unavailable: "+pf.Reason); err != nil {
+			log.Printf("[eBPF] failed to report preflight coverage failure: %v", err)
+		}
 		return
 	}
 	s.mode = normalizeEBPFMode(s.mode)
@@ -77,11 +91,14 @@ func (s *Sensor) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			s.reportCoverage()
+			if err := s.coverage.Flush(); err != nil {
+				log.Printf("[eBPF] coverage final flush failed: %v", err)
+			}
 			log.Printf("[eBPF] stopping sensor (mode=%s emitted=%d dropped=%d)", s.mode, atomic.LoadUint64(&s.emittedEvents), atomic.LoadUint64(&s.droppedEvents))
 			return
 		case <-ticker.C:
-			// Phase-1: placeholder counters for observability before full attach pipeline.
-			// These counters are intentionally explicit so rollout can verify health signals.
+			s.reportCoverage()
 			log.Printf("[eBPF] heartbeat mode=%s emitted=%d dropped=%d", s.mode, atomic.LoadUint64(&s.emittedEvents), atomic.LoadUint64(&s.droppedEvents))
 		}
 	}
@@ -93,6 +110,7 @@ func (s *Sensor) enqueueEvent(evt runtime.Event) {
 		atomic.AddUint64(&s.emittedEvents, 1)
 	default:
 		atomic.AddUint64(&s.droppedEvents, 1)
+		atomic.AddUint64(&s.coverageDropped, 1)
 	}
 }
 
@@ -119,6 +137,7 @@ func (s *Sensor) flushLoop(ctx context.Context) {
 		// A process shutdown is the only point where an in-memory retained batch can
 		// no longer be retried. Account for it explicitly instead of silently clearing.
 		atomic.AddUint64(&s.droppedEvents, uint64(len(batch)))
+		atomic.AddUint64(&s.coverageDropped, uint64(len(batch)))
 		log.Printf("[eBPF] dropping %d retained events after final shutdown send failure", len(batch))
 	}
 
@@ -156,26 +175,52 @@ func (s *Sensor) send(events []runtime.Event) error {
 	if len(events) == 0 {
 		return nil
 	}
+	atomic.AddUint64(&s.coverageEmitted, uint64(len(events)))
+	fail := func(err error) error {
+		atomic.AddUint64(&s.coverageErrors, 1)
+		atomic.StoreUint32(&s.deliveryPending, 1)
+		return err
+	}
 	if s.coreURL == "" {
-		return fmt.Errorf("coreURL is empty")
+		return fail(fmt.Errorf("coreURL is empty"))
 	}
 	runtime.PrepareEventsV2(events)
 	body, _ := json.Marshal(events)
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", s.coreURL), bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	corehttp.ApplyOptionalAuthorization(req)
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return err
+		return fail(err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("runtime events POST failed: %s", resp.Status)
+		return fail(fmt.Errorf("runtime events POST failed: %s", resp.Status))
 	}
+	atomic.AddUint64(&s.coverageDelivered, uint64(len(events)))
+	atomic.StoreUint32(&s.deliveryPending, 0)
 	return nil
+}
+
+func (s *Sensor) reportCoverage() {
+	stats := runtime.CoverageStats{
+		Emitted: atomic.SwapUint64(&s.coverageEmitted, 0),
+		Delivered: atomic.SwapUint64(&s.coverageDelivered, 0),
+		Dropped: atomic.SwapUint64(&s.coverageDropped, 0),
+		Invalid: atomic.SwapUint64(&s.coverageInvalid, 0),
+		Errors: atomic.SwapUint64(&s.coverageErrors, 0),
+	}
+	reason := ""
+	if atomic.LoadUint32(&s.deliveryPending) != 0 {
+		stats.Errors++
+		reason = "ebpf delivery backlog pending"
+	}
+	if err := s.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
+		log.Printf("[eBPF] coverage report failed: %v", err)
+	}
 }
 
 func (s *Sensor) simulateLoop(ctx context.Context) {
