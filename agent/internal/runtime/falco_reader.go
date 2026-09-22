@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/fortuna/agent/internal/corehttp"
+	"github.com/fortuna/api/collection"
 )
 
 // Falco JSON event format (minimal subset).
@@ -56,6 +57,7 @@ type FalcoReader struct {
 	failedBatches uint64
 	failedEvents  uint64
 	v2Success     uint64
+	coverage      *CoverageReporter
 }
 
 type podUIDCacheEntry struct {
@@ -76,6 +78,7 @@ func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName st
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		logger:      log.New(log.Writer(), "[FalcoEvents] ", log.LstdFlags),
 		podUIDCache: map[string]podUIDCacheEntry{},
+		coverage:    NewCoverageReporter(coreURL, "falco", collection.RuntimeSourceFalco),
 	}
 }
 
@@ -86,6 +89,9 @@ func (r *FalcoReader) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			if err := r.coverage.Flush(); err != nil {
+				r.logger.Printf("Falco coverage final flush failed: %v", err)
+			}
 			return
 		case <-ticker.C:
 			r.readAndSend(ctx)
@@ -94,14 +100,29 @@ func (r *FalcoReader) Start(ctx context.Context) {
 }
 
 func (r *FalcoReader) readAndSend(ctx context.Context) {
+	stats := CoverageStats{}
+	reason := ""
+	reportCoverage := true
+	defer func() {
+		if reportCoverage {
+			if err := r.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
+				r.logger.Printf("Falco coverage report failed: %v", err)
+			}
+		}
+	}()
+
 	f, err := os.Open(r.path)
 	if err != nil {
+		stats.Errors++
+		reason = "falco event file unavailable"
 		return
 	}
 	defer f.Close()
 
 	st, err := f.Stat()
 	if err != nil {
+		stats.Errors++
+		reason = "falco event stat failed"
 		return
 	}
 	fileSize := st.Size()
@@ -114,6 +135,10 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	// into memory (can OOM the agent). New alerts after startup are still captured.
 	if r.offset == 0 && fileSize > 0 {
 		r.offset = fileSize
+		// Historical bytes are intentionally skipped. Do not claim coverage for
+		// the skipped interval; continuity begins after the tail cursor is set.
+		reportCoverage = false
+		r.coverage.Reset(time.Now().UTC())
 		return
 	}
 
@@ -121,12 +146,16 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek falco events file: %v", err)
+		stats.Errors++
+		reason = "falco event seek failed"
 		return
 	}
 
 	chunk, err := io.ReadAll(f)
 	if err != nil {
 		r.logger.Printf("Failed to read falco events file: %v", err)
+		stats.Errors++
+		reason = "falco event read failed"
 		return
 	}
 
@@ -148,12 +177,16 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		fes, err := parseFalcoJSONLines(line)
 		if err != nil {
 			atomic.AddUint64(&r.invalidLines, 1)
+			stats.Invalid++
+			reason = mergeCoverageReason(reason, "invalid falco JSON")
 			r.logger.Printf("Invalid falco JSON: %v", err)
 			continue
 		}
 		for i := range fes {
 			ev, ok := r.toRuntimeEvent(ctx, &fes[i])
 			if !ok {
+				stats.Dropped++
+				reason = mergeCoverageReason(reason, "falco event missing resolvable pod UID")
 				continue
 			}
 			events = append(events, ev)
@@ -161,13 +194,22 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	}
 
 	nextOffset := startOffset + int64(len(chunk))
+	if len(r.lineBuf) != 0 {
+		// Do not call a window complete while a source record is only partially
+		// observed. The next successful interval can resume continuity.
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "partial falco record pending")
+	}
 	if len(events) == 0 {
 		// No deliverable event exists in this slice. Commit consumed bytes while
 		// preserving any incomplete trailing line in lineBuf for the next poll.
 		r.offset = nextOffset
 		return
 	}
+	stats.Emitted += uint64(len(events))
 	if err := r.send(events); err != nil {
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "falco event delivery failed")
 		atomic.AddUint64(&r.failedBatches, 1)
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send falco events: %v", err)
@@ -180,6 +222,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		return
 	}
 	r.offset = nextOffset
+	stats.Delivered += uint64(len(events))
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
