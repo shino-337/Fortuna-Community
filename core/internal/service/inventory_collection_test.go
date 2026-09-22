@@ -16,7 +16,7 @@ import (
 func collectionFixture(t *testing.T) (*gorm.DB, *AgentService, map[string]interface{}, collection.Inventory) {
 	t.Helper()
 	db := openTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Cluster{}, &models.User{}, &models.AuditLog{}, &models.Role{}, &models.ClusterRole{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.ServiceAccount{}, &models.Pod{}, &models.Deployment{}, &models.ReplicaSet{}))
+	require.NoError(t, db.AutoMigrate(&models.Cluster{}, &models.Agent{}, &models.User{}, &models.AuditLog{}, &models.Role{}, &models.ClusterRole{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.ServiceAccount{}, &models.Pod{}, &models.Deployment{}, &models.ReplicaSet{}))
 	require.NoError(t, migrations.EnsureInventoryCollection(db))
 	require.NoError(t, migrations.EnsureInventoryCollection(db))
 	// Keep the receipt transaction independent of password bootstrap.
@@ -28,17 +28,27 @@ func collectionFixture(t *testing.T) (*gorm.DB, *AgentService, map[string]interf
 		counts[kind] = 0
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	c := collection.Inventory{Version: 1, ID: "attempt-0000000001", Status: "complete", StartedAt: now.Add(-time.Minute), ObservedAt: now, Counts: counts}
+	kindObservedAt := map[string]time.Time{}
+	for _, kind := range collection.InventoryKinds {
+		kindObservedAt[kind] = now.Add(-time.Second)
+	}
+	c := collection.Inventory{Version: 1, ID: "attempt-0000000001", Status: "complete", StartedAt: now.Add(-time.Minute), ObservedAt: now, KindObservedAt: kindObservedAt, Counts: counts}
 	return db, NewAgentService(db), data, c
 }
 
 func TestInventoryCollectionCommitAndFailure(t *testing.T) {
 	db, s, data, c := collectionFixture(t)
+	s.WithAgentRecord(&models.Agent{ClusterID: "cluster-a", AgentID: "agent-a", NodeName: "node-a", Version: "v50"})
 	data["roles"] = []interface{}{map[string]interface{}{"uid": "role-a", "name": "role", "namespace": "ns", "rules": []interface{}{}}}
 	c.Counts["roles"] = 1
 	receipt, err := s.SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", c)
 	require.NoError(t, err)
 	require.Equal(t, "complete", receipt.Status)
+	var acceptedAgent models.Agent
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&acceptedAgent).Error)
+	require.Equal(t, "node-a", acceptedAgent.NodeName)
+	require.Equal(t, "v50", acceptedAgent.Version)
+	acceptedSeen := *acceptedAgent.LastSeenAt
 	// Replay succeeds without touching the previously persisted snapshot.
 	replay, err := s.SyncObservedData(context.Background(), "cluster-a", "A", "auto", "", "", "agent-a", data, "", c)
 	require.NoError(t, err)
@@ -52,6 +62,7 @@ func TestInventoryCollectionCommitAndFailure(t *testing.T) {
 	data["roles"] = []interface{}{map[string]interface{}{"uid": "new-role", "name": "new", "namespace": "ns", "rules": []interface{}{}}}
 	c.ID = "attempt-0000000002"
 	c.StartedAt = c.StartedAt.Add(time.Second)
+	s.WithAgentRecord(&models.Agent{ClusterID: "cluster-a", AgentID: "agent-a", NodeName: "node-b", Version: "v51"})
 	_, err = s.SyncObservedData(context.Background(), "cluster-a", "B", "auto", "", "", "agent-a", data, "", c)
 	require.Error(t, err)
 	var state models.InventoryCollection
@@ -62,16 +73,26 @@ func TestInventoryCollectionCommitAndFailure(t *testing.T) {
 	var cluster models.Cluster
 	require.NoError(t, db.First(&cluster, "id = ?", "cluster-a").Error)
 	require.Equal(t, "A", cluster.Name)
+	var rolledBackAgent models.Agent
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&rolledBackAgent).Error)
+	require.Equal(t, "node-a", rolledBackAgent.NodeName)
+	require.Equal(t, "v50", rolledBackAgent.Version)
+	require.True(t, rolledBackAgent.LastSeenAt.Equal(acceptedSeen), "failed inventory must not advance Agent liveness")
 	var count int64
 	require.NoError(t, db.Model(&models.Role{}).Where("uid = ?", "new-role").Count(&count).Error)
 	require.Zero(t, count)
 	require.NoError(t, db.Callback().Create().Remove("test:role-write-failure"))
 	c.ID = "attempt-0000000003"
 	c.StartedAt = c.StartedAt.Add(time.Second)
+	s.WithAgentRecord(&models.Agent{ClusterID: "cluster-a", AgentID: "agent-a", NodeName: "node-b", Version: "v51"})
 	_, err = s.SyncObservedData(context.Background(), "cluster-a", "B", "auto", "", "", "agent-a", data, "", c)
 	require.NoError(t, err)
 	require.NoError(t, db.First(&state, "cluster_id = ?", "cluster-a").Error)
 	require.Equal(t, "complete", state.Status)
+	var recoveredAgent models.Agent
+	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&recoveredAgent).Error)
+	require.Equal(t, "node-b", recoveredAgent.NodeName)
+	require.Equal(t, "v51", recoveredAgent.Version)
 	require.Equal(t, "stale", state.EffectiveStatus(state.ObservedAt.Add(collection.MaxAge+time.Second)))
 }
 
