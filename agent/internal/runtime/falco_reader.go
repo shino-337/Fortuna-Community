@@ -360,8 +360,13 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 
 	mitre := extractMitreTechnique(fe.Tags)
 	sev := mapFalcoPriority(fe.Priority)
-	ts := time.Now().Unix()
-	now := time.Now().UTC()
+	observed, hasObserved := falcoObservedTime(fe.Time)
+	ts := int64(0)
+	observedAt := ""
+	if hasObserved {
+		ts = observed.Unix()
+		observedAt = observed.UTC().Format(time.RFC3339Nano)
+	}
 
 	signal := strings.TrimSpace(firstNonEmpty(fe.Rule, "FALCO_ALERT"))
 	payloadJSON := map[string]interface{}{
@@ -370,6 +375,7 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 		"priority":      strings.TrimSpace(fe.Priority),
 		"output":        fe.Output,
 		"tags":          fe.Tags,
+		"falco_time":    fe.Time,
 		"syscall":       syscall,
 		"target":        strings.TrimSpace(target),
 		"signal":        signal,
@@ -381,7 +387,8 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 	}
 	payloadBytes, _ := json.Marshal(payloadJSON)
 	payloadHash := sha256.Sum256(payloadBytes)
-	evIDHash := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d|%s", podUID, syscall, strings.TrimSpace(target), ts, strings.TrimSpace(fe.Rule))))
+	falcoBytes, _ := json.Marshal(fe)
+	evIDHash := sha256.Sum256(append([]byte(podUID+"|"), falcoBytes...))
 
 	return Event{
 		EventType:      "runtime.falco.alert",
@@ -402,8 +409,8 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 
 		// Canonical contract fields (v2 ingest)
 		EventID:         hex.EncodeToString(evIDHash[:]),
-		ObservedAt:      now.Format(time.RFC3339),
-		IngestedAt:      now.Format(time.RFC3339),
+		ObservedAt:      observedAt,
+		IngestedAt:      "",
 		ResolutionState: resolutionStateFromFalco(fe),
 		SourceKind:      "falco",
 		SourceSensorID:  strings.TrimSpace(r.nodeName),
@@ -412,6 +419,46 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 		PayloadHash:     hex.EncodeToString(payloadHash[:]),
 		Confidence:      0.85,
 	}, podUID != "" // Core needs pod uid to store
+}
+
+func falcoObservedTime(v interface{}) (time.Time, bool) {
+	switch x := v.(type) {
+	case string:
+		raw := strings.TrimSpace(x)
+		if raw == "" {
+			return time.Time{}, false
+		}
+		for _, layout := range []string{time.RFC3339Nano, time.RFC3339} {
+			if parsed, err := time.Parse(layout, raw); err == nil {
+				return parsed.UTC(), true
+			}
+		}
+	case json.Number:
+		if n, err := x.Int64(); err == nil {
+			return unixFlexible(n)
+		}
+	case float64:
+		return unixFlexible(int64(x))
+	case int64:
+		return unixFlexible(x)
+	case int:
+		return unixFlexible(int64(x))
+	}
+	return time.Time{}, false
+}
+
+func unixFlexible(v int64) (time.Time, bool) {
+	if v <= 0 {
+		return time.Time{}, false
+	}
+	switch {
+	case v > 1_000_000_000_000_000:
+		return time.Unix(0, v).UTC(), true // nanoseconds
+	case v > 1_000_000_000_000:
+		return time.UnixMilli(v).UTC(), true
+	default:
+		return time.Unix(v, 0).UTC(), true
+	}
 }
 
 func resolutionStateFromFalco(fe *falcoEvent) string {
