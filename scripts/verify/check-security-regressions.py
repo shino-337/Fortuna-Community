@@ -101,6 +101,7 @@ REQUIRED = {
         "TestScopedInventoryCollectionHTTPContract/invalid",
         "TestScopedInventoryCollectionHTTPContract/foreign",
         "TestScopedInventoryCollectionHTTPContract/legacy",
+        "TestScopedInventoryCollectionHTTPContract/persistence-failure",
         "TestRuntimeIngestTriggersScopedRescore",
         "TestRuntimeIngestTriggersScopedRescore/v2",
         "TestServiceAccountRBACResolution",
