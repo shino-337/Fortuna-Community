@@ -103,4 +103,9 @@ func TestInventoryCollectionPostgres(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.First(&state).Error)
 	require.Equal(t, "complete", state.Status)
+	// Startup reruns must preserve the accepted receipt on a populated table.
+	require.NoError(t, migrations.EnsureInventoryCollection(db))
+	var afterRestart models.InventoryCollection
+	require.NoError(t, db.First(&afterRestart).Error)
+	require.Equal(t, state, afterRestart)
 }
