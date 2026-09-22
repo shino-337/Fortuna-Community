@@ -62,15 +62,15 @@ func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f 
 	}
 	var kindStartedAt map[string]time.Time
 	if err := json.Unmarshal([]byte(receipt.KindStartedAt), &kindStartedAt); err != nil {
-		return time.Time{}, fmt.Errorf("resolution evidence: per-kind observation metadata unavailable")
+		return time.Time{}, fmt.Errorf("resolution evidence: per-kind List start metadata unavailable")
 	}
-	resourceObservedAt, ok := kindStartedAt[kind]
-	if !ok || resourceObservedAt.IsZero() || resourceObservedAt.Before(receipt.StartedAt) || resourceObservedAt.After(receipt.ObservedAt) ||
-		resourceObservedAt.After(now) || now.Sub(resourceObservedAt) > resolutionSnapshotMaxAge {
-		return time.Time{}, fmt.Errorf("resolution evidence: resource observation is missing, invalid or stale")
+	resourceListStartedAt, ok := kindStartedAt[kind]
+	if !ok || resourceListStartedAt.IsZero() || resourceListStartedAt.Before(receipt.StartedAt) || resourceListStartedAt.After(receipt.ObservedAt) ||
+		resourceListStartedAt.After(now) || now.Sub(resourceListStartedAt) > resolutionSnapshotMaxAge {
+		return time.Time{}, fmt.Errorf("resolution evidence: resource List start is missing, invalid or stale")
 	}
-	if f.DetectedAt.IsZero() || resourceObservedAt.Before(f.DetectedAt) {
-		return time.Time{}, fmt.Errorf("resolution evidence: resource observation predates finding")
+	if f.DetectedAt.IsZero() || resourceListStartedAt.Before(f.DetectedAt) {
+		return time.Time{}, fmt.Errorf("resolution evidence: resource List started before finding")
 	}
 	if f.ResourceType == "Role" && receipt.Namespace != "" && receipt.Namespace != snapshot.Namespace {
 		return time.Time{}, fmt.Errorf("resolution evidence: collection namespace mismatch")
@@ -126,7 +126,7 @@ func (u *InsightStatusUpdater) requireResolutionEvidence(ctx context.Context, f 
 			}
 		}
 	}
-	return resourceObservedAt, nil
+	return resourceListStartedAt, nil
 }
 
 // Lock the exact snapshot at commit and compare it with the version preceding
