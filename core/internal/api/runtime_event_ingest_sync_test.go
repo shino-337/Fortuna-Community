@@ -22,7 +22,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeEventIngestClaim{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -106,7 +106,7 @@ func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeEventIngestClaim{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
