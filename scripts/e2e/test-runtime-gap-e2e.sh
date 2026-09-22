@@ -105,6 +105,7 @@ for i in 1 2 3; do
   PAYLOAD="$(cat <<PAYLOADEOF
 [
   {
+    "event_id": "runtime-gap-${TS}-${i}",
     "pod": {
       "uid": "$TEST_UID",
       "namespace": "$NAMESPACE",
@@ -121,19 +122,25 @@ PAYLOADEOF
 )"
   # Use the cluster-owned ingest credential and canonical v2 payload.
   POST_RESP="$(printf '%s' "$PAYLOAD" | kubectl -n "$NAMESPACE" exec -i "$CORE_POD" --     curl --fail-with-body -s -S -X POST -H "X-Fortuna-Ingest-Token: $FORTUNA_E2E_INGEST_TOKEN" -H "Content-Type: application/json" --data-binary @-     "http://localhost:8080/api/v2/runtime/events" 2>/dev/null || echo "{}")"
+  ACCEPTED="$(echo "$POST_RESP" | python3 -c 'import sys,json
+try:
+ d=json.load(sys.stdin); print(d.get("accepted", 0))
+except Exception:
+ print(0)
+')"
   PROCESSED="$(echo "$POST_RESP" | python3 -c 'import sys,json
 try:
  d=json.load(sys.stdin); print(d.get("processed", 0))
 except Exception:
  print(0)
 ')"
-  if [ "${PROCESSED:-0}" -ge 1 ]; then
+  if [ "${ACCEPTED:-0}" -eq 1 ] && [ "${PROCESSED:-0}" -ge 1 ]; then
     break
   fi
   sleep 1
 done
 if [ "${PROCESSED:-0}" -ge 1 ]; then
-  pass "Runtime event ingest processed=$PROCESSED"
+  pass "Runtime event ingest accepted=$ACCEPTED processed=$PROCESSED"
 else
   fail_case "Runtime event ingest failed for synthetic eBPF exec trace after retries"
 fi
