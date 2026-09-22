@@ -121,7 +121,11 @@ func prepareRuntimeV2Batch(clusterID string, payloads []runtimeEventV2Payload, n
 			sourceRule = strings.TrimSpace(p.SourceRuleFlat)
 		}
 
-		canonical, err := json.Marshal(p)
+		digestPayload := p
+		// ingested_at is a transport/server receipt timestamp, not immutable
+		// source-event identity. Retries may legitimately arrive later.
+		digestPayload.IngestedAt = ""
+		canonical, err := json.Marshal(digestPayload)
 		if err != nil {
 			return nil, fmt.Errorf("runtime event %d cannot canonicalize: %w", i, err)
 		}
