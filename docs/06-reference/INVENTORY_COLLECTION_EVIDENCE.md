@@ -47,7 +47,16 @@ its observation time is in the past.
 Namespace-limited collections require exact namespace equality for every
 namespaced payload row and prune only within that namespace. ClusterRole and
 ClusterRoleBinding collections remain cluster scoped and are still collected when
-the namespaced scope is restricted. A complete receipt proves
+the namespaced scope is restricted.
+
+The receipt store currently keeps the latest inventory receipt per cluster. If
+multiple Agents for one cluster are intentionally configured with different
+`WATCH_NAMESPACE` values, their receipts can supersede one another. This fails
+closed for resolution because a namespace mismatch preserves the finding, but it
+can reduce automatic-resolution eligibility for the displaced scope. A live
+multi-scope topology test (and a scope-qualified receipt key if that topology is
+required) remains part of package F; this PR does not claim concurrent
+namespace-scope aggregation. A complete receipt proves
 acceptance of the included projection, not authoritative Kubernetes deletion:
 existing safeguards retain objects on empty/suspiciously reduced snapshots.
 Derived PCE/risk processing and audit export are separate from collection coverage.
