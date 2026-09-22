@@ -28,11 +28,11 @@ func collectionFixture(t *testing.T) (*gorm.DB, *AgentService, map[string]interf
 		counts[kind] = 0
 	}
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	kindObservedAt := map[string]time.Time{}
+	kindStartedAt := map[string]time.Time{}
 	for _, kind := range collection.InventoryKinds {
-		kindObservedAt[kind] = now.Add(-time.Second)
+		kindStartedAt[kind] = now.Add(-time.Second)
 	}
-	c := collection.Inventory{Version: 1, ID: "attempt-0000000001", Status: "complete", StartedAt: now.Add(-time.Minute), ObservedAt: now, KindObservedAt: kindObservedAt, Counts: counts}
+	c := collection.Inventory{Version: 1, ID: "attempt-0000000001", Status: "complete", StartedAt: now.Add(-time.Minute), ObservedAt: now, KindStartedAt: kindStartedAt, Counts: counts}
 	return db, NewAgentService(db), data, c
 }
 
