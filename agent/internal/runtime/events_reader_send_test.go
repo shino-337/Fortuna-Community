@@ -40,8 +40,11 @@ func TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("expected 1 event, got %d", len(got))
 	}
-	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
+	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].PayloadHash == "" {
 		t.Fatalf("canonical fields not enriched: %+v", got[0])
+	}
+	if got[0].IngestedAt != "" {
+		t.Fatalf("Agent must leave ingested_at for Core, got %q", got[0].IngestedAt)
 	}
 	if got[0].ResolutionState != "partial" {
 		t.Fatalf("resolution_state mismatch, got %q", got[0].ResolutionState)
