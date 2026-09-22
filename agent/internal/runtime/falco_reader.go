@@ -41,6 +41,8 @@ type FalcoReader struct {
 	httpClient *http.Client
 	logger     *log.Logger
 	offset     int64
+	fileInfo   os.FileInfo
+	coverage   *CoverageReporter
 	// lineBuf holds an incomplete trailing line (no '\n' yet) across polls so we never
 	// json.Unmarshal a half-written Falco record (causes "invalid character ...", EOF, etc.).
 	lineBuf []byte
@@ -50,6 +52,7 @@ type FalcoReader struct {
 
 	// ingestion quality counters
 	invalidLines  uint64
+	droppedEvents uint64
 	sentBatches   uint64
 	sentEvents    uint64
 	failedBatches uint64
@@ -66,7 +69,7 @@ func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName st
 	if poll <= 0 {
 		poll = 5 * time.Second
 	}
-	return &FalcoReader{
+	r := &FalcoReader{
 		path:        path,
 		poll:        poll,
 		coreURL:     strings.TrimRight(coreURL, "/"),
@@ -76,6 +79,8 @@ func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName st
 		logger:      log.New(log.Writer(), "[FalcoEvents] ", log.LstdFlags),
 		podUIDCache: map[string]podUIDCacheEntry{},
 	}
+	r.coverage = NewCoverageReporter(r.coreURL, "falco", "falco", r.httpClient)
+	return r
 }
 
 func (r *FalcoReader) Start(ctx context.Context) {
@@ -93,25 +98,49 @@ func (r *FalcoReader) Start(ctx context.Context) {
 }
 
 func (r *FalcoReader) readAndSend(ctx context.Context) {
+	obs := CoverageObservation{}
+	defer func() {
+		obs.End = time.Now().UTC()
+		if r.coverage != nil {
+			if err := r.coverage.Report(context.Background(), obs); err != nil {
+				r.logger.Printf("Falco coverage report failed: %v", err)
+			}
+		}
+	}()
+
 	f, err := os.Open(r.path)
 	if err != nil {
+		obs.Failed = true
+		obs.Reason = "source_open_failed"
 		return
 	}
 	defer f.Close()
 
 	st, err := f.Stat()
 	if err != nil {
+		obs.Failed = true
+		obs.Reason = "source_stat_failed"
 		return
 	}
 	fileSize := st.Size()
-	// Log rotation / truncate: start over
-	if r.offset > fileSize {
+	firstOpen := r.fileInfo == nil
+	if !firstOpen && !os.SameFile(r.fileInfo, st) {
 		r.offset = 0
 		r.lineBuf = nil
+		obs.Failed = true
+		obs.Reason = "source_rotated"
+	} else if r.offset > fileSize {
+		r.offset = 0
+		r.lineBuf = nil
+		obs.Failed = true
+		obs.Reason = "source_truncated"
 	}
-	// First run: tail from EOF to avoid loading historical multi-GB Falco backlog
-	// into memory (can OOM the agent). New alerts after startup are still captured.
-	if r.offset == 0 && fileSize > 0 {
+	r.fileInfo = st
+
+	// Initial Falco attach deliberately tails from EOF to avoid replaying an
+	// unbounded historical file. Coverage starts now; historical bytes are out
+	// of scope. Rotation is not treated as an initial attach and is read at 0.
+	if firstOpen && r.offset == 0 && fileSize > 0 {
 		r.offset = fileSize
 		return
 	}
@@ -119,16 +148,17 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	startOffset := r.offset
 	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
-		r.logger.Printf("Failed to seek falco events file: %v", err)
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "source_seek_failed")
 		return
 	}
 
 	chunk, err := io.ReadAll(f)
 	if err != nil {
-		r.logger.Printf("Failed to read falco events file: %v", err)
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "source_read_failed")
 		return
 	}
-
 	data := append(append([]byte(nil), startBuf...), chunk...)
 	r.lineBuf = nil
 
@@ -147,12 +177,15 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		fes, err := parseFalcoJSONLines(line)
 		if err != nil {
 			atomic.AddUint64(&r.invalidLines, 1)
+			obs.Invalid++
 			r.logger.Printf("Invalid falco JSON: %v", err)
 			continue
 		}
 		for i := range fes {
 			ev, ok := r.toRuntimeEvent(ctx, &fes[i])
 			if !ok {
+				atomic.AddUint64(&r.droppedEvents, 1)
+				obs.Dropped++
 				continue
 			}
 			events = append(events, ev)
@@ -160,24 +193,27 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	}
 
 	nextOffset := startOffset + int64(len(chunk))
+	if len(r.lineBuf) != 0 {
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "partial_record_pending")
+	}
 	if len(events) == 0 {
-		// No deliverable event exists in this slice. Commit consumed bytes while
-		// preserving any incomplete trailing line in lineBuf for the next poll.
 		r.offset = nextOffset
 		return
 	}
+	obs.Emitted = uint64(len(events))
 	if err := r.send(events); err != nil {
 		atomic.AddUint64(&r.failedBatches, 1)
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
+		obs.Failed = true
+		obs.Reason = joinCoverageReason(obs.Reason, "delivery_failed_retained")
 		r.logger.Printf("Failed to send falco events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Roll back both durable cursor components. Retaining only the offset would
-		// corrupt an event that was split across polls because lineBuf contains the
-		// prefix that belongs immediately before startOffset.
 		r.offset = startOffset
 		r.lineBuf = startBuf
 		return
 	}
+	obs.Delivered = uint64(len(events))
 	r.offset = nextOffset
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
@@ -223,13 +259,14 @@ func (r *FalcoReader) send(events []Event) error {
 
 func (r *FalcoReader) logIngestionStats(status string) {
 	r.logger.Printf(
-		"[IngestQuality] status=%s sent_batches=%d sent_events=%d failed_batches=%d failed_events=%d invalid_lines=%d v2_success=%d",
+		"[IngestQuality] status=%s sent_batches=%d sent_events=%d failed_batches=%d failed_events=%d invalid_lines=%d dropped_events=%d v2_success=%d",
 		status,
 		atomic.LoadUint64(&r.sentBatches),
 		atomic.LoadUint64(&r.sentEvents),
 		atomic.LoadUint64(&r.failedBatches),
 		atomic.LoadUint64(&r.failedEvents),
 		atomic.LoadUint64(&r.invalidLines),
+		atomic.LoadUint64(&r.droppedEvents),
 		atomic.LoadUint64(&r.v2Success),
 	)
 }
