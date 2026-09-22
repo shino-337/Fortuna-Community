@@ -34,6 +34,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 	if err := db.AutoMigrate(
 		&models.Pod{},
 		&models.RuntimeEvent{},
+		&models.RuntimeEventIngestClaim{},
 		&models.RuntimeSignal{},
 		&models.RuntimeBehaviorFact{},
 		&models.RuntimeIncident{},
@@ -211,6 +212,7 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 	if err := db.AutoMigrate(
 		&models.Pod{},
 		&models.RuntimeEvent{},
+		&models.RuntimeEventIngestClaim{},
 		&models.RuntimeSignal{},
 		&models.RuntimeBehaviorFact{},
 		&models.RuntimeIncident{},
