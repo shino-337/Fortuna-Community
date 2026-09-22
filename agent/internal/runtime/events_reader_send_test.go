@@ -18,7 +18,8 @@ func TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics(t *testing.T) {
 		}
 		b, _ := io.ReadAll(r.Body)
 		_ = json.Unmarshal(b, &got)
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"accepted": len(got), "processed": 0, "replayed": 0})
 	}))
 	defer ts.Close()
 
@@ -44,6 +45,23 @@ func TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics(t *testing.T) {
 	}
 	if got[0].ResolutionState != "partial" {
 		t.Fatalf("resolution_state mismatch, got %q", got[0].ResolutionState)
+	}
+	if got[0].Confidence != 0.5 {
+		t.Fatalf("missing confidence must use conservative default, got %v", got[0].Confidence)
+	}
+}
+
+func TestRuntimeSenderRejectsPartialACK(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"accepted":0,"processed":0,"replayed":0}`))
+	}))
+	defer srv.Close()
+	err := NewReader("/unused", time.Second, srv.URL).send([]Event{{
+		Pod: map[string]interface{}{"uid": "p"}, Syscall: "execve", Confidence: 0.9,
+	}})
+	if err == nil {
+		t.Fatal("HTTP 200 without whole-batch accepted ACK must fail delivery")
 	}
 }
 
