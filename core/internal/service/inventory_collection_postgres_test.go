@@ -86,7 +86,8 @@ func TestInventoryCollectionPostgres(t *testing.T) {
 	var acceptedAgent models.Agent
 	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&acceptedAgent).Error)
 	require.Equal(t, "node-a", acceptedAgent.NodeName)
-	acceptedSeen := *acceptedAgent.LastSeenAt
+	require.NotNil(t, acceptedAgent.LastSeenAt)
+	beforeFailureSeen := *acceptedAgent.LastSeenAt
 	// Real PostgreSQL error aborts the transaction; neither projection nor receipt
 	// can report success. Persist the failed attempt only after rollback.
 	require.NoError(t, db.Exec(`CREATE FUNCTION deny_role_write() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected failure'; END $$`).Error)
@@ -106,7 +107,7 @@ func TestInventoryCollectionPostgres(t *testing.T) {
 	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").First(&rolledBackAgent).Error)
 	require.Equal(t, "node-a", rolledBackAgent.NodeName)
 	require.Equal(t, "v50", rolledBackAgent.Version)
-	require.True(t, rolledBackAgent.LastSeenAt.Equal(acceptedSeen))
+	require.True(t, rolledBackAgent.LastSeenAt.Equal(beforeFailureSeen))
 	var state models.InventoryCollection
 	require.NoError(t, db.First(&state).Error)
 	require.Equal(t, "failed", state.Status)
