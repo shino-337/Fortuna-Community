@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -21,7 +22,8 @@ func TestRuntimeReaderRetainsOffsetUntilIngestSucceeds(t *testing.T) {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
-		w.WriteHeader(http.StatusOK)
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]int{"accepted": 1, "processed": 0, "replayed": 0})
 	}))
 	defer srv.Close()
 
