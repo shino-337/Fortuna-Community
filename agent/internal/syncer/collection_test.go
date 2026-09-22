@@ -78,3 +78,41 @@ func TestInventoryCollectionAgentReportsEmptyAndFailure(t *testing.T) {
 		})
 	}
 }
+
+
+func TestInventoryCollectionRecordsListStartBeforeResponse(t *testing.T) {
+	client := fake.NewSimpleClientset()
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	client.PrependReactor("list", "roles", func(ktesting.Action) (bool, runtime.Object, error) {
+		close(entered)
+		<-release
+		return false, nil, nil
+	})
+
+	s := NewSyncer(client, "http://unused", &cluster.Info{ID: "a", Name: "A"}, time.Minute, "ns", "agent-a", "node-a", "test")
+	type result struct {
+		payload *SyncPayload
+		err     error
+	}
+	done := make(chan result, 1)
+	go func() {
+		payload, err := s.buildPayload(context.Background())
+		done <- result{payload: payload, err: err}
+	}()
+
+	<-entered
+	whileBlocked := time.Now().UTC()
+	close(release)
+	got := <-done
+	if got.err != nil {
+		t.Fatal(got.err)
+	}
+	started := got.payload.Collection.KindStartedAt["roles"]
+	if started.IsZero() || started.After(whileBlocked) {
+		t.Fatalf("role List start bound was captured after the request was already in flight: start=%v blocked_at=%v", started, whileBlocked)
+	}
+	if got.payload.Collection.ObservedAt.Before(whileBlocked) {
+		t.Fatalf("collection end must follow the blocked Role List: end=%v blocked_at=%v", got.payload.Collection.ObservedAt, whileBlocked)
+	}
+}
