@@ -200,3 +200,31 @@ func TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds(t *testing.T)
 		t.Fatalf("unexpected counters sent=%d failed=%d", r.sentEvents, r.failedEvents)
 	}
 }
+
+
+func TestFalcoRuntimeEventIdentityStableAcrossRetry(t *testing.T) {
+	r := NewFalcoReader("/tmp/falco.jsonl", time.Second, "http://core", "node-1", nil)
+	fe := falcoEvent{
+		Time: "2026-09-22T08:00:00.123456789Z",
+		Rule: "Stable retry", Priority: "Warning",
+		OutputFields: map[string]interface{}{
+			"k8s.pod.uid": "pod-stable", "k8s.ns.name": "default",
+			"k8s.pod.name": "demo", "evt.type": "execve", "proc.cmdline": "/bin/sh",
+		},
+	}
+	first, ok := r.toRuntimeEvent(context.Background(), &fe)
+	if !ok {
+		t.Fatal("first Falco conversion failed")
+	}
+	time.Sleep(10 * time.Millisecond)
+	second, ok := r.toRuntimeEvent(context.Background(), &fe)
+	if !ok {
+		t.Fatal("second Falco conversion failed")
+	}
+	if first.EventID != second.EventID || first.ObservedAt != second.ObservedAt || first.Timestamp != second.Timestamp {
+		t.Fatalf("Falco retry identity changed: first=%+v second=%+v", first, second)
+	}
+	if first.IngestedAt != "" || second.IngestedAt != "" {
+		t.Fatal("Falco producer must leave ingested_at to Core")
+	}
+}
