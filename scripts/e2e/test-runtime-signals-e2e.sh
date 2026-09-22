@@ -93,12 +93,15 @@ echo "--- Test 1: POST /api/v2/runtime/events ---"
 TEST_POD_UID="$FORTUNA_E2E_POD_UID"
 TEST_POD_NAMESPACE="${FORTUNA_E2E_POD_NAMESPACE:-default}"
 OBSERVED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-PAYLOAD="[{\"event_type\":\"escape_attempt\",\"mitre_technique\":\"T1611.001\",\"signal\":\"PROC_ROOT_PIVOT\",\"severity\":\"high\",\"pod\":{\"name\":\"e2e-pod\",\"namespace\":\"$TEST_POD_NAMESPACE\",\"uid\":\"$TEST_POD_UID\"},\"syscall\":\"openat\",\"target\":\"/proc/1/root\",\"confidence\":0.9,\"observed_at\":\"$OBSERVED_AT\"}]"
+EVENT_ID="runtime-signals-$(date +%s)-$"
+PAYLOAD="[{\"event_id\":\"$EVENT_ID\",\"event_type\":\"escape_attempt\",\"mitre_technique\":\"T1611.001\",\"signal\":\"PROC_ROOT_PIVOT\",\"severity\":\"high\",\"pod\":{\"name\":\"e2e-pod\",\"namespace\":\"$TEST_POD_NAMESPACE\",\"uid\":\"$TEST_POD_UID\"},\"syscall\":\"openat\",\"target\":\"/proc/1/root\",\"confidence\":0.9,\"observed_at\":\"$OBSERVED_AT\"}]"
 RESP=$(api_post "http://localhost:8080/api/v2/runtime/events" "$PAYLOAD")
-if echo "$RESP" | grep -q "processed"; then
+if echo "$RESP" | grep -q "accepted"; then
+  ACCEPTED=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('accepted', 0))" 2>/dev/null || echo "0")
   PROCESSED=$(echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('processed', 0))" 2>/dev/null || echo "0")
-  [ "$PROCESSED" -gt 0 ] || { fail "No event persisted"; exit 1; }
-  ok "POST /runtime-events returned processed=$PROCESSED"
+  [ "$ACCEPTED" -eq 1 ] || { fail "Runtime base event was not ACKed"; exit 1; }
+  [ "$PROCESSED" -gt 0 ] || { fail "No semantic event processed"; exit 1; }
+  ok "POST /runtime-events returned accepted=$ACCEPTED processed=$PROCESSED"
 else
   fail "POST /runtime-events failed: $RESP"
   exit 1
