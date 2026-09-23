@@ -57,9 +57,12 @@ security-summary endpoints:
   list, zero counter, healthy status or synthetic version;
 - `404`/empty remains valid only when the backing query succeeded and the requested
   resource or collection is genuinely absent;
-- retryable backend unavailability uses a machine-readable code and
+- transient backing-store/query unavailability uses a machine-readable code and
   `retryable=true` so UI clients can preserve the last known state and expose a
   retry path instead of resetting KPIs to zero;
+- a missing required schema/migration prerequisite uses the same explicit
+  unavailable contract with `retryable=false`; repeated client retry must not hide
+  the need for deployment/operator repair;
 - Agent liveness is derived from persisted `last_seen_at`; data-source availability
   is separate. A missing heartbeat is disconnected, not healthy;
 - Agent cluster identity and version come from the persisted Agent record. UI/API
