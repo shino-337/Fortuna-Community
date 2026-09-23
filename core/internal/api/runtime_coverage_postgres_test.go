@@ -126,11 +126,14 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	var accepted models.RuntimeCoverage
 	require.NoError(t, db.First(&accepted, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, first.ID, accepted.CoverageID)
-	require.NotNil(t, accepted.ContinuousSince)
-	require.True(t, accepted.ContinuousSince.Equal(first.WindowStart))
+	require.Nil(t, accepted.ContinuousSince, "protocol-v1 Falco is non-authoritative and must not establish absence continuity")
 	var producer models.RuntimeProducerState
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
+	require.False(t, producer.Authoritative)
+	require.Equal(t, "source_health_unverified", producer.GapReason)
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, accepted.EffectiveStatus(&producer, now))
+	require.False(t, accepted.CoversInterval(&producer, first.WindowStart, first.WindowEnd, now))
 	require.Equal(t, first.ID, producer.LastCoverageID)
 
 	altered := first
@@ -169,11 +172,13 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	var recovered models.RuntimeCoverage
 	require.NoError(t, db.First(&recovered, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, second.ID, recovered.CoverageID)
-	require.NotNil(t, recovered.ContinuousSince)
-	require.True(t, recovered.ContinuousSince.Equal(first.WindowStart))
+	require.Nil(t, recovered.ContinuousSince, "recovery must not create continuity without upstream source-health authority")
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, second.ID, producer.LastCoverageID)
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
+	require.False(t, producer.Authoritative)
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, recovered.EffectiveStatus(&producer, now))
+	require.False(t, recovered.CoversInterval(&producer, first.WindowStart, second.WindowEnd, now))
 
 	// A new Agent session must invalidate otherwise-fresh prior coverage and create
 	// a persisted restart gap before any new complete window is accepted.
@@ -196,9 +201,13 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, http.StatusOK, code, body)
 	var afterNewSession models.RuntimeCoverage
 	require.NoError(t, db.First(&afterNewSession, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.NotNil(t, afterNewSession.ContinuousSince)
-	require.True(t, afterNewSession.ContinuousSince.Equal(third.WindowStart),
-		"restart must not extend continuity from previous session")
+	require.Nil(t, afterNewSession.ContinuousSince,
+		"new session must remain non-authoritative and cannot establish absence continuity")
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerActive, producer.State)
+	require.False(t, producer.Authoritative)
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, afterNewSession.EffectiveStatus(&producer, now))
+	require.False(t, afterNewSession.CoversInterval(&producer, third.WindowStart, third.WindowEnd, now))
 
 	// Startup invariant reruns on populated lifecycle/evidence data without mutation.
 	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
