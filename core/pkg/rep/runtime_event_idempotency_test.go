@@ -69,6 +69,10 @@ func TestRuntimeSourceRecordExactReplaySkipsDownstreamEffects(t *testing.T) {
 
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
+		ServiceAccount: "default",
+		Containers: "[]", ImageDigests: "[]", PodSecurityContext: "{}",
+		ContainerSecurityContexts: "{}", VolumeMounts: "[]", Volumes: "[]",
+		Tolerations: "[]", Affinity: "{}",
 	}).Error)
 	id, err := resourceidentity.New("cluster-a", "pod-runtime-idempotency")
 	require.NoError(t, err)
@@ -116,6 +120,10 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 	runtimeIdempotencySchema(t, db)
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
+		ServiceAccount: "default",
+		Containers: "[]", ImageDigests: "[]", PodSecurityContext: "{}",
+		ContainerSecurityContexts: "{}", VolumeMounts: "[]", Volumes: "[]",
+		Tolerations: "[]", Affinity: "{}",
 	}).Error)
 	id, err := resourceidentity.New("cluster-a", "pod-runtime-idempotency")
 	require.NoError(t, err)
@@ -203,6 +211,10 @@ func TestRuntimeSourceRecordConcurrentDuplicatePostgres(t *testing.T) {
 	runtimeIdempotencySchema(t, db)
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
+		ServiceAccount: "default",
+		Containers: "[]", ImageDigests: "[]", PodSecurityContext: "{}",
+		ContainerSecurityContexts: "{}", VolumeMounts: "[]", Volumes: "[]",
+		Tolerations: "[]", Affinity: "{}",
 	}).Error)
 	id, err := resourceidentity.New("cluster-a", "pod-runtime-idempotency")
 	require.NoError(t, err)
