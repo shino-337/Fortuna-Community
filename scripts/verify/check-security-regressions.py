@@ -127,6 +127,7 @@ REQUIRED = {
         "TestClusterStatsUsesPersistedAgentVersion",
         "TestWorkerMetricsQueryFailureIsUnavailable",
         "TestPolicyEvaluationMetricsFailureIsUnavailable",
+        "TestClusterAgentsMissingSchemaIsUnavailable",
         "TestClusterSecuritySummaryIsClusterQualified",
         "TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable",
         "TestPipelineHealthIsClusterScoped",
