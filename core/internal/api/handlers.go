@@ -1314,7 +1314,11 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 				respondDataUnavailable(c, "pod_risk_counts_unavailable", "Pod risk counts could not be loaded")
 				return
 			}
-			scores := loadLatestV3RiskScoresByPod(db, allPods)
+			scores, err := loadLatestV3RiskScoresByPod(db, allPods)
+			if err != nil {
+				respondDataUnavailable(c, "pod_risk_scores_unavailable", "Pod risk scores could not be loaded")
+				return
+			}
 			chainCache := make(map[string]*clusterChainsCacheEntry)
 			rows := buildPodRowsWithRiskSignals(ctx, db, allPods, riskByUID, scores, chainCache)
 			sortPodRowsByAttackPathPriority(rows)
@@ -1385,7 +1389,11 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			respondDataUnavailable(c, "pod_risk_counts_unavailable", "Pod risk counts could not be loaded")
 			return
 		}
-		scores := loadLatestV3RiskScoresByPod(db, pods)
+		scores, err := loadLatestV3RiskScoresByPod(db, pods)
+		if err != nil {
+			respondDataUnavailable(c, "pod_risk_scores_unavailable", "Pod risk scores could not be loaded")
+			return
+		}
 		chainCache := make(map[string]*clusterChainsCacheEntry)
 		rows := buildPodRowsWithRiskSignals(ctx, db, pods, riskByUID, scores, chainCache)
 		if sortBy == "risk_desc" {
