@@ -168,7 +168,9 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 		next := coverageWindow("coverage-000000000015", first.WindowEnd, now.Add(-time.Second))
 		next.SourceKind = collection.RuntimeSourceFile
 		w := postCoverage(t, db, principal, next)
-		require.Equal(t, http.StatusConflict, w.Code)
+		// The fixed producer/source registry rejects this before it can become a
+		// persistence-level rebind conflict.
+		require.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
 	t.Run("gap-restarts-continuity", func(t *testing.T) {
