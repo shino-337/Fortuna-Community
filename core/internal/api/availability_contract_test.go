@@ -164,6 +164,19 @@ func TestPolicyEvaluationMetricsFailureIsUnavailable(t *testing.T) {
 }
 
 
+
+func TestClusterAgentsMissingSchemaIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/agents")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}}
+	GetClusterAgents(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	require.Equal(t, "cluster_agents_schema_unavailable", decodeAvailabilityBody(t, w)["code"])
+}
+
 func TestClusterSecuritySummaryIsClusterQualified(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.PodCapability{})
