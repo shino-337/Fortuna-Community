@@ -287,8 +287,8 @@ func TestCoverageSnapshotDoesNotSplitInflightDelivery(t *testing.T) {
 
 	select {
 	case got := <-coverageGot:
-		if got.Status != "complete" || got.Emitted != 1 || got.Delivered != 1 || got.Errors != 0 {
-			t.Fatalf("delivery accounting split across windows: %+v", got)
+		if got.Status != "failed" || got.Emitted != 1 || got.Delivered != 1 || got.Errors == 0 {
+			t.Fatalf("delivery accounting split or no-op sensor claimed clean coverage: %+v", got)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("coverage report missing")
@@ -300,4 +300,26 @@ type runtimeCoverageWindow struct {
 	Emitted   uint64 `json:"emitted"`
 	Delivered uint64 `json:"delivered"`
 	Errors    uint64 `json:"errors"`
+}
+
+
+func TestEBPFCoverageNeverClaimsCompleteWhileSensorIsNoop(t *testing.T) {
+	var got runtimeCoverageWindow
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/runtime/coverage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-a", time.Second, 4, false)
+	s.reportCoverage()
+
+	if got.Status != "failed" || got.Errors == 0 {
+		t.Fatalf("no-op eBPF sensor claimed authoritative coverage: %+v", got)
+	}
 }
