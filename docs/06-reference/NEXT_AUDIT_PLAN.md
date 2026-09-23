@@ -143,6 +143,12 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   heartbeat/liveness.
 - E2 follows E1: dashboard/detail/list retry and unavailable states consume the
   backend contract consistently without replacing errors with zero KPIs.
+- D3 follows E2 and precedes final F acceptance: define a runtime source-health
+  protocol that is independent of file existence/reader heartbeat, bind health to
+  the exact authenticated producer/session, allow authority only for producers
+  that can prove upstream sensor health, and add evaluator regressions showing
+  that stale/lost/disabled source health blocks absence reasoning. D3 must not
+  infer authority from configuration flags or clean-empty event windows.
 - F (PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
   claimed as validated end to end.
@@ -234,6 +240,26 @@ Required invariants include:
   conflict; concurrent duplicate submissions create one committed effect; distinct
   same-second physical records remain distinct. Generic reader restart replay,
   exact replay, same-second identity and PostgreSQL concurrency are permanent gates.
+
+### D3 runtime authority/source-health gate
+
+D2/#52 intentionally closed correctness without enabling absence-based runtime
+auto-resolution. D can only be marked complete after D3 proves an independent
+upstream health signal. The D3 acceptance contract is:
+
+- source health is produced independently from runtime event emptiness and file
+  reader activity;
+- health identity is scoped by authenticated `{cluster_id, agent_id, producer_id,
+  session_id}` and cannot be self-rebound by payload aliases;
+- authority expires on producer disable/stop, session restart, health lease expiry,
+  source restart or an explicit source-health failure;
+- a clean coverage interval is eligible for absence reasoning only while the exact
+  producer has authoritative source health covering the required interval;
+- old-session receipts, file existence, config enablement and Agent heartbeat alone
+  never satisfy authority;
+- PostgreSQL replay/concurrency and Agent restart regressions are permanent gates;
+- package F validates the protocol on the real DaemonSet/two-cluster topology
+  before runtime auto-resolution is enabled in production.
 
 ### E1 API availability merge gates
 
