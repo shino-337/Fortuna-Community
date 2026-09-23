@@ -60,7 +60,7 @@ func EnsureRuntimeEventIdempotency(db *gorm.DB) error {
 		return fmt.Errorf("runtime event idempotency: drop obsolete source-record index: %w", err)
 	}
 	if err := db.Exec(`
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_event_source_record_identity
+		CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_event_agent_source_record_identity
 		ON runtime_events(cluster_id, agent_id, source_record_id)
 		WHERE source_record_id IS NOT NULL AND source_record_id <> ''
 	`).Error; err != nil {
