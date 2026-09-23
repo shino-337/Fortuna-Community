@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
@@ -24,6 +25,7 @@ import (
 	"github.com/fortuna/agent/internal/sbom"
 	"github.com/fortuna/agent/internal/syncer"
 	"github.com/fortuna/agent/internal/watcher"
+	"github.com/fortuna/api/collection"
 	pb "github.com/fortuna/api/proto/agent"
 )
 
@@ -97,6 +99,26 @@ func main() {
 	cfg.ClusterName = clusterInfo.Name
 	log.Printf("📋 [cluster] id=%s source=%s name=%s", clusterInfo.ID, clusterInfo.Source, clusterInfo.Name)
 
+	// Runtime evidence is scoped to one Agent execution session. Register the
+	// complete producer set before starting producers so stale coverage from a
+	// previous process/configuration becomes ineligible as soon as Core observes
+	// this session. If Core is temporarily unavailable, the lease reporter retries;
+	// coverage remains fail-closed until lifecycle registration succeeds.
+	runtimeSessionStartedAt := time.Now().UTC()
+	runtimeSessionID := rand.Text()
+	runtimeLifecycle := runtime.NewProducerLifecycleReporter(
+		cfg.CoreHTTPEndpoint,
+		runtimeSessionID,
+		runtimeSessionStartedAt,
+		runtimeProducerDeclarations(cfg),
+	)
+	if err := runtimeLifecycle.Report(collection.RuntimeAgentRunning); err != nil {
+		log.Printf("⚠️  Runtime producer lifecycle registration failed: %v (coverage remains unverified until retry)", err)
+	} else {
+		log.Printf("✅ Runtime producer lifecycle registered (session=%s)", runtimeSessionID)
+	}
+	go runtimeLifecycle.Start(ctx)
+
 	// Start periodic full sync to Core HTTP endpoint (pods/RBAC/resources)
 	syncClientset, ok := k8sClient.Clientset.(*kubernetes.Clientset)
 	if !ok {
@@ -122,12 +144,12 @@ func main() {
 	// Runtime event collectors use HTTP (not gRPC) — start before gRPC connect so they
 	// begin producing events immediately even when gRPC is slow/unreachable.
 	if cfg.RuntimeEventsEnabled {
-		reader := runtime.NewReader(cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll, cfg.CoreHTTPEndpoint)
+		reader := runtime.NewReader(cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll, cfg.CoreHTTPEndpoint, runtimeSessionID)
 		go reader.Start(ctx)
 		log.Printf("✅ Runtime events reader enabled (path=%s poll=%s)", cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll)
 	}
 	if cfg.FalcoEventsEnabled {
-		reader := runtime.NewFalcoReader(cfg.FalcoEventsPath, cfg.FalcoEventsPoll, cfg.CoreHTTPEndpoint, cfg.NodeName, k8sClient.Clientset)
+		reader := runtime.NewFalcoReader(cfg.FalcoEventsPath, cfg.FalcoEventsPoll, cfg.CoreHTTPEndpoint, cfg.NodeName, k8sClient.Clientset, runtimeSessionID)
 		go reader.Start(ctx)
 		log.Printf("✅ Falco events reader enabled (path=%s poll=%s)", cfg.FalcoEventsPath, cfg.FalcoEventsPoll)
 	}
@@ -139,6 +161,7 @@ func main() {
 			cfg.EBPFEventFlushInterval,
 			cfg.EBPFEventBufferSize,
 			cfg.EBPFSimulate,
+			runtimeSessionID,
 		)
 		go sensor.Start(ctx)
 		log.Printf("✅ eBPF sensor enabled (mode=%s flush=%s simulate=%v)", cfg.EBPFMode, cfg.EBPFEventFlushInterval, cfg.EBPFSimulate)
@@ -297,7 +320,12 @@ func main() {
 	<-sigCh
 	log.Printf("🛑 Shutdown signal received")
 
-	// Graceful shutdown
+	// Graceful shutdown: invalidate producer leases before stopping local
+	// collectors when Core is reachable. Crash/partition still fails closed by
+	// lease expiry.
+	if err := runtimeLifecycle.Report(collection.RuntimeAgentStopping); err != nil {
+		log.Printf("⚠️  Runtime producer stopping manifest failed: %v", err)
+	}
 	cancel()
 	podWatcher.Stop()
 
@@ -374,4 +402,28 @@ func logConfig(cfg *config.Config) {
 		log.Printf("   TLS CA: %s", cfg.TLSCACertPath)
 	}
 	log.Printf("========================================")
+}
+
+
+func runtimeProducerDeclarations(cfg *config.Config) []collection.RuntimeProducerDeclaration {
+	producers := []collection.RuntimeProducerDeclaration{
+		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: cfg.RuntimeEventsEnabled, Authoritative: cfg.RuntimeEventsEnabled},
+		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: cfg.FalcoEventsEnabled, Authoritative: cfg.FalcoEventsEnabled},
+		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
+		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
+		{ProducerID: "ebpf-all", SourceKind: collection.RuntimeSourceEBPF},
+	}
+	if cfg.EBPFEnabled {
+		selected := ebpfruntime.ProducerIDForMode(cfg.EBPFMode)
+		for i := range producers {
+			if producers[i].ProducerID == selected {
+				producers[i].Enabled = true
+				// Built-in eBPF remains explicitly non-authoritative until the
+				// no-op tracepoints are replaced by a real observation pipeline.
+				producers[i].Authoritative = false
+			}
+		}
+	}
+	collection.SortRuntimeProducerDeclarations(producers)
+	return producers
 }
