@@ -118,6 +118,7 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 		add(routeB{"POST", p, authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 	}
 	add(routeB{"POST", "/api/v2/runtime/events", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
+	add(routeB{"POST", "/api/v2/runtime/producers", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 	add(routeB{"POST", "/api/v2/runtime/coverage", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 
 	// --- JWT /api/v1 (alphabetical by path prefix groups) ---
