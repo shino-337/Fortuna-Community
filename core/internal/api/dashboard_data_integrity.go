@@ -303,14 +303,14 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 	}
 
 	if db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(*) FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL
 		`).Scan(&health.ActiveSBOMs).Error; err != nil {
 			return health, err
 		}
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(*) FROM sboms s
 			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL AND p.id IS NULL
@@ -320,7 +320,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 	}
 
 	if health.MirrorVersion != "" && db.Migrator().HasTable("sbom_match_runs") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
@@ -349,7 +349,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 	}
 
 	if health.ActiveCatalogGenerationID > 0 && db.Migrator().HasTable("sbom_match_runs") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
@@ -378,7 +378,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 	}
 
 	if db.Migrator().HasTable("cve_matches") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
@@ -387,7 +387,7 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 		`).Scan(&health.ActivePodCVEMatches).Error; err != nil {
 			return health, err
 		}
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
