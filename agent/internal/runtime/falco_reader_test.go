@@ -12,6 +12,24 @@ import (
 	"time"
 )
 
+
+func TestFalcoPodUIDResolutionBudgetIsBoundedByPoll(t *testing.T) {
+	r := NewFalcoReader("/tmp/falco.jsonl", 5*time.Second, "http://core", "node-1", nil)
+	if got := r.podUIDResolutionBudget(); got != 2*time.Second {
+		t.Fatalf("5s poll resolution budget=%s want=2s", got)
+	}
+
+	r = NewFalcoReader("/tmp/falco.jsonl", time.Second, "http://core", "node-1", nil)
+	if got := r.podUIDResolutionBudget(); got != 500*time.Millisecond {
+		t.Fatalf("1s poll resolution budget=%s want=500ms", got)
+	}
+
+	r = NewFalcoReader("/tmp/falco.jsonl", 100*time.Millisecond, "http://core", "node-1", nil)
+	if got := r.podUIDResolutionBudget(); got != 100*time.Millisecond {
+		t.Fatalf("small-poll resolution budget=%s want=100ms floor", got)
+	}
+}
+
 func TestFalcoReader_ToRuntimeEvent_MinimalMapping(t *testing.T) {
 	r := NewFalcoReader("/tmp/falco.jsonl", 0, "http://core", "node-1", nil)
 	fe := falcoEvent{
