@@ -84,6 +84,12 @@ func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName st
 	}
 }
 
+func (r *FalcoReader) SetCoverageCadence(cadence time.Duration) {
+	if r != nil && r.coverage != nil {
+		r.coverage.SetCadence(cadence)
+	}
+}
+
 func (r *FalcoReader) Start(ctx context.Context) {
 	r.readAndSend(ctx)
 	ticker := time.NewTicker(r.poll)
@@ -136,10 +142,20 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		r.fileInfo = st
 		r.coverage.Reset(time.Now().UTC())
 		if fileSize > 0 {
-			// Tail from EOF once to avoid loading historical multi-GB Falco backlog.
-			r.offset = fileSize
-			reportCoverage = false
-			return
+			// Skip historical complete Falco records, but never skip a trailing
+			// partial prefix. Search backwards for the last newline so an Agent
+			// restart can still complete the record when the writer appends its suffix.
+			lastComplete, err := lastCompleteRecordOffset(f, fileSize)
+			if err != nil {
+				stats.Errors++
+				reason = "falco initial tail scan failed"
+				return
+			}
+			r.offset = lastComplete
+			if lastComplete == fileSize {
+				reportCoverage = false
+				return
+			}
 		}
 	}
 	// Detect both in-place truncate and replacement/inode rotation. Size alone is
@@ -170,10 +186,14 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		return
 	}
 
-	data := append(append([]byte(nil), startBuf...), chunk...)
+	// The source file is the durable retry buffer for partial records. Do not
+	// prepend lineBuf here; offset already points at the beginning of the unread
+	// prefix. lineBuf is diagnostic-only, matching the generic runtime reader.
+	data := chunk
 	r.lineBuf = nil
 
 	events := make([]Event, 0, 20)
+	consumed := int64(0)
 	for len(data) > 0 {
 		idx := bytes.IndexByte(data, '\n')
 		if idx < 0 {
@@ -181,6 +201,8 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 			break
 		}
 		line := bytes.TrimSpace(data[:idx])
+		step := int64(idx + 1)
+		consumed += step
 		data = data[idx+1:]
 		if len(line) == 0 {
 			continue
@@ -204,7 +226,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		}
 	}
 
-	nextOffset := startOffset + int64(len(chunk))
+	nextOffset := startOffset + consumed
 	if len(r.lineBuf) != 0 {
 		// Do not call a window complete while a source record is only partially
 		// observed. The next successful interval can resume continuity.
@@ -225,9 +247,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send falco events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Roll back both durable cursor components. Retaining only the offset would
-		// corrupt an event that was split across polls because lineBuf contains the
-		// prefix that belongs immediately before startOffset.
+		// Re-read the whole durable slice on retry. lineBuf is diagnostic-only.
 		r.offset = startOffset
 		r.lineBuf = startBuf
 		return
@@ -237,6 +257,29 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
+}
+
+func lastCompleteRecordOffset(f *os.File, size int64) (int64, error) {
+	if size <= 0 {
+		return 0, nil
+	}
+	const blockSize int64 = 64 * 1024
+	buf := make([]byte, blockSize)
+	for end := size; end > 0; {
+		start := end - blockSize
+		if start < 0 {
+			start = 0
+		}
+		n := end - start
+		if _, err := f.ReadAt(buf[:n], start); err != nil && err != io.EOF {
+			return 0, err
+		}
+		if idx := bytes.LastIndexByte(buf[:n], '\n'); idx >= 0 {
+			return start + int64(idx) + 1, nil
+		}
+		end = start
+	}
+	return 0, nil
 }
 
 // parseFalcoJSONLines decodes one or more JSON objects from a single line (rare but possible).
