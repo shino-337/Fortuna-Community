@@ -255,6 +255,7 @@ AGENT_REQUIRED = {
         "TestCoverageReporterRetriesImmutablePayloadBeforeNewWindow",
         "TestCoverageReporterMarksLossAndErrorsFailed",
         "TestProducerLifecycleReporterRunningAndStopping",
+        "TestProducerLifecycleStopSerializesAfterInflightHeartbeat",
         "TestRuntimeFileCoverageEmptyAndInvalid",
         "TestRuntimeFileCoverageEmptyAndInvalid/empty",
         "TestRuntimeFileCoverageEmptyAndInvalid/invalid",
