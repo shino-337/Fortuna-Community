@@ -70,6 +70,7 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 	}
 
 	var result *ProcessResult
+	scheduleAttackPathRebuild := false
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// The runtime_events insert is the atomic idempotency claim. PostgreSQL
 		// serializes concurrent submissions on the partial unique index
@@ -135,8 +136,12 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 			if err := csc.InitializeCapabilityForIdentity(ctx, id, namespace, capabilityID, "ESC", severity, runtimeEvidence); err != nil {
 				return fmt.Errorf("rep: initialize runtime capability: %w", err)
 			}
-			if err := csc.PromoteCapabilityForIdentity(ctx, id, capabilityID, signal, input.Confidence); err != nil {
+			promoted, err := csc.PromoteCapabilityForIdentityTx(ctx, id, capabilityID, signal, input.Confidence)
+			if err != nil {
 				return fmt.Errorf("rep: promote runtime capability: %w", err)
+			}
+			if promoted {
+				scheduleAttackPathRebuild = true
 			}
 		}
 
@@ -145,6 +150,11 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 	})
 	if err != nil {
 		return nil, err
+	}
+	if scheduleAttackPathRebuild {
+		// Never hand an async goroutine the transaction handle: it becomes invalid
+		// immediately after commit. Use the base DB only after atomic REP commit.
+		capability.ScheduleAttackPathRebuildForIdentity(db, id)
 	}
 	return result, nil
 }
