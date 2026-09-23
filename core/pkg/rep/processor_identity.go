@@ -39,6 +39,7 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 	}
 	event := models.RuntimeEvent{
 		ClusterID:       id.ClusterID,
+		AgentID:         strings.TrimSpace(input.AgentID),
 		EventID:         strings.TrimSpace(input.EventID),
 		SourceRecordID:  sourceRecordID,
 		ObservedAt:      input.ObservedAt,
@@ -74,7 +75,7 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
 		// The runtime_events insert is the atomic idempotency claim. PostgreSQL
 		// serializes concurrent submissions on the partial unique index
-		// {cluster_id, source_record_id}. The claim and every downstream effect
+		// {cluster_id, agent_id, source_record_id}. The claim and every downstream effect
 		// share this transaction, so rollback releases the claim for a later retry.
 		insert := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&event)
 		if insert.Error != nil {
@@ -82,7 +83,7 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 		}
 		if insert.RowsAffected == 0 {
 			var existing models.RuntimeEvent
-			if err := tx.Where("cluster_id = ? AND source_record_id = ?", id.ClusterID, sourceRecordID).
+			if err := tx.Where("cluster_id = ? AND agent_id = ? AND source_record_id = ?", id.ClusterID, event.AgentID, sourceRecordID).
 				First(&existing).Error; err != nil {
 				return fmt.Errorf("rep: source-record conflict without existing event: %w", err)
 			}
@@ -165,6 +166,7 @@ func runtimeEventReplayMatches(existing, candidate models.RuntimeEvent) bool {
 	// later poll/restart and receive new transport timestamps, while its source
 	// record identity and semantic payload remain unchanged.
 	return existing.ClusterID == candidate.ClusterID &&
+		existing.AgentID == candidate.AgentID &&
 		existing.SourceRecordID == candidate.SourceRecordID &&
 		existing.PayloadHash == candidate.PayloadHash &&
 		existing.PodUID == candidate.PodUID &&
