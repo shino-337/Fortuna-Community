@@ -129,6 +129,8 @@ REQUIRED = {
         "TestPolicyEvaluationMetricsFailureIsUnavailable",
         "TestClusterSecuritySummaryIsClusterQualified",
         "TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable",
+        "TestPipelineHealthIsClusterScoped",
+        "TestPipelineHealthQueryFailureIsUnavailable",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
