@@ -57,7 +57,7 @@ func TestSendBatchToCoreRuntimeEvents(t *testing.T) {
 	if len(got) != 1 || got[0].Signal != "EBPF_EXEC_EVENT" {
 		t.Fatalf("unexpected payload: %+v", got)
 	}
-	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
+	if got[0].EventID == "" || got[0].SourceRecordID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
 		t.Fatalf("eBPF did not emit canonical v2 metadata: %+v", got[0])
 	}
 }
@@ -145,6 +145,9 @@ func TestFlushLoopRetriesFailedBatchWithoutDroppingIt(t *testing.T) {
 	second := readAttempt("retry")
 	if len(first) != 1 || len(second) != 1 || first[0].Signal != want.Signal || second[0].Signal != want.Signal {
 		t.Fatalf("failed batch was not retried intact: first=%+v second=%+v", first, second)
+	}
+	if first[0].SourceRecordID == "" || first[0].SourceRecordID != second[0].SourceRecordID {
+		t.Fatalf("retry changed source-record identity: first=%q second=%q", first[0].SourceRecordID, second[0].SourceRecordID)
 	}
 
 	cancel()
