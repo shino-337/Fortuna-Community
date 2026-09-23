@@ -240,6 +240,19 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 
 
 
+
+func TestDashboardIntegrityMissingCoreSchemaIsNonRetryable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{})
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
+	DashboardDataIntegrity(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "dashboard_integrity_insights_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
+}
+
 func TestDashboardRuntimeHealthReadsPersistedTimestamps(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RuntimeEvent{}, &models.RuntimeSignal{})
@@ -326,7 +339,49 @@ func TestClusterAgentsMissingSchemaIsUnavailable(t *testing.T) {
 	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}}
 	GetClusterAgents(db)(c)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
-	require.Equal(t, "cluster_agents_schema_unavailable", decodeAvailabilityBody(t, w)["code"])
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "cluster_agents_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
+}
+
+
+func TestClusterAgentsMissingHeartbeatIsDisconnectedAndNull(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Agent{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+	require.NoError(t, db.Create(&models.Agent{
+		ClusterID: "cluster-a", AgentID: "agent-a", NodeName: "node-a",
+		Version: "v1.2.3", Status: "ready", LastSeenAt: nil,
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/agents")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}}
+	GetClusterAgents(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "available", body["dataStatus"])
+	agents := body["agents"].([]interface{})
+	require.Len(t, agents, 1)
+	agent := agents[0].(map[string]interface{})
+	require.Equal(t, "disconnected", agent["status"])
+	require.Nil(t, agent["lastHeartbeat"])
+}
+
+func TestClusterNodeMissingRiskSchemaIsNonRetryable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+	require.NoError(t, db.Create(&models.Pod{
+		ClusterID: "cluster-a", UID: "pod-a", Name: "pod-a", Namespace: "ns", NodeName: "node-a",
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/nodes/node-a?pods=true")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}, {Key: "nodeName", Value: "node-a"}}
+	GetClusterNode(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "cluster_node_risks_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
 }
 
 func TestClusterSecuritySummaryIsClusterQualified(t *testing.T) {
@@ -381,7 +436,9 @@ func TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable(t *testing.T
 	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}}
 	GetClusterSecuritySummary(db)(c)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
-	require.Equal(t, "cluster_security_summary_capabilities_unavailable", decodeAvailabilityBody(t, w)["code"])
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "cluster_security_summary_capabilities_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
 }
 
 
