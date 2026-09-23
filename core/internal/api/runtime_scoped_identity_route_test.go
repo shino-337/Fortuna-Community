@@ -9,7 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/fortuna/api/collection"
 	"github.com/fortuna/core/internal/api"
 	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/pkg/models"
@@ -34,7 +36,7 @@ func newRuntimeRouteHarness(t *testing.T, scoped bool) runtimeRouteHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeCoverage{}, &models.RuntimeProducerState{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, pod := range []models.Pod{
@@ -168,4 +170,73 @@ func TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode(t *testing.T) {
 		}
 	}
 	assertNoRuntimeEvents(t, h.db)
+}
+
+
+func runtimeLifecycleRouteBodies(t *testing.T) (string, string) {
+	t.Helper()
+	now := time.Now().UTC()
+	producers := []collection.RuntimeProducerDeclaration{
+		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile},
+		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: true, Authoritative: true},
+		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
+		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
+		{ProducerID: "ebpf-all", SourceKind: collection.RuntimeSourceEBPF},
+	}
+	collection.SortRuntimeProducerDeclarations(producers)
+	manifest, err := json.Marshal(collection.RuntimeProducerManifest{
+		Version: collection.RuntimeProducerManifestVersion,
+		SessionID: "route-session-00000001",
+		SessionStartedAt: now.Add(-time.Second),
+		ReportedAt: now,
+		AgentState: collection.RuntimeAgentRunning,
+		Producers: producers,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	coverage, err := json.Marshal(collection.RuntimeCoverage{
+		Version: collection.RuntimeCoverageVersion,
+		ID: "route-coverage-0000001",
+		ProducerID: "falco",
+		SourceKind: collection.RuntimeSourceFalco,
+		SessionID: "route-session-00000001",
+		Status: "complete",
+		WindowStart: now.Add(-500 * time.Millisecond),
+		WindowEnd: now,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(manifest), string(coverage)
+}
+
+func TestRuntimeEvidenceRoutesRequireScopedLifecycle(t *testing.T) {
+	h := newRuntimeRouteHarness(t, true)
+	manifest, coverage := runtimeLifecycleRouteBodies(t)
+
+	if w := h.post(t, "/api/v2/runtime/producers", h.legacyToken, manifest); w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy token created runtime lifecycle state: %d %s", w.Code, w.Body.String())
+	}
+	if w := h.post(t, "/api/v2/runtime/coverage", h.legacyToken, coverage); w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy token created runtime coverage: %d %s", w.Code, w.Body.String())
+	}
+
+	if w := h.post(t, "/api/v2/runtime/producers", h.scopedToken, manifest); w.Code != http.StatusOK {
+		t.Fatalf("scoped lifecycle manifest rejected: %d %s", w.Code, w.Body.String())
+	}
+	if w := h.post(t, "/api/v2/runtime/coverage", h.scopedToken, coverage); w.Code != http.StatusOK {
+		t.Fatalf("scoped lifecycle-bound coverage rejected: %d %s", w.Code, w.Body.String())
+	}
+}
+
+func TestRuntimeEvidenceRoutesRejectLegacyCompatibilityMode(t *testing.T) {
+	h := newRuntimeRouteHarness(t, false)
+	manifest, coverage := runtimeLifecycleRouteBodies(t)
+	if w := h.post(t, "/api/v2/runtime/producers", h.legacyToken, manifest); w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy compatibility mode created verified lifecycle: %d %s", w.Code, w.Body.String())
+	}
+	if w := h.post(t, "/api/v2/runtime/coverage", h.legacyToken, coverage); w.Code != http.StatusUnauthorized {
+		t.Fatalf("legacy compatibility mode created verified coverage: %d %s", w.Code, w.Body.String())
+	}
 }
