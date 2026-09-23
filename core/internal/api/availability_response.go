@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 func respondDataUnavailableWithRetry(c *gin.Context, code, message string, retryable bool) {
@@ -24,4 +25,14 @@ func respondDataUnavailable(c *gin.Context, code, message string) {
 // migration/operator action rather than client retry.
 func respondSchemaUnavailable(c *gin.Context, code, message string) {
 	respondDataUnavailableWithRetry(c, code, message, false)
+}
+
+func requireAvailabilityTables(c *gin.Context, db *gorm.DB, code, message string, tables ...string) bool {
+	for _, table := range tables {
+		if !db.Migrator().HasTable(table) {
+			respondSchemaUnavailable(c, code, message)
+			return false
+		}
+	}
+	return true
 }
