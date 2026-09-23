@@ -429,6 +429,24 @@ func TestPodListRiskQueryFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, true, body["retryable"])
 }
 
+
+func TestPodListRiskScoreQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	require.NoError(t, db.Create(&models.Pod{
+		ClusterID: "cluster-a", UID: "pod-a", Name: "pod-a", Namespace: "ns",
+	}).Error)
+	require.NoError(t, db.Exec("CREATE TABLE risk_scores (id INTEGER PRIMARY KEY, resource_uid TEXT)").Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/pods")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetPods(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "pod_risk_scores_unavailable", body["code"])
+	require.Equal(t, true, body["retryable"])
+}
+
 func TestClusterStatsUsesPersistedAgentVersion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t,
