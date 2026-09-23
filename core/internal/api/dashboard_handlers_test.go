@@ -39,11 +39,11 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 		t.Fatalf("seed pods: %v", err)
 	}
 	if err := db.Create([]models.Insight{
-		{ResourceType: "Pod", ResourceUID: "pod-active", ResourceName: "api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "active", Description: "active", Status: "active", DetectedAt: now},
-		{ResourceType: "Pod", ResourceUID: "pod-stale-cluster", ResourceName: "stale-api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "stale", Description: "stale", Status: "active", DetectedAt: now},
-		{ResourceType: "Pod", ResourceUID: "pod-deleted", ResourceName: "old-api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "deleted", Description: "deleted", Status: "active", DetectedAt: now},
-		{ResourceType: "Pod", ResourceUID: "pod-missing", ResourceName: "missing", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "missing", Description: "missing", Status: "active", DetectedAt: now},
-		{ResourceType: "Pod", ResourceUID: "pod-active", ResourceName: "api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "inactive", Description: "inactive", Status: "resolved", DetectedAt: now},
+		{ClusterID: "cluster-active", ResourceType: "Pod", ResourceUID: "pod-active", ResourceName: "api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "active", Description: "active", Status: "active", DetectedAt: now},
+		{ClusterID: "cluster-stale", ResourceType: "Pod", ResourceUID: "pod-stale-cluster", ResourceName: "stale-api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "stale", Description: "stale", Status: "active", DetectedAt: now},
+		{ClusterID: "cluster-active", ResourceType: "Pod", ResourceUID: "pod-deleted", ResourceName: "old-api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "deleted", Description: "deleted", Status: "active", DetectedAt: now},
+		{ClusterID: "cluster-active", ResourceType: "Pod", ResourceUID: "pod-missing", ResourceName: "missing", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "missing", Description: "missing", Status: "active", DetectedAt: now},
+		{ClusterID: "cluster-active", ResourceType: "Pod", ResourceUID: "pod-active", ResourceName: "api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "inactive", Description: "inactive", Status: "resolved", DetectedAt: now},
 	}).Error; err != nil {
 		t.Fatalf("seed insights: %v", err)
 	}
@@ -86,7 +86,7 @@ func TestDashboardStatsKeepsAcknowledgedRisks(t *testing.T) {
 	now := time.Now()
 	db.Create(&models.Cluster{ID: "cluster-a", Name: "a", Source: "env", Status: "active", LastSync: now})
 	db.Create(&models.Pod{UID: "pod-a", ClusterID: "cluster-a", Name: "a", Namespace: "default"})
-	db.Create(&models.Insight{ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "critical", Title: "review", Description: "review", Status: "acknowledged", DetectedAt: now})
+	db.Create(&models.Insight{ClusterID: "cluster-a", ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "critical", Title: "review", Description: "review", Status: "acknowledged", DetectedAt: now})
 	r := gin.New()
 	r.GET("/stats", GetDashboardStats(db))
 	for _, query := range []string{"?byType=all", "?byType=all&clusterId=cluster-a", "?clusterId=cluster-a"} {
