@@ -47,11 +47,11 @@ func (s RuntimeProducerState) EffectiveStatus(now time.Time) string {
 		}
 		return collection.RuntimeProducerDisabled
 	}
-	if !s.Authoritative {
-		return collection.RuntimeProducerNonAuthoritative
-	}
 	switch s.State {
 	case collection.RuntimeProducerActive:
+		if !s.Authoritative {
+			return collection.RuntimeProducerNonAuthoritative
+		}
 		if s.LastCoverageEnd == nil || s.LastCoverageEnd.IsZero() || now.Before(*s.LastCoverageEnd) ||
 			now.Sub(*s.LastCoverageEnd) > collection.RuntimeProducerLeaseMaxAge {
 			return "stale"
