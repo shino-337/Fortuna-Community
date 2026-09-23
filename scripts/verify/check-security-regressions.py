@@ -189,6 +189,9 @@ REQUIRED = {
         "TestIdentityRequiresClusterAndUID",
         "TestIdentitySeparatesDuplicateUIDAcrossClusters",
     ],
+    "./pkg/models": [
+        "TestRuntimeCoverageCoversIntervalRequiresBothBounds",
+    ],
     "./migrations": [
         "TestClusterQualifiedPodUniquenessRejectsUnowned",
         "TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership",
