@@ -128,6 +128,7 @@ REQUIRED = {
         "TestRuntimeCoverageRejectsUnsafeWindows/session-mismatch",
         "TestRuntimeProducerLifecycleRestartDisableAndLease",
         "TestRuntimeProducerStoppingManifestClosesAllLeases",
+        "TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps",
         "TestRuntimeIngestTriggersScopedRescore",
         "TestRuntimeIngestTriggersScopedRescore/v2",
         "TestServiceAccountRBACResolution",
