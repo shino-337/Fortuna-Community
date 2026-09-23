@@ -136,6 +136,66 @@ func TestFalcoReader_ToRuntimeEvent_PreservesResolutionStateFromTags(t *testing.
 	}
 }
 
+
+func TestFalcoPartialRecordSurvivesReaderRestart(t *testing.T) {
+	var delivered int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/coverage":
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/events":
+			var events []Event
+			if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+				t.Fatal(err)
+			}
+			delivered += len(events)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "falco.jsonl")
+	prefix := `{"rule":"restart-partial","priority":"Warning","output_fields":{"k8s.pod.uid":"pod-restart"`
+	suffix := `,"k8s.ns.name":"default","evt.type":"execve"}}` + "\n"
+	if err := os.WriteFile(path, []byte(prefix), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	before := NewFalcoReader(path, time.Second, srv.URL, "node-1", nil)
+	before.readAndSend(t.Context())
+	if before.offset != 0 || len(before.lineBuf) == 0 || delivered != 0 {
+		t.Fatalf("pre-restart partial state offset=%d buf=%q delivered=%d", before.offset, string(before.lineBuf), delivered)
+	}
+
+	// A fresh process must tail historical complete lines but retain the trailing
+	// partial prefix by starting after the last newline, not at EOF.
+	after := NewFalcoReader(path, time.Second, srv.URL, "node-1", nil)
+	after.readAndSend(t.Context())
+	if after.offset != 0 || len(after.lineBuf) == 0 || delivered != 0 {
+		t.Fatalf("restart skipped partial prefix offset=%d buf=%q delivered=%d", after.offset, string(after.lineBuf), delivered)
+	}
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(suffix); err != nil {
+		_ = f.Close()
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	after.readAndSend(t.Context())
+	if delivered != 1 || len(after.lineBuf) != 0 {
+		t.Fatalf("completed Falco record not delivered after restart: delivered=%d buf=%q", delivered, string(after.lineBuf))
+	}
+	if after.offset != int64(len(prefix)+len(suffix)) {
+		t.Fatalf("Falco cursor=%d want=%d", after.offset, len(prefix)+len(suffix))
+	}
+}
+
 func TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
