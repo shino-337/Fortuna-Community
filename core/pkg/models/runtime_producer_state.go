@@ -41,7 +41,13 @@ func (s RuntimeProducerState) EffectiveStatus(now time.Time) string {
 		return collection.RuntimeProducerNonAuthoritative
 	}
 	switch s.State {
-	case collection.RuntimeProducerStarting, collection.RuntimeProducerActive, collection.RuntimeProducerDegraded:
+	case collection.RuntimeProducerActive:
+		if s.LastCoverageEnd == nil || s.LastCoverageEnd.IsZero() || now.Before(*s.LastCoverageEnd) ||
+			now.Sub(*s.LastCoverageEnd) > collection.RuntimeProducerLeaseMaxAge {
+			return "stale"
+		}
+		return s.State
+	case collection.RuntimeProducerStarting, collection.RuntimeProducerDegraded:
 		return s.State
 	default:
 		return "unknown"
