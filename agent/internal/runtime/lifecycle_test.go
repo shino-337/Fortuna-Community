@@ -26,7 +26,7 @@ func TestProducerLifecycleReporterRunningAndStopping(t *testing.T) {
 	defer srv.Close()
 
 	producers := []collection.RuntimeProducerDeclaration{
-		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: true, Authoritative: true},
+		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: true, Authoritative: false},
 		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco},
 		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF, Enabled: true},
 		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
@@ -97,7 +97,7 @@ func TestProducerLifecycleStopSerializesAfterInflightHeartbeat(t *testing.T) {
 	defer srv.Close()
 
 	producers := []collection.RuntimeProducerDeclaration{
-		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: true, Authoritative: true},
+		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: true, Authoritative: false},
 		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco},
 		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
