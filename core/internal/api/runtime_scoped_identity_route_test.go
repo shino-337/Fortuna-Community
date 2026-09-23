@@ -178,7 +178,7 @@ func runtimeLifecycleRouteBodies(t *testing.T) (string, string) {
 	now := time.Now().UTC()
 	producers := []collection.RuntimeProducerDeclaration{
 		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile},
-		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: true, Authoritative: true},
+		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: true, Authoritative: false},
 		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-all", SourceKind: collection.RuntimeSourceEBPF},
