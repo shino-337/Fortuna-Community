@@ -132,6 +132,7 @@ REQUIRED = {
         "TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable",
         "TestPipelineHealthIsClusterScoped",
         "TestPipelineHealthQueryFailureIsUnavailable",
+        "TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
