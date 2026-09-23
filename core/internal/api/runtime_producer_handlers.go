@@ -130,8 +130,10 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					switch {
 					case req.AgentState == collection.RuntimeAgentStopping:
 						next.State = collection.RuntimeProducerStopped
-						gap := req.ReportedAt
-						next.GapSince = &gap
+						if prior.State != collection.RuntimeProducerStopped || prior.GapSince == nil {
+							gap := req.ReportedAt
+							next.GapSince = &gap
+						}
 						next.GapReason = "agent_stopping"
 					case !decl.Enabled:
 						if prior.Enabled || prior.State != collection.RuntimeProducerDisabled {
