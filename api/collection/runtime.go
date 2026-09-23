@@ -63,7 +63,7 @@ func (c RuntimeCoverage) Validate(now time.Time) error {
 	// Historical windows are accepted so an immutable pending report can drain
 	// after a long Core outage. Freshness is enforced by EffectiveStatus/CoversSince,
 	// never by rejecting the historical report and wedging the producer queue.
-	if c.WindowStart.IsZero() || c.WindowEnd.Before(c.WindowStart) || c.WindowEnd.After(now.Add(time.Minute)) {
+	if c.WindowStart.IsZero() || !c.WindowEnd.After(c.WindowStart) || c.WindowEnd.After(now.Add(time.Minute)) {
 		return fmt.Errorf("invalid runtime coverage interval")
 	}
 	if c.Delivered > c.Emitted {
