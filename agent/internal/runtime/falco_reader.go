@@ -67,7 +67,7 @@ type podUIDCacheEntry struct {
 	expiresAt time.Time
 }
 
-func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName string, kubeClient kubernetes.Interface) *FalcoReader {
+func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName string, kubeClient kubernetes.Interface, sessionIDs ...string) *FalcoReader {
 	if poll <= 0 {
 		poll = 5 * time.Second
 	}
@@ -80,7 +80,7 @@ func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName st
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		logger:      log.New(log.Writer(), "[FalcoEvents] ", log.LstdFlags),
 		podUIDCache: map[string]podUIDCacheEntry{},
-		coverage:    NewCoverageReporter(coreURL, "falco", collection.RuntimeSourceFalco),
+		coverage:    NewCoverageReporter(coreURL, "falco", collection.RuntimeSourceFalco, sessionIDs...),
 	}
 }
 
