@@ -271,7 +271,6 @@ AGENT_REQUIRED = {
         "TestRuntimeFileCoverageEmptyAndInvalid/invalid",
         "TestRuntimeFileCoverageRetainsPartialRecord",
         "TestRuntimeFileCoverageDetectsFileReplacement",
-        "TestRuntimeProducerDeclarationsNeverInferAuthorityFromEnablement",
         "TestFalcoCoverageRejectsUnresolvedEventAsDrop",
         "TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile",
     ],
