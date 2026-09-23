@@ -1,9 +1,9 @@
 package runtime
 
 import (
-	"bufio"
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,9 +14,11 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/fortuna/agent/internal/corehttp"
+	"github.com/fortuna/api/collection"
 )
 
 type Event struct {
@@ -34,6 +36,7 @@ type Event struct {
 
 	// Canonical contract fields (optional): used by core POST /api/v2/runtime/events.
 	EventID         string                 `json:"event_id,omitempty"`
+	SourceRecordID  string                 `json:"source_record_id,omitempty"`
 	ObservedAt      string                 `json:"observed_at,omitempty"`      // RFC3339
 	IngestedAt      string                 `json:"ingested_at,omitempty"`      // RFC3339
 	ResolutionState string                 `json:"resolution_state,omitempty"` // resolved|partial|unresolved
@@ -52,6 +55,8 @@ type Reader struct {
 	httpClient *http.Client
 	logger     *log.Logger
 	offset     int64
+	fileInfo   os.FileInfo
+	lineBuf    []byte
 	// ingestion quality counters
 	invalidLines  uint64
 	sentBatches   uint64
@@ -59,25 +64,42 @@ type Reader struct {
 	failedBatches uint64
 	failedEvents  uint64
 	v2Success     uint64
+	coverage      *CoverageReporter
 }
 
-func NewReader(path string, poll time.Duration, coreURL string) *Reader {
+func NewReader(path string, poll time.Duration, coreURL string, sessionIDs ...string) *Reader {
+	if poll <= 0 {
+		poll = 5 * time.Second
+	}
 	return &Reader{
 		path:       path,
 		poll:       poll,
 		coreURL:    strings.TrimRight(coreURL, "/"),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		logger:     log.New(log.Writer(), "[RuntimeEvents] ", log.LstdFlags),
+		coverage:   NewCoverageReporter(coreURL, "runtime-file", collection.RuntimeSourceFile, sessionIDs...),
+	}
+}
+
+func (r *Reader) SetCoverageCadence(cadence time.Duration) {
+	if r != nil && r.coverage != nil {
+		r.coverage.SetCadence(cadence)
 	}
 }
 
 func (r *Reader) Start(ctx context.Context) {
+	// Match Falco behavior: perform one immediate observation instead of waiting
+	// an entire poll interval before discovering source errors or queued events.
+	r.readAndSend()
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			if err := r.coverage.Flush(); err != nil {
+				r.logger.Printf("Runtime coverage final flush failed: %v", err)
+			}
 			return
 		case <-ticker.C:
 			r.readAndSend()
@@ -86,68 +108,144 @@ func (r *Reader) Start(ctx context.Context) {
 }
 
 func (r *Reader) readAndSend() {
+	stats := CoverageStats{}
+	reason := ""
+	defer func() {
+		if err := r.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
+			r.logger.Printf("Runtime coverage report failed: %v", err)
+		}
+	}()
+
 	f, err := os.Open(r.path)
 	if err != nil {
+		stats.Errors++
+		reason = "runtime event file unavailable"
 		return
 	}
 	defer f.Close()
 
+	st, err := f.Stat()
+	if err != nil {
+		stats.Errors++
+		reason = "runtime event stat failed"
+		return
+	}
+	fileSize := st.Size()
+	rotated := r.fileInfo != nil && !os.SameFile(r.fileInfo, st)
+	if rotated || r.offset > fileSize {
+		r.offset = 0
+		r.lineBuf = nil
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event file rotated or truncated")
+	}
+	r.fileInfo = st
+
 	startOffset := r.offset
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek runtime events file: %v", err)
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event seek failed")
 		return
 	}
 
-	scanner := bufio.NewScanner(f)
+	chunk, err := io.ReadAll(f)
+	if err != nil {
+		r.logger.Printf("Runtime events read error: %v", err)
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event read failed")
+		return
+	}
+
+	// The durable source file is the retry buffer for incomplete records. Offset
+	// advances only past newline-terminated records, never past a trailing
+	// partial prefix. lineBuf is diagnostic state only; reconstruction always
+	// re-reads the partial bytes from disk. This prevents a process restart from
+	// silently skipping a prefix that existed only in memory.
+	data := chunk
+	r.lineBuf = nil
 	events := make([]Event, 0, 10)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	consumed := int64(0)
+	for len(data) > 0 {
+		idx := bytes.IndexByte(data, '\n')
+		if idx < 0 {
+			r.lineBuf = append([]byte(nil), data...)
+			break
+		}
+		rawLine := data[:idx]
+		line := bytes.TrimSpace(rawLine)
+		recordOffset := startOffset + consumed
+		step := int64(idx + 1)
+		consumed += step
+		data = data[idx+1:]
 		if len(line) == 0 {
 			continue
 		}
 		var evt Event
 		if err := json.Unmarshal(line, &evt); err != nil {
 			atomic.AddUint64(&r.invalidLines, 1)
+			stats.Invalid++
+			reason = mergeCoverageReason(reason, "invalid runtime event JSON")
 			r.logger.Printf("Invalid runtime event JSON: %v", err)
 			continue
 		}
+		// Source identity is derived from the physical JSONL record, not the
+		// second-granularity semantic EventID carried inside the record.
+		evt.SourceRecordID = sourceFileRecordID(r.path, st, recordOffset, rawLine, 0)
 		events = append(events, evt)
 	}
 
-	if err := scanner.Err(); err != nil {
-		r.logger.Printf("Runtime events read error: %v", err)
-		// Keep the previous offset so a transient read error cannot discard data.
-		return
-	}
-
-	pos, err := f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		r.logger.Printf("Failed to determine runtime events offset: %v", err)
-		return
+	nextOffset := startOffset + consumed
+	if len(r.lineBuf) != 0 {
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "partial runtime event record pending")
 	}
 
 	if len(events) == 0 {
-		// Invalid/empty records should not be retried forever when there is no
-		// deliverable event in this slice.
-		r.offset = pos
+		// Completed malformed/blank records are consumed, while an incomplete
+		// trailing record remains unread at nextOffset and is re-read intact.
+		r.offset = nextOffset
 		return
 	}
 
+	stats.Emitted += uint64(len(events))
 	if err := r.send(events); err != nil {
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event delivery failed")
 		atomic.AddUint64(&r.failedBatches, 1)
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send runtime events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Do not advance. The same file slice is retried on the next poll. This is
-		// required when Core temporarily rejects ingest while inventory/identity
-		// state is converging.
+		// Re-read this whole slice from durable source on retry.
 		r.offset = startOffset
 		return
 	}
-	r.offset = pos
+	r.offset = nextOffset
+	stats.Delivered += uint64(len(events))
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
+}
+
+func sourceFileRecordID(path string, st os.FileInfo, offset int64, raw []byte, ordinal int) string {
+	fileIdentity := "unknown"
+	if st != nil {
+		if stat, ok := st.Sys().(*syscall.Stat_t); ok {
+			fileIdentity = fmt.Sprintf("%d:%d", uint64(stat.Dev), uint64(stat.Ino))
+		} else {
+			fileIdentity = st.Name()
+		}
+	}
+	rawHash := sha256.Sum256(raw)
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"runtime-source-record-v1|%s|%s|%d|%d|%x",
+		path, fileIdentity, offset, ordinal, rawHash,
+	)))
+	return hex.EncodeToString(sum[:])
+}
+
+func newEphemeralSourceRecordID() string {
+	sum := sha256.Sum256([]byte("runtime-ephemeral-record-v1|" + cryptorand.Text()))
+	return hex.EncodeToString(sum[:])
 }
 
 // PrepareEventsV2 fills canonical metadata for every runtime producer while preserving sensor values.
@@ -192,6 +290,12 @@ func PrepareEventsV2(events []Event) {
 		if strings.TrimSpace(ev.EventID) == "" {
 			h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", podUID, ev.Syscall, ev.Target, ts)))
 			ev.EventID = hex.EncodeToString(h[:])
+		}
+		// Non-file producers (for example eBPF) receive a per-observation identity
+		// once, before serialization. The Event object is retained across HTTP retry,
+		// so this remains stable without collapsing legitimate same-second events.
+		if strings.TrimSpace(ev.SourceRecordID) == "" {
+			ev.SourceRecordID = newEphemeralSourceRecordID()
 		}
 
 		if ev.PayloadJSON == nil {

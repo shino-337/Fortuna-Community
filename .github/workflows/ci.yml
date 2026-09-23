@@ -100,6 +100,15 @@ jobs:
           grep -q -- '--- PASS: TestAgentCompositeIdentityPostgres' /tmp/agent-identity-postgres.log
           go test -v ./internal/service -run '^TestInventoryCollectionPostgres$' -count=1 -timeout=2m | tee /tmp/inventory-collection-postgres.log
           grep -q -- '--- PASS: TestInventoryCollectionPostgres' /tmp/inventory-collection-postgres.log
+          go test -v ./internal/api -run '^TestRuntimeCoveragePostgres' -count=1 -timeout=2m | tee /tmp/runtime-coverage-postgres.log
+          grep -q -- '--- PASS: TestRuntimeCoveragePostgres ' /tmp/runtime-coverage-postgres.log
+          grep -q -- '--- PASS: TestRuntimeCoveragePostgresLegacySchemaUpgrade' /tmp/runtime-coverage-postgres.log
+          grep -q -- '--- PASS: TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows' /tmp/runtime-coverage-postgres.log
+          go test -v ./migrations -run '^TestRuntimeEventIdempotency' -count=1 -timeout=2m | tee /tmp/runtime-event-idempotency-migration.log
+          grep -q -- '--- PASS: TestRuntimeEventIdempotencyPostgres' /tmp/runtime-event-idempotency-migration.log
+          grep -q -- '--- PASS: TestRuntimeEventIdempotencyRejectsPreexistingDuplicateSourceRecordsPostgres' /tmp/runtime-event-idempotency-migration.log
+          go test -v ./pkg/rep -run '^TestRuntimeSourceRecordConcurrentDuplicatePostgres$' -count=1 -timeout=2m | tee /tmp/runtime-event-idempotency-concurrency.log
+          grep -q -- '--- PASS: TestRuntimeSourceRecordConcurrentDuplicatePostgres' /tmp/runtime-event-idempotency-concurrency.log
 
   dashboard:
     name: Dashboard validation

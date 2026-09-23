@@ -1,7 +1,7 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #49 merged on 2026-09-22. Changes continue as focused
-PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
+Status verified after PR #50 merged on 2026-09-22 (merge commit `5024e15`).
+Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
 | Order | Package | Deliverables | Acceptance gate | Dependencies |
@@ -106,7 +106,7 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   eligibility, exact cluster/UID lookups, detector dependency checks and concurrent
   update guards. All 11 merge-commit checks passed. Missing resources, runtime
   silence and incomplete evidence preserve findings.
-- D2 inventory / #50 implemented, pending exact-head CI/review: authenticated collection
+- D2 inventory / #50 merged (merge commit `5024e15`): authenticated collection
   ID, bounded collection interval, exact per-kind List start bounds, namespace scope
   and per-kind counts; complete-empty and failed collections are distinct. Agent
   liveness plus inventory projection/receipt commit atomically, so failed inventory
@@ -125,10 +125,16 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   DaemonSet plus different WATCH_NAMESPACE scopes on one cluster and either validate
   the supported topology or promote the receipt key to include scope before
   multi-scope aggregation is claimed.
-- D2 runtime remains next: producer coverage windows, loss/drop/error and recovery
-  reporting, complete-empty runtime intervals, and full Pod/cross-resource evidence
-  dependencies. Runtime/Pod auto-resolution stays blocked. Persisted/API/UI
-  explanations and availability remain coordinated with E. D is not complete.
+- D2 runtime / #52 is now the active draft. #51 was retired after #50 merged
+  because its stacked branch carried stale inventory history. #52 was rebuilt from
+  `5024e15` and contains runtime-only changes. Current scope: authenticated
+  producer coverage windows for file/Falco/eBPF, explicit drop/invalid/error
+  accounting, immutable coverage retry, continuity tracking and complete-empty
+  runtime intervals. A transient delivery failure breaks continuity even if a later
+  retry succeeds. Runtime/Pod/cross-resource auto-resolution remains blocked until
+  producer semantics, persistence and live topology gates are complete.
+  Persisted/API/UI explanations and availability remain coordinated with E. D is
+  not complete.
 - E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
 - F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
@@ -151,8 +157,8 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. After that point, #51 must be rebuilt/rebased on
-the merged #50 head before further runtime coverage work; it must not reintroduce
+security regression gates passed. #51 was retired rather than reused. Active runtime work is #52 on a fresh branch
+from merge commit `5024e15`; it must remain runtime-only and must not reintroduce
 an older inventory contract.
 
 
@@ -171,3 +177,106 @@ boundaries:
   already persisted inventory.
 
 Any future change weakening one of these tests resets merge/release readiness.
+
+
+### D2 runtime / #52 merge gates
+
+#52 remains draft until the final runtime-evidence state machine is reviewed and
+the exact head passes Core, Agent, API, permanent security regressions, Secret scan
+and the PostgreSQL runtime-coverage gate.
+
+Required invariants include:
+
+- scoped producer identity and fixed producer/source binding;
+- positive, non-overlapping observation windows;
+- immutable at-least-once coverage retry;
+- explicit drop/invalid/error accounting and complete-empty semantics;
+- file/Falco partial-write and rotation handling;
+- eBPF fail-closed while the built-in sensor remains no-op;
+- bounded interval coverage rather than freshness-only absence reasoning;
+- concurrent first-report arbitration and SQL rollback/recovery on PostgreSQL;
+- generic runtime-file cursor never advances past a partial record prefix and a
+  restart regression proves the record cannot disappear merely because lineBuf was lost;
+- Falco cursor advances only through newline-terminated records; startup tails only
+  past the last complete historical record, preserving a trailing partial prefix
+  across Agent restart with a dedicated regression;
+- runtime/Falco/eBPF timing inputs clamp non-positive values before ticker creation;
+  generic runtime performs an immediate startup read rather than waiting one poll;
+- Pod UID resolution uses one bounded context budget per Falco poll so sequential
+  Kubernetes lookups cannot consume an unbounded multiple of the 5s poll interval;
+- full populated-legacy schema upgrade, fail-closed unowned-row handling, semantic
+  validation of evidence-shaped legacy rows, and exact backfill semantics for
+  pre-history latest evidence;
+- failed coverage gaps begin at the last accepted coverage end when one exists,
+  preserving silent uncertainty before the failed window;
+- immutable `runtime_coverage_receipts` history separate from the mutable
+  latest-state `runtime_coverages` projection, with replay/rollback history gates;
+- coverage receipt cadence is configured independently from event poll cadence:
+  event collection may remain at 5s while immutable clean coverage defaults to 30s;
+  failed coverage windows bypass cadence and are persisted immediately;
+- runtime event replay is idempotent before downstream REP/risk/correlation
+  effects. File/Falco events carry a physical `source_record_id` derived from
+  file identity + byte offset + record bytes/ordinal, independent of the older
+  second-granularity `event_id`. Core scopes the uniqueness claim by
+  `{cluster_id, authenticated agent_id, source_record_id}` and performs that
+  claim in the same SQL transaction as runtime_events, facts, signals, incidents,
+  risk score and capability effects. Scoped ingest obtains `agent_id` only from
+  the authenticated principal; explicit legacy shared-token mode uses a pod-local
+  compatibility replay namespace and is not treated as trusted Agent ownership.
+  Exact replay is a no-op; changed replay is a
+  conflict; concurrent duplicate submissions create one committed effect; distinct
+  same-second physical records remain distinct. Generic reader restart replay,
+  exact replay, same-second identity and PostgreSQL concurrency are permanent gates.
+
+### #52 production operations follow-up (not a correctness merge blocker)
+
+Runtime auto-resolution remains disabled, and lifecycle/session gaps fail closed,
+so the following scale/operations work does not block the runtime-evidence logic
+merge. It must, however, be completed before claiming large-scale production
+readiness:
+
+- define an explicit retention policy; use 7 days as the initial production target
+  unless archive/export requirements justify a different value;
+- partition `runtime_coverage_receipts` by receipt time and implement automatic
+  cleanup/archive so retention does not depend on unbounded row-by-row deletion;
+- expose storage observability for receipt ingest rate, allocated bytes and oldest
+  retained receipt age (`receipts_per_minute`, `receipt_bytes`,
+  `oldest_receipt_age`);
+- capacity planning uses 2 KiB/receipt plus 50% headroom (3 KiB effective) until
+  measured PostgreSQL table/index/TOAST overhead provides an environment-specific
+  value;
+- composite string identities on the latest projection and immutable history remain
+  acceptable for this PR but require index/storage sizing at larger scale;
+- fewer than 10 Agents may use 5s coverage cadence with short retention; around
+  100 Agents should use at least 30s or bound retention to 7 days; 500+ Agents
+  require partition + archive and must not append receipts every 5s by default;
+- Falco startup scans backwards in 64 KiB blocks to preserve a trailing partial
+  record. Normal JSONL finds a newline near EOF; a malformed newline-free file can
+  force an O(file-size) startup scan and should be monitored as an operational
+  edge case.
+
+The Agent coverage pending/backlog queue is intentionally memory-only in #52.
+Restart can lose unacknowledged coverage history, but a new lifecycle session
+invalidates old evidence and `gap_since` reaches back to the prior accepted
+coverage boundary. This is an accepted fail-closed trade-off, not a regression.
+
+Runtime/Pod/cross-resource auto-resolution remains disabled in #52. Enabling a
+consumer is a separate change and must verify both the required bounded interval
+and that the required producer/capability is currently enabled. Package F still
+owns live restart, DaemonSet and two-cluster acceptance.
+
+
+### Runtime lifecycle blocker review
+
+#52 now persists producer lifecycle separately from coverage under
+`{cluster_id, agent_id, producer_id}`. Agent execution `session_id`, enablement,
+operational state, lease heartbeat, last coverage end and evidence-gap markers are
+persisted. Restart creates a new session and breaks old coverage eligibility;
+disable/stop and lease expiry fail closed.
+
+The review also found that file/Falco reader liveness cannot prove the upstream
+writer/sensor is alive. To avoid a false complete-empty claim, manifest v1 now
+rejects every `Authoritative=true` declaration. Current file, Falco and built-in
+eBPF coverage is operational telemetry only; no current producer may satisfy
+absence-based auto-resolution. A later protocol must add an independent source
+health proof before authority can be enabled.

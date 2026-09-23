@@ -46,6 +46,10 @@ REQUIRED = {
     "./pkg/sbom": ["TestPodImageScanRejectsForeignSBOM"],
     "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership", "TestSBOMWorkloadIdentitySeparatesContainers", "TestSBOMContentDoesNotReuseDifferentProvenance"],
     "./pkg/reconciler": ["TestSBOMReconcilePreservesActiveAndUnresolvedOwnership"],
+    "./pkg/rep": [
+        "TestRuntimeSourceRecordExactReplaySkipsDownstreamEffects",
+        "TestRuntimeSameSecondIdenticalObservationsRemainDistinct",
+    ],
     "./pkg/riskengine": [
         "TestResolutionDetectorDependencies",
         "TestPodInsightRestorePreservesClusterAndException",
@@ -112,6 +116,28 @@ REQUIRED = {
         "TestScopedInventoryCollectionHTTPContract/legacy",
         "TestScopedInventoryCollectionHTTPContract/persistence-failure",
         "TestScopedInventoryCollectionHTTPContract/scoped-missing-collection",
+        "TestRuntimeCoverageScopedContinuityAndReplay",
+        "TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID",
+        "TestPostRuntimeEventsV2_ExactReplaySkipsDownstreamEffects",
+        "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
+        "TestRuntimeCoverageRejectsUnsafeWindows",
+        "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
+        "TestRuntimeCoverageRejectsUnsafeWindows/historical-window-accepted-but-stale",
+        "TestRuntimeCoverageRejectsUnsafeWindows/producer-source-mismatch",
+        "TestRuntimeCoverageRejectsUnsafeWindows/zero-duration",
+        "TestRuntimeCoverageRejectsUnsafeWindows/complete-with-error",
+        "TestRuntimeCoverageRejectsUnsafeWindows/overlap",
+        "TestRuntimeCoverageRejectsUnsafeWindows/source-kind-rebind",
+        "TestRuntimeCoverageRejectsUnsafeWindows/gap-restarts-continuity",
+        "TestRuntimeProducerLifecycleRestartDisableAndLease",
+        "TestRuntimeProducerStoppingManifestClosesAllLeases",
+        "TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps",
+        "TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence",
+        "TestRuntimeCoverageRejectsUnsafeWindows/lifecycle-required",
+        "TestRuntimeCoverageRejectsUnsafeWindows/disabled-producer",
+        "TestRuntimeCoverageRejectsUnsafeWindows/stale-lifecycle-lease",
+        "TestRuntimeCoverageRejectsUnsafeWindows/stale-observation-recovers-with-fresh-lifecycle",
+        "TestRuntimeCoverageRejectsUnsafeWindows/session-mismatch",
         "TestRuntimeIngestTriggersScopedRescore",
         "TestRuntimeIngestTriggersScopedRescore/v2",
         "TestServiceAccountRBACResolution",
@@ -150,6 +176,8 @@ REQUIRED = {
         "TestRuntimeRegisteredRoutesRejectMixedBatchBeforeEffects/_api_v2_runtime_events",
         "TestRuntimeRegisteredRoutesApplyRevocationAndRegistryFailureImmediately",
         "TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode",
+        "TestRuntimeEvidenceRoutesRequireScopedLifecycle",
+        "TestRuntimeEvidenceRoutesRejectLegacyCompatibilityMode",
     ],
     "./internal/grpc": [
         "TestLegacyGRPCServerQuarantinesWrites",
@@ -180,6 +208,10 @@ REQUIRED = {
         "TestIdentityRequiresClusterAndUID",
         "TestIdentitySeparatesDuplicateUIDAcrossClusters",
     ],
+    "./pkg/models": [
+        "TestRuntimeCoverageCoversIntervalRequiresBothBounds",
+        "TestRuntimeProducerEffectiveStatusSeparatesActivityFromAuthority",
+    ],
     "./migrations": [
         "TestClusterQualifiedPodUniquenessRejectsUnowned",
         "TestClusterResourceIdentityFoundationBackfillsOnlyUnambiguousOwnership",
@@ -190,7 +222,22 @@ REQUIRED = {
     ],
 }
 
+API_REQUIRED = {
+    "./collection": [
+        "TestRuntimeProducerManifestRequiresCompleteFailClosedRegistry",
+        "TestRuntimeCoverageRequiresExecutionSession",
+    ],
+}
+
 AGENT_REQUIRED = {
+    "./internal/config": [
+        "TestRuntimePollingDurationsClampNonPositiveValues",
+        "TestRuntimeCoverageCadenceIndependentFromPoll",
+    ],
+    "./cmd": [
+        "TestRuntimeProducerDeclarationsAreCompleteAndFailClosed",
+        "TestRuntimeProducerDeclarationsNeverInferAuthorityFromEnablement",
+    ],
     "./internal/syncer": ["TestInventoryCollectionAgentReportsEmptyAndFailure",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/empty",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/list-error",
@@ -223,14 +270,36 @@ AGENT_REQUIRED = {
         "TestRuntimeSendersNeverDowngrade/Internal_Server_Error/file",
         "TestRuntimeSendersNeverDowngrade/Internal_Server_Error/falco",
         "TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics",
+        "TestRuntimeFileSourceRecordIdentitySurvivesRestartAndSeparatesIdenticalRecords",
+        "TestRuntimeReaderStartPerformsImmediateRead",
         "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",
         "TestRuntimeReaderAdvancesPastInvalidOnlyInput",
         "TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds",
+        "TestFalcoPartialRecordSurvivesReaderRestart",
+        "TestFalcoPodUIDResolutionBudgetIsBoundedByPoll",
+        "TestCoverageReporterRetriesImmutablePayloadBeforeNewWindow",
+        "TestCoverageReporterCoalescesCleanWindowsByCadence",
+        "TestCoverageReporterFailureBypassesCadence",
+        "TestCoverageReporterFlushForcesCleanBacklog",
+        "TestCoverageReporterMarksLossAndErrorsFailed",
+        "TestProducerLifecycleReporterRunningAndStopping",
+        "TestProducerLifecycleStopSerializesAfterInflightHeartbeat",
+        "TestRuntimeFileCoverageEmptyAndInvalid",
+        "TestRuntimeFileCoverageEmptyAndInvalid/empty",
+        "TestRuntimeFileCoverageEmptyAndInvalid/invalid",
+        "TestRuntimeFileCoverageRetainsPartialRecord",
+        "TestRuntimeFilePartialRecordSurvivesReaderRestart",
+        "TestRuntimeFileCoverageDetectsFileReplacement",
+        "TestFalcoCoverageRejectsUnresolvedEventAsDrop",
+        "TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile",
     ],
     "./internal/runtime/ebpf": [
         "TestSendBatchToCoreRuntimeEvents",
         "TestFlushLoopRetriesFailedBatchWithoutDroppingIt",
         "TestFlushLoopAccountsRetainedBatchOnShutdownFailure",
+        "TestCoverageReportsPendingDeliveryAsFailed",
+        "TestCoverageSnapshotDoesNotSplitInflightDelivery",
+        "TestEBPFCoverageNeverClaimsCompleteWhileSensorIsNoop",
     ],
 }
 
@@ -290,6 +359,7 @@ def main():
     repo = Path(__file__).resolve().parents[2]
     errors = []
     run_required(repo / "core", "core", REQUIRED, errors)
+    run_required(repo / "api", "api", API_REQUIRED, errors)
     run_required(repo / "agent", "agent", AGENT_REQUIRED, errors)
     if errors:
         print("\n".join(errors), file=sys.stderr)

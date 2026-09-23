@@ -57,7 +57,7 @@ func TestSendBatchToCoreRuntimeEvents(t *testing.T) {
 	if len(got) != 1 || got[0].Signal != "EBPF_EXEC_EVENT" {
 		t.Fatalf("unexpected payload: %+v", got)
 	}
-	if got[0].EventID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
+	if got[0].EventID == "" || got[0].SourceRecordID == "" || got[0].ObservedAt == "" || got[0].IngestedAt == "" || got[0].PayloadHash == "" {
 		t.Fatalf("eBPF did not emit canonical v2 metadata: %+v", got[0])
 	}
 }
@@ -146,6 +146,9 @@ func TestFlushLoopRetriesFailedBatchWithoutDroppingIt(t *testing.T) {
 	if len(first) != 1 || len(second) != 1 || first[0].Signal != want.Signal || second[0].Signal != want.Signal {
 		t.Fatalf("failed batch was not retried intact: first=%+v second=%+v", first, second)
 	}
+	if first[0].SourceRecordID == "" || first[0].SourceRecordID != second[0].SourceRecordID {
+		t.Fatalf("retry changed source-record identity: first=%q second=%q", first[0].SourceRecordID, second[0].SourceRecordID)
+	}
 
 	cancel()
 	select {
@@ -190,5 +193,136 @@ func TestFlushLoopAccountsRetainedBatchOnShutdownFailure(t *testing.T) {
 	}
 	if got := atomic.LoadUint64(&s.droppedEvents); got != 1 {
 		t.Fatalf("shutdown loss must be explicitly accounted: dropped=%d", got)
+	}
+}
+
+
+func TestCoverageReportsPendingDeliveryAsFailed(t *testing.T) {
+	var got runtimeCoverageEnvelope
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/runtime/coverage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-a", time.Second, 4, false)
+	atomic.StoreUint64(&s.coverageEmitted, 1)
+	atomic.StoreUint64(&s.coverageErrors, 1)
+	atomic.StoreUint32(&s.deliveryPending, 1)
+	s.reportCoverage()
+
+	if got.Status != "failed" || got.Errors == 0 {
+		t.Fatalf("pending delivery did not fail coverage: %+v", got)
+	}
+}
+
+type runtimeCoverageEnvelope struct {
+	Status string `json:"status"`
+	Errors uint64 `json:"errors"`
+}
+
+
+func TestCoverageSnapshotDoesNotSplitInflightDelivery(t *testing.T) {
+	eventEntered := make(chan struct{})
+	releaseEvent := make(chan struct{})
+	coverageGot := make(chan runtimeCoverageWindow, 1)
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/events":
+			close(eventEntered)
+			<-releaseEvent
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/coverage":
+			var got runtimeCoverageWindow
+			if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+				t.Errorf("decode coverage: %v", err)
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			coverageGot <- got
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-a", time.Second, 4, false)
+	sendDone := make(chan error, 1)
+	go func() {
+		sendDone <- s.send([]runtime.Event{{Signal: "EBPF_EXEC", Syscall: "execve", Timestamp: time.Now().Unix()}})
+	}()
+
+	select {
+	case <-eventEntered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for event delivery")
+	}
+
+	reportDone := make(chan struct{})
+	go func() {
+		s.reportCoverage()
+		close(reportDone)
+	}()
+
+	select {
+	case <-reportDone:
+		t.Fatal("coverage snapshot completed while event delivery was still in flight")
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(releaseEvent)
+	if err := <-sendDone; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-reportDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("coverage snapshot did not complete")
+	}
+
+	select {
+	case got := <-coverageGot:
+		if got.Status != "failed" || got.Emitted != 1 || got.Delivered != 1 || got.Errors == 0 {
+			t.Fatalf("delivery accounting split or no-op sensor claimed clean coverage: %+v", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("coverage report missing")
+	}
+}
+
+type runtimeCoverageWindow struct {
+	Status    string `json:"status"`
+	Emitted   uint64 `json:"emitted"`
+	Delivered uint64 `json:"delivered"`
+	Errors    uint64 `json:"errors"`
+}
+
+
+func TestEBPFCoverageNeverClaimsCompleteWhileSensorIsNoop(t *testing.T) {
+	var got runtimeCoverageWindow
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v2/runtime/coverage" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	s := NewSensor("exec", srv.URL, "node-a", time.Second, 4, false)
+	s.reportCoverage()
+
+	if got.Status != "failed" || got.Errors == 0 {
+		t.Fatalf("no-op eBPF sensor claimed authoritative coverage: %+v", got)
 	}
 }

@@ -20,6 +20,7 @@ import (
 	"k8s.io/client-go/kubernetes"
 
 	"github.com/fortuna/agent/internal/corehttp"
+	"github.com/fortuna/api/collection"
 )
 
 // Falco JSON event format (minimal subset).
@@ -41,7 +42,9 @@ type FalcoReader struct {
 	kubeClient kubernetes.Interface
 	httpClient *http.Client
 	logger     *log.Logger
-	offset     int64
+	offset      int64
+	initialized bool
+	fileInfo    os.FileInfo
 	// lineBuf holds an incomplete trailing line (no '\n' yet) across polls so we never
 	// json.Unmarshal a half-written Falco record (causes "invalid character ...", EOF, etc.).
 	lineBuf []byte
@@ -56,6 +59,7 @@ type FalcoReader struct {
 	failedBatches uint64
 	failedEvents  uint64
 	v2Success     uint64
+	coverage      *CoverageReporter
 }
 
 type podUIDCacheEntry struct {
@@ -63,7 +67,7 @@ type podUIDCacheEntry struct {
 	expiresAt time.Time
 }
 
-func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName string, kubeClient kubernetes.Interface) *FalcoReader {
+func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName string, kubeClient kubernetes.Interface, sessionIDs ...string) *FalcoReader {
 	if poll <= 0 {
 		poll = 5 * time.Second
 	}
@@ -76,6 +80,13 @@ func NewFalcoReader(path string, poll time.Duration, coreURL string, nodeName st
 		httpClient:  &http.Client{Timeout: 10 * time.Second},
 		logger:      log.New(log.Writer(), "[FalcoEvents] ", log.LstdFlags),
 		podUIDCache: map[string]podUIDCacheEntry{},
+		coverage:    NewCoverageReporter(coreURL, "falco", collection.RuntimeSourceFalco, sessionIDs...),
+	}
+}
+
+func (r *FalcoReader) SetCoverageCadence(cadence time.Duration) {
+	if r != nil && r.coverage != nil {
+		r.coverage.SetCadence(cadence)
 	}
 }
 
@@ -86,6 +97,9 @@ func (r *FalcoReader) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			if err := r.coverage.Flush(); err != nil {
+				r.logger.Printf("Falco coverage final flush failed: %v", err)
+			}
 			return
 		case <-ticker.C:
 			r.readAndSend(ctx)
@@ -94,53 +108,105 @@ func (r *FalcoReader) Start(ctx context.Context) {
 }
 
 func (r *FalcoReader) readAndSend(ctx context.Context) {
+	stats := CoverageStats{}
+	reason := ""
+	reportCoverage := true
+	defer func() {
+		if reportCoverage {
+			if err := r.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
+				r.logger.Printf("Falco coverage report failed: %v", err)
+			}
+		}
+	}()
+
 	f, err := os.Open(r.path)
 	if err != nil {
+		stats.Errors++
+		reason = "falco event file unavailable"
 		return
 	}
 	defer f.Close()
 
 	st, err := f.Stat()
 	if err != nil {
+		stats.Errors++
+		reason = "falco event stat failed"
 		return
 	}
 	fileSize := st.Size()
-	// Log rotation / truncate: start over
-	if r.offset > fileSize {
+	// Initialization must be explicit. offset==0 is a valid steady-state cursor
+	// when the file was empty at startup; using it as a first-run sentinel would
+	// skip the first real Falco event written later.
+	if !r.initialized {
+		r.initialized = true
+		r.fileInfo = st
+		r.coverage.Reset(time.Now().UTC())
+		if fileSize > 0 {
+			// Skip historical complete Falco records, but never skip a trailing
+			// partial prefix. Search backwards for the last newline so an Agent
+			// restart can still complete the record when the writer appends its suffix.
+			lastComplete, err := lastCompleteRecordOffset(f, fileSize)
+			if err != nil {
+				stats.Errors++
+				reason = "falco initial tail scan failed"
+				return
+			}
+			r.offset = lastComplete
+			if lastComplete == fileSize {
+				reportCoverage = false
+				return
+			}
+		}
+	}
+	// Detect both in-place truncate and replacement/inode rotation. Size alone is
+	// insufficient: a replacement file may already be larger than the old offset.
+	rotated := r.fileInfo != nil && !os.SameFile(r.fileInfo, st)
+	if rotated || r.offset > fileSize {
 		r.offset = 0
 		r.lineBuf = nil
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "falco event file rotated or truncated")
 	}
-	// First run: tail from EOF to avoid loading historical multi-GB Falco backlog
-	// into memory (can OOM the agent). New alerts after startup are still captured.
-	if r.offset == 0 && fileSize > 0 {
-		r.offset = fileSize
-		return
-	}
+	r.fileInfo = st
 
 	startOffset := r.offset
 	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek falco events file: %v", err)
+		stats.Errors++
+		reason = "falco event seek failed"
 		return
 	}
 
 	chunk, err := io.ReadAll(f)
 	if err != nil {
 		r.logger.Printf("Failed to read falco events file: %v", err)
+		stats.Errors++
+		reason = "falco event read failed"
 		return
 	}
 
-	data := append(append([]byte(nil), startBuf...), chunk...)
+	// The source file is the durable retry buffer for partial records. Do not
+	// prepend lineBuf here; offset already points at the beginning of the unread
+	// prefix. lineBuf is diagnostic-only, matching the generic runtime reader.
+	data := chunk
 	r.lineBuf = nil
 
 	events := make([]Event, 0, 20)
+	consumed := int64(0)
+	resolveCtx, cancelResolve := context.WithTimeout(ctx, r.podUIDResolutionBudget())
+	defer cancelResolve()
 	for len(data) > 0 {
 		idx := bytes.IndexByte(data, '\n')
 		if idx < 0 {
 			r.lineBuf = append([]byte{}, data...)
 			break
 		}
-		line := bytes.TrimSpace(data[:idx])
+		rawLine := data[:idx]
+		line := bytes.TrimSpace(rawLine)
+		recordOffset := startOffset + consumed
+		step := int64(idx + 1)
+		consumed += step
 		data = data[idx+1:]
 		if len(line) == 0 {
 			continue
@@ -148,41 +214,77 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		fes, err := parseFalcoJSONLines(line)
 		if err != nil {
 			atomic.AddUint64(&r.invalidLines, 1)
+			stats.Invalid++
+			reason = mergeCoverageReason(reason, "invalid falco JSON")
 			r.logger.Printf("Invalid falco JSON: %v", err)
 			continue
 		}
 		for i := range fes {
-			ev, ok := r.toRuntimeEvent(ctx, &fes[i])
+			ev, ok := r.toRuntimeEvent(resolveCtx, &fes[i])
 			if !ok {
+				stats.Dropped++
+				reason = mergeCoverageReason(reason, "falco event missing resolvable pod UID")
 				continue
 			}
+			ev.SourceRecordID = sourceFileRecordID(r.path, st, recordOffset, rawLine, i)
 			events = append(events, ev)
 		}
 	}
 
-	nextOffset := startOffset + int64(len(chunk))
+	nextOffset := startOffset + consumed
+	if len(r.lineBuf) != 0 {
+		// Do not call a window complete while a source record is only partially
+		// observed. The next successful interval can resume continuity.
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "partial falco record pending")
+	}
 	if len(events) == 0 {
 		// No deliverable event exists in this slice. Commit consumed bytes while
 		// preserving any incomplete trailing line in lineBuf for the next poll.
 		r.offset = nextOffset
 		return
 	}
+	stats.Emitted += uint64(len(events))
 	if err := r.send(events); err != nil {
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "falco event delivery failed")
 		atomic.AddUint64(&r.failedBatches, 1)
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send falco events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Roll back both durable cursor components. Retaining only the offset would
-		// corrupt an event that was split across polls because lineBuf contains the
-		// prefix that belongs immediately before startOffset.
+		// Re-read the whole durable slice on retry. lineBuf is diagnostic-only.
 		r.offset = startOffset
 		r.lineBuf = startBuf
 		return
 	}
 	r.offset = nextOffset
+	stats.Delivered += uint64(len(events))
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
+}
+
+func lastCompleteRecordOffset(f *os.File, size int64) (int64, error) {
+	if size <= 0 {
+		return 0, nil
+	}
+	const blockSize int64 = 64 * 1024
+	buf := make([]byte, blockSize)
+	for end := size; end > 0; {
+		start := end - blockSize
+		if start < 0 {
+			start = 0
+		}
+		n := end - start
+		if _, err := f.ReadAt(buf[:n], start); err != nil && err != io.EOF {
+			return 0, err
+		}
+		if idx := bytes.LastIndexByte(buf[:n], '\n'); idx >= 0 {
+			return start + int64(idx) + 1, nil
+		}
+		end = start
+	}
+	return 0, nil
 }
 
 // parseFalcoJSONLines decodes one or more JSON objects from a single line (rare but possible).
@@ -416,6 +518,17 @@ func resolutionStateFromFalco(fe *falcoEvent) string {
 		}
 	}
 	return "unresolved"
+}
+
+func (r *FalcoReader) podUIDResolutionBudget() time.Duration {
+	budget := 2 * time.Second
+	if r.poll > 0 && r.poll/2 < budget {
+		budget = r.poll / 2
+	}
+	if budget < 100*time.Millisecond {
+		budget = 100 * time.Millisecond
+	}
+	return budget
 }
 
 func (r *FalcoReader) resolvePodUID(ctx context.Context, namespace, podName string) string {

@@ -22,11 +22,12 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	podUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
@@ -34,6 +35,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := []map[string]interface{}{{
+		"source_record_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"pod": map[string]interface{}{
 			"uid":       podUID,
 			"namespace": "ns",
@@ -105,11 +107,12 @@ func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	podUID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
@@ -117,6 +120,7 @@ func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`[{
+		"source_record_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		"pod": {"uid": "` + podUID + `", "namespace": "fortuna"},
 		"syscall": "execve",
 		"target": "/bin/sh-e2e-test",

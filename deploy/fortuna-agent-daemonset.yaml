@@ -155,6 +155,8 @@ spec:
               value: "/var/log/falco/events.jsonl"
             - name: FALCO_EVENTS_POLL
               value: "5s"
+            - name: RUNTIME_COVERAGE_CADENCE
+              value: "30s"
             # Lower peak memory when many pods queue SBOM (default queue workers=2 in code).
             - name: SBOM_WORKERS
               value: "1"

@@ -11,8 +11,143 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/models"
 )
+
+
+func useRuntimeAgentPrincipal(r *gin.Engine, clusterID string) {
+	r.Use(func(c *gin.Context) {
+		c.Set("fortuna.agent.principal", agentidentity.Principal{
+			CredentialID: "test-runtime-credential",
+			ClusterID: clusterID,
+			AgentID: "agent-a",
+		})
+		c.Next()
+	})
+}
+
+func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+	if err := db.Create(&models.Pod{UID: "pod-no-record-id", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	payload := []map[string]interface{}{{
+		"pod": map[string]interface{}{"uid": "pod-no-record-id", "namespace": "ns"},
+		"syscall": "execve",
+		"target": "/bin/sh",
+		"confidence": 0.9,
+	}}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing source_record_id status=%d body=%s", w.Code, w.Body.String())
+	}
+	var count int64
+	if err := db.Model(&models.RuntimeEvent{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("missing source_record_id persisted %d runtime events", count)
+	}
+}
+
+
+func TestPostRuntimeEventsV2_ExactReplaySkipsDownstreamEffects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Exec(`
+		CREATE UNIQUE INDEX idx_runtime_event_agent_source_record_identity
+		ON runtime_events(cluster_id, agent_id, source_record_id)
+		WHERE source_record_id IS NOT NULL AND source_record_id <> ''
+	`).Error; err != nil {
+		t.Fatalf("idempotency index: %v", err)
+	}
+
+	if err := db.Create(&models.Pod{UID: "pod-replay", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+
+	payload := []map[string]interface{}{{
+		"event_id":         "same-second-event-id",
+		"source_record_id": "abababababababababababababababababababababababababababababababab",
+		"payload_hash":     "same-payload-hash",
+		"payload_json":     map[string]interface{}{"kind": "open"},
+		"pod":              map[string]interface{}{"uid": "pod-replay", "namespace": "ns"},
+		"syscall":          "open",
+		"target":           "/proc/1/root",
+		"confidence":       0.9,
+	}}
+	body, _ := json.Marshal(payload)
+
+	post := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	first := post()
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
+	}
+	second := post()
+	if second.Code != http.StatusOK {
+		t.Fatalf("replay status=%d body=%s", second.Code, second.Body.String())
+	}
+	var replayResp runtimeEventResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &replayResp); err != nil {
+		t.Fatal(err)
+	}
+	if replayResp.Processed != 0 || replayResp.Duplicates != 1 {
+		t.Fatalf("unexpected replay response: %+v", replayResp)
+	}
+
+	var eventCount int64
+	if err := db.Model(&models.RuntimeEvent{}).Count(&eventCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("exact replay persisted %d events", eventCount)
+	}
+	var signal models.RuntimeSignal
+	if err := db.Where("cluster_id = ? AND pod_uid = ?", "c1", "pod-replay").First(&signal).Error; err != nil {
+		t.Fatal(err)
+	}
+	if signal.Count != 1 {
+		t.Fatalf("exact replay incremented signal count to %d", signal.Count)
+	}
+	var profile models.PodRiskProfile
+	if err := db.Where("cluster_id = ? AND pod_uid = ?", "c1", "pod-replay").First(&profile).Error; err != nil {
+		t.Fatal(err)
+	}
+	if profile.RuntimeScore != 90 {
+		t.Fatalf("exact replay changed runtime score: %d", profile.RuntimeScore)
+	}
+}
 
 func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -20,16 +155,18 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	if err := db.Create(&models.Pod{UID: "pod-v2-1", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-1",
+		"source_record_id": "1111111111111111111111111111111111111111111111111111111111111111",
 		"observed_at":      "2026-03-26T00:00:00Z",
 		"ingested_at":      "2026-03-26T00:00:01Z",
 		"resolution_state": "resolved",
@@ -66,7 +203,7 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("runtime_events: want 1 got %d", len(events))
 	}
-	if events[0].EventID != "evt-1" || events[0].ResolutionState != "resolved" || events[0].SourceKind != "falco" || events[0].PayloadHash != "sha256:abc" {
+	if events[0].AgentID != "agent-a" || events[0].EventID != "evt-1" || events[0].ResolutionState != "resolved" || events[0].SourceKind != "falco" || events[0].PayloadHash != "sha256:abc" {
 		t.Fatalf("event canonical fields missing: %+v", events[0])
 	}
 	if events[0].ObservedAt == nil || events[0].IngestedAt == nil {
@@ -80,16 +217,18 @@ func TestPostRuntimeEventsV2_AcceptsFlattenedSourceFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	if err := db.Create(&models.Pod{UID: "pod-v2-2", ClusterID: "c1", Namespace: "ns", Name: "demo2"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-2",
+		"source_record_id": "2222222222222222222222222222222222222222222222222222222222222222",
 		"observed_at":      "2026-03-26T00:00:00Z",
 		"ingested_at":      "2026-03-26T00:00:01Z",
 		"resolution_state": "unresolved",
@@ -138,16 +277,18 @@ func TestPostRuntimeEventsV2_PreservesPartialResolutionState(t *testing.T) {
 	if err != nil {
 		t.Fatalf("db: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	if err := db.Create(&models.Pod{UID: "pod-v2-3", ClusterID: "c1", Namespace: "ns", Name: "demo3"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-3",
+		"source_record_id": "3333333333333333333333333333333333333333333333333333333333333333",
 		"observed_at":      "2026-03-26T01:00:00Z",
 		"ingested_at":      "2026-03-26T01:00:01Z",
 		"resolution_state": "partial",

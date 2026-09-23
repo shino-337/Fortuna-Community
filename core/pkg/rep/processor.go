@@ -3,6 +3,7 @@ package rep
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -16,7 +17,10 @@ import (
 	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
+var ErrRuntimeSourceRecordConflict = errors.New("rep: source-record identity reused with different payload")
+
 type RuntimeEventInput struct {
+	AgentID    string
 	PodUID     string
 	Namespace  string
 	Syscall    string
@@ -25,6 +29,7 @@ type RuntimeEventInput struct {
 	Timestamp  *time.Time
 	// Canonical contract fields (P0.1): optional, best-effort.
 	EventID         string
+	SourceRecordID  string
 	ObservedAt      *time.Time
 	IngestedAt      *time.Time
 	ResolutionState string
@@ -46,6 +51,7 @@ type RuntimeEventInput struct {
 }
 
 type ProcessResult struct {
+	Duplicate    bool
 	Signal       string
 	Mitre        string
 	BaseScore    int
@@ -56,6 +62,13 @@ type ProcessResult struct {
 func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInput) (*ProcessResult, error) {
 	if strings.TrimSpace(input.PodUID) == "" {
 		return nil, fmt.Errorf("rep: pod uid is required")
+	}
+	// Legacy/direct compatibility callers predate physical source-record identity.
+	// Give each direct call an isolated identity rather than falling back to the
+	// second-granularity EventID. Production scoped HTTP ingest requires the Agent
+	// supplied source_record_id and therefore remains replay-idempotent.
+	if strings.TrimSpace(input.SourceRecordID) == "" {
+		input.SourceRecordID = fmt.Sprintf("legacy-%020d", time.Now().UnixNano())
 	}
 	var owners []string
 	if err := db.WithContext(ctx).Model(&models.Pod{}).

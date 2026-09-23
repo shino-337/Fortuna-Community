@@ -75,8 +75,10 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 	runtimeIngestV2.Use(agentIngestAuth)
 	{
 		runtimeIngestV2.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+		runtimeIngestV2.POST("/producers", PostRuntimeProducerManifest(db))
+		runtimeIngestV2.POST("/coverage", PostRuntimeCoverage(db))
 	}
-	log.Printf("[API] Runtime ingest routes registered with scoped ownership guard: POST /api/v2/runtime/events")
+	log.Printf("[API] Runtime ingest routes registered: POST /api/v2/runtime/events, /api/v2/runtime/producers, /api/v2/runtime/coverage")
 
 	v1 := router.Group("/api/v1")
 	if cfg.AuthEnabled {

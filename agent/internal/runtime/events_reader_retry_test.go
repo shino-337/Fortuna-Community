@@ -1,6 +1,7 @@
 package runtime
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -8,11 +9,54 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 )
+
+
+func TestRuntimeReaderStartPerformsImmediateRead(t *testing.T) {
+	delivered := make(chan struct{}, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/events":
+			select {
+			case delivered <- struct{}{}:
+			default:
+			}
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/coverage":
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "events.jsonl")
+	line := `{"pod":{"uid":"pod-a"},"syscall":"execve","target":"/bin/sh","timestamp":1,"confidence":1}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	r := NewReader(path, time.Hour, srv.URL)
+	go r.Start(ctx)
+
+	select {
+	case <-delivered:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("runtime reader waited for poll ticker instead of performing initial read")
+	}
+}
 
 func TestRuntimeReaderRetainsOffsetUntilIngestSucceeds(t *testing.T) {
 	var calls int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/v2/runtime/coverage" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
 		if r.URL.Path != "/api/v2/runtime/events" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}

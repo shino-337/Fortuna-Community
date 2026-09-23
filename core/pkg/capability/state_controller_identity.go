@@ -80,6 +80,19 @@ func (csc *CapabilityStateController) PromoteCapabilityForIdentity(ctx context.C
 	return nil
 }
 
+// PromoteCapabilityForIdentityTx applies promotion using the DB handle already
+// owned by the caller's transaction. It deliberately does not schedule asynchronous
+// attack-path work; the caller must do that only after its outer transaction commits.
+func (csc *CapabilityStateController) PromoteCapabilityForIdentityTx(ctx context.Context, id resourceidentity.Identity, capabilityID, signalType string, signalConfidence float64) (bool, error) {
+	if err := id.Validate(); err != nil {
+		return false, err
+	}
+	if csc == nil || csc.db == nil {
+		return false, gorm.ErrInvalidDB
+	}
+	return csc.promoteCapabilityForIdentityTx(ctx, csc.db.WithContext(ctx), id, capabilityID, signalType, signalConfidence)
+}
+
 func (csc *CapabilityStateController) promoteCapabilityForIdentityTx(ctx context.Context, txDB *gorm.DB, id resourceidentity.Identity, capabilityID, signalType string, signalConfidence float64) (bool, error) {
 	type capabilityRow struct {
 		ID           uint

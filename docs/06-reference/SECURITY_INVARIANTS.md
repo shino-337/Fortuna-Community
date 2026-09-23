@@ -242,3 +242,61 @@ the full invariant review against the resulting diff, then require Core, Agent,
 API, PostgreSQL and security-regression gates to pass on that exact head. Test/doc
 commits may follow, but any further runtime-code change requires the review cycle
 again.
+
+## Runtime producer coverage integrity
+
+Runtime event silence is never clean evidence. Verified coverage requires a scoped
+Agent producer window. Complete windows have positive duration and zero
+drop/invalid/error counts with `delivered == emitted`. Exact coverage retries are
+immutable; changed replay, overlap, out-of-order windows and producer/source
+rebinding fail closed.
+
+Continuity extends only over adjacent complete windows. A gap or failed window
+resets `continuous_since`. Historical queued windows may be persisted after an
+outage, but freshness is evaluated independently. Any absence-based consumer must
+require an explicit bounded interval whose required end is covered; receipt
+freshness alone is insufficient.
+
+File and Falco producers must treat truncate/replacement, partial records and
+delivery failures as coverage-breaking conditions. For the generic runtime file,
+the cursor may advance only past newline-terminated records; a partial trailing
+prefix must remain unread in the durable source file and be re-read after poll or
+Agent restart. In-memory line buffering must never be the sole copy of unconsumed
+source bytes. Unresolved Falco Pod identity is a drop, not clean silence.
+
+The built-in eBPF sensor currently uses no-op tracepoints and is non-authoritative.
+It must not emit complete coverage, including in simulation mode. Removing this
+fail-closed rule requires a real event collector plus permanent observation/drop/
+shutdown regressions.
+
+Runtime coverage remains producer-specific. Producer operational state is
+persisted independently from evidence authority. A new Agent execution session,
+disable, stop or expired lifecycle lease invalidates old-session coverage and
+creates/extends an evidence gap.
+
+Protocol v1 has no independent upstream source-health proof. Therefore no runtime
+producer may self-assert `Authoritative=true`; Core rejects such manifests.
+File/Falco reader activity or complete-empty windows may prove the Agent-side
+collector loop is active, but must not establish `continuous_since` or satisfy
+absence-based `CoversInterval`. Built-in eBPF remains non-authoritative as well.
+
+Before any future auto-resolution consumes runtime coverage, a later protocol must
+prove both current producer enablement and independent upstream source health. Old
+receipts, config flags, file existence and reader heartbeats are not sufficient.
+
+Runtime storage has two roles that must not be conflated:
+`runtime_coverages` is the mutable latest projection used for arbitration, while
+`runtime_coverage_receipts` is immutable accepted history. Every accepted
+non-replay window must append one history row in the same transaction as latest
+projection/lifecycle mutation. Replay must not duplicate history and SQL rollback
+must roll back both.
+
+Runtime schema migration must repair every required column/index from populated
+legacy tables. Rows whose cluster/Agent/producer ownership cannot be established
+must fail startup rather than be silently adopted. Partial legacy rows may be
+preserved as latest-state data but must not be fabricated into immutable evidence;
+a valid pre-history latest receipt may be backfilled exactly once.
+
+PostgreSQL coverage arbitration is a permanent CI gate: concurrent first reports
+must converge without unique-key 500s, storage failure must roll back latest state
+and immutable history, and recovery/startup migration must preserve evidence.
