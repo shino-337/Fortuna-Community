@@ -157,6 +157,10 @@ func GetClusterNodes(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_nodes_schema_unavailable",
+			"Cluster node inventory requires cluster and Pod schemas", "clusters", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -192,6 +196,10 @@ func GetClusterOverview(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_overview_schema_unavailable",
+			"Cluster overview requires cluster and Pod schemas", "clusters", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -231,6 +239,10 @@ func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_inventory_schema_unavailable",
+			"Cluster inventory requires cluster and Pod schemas", "clusters", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -260,6 +272,11 @@ func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
 func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_agents_schema_unavailable",
+			"Cluster Agent inventory requires cluster and Agent schemas", "clusters", "agents") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -269,11 +286,6 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 			respondDataUnavailable(c, "cluster_agents_cluster_unavailable", "Cluster Agent inventory could not verify cluster state")
 			return
 		}
-		if !hasTable(db, "agents") {
-			respondSchemaUnavailable(c, "cluster_agents_schema_unavailable", "Cluster Agent inventory is unavailable; agents table is missing")
-			return
-		}
-
 		var agents []models.Agent
 		if err := db.WithContext(c.Request.Context()).Where("cluster_id = ? AND (status = ? OR status IS NULL)", id, "ready").Order("last_seen_at DESC NULLS LAST").Find(&agents).Error; err != nil {
 			respondDataUnavailable(c, "cluster_agents_query_failed", "Cluster Agent inventory could not be loaded")
@@ -320,6 +332,11 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_security_summary_schema_unavailable",
+			"Cluster security summary requires cluster, Pod, Insight and capability schemas",
+			"clusters", "pods", "insights", "pod_capabilities") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -363,10 +380,6 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 			case "low":
 				low = r.Count
 			}
-		}
-		if !hasTable(db, "pod_capabilities") {
-			respondSchemaUnavailable(c, "cluster_security_summary_capabilities_unavailable", "Cluster capability summary is unavailable; capability inventory is missing")
-			return
 		}
 		var capabilityCount int64
 		if err := db.Raw(`
@@ -418,6 +431,10 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_node_schema_unavailable",
+			"Node detail requires cluster, Node and Pod schemas", "clusters", "nodes", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", clusterID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
@@ -516,6 +533,12 @@ type ClusterStats struct {
 func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_stats_schema_unavailable",
+			"Cluster statistics require the inventory, risk and Agent schemas",
+			"clusters", "service_accounts", "roles", "cluster_roles", "role_bindings",
+			"cluster_role_bindings", "pods", "deployments", "insights", "agents") {
+			return
+		}
 		clusters, err := getClustersForAPI(db, c)
 		if err != nil {
 			respondDataUnavailable(c, "cluster_stats_clusters_unavailable", "Cluster statistics could not be loaded")
@@ -591,10 +614,6 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		saMap, roleMap, crMap, rbMap, crbMap := toMap(saCounts), toMap(roleCounts), toMap(crCounts), toMap(rbCounts), toMap(crbCounts)
 		podMap, deplMap, riskMap := toMap(podCounts), toMap(deplCounts), toMap(riskCounts)
 
-		if !hasTable(db, "agents") {
-			respondSchemaUnavailable(c, "cluster_stats_agents_schema_unavailable", "Agent statistics are unavailable; agents table is missing")
-			return
-		}
 		var agentRecords []models.Agent
 		if err := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND cluster_id IN ?", "ready", clusterIDs).
 			Order("cluster_id ASC, last_seen_at DESC").Find(&agentRecords).Error; err != nil {
@@ -1348,6 +1367,10 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		if !hasTable(db, "insights") {
+			respondSchemaUnavailable(c, "pod_risk_counts_schema_unavailable", "Pod risk counts require the insights schema")
+			return
+		}
 		var pods []models.Pod
 		var findErr error
 		switch sortBy {
