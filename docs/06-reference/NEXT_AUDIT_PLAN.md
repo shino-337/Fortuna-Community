@@ -266,7 +266,8 @@ upstream health signal. The D3 acceptance contract is:
 E1 starts after #52 and is the current implementation package. Merge only when:
 
 - required DB/schema/query failures return an explicit unavailable/error response
-  rather than a successful zero/empty projection;
+  rather than a successful zero/empty projection; transient query/storage failures
+  are retryable while missing migration/schema prerequisites are non-retryable;
 - cluster node list/detail/overview/inventory endpoints propagate query failures;
 - capability detail/list/summary use the same unavailable semantics when capability
   persistence is absent or unreadable;
@@ -279,7 +280,9 @@ E1 starts after #52 and is the current implementation package. Merge only when:
   cluster-qualified when the same Pod UID exists in more than one cluster;
 - Agent data availability is represented separately from heartbeat-derived
   healthy/slow/disconnected state;
-- system metrics do not report `healthy` when their backing queries fail;
+- system metrics and dashboard stats count Pods by `{cluster_id, uid}`, keep
+  Pod Insight aggregates resource-type/cluster qualified, and do not report
+  healthy/zero values when their backing queries fail;
 - dashboard data-integrity cross-checks, catalog health and runtime health do not
   convert query/schema failures into zero counts, no-events, degraded or healthy
   states; required backing-query failure returns retryable 503;
