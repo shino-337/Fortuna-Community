@@ -184,6 +184,34 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 
 
 
+
+func TestDashboardRuntimeHealthReadsPersistedTimestamps(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{}, &models.RuntimeEvent{}, &models.RuntimeSignal{})
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	lastSeen := now.Format(time.RFC3339Nano)
+	require.NoError(t, db.Create(&models.RuntimeEvent{
+		ClusterID: "cluster-a", AgentID: "agent-a", PodUID: "pod-a", Namespace: "ns",
+		Syscall: "execve", SourceKind: "falco", Runtime: "falco",
+		ObservedAt: &now, IngestedAt: &now, CreatedAt: now,
+	}).Error)
+	require.NoError(t, db.Create(&models.RuntimeSignal{
+		ClusterID: "cluster-a", PodUID: "pod-a", SignalType: "TEST", Category: "test",
+		Confidence: 1, Evidence: "{}", LastSeenAt: &lastSeen, CreatedAt: now,
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
+	DashboardDataIntegrity(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var body DashboardDataIntegrityResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.EqualValues(t, 1, body.RuntimeHealth.RuntimeEventsCount)
+	require.EqualValues(t, 1, body.RuntimeHealth.RuntimeSignalsCount)
+	require.EqualValues(t, 1, body.RuntimeHealth.FalcoEventsCount)
+	require.NotNil(t, body.RuntimeHealth.LastRuntimeEventAt)
+	require.NotNil(t, body.RuntimeHealth.LastRuntimeSignalAt)
+}
+
 func TestDashboardRuntimeHealthQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
