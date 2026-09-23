@@ -25,6 +25,7 @@ type RuntimeCoverage struct {
 	ID          string    `json:"id"`
 	ProducerID  string    `json:"producerId"`
 	SourceKind  string    `json:"sourceKind"`
+	SessionID   string    `json:"sessionId"`
 	Status      string    `json:"status"` // complete or failed
 	WindowStart time.Time `json:"windowStart"`
 	WindowEnd   time.Time `json:"windowEnd"`
@@ -42,6 +43,9 @@ func (c RuntimeCoverage) Validate(now time.Time) error {
 	}
 	if strings.TrimSpace(c.ProducerID) == "" || len(c.ProducerID) > 128 || strings.TrimSpace(c.ProducerID) != c.ProducerID {
 		return fmt.Errorf("runtime coverage producer required")
+	}
+	if len(c.SessionID) < 16 || len(c.SessionID) > 128 || strings.TrimSpace(c.SessionID) != c.SessionID {
+		return fmt.Errorf("runtime coverage session required")
 	}
 	validProducer := false
 	switch c.SourceKind {
