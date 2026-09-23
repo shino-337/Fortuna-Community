@@ -92,20 +92,8 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 		WindowEnd: now.Add(-3 * time.Second),
 	}
 
-	require.NoError(t, db.Create(&models.RuntimeProducerState{
-		ClusterID: "cluster-a",
-		AgentID: "agent-a",
-		ProducerID: "falco",
-		SourceKind: collection.RuntimeSourceFalco,
-		SessionID: first.SessionID,
-		SessionStartedAt: now.Add(-5 * time.Second),
-		Enabled: true,
-		Authoritative: true,
-		State: collection.RuntimeProducerStarting,
-		LastManifestAt: now,
-		LastHeartbeatAt: now,
-		GapReason: "startup",
-	}).Error)
+	manifest := runtimeManifest(first.SessionID, now.Add(-5*time.Second), now.Add(-4500*time.Millisecond), true)
+	require.Equal(t, http.StatusOK, postRuntimeManifest(t, db, principal, manifest).Code)
 
 	// Exact concurrent first reports must collapse to one row; contenders are
 	// idempotent replays rather than unique-key 500s.
@@ -187,9 +175,38 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, second.ID, producer.LastCoverageID)
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
 
-	// Startup invariant reruns on populated data without mutating accepted evidence.
+	// A new Agent session must invalidate otherwise-fresh prior coverage and create
+	// a persisted restart gap before any new complete window is accepted.
+	session2 := "session-postgres-000002"
+	manifest2 := runtimeManifest(session2, now.Add(-time.Second), now, true)
+	require.Equal(t, http.StatusOK, postRuntimeManifest(t, db, principal, manifest2).Code)
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, session2, producer.SessionID)
+	require.Equal(t, collection.RuntimeProducerStarting, producer.State)
+	require.Equal(t, "agent_restart", producer.GapReason)
+	require.Equal(t, "unknown", recovered.EffectiveStatus(&producer, now))
+
+	third := second
+	third.ID = "postgres-coverage-0003"
+	third.SessionID = session2
+	third.WindowStart = now.Add(-500 * time.Millisecond)
+	third.WindowEnd = now.Add(-100 * time.Millisecond)
+	code, body, err = postCoveragePostgres(db, principal, third)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, code, body)
+	var afterNewSession models.RuntimeCoverage
+	require.NoError(t, db.First(&afterNewSession, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.NotNil(t, afterNewSession.ContinuousSince)
+	require.True(t, afterNewSession.ContinuousSince.Equal(third.WindowStart),
+		"restart must not extend continuity from previous session")
+
+	// Startup invariant reruns on populated lifecycle/evidence data without mutation.
 	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
 	var afterRestart models.RuntimeCoverage
 	require.NoError(t, db.First(&afterRestart, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.Equal(t, recovered, afterRestart)
+	require.Equal(t, afterNewSession, afterRestart)
+	var producerAfterMigration models.RuntimeProducerState
+	require.NoError(t, db.First(&producerAfterMigration, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, session2, producerAfterMigration.SessionID)
+	require.Equal(t, collection.RuntimeProducerActive, producerAfterMigration.State)
 }
