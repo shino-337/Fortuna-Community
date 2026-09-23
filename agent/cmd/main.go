@@ -407,8 +407,12 @@ func logConfig(cfg *config.Config) {
 
 func runtimeProducerDeclarations(cfg *config.Config) []collection.RuntimeProducerDeclaration {
 	producers := []collection.RuntimeProducerDeclaration{
-		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: cfg.RuntimeEventsEnabled, Authoritative: cfg.RuntimeEventsEnabled},
-		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: cfg.FalcoEventsEnabled, Authoritative: cfg.FalcoEventsEnabled},
+		// File/Falco enablement proves the Fortuna reader is configured, not that
+		// the upstream writer/sensor is alive. Until an independent source-health
+		// contract exists, these producers are observable but non-authoritative
+		// for absence-based reasoning.
+		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: cfg.RuntimeEventsEnabled, Authoritative: false},
+		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: cfg.FalcoEventsEnabled, Authoritative: false},
 		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-all", SourceKind: collection.RuntimeSourceEBPF},
