@@ -41,14 +41,16 @@ func (r *ProducerLifecycleReporter) Report(agentState string) error {
 		return nil
 	}
 	r.mu.Lock()
+	defer r.mu.Unlock()
+	// Serialize the entire POST, not only the state flag. Otherwise a running
+	// heartbeat that passed the check could be delayed and arrive after stopping
+	// with a later ReportedAt, reopening the lifecycle.
 	if r.stopping && agentState == collection.RuntimeAgentRunning {
-		r.mu.Unlock()
 		return nil
 	}
 	if agentState == collection.RuntimeAgentStopping {
 		r.stopping = true
 	}
-	r.mu.Unlock()
 	producers := append([]collection.RuntimeProducerDeclaration(nil), r.producers...)
 	if agentState == collection.RuntimeAgentStopping {
 		for i := range producers {
