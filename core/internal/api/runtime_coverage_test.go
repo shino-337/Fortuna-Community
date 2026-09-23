@@ -144,6 +144,13 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
+	t.Run("zero-duration", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000097", now, now)
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusBadRequest, w.Code)
+	})
+
 	t.Run("complete-with-error", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		c := coverageWindow("coverage-000000000011", now.Add(-time.Second), now)
