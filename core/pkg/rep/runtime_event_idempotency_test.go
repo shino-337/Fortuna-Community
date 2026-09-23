@@ -181,7 +181,7 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 	for i := range signals {
 		totalSignalEffects += signals[i].Count
 	}
-	require.Equal(t, 2, totalSignalEffects, "both legitimate observations must reach downstream effects")
+	require.Equal(t, 3, totalSignalEffects, "distinct physical records and Agent namespaces must each reach downstream effects")
 }
 
 func TestRuntimeSourceRecordConcurrentDuplicatePostgres(t *testing.T) {
