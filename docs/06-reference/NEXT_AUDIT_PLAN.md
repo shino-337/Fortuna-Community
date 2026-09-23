@@ -194,7 +194,13 @@ Required invariants include:
 - file/Falco partial-write and rotation handling;
 - eBPF fail-closed while the built-in sensor remains no-op;
 - bounded interval coverage rather than freshness-only absence reasoning;
-- concurrent first-report arbitration and SQL rollback/recovery on PostgreSQL.
+- concurrent first-report arbitration and SQL rollback/recovery on PostgreSQL;
+- generic runtime-file cursor never advances past a partial record prefix and a
+  restart regression proves the record cannot disappear merely because lineBuf was lost;
+- full populated-legacy schema upgrade, fail-closed unowned-row handling, and
+  exact backfill semantics for pre-history latest evidence;
+- immutable `runtime_coverage_receipts` history separate from the mutable
+  latest-state `runtime_coverages` projection, with replay/rollback history gates.
 
 Runtime/Pod/cross-resource auto-resolution remains disabled in #52. Enabling a
 consumer is a separate change and must verify both the required bounded interval
