@@ -169,24 +169,28 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				producer.LastCoverageID = row.CoverageID
 				end := row.WindowEnd
 				producer.LastCoverageEnd = &end
-				if row.Status == "complete" && producer.Authoritative {
+				if row.Status == "complete" {
+					// Complete proves the Agent-side producer loop observed this
+					// interval. It does not prove upstream source liveness unless
+					// Authoritative is independently established.
 					producer.State = collection.RuntimeProducerActive
-					producer.GapSince = nil
-					producer.GapReason = ""
-				} else if producer.Authoritative {
+					if producer.Authoritative {
+						producer.GapSince = nil
+						producer.GapReason = ""
+					} else {
+						if producer.GapSince == nil {
+							gap := row.WindowStart
+							producer.GapSince = &gap
+						}
+						producer.GapReason = "source_health_unverified"
+					}
+				} else {
 					producer.State = collection.RuntimeProducerDegraded
 					if producer.GapSince == nil {
 						gap := row.WindowStart
 						producer.GapSince = &gap
 					}
 					producer.GapReason = "coverage_failed"
-				} else {
-					producer.State = collection.RuntimeProducerNonAuthoritative
-					if producer.GapSince == nil {
-						gap := row.WindowStart
-						producer.GapSince = &gap
-					}
-					producer.GapReason = "non_authoritative"
 				}
 				if err := tx.Model(&models.RuntimeProducerState{}).
 					Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", producer.ClusterID, producer.AgentID, producer.ProducerID).
