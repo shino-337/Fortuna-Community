@@ -138,6 +138,7 @@ REQUIRED = {
         "TestPipelineHealthQueryFailureIsUnavailable",
         "TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters",
         "TestPodListRiskQueryFailureIsUnavailable",
+        "TestPodListRiskScoreQueryFailureIsUnavailable",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
