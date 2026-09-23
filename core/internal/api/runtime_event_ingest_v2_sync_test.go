@@ -66,6 +66,89 @@ func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *tes
 	}
 }
 
+
+func TestPostRuntimeEventsV2_ExactReplaySkipsDownstreamEffects(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	if err := db.Exec(`
+		CREATE UNIQUE INDEX idx_runtime_event_agent_source_record_identity
+		ON runtime_events(cluster_id, agent_id, source_record_id)
+		WHERE source_record_id IS NOT NULL AND source_record_id <> ''
+	`).Error; err != nil {
+		t.Fatalf("idempotency index: %v", err)
+	}
+
+	if err := db.Create(&models.Pod{UID: "pod-replay", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+
+	payload := []map[string]interface{}{{
+		"event_id":         "same-second-event-id",
+		"source_record_id": "abababababababababababababababababababababababababababababababab",
+		"payload_hash":     "same-payload-hash",
+		"payload_json":     map[string]interface{}{"kind": "open"},
+		"pod":              map[string]interface{}{"uid": "pod-replay", "namespace": "ns"},
+		"syscall":          "open",
+		"target":           "/proc/1/root",
+		"confidence":       0.9,
+	}}
+	body, _ := json.Marshal(payload)
+
+	post := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, req)
+		return w
+	}
+	first := post()
+	if first.Code != http.StatusOK {
+		t.Fatalf("first status=%d body=%s", first.Code, first.Body.String())
+	}
+	second := post()
+	if second.Code != http.StatusOK {
+		t.Fatalf("replay status=%d body=%s", second.Code, second.Body.String())
+	}
+	var replayResp runtimeEventResponse
+	if err := json.Unmarshal(second.Body.Bytes(), &replayResp); err != nil {
+		t.Fatal(err)
+	}
+	if replayResp.Processed != 0 || replayResp.Duplicates != 1 {
+		t.Fatalf("unexpected replay response: %+v", replayResp)
+	}
+
+	var eventCount int64
+	if err := db.Model(&models.RuntimeEvent{}).Count(&eventCount).Error; err != nil {
+		t.Fatal(err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("exact replay persisted %d events", eventCount)
+	}
+	var signal models.RuntimeSignal
+	if err := db.Where("cluster_id = ? AND pod_uid = ?", "c1", "pod-replay").First(&signal).Error; err != nil {
+		t.Fatal(err)
+	}
+	if signal.Count != 1 {
+		t.Fatalf("exact replay incremented signal count to %d", signal.Count)
+	}
+	var profile models.PodRiskProfile
+	if err := db.Where("cluster_id = ? AND pod_uid = ?", "c1", "pod-replay").First(&profile).Error; err != nil {
+		t.Fatal(err)
+	}
+	if profile.RuntimeScore != 90 {
+		t.Fatalf("exact replay changed runtime score: %d", profile.RuntimeScore)
+	}
+}
+
 func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
