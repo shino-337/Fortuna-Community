@@ -11,8 +11,21 @@ import (
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/models"
 )
+
+
+func useRuntimeAgentPrincipal(r *gin.Engine, clusterID string) {
+	r.Use(func(c *gin.Context) {
+		c.Set("fortuna.agent.principal", agentidentity.Principal{
+			CredentialID: "test-runtime-credential",
+			ClusterID: clusterID,
+			AgentID: "agent-a",
+		})
+		c.Next()
+	})
+}
 
 func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -25,6 +38,7 @@ func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *tes
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 	if err := db.Create(&models.Pod{UID: "pod-no-record-id", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil {
 		t.Fatal(err)
@@ -63,6 +77,7 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	if err := db.Create(&models.Pod{UID: "pod-v2-1", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil { t.Fatal(err) }
@@ -105,7 +120,7 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	if len(events) != 1 {
 		t.Fatalf("runtime_events: want 1 got %d", len(events))
 	}
-	if events[0].EventID != "evt-1" || events[0].ResolutionState != "resolved" || events[0].SourceKind != "falco" || events[0].PayloadHash != "sha256:abc" {
+	if events[0].AgentID != "agent-a" || events[0].EventID != "evt-1" || events[0].ResolutionState != "resolved" || events[0].SourceKind != "falco" || events[0].PayloadHash != "sha256:abc" {
 		t.Fatalf("event canonical fields missing: %+v", events[0])
 	}
 	if events[0].ObservedAt == nil || events[0].IngestedAt == nil {
@@ -124,6 +139,7 @@ func TestPostRuntimeEventsV2_AcceptsFlattenedSourceFields(t *testing.T) {
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	if err := db.Create(&models.Pod{UID: "pod-v2-2", ClusterID: "c1", Namespace: "ns", Name: "demo2"}).Error; err != nil { t.Fatal(err) }
@@ -183,6 +199,7 @@ func TestPostRuntimeEventsV2_PreservesPartialResolutionState(t *testing.T) {
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	if err := db.Create(&models.Pod{UID: "pod-v2-3", ClusterID: "c1", Namespace: "ns", Name: "demo3"}).Error; err != nil { t.Fatal(err) }
