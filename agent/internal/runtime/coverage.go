@@ -40,17 +40,26 @@ type CoverageReporter struct {
 	coreURL    string
 	producerID string
 	sourceKind string
+	sessionID  string
 	httpClient *http.Client
 	nextStart  time.Time
 	pending    *collection.RuntimeCoverage
 	backlog    *coverageAggregate
 }
 
-func NewCoverageReporter(coreURL, producerID, sourceKind string) *CoverageReporter {
+func NewCoverageReporter(coreURL, producerID, sourceKind string, sessionIDs ...string) *CoverageReporter {
+	sessionID := ""
+	if len(sessionIDs) != 0 {
+		sessionID = strings.TrimSpace(sessionIDs[0])
+	}
+	if sessionID == "" {
+		sessionID = rand.Text()
+	}
 	return &CoverageReporter{
 		coreURL: strings.TrimRight(coreURL, "/"),
 		producerID: strings.TrimSpace(producerID),
 		sourceKind: strings.TrimSpace(sourceKind),
+		sessionID: sessionID,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		nextStart: time.Now().UTC(),
 	}
@@ -136,6 +145,7 @@ func (r *CoverageReporter) promoteBacklog() {
 		ID: rand.Text(),
 		ProducerID: r.producerID,
 		SourceKind: r.sourceKind,
+		SessionID: r.sessionID,
 		Status: status,
 		WindowStart: a.start,
 		WindowEnd: a.end,
