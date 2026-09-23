@@ -145,11 +145,13 @@ func main() {
 	// begin producing events immediately even when gRPC is slow/unreachable.
 	if cfg.RuntimeEventsEnabled {
 		reader := runtime.NewReader(cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll, cfg.CoreHTTPEndpoint, runtimeSessionID)
+		reader.SetCoverageCadence(cfg.RuntimeCoverageCadence)
 		go reader.Start(ctx)
 		log.Printf("✅ Runtime events reader enabled (path=%s poll=%s)", cfg.RuntimeEventsPath, cfg.RuntimeEventsPoll)
 	}
 	if cfg.FalcoEventsEnabled {
 		reader := runtime.NewFalcoReader(cfg.FalcoEventsPath, cfg.FalcoEventsPoll, cfg.CoreHTTPEndpoint, cfg.NodeName, k8sClient.Clientset, runtimeSessionID)
+		reader.SetCoverageCadence(cfg.RuntimeCoverageCadence)
 		go reader.Start(ctx)
 		log.Printf("✅ Falco events reader enabled (path=%s poll=%s)", cfg.FalcoEventsPath, cfg.FalcoEventsPoll)
 	}
@@ -163,6 +165,7 @@ func main() {
 			cfg.EBPFSimulate,
 			runtimeSessionID,
 		)
+		sensor.SetCoverageCadence(cfg.RuntimeCoverageCadence)
 		go sensor.Start(ctx)
 		log.Printf("✅ eBPF sensor enabled (mode=%s flush=%s simulate=%v)", cfg.EBPFMode, cfg.EBPFEventFlushInterval, cfg.EBPFSimulate)
 	}
