@@ -3,6 +3,7 @@ package runtime
 import (
 	"bytes"
 	"context"
+	cryptorand "crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -13,6 +14,7 @@ import (
 	"os"
 	"strings"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/fortuna/agent/internal/corehttp"
@@ -34,6 +36,7 @@ type Event struct {
 
 	// Canonical contract fields (optional): used by core POST /api/v2/runtime/events.
 	EventID         string                 `json:"event_id,omitempty"`
+	SourceRecordID  string                 `json:"source_record_id,omitempty"`
 	ObservedAt      string                 `json:"observed_at,omitempty"`      // RFC3339
 	IngestedAt      string                 `json:"ingested_at,omitempty"`      // RFC3339
 	ResolutionState string                 `json:"resolution_state,omitempty"` // resolved|partial|unresolved
@@ -168,7 +171,9 @@ func (r *Reader) readAndSend() {
 			r.lineBuf = append([]byte(nil), data...)
 			break
 		}
-		line := bytes.TrimSpace(data[:idx])
+		rawLine := data[:idx]
+		line := bytes.TrimSpace(rawLine)
+		recordOffset := startOffset + consumed
 		step := int64(idx + 1)
 		consumed += step
 		data = data[idx+1:]
@@ -183,6 +188,9 @@ func (r *Reader) readAndSend() {
 			r.logger.Printf("Invalid runtime event JSON: %v", err)
 			continue
 		}
+		// Source identity is derived from the physical JSONL record, not the
+		// second-granularity semantic EventID carried inside the record.
+		evt.SourceRecordID = sourceFileRecordID(r.path, st, recordOffset, rawLine, 0)
 		events = append(events, evt)
 	}
 
@@ -216,6 +224,28 @@ func (r *Reader) readAndSend() {
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
 	r.logIngestionStats("send_ok")
+}
+
+func sourceFileRecordID(path string, st os.FileInfo, offset int64, raw []byte, ordinal int) string {
+	fileIdentity := "unknown"
+	if st != nil {
+		if stat, ok := st.Sys().(*syscall.Stat_t); ok {
+			fileIdentity = fmt.Sprintf("%d:%d", uint64(stat.Dev), uint64(stat.Ino))
+		} else {
+			fileIdentity = st.Name()
+		}
+	}
+	rawHash := sha256.Sum256(raw)
+	sum := sha256.Sum256([]byte(fmt.Sprintf(
+		"runtime-source-record-v1|%s|%s|%d|%d|%x",
+		path, fileIdentity, offset, ordinal, rawHash,
+	)))
+	return hex.EncodeToString(sum[:])
+}
+
+func newEphemeralSourceRecordID() string {
+	sum := sha256.Sum256([]byte("runtime-ephemeral-record-v1|" + cryptorand.Text()))
+	return hex.EncodeToString(sum[:])
 }
 
 // PrepareEventsV2 fills canonical metadata for every runtime producer while preserving sensor values.
@@ -260,6 +290,12 @@ func PrepareEventsV2(events []Event) {
 		if strings.TrimSpace(ev.EventID) == "" {
 			h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", podUID, ev.Syscall, ev.Target, ts)))
 			ev.EventID = hex.EncodeToString(h[:])
+		}
+		// Non-file producers (for example eBPF) receive a per-observation identity
+		// once, before serialization. The Event object is retained across HTTP retry,
+		// so this remains stable without collapsing legitimate same-second events.
+		if strings.TrimSpace(ev.SourceRecordID) == "" {
+			ev.SourceRecordID = newEphemeralSourceRecordID()
 		}
 
 		if ev.PayloadJSON == nil {
