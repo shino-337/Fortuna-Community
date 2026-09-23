@@ -319,6 +319,34 @@ func TestRuntimeCoveragePostgresLegacySchemaUpgrade(t *testing.T) {
 	).Count(&rows).Error)
 	require.EqualValues(t, 1, rows, "legacy runtime coverage row was not preserved")
 
+	var historyRows int64
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyRows).Error)
+	require.Zero(t, historyRows, "partial legacy row must not be fabricated into immutable evidence")
+
+	// Once the preserved legacy latest row has a complete evidence identity/window,
+	// rerunning the invariant backfills exactly that latest receipt into history.
+	require.NoError(t, db.Exec(`
+		UPDATE runtime_coverages
+		SET session_id='legacy-session-0001',
+		    source_kind='falco',
+		    window_start=NOW() - INTERVAL '2 seconds',
+		    window_end=NOW() - INTERVAL '1 second',
+		    received_at=NOW(),
+		    emitted=1, delivered=0, dropped=0, invalid=0, errors=1,
+		    reason='legacy failed receipt'
+		WHERE cluster_id='cluster-a' AND agent_id='agent-a' AND producer_id='falco'
+	`).Error)
+	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyRows).Error)
+	require.EqualValues(t, 1, historyRows, "valid pre-history latest receipt was not backfilled")
+	var backfilled models.RuntimeCoverageReceipt
+	require.NoError(t, db.First(&backfilled,
+		"cluster_id = ? AND agent_id = ? AND producer_id = ? AND session_id = ? AND coverage_id = ?",
+		"cluster-a", "agent-a", "falco", "legacy-session-0001", "legacy-coverage",
+	).Error)
+	require.Equal(t, "failed", backfilled.Status)
+	require.EqualValues(t, 1, backfilled.Errors)
+
 	// The repaired identity constraint must support the handler's ON CONFLICT key.
 	require.Error(t, db.Exec(`
 		INSERT INTO runtime_coverages(cluster_id,agent_id,producer_id,coverage_id,status)
