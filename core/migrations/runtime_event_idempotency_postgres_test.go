@@ -72,24 +72,31 @@ func TestRuntimeEventIdempotencyPostgres(t *testing.T) {
 	// Multiple legacy rows with no physical identity remain valid and outside the
 	// partial uniqueness contract.
 	require.NoError(t, db.Exec(`
-		INSERT INTO runtime_events(cluster_id,event_id,pod_uid,namespace,syscall,source_record_id)
-		VALUES ('cluster-a','legacy-3','pod-a','ns','execve','')
+		INSERT INTO runtime_events(cluster_id,agent_id,event_id,pod_uid,namespace,syscall,source_record_id)
+		VALUES ('cluster-a','','legacy-3','pod-a','ns','execve','')
 	`).Error)
 
 	sourceID := strings.Repeat("a", 64)
 	require.NoError(t, db.Exec(`
-		INSERT INTO runtime_events(cluster_id,event_id,pod_uid,namespace,syscall,source_record_id)
-		VALUES ('cluster-a','new-1','pod-a','ns','execve',?)
+		INSERT INTO runtime_events(cluster_id,agent_id,event_id,pod_uid,namespace,syscall,source_record_id)
+		VALUES ('cluster-a','agent-a','new-1','pod-a','ns','execve',?)
 	`, sourceID).Error)
 	require.Error(t, db.Exec(`
-		INSERT INTO runtime_events(cluster_id,event_id,pod_uid,namespace,syscall,source_record_id)
-		VALUES ('cluster-a','new-2','pod-a','ns','execve',?)
+		INSERT INTO runtime_events(cluster_id,agent_id,event_id,pod_uid,namespace,syscall,source_record_id)
+		VALUES ('cluster-a','agent-a','new-2','pod-a','ns','execve',?)
 	`, sourceID).Error, "same cluster/source record must be unique")
+
+	// A second authenticated Agent in the same cluster must not be deduplicated
+	// against another Agent's local source-record namespace.
+	require.NoError(t, db.Exec(`
+		INSERT INTO runtime_events(cluster_id,agent_id,event_id,pod_uid,namespace,syscall,source_record_id)
+		VALUES ('cluster-a','agent-b','new-agent-b','pod-b','ns','execve',?)
+	`, sourceID).Error)
 
 	// The same physical source identifier is isolated by cluster identity.
 	require.NoError(t, db.Exec(`
-		INSERT INTO runtime_events(cluster_id,event_id,pod_uid,namespace,syscall,source_record_id)
-		VALUES ('cluster-b','new-3','pod-b','ns','execve',?)
+		INSERT INTO runtime_events(cluster_id,agent_id,event_id,pod_uid,namespace,syscall,source_record_id)
+		VALUES ('cluster-b','agent-a','new-3','pod-b','ns','execve',?)
 	`, sourceID).Error)
 }
 
@@ -130,6 +137,7 @@ func TestRuntimeEventIdempotencyRejectsPreexistingDuplicateSourceRecordsPostgres
 		CREATE TABLE runtime_events (
 			id BIGSERIAL PRIMARY KEY,
 			cluster_id VARCHAR(255),
+			agent_id VARCHAR(255),
 			source_record_id VARCHAR(64),
 			pod_uid VARCHAR(255) NOT NULL,
 			namespace VARCHAR(255) NOT NULL,
@@ -138,10 +146,10 @@ func TestRuntimeEventIdempotencyRejectsPreexistingDuplicateSourceRecordsPostgres
 	`).Error)
 	sourceID := strings.Repeat("b", 64)
 	require.NoError(t, db.Exec(`
-		INSERT INTO runtime_events(cluster_id,source_record_id,pod_uid,namespace,syscall)
+		INSERT INTO runtime_events(cluster_id,agent_id,source_record_id,pod_uid,namespace,syscall)
 		VALUES
-		  ('cluster-a',?,'pod-a','ns','execve'),
-		  ('cluster-a',?,'pod-a','ns','execve')
+		  ('cluster-a','agent-a',?,'pod-a','ns','execve'),
+		  ('cluster-a','agent-a',?,'pod-a','ns','execve')
 	`, sourceID, sourceID).Error)
 
 	err = EnsureRuntimeEventIdempotency(db)
