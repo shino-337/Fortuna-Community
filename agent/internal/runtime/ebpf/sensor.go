@@ -71,6 +71,12 @@ func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, buff
 	}
 }
 
+func (s *Sensor) SetCoverageCadence(cadence time.Duration) {
+	if s != nil && s.coverage != nil {
+		s.coverage.SetCadence(cadence)
+	}
+}
+
 func (s *Sensor) Start(ctx context.Context) {
 	var opts ciliumebpf.CollectionOptions
 	_ = opts
