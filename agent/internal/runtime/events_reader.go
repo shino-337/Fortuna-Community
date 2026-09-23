@@ -64,14 +64,14 @@ type Reader struct {
 	coverage      *CoverageReporter
 }
 
-func NewReader(path string, poll time.Duration, coreURL string) *Reader {
+func NewReader(path string, poll time.Duration, coreURL string, sessionIDs ...string) *Reader {
 	return &Reader{
 		path:       path,
 		poll:       poll,
 		coreURL:    strings.TrimRight(coreURL, "/"),
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		logger:     log.New(log.Writer(), "[RuntimeEvents] ", log.LstdFlags),
-		coverage:   NewCoverageReporter(coreURL, "runtime-file", collection.RuntimeSourceFile),
+		coverage:   NewCoverageReporter(coreURL, "runtime-file", collection.RuntimeSourceFile, sessionIDs...),
 	}
 }
 
