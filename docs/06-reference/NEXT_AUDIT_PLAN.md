@@ -280,8 +280,21 @@ E1 starts after #52 and is the current implementation package. Merge only when:
 - Agent data availability is represented separately from heartbeat-derived
   healthy/slow/disconnected state;
 - system metrics do not report `healthy` when their backing queries fail;
+- dashboard data-integrity cross-checks, catalog health and runtime health do not
+  convert query/schema failures into zero counts, no-events, degraded or healthy
+  states; required backing-query failure returns retryable 503;
 - named regressions are added to the permanent security contract;
 - exact-head Core/API/dashboard validation and Secret scan pass before merge.
+
+Current #53 execution order after the merged #52 baseline:
+1. close backend availability semantics for Agent, cluster/node, capability, system
+   metrics, pipeline health and dashboard data-integrity surfaces;
+2. re-scan aggregate/detail handlers for ignored DB errors and add named regressions
+   for every remaining zero-on-error path in E1 scope;
+3. freeze the backend response contract and run exact-head CI/security gates;
+4. merge #53 manually, then start E2 dashboard retry/unavailable-state consumption;
+5. after E2, implement D3 source-health/authority; only then execute final package F
+   live two-cluster/DaemonSet acceptance.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 
