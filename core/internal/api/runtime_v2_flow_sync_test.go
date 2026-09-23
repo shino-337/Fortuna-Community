@@ -51,6 +51,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 
 	r := gin.New()
 	useAdminTestPrincipal(r)
+	useRuntimeAgentPrincipal(r, clusterID)
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 	r.GET("/api/v2/runtime/pods/:uid/facts", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeBehaviorFactsScoped(db))
 	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
@@ -230,6 +231,7 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 
 	r := gin.New()
 	useAdminTestPrincipal(r)
+	useRuntimeAgentPrincipal(r, clusterID)
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
 
