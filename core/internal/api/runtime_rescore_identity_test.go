@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fortuna/core/pkg/agentidentity"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/gin-gonic/gin"
@@ -28,13 +29,14 @@ func TestRuntimeIngestTriggersScopedRescore(t *testing.T) {
 			require.NoError(t, err)
 			sqlDB.SetMaxOpenConns(1)
 			defer sqlDB.Close()
-			require.NoError(t, db.AutoMigrate(&models.Pod{}, &models.Insight{}, &models.RiskScore{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}))
+			require.NoError(t, db.AutoMigrate(&models.Pod{}, &models.Insight{}, &models.RiskScore{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}))
 			require.NoError(t, db.Exec("CREATE UNIQUE INDEX risk_identity ON risk_scores(resource_type,resource_uid,cluster_id)").Error)
 			for _, cluster := range []string{"a", "b"} {
 				require.NoError(t, db.Create(&models.Pod{ClusterID: cluster, UID: "same", Name: "p", Namespace: "ns"}).Error)
 			}
 			r := gin.New()
 			r.Use(func(c *gin.Context) {
+				c.Set("fortuna.agent.principal", agentidentity.Principal{CredentialID: "runtime-rescore-test", ClusterID: "a", AgentID: "agent-a"})
 				c.Request = c.Request.WithContext(resourceidentity.WithClusterID(c.Request.Context(), "a"))
 			})
 			handler := PostRuntimeEventsV2Scoped(db)
