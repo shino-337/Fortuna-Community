@@ -214,9 +214,17 @@ REQUIRED = {
     ],
 }
 
+API_REQUIRED = {
+    "./collection": [
+        "TestRuntimeProducerManifestRequiresCompleteFailClosedRegistry",
+        "TestRuntimeCoverageRequiresExecutionSession",
+    ],
+}
+
 AGENT_REQUIRED = {
     "./cmd": [
         "TestRuntimeProducerDeclarationsAreCompleteAndFailClosed",
+        "TestRuntimeProducerDeclarationsNeverInferAuthorityFromEnablement",
     ],
     "./internal/syncer": ["TestInventoryCollectionAgentReportsEmptyAndFailure",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/empty",
@@ -332,6 +340,7 @@ def main():
     repo = Path(__file__).resolve().parents[2]
     errors = []
     run_required(repo / "core", "core", REQUIRED, errors)
+    run_required(repo / "api", "api", API_REQUIRED, errors)
     run_required(repo / "agent", "agent", AGENT_REQUIRED, errors)
     if errors:
         print("\n".join(errors), file=sys.stderr)
