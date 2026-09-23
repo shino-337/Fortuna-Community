@@ -3,6 +3,7 @@ package api
 import (
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -270,7 +271,7 @@ func latestRuntimeEventTime(q *gorm.DB) (*time.Time, error) {
 }
 
 type runtimeSignalTimeRow struct {
-	LastSeenAt *time.Time `gorm:"column:last_seen_at"`
+	LastSeenAt *string    `gorm:"column:last_seen_at"`
 	CreatedAt  *time.Time `gorm:"column:created_at"`
 }
 
@@ -285,11 +286,16 @@ func latestRuntimeSignalTime(q *gorm.DB) (*time.Time, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, candidate := range []*time.Time{row.LastSeenAt, row.CreatedAt} {
-		if candidate != nil && !candidate.IsZero() {
-			t := *candidate
-			return &t, nil
+	if row.LastSeenAt != nil && strings.TrimSpace(*row.LastSeenAt) != "" {
+		t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(*row.LastSeenAt))
+		if err != nil {
+			return nil, err
 		}
+		return &t, nil
+	}
+	if row.CreatedAt != nil && !row.CreatedAt.IsZero() {
+		t := *row.CreatedAt
+		return &t, nil
 	}
 	return nil, nil
 }
