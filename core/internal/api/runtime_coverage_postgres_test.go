@@ -132,8 +132,9 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
 	require.False(t, producer.Authoritative)
 	require.Equal(t, "source_health_unverified", producer.GapReason)
-	require.Equal(t, collection.RuntimeProducerNonAuthoritative, accepted.EffectiveStatus(&producer, now))
-	require.False(t, accepted.CoversInterval(&producer, first.WindowStart, first.WindowEnd, now))
+	evalNow := time.Now().UTC()
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, accepted.EffectiveStatus(&producer, evalNow))
+	require.False(t, accepted.CoversInterval(&producer, first.WindowStart, first.WindowEnd, evalNow))
 	require.Equal(t, first.ID, producer.LastCoverageID)
 
 	altered := first
@@ -177,8 +178,9 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, second.ID, producer.LastCoverageID)
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
 	require.False(t, producer.Authoritative)
-	require.Equal(t, collection.RuntimeProducerNonAuthoritative, recovered.EffectiveStatus(&producer, now))
-	require.False(t, recovered.CoversInterval(&producer, first.WindowStart, second.WindowEnd, now))
+	evalNow = time.Now().UTC()
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, recovered.EffectiveStatus(&producer, evalNow))
+	require.False(t, recovered.CoversInterval(&producer, first.WindowStart, second.WindowEnd, evalNow))
 
 	// A new Agent session must invalidate otherwise-fresh prior coverage and create
 	// a persisted restart gap before any new complete window is accepted.
@@ -189,7 +191,8 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, session2, producer.SessionID)
 	require.Equal(t, collection.RuntimeProducerStarting, producer.State)
 	require.Equal(t, "agent_restart", producer.GapReason)
-	require.Equal(t, "unknown", recovered.EffectiveStatus(&producer, now))
+	evalNow = time.Now().UTC()
+	require.Equal(t, "unknown", recovered.EffectiveStatus(&producer, evalNow))
 
 	third := second
 	third.ID = "postgres-coverage-0003"
@@ -206,8 +209,9 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
 	require.False(t, producer.Authoritative)
-	require.Equal(t, collection.RuntimeProducerNonAuthoritative, afterNewSession.EffectiveStatus(&producer, now))
-	require.False(t, afterNewSession.CoversInterval(&producer, third.WindowStart, third.WindowEnd, now))
+	evalNow = time.Now().UTC()
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, afterNewSession.EffectiveStatus(&producer, evalNow))
+	require.False(t, afterNewSession.CoversInterval(&producer, third.WindowStart, third.WindowEnd, evalNow))
 
 	// Startup invariant reruns on populated lifecycle/evidence data without mutation.
 	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
