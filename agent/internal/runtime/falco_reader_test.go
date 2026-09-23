@@ -238,11 +238,12 @@ func TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Model a reader that already initialized on this exact file and retained an
-	// incomplete trailing record across polls.
+	// Model a reader that already initialized on this exact file. Under the
+	// durable-cursor contract the offset remains at the beginning of an incomplete
+	// record; lineBuf is diagnostic state only.
 	r.initialized = true
 	r.fileInfo = st
-	r.offset = int64(len(prefix))
+	r.offset = 0
 	r.lineBuf = []byte(prefix)
 	startOffset := r.offset
 
