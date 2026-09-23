@@ -1257,6 +1257,11 @@ func escapeLikePattern(s string) string {
 // GetPods returns all pods with optional filters
 func GetPods(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "pod_inventory_schema_unavailable",
+			"Pod inventory requires Pod and Insight schemas", "pods", "insights") {
+			return
+		}
 		query := db.Model(&models.Pod{})
 
 		clusterFilter := strings.TrimSpace(c.Query("cluster"))
@@ -1317,7 +1322,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 
 		var total int64
 		if err := query.Count(&total).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_inventory_count_unavailable", "Pod inventory count could not be loaded")
 			return
 		}
 
@@ -1330,7 +1335,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			var allPods []models.Pod
 			qAll := query.Session(&gorm.Session{})
 			if err := qAll.Order("pods.name ASC").Limit(maxPodsForAttackPathSort).Find(&allPods).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				respondDataUnavailable(c, "pod_inventory_query_unavailable", "Pod inventory could not be loaded")
 				return
 			}
 			riskByUID, err := loadActiveInsightCountsByPodIdentity(db, allPods)
@@ -1367,10 +1372,6 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if !hasTable(db, "insights") {
-			respondSchemaUnavailable(c, "pod_risk_counts_schema_unavailable", "Pod risk counts require the insights schema")
-			return
-		}
 		var pods []models.Pod
 		var findErr error
 		switch sortBy {
@@ -1408,7 +1409,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			findErr = query.Offset(offset).Limit(pageSize).Order("pods.created_at DESC, pods.name ASC").Find(&pods).Error
 		}
 		if findErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": findErr.Error()})
+			respondDataUnavailable(c, "pod_inventory_query_unavailable", "Pod inventory could not be loaded")
 			return
 		}
 
