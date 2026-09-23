@@ -220,7 +220,10 @@ Required invariants include:
   second-granularity `event_id`. Core scopes the uniqueness claim by
   `{cluster_id, authenticated agent_id, source_record_id}` and performs that
   claim in the same SQL transaction as runtime_events, facts, signals, incidents,
-  risk score and capability effects. Exact replay is a no-op; changed replay is a
+  risk score and capability effects. Scoped ingest obtains `agent_id` only from
+  the authenticated principal; explicit legacy shared-token mode uses a pod-local
+  compatibility replay namespace and is not treated as trusted Agent ownership.
+  Exact replay is a no-op; changed replay is a
   conflict; concurrent duplicate submissions create one committed effect; distinct
   same-second physical records remain distinct. Generic reader restart replay,
   exact replay, same-second identity and PostgreSQL concurrency are permanent gates.
