@@ -266,9 +266,20 @@ It must not emit complete coverage, including in simulation mode. Removing this
 fail-closed rule requires a real event collector plus permanent observation/drop/
 shutdown regressions.
 
-Runtime coverage remains producer-specific. Before auto-resolution consumes it,
-the caller must also prove the required producer/capability is currently enabled.
-An old receipt from a disabled producer is not sufficient.
+Runtime coverage remains producer-specific. Producer operational state is
+persisted independently from evidence authority. A new Agent execution session,
+disable, stop or expired lifecycle lease invalidates old-session coverage and
+creates/extends an evidence gap.
+
+Protocol v1 has no independent upstream source-health proof. Therefore no runtime
+producer may self-assert `Authoritative=true`; Core rejects such manifests.
+File/Falco reader activity or complete-empty windows may prove the Agent-side
+collector loop is active, but must not establish `continuous_since` or satisfy
+absence-based `CoversInterval`. Built-in eBPF remains non-authoritative as well.
+
+Before any future auto-resolution consumes runtime coverage, a later protocol must
+prove both current producer enablement and independent upstream source health. Old
+receipts, config flags, file existence and reader heartbeats are not sufficient.
 
 PostgreSQL coverage arbitration is a permanent CI gate: concurrent first reports
 must converge without unique-key 500s, storage failure must roll back the accepted
