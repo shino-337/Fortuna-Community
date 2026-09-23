@@ -149,38 +149,70 @@ func pipelineHealthClusterFilter(db *gorm.DB, c *gin.Context) ([]string, bool) {
 // GET /api/v1/monitoring/pipeline-health
 func GetPipelineHealth(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
 		resp := PipelineHealthResponse{}
 		clusterIDs, ok := pipelineHealthClusterFilter(db, c)
 		if !ok {
 			return
 		}
+		scoped := func(q *gorm.DB, column string) *gorm.DB {
+			if len(clusterIDs) > 0 {
+				q = q.Where(column+" IN ?", clusterIDs)
+			}
+			return q
+		}
+		fail := func(err error, code, message string) bool {
+			if err == nil {
+				return false
+			}
+			respondDataUnavailable(c, code, message)
+			return true
+		}
 
 		// --- Layer 1 ---
 		var lastCapUpdate, lastInsightUpdate sql.NullTime
-		db.Model(&models.PodCapability{}).Select("MAX(updated_at)").Scan(&lastCapUpdate)
+		if fail(scoped(db.Model(&models.PodCapability{}), "cluster_id").
+			Select("MAX(updated_at)").Scan(&lastCapUpdate).Error,
+			"pipeline_health_layer1_capabilities_unavailable", "Pipeline capability freshness could not be loaded") {
+			return
+		}
 		resp.Layer1.LastPceEval = timeFromNull(lastCapUpdate)
 
-		db.Model(&models.Insight{}).
-			Where("insight_type = 'rbac' AND deleted_at IS NULL").
-			Select("MAX(updated_at)").Scan(&lastInsightUpdate)
+		if fail(scoped(db.Model(&models.Insight{}).
+			Where("insight_type = 'rbac' AND deleted_at IS NULL"), "cluster_id").
+			Select("MAX(updated_at)").Scan(&lastInsightUpdate).Error,
+			"pipeline_health_layer1_insights_unavailable", "Pipeline insight freshness could not be loaded") {
+			return
+		}
 		resp.Layer1.LastRiskEngineEval = timeFromNull(lastInsightUpdate)
-		db.Model(&models.Insight{}).
-			Where("status = 'active' AND deleted_at IS NULL").
-			Count(&resp.Layer1.InsightCount)
+		if fail(scoped(db.Model(&models.Insight{}).
+			Where("status = 'active' AND deleted_at IS NULL"), "cluster_id").
+			Count(&resp.Layer1.InsightCount).Error,
+			"pipeline_health_layer1_counts_unavailable", "Pipeline insight counts could not be loaded") {
+			return
+		}
 		resp.Layer1.FreshnessMinutes, resp.Layer1.Status = calcFreshness(resp.Layer1.LastPceEval, getPolicyByLayer("layer1"))
 
 		// --- Layer 2 ---
 		var lastStateChange sql.NullTime
-		db.Model(&models.PodCapability{}).
-			Where("state != 'detected'").
-			Select("MAX(updated_at)").Scan(&lastStateChange)
+		if fail(scoped(db.Model(&models.PodCapability{}).Where("state != 'detected'"), "cluster_id").
+			Select("MAX(updated_at)").Scan(&lastStateChange).Error,
+			"pipeline_health_layer2_state_unavailable", "Pipeline capability state could not be loaded") {
+			return
+		}
 		resp.Layer2.LastStateChange = timeFromNull(lastStateChange)
 		if db.Migrator().HasTable("promotion_rules") {
-			db.Model(&models.PromotionRule{}).Count(&resp.Layer2.ActivePromotionRules)
+			if fail(db.Model(&models.PromotionRule{}).Count(&resp.Layer2.ActivePromotionRules).Error,
+				"pipeline_health_promotion_rules_unavailable", "Promotion rule metrics could not be loaded") {
+				return
+			}
 		}
-		db.Model(&models.PodCapability{}).
-			Where("state IN ('exploited', 'chained')").
-			Count(&resp.Layer2.ExploitedCapCount)
+		if fail(scoped(db.Model(&models.PodCapability{}).
+			Where("state IN ('exploited', 'chained')"), "cluster_id").
+			Count(&resp.Layer2.ExploitedCapCount).Error,
+			"pipeline_health_layer2_counts_unavailable", "Pipeline exploited capability counts could not be loaded") {
+			return
+		}
 		resp.Layer2.FreshnessMinutes, resp.Layer2.Status = calcFreshness(resp.Layer2.LastStateChange, getPolicyByLayer("layer2"))
 
 		// --- Layer 3 ---
@@ -188,40 +220,58 @@ func GetPipelineHealth(db *gorm.DB) gin.HandlerFunc {
 			var lastPath sql.NullTime
 			activePaths := func() *gorm.DB {
 				q := db.Model(&models.AttackPath{}).
-					Joins("INNER JOIN pods ON pods.uid = attack_paths.pod_uid AND pods.deleted_at IS NULL")
+					Joins("INNER JOIN pods ON pods.cluster_id = attack_paths.cluster_id AND pods.uid = attack_paths.pod_uid AND pods.deleted_at IS NULL")
 				if len(clusterIDs) > 0 {
-					q = q.Where("pods.cluster_id IN ?", clusterIDs)
+					q = q.Where("attack_paths.cluster_id IN ?", clusterIDs)
 				}
 				return q
 			}
-			activePaths().Select("MAX(attack_paths.updated_at)").Scan(&lastPath)
+			if fail(activePaths().Select("MAX(attack_paths.updated_at)").Scan(&lastPath).Error,
+				"pipeline_health_layer3_freshness_unavailable", "Attack path freshness could not be loaded") {
+				return
+			}
 			resp.Layer3.LastPathComputation = timeFromNull(lastPath)
-			activePaths().Where("attack_paths.total_risk >= 0.7").Count(&resp.Layer3.TotalPaths)
-			activePaths().Where("attack_paths.total_risk >= 9.0").Count(&resp.Layer3.CriticalPaths)
+			if fail(activePaths().Where("attack_paths.total_risk >= 0.7").Count(&resp.Layer3.TotalPaths).Error,
+				"pipeline_health_layer3_counts_unavailable", "Attack path counts could not be loaded") {
+				return
+			}
+			if fail(activePaths().Where("attack_paths.total_risk >= 9.0").Count(&resp.Layer3.CriticalPaths).Error,
+				"pipeline_health_layer3_critical_unavailable", "Critical attack path counts could not be loaded") {
+				return
+			}
 		}
 		resp.Layer3.FreshnessMinutes, resp.Layer3.Status = calcFreshness(resp.Layer3.LastPathComputation, getPolicyByLayer("layer3"))
 
 		// --- Layer 4 ---
 		var lastScore sql.NullTime
-		db.Model(&models.RiskScore{}).
-			Where("deleted_at IS NULL").
-			Select("MAX(calculated_at)").Scan(&lastScore)
+		if fail(scoped(db.Model(&models.RiskScore{}).Where("deleted_at IS NULL"), "cluster_id").
+			Select("MAX(calculated_at)").Scan(&lastScore).Error,
+			"pipeline_health_layer4_freshness_unavailable", "Risk score freshness could not be loaded") {
+			return
+		}
 		resp.Layer4.LastScoreCalc = timeFromNull(lastScore)
-		db.Model(&models.RiskScore{}).
-			Where("deleted_at IS NULL").
-			Count(&resp.Layer4.ResourcesScored)
+		if fail(scoped(db.Model(&models.RiskScore{}).Where("deleted_at IS NULL"), "cluster_id").
+			Count(&resp.Layer4.ResourcesScored).Error,
+			"pipeline_health_layer4_counts_unavailable", "Risk score counts could not be loaded") {
+			return
+		}
 		var avgScore sql.NullFloat64
-		db.Model(&models.RiskScore{}).
-			Where("deleted_at IS NULL").
-			Select("AVG(total_score)").Scan(&avgScore)
+		if fail(scoped(db.Model(&models.RiskScore{}).Where("deleted_at IS NULL"), "cluster_id").
+			Select("AVG(total_score)").Scan(&avgScore).Error,
+			"pipeline_health_layer4_average_unavailable", "Average risk score could not be loaded") {
+			return
+		}
 		if avgScore.Valid {
 			resp.Layer4.AvgScore = avgScore.Float64
 		}
-		db.Model(&models.RiskScore{}).
-			Where("scorer_version = 'v3' AND deleted_at IS NULL").
-			Count(&resp.Layer4.V3Resources)
+		if fail(scoped(db.Model(&models.RiskScore{}).
+			Where("scorer_version = 'v3' AND deleted_at IS NULL"), "cluster_id").
+			Count(&resp.Layer4.V3Resources).Error,
+			"pipeline_health_layer4_v3_unavailable", "V3 risk score counts could not be loaded") {
+			return
+		}
 		resp.Layer4.FreshnessMinutes, resp.Layer4.Status = calcFreshness(resp.Layer4.LastScoreCalc, getPolicyByLayer("layer4"))
 
-		c.JSON(http.StatusOK, gin.H{"data": resp})
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "data": resp})
 	}
 }
