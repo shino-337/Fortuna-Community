@@ -1,7 +1,6 @@
 package api
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
 	"time"
@@ -244,12 +243,55 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func nullTimePtr(nt sql.NullTime) *time.Time {
-	if !nt.Valid || nt.Time.IsZero() {
-		return nil
+type runtimeEventTimeRow struct {
+	ObservedAt *time.Time `gorm:"column:observed_at"`
+	IngestedAt *time.Time `gorm:"column:ingested_at"`
+	CreatedAt  *time.Time `gorm:"column:created_at"`
+}
+
+func latestRuntimeEventTime(q *gorm.DB) (*time.Time, error) {
+	var row runtimeEventTimeRow
+	err := q.
+		Select("observed_at, ingested_at, created_at").
+		Where("COALESCE(observed_at, ingested_at, created_at) IS NOT NULL").
+		Order("COALESCE(observed_at, ingested_at, created_at) DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
 	}
-	t := nt.Time
-	return &t
+	for _, candidate := range []*time.Time{row.ObservedAt, row.IngestedAt, row.CreatedAt} {
+		if candidate != nil && !candidate.IsZero() {
+			t := *candidate
+			return &t, nil
+		}
+	}
+	return nil, nil
+}
+
+type runtimeSignalTimeRow struct {
+	LastSeenAt *time.Time `gorm:"column:last_seen_at"`
+	CreatedAt  *time.Time `gorm:"column:created_at"`
+}
+
+func latestRuntimeSignalTime(q *gorm.DB) (*time.Time, error) {
+	var row runtimeSignalTimeRow
+	err := q.
+		Select("last_seen_at, created_at").
+		Where("COALESCE(last_seen_at, created_at) IS NOT NULL").
+		Order("COALESCE(last_seen_at, created_at) DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range []*time.Time{row.LastSeenAt, row.CreatedAt} {
+		if candidate != nil && !candidate.IsZero() {
+			t := *candidate
+			return &t, nil
+		}
+	}
+	return nil, nil
 }
 
 func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) {
@@ -470,47 +512,44 @@ func buildRuntimeHealth(db *gorm.DB) (RuntimeHealth, error) {
 		if err := db.Table("runtime_events").Count(&health.RuntimeEventsCount).Error; err != nil {
 			return health, err
 		}
-		var lastEvent sql.NullTime
-		if err := db.Table("runtime_events").Select("MAX(COALESCE(observed_at, ingested_at, created_at))").Scan(&lastEvent).Error; err != nil {
+		lastEvent, err := latestRuntimeEventTime(db.Table("runtime_events"))
+		if err != nil {
 			return health, err
 		}
-		health.LastRuntimeEventAt = nullTimePtr(lastEvent)
+		health.LastRuntimeEventAt = lastEvent
 
-		if err := db.Table("runtime_events").
-			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco").
-			Count(&health.FalcoEventsCount).Error; err != nil {
+		falcoQuery := db.Table("runtime_events").
+			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco")
+		if err := falcoQuery.Count(&health.FalcoEventsCount).Error; err != nil {
 			return health, err
 		}
-		var lastFalco sql.NullTime
-		if err := db.Table("runtime_events").
-			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco").
-			Select("MAX(COALESCE(observed_at, ingested_at, created_at))").
-			Scan(&lastFalco).Error; err != nil {
+		lastFalco, err := latestRuntimeEventTime(falcoQuery)
+		if err != nil {
 			return health, err
 		}
-		health.LastFalcoEventAt = nullTimePtr(lastFalco)
+		health.LastFalcoEventAt = lastFalco
 	}
 
 	if db.Migrator().HasTable("runtime_signals") {
 		if err := db.Table("runtime_signals").Count(&health.RuntimeSignalsCount).Error; err != nil {
 			return health, err
 		}
-		var lastSignal sql.NullTime
-		if err := db.Table("runtime_signals").Select("MAX(COALESCE(last_seen_at, created_at))").Scan(&lastSignal).Error; err != nil {
+		lastSignal, err := latestRuntimeSignalTime(db.Table("runtime_signals"))
+		if err != nil {
 			return health, err
 		}
-		health.LastRuntimeSignalAt = nullTimePtr(lastSignal)
+		health.LastRuntimeSignalAt = lastSignal
 	}
 
 	if db.Migrator().HasTable("pod_runtime_metrics") {
 		if err := db.Table("pod_runtime_metrics").Count(&health.RuntimeMetricsCount).Error; err != nil {
 			return health, err
 		}
-		var lastMetric sql.NullTime
-		if err := db.Table("pod_runtime_metrics").Select("MAX(last_observed_at)").Scan(&lastMetric).Error; err != nil {
+		lastMetric, err := latestQueryTime(db.Table("pod_runtime_metrics"), "last_observed_at")
+		if err != nil {
 			return health, err
 		}
-		health.LastRuntimeMetricAt = nullTimePtr(lastMetric)
+		health.LastRuntimeMetricAt = lastMetric
 	}
 
 	last := latestTime(health.LastRuntimeEventAt, health.LastRuntimeSignalAt, health.LastRuntimeMetricAt)
