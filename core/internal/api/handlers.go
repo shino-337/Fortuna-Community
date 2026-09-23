@@ -265,7 +265,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_agents_cluster_unavailable", "Cluster Agent inventory could not verify cluster state")
 			return
 		}
 		if !hasTable(db, "agents") {
@@ -275,7 +275,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 
 		var agents []models.Agent
 		if err := db.WithContext(c.Request.Context()).Where("cluster_id = ? AND (status = ? OR status IS NULL)", id, "ready").Order("last_seen_at DESC NULLS LAST").Find(&agents).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Unable to load cluster agents"})
+			respondDataUnavailable(c, "cluster_agents_query_failed", "Cluster Agent inventory could not be loaded")
 			return
 		}
 
@@ -299,7 +299,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 				"version":       a.Version,
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{"agents": list, "total": len(list)})
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "agents": list, "total": len(list)})
 	}
 }
 
