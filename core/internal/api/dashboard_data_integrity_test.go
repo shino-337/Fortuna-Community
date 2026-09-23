@@ -153,6 +153,8 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenActiveSBOMNotMatchedCurren
 		t.Fatalf("open sqlite: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.Agent{},
+		&models.Cluster{},
 		&models.Pod{},
 		&models.SBOM{},
 		&models.SBOMMatchRun{},
@@ -211,6 +213,8 @@ func TestDashboardDataIntegrity_CatalogHealthStaleWhenMirrorMatchedButGeneration
 		t.Fatalf("open sqlite: %v", err)
 	}
 	if err := db.AutoMigrate(
+		&models.Agent{},
+		&models.Cluster{},
 		&models.Pod{},
 		&models.SBOM{},
 		&models.SBOMMatchRun{},
