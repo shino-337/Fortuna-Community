@@ -86,10 +86,26 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 		ID: "postgres-coverage-0001",
 		ProducerID: "falco",
 		SourceKind: collection.RuntimeSourceFalco,
+		SessionID: "session-postgres-000001",
 		Status: "complete",
 		WindowStart: now.Add(-4 * time.Second),
 		WindowEnd: now.Add(-3 * time.Second),
 	}
+
+	require.NoError(t, db.Create(&models.RuntimeProducerState{
+		ClusterID: "cluster-a",
+		AgentID: "agent-a",
+		ProducerID: "falco",
+		SourceKind: collection.RuntimeSourceFalco,
+		SessionID: first.SessionID,
+		SessionStartedAt: now.Add(-5 * time.Second),
+		Enabled: true,
+		Authoritative: true,
+		State: collection.RuntimeProducerStarting,
+		LastManifestAt: now,
+		LastHeartbeatAt: now,
+		GapReason: "startup",
+	}).Error)
 
 	// Exact concurrent first reports must collapse to one row; contenders are
 	// idempotent replays rather than unique-key 500s.
@@ -124,6 +140,10 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, first.ID, accepted.CoverageID)
 	require.NotNil(t, accepted.ContinuousSince)
 	require.True(t, accepted.ContinuousSince.Equal(first.WindowStart))
+	var producer models.RuntimeProducerState
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerActive, producer.State)
+	require.Equal(t, first.ID, producer.LastCoverageID)
 
 	altered := first
 	altered.Status = "failed"
@@ -150,6 +170,8 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.NoError(t, db.First(&afterFailure, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, first.ID, afterFailure.CoverageID)
 	require.True(t, afterFailure.WindowEnd.Equal(first.WindowEnd), "rollback changed accepted window: got=%v want=%v", afterFailure.WindowEnd, first.WindowEnd)
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, first.ID, producer.LastCoverageID, "coverage failure advanced lifecycle state")
 
 	require.NoError(t, db.Exec(`DROP TRIGGER deny_runtime_coverage_update ON runtime_coverages`).Error)
 	code, body, err = postCoveragePostgres(db, principal, second)
@@ -161,6 +183,9 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.Equal(t, second.ID, recovered.CoverageID)
 	require.NotNil(t, recovered.ContinuousSince)
 	require.True(t, recovered.ContinuousSince.Equal(first.WindowStart))
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, second.ID, producer.LastCoverageID)
+	require.Equal(t, collection.RuntimeProducerActive, producer.State)
 
 	// Startup invariant reruns on populated data without mutating accepted evidence.
 	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
