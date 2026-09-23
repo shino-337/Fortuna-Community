@@ -138,6 +138,29 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 	require.Equal(t, "capability_inventory_schema_unavailable", decodeAvailabilityBody(t, listW)["code"])
 }
 
+
+func TestWorkerMetricsQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t)
+	require.NoError(t, db.Exec("CREATE TABLE sbom_match_runs (id INTEGER PRIMARY KEY)").Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/workers")
+	GetWorkerStatus(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "worker_metrics_query_failed", body["code"])
+}
+
+func TestPolicyEvaluationMetricsFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t)
+	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/policy-evaluation-cost")
+	GetPolicyEvaluationCost(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "policy_evaluation_metrics_unavailable", body["code"])
+}
+
 func TestClusterStatsUsesPersistedAgentVersion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t,
