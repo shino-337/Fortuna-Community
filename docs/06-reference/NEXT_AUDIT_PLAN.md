@@ -177,3 +177,26 @@ boundaries:
   already persisted inventory.
 
 Any future change weakening one of these tests resets merge/release readiness.
+
+
+### D2 runtime / #52 merge gates
+
+#52 remains draft until the final runtime-evidence state machine is reviewed and
+the exact head passes Core, Agent, API, permanent security regressions, Secret scan
+and the PostgreSQL runtime-coverage gate.
+
+Required invariants include:
+
+- scoped producer identity and fixed producer/source binding;
+- positive, non-overlapping observation windows;
+- immutable at-least-once coverage retry;
+- explicit drop/invalid/error accounting and complete-empty semantics;
+- file/Falco partial-write and rotation handling;
+- eBPF fail-closed while the built-in sensor remains no-op;
+- bounded interval coverage rather than freshness-only absence reasoning;
+- concurrent first-report arbitration and SQL rollback/recovery on PostgreSQL.
+
+Runtime/Pod/cross-resource auto-resolution remains disabled in #52. Enabling a
+consumer is a separate change and must verify both the required bounded interval
+and that the required producer/capability is currently enabled. Package F still
+owns live restart, DaemonSet and two-cluster acceptance.
