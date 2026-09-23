@@ -36,7 +36,8 @@ func TestCoverageReporterRetriesImmutablePayloadBeforeNewWindow(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	r := NewCoverageReporter(srv.URL, "falco", collection.RuntimeSourceFalco)
+	session := "session-reporter-000001"
+	r := NewCoverageReporter(srv.URL, "falco", collection.RuntimeSourceFalco, session)
 	start := time.Now().UTC()
 	r.Reset(start)
 
@@ -52,6 +53,9 @@ func TestCoverageReporterRetriesImmutablePayloadBeforeNewWindow(t *testing.T) {
 	defer mu.Unlock()
 	if len(got) != 3 {
 		t.Fatalf("coverage calls=%d want 3", len(got))
+	}
+	if got[0].SessionID != session || got[1].SessionID != session || got[2].SessionID != session {
+		t.Fatalf("coverage session changed across reporter windows: %+v", got)
 	}
 	if got[0].ID != got[1].ID {
 		t.Fatalf("pending coverage ID changed across retry: %q != %q", got[0].ID, got[1].ID)
