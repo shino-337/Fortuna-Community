@@ -117,6 +117,7 @@ REQUIRED = {
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
         "TestRuntimeCoverageRejectsUnsafeWindows/historical-window-accepted-but-stale",
         "TestRuntimeCoverageRejectsUnsafeWindows/producer-source-mismatch",
+        "TestRuntimeCoverageRejectsUnsafeWindows/zero-duration",
         "TestRuntimeCoverageRejectsUnsafeWindows/complete-with-error",
         "TestRuntimeCoverageRejectsUnsafeWindows/overlap",
         "TestRuntimeCoverageRejectsUnsafeWindows/source-kind-rebind",
