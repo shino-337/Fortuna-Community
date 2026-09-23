@@ -138,7 +138,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					row.ContinuousSince = nil
 					if row.Status == "complete" && producer.Authoritative {
 						start := row.WindowStart
-						if prior.Status == "complete" && prior.ContinuousSince != nil && row.WindowStart.Equal(prior.WindowEnd) {
+						if producer.State == collection.RuntimeProducerActive && prior.Status == "complete" && prior.ContinuousSince != nil && row.WindowStart.Equal(prior.WindowEnd) {
 							start = *prior.ContinuousSince
 						}
 						row.ContinuousSince = &start
