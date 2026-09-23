@@ -20,6 +20,7 @@ import (
 var ErrRuntimeSourceRecordConflict = errors.New("rep: source-record identity reused with different payload")
 
 type RuntimeEventInput struct {
+	AgentID    string
 	PodUID     string
 	Namespace  string
 	Syscall    string
