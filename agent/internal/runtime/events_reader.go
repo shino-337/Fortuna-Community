@@ -65,6 +65,9 @@ type Reader struct {
 }
 
 func NewReader(path string, poll time.Duration, coreURL string, sessionIDs ...string) *Reader {
+	if poll <= 0 {
+		poll = 5 * time.Second
+	}
 	return &Reader{
 		path:       path,
 		poll:       poll,
@@ -75,7 +78,16 @@ func NewReader(path string, poll time.Duration, coreURL string, sessionIDs ...st
 	}
 }
 
+func (r *Reader) SetCoverageCadence(cadence time.Duration) {
+	if r != nil && r.coverage != nil {
+		r.coverage.SetCadence(cadence)
+	}
+}
+
 func (r *Reader) Start(ctx context.Context) {
+	// Match Falco behavior: perform one immediate observation instead of waiting
+	// an entire poll interval before discovering source errors or queued events.
+	r.readAndSend()
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
 
