@@ -59,18 +59,31 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 
 		replay := false
 		err := db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-			var prior models.RuntimeCoverage
-			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
-				Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", row.ClusterID, row.AgentID, row.ProducerID).
-				First(&prior).Error
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				if row.Status == "complete" {
-					start := row.WindowStart
-					row.ContinuousSince = &start
-				}
-				return tx.Create(&row).Error
+			// Close the concurrent first-report race without an unlocked
+			// SELECT-then-INSERT sequence. One transaction creates the producer row;
+			// concurrent contenders wait on the unique key, then arbitrate against
+			// the committed row under FOR UPDATE.
+			candidate := row
+			if candidate.Status == "complete" {
+				start := candidate.WindowStart
+				candidate.ContinuousSince = &start
 			}
-			if err != nil {
+			insert := tx.Clauses(clause.OnConflict{
+				Columns: []clause.Column{{Name: "cluster_id"}, {Name: "agent_id"}, {Name: "producer_id"}},
+				DoNothing: true,
+			}).Create(&candidate)
+			if insert.Error != nil {
+				return insert.Error
+			}
+			if insert.RowsAffected == 1 {
+				row = candidate
+				return nil
+			}
+
+			var prior models.RuntimeCoverage
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+				Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", row.ClusterID, row.AgentID, row.ProducerID).
+				First(&prior).Error; err != nil {
 				return err
 			}
 
