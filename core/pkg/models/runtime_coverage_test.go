@@ -10,6 +10,7 @@ import (
 func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 	base := time.Now().UTC().Truncate(time.Microsecond)
 	continuous := base
+	now := base.Add(5 * time.Second)
 	row := RuntimeCoverage{
 		ClusterID: "cluster-a",
 		AgentID: "agent-a",
@@ -30,7 +31,6 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 		State: "active",
 		LastHeartbeatAt: now,
 	}
-	now := base.Add(5 * time.Second)
 
 	require.True(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(3*time.Second), now))
 	require.False(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(5*time.Second), now),
