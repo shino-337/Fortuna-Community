@@ -30,7 +30,7 @@ func runtimeIdempotencySchema(t *testing.T, db *gorm.DB) {
 	))
 	require.NoError(t, db.Exec(`
 		CREATE UNIQUE INDEX IF NOT EXISTS idx_runtime_event_source_record_identity
-		ON runtime_events(cluster_id, source_record_id)
+		ON runtime_events(cluster_id, agent_id, source_record_id)
 		WHERE source_record_id IS NOT NULL AND source_record_id <> ''
 	`).Error)
 }
@@ -39,6 +39,7 @@ func runtimeReplayInput(sourceRecordID, eventID string, ts time.Time) RuntimeEve
 	observed := ts
 	ingested := ts.Add(time.Second)
 	return RuntimeEventInput{
+		AgentID:          "agent-a",
 		PodUID:          "pod-runtime-idempotency",
 		Namespace:       "ns",
 		Syscall:         "connect",
@@ -118,6 +119,7 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file:runtime-same-second?mode=memory&cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	runtimeIdempotencySchema(t, db)
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "cluster-a"}).Error)
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
 		ServiceAccount: "default",
@@ -130,6 +132,7 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 
 	ts := time.Unix(1700000000, 0).UTC()
 	base := RuntimeEventInput{
+		AgentID:          "agent-a",
 		PodUID:          "pod-runtime-idempotency",
 		Namespace:       "ns",
 		Syscall:         "noop",
@@ -161,9 +164,16 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, r2.Duplicate)
 
+	third := base
+	third.AgentID = "agent-b"
+	third.SourceRecordID = first.SourceRecordID
+	r3, err := ProcessRuntimeEventForIdentity(context.Background(), db, id, third)
+	require.NoError(t, err)
+	require.False(t, r3.Duplicate, "different authenticated agents must have separate replay namespaces")
+
 	var eventCount int64
 	require.NoError(t, db.Model(&models.RuntimeEvent{}).Count(&eventCount).Error)
-	require.EqualValues(t, 2, eventCount, "physical records at distinct offsets must not collapse")
+	require.EqualValues(t, 3, eventCount, "physical records and agent namespaces must remain distinct")
 
 	var signals []models.RuntimeSignal
 	require.NoError(t, db.Where("cluster_id = ? AND pod_uid = ? AND signal_type = ?", "cluster-a", "pod-runtime-idempotency", "UNKNOWN").Find(&signals).Error)
@@ -209,6 +219,7 @@ func TestRuntimeSourceRecordConcurrentDuplicatePostgres(t *testing.T) {
 	pool.SetMaxOpenConns(8)
 
 	runtimeIdempotencySchema(t, db)
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "cluster-a"}).Error)
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
 		ServiceAccount: "default",
