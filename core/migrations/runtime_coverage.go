@@ -76,6 +76,15 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,session_id,coverage_id,source_kind,status,window_start,window_end,received_at,continuous_since,emitted,delivered,dropped,invalid,errors,reason FROM runtime_coverage_receipts LIMIT 0").Error; err != nil {
 		return err
 	}
+	var unownedReceipt int64
+	if err := db.Table("runtime_coverage_receipts").
+		Where("cluster_id IS NULL OR cluster_id = '' OR agent_id IS NULL OR agent_id = '' OR producer_id IS NULL OR producer_id = '' OR session_id IS NULL OR session_id = '' OR coverage_id IS NULL OR coverage_id = ''").
+		Count(&unownedReceipt).Error; err != nil {
+		return err
+	}
+	if unownedReceipt != 0 {
+		return fmt.Errorf("runtime coverage history contains %d rows without immutable evidence identity", unownedReceipt)
+	}
 	if err := ensureIndex(db, "idx_runtime_coverage_receipt_identity", "runtime_coverage_receipts", "cluster_id,agent_id,producer_id,session_id,coverage_id", true); err != nil {
 		return err
 	}
