@@ -323,7 +323,7 @@ func main() {
 	// Graceful shutdown: invalidate producer leases before stopping local
 	// collectors when Core is reachable. Crash/partition still fails closed by
 	// lease expiry.
-	if err := runtimeLifecycle.Report(collection.RuntimeAgentStopping); err != nil {
+	if err := runtimeLifecycle.Stop(); err != nil {
 		log.Printf("⚠️  Runtime producer stopping manifest failed: %v", err)
 	}
 	cancel()
