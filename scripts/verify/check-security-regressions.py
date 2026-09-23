@@ -129,6 +129,7 @@ REQUIRED = {
         "TestClusterStatsUsesPersistedAgentVersion",
         "TestWorkerMetricsQueryFailureIsUnavailable",
         "TestPolicyEvaluationMetricsFailureIsUnavailable",
+        "TestDashboardRuntimeHealthReadsPersistedTimestamps",
         "TestDashboardRuntimeHealthQueryFailureIsUnavailable",
         "TestDashboardCatalogHealthQueryFailureIsUnavailable",
         "TestClusterAgentsMissingSchemaIsUnavailable",
