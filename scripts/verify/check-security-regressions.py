@@ -249,6 +249,7 @@ AGENT_REQUIRED = {
         "TestFlushLoopAccountsRetainedBatchOnShutdownFailure",
         "TestCoverageReportsPendingDeliveryAsFailed",
         "TestCoverageSnapshotDoesNotSplitInflightDelivery",
+        "TestEBPFCoverageNeverClaimsCompleteWhileSensorIsNoop",
     ],
 }
 
