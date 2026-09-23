@@ -122,6 +122,12 @@ REQUIRED = {
         "TestRuntimeCoverageRejectsUnsafeWindows/overlap",
         "TestRuntimeCoverageRejectsUnsafeWindows/source-kind-rebind",
         "TestRuntimeCoverageRejectsUnsafeWindows/gap-restarts-continuity",
+        "TestRuntimeCoverageRejectsUnsafeWindows/lifecycle-required",
+        "TestRuntimeCoverageRejectsUnsafeWindows/disabled-producer",
+        "TestRuntimeCoverageRejectsUnsafeWindows/stale-lifecycle-lease",
+        "TestRuntimeCoverageRejectsUnsafeWindows/session-mismatch",
+        "TestRuntimeProducerLifecycleRestartDisableAndLease",
+        "TestRuntimeProducerStoppingManifestClosesAllLeases",
         "TestRuntimeIngestTriggersScopedRescore",
         "TestRuntimeIngestTriggersScopedRescore/v2",
         "TestServiceAccountRBACResolution",
@@ -204,6 +210,9 @@ REQUIRED = {
 }
 
 AGENT_REQUIRED = {
+    "./cmd": [
+        "TestRuntimeProducerDeclarationsAreCompleteAndFailClosed",
+    ],
     "./internal/syncer": ["TestInventoryCollectionAgentReportsEmptyAndFailure",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/empty",
         "TestInventoryCollectionAgentReportsEmptyAndFailure/list-error",
@@ -241,6 +250,7 @@ AGENT_REQUIRED = {
         "TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds",
         "TestCoverageReporterRetriesImmutablePayloadBeforeNewWindow",
         "TestCoverageReporterMarksLossAndErrorsFailed",
+        "TestProducerLifecycleReporterRunningAndStopping",
         "TestRuntimeFileCoverageEmptyAndInvalid",
         "TestRuntimeFileCoverageEmptyAndInvalid/empty",
         "TestRuntimeFileCoverageEmptyAndInvalid/invalid",
