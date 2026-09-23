@@ -241,6 +241,7 @@ AGENT_REQUIRED = {
         "TestRuntimeFileCoverageEmptyAndInvalid/empty",
         "TestRuntimeFileCoverageEmptyAndInvalid/invalid",
         "TestFalcoCoverageRejectsUnresolvedEventAsDrop",
+        "TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile",
     ],
     "./internal/runtime/ebpf": [
         "TestSendBatchToCoreRuntimeEvents",
