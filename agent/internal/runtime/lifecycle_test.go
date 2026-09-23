@@ -67,3 +67,62 @@ func TestProducerLifecycleReporterRunningAndStopping(t *testing.T) {
 		t.Fatalf("stopping manifest invalid: %v", err)
 	}
 }
+
+
+func TestProducerLifecycleStopSerializesAfterInflightHeartbeat(t *testing.T) {
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	states := make(chan string, 2)
+	var calls int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		var m collection.RuntimeProducerManifest
+		if err := json.NewDecoder(req.Body).Decode(&m); err != nil {
+			t.Error(err)
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		calls++
+		if calls == 1 {
+			close(entered)
+			<-release
+		}
+		states <- m.AgentState
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	producers := []collection.RuntimeProducerDeclaration{
+		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile, Enabled: true, Authoritative: true},
+		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco},
+		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
+		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
+		{ProducerID: "ebpf-all", SourceKind: collection.RuntimeSourceEBPF},
+	}
+	r := NewProducerLifecycleReporter(srv.URL, "session-ordering-000001", time.Now().UTC().Add(-time.Second), producers)
+
+	runDone := make(chan error, 1)
+	go func() { runDone <- r.Report(collection.RuntimeAgentRunning) }()
+	<-entered
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- r.Stop() }()
+
+	select {
+	case state := <-states:
+		t.Fatalf("lifecycle request completed before releasing in-flight running report: %s", state)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(release)
+	if err := <-runDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-stopDone; err != nil {
+		t.Fatal(err)
+	}
+	first := <-states
+	second := <-states
+	if first != collection.RuntimeAgentRunning || second != collection.RuntimeAgentStopping {
+		t.Fatalf("lifecycle order=%q,%q want running,stopping", first, second)
+	}
+}
