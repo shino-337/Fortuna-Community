@@ -25,9 +25,6 @@ func runtimeProducerManifestState(decl collection.RuntimeProducerDeclaration, ag
 	} else if !decl.Enabled {
 		state = collection.RuntimeProducerDisabled
 		reason = "disabled"
-	} else if !decl.Authoritative {
-		state = collection.RuntimeProducerNonAuthoritative
-		reason = "non_authoritative"
 	}
 	g := gap
 	return models.RuntimeProducerState{
@@ -151,14 +148,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						}
 						next.State = collection.RuntimeProducerDisabled
 						next.GapReason = "disabled"
-					case !decl.Authoritative:
-						if prior.Authoritative || prior.State != collection.RuntimeProducerNonAuthoritative {
-							gap := req.ReportedAt
-							next.GapSince = &gap
-						}
-						next.State = collection.RuntimeProducerNonAuthoritative
-						next.GapReason = "non_authoritative"
-					case !prior.Enabled || !prior.Authoritative || prior.State == collection.RuntimeProducerDisabled || prior.State == collection.RuntimeProducerStopped || prior.State == collection.RuntimeProducerNonAuthoritative:
+					case !prior.Enabled || prior.State == collection.RuntimeProducerDisabled || prior.State == collection.RuntimeProducerStopped:
 						next.State = collection.RuntimeProducerStarting
 						gap := req.ReportedAt
 						next.GapSince = &gap
