@@ -100,6 +100,88 @@ func TestCoverageReporterMarksLossAndErrorsFailed(t *testing.T) {
 	}
 }
 
+
+func TestCoverageReporterCoalescesCleanWindowsByCadence(t *testing.T) {
+	var got []collection.RuntimeCoverage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c collection.RuntimeCoverage
+		if err := json.NewDecoder(r.Body).Decode(&c); err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, c)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := NewCoverageReporter(srv.URL, "runtime-file", collection.RuntimeSourceFile)
+	r.SetCadence(30 * time.Second)
+	start := time.Now().UTC()
+	r.Reset(start)
+
+	for i := 1; i <= 5; i++ {
+		requireNoErr(t, r.Observe(start.Add(time.Duration(i)*5*time.Second), CoverageStats{}, ""))
+	}
+	if len(got) != 0 {
+		t.Fatalf("clean observations emitted before cadence: %d", len(got))
+	}
+	requireNoErr(t, r.Observe(start.Add(30*time.Second), CoverageStats{}, ""))
+	if len(got) != 1 {
+		t.Fatalf("coverage receipts=%d want 1", len(got))
+	}
+	if !got[0].WindowStart.Equal(start) || !got[0].WindowEnd.Equal(start.Add(30*time.Second)) {
+		t.Fatalf("coalesced window mismatch: %+v", got[0])
+	}
+}
+
+func TestCoverageReporterFailureBypassesCadence(t *testing.T) {
+	var got []collection.RuntimeCoverage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c collection.RuntimeCoverage
+		_ = json.NewDecoder(r.Body).Decode(&c)
+		got = append(got, c)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := NewCoverageReporter(srv.URL, "runtime-file", collection.RuntimeSourceFile)
+	r.SetCadence(30 * time.Second)
+	start := time.Now().UTC()
+	r.Reset(start)
+
+	requireNoErr(t, r.Observe(start.Add(5*time.Second), CoverageStats{}, ""))
+	if len(got) != 0 {
+		t.Fatal("clean pre-cadence observation should remain aggregated")
+	}
+	requireNoErr(t, r.Observe(start.Add(10*time.Second), CoverageStats{Errors: 1}, "runtime source failed"))
+	if len(got) != 1 || got[0].Status != "failed" || got[0].Errors != 1 {
+		t.Fatalf("failure did not bypass cadence: %+v", got)
+	}
+	if !got[0].WindowStart.Equal(start) || !got[0].WindowEnd.Equal(start.Add(10*time.Second)) {
+		t.Fatalf("failed aggregate window mismatch: %+v", got[0])
+	}
+}
+
+func TestCoverageReporterFlushForcesCleanBacklog(t *testing.T) {
+	var got []collection.RuntimeCoverage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var c collection.RuntimeCoverage
+		_ = json.NewDecoder(r.Body).Decode(&c)
+		got = append(got, c)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	r := NewCoverageReporter(srv.URL, "runtime-file", collection.RuntimeSourceFile)
+	r.SetCadence(time.Minute)
+	start := time.Now().UTC()
+	r.Reset(start)
+	requireNoErr(t, r.Observe(start.Add(5*time.Second), CoverageStats{}, ""))
+	requireNoErr(t, r.Flush())
+	if len(got) != 1 || got[0].Status != "complete" {
+		t.Fatalf("final flush did not persist clean backlog: %+v", got)
+	}
+}
+
 func requireNoErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
