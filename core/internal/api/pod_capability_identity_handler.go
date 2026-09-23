@@ -27,7 +27,7 @@ func GetPodCapabilitiesScoped(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 
