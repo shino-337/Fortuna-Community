@@ -3,6 +3,7 @@ package rep
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -15,6 +16,8 @@ import (
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/resourceidentity"
 )
+
+var ErrRuntimeSourceRecordConflict = errors.New("rep: source-record identity reused with different payload")
 
 type RuntimeEventInput struct {
 	PodUID     string
