@@ -122,7 +122,7 @@ func TestSystemMetricsCountsDuplicatePodUIDAcrossClustersSeparately(t *testing.T
 
 func TestDashboardIntegrityClusterQualifiesPodAndSBOMCoverage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{}, &models.SBOM{})
+	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.SBOM{})
 	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
 		require.NoError(t, db.Create(&models.Pod{ClusterID: clusterID, UID: "same-pod", Name: "pod", Namespace: "ns"}).Error)
 	}
@@ -187,7 +187,7 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 
 func TestDashboardRuntimeHealthReadsPersistedTimestamps(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{}, &models.RuntimeEvent{}, &models.RuntimeSignal{})
+	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RuntimeEvent{}, &models.RuntimeSignal{})
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	lastSeen := now.Format(time.RFC3339Nano)
 	require.NoError(t, db.Create(&models.RuntimeEvent{
@@ -214,7 +214,7 @@ func TestDashboardRuntimeHealthReadsPersistedTimestamps(t *testing.T) {
 
 func TestDashboardRuntimeHealthQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{}, &models.Insight{})
 	require.NoError(t, db.Exec("CREATE TABLE runtime_events (id INTEGER PRIMARY KEY)").Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
@@ -227,7 +227,7 @@ func TestDashboardRuntimeHealthQueryFailureIsUnavailable(t *testing.T) {
 
 func TestDashboardCatalogHealthQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	db := availabilityTestDB(t, &models.Agent{}, &models.Cluster{}, &models.Pod{}, &models.Insight{})
 	require.NoError(t, db.Exec("CREATE TABLE cves (id INTEGER PRIMARY KEY)").Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
