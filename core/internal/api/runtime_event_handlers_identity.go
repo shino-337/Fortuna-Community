@@ -60,8 +60,8 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		principal, scoped := middleware.AgentPrincipal(c)
-		if !scoped || principal.ClusterID != clusterID {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "scoped agent identity required", "code": "runtime_agent_identity_required"})
+		if scoped && principal.ClusterID != clusterID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "runtime agent cluster mismatch", "code": "runtime_agent_cluster_mismatch"})
 			return
 		}
 		payloads, err := bindRuntimeV2Payloads(c)
@@ -91,6 +91,15 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				continue
 			}
 			sourceRecordID := strings.TrimSpace(p.SourceRecordID)
+			agentID := ""
+			if scoped {
+				agentID = principal.AgentID
+			} else {
+				// Explicit legacy shared-token mode has no authenticated Agent
+				// identity. Keep compatibility in a pod-local replay namespace
+				// without pretending this is a trusted Agent principal.
+				agentID = "legacy-pod:" + podUID
+			}
 			id, err := resourceidentity.New(clusterID, podUID)
 			if err != nil {
 				continue
@@ -130,7 +139,7 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				sourceRule = strings.TrimSpace(p.SourceRuleFlat)
 			}
 			result, err := rep.ProcessRuntimeEventForIdentity(c.Request.Context(), db, id, rep.RuntimeEventInput{
-				AgentID: principal.AgentID,
+				AgentID: agentID,
 				PodUID: podUID, PodName: strings.TrimSpace(p.Pod.Name), Namespace: strings.TrimSpace(p.Pod.Namespace),
 				NodeName: strings.TrimSpace(p.Pod.Node), Syscall: strings.TrimSpace(p.Syscall), TargetPath: strings.TrimSpace(p.Target),
 				Capability: capabilityName, Timestamp: observedAt, EventID: strings.TrimSpace(p.EventID),
