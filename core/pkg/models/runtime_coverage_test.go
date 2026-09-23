@@ -65,3 +65,32 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 	require.False(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(3*time.Second), now),
 		"coverage from a previous Agent session cannot prove coverage")
 }
+
+
+func TestRuntimeProducerEffectiveStatusSeparatesActivityFromAuthority(t *testing.T) {
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	recent := now.Add(-time.Second)
+	state := RuntimeProducerState{
+		ClusterID: "cluster-a",
+		AgentID: "agent-a",
+		ProducerID: "falco",
+		SessionID: "session-000000000001",
+		Enabled: true,
+		Authoritative: false,
+		State: collection.RuntimeProducerActive,
+		LastHeartbeatAt: now,
+		LastCoverageEnd: &recent,
+	}
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, state.EffectiveStatus(now),
+		"fresh reader activity is observable but not absence-authoritative")
+
+	stale := now.Add(-collection.RuntimeProducerLeaseMaxAge - time.Second)
+	state.LastCoverageEnd = &stale
+	require.Equal(t, "stale", state.EffectiveStatus(now),
+		"stale reader activity must not be hidden by non-authoritative status")
+
+	state.LastCoverageEnd = &recent
+	state.Enabled = false
+	state.State = collection.RuntimeProducerDisabled
+	require.Equal(t, collection.RuntimeProducerDisabled, state.EffectiveStatus(now))
+}
