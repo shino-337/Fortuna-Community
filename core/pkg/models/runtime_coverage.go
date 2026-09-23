@@ -6,8 +6,10 @@ import (
 	"github.com/fortuna/api/collection"
 )
 
-// RuntimeCoverage records the latest authenticated window for one Agent producer.
-// It proves only that producer/window; it is never cluster-wide sensor coverage.
+// RuntimeCoverage is the mutable latest-state projection for one Agent producer.
+// Every accepted non-replay window is also written immutably to
+// RuntimeCoverageReceipt in the same transaction. This row exists for ordering,
+// lifecycle evaluation and fast reads; it is not the audit history table.
 type RuntimeCoverage struct {
 	ClusterID       string     `gorm:"primaryKey;size:255" json:"clusterId"`
 	AgentID         string     `gorm:"primaryKey;size:255" json:"agentId"`
