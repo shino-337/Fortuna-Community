@@ -143,7 +143,7 @@ func TestRuntimeProducerStoppingManifestClosesAllLeases(t *testing.T) {
 
 	var states []models.RuntimeProducerState
 	require.NoError(t, db.Where("cluster_id = ? AND agent_id = ?", "cluster-a", "agent-a").Find(&states).Error)
-	require.Len(t, states, len(collection.RuntimeProducerRegistry))
+	require.Len(t, states, collection.RuntimeProducerRegistrySize())
 	for _, state := range states {
 		require.Equal(t, collection.RuntimeProducerStopped, state.State)
 		require.False(t, state.Enabled)
