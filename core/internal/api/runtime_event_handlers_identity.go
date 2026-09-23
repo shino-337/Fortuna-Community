@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/rep"
 	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/riskengine"
@@ -56,6 +57,11 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		clusterID, ok := trustedRuntimeCluster(c)
 		if !ok {
+			return
+		}
+		principal, scoped := middleware.AgentPrincipal(c)
+		if !scoped || principal.ClusterID != clusterID {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "scoped agent identity required", "code": "runtime_agent_identity_required"})
 			return
 		}
 		payloads, err := bindRuntimeV2Payloads(c)
@@ -124,6 +130,7 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				sourceRule = strings.TrimSpace(p.SourceRuleFlat)
 			}
 			result, err := rep.ProcessRuntimeEventForIdentity(c.Request.Context(), db, id, rep.RuntimeEventInput{
+				AgentID: principal.AgentID,
 				PodUID: podUID, PodName: strings.TrimSpace(p.Pod.Name), Namespace: strings.TrimSpace(p.Pod.Namespace),
 				NodeName: strings.TrimSpace(p.Pod.Node), Syscall: strings.TrimSpace(p.Syscall), TargetPath: strings.TrimSpace(p.Target),
 				Capability: capabilityName, Timestamp: observedAt, EventID: strings.TrimSpace(p.EventID),
