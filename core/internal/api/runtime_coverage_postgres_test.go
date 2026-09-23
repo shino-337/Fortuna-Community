@@ -122,6 +122,9 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&models.RuntimeCoverage{}).Count(&count).Error)
 	require.EqualValues(t, 1, count)
+	var historyCount int64
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 1, historyCount, "first accepted coverage must create one immutable receipt")
 
 	var accepted models.RuntimeCoverage
 	require.NoError(t, db.First(&accepted, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
@@ -144,6 +147,8 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	code, body, err := postCoveragePostgres(db, principal, altered)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusConflict, code, body)
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 1, historyCount, "changed replay must not append audit history")
 
 	// A real SQL write failure must not advance the accepted window. Retrying the
 	// exact next window after storage recovers must then succeed.
@@ -164,6 +169,8 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.True(t, afterFailure.WindowEnd.Equal(first.WindowEnd), "rollback changed accepted window: got=%v want=%v", afterFailure.WindowEnd, first.WindowEnd)
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, first.ID, producer.LastCoverageID, "coverage failure advanced lifecycle state")
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 1, historyCount, "rolled-back latest update must not leave an immutable receipt")
 
 	require.NoError(t, db.Exec(`DROP TRIGGER deny_runtime_coverage_update ON runtime_coverages`).Error)
 	code, body, err = postCoveragePostgres(db, principal, second)
@@ -181,6 +188,19 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	evalNow = time.Now().UTC()
 	require.Equal(t, collection.RuntimeProducerNonAuthoritative, recovered.EffectiveStatus(&producer, evalNow))
 	require.False(t, recovered.CoversInterval(&producer, first.WindowStart, second.WindowEnd, evalNow))
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 2, historyCount, "recovery must append a second immutable receipt")
+
+	// Replaying an older accepted receipt in the same session is idempotent and
+	// must not roll back the latest projection or append duplicate history.
+	code, body, err = postCoveragePostgres(db, principal, first)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, code, body)
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 2, historyCount)
+	var stillLatest models.RuntimeCoverage
+	require.NoError(t, db.First(&stillLatest, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, second.ID, stillLatest.CoverageID)
 
 	// A new Agent session must invalidate otherwise-fresh prior coverage and create
 	// a persisted restart gap before any new complete window is accepted.
@@ -212,6 +232,8 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	evalNow = time.Now().UTC()
 	require.Equal(t, collection.RuntimeProducerNonAuthoritative, afterNewSession.EffectiveStatus(&producer, evalNow))
 	require.False(t, afterNewSession.CoversInterval(&producer, third.WindowStart, third.WindowEnd, evalNow))
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 3, historyCount, "new session acceptance must preserve prior-session history")
 
 	// Startup invariant reruns on populated lifecycle/evidence data without mutation.
 	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
@@ -222,4 +244,84 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	require.NoError(t, db.First(&producerAfterMigration, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, session2, producerAfterMigration.SessionID)
 	require.Equal(t, collection.RuntimeProducerActive, producerAfterMigration.State)
+	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyCount).Error)
+	require.EqualValues(t, 3, historyCount, "migration rerun must preserve immutable coverage history")
+}
+
+func TestRuntimeCoveragePostgresLegacySchemaUpgrade(t *testing.T) {
+	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")
+	if dsn == "" {
+		t.Skip("FORTUNA_TEST_POSTGRES_URL is not configured")
+	}
+
+	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	adminSQL, err := admin.DB()
+	require.NoError(t, err)
+	defer adminSQL.Close()
+
+	schema := fmt.Sprintf("runtime_coverage_legacy_%d", time.Now().UnixNano())
+	require.NoError(t, admin.Exec("CREATE SCHEMA "+schema).Error)
+	defer admin.Exec("DROP SCHEMA " + schema + " CASCADE")
+
+	if strings.Contains(dsn, "://") {
+		u, err := url.Parse(dsn)
+		require.NoError(t, err)
+		q := u.Query()
+		q.Set("search_path", schema)
+		u.RawQuery = q.Encode()
+		dsn = u.String()
+	} else {
+		dsn += " search_path=" + schema
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	pool, err := db.DB()
+	require.NoError(t, err)
+	defer pool.Close()
+
+	// Simulate a populated experimental table predating the current contract:
+	// identity exists, but most receipt/lifecycle fields and uniqueness guards do
+	// not. Migration must preserve the row while repairing the complete shape.
+	require.NoError(t, db.Exec(`
+		CREATE TABLE runtime_coverages (
+			cluster_id text,
+			agent_id text,
+			producer_id text,
+			coverage_id text,
+			status text
+		)
+	`).Error)
+	require.NoError(t, db.Exec(`
+		INSERT INTO runtime_coverages(cluster_id,agent_id,producer_id,coverage_id,status)
+		VALUES ('cluster-a','agent-a','falco','legacy-coverage','failed')
+	`).Error)
+
+	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
+	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
+
+	for _, column := range []string{
+		"cluster_id", "agent_id", "producer_id", "session_id", "coverage_id",
+		"source_kind", "status", "window_start", "window_end", "received_at",
+		"continuous_since", "emitted", "delivered", "dropped", "invalid",
+		"errors", "reason",
+	} {
+		require.True(t, db.Migrator().HasColumn(&models.RuntimeCoverage{}, column), "missing upgraded column %s", column)
+	}
+	require.True(t, db.Migrator().HasTable(&models.RuntimeCoverageReceipt{}))
+	require.True(t, db.Migrator().HasTable(&models.RuntimeProducerState{}))
+
+	var rows int64
+	require.NoError(t, db.Table("runtime_coverages").Where(
+		"cluster_id = ? AND agent_id = ? AND producer_id = ? AND coverage_id = ?",
+		"cluster-a", "agent-a", "falco", "legacy-coverage",
+	).Count(&rows).Error)
+	require.EqualValues(t, 1, rows, "legacy runtime coverage row was not preserved")
+
+	// The repaired identity constraint must support the handler's ON CONFLICT key.
+	require.Error(t, db.Exec(`
+		INSERT INTO runtime_coverages(cluster_id,agent_id,producer_id,coverage_id,status)
+		VALUES ('cluster-a','agent-a','falco','duplicate','failed')
+	`).Error, "upgraded latest projection must reject duplicate producer identity")
 }
