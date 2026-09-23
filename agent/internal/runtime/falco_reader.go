@@ -44,6 +44,7 @@ type FalcoReader struct {
 	logger     *log.Logger
 	offset      int64
 	initialized bool
+	fileInfo    os.FileInfo
 	// lineBuf holds an incomplete trailing line (no '\n' yet) across polls so we never
 	// json.Unmarshal a half-written Falco record (causes "invalid character ...", EOF, etc.).
 	lineBuf []byte
@@ -132,6 +133,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	// skip the first real Falco event written later.
 	if !r.initialized {
 		r.initialized = true
+		r.fileInfo = st
 		r.coverage.Reset(time.Now().UTC())
 		if fileSize > 0 {
 			// Tail from EOF once to avoid loading historical multi-GB Falco backlog.
@@ -140,15 +142,16 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 			return
 		}
 	}
-	// Log rotation/truncate: consume the new file from the beginning, but break
-	// clean continuity because bytes between the old cursor and rotation cannot
-	// be proven observed.
-	if r.offset > fileSize {
+	// Detect both in-place truncate and replacement/inode rotation. Size alone is
+	// insufficient: a replacement file may already be larger than the old offset.
+	rotated := r.fileInfo != nil && !os.SameFile(r.fileInfo, st)
+	if rotated || r.offset > fileSize {
 		r.offset = 0
 		r.lineBuf = nil
 		stats.Errors++
 		reason = mergeCoverageReason(reason, "falco event file rotated or truncated")
 	}
+	r.fileInfo = st
 
 	startOffset := r.offset
 	startBuf := append([]byte(nil), r.lineBuf...)
