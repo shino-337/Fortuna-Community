@@ -125,6 +125,8 @@ REQUIRED = {
         "TestClusterNodeSurfacesDoNotConvertMissingPodsTableToEmpty",
         "TestCapabilityDetailAndListShareUnavailableSemantics",
         "TestClusterStatsUsesPersistedAgentVersion",
+        "TestWorkerMetricsQueryFailureIsUnavailable",
+        "TestPolicyEvaluationMetricsFailureIsUnavailable",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
