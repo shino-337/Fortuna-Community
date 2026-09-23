@@ -20,6 +20,24 @@ var (
 	errRuntimeProducerInactive = errors.New("runtime producer is not active for this session")
 )
 
+func runtimeCoverageReceiptMatches(receipt models.RuntimeCoverageReceipt, row models.RuntimeCoverage) bool {
+	return receipt.ClusterID == row.ClusterID &&
+		receipt.AgentID == row.AgentID &&
+		receipt.ProducerID == row.ProducerID &&
+		receipt.SessionID == row.SessionID &&
+		receipt.CoverageID == row.CoverageID &&
+		receipt.SourceKind == row.SourceKind &&
+		receipt.Status == row.Status &&
+		receipt.WindowStart.Equal(row.WindowStart) &&
+		receipt.WindowEnd.Equal(row.WindowEnd) &&
+		receipt.Emitted == row.Emitted &&
+		receipt.Delivered == row.Delivered &&
+		receipt.Dropped == row.Dropped &&
+		receipt.Invalid == row.Invalid &&
+		receipt.Errors == row.Errors &&
+		receipt.Reason == row.Reason
+}
+
 // PostRuntimeCoverage accepts evidence only from a scoped Agent principal and a
 // current producer lifecycle lease for the same Agent execution session.
 func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
@@ -82,6 +100,27 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				producer.State == collection.RuntimeProducerStopped {
 				return errRuntimeProducerInactive
 			}
+
+			// CoverageID is immutable evidence identity. Check history first so an
+			// exact replay of any previously accepted receipt is idempotent, while
+			// reusing an old ID with changed payload fails closed.
+			var historical models.RuntimeCoverageReceipt
+			historyErr := tx.Where(
+				"cluster_id = ? AND agent_id = ? AND producer_id = ? AND session_id = ? AND coverage_id = ?",
+				row.ClusterID, row.AgentID, row.ProducerID, row.SessionID, row.CoverageID,
+			).First(&historical).Error
+			if historyErr == nil {
+				if !runtimeCoverageReceiptMatches(historical, row) {
+					return errRuntimeCoverageConflict
+				}
+				row = models.RuntimeCoverageFromReceipt(historical)
+				replay = true
+				return nil
+			}
+			if !errors.Is(historyErr, gorm.ErrRecordNotFound) {
+				return historyErr
+			}
+
 			// Non-authoritative producers may still report complete observation
 			// windows for operational visibility. They must never establish
 			// continuity or absence-eligible evidence.
@@ -120,8 +159,9 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					row = prior
 					replay = true
 				} else if prior.SessionID != row.SessionID {
-					// Restart/new execution session: old receipt is retained only as
-					// overwritten history and cannot extend continuity.
+					// Restart/new execution session: the old latest projection is
+					// replaced, while its immutable receipt remains in history and
+					// cannot extend continuity.
 					row.ContinuousSince = nil
 					if row.Status == "complete" && producer.Authoritative {
 						start := row.WindowStart
@@ -166,6 +206,11 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 			}
 
 			if !replay {
+				receipt := models.RuntimeCoverageReceiptFrom(row)
+				if err := tx.Create(&receipt).Error; err != nil {
+					return err
+				}
+
 				producer.LastCoverageID = row.CoverageID
 				end := row.WindowEnd
 				producer.LastCoverageEnd = &end
