@@ -27,7 +27,8 @@ func validateRuntimeCoverageSemantics(db *gorm.DB, table string, allowPartial bo
 
 	var invalid int64
 	query := "SELECT COUNT(*) FROM " + base + " AND (" +
-		"status NOT IN ('complete','failed')" +
+		"status IS NULL OR status NOT IN ('complete','failed')" +
+		" OR source_kind IS NULL OR received_at IS NULL" +
 		" OR window_start IS NULL OR window_end IS NULL OR window_end <= window_start" +
 		" OR COALESCE(delivered,0) > COALESCE(emitted,0)" +
 		" OR (status = 'complete' AND (COALESCE(dropped,0) <> 0 OR COALESCE(invalid,0) <> 0 OR COALESCE(errors,0) <> 0 OR COALESCE(delivered,0) <> COALESCE(emitted,0)))" +
