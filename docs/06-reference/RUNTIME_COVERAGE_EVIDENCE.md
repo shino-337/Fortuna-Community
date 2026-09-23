@@ -84,23 +84,45 @@ Coverage POST is at-least-once. Until Core acknowledges a report, the Agent keep
 the same coverage ID and exact payload. New observations accumulate behind that
 immutable pending report.
 
-Core accepts exact replay, rejects changed replay, prevents overlapping or
-out-of-order windows and persists `continuous_since`. Continuity extends only
-across adjacent complete windows. A failed window or time gap resets continuity.
+Core accepts exact replay, rejects changed replay and prevents overlapping or
+out-of-order windows. Storage is deliberately split:
+
+- `runtime_coverages` is the mutable latest projection keyed by
+  `{cluster_id,agent_id,producer_id}` for lock/order/lifecycle evaluation;
+- `runtime_coverage_receipts` is immutable accepted history keyed by
+  `{cluster_id,agent_id,producer_id,session_id,coverage_id}`.
+
+Every accepted non-replay window appends one immutable receipt in the same
+transaction that updates the latest projection and lifecycle state. A failed SQL
+transaction leaves neither a new latest state nor a history receipt. Exact replay
+does not duplicate history. Migration backfills a pre-history latest row only when
+it already contains a complete evidence identity/window; partial legacy rows are
+preserved but are not fabricated into historical evidence.
+
+Continuity extends only across adjacent complete authoritative windows. A failed
+window or time gap resets continuity.
 
 The PostgreSQL CI gate verifies concurrent first report arbitration, exact replay,
-real SQL rollback/recovery and populated startup migration behavior.
+immutable history, real SQL rollback/recovery, a populated legacy schema with
+missing columns, valid pre-history backfill and migration rerun behavior.
 
 ## Producer behavior
 
 ### Generic runtime file
 
-The reader tracks file identity, offset and an incomplete trailing record.
+The reader tracks file identity, an in-memory cursor and an incomplete trailing
+record. The source file itself is the durable retry buffer for partial records.
 
 - truncate or inode replacement resets the cursor, consumes the new file from the
   beginning and marks the interval failed;
-- an incomplete trailing JSON record is retained for the next poll rather than
-  consumed as invalid;
+- the cursor advances only past newline-terminated records; it never advances past
+  a partial trailing prefix;
+- `lineBuf` is diagnostic state only. Partial reconstruction re-reads the prefix
+  from the source file, so Agent restart cannot silently skip bytes merely because
+  the in-memory buffer was lost;
+- Agent restart begins a new lifecycle session/evidence gap. Because the generic
+  reader cursor itself is not persisted, restart may replay earlier complete
+  records (at-least-once behavior), but a surviving partial prefix is not skipped;
 - malformed complete records increment `invalid`;
 - failed event delivery keeps the prior cursor for retry.
 
@@ -148,5 +170,9 @@ and verify an upstream source-health/enablement proof for the required producer
 Configuration enablement, file existence, reader heartbeat, and complete-empty
 windows are insufficient.
 
-API/UI availability and explanations remain package E work. Live DaemonSet,
-two-cluster, restart and populated migration acceptance remain package F gates.
+API/UI availability and explanations remain package E work. External source replacement/truncation while the Agent is down can still destroy
+source bytes; the new lifecycle session/gap prevents absence reasoning across that
+period but cannot reconstruct data removed outside Fortuna.
+
+Live DaemonSet, two-cluster, restart and populated migration acceptance remain
+package F gates.
