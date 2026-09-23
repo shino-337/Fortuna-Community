@@ -127,6 +127,8 @@ REQUIRED = {
         "TestClusterStatsUsesPersistedAgentVersion",
         "TestWorkerMetricsQueryFailureIsUnavailable",
         "TestPolicyEvaluationMetricsFailureIsUnavailable",
+        "TestClusterSecuritySummaryIsClusterQualified",
+        "TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
