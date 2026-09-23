@@ -125,6 +125,7 @@ REQUIRED = {
         "TestSystemMetricsCountsDuplicatePodUIDAcrossClustersSeparately",
         "TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters",
         "TestDashboardStatsBackingQueryFailureIsUnavailable",
+        "TestDashboardStatsMissingSchemaIsNonRetryable",
         "TestDashboardIntegrityClusterQualifiesPodAndSBOMCoverage",
         "TestClusterNodeSurfacesDoNotConvertMissingPodsTableToEmpty",
         "TestCapabilityDetailAndListShareUnavailableSemantics",
