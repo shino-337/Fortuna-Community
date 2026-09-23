@@ -47,7 +47,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		limit := 50
@@ -159,7 +159,7 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		clusterID := c.Query("clusterId")
@@ -210,7 +210,7 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -250,7 +250,7 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -298,7 +298,7 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -349,7 +349,7 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -396,7 +396,7 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
