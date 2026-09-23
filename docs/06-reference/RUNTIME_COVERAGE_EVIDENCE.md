@@ -184,10 +184,13 @@ ordinal. Two identical records in the same second therefore remain distinct when
 they occupy different physical positions, while a generic reader restart
 reconstructs the same source identity for the same record.
 
-Core never trusts an Agent-supplied identity as globally unique by itself. The
-atomic replay key is scoped by authenticated ownership:
-`{cluster_id, agent_id, source_record_id}`. `agent_id` comes from the scoped
-Agent principal, not from request JSON.
+Core never trusts an Agent-supplied identity as globally unique by itself. In
+scoped mode the atomic replay key is
+`{cluster_id, agent_id, source_record_id}`, where `agent_id` comes from the
+authenticated Agent principal and never from request JSON. Explicit legacy
+shared-token mode has no trusted Agent identity; it remains compatible by using a
+pod-local `legacy-pod:<pod_uid>` replay namespace. That fallback is deliberately
+not treated as authenticated Agent ownership and cannot create verified coverage.
 
 The initial `runtime_events` insert is the idempotency claim and shares one
 database transaction with behavior facts, synthesized/adapted signals, incident
