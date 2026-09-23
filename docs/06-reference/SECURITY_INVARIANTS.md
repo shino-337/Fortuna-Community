@@ -242,3 +242,34 @@ the full invariant review against the resulting diff, then require Core, Agent,
 API, PostgreSQL and security-regression gates to pass on that exact head. Test/doc
 commits may follow, but any further runtime-code change requires the review cycle
 again.
+
+## Runtime producer coverage integrity
+
+Runtime event silence is never clean evidence. Verified coverage requires a scoped
+Agent producer window. Complete windows have positive duration and zero
+drop/invalid/error counts with `delivered == emitted`. Exact coverage retries are
+immutable; changed replay, overlap, out-of-order windows and producer/source
+rebinding fail closed.
+
+Continuity extends only over adjacent complete windows. A gap or failed window
+resets `continuous_since`. Historical queued windows may be persisted after an
+outage, but freshness is evaluated independently. Any absence-based consumer must
+require an explicit bounded interval whose required end is covered; receipt
+freshness alone is insufficient.
+
+File and Falco producers must treat truncate/replacement, partial records and
+delivery failures as coverage-breaking conditions. Unresolved Falco Pod identity
+is a drop, not clean silence.
+
+The built-in eBPF sensor currently uses no-op tracepoints and is non-authoritative.
+It must not emit complete coverage, including in simulation mode. Removing this
+fail-closed rule requires a real event collector plus permanent observation/drop/
+shutdown regressions.
+
+Runtime coverage remains producer-specific. Before auto-resolution consumes it,
+the caller must also prove the required producer/capability is currently enabled.
+An old receipt from a disabled producer is not sufficient.
+
+PostgreSQL coverage arbitration is a permanent CI gate: concurrent first reports
+must converge without unique-key 500s, storage failure must roll back the accepted
+window, and recovery/startup migration must preserve evidence.
