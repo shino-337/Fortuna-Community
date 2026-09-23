@@ -42,7 +42,12 @@ func TestProducerLifecycleReporterRunningAndStopping(t *testing.T) {
 	if err := r.Stop(); err != nil {
 		t.Fatal(err)
 	}
-	// A late ticker-style running report cannot reopen a stopped lifecycle.
+	if err := r.Stop(); err != nil {
+		t.Fatal(err)
+	}
+	// A repeated Stop and a late ticker-style running report cannot reopen or
+	// move the acknowledged stopping lifecycle.
+	
 	if err := r.Report(collection.RuntimeAgentRunning); err != nil {
 		t.Fatal(err)
 	}
