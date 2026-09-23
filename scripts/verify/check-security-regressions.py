@@ -113,6 +113,7 @@ REQUIRED = {
         "TestScopedInventoryCollectionHTTPContract/persistence-failure",
         "TestScopedInventoryCollectionHTTPContract/scoped-missing-collection",
         "TestRuntimeCoverageScopedContinuityAndReplay",
+        "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
         "TestRuntimeCoverageRejectsUnsafeWindows/historical-window-accepted-but-stale",
@@ -223,6 +224,10 @@ API_REQUIRED = {
 }
 
 AGENT_REQUIRED = {
+    "./internal/config": [
+        "TestRuntimePollingDurationsClampNonPositiveValues",
+        "TestRuntimeCoverageCadenceIndependentFromPoll",
+    ],
     "./cmd": [
         "TestRuntimeProducerDeclarationsAreCompleteAndFailClosed",
         "TestRuntimeProducerDeclarationsNeverInferAuthorityFromEnablement",
@@ -259,10 +264,16 @@ AGENT_REQUIRED = {
         "TestRuntimeSendersNeverDowngrade/Internal_Server_Error/file",
         "TestRuntimeSendersNeverDowngrade/Internal_Server_Error/falco",
         "TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics",
+        "TestRuntimeReaderStartPerformsImmediateRead",
         "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",
         "TestRuntimeReaderAdvancesPastInvalidOnlyInput",
         "TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds",
+        "TestFalcoPartialRecordSurvivesReaderRestart",
+        "TestFalcoPodUIDResolutionBudgetIsBoundedByPoll",
         "TestCoverageReporterRetriesImmutablePayloadBeforeNewWindow",
+        "TestCoverageReporterCoalescesCleanWindowsByCadence",
+        "TestCoverageReporterFailureBypassesCadence",
+        "TestCoverageReporterFlushForcesCleanBacklog",
         "TestCoverageReporterMarksLossAndErrorsFailed",
         "TestProducerLifecycleReporterRunningAndStopping",
         "TestProducerLifecycleStopSerializesAfterInflightHeartbeat",
