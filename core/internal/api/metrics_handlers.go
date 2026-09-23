@@ -19,7 +19,7 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		db := db.WithContext(c.Request.Context())
 		if !db.Migrator().HasTable("agents") {
-			respondDataUnavailable(c, "agent_status_schema_unavailable", "Agent status is unavailable; agents table is missing")
+			respondSchemaUnavailable(c, "agent_status_schema_unavailable", "Agent status is unavailable; agents table is missing")
 			return
 		}
 
