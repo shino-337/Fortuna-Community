@@ -40,8 +40,15 @@ func (c RuntimeCoverage) EffectiveStatus(now time.Time) string {
 	return "complete"
 }
 
-// CoversSince is the fail-closed primitive for later absence-based reasoning.
-func (c RuntimeCoverage) CoversSince(required, now time.Time) bool {
-	return !required.IsZero() && c.EffectiveStatus(now) == "complete" &&
-		c.ContinuousSince != nil && !c.ContinuousSince.After(required)
+// CoversInterval is the fail-closed primitive for later absence-based
+// reasoning. The caller must name both ends of the interval it needs to prove;
+// freshness alone must never substitute for coverage through requiredEnd.
+func (c RuntimeCoverage) CoversInterval(requiredStart, requiredEnd, now time.Time) bool {
+	if requiredStart.IsZero() || requiredEnd.IsZero() || requiredEnd.Before(requiredStart) {
+		return false
+	}
+	return c.EffectiveStatus(now) == "complete" &&
+		c.ContinuousSince != nil &&
+		!c.ContinuousSince.After(requiredStart) &&
+		!c.WindowEnd.Before(requiredEnd)
 }
