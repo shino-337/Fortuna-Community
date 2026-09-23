@@ -23,7 +23,7 @@ const (
 	RuntimeProducerStopped          = "stopped"
 )
 
-var RuntimeProducerRegistry = map[string]string{
+var runtimeProducerRegistry = map[string]string{
 	"runtime-file": RuntimeSourceFile,
 	"falco":        RuntimeSourceFalco,
 	"ebpf-exec":    RuntimeSourceEBPF,
@@ -58,12 +58,12 @@ func (m RuntimeProducerManifest) Validate(now time.Time) error {
 		m.ReportedAt.After(now.Add(time.Minute)) || m.ReportedAt.Before(now.Add(-2*RuntimeProducerLeaseMaxAge)) {
 		return fmt.Errorf("invalid runtime producer manifest time")
 	}
-	if len(m.Producers) != len(RuntimeProducerRegistry) {
+	if len(m.Producers) != len(runtimeProducerRegistry) {
 		return fmt.Errorf("runtime producer manifest must declare the complete producer registry")
 	}
 	seen := map[string]bool{}
 	for _, p := range m.Producers {
-		expected, ok := RuntimeProducerRegistry[p.ProducerID]
+		expected, ok := runtimeProducerRegistry[p.ProducerID]
 		if !ok || expected != p.SourceKind || seen[p.ProducerID] {
 			return fmt.Errorf("invalid runtime producer declaration")
 		}
@@ -79,6 +79,15 @@ func (m RuntimeProducerManifest) Validate(now time.Time) error {
 		}
 	}
 	return nil
+}
+
+func RuntimeProducerRegistrySize() int {
+	return len(runtimeProducerRegistry)
+}
+
+func RuntimeProducerSource(producerID string) (string, bool) {
+	source, ok := runtimeProducerRegistry[producerID]
+	return source, ok
 }
 
 func SortRuntimeProducerDeclarations(in []RuntimeProducerDeclaration) {
