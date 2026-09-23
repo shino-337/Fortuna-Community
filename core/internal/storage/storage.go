@@ -155,6 +155,9 @@ func Migrate(db *gorm.DB) error {
 	if err := migrations.EnsureRuntimeCoverage(db); err != nil {
 		return fmt.Errorf("runtime coverage schema: %w", err)
 	}
+	if err := migrations.EnsureRuntimeEventIdempotency(db); err != nil {
+		return fmt.Errorf("runtime event idempotency schema: %w", err)
+	}
 	log.Printf("[Storage] ✅ Database migrations completed successfully")
 	return nil
 }
