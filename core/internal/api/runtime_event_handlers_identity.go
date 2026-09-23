@@ -1,7 +1,9 @@
 package api
 
 import (
+	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"strings"
@@ -39,6 +41,15 @@ func bindRuntimeV2Payloads(c *gin.Context) ([]runtimeEventV2Payload, error) {
 	return []runtimeEventV2Payload{single}, nil
 }
 
+func validRuntimeSourceRecordID(v string) bool {
+	v = strings.TrimSpace(v)
+	if len(v) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(v)
+	return err == nil
+}
+
 // PostRuntimeEventsV2Scoped is the production v2 ingest path after ownership middleware.
 func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 	rescoreMgr := riskengine.NewRuntimeAttackRescoreManager(db)
@@ -52,6 +63,19 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// Validate the replay identity contract for the complete processable
+		// batch before any event can create effects. Invalid/no-op compatibility
+		// payloads remain ignored as before.
+		for _, p := range payloads {
+			if strings.TrimSpace(p.Pod.UID) == "" || strings.TrimSpace(p.Syscall) == "" || p.Confidence <= 0 {
+				continue
+			}
+			if !validRuntimeSourceRecordID(p.SourceRecordID) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "valid source_record_id is required", "code": "runtime_source_record_identity_required"})
+				return
+			}
+		}
+
 		processed := 0
 		duplicates := 0
 		now := time.Now().UTC()
@@ -61,10 +85,6 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				continue
 			}
 			sourceRecordID := strings.TrimSpace(p.SourceRecordID)
-			if sourceRecordID == "" || len(sourceRecordID) > 64 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "source_record_id is required", "code": "runtime_source_record_identity_required"})
-				return
-			}
 			id, err := resourceidentity.New(clusterID, podUID)
 			if err != nil {
 				continue
@@ -116,7 +136,15 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 			})
 			if err != nil {
 				log.Printf("[RuntimeEventV2] scoped processing failed cluster=%s source_record_id=%s event_id=%s pod_uid=%s: %v", clusterID, sourceRecordID, p.EventID, podUID, err)
-				continue
+				if errors.Is(err, rep.ErrRuntimeSourceRecordConflict) {
+					c.JSON(http.StatusConflict, gin.H{"error": "runtime source record identity conflict", "code": "runtime_source_record_conflict"})
+					return
+				}
+				// Non-2xx is deliberate: Agent retains/retries the batch. Events
+				// already committed earlier in this batch are safe to replay because
+				// their physical source-record claims are idempotent.
+				c.JSON(http.StatusServiceUnavailable, gin.H{"error": "runtime event processing unavailable", "code": "runtime_event_processing_unavailable"})
+				return
 			}
 			if result != nil && result.Duplicate {
 				duplicates++
