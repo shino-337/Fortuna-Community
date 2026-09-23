@@ -118,6 +118,11 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "system_metrics_schema_unavailable",
+			"System metrics require the core inventory/risk schema",
+			"clusters", "pods", "service_accounts", "insights") {
+			return
+		}
 		fail := func(err error, code, message string) bool {
 			if err == nil {
 				return false
@@ -509,8 +514,13 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 // Only DB-derived totalEvaluations is real; other fields require metrics and are omitted.
 func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "policy_evaluation_schema_unavailable",
+			"Policy evaluation metrics require the insights schema", "insights") {
+			return
+		}
 		var totalInsights int64
-		if err := db.WithContext(c.Request.Context()).Model(&models.Insight{}).Count(&totalInsights).Error; err != nil {
+		if err := db.Model(&models.Insight{}).Count(&totalInsights).Error; err != nil {
 			respondDataUnavailable(c, "policy_evaluation_metrics_unavailable", "Policy evaluation metrics could not be loaded")
 			return
 		}
