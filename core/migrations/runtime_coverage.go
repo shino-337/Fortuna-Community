@@ -39,6 +39,15 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,session_id,coverage_id,source_kind,status,window_start,window_end,received_at,continuous_since,emitted,delivered,dropped,invalid,errors,reason FROM runtime_coverages LIMIT 0").Error; err != nil {
 		return err
 	}
+	var unownedCoverage int64
+	if err := db.Table("runtime_coverages").
+		Where("cluster_id IS NULL OR cluster_id = '' OR agent_id IS NULL OR agent_id = '' OR producer_id IS NULL OR producer_id = ''").
+		Count(&unownedCoverage).Error; err != nil {
+		return err
+	}
+	if unownedCoverage != 0 {
+		return fmt.Errorf("runtime coverage schema contains %d rows without cluster/agent/producer identity", unownedCoverage)
+	}
 	// OnConflict(cluster_id,agent_id,producer_id) requires a real uniqueness
 	// constraint even when upgrading a table that predates the current PK shape.
 	if err := ensureIndex(db, "idx_runtime_coverage_identity", "runtime_coverages", "cluster_id,agent_id,producer_id", true); err != nil {
@@ -119,6 +128,15 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	}
 	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
 		return err
+	}
+	var unownedProducer int64
+	if err := db.Table("runtime_producer_states").
+		Where("cluster_id IS NULL OR cluster_id = '' OR agent_id IS NULL OR agent_id = '' OR producer_id IS NULL OR producer_id = ''").
+		Count(&unownedProducer).Error; err != nil {
+		return err
+	}
+	if unownedProducer != 0 {
+		return fmt.Errorf("runtime producer schema contains %d rows without cluster/agent/producer identity", unownedProducer)
 	}
 	if err := ensureIndex(db, "idx_runtime_producer_identity", "runtime_producer_states", "cluster_id,agent_id,producer_id", true); err != nil {
 		return err
