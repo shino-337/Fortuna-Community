@@ -340,7 +340,9 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 			 AND p.uid = i.resource_uid
 			 AND p.cluster_id = ?
 			 AND p.deleted_at IS NULL
-			WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+			WHERE i.resource_type = 'Pod'
+			  AND i.deleted_at IS NULL
+			  AND (i.status = 'active' OR i.status IS NULL)
 			GROUP BY LOWER(i.severity)
 		`, id).Scan(&severityRows).Error; err != nil {
 			respondDataUnavailable(c, "cluster_security_summary_risks_unavailable", "Cluster risk summary could not be loaded")
@@ -575,7 +577,7 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		if !scanCounts(db.Table("insights i").
 			Select("p.cluster_id, COUNT(*) AS cnt").
 			Joins("INNER JOIN pods p ON p.cluster_id = i.cluster_id AND p.uid = i.resource_uid AND p.deleted_at IS NULL").
-			Where("i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND p.cluster_id IN ?", clusterIDs).
+			Where("i.resource_type = ? AND i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND p.cluster_id IN ?", "Pod", clusterIDs).
 			Group("p.cluster_id"), &riskCounts,
 			"cluster_stats_risks_unavailable", "Risk statistics could not be loaded") {
 			return
@@ -1359,13 +1361,13 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 					q2 = q2.Joins(`LEFT JOIN (
 						SELECT cluster_id, resource_uid, COUNT(*) AS insight_cnt
 						FROM insights
-						WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
+						WHERE resource_type = 'Pod' AND deleted_at IS NULL AND (status = 'active' OR status IS NULL)
 						GROUP BY cluster_id, resource_uid
 					) _ins ON _ins.cluster_id = pods.cluster_id AND _ins.resource_uid = pods.uid`)
 					orderSQL = "COALESCE(_rs.max_score, 0) DESC, COALESCE(_ins.insight_cnt, 0) DESC, pods.name ASC"
 				}
 			} else if hasTable(db, "insights") {
-				orderSQL = `(SELECT COUNT(*) FROM insights WHERE insights.cluster_id = pods.cluster_id AND insights.resource_uid = pods.uid AND insights.deleted_at IS NULL AND (insights.status = 'active' OR insights.status IS NULL)) DESC, pods.name ASC`
+				orderSQL = `(SELECT COUNT(*) FROM insights WHERE insights.resource_type = 'Pod' AND insights.cluster_id = pods.cluster_id AND insights.resource_uid = pods.uid AND insights.deleted_at IS NULL AND (insights.status = 'active' OR insights.status IS NULL)) DESC, pods.name ASC`
 			}
 			findErr = q2.Offset(offset).Limit(pageSize).Order(orderSQL).Find(&pods).Error
 		case "created_desc":
