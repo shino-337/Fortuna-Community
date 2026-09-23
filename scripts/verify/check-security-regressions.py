@@ -167,6 +167,8 @@ REQUIRED = {
         "TestRuntimeRegisteredRoutesRejectMixedBatchBeforeEffects/_api_v2_runtime_events",
         "TestRuntimeRegisteredRoutesApplyRevocationAndRegistryFailureImmediately",
         "TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode",
+        "TestRuntimeEvidenceRoutesRequireScopedLifecycle",
+        "TestRuntimeEvidenceRoutesRejectLegacyCompatibilityMode",
     ],
     "./internal/grpc": [
         "TestLegacyGRPCServerQuarantinesWrites",
