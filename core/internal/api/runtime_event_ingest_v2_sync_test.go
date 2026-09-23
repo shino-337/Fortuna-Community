@@ -30,6 +30,7 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	if err := db.Create(&models.Pod{UID: "pod-v2-1", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-1",
+		"source_record_id": "1111111111111111111111111111111111111111111111111111111111111111",
 		"observed_at":      "2026-03-26T00:00:00Z",
 		"ingested_at":      "2026-03-26T00:00:01Z",
 		"resolution_state": "resolved",
@@ -90,6 +91,7 @@ func TestPostRuntimeEventsV2_AcceptsFlattenedSourceFields(t *testing.T) {
 	if err := db.Create(&models.Pod{UID: "pod-v2-2", ClusterID: "c1", Namespace: "ns", Name: "demo2"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-2",
+		"source_record_id": "2222222222222222222222222222222222222222222222222222222222222222",
 		"observed_at":      "2026-03-26T00:00:00Z",
 		"ingested_at":      "2026-03-26T00:00:01Z",
 		"resolution_state": "unresolved",
@@ -148,6 +150,7 @@ func TestPostRuntimeEventsV2_PreservesPartialResolutionState(t *testing.T) {
 	if err := db.Create(&models.Pod{UID: "pod-v2-3", ClusterID: "c1", Namespace: "ns", Name: "demo3"}).Error; err != nil { t.Fatal(err) }
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-3",
+		"source_record_id": "3333333333333333333333333333333333333333333333333333333333333333",
 		"observed_at":      "2026-03-26T01:00:00Z",
 		"ingested_at":      "2026-03-26T01:00:01Z",
 		"resolution_state": "partial",
