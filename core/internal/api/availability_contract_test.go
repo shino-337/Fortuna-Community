@@ -141,6 +141,33 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 }
 
 
+
+func TestDashboardRuntimeHealthQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	require.NoError(t, db.Exec("CREATE TABLE runtime_events (id INTEGER PRIMARY KEY)").Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
+	DashboardDataIntegrity(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "dashboard_runtime_health_unavailable", body["code"])
+	require.Equal(t, true, body["retryable"])
+}
+
+func TestDashboardCatalogHealthQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	require.NoError(t, db.Exec("CREATE TABLE cves (id INTEGER PRIMARY KEY)").Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
+	DashboardDataIntegrity(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "dashboard_catalog_health_unavailable", body["code"])
+	require.Equal(t, true, body["retryable"])
+}
+
 func TestWorkerMetricsQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t)
