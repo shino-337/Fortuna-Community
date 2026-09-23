@@ -112,43 +112,75 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			Endpoints: endpointInventory(),
 		}
 
-		// Cross-checks: agents count (all ready) vs dashboard-visible data
+		fail := func(err error, code, message string) bool {
+			if err == nil {
+				return false
+			}
+			respondDataUnavailable(c, code, message)
+			return true
+		}
+
+		// Cross-checks: agents count (all ready) vs dashboard-visible data.
 		if db.Migrator().HasTable("agents") {
-			db.Model(&models.Agent{}).
+			if fail(db.Model(&models.Agent{}).
 				Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
-				Count(&resp.CrossChecks.ActiveAgentsCount)
+				Count(&resp.CrossChecks.ActiveAgentsCount).Error,
+				"dashboard_integrity_agents_unavailable", "Dashboard Agent cross-checks could not be loaded") {
+				return
+			}
 			resp.CrossChecks.DashboardAgentsCount = resp.CrossChecks.ActiveAgentsCount
 		}
 
 		if db.Migrator().HasTable("clusters") {
 			cutoff := time.Now().Add(-7 * 24 * time.Hour)
-			db.Table("clusters").Where("source IN ?", []string{"auto", "env"}).Where("last_sync >= ?", cutoff).Count(&resp.CrossChecks.ClustersCount)
+			if fail(db.Table("clusters").Where("source IN ?", []string{"auto", "env"}).Where("last_sync >= ?", cutoff).
+				Count(&resp.CrossChecks.ClustersCount).Error,
+				"dashboard_integrity_clusters_unavailable", "Dashboard cluster cross-checks could not be loaded") {
+				return
+			}
 		}
-		// Pod count: distinct UIDs only (matches dashboard stats and cluster reality)
-		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE deleted_at IS NULL").Scan(&resp.CrossChecks.PodsCount)
-		db.Model(&models.Insight{}).Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").Count(&resp.CrossChecks.InsightsCount)
-		db.Model(&models.Insight{}).
+		// Pod/insight cross-checks are required backing data: query failure is not zero.
+		if fail(db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE deleted_at IS NULL").
+			Scan(&resp.CrossChecks.PodsCount).Error,
+			"dashboard_integrity_pods_unavailable", "Dashboard Pod cross-checks could not be loaded") {
+			return
+		}
+		if fail(db.Model(&models.Insight{}).Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").
+			Count(&resp.CrossChecks.InsightsCount).Error,
+			"dashboard_integrity_insights_unavailable", "Dashboard insight cross-checks could not be loaded") {
+			return
+		}
+		if fail(db.Model(&models.Insight{}).
 			Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL", "vulnerability", "critical").
-			Count(&resp.CrossChecks.CriticalInsights)
+			Count(&resp.CrossChecks.CriticalInsights).Error,
+			"dashboard_integrity_critical_insights_unavailable", "Dashboard critical insight cross-checks could not be loaded") {
+			return
+		}
 
-		// CVE reference tables (populated by cve-loader Job, not by Core)
+		// CVE reference tables are optional when absent, but an existing table that
+		// cannot be queried is an availability failure rather than an empty catalog.
 		if db.Migrator().HasTable("cves") {
-			db.Table("cves").Count(&resp.CrossChecks.CVEsCount)
+			if fail(db.Table("cves").Count(&resp.CrossChecks.CVEsCount).Error,
+				"dashboard_integrity_cves_unavailable", "CVE catalog cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("package_vulnerabilities") {
-			db.Table("package_vulnerabilities").Count(&resp.CrossChecks.PackageVulnerabilitiesCount)
+			if fail(db.Table("package_vulnerabilities").Count(&resp.CrossChecks.PackageVulnerabilitiesCount).Error,
+				"dashboard_integrity_packages_unavailable", "Package vulnerability cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("osv_packages") {
-			db.Table("osv_packages").Count(&resp.CrossChecks.OsvPackagesCount)
+			if fail(db.Table("osv_packages").Count(&resp.CrossChecks.OsvPackagesCount).Error,
+				"dashboard_integrity_osv_unavailable", "OSV cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("malware_packages") {
-			db.Table("malware_packages").Where("deleted_at IS NULL").Count(&resp.CrossChecks.MalwarePackagesCount)
+			if fail(db.Table("malware_packages").Where("deleted_at IS NULL").Count(&resp.CrossChecks.MalwarePackagesCount).Error,
+				"dashboard_integrity_malware_unavailable", "Malware catalog cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("sboms") {
-			db.Table("sboms").Where("deleted_at IS NULL").Count(&resp.CrossChecks.SbomsCount)
+			if fail(db.Table("sboms").Where("deleted_at IS NULL").Count(&resp.CrossChecks.SbomsCount).Error,
+				"dashboard_integrity_sboms_unavailable", "SBOM cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-			_ = db.Raw(`
+			if fail(db.Raw(`
 				SELECT COUNT(*) FROM pods p
 				WHERE p.deleted_at IS NULL
 				  AND COALESCE(TRIM(p.uid), '') <> ''
@@ -156,7 +188,10 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 					SELECT DISTINCT TRIM(s.pod_uid) FROM sboms s
 					WHERE s.deleted_at IS NULL AND COALESCE(TRIM(s.pod_uid), '') <> ''
 				  )
-			`).Scan(&resp.CrossChecks.PodsMissingSbom).Error
+			`).Scan(&resp.CrossChecks.PodsMissingSbom).Error,
+				"dashboard_integrity_sbom_coverage_unavailable", "SBOM coverage cross-checks could not be loaded") {
+				return
+			}
 		}
 
 		// Alerts: data exists but no agents
