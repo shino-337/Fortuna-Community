@@ -205,3 +205,36 @@ func TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps(t *testing.T) {
 	require.Equal(t, "producer_silent", producer.GapReason)
 	require.NotNil(t, producer.GapSince)
 }
+
+
+func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testing.T) {
+	db := runtimeCoverageDB(t)
+	principal := agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	manifest := runtimeManifest(runtimeTestSession, now.Add(-3*time.Second), now.Add(-2*time.Second), true)
+	for i := range manifest.Producers {
+		if manifest.Producers[i].ProducerID == "falco" {
+			manifest.Producers[i].Authoritative = false
+		}
+	}
+	w := postRuntimeManifest(t, db, principal, manifest)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	window := coverageWindow("nonauth-coverage-000001", now.Add(-1500*time.Millisecond), now.Add(-500*time.Millisecond))
+	w = postCoverage(t, db, &principal, window)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var producer models.RuntimeProducerState
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, producer.EffectiveStatus(now))
+	require.True(t, producer.Enabled)
+	require.False(t, producer.Authoritative)
+
+	var row models.RuntimeCoverage
+	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, "complete", row.Status, "observation completeness is retained for operability")
+	require.Nil(t, row.ContinuousSince, "non-authoritative source must not establish absence continuity")
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, row.EffectiveStatus(&producer, now))
+	require.False(t, row.CoversInterval(&producer, window.WindowStart, window.WindowEnd, now))
+}
