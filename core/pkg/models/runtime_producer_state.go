@@ -24,11 +24,17 @@ type RuntimeProducerState struct {
 	GapReason         string     `gorm:"size:128" json:"gapReason,omitempty"`
 }
 
+func (s RuntimeProducerState) LeaseFresh(now time.Time) bool {
+	return s.SessionID != "" && !s.LastHeartbeatAt.IsZero() &&
+		!now.Before(s.LastHeartbeatAt) &&
+		now.Sub(s.LastHeartbeatAt) <= collection.RuntimeProducerLeaseMaxAge
+}
+
 func (s RuntimeProducerState) EffectiveStatus(now time.Time) string {
 	if s.SessionID == "" || s.LastHeartbeatAt.IsZero() {
 		return "unknown"
 	}
-	if now.Before(s.LastHeartbeatAt) || now.Sub(s.LastHeartbeatAt) > collection.RuntimeProducerLeaseMaxAge {
+	if !s.LeaseFresh(now) {
 		return "stale"
 	}
 	if !s.Enabled {
