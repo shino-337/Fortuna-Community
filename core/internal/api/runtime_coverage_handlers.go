@@ -77,10 +77,9 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				row.WindowStart.Before(producer.SessionStartedAt) {
 				return errRuntimeProducerInactive
 			}
-			lifecycleStatus := producer.EffectiveStatus(now)
-			if lifecycleStatus == "stale" || lifecycleStatus == "unknown" ||
-				lifecycleStatus == collection.RuntimeProducerDisabled ||
-				lifecycleStatus == collection.RuntimeProducerStopped {
+			if !producer.LeaseFresh(now) || !producer.Enabled ||
+				producer.State == collection.RuntimeProducerDisabled ||
+				producer.State == collection.RuntimeProducerStopped {
 				return errRuntimeProducerInactive
 			}
 			if row.Status == "complete" && !producer.Authoritative {
