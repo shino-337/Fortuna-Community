@@ -34,6 +34,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := []map[string]interface{}{{
+		"source_record_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		"pod": map[string]interface{}{
 			"uid":       podUID,
 			"namespace": "ns",
@@ -117,6 +118,7 @@ func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 	body := []byte(`[{
+		"source_record_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
 		"pod": {"uid": "` + podUID + `", "namespace": "fortuna"},
 		"syscall": "execve",
 		"target": "/bin/sh-e2e-test",
