@@ -21,7 +21,7 @@ func runtimeCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.RuntimeCoverage{}))
+	require.NoError(t, db.AutoMigrate(&models.RuntimeCoverage{}, &models.RuntimeProducerState{}))
 	return db
 }
 
@@ -45,16 +45,44 @@ func postCoverage(t *testing.T, db *gorm.DB, principal *agentidentity.Principal,
 	return w
 }
 
+const runtimeTestSession = "session-000000000001"
+
 func coverageWindow(id string, start, end time.Time) collection.RuntimeCoverage {
 	return collection.RuntimeCoverage{
 		Version: collection.RuntimeCoverageVersion,
 		ID: id,
 		ProducerID: "falco",
 		SourceKind: collection.RuntimeSourceFalco,
+		SessionID: runtimeTestSession,
 		Status: "complete",
 		WindowStart: start,
 		WindowEnd: end,
 	}
+}
+
+
+func seedRuntimeProducer(t *testing.T, db *gorm.DB, principal *agentidentity.Principal, producerID, sourceKind, sessionID string, sessionStartedAt, heartbeat time.Time, enabled, authoritative bool, state string) models.RuntimeProducerState {
+	t.Helper()
+	row := models.RuntimeProducerState{
+		ClusterID: principal.ClusterID,
+		AgentID: principal.AgentID,
+		ProducerID: producerID,
+		SourceKind: sourceKind,
+		SessionID: sessionID,
+		SessionStartedAt: sessionStartedAt,
+		Enabled: enabled,
+		Authoritative: authoritative,
+		State: state,
+		LastManifestAt: heartbeat,
+		LastHeartbeatAt: heartbeat,
+	}
+	gap := sessionStartedAt
+	if state != collection.RuntimeProducerActive {
+		row.GapSince = &gap
+		row.GapReason = "test"
+	}
+	require.NoError(t, db.Create(&row).Error)
+	return row
 }
 
 func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
@@ -62,6 +90,7 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	principal := &agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	first := coverageWindow("coverage-000000000001", now.Add(-3*time.Second), now.Add(-2*time.Second))
+	seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-4*time.Second), now, true, true, collection.RuntimeProducerStarting)
 
 	w := postCoverage(t, db, principal, first)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -102,7 +131,9 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	var failedRow models.RuntimeCoverage
 	require.NoError(t, db.First(&failedRow, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Nil(t, failedRow.ContinuousSince)
-	require.Equal(t, "failed", failedRow.EffectiveStatus(time.Now().UTC()))
+	var failedProducer models.RuntimeProducerState
+	require.NoError(t, db.First(&failedProducer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerDegraded, failedRow.EffectiveStatus(&failedProducer, time.Now().UTC()))
 
 	// Later success starts a new continuity interval.
 	recovered := coverageWindow("coverage-000000000004", failed.WindowEnd, now.Add(time.Second))
@@ -129,11 +160,14 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 		oldStart := now.Add(-2 * time.Hour)
 		oldEnd := oldStart.Add(time.Minute)
 		c := coverageWindow("coverage-000000000099", oldStart, oldEnd)
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, oldStart.Add(-time.Minute), now, true, true, collection.RuntimeProducerStarting)
 		w := postCoverage(t, db, principal, c)
 		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 		var row models.RuntimeCoverage
 		require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-		require.Equal(t, "stale", row.EffectiveStatus(now))
+		var producer models.RuntimeProducerState
+		require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+		require.Equal(t, "stale", row.EffectiveStatus(&producer, now))
 	})
 
 	t.Run("producer-source-mismatch", func(t *testing.T) {
@@ -151,6 +185,41 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 		require.Equal(t, http.StatusBadRequest, w.Code)
 	})
 
+	t.Run("lifecycle-required", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000090", now.Add(-time.Second), now)
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusConflict, w.Code)
+		require.Contains(t, w.Body.String(), "runtime_lifecycle_required")
+	})
+
+	t.Run("disabled-producer", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000091", now.Add(-time.Second), now)
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-2*time.Second), now, false, false, collection.RuntimeProducerDisabled)
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusConflict, w.Code)
+		require.Contains(t, w.Body.String(), "runtime_producer_inactive")
+	})
+
+	t.Run("stale-lifecycle-lease", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000092", now.Add(-time.Second), now)
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-2*time.Minute), now.Add(-2*collection.RuntimeProducerLeaseMaxAge), true, true, collection.RuntimeProducerActive)
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusConflict, w.Code)
+		require.Contains(t, w.Body.String(), "runtime_producer_inactive")
+	})
+
+	t.Run("session-mismatch", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000093", now.Add(-time.Second), now)
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, "session-000000000002", now.Add(-2*time.Second), now, true, true, collection.RuntimeProducerStarting)
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusConflict, w.Code)
+		require.Contains(t, w.Body.String(), "runtime_producer_inactive")
+	})
+
 	t.Run("complete-with-error", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		c := coverageWindow("coverage-000000000011", now.Add(-time.Second), now)
@@ -162,6 +231,7 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 	t.Run("overlap", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		first := coverageWindow("coverage-000000000012", now.Add(-4*time.Second), now.Add(-2*time.Second))
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, first.WindowStart.Add(-time.Second), now, true, true, collection.RuntimeProducerStarting)
 		require.Equal(t, http.StatusOK, postCoverage(t, db, principal, first).Code)
 		overlap := coverageWindow("coverage-000000000013", now.Add(-3*time.Second), now.Add(-time.Second))
 		w := postCoverage(t, db, principal, overlap)
@@ -171,6 +241,7 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 	t.Run("source-kind-rebind", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		first := coverageWindow("coverage-000000000014", now.Add(-4*time.Second), now.Add(-2*time.Second))
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, first.WindowStart.Add(-time.Second), now, true, true, collection.RuntimeProducerStarting)
 		require.Equal(t, http.StatusOK, postCoverage(t, db, principal, first).Code)
 		next := coverageWindow("coverage-000000000015", first.WindowEnd, now.Add(-time.Second))
 		next.SourceKind = collection.RuntimeSourceFile
@@ -183,6 +254,7 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 	t.Run("gap-restarts-continuity", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		first := coverageWindow("coverage-000000000016", now.Add(-5*time.Second), now.Add(-4*time.Second))
+		seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, first.WindowStart.Add(-time.Second), now, true, true, collection.RuntimeProducerStarting)
 		require.Equal(t, http.StatusOK, postCoverage(t, db, principal, first).Code)
 		gap := coverageWindow("coverage-000000000017", now.Add(-2*time.Second), now.Add(-time.Second))
 		require.Equal(t, http.StatusOK, postCoverage(t, db, principal, gap).Code)
