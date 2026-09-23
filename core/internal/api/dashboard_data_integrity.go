@@ -182,8 +182,18 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			resp.Alerts = append(resp.Alerts, "sbom_coverage_low: majority of pods have no SBOM row; check agent SBOM scanner and pod eligibility (distroless/heuristic)")
 		}
 
-		resp.CatalogHealth = buildCatalogHealth(db, resp.CrossChecks)
-		resp.RuntimeHealth = buildRuntimeHealth(db)
+		catalogHealth, err := buildCatalogHealth(db, resp.CrossChecks)
+		if err != nil {
+			respondDataUnavailable(c, "dashboard_catalog_health_unavailable", "Dashboard catalog health could not be loaded")
+			return
+		}
+		resp.CatalogHealth = catalogHealth
+		runtimeHealth, err := buildRuntimeHealth(db)
+		if err != nil {
+			respondDataUnavailable(c, "dashboard_runtime_health_unavailable", "Dashboard runtime health could not be loaded")
+			return
+		}
+		resp.RuntimeHealth = runtimeHealth
 		resp.Alerts = append(resp.Alerts, catalogHealthAlerts(resp.CatalogHealth)...)
 		resp.Alerts = append(resp.Alerts, runtimeHealthAlerts(resp.RuntimeHealth)...)
 
@@ -199,7 +209,7 @@ func nullTimePtr(nt sql.NullTime) *time.Time {
 	return &t
 }
 
-func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
+func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) {
 	health := CatalogHealth{
 		Status:                      "healthy",
 		CVEsCount:                   checks.CVEsCount,
@@ -361,10 +371,10 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 		health.Status = "healthy"
 	}
 
-	return health
+	return health, nil
 }
 
-func buildRuntimeHealth(db *gorm.DB) RuntimeHealth {
+func buildRuntimeHealth(db *gorm.DB) (RuntimeHealth, error) {
 	health := RuntimeHealth{
 		Status:                 "unavailable",
 		Source:                 "db-derived",
@@ -374,33 +384,49 @@ func buildRuntimeHealth(db *gorm.DB) RuntimeHealth {
 	}
 
 	if db.Migrator().HasTable("runtime_events") {
-		db.Table("runtime_events").Count(&health.RuntimeEventsCount)
+		if err := db.Table("runtime_events").Count(&health.RuntimeEventsCount).Error; err != nil {
+			return health, err
+		}
 		var lastEvent sql.NullTime
-		_ = db.Table("runtime_events").Select("MAX(COALESCE(observed_at, ingested_at, created_at))").Scan(&lastEvent).Error
+		if err := db.Table("runtime_events").Select("MAX(COALESCE(observed_at, ingested_at, created_at))").Scan(&lastEvent).Error; err != nil {
+			return health, err
+		}
 		health.LastRuntimeEventAt = nullTimePtr(lastEvent)
 
-		db.Table("runtime_events").
+		if err := db.Table("runtime_events").
 			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco").
-			Count(&health.FalcoEventsCount)
+			Count(&health.FalcoEventsCount).Error; err != nil {
+			return health, err
+		}
 		var lastFalco sql.NullTime
-		_ = db.Table("runtime_events").
+		if err := db.Table("runtime_events").
 			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco").
 			Select("MAX(COALESCE(observed_at, ingested_at, created_at))").
-			Scan(&lastFalco).Error
+			Scan(&lastFalco).Error; err != nil {
+			return health, err
+		}
 		health.LastFalcoEventAt = nullTimePtr(lastFalco)
 	}
 
 	if db.Migrator().HasTable("runtime_signals") {
-		db.Table("runtime_signals").Count(&health.RuntimeSignalsCount)
+		if err := db.Table("runtime_signals").Count(&health.RuntimeSignalsCount).Error; err != nil {
+			return health, err
+		}
 		var lastSignal sql.NullTime
-		_ = db.Table("runtime_signals").Select("MAX(COALESCE(last_seen_at, created_at))").Scan(&lastSignal).Error
+		if err := db.Table("runtime_signals").Select("MAX(COALESCE(last_seen_at, created_at))").Scan(&lastSignal).Error; err != nil {
+			return health, err
+		}
 		health.LastRuntimeSignalAt = nullTimePtr(lastSignal)
 	}
 
 	if db.Migrator().HasTable("pod_runtime_metrics") {
-		db.Table("pod_runtime_metrics").Count(&health.RuntimeMetricsCount)
+		if err := db.Table("pod_runtime_metrics").Count(&health.RuntimeMetricsCount).Error; err != nil {
+			return health, err
+		}
 		var lastMetric sql.NullTime
-		_ = db.Table("pod_runtime_metrics").Select("MAX(last_observed_at)").Scan(&lastMetric).Error
+		if err := db.Table("pod_runtime_metrics").Select("MAX(last_observed_at)").Scan(&lastMetric).Error; err != nil {
+			return health, err
+		}
 		health.LastRuntimeMetricAt = nullTimePtr(lastMetric)
 	}
 
@@ -427,7 +453,7 @@ func buildRuntimeHealth(db *gorm.DB) RuntimeHealth {
 		health.FalcoStatus = "no-events"
 	}
 
-	return health
+	return health, nil
 }
 
 func latestTime(values ...*time.Time) *time.Time {
