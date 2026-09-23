@@ -59,6 +59,13 @@ func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInp
 	if strings.TrimSpace(input.PodUID) == "" {
 		return nil, fmt.Errorf("rep: pod uid is required")
 	}
+	// Legacy/direct compatibility callers predate physical source-record identity.
+	// Give each direct call an isolated identity rather than falling back to the
+	// second-granularity EventID. Production scoped HTTP ingest requires the Agent
+	// supplied source_record_id and therefore remains replay-idempotent.
+	if strings.TrimSpace(input.SourceRecordID) == "" {
+		input.SourceRecordID = fmt.Sprintf("legacy-%020d", time.Now().UnixNano())
+	}
 	var owners []string
 	if err := db.WithContext(ctx).Model(&models.Pod{}).
 		Where("uid = ? AND deleted_at IS NULL", input.PodUID).
