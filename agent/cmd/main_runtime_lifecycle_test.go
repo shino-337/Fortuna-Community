@@ -23,8 +23,8 @@ func TestRuntimeProducerDeclarationsAreCompleteAndFailClosed(t *testing.T) {
 		seen[p.ProducerID] = p
 	}
 	file := seen["runtime-file"]
-	if !file.Enabled || !file.Authoritative {
-		t.Fatalf("enabled file producer not authoritative: %+v", file)
+	if !file.Enabled || file.Authoritative {
+		t.Fatalf("enabled file producer must remain non-authoritative without upstream health proof: %+v", file)
 	}
 	falco := seen["falco"]
 	if falco.Enabled || falco.Authoritative {
@@ -37,6 +37,21 @@ func TestRuntimeProducerDeclarationsAreCompleteAndFailClosed(t *testing.T) {
 	for _, id := range []string{"ebpf-connect", "ebpf-all"} {
 		if seen[id].Enabled || seen[id].Authoritative {
 			t.Fatalf("unselected eBPF producer %s was enabled: %+v", id, seen[id])
+		}
+	}
+}
+
+
+func TestRuntimeProducerDeclarationsNeverInferAuthorityFromEnablement(t *testing.T) {
+	cfg := &config.Config{
+		RuntimeEventsEnabled: true,
+		FalcoEventsEnabled: true,
+		EBPFEnabled: true,
+		EBPFMode: "all",
+	}
+	for _, p := range runtimeProducerDeclarations(cfg) {
+		if p.Authoritative {
+			t.Fatalf("current runtime producer %s inferred authority from enablement: %+v", p.ProducerID, p)
 		}
 	}
 }
