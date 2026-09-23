@@ -211,6 +211,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					return err
 				}
 
+				previousCoverageEnd := producer.LastCoverageEnd
 				producer.LastCoverageID = row.CoverageID
 				end := row.WindowEnd
 				producer.LastCoverageEnd = &end
@@ -233,6 +234,12 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					producer.State = collection.RuntimeProducerDegraded
 					if producer.GapSince == nil {
 						gap := row.WindowStart
+						// A failed observation after a silent interval means uncertainty
+						// begins at the last accepted coverage boundary, not at the later
+						// failed window start.
+						if previousCoverageEnd != nil && !previousCoverageEnd.IsZero() && !previousCoverageEnd.After(row.WindowStart) {
+							gap = *previousCoverageEnd
+						}
 						producer.GapSince = &gap
 					}
 					producer.GapReason = "coverage_failed"
