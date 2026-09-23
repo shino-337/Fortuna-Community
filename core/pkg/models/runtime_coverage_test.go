@@ -4,6 +4,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/fortuna/api/collection"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,6 +49,12 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 	row.ContinuousSince = &continuous
 	require.False(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(3*time.Second), base.Add(20*time.Minute)),
 		"stale latest coverage cannot prove the interval")
+
+	staleWindow := now.Add(-collection.RuntimeProducerLeaseMaxAge - time.Second)
+	producer.LastCoverageEnd = &staleWindow
+	require.False(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(3*time.Second), now),
+		"Agent lifecycle heartbeat cannot keep a silent producer active")
+	producer.LastCoverageEnd = &lastCoverageEnd
 
 	producer.Enabled = false
 	require.False(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(3*time.Second), now),
