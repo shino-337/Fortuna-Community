@@ -214,12 +214,16 @@ Required invariants include:
 - coverage receipt cadence is configured independently from event poll cadence:
   event collection may remain at 5s while immutable clean coverage defaults to 30s;
   failed coverage windows bypass cadence and are persisted immediately;
-- runtime event replay itself is idempotent before downstream REP/risk/correlation
-  effects. Generic runtime-file restart may re-read complete records, so a replayed
-  physical observation must not increment risk or duplicate signals/incidents.
-  Do not close this gate by making the current second-granularity `event_id`
-  globally unique; the source record identity must distinguish legitimate
-  same-second identical observations.
+- runtime event replay is idempotent before downstream REP/risk/correlation
+  effects. File/Falco events carry a physical `source_record_id` derived from
+  file identity + byte offset + record bytes/ordinal, independent of the older
+  second-granularity `event_id`. Core scopes the uniqueness claim by
+  `{cluster_id, authenticated agent_id, source_record_id}` and performs that
+  claim in the same SQL transaction as runtime_events, facts, signals, incidents,
+  risk score and capability effects. Exact replay is a no-op; changed replay is a
+  conflict; concurrent duplicate submissions create one committed effect; distinct
+  same-second physical records remain distinct. Generic reader restart replay,
+  exact replay, same-second identity and PostgreSQL concurrency are permanent gates.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 
