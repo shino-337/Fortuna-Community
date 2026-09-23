@@ -174,6 +174,14 @@ func TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds(t *testing.T)
 	}
 
 	r := NewFalcoReader(path, time.Second, srv.URL, "node-1", nil)
+	st, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Model a reader that already initialized on this exact file and retained an
+	// incomplete trailing record across polls.
+	r.initialized = true
+	r.fileInfo = st
 	r.offset = int64(len(prefix))
 	r.lineBuf = []byte(prefix)
 	startOffset := r.offset
