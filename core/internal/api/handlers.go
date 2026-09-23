@@ -1307,7 +1307,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-			riskByUID := loadActiveInsightCountsByPodUID(db, allPods)
+			riskByUID := loadActiveInsightCountsByPodIdentity(db, allPods)
 			scores := loadLatestV3RiskScoresByPod(db, allPods)
 			chainCache := make(map[string]*clusterChainsCacheEntry)
 			rows := buildPodRowsWithRiskSignals(ctx, db, allPods, riskByUID, scores, chainCache)
@@ -1353,15 +1353,15 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 				orderSQL = "COALESCE(_rs.max_score, 0) DESC, pods.name ASC"
 				if hasTable(db, "insights") {
 					q2 = q2.Joins(`LEFT JOIN (
-						SELECT resource_uid, COUNT(*) AS insight_cnt
+						SELECT cluster_id, resource_uid, COUNT(*) AS insight_cnt
 						FROM insights
 						WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
-						GROUP BY resource_uid
-					) _ins ON _ins.resource_uid = pods.uid`)
+						GROUP BY cluster_id, resource_uid
+					) _ins ON _ins.cluster_id = pods.cluster_id AND _ins.resource_uid = pods.uid`)
 					orderSQL = "COALESCE(_rs.max_score, 0) DESC, COALESCE(_ins.insight_cnt, 0) DESC, pods.name ASC"
 				}
 			} else if hasTable(db, "insights") {
-				orderSQL = `(SELECT COUNT(*) FROM insights WHERE insights.resource_uid = pods.uid AND insights.deleted_at IS NULL AND (insights.status = 'active' OR insights.status IS NULL)) DESC, pods.name ASC`
+				orderSQL = `(SELECT COUNT(*) FROM insights WHERE insights.cluster_id = pods.cluster_id AND insights.resource_uid = pods.uid AND insights.deleted_at IS NULL AND (insights.status = 'active' OR insights.status IS NULL)) DESC, pods.name ASC`
 			}
 			findErr = q2.Offset(offset).Limit(pageSize).Order(orderSQL).Find(&pods).Error
 		case "created_desc":
@@ -1374,7 +1374,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		riskByUID := loadActiveInsightCountsByPodUID(db, pods)
+		riskByUID := loadActiveInsightCountsByPodIdentity(db, pods)
 		scores := loadLatestV3RiskScoresByPod(db, pods)
 		chainCache := make(map[string]*clusterChainsCacheEntry)
 		rows := buildPodRowsWithRiskSignals(ctx, db, pods, riskByUID, scores, chainCache)
@@ -1395,28 +1395,53 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func loadActiveInsightCountsByPodUID(db *gorm.DB, pods []models.Pod) map[string]int64 {
-	riskByUID := make(map[string]int64)
+func podIdentityMapKey(clusterID, podUID string) string {
+	return strings.TrimSpace(clusterID) + "|" + strings.TrimSpace(podUID)
+}
+
+func loadActiveInsightCountsByPodIdentity(db *gorm.DB, pods []models.Pod) map[string]int64 {
+	riskByIdentity := make(map[string]int64)
 	if len(pods) == 0 || !hasTable(db, "insights") {
-		return riskByUID
+		return riskByIdentity
 	}
-	uids := make([]string, 0, len(pods))
+	clusterSet := make(map[string]struct{})
+	uidSet := make(map[string]struct{})
 	for _, p := range pods {
-		uids = append(uids, p.UID)
+		if p.ClusterID != "" {
+			clusterSet[p.ClusterID] = struct{}{}
+		}
+		if p.UID != "" {
+			uidSet[p.UID] = struct{}{}
+		}
+	}
+	clusterIDs := make([]string, 0, len(clusterSet))
+	for id := range clusterSet {
+		clusterIDs = append(clusterIDs, id)
+	}
+	uids := make([]string, 0, len(uidSet))
+	for uid := range uidSet {
+		uids = append(uids, uid)
+	}
+	if len(clusterIDs) == 0 || len(uids) == 0 {
+		return riskByIdentity
 	}
 	var rows []struct {
+		ClusterID   string `gorm:"column:cluster_id"`
 		ResourceUID string `gorm:"column:resource_uid"`
 		Count       int64  `gorm:"column:count"`
 	}
-	db.Raw(`
-		SELECT resource_uid, COUNT(*) as count FROM insights
-		WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?
-		GROUP BY resource_uid
-	`, uids).Scan(&rows)
-	for _, r := range rows {
-		riskByUID[r.ResourceUID] = r.Count
+	if err := db.Model(&models.Insight{}).
+		Select("cluster_id, resource_uid, COUNT(*) as count").
+		Where("deleted_at IS NULL AND (status = 'active' OR status IS NULL)").
+		Where("cluster_id IN ? AND resource_uid IN ?", clusterIDs, uids).
+		Group("cluster_id, resource_uid").
+		Scan(&rows).Error; err != nil {
+		return riskByIdentity
 	}
-	return riskByUID
+	for _, r := range rows {
+		riskByIdentity[podIdentityMapKey(r.ClusterID, r.ResourceUID)] = r.Count
+	}
+	return riskByIdentity
 }
 
 // podDetailEnvelope is the JSON shape for cluster-qualified inventory Pod detail.
