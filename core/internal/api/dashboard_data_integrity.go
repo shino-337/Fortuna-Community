@@ -120,6 +120,22 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			return true
 		}
 
+		for _, required := range []struct {
+			table   string
+			code    string
+			message string
+		}{
+			{"agents", "dashboard_integrity_agents_schema_unavailable", "Dashboard integrity requires the agents schema"},
+			{"clusters", "dashboard_integrity_clusters_schema_unavailable", "Dashboard integrity requires the clusters schema"},
+			{"pods", "dashboard_integrity_pods_schema_unavailable", "Dashboard integrity requires the pods schema"},
+			{"insights", "dashboard_integrity_insights_schema_unavailable", "Dashboard integrity requires the insights schema"},
+		} {
+			if !db.Migrator().HasTable(required.table) {
+				respondSchemaUnavailable(c, required.code, required.message)
+				return
+			}
+		}
+
 		// Cross-checks: agents count (all ready) vs dashboard-visible data.
 		if db.Migrator().HasTable("agents") {
 			if fail(db.Model(&models.Agent{}).
