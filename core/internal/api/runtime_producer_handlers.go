@@ -119,7 +119,16 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					next.SessionID = req.SessionID
 					next.SessionStartedAt = req.SessionStartedAt
 					next.State = reset.State
-					next.GapSince = reset.GapSince
+					// A restart invalidates continuity from the last accepted
+					// producer observation, not merely from the new process start.
+					// This preserves the full possible loss interval when an
+					// in-memory queue disappeared with the previous process.
+					if prior.LastCoverageEnd != nil && !prior.LastCoverageEnd.IsZero() && prior.LastCoverageEnd.Before(req.SessionStartedAt) {
+						gap := *prior.LastCoverageEnd
+						next.GapSince = &gap
+					} else {
+						next.GapSince = reset.GapSince
+					}
 					next.GapReason = reset.GapReason
 					next.LastCoverageID = ""
 					next.LastCoverageEnd = nil
