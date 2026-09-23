@@ -145,6 +145,33 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	require.True(t, recoveredRow.ContinuousSince.Equal(recovered.WindowStart))
 }
 
+
+func TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd(t *testing.T) {
+	db := runtimeCoverageDB(t)
+	principal := &agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+
+	first := coverageWindow("gap-anchor-coverage-0001", now.Add(-10*time.Second), now.Add(-8*time.Second))
+	seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-12*time.Second), now, true, true, collection.RuntimeProducerStarting)
+	require.Equal(t, http.StatusOK, postCoverage(t, db, principal, first).Code)
+
+	// Leave an explicit silent interval before the failed window.
+	failed := coverageWindow("gap-anchor-coverage-0002", now.Add(-4*time.Second), now.Add(-2*time.Second))
+	failed.Status = "failed"
+	failed.Emitted = 1
+	failed.Delivered = 0
+	failed.Errors = 1
+	failed.Reason = "delivery failed"
+	require.Equal(t, http.StatusOK, postCoverage(t, db, principal, failed).Code)
+
+	var producer models.RuntimeProducerState
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.NotNil(t, producer.GapSince)
+	require.True(t, producer.GapSince.Equal(first.WindowEnd),
+		"failed window gap must include the silent interval since last accepted coverage")
+	require.Equal(t, "coverage_failed", producer.GapReason)
+}
+
 func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 	principal := &agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
 	now := time.Now().UTC().Truncate(time.Microsecond)
