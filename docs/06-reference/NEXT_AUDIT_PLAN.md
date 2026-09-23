@@ -214,17 +214,6 @@ Required invariants include:
 - coverage receipt cadence is configured independently from event poll cadence:
   event collection may remain at 5s while immutable clean coverage defaults to 30s;
   failed coverage windows bypass cadence and are persisted immediately;
-- retention is explicit and bounded. The default production target is 7 days for
-  immutable runtime coverage receipts unless an operator configures archive/export
-  before deletion;
-- `runtime_coverage_receipts` is PostgreSQL-partitioned by receipt time so
-  retention/archive can operate on partitions rather than unbounded row deletes;
-- observability exposes receipt ingest rate, allocated storage bytes and oldest
-  retained receipt age. Production dashboards/alerts must derive
-  `receipts_per_minute`, `receipt_bytes` and `oldest_receipt_age`;
-- capacity planning uses a conservative budget of 2 KiB per receipt plus 50%
-  headroom (3 KiB effective) until measured PostgreSQL index/TOAST/partition
-  overhead provides a stronger environment-specific value;
 - runtime event replay itself is idempotent before downstream REP/risk/correlation
   effects. Generic runtime-file restart may re-read complete records, so a replayed
   physical observation must not increment risk or duplicate signals/incidents.
@@ -232,12 +221,37 @@ Required invariants include:
   globally unique; the source record identity must distinguish legitimate
   same-second identical observations.
 
-Operational sizing guidance for the merge gate:
-- fewer than 10 Agents: 5s coverage cadence is acceptable with short retention;
-- around 100 Agents: use at least 30s immutable coverage cadence or bound retention
-  to 7 days;
-- 500+ Agents: partition + archive is required and 5s receipt append must not be
-  the production default.
+### #52 production operations follow-up (not a correctness merge blocker)
+
+Runtime auto-resolution remains disabled, and lifecycle/session gaps fail closed,
+so the following scale/operations work does not block the runtime-evidence logic
+merge. It must, however, be completed before claiming large-scale production
+readiness:
+
+- define an explicit retention policy; use 7 days as the initial production target
+  unless archive/export requirements justify a different value;
+- partition `runtime_coverage_receipts` by receipt time and implement automatic
+  cleanup/archive so retention does not depend on unbounded row-by-row deletion;
+- expose storage observability for receipt ingest rate, allocated bytes and oldest
+  retained receipt age (`receipts_per_minute`, `receipt_bytes`,
+  `oldest_receipt_age`);
+- capacity planning uses 2 KiB/receipt plus 50% headroom (3 KiB effective) until
+  measured PostgreSQL table/index/TOAST overhead provides an environment-specific
+  value;
+- composite string identities on the latest projection and immutable history remain
+  acceptable for this PR but require index/storage sizing at larger scale;
+- fewer than 10 Agents may use 5s coverage cadence with short retention; around
+  100 Agents should use at least 30s or bound retention to 7 days; 500+ Agents
+  require partition + archive and must not append receipts every 5s by default;
+- Falco startup scans backwards in 64 KiB blocks to preserve a trailing partial
+  record. Normal JSONL finds a newline near EOF; a malformed newline-free file can
+  force an O(file-size) startup scan and should be monitored as an operational
+  edge case.
+
+The Agent coverage pending/backlog queue is intentionally memory-only in #52.
+Restart can lose unacknowledged coverage history, but a new lifecycle session
+invalidates old evidence and `gap_since` reaches back to the prior accepted
+coverage boundary. This is an accepted fail-closed trade-off, not a regression.
 
 Runtime/Pod/cross-resource auto-resolution remains disabled in #52. Enabling a
 consumer is a separate change and must verify both the required bounded interval
