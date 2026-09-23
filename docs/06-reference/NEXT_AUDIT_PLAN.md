@@ -275,6 +275,8 @@ E1 starts after #52 and is the current implementation package. Merge only when:
 - cluster security summaries join findings/capabilities with Pods on both
   `cluster_id` and Pod UID so duplicate UIDs across clusters cannot contaminate
   aggregate counts;
+- Pod list risk-count enrichment and risk-based ordering remain
+  cluster-qualified when the same Pod UID exists in more than one cluster;
 - Agent data availability is represented separately from heartbeat-derived
   healthy/slow/disconnected state;
 - system metrics do not report `healthy` when their backing queries fail;
