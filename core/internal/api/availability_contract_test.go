@@ -214,6 +214,71 @@ func TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable(t *testing.T
 	require.Equal(t, "cluster_security_summary_capabilities_unavailable", decodeAvailabilityBody(t, w)["code"])
 }
 
+
+func TestPipelineHealthIsClusterScoped(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t,
+		&models.Pod{}, &models.PodCapability{}, &models.Insight{},
+		&models.AttackPath{}, &models.RiskScore{},
+	)
+	now := time.Now().UTC()
+	for _, clusterID := range []string{"sha256-a", "sha256-b"} {
+		require.NoError(t, db.Create(&models.Pod{
+			ClusterID: clusterID, UID: "same-pod", Name: "pod", Namespace: "ns",
+		}).Error)
+		require.NoError(t, db.Create(&models.PodCapability{
+			ClusterID: clusterID, PodUID: "same-pod", Namespace: "ns",
+			CapabilityID: "CAP_" + clusterID, CapabilityGroup: "ESC",
+			Severity: "high", State: "exploited", UpdatedAt: now,
+		}).Error)
+		require.NoError(t, db.Create(&models.Insight{
+			ClusterID: clusterID, ResourceType: "Pod", ResourceNamespace: "ns",
+			ResourceName: "pod", ResourceUID: "same-pod", InsightType: "rbac",
+			Severity: "high", Title: clusterID, Description: clusterID,
+			Status: "active", DetectedAt: now, UpdatedAt: now,
+		}).Error)
+		require.NoError(t, db.Create(&models.AttackPath{
+			ClusterID: clusterID, PodUID: "same-pod", PathID: "path-" + clusterID,
+			TotalRisk: 10, UpdatedAt: now,
+		}).Error)
+		require.NoError(t, db.Create(&models.RiskScore{
+			ClusterID: clusterID, ResourceType: "Pod", ResourceUID: "same-pod",
+			ResourceName: "pod", Namespace: "ns", TotalScore: 80,
+			ScorerVersion: "v3", CalculatedAt: now,
+		}).Error)
+	}
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/monitoring/pipeline-health?cluster_id=sha256-a")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetPipelineHealth(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "available", body["dataStatus"])
+	data := body["data"].(map[string]interface{})
+	layer1 := data["layer1"].(map[string]interface{})
+	layer2 := data["layer2"].(map[string]interface{})
+	layer3 := data["layer3"].(map[string]interface{})
+	layer4 := data["layer4"].(map[string]interface{})
+	require.EqualValues(t, 1, layer1["insightCount"])
+	require.EqualValues(t, 1, layer2["exploitedCapCount"])
+	require.EqualValues(t, 1, layer3["totalPaths"])
+	require.EqualValues(t, 1, layer3["criticalPaths"])
+	require.EqualValues(t, 1, layer4["resourcesScored"])
+	require.EqualValues(t, 1, layer4["v3Resources"])
+}
+
+func TestPipelineHealthQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.PodCapability{})
+	c, w := availabilityContext(http.MethodGet, "/api/v1/monitoring/pipeline-health")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetPipelineHealth(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "pipeline_health_layer1_insights_unavailable", body["code"])
+}
+
 func TestClusterStatsUsesPersistedAgentVersion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t,
