@@ -117,6 +117,7 @@ REQUIRED = {
         "TestScopedInventoryCollectionHTTPContract/persistence-failure",
         "TestScopedInventoryCollectionHTTPContract/scoped-missing-collection",
         "TestRuntimeCoverageScopedContinuityAndReplay",
+        "TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
