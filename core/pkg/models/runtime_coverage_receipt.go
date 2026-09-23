@@ -46,3 +46,26 @@ func RuntimeCoverageReceiptFrom(row RuntimeCoverage) RuntimeCoverageReceipt {
 		Reason: row.Reason,
 	}
 }
+
+
+func RuntimeCoverageFromReceipt(row RuntimeCoverageReceipt) RuntimeCoverage {
+	return RuntimeCoverage{
+		ClusterID: row.ClusterID,
+		AgentID: row.AgentID,
+		ProducerID: row.ProducerID,
+		SessionID: row.SessionID,
+		CoverageID: row.CoverageID,
+		SourceKind: row.SourceKind,
+		Status: row.Status,
+		WindowStart: row.WindowStart,
+		WindowEnd: row.WindowEnd,
+		ReceivedAt: row.ReceivedAt,
+		ContinuousSince: row.ContinuousSince,
+		Emitted: row.Emitted,
+		Delivered: row.Delivered,
+		Dropped: row.Dropped,
+		Invalid: row.Invalid,
+		Errors: row.Errors,
+		Reason: row.Reason,
+	}
+}
