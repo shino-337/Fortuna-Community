@@ -73,6 +73,36 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := ensureIndex(db, "idx_runtime_coverage_receipt_window_end", "runtime_coverage_receipts", "window_end", false); err != nil {
 		return err
 	}
+	// Preserve the one latest receipt that may predate the immutable history
+	// table. Only rows with a complete evidence identity/window are backfilled;
+	// partial legacy rows remain latest-state data and are never fabricated into
+	// trusted historical evidence.
+	if err := db.Exec(`
+		INSERT INTO runtime_coverage_receipts (
+			cluster_id,agent_id,producer_id,session_id,coverage_id,source_kind,status,
+			window_start,window_end,received_at,continuous_since,
+			emitted,delivered,dropped,invalid,errors,reason
+		)
+		SELECT
+			cluster_id,agent_id,producer_id,session_id,coverage_id,source_kind,status,
+			window_start,window_end,received_at,continuous_since,
+			COALESCE(emitted,0),COALESCE(delivered,0),COALESCE(dropped,0),
+			COALESCE(invalid,0),COALESCE(errors,0),COALESCE(reason,'')
+		FROM runtime_coverages
+		WHERE cluster_id IS NOT NULL AND cluster_id <> ''
+		  AND agent_id IS NOT NULL AND agent_id <> ''
+		  AND producer_id IS NOT NULL AND producer_id <> ''
+		  AND session_id IS NOT NULL AND session_id <> ''
+		  AND coverage_id IS NOT NULL AND coverage_id <> ''
+		  AND source_kind IS NOT NULL AND source_kind <> ''
+		  AND status IS NOT NULL AND status <> ''
+		  AND window_start IS NOT NULL
+		  AND window_end IS NOT NULL
+		  AND received_at IS NOT NULL
+		ON CONFLICT (cluster_id,agent_id,producer_id,session_id,coverage_id) DO NOTHING
+	`).Error; err != nil {
+		return fmt.Errorf("backfill runtime coverage receipt history: %w", err)
+	}
 
 	if !db.Migrator().HasTable(&models.RuntimeProducerState{}) {
 		if err := db.Migrator().CreateTable(&models.RuntimeProducerState{}); err != nil {
