@@ -280,3 +280,77 @@ func TestRuntimeFileCoverageDetectsFileReplacement(t *testing.T) {
 		t.Fatalf("runtime file replacement must break clean continuity: %+v", coverage)
 	}
 }
+
+
+func TestRuntimeFilePartialRecordSurvivesReaderRestart(t *testing.T) {
+	var coverage []collection.RuntimeCoverage
+	delivered := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/coverage":
+			var report collection.RuntimeCoverage
+			if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+				t.Fatal(err)
+			}
+			coverage = append(coverage, report)
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/events":
+			var events []Event
+			if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+				t.Fatal(err)
+			}
+			delivered += len(events)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "runtime.jsonl")
+	prefix := `{"pod":{"uid":"pod-restart"},"syscall":"execve","target":"/bin/sh"`
+	suffix := `,"timestamp":7,"confidence":1}` + "\n"
+	if err := os.WriteFile(path, []byte(prefix), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	beforeRestart := NewReader(path, 0, srv.URL)
+	beforeRestart.readAndSend()
+	if delivered != 0 || len(beforeRestart.lineBuf) == 0 {
+		t.Fatalf("initial partial record not retained: delivered=%d buf=%q", delivered, string(beforeRestart.lineBuf))
+	}
+	if len(coverage) != 1 || coverage[0].Status != "failed" || coverage[0].Errors == 0 {
+		t.Fatalf("partial record must fail the pre-restart window: %+v", coverage)
+	}
+
+	// Simulate process restart: Reader cursor and lineBuf are intentionally
+	// in-memory only. The new Reader starts from offset zero, so it re-observes
+	// the prefix instead of silently skipping bytes that were only buffered by
+	// the prior process.
+	afterRestart := NewReader(path, 0, srv.URL)
+	afterRestart.readAndSend()
+	if delivered != 0 || len(afterRestart.lineBuf) == 0 {
+		t.Fatalf("restart silently lost partial prefix: delivered=%d buf=%q", delivered, string(afterRestart.lineBuf))
+	}
+	if len(coverage) != 2 || coverage[1].Status != "failed" || coverage[1].Errors == 0 {
+		t.Fatalf("restart must retain a failed evidence boundary for pending partial data: %+v", coverage)
+	}
+
+	fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fh.WriteString(suffix); err != nil {
+		_ = fh.Close()
+		t.Fatal(err)
+	}
+	_ = fh.Close()
+
+	afterRestart.readAndSend()
+	if delivered != 1 || len(afterRestart.lineBuf) != 0 {
+		t.Fatalf("partial record disappeared across restart: delivered=%d buf=%q", delivered, string(afterRestart.lineBuf))
+	}
+	if len(coverage) != 3 || coverage[2].Status != "complete" {
+		t.Fatalf("completed post-restart record did not recover observation: %+v", coverage)
+	}
+}
