@@ -140,8 +140,14 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 		// Pod/insight cross-checks are required backing data: query failure is not zero.
-		if fail(db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE deleted_at IS NULL").
-			Scan(&resp.CrossChecks.PodsCount).Error,
+		if fail(db.Raw(`
+			SELECT COUNT(*) FROM (
+				SELECT cluster_id, uid
+				FROM pods
+				WHERE deleted_at IS NULL
+				GROUP BY cluster_id, uid
+			) scoped_pods
+		`).Scan(&resp.CrossChecks.PodsCount).Error,
 			"dashboard_integrity_pods_unavailable", "Dashboard Pod cross-checks could not be loaded") {
 			return
 		}
@@ -184,9 +190,11 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 				SELECT COUNT(*) FROM pods p
 				WHERE p.deleted_at IS NULL
 				  AND COALESCE(TRIM(p.uid), '') <> ''
-				  AND p.uid NOT IN (
-					SELECT DISTINCT TRIM(s.pod_uid) FROM sboms s
-					WHERE s.deleted_at IS NULL AND COALESCE(TRIM(s.pod_uid), '') <> ''
+				  AND NOT EXISTS (
+					SELECT 1 FROM sboms s
+					WHERE s.deleted_at IS NULL
+					  AND s.cluster_id = p.cluster_id
+					  AND TRIM(s.pod_uid) = TRIM(p.uid)
 				  )
 			`).Scan(&resp.CrossChecks.PodsMissingSbom).Error,
 				"dashboard_integrity_sbom_coverage_unavailable", "SBOM coverage cross-checks could not be loaded") {
