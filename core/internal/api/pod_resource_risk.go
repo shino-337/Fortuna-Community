@@ -282,7 +282,7 @@ func buildPodRowsWithRiskSignals(ctx context.Context, db *gorm.DB, pods []models
 		}
 		row := podRowSortable{
 			Pod:              p,
-			RiskCount:        riskByUID[p.UID],
+			RiskCount:        riskByUID[podIdentityMapKey(p.ClusterID, p.UID)],
 			UnifiedScore:     us,
 			FinalLevel:       final,
 			ScorerVersion:    sv,
