@@ -14,6 +14,44 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
+func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeSignal{}, &models.RuntimeBehaviorFact{}, &models.RuntimeIncident{}, &models.PodRiskProfile{}, &models.PodCapability{}, &models.CapabilityMetadata{}, &models.PromotionRule{}); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+
+	r := gin.New()
+	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
+	if err := db.Create(&models.Pod{UID: "pod-no-record-id", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	payload := []map[string]interface{}{{
+		"pod": map[string]interface{}{"uid": "pod-no-record-id", "namespace": "ns"},
+		"syscall": "execve",
+		"target": "/bin/sh",
+		"confidence": 0.9,
+	}}
+	body, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPost, "/api/v2/runtime/events", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("missing source_record_id status=%d body=%s", w.Code, w.Body.String())
+	}
+	var count int64
+	if err := db.Model(&models.RuntimeEvent{}).Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("missing source_record_id persisted %d runtime events", count)
+	}
+}
+
 func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
