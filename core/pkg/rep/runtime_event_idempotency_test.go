@@ -157,9 +157,13 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 	require.NoError(t, db.Model(&models.RuntimeEvent{}).Count(&eventCount).Error)
 	require.EqualValues(t, 2, eventCount, "physical records at distinct offsets must not collapse")
 
-	var signal models.RuntimeSignal
-	require.NoError(t, db.Where("cluster_id = ? AND pod_uid = ? AND signal_type = ?", "cluster-a", "pod-runtime-idempotency", "UNKNOWN").First(&signal).Error)
-	require.Equal(t, 2, signal.Count, "both legitimate observations must reach downstream effects")
+	var signals []models.RuntimeSignal
+	require.NoError(t, db.Where("cluster_id = ? AND pod_uid = ? AND signal_type = ?", "cluster-a", "pod-runtime-idempotency", "UNKNOWN").Find(&signals).Error)
+	totalSignalEffects := 0
+	for i := range signals {
+		totalSignalEffects += signals[i].Count
+	}
+	require.Equal(t, 2, totalSignalEffects, "both legitimate observations must reach downstream effects")
 }
 
 func TestRuntimeSourceRecordConcurrentDuplicatePostgres(t *testing.T) {
