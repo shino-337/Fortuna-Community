@@ -1,7 +1,6 @@
 package runtime
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -53,6 +52,8 @@ type Reader struct {
 	httpClient *http.Client
 	logger     *log.Logger
 	offset     int64
+	fileInfo   os.FileInfo
+	lineBuf    []byte
 	// ingestion quality counters
 	invalidLines  uint64
 	sentBatches   uint64
@@ -108,18 +109,50 @@ func (r *Reader) readAndSend() {
 	}
 	defer f.Close()
 
+	st, err := f.Stat()
+	if err != nil {
+		stats.Errors++
+		reason = "runtime event stat failed"
+		return
+	}
+	fileSize := st.Size()
+	rotated := r.fileInfo != nil && !os.SameFile(r.fileInfo, st)
+	if rotated || r.offset > fileSize {
+		r.offset = 0
+		r.lineBuf = nil
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event file rotated or truncated")
+	}
+	r.fileInfo = st
+
 	startOffset := r.offset
+	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek runtime events file: %v", err)
 		stats.Errors++
-		reason = "runtime event seek failed"
+		reason = mergeCoverageReason(reason, "runtime event seek failed")
 		return
 	}
 
-	scanner := bufio.NewScanner(f)
+	chunk, err := io.ReadAll(f)
+	if err != nil {
+		r.logger.Printf("Runtime events read error: %v", err)
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "runtime event read failed")
+		return
+	}
+
+	data := append(append([]byte(nil), startBuf...), chunk...)
+	r.lineBuf = nil
 	events := make([]Event, 0, 10)
-	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
+	for len(data) > 0 {
+		idx := bytes.IndexByte(data, '\n')
+		if idx < 0 {
+			r.lineBuf = append([]byte(nil), data...)
+			break
+		}
+		line := bytes.TrimSpace(data[:idx])
+		data = data[idx+1:]
 		if len(line) == 0 {
 			continue
 		}
@@ -134,26 +167,16 @@ func (r *Reader) readAndSend() {
 		events = append(events, evt)
 	}
 
-	if err := scanner.Err(); err != nil {
-		r.logger.Printf("Runtime events read error: %v", err)
+	nextOffset := startOffset + int64(len(chunk))
+	if len(r.lineBuf) != 0 {
 		stats.Errors++
-		reason = mergeCoverageReason(reason, "runtime event read failed")
-		// Keep the previous offset so a transient read error cannot discard data.
-		return
-	}
-
-	pos, err := f.Seek(0, io.SeekCurrent)
-	if err != nil {
-		r.logger.Printf("Failed to determine runtime events offset: %v", err)
-		stats.Errors++
-		reason = mergeCoverageReason(reason, "runtime event offset failed")
-		return
+		reason = mergeCoverageReason(reason, "partial runtime event record pending")
 	}
 
 	if len(events) == 0 {
-		// Invalid/empty records should not be retried forever when there is no
-		// deliverable event in this slice.
-		r.offset = pos
+		// Permanent malformed records are consumed; an incomplete trailing record
+		// is retained in lineBuf and completed from the next file slice.
+		r.offset = nextOffset
 		return
 	}
 
@@ -165,13 +188,13 @@ func (r *Reader) readAndSend() {
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send runtime events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Do not advance. The same file slice is retried on the next poll. This is
-		// required when Core temporarily rejects ingest while inventory/identity
-		// state is converging.
+		// Roll back both cursor components so complete and partial records are
+		// reconstructed exactly on retry.
 		r.offset = startOffset
+		r.lineBuf = startBuf
 		return
 	}
-	r.offset = pos
+	r.offset = nextOffset
 	stats.Delivered += uint64(len(events))
 	atomic.AddUint64(&r.sentBatches, 1)
 	atomic.AddUint64(&r.sentEvents, uint64(len(events)))
