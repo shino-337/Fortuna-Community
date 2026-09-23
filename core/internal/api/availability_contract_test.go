@@ -57,7 +57,7 @@ func TestAgentStatusMissingSchemaIsUnavailable(t *testing.T) {
 	body := decodeAvailabilityBody(t, w)
 	require.Equal(t, "unavailable", body["status"])
 	require.Equal(t, "agent_status_schema_unavailable", body["code"])
-	require.Equal(t, true, body["retryable"])
+	require.Equal(t, false, body["retryable"])
 }
 
 func TestAgentStatusUsesPersistedIdentityVersionAndHeartbeat(t *testing.T) {
@@ -102,6 +102,44 @@ func TestSystemMetricsBackingQueryFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, "system_metrics_pods_unavailable", body["code"])
 }
 
+
+func TestSystemMetricsCountsDuplicatePodUIDAcrossClustersSeparately(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.ServiceAccount{}, &models.Insight{})
+	now := time.Now().UTC()
+	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
+		require.NoError(t, db.Create(&models.Cluster{ID: clusterID, Name: clusterID, LastSync: now}).Error)
+		require.NoError(t, db.Create(&models.Pod{ClusterID: clusterID, UID: "same-pod", Name: "pod", Namespace: "ns"}).Error)
+	}
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/system")
+	GetSystemMetrics(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	resources := body["resources"].(map[string]interface{})
+	require.EqualValues(t, 2, resources["pods"])
+}
+
+func TestDashboardIntegrityClusterQualifiesPodAndSBOMCoverage(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{}, &models.SBOM{})
+	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
+		require.NoError(t, db.Create(&models.Pod{ClusterID: clusterID, UID: "same-pod", Name: "pod", Namespace: "ns"}).Error)
+	}
+	require.NoError(t, db.Create(&models.SBOM{
+		ClusterID: "cluster-a", PodUID: "same-pod", PodName: "pod", Namespace: "ns",
+		ContainerName: "app", ImageName: "app", ImageTag: "1", Status: "complete",
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/health/dashboard-data-integrity")
+	DashboardDataIntegrity(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var body DashboardDataIntegrityResponse
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.EqualValues(t, 2, body.CrossChecks.PodsCount)
+	require.EqualValues(t, 1, body.CrossChecks.PodsMissingSbom)
+}
+
 func TestClusterNodeSurfacesDoNotConvertMissingPodsTableToEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for name, handler := range map[string]func(*gorm.DB) gin.HandlerFunc{
@@ -131,13 +169,17 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 	detailCtx.Set(middleware.CtxPodClusterID, "cluster-a")
 	GetPodCapabilitiesScoped(db)(detailCtx)
 	require.Equal(t, http.StatusServiceUnavailable, detailW.Code)
-	require.Equal(t, "capability_inventory_schema_unavailable", decodeAvailabilityBody(t, detailW)["code"])
+	detailBody := decodeAvailabilityBody(t, detailW)
+	require.Equal(t, "capability_inventory_schema_unavailable", detailBody["code"])
+	require.Equal(t, false, detailBody["retryable"])
 
 	listCtx, listW := availabilityContext(http.MethodGet, "/capabilities")
 	listCtx.Set("user", &models.User{Role: models.RoleAdmin})
 	GetPodCapabilitiesList(db)(listCtx)
 	require.Equal(t, http.StatusServiceUnavailable, listW.Code)
-	require.Equal(t, "capability_inventory_schema_unavailable", decodeAvailabilityBody(t, listW)["code"])
+	listBody := decodeAvailabilityBody(t, listW)
+	require.Equal(t, "capability_inventory_schema_unavailable", listBody["code"])
+	require.Equal(t, false, listBody["retryable"])
 }
 
 
@@ -222,6 +264,11 @@ func TestClusterSecuritySummaryIsClusterQualified(t *testing.T) {
 		ClusterID: "cluster-b", ResourceType: "Pod", ResourceNamespace: "ns",
 		ResourceName: "pod", ResourceUID: "same-pod", InsightType: "runtime",
 		Severity: "high", Title: "b", Description: "b", Status: "active", DetectedAt: time.Now(),
+	}).Error)
+	require.NoError(t, db.Create(&models.Insight{
+		ClusterID: "cluster-a", ResourceType: "ServiceAccount", ResourceNamespace: "ns",
+		ResourceName: "sa", ResourceUID: "same-pod", InsightType: "rbac",
+		Severity: "high", Title: "non-pod", Description: "non-pod", Status: "active", DetectedAt: time.Now(),
 	}).Error)
 	require.NoError(t, db.Create(&models.PodCapability{
 		ClusterID: "cluster-a", PodUID: "same-pod", Namespace: "ns",
