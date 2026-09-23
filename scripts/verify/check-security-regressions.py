@@ -270,6 +270,7 @@ AGENT_REQUIRED = {
         "TestRuntimeFileCoverageEmptyAndInvalid/empty",
         "TestRuntimeFileCoverageEmptyAndInvalid/invalid",
         "TestRuntimeFileCoverageRetainsPartialRecord",
+        "TestRuntimeFilePartialRecordSurvivesReaderRestart",
         "TestRuntimeFileCoverageDetectsFileReplacement",
         "TestFalcoCoverageRejectsUnresolvedEventAsDrop",
         "TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile",
