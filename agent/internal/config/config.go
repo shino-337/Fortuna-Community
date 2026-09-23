@@ -45,6 +45,7 @@ type Config struct {
 	RuntimeEventsEnabled bool
 	RuntimeEventsPath    string
 	RuntimeEventsPoll    time.Duration
+	RuntimeCoverageCadence time.Duration
 
 	// Falco JSON output ingestion (optional) (R9 practical source)
 	FalcoEventsEnabled bool
@@ -85,13 +86,14 @@ func LoadConfig() *Config {
 		WatchNamespace:         getEnv("WATCH_NAMESPACE", ""),
 		RuntimeEventsEnabled:   getEnv("RUNTIME_EVENTS_ENABLED", "false") == "true",
 		RuntimeEventsPath:      getEnv("RUNTIME_EVENTS_PATH", "/var/log/fortuna/runtime-events.log"),
-		RuntimeEventsPoll:      parseDuration(getEnv("RUNTIME_EVENTS_POLL", "5s")),
+		RuntimeEventsPoll:      parsePositiveDuration(getEnv("RUNTIME_EVENTS_POLL", "5s"), 5*time.Second),
+		RuntimeCoverageCadence: parsePositiveDuration(getEnv("RUNTIME_COVERAGE_CADENCE", "30s"), 30*time.Second),
 		FalcoEventsEnabled:     getEnv("FALCO_EVENTS_ENABLED", "false") == "true",
 		FalcoEventsPath:        getEnv("FALCO_EVENTS_PATH", "/var/log/falco/events.jsonl"),
-		FalcoEventsPoll:        parseDuration(getEnv("FALCO_EVENTS_POLL", "5s")),
+		FalcoEventsPoll:        parsePositiveDuration(getEnv("FALCO_EVENTS_POLL", "5s"), 5*time.Second),
 		EBPFEnabled:            getEnv("EBPF_ENABLED", "false") == "true",
 		EBPFMode:               getEnv("EBPF_MODE", "exec"),
-		EBPFEventFlushInterval: parseDuration(getEnv("EBPF_EVENT_FLUSH_INTERVAL", "5s")),
+		EBPFEventFlushInterval: parsePositiveDuration(getEnv("EBPF_EVENT_FLUSH_INTERVAL", "5s"), 5*time.Second),
 		EBPFEventBufferSize:    parseInt(getEnv("EBPF_EVENT_BUFFER_SIZE", "200")),
 		EBPFSimulate:           getEnv("EBPF_SIMULATE", "false") == "true",
 	}
@@ -119,6 +121,14 @@ func parseDuration(s string) time.Duration {
 	d, err := time.ParseDuration(s)
 	if err != nil {
 		return 30 * time.Second
+	}
+	return d
+}
+
+func parsePositiveDuration(s string, fallback time.Duration) time.Duration {
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return fallback
 	}
 	return d
 }
