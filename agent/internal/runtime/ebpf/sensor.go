@@ -233,10 +233,16 @@ func (s *Sensor) reportCoverage() {
 		Invalid: atomic.SwapUint64(&s.coverageInvalid, 0),
 		Errors: atomic.SwapUint64(&s.coverageErrors, 0),
 	}
-	reason := ""
+	// The built-in sensor currently attaches no-op tracepoints and does not
+	// observe real exec/connect syscall records. It may verify pipeline plumbing,
+	// but it must never establish clean runtime coverage. When the real collector
+	// lands, removing this fail-closed marker requires dedicated observation/loss
+	// regressions.
+	stats.Errors++
+	reason := "ebpf sensor is experimental/no-op; authoritative coverage unavailable"
 	if atomic.LoadUint32(&s.deliveryPending) != 0 {
 		stats.Errors++
-		reason = "ebpf delivery backlog pending"
+		reason += "; delivery backlog pending"
 	}
 	if err := s.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
 		log.Printf("[eBPF] coverage report failed: %v", err)
