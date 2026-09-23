@@ -202,7 +202,9 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 			r.lineBuf = append([]byte{}, data...)
 			break
 		}
-		line := bytes.TrimSpace(data[:idx])
+		rawLine := data[:idx]
+		line := bytes.TrimSpace(rawLine)
+		recordOffset := startOffset + consumed
 		step := int64(idx + 1)
 		consumed += step
 		data = data[idx+1:]
@@ -224,6 +226,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 				reason = mergeCoverageReason(reason, "falco event missing resolvable pod UID")
 				continue
 			}
+			ev.SourceRecordID = sourceFileRecordID(r.path, st, recordOffset, rawLine, i)
 			events = append(events, ev)
 		}
 	}
