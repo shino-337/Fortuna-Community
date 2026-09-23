@@ -12,6 +12,7 @@ type RuntimeCoverage struct {
 	ClusterID       string     `gorm:"primaryKey;size:255" json:"clusterId"`
 	AgentID         string     `gorm:"primaryKey;size:255" json:"agentId"`
 	ProducerID      string     `gorm:"primaryKey;size:128" json:"producerId"`
+	SessionID       string     `gorm:"size:128;index" json:"sessionId"`
 	CoverageID      string     `gorm:"size:128" json:"coverageId"`
 	SourceKind      string     `gorm:"size:64;index" json:"sourceKind"`
 	Status          string     `gorm:"size:32;index" json:"status"`
@@ -27,7 +28,14 @@ type RuntimeCoverage struct {
 	Reason          string     `gorm:"size:512" json:"reason,omitempty"`
 }
 
-func (c RuntimeCoverage) EffectiveStatus(now time.Time) string {
+func (c RuntimeCoverage) EffectiveStatus(producer *RuntimeProducerState, now time.Time) string {
+	if producer == nil || producer.ClusterID != c.ClusterID || producer.AgentID != c.AgentID ||
+		producer.ProducerID != c.ProducerID || producer.SessionID != c.SessionID {
+		return "unknown"
+	}
+	if producer.EffectiveStatus(now) != collection.RuntimeProducerActive {
+		return producer.EffectiveStatus(now)
+	}
 	if c.Status != "complete" {
 		return c.Status
 	}
@@ -40,14 +48,14 @@ func (c RuntimeCoverage) EffectiveStatus(now time.Time) string {
 	return "complete"
 }
 
-// CoversInterval is the fail-closed primitive for later absence-based
-// reasoning. The caller must name both ends of the interval it needs to prove;
-// freshness alone must never substitute for coverage through requiredEnd.
-func (c RuntimeCoverage) CoversInterval(requiredStart, requiredEnd, now time.Time) bool {
+// CoversInterval is the fail-closed primitive for later absence-based reasoning.
+// It requires both coverage continuity and a currently active lifecycle lease for
+// the same Agent execution session.
+func (c RuntimeCoverage) CoversInterval(producer *RuntimeProducerState, requiredStart, requiredEnd, now time.Time) bool {
 	if requiredStart.IsZero() || requiredEnd.IsZero() || requiredEnd.Before(requiredStart) {
 		return false
 	}
-	return c.EffectiveStatus(now) == "complete" &&
+	return c.EffectiveStatus(producer, now) == "complete" &&
 		c.ContinuousSince != nil &&
 		!c.ContinuousSince.After(requiredStart) &&
 		!c.WindowEnd.Before(requiredEnd)
