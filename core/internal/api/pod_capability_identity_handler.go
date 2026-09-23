@@ -27,7 +27,7 @@ func GetPodCapabilitiesScoped(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusOK, gin.H{"podUid": podUID, "clusterId": clusterID, "capabilities": []PodCapabilityDTO{}, "total": 0})
+			respondDataUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 
@@ -37,7 +37,7 @@ func GetPodCapabilitiesScoped(db *gorm.DB) gin.HandlerFunc {
 		}
 		var caps []models.PodCapability
 		if err := query.Order("created_at DESC").Find(&caps).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 		dtos := mapPodCapabilities(caps)
