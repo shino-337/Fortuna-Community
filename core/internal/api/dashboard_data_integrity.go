@@ -268,25 +268,25 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 	}
 
 	if db.Migrator().HasTable("cves") {
-		var t sql.NullTime
-		if err := db.Table("cves").Select("MAX(updated_at)").Scan(&t).Error; err != nil {
+		t, err := latestQueryTime(db.Table("cves"), "updated_at")
+		if err != nil {
 			return health, err
 		}
-		health.LastCVEUpdatedAt = nullTimePtr(t)
+		health.LastCVEUpdatedAt = t
 	}
 	if db.Migrator().HasTable("package_vulnerabilities") {
-		var t sql.NullTime
-		if err := db.Table("package_vulnerabilities").Select("MAX(updated_at)").Scan(&t).Error; err != nil {
+		t, err := latestQueryTime(db.Table("package_vulnerabilities"), "updated_at")
+		if err != nil {
 			return health, err
 		}
-		health.LastPackageVulnerabilityUpdate = nullTimePtr(t)
+		health.LastPackageVulnerabilityUpdate = t
 	}
 	if db.Migrator().HasTable("malware_packages") {
-		var t sql.NullTime
-		if err := db.Table("malware_packages").Where("deleted_at IS NULL").Select("MAX(updated_at)").Scan(&t).Error; err != nil {
+		t, err := latestQueryTime(db.Table("malware_packages").Where("deleted_at IS NULL"), "updated_at")
+		if err != nil {
 			return health, err
 		}
-		health.LastMalwareUpdatedAt = nullTimePtr(t)
+		health.LastMalwareUpdatedAt = t
 	}
 	if db.Migrator().HasTable("malware_feed_sync_runs") {
 		var latest models.MalwareFeedSyncRun
