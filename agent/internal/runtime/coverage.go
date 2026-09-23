@@ -42,6 +42,7 @@ type CoverageReporter struct {
 	sourceKind string
 	sessionID  string
 	httpClient *http.Client
+	cadence    time.Duration
 	nextStart  time.Time
 	pending    *collection.RuntimeCoverage
 	backlog    *coverageAggregate
@@ -63,6 +64,21 @@ func NewCoverageReporter(coreURL, producerID, sourceKind string, sessionIDs ...s
 		httpClient: &http.Client{Timeout: 10 * time.Second},
 		nextStart: time.Now().UTC(),
 	}
+}
+
+// SetCadence controls when clean observations are materialized into immutable
+// receipts. Failed observations always bypass the cadence. A zero cadence keeps
+// the legacy one-receipt-per-observation behavior for focused tests/callers.
+func (r *CoverageReporter) SetCadence(cadence time.Duration) {
+	if r == nil {
+		return
+	}
+	if cadence < 0 {
+		cadence = 0
+	}
+	r.mu.Lock()
+	r.cadence = cadence
+	r.mu.Unlock()
 }
 
 // Reset starts a new continuity interval without claiming the skipped time.
@@ -98,7 +114,7 @@ func (r *CoverageReporter) Observe(end time.Time, stats CoverageStats, reason st
 	agg := coverageAggregate{start: r.nextStart, end: end, stats: stats, reason: strings.TrimSpace(reason)}
 	r.nextStart = end
 	r.mergeBacklog(agg)
-	return r.flushLocked()
+	return r.flushLocked(false)
 }
 
 func (r *CoverageReporter) Flush() error {
@@ -107,7 +123,7 @@ func (r *CoverageReporter) Flush() error {
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.flushLocked()
+	return r.flushLocked(true)
 }
 
 func (r *CoverageReporter) mergeBacklog(next coverageAggregate) {
@@ -158,16 +174,35 @@ func (r *CoverageReporter) promoteBacklog() {
 	}
 }
 
-func (r *CoverageReporter) flushLocked() error {
+func coverageStatsFailed(stats CoverageStats) bool {
+	return stats.Dropped != 0 || stats.Invalid != 0 || stats.Errors != 0 || stats.Delivered != stats.Emitted
+}
+
+func (r *CoverageReporter) backlogReady(force bool) bool {
+	if r.backlog == nil {
+		return false
+	}
+	if force || coverageStatsFailed(r.backlog.stats) || r.cadence <= 0 {
+		return true
+	}
+	return !r.backlog.end.Before(r.backlog.start.Add(r.cadence))
+}
+
+func (r *CoverageReporter) flushLocked(force bool) error {
 	for {
-		r.promoteBacklog()
-		if r.pending == nil {
+		// Retry an immutable pending report first. New observations remain in the
+		// backlog and cannot mutate that already-attempted payload.
+		if r.pending != nil {
+			if err := r.post(*r.pending); err != nil {
+				return err
+			}
+			r.pending = nil
+			continue
+		}
+		if !r.backlogReady(force) {
 			return nil
 		}
-		if err := r.post(*r.pending); err != nil {
-			return err
-		}
-		r.pending = nil
+		r.promoteBacklog()
 	}
 }
 
