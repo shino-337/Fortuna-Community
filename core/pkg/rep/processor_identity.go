@@ -87,7 +87,7 @@ func ProcessRuntimeEventForIdentity(ctx context.Context, db *gorm.DB, id resourc
 				return fmt.Errorf("rep: source-record conflict without existing event: %w", err)
 			}
 			if !runtimeEventReplayMatches(existing, event) {
-				return fmt.Errorf("rep: source-record identity reused with different payload")
+				return ErrRuntimeSourceRecordConflict
 			}
 			result = &ProcessResult{Duplicate: true}
 			return nil
