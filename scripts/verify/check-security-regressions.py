@@ -118,6 +118,7 @@ REQUIRED = {
         "TestScopedInventoryCollectionHTTPContract/scoped-missing-collection",
         "TestRuntimeCoverageScopedContinuityAndReplay",
         "TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID",
+        "TestPostRuntimeEventsV2_ExactReplaySkipsDownstreamEffects",
         "TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd",
         "TestRuntimeCoverageRejectsUnsafeWindows",
         "TestRuntimeCoverageRejectsUnsafeWindows/identity-required",
