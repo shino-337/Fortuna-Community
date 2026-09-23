@@ -46,7 +46,11 @@ type Sensor struct {
 	deliveryPending   uint32
 }
 
-func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, bufferSize int, simulate bool) *Sensor {
+func ProducerIDForMode(mode string) string {
+	return "ebpf-" + normalizeEBPFMode(mode)
+}
+
+func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, bufferSize int, simulate bool, sessionIDs ...string) *Sensor {
 	if flushInterval <= 0 {
 		flushInterval = 5 * time.Second
 	}
@@ -63,7 +67,7 @@ func NewSensor(mode, coreURL, nodeName string, flushInterval time.Duration, buff
 		httpClient:    &http.Client{Timeout: 10 * time.Second},
 		eventCh:       make(chan runtime.Event, bufferSize),
 		simulate:      simulate,
-		coverage:      runtime.NewCoverageReporter(coreURL, "ebpf-"+normalizedMode, collection.RuntimeSourceEBPF),
+		coverage:      runtime.NewCoverageReporter(coreURL, "ebpf-"+normalizedMode, collection.RuntimeSourceEBPF, sessionIDs...),
 	}
 }
 
