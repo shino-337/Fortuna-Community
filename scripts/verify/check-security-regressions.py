@@ -203,6 +203,7 @@ REQUIRED = {
     ],
     "./pkg/models": [
         "TestRuntimeCoverageCoversIntervalRequiresBothBounds",
+        "TestRuntimeProducerEffectiveStatusSeparatesActivityFromAuthority",
     ],
     "./migrations": [
         "TestClusterQualifiedPodUniquenessRejectsUnowned",
