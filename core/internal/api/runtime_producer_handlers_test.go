@@ -150,3 +150,58 @@ func TestRuntimeProducerStoppingManifestClosesAllLeases(t *testing.T) {
 		require.Equal(t, "agent_stopping", state.GapReason)
 	}
 }
+
+
+func TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps(t *testing.T) {
+	db := runtimeCoverageDB(t)
+	principal := agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	started := now.Add(-10 * time.Second)
+	manifest := runtimeManifest(runtimeTestSession, started, now.Add(-8*time.Second), true)
+	require.Equal(t, http.StatusOK, postRuntimeManifest(t, db, principal, manifest).Code)
+
+	first := coverageWindow("gap-coverage-00000001", now.Add(-7*time.Second), now.Add(-6*time.Second))
+	require.Equal(t, http.StatusOK, postCoverage(t, db, &principal, first).Code)
+
+	// Simulate a lifecycle transport/pause gap without changing process session.
+	require.NoError(t, db.Model(&models.RuntimeProducerState{}).
+		Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").
+		Update("last_heartbeat_at", now.Add(-collection.RuntimeProducerLeaseMaxAge-time.Second)).Error)
+	heartbeat := manifest
+	heartbeat.ReportedAt = now
+	w := postRuntimeManifest(t, db, principal, heartbeat)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var producer models.RuntimeProducerState
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerStarting, producer.State)
+	require.Equal(t, "lifecycle_lease_expired", producer.GapReason)
+	require.NotNil(t, producer.GapSince)
+
+	// Even an adjacent complete window after the gap starts new continuity.
+	second := coverageWindow("gap-coverage-00000002", first.WindowEnd, now.Add(-5*time.Second))
+	w = postCoverage(t, db, &principal, second)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	var row models.RuntimeCoverage
+	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.NotNil(t, row.ContinuousSince)
+	require.True(t, row.ContinuousSince.Equal(second.WindowStart), "lease gap incorrectly extended old continuity")
+
+	// Agent/config heartbeat alone cannot keep an active producer healthy if its
+	// own observation windows stop arriving.
+	staleEnd := time.Now().UTC().Add(-collection.RuntimeProducerLeaseMaxAge - time.Second)
+	require.NoError(t, db.Model(&models.RuntimeProducerState{}).
+		Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").
+		Updates(map[string]interface{}{
+			"state": collection.RuntimeProducerActive,
+			"last_coverage_end": staleEnd,
+			"last_heartbeat_at": time.Now().UTC(),
+		}).Error)
+	heartbeat.ReportedAt = time.Now().UTC()
+	w = postRuntimeManifest(t, db, principal, heartbeat)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerStarting, producer.State)
+	require.Equal(t, "producer_silent", producer.GapReason)
+	require.NotNil(t, producer.GapSince)
+}
