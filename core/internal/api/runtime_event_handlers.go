@@ -6,7 +6,8 @@ import (
 )
 
 type runtimeEventResponse struct {
-	Processed int `json:"processed"`
+	Processed  int `json:"processed"`
+	Duplicates int `json:"duplicates,omitempty"`
 }
 
 // runtimeEventV2Payload is canonical-ish DTO for POST /api/v2/runtime/events (P0.1 minimal).
