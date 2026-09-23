@@ -47,6 +47,29 @@ not auto-resolve an active finding.
 The D/E packages extend this into source health, observation time, completeness,
 freshness and UI/API availability semantics.
 
+### API availability contract (E1)
+
+Availability is a data property, not a zero value. For observability, inventory and
+security-summary endpoints:
+
+- a missing required schema or failed backing query must return an explicit
+  unavailable/error response and must never be represented as a successful empty
+  list, zero counter, healthy status or synthetic version;
+- `404`/empty remains valid only when the backing query succeeded and the requested
+  resource or collection is genuinely absent;
+- retryable backend unavailability uses a machine-readable code and
+  `retryable=true` so UI clients can preserve the last known state and expose a
+  retry path instead of resetting KPIs to zero;
+- Agent liveness is derived from persisted `last_seen_at`; data-source availability
+  is separate. A missing heartbeat is disconnected, not healthy;
+- Agent cluster identity and version come from the persisted Agent record. UI/API
+  layers must not substitute a global latest cluster or a hardcoded version;
+- detail/list/summary views over the same backing dataset must agree on unavailable
+  semantics.
+
+These rules are permanent named regressions under
+`scripts/verify/check-security-regressions.py`.
+
 ## Invariant 3 — authentication is preserved through storage
 
 Successful scoped HTTP or gRPC authentication is only the first boundary. The
