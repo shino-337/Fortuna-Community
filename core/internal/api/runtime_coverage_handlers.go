@@ -82,10 +82,9 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				producer.State == collection.RuntimeProducerStopped {
 				return errRuntimeProducerInactive
 			}
-			if row.Status == "complete" && !producer.Authoritative {
-				return errRuntimeProducerInactive
-			}
-
+			// Non-authoritative producers may still report complete observation
+			// windows for operational visibility. They must never establish
+			// continuity or absence-eligible evidence.
 			// Serialize first report and subsequent windows under the lifecycle
 			// row lock. A new Agent session is an explicit continuity boundary.
 			candidate := row
