@@ -21,7 +21,7 @@ func runtimeCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.RuntimeCoverage{}, &models.RuntimeProducerState{}))
+	require.NoError(t, db.AutoMigrate(&models.RuntimeCoverage{}, &models.RuntimeCoverageReceipt{}, &models.RuntimeProducerState{}))
 	return db
 }
 
