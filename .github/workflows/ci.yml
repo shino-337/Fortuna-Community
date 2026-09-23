@@ -103,6 +103,7 @@ jobs:
           go test -v ./internal/api -run '^TestRuntimeCoveragePostgres' -count=1 -timeout=2m | tee /tmp/runtime-coverage-postgres.log
           grep -q -- '--- PASS: TestRuntimeCoveragePostgres ' /tmp/runtime-coverage-postgres.log
           grep -q -- '--- PASS: TestRuntimeCoveragePostgresLegacySchemaUpgrade' /tmp/runtime-coverage-postgres.log
+          grep -q -- '--- PASS: TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows' /tmp/runtime-coverage-postgres.log
 
   dashboard:
     name: Dashboard validation
