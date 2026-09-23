@@ -99,6 +99,12 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					return errRuntimeProducerConflict
 				}
 
+				leaseExpired := prior.LastHeartbeatAt.IsZero() || now.Before(prior.LastHeartbeatAt) ||
+					now.Sub(prior.LastHeartbeatAt) > collection.RuntimeProducerLeaseMaxAge
+				producerSilent := prior.State == collection.RuntimeProducerActive &&
+					(prior.LastCoverageEnd == nil || prior.LastCoverageEnd.IsZero() || now.Before(*prior.LastCoverageEnd) ||
+						now.Sub(*prior.LastCoverageEnd) > collection.RuntimeProducerLeaseMaxAge)
+
 				next := prior
 				next.Enabled = decl.Enabled
 				next.Authoritative = decl.Authoritative
@@ -146,6 +152,22 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						gap := req.ReportedAt
 						next.GapSince = &gap
 						next.GapReason = "enabled"
+					case leaseExpired:
+						next.State = collection.RuntimeProducerStarting
+						gap := prior.LastHeartbeatAt.Add(collection.RuntimeProducerLeaseMaxAge)
+						if prior.LastHeartbeatAt.IsZero() || gap.After(now) {
+							gap = now
+						}
+						next.GapSince = &gap
+						next.GapReason = "lifecycle_lease_expired"
+					case producerSilent:
+						next.State = collection.RuntimeProducerStarting
+						gap := prior.LastCoverageEnd.Add(collection.RuntimeProducerLeaseMaxAge)
+						if gap.After(now) {
+							gap = now
+						}
+						next.GapSince = &gap
+						next.GapReason = "producer_silent"
 					}
 				}
 
