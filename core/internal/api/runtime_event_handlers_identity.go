@@ -57,13 +57,13 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 		now := time.Now().UTC()
 		for _, p := range payloads {
 			podUID := strings.TrimSpace(p.Pod.UID)
+			if podUID == "" || strings.TrimSpace(p.Syscall) == "" || p.Confidence <= 0 {
+				continue
+			}
 			sourceRecordID := strings.TrimSpace(p.SourceRecordID)
 			if sourceRecordID == "" || len(sourceRecordID) > 64 {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "source_record_id is required", "code": "runtime_source_record_identity_required"})
 				return
-			}
-			if podUID == "" || strings.TrimSpace(p.Syscall) == "" || p.Confidence <= 0 {
-				continue
 			}
 			id, err := resourceidentity.New(clusterID, podUID)
 			if err != nil {
