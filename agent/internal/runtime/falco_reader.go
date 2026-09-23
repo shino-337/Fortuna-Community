@@ -42,7 +42,8 @@ type FalcoReader struct {
 	kubeClient kubernetes.Interface
 	httpClient *http.Client
 	logger     *log.Logger
-	offset     int64
+	offset      int64
+	initialized bool
 	// lineBuf holds an incomplete trailing line (no '\n' yet) across polls so we never
 	// json.Unmarshal a half-written Falco record (causes "invalid character ...", EOF, etc.).
 	lineBuf []byte
@@ -126,20 +127,27 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		return
 	}
 	fileSize := st.Size()
-	// Log rotation / truncate: start over
+	// Initialization must be explicit. offset==0 is a valid steady-state cursor
+	// when the file was empty at startup; using it as a first-run sentinel would
+	// skip the first real Falco event written later.
+	if !r.initialized {
+		r.initialized = true
+		r.coverage.Reset(time.Now().UTC())
+		if fileSize > 0 {
+			// Tail from EOF once to avoid loading historical multi-GB Falco backlog.
+			r.offset = fileSize
+			reportCoverage = false
+			return
+		}
+	}
+	// Log rotation/truncate: consume the new file from the beginning, but break
+	// clean continuity because bytes between the old cursor and rotation cannot
+	// be proven observed.
 	if r.offset > fileSize {
 		r.offset = 0
 		r.lineBuf = nil
-	}
-	// First run: tail from EOF to avoid loading historical multi-GB Falco backlog
-	// into memory (can OOM the agent). New alerts after startup are still captured.
-	if r.offset == 0 && fileSize > 0 {
-		r.offset = fileSize
-		// Historical bytes are intentionally skipped. Do not claim coverage for
-		// the skipped interval; continuity begins after the tail cursor is set.
-		reportCoverage = false
-		r.coverage.Reset(time.Now().UTC())
-		return
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "falco event file rotated or truncated")
 	}
 
 	startOffset := r.offset
