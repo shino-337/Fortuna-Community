@@ -6,6 +6,10 @@ import (
 	"github.com/fortuna/api/collection"
 )
 
+// RuntimeProducerState is the persisted lifecycle/enablement lease for a
+// configured Agent producer. Enabled is configuration state; Authoritative means
+// an independent upstream-health contract exists. A fresh reader heartbeat alone
+// must never imply Authoritative.
 type RuntimeProducerState struct {
 	ClusterID         string     `gorm:"primaryKey;size:255" json:"clusterId"`
 	AgentID           string     `gorm:"primaryKey;size:255" json:"agentId"`
