@@ -20,10 +20,10 @@ type podV3ScoreRec struct {
 }
 
 // loadLatestV3RiskScoresByPod returns first (latest) v3 row per resource_uid+cluster_id.
-func loadLatestV3RiskScoresByPod(db *gorm.DB, pods []models.Pod) map[string]podV3ScoreRec {
+func loadLatestV3RiskScoresByPod(db *gorm.DB, pods []models.Pod) (map[string]podV3ScoreRec, error) {
 	out := make(map[string]podV3ScoreRec)
 	if len(pods) == 0 || !hasTable(db, "risk_scores") {
-		return out
+		return out, nil
 	}
 	seen := make(map[string]struct{}, len(pods))
 	uids := make([]string, 0, len(pods))
@@ -40,7 +40,7 @@ func loadLatestV3RiskScoresByPod(db *gorm.DB, pods []models.Pod) map[string]podV
 		Where("resource_uid IN ? AND LOWER(resource_type) = 'pod' AND deleted_at IS NULL AND LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", uids, "v3").
 		Order("calculated_at DESC, id DESC").
 		Find(&rows).Error; err != nil {
-		return out
+		return nil, err
 	}
 	for _, r := range rows {
 		key := r.ResourceUID + "|" + r.ClusterID
@@ -48,7 +48,7 @@ func loadLatestV3RiskScoresByPod(db *gorm.DB, pods []models.Pod) map[string]podV
 			out[key] = r
 		}
 	}
-	return out
+	return out, nil
 }
 
 type clusterChainsCacheEntry struct {
