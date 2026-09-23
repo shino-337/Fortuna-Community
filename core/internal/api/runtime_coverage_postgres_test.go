@@ -149,7 +149,7 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	var afterFailure models.RuntimeCoverage
 	require.NoError(t, db.First(&afterFailure, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, first.ID, afterFailure.CoverageID)
-	require.Equal(t, first.WindowEnd, afterFailure.WindowEnd)
+	require.True(t, afterFailure.WindowEnd.Equal(first.WindowEnd), "rollback changed accepted window: got=%v want=%v", afterFailure.WindowEnd, first.WindowEnd)
 
 	require.NoError(t, db.Exec(`DROP TRIGGER deny_runtime_coverage_update ON runtime_coverages`).Error)
 	code, body, err = postCoveragePostgres(db, principal, second)
