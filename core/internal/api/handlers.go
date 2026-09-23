@@ -486,17 +486,24 @@ type ClusterStats struct {
 }
 
 // GetClustersStats returns clusters (with recent sync by default) and their statistics.
+// Every displayed count/version is backed by a successful query; unavailable data
+// is not converted into zero counts or a synthetic Agent version.
 func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
 		clusters, err := getClustersForAPI(db, c)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_stats_clusters_unavailable", "Cluster statistics could not be loaded")
 			return
 		}
 
 		clusterIDs := make([]string, 0, len(clusters))
 		for _, cl := range clusters {
 			clusterIDs = append(clusterIDs, cl.ID)
+		}
+		if len(clusterIDs) == 0 {
+			c.JSON(http.StatusOK, gin.H{"clusters": []ClusterStats{}, "total": 0, "dataStatus": "available"})
+			return
 		}
 
 		type clusterCount struct {
@@ -510,40 +517,82 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 			}
 			return m
 		}
+		scanCounts := func(query *gorm.DB, dest *[]clusterCount, code, message string) bool {
+			if err := query.Scan(dest).Error; err != nil {
+				respondDataUnavailable(c, code, message)
+				return false
+			}
+			return true
+		}
 
 		var saCounts, roleCounts, crCounts, rbCounts, crbCounts, podCounts, deplCounts, riskCounts []clusterCount
-
-		db.Model(&models.ServiceAccount{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&saCounts)
-		db.Model(&models.Role{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&roleCounts)
-		db.Model(&models.ClusterRole{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&crCounts)
-		db.Model(&models.RoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&rbCounts)
-		db.Model(&models.ClusterRoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&crbCounts)
-		db.Model(&models.Pod{}).Select("cluster_id, COUNT(DISTINCT uid) AS cnt").Where("cluster_id IN ? AND deleted_at IS NULL", clusterIDs).Group("cluster_id").Scan(&podCounts)
-		db.Model(&models.Deployment{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&deplCounts)
-		db.Table("insights i").
+		if !scanCounts(db.Model(&models.ServiceAccount{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &saCounts,
+			"cluster_stats_service_accounts_unavailable", "ServiceAccount statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.Role{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &roleCounts,
+			"cluster_stats_roles_unavailable", "Role statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.ClusterRole{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &crCounts,
+			"cluster_stats_cluster_roles_unavailable", "ClusterRole statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.RoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &rbCounts,
+			"cluster_stats_role_bindings_unavailable", "RoleBinding statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.ClusterRoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &crbCounts,
+			"cluster_stats_cluster_role_bindings_unavailable", "ClusterRoleBinding statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.Pod{}).Select("cluster_id, COUNT(DISTINCT uid) AS cnt").Where("cluster_id IN ? AND deleted_at IS NULL", clusterIDs).Group("cluster_id"), &podCounts,
+			"cluster_stats_pods_unavailable", "Pod statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.Deployment{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &deplCounts,
+			"cluster_stats_deployments_unavailable", "Deployment statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Table("insights i").
 			Select("p.cluster_id, COUNT(*) AS cnt").
 			Joins("INNER JOIN pods p ON p.cluster_id = i.cluster_id AND p.uid = i.resource_uid AND p.deleted_at IS NULL").
 			Where("i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND p.cluster_id IN ?", clusterIDs).
-			Group("p.cluster_id").Scan(&riskCounts)
+			Group("p.cluster_id"), &riskCounts,
+			"cluster_stats_risks_unavailable", "Risk statistics could not be loaded") {
+			return
+		}
 
 		saMap, roleMap, crMap, rbMap, crbMap := toMap(saCounts), toMap(roleCounts), toMap(crCounts), toMap(rbCounts), toMap(crbCounts)
 		podMap, deplMap, riskMap := toMap(podCounts), toMap(deplCounts), toMap(riskCounts)
 
-		type agentRow struct {
-			ClusterID string          `gorm:"column:cluster_id"`
-			Cnt       int64           `gorm:"column:cnt"`
-			MaxSeen   models.NullTime `gorm:"column:max_seen"`
+		if !hasTable(db, "agents") {
+			respondDataUnavailable(c, "cluster_stats_agents_schema_unavailable", "Agent statistics are unavailable; agents table is missing")
+			return
 		}
-		agentByCluster := make(map[string]agentRow)
-		if hasTable(db, "agents") {
-			var agentRows []agentRow
-			db.Table("agents a").
-				Select("a.cluster_id, COUNT(DISTINCT a.id) AS cnt, MAX(a.last_seen_at) AS max_seen").
-				Where("a.deleted_at IS NULL AND (a.status = 'ready' OR a.status IS NULL) AND a.cluster_id IN ?", clusterIDs).
-				Group("a.cluster_id").Scan(&agentRows)
-			for _, r := range agentRows {
-				agentByCluster[r.ClusterID] = r
+		var agentRecords []models.Agent
+		if err := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND cluster_id IN ?", "ready", clusterIDs).
+			Order("cluster_id ASC, last_seen_at DESC").Find(&agentRecords).Error; err != nil {
+			respondDataUnavailable(c, "cluster_stats_agents_unavailable", "Agent statistics could not be loaded")
+			return
+		}
+		type agentSummary struct {
+			Count   int64
+			MaxSeen *time.Time
+			Version string
+		}
+		agentByCluster := make(map[string]agentSummary)
+		for _, agent := range agentRecords {
+			summary := agentByCluster[agent.ClusterID]
+			summary.Count++
+			if agent.LastSeenAt != nil && (summary.MaxSeen == nil || agent.LastSeenAt.After(*summary.MaxSeen)) {
+				t := *agent.LastSeenAt
+				summary.MaxSeen = &t
+				summary.Version = agent.Version
+			} else if summary.Version == "" {
+				summary.Version = agent.Version
 			}
+			agentByCluster[agent.ClusterID] = summary
 		}
 
 		stats := make([]ClusterStats, 0, len(clusters))
@@ -558,11 +607,10 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 				PodCount:                podMap[cluster.ID],
 				DeploymentCount:         deplMap[cluster.ID],
 				RiskCount:               riskMap[cluster.ID],
-				AgentVersion:            "v1.0.0",
 			}
-
 			if ar, ok := agentByCluster[cluster.ID]; ok {
-				stat.AgentCount = ar.Cnt
+				stat.AgentCount = ar.Count
+				stat.AgentVersion = ar.Version
 			}
 
 			if cluster.Status == "error" {
@@ -579,8 +627,8 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 					stat.ConnectionStatus = "disconnected"
 				}
 				if stat.ConnectionStatus != "connected" {
-					if ar, ok := agentByCluster[cluster.ID]; ok && ar.MaxSeen.Time != nil {
-						age := time.Since(*ar.MaxSeen.Time)
+					if ar, ok := agentByCluster[cluster.ID]; ok && ar.MaxSeen != nil {
+						age := time.Since(*ar.MaxSeen)
 						if age < 15*time.Minute {
 							stat.ConnectionStatus = "connected"
 						} else if age < 2*time.Hour && stat.ConnectionStatus == "disconnected" {
@@ -593,8 +641,9 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"clusters": stats,
-			"total":    len(stats),
+			"dataStatus": "available",
+			"clusters":   stats,
+			"total":      len(stats),
 		})
 	}
 }
