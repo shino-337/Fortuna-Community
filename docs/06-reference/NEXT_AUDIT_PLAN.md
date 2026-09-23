@@ -197,8 +197,18 @@ Required invariants include:
 - concurrent first-report arbitration and SQL rollback/recovery on PostgreSQL;
 - generic runtime-file cursor never advances past a partial record prefix and a
   restart regression proves the record cannot disappear merely because lineBuf was lost;
-- full populated-legacy schema upgrade, fail-closed unowned-row handling, and
-  exact backfill semantics for pre-history latest evidence;
+- Falco cursor advances only through newline-terminated records; startup tails only
+  past the last complete historical record, preserving a trailing partial prefix
+  across Agent restart with a dedicated regression;
+- runtime/Falco/eBPF timing inputs clamp non-positive values before ticker creation;
+  generic runtime performs an immediate startup read rather than waiting one poll;
+- Pod UID resolution uses one bounded context budget per Falco poll so sequential
+  Kubernetes lookups cannot consume an unbounded multiple of the 5s poll interval;
+- full populated-legacy schema upgrade, fail-closed unowned-row handling, semantic
+  validation of evidence-shaped legacy rows, and exact backfill semantics for
+  pre-history latest evidence;
+- failed coverage gaps begin at the last accepted coverage end when one exists,
+  preserving silent uncertainty before the failed window;
 - immutable `runtime_coverage_receipts` history separate from the mutable
   latest-state `runtime_coverages` projection, with replay/rollback history gates;
 - coverage receipt cadence is configured independently from event poll cadence:
