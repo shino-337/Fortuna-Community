@@ -353,3 +353,53 @@ func TestRuntimeCoveragePostgresLegacySchemaUpgrade(t *testing.T) {
 		VALUES ('cluster-a','agent-a','falco','duplicate','failed')
 	`).Error, "upgraded latest projection must reject duplicate producer identity")
 }
+
+
+func TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows(t *testing.T) {
+	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")
+	if dsn == "" {
+		t.Skip("FORTUNA_TEST_POSTGRES_URL is not configured")
+	}
+
+	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	adminSQL, err := admin.DB()
+	require.NoError(t, err)
+	defer adminSQL.Close()
+
+	schema := fmt.Sprintf("runtime_coverage_unowned_%d", time.Now().UnixNano())
+	require.NoError(t, admin.Exec("CREATE SCHEMA "+schema).Error)
+	defer admin.Exec("DROP SCHEMA " + schema + " CASCADE")
+
+	if strings.Contains(dsn, "://") {
+		u, err := url.Parse(dsn)
+		require.NoError(t, err)
+		q := u.Query()
+		q.Set("search_path", schema)
+		u.RawQuery = q.Encode()
+		dsn = u.String()
+	} else {
+		dsn += " search_path=" + schema
+	}
+
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	pool, err := db.DB()
+	require.NoError(t, err)
+	defer pool.Close()
+
+	require.NoError(t, db.Exec(`
+		CREATE TABLE runtime_coverages (
+			coverage_id text,
+			status text
+		)
+	`).Error)
+	require.NoError(t, db.Exec(`
+		INSERT INTO runtime_coverages(coverage_id,status)
+		VALUES ('orphan-coverage','failed')
+	`).Error)
+
+	err = migrations.EnsureRuntimeCoverage(db)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "without cluster/agent/producer identity")
+}
