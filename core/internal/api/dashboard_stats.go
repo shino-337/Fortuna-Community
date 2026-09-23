@@ -20,6 +20,20 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 		}
 		since, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
 		result := DashboardStatsDTO{DataStatus: "available"}
+		for _, required := range []struct {
+			table string
+			code  string
+		}{
+			{"clusters", "dashboard_stats_clusters_schema_unavailable"},
+			{"pods", "dashboard_stats_pods_schema_unavailable"},
+			{"agents", "dashboard_stats_agents_schema_unavailable"},
+			{"insights", "dashboard_stats_insights_schema_unavailable"},
+		} {
+			if !db.Migrator().HasTable(required.table) {
+				respondSchemaUnavailable(c, required.code, "Dashboard statistics require the "+required.table+" schema")
+				return
+			}
+		}
 		fail := func(err error, code string) bool {
 			if err != nil {
 				respondDataUnavailable(c, code, "Dashboard statistics could not be loaded")
@@ -74,10 +88,8 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			"dashboard_stats_pods_unavailable") {
 			return
 		}
-		if db.Migrator().HasTable(&models.Agent{}) {
-			if fail(db.Model(&models.Agent{}).Where("(status = ? OR status IS NULL) AND cluster_id IN (?)", "ready", clusters().Select("id")).Count(&result.ActiveAgents).Error, "dashboard_stats_agents_unavailable") {
-				return
-			}
+		if fail(db.Model(&models.Agent{}).Where("(status = ? OR status IS NULL) AND cluster_id IN (?)", "ready", clusters().Select("id")).Count(&result.ActiveAgents).Error, "dashboard_stats_agents_unavailable") {
+			return
 		}
 		unresolved := func() *gorm.DB {
 			q := db.Model(&models.Insight{}).
