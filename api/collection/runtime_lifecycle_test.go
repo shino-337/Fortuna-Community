@@ -7,7 +7,7 @@ import (
 
 func validRuntimeManifest(now time.Time) RuntimeProducerManifest {
 	producers := []RuntimeProducerDeclaration{
-		{ProducerID: "runtime-file", SourceKind: RuntimeSourceFile, Enabled: true, Authoritative: true},
+		{ProducerID: "runtime-file", SourceKind: RuntimeSourceFile, Enabled: true, Authoritative: false},
 		{ProducerID: "falco", SourceKind: RuntimeSourceFalco},
 		{ProducerID: "ebpf-exec", SourceKind: RuntimeSourceEBPF, Enabled: true},
 		{ProducerID: "ebpf-connect", SourceKind: RuntimeSourceEBPF},
@@ -44,15 +44,15 @@ func TestRuntimeProducerManifestRequiresCompleteFailClosedRegistry(t *testing.T)
 		t.Fatal("duplicate producer declaration was accepted")
 	}
 
-	ebpfAuthoritative := valid
-	ebpfAuthoritative.Producers = append([]RuntimeProducerDeclaration(nil), valid.Producers...)
-	for i := range ebpfAuthoritative.Producers {
-		if ebpfAuthoritative.Producers[i].ProducerID == "ebpf-exec" {
-			ebpfAuthoritative.Producers[i].Authoritative = true
+	selfAssertedAuthority := valid
+	selfAssertedAuthority.Producers = append([]RuntimeProducerDeclaration(nil), valid.Producers...)
+	for i := range selfAssertedAuthority.Producers {
+		if selfAssertedAuthority.Producers[i].ProducerID == "runtime-file" {
+			selfAssertedAuthority.Producers[i].Authoritative = true
 		}
 	}
-	if err := ebpfAuthoritative.Validate(now); err == nil {
-		t.Fatal("no-op eBPF producer was accepted as authoritative")
+	if err := selfAssertedAuthority.Validate(now); err == nil {
+		t.Fatal("manifest v1 accepted self-asserted runtime authority")
 	}
 
 	stopping := valid
