@@ -131,8 +131,9 @@ record. The source file itself is the durable retry buffer for partial records.
 Falco has an explicit initialized state; `offset == 0` is not a first-run
 sentinel.
 
-- a non-empty file present at Agent startup is tailed from EOF once and no
-  historical coverage is claimed;
+- a non-empty file present at Agent startup is tailed past the last
+  newline-terminated historical record; a trailing partial prefix remains unread
+  so it can survive Agent restart without being skipped;
 - an empty file at startup is initialized correctly, so the first event written
   later is not skipped;
 - truncate or inode replacement processes the new file from the beginning and
@@ -152,17 +153,39 @@ coverage until a real observation pipeline and its loss semantics are implemente
 and regression-tested. `EBPF_SIMULATE=true` is synthetic test traffic and is not
 runtime evidence.
 
+## Production operations follow-up
+
+The following items are intentionally outside the correctness scope of PR #52 and
+remain required before claiming large-scale production readiness:
+
+- explicit retention, with 7 days as the initial production target unless an
+  archive/export requirement overrides it;
+- time partitioning for `runtime_coverage_receipts`, plus automatic cleanup and
+  archive;
+- storage metrics for receipt ingest rate, allocated receipt bytes and oldest
+  retained receipt age;
+- capacity validation for the composite string indexes used by
+  `runtime_coverages` and `runtime_coverage_receipts`;
+- initial planning budget of 2 KiB/receipt plus 50% headroom.
+
+At startup Falco locates the last complete record by scanning backwards in 64 KiB
+blocks. Valid JSONL normally finds a newline near EOF. A pathological newline-free
+file can require scanning the complete file; this is an operational I/O edge case,
+not an evidence-correctness failure.
+
 ## Deliberate limitations
 
 PR #52 does not enable Pod/runtime/cross-resource auto-resolution. Coverage is
 producer-specific, and current protocol v1 deliberately has **zero authoritative
 runtime producers** for absence reasoning.
 
-The Agent coverage queue remains in memory. Restart can lose queued observations,
-but the new execution session is persisted as an explicit continuity boundary and
-`GapSince` reaches back to the prior accepted coverage end when available. Old
-receipts from the prior session cannot satisfy `EffectiveStatus` or
-`CoversInterval`.
+The Agent coverage pending/backlog queue remains intentionally in memory. Restart
+can lose a coverage window that Core never acknowledged, so immutable history is
+not guaranteed to contain every locally observed pre-restart interval. The new
+execution session is persisted as an explicit continuity boundary and `GapSince`
+reaches back to the prior accepted coverage end when available. Old receipts from
+the prior session cannot satisfy `EffectiveStatus` or `CoversInterval`. This
+trade-off preserves fail-closed correctness and is accepted for #52.
 
 To enable absence-based auto-resolution in a later PR, the system must first add
 and verify an upstream source-health/enablement proof for the required producer
