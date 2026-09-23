@@ -83,8 +83,8 @@ func (r *CoverageReporter) Observe(end time.Time, stats CoverageStats, reason st
 	if r.nextStart.IsZero() {
 		r.nextStart = end
 	}
-	if end.Before(r.nextStart) {
-		return fmt.Errorf("runtime coverage clock moved backwards")
+	if !end.After(r.nextStart) {
+		return fmt.Errorf("runtime coverage interval did not advance")
 	}
 	agg := coverageAggregate{start: r.nextStart, end: end, stats: stats, reason: strings.TrimSpace(reason)}
 	r.nextStart = end
