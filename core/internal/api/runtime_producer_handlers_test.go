@@ -90,8 +90,9 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 
 	var oldCoverage models.RuntimeCoverage
 	require.NoError(t, db.First(&oldCoverage, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.Equal(t, collection.RuntimeProducerNonAuthoritative, oldCoverage.EffectiveStatus(&producer, now))
-	require.False(t, oldCoverage.CoversInterval(&producer, first.WindowStart, first.WindowEnd, now))
+	evalNow := time.Now().UTC()
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, oldCoverage.EffectiveStatus(&producer, evalNow))
+	require.False(t, oldCoverage.CoversInterval(&producer, first.WindowStart, first.WindowEnd, evalNow))
 
 	// A new Agent execution session is an explicit evidence gap. Old coverage can
 	// remain fresh by time, but cannot remain eligible because its session differs.
@@ -106,8 +107,9 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 	require.Equal(t, "agent_restart", producer.GapReason)
 	require.NotNil(t, producer.GapSince)
 	require.True(t, producer.GapSince.Equal(first.WindowEnd), "restart gap must begin at last accepted coverage end")
-	require.Equal(t, "unknown", oldCoverage.EffectiveStatus(&producer, now))
-	require.False(t, oldCoverage.CoversInterval(&producer, oldCoverage.WindowStart, oldCoverage.WindowEnd, now))
+	evalNow = time.Now().UTC()
+	require.Equal(t, "unknown", oldCoverage.EffectiveStatus(&producer, evalNow))
+	require.False(t, oldCoverage.CoversInterval(&producer, oldCoverage.WindowStart, oldCoverage.WindowEnd, evalNow))
 
 	// Disabled configuration is persisted explicitly and keeps old coverage
 	// ineligible even while the lifecycle lease itself is fresh.
@@ -115,7 +117,7 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 	w = postRuntimeManifest(t, db, principal, disabled)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.Equal(t, collection.RuntimeProducerDisabled, producer.EffectiveStatus(now))
+	require.Equal(t, collection.RuntimeProducerDisabled, producer.EffectiveStatus(time.Now().UTC()))
 	require.Equal(t, "disabled", producer.GapReason)
 
 	// Crash/network silence is represented by lease expiry; no explicit shutdown
@@ -226,7 +228,8 @@ func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testi
 
 	var producer models.RuntimeProducerState
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.Equal(t, collection.RuntimeProducerNonAuthoritative, producer.EffectiveStatus(now))
+	evalNow := time.Now().UTC()
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, producer.EffectiveStatus(evalNow))
 	require.True(t, producer.Enabled)
 	require.False(t, producer.Authoritative)
 
@@ -234,8 +237,8 @@ func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testi
 	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, "complete", row.Status, "observation completeness is retained for operability")
 	require.Nil(t, row.ContinuousSince, "non-authoritative source must not establish absence continuity")
-	require.Equal(t, collection.RuntimeProducerNonAuthoritative, row.EffectiveStatus(&producer, now))
-	require.False(t, row.CoversInterval(&producer, window.WindowStart, window.WindowEnd, now))
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, row.EffectiveStatus(&producer, evalNow))
+	require.False(t, row.CoversInterval(&producer, window.WindowStart, window.WindowEnd, evalNow))
 }
 
 
