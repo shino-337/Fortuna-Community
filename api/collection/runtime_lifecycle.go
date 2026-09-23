@@ -68,11 +68,12 @@ func (m RuntimeProducerManifest) Validate(now time.Time) error {
 			return fmt.Errorf("invalid runtime producer declaration")
 		}
 		seen[p.ProducerID] = true
-		if p.SourceKind == RuntimeSourceEBPF && p.Authoritative {
-			return fmt.Errorf("built-in ebpf producer is not authoritative")
-		}
-		if !p.Enabled && p.Authoritative {
-			return fmt.Errorf("disabled runtime producer cannot be authoritative")
+		// Manifest v1 has no independent upstream source-health proof. Therefore
+		// no current producer may claim absence authority merely from Agent
+		// configuration or reader liveness. A future protocol version may add a
+		// verifiable health contract and explicitly relax this rule.
+		if p.Authoritative {
+			return fmt.Errorf("runtime producer manifest v1 does not accept authoritative producers")
 		}
 		if m.AgentState == RuntimeAgentStopping && p.Enabled {
 			return fmt.Errorf("stopping runtime agent cannot declare enabled producers")
