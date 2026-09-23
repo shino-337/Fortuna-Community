@@ -19,6 +19,33 @@ func ensureModelColumns(db *gorm.DB, model interface{}, columns []string) error 
 	return nil
 }
 
+func validateRuntimeCoverageSemantics(db *gorm.DB, table string, allowPartial bool) error {
+	base := table + " WHERE 1=1"
+	if allowPartial {
+		base += " AND session_id IS NOT NULL AND session_id <> '' AND coverage_id IS NOT NULL AND coverage_id <> '' AND source_kind IS NOT NULL AND source_kind <> '' AND status IS NOT NULL AND status <> '' AND window_start IS NOT NULL AND window_end IS NOT NULL AND received_at IS NOT NULL"
+	}
+
+	var invalid int64
+	query := "SELECT COUNT(*) FROM " + base + " AND (" +
+		"status NOT IN ('complete','failed')" +
+		" OR window_start IS NULL OR window_end IS NULL OR window_end <= window_start" +
+		" OR COALESCE(delivered,0) > COALESCE(emitted,0)" +
+		" OR (status = 'complete' AND (COALESCE(dropped,0) <> 0 OR COALESCE(invalid,0) <> 0 OR COALESCE(errors,0) <> 0 OR COALESCE(delivered,0) <> COALESCE(emitted,0)))" +
+		" OR (status = 'failed' AND (reason IS NULL OR BTRIM(reason) = ''))" +
+		" OR NOT ((source_kind = 'file' AND producer_id = 'runtime-file')" +
+		"      OR (source_kind = 'falco' AND producer_id = 'falco')" +
+		"      OR (source_kind = 'ebpf' AND producer_id IN ('ebpf-exec','ebpf-connect','ebpf-all')))" +
+		" OR (status = 'failed' AND continuous_since IS NOT NULL)" +
+		")"
+	if err := db.Raw(query).Scan(&invalid).Error; err != nil {
+		return fmt.Errorf("validate %s semantic contract: %w", table, err)
+	}
+	if invalid != 0 {
+		return fmt.Errorf("%s contains %d rows violating runtime coverage semantic contract", table, invalid)
+	}
+	return nil
+}
+
 func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if !db.Migrator().HasTable(&models.RuntimeCoverage{}) {
 		if err := db.Migrator().CreateTable(&models.RuntimeCoverage{}); err != nil {
@@ -47,6 +74,9 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	}
 	if unownedCoverage != 0 {
 		return fmt.Errorf("runtime coverage schema contains %d rows without cluster/agent/producer identity", unownedCoverage)
+	}
+	if err := validateRuntimeCoverageSemantics(db, "runtime_coverages", true); err != nil {
+		return err
 	}
 	// OnConflict(cluster_id,agent_id,producer_id) requires a real uniqueness
 	// constraint even when upgrading a table that predates the current PK shape.
@@ -84,6 +114,9 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	}
 	if unownedReceipt != 0 {
 		return fmt.Errorf("runtime coverage history contains %d rows without immutable evidence identity", unownedReceipt)
+	}
+	if err := validateRuntimeCoverageSemantics(db, "runtime_coverage_receipts", false); err != nil {
+		return err
 	}
 	if err := ensureIndex(db, "idx_runtime_coverage_receipt_identity", "runtime_coverage_receipts", "cluster_id,agent_id,producer_id,session_id,coverage_id", true); err != nil {
 		return err
