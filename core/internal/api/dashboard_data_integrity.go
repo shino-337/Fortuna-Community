@@ -220,49 +220,59 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 
 	if db.Migrator().HasTable("mirror_state") {
 		var row models.MirrorState
-		if err := db.Where("name = ?", "osv").First(&row).Error; err == nil {
+		err := db.Where("name = ?", "osv").First(&row).Error
+		if err == nil {
 			health.MirrorVersion = strconv.FormatInt(row.Version, 10)
 			if !row.UpdatedAt.IsZero() {
 				t := row.UpdatedAt
 				health.MirrorUpdatedAt = &t
 			}
+		} else if err != gorm.ErrRecordNotFound {
+			return health, err
 		}
 	}
 
 	if db.Migrator().HasTable("cves") {
 		var t sql.NullTime
-		if err := db.Table("cves").Select("MAX(updated_at)").Scan(&t).Error; err == nil {
-			health.LastCVEUpdatedAt = nullTimePtr(t)
+		if err := db.Table("cves").Select("MAX(updated_at)").Scan(&t).Error; err != nil {
+			return health, err
 		}
+		health.LastCVEUpdatedAt = nullTimePtr(t)
 	}
 	if db.Migrator().HasTable("package_vulnerabilities") {
 		var t sql.NullTime
-		if err := db.Table("package_vulnerabilities").Select("MAX(updated_at)").Scan(&t).Error; err == nil {
-			health.LastPackageVulnerabilityUpdate = nullTimePtr(t)
+		if err := db.Table("package_vulnerabilities").Select("MAX(updated_at)").Scan(&t).Error; err != nil {
+			return health, err
 		}
+		health.LastPackageVulnerabilityUpdate = nullTimePtr(t)
 	}
 	if db.Migrator().HasTable("malware_packages") {
 		var t sql.NullTime
-		if err := db.Table("malware_packages").Where("deleted_at IS NULL").Select("MAX(updated_at)").Scan(&t).Error; err == nil {
-			health.LastMalwareUpdatedAt = nullTimePtr(t)
+		if err := db.Table("malware_packages").Where("deleted_at IS NULL").Select("MAX(updated_at)").Scan(&t).Error; err != nil {
+			return health, err
 		}
+		health.LastMalwareUpdatedAt = nullTimePtr(t)
 	}
 	if db.Migrator().HasTable("malware_feed_sync_runs") {
 		var latest models.MalwareFeedSyncRun
-		if err := db.Order("completed_at DESC, id DESC").First(&latest).Error; err == nil && latest.ID != 0 {
+		err := db.Order("completed_at DESC, id DESC").First(&latest).Error
+		if err == nil && latest.ID != 0 {
 			health.LastMalwareFeedSyncStatus = latest.Status
 			if !latest.CompletedAt.IsZero() {
 				t := latest.CompletedAt
 				health.LastMalwareFeedSyncAt = &t
 			}
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return health, err
 		}
 	}
 	if db.Migrator().HasTable("catalog_generations") {
 		var active models.CatalogGeneration
-		if err := db.
+		err := db.
 			Where("catalog_type = ? AND status = ?", "cve", "active").
 			Order("activated_at DESC, id DESC").
-			First(&active).Error; err == nil && active.ID != 0 {
+			First(&active).Error
+		if err == nil && active.ID != 0 {
 			health.ActiveCatalogGenerationID = active.ID
 			health.ActiveCatalogGenerationStatus = active.Status
 			health.ActiveCatalogSourceDigest = active.SourceDigest
@@ -270,12 +280,16 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 				t := *active.ActivatedAt
 				health.ActiveCatalogActivatedAt = &t
 			}
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return health, err
 		}
+
 		var malwareGen models.CatalogGeneration
-		if err := db.
+		err = db.
 			Where("catalog_type = ? AND status = ?", "malware", "active").
 			Order("activated_at DESC, id DESC").
-			First(&malwareGen).Error; err == nil && malwareGen.ID != 0 {
+			First(&malwareGen).Error
+		if err == nil && malwareGen.ID != 0 {
 			health.ActiveMalwareGenerationID = malwareGen.ID
 			health.ActiveMalwareGenerationStatus = malwareGen.Status
 			health.ActiveMalwareSourceDigest = malwareGen.SourceDigest
@@ -283,6 +297,8 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 				t := *malwareGen.ActivatedAt
 				health.ActiveMalwareActivatedAt = &t
 			}
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return health, err
 		}
 	}
 
@@ -291,12 +307,16 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 			SELECT COUNT(*) FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL
-		`).Scan(&health.ActiveSBOMs)
+		`).Scan(&health.ActiveSBOMs).Error; err != nil {
+			return health, err
+		}
 		db.Raw(`
 			SELECT COUNT(*) FROM sboms s
 			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL AND p.id IS NULL
-		`).Scan(&health.StaleSBOMs)
+		`).Scan(&health.StaleSBOMs).Error; err != nil {
+			return health, err
+		}
 	}
 
 	if health.MirrorVersion != "" && db.Migrator().HasTable("sbom_match_runs") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
@@ -309,15 +329,23 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 				AND r.mirror_version = ?
 				AND r.status = 'succeeded'
 			WHERE s.deleted_at IS NULL
-		`, health.MirrorVersion).Scan(&health.ActiveSBOMsMatchedMirror)
+		`, health.MirrorVersion).Scan(&health.ActiveSBOMsMatchedMirror).Error; err != nil {
+			return health, err
+		}
 
 		if health.ActiveSBOMs > health.ActiveSBOMsMatchedMirror {
 			health.ActiveSBOMsMissingMirrorMatch = health.ActiveSBOMs - health.ActiveSBOMsMatchedMirror
 		}
 
-		db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "succeeded").Count(&health.CurrentMirrorSucceededRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "failed").Count(&health.CurrentMirrorFailedRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "running").Count(&health.CurrentMirrorRunningRuns)
+		if err := db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "succeeded").Count(&health.CurrentMirrorSucceededRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "failed").Count(&health.CurrentMirrorFailedRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "running").Count(&health.CurrentMirrorRunningRuns).Error; err != nil {
+			return health, err
+		}
 	}
 
 	if health.ActiveCatalogGenerationID > 0 && db.Migrator().HasTable("sbom_match_runs") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
@@ -330,15 +358,23 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 				AND r.catalog_generation_id = ?
 				AND r.status = 'succeeded'
 			WHERE s.deleted_at IS NULL
-		`, health.ActiveCatalogGenerationID).Scan(&health.ActiveSBOMsMatchedGeneration)
+		`, health.ActiveCatalogGenerationID).Scan(&health.ActiveSBOMsMatchedGeneration).Error; err != nil {
+			return health, err
+		}
 
 		if health.ActiveSBOMs > health.ActiveSBOMsMatchedGeneration {
 			health.ActiveSBOMsMissingGenerationMatch = health.ActiveSBOMs - health.ActiveSBOMsMatchedGeneration
 		}
 
-		db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "succeeded").Count(&health.CurrentGenerationSucceededRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "failed").Count(&health.CurrentGenerationFailedRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "running").Count(&health.CurrentGenerationRunningRuns)
+		if err := db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "succeeded").Count(&health.CurrentGenerationSucceededRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "failed").Count(&health.CurrentGenerationFailedRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "running").Count(&health.CurrentGenerationRunningRuns).Error; err != nil {
+			return health, err
+		}
 	}
 
 	if db.Migrator().HasTable("cve_matches") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
@@ -348,14 +384,18 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) 
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE cm.deleted_at IS NULL
-		`).Scan(&health.ActivePodCVEMatches)
+		`).Scan(&health.ActivePodCVEMatches).Error; err != nil {
+			return health, err
+		}
 		db.Raw(`
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
 			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE cm.deleted_at IS NULL AND p.id IS NULL
-		`).Scan(&health.StalePodCVEMatches)
+		`).Scan(&health.StalePodCVEMatches).Error; err != nil {
+			return health, err
+		}
 	}
 
 	switch {
