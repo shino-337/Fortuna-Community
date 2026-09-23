@@ -25,6 +25,7 @@ type RuntimeEventInput struct {
 	Timestamp  *time.Time
 	// Canonical contract fields (P0.1): optional, best-effort.
 	EventID         string
+	SourceRecordID  string
 	ObservedAt      *time.Time
 	IngestedAt      *time.Time
 	ResolutionState string
@@ -46,6 +47,7 @@ type RuntimeEventInput struct {
 }
 
 type ProcessResult struct {
+	Duplicate    bool
 	Signal       string
 	Mitre        string
 	BaseScore    int
