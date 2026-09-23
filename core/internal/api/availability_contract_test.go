@@ -161,6 +161,57 @@ func TestPolicyEvaluationMetricsFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, "policy_evaluation_metrics_unavailable", body["code"])
 }
 
+
+func TestClusterSecuritySummaryIsClusterQualified(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.PodCapability{})
+	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
+		require.NoError(t, db.Create(&models.Cluster{ID: clusterID, Name: clusterID}).Error)
+		require.NoError(t, db.Create(&models.Pod{
+			ClusterID: clusterID, UID: "same-pod", Name: "pod", Namespace: "ns",
+		}).Error)
+	}
+	require.NoError(t, db.Create(&models.Insight{
+		ClusterID: "cluster-a", ResourceType: "Pod", ResourceNamespace: "ns",
+		ResourceName: "pod", ResourceUID: "same-pod", InsightType: "runtime",
+		Severity: "critical", Title: "a", Description: "a", Status: "active", DetectedAt: time.Now(),
+	}).Error)
+	require.NoError(t, db.Create(&models.Insight{
+		ClusterID: "cluster-b", ResourceType: "Pod", ResourceNamespace: "ns",
+		ResourceName: "pod", ResourceUID: "same-pod", InsightType: "runtime",
+		Severity: "high", Title: "b", Description: "b", Status: "active", DetectedAt: time.Now(),
+	}).Error)
+	require.NoError(t, db.Create(&models.PodCapability{
+		ClusterID: "cluster-a", PodUID: "same-pod", Namespace: "ns",
+		CapabilityID: "CAP_A", CapabilityGroup: "ESC", Severity: "critical",
+	}).Error)
+	require.NoError(t, db.Create(&models.PodCapability{
+		ClusterID: "cluster-b", PodUID: "same-pod", Namespace: "ns",
+		CapabilityID: "CAP_B", CapabilityGroup: "ESC", Severity: "high",
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/security-summary")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}}
+	GetClusterSecuritySummary(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.EqualValues(t, 1, body["criticalCount"])
+	require.EqualValues(t, 0, body["highCount"])
+	require.EqualValues(t, 1, body["capabilityCount"])
+}
+
+func TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Insight{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/security-summary")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}}
+	GetClusterSecuritySummary(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	require.Equal(t, "cluster_security_summary_capabilities_unavailable", decodeAvailabilityBody(t, w)["code"])
+}
+
 func TestClusterStatsUsesPersistedAgentVersion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t,
