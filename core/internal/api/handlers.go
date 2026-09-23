@@ -269,7 +269,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		if !hasTable(db, "agents") {
-			respondDataUnavailable(c, "cluster_agents_schema_unavailable", "Cluster Agent inventory is unavailable; agents table is missing")
+			respondSchemaUnavailable(c, "cluster_agents_schema_unavailable", "Cluster Agent inventory is unavailable; agents table is missing")
 			return
 		}
 
@@ -364,7 +364,7 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 		if !hasTable(db, "pod_capabilities") {
-			respondDataUnavailable(c, "cluster_security_summary_capabilities_unavailable", "Cluster capability summary is unavailable; capability inventory is missing")
+			respondSchemaUnavailable(c, "cluster_security_summary_capabilities_unavailable", "Cluster capability summary is unavailable; capability inventory is missing")
 			return
 		}
 		var capabilityCount int64
@@ -587,7 +587,7 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		podMap, deplMap, riskMap := toMap(podCounts), toMap(deplCounts), toMap(riskCounts)
 
 		if !hasTable(db, "agents") {
-			respondDataUnavailable(c, "cluster_stats_agents_schema_unavailable", "Agent statistics are unavailable; agents table is missing")
+			respondSchemaUnavailable(c, "cluster_stats_agents_schema_unavailable", "Agent statistics are unavailable; agents table is missing")
 			return
 		}
 		var agentRecords []models.Agent
