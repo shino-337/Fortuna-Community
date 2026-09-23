@@ -19,7 +19,7 @@ import (
 func runtimeManifest(session string, started, reported time.Time, falcoEnabled bool) collection.RuntimeProducerManifest {
 	producers := []collection.RuntimeProducerDeclaration{
 		{ProducerID: "runtime-file", SourceKind: collection.RuntimeSourceFile},
-		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: falcoEnabled, Authoritative: falcoEnabled},
+		{ProducerID: "falco", SourceKind: collection.RuntimeSourceFalco, Enabled: falcoEnabled, Authoritative: false},
 		{ProducerID: "ebpf-exec", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-connect", SourceKind: collection.RuntimeSourceEBPF},
 		{ProducerID: "ebpf-all", SourceKind: collection.RuntimeSourceEBPF},
@@ -67,7 +67,7 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, collection.RuntimeProducerStarting, producer.State)
 	require.True(t, producer.Enabled)
-	require.True(t, producer.Authoritative)
+	require.False(t, producer.Authoritative)
 	require.NotNil(t, producer.GapSince)
 	require.Equal(t, "startup", producer.GapReason)
 
@@ -76,8 +76,8 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
 	require.Equal(t, collection.RuntimeProducerActive, producer.State)
-	require.Nil(t, producer.GapSince)
-	require.Empty(t, producer.GapReason)
+	require.NotNil(t, producer.GapSince)
+	require.Equal(t, "source_health_unverified", producer.GapReason)
 
 	// Same-session heartbeat must preserve active state rather than returning the
 	// producer to starting.
@@ -90,7 +90,8 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 
 	var oldCoverage models.RuntimeCoverage
 	require.NoError(t, db.First(&oldCoverage, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.Equal(t, "complete", oldCoverage.EffectiveStatus(&producer, now))
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, oldCoverage.EffectiveStatus(&producer, now))
+	require.False(t, oldCoverage.CoversInterval(&producer, first.WindowStart, first.WindowEnd, now))
 
 	// A new Agent execution session is an explicit evidence gap. Old coverage can
 	// remain fresh by time, but cannot remain eligible because its session differs.
@@ -120,7 +121,7 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 	// Crash/network silence is represented by lease expiry; no explicit shutdown
 	// message is required to fail closed.
 	producer.Enabled = true
-	producer.Authoritative = true
+	producer.Authoritative = false
 	producer.State = collection.RuntimeProducerActive
 	producer.LastHeartbeatAt = now.Add(-collection.RuntimeProducerLeaseMaxAge - time.Second)
 	require.Equal(t, "stale", producer.EffectiveStatus(now))
@@ -185,8 +186,10 @@ func TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var row models.RuntimeCoverage
 	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.NotNil(t, row.ContinuousSince)
-	require.True(t, row.ContinuousSince.Equal(second.WindowStart), "lease gap incorrectly extended old continuity")
+	require.Nil(t, row.ContinuousSince, "non-authoritative producer must not establish absence continuity")
+	require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Equal(t, collection.RuntimeProducerActive, producer.State)
+	require.Equal(t, collection.RuntimeProducerNonAuthoritative, producer.EffectiveStatus(time.Now().UTC()))
 
 	// Agent/config heartbeat alone cannot keep an active producer healthy if its
 	// own observation windows stop arriving.
@@ -214,11 +217,6 @@ func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testi
 	now := time.Now().UTC().Truncate(time.Microsecond)
 
 	manifest := runtimeManifest(runtimeTestSession, now.Add(-3*time.Second), now.Add(-2*time.Second), true)
-	for i := range manifest.Producers {
-		if manifest.Producers[i].ProducerID == "falco" {
-			manifest.Producers[i].Authoritative = false
-		}
-	}
 	w := postRuntimeManifest(t, db, principal, manifest)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 
@@ -238,4 +236,23 @@ func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testi
 	require.Nil(t, row.ContinuousSince, "non-authoritative source must not establish absence continuity")
 	require.Equal(t, collection.RuntimeProducerNonAuthoritative, row.EffectiveStatus(&producer, now))
 	require.False(t, row.CoversInterval(&producer, window.WindowStart, window.WindowEnd, now))
+}
+
+
+func TestRuntimeProducerManifestRejectsSelfAssertedAuthority(t *testing.T) {
+	db := runtimeCoverageDB(t)
+	principal := agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	manifest := runtimeManifest(runtimeTestSession, now.Add(-time.Second), now, true)
+	for i := range manifest.Producers {
+		if manifest.Producers[i].ProducerID == "falco" {
+			manifest.Producers[i].Authoritative = true
+		}
+	}
+	w := postRuntimeManifest(t, db, principal, manifest)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+
+	var count int64
+	require.NoError(t, db.Model(&models.RuntimeProducerState{}).Count(&count).Error)
+	require.Zero(t, count, "invalid authority claim must have no persistence effects")
 }
