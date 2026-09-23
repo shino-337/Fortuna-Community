@@ -341,6 +341,11 @@ func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 			Title: "b", Description: "b", Status: "active", DetectedAt: now,
 		}).Error)
 	}
+	require.NoError(t, db.Create(&models.Insight{
+		ClusterID: "cluster-a", ResourceType: "ServiceAccount", ResourceName: "sa-a",
+		ResourceUID: "same-pod", InsightType: "rbac", Severity: "critical",
+		Title: "non-pod", Description: "must not contaminate pod risk count", Status: "active", DetectedAt: now,
+	}).Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/pods?sortBy=risk_desc")
 	c.Set("user", &models.User{Role: models.RoleAdmin})
@@ -356,6 +361,25 @@ func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 	}
 	require.Equal(t, 1, counts["cluster-a"])
 	require.Equal(t, 2, counts["cluster-b"])
+}
+
+
+func TestPodListRiskQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{})
+	require.NoError(t, db.Create(&models.Pod{
+		ClusterID: "cluster-a", UID: "pod-a", Name: "pod-a", Namespace: "ns",
+	}).Error)
+	// Table existence alone must not turn a broken risk projection into zero.
+	require.NoError(t, db.Exec("CREATE TABLE insights (id INTEGER PRIMARY KEY, resource_uid TEXT)").Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/pods")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetPods(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "pod_risk_counts_unavailable", body["code"])
+	require.Equal(t, true, body["retryable"])
 }
 
 func TestClusterStatsUsesPersistedAgentVersion(t *testing.T) {
