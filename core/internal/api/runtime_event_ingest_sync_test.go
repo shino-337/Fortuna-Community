@@ -27,6 +27,7 @@ func TestPostRuntimeEvents_AgentPayloadCreatesSemanticSignal(t *testing.T) {
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	podUID := "cccccccc-cccc-cccc-cccc-cccccccccccc"
@@ -111,6 +112,7 @@ func TestPostRuntimeEvents_EBPFExecTrace_IngestsAndMapsSignal(t *testing.T) {
 	}
 
 	r := gin.New()
+	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
 	podUID := "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"
