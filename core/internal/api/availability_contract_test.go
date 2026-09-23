@@ -292,6 +292,45 @@ func TestPipelineHealthQueryFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, "pipeline_health_layer1_insights_unavailable", body["code"])
 }
 
+
+func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
+		require.NoError(t, db.Create(&models.Pod{
+			ClusterID: clusterID, UID: "same-pod", Name: "pod-" + clusterID, Namespace: "ns",
+		}).Error)
+	}
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&models.Insight{
+		ClusterID: "cluster-a", ResourceType: "Pod", ResourceName: "pod-a",
+		ResourceUID: "same-pod", InsightType: "runtime", Severity: "high",
+		Title: "a", Description: "a", Status: "active", DetectedAt: now,
+	}).Error)
+	for i := 0; i < 2; i++ {
+		require.NoError(t, db.Create(&models.Insight{
+			ClusterID: "cluster-b", ResourceType: "Pod", ResourceName: "pod-b",
+			ResourceUID: "same-pod", InsightType: "runtime", Severity: "high",
+			Title: "b", Description: "b", Status: "active", DetectedAt: now,
+		}).Error)
+	}
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/pods?sortBy=risk_desc")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetPods(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	pods := body["pods"].([]interface{})
+	require.Len(t, pods, 2)
+	counts := map[string]int{}
+	for _, item := range pods {
+		pod := item.(map[string]interface{})
+		counts[pod["clusterId"].(string)] = int(pod["riskCount"].(float64))
+	}
+	require.Equal(t, 1, counts["cluster-a"])
+	require.Equal(t, 2, counts["cluster-b"])
+}
+
 func TestClusterStatsUsesPersistedAgentVersion(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t,
