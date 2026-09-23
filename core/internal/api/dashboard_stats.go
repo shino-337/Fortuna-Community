@@ -19,7 +19,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		since, _ := strconv.Atoi(c.DefaultQuery("sinceMinutes", "0"))
-		result := DashboardStatsDTO{}
+		result := DashboardStatsDTO{DataStatus: "available"}
 		fail := func(err error, code string) bool {
 			if err != nil {
 				respondDataUnavailable(c, code, "Dashboard statistics could not be loaded")
@@ -51,7 +51,7 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			var cluster models.Cluster
 			err := clusters().First(&cluster).Error
 			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "data": result})
+				c.JSON(http.StatusOK, result)
 				return
 			}
 			if fail(err, "dashboard_stats_clusters_unavailable") {
