@@ -194,6 +194,8 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 
 	events := make([]Event, 0, 20)
 	consumed := int64(0)
+	resolveCtx, cancelResolve := context.WithTimeout(ctx, r.podUIDResolutionBudget())
+	defer cancelResolve()
 	for len(data) > 0 {
 		idx := bytes.IndexByte(data, '\n')
 		if idx < 0 {
@@ -216,7 +218,7 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 			continue
 		}
 		for i := range fes {
-			ev, ok := r.toRuntimeEvent(ctx, &fes[i])
+			ev, ok := r.toRuntimeEvent(resolveCtx, &fes[i])
 			if !ok {
 				stats.Dropped++
 				reason = mergeCoverageReason(reason, "falco event missing resolvable pod UID")
@@ -513,6 +515,17 @@ func resolutionStateFromFalco(fe *falcoEvent) string {
 		}
 	}
 	return "unresolved"
+}
+
+func (r *FalcoReader) podUIDResolutionBudget() time.Duration {
+	budget := 2 * time.Second
+	if r.poll > 0 && r.poll/2 < budget {
+		budget = r.poll / 2
+	}
+	if budget < 100*time.Millisecond {
+		budget = 100 * time.Millisecond
+	}
+	return budget
 }
 
 func (r *FalcoReader) resolvePodUID(ctx context.Context, namespace, podName string) string {
