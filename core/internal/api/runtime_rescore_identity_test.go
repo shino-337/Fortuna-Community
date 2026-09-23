@@ -39,7 +39,7 @@ func TestRuntimeIngestTriggersScopedRescore(t *testing.T) {
 			})
 			handler := PostRuntimeEventsV2Scoped(db)
 			r.POST("/events", handler)
-			payload := `[{"pod":{"uid":"same","namespace":"ns"},"runtime":"falco","source":{"kind":"falco","rule":"test-rule"},"syscall":"open","target":"/tmp/ordinary","severity":"high","confidence":0.9}]`
+			payload := `[{"source_record_id":"cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc","pod":{"uid":"same","namespace":"ns"},"runtime":"falco","source":{"kind":"falco","rule":"test-rule"},"syscall":"open","target":"/tmp/ordinary","severity":"high","confidence":0.9}]`
 			w := httptest.NewRecorder()
 			req := httptest.NewRequest(http.MethodPost, "/events", bytes.NewBufferString(payload))
 			req.Header.Set("Content-Type", "application/json")
