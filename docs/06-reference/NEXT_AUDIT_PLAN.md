@@ -1,6 +1,6 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #50 merged on 2026-09-22 (merge commit `5024e15`).
+Status verified after PR #52 merged on 2026-09-23 (merge commit `e8efc99`).
 Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
@@ -125,18 +125,25 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   DaemonSet plus different WATCH_NAMESPACE scopes on one cluster and either validate
   the supported topology or promote the receipt key to include scope before
   multi-scope aggregation is claimed.
-- D2 runtime / #52 is now the active draft. #51 was retired after #50 merged
-  because its stacked branch carried stale inventory history. #52 was rebuilt from
-  `5024e15` and contains runtime-only changes. Current scope: authenticated
-  producer coverage windows for file/Falco/eBPF, explicit drop/invalid/error
-  accounting, immutable coverage retry, continuity tracking and complete-empty
-  runtime intervals. A transient delivery failure breaks continuity even if a later
-  retry succeeds. Runtime/Pod/cross-resource auto-resolution remains blocked until
-  producer semantics, persistence and live topology gates are complete.
-  Persisted/API/UI explanations and availability remain coordinated with E. D is
-  not complete.
-- E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
-- F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
+- D2 runtime / #52 merged on 2026-09-23 (merge commit `e8efc99`).
+  Runtime producer lifecycle/coverage for file/Falco/eBPF is persisted with explicit
+  complete/failed semantics, immutable receipt history, independent 30s clean
+  coverage cadence, partial-record restart safety and atomic runtime-event replay
+  idempotency. Physical source-record replay is scoped by authenticated Agent
+  identity and exact/concurrent replays cannot duplicate REP/risk/correlation
+  effects. Current producers remain non-authoritative for absence reasoning;
+  runtime/Pod/cross-resource auto-resolution therefore remains blocked until an
+  independent source-health proof and package F live-topology validation exist.
+  Retention/partition/archive/storage metrics remain production-operations
+  follow-up, not #52 correctness blockers. D is intentionally not yet complete.
+- E1 / next active work: backend availability contract for stats, node, capability
+  and Agent observability APIs. Missing schema/query failures must not collapse into
+  legitimate zero/empty results; Agent version/cluster identity must come from the
+  persisted Agent record; data availability must remain distinct from Agent
+  heartbeat/liveness.
+- E2 follows E1: dashboard/detail/list retry and unavailable states consume the
+  backend contract consistently without replacing errors with zero KPIs.
+- F (PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
   claimed as validated end to end.
 - G–I remain pending after the A–F gate: scoped AGE, explicit mutation/revocation
@@ -157,9 +164,9 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. Active runtime work is #52 on a fresh branch
-from merge commit `5024e15`; it must remain runtime-only and must not reintroduce
-an older inventory contract.
+security regression gates passed. #51 was retired rather than reused. #52 is merged. Active work starts E1 from merge commit `e8efc99`; E1 must remain
+focused on API availability semantics and must not reopen runtime evidence or
+inventory ownership contracts.
 
 
 ### Final #50 merge blockers closed
@@ -179,11 +186,11 @@ boundaries:
 Any future change weakening one of these tests resets merge/release readiness.
 
 
-### D2 runtime / #52 merge gates
+### D2 runtime / #52 merged gate record
 
-#52 remains draft until the final runtime-evidence state machine is reviewed and
-the exact head passes Core, Agent, API, permanent security regressions, Secret scan
-and the PostgreSQL runtime-coverage gate.
+#52 passed its exact-head Core, Agent, API, permanent security regressions, Secret
+scan and PostgreSQL runtime-coverage/idempotency gates before merge. The following
+invariants remain permanent regression requirements.
 
 Required invariants include:
 
@@ -227,6 +234,23 @@ Required invariants include:
   conflict; concurrent duplicate submissions create one committed effect; distinct
   same-second physical records remain distinct. Generic reader restart replay,
   exact replay, same-second identity and PostgreSQL concurrency are permanent gates.
+
+### E1 API availability merge gates
+
+E1 starts after #52 and is the current implementation package. Merge only when:
+
+- required DB/schema/query failures return an explicit unavailable/error response
+  rather than a successful zero/empty projection;
+- cluster node list/detail/overview/inventory endpoints propagate query failures;
+- capability detail/list/summary use the same unavailable semantics when capability
+  persistence is absent or unreadable;
+- Agent status uses each Agent's persisted `cluster_id`, `version`,
+  `last_seen_at` and node identity; missing heartbeat is not reported healthy;
+- Agent data availability is represented separately from heartbeat-derived
+  healthy/slow/disconnected state;
+- system metrics do not report `healthy` when their backing queries fail;
+- named regressions are added to the permanent security contract;
+- exact-head Core/API/dashboard validation and Secret scan pass before merge.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 
