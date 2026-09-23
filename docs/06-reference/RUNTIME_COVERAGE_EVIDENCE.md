@@ -173,6 +173,37 @@ blocks. Valid JSONL normally finds a newline near EOF. A pathological newline-fr
 file can require scanning the complete file; this is an operational I/O edge case,
 not an evidence-correctness failure.
 
+## Runtime event replay idempotency
+
+Runtime event delivery is at-least-once, so event processing has a separate physical
+source-record identity from the older semantic `event_id`.
+
+For file and Falco JSONL inputs the Agent derives `source_record_id` from the
+physical file identity, byte offset, raw record bytes and concatenated-record
+ordinal. Two identical records in the same second therefore remain distinct when
+they occupy different physical positions, while a generic reader restart
+reconstructs the same source identity for the same record.
+
+Core never trusts an Agent-supplied identity as globally unique by itself. The
+atomic replay key is scoped by authenticated ownership:
+`{cluster_id, agent_id, source_record_id}`. `agent_id` comes from the scoped
+Agent principal, not from request JSON.
+
+The initial `runtime_events` insert is the idempotency claim and shares one
+database transaction with behavior facts, synthesized/adapted signals, incident
+correlation, runtime risk scoring and capability promotion. PostgreSQL uniqueness
+serializes concurrent duplicate submissions. An exact replay returns duplicate and
+does not execute downstream effects or rescore notification; reusing the same
+physical identity with changed semantic payload fails closed.
+
+Permanent regressions cover:
+- generic runtime-file restart reconstructing identical source IDs;
+- two identical same-second records retaining separate physical IDs;
+- API exact replay leaving event/signal/risk counts unchanged;
+- concurrent PostgreSQL duplicate submissions producing one effect;
+- the same local source identity under different authenticated Agents remaining
+  separate.
+
 ## Deliberate limitations
 
 PR #52 does not enable Pod/runtime/cross-resource auto-resolution. Coverage is
