@@ -164,3 +164,119 @@ func TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile(t *testing.T) {
 		t.Fatalf("file replacement must break clean continuity: %+v", coverage)
 	}
 }
+
+
+func TestRuntimeFileCoverageRetainsPartialRecord(t *testing.T) {
+	var coverage []collection.RuntimeCoverage
+	delivered := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/coverage":
+			var report collection.RuntimeCoverage
+			if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+				t.Fatal(err)
+			}
+			coverage = append(coverage, report)
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/events":
+			var events []Event
+			if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+				t.Fatal(err)
+			}
+			delivered += len(events)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	path := filepath.Join(t.TempDir(), "runtime.jsonl")
+	prefix := `{"pod":{"uid":"pod-a"},"syscall":"execve","target":"/bin/sh"`
+	suffix := `,"timestamp":1,"confidence":1}` + "\n"
+	if err := os.WriteFile(path, []byte(prefix), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	r := NewReader(path, 0, srv.URL)
+	r.readAndSend()
+	if delivered != 0 || r.invalidLines != 0 || len(r.lineBuf) == 0 {
+		t.Fatalf("partial record was consumed or misclassified: delivered=%d invalid=%d buf=%q", delivered, r.invalidLines, string(r.lineBuf))
+	}
+	if len(coverage) != 1 || coverage[0].Status != "failed" || coverage[0].Errors == 0 {
+		t.Fatalf("partial record did not break coverage: %+v", coverage)
+	}
+
+	fh, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fh.WriteString(suffix); err != nil {
+		_ = fh.Close()
+		t.Fatal(err)
+	}
+	_ = fh.Close()
+
+	r.readAndSend()
+	if delivered != 1 || r.invalidLines != 0 || len(r.lineBuf) != 0 {
+		t.Fatalf("completed record was not delivered exactly once: delivered=%d invalid=%d buf=%q", delivered, r.invalidLines, string(r.lineBuf))
+	}
+	if len(coverage) != 2 || coverage[1].Status != "complete" {
+		t.Fatalf("completed record did not recover coverage: %+v", coverage)
+	}
+}
+
+func TestRuntimeFileCoverageDetectsFileReplacement(t *testing.T) {
+	var coverage []collection.RuntimeCoverage
+	delivered := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/runtime/coverage":
+			var report collection.RuntimeCoverage
+			if err := json.NewDecoder(r.Body).Decode(&report); err != nil {
+				t.Fatal(err)
+			}
+			coverage = append(coverage, report)
+			w.WriteHeader(http.StatusOK)
+		case "/api/v2/runtime/events":
+			var events []Event
+			if err := json.NewDecoder(r.Body).Decode(&events); err != nil {
+				t.Fatal(err)
+			}
+			delivered += len(events)
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "runtime.jsonl")
+	first := `{"pod":{"uid":"old"},"syscall":"execve","target":"x","timestamp":1,"confidence":1}` + "\n"
+	if err := os.WriteFile(path, []byte(first), 0600); err != nil {
+		t.Fatal(err)
+	}
+	r := NewReader(path, 0, srv.URL)
+	r.readAndSend()
+	if delivered != 1 {
+		t.Fatalf("initial event delivery=%d", delivered)
+	}
+
+	replacement := filepath.Join(dir, "runtime.new")
+	second := `{"pod":{"uid":"new"},"syscall":"execve","target":"/a/much/longer/target/to/exceed/the/old/cursor","timestamp":2,"confidence":1}` + "\n"
+	if err := os.WriteFile(replacement, []byte(second), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(replacement, path); err != nil {
+		t.Fatal(err)
+	}
+
+	r.readAndSend()
+	if delivered != 2 {
+		t.Fatalf("replacement file event was skipped: delivered=%d", delivered)
+	}
+	if len(coverage) != 2 || coverage[1].Status != "failed" || coverage[1].Errors == 0 {
+		t.Fatalf("runtime file replacement must break clean continuity: %+v", coverage)
+	}
+}
