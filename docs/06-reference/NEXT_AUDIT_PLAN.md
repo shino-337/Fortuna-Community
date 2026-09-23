@@ -136,8 +136,8 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   independent source-health proof and package F live-topology validation exist.
   Retention/partition/archive/storage metrics remain production-operations
   follow-up, not #52 correctness blockers. D is intentionally not yet complete.
-- E1 / next active work: backend availability contract for stats, node, capability
-  and Agent observability APIs. Missing schema/query failures must not collapse into
+- E1 / PR #53 active draft: backend availability contract for stats, node,
+  capability and Agent observability APIs. Missing schema/query failures must not collapse into
   legitimate zero/empty results; Agent version/cluster identity must come from the
   persisted Agent record; data availability must remain distinct from Agent
   heartbeat/liveness.
@@ -246,6 +246,9 @@ E1 starts after #52 and is the current implementation package. Merge only when:
   persistence is absent or unreadable;
 - Agent status uses each Agent's persisted `cluster_id`, `version`,
   `last_seen_at` and node identity; missing heartbeat is not reported healthy;
+- cluster security summaries join findings/capabilities with Pods on both
+  `cluster_id` and Pod UID so duplicate UIDs across clusters cannot contaminate
+  aggregate counts;
 - Agent data availability is represented separately from heartbeat-derived
   healthy/slow/disconnected state;
 - system metrics do not report `healthy` when their backing queries fail;
