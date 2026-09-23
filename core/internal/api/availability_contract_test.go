@@ -529,7 +529,7 @@ func TestPipelineHealthQueryFailureIsUnavailable(t *testing.T) {
 
 func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{})
+	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{}, &models.RiskScore{})
 	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
 		require.NoError(t, db.Create(&models.Pod{
 			ClusterID: clusterID, UID: "same-pod", Name: "pod-" + clusterID, Namespace: "ns",
@@ -553,6 +553,14 @@ func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 		ResourceUID: "same-pod", InsightType: "rbac", Severity: "critical",
 		Title: "non-pod", Description: "must not contaminate pod risk count", Status: "active", DetectedAt: now,
 	}).Error)
+	require.NoError(t, db.Create(&models.RiskScore{
+		ClusterID: "cluster-a", ResourceType: "Pod", ResourceUID: "same-pod",
+		ResourceName: "pod-a", Namespace: "ns", TotalScore: 10, ScorerVersion: "v3", CalculatedAt: now,
+	}).Error)
+	require.NoError(t, db.Create(&models.RiskScore{
+		ClusterID: "cluster-b", ResourceType: "Pod", ResourceUID: "same-pod",
+		ResourceName: "pod-b", Namespace: "ns", TotalScore: 90, ScorerVersion: "v3", CalculatedAt: now,
+	}).Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/pods?sortBy=risk_desc")
 	c.Set("user", &models.User{Role: models.RoleAdmin})
@@ -562,12 +570,19 @@ func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 	pods := body["pods"].([]interface{})
 	require.Len(t, pods, 2)
 	counts := map[string]int{}
+	scores := map[string]float64{}
 	for _, item := range pods {
 		pod := item.(map[string]interface{})
-		counts[pod["clusterId"].(string)] = int(pod["riskCount"].(float64))
+		clusterID := pod["clusterId"].(string)
+		counts[clusterID] = int(pod["riskCount"].(float64))
+		if raw, ok := pod["unifiedScore"].(float64); ok {
+			scores[clusterID] = raw
+		}
 	}
 	require.Equal(t, 1, counts["cluster-a"])
 	require.Equal(t, 2, counts["cluster-b"])
+	require.EqualValues(t, 10, scores["cluster-a"])
+	require.EqualValues(t, 90, scores["cluster-b"])
 }
 
 
