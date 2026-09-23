@@ -134,7 +134,14 @@ func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var podCount int64
-		if fail(db.Model(&models.Pod{}).Distinct("uid").Count(&podCount).Error,
+		if fail(db.Raw(`
+			SELECT COUNT(*) FROM (
+				SELECT cluster_id, uid
+				FROM pods
+				WHERE deleted_at IS NULL
+				GROUP BY cluster_id, uid
+			) scoped_pods
+		`).Scan(&podCount).Error,
 			"system_metrics_pods_unavailable", "Pod metrics could not be loaded") {
 			return
 		}
