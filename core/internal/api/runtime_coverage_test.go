@@ -211,6 +211,22 @@ func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
 		require.Contains(t, w.Body.String(), "runtime_producer_inactive")
 	})
 
+	t.Run("stale-observation-recovers-with-fresh-lifecycle", func(t *testing.T) {
+		db := runtimeCoverageDB(t)
+		c := coverageWindow("coverage-000000000094", now.Add(-time.Second), now)
+		producer := seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-2*time.Minute), now, true, true, collection.RuntimeProducerActive)
+		staleEnd := now.Add(-collection.RuntimeProducerLeaseMaxAge - time.Second)
+		require.NoError(t, db.Model(&producer).Update("last_coverage_end", staleEnd).Error)
+		require.Equal(t, "stale", producer.EffectiveStatus(now))
+
+		w := postCoverage(t, db, principal, c)
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		require.NoError(t, db.First(&producer, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+		require.Equal(t, collection.RuntimeProducerActive, producer.State)
+		require.NotNil(t, producer.LastCoverageEnd)
+		require.True(t, producer.LastCoverageEnd.Equal(c.WindowEnd))
+	})
+
 	t.Run("session-mismatch", func(t *testing.T) {
 		db := runtimeCoverageDB(t)
 		c := coverageWindow("coverage-000000000093", now.Add(-time.Second), now)
