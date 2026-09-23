@@ -21,6 +21,7 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 		WindowEnd: base.Add(4 * time.Second),
 		ContinuousSince: &continuous,
 	}
+	lastCoverageEnd := row.WindowEnd
 	producer := RuntimeProducerState{
 		ClusterID: "cluster-a",
 		AgentID: "agent-a",
@@ -30,6 +31,7 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 		Authoritative: true,
 		State: "active",
 		LastHeartbeatAt: now,
+		LastCoverageEnd: &lastCoverageEnd,
 	}
 
 	require.True(t, row.CoversInterval(&producer, base.Add(time.Second), base.Add(3*time.Second), now))
