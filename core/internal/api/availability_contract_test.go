@@ -181,10 +181,17 @@ func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
 
 func TestDashboardStatsBackingQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Cluster{})
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{})
+	now := time.Now().UTC()
 	require.NoError(t, db.Create(&models.Cluster{
-		ID: "cluster-a", Name: "cluster-a", Source: "env", LastSync: time.Now().UTC(),
+		ID: "cluster-a", Name: "cluster-a", Source: "env", LastSync: now,
 	}).Error)
+	require.NoError(t, db.Create(&models.Pod{
+		ClusterID: "cluster-a", UID: "pod-a", Name: "pod-a", Namespace: "ns",
+	}).Error)
+	// HasTable(insights) succeeds, but the malformed schema makes the required
+	// aggregate query fail. This is transient/query unavailable, not zero.
+	require.NoError(t, db.Exec("CREATE TABLE insights (id INTEGER PRIMARY KEY)").Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/dashboard/stats")
 	c.Set("user", &models.User{Role: models.RoleAdmin})
@@ -193,6 +200,19 @@ func TestDashboardStatsBackingQueryFailureIsUnavailable(t *testing.T) {
 	body := decodeAvailabilityBody(t, w)
 	require.Equal(t, "unavailable", body["status"])
 	require.Equal(t, true, body["retryable"])
+}
+
+func TestDashboardStatsMissingSchemaIsNonRetryable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{})
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/dashboard/stats")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetDashboardStats(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "dashboard_stats_insights_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
 }
 
 func TestClusterNodeSurfacesDoNotConvertMissingPodsTableToEmpty(t *testing.T) {
