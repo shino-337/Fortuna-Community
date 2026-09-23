@@ -99,17 +99,19 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	failed.Reason = "delivery failed"
 	w = postCoverage(t, db, principal, failed)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.Nil(t, row.ContinuousSince)
-	require.Equal(t, "failed", row.EffectiveStatus(time.Now().UTC()))
+	var failedRow models.RuntimeCoverage
+	require.NoError(t, db.First(&failedRow, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.Nil(t, failedRow.ContinuousSince)
+	require.Equal(t, "failed", failedRow.EffectiveStatus(time.Now().UTC()))
 
 	// Later success starts a new continuity interval.
 	recovered := coverageWindow("coverage-000000000004", failed.WindowEnd, now.Add(time.Second))
 	w = postCoverage(t, db, principal, recovered)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
-	require.NotNil(t, row.ContinuousSince)
-	require.True(t, row.ContinuousSince.Equal(recovered.WindowStart))
+	var recoveredRow models.RuntimeCoverage
+	require.NoError(t, db.First(&recoveredRow, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
+	require.NotNil(t, recoveredRow.ContinuousSince)
+	require.True(t, recoveredRow.ContinuousSince.Equal(recovered.WindowStart))
 }
 
 func TestRuntimeCoverageRejectsUnsafeWindows(t *testing.T) {
