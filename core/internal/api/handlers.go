@@ -314,29 +314,38 @@ type ClusterSecuritySummaryResponse struct {
 }
 
 // GetClusterSecuritySummary returns risk counts by severity and capability exposure for the cluster.
+// Both datasets are cluster-qualified; unavailable backing data is never projected as zero.
 func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_security_summary_cluster_unavailable", "Cluster security summary could not verify cluster state")
 			return
 		}
 		var severityRows []struct {
 			Severity string
 			Count    int64
 		}
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT LOWER(i.severity) as severity, COUNT(*) as count
 			FROM insights i
-			INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
+			INNER JOIN pods p
+			  ON p.cluster_id = i.cluster_id
+			 AND p.uid = i.resource_uid
+			 AND p.cluster_id = ?
+			 AND p.deleted_at IS NULL
 			WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
 			GROUP BY LOWER(i.severity)
-		`, id).Scan(&severityRows)
+		`, id).Scan(&severityRows).Error; err != nil {
+			respondDataUnavailable(c, "cluster_security_summary_risks_unavailable", "Cluster risk summary could not be loaded")
+			return
+		}
 		riskBySeverity := make(map[string]int64)
 		var critical, high, medium, low int64
 		for _, r := range severityRows {
@@ -352,21 +361,30 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 				low = r.Count
 			}
 		}
-		var capabilityCount int64
-		if hasTable(db, "pod_capabilities") {
-			// pod_capabilities has no deleted_at (see migration 041); filter soft-deleted pods only via p.deleted_at
-			db.Raw(`
-				SELECT COUNT(DISTINCT pc.id) FROM pod_capabilities pc
-				INNER JOIN pods p ON p.uid = pc.pod_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-			`, id).Scan(&capabilityCount)
+		if !hasTable(db, "pod_capabilities") {
+			respondDataUnavailable(c, "cluster_security_summary_capabilities_unavailable", "Cluster capability summary is unavailable; capability inventory is missing")
+			return
 		}
-		c.JSON(http.StatusOK, ClusterSecuritySummaryResponse{
-			RiskBySeverity:  riskBySeverity,
-			CapabilityCount: capabilityCount,
-			CriticalCount:   critical,
-			HighCount:       high,
-			MediumCount:     medium,
-			LowCount:        low,
+		var capabilityCount int64
+		if err := db.Raw(`
+			SELECT COUNT(DISTINCT pc.id) FROM pod_capabilities pc
+			INNER JOIN pods p
+			  ON p.cluster_id = pc.cluster_id
+			 AND p.uid = pc.pod_uid
+			 AND p.cluster_id = ?
+			 AND p.deleted_at IS NULL
+		`, id).Scan(&capabilityCount).Error; err != nil {
+			respondDataUnavailable(c, "cluster_security_summary_capabilities_unavailable", "Cluster capability summary could not be loaded")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{
+			"dataStatus": "available",
+			"riskBySeverity": riskBySeverity,
+			"capabilityCount": capabilityCount,
+			"criticalCount": critical,
+			"highCount": high,
+			"mediumCount": medium,
+			"lowCount": low,
 		})
 	}
 }
