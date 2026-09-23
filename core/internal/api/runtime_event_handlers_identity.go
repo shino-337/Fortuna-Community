@@ -53,9 +53,15 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		processed := 0
+		duplicates := 0
 		now := time.Now().UTC()
 		for _, p := range payloads {
 			podUID := strings.TrimSpace(p.Pod.UID)
+			sourceRecordID := strings.TrimSpace(p.SourceRecordID)
+			if sourceRecordID == "" || len(sourceRecordID) > 64 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "source_record_id is required", "code": "runtime_source_record_identity_required"})
+				return
+			}
 			if podUID == "" || strings.TrimSpace(p.Syscall) == "" || p.Confidence <= 0 {
 				continue
 			}
@@ -101,6 +107,7 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				PodUID: podUID, PodName: strings.TrimSpace(p.Pod.Name), Namespace: strings.TrimSpace(p.Pod.Namespace),
 				NodeName: strings.TrimSpace(p.Pod.Node), Syscall: strings.TrimSpace(p.Syscall), TargetPath: strings.TrimSpace(p.Target),
 				Capability: capabilityName, Timestamp: observedAt, EventID: strings.TrimSpace(p.EventID),
+				SourceRecordID: sourceRecordID,
 				ObservedAt: observedAt, IngestedAt: ingestedAt, ResolutionState: strings.TrimSpace(p.ResolutionState),
 				SourceKind: sourceKind, SourceSensorID: sourceSensorID, SourceRule: sourceRule,
 				PayloadJSON: payloadJSON, PayloadHash: strings.TrimSpace(p.PayloadHash), Runtime: strings.TrimSpace(p.Runtime),
@@ -108,7 +115,11 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				MitreTechnique: strings.TrimSpace(p.MitreTechnique), Severity: strings.TrimSpace(p.Severity), Confidence: p.Confidence,
 			})
 			if err != nil {
-				log.Printf("[RuntimeEventV2] scoped processing failed cluster=%s event_id=%s pod_uid=%s: %v", clusterID, p.EventID, podUID, err)
+				log.Printf("[RuntimeEventV2] scoped processing failed cluster=%s source_record_id=%s event_id=%s pod_uid=%s: %v", clusterID, sourceRecordID, p.EventID, podUID, err)
+				continue
+			}
+			if result != nil && result.Duplicate {
+				duplicates++
 				continue
 			}
 			rescoreMgr.Notify(riskengine.RuntimeEventMeta{
@@ -120,6 +131,6 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 				processed++
 			}
 		}
-		c.JSON(http.StatusOK, runtimeEventResponse{Processed: processed})
+		c.JSON(http.StatusOK, runtimeEventResponse{Processed: processed, Duplicates: duplicates})
 	}
 }
