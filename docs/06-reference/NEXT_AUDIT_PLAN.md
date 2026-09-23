@@ -200,7 +200,34 @@ Required invariants include:
 - full populated-legacy schema upgrade, fail-closed unowned-row handling, and
   exact backfill semantics for pre-history latest evidence;
 - immutable `runtime_coverage_receipts` history separate from the mutable
-  latest-state `runtime_coverages` projection, with replay/rollback history gates.
+  latest-state `runtime_coverages` projection, with replay/rollback history gates;
+- coverage receipt cadence is configured independently from event poll cadence:
+  event collection may remain at 5s while immutable clean coverage defaults to 30s;
+  failed coverage windows bypass cadence and are persisted immediately;
+- retention is explicit and bounded. The default production target is 7 days for
+  immutable runtime coverage receipts unless an operator configures archive/export
+  before deletion;
+- `runtime_coverage_receipts` is PostgreSQL-partitioned by receipt time so
+  retention/archive can operate on partitions rather than unbounded row deletes;
+- observability exposes receipt ingest rate, allocated storage bytes and oldest
+  retained receipt age. Production dashboards/alerts must derive
+  `receipts_per_minute`, `receipt_bytes` and `oldest_receipt_age`;
+- capacity planning uses a conservative budget of 2 KiB per receipt plus 50%
+  headroom (3 KiB effective) until measured PostgreSQL index/TOAST/partition
+  overhead provides a stronger environment-specific value;
+- runtime event replay itself is idempotent before downstream REP/risk/correlation
+  effects. Generic runtime-file restart may re-read complete records, so a replayed
+  physical observation must not increment risk or duplicate signals/incidents.
+  Do not close this gate by making the current second-granularity `event_id`
+  globally unique; the source record identity must distinguish legitimate
+  same-second identical observations.
+
+Operational sizing guidance for the merge gate:
+- fewer than 10 Agents: 5s coverage cadence is acceptable with short retention;
+- around 100 Agents: use at least 30s immutable coverage cadence or bound retention
+  to 7 days;
+- 500+ Agents: partition + archive is required and 5s receipt append must not be
+  the production default.
 
 Runtime/Pod/cross-resource auto-resolution remains disabled in #52. Enabling a
 consumer is a separate change and must verify both the required bounded interval
