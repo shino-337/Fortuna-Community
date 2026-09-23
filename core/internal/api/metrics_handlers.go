@@ -322,13 +322,23 @@ func policyStageDescription(hasViolationsTable, hasInstancesTable, hasTemplatesT
 // Workers tracked: sbom, cve-matcher, correlator, risk, policy.
 func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		var queryErr error
+		captureErr := func(err error) {
+			if err != nil && queryErr == nil {
+				queryErr = err
+			}
+		}
 		countWhere := func(dest *int64, model interface{}, conds ...interface{}) {
 			*dest = 0
+			if queryErr != nil {
+				return
+			}
 			q := db.Model(model)
 			if len(conds) > 0 {
 				q = q.Where(conds[0], conds[1:]...)
 			}
-			_ = q.Count(dest).Error
+			captureErr(q.Count(dest).Error)
 		}
 
 		// SBOM ingest + CVE match pipeline: rows in sboms and/or successful sbom_match_runs.
@@ -353,17 +363,17 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 		var cveRows, packageRows, activeCVEGeneration int64
 		if db.Migrator().HasTable("cves") {
-			db.Table("cves").Count(&cveRows)
+			captureErr(db.Table("cves").Count(&cveRows).Error)
 		}
 		if db.Migrator().HasTable("package_vulnerabilities") {
-			db.Table("package_vulnerabilities").Count(&packageRows)
+			captureErr(db.Table("package_vulnerabilities").Count(&packageRows).Error)
 		}
 		if db.Migrator().HasTable("catalog_generations") {
 			var generationID sql.NullInt64
-			_ = db.Table("catalog_generations").
+			captureErr(db.Table("catalog_generations").
 				Select("MAX(id)").
 				Where("catalog_type = ? AND status = ? AND deleted_at IS NULL", "cve", "active").
-				Scan(&generationID).Error
+				Scan(&generationID).Error)
 			if generationID.Valid {
 				activeCVEGeneration = generationID.Int64
 			}
@@ -398,6 +408,11 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 		policyActivity := policyViolations + policyInstances
 		if policyActivity == 0 && policyTemplates > 0 {
 			policyActivity = policyTemplates
+		}
+
+		if queryErr != nil {
+			respondDataUnavailable(c, "worker_metrics_query_failed", "Worker metrics could not be loaded")
+			return
 		}
 
 		// workerStatus derives a stage status from cumulative DB counts. This endpoint
@@ -488,10 +503,14 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var totalInsights int64
-		db.Model(&models.Insight{}).Count(&totalInsights)
+		if err := db.WithContext(c.Request.Context()).Model(&models.Insight{}).Count(&totalInsights).Error; err != nil {
+			respondDataUnavailable(c, "policy_evaluation_metrics_unavailable", "Policy evaluation metrics could not be loaded")
+			return
+		}
 		evaluationsPerDay := totalInsights * 10
 
 		c.JSON(http.StatusOK, gin.H{
+			"dataStatus":       "available",
 			"totalEvaluations": evaluationsPerDay,
 		})
 	}
