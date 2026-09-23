@@ -140,6 +140,61 @@ func TestDashboardIntegrityClusterQualifiesPodAndSBOMCoverage(t *testing.T) {
 	require.EqualValues(t, 1, body.CrossChecks.PodsMissingSbom)
 }
 
+
+func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{})
+	now := time.Now().UTC()
+	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
+		require.NoError(t, db.Create(&models.Cluster{
+			ID: clusterID, Name: clusterID, Source: "env", LastSync: now,
+		}).Error)
+		require.NoError(t, db.Create(&models.Pod{
+			ClusterID: clusterID, UID: "same-pod", Name: "pod", Namespace: "ns",
+		}).Error)
+		require.NoError(t, db.Create(&models.Insight{
+			ClusterID: clusterID, ResourceType: "Pod", ResourceUID: "same-pod",
+			ResourceName: "pod", InsightType: "vulnerability", Severity: "critical",
+			Title: clusterID, Description: clusterID, Status: "active", DetectedAt: now,
+		}).Error)
+	}
+	// Same resource_uid on a non-Pod resource must not contaminate Pod aggregates.
+	require.NoError(t, db.Create(&models.Insight{
+		ClusterID: "cluster-a", ResourceType: "ServiceAccount", ResourceUID: "same-pod",
+		ResourceName: "sa", InsightType: "vulnerability", Severity: "critical",
+		Title: "non-pod", Description: "non-pod", Status: "active", DetectedAt: now,
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/dashboard/stats?byType=all")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetDashboardStats(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+
+	var body DashboardStatsDTO
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+	require.Equal(t, "available", body.DataStatus)
+	require.EqualValues(t, 2, body.RunningPods)
+	require.EqualValues(t, 2, body.AffectedPodCount)
+	require.EqualValues(t, 2, body.TotalRisks)
+	require.EqualValues(t, 2, body.CriticalRisks)
+}
+
+func TestDashboardStatsBackingQueryFailureIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{})
+	require.NoError(t, db.Create(&models.Cluster{
+		ID: "cluster-a", Name: "cluster-a", Source: "env", LastSync: time.Now().UTC(),
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/dashboard/stats")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetDashboardStats(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "unavailable", body["status"])
+	require.Equal(t, true, body["retryable"])
+}
+
 func TestClusterNodeSurfacesDoNotConvertMissingPodsTableToEmpty(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for name, handler := range map[string]func(*gorm.DB) gin.HandlerFunc{
