@@ -22,6 +22,7 @@ type ProducerLifecycleReporter struct {
 	httpClient       *http.Client
 	mu               sync.Mutex
 	stopping         bool
+	stopReported     bool
 }
 
 func NewProducerLifecycleReporter(coreURL, sessionID string, sessionStartedAt time.Time, producers []collection.RuntimeProducerDeclaration) *ProducerLifecycleReporter {
@@ -49,6 +50,9 @@ func (r *ProducerLifecycleReporter) Report(agentState string) error {
 		return nil
 	}
 	if agentState == collection.RuntimeAgentStopping {
+		if r.stopReported {
+			return nil
+		}
 		r.stopping = true
 	}
 	producers := append([]collection.RuntimeProducerDeclaration(nil), r.producers...)
@@ -83,6 +87,9 @@ func (r *ProducerLifecycleReporter) Report(agentState string) error {
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return fmt.Errorf("runtime producer manifest POST failed: %s", resp.Status)
+	}
+	if agentState == collection.RuntimeAgentStopping {
+		r.stopReported = true
 	}
 	return nil
 }
