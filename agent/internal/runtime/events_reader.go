@@ -126,7 +126,6 @@ func (r *Reader) readAndSend() {
 	r.fileInfo = st
 
 	startOffset := r.offset
-	startBuf := append([]byte(nil), r.lineBuf...)
 	if _, err := f.Seek(startOffset, io.SeekStart); err != nil {
 		r.logger.Printf("Failed to seek runtime events file: %v", err)
 		stats.Errors++
@@ -142,9 +141,15 @@ func (r *Reader) readAndSend() {
 		return
 	}
 
-	data := append(append([]byte(nil), startBuf...), chunk...)
+	// The durable source file is the retry buffer for incomplete records. Offset
+	// advances only past newline-terminated records, never past a trailing
+	// partial prefix. lineBuf is diagnostic state only; reconstruction always
+	// re-reads the partial bytes from disk. This prevents a process restart from
+	// silently skipping a prefix that existed only in memory.
+	data := chunk
 	r.lineBuf = nil
 	events := make([]Event, 0, 10)
+	consumed := int64(0)
 	for len(data) > 0 {
 		idx := bytes.IndexByte(data, '\n')
 		if idx < 0 {
@@ -152,6 +157,8 @@ func (r *Reader) readAndSend() {
 			break
 		}
 		line := bytes.TrimSpace(data[:idx])
+		step := int64(idx + 1)
+		consumed += step
 		data = data[idx+1:]
 		if len(line) == 0 {
 			continue
@@ -167,15 +174,15 @@ func (r *Reader) readAndSend() {
 		events = append(events, evt)
 	}
 
-	nextOffset := startOffset + int64(len(chunk))
+	nextOffset := startOffset + consumed
 	if len(r.lineBuf) != 0 {
 		stats.Errors++
 		reason = mergeCoverageReason(reason, "partial runtime event record pending")
 	}
 
 	if len(events) == 0 {
-		// Permanent malformed records are consumed; an incomplete trailing record
-		// is retained in lineBuf and completed from the next file slice.
+		// Completed malformed/blank records are consumed, while an incomplete
+		// trailing record remains unread at nextOffset and is re-read intact.
 		r.offset = nextOffset
 		return
 	}
@@ -188,10 +195,8 @@ func (r *Reader) readAndSend() {
 		atomic.AddUint64(&r.failedEvents, uint64(len(events)))
 		r.logger.Printf("Failed to send runtime events: %v", err)
 		r.logIngestionStats("send_failed")
-		// Roll back both cursor components so complete and partial records are
-		// reconstructed exactly on retry.
+		// Re-read this whole slice from durable source on retry.
 		r.offset = startOffset
-		r.lineBuf = startBuf
 		return
 	}
 	r.offset = nextOffset
