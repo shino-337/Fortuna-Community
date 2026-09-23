@@ -104,6 +104,7 @@ func TestRuntimeProducerLifecycleRestartDisableAndLease(t *testing.T) {
 	require.Equal(t, session2, producer.SessionID)
 	require.Equal(t, "agent_restart", producer.GapReason)
 	require.NotNil(t, producer.GapSince)
+	require.True(t, producer.GapSince.Equal(first.WindowEnd), "restart gap must begin at last accepted coverage end")
 	require.Equal(t, "unknown", oldCoverage.EffectiveStatus(&producer, now))
 	require.False(t, oldCoverage.CoversInterval(&producer, oldCoverage.WindowStart, oldCoverage.WindowEnd, now))
 
