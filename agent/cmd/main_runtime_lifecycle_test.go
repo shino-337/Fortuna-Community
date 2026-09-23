@@ -15,8 +15,8 @@ func TestRuntimeProducerDeclarationsAreCompleteAndFailClosed(t *testing.T) {
 		EBPFMode: "exec",
 	}
 	got := runtimeProducerDeclarations(cfg)
-	if len(got) != len(collection.RuntimeProducerRegistry) {
-		t.Fatalf("producer declarations=%d want %d", len(got), len(collection.RuntimeProducerRegistry))
+	if len(got) != collection.RuntimeProducerRegistrySize() {
+		t.Fatalf("producer declarations=%d want %d", len(got), collection.RuntimeProducerRegistrySize())
 	}
 	seen := map[string]collection.RuntimeProducerDeclaration{}
 	for _, p := range got {
