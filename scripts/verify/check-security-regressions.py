@@ -46,6 +46,10 @@ REQUIRED = {
     "./pkg/sbom": ["TestPodImageScanRejectsForeignSBOM"],
     "./internal/repository": ["TestSBOMRepositoryRejectsMissingOwnership", "TestSBOMWorkloadIdentitySeparatesContainers", "TestSBOMContentDoesNotReuseDifferentProvenance"],
     "./pkg/reconciler": ["TestSBOMReconcilePreservesActiveAndUnresolvedOwnership"],
+    "./pkg/rep": [
+        "TestRuntimeSourceRecordExactReplaySkipsDownstreamEffects",
+        "TestRuntimeSameSecondIdenticalObservationsRemainDistinct",
+    ],
     "./pkg/riskengine": [
         "TestResolutionDetectorDependencies",
         "TestPodInsightRestorePreservesClusterAndException",
@@ -264,6 +268,7 @@ AGENT_REQUIRED = {
         "TestRuntimeSendersNeverDowngrade/Internal_Server_Error/file",
         "TestRuntimeSendersNeverDowngrade/Internal_Server_Error/falco",
         "TestReaderSend_V2Success_EnrichesCanonicalFieldsAndMetrics",
+        "TestRuntimeFileSourceRecordIdentitySurvivesRestartAndSeparatesIdenticalRecords",
         "TestRuntimeReaderStartPerformsImmediateRead",
         "TestRuntimeReaderRetainsOffsetUntilIngestSucceeds",
         "TestRuntimeReaderAdvancesPastInvalidOnlyInput",
