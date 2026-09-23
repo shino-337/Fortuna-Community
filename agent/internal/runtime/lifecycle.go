@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fortuna/agent/internal/corehttp"
@@ -19,6 +20,8 @@ type ProducerLifecycleReporter struct {
 	sessionStartedAt time.Time
 	producers        []collection.RuntimeProducerDeclaration
 	httpClient       *http.Client
+	mu               sync.Mutex
+	stopping         bool
 }
 
 func NewProducerLifecycleReporter(coreURL, sessionID string, sessionStartedAt time.Time, producers []collection.RuntimeProducerDeclaration) *ProducerLifecycleReporter {
@@ -37,6 +40,15 @@ func (r *ProducerLifecycleReporter) Report(agentState string) error {
 	if r == nil {
 		return nil
 	}
+	r.mu.Lock()
+	if r.stopping && agentState == collection.RuntimeAgentRunning {
+		r.mu.Unlock()
+		return nil
+	}
+	if agentState == collection.RuntimeAgentStopping {
+		r.stopping = true
+	}
+	r.mu.Unlock()
 	producers := append([]collection.RuntimeProducerDeclaration(nil), r.producers...)
 	if agentState == collection.RuntimeAgentStopping {
 		for i := range producers {
@@ -73,6 +85,10 @@ func (r *ProducerLifecycleReporter) Report(agentState string) error {
 	return nil
 }
 
+func (r *ProducerLifecycleReporter) Stop() error {
+	return r.Report(collection.RuntimeAgentStopping)
+}
+
 // Start renews the producer lifecycle lease. Graceful shutdown explicitly closes
 // the lease; crash/network loss expires it server-side.
 func (r *ProducerLifecycleReporter) Start(ctx context.Context) {
@@ -87,7 +103,7 @@ func (r *ProducerLifecycleReporter) Start(ctx context.Context) {
 			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
 			done := make(chan error, 1)
-			go func() { done <- r.Report(collection.RuntimeAgentStopping) }()
+			go func() { done <- r.Stop() }()
 			select {
 			case <-shutdownCtx.Done():
 			case <-done:
