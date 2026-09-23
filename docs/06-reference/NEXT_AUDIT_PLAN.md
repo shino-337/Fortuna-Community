@@ -200,3 +200,19 @@ Runtime/Pod/cross-resource auto-resolution remains disabled in #52. Enabling a
 consumer is a separate change and must verify both the required bounded interval
 and that the required producer/capability is currently enabled. Package F still
 owns live restart, DaemonSet and two-cluster acceptance.
+
+
+### Runtime lifecycle blocker review
+
+#52 now persists producer lifecycle separately from coverage under
+`{cluster_id, agent_id, producer_id}`. Agent execution `session_id`, enablement,
+operational state, lease heartbeat, last coverage end and evidence-gap markers are
+persisted. Restart creates a new session and breaks old coverage eligibility;
+disable/stop and lease expiry fail closed.
+
+The review also found that file/Falco reader liveness cannot prove the upstream
+writer/sensor is alive. To avoid a false complete-empty claim, manifest v1 now
+rejects every `Authoritative=true` declaration. Current file, Falco and built-in
+eBPF coverage is operational telemetry only; no current producer may satisfy
+absence-based auto-resolution. A later protocol must add an independent source
+health proof before authority can be enabled.
