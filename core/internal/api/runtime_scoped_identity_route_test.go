@@ -36,7 +36,7 @@ func newRuntimeRouteHarness(t *testing.T, scoped bool) runtimeRouteHarness {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeCoverage{}, &models.RuntimeProducerState{}); err != nil {
+	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}, &models.RuntimeCoverage{}, &models.RuntimeCoverageReceipt{}, &models.RuntimeProducerState{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, pod := range []models.Pod{
