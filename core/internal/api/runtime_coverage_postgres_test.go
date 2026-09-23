@@ -323,8 +323,8 @@ func TestRuntimeCoveragePostgresLegacySchemaUpgrade(t *testing.T) {
 	require.NoError(t, db.Model(&models.RuntimeCoverageReceipt{}).Count(&historyRows).Error)
 	require.Zero(t, historyRows, "partial legacy row must not be fabricated into immutable evidence")
 
-	// Once the preserved legacy latest row has a complete evidence identity/window,
-	// rerunning the invariant backfills exactly that latest receipt into history.
+	// A legacy row that has enough fields to look like evidence must satisfy the
+	// same semantic contract as new ingest before migration can trust/backfill it.
 	require.NoError(t, db.Exec(`
 		UPDATE runtime_coverages
 		SET session_id='legacy-session-0001',
@@ -332,8 +332,19 @@ func TestRuntimeCoveragePostgresLegacySchemaUpgrade(t *testing.T) {
 		    window_start=NOW() - INTERVAL '2 seconds',
 		    window_end=NOW() - INTERVAL '1 second',
 		    received_at=NOW(),
-		    emitted=1, delivered=0, dropped=0, invalid=0, errors=1,
+		    emitted=1, delivered=2, dropped=0, invalid=0, errors=1,
 		    reason='legacy failed receipt'
+		WHERE cluster_id='cluster-a' AND agent_id='agent-a' AND producer_id='falco'
+	`).Error)
+	err = migrations.EnsureRuntimeCoverage(db)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "semantic contract")
+
+	// Repairing the counters to a valid failed window allows an exact one-time
+	// backfill into immutable receipt history.
+	require.NoError(t, db.Exec(`
+		UPDATE runtime_coverages
+		SET delivered=0
 		WHERE cluster_id='cluster-a' AND agent_id='agent-a' AND producer_id='falco'
 	`).Error)
 	require.NoError(t, migrations.EnsureRuntimeCoverage(db))
