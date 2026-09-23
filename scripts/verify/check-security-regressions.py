@@ -125,6 +125,7 @@ REQUIRED = {
         "TestRuntimeCoverageRejectsUnsafeWindows/lifecycle-required",
         "TestRuntimeCoverageRejectsUnsafeWindows/disabled-producer",
         "TestRuntimeCoverageRejectsUnsafeWindows/stale-lifecycle-lease",
+        "TestRuntimeCoverageRejectsUnsafeWindows/stale-observation-recovers-with-fresh-lifecycle",
         "TestRuntimeCoverageRejectsUnsafeWindows/session-mismatch",
         "TestRuntimeProducerLifecycleRestartDisableAndLease",
         "TestRuntimeProducerStoppingManifestClosesAllLeases",
