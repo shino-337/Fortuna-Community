@@ -78,12 +78,12 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		podIdentities := pods().
-			Select("cluster_id, uid").
-			Group("cluster_id, uid")
 		activePods := func() *gorm.DB {
 			return pods().Where("cluster_id IN (?)", clusters().Select("id"))
 		}
+		podIdentities := activePods().
+			Select("cluster_id, uid").
+			Group("cluster_id, uid")
 		if fail(db.Table("(?) AS scoped_pods", podIdentities).Count(&result.RunningPods).Error,
 			"dashboard_stats_pods_unavailable") {
 			return
