@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { CapabilityMetadata, SecurityRule } from '../types';
@@ -22,6 +22,17 @@ export const CapabilityDetail: React.FC = () => {
   const [metaIssue, setMetaIssue] = useState<AvailabilityIssue | null>(null);
   const [rulesIssue, setRulesIssue] = useState<AvailabilityIssue | null>(null);
   const [rulesLoaded, setRulesLoaded] = useState(false);
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    requestRef.current += 1;
+    setMeta(null);
+    setRules([]);
+    setLoadError(null);
+    setMetaIssue(null);
+    setRulesIssue(null);
+    setRulesLoaded(false);
+  }, [id]);
 
   const load = useCallback(async () => {
     if (!id) {
@@ -31,12 +42,15 @@ export const CapabilityDetail: React.FC = () => {
       setLoading(false);
       return;
     }
+    const requestSeq = ++requestRef.current;
     setLoading(true);
     setLoadError(null);
     const [metaResult, rulesResult] = await Promise.allSettled([
       api.getCapabilityMetadataByIdStrict(id),
       api.getRulesStrict(),
     ]);
+
+    if (requestSeq !== requestRef.current) return;
 
     if (metaResult.status === 'fulfilled') {
       setMeta(metaResult.value);
@@ -58,7 +72,7 @@ export const CapabilityDetail: React.FC = () => {
     } else {
       setRulesIssue(getAvailabilityIssue(rulesResult.reason, 'Linked policy rules'));
     }
-    setLoading(false);
+    if (requestSeq === requestRef.current) setLoading(false);
   }, [id]);
 
   useEffect(() => {
