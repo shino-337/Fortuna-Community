@@ -85,6 +85,24 @@ test('cluster inventory 503 is not rendered as empty inventory', async ({ page }
   await expect(page.getByText('No inventory data', { exact: true })).toHaveCount(0);
 });
 
+test('cluster inventory malformed 200 is unavailable, not empty', async ({ page }) => {
+  await page.route('**/api/v1/inventory/clusters/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/clusters/cluster-a') return route.fulfill({ json: cluster });
+    if (path === '/api/v1/inventory/clusters/stats') return route.fulfill({ json: stats });
+    if (path === '/api/v1/inventory/clusters/cluster-a/overview') return route.fulfill({ json: overview });
+    if (path === '/api/v1/inventory/clusters/cluster-a/inventory') {
+      return route.fulfill({ json: {} });
+    }
+    return route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+
+  await page.goto(`${fixture}?path=/clusters/cluster-a`);
+  await page.getByRole('tab', { name: 'Inventory', exact: true }).click();
+  await expect(page.getByText('Cluster inventory temporarily unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('No inventory data', { exact: true })).toHaveCount(0);
+});
+
 test('capability metadata 503 is unavailable, not not-found', async ({ page }) => {
   await page.route('**/api/v1/capability-metadata/CAP_TEST', route =>
     route.fulfill(unavailable('capability_metadata_unavailable', 'Capability metadata query failed')),
@@ -248,6 +266,53 @@ test('pod refresh 503 preserves last-known-good pod detail', async ({ page }) =>
 });
 
 
+test('pod route change never reuses last-known-good data from another pod', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') {
+      return route.fulfill({ json: pod });
+    }
+    if (path === '/api/v1/inventory/pods/pod-b') {
+      return route.fulfill(unavailable('pod_detail_unavailable', 'Pod B inventory query failed'));
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  await expect(page.getByText('10.0.0.10', { exact: true })).toBeVisible();
+
+  await page.evaluate(() => {
+    const target = window as typeof window & { __availabilityNavigate?: (to: string) => void };
+    target.__availabilityNavigate?.('/resources/pods/uid/pod-b');
+  });
+
+  await expect(page.getByRole('heading', { name: 'Could not load pod detail', exact: true })).toBeVisible();
+  await expect(page.getByText('10.0.0.10', { exact: true })).toHaveCount(0);
+});
+
+test('malformed successful pod risk report is unavailable, not empty evidence', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') {
+      return route.fulfill({ json: pod });
+    }
+    if (path.endsWith('/report')) {
+      return route.fulfill({ json: {
+        podUid: 'pod-a',
+        podName: 'pod-a',
+        namespace: 'default',
+        clusterId: 'cluster-a',
+      } });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('risk-report');
+});
+
 test('pod runtime evidence 503 remains unavailable instead of empty', async ({ page }) => {
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
@@ -265,7 +330,8 @@ test('pod runtime evidence 503 remains unavailable instead of empty', async ({ p
 
   const detailPath = encodeURIComponent('/resources/pods/uid/pod-a?tab=events');
   await page.goto(`${fixture}?path=${detailPath}`);
-  await expect(page.getByText(/Failed to load:/)).toBeVisible();
-  await expect(page.getByText(/signals/)).toBeVisible();
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('signals');
   await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
 });
