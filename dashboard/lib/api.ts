@@ -333,12 +333,13 @@ const requestV2 = async <T>(path: string, options: RequestInit = {}): Promise<T>
   if (token) headers.Authorization = `Bearer ${token}`;
   const res = await fetch(buildUrlV2(path), { ...options, headers });
   if (res.status === 401) {
+    const { body, text } = await parseErrorBody(res);
     useAuthStore.getState().logout();
-    throw new Error('Session expired. Please log in again.');
+    throw new ApiError(res.status, 'Session expired. Please log in again.', body ?? (text ? { error: text } : undefined));
   }
   if (!res.ok) {
-    const text = await res.text().catch(() => '');
-    throw new Error(getErrorMessage(res.status, text || undefined));
+    const { body, text } = await parseErrorBody(res);
+    throw new ApiError(res.status, getErrorMessage(res.status, text || undefined), body);
   }
   return res.json();
 };
@@ -1174,8 +1175,8 @@ export const api = {
       }
       if (res.status === 404) return null;
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        throw new Error(getErrorMessage(res.status, text || undefined));
+        const { body, text } = await parseErrorBody(res);
+        throw new ApiError(res.status, getErrorMessage(res.status, text || undefined), body);
       }
       const p = await res.json() as Record<string, unknown>;
       return mapApiPodToPodWithRisk(p);
@@ -1229,6 +1230,59 @@ export const api = {
   },
 
   /** Runtime domain: pod-scoped APIs use /api/v1/runtime/pods/:uid/... */
+  /** Strict pod-detail runtime adapters: failures remain failures so callers can preserve last-known-good state. */
+  getPodRuntimeMetricsStrict: async (podUid: string): Promise<PodRuntimeMetric[]> => {
+    const data = await request<{ items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
+    if (!Array.isArray(data.items)) invalidResponse('pod_runtime_metrics_invalid_response', 'Runtime metrics response is missing the items array');
+    return data.items;
+  },
+  getPodProcessesStrict: async (podUid: string): Promise<PodProcessItem[]> => {
+    const data = await request<{ items?: PodProcessItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/processes`);
+    if (!Array.isArray(data.items)) invalidResponse('pod_processes_invalid_response', 'Pod processes response is missing the items array');
+    return data.items;
+  },
+  getPodNetworkConnectionsStrict: async (podUid: string): Promise<PodNetworkConnectionItem[]> => {
+    const data = await request<{ items?: PodNetworkConnectionItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/network`);
+    if (!Array.isArray(data.items)) invalidResponse('pod_network_invalid_response', 'Pod network response is missing the items array');
+    return data.items;
+  },
+  getPodNetworkTopDestinationsStrict: async (
+    podUid: string,
+    params?: { sinceMinutes?: number; limit?: number },
+  ): Promise<PodNetworkTopDestinationItem[]> => {
+    const q = new URLSearchParams();
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) q.set('sinceMinutes', String(params.sinceMinutes));
+    if (params?.limit != null && params.limit > 0) q.set('limit', String(params.limit));
+    const qs = q.toString();
+    const path = `/runtime/pods/${encodeURIComponent(podUid)}/network/top-destinations${qs ? `?${qs}` : ''}`;
+    const data = await request<{ items?: PodNetworkTopDestinationItem[] }>(path);
+    if (!Array.isArray(data.items)) invalidResponse('pod_network_top_destinations_invalid_response', 'Top destinations response is missing the items array');
+    return data.items;
+  },
+  getPodEventsStrict: async (podUid: string): Promise<PodK8sEventItem[]> => {
+    const data = await request<{ items?: PodK8sEventItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/events`);
+    if (!Array.isArray(data.items)) invalidResponse('pod_events_invalid_response', 'Pod events response is missing the items array');
+    return data.items;
+  },
+  getPodRuntimeSecurityEventsStrict: async (podUid: string, limit = 100): Promise<PodRuntimeSecurityEvent[]> => {
+    const data = await request<{ events?: PodRuntimeSecurityEvent[] }>(
+      `/risk/pods/${encodeURIComponent(podUid)}/runtime/events?limit=${limit}`,
+    );
+    if (!Array.isArray(data.events)) invalidResponse('pod_runtime_security_events_invalid_response', 'Runtime security events response is missing the events array');
+    return data.events;
+  },
+  getPodRuntimeBehaviorFactsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeBehaviorFact[]> => {
+    const data = await requestV2<{ facts?: PodRuntimeBehaviorFact[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`);
+    if (!Array.isArray(data.facts)) invalidResponse('pod_runtime_facts_invalid_response', 'Runtime facts response is missing the facts array');
+    return data.facts;
+  },
+  getPodRuntimeIncidentsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeIncident[]> => {
+    const data = await requestV2<{ incidents?: PodRuntimeIncident[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`);
+    if (!Array.isArray(data.incidents)) invalidResponse('pod_runtime_incidents_invalid_response', 'Runtime incidents response is missing the incidents array');
+    return data.incidents;
+  },
+
+
   getPodRuntimeMetrics: async (podUid: string): Promise<PodRuntimeMetric[]> => {
     try {
       const data = await request<{ items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
@@ -2125,6 +2179,13 @@ export const api = {
 
   getSbomList: async (params?: { podName?: string; namespace?: string; limit?: number }): Promise<PodSbomSummary[]> => {
     try {
+      return await api.getSbomListStrict(params);
+    } catch {
+      return [];
+    }
+  },
+
+  getSbomListStrict: async (params?: { podName?: string; namespace?: string; limit?: number }): Promise<PodSbomSummary[]> => {
       const query = new URLSearchParams();
       query.set('limit', String(params?.limit ?? API_DEFAULTS.LIMIT_LIST));
       if (params?.podName?.trim()) query.set('podName', params.podName.trim());
@@ -2146,18 +2207,19 @@ export const api = {
         confidence: s.confidence != null ? String(s.confidence) : undefined,
         goVersion: s.goVersion != null ? String(s.goVersion) : undefined,
       })) as PodSbomSummary[];
-    } catch (err) {
-      return [];
-    }
   },
 
   /** GET /api/v1/inventory/pods/:uid/sbom – SBOM detail by pod UID */
   getPodSbom: async (podUid: string): Promise<PodSbom | undefined> => {
     try {
-      return await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
-    } catch (err) {
+      return await api.getPodSbomStrict(podUid);
+    } catch {
       return undefined;
     }
+  },
+
+  getPodSbomStrict: async (podUid: string): Promise<PodSbom> => {
+    return request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
   },
 
   /** GET /api/v1/malware/threats/:pod_uid – per-pod malware/telemetry matches (requires same auth as SBOM) */
@@ -2410,6 +2472,24 @@ export const api = {
       return { capabilities: [], total: 0 };
     }
   },
+  getPodCapabilitiesStrict: async (podUid: string): Promise<PodCapabilityDetail[]> => {
+    if (!podUid) return [];
+    try {
+      const data = await requestV2<{ capabilities?: PodCapabilityDetail[] }>(
+        `/runtime/pods/${encodeURIComponent(podUid)}/capabilities`,
+      );
+      if (!Array.isArray(data.capabilities)) invalidResponse('pod_capabilities_invalid_response', 'Pod capabilities response is missing the capabilities array');
+      return data.capabilities;
+    } catch (err) {
+      if (!(isApiError(err) && err.status === 404)) throw err;
+      const data = await request<{ capabilities?: PodCapabilityDetail[] }>(
+        `/inventory/pods/${encodeURIComponent(podUid)}/capabilities`,
+      );
+      if (!Array.isArray(data.capabilities)) invalidResponse('pod_capabilities_invalid_response', 'Pod capabilities response is missing the capabilities array');
+      return data.capabilities;
+    }
+  },
+
   getPodCapabilities: async (podUid: string): Promise<PodCapabilityDetail[]> => {
     if (!podUid) return [];
     try {
@@ -2615,6 +2695,19 @@ export const api = {
   },
 
 
+  getRuntimeSignalsByPodStrict: async (podUid: string, params?: { signalType?: string; category?: string; sinceMinutes?: number; limit?: number }): Promise<RuntimeSignal[]> => {
+    const queryParams = new URLSearchParams();
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
+    if (params?.signalType) queryParams.append('signalType', params.signalType);
+    if (params?.category) queryParams.append('category', params.category);
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+    const query = queryParams.toString();
+    const url = query ? `/runtime/pods/${encodeURIComponent(podUid)}/signals?${query}` : `/runtime/pods/${encodeURIComponent(podUid)}/signals`;
+    const data = await request<{ podUid: string; signals?: RuntimeSignal[]; count: number }>(url);
+    if (!Array.isArray(data.signals)) invalidResponse('pod_runtime_signals_invalid_response', 'Runtime signals response is missing the signals array');
+    return data.signals;
+  },
+
   getRuntimeSignalsByPod: async (podUid: string, params?: { signalType?: string; category?: string; sinceMinutes?: number; limit?: number }): Promise<RuntimeSignal[]> => {
     try {
       const queryParams = new URLSearchParams();
@@ -2630,6 +2723,15 @@ export const api = {
     } catch (err) {
       return [];
     }
+  },
+
+  getRuntimeSignalSuppressionStatsStrict: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats> => {
+    const queryParams = new URLSearchParams();
+    if (params?.podUid) queryParams.append('podUid', params.podUid);
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
+    const query = queryParams.toString();
+    const url = query ? `/runtime/signals/suppression-stats?${query}` : '/runtime/signals/suppression-stats';
+    return request<RuntimeSignalSuppressionStats>(url);
   },
 
   getRuntimeSignalSuppressionStats: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats | null> => {
