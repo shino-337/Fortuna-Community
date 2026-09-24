@@ -10,7 +10,7 @@ import { getSeverityBadgeClass } from '../lib/severity';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLoading } from '../design-system/components/PageStatus';
 
-export const CapabilityDetail: React.FC = () => {
+const CapabilityDetailContent: React.FC = () => {
   const params = useParams<{ id: string }>();
   const location = useLocation();
   const id = params.id ?? matchPath({ path: '/capabilities/:id', end: true }, location.pathname)?.params.id;
@@ -278,4 +278,11 @@ export const CapabilityDetail: React.FC = () => {
       </p>
     </PageLayout>
   );
+};
+
+
+/** Keep last-known-good detail state scoped to one capability route identity. */
+export const CapabilityDetail: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <CapabilityDetailContent key={id ?? 'missing-capability'} />;
 };
