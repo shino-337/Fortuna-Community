@@ -80,7 +80,7 @@ export const ClusterDetail: React.FC = () => {
       } else {
         const issue = getAvailabilityIssue(clusterResult.reason, 'Cluster detail');
         issues.push(issue);
-        if (!cluster) setLoadError(issue.description);
+        setLoadError(issue.description);
       }
 
       if (overviewResult.status === 'fulfilled') {
@@ -92,7 +92,7 @@ export const ClusterDetail: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [id, cluster]);
+  }, [id]);
 
   const fetchTabData = useCallback(async (tab: TabId) => {
     if (!id) return;
