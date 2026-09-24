@@ -312,6 +312,11 @@ E2 starts from merge commit `a6e49ff`. Merge only when:
   not-found response from transient/schema availability failure;
 - secondary/enrichment failure (cluster stats/overview, tab data, linked rules,
   SBOM/risk/runtime evidence) does not erase a successfully loaded primary entity;
+- last-known-good state is keyed to the exact route/entity identity; navigation from
+  entity A to entity B cannot render or retain A's primary/enrichment evidence, and
+  delayed responses from A cannot overwrite B;
+- malformed successful payloads (for example missing required arrays, counters or
+  mismatched IDs) are protocol-unavailable failures rather than valid empty data;
 - retryable refresh failure preserves last-known-good detail/list state and exposes
   Retry, while non-retryable schema/deployment failure exposes operator guidance;
 - shared cluster inventory uses stale-while-revalidate semantics: failed
