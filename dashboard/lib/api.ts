@@ -613,10 +613,14 @@ export const api = {
   /** GET /api/v1/clusters/:id/overview */
   getClusterOverview: async (id: string): Promise<ClusterOverview | null> => {
     try {
-      return await request<ClusterOverview>(`/inventory/clusters/${encodeURIComponent(id)}/overview`);
+      return await api.getClusterOverviewStrict(id);
     } catch {
       return null;
     }
+  },
+
+  getClusterOverviewStrict: async (id: string): Promise<ClusterOverview> => {
+    return request<ClusterOverview>(`/inventory/clusters/${encodeURIComponent(id)}/overview`);
   },
 
   /** GET /api/v1/inventory/clusters/:id/inventory */
@@ -635,61 +639,82 @@ export const api = {
   /** GET /api/v1/clusters/:id/agents */
   getClusterAgents: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
     try {
-      const data = await request<{ agents: ClusterAgent[]; total: number }>(`/inventory/clusters/${encodeURIComponent(id)}/agents`);
-      const rawAgents = (data.agents || []) as unknown as Array<Record<string, unknown>>;
-      const agents = rawAgents.map((a) => ({
-        agentId: String(a.agentId ?? ''),
-        nodeName: a.nodeName != null ? String(a.nodeName) : undefined,
-        status: String(a.status ?? ''),
-        lastHeartbeat: a.lastHeartbeat != null ? String(a.lastHeartbeat) : '',
-        version: a.version != null ? String(a.version) : undefined,
-      }));
-      return { agents, total: Number(data.total) ?? agents.length };
+      return await api.getClusterAgentsStrict(id);
     } catch {
       return { agents: [], total: 0 };
     }
   },
 
+  getClusterAgentsStrict: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
+    const data = await request<{ agents?: ClusterAgent[]; total?: number }>(`/inventory/clusters/${encodeURIComponent(id)}/agents`);
+    if (!Array.isArray(data.agents)) {
+      invalidResponse('cluster_agents_invalid_response', 'Cluster agents response is missing the agents array');
+    }
+    const rawAgents = data.agents as unknown as Array<Record<string, unknown>>;
+    const agents = rawAgents.map((a) => ({
+      agentId: String(a.agentId ?? ''),
+      nodeName: a.nodeName != null ? String(a.nodeName) : undefined,
+      status: String(a.status ?? ''),
+      lastHeartbeat: a.lastHeartbeat != null ? String(a.lastHeartbeat) : '',
+      version: a.version != null ? String(a.version) : undefined,
+    }));
+    return {
+      agents,
+      total: data.total == null ? agents.length : requireFiniteNumber(data.total, 'cluster_agents_invalid_response', 'total'),
+    };
+  },
+
   /** GET /api/v1/clusters/:id/security-summary */
   getClusterSecuritySummary: async (id: string): Promise<ClusterSecuritySummary | null> => {
     try {
-      return await request<ClusterSecuritySummary>(`/inventory/clusters/${encodeURIComponent(id)}/security-summary`);
+      return await api.getClusterSecuritySummaryStrict(id);
     } catch {
       return null;
     }
+  },
+
+  getClusterSecuritySummaryStrict: async (id: string): Promise<ClusterSecuritySummary> => {
+    return request<ClusterSecuritySummary>(`/inventory/clusters/${encodeURIComponent(id)}/security-summary`);
   },
 
   /** GET /api/v1/clusters/:id/nodes/:nodeName – Node Detail (metadata + optional ?pods=true for workloads) */
   getClusterNode: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse | null> => {
     try {
-      const qs = opts?.pods ? '?pods=true' : '';
-      const data = await request<NodeDetailResponse>(`/inventory/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
-      return data;
+      return await api.getClusterNodeStrict(clusterId, nodeName, opts);
     } catch {
       return null;
     }
   },
 
+  getClusterNodeStrict: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse> => {
+    const qs = opts?.pods ? '?pods=true' : '';
+    return request<NodeDetailResponse>(`/inventory/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
+  },
+
   /** GET /api/v1/clusters/:id – single cluster for Cluster Detail */
   getCluster: async (id: string): Promise<Cluster | null> => {
     try {
-      const c = await request<Record<string, unknown>>(`/inventory/clusters/${encodeURIComponent(id)}`);
-      const name = String(c.name ?? c.id ?? '').trim() || String(id);
-      return {
-        id: String(c.id ?? id),
-        name,
-        region: c.region != null ? String(c.region) : undefined,
-        endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
-        status: c.status != null ? String(c.status) : 'unknown',
-        lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
-        version: c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined,
-        k8sVersion: c.k8sVersion != null ? String(c.k8sVersion) : undefined,
-        source: c.source != null ? String(c.source) : undefined,
-        distribution: c.distribution != null ? String(c.distribution) : undefined,
-      } as Cluster;
+      return await api.getClusterStrict(id);
     } catch {
       return null;
     }
+  },
+
+  getClusterStrict: async (id: string): Promise<Cluster> => {
+    const c = await request<Record<string, unknown>>(`/inventory/clusters/${encodeURIComponent(id)}`);
+    const name = String(c.name ?? c.id ?? '').trim() || String(id);
+    return {
+      id: String(c.id ?? id),
+      name,
+      region: c.region != null ? String(c.region) : undefined,
+      endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
+      status: c.status != null ? String(c.status) : 'unknown',
+      lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
+      version: c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined,
+      k8sVersion: c.k8sVersion != null ? String(c.k8sVersion) : undefined,
+      source: c.source != null ? String(c.source) : undefined,
+      distribution: c.distribution != null ? String(c.distribution) : undefined,
+    } as Cluster;
   },
 
   /** GET /api/v1/clusters – active clusters only (cutoff), SSOT from DB */
@@ -1626,6 +1651,29 @@ export const api = {
   },
 
   /** GET /api/v1/policy/rules/uid/:uid – single rule + matchCount + recentMatches */
+  getRulesStrict: async (limit = API_DEFAULTS.LIMIT_LIST): Promise<SecurityRule[]> => {
+    const data = await request<{ rules?: Array<Record<string, unknown>>; total?: number; active?: number; disabled?: number }>(`/policy/rules?limit=${limit}`);
+    if (!Array.isArray(data.rules)) {
+      invalidResponse('policy_rules_invalid_response', 'Policy rules response is missing the rules array');
+    }
+    return data.rules.map((r) => ({
+      id: String(r.id ?? r.uid ?? ''),
+      uid: String(r.uid ?? r.id ?? ''),
+      name: String(r.name ?? r.id ?? r.uid ?? ''),
+      severity: String(r.severity ?? 'medium').toLowerCase(),
+      enabled: Boolean(r.enabled),
+      category: r.category != null ? String(r.category) : undefined,
+      type: r.type != null ? String(r.type) : undefined,
+      description: r.description != null ? String(r.description) : undefined,
+      logic: r.logic != null ? String(r.logic) : undefined,
+      evalTime: r.evalTime != null ? String(r.evalTime) : undefined,
+      matchCount: typeof r.matchCount === 'number' ? r.matchCount : undefined,
+      relatedCapabilities: Array.isArray(r.relatedCapabilities)
+        ? r.relatedCapabilities.map((x) => String(x))
+        : undefined,
+    } as SecurityRule));
+  },
+
   getRule: async (uid: string): Promise<{ rule: SecurityRule & { description?: string }; matchCount: number; recentMatches: Insight[] } | null> => {
     try {
       const data = await request<{ uid?: string; ruleUid?: string; rule: unknown; source?: string; signature?: string; overlapGroup?: string; isCanonical?: boolean; canonicalRule?: string; impactedFindings24h?: number; impactedFindings7d?: number; relatedCapabilities?: string[]; matchCount?: number; recentMatches?: unknown[] }>(`/policy/rules/uid/${encodeURIComponent(uid)}`);
@@ -2477,11 +2525,14 @@ export const api = {
 
   getCapabilityMetadataById: async (capabilityId: string): Promise<CapabilityMetadata | null> => {
     try {
-      const data = await request<CapabilityMetadata>(`/capability-metadata/${encodeURIComponent(capabilityId)}`);
-      return data;
-    } catch (err) {
+      return await api.getCapabilityMetadataByIdStrict(capabilityId);
+    } catch {
       return null;
     }
+  },
+
+  getCapabilityMetadataByIdStrict: async (capabilityId: string): Promise<CapabilityMetadata> => {
+    return request<CapabilityMetadata>(`/capability-metadata/${encodeURIComponent(capabilityId)}`);
   },
 
   // Phase 2.2: Attack Steps
