@@ -38,6 +38,17 @@ func (s RuntimeProducerState) LeaseFresh(now time.Time) bool {
 		now.Sub(s.LastHeartbeatAt) <= collection.RuntimeProducerLeaseMaxAge
 }
 
+func (s RuntimeProducerState) SourceHealthCovers(start, end, now time.Time) bool {
+	return s.Authoritative &&
+		s.SourceHealthStatus == collection.RuntimeSourceHealthHealthy &&
+		s.SourceHealthObservedAt != nil &&
+		s.SourceHealthValidUntil != nil &&
+		!start.Before(*s.SourceHealthObservedAt) &&
+		!end.After(*s.SourceHealthValidUntil) &&
+		!now.Before(*s.SourceHealthObservedAt) &&
+		now.Before(*s.SourceHealthValidUntil)
+}
+
 func (s RuntimeProducerState) EffectiveStatus(now time.Time) string {
 	if s.SessionID == "" || s.LastHeartbeatAt.IsZero() {
 		return "unknown"
