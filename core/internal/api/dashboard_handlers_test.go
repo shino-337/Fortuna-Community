@@ -61,8 +61,8 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if resp.RunningPods != 2 {
-		t.Fatalf("running pods=%d", resp.RunningPods)
+	if resp.RunningPods != 1 {
+		t.Fatalf("running pods=%d, want 1 active-cluster pod", resp.RunningPods)
 	}
 	if resp.AffectedPodCount != 1 {
 		t.Fatalf("affected pod count=%d, want 1", resp.AffectedPodCount)
