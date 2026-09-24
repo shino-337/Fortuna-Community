@@ -1,6 +1,6 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
@@ -20,6 +20,7 @@ import { getConnectionStatusClass, getConnectionStatusLabel } from '../lib/displ
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { DataFreshness } from '../components/DataFreshness';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
 const HEALTH_FILTER_OPTIONS = ['all', 'connected', 'degraded', 'disconnected'] as const;
@@ -34,6 +35,7 @@ export const Clusters: React.FC = () => {
   const [healthFilter, setHealthFilter] = useState<'all' | 'connected' | 'degraded' | 'disconnected'>('all');
   const [sortBy, setSortBy] = useState<'name_asc' | 'risk_desc' | 'agents_desc' | 'pods_desc'>('risk_desc');
   const [error, setError] = useState<string | null>(null);
+  const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const fetchClusters = useCallback(async () => {
@@ -42,9 +44,12 @@ export const Clusters: React.FC = () => {
       const data = await api.getClustersStats();
       setClusters(data);
       setError(null);
+      setAvailabilityIssue(null);
       setUpdatedAt(new Date());
-    } catch {
-      setError('Cluster inventory could not be refreshed.');
+    } catch (err) {
+      const issue = getAvailabilityIssue(err, 'Cluster inventory');
+      setAvailabilityIssue(issue);
+      setError(issue.description);
     } finally {
       setLoading(false);
     }
@@ -140,11 +145,18 @@ export const Clusters: React.FC = () => {
         />
       }
     >
+      {availabilityIssue && clusters.length > 0 ? (
+        <AvailabilityNotice
+          issue={availabilityIssue}
+          onRetry={availabilityIssue.retryable ? fetchClusters : undefined}
+          className="mb-4"
+        />
+      ) : null}
       {error && clusters.length === 0 ? (
         <PageError
-          title="Could not load clusters"
-          description="Cluster inventory is unavailable. Existing data is kept when possible so refresh failures do not look like an empty environment."
-          action={<Button variant="secondary" onClick={fetchClusters} isLoading={loading}>Retry clusters</Button>}
+          title={availabilityIssue?.title ?? "Could not load clusters"}
+          description={availabilityIssue?.description ?? "Cluster inventory is unavailable. Existing data is kept when possible so refresh failures do not look like an empty environment."}
+          action={availabilityIssue?.retryable !== false ? <Button variant="secondary" onClick={fetchClusters} isLoading={loading}>Retry clusters</Button> : undefined}
         />
       ) : (
       <Card className="p-0 overflow-hidden">
