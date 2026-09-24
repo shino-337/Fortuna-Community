@@ -43,15 +43,16 @@ func getActiveAgentCutoff() time.Duration {
 	return 15 * time.Minute
 }
 
-// getClustersForAPI returns clusters for API responses (active by default; optional includeStale).
-// Only clusters with source IN ('auto','env') are returned so the dashboard shows agent-synced
-// clusters only; legacy rows (e.g. id=kubernetes with empty source) are excluded to avoid duplicate display.
+// getClustersForAPI returns the authorized cluster inventory (active by default;
+// optional includeStale). Cluster membership comes from the clusters table itself,
+// not from whether Pod inventory currently contains rows. An active empty cluster
+// remains a real cluster. Only source IN ('auto','env') is returned so legacy
+// synthetic rows (for example id=kubernetes with empty source) stay excluded.
 // Single source for cluster list query so GetClusters and GetClustersStats stay in sync.
 func getClustersForAPI(db *gorm.DB, c *gin.Context) ([]models.Cluster, error) {
 	var clusters []models.Cluster
 	query := db.Model(&models.Cluster{}).
-		Where("source IN ?", []string{"auto", "env"}).
-		Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = clusters.id AND p.deleted_at IS NULL)")
+		Where("source IN ?", []string{"auto", "env"})
 	if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
 		query = query.Where("id IN ?", ids)
 	}
@@ -156,17 +157,27 @@ func GetClusterInfo(db *gorm.DB) gin.HandlerFunc {
 func GetClusterNodes(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_nodes_schema_unavailable",
+			"Cluster node inventory requires cluster and Pod schemas", "clusters", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_nodes_cluster_unavailable", "Cluster node inventory could not verify cluster state")
 			return
 		}
 		var nodes []string
-		db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Distinct("node_name").Pluck("node_name", &nodes)
+		if err := db.Model(&models.Pod{}).
+			Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).
+			Distinct("node_name").Pluck("node_name", &nodes).Error; err != nil {
+			respondDataUnavailable(c, "cluster_nodes_unavailable", "Cluster node inventory could not be loaded")
+			return
+		}
 		if nodes == nil {
 			nodes = []string{}
 		}
@@ -185,21 +196,35 @@ type ClusterOverviewResponse struct {
 func GetClusterOverview(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_overview_schema_unavailable",
+			"Cluster overview requires cluster and Pod schemas", "clusters", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_overview_cluster_unavailable", "Cluster overview could not verify cluster state")
 			return
 		}
 		var podCount int64
-		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", id).Scan(&podCount)
+		if err := db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", id).Scan(&podCount).Error; err != nil {
+			respondDataUnavailable(c, "cluster_overview_pods_unavailable", "Cluster pod statistics could not be loaded")
+			return
+		}
 		var nodeCount int64
-		db.Raw("SELECT COUNT(DISTINCT node_name) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Scan(&nodeCount)
+		if err := db.Raw("SELECT COUNT(DISTINCT node_name) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Scan(&nodeCount).Error; err != nil {
+			respondDataUnavailable(c, "cluster_overview_nodes_unavailable", "Cluster node statistics could not be loaded")
+			return
+		}
 		var namespaceCount int64
-		db.Raw("SELECT COUNT(DISTINCT namespace) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", id).Scan(&namespaceCount)
+		if err := db.Raw("SELECT COUNT(DISTINCT namespace) FROM pods WHERE cluster_id = ? AND deleted_at IS NULL", id).Scan(&namespaceCount).Error; err != nil {
+			respondDataUnavailable(c, "cluster_overview_namespaces_unavailable", "Cluster namespace statistics could not be loaded")
+			return
+		}
 		c.JSON(http.StatusOK, ClusterOverviewResponse{PodCount: podCount, NodeCount: nodeCount, NamespaceCount: namespaceCount})
 	}
 }
@@ -214,19 +239,32 @@ type ClusterInventoryResponse struct {
 func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_inventory_schema_unavailable",
+			"Cluster inventory requires cluster and Pod schemas", "clusters", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_inventory_cluster_unavailable", "Cluster inventory could not verify cluster state")
 			return
 		}
 		var nodes []string
-		db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).Distinct("node_name").Pluck("node_name", &nodes)
+		if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).
+			Distinct("node_name").Pluck("node_name", &nodes).Error; err != nil {
+			respondDataUnavailable(c, "cluster_inventory_nodes_unavailable", "Cluster node inventory could not be loaded")
+			return
+		}
 		var namespaces []string
-		db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL", id).Distinct("namespace").Pluck("namespace", &namespaces)
+		if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL", id).
+			Distinct("namespace").Pluck("namespace", &namespaces).Error; err != nil {
+			respondDataUnavailable(c, "cluster_inventory_namespaces_unavailable", "Cluster namespace inventory could not be loaded")
+			return
+		}
 		c.JSON(http.StatusOK, ClusterInventoryResponse{Nodes: nodes, Namespaces: namespaces})
 	}
 }
@@ -235,23 +273,23 @@ func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
 func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_agents_schema_unavailable",
+			"Cluster Agent inventory requires cluster and Agent schemas", "clusters", "agents") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_agents_cluster_unavailable", "Cluster Agent inventory could not verify cluster state")
 			return
 		}
-		if !hasTable(db, "agents") {
-			c.JSON(http.StatusOK, gin.H{"agents": []map[string]interface{}{}, "total": 0})
-			return
-		}
-
 		var agents []models.Agent
 		if err := db.WithContext(c.Request.Context()).Where("cluster_id = ? AND (status = ? OR status IS NULL)", id, "ready").Order("last_seen_at DESC NULLS LAST").Find(&agents).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Unable to load cluster agents"})
+			respondDataUnavailable(c, "cluster_agents_query_failed", "Cluster Agent inventory could not be loaded")
 			return
 		}
 
@@ -263,7 +301,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 			} else if time.Since(*a.LastSeenAt) > 5*time.Minute {
 				status = "slow"
 			}
-			lastHB := time.Time{}
+			var lastHB interface{}
 			if a.LastSeenAt != nil {
 				lastHB = *a.LastSeenAt
 			}
@@ -275,7 +313,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 				"version":       a.Version,
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{"agents": list, "total": len(list)})
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "agents": list, "total": len(list)})
 	}
 }
 
@@ -290,29 +328,50 @@ type ClusterSecuritySummaryResponse struct {
 }
 
 // GetClusterSecuritySummary returns risk counts by severity and capability exposure for the cluster.
+// Both datasets are cluster-qualified; unavailable backing data is never projected as zero.
 func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		id := c.Param("id")
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_security_summary_schema_unavailable",
+			"Cluster security summary requires cluster, Pod and Insight schemas",
+			"clusters", "pods", "insights") {
+			return
+		}
+		if !hasTable(db, "pod_capabilities") {
+			respondSchemaUnavailable(c, "cluster_security_summary_capabilities_unavailable",
+				"Cluster capability summary requires the pod_capabilities schema")
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_security_summary_cluster_unavailable", "Cluster security summary could not verify cluster state")
 			return
 		}
 		var severityRows []struct {
 			Severity string
 			Count    int64
 		}
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT LOWER(i.severity) as severity, COUNT(*) as count
 			FROM insights i
-			INNER JOIN pods p ON p.uid = i.resource_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-			WHERE i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL)
+			INNER JOIN pods p
+			  ON p.cluster_id = i.cluster_id
+			 AND p.uid = i.resource_uid
+			 AND p.cluster_id = ?
+			 AND p.deleted_at IS NULL
+			WHERE i.resource_type = 'Pod'
+			  AND i.deleted_at IS NULL
+			  AND (i.status = 'active' OR i.status IS NULL)
 			GROUP BY LOWER(i.severity)
-		`, id).Scan(&severityRows)
+		`, id).Scan(&severityRows).Error; err != nil {
+			respondDataUnavailable(c, "cluster_security_summary_risks_unavailable", "Cluster risk summary could not be loaded")
+			return
+		}
 		riskBySeverity := make(map[string]int64)
 		var critical, high, medium, low int64
 		for _, r := range severityRows {
@@ -329,20 +388,25 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 		var capabilityCount int64
-		if hasTable(db, "pod_capabilities") {
-			// pod_capabilities has no deleted_at (see migration 041); filter soft-deleted pods only via p.deleted_at
-			db.Raw(`
-				SELECT COUNT(DISTINCT pc.id) FROM pod_capabilities pc
-				INNER JOIN pods p ON p.uid = pc.pod_uid AND p.cluster_id = ? AND p.deleted_at IS NULL
-			`, id).Scan(&capabilityCount)
+		if err := db.Raw(`
+			SELECT COUNT(DISTINCT pc.id) FROM pod_capabilities pc
+			INNER JOIN pods p
+			  ON p.cluster_id = pc.cluster_id
+			 AND p.uid = pc.pod_uid
+			 AND p.cluster_id = ?
+			 AND p.deleted_at IS NULL
+		`, id).Scan(&capabilityCount).Error; err != nil {
+			respondDataUnavailable(c, "cluster_security_summary_capabilities_unavailable", "Cluster capability summary could not be loaded")
+			return
 		}
-		c.JSON(http.StatusOK, ClusterSecuritySummaryResponse{
-			RiskBySeverity:  riskBySeverity,
-			CapabilityCount: capabilityCount,
-			CriticalCount:   critical,
-			HighCount:       high,
-			MediumCount:     medium,
-			LowCount:        low,
+		c.JSON(http.StatusOK, gin.H{
+			"dataStatus": "available",
+			"riskBySeverity": riskBySeverity,
+			"capabilityCount": capabilityCount,
+			"criticalCount": critical,
+			"highCount": high,
+			"mediumCount": medium,
+			"lowCount": low,
 		})
 	}
 }
@@ -372,13 +436,18 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "cluster id and node name required"})
 			return
 		}
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_node_schema_unavailable",
+			"Node detail requires cluster, Node and Pod schemas", "clusters", "nodes", "pods") {
+			return
+		}
 		var cluster models.Cluster
 		if err := db.First(&cluster, "id = ?", clusterID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_node_cluster_unavailable", "Node detail could not verify cluster state")
 			return
 		}
 		resp := NodeDetailResponse{ClusterID: clusterID, NodeName: nodeName}
@@ -391,28 +460,44 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 			resp.OS = node.OS
 			resp.Runtime = node.Runtime
 			resp.LastSeen = node.LastSeen
+		} else if err != gorm.ErrRecordNotFound {
+			respondDataUnavailable(c, "cluster_node_metadata_unavailable", "Node metadata could not be loaded")
+			return
 		}
 		var podCount int64
-		db.Model(&models.Pod{}).Where("cluster_id = ? AND node_name = ? AND deleted_at IS NULL", clusterID, nodeName).Count(&podCount)
+		if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND node_name = ? AND deleted_at IS NULL", clusterID, nodeName).Count(&podCount).Error; err != nil {
+			respondDataUnavailable(c, "cluster_node_workloads_unavailable", "Node workload count could not be loaded")
+			return
+		}
 		resp.PodCount = podCount
 		includePods := c.Query("pods") == "true" || c.Query("pods") == "1"
 		if includePods && podCount > 0 {
 			var pods []models.Pod
-			db.Where("cluster_id = ? AND node_name = ? AND deleted_at IS NULL", clusterID, nodeName).Find(&pods)
+			if err := db.Where("cluster_id = ? AND node_name = ? AND deleted_at IS NULL", clusterID, nodeName).Find(&pods).Error; err != nil {
+				respondDataUnavailable(c, "cluster_node_pods_unavailable", "Node workloads could not be loaded")
+				return
+			}
 			uids := make([]string, 0, len(pods))
 			for _, p := range pods {
 				uids = append(uids, p.UID)
 			}
 			riskByUID := make(map[string]int64, len(pods))
-			if len(uids) > 0 && hasTable(db, "insights") {
+			if len(uids) > 0 {
+				if !hasTable(db, "insights") {
+					respondSchemaUnavailable(c, "cluster_node_risks_schema_unavailable", "Node workload risk inventory is unavailable; insights table is missing")
+					return
+				}
 				var rows []struct {
 					ResourceUID string `gorm:"column:resource_uid"`
 					Count       int64  `gorm:"column:count"`
 				}
-				db.Model(&models.Insight{}).
+				if err := db.Model(&models.Insight{}).
 					Select("resource_uid, COUNT(*) as count").
-					Where("cluster_id = ? AND deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?", clusterID, uids).
-					Group("resource_uid").Scan(&rows)
+					Where("resource_type = ? AND cluster_id = ? AND deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?", "Pod", clusterID, uids).
+					Group("resource_uid").Scan(&rows).Error; err != nil {
+					respondDataUnavailable(c, "cluster_node_risks_unavailable", "Node workload risk counts could not be loaded")
+					return
+				}
 				for _, r := range rows {
 					riskByUID[r.ResourceUID] = r.Count
 				}
@@ -449,17 +534,30 @@ type ClusterStats struct {
 }
 
 // GetClustersStats returns clusters (with recent sync by default) and their statistics.
+// Every displayed count/version is backed by a successful query; unavailable data
+// is not converted into zero counts or a synthetic Agent version.
 func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_stats_schema_unavailable",
+			"Cluster statistics require the inventory, risk and Agent schemas",
+			"clusters", "service_accounts", "roles", "cluster_roles", "role_bindings",
+			"cluster_role_bindings", "pods", "deployments", "insights", "agents") {
+			return
+		}
 		clusters, err := getClustersForAPI(db, c)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "cluster_stats_clusters_unavailable", "Cluster statistics could not be loaded")
 			return
 		}
 
 		clusterIDs := make([]string, 0, len(clusters))
 		for _, cl := range clusters {
 			clusterIDs = append(clusterIDs, cl.ID)
+		}
+		if len(clusterIDs) == 0 {
+			c.JSON(http.StatusOK, gin.H{"clusters": []ClusterStats{}, "total": 0, "dataStatus": "available"})
+			return
 		}
 
 		type clusterCount struct {
@@ -473,40 +571,78 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 			}
 			return m
 		}
+		scanCounts := func(query *gorm.DB, dest *[]clusterCount, code, message string) bool {
+			if err := query.Scan(dest).Error; err != nil {
+				respondDataUnavailable(c, code, message)
+				return false
+			}
+			return true
+		}
 
 		var saCounts, roleCounts, crCounts, rbCounts, crbCounts, podCounts, deplCounts, riskCounts []clusterCount
-
-		db.Model(&models.ServiceAccount{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&saCounts)
-		db.Model(&models.Role{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&roleCounts)
-		db.Model(&models.ClusterRole{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&crCounts)
-		db.Model(&models.RoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&rbCounts)
-		db.Model(&models.ClusterRoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&crbCounts)
-		db.Model(&models.Pod{}).Select("cluster_id, COUNT(DISTINCT uid) AS cnt").Where("cluster_id IN ? AND deleted_at IS NULL", clusterIDs).Group("cluster_id").Scan(&podCounts)
-		db.Model(&models.Deployment{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id").Scan(&deplCounts)
-		db.Table("insights i").
+		if !scanCounts(db.Model(&models.ServiceAccount{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &saCounts,
+			"cluster_stats_service_accounts_unavailable", "ServiceAccount statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.Role{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &roleCounts,
+			"cluster_stats_roles_unavailable", "Role statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.ClusterRole{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &crCounts,
+			"cluster_stats_cluster_roles_unavailable", "ClusterRole statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.RoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &rbCounts,
+			"cluster_stats_role_bindings_unavailable", "RoleBinding statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.ClusterRoleBinding{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &crbCounts,
+			"cluster_stats_cluster_role_bindings_unavailable", "ClusterRoleBinding statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.Pod{}).Select("cluster_id, COUNT(DISTINCT uid) AS cnt").Where("cluster_id IN ? AND deleted_at IS NULL", clusterIDs).Group("cluster_id"), &podCounts,
+			"cluster_stats_pods_unavailable", "Pod statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Model(&models.Deployment{}).Select("cluster_id, COUNT(*) as cnt").Where("cluster_id IN ?", clusterIDs).Group("cluster_id"), &deplCounts,
+			"cluster_stats_deployments_unavailable", "Deployment statistics could not be loaded") {
+			return
+		}
+		if !scanCounts(db.Table("insights i").
 			Select("p.cluster_id, COUNT(*) AS cnt").
 			Joins("INNER JOIN pods p ON p.cluster_id = i.cluster_id AND p.uid = i.resource_uid AND p.deleted_at IS NULL").
-			Where("i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND p.cluster_id IN ?", clusterIDs).
-			Group("p.cluster_id").Scan(&riskCounts)
+			Where("i.resource_type = ? AND i.deleted_at IS NULL AND (i.status = 'active' OR i.status IS NULL) AND p.cluster_id IN ?", "Pod", clusterIDs).
+			Group("p.cluster_id"), &riskCounts,
+			"cluster_stats_risks_unavailable", "Risk statistics could not be loaded") {
+			return
+		}
 
 		saMap, roleMap, crMap, rbMap, crbMap := toMap(saCounts), toMap(roleCounts), toMap(crCounts), toMap(rbCounts), toMap(crbCounts)
 		podMap, deplMap, riskMap := toMap(podCounts), toMap(deplCounts), toMap(riskCounts)
 
-		type agentRow struct {
-			ClusterID string          `gorm:"column:cluster_id"`
-			Cnt       int64           `gorm:"column:cnt"`
-			MaxSeen   models.NullTime `gorm:"column:max_seen"`
+		var agentRecords []models.Agent
+		if err := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL) AND cluster_id IN ?", "ready", clusterIDs).
+			Order("cluster_id ASC, last_seen_at DESC").Find(&agentRecords).Error; err != nil {
+			respondDataUnavailable(c, "cluster_stats_agents_unavailable", "Agent statistics could not be loaded")
+			return
 		}
-		agentByCluster := make(map[string]agentRow)
-		if hasTable(db, "agents") {
-			var agentRows []agentRow
-			db.Table("agents a").
-				Select("a.cluster_id, COUNT(DISTINCT a.id) AS cnt, MAX(a.last_seen_at) AS max_seen").
-				Where("a.deleted_at IS NULL AND (a.status = 'ready' OR a.status IS NULL) AND a.cluster_id IN ?", clusterIDs).
-				Group("a.cluster_id").Scan(&agentRows)
-			for _, r := range agentRows {
-				agentByCluster[r.ClusterID] = r
+		type agentSummary struct {
+			Count   int64
+			MaxSeen *time.Time
+			Version string
+		}
+		agentByCluster := make(map[string]agentSummary)
+		for _, agent := range agentRecords {
+			summary := agentByCluster[agent.ClusterID]
+			summary.Count++
+			if agent.LastSeenAt != nil && (summary.MaxSeen == nil || agent.LastSeenAt.After(*summary.MaxSeen)) {
+				t := *agent.LastSeenAt
+				summary.MaxSeen = &t
+				summary.Version = agent.Version
+			} else if summary.Version == "" {
+				summary.Version = agent.Version
 			}
+			agentByCluster[agent.ClusterID] = summary
 		}
 
 		stats := make([]ClusterStats, 0, len(clusters))
@@ -521,11 +657,10 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 				PodCount:                podMap[cluster.ID],
 				DeploymentCount:         deplMap[cluster.ID],
 				RiskCount:               riskMap[cluster.ID],
-				AgentVersion:            "v1.0.0",
 			}
-
 			if ar, ok := agentByCluster[cluster.ID]; ok {
-				stat.AgentCount = ar.Cnt
+				stat.AgentCount = ar.Count
+				stat.AgentVersion = ar.Version
 			}
 
 			if cluster.Status == "error" {
@@ -542,8 +677,8 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 					stat.ConnectionStatus = "disconnected"
 				}
 				if stat.ConnectionStatus != "connected" {
-					if ar, ok := agentByCluster[cluster.ID]; ok && ar.MaxSeen.Time != nil {
-						age := time.Since(*ar.MaxSeen.Time)
+					if ar, ok := agentByCluster[cluster.ID]; ok && ar.MaxSeen != nil {
+						age := time.Since(*ar.MaxSeen)
 						if age < 15*time.Minute {
 							stat.ConnectionStatus = "connected"
 						} else if age < 2*time.Hour && stat.ConnectionStatus == "disconnected" {
@@ -556,8 +691,9 @@ func GetClustersStats(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"clusters": stats,
-			"total":    len(stats),
+			"dataStatus": "available",
+			"clusters":   stats,
+			"total":      len(stats),
 		})
 	}
 }
@@ -1127,6 +1263,11 @@ func escapeLikePattern(s string) string {
 // GetPods returns all pods with optional filters
 func GetPods(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "pod_inventory_schema_unavailable",
+			"Pod inventory requires Pod and Insight schemas", "pods", "insights") {
+			return
+		}
 		query := db.Model(&models.Pod{})
 
 		clusterFilter := strings.TrimSpace(c.Query("cluster"))
@@ -1187,7 +1328,7 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 
 		var total int64
 		if err := query.Count(&total).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_inventory_count_unavailable", "Pod inventory count could not be loaded")
 			return
 		}
 
@@ -1200,11 +1341,19 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			var allPods []models.Pod
 			qAll := query.Session(&gorm.Session{})
 			if err := qAll.Order("pods.name ASC").Limit(maxPodsForAttackPathSort).Find(&allPods).Error; err != nil {
-				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				respondDataUnavailable(c, "pod_inventory_query_unavailable", "Pod inventory could not be loaded")
 				return
 			}
-			riskByUID := loadActiveInsightCountsByPodUID(db, allPods)
-			scores := loadLatestV3RiskScoresByPod(db, allPods)
+			riskByUID, err := loadActiveInsightCountsByPodIdentity(db, allPods)
+			if err != nil {
+				respondDataUnavailable(c, "pod_risk_counts_unavailable", "Pod risk counts could not be loaded")
+				return
+			}
+			scores, err := loadLatestV3RiskScoresByPod(db, allPods)
+			if err != nil {
+				respondDataUnavailable(c, "pod_risk_scores_unavailable", "Pod risk scores could not be loaded")
+				return
+			}
 			chainCache := make(map[string]*clusterChainsCacheEntry)
 			rows := buildPodRowsWithRiskSignals(ctx, db, allPods, riskByUID, scores, chainCache)
 			sortPodRowsByAttackPathPriority(rows)
@@ -1249,15 +1398,15 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 				orderSQL = "COALESCE(_rs.max_score, 0) DESC, pods.name ASC"
 				if hasTable(db, "insights") {
 					q2 = q2.Joins(`LEFT JOIN (
-						SELECT resource_uid, COUNT(*) AS insight_cnt
+						SELECT cluster_id, resource_uid, COUNT(*) AS insight_cnt
 						FROM insights
-						WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL)
-						GROUP BY resource_uid
-					) _ins ON _ins.resource_uid = pods.uid`)
+						WHERE resource_type = 'Pod' AND deleted_at IS NULL AND (status = 'active' OR status IS NULL)
+						GROUP BY cluster_id, resource_uid
+					) _ins ON _ins.cluster_id = pods.cluster_id AND _ins.resource_uid = pods.uid`)
 					orderSQL = "COALESCE(_rs.max_score, 0) DESC, COALESCE(_ins.insight_cnt, 0) DESC, pods.name ASC"
 				}
 			} else if hasTable(db, "insights") {
-				orderSQL = `(SELECT COUNT(*) FROM insights WHERE insights.resource_uid = pods.uid AND insights.deleted_at IS NULL AND (insights.status = 'active' OR insights.status IS NULL)) DESC, pods.name ASC`
+				orderSQL = `(SELECT COUNT(*) FROM insights WHERE insights.resource_type = 'Pod' AND insights.cluster_id = pods.cluster_id AND insights.resource_uid = pods.uid AND insights.deleted_at IS NULL AND (insights.status = 'active' OR insights.status IS NULL)) DESC, pods.name ASC`
 			}
 			findErr = q2.Offset(offset).Limit(pageSize).Order(orderSQL).Find(&pods).Error
 		case "created_desc":
@@ -1266,12 +1415,20 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			findErr = query.Offset(offset).Limit(pageSize).Order("pods.created_at DESC, pods.name ASC").Find(&pods).Error
 		}
 		if findErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": findErr.Error()})
+			respondDataUnavailable(c, "pod_inventory_query_unavailable", "Pod inventory could not be loaded")
 			return
 		}
 
-		riskByUID := loadActiveInsightCountsByPodUID(db, pods)
-		scores := loadLatestV3RiskScoresByPod(db, pods)
+		riskByUID, err := loadActiveInsightCountsByPodIdentity(db, pods)
+		if err != nil {
+			respondDataUnavailable(c, "pod_risk_counts_unavailable", "Pod risk counts could not be loaded")
+			return
+		}
+		scores, err := loadLatestV3RiskScoresByPod(db, pods)
+		if err != nil {
+			respondDataUnavailable(c, "pod_risk_scores_unavailable", "Pod risk scores could not be loaded")
+			return
+		}
 		chainCache := make(map[string]*clusterChainsCacheEntry)
 		rows := buildPodRowsWithRiskSignals(ctx, db, pods, riskByUID, scores, chainCache)
 		if sortBy == "risk_desc" {
@@ -1291,28 +1448,56 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func loadActiveInsightCountsByPodUID(db *gorm.DB, pods []models.Pod) map[string]int64 {
-	riskByUID := make(map[string]int64)
-	if len(pods) == 0 || !hasTable(db, "insights") {
-		return riskByUID
+func podIdentityMapKey(clusterID, podUID string) string {
+	return strings.TrimSpace(clusterID) + "|" + strings.TrimSpace(podUID)
+}
+
+func loadActiveInsightCountsByPodIdentity(db *gorm.DB, pods []models.Pod) (map[string]int64, error) {
+	riskByIdentity := make(map[string]int64)
+	if len(pods) == 0 {
+		return riskByIdentity, nil
 	}
-	uids := make([]string, 0, len(pods))
+	if !hasTable(db, "insights") {
+		return nil, fmt.Errorf("insights table is unavailable")
+	}
+	clusterSet := make(map[string]struct{})
+	uidSet := make(map[string]struct{})
 	for _, p := range pods {
-		uids = append(uids, p.UID)
+		if p.ClusterID != "" {
+			clusterSet[p.ClusterID] = struct{}{}
+		}
+		if p.UID != "" {
+			uidSet[p.UID] = struct{}{}
+		}
+	}
+	clusterIDs := make([]string, 0, len(clusterSet))
+	for id := range clusterSet {
+		clusterIDs = append(clusterIDs, id)
+	}
+	uids := make([]string, 0, len(uidSet))
+	for uid := range uidSet {
+		uids = append(uids, uid)
+	}
+	if len(clusterIDs) == 0 || len(uids) == 0 {
+		return riskByIdentity, nil
 	}
 	var rows []struct {
+		ClusterID   string `gorm:"column:cluster_id"`
 		ResourceUID string `gorm:"column:resource_uid"`
 		Count       int64  `gorm:"column:count"`
 	}
-	db.Raw(`
-		SELECT resource_uid, COUNT(*) as count FROM insights
-		WHERE deleted_at IS NULL AND (status = 'active' OR status IS NULL) AND resource_uid IN ?
-		GROUP BY resource_uid
-	`, uids).Scan(&rows)
-	for _, r := range rows {
-		riskByUID[r.ResourceUID] = r.Count
+	if err := db.Model(&models.Insight{}).
+		Select("cluster_id, resource_uid, COUNT(*) as count").
+		Where("resource_type = ? AND deleted_at IS NULL AND (status = 'active' OR status IS NULL)", "Pod").
+		Where("cluster_id IN ? AND resource_uid IN ?", clusterIDs, uids).
+		Group("cluster_id, resource_uid").
+		Scan(&rows).Error; err != nil {
+		return nil, err
 	}
-	return riskByUID
+	for _, r := range rows {
+		riskByIdentity[podIdentityMapKey(r.ClusterID, r.ResourceUID)] = r.Count
+	}
+	return riskByIdentity, nil
 }
 
 // podDetailEnvelope is the JSON shape for cluster-qualified inventory Pod detail.

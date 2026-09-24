@@ -20,35 +20,47 @@ type podV3ScoreRec struct {
 }
 
 // loadLatestV3RiskScoresByPod returns first (latest) v3 row per resource_uid+cluster_id.
-func loadLatestV3RiskScoresByPod(db *gorm.DB, pods []models.Pod) map[string]podV3ScoreRec {
+func loadLatestV3RiskScoresByPod(db *gorm.DB, pods []models.Pod) (map[string]podV3ScoreRec, error) {
 	out := make(map[string]podV3ScoreRec)
 	if len(pods) == 0 || !hasTable(db, "risk_scores") {
-		return out
+		return out, nil
 	}
-	seen := make(map[string]struct{}, len(pods))
-	uids := make([]string, 0, len(pods))
+	uidSet := make(map[string]struct{}, len(pods))
+	clusterSet := make(map[string]struct{}, len(pods))
 	for _, p := range pods {
-		if _, ok := seen[p.UID]; ok {
-			continue
+		if strings.TrimSpace(p.UID) != "" {
+			uidSet[p.UID] = struct{}{}
 		}
-		seen[p.UID] = struct{}{}
-		uids = append(uids, p.UID)
+		if strings.TrimSpace(p.ClusterID) != "" {
+			clusterSet[p.ClusterID] = struct{}{}
+		}
+	}
+	uids := make([]string, 0, len(uidSet))
+	for uid := range uidSet {
+		uids = append(uids, uid)
+	}
+	clusterIDs := make([]string, 0, len(clusterSet))
+	for clusterID := range clusterSet {
+		clusterIDs = append(clusterIDs, clusterID)
+	}
+	if len(uids) == 0 || len(clusterIDs) == 0 {
+		return out, nil
 	}
 	var rows []podV3ScoreRec
 	if err := db.Model(&models.RiskScore{}).
 		Select("resource_uid, cluster_id, total_score").
-		Where("resource_uid IN ? AND LOWER(resource_type) = 'pod' AND deleted_at IS NULL AND LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", uids, "v3").
+		Where("cluster_id IN ? AND resource_uid IN ? AND LOWER(resource_type) = 'pod' AND deleted_at IS NULL AND LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", clusterIDs, uids, "v3").
 		Order("calculated_at DESC, id DESC").
 		Find(&rows).Error; err != nil {
-		return out
+		return nil, err
 	}
 	for _, r := range rows {
-		key := r.ResourceUID + "|" + r.ClusterID
+		key := podIdentityMapKey(r.ClusterID, r.ResourceUID)
 		if _, exists := out[key]; !exists {
 			out[key] = r
 		}
 	}
-	return out
+	return out, nil
 }
 
 type clusterChainsCacheEntry struct {
@@ -267,7 +279,7 @@ func buildPodRowsWithRiskSignals(ctx context.Context, db *gorm.DB, pods []models
 		var final string
 		sv := ""
 		uval := 0.0
-		if rec, ok := scores[p.UID+"|"+p.ClusterID]; ok {
+		if rec, ok := scores[podIdentityMapKey(p.ClusterID, p.UID)]; ok {
 			ts := rec.TotalScore
 			us = &ts
 			final = risk.DeriveFinalLevelFromScore(ts)
@@ -282,7 +294,7 @@ func buildPodRowsWithRiskSignals(ctx context.Context, db *gorm.DB, pods []models
 		}
 		row := podRowSortable{
 			Pod:              p,
-			RiskCount:        riskByUID[p.UID],
+			RiskCount:        riskByUID[podIdentityMapKey(p.ClusterID, p.UID)],
 			UnifiedScore:     us,
 			FinalLevel:       final,
 			ScorerVersion:    sv,

@@ -47,6 +47,39 @@ not auto-resolve an active finding.
 The D/E packages extend this into source health, observation time, completeness,
 freshness and UI/API availability semantics.
 
+### API availability contract (E1)
+
+Availability is a data property, not a zero value. For observability, inventory and
+security-summary endpoints:
+
+- a missing required schema or failed backing query must return an explicit
+  unavailable/error response and must never be represented as a successful empty
+  list, zero counter, healthy status or synthetic version;
+- `404`/empty remains valid only when the backing query succeeded and the requested
+  resource or collection is genuinely absent;
+- transient backing-store/query unavailability uses a machine-readable code and
+  `retryable=true` so UI clients can preserve the last known state and expose a
+  retry path instead of resetting KPIs to zero;
+- a missing required schema/migration prerequisite uses the same explicit
+  unavailable contract with `retryable=false`; repeated client retry must not hide
+  the need for deployment/operator repair;
+- Agent liveness is derived from persisted `last_seen_at`; data-source availability
+  is separate. A missing heartbeat is disconnected, not healthy;
+- Agent cluster identity and version come from the persisted Agent record. UI/API
+  layers must not substitute a global latest cluster or a hardcoded version;
+- detail/list/summary views over the same backing dataset must agree on unavailable
+  semantics;
+- contract-critical dashboard clients must preserve the distinction between
+  unavailable and empty: retryable `503` keeps last-known-good data and exposes a
+  retry path, non-retryable schema/migration `503` exposes operator guidance, and
+  only a successful `200` empty payload may render the normal empty/zero state;
+- client API adapters must not catch these endpoint failures and normalize them to
+  `[]`, `0`, or `null`. Malformed successful payloads on required fields are
+  protocol failures, not empty evidence.
+
+These rules are permanent named regressions under
+`scripts/verify/check-security-regressions.py`.
+
 ## Invariant 3 — authentication is preserved through storage
 
 Successful scoped HTTP or gRPC authentication is only the first boundary. The

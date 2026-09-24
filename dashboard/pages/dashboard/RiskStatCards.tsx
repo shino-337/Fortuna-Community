@@ -7,7 +7,7 @@ import type { MetricTrust } from '../../lib/metricSemantics';
 
 export interface RiskStatCardsProps {
   insightsSummary: InsightsSummary | null;
-  statsCritical: number;
+  statsCritical: number | null;
   clusterName?: string | null;
   metricTrust?: MetricTrust;
 }
@@ -20,8 +20,13 @@ export const RiskStatCards: React.FC<RiskStatCardsProps> = ({
 }) => {
   const { ownership, telemetry } = useOperationalContext();
 
-  const sev = (key: 'critical' | 'high' | 'medium' | 'low') =>
-    Number(insightsSummary?.riskLevelCounts?.[key] ?? insightsSummary?.[key] ?? (key === 'critical' ? statsCritical : 0));
+  const sev = (key: 'critical' | 'high' | 'medium' | 'low'): number | null => {
+    const raw =
+      insightsSummary?.riskLevelCounts?.[key] ??
+      insightsSummary?.[key] ??
+      (key === 'critical' ? statsCritical : null);
+    return raw == null ? null : Number(raw);
+  };
 
   const levels: Array<{ key: 'critical' | 'high' | 'medium' | 'low'; label: string }> = [
     { key: 'critical', label: 'Critical' },

@@ -1,9 +1,9 @@
 package api
 
 import (
-	"database/sql"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -112,51 +112,110 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			Endpoints: endpointInventory(),
 		}
 
-		// Cross-checks: agents count (all ready) vs dashboard-visible data
+		fail := func(err error, code, message string) bool {
+			if err == nil {
+				return false
+			}
+			respondDataUnavailable(c, code, message)
+			return true
+		}
+
+		for _, required := range []struct {
+			table   string
+			code    string
+			message string
+		}{
+			{"agents", "dashboard_integrity_agents_schema_unavailable", "Dashboard integrity requires the agents schema"},
+			{"clusters", "dashboard_integrity_clusters_schema_unavailable", "Dashboard integrity requires the clusters schema"},
+			{"pods", "dashboard_integrity_pods_schema_unavailable", "Dashboard integrity requires the pods schema"},
+			{"insights", "dashboard_integrity_insights_schema_unavailable", "Dashboard integrity requires the insights schema"},
+		} {
+			if !db.Migrator().HasTable(required.table) {
+				respondSchemaUnavailable(c, required.code, required.message)
+				return
+			}
+		}
+
+		// Cross-checks: agents count (all ready) vs dashboard-visible data.
 		if db.Migrator().HasTable("agents") {
-			db.Model(&models.Agent{}).
+			if fail(db.Model(&models.Agent{}).
 				Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
-				Count(&resp.CrossChecks.ActiveAgentsCount)
+				Count(&resp.CrossChecks.ActiveAgentsCount).Error,
+				"dashboard_integrity_agents_unavailable", "Dashboard Agent cross-checks could not be loaded") {
+				return
+			}
 			resp.CrossChecks.DashboardAgentsCount = resp.CrossChecks.ActiveAgentsCount
 		}
 
 		if db.Migrator().HasTable("clusters") {
 			cutoff := time.Now().Add(-7 * 24 * time.Hour)
-			db.Table("clusters").Where("source IN ?", []string{"auto", "env"}).Where("last_sync >= ?", cutoff).Count(&resp.CrossChecks.ClustersCount)
+			if fail(db.Table("clusters").Where("source IN ?", []string{"auto", "env"}).Where("last_sync >= ?", cutoff).
+				Count(&resp.CrossChecks.ClustersCount).Error,
+				"dashboard_integrity_clusters_unavailable", "Dashboard cluster cross-checks could not be loaded") {
+				return
+			}
 		}
-		// Pod count: distinct UIDs only (matches dashboard stats and cluster reality)
-		db.Raw("SELECT COUNT(DISTINCT uid) FROM pods WHERE deleted_at IS NULL").Scan(&resp.CrossChecks.PodsCount)
-		db.Model(&models.Insight{}).Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").Count(&resp.CrossChecks.InsightsCount)
-		db.Model(&models.Insight{}).
+		// Pod/insight cross-checks are required backing data: query failure is not zero.
+		if fail(db.Raw(`
+			SELECT COUNT(*) FROM (
+				SELECT cluster_id, uid
+				FROM pods
+				WHERE deleted_at IS NULL
+				GROUP BY cluster_id, uid
+			) scoped_pods
+		`).Scan(&resp.CrossChecks.PodsCount).Error,
+			"dashboard_integrity_pods_unavailable", "Dashboard Pod cross-checks could not be loaded") {
+			return
+		}
+		if fail(db.Model(&models.Insight{}).Where("insight_type = ? AND deleted_at IS NULL", "vulnerability").
+			Count(&resp.CrossChecks.InsightsCount).Error,
+			"dashboard_integrity_insights_unavailable", "Dashboard insight cross-checks could not be loaded") {
+			return
+		}
+		if fail(db.Model(&models.Insight{}).
 			Where("insight_type = ? AND LOWER(severity) = ? AND deleted_at IS NULL", "vulnerability", "critical").
-			Count(&resp.CrossChecks.CriticalInsights)
+			Count(&resp.CrossChecks.CriticalInsights).Error,
+			"dashboard_integrity_critical_insights_unavailable", "Dashboard critical insight cross-checks could not be loaded") {
+			return
+		}
 
-		// CVE reference tables (populated by cve-loader Job, not by Core)
+		// CVE reference tables are optional when absent, but an existing table that
+		// cannot be queried is an availability failure rather than an empty catalog.
 		if db.Migrator().HasTable("cves") {
-			db.Table("cves").Count(&resp.CrossChecks.CVEsCount)
+			if fail(db.Table("cves").Count(&resp.CrossChecks.CVEsCount).Error,
+				"dashboard_integrity_cves_unavailable", "CVE catalog cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("package_vulnerabilities") {
-			db.Table("package_vulnerabilities").Count(&resp.CrossChecks.PackageVulnerabilitiesCount)
+			if fail(db.Table("package_vulnerabilities").Count(&resp.CrossChecks.PackageVulnerabilitiesCount).Error,
+				"dashboard_integrity_packages_unavailable", "Package vulnerability cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("osv_packages") {
-			db.Table("osv_packages").Count(&resp.CrossChecks.OsvPackagesCount)
+			if fail(db.Table("osv_packages").Count(&resp.CrossChecks.OsvPackagesCount).Error,
+				"dashboard_integrity_osv_unavailable", "OSV cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("malware_packages") {
-			db.Table("malware_packages").Where("deleted_at IS NULL").Count(&resp.CrossChecks.MalwarePackagesCount)
+			if fail(db.Table("malware_packages").Where("deleted_at IS NULL").Count(&resp.CrossChecks.MalwarePackagesCount).Error,
+				"dashboard_integrity_malware_unavailable", "Malware catalog cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("sboms") {
-			db.Table("sboms").Where("deleted_at IS NULL").Count(&resp.CrossChecks.SbomsCount)
+			if fail(db.Table("sboms").Where("deleted_at IS NULL").Count(&resp.CrossChecks.SbomsCount).Error,
+				"dashboard_integrity_sboms_unavailable", "SBOM cross-checks could not be loaded") { return }
 		}
 		if db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-			_ = db.Raw(`
+			if fail(db.Raw(`
 				SELECT COUNT(*) FROM pods p
 				WHERE p.deleted_at IS NULL
 				  AND COALESCE(TRIM(p.uid), '') <> ''
-				  AND p.uid NOT IN (
-					SELECT DISTINCT TRIM(s.pod_uid) FROM sboms s
-					WHERE s.deleted_at IS NULL AND COALESCE(TRIM(s.pod_uid), '') <> ''
+				  AND NOT EXISTS (
+					SELECT 1 FROM sboms s
+					WHERE s.deleted_at IS NULL
+					  AND s.cluster_id = p.cluster_id
+					  AND TRIM(s.pod_uid) = TRIM(p.uid)
 				  )
-			`).Scan(&resp.CrossChecks.PodsMissingSbom).Error
+			`).Scan(&resp.CrossChecks.PodsMissingSbom).Error,
+				"dashboard_integrity_sbom_coverage_unavailable", "SBOM coverage cross-checks could not be loaded") {
+				return
+			}
 		}
 
 		// Alerts: data exists but no agents
@@ -182,8 +241,18 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 			resp.Alerts = append(resp.Alerts, "sbom_coverage_low: majority of pods have no SBOM row; check agent SBOM scanner and pod eligibility (distroless/heuristic)")
 		}
 
-		resp.CatalogHealth = buildCatalogHealth(db, resp.CrossChecks)
-		resp.RuntimeHealth = buildRuntimeHealth(db)
+		catalogHealth, err := buildCatalogHealth(db, resp.CrossChecks)
+		if err != nil {
+			respondDataUnavailable(c, "dashboard_catalog_health_unavailable", "Dashboard catalog health could not be loaded")
+			return
+		}
+		resp.CatalogHealth = catalogHealth
+		runtimeHealth, err := buildRuntimeHealth(db)
+		if err != nil {
+			respondDataUnavailable(c, "dashboard_runtime_health_unavailable", "Dashboard runtime health could not be loaded")
+			return
+		}
+		resp.RuntimeHealth = runtimeHealth
 		resp.Alerts = append(resp.Alerts, catalogHealthAlerts(resp.CatalogHealth)...)
 		resp.Alerts = append(resp.Alerts, runtimeHealthAlerts(resp.RuntimeHealth)...)
 
@@ -191,15 +260,63 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func nullTimePtr(nt sql.NullTime) *time.Time {
-	if !nt.Valid || nt.Time.IsZero() {
-		return nil
-	}
-	t := nt.Time
-	return &t
+type runtimeEventTimeRow struct {
+	ObservedAt *time.Time `gorm:"column:observed_at"`
+	IngestedAt *time.Time `gorm:"column:ingested_at"`
+	CreatedAt  *time.Time `gorm:"column:created_at"`
 }
 
-func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
+func latestRuntimeEventTime(q *gorm.DB) (*time.Time, error) {
+	var row runtimeEventTimeRow
+	err := q.
+		Select("observed_at, ingested_at, created_at").
+		Where("COALESCE(observed_at, ingested_at, created_at) IS NOT NULL").
+		Order("COALESCE(observed_at, ingested_at, created_at) DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, candidate := range []*time.Time{row.ObservedAt, row.IngestedAt, row.CreatedAt} {
+		if candidate != nil && !candidate.IsZero() {
+			t := *candidate
+			return &t, nil
+		}
+	}
+	return nil, nil
+}
+
+type runtimeSignalTimeRow struct {
+	LastSeenAt *string    `gorm:"column:last_seen_at"`
+	CreatedAt  *time.Time `gorm:"column:created_at"`
+}
+
+func latestRuntimeSignalTime(q *gorm.DB) (*time.Time, error) {
+	var row runtimeSignalTimeRow
+	err := q.
+		Select("last_seen_at, created_at").
+		Where("COALESCE(last_seen_at, created_at) IS NOT NULL").
+		Order("COALESCE(last_seen_at, created_at) DESC").
+		Limit(1).
+		Scan(&row).Error
+	if err != nil {
+		return nil, err
+	}
+	if row.LastSeenAt != nil && strings.TrimSpace(*row.LastSeenAt) != "" {
+		t, err := time.Parse(time.RFC3339Nano, strings.TrimSpace(*row.LastSeenAt))
+		if err != nil {
+			return nil, err
+		}
+		return &t, nil
+	}
+	if row.CreatedAt != nil && !row.CreatedAt.IsZero() {
+		t := *row.CreatedAt
+		return &t, nil
+	}
+	return nil, nil
+}
+
+func buildCatalogHealth(db *gorm.DB, checks CrossChecks) (CatalogHealth, error) {
 	health := CatalogHealth{
 		Status:                      "healthy",
 		CVEsCount:                   checks.CVEsCount,
@@ -210,49 +327,59 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 
 	if db.Migrator().HasTable("mirror_state") {
 		var row models.MirrorState
-		if err := db.Where("name = ?", "osv").First(&row).Error; err == nil {
+		err := db.Where("name = ?", "osv").First(&row).Error
+		if err == nil {
 			health.MirrorVersion = strconv.FormatInt(row.Version, 10)
 			if !row.UpdatedAt.IsZero() {
 				t := row.UpdatedAt
 				health.MirrorUpdatedAt = &t
 			}
+		} else if err != gorm.ErrRecordNotFound {
+			return health, err
 		}
 	}
 
 	if db.Migrator().HasTable("cves") {
-		var t sql.NullTime
-		if err := db.Table("cves").Select("MAX(updated_at)").Scan(&t).Error; err == nil {
-			health.LastCVEUpdatedAt = nullTimePtr(t)
+		t, err := latestQueryTime(db.Table("cves"), "updated_at")
+		if err != nil {
+			return health, err
 		}
+		health.LastCVEUpdatedAt = t
 	}
 	if db.Migrator().HasTable("package_vulnerabilities") {
-		var t sql.NullTime
-		if err := db.Table("package_vulnerabilities").Select("MAX(updated_at)").Scan(&t).Error; err == nil {
-			health.LastPackageVulnerabilityUpdate = nullTimePtr(t)
+		t, err := latestQueryTime(db.Table("package_vulnerabilities"), "updated_at")
+		if err != nil {
+			return health, err
 		}
+		health.LastPackageVulnerabilityUpdate = t
 	}
 	if db.Migrator().HasTable("malware_packages") {
-		var t sql.NullTime
-		if err := db.Table("malware_packages").Where("deleted_at IS NULL").Select("MAX(updated_at)").Scan(&t).Error; err == nil {
-			health.LastMalwareUpdatedAt = nullTimePtr(t)
+		t, err := latestQueryTime(db.Table("malware_packages").Where("deleted_at IS NULL"), "updated_at")
+		if err != nil {
+			return health, err
 		}
+		health.LastMalwareUpdatedAt = t
 	}
 	if db.Migrator().HasTable("malware_feed_sync_runs") {
 		var latest models.MalwareFeedSyncRun
-		if err := db.Order("completed_at DESC, id DESC").First(&latest).Error; err == nil && latest.ID != 0 {
+		err := db.Order("completed_at DESC, id DESC").First(&latest).Error
+		if err == nil && latest.ID != 0 {
 			health.LastMalwareFeedSyncStatus = latest.Status
 			if !latest.CompletedAt.IsZero() {
 				t := latest.CompletedAt
 				health.LastMalwareFeedSyncAt = &t
 			}
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return health, err
 		}
 	}
 	if db.Migrator().HasTable("catalog_generations") {
 		var active models.CatalogGeneration
-		if err := db.
+		err := db.
 			Where("catalog_type = ? AND status = ?", "cve", "active").
 			Order("activated_at DESC, id DESC").
-			First(&active).Error; err == nil && active.ID != 0 {
+			First(&active).Error
+		if err == nil && active.ID != 0 {
 			health.ActiveCatalogGenerationID = active.ID
 			health.ActiveCatalogGenerationStatus = active.Status
 			health.ActiveCatalogSourceDigest = active.SourceDigest
@@ -260,12 +387,16 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 				t := *active.ActivatedAt
 				health.ActiveCatalogActivatedAt = &t
 			}
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return health, err
 		}
+
 		var malwareGen models.CatalogGeneration
-		if err := db.
+		err = db.
 			Where("catalog_type = ? AND status = ?", "malware", "active").
 			Order("activated_at DESC, id DESC").
-			First(&malwareGen).Error; err == nil && malwareGen.ID != 0 {
+			First(&malwareGen).Error
+		if err == nil && malwareGen.ID != 0 {
 			health.ActiveMalwareGenerationID = malwareGen.ID
 			health.ActiveMalwareGenerationStatus = malwareGen.Status
 			health.ActiveMalwareSourceDigest = malwareGen.SourceDigest
@@ -273,24 +404,30 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 				t := *malwareGen.ActivatedAt
 				health.ActiveMalwareActivatedAt = &t
 			}
+		} else if err != nil && err != gorm.ErrRecordNotFound {
+			return health, err
 		}
 	}
 
 	if db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(*) FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL
-		`).Scan(&health.ActiveSBOMs)
-		db.Raw(`
+		`).Scan(&health.ActiveSBOMs).Error; err != nil {
+			return health, err
+		}
+		if err := db.Raw(`
 			SELECT COUNT(*) FROM sboms s
 			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE s.deleted_at IS NULL AND p.id IS NULL
-		`).Scan(&health.StaleSBOMs)
+		`).Scan(&health.StaleSBOMs).Error; err != nil {
+			return health, err
+		}
 	}
 
 	if health.MirrorVersion != "" && db.Migrator().HasTable("sbom_match_runs") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
@@ -299,19 +436,27 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 				AND r.mirror_version = ?
 				AND r.status = 'succeeded'
 			WHERE s.deleted_at IS NULL
-		`, health.MirrorVersion).Scan(&health.ActiveSBOMsMatchedMirror)
+		`, health.MirrorVersion).Scan(&health.ActiveSBOMsMatchedMirror).Error; err != nil {
+			return health, err
+		}
 
 		if health.ActiveSBOMs > health.ActiveSBOMsMatchedMirror {
 			health.ActiveSBOMsMissingMirrorMatch = health.ActiveSBOMs - health.ActiveSBOMsMatchedMirror
 		}
 
-		db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "succeeded").Count(&health.CurrentMirrorSucceededRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "failed").Count(&health.CurrentMirrorFailedRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "running").Count(&health.CurrentMirrorRunningRuns)
+		if err := db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "succeeded").Count(&health.CurrentMirrorSucceededRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "failed").Count(&health.CurrentMirrorFailedRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("mirror_version = ? AND status = ?", health.MirrorVersion, "running").Count(&health.CurrentMirrorRunningRuns).Error; err != nil {
+			return health, err
+		}
 	}
 
 	if health.ActiveCatalogGenerationID > 0 && db.Migrator().HasTable("sbom_match_runs") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(DISTINCT s.id)
 			FROM sboms s
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
@@ -320,32 +465,44 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 				AND r.catalog_generation_id = ?
 				AND r.status = 'succeeded'
 			WHERE s.deleted_at IS NULL
-		`, health.ActiveCatalogGenerationID).Scan(&health.ActiveSBOMsMatchedGeneration)
+		`, health.ActiveCatalogGenerationID).Scan(&health.ActiveSBOMsMatchedGeneration).Error; err != nil {
+			return health, err
+		}
 
 		if health.ActiveSBOMs > health.ActiveSBOMsMatchedGeneration {
 			health.ActiveSBOMsMissingGenerationMatch = health.ActiveSBOMs - health.ActiveSBOMsMatchedGeneration
 		}
 
-		db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "succeeded").Count(&health.CurrentGenerationSucceededRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "failed").Count(&health.CurrentGenerationFailedRuns)
-		db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "running").Count(&health.CurrentGenerationRunningRuns)
+		if err := db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "succeeded").Count(&health.CurrentGenerationSucceededRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "failed").Count(&health.CurrentGenerationFailedRuns).Error; err != nil {
+			return health, err
+		}
+		if err := db.Model(&models.SBOMMatchRun{}).Where("catalog_generation_id = ? AND status = ?", health.ActiveCatalogGenerationID, "running").Count(&health.CurrentGenerationRunningRuns).Error; err != nil {
+			return health, err
+		}
 	}
 
 	if db.Migrator().HasTable("cve_matches") && db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
-		db.Raw(`
+		if err := db.Raw(`
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
 			INNER JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE cm.deleted_at IS NULL
-		`).Scan(&health.ActivePodCVEMatches)
-		db.Raw(`
+		`).Scan(&health.ActivePodCVEMatches).Error; err != nil {
+			return health, err
+		}
+		if err := db.Raw(`
 			SELECT COUNT(cm.id)
 			FROM cve_matches cm
 			INNER JOIN sboms s ON s.id = cm.sbom_id AND s.deleted_at IS NULL
 			LEFT JOIN pods p ON p.cluster_id = s.cluster_id AND p.uid = s.pod_uid AND p.deleted_at IS NULL
 			WHERE cm.deleted_at IS NULL AND p.id IS NULL
-		`).Scan(&health.StalePodCVEMatches)
+		`).Scan(&health.StalePodCVEMatches).Error; err != nil {
+			return health, err
+		}
 	}
 
 	switch {
@@ -361,10 +518,10 @@ func buildCatalogHealth(db *gorm.DB, checks CrossChecks) CatalogHealth {
 		health.Status = "healthy"
 	}
 
-	return health
+	return health, nil
 }
 
-func buildRuntimeHealth(db *gorm.DB) RuntimeHealth {
+func buildRuntimeHealth(db *gorm.DB) (RuntimeHealth, error) {
 	health := RuntimeHealth{
 		Status:                 "unavailable",
 		Source:                 "db-derived",
@@ -374,34 +531,47 @@ func buildRuntimeHealth(db *gorm.DB) RuntimeHealth {
 	}
 
 	if db.Migrator().HasTable("runtime_events") {
-		db.Table("runtime_events").Count(&health.RuntimeEventsCount)
-		var lastEvent sql.NullTime
-		_ = db.Table("runtime_events").Select("MAX(COALESCE(observed_at, ingested_at, created_at))").Scan(&lastEvent).Error
-		health.LastRuntimeEventAt = nullTimePtr(lastEvent)
+		if err := db.Table("runtime_events").Count(&health.RuntimeEventsCount).Error; err != nil {
+			return health, err
+		}
+		lastEvent, err := latestRuntimeEventTime(db.Table("runtime_events"))
+		if err != nil {
+			return health, err
+		}
+		health.LastRuntimeEventAt = lastEvent
 
-		db.Table("runtime_events").
-			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco").
-			Count(&health.FalcoEventsCount)
-		var lastFalco sql.NullTime
-		_ = db.Table("runtime_events").
-			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco").
-			Select("MAX(COALESCE(observed_at, ingested_at, created_at))").
-			Scan(&lastFalco).Error
-		health.LastFalcoEventAt = nullTimePtr(lastFalco)
+		falcoQuery := db.Table("runtime_events").
+			Where("LOWER(COALESCE(source_kind, runtime, '')) = ? OR LOWER(COALESCE(runtime, source_kind, '')) = ?", "falco", "falco")
+		if err := falcoQuery.Count(&health.FalcoEventsCount).Error; err != nil {
+			return health, err
+		}
+		lastFalco, err := latestRuntimeEventTime(falcoQuery)
+		if err != nil {
+			return health, err
+		}
+		health.LastFalcoEventAt = lastFalco
 	}
 
 	if db.Migrator().HasTable("runtime_signals") {
-		db.Table("runtime_signals").Count(&health.RuntimeSignalsCount)
-		var lastSignal sql.NullTime
-		_ = db.Table("runtime_signals").Select("MAX(COALESCE(last_seen_at, created_at))").Scan(&lastSignal).Error
-		health.LastRuntimeSignalAt = nullTimePtr(lastSignal)
+		if err := db.Table("runtime_signals").Count(&health.RuntimeSignalsCount).Error; err != nil {
+			return health, err
+		}
+		lastSignal, err := latestRuntimeSignalTime(db.Table("runtime_signals"))
+		if err != nil {
+			return health, err
+		}
+		health.LastRuntimeSignalAt = lastSignal
 	}
 
 	if db.Migrator().HasTable("pod_runtime_metrics") {
-		db.Table("pod_runtime_metrics").Count(&health.RuntimeMetricsCount)
-		var lastMetric sql.NullTime
-		_ = db.Table("pod_runtime_metrics").Select("MAX(last_observed_at)").Scan(&lastMetric).Error
-		health.LastRuntimeMetricAt = nullTimePtr(lastMetric)
+		if err := db.Table("pod_runtime_metrics").Count(&health.RuntimeMetricsCount).Error; err != nil {
+			return health, err
+		}
+		lastMetric, err := latestQueryTime(db.Table("pod_runtime_metrics"), "last_observed_at")
+		if err != nil {
+			return health, err
+		}
+		health.LastRuntimeMetricAt = lastMetric
 	}
 
 	last := latestTime(health.LastRuntimeEventAt, health.LastRuntimeSignalAt, health.LastRuntimeMetricAt)
@@ -427,7 +597,7 @@ func buildRuntimeHealth(db *gorm.DB) RuntimeHealth {
 		health.FalcoStatus = "no-events"
 	}
 
-	return health
+	return health, nil
 }
 
 func latestTime(values ...*time.Time) *time.Time {

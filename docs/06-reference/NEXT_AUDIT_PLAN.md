@@ -1,6 +1,6 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #50 merged on 2026-09-22 (merge commit `5024e15`).
+Status verified after PR #52 merged on 2026-09-23 (merge commit `e8efc99`).
 Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
@@ -125,18 +125,31 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   DaemonSet plus different WATCH_NAMESPACE scopes on one cluster and either validate
   the supported topology or promote the receipt key to include scope before
   multi-scope aggregation is claimed.
-- D2 runtime / #52 is now the active draft. #51 was retired after #50 merged
-  because its stacked branch carried stale inventory history. #52 was rebuilt from
-  `5024e15` and contains runtime-only changes. Current scope: authenticated
-  producer coverage windows for file/Falco/eBPF, explicit drop/invalid/error
-  accounting, immutable coverage retry, continuity tracking and complete-empty
-  runtime intervals. A transient delivery failure breaks continuity even if a later
-  retry succeeds. Runtime/Pod/cross-resource auto-resolution remains blocked until
-  producer semantics, persistence and live topology gates are complete.
-  Persisted/API/UI explanations and availability remain coordinated with E. D is
-  not complete.
-- E (originally #50; PR number may shift): API/UI availability and scoped observability, including Agent status.
-- F (originally #51; PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
+- D2 runtime / #52 merged on 2026-09-23 (merge commit `e8efc99`).
+  Runtime producer lifecycle/coverage for file/Falco/eBPF is persisted with explicit
+  complete/failed semantics, immutable receipt history, independent 30s clean
+  coverage cadence, partial-record restart safety and atomic runtime-event replay
+  idempotency. Physical source-record replay is scoped by authenticated Agent
+  identity and exact/concurrent replays cannot duplicate REP/risk/correlation
+  effects. Current producers remain non-authoritative for absence reasoning;
+  runtime/Pod/cross-resource auto-resolution therefore remains blocked until an
+  independent source-health proof and package F live-topology validation exist.
+  Retention/partition/archive/storage metrics remain production-operations
+  follow-up, not #52 correctness blockers. D is intentionally not yet complete.
+- E1 / PR #53 active draft: backend availability contract for stats, node,
+  capability and Agent observability APIs. Missing schema/query failures must not collapse into
+  legitimate zero/empty results; Agent version/cluster identity must come from the
+  persisted Agent record; data availability must remain distinct from Agent
+  heartbeat/liveness.
+- E2 follows E1: dashboard/detail/list retry and unavailable states consume the
+  backend contract consistently without replacing errors with zero KPIs.
+- D3 follows E2 and precedes final F acceptance: define a runtime source-health
+  protocol that is independent of file existence/reader heartbeat, bind health to
+  the exact authenticated producer/session, allow authority only for producers
+  that can prove upstream sensor health, and add evaluator regressions showing
+  that stale/lost/disabled source health blocks absence reasoning. D3 must not
+  infer authority from configuration flags or clean-empty event windows.
+- F (PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
   claimed as validated end to end.
 - G–I remain pending after the A–F gate: scoped AGE, explicit mutation/revocation
@@ -157,9 +170,9 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. Active runtime work is #52 on a fresh branch
-from merge commit `5024e15`; it must remain runtime-only and must not reintroduce
-an older inventory contract.
+security regression gates passed. #51 was retired rather than reused. #52 is merged. Active work starts E1 from merge commit `e8efc99`; E1 must remain
+focused on API availability semantics and must not reopen runtime evidence or
+inventory ownership contracts.
 
 
 ### Final #50 merge blockers closed
@@ -179,11 +192,11 @@ boundaries:
 Any future change weakening one of these tests resets merge/release readiness.
 
 
-### D2 runtime / #52 merge gates
+### D2 runtime / #52 merged gate record
 
-#52 remains draft until the final runtime-evidence state machine is reviewed and
-the exact head passes Core, Agent, API, permanent security regressions, Secret scan
-and the PostgreSQL runtime-coverage gate.
+#52 passed its exact-head Core, Agent, API, permanent security regressions, Secret
+scan and PostgreSQL runtime-coverage/idempotency gates before merge. The following
+invariants remain permanent regression requirements.
 
 Required invariants include:
 
@@ -227,6 +240,75 @@ Required invariants include:
   conflict; concurrent duplicate submissions create one committed effect; distinct
   same-second physical records remain distinct. Generic reader restart replay,
   exact replay, same-second identity and PostgreSQL concurrency are permanent gates.
+
+### D3 runtime authority/source-health gate
+
+D2/#52 intentionally closed correctness without enabling absence-based runtime
+auto-resolution. D can only be marked complete after D3 proves an independent
+upstream health signal. The D3 acceptance contract is:
+
+- source health is produced independently from runtime event emptiness and file
+  reader activity;
+- health identity is scoped by authenticated `{cluster_id, agent_id, producer_id,
+  session_id}` and cannot be self-rebound by payload aliases;
+- authority expires on producer disable/stop, session restart, health lease expiry,
+  source restart or an explicit source-health failure;
+- a clean coverage interval is eligible for absence reasoning only while the exact
+  producer has authoritative source health covering the required interval;
+- old-session receipts, file existence, config enablement and Agent heartbeat alone
+  never satisfy authority;
+- PostgreSQL replay/concurrency and Agent restart regressions are permanent gates;
+- package F validates the protocol on the real DaemonSet/two-cluster topology
+  before runtime auto-resolution is enabled in production.
+
+### E1 API availability merge gates
+
+E1 starts after #52 and is the current implementation package. Merge only when:
+
+- required DB/schema/query failures return an explicit unavailable/error response
+  rather than a successful zero/empty projection; transient query/storage failures
+  are retryable while missing migration/schema prerequisites are non-retryable;
+- cluster node list/detail/overview/inventory endpoints propagate query failures;
+- capability detail/list/summary use the same unavailable semantics when capability
+  persistence is absent or unreadable;
+- Agent status uses each Agent's persisted `cluster_id`, `version`,
+  `last_seen_at` and node identity; missing heartbeat is not reported healthy;
+- cluster security summaries join findings/capabilities with Pods on both
+  `cluster_id` and Pod UID so duplicate UIDs across clusters cannot contaminate
+  aggregate counts;
+- Pod list risk-count enrichment and risk-based ordering remain
+  cluster-qualified when the same Pod UID exists in more than one cluster;
+- Agent data availability is represented separately from heartbeat-derived
+  healthy/slow/disconnected state;
+- system metrics and dashboard stats count Pods by `{cluster_id, uid}`, keep
+  Pod Insight aggregates resource-type/cluster qualified, and do not report
+  healthy/zero values when their backing queries fail;
+- cluster totals and cluster-list membership come from the authorized fresh
+  `clusters` inventory itself, not from whether Pod rows currently exist; an
+  active empty cluster remains visible/countable while stale and legacy synthetic
+  cluster rows remain excluded by the cluster-inventory contract;
+- dashboard data-integrity cross-checks, catalog health and runtime health do not
+  convert query/schema failures into zero counts, no-events, degraded or healthy
+  states; required backing-query failure returns retryable 503;
+- the primary Dashboard, Clusters, Resources and Monitoring consumers preserve the
+  backend availability contract: contract-critical API methods throw instead of
+  normalizing failures to empty/zero/null, last-known-good data survives retryable
+  refresh failures, non-retryable schema failures show migration/operator guidance,
+  and successful `200` empty responses retain the normal empty state;
+- dashboard Playwright regressions cover retryable 503 preservation + Retry,
+  non-retryable schema guidance, and genuine 200 empty semantics;
+- named regressions are added to the permanent security contract;
+- exact-head Core/API/dashboard validation and Secret scan pass before merge.
+
+Current #53 execution order after the merged #52 baseline:
+1. close backend availability semantics for Agent, cluster/node, capability, system
+   metrics, pipeline health and dashboard data-integrity surfaces;
+2. re-scan aggregate/detail handlers for ignored DB errors and add named regressions
+   for every remaining zero-on-error path in E1 scope;
+3. freeze the backend response contract and run exact-head CI/security gates;
+4. merge #53 manually, then start E2 dashboard retry/unavailable-state consumption;
+5. after E2, implement D3 source-health/authority; only then execute final package F
+   live two-cluster/DaemonSet acceptance.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 

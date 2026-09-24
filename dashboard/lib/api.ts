@@ -174,10 +174,45 @@ type ApiErrorBody = {
   error?: string;
   code?: string;
   reason?: string;
+  retryable?: boolean;
+  status?: string;
   required_permission?: string;
   required_permissions?: string[];
   required_cluster_id?: string;
 };
+
+export type AvailabilityIssue = {
+  retryable: boolean;
+  code?: string;
+  title: string;
+  description: string;
+};
+
+export function getAvailabilityIssue(error: unknown, subject = 'Data'): AvailabilityIssue {
+  if (isApiError(error) && error.status === 503) {
+    const retryable = error.body?.retryable !== false;
+    const detail = error.body?.error?.trim();
+    return retryable
+      ? {
+          retryable: true,
+          code: error.body?.code,
+          title: `${subject} temporarily unavailable`,
+          description: detail || 'The backing service or database query is temporarily unavailable. Existing data is preserved; retry when the service recovers.',
+        }
+      : {
+          retryable: false,
+          code: error.body?.code,
+          title: `${subject} requires operator action`,
+          description: `${detail || 'A required database schema or migration prerequisite is unavailable.'} Apply the required migration/deployment repair or contact the platform operator.`,
+        };
+  }
+  return {
+    retryable: true,
+    code: isApiError(error) ? error.body?.code : undefined,
+    title: `${subject} unavailable`,
+    description: error instanceof Error ? error.message : 'The request could not be completed.',
+  };
+}
 
 export class ApiError extends Error {
   status: number;
@@ -194,6 +229,18 @@ export class ApiError extends Error {
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
 }
+
+function invalidResponse(code: string, message: string): never {
+  throw new ApiError(502, message, { code, retryable: true });
+}
+
+function requireFiniteNumber(value: unknown, code: string, field: string): number {
+  if (value == null || value === '' || !Number.isFinite(Number(value))) {
+    invalidResponse(code, `Response is missing a valid ${field}`);
+  }
+  return Number(value);
+}
+
 
 async function parseErrorBody(res: Response): Promise<{ body?: ApiErrorBody; text?: string }> {
   const text = await res.text().catch(() => '');
@@ -505,15 +552,14 @@ export const api = {
     if (byType === 'all') params.set('byType', 'all');
     const qs = params.toString() ? `?${params.toString()}` : '';
     const stats = await request<DashboardStats>(`/dashboard/stats${qs}`);
-    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
     return {
-      clusters: num(stats.totalClusters),
-      insights: num(stats.totalRisks),
-      critical: num(stats.criticalRisks),
-      pods: num(stats.runningPods),
-      agents: num(stats.activeAgents),
-      resolved24h: num(stats.resolved24h ?? 0),
-      affectedPodCount: num(stats.affectedPodCount ?? 0),
+      clusters: requireFiniteNumber(stats.totalClusters, 'dashboard_stats_invalid_response', 'totalClusters'),
+      insights: requireFiniteNumber(stats.totalRisks, 'dashboard_stats_invalid_response', 'totalRisks'),
+      critical: requireFiniteNumber(stats.criticalRisks, 'dashboard_stats_invalid_response', 'criticalRisks'),
+      pods: requireFiniteNumber(stats.runningPods, 'dashboard_stats_invalid_response', 'runningPods'),
+      agents: requireFiniteNumber(stats.activeAgents, 'dashboard_stats_invalid_response', 'activeAgents'),
+      resolved24h: requireFiniteNumber(stats.resolved24h, 'dashboard_stats_invalid_response', 'resolved24h'),
+      affectedPodCount: requireFiniteNumber(stats.affectedPodCount, 'dashboard_stats_invalid_response', 'affectedPodCount'),
       clusterName: stats.clusterName != null ? String(stats.clusterName).trim() || undefined : undefined,
     };
   },
@@ -678,44 +724,43 @@ export const api = {
 
   /** GET /api/v1/clusters/stats – same list + podCount, deploymentCount, connectionStatus (same cutoff as API) */
   getClustersStats: async (): Promise<Cluster[]> => {
-    try {
-      const data = await request<{ clusters: Array<Record<string, unknown>>; total?: number }>('/inventory/clusters/stats');
-      const list = data.clusters || [];
-      return list.map((c: Record<string, unknown>) => {
-        const id = String(c.id ?? '');
-        const name = String(c.name ?? c.id ?? '').trim() || id;
-        const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
-        const connectionStatus = c.connectionStatus != null ? String(c.connectionStatus) : undefined;
-        return {
-          id,
-          name,
-          region: c.region != null ? String(c.region) : undefined,
-          endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
-          status: c.status != null ? String(c.status) : 'unknown',
-          lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
-          version: k8sVersion,
-          k8sVersion,
-          source: c.source != null ? String(c.source) : undefined,
-          distribution: c.distribution != null ? String(c.distribution) : undefined,
-          podCount: typeof c.podCount === 'number' ? c.podCount : undefined,
-          deploymentCount: typeof c.deploymentCount === 'number' ? c.deploymentCount : undefined,
-          riskCount: typeof c.riskCount === 'number' ? c.riskCount : undefined,
-          agentCount: typeof c.agentCount === 'number' ? c.agentCount : undefined,
-          connectionStatus,
-          healthScore: connectionStatus === 'connected' ? 90 : connectionStatus === 'degraded' ? 60 : 40,
-          serviceAccountCount: typeof c.serviceAccountCount === 'number' ? c.serviceAccountCount : Number(c.serviceAccountCount) || undefined,
-          roleCount: typeof c.roleCount === 'number' ? c.roleCount : Number(c.roleCount) || undefined,
-          clusterRoleCount: typeof c.clusterRoleCount === 'number' ? c.clusterRoleCount : Number(c.clusterRoleCount) || undefined,
-          roleBindingCount: typeof c.roleBindingCount === 'number' ? c.roleBindingCount : Number(c.roleBindingCount) || undefined,
-          clusterRoleBindingCount:
-            typeof c.clusterRoleBindingCount === 'number'
-              ? c.clusterRoleBindingCount
-              : Number(c.clusterRoleBindingCount) || undefined,
-        } as Cluster;
-      });
-    } catch (err) {
-      return [];
+    const data = await request<{ clusters?: Array<Record<string, unknown>>; total?: number }>('/inventory/clusters/stats');
+    if (!Array.isArray(data.clusters)) {
+      invalidResponse('cluster_stats_invalid_response', 'Cluster statistics response is missing the clusters array');
     }
+    const list = data.clusters;
+    return list.map((c: Record<string, unknown>) => {
+      const id = String(c.id ?? '');
+      const name = String(c.name ?? c.id ?? '').trim() || id;
+      const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
+      const connectionStatus = c.connectionStatus != null ? String(c.connectionStatus) : undefined;
+      return {
+        id,
+        name,
+        region: c.region != null ? String(c.region) : undefined,
+        endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
+        status: c.status != null ? String(c.status) : 'unknown',
+        lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
+        version: k8sVersion,
+        k8sVersion,
+        source: c.source != null ? String(c.source) : undefined,
+        distribution: c.distribution != null ? String(c.distribution) : undefined,
+        podCount: typeof c.podCount === 'number' ? c.podCount : undefined,
+        deploymentCount: typeof c.deploymentCount === 'number' ? c.deploymentCount : undefined,
+        riskCount: typeof c.riskCount === 'number' ? c.riskCount : undefined,
+        agentCount: typeof c.agentCount === 'number' ? c.agentCount : undefined,
+        connectionStatus,
+        healthScore: connectionStatus === 'connected' ? 90 : connectionStatus === 'degraded' ? 60 : 40,
+        serviceAccountCount: typeof c.serviceAccountCount === 'number' ? c.serviceAccountCount : Number(c.serviceAccountCount) || undefined,
+        roleCount: typeof c.roleCount === 'number' ? c.roleCount : Number(c.roleCount) || undefined,
+        clusterRoleCount: typeof c.clusterRoleCount === 'number' ? c.clusterRoleCount : Number(c.clusterRoleCount) || undefined,
+        roleBindingCount: typeof c.roleBindingCount === 'number' ? c.roleBindingCount : Number(c.roleBindingCount) || undefined,
+        clusterRoleBindingCount:
+          typeof c.clusterRoleBindingCount === 'number'
+            ? c.clusterRoleBindingCount
+            : Number(c.clusterRoleBindingCount) || undefined,
+      } as Cluster;
+    });
   },
 
   /** GET /api/v1/risk/insights/:id — single insight for Risk Detail */
@@ -1318,7 +1363,6 @@ export const api = {
     /** Server-side ordering: name_asc | namespace_asc | risk_desc | created_desc | default newest created first */
     sortBy?: string;
   }): Promise<{ pods: PodWithRisk[]; total: number; page: number; pageSize: number }> => {
-    try {
       const q = new URLSearchParams();
       if (params?.cluster) q.set('cluster', params.cluster);
       if (params?.namespace) q.set('namespace', params.namespace);
@@ -1328,17 +1372,17 @@ export const api = {
       if (params?.search?.trim()) q.set('search', params.search.trim());
       if (params?.sortBy) q.set('sortBy', params.sortBy);
       const qs = q.toString();
-      const data = await request<{ pods: Array<Record<string, unknown>>; total: number; page?: number; pageSize?: number }>(qs ? `/inventory/pods?${qs}` : '/inventory/pods');
-      const pods = (data.pods || []).map((p: Record<string, unknown>) => mapApiPodToPodWithRisk(p));
+      const data = await request<{ pods?: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }>(qs ? `/inventory/pods?${qs}` : '/inventory/pods');
+      if (!Array.isArray(data.pods)) {
+        invalidResponse('pod_inventory_invalid_response', 'Pod inventory response is missing the pods array');
+      }
+      const pods = data.pods.map((p: Record<string, unknown>) => mapApiPodToPodWithRisk(p));
       return {
         pods,
-        total: Number(data.total) ?? pods.length,
+        total: requireFiniteNumber(data.total, 'pod_inventory_invalid_response', 'total'),
         page: Number(data.page) ?? 1,
         pageSize: Number(data.pageSize) ?? 50,
       };
-    } catch {
-      return { pods: [], total: 0, page: 1, pageSize: 50 };
-    }
   },
 
   getResources: async (type?: string, params?: { cluster?: string; namespace?: string }): Promise<K8sResource[]> => {
@@ -1952,16 +1996,19 @@ export const api = {
   },
 
   getSyncStatus: async (): Promise<SyncStatus> => {
-      const data = await request<{ health: { status: string }, sync: { lastFullScan: string, nextScan: string }, resources: { pods: number, serviceAccounts: number, roles?: number, bindings?: number } }>('/metrics/system');
+      const data = await request<{ health?: { status?: string }, sync?: { lastFullScan?: string, nextScan?: string }, resources?: { pods?: number, serviceAccounts?: number, roles?: number, bindings?: number } }>('/metrics/system');
+      if (!data.sync?.lastFullScan || !data.sync?.nextScan || !data.resources) {
+        invalidResponse('system_metrics_invalid_response', 'System metrics response is incomplete');
+      }
       return {
         lastScan: data.sync.lastFullScan,
         nextScan: data.sync.nextScan,
         drift: false,
         resources: {
-          pods: data.resources.pods,
-          sas: data.resources.serviceAccounts,
-          roles: data.resources.roles || 0,
-          bindings: data.resources.bindings || 0,
+          pods: requireFiniteNumber(data.resources.pods, 'system_metrics_invalid_response', 'resources.pods'),
+          sas: requireFiniteNumber(data.resources.serviceAccounts, 'system_metrics_invalid_response', 'resources.serviceAccounts'),
+          roles: data.resources.roles == null ? 0 : requireFiniteNumber(data.resources.roles, 'system_metrics_invalid_response', 'resources.roles'),
+          bindings: data.resources.bindings == null ? 0 : requireFiniteNumber(data.resources.bindings, 'system_metrics_invalid_response', 'resources.bindings'),
         }
       };
   },
@@ -1973,7 +2020,10 @@ export const api = {
 
   getDashboardDataIntegrity: async (): Promise<DashboardDataIntegrity> => {
       const data = await request<DashboardDataIntegrity>('/health/dashboard-data-integrity');
-      const ch = data.catalogHealth || ({} as DashboardDataIntegrity['catalogHealth']);
+      if (!data.crossChecks || !data.catalogHealth) {
+        invalidResponse('dashboard_integrity_invalid_response', 'Dashboard data integrity response is incomplete');
+      }
+      const ch = data.catalogHealth;
       return {
         ...data,
         alerts: data.alerts || [],
@@ -2696,13 +2746,15 @@ export const api = {
    * getPipelineHealth returns the status of each layer of the Unified Risk Pipeline.
    * Calls GET /api/v1/monitoring/pipeline-health
    */
-  getPipelineHealth: async (): Promise<PipelineHealth | null> => {
-    try {
-      const data = await request<{ data: PipelineHealth }>('/monitoring/pipeline-health');
-      return data.data || null;
-    } catch {
-      return null;
+  getPipelineHealth: async (): Promise<PipelineHealth> => {
+    const data = await request<{ data?: PipelineHealth }>('/monitoring/pipeline-health');
+    if (!data?.data) {
+      throw new ApiError(502, 'Pipeline health response was incomplete', {
+        code: 'pipeline_health_invalid_response',
+        retryable: true,
+      });
     }
+    return data.data;
   },
 
   /**

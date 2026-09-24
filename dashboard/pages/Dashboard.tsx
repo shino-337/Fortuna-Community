@@ -31,7 +31,7 @@ import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { Section } from '../design-system/layouts/Section';
 import { Badge } from '../design-system/components/Badge';
-import { PageEmpty, PageLoading } from '../design-system/components/PageStatus';
+import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { AttackPathGraph } from '../components/AttackPathGraph';
 import { GraphVisibilityOverlay } from '../components/GraphVisibilityOverlay';
 import { GraphSemanticBanner } from '../components/GraphSemanticBanner';
@@ -801,6 +801,8 @@ export const Dashboard: React.FC = () => {
 
   const {
     stats,
+    statsLoaded,
+    statsAvailabilityIssue,
     insightsSummary,
     clusters,
     topRisks,
@@ -950,10 +952,18 @@ export const Dashboard: React.FC = () => {
       }).length,
     [topRiskyPods],
   );
-  const activeFindingsCount = Number(insightsSummary?.total ?? stats.insights ?? 0);
-  const criticalRiskFindingCount = Number(
-    insightsSummary?.riskLevelCounts?.critical ?? insightsSummary?.critical ?? stats.critical ?? 0,
-  );
+  const activeFindingsMetric =
+    insightsSummary?.total != null ? Number(insightsSummary.total) : statsLoaded ? Number(stats.insights) : null;
+  const criticalRiskFindingMetric =
+    insightsSummary?.riskLevelCounts?.critical != null
+      ? Number(insightsSummary.riskLevelCounts.critical)
+      : insightsSummary?.critical != null
+        ? Number(insightsSummary.critical)
+        : statsLoaded
+          ? Number(stats.critical)
+          : null;
+  const activeFindingsCount = activeFindingsMetric ?? 0;
+  const criticalRiskFindingCount = criticalRiskFindingMetric ?? 0;
   const criticalAttackPathCount = Number(attackPathSummary?.criticalPaths ?? 0);
 
   const clusterList = selectedClusterId ? clusters.filter((c) => c.id === selectedClusterId) : clusters;
@@ -998,27 +1008,28 @@ export const Dashboard: React.FC = () => {
   }, [personaId, risksUrl]);
 
   const dashboardScopeText = selectedClusterId ? stats.clusterName ?? selectedClusterId : 'All clusters';
+  const dashboardAvailabilityCode = statsAvailabilityIssue?.code;
   const dashboardTimeText = sinceMinutes ? `Last ${sinceMinutes} min` : 'All time';
 
   const clusterStatsRow = (
     <div className="rounded-lg border border-border/60 bg-surface/20 px-3 py-2.5 flex flex-wrap gap-x-6 gap-y-3 text-caption">
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/clusters')}>
         <span className="text-typo-micro block">{STAT_LABELS.CLUSTERS}</span>
-        <span className="font-mono font-semibold text-body text-text">{stats.clusters}</span>
+        <span className="font-mono font-semibold text-body text-text">{statsLoaded ? stats.clusters : '—'}</span>
       </button>
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/resources')}>
         <span className="text-typo-micro block">
           {selectedClusterId ? `Pods (${stats.clusterName ?? 'cluster'})` : STAT_LABELS.PODS}
         </span>
-        <span className="font-mono font-semibold text-body text-text">{stats.pods}</span>
+        <span className="font-mono font-semibold text-body text-text">{statsLoaded ? stats.pods : '—'}</span>
       </button>
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/monitoring')}>
         <span className="text-typo-micro block">{STAT_LABELS.AGENTS}</span>
-        <span className="font-mono font-semibold text-body text-text">{stats.agents}</span>
+        <span className="font-mono font-semibold text-body text-text">{statsLoaded ? stats.agents : '—'}</span>
       </button>
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate(risksUrl)}>
         <span className="text-typo-micro block">Active findings</span>
-        <span className="font-mono font-semibold text-body text-text">{activeFindingsCount}</span>
+        <span className="font-mono font-semibold text-body text-text">{activeFindingsMetric ?? '—'}</span>
       </button>
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/resources')}>
         <span className="text-typo-micro block">High / critical scored pods</span>
@@ -1032,7 +1043,16 @@ export const Dashboard: React.FC = () => {
       <div className="divide-y divide-border/80">
         {clusterList.length === 0 && (
           <div className="p-3">
-            <PageEmpty title="No clusters" description="Sync clusters in Core." className="py-3" />
+            {sectionState.clusters === 'error' ? (
+              <PageError
+                title="Cluster inventory unavailable"
+                description="The cluster request failed; this is not an empty cluster inventory."
+                action={<Button variant="secondary" size="sm" onClick={() => void fetchData()}>Retry</Button>}
+                className="py-3"
+              />
+            ) : (
+              <PageEmpty title="No clusters" description="Sync clusters in Core." className="py-3" />
+            )}
           </div>
         )}
         {clusterList.map((cluster) => (
@@ -1286,7 +1306,9 @@ export const Dashboard: React.FC = () => {
         telemetryDegraded={dashboardLoadMessages.length > 0}
       />
       <PartialLoadBanner
-        messages={dashboardLoadMessages}
+        messages={dashboardAvailabilityCode && statsAvailabilityIssue?.retryable === false
+          ? [...dashboardLoadMessages, `Operator action required (${dashboardAvailabilityCode}).`]
+          : dashboardLoadMessages}
         title={initialError ? 'Dashboard is running in degraded mode' : undefined}
         actions={
           <>
@@ -1336,7 +1358,7 @@ export const Dashboard: React.FC = () => {
                     </div>
                     <div className="rounded-md border border-border/60 bg-surface/35 px-2.5 py-2">
                       <dt className="text-micro uppercase tracking-wide text-muted-2">Pods</dt>
-                      <dd className="mt-0.5 font-mono text-body font-semibold text-text">{stats.pods}</dd>
+                      <dd className="mt-0.5 font-mono text-body font-semibold text-text">{statsLoaded ? stats.pods : '—'}</dd>
                     </div>
                     <div className="rounded-md border border-border/60 bg-surface/35 px-2.5 py-2">
                       <dt className="text-micro uppercase tracking-wide text-muted-2">High pods</dt>
@@ -1446,9 +1468,9 @@ export const Dashboard: React.FC = () => {
         <div className="space-y-4">
         {isDashboardWidgetVisible(dashComposition, 'hero_metrics') ? (
         <DashboardHeroMetrics
-          criticalCount={criticalRiskFindingCount}
+          criticalCount={criticalRiskFindingMetric}
           attackPathCount={attackPathCount}
-          affectedWorkloads={Number(stats.affectedPodCount ?? 0)}
+          affectedWorkloads={statsLoaded ? Number(stats.affectedPodCount ?? 0) : null}
           clusterName={stats.clusterName}
           onCriticalClick={() => navigate(`${risksUrl}${risksUrl.includes('?') ? '&' : '?'}finalLevel=critical`)}
           onPathsClick={() => navigate('/attack-paths')}
@@ -1459,7 +1481,7 @@ export const Dashboard: React.FC = () => {
         {isDashboardWidgetVisible(dashComposition, 'risk_stats') ? (
         <RiskStatCards
           insightsSummary={insightsSummary}
-          statsCritical={stats.critical}
+          statsCritical={statsLoaded ? stats.critical : null}
           clusterName={stats.clusterName}
         />
           ) : null}
@@ -1680,7 +1702,7 @@ export const Dashboard: React.FC = () => {
         </Section>
       ) : null}
 
-      {stats.clusters === 0 && stats.pods === 0 && activeFindingsCount === 0 && (
+      {statsLoaded && stats.clusters === 0 && stats.pods === 0 && activeFindingsCount === 0 && (
         <div className="rounded-lg border border-border bg-surface/50 px-4 py-3 text-body text-muted">
           <span className="font-medium text-text">No data yet.</span> Ensure you are logged in, Core is running, and the dashboard can reach the API.
         </div>

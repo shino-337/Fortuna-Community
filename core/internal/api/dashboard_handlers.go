@@ -21,6 +21,7 @@ import (
 )
 
 type DashboardStatsDTO struct {
+	DataStatus       string `json:"dataStatus,omitempty"`
 	TotalClusters    int64  `json:"totalClusters"`
 	ActiveAgents     int64  `json:"activeAgents"`
 	RunningPods      int64  `json:"runningPods"`

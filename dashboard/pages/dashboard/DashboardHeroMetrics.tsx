@@ -7,9 +7,9 @@ import { useOperationalContext } from '../../hooks/useOperationalContext';
 import type { MetricTrust } from '../../lib/metricSemantics';
 
 export interface DashboardHeroMetricsProps {
-  criticalCount: number;
+  criticalCount: number | null;
   attackPathCount: number;
-  affectedWorkloads: number;
+  affectedWorkloads: number | null;
   clusterName?: string | null;
   metricTrust?: MetricTrust;
   onCriticalClick?: () => void;

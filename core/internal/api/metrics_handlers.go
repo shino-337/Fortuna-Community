@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -13,116 +12,172 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-// GetAgentStatus returns agent status from the agents table (real data).
-// Returns all ready agents (no cutoff) so dashboard always shows latest; status per agent is healthy/slow/disconnected from last_seen_at.
+// GetAgentStatus returns persisted Agent identity/version plus heartbeat-derived
+// liveness. Data availability is separate from per-Agent liveness: schema/query
+// failure is never represented as a successful empty Agent set.
 func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
 		if !db.Migrator().HasTable("agents") {
-			c.JSON(http.StatusOK, gin.H{
-				"agents": []map[string]interface{}{}, "total": 0, "healthy": 0, "slow": 0, "disconnected": 0,
-			})
+			respondSchemaUnavailable(c, "agent_status_schema_unavailable", "Agent status is unavailable; agents table is missing")
 			return
 		}
 
 		var agentsList []models.Agent
-		db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").Order("last_seen_at DESC NULLS LAST").Find(&agentsList)
+		if err := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
+			Order("last_seen_at DESC NULLS LAST").Find(&agentsList).Error; err != nil {
+			respondDataUnavailable(c, "agent_status_query_failed", "Agent status could not be loaded")
+			return
+		}
 
-		// Resolve cluster display name from clusters table (most recently synced)
-		var displayClusterID, displayClusterName string
-		var latestCluster models.Cluster
-		if err := db.Order("last_sync DESC").First(&latestCluster).Error; err == nil {
-			displayClusterID = latestCluster.ID
-			displayClusterName = latestCluster.Name
-			if displayClusterName == "" {
-				displayClusterName = displayClusterID
+		clusterIDs := make([]string, 0, len(agentsList))
+		seenClusters := make(map[string]struct{}, len(agentsList))
+		for _, agent := range agentsList {
+			if agent.ClusterID == "" {
+				continue
 			}
-		} else {
-			// From environment only; no hardcoded cluster name
-			displayClusterID = os.Getenv("DEFAULT_CLUSTER_ID")
-			displayClusterName = os.Getenv("DEFAULT_CLUSTER_NAME")
-			if displayClusterName == "" {
-				displayClusterName = displayClusterID
+			if _, ok := seenClusters[agent.ClusterID]; ok {
+				continue
 			}
-			if displayClusterID == "" {
-				displayClusterID = "unknown"
-				displayClusterName = "unknown"
+			seenClusters[agent.ClusterID] = struct{}{}
+			clusterIDs = append(clusterIDs, agent.ClusterID)
+		}
+		clusterNames := make(map[string]string, len(clusterIDs))
+		if len(clusterIDs) > 0 {
+			var clusters []models.Cluster
+			if err := db.Where("id IN ?", clusterIDs).Find(&clusters).Error; err != nil {
+				respondDataUnavailable(c, "agent_cluster_query_failed", "Agent cluster metadata could not be loaded")
+				return
+			}
+			for _, cluster := range clusters {
+				name := cluster.Name
+				if name == "" {
+					name = cluster.ID
+				}
+				clusterNames[cluster.ID] = name
 			}
 		}
 
 		agents := make([]map[string]interface{}, 0, len(agentsList))
-		healthyCount := 0
+		healthyCount, slowCount, disconnectedCount := 0, 0, 0
+		now := time.Now()
 		for _, a := range agentsList {
-			status := "healthy"
-			if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 15*time.Minute {
-				status = "disconnected"
-			} else if a.LastSeenAt != nil && time.Since(*a.LastSeenAt) > 5*time.Minute {
-				status = "slow"
-			} else {
-				healthyCount++
-			}
-			lastHB := time.Time{}
+			status := "disconnected"
 			if a.LastSeenAt != nil {
-				lastHB = *a.LastSeenAt
+				age := now.Sub(*a.LastSeenAt)
+				switch {
+				case age > 15*time.Minute:
+					status = "disconnected"
+				case age > 5*time.Minute:
+					status = "slow"
+				default:
+					status = "healthy"
+				}
+			}
+			switch status {
+			case "healthy":
+				healthyCount++
+			case "slow":
+				slowCount++
+			default:
+				disconnectedCount++
+			}
+			clusterName := clusterNames[a.ClusterID]
+			if clusterName == "" {
+				clusterName = a.ClusterID
+			}
+			var lastHeartbeat interface{}
+			if a.LastSeenAt != nil {
+				lastHeartbeat = *a.LastSeenAt
 			}
 			agents = append(agents, map[string]interface{}{
 				"agentId":       a.AgentID,
-				"clusterId":     displayClusterID,
-				"clusterName":   displayClusterName,
+				"clusterId":     a.ClusterID,
+				"clusterName":   clusterName,
 				"nodeName":      a.NodeName,
 				"status":        status,
-				"lastHeartbeat": lastHB,
+				"lastHeartbeat": lastHeartbeat,
 				"version":       a.Version,
 			})
 		}
 
-		slow := 0
-		disconnected := 0
-		for _, ag := range agents {
-			if ag["status"] == "slow" {
-				slow++
-			} else if ag["status"] == "disconnected" {
-				disconnected++
-			}
-		}
-
 		c.JSON(http.StatusOK, gin.H{
-			"agents":       agents,
-			"total":        len(agents),
-			"healthy":      healthyCount,
-			"slow":         slow,
-			"disconnected": disconnected,
+			"dataStatus":    "available",
+			"healthBasis":   "lastSeenAt",
+			"agents":        agents,
+			"total":         len(agents),
+			"healthy":       healthyCount,
+			"slow":          slowCount,
+			"disconnected":  disconnectedCount,
 		})
 	}
 }
 
-// GetSystemMetrics returns system health metrics
+// GetSystemMetrics returns DB-derived system metrics. Query failures are
+// availability failures and must not be projected as healthy zero counters.
 func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Count active clusters only (same definition as GetClusters / dashboard stats)
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "system_metrics_schema_unavailable",
+			"System metrics require the core inventory/risk schema",
+			"clusters", "pods", "service_accounts", "insights") {
+			return
+		}
+		fail := func(err error, code, message string) bool {
+			if err == nil {
+				return false
+			}
+			respondDataUnavailable(c, code, message)
+			return true
+		}
+
 		var clusterCount int64
 		cutoff := time.Now().Add(-ActiveClusterCutoff)
-		db.Model(&models.Cluster{}).Where("last_sync >= ?", cutoff).Count(&clusterCount)
+		if fail(db.Model(&models.Cluster{}).Where("last_sync >= ?", cutoff).Count(&clusterCount).Error,
+			"system_metrics_clusters_unavailable", "Cluster metrics could not be loaded") {
+			return
+		}
 
-		// Count distinct pods by UID to avoid duplicates
 		var podCount int64
-		db.Model(&models.Pod{}).Distinct("uid").Count(&podCount)
+		if fail(db.Raw(`
+			SELECT COUNT(*) FROM (
+				SELECT cluster_id, uid
+				FROM pods
+				WHERE deleted_at IS NULL
+				GROUP BY cluster_id, uid
+			) scoped_pods
+		`).Scan(&podCount).Error,
+			"system_metrics_pods_unavailable", "Pod metrics could not be loaded") {
+			return
+		}
 
 		var saCount int64
-		db.Model(&models.ServiceAccount{}).Count(&saCount)
+		if fail(db.Model(&models.ServiceAccount{}).Count(&saCount).Error,
+			"system_metrics_service_accounts_unavailable", "ServiceAccount metrics could not be loaded") {
+			return
+		}
 
 		var insightCount int64
-		db.Model(&models.Insight{}).Count(&insightCount)
+		if fail(db.Model(&models.Insight{}).Count(&insightCount).Error,
+			"system_metrics_insights_unavailable", "Insight metrics could not be loaded") {
+			return
+		}
 
-		// Get last sync time
 		var lastSync time.Time
 		var latestCluster models.Cluster
-		if err := db.Order("last_sync DESC").First(&latestCluster).Error; err == nil {
+		err := db.Order("last_sync DESC").First(&latestCluster).Error
+		if err == nil {
 			lastSync = latestCluster.LastSync
+		} else if err != gorm.ErrRecordNotFound {
+			respondDataUnavailable(c, "system_metrics_sync_unavailable", "Last sync state could not be loaded")
+			return
 		}
 
 		c.JSON(http.StatusOK, gin.H{
+			"dataStatus": "available",
 			"health": map[string]interface{}{
 				"status": "healthy",
+				"source": "database",
 			},
 			"sync": map[string]interface{}{
 				"lastFullScan": lastSync,
@@ -135,7 +190,7 @@ func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 				"insights":        insightCount,
 			},
 			"api": map[string]interface{}{
-				"status": "healthy",
+				"status": "serving",
 			},
 		})
 	}
@@ -279,13 +334,23 @@ func policyStageDescription(hasViolationsTable, hasInstancesTable, hasTemplatesT
 // Workers tracked: sbom, cve-matcher, correlator, risk, policy.
 func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		var queryErr error
+		captureErr := func(err error) {
+			if err != nil && queryErr == nil {
+				queryErr = err
+			}
+		}
 		countWhere := func(dest *int64, model interface{}, conds ...interface{}) {
 			*dest = 0
+			if queryErr != nil {
+				return
+			}
 			q := db.Model(model)
 			if len(conds) > 0 {
 				q = q.Where(conds[0], conds[1:]...)
 			}
-			_ = q.Count(dest).Error
+			captureErr(q.Count(dest).Error)
 		}
 
 		// SBOM ingest + CVE match pipeline: rows in sboms and/or successful sbom_match_runs.
@@ -310,17 +375,17 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 		var cveRows, packageRows, activeCVEGeneration int64
 		if db.Migrator().HasTable("cves") {
-			db.Table("cves").Count(&cveRows)
+			captureErr(db.Table("cves").Count(&cveRows).Error)
 		}
 		if db.Migrator().HasTable("package_vulnerabilities") {
-			db.Table("package_vulnerabilities").Count(&packageRows)
+			captureErr(db.Table("package_vulnerabilities").Count(&packageRows).Error)
 		}
 		if db.Migrator().HasTable("catalog_generations") {
 			var generationID sql.NullInt64
-			_ = db.Table("catalog_generations").
+			captureErr(db.Table("catalog_generations").
 				Select("MAX(id)").
 				Where("catalog_type = ? AND status = ? AND deleted_at IS NULL", "cve", "active").
-				Scan(&generationID).Error
+				Scan(&generationID).Error)
 			if generationID.Valid {
 				activeCVEGeneration = generationID.Int64
 			}
@@ -355,6 +420,11 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 		policyActivity := policyViolations + policyInstances
 		if policyActivity == 0 && policyTemplates > 0 {
 			policyActivity = policyTemplates
+		}
+
+		if queryErr != nil {
+			respondDataUnavailable(c, "worker_metrics_query_failed", "Worker metrics could not be loaded")
+			return
 		}
 
 		// workerStatus derives a stage status from cumulative DB counts. This endpoint
@@ -444,11 +514,20 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 // Only DB-derived totalEvaluations is real; other fields require metrics and are omitted.
 func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "policy_evaluation_schema_unavailable",
+			"Policy evaluation metrics require the insights schema", "insights") {
+			return
+		}
 		var totalInsights int64
-		db.Model(&models.Insight{}).Count(&totalInsights)
+		if err := db.Model(&models.Insight{}).Count(&totalInsights).Error; err != nil {
+			respondDataUnavailable(c, "policy_evaluation_metrics_unavailable", "Policy evaluation metrics could not be loaded")
+			return
+		}
 		evaluationsPerDay := totalInsights * 10
 
 		c.JSON(http.StatusOK, gin.H{
+			"dataStatus":       "available",
 			"totalEvaluations": evaluationsPerDay,
 		})
 	}

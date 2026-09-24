@@ -47,7 +47,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		limit := 50
@@ -92,7 +92,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 
 		var total int64
 		if err := query.Count(&total).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Unable to count capabilities"})
+			respondDataUnavailable(c, "capability_inventory_count_failed", "Capability inventory could not be counted")
 			return
 		}
 
@@ -103,7 +103,7 @@ func GetPodCapabilitiesList(db *gorm.DB) gin.HandlerFunc {
 		}
 		var caps []ScanResult
 		if err := query.Order("pod_capabilities.created_at DESC").Offset(offset).Limit(limit).Scan(&caps).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 
@@ -159,7 +159,7 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		clusterID := c.Query("clusterId")
@@ -190,7 +190,7 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 		if err := query.Group("p.cluster_id, pc.namespace, pc.capability_id, pc.severity").
 			Order("p.cluster_id, pc.namespace, pc.capability_id, pc.severity").
 			Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 
@@ -210,7 +210,7 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -230,7 +230,7 @@ func GetPodCapabilitiesSummaryByCluster(db *gorm.DB) gin.HandlerFunc {
 
 		rows := []row{}
 		if err := query.Group("p.cluster_id").Order("p.cluster_id").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 
@@ -250,7 +250,7 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -278,7 +278,7 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 		rows := []row{}
 		if err := query.Group("pc.capability_id, pc.severity").
 			Order("pc.capability_id, pc.severity").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 
@@ -298,7 +298,7 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -329,7 +329,7 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 		rows := []row{}
 		if err := query.Group("pc.namespace, pc.severity").
 			Order("pc.namespace, pc.severity").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 
@@ -349,7 +349,7 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -375,7 +375,7 @@ func GetPodCapabilitiesSummaryBySeverity(db *gorm.DB) gin.HandlerFunc {
 
 		rows := []row{}
 		if err := query.Group("pc.severity").Order("pc.severity").Scan(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load capabilities"})
+			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
 
@@ -396,7 +396,7 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 		}
 		db := db.WithContext(c.Request.Context())
 		if !hasPodCapabilitiesTable(db) {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"error": "Capability inventory is unavailable; migration required"})
+			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
 			return
 		}
 		type row struct {
@@ -440,7 +440,7 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 			Severity  string
 		}
 		if err := query.Scan(&observations).Error; err != nil {
-			c.JSON(500, gin.H{"error": "Unable to load capability trends"})
+			respondDataUnavailable(c, "capability_trend_query_failed", "Capability trend data could not be loaded")
 			return
 		}
 		result := make([]row, days)
