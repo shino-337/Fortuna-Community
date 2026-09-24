@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { Cluster, ClusterOverview, ClusterInventory, ClusterAgent, ClusterSecuritySummary } from '../types';
@@ -35,6 +35,25 @@ export const ClusterDetail: React.FC = () => {
   const [securityLoaded, setSecurityLoaded] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const detailRequestRef = useRef(0);
+  const tabRequestRef = useRef(0);
+
+  useEffect(() => {
+    detailRequestRef.current += 1;
+    tabRequestRef.current += 1;
+    setCluster(null);
+    setOverview(null);
+    setInventory(null);
+    setAgents([]);
+    setSecuritySummary(null);
+    setLoadError(null);
+    setDetailIssues([]);
+    setTabIssue(null);
+    setInventoryLoaded(false);
+    setAgentsLoaded(false);
+    setSecurityLoaded(false);
+    setActiveTab('overview');
+  }, [id]);
 
   const fetchCluster = useCallback(async () => {
     if (!id) {
@@ -43,6 +62,7 @@ export const ClusterDetail: React.FC = () => {
       setOverview(null);
       return;
     }
+    const requestSeq = ++detailRequestRef.current;
     setLoading(true);
     setLoadError(null);
     const issues: AvailabilityIssue[] = [];
@@ -52,6 +72,8 @@ export const ClusterDetail: React.FC = () => {
         api.getClustersStats(),
         api.getClusterOverviewStrict(id),
       ]);
+
+      if (requestSeq !== detailRequestRef.current) return;
 
       if (clusterResult.status === 'fulfilled') {
         let nextCluster = clusterResult.value;
@@ -96,23 +118,28 @@ export const ClusterDetail: React.FC = () => {
 
   const fetchTabData = useCallback(async (tab: TabId) => {
     if (!id) return;
+    const requestSeq = ++tabRequestRef.current;
     setTabLoading(true);
     try {
       if (tab === 'inventory') {
         const data = await api.getClusterInventoryStrict(id);
+        if (requestSeq !== tabRequestRef.current) return;
         setInventory(data);
         setInventoryLoaded(true);
       } else if (tab === 'agents') {
         const { agents: list } = await api.getClusterAgentsStrict(id);
+        if (requestSeq !== tabRequestRef.current) return;
         setAgents(list);
         setAgentsLoaded(true);
       } else if (tab === 'security') {
         const data = await api.getClusterSecuritySummaryStrict(id);
+        if (requestSeq !== tabRequestRef.current) return;
         setSecuritySummary(data);
         setSecurityLoaded(true);
       }
       setTabIssue(null);
     } catch (err) {
+      if (requestSeq !== tabRequestRef.current) return;
       setTabIssue(getAvailabilityIssue(err, `Cluster ${tab}`));
     } finally {
       setTabLoading(false);
