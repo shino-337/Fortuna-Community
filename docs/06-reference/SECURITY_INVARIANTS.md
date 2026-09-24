@@ -68,7 +68,14 @@ security-summary endpoints:
 - Agent cluster identity and version come from the persisted Agent record. UI/API
   layers must not substitute a global latest cluster or a hardcoded version;
 - detail/list/summary views over the same backing dataset must agree on unavailable
-  semantics.
+  semantics;
+- contract-critical dashboard clients must preserve the distinction between
+  unavailable and empty: retryable `503` keeps last-known-good data and exposes a
+  retry path, non-retryable schema/migration `503` exposes operator guidance, and
+  only a successful `200` empty payload may render the normal empty/zero state;
+- client API adapters must not catch these endpoint failures and normalize them to
+  `[]`, `0`, or `null`. Malformed successful payloads on required fields are
+  protocol failures, not empty evidence.
 
 These rules are permanent named regressions under
 `scripts/verify/check-security-regressions.py`.
