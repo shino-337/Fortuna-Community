@@ -1,6 +1,6 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #52 merged on 2026-09-23 (merge commit `e8efc99`).
+Status verified after PR #53 merged on 2026-09-24 (merge commit `a6e49ff`).
 Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
@@ -136,14 +136,18 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   independent source-health proof and package F live-topology validation exist.
   Retention/partition/archive/storage metrics remain production-operations
   follow-up, not #52 correctness blockers. D is intentionally not yet complete.
-- E1 / PR #53 active draft: backend availability contract for stats, node,
-  capability and Agent observability APIs. Missing schema/query failures must not collapse into
-  legitimate zero/empty results; Agent version/cluster identity must come from the
-  persisted Agent record; data availability must remain distinct from Agent
-  heartbeat/liveness.
-- E2 follows E1: dashboard/detail/list retry and unavailable states consume the
-  backend contract consistently without replacing errors with zero KPIs.
-- D3 follows E2 and precedes final F acceptance: define a runtime source-health
+- E1 / PR #53 merged on 2026-09-24 (merge commit `a6e49ff`): backend availability
+  contract for stats, node, capability and Agent observability APIs is fail-closed.
+  Missing schema/query failures no longer collapse into legitimate zero/empty
+  results; Agent version/cluster identity comes from persisted Agent state and data
+  availability remains separate from heartbeat/liveness.
+- E2 primary-consumer compatibility was closed in PR #53 rather than a separate PR:
+  Dashboard, Clusters, Resources and Monitoring use strict contract-critical API
+  methods, preserve last-known-good data on retryable refresh failure, show
+  migration/operator guidance for non-retryable schema failures, and keep genuine
+  successful empty results distinct. Broader presentation polish remains ordinary UI
+  work, not an A-F correctness gate.
+- D3 is now active and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers
   that can prove upstream sensor health, and add evaluator regressions showing
@@ -170,9 +174,10 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52 is merged. Active work starts E1 from merge commit `e8efc99`; E1 must remain
-focused on API availability semantics and must not reopen runtime evidence or
-inventory ownership contracts.
+security regression gates passed. #51 was retired rather than reused. #52 is merged. Active work starts D3 from merge commit `a6e49ff`; D3 must remain focused on
+independent runtime source-health authority and must not infer health from event
+emptiness, file existence, reader heartbeat, configuration enablement or Agent
+liveness.
 
 
 ### Final #50 merge blockers closed
@@ -261,9 +266,10 @@ upstream health signal. The D3 acceptance contract is:
 - package F validates the protocol on the real DaemonSet/two-cluster topology
   before runtime auto-resolution is enabled in production.
 
-### E1 API availability merge gates
+### E1 API availability merge gates — merged in #53
 
-E1 starts after #52 and is the current implementation package. Merge only when:
+E1 and the primary-consumer E2 compatibility slice were completed in #53. The
+following remain permanent regression requirements:
 
 - required DB/schema/query failures return an explicit unavailable/error response
   rather than a successful zero/empty projection; transient query/storage failures
@@ -300,15 +306,17 @@ E1 starts after #52 and is the current implementation package. Merge only when:
 - named regressions are added to the permanent security contract;
 - exact-head Core/API/dashboard validation and Secret scan pass before merge.
 
-Current #53 execution order after the merged #52 baseline:
-1. close backend availability semantics for Agent, cluster/node, capability, system
-   metrics, pipeline health and dashboard data-integrity surfaces;
-2. re-scan aggregate/detail handlers for ignored DB errors and add named regressions
-   for every remaining zero-on-error path in E1 scope;
-3. freeze the backend response contract and run exact-head CI/security gates;
-4. merge #53 manually, then start E2 dashboard retry/unavailable-state consumption;
-5. after E2, implement D3 source-health/authority; only then execute final package F
-   live two-cluster/DaemonSet acceptance.
+Current execution order after merged #53 baseline:
+1. implement D3 source-health protocol and persisted lease keyed by authenticated
+   `{cluster_id, agent_id, producer_id, session_id}`;
+2. prove authority expires on session change, stop/disable, lease expiry and explicit
+   health failure, and that clean coverage without matching health stays
+   non-authoritative;
+3. add Agent-side health proof only for producers with a real independent upstream
+   signal; do not promote runtime-file/Falco merely because their reader is running;
+4. ratchet D3 regressions into the permanent security contract and run exact-head
+   Core/Agent/API/PostgreSQL/security gates;
+5. merge D3 manually, then execute package F live two-cluster/DaemonSet acceptance.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 
