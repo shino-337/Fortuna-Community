@@ -101,7 +101,7 @@ function statusBadgeClass(status: string | undefined): string {
   return 'bg-muted-2/80 text-text';
 }
 
-export const PodDetail: React.FC = () => {
+const PodDetailContent: React.FC = () => {
   const { id, uid } = useParams<{ id?: string; uid?: string }>();
   const location = useLocation();
   const navigate = useNavigate();
@@ -2526,4 +2526,19 @@ export const PodDetail: React.FC = () => {
       </Card>
     </PageLayout>
   );
+};
+
+
+/**
+ * Route-keyed boundary: last-known-good state is valid only for the same Pod identity.
+ * Remounting prevents delayed requests from a previous Pod route from contaminating
+ * the next Pod's primary or evidence state.
+ */
+export const PodDetail: React.FC = () => {
+  const { id, uid } = useParams<{ id?: string; uid?: string }>();
+  const location = useLocation();
+  const uidFromPath = matchPath({ path: '/resources/pods/uid/:uid', end: true }, location.pathname)?.params.uid;
+  const idFromPath = matchPath({ path: '/resources/pods/:id', end: true }, location.pathname)?.params.id;
+  const routeIdentity = uid ?? uidFromPath ?? id ?? idFromPath ?? location.pathname;
+  return <PodDetailContent key={routeIdentity} />;
 };
