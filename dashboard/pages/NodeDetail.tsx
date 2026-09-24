@@ -12,7 +12,7 @@ import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } 
 import { DataFreshness } from '../components/DataFreshness';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
-export const NodeDetail: React.FC = () => {
+const NodeDetailContent: React.FC = () => {
   const { clusterId, nodeName } = useParams<{ clusterId: string; nodeName: string }>();
   const navigate = useNavigate();
   const [node, setNode] = useState<NodeDetailResponse | null>(null);
@@ -192,4 +192,12 @@ export const NodeDetail: React.FC = () => {
       ) : null}
     </PageLayout>
   );
+};
+
+
+/** Keep last-known-good detail state scoped to one cluster/node route identity. */
+export const NodeDetail: React.FC = () => {
+  const { clusterId, nodeName } = useParams<{ clusterId: string; nodeName: string }>();
+  const routeIdentity = `${clusterId ?? 'missing-cluster'}/${nodeName ?? 'missing-node'}`;
+  return <NodeDetailContent key={routeIdentity} />;
 };
