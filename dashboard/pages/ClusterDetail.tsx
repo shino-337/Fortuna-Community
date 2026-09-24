@@ -16,7 +16,7 @@ import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
 type TabId = 'overview' | 'inventory' | 'agents' | 'security';
 
-export const ClusterDetail: React.FC = () => {
+const ClusterDetailContent: React.FC = () => {
   const params = useParams<{ id: string }>();
   const location = useLocation();
   const id = params.id ?? matchPath({ path: '/clusters/:id', end: true }, location.pathname)?.params.id;
@@ -425,4 +425,11 @@ export const ClusterDetail: React.FC = () => {
       )}
     </PageLayout>
   );
+};
+
+
+/** Keep last-known-good detail state scoped to one cluster route identity. */
+export const ClusterDetail: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <ClusterDetailContent key={id ?? 'missing-cluster'} />;
 };
