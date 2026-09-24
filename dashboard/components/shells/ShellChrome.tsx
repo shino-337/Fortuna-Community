@@ -214,7 +214,7 @@ export const ShellChrome: React.FC<{
               ))
             ) : (
               <div className="px-3 py-3 text-caption text-muted">
-                {clustersLoading ? 'Loading clusters…' : 'No clusters discovered'}
+                {clusterAvailabilityIssue ? 'Cluster inventory unavailable' : clustersLoading ? 'Loading clusters…' : 'No clusters discovered'}
               </div>
             )}
           </div>
