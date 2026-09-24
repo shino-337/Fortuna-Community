@@ -93,7 +93,10 @@ func TestAgentStatusUsesPersistedIdentityVersionAndHeartbeat(t *testing.T) {
 
 func TestSystemMetricsBackingQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Cluster{})
+	db := availabilityTestDB(t, &models.Cluster{}, &models.ServiceAccount{}, &models.Insight{})
+	// Keep the table present so this exercises a transient/query failure rather
+	// than the non-retryable missing-schema path.
+	require.NoError(t, db.Exec("CREATE TABLE pods (id INTEGER PRIMARY KEY)").Error)
 	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/system")
 	GetSystemMetrics(db)(c)
 
@@ -341,6 +344,9 @@ func TestWorkerMetricsQueryFailureIsUnavailable(t *testing.T) {
 func TestPolicyEvaluationMetricsFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t)
+	// Table existence satisfies the schema precheck, while the intentionally
+	// incomplete shape forces the backing Count query to fail.
+	require.NoError(t, db.Exec("CREATE TABLE insights (id INTEGER PRIMARY KEY)").Error)
 	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/policy-evaluation-cost")
 	GetPolicyEvaluationCost(db)(c)
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
