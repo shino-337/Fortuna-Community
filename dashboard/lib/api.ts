@@ -189,9 +189,9 @@ export type AvailabilityIssue = {
 };
 
 export function getAvailabilityIssue(error: unknown, subject = 'Data'): AvailabilityIssue {
-  if (isApiError(error) && error.status === 503) {
+  if (isApiError(error) && (error.status === 503 || error.body?.retryable != null)) {
     const retryable = error.body?.retryable !== false;
-    const detail = error.body?.error?.trim();
+    const detail = error.body?.error?.trim() || error.message.trim();
     return retryable
       ? {
           retryable: true,
@@ -231,7 +231,7 @@ export function isApiError(error: unknown): error is ApiError {
 }
 
 function invalidResponse(code: string, message: string): never {
-  throw new ApiError(502, message, { code, retryable: true });
+  throw new ApiError(502, message, { code, error: message, retryable: true });
 }
 
 function requireFiniteNumber(value: unknown, code: string, field: string): number {
