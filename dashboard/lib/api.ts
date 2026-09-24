@@ -720,31 +720,37 @@ export const api = {
   /** GET /api/v1/clusters – active clusters only (cutoff), SSOT from DB */
   getClusters: async (): Promise<Cluster[]> => {
     try {
-      const data = await request<{ clusters: Array<Record<string, unknown>> }>('/inventory/clusters');
-      const list = data.clusters || [];
-      return list.map((c: Record<string, unknown>) => {
-        const id = String(c.id ?? '');
-        const name = String(c.name ?? c.id ?? '').trim() || id;
-        const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
-        return {
-          id,
-          name,
-          region: c.region != null ? String(c.region) : undefined,
-          endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
-          status: c.status != null ? String(c.status) : 'unknown',
-          lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
-          version: k8sVersion,
-          k8sVersion,
-          source: c.source != null ? String(c.source) : undefined,
-          distribution: c.distribution != null ? String(c.distribution) : undefined,
-          nodes: typeof c.nodes === 'number' ? c.nodes : undefined,
-          pods: typeof c.pods === 'number' ? c.pods : undefined,
-          healthScore: (c.status === 'active' ? 90 : c.status === 'inactive' ? 50 : 40) as number,
-        } as Cluster;
-      });
-    } catch (err) {
+      return await api.getClustersStrict();
+    } catch {
       return [];
     }
+  },
+
+  getClustersStrict: async (): Promise<Cluster[]> => {
+    const data = await request<{ clusters?: Array<Record<string, unknown>> }>('/inventory/clusters');
+    if (!Array.isArray(data.clusters)) {
+      invalidResponse('cluster_inventory_invalid_response', 'Cluster inventory response is missing the clusters array');
+    }
+    return data.clusters.map((c: Record<string, unknown>) => {
+      const id = String(c.id ?? '');
+      const name = String(c.name ?? c.id ?? '').trim() || id;
+      const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
+      return {
+        id,
+        name,
+        region: c.region != null ? String(c.region) : undefined,
+        endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
+        status: c.status != null ? String(c.status) : 'unknown',
+        lastSync: c.lastSync != null ? String(c.lastSync) : undefined,
+        version: k8sVersion,
+        k8sVersion,
+        source: c.source != null ? String(c.source) : undefined,
+        distribution: c.distribution != null ? String(c.distribution) : undefined,
+        nodes: typeof c.nodes === 'number' ? c.nodes : undefined,
+        pods: typeof c.pods === 'number' ? c.pods : undefined,
+        healthScore: (c.status === 'active' ? 90 : c.status === 'inactive' ? 50 : 40) as number,
+      } as Cluster;
+    });
   },
 
   /** GET /api/v1/clusters/stats – same list + podCount, deploymentCount, connectionStatus (same cutoff as API) */
