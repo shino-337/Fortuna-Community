@@ -2266,6 +2266,13 @@ export const api = {
   /** GET /api/v1/risk/pods/:uid/report – risk report for pod */
   getPodRiskReport: async (podUid: string): Promise<PodRiskReport> => {
     try {
+      return await api.getPodRiskReportStrict(podUid);
+    } catch {
+      return { podUid, podName: '', namespace: '', clusterId: '', insights: [] };
+    }
+  },
+
+  getPodRiskReportStrict: async (podUid: string): Promise<PodRiskReport> => {
       const data = await request<Record<string, unknown> & { insights?: unknown[]; summary?: Record<string, unknown> }>(
         `/risk/pods/${encodeURIComponent(podUid)}/report`,
       );
@@ -2331,9 +2338,6 @@ export const api = {
         insights,
         summary,
       };
-    } catch {
-      return { podUid, podName: '', namespace: '', clusterId: '', insights: [] };
-    }
   },
 
   /** byType 'all' = all insight types (default 'vulnerability' = CVE only). */
