@@ -163,13 +163,14 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	}
 	if err := ensureModelColumns(db, &models.RuntimeProducerState{}, []string{
 		"ClusterID", "AgentID", "ProducerID", "SourceKind", "SessionID",
-		"SessionStartedAt", "Enabled", "Authoritative", "State",
+		"SessionStartedAt", "Enabled", "Authoritative",
+		"SourceHealthStatus", "SourceHealthProofKind", "SourceHealthObservedAt", "SourceHealthValidUntil", "State",
 		"LastManifestAt", "LastHeartbeatAt", "LastCoverageID",
 		"LastCoverageEnd", "GapSince", "GapReason",
 	}); err != nil {
 		return fmt.Errorf("runtime producer state columns: %w", err)
 	}
-	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
+	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,source_health_status,source_health_proof_kind,source_health_observed_at,source_health_valid_until,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
 		return err
 	}
 	var unownedProducer int64
@@ -187,5 +188,32 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := ensureIndex(db, "idx_runtime_producer_session", "runtime_producer_states", "session_id", false); err != nil {
 		return err
 	}
-	return ensureIndex(db, "idx_runtime_producer_heartbeat", "runtime_producer_states", "last_heartbeat_at", false)
+	if err := ensureIndex(db, "idx_runtime_producer_heartbeat", "runtime_producer_states", "last_heartbeat_at", false); err != nil {
+		return err
+	}
+
+	if !db.Migrator().HasTable(&models.RuntimeSourceHealth{}) {
+		if err := db.Migrator().CreateTable(&models.RuntimeSourceHealth{}); err != nil {
+			return err
+		}
+	}
+	if err := ensureModelColumns(db, &models.RuntimeSourceHealth{}, []string{
+		"ClusterID", "AgentID", "ProducerID", "SessionID", "SourceKind",
+		"Status", "ProofKind", "ObservedAt", "ValidUntil", "ReceivedAt", "Reason",
+	}); err != nil {
+		return fmt.Errorf("runtime source health columns: %w", err)
+	}
+	var unownedHealth int64
+	if err := db.Table("runtime_source_healths").
+		Where("cluster_id IS NULL OR cluster_id = '' OR agent_id IS NULL OR agent_id = '' OR producer_id IS NULL OR producer_id = '' OR session_id IS NULL OR session_id = ''").
+		Count(&unownedHealth).Error; err != nil {
+		return err
+	}
+	if unownedHealth != 0 {
+		return fmt.Errorf("runtime source health contains %d rows without exact producer/session identity", unownedHealth)
+	}
+	if err := ensureIndex(db, "idx_runtime_source_health_identity", "runtime_source_healths", "cluster_id,agent_id,producer_id", true); err != nil {
+		return err
+	}
+	return ensureIndex(db, "idx_runtime_source_health_valid_until", "runtime_source_healths", "valid_until", false)
 }
