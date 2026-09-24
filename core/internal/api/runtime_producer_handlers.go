@@ -31,7 +31,7 @@ func runtimeProducerManifestState(decl collection.RuntimeProducerDeclaration, ag
 		ProducerID: decl.ProducerID,
 		SourceKind: decl.SourceKind,
 		Enabled: decl.Enabled,
-		Authoritative: decl.Authoritative,
+		Authoritative: false,
 		State: state,
 		GapSince: &g,
 		GapReason: reason,
@@ -104,7 +104,6 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 
 				next := prior
 				next.Enabled = decl.Enabled
-				next.Authoritative = decl.Authoritative
 				next.LastManifestAt = req.ReportedAt
 				next.LastHeartbeatAt = now
 
@@ -115,6 +114,11 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					reset := runtimeProducerManifestState(decl, req.AgentState, req.SessionStartedAt, "agent_restart")
 					next.SessionID = req.SessionID
 					next.SessionStartedAt = req.SessionStartedAt
+					next.Authoritative = false
+					next.SourceHealthStatus = ""
+					next.SourceHealthProofKind = ""
+					next.SourceHealthObservedAt = nil
+					next.SourceHealthValidUntil = nil
 					next.State = reset.State
 					// A restart invalidates continuity from the last accepted
 					// producer observation, not merely from the new process start.
@@ -136,6 +140,11 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					switch {
 					case req.AgentState == collection.RuntimeAgentStopping:
 						next.State = collection.RuntimeProducerStopped
+						next.Authoritative = false
+						next.SourceHealthStatus = ""
+						next.SourceHealthProofKind = ""
+						next.SourceHealthObservedAt = nil
+						next.SourceHealthValidUntil = nil
 						if prior.State != collection.RuntimeProducerStopped || prior.GapSince == nil {
 							gap := req.ReportedAt
 							next.GapSince = &gap
@@ -147,6 +156,11 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 							next.GapSince = &gap
 						}
 						next.State = collection.RuntimeProducerDisabled
+						next.Authoritative = false
+						next.SourceHealthStatus = ""
+						next.SourceHealthProofKind = ""
+						next.SourceHealthObservedAt = nil
+						next.SourceHealthValidUntil = nil
 						next.GapReason = "disabled"
 					case !prior.Enabled || prior.State == collection.RuntimeProducerDisabled || prior.State == collection.RuntimeProducerStopped:
 						next.State = collection.RuntimeProducerStarting
@@ -155,6 +169,11 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						next.GapReason = "enabled"
 					case leaseExpired:
 						next.State = collection.RuntimeProducerStarting
+						next.Authoritative = false
+						next.SourceHealthStatus = ""
+						next.SourceHealthProofKind = ""
+						next.SourceHealthObservedAt = nil
+						next.SourceHealthValidUntil = nil
 						gap := prior.LastHeartbeatAt.Add(collection.RuntimeProducerLeaseMaxAge)
 						if prior.LastHeartbeatAt.IsZero() || gap.After(now) {
 							gap = now
@@ -177,6 +196,10 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					"session_started_at": next.SessionStartedAt,
 					"enabled": next.Enabled,
 					"authoritative": next.Authoritative,
+					"source_health_status": next.SourceHealthStatus,
+					"source_health_proof_kind": next.SourceHealthProofKind,
+					"source_health_observed_at": next.SourceHealthObservedAt,
+					"source_health_valid_until": next.SourceHealthValidUntil,
 					"state": next.State,
 					"last_manifest_at": next.LastManifestAt,
 					"last_heartbeat_at": next.LastHeartbeatAt,
