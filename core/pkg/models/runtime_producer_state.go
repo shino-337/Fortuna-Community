@@ -22,10 +22,38 @@ type RuntimeProducerState struct {
 	State             string     `gorm:"size:32;index" json:"state"`
 	LastManifestAt    time.Time  `json:"lastManifestAt"`
 	LastHeartbeatAt   time.Time  `gorm:"index" json:"lastHeartbeatAt"`
-	LastCoverageID    string     `gorm:"size:128" json:"lastCoverageId,omitempty"`
-	LastCoverageEnd   *time.Time `gorm:"index" json:"lastCoverageEnd,omitempty"`
-	GapSince          *time.Time `gorm:"index" json:"gapSince,omitempty"`
-	GapReason         string     `gorm:"size:128" json:"gapReason,omitempty"`
+	LastCoverageID          string     `gorm:"size:128" json:"lastCoverageId,omitempty"`
+	LastCoverageEnd         *time.Time `gorm:"index" json:"lastCoverageEnd,omitempty"`
+	SourceHealthID          string     `gorm:"size:128" json:"sourceHealthId,omitempty"`
+	SourceHealthStatus      string     `gorm:"size:32;index" json:"sourceHealthStatus,omitempty"`
+	SourceHealthProbeKind   string     `gorm:"size:64;index" json:"sourceHealthProbeKind,omitempty"`
+	SourceInstanceID        string     `gorm:"size:255;index" json:"sourceInstanceId,omitempty"`
+	SourceHealthObservedAt  *time.Time `gorm:"index" json:"sourceHealthObservedAt,omitempty"`
+	SourceHealthHealthySince *time.Time `gorm:"index" json:"sourceHealthHealthySince,omitempty"`
+	SourceHealthReason      string     `gorm:"size:512" json:"sourceHealthReason,omitempty"`
+	GapSince                *time.Time `gorm:"index" json:"gapSince,omitempty"`
+	GapReason               string     `gorm:"size:128" json:"gapReason,omitempty"`
+}
+
+func (s RuntimeProducerState) SourceHealthFresh(now time.Time) bool {
+	return s.Authoritative &&
+		s.SourceHealthStatus == collection.RuntimeSourceHealthHealthy &&
+		s.SourceHealthObservedAt != nil && !s.SourceHealthObservedAt.IsZero() &&
+		!now.Before(*s.SourceHealthObservedAt) &&
+		now.Sub(*s.SourceHealthObservedAt) <= collection.RuntimeSourceHealthMaxGap &&
+		s.SourceHealthHealthySince != nil && !s.SourceHealthHealthySince.IsZero()
+}
+
+// SourceHealthCovers is the bounded upstream-health primitive. A coverage window
+// is absence-eligible only when it lies entirely inside the continuously healthy
+// source interval observed for the exact current producer/session.
+func (s RuntimeProducerState) SourceHealthCovers(start, end, now time.Time) bool {
+	if start.IsZero() || end.IsZero() || end.Before(start) || !s.SourceHealthFresh(now) {
+		return false
+	}
+	return !s.SourceHealthHealthySince.After(start) &&
+		s.SourceHealthObservedAt != nil &&
+		!s.SourceHealthObservedAt.Before(end)
 }
 
 func (s RuntimeProducerState) LeaseFresh(now time.Time) bool {
@@ -53,7 +81,7 @@ func (s RuntimeProducerState) EffectiveStatus(now time.Time) string {
 			now.Sub(*s.LastCoverageEnd) > collection.RuntimeProducerLeaseMaxAge {
 			return "stale"
 		}
-		if !s.Authoritative {
+		if !s.SourceHealthFresh(now) {
 			return collection.RuntimeProducerNonAuthoritative
 		}
 		return s.State
