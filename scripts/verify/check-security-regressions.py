@@ -123,6 +123,7 @@ REQUIRED = {
         "TestAgentStatusUsesPersistedIdentityVersionAndHeartbeat",
         "TestSystemMetricsBackingQueryFailureIsUnavailable",
         "TestSystemMetricsCountsDuplicatePodUIDAcrossClustersSeparately",
+        "TestDashboardStatsAffectedPodCountUsesActiveInventoryScope",
         "TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters",
         "TestDashboardStatsBackingQueryFailureIsUnavailable",
         "TestDashboardStatsMissingSchemaIsNonRetryable",
