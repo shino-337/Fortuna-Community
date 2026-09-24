@@ -534,7 +534,7 @@ export const PodDetail: React.FC = () => {
       return;
     }
     api
-      .getPodRiskReport(pod.uid)
+      .getPodRiskReportStrict(pod.uid)
       .then((report) => {
         applyPodRiskReport(report, pod);
         setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
@@ -736,7 +736,6 @@ export const PodDetail: React.FC = () => {
                     setDataErrors((p) => p.filter((e) => e !== 'sbom'));
                   })
                   .catch(() => {
-                    setSbom(null);
                     setSbomLoaded(true);
                     setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
                   });
@@ -852,7 +851,6 @@ export const PodDetail: React.FC = () => {
                     setDataErrors((p) => p.filter((e) => e !== 'sbom'));
                   })
                   .catch(() => {
-                    setSbom(null);
                     setSbomLoaded(true);
                     setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
                   });
