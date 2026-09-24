@@ -99,7 +99,11 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
   },
 
   invalidateClusters: () => {
-    set({ clusters: null });
+    set((state) => ({
+      clusters: state.clusters
+        ? { ...state.clusters, fetchedAt: 0, pending: undefined }
+        : null,
+    }));
     clusterFetchPromise = null;
   },
 
