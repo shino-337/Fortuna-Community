@@ -246,3 +246,26 @@ test('pod refresh 503 preserves last-known-good pod detail', async ({ page }) =>
   await expect(page.getByText('10.0.0.10', { exact: true })).toBeVisible();
   await expect(page.getByText('Pod not found', { exact: true })).toHaveCount(0);
 });
+
+
+test('pod runtime evidence 503 remains unavailable instead of empty', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') {
+      return route.fulfill({ json: pod });
+    }
+    if (path.includes('/runtime/pods/pod-a/signals')) {
+      return route.fulfill(unavailable('runtime_signals_unavailable', 'Runtime signal query failed'));
+    }
+    if (path.includes('/runtime/signals/suppression-stats')) {
+      return route.fulfill(unavailable('runtime_signal_stats_unavailable', 'Runtime signal statistics query failed'));
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  const detailPath = encodeURIComponent('/resources/pods/uid/pod-a?tab=events');
+  await page.goto(`${fixture}?path=${detailPath}`);
+  await expect(page.getByText(/Failed to load:/)).toBeVisible();
+  await expect(page.getByText(/signals/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Retry', exact: true })).toBeVisible();
+});
