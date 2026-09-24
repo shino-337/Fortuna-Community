@@ -57,8 +57,10 @@ interface PodCache {
 
 type EntityState = ClusterCache & InsightCache & PodCache;
 
-// We use a singleton promise to deduplicate cluster fetches
+// We use a singleton promise to deduplicate cluster fetches. The generation
+// prevents an invalidated/stale request from committing after a newer refresh.
 let clusterFetchPromise: Promise<Cluster[]> | null = null;
+let clusterFetchGeneration = 0;
 
 export const useEntityStore = create<EntityState>()((set, get) => ({
   /* ── clusters ─────────────────────────────────────────────── */
@@ -71,21 +73,26 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
     if (state.clusters && !isStale(state.clusters, 60_000)) {
       return state.clusters.data;
     }
-    // Deduplicate in-flight requests
+    // Deduplicate in-flight requests for the current generation.
     if (clusterFetchPromise) {
       return clusterFetchPromise;
     }
-    clusterFetchPromise = fetcher()
+    const generation = clusterFetchGeneration;
+    const request = fetcher()
       .then((data) => {
-        set({ clusters: { data, fetchedAt: Date.now() } });
-        clusterFetchPromise = null;
+        if (generation === clusterFetchGeneration) {
+          set({ clusters: { data, fetchedAt: Date.now() } });
+        }
         return data;
       })
-      .catch((err) => {
-        clusterFetchPromise = null;
-        throw err;
+      .finally(() => {
+        // An older request must never clear a newer in-flight request.
+        if (clusterFetchPromise === request) {
+          clusterFetchPromise = null;
+        }
       });
-    return clusterFetchPromise;
+    clusterFetchPromise = request;
+    return request;
   },
 
   /** Direct set (from WebSocket or manual refresh). */
@@ -99,6 +106,7 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
   },
 
   invalidateClusters: () => {
+    clusterFetchGeneration += 1;
     set((state) => ({
       clusters: state.clusters
         ? { ...state.clusters, fetchedAt: 0, pending: undefined }
