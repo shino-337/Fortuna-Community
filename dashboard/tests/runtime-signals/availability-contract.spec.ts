@@ -64,7 +64,7 @@ test('non-retryable schema 503 shows migration and operator guidance', async ({ 
 
   await page.goto(fixture);
   await expect(page.getByText('Cluster inventory requires operator action', { exact: true })).toBeVisible();
-  await expect(page.getByText(/Apply the required migration\/deployment repair or contact the platform operator/)).toBeVisible();
+  await expect(page.getByText(/Apply the required migration\/deployment repair or contact the platform operator/).first()).toBeVisible();
   await expect(page.getByText('No clusters match current filters', { exact: true })).toHaveCount(0);
 });
 
