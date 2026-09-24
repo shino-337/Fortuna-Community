@@ -164,13 +164,13 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := ensureModelColumns(db, &models.RuntimeProducerState{}, []string{
 		"ClusterID", "AgentID", "ProducerID", "SourceKind", "SessionID",
 		"SessionStartedAt", "Enabled", "Authoritative",
-		"SourceHealthStatus", "SourceHealthProofKind", "SourceHealthObservedAt", "SourceHealthValidUntil", "State",
+		"SourceHealthStatus", "SourceHealthProofKind", "SourceHealthObservedAt", "SourceHealthContinuousSince", "SourceHealthValidUntil", "State",
 		"LastManifestAt", "LastHeartbeatAt", "LastCoverageID",
 		"LastCoverageEnd", "GapSince", "GapReason",
 	}); err != nil {
 		return fmt.Errorf("runtime producer state columns: %w", err)
 	}
-	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,source_health_status,source_health_proof_kind,source_health_observed_at,source_health_valid_until,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
+	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,source_health_status,source_health_proof_kind,source_health_observed_at,source_health_continuous_since,source_health_valid_until,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
 		return err
 	}
 	var unownedProducer int64
@@ -199,7 +199,7 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	}
 	if err := ensureModelColumns(db, &models.RuntimeSourceHealth{}, []string{
 		"ClusterID", "AgentID", "ProducerID", "SessionID", "SourceKind",
-		"Status", "ProofKind", "ObservedAt", "ValidUntil", "ReceivedAt", "Reason",
+		"Status", "ProofKind", "ObservedAt", "ContinuousSince", "ValidUntil", "ReceivedAt", "Reason",
 	}); err != nil {
 		return fmt.Errorf("runtime source health columns: %w", err)
 	}
