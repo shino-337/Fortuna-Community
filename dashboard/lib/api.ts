@@ -716,6 +716,9 @@ export const api = {
     if (!data || typeof data !== 'object' || !String(data.clusterId ?? '').trim() || !String(data.nodeName ?? '').trim()) {
       invalidResponse('cluster_node_invalid_response', 'Node detail response is missing clusterId or nodeName');
     }
+    if (String(data.clusterId) !== clusterId || String(data.nodeName) !== nodeName) {
+      invalidResponse('cluster_node_identity_mismatch', 'Node detail response does not match the requested cluster and node');
+    }
     if (data.pods != null && !Array.isArray(data.pods)) {
       invalidResponse('cluster_node_invalid_response', 'Node detail response has an invalid pods array');
     }
@@ -776,7 +779,10 @@ export const api = {
       invalidResponse('cluster_inventory_invalid_response', 'Cluster inventory response is missing the clusters array');
     }
     return data.clusters.map((c: Record<string, unknown>) => {
-      const id = String(c.id ?? '');
+      const id = String(c.id ?? '').trim();
+      if (!id) {
+        invalidResponse('cluster_inventory_invalid_response', 'Cluster inventory contains an entry without an id');
+      }
       const name = String(c.name ?? c.id ?? '').trim() || id;
       const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
       return {
@@ -805,7 +811,10 @@ export const api = {
     }
     const list = data.clusters;
     return list.map((c: Record<string, unknown>) => {
-      const id = String(c.id ?? '');
+      const id = String(c.id ?? '').trim();
+      if (!id) {
+        invalidResponse('cluster_stats_invalid_response', 'Cluster statistics contain an entry without an id');
+      }
       const name = String(c.name ?? c.id ?? '').trim() || id;
       const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
       const connectionStatus = c.connectionStatus != null ? String(c.connectionStatus) : undefined;
