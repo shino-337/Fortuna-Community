@@ -112,7 +112,7 @@ export const ClusterDetail: React.FC = () => {
       }
       setDetailIssues(issues);
     } finally {
-      setLoading(false);
+      if (requestSeq === detailRequestRef.current) setLoading(false);
     }
   }, [id]);
 
@@ -142,7 +142,7 @@ export const ClusterDetail: React.FC = () => {
       if (requestSeq !== tabRequestRef.current) return;
       setTabIssue(getAvailabilityIssue(err, `Cluster ${tab}`));
     } finally {
-      setTabLoading(false);
+      if (requestSeq === tabRequestRef.current) setTabLoading(false);
     }
   }, [id]);
 
