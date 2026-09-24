@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { matchPath, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import {
   PodWithRisk,
   PodSbom,
@@ -20,6 +20,7 @@ import { useClusters } from '../hooks/useClusters';
 import { RUNTIME_SIGNALS_LOOKBACK_MINUTES } from '../lib/runtimeLookback';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PinToInvestigationButton } from '../components/PinToInvestigationButton';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { podInvestigationEntity } from '../lib/investigationEntities';
 import { Tabs } from '../design-system/components/Tabs';
 import { Card } from '../design-system/components/Card';
@@ -111,6 +112,7 @@ export const PodDetail: React.FC = () => {
   const [relatedRisks, setRelatedRisks] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [podAvailabilityIssue, setPodAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [activeTab, setActiveTab] = useState<TabId>(() => normalizeTabId(searchParams.get('tab')));
   const [tabLoading, setTabLoading] = useState(false);
   const [sbomLoaded, setSbomLoaded] = useState(false);
@@ -162,48 +164,43 @@ export const PodDetail: React.FC = () => {
   const loadSbomForPod = useCallback(
     async (podRef: Pick<PodWithRisk, 'uid' | 'name' | 'namespace'>): Promise<PodSbom | null> => {
       try {
-        const detailed = await api.getPodSbom(podRef.uid);
-        if (detailed) return detailed;
-      } catch {
-        // Fallback below
+        return await api.getPodSbomStrict(podRef.uid);
+      } catch (err) {
+        if (!(isApiError(err) && err.status === 404)) throw err;
       }
 
-      try {
-        const summaries = await api.getSbomList({
-          podName: podRef.name,
-          namespace: podRef.namespace,
-        });
-        const exact =
-          summaries.find((s) => s.podName === podRef.name && s.namespace === podRef.namespace) ??
-          summaries[0];
-        if (!exact) return null;
-        const vulnSummary = exact.vulnerabilitySummary ?? { critical: 0, high: 0, medium: 0, low: 0 };
-        const vulnerablePackageCount =
-          Number(vulnSummary.critical ?? 0) +
-          Number(vulnSummary.high ?? 0) +
-          Number(vulnSummary.medium ?? 0) +
-          Number(vulnSummary.low ?? 0);
-        return {
-          podId: exact.podId || podRef.uid,
-          podName: exact.podName || podRef.name,
-          namespace: exact.namespace || podRef.namespace,
-          image: exact.image || '',
-          imageDigest: exact.imageDigest,
-          imageTrust: exact.imageTrust,
-          packageCount: exact.packageCount,
-          vulnerablePackageCount,
-          vulnerabilitySummary: vulnSummary,
-          components: [],
-          generatedAt: exact.lastScan,
-          activePod: exact.activePod,
-          lifecycleState: exact.lifecycleState,
-          sbomSource: exact.sbomSource,
-          confidence: exact.confidence,
-          goVersion: exact.goVersion,
-        };
-      } catch {
-        return null;
-      }
+      const summaries = await api.getSbomListStrict({
+        podName: podRef.name,
+        namespace: podRef.namespace,
+      });
+      const exact =
+        summaries.find((item) => item.podName === podRef.name && item.namespace === podRef.namespace) ??
+        summaries[0];
+      if (!exact) return null;
+      const vulnSummary = exact.vulnerabilitySummary ?? { critical: 0, high: 0, medium: 0, low: 0 };
+      const vulnerablePackageCount =
+        Number(vulnSummary.critical ?? 0) +
+        Number(vulnSummary.high ?? 0) +
+        Number(vulnSummary.medium ?? 0) +
+        Number(vulnSummary.low ?? 0);
+      return {
+        podId: exact.podId || podRef.uid,
+        podName: exact.podName || podRef.name,
+        namespace: exact.namespace || podRef.namespace,
+        image: exact.image || '',
+        imageDigest: exact.imageDigest,
+        imageTrust: exact.imageTrust,
+        packageCount: exact.packageCount,
+        vulnerablePackageCount,
+        vulnerabilitySummary: vulnSummary,
+        components: [],
+        generatedAt: exact.lastScan,
+        activePod: exact.activePod,
+        lifecycleState: exact.lifecycleState,
+        sbomSource: exact.sbomSource,
+        confidence: exact.confidence,
+        goVersion: exact.goVersion,
+      };
     },
     []
   );
@@ -355,6 +352,7 @@ export const PodDetail: React.FC = () => {
         }
       }
       setPod(data);
+      setPodAvailabilityIssue(null);
       setServiceAccountRef(null);
       setServiceAccountLookupComplete(false);
       if (data?.serviceAccount) {
@@ -381,8 +379,9 @@ export const PodDetail: React.FC = () => {
         }).catch(() => {/* non-critical */});
       }
     } catch (e) {
-      setPod(null);
-      setLoadError(e instanceof Error ? e.message : 'Failed to load pod detail');
+      const issue = getAvailabilityIssue(e, 'Pod detail');
+      setPodAvailabilityIssue(issue);
+      setLoadError(issue.description);
     } finally {
       setLoading(false);
     }
@@ -406,7 +405,6 @@ export const PodDetail: React.FC = () => {
               setSbomLoaded(true);
               setDataErrors((p) => p.filter((e) => e !== 'sbom'));
             } catch {
-              setSbom(null);
               setSbomLoaded(true);
               setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
             }
@@ -418,47 +416,45 @@ export const PodDetail: React.FC = () => {
               applyPodRiskReport(report, pod);
               setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
             } catch {
-              setRelatedRisks([]);
-              setPodRiskReportSummary(null);
               setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
             }
           }
         } else if (tab === 'processes') {
           if (processes.length === 0) {
-            const data = await api.getPodProcesses(uid);
+            const data = await api.getPodProcessesStrict(uid);
             setProcesses(data);
           }
         } else if (tab === 'network') {
           if (networkConnections.length === 0) {
             const [data, topDest] = await Promise.all([
-              api.getPodNetworkConnections(uid),
-              api.getPodNetworkTopDestinations(uid, { sinceMinutes: 1440 }),
+              api.getPodNetworkConnectionsStrict(uid),
+              api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440 }),
             ]);
             setNetworkConnections(data);
             setNetworkTopDestinations(topDest);
           } else if (networkTopDestinations.length === 0) {
-            const topDest = await api.getPodNetworkTopDestinations(uid, { sinceMinutes: 1440 });
+            const topDest = await api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440 });
             setNetworkTopDestinations(topDest);
           }
         } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
           // GAP 4: fetch each slice independently — avoids skipping when only one of preload/API calls failed
           const tasks: Promise<unknown>[] = [];
           if (podEvents.length === 0) {
-            tasks.push(api.getPodEvents(uid).then(setPodEvents).catch(() => undefined));
+            tasks.push(api.getPodEventsStrict(uid).then(setPodEvents).catch(() => undefined));
           }
           if (runtimeSecurityEvents.length === 0) {
             tasks.push(
-              api.getPodRuntimeSecurityEvents(uid, 150).then(setRuntimeSecurityEvents).catch(() => undefined),
+              api.getPodRuntimeSecurityEventsStrict(uid, 150).then(setRuntimeSecurityEvents).catch(() => undefined),
             );
           }
           if (runtimeFacts.length === 0) {
-            tasks.push(api.getPodRuntimeBehaviorFactsV2(uid, 120).then(setRuntimeFacts).catch(() => undefined));
+            tasks.push(api.getPodRuntimeBehaviorFactsV2Strict(uid, 120).then(setRuntimeFacts).catch(() => undefined));
           }
           if (runtimeIncidents.length === 0) {
-            tasks.push(api.getPodRuntimeIncidentsV2(uid, 80).then(setRuntimeIncidents).catch(() => undefined));
+            tasks.push(api.getPodRuntimeIncidentsV2Strict(uid, 80).then(setRuntimeIncidents).catch(() => undefined));
           }
           if (podCapabilities.length === 0) {
-            tasks.push(api.getPodCapabilities(uid).then(setPodCapabilities).catch(() => undefined));
+            tasks.push(api.getPodCapabilitiesStrict(uid).then(setPodCapabilities).catch(() => undefined));
           }
           if (runtimeSignals.length === 0) {
             tasks.push(
@@ -522,7 +518,6 @@ export const PodDetail: React.FC = () => {
           setDataErrors((p) => p.filter((e) => e !== 'sbom'));
         })
         .catch(() => {
-          setSbom(null);
           setSbomLoaded(true);
           setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
         });
@@ -545,8 +540,6 @@ export const PodDetail: React.FC = () => {
         setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
       })
       .catch(() => {
-        setRelatedRisks([]);
-        setPodRiskReportSummary(null);
         setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
       });
   }, [pod?.uid]);
@@ -558,17 +551,17 @@ export const PodDetail: React.FC = () => {
       errors.push(label);
     };
     Promise.all([
-      api.getPodRuntimeMetrics(podUid).then(setRuntimeMetrics).catch(track('metrics')),
-      api.getPodProcesses(podUid).then(setProcesses).catch(track('processes')),
-      api.getPodNetworkConnections(podUid).then(setNetworkConnections).catch(track('network')),
-      api.getPodNetworkTopDestinations(podUid, { sinceMinutes: 1440 }).then(setNetworkTopDestinations).catch(track('top-dest')),
-      api.getPodEvents(podUid).then(setPodEvents).catch(track('events')),
-      api.getPodRuntimeSecurityEvents(podUid, 150).then(setRuntimeSecurityEvents).catch(track('security-events')),
-      api.getRuntimeSignalsByPod(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(track('signals')),
-      api.getPodRuntimeBehaviorFactsV2(podUid, 120).then(setRuntimeFacts).catch(track('facts')),
-      api.getPodRuntimeIncidentsV2(podUid, 80).then(setRuntimeIncidents).catch(track('incidents')),
-      api.getPodCapabilities(podUid).then(setPodCapabilities).catch(track('capabilities')),
-      api.getRuntimeSignalSuppressionStats({ podUid, sinceMinutes: 60 }).then(setSignalStats).catch(track('signal-stats')),
+      api.getPodRuntimeMetricsStrict(podUid).then(setRuntimeMetrics).catch(track('metrics')),
+      api.getPodProcessesStrict(podUid).then(setProcesses).catch(track('processes')),
+      api.getPodNetworkConnectionsStrict(podUid).then(setNetworkConnections).catch(track('network')),
+      api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440 }).then(setNetworkTopDestinations).catch(track('top-dest')),
+      api.getPodEventsStrict(podUid).then(setPodEvents).catch(track('events')),
+      api.getPodRuntimeSecurityEventsStrict(podUid, 150).then(setRuntimeSecurityEvents).catch(track('security-events')),
+      api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(track('signals')),
+      api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120).then(setRuntimeFacts).catch(track('facts')),
+      api.getPodRuntimeIncidentsV2Strict(podUid, 80).then(setRuntimeIncidents).catch(track('incidents')),
+      api.getPodCapabilitiesStrict(podUid).then(setPodCapabilities).catch(track('capabilities')),
+      api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60 }).then(setSignalStats).catch(track('signal-stats')),
     ]).then(() => {
       setDataErrors((prev) => {
         const kept = prev.filter((e) => PRELOAD_DATA_ERROR_LABELS.has(e));
@@ -606,11 +599,11 @@ export const PodDetail: React.FC = () => {
           const d = JSON.parse(e.data as string) as { type?: string };
           const t = d?.type;
           if (t === 'metrics') {
-            api.getPodRuntimeMetrics(currentUid).then(setRuntimeMetrics).catch(() => {});
+            api.getPodRuntimeMetricsStrict(currentUid).then(setRuntimeMetrics).catch(() => {});
           } else if (t === 'processes') {
-            api.getPodProcesses(currentUid).then(setProcesses).catch(() => {});
+            api.getPodProcessesStrict(currentUid).then(setProcesses).catch(() => {});
           } else if (t === 'network') {
-            api.getPodNetworkConnections(currentUid).then(setNetworkConnections).catch(() => {});
+            api.getPodNetworkConnectionsStrict(currentUid).then(setNetworkConnections).catch(() => {});
           } else if (t === 'events') {
             refreshAllData(currentUid);
           } else {
@@ -653,7 +646,7 @@ export const PodDetail: React.FC = () => {
     );
   }
 
-  if (loading) {
+  if (loading && !pod) {
     return <PageLoading message="Loading pod detail..." className="min-h-[40dvh]" />;
   }
 
@@ -665,9 +658,16 @@ export const PodDetail: React.FC = () => {
             title="Could not load pod detail"
             description={loadError}
             action={
-              <Button variant="secondary" onClick={() => navigate('/resources')}>
-                <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                {podAvailabilityIssue?.retryable !== false ? (
+                  <Button variant="secondary" onClick={() => void fetchPod()} isLoading={loading}>
+                    Retry pod
+                  </Button>
+                ) : null}
+                <Button variant="secondary" onClick={() => navigate('/resources')}>
+                  <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+                </Button>
+              </div>
             }
           />
         </PageLayout>
@@ -741,14 +741,12 @@ export const PodDetail: React.FC = () => {
                     setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
                   });
                 await api
-                  .getPodRiskReport(pod.uid)
+                  .getPodRiskReportStrict(pod.uid)
                   .then((report) => {
                     applyPodRiskReport(report, pod);
                     setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
                   })
                   .catch(() => {
-                    setRelatedRisks([]);
-                    setPodRiskReportSummary(null);
                     setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
                   });
               } finally {
@@ -774,6 +772,13 @@ export const PodDetail: React.FC = () => {
         </div>
       }
     >
+      {podAvailabilityIssue ? (
+        <AvailabilityNotice
+          issue={podAvailabilityIssue}
+          onRetry={podAvailabilityIssue.retryable ? () => void fetchPod() : undefined}
+          className="mb-4"
+        />
+      ) : null}
       <div className="mb-6 flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
         <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
           <div className="shrink-0 rounded-xl border border-border bg-surface p-3 sm:p-4" aria-hidden>
@@ -852,14 +857,12 @@ export const PodDetail: React.FC = () => {
                     setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
                   });
                 void api
-                  .getPodRiskReport(pod.uid)
+                  .getPodRiskReportStrict(pod.uid)
                   .then((report) => {
                     applyPodRiskReport(report, pod);
                     setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
                   })
                   .catch(() => {
-                    setRelatedRisks([]);
-                    setPodRiskReportSummary(null);
                     setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
                   });
               }}
