@@ -22,6 +22,7 @@ type RuntimeProducerState struct {
 	SourceHealthStatus string    `gorm:"size:32;index" json:"sourceHealthStatus,omitempty"`
 	SourceHealthProofKind string `gorm:"size:64" json:"sourceHealthProofKind,omitempty"`
 	SourceHealthObservedAt *time.Time `gorm:"index" json:"sourceHealthObservedAt,omitempty"`
+	SourceHealthContinuousSince *time.Time `gorm:"index" json:"sourceHealthContinuousSince,omitempty"`
 	SourceHealthValidUntil *time.Time `gorm:"index" json:"sourceHealthValidUntil,omitempty"`
 	State             string     `gorm:"size:32;index" json:"state"`
 	LastManifestAt    time.Time  `json:"lastManifestAt"`
@@ -41,9 +42,9 @@ func (s RuntimeProducerState) LeaseFresh(now time.Time) bool {
 func (s RuntimeProducerState) SourceHealthCovers(start, end, now time.Time) bool {
 	return s.Authoritative &&
 		s.SourceHealthStatus == collection.RuntimeSourceHealthHealthy &&
-		s.SourceHealthObservedAt != nil &&
+		s.SourceHealthContinuousSince != nil &&
 		s.SourceHealthValidUntil != nil &&
-		!start.Before(*s.SourceHealthObservedAt) &&
+		!start.Before(*s.SourceHealthContinuousSince) &&
 		!end.After(*s.SourceHealthValidUntil) &&
 		!now.Before(*s.SourceHealthObservedAt) &&
 		now.Before(*s.SourceHealthValidUntil)
