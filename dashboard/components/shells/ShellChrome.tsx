@@ -85,7 +85,7 @@ export const ShellChrome: React.FC<{
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { clusters, loading: clustersLoading } = useClusters();
+  const { clusters, loading: clustersLoading, availabilityIssue: clusterAvailabilityIssue } = useClusters();
   const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const mainRef = useRef<HTMLElement | null>(null);
