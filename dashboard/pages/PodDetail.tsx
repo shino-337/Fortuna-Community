@@ -412,7 +412,7 @@ export const PodDetail: React.FC = () => {
         } else if (tab === 'risks') {
           if (dataErrorsRef.current.includes('risk-report') || (relatedRisks.length === 0 && !podRiskReportSummary)) {
             try {
-              const report = await api.getPodRiskReport(uid);
+              const report = await api.getPodRiskReportStrict(uid);
               applyPodRiskReport(report, pod);
               setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
             } catch {
@@ -437,46 +437,78 @@ export const PodDetail: React.FC = () => {
             setNetworkTopDestinations(topDest);
           }
         } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
-          // GAP 4: fetch each slice independently — avoids skipping when only one of preload/API calls failed
+          // Fetch each slice independently so one unavailable source neither blocks
+          // the others nor erases last-known-good evidence.
+          const errors: string[] = [];
+          const track = (label: string) => () => {
+            errors.push(label);
+          };
           const tasks: Promise<unknown>[] = [];
           if (podEvents.length === 0) {
-            tasks.push(api.getPodEventsStrict(uid).then(setPodEvents).catch(() => undefined));
+            tasks.push(api.getPodEventsStrict(uid).then(setPodEvents).catch(track('events')));
           }
           if (runtimeSecurityEvents.length === 0) {
             tasks.push(
-              api.getPodRuntimeSecurityEventsStrict(uid, 150).then(setRuntimeSecurityEvents).catch(() => undefined),
+              api.getPodRuntimeSecurityEventsStrict(uid, 150).then(setRuntimeSecurityEvents).catch(track('security-events')),
             );
           }
           if (runtimeFacts.length === 0) {
-            tasks.push(api.getPodRuntimeBehaviorFactsV2Strict(uid, 120).then(setRuntimeFacts).catch(() => undefined));
+            tasks.push(api.getPodRuntimeBehaviorFactsV2Strict(uid, 120).then(setRuntimeFacts).catch(track('facts')));
           }
           if (runtimeIncidents.length === 0) {
-            tasks.push(api.getPodRuntimeIncidentsV2Strict(uid, 80).then(setRuntimeIncidents).catch(() => undefined));
+            tasks.push(api.getPodRuntimeIncidentsV2Strict(uid, 80).then(setRuntimeIncidents).catch(track('incidents')));
           }
           if (podCapabilities.length === 0) {
-            tasks.push(api.getPodCapabilitiesStrict(uid).then(setPodCapabilities).catch(() => undefined));
+            tasks.push(api.getPodCapabilitiesStrict(uid).then(setPodCapabilities).catch(track('capabilities')));
           }
           if (runtimeSignals.length === 0) {
             tasks.push(
               api
-                .getRuntimeSignalsByPod(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 })
+                .getRuntimeSignalsByPodStrict(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 })
                 .then(setRuntimeSignals)
-                .catch(() => undefined),
+                .catch(track('signals')),
             );
           }
           if (signalStats === null) {
             tasks.push(
               api
-                .getRuntimeSignalSuppressionStats({ podUid: uid, sinceMinutes: 60 })
+                .getRuntimeSignalSuppressionStatsStrict({ podUid: uid, sinceMinutes: 60 })
                 .then(setSignalStats)
-                .catch(() => undefined),
+                .catch(track('signal-stats')),
             );
           }
           await Promise.all(tasks);
+          const attempted = new Set([
+            'events',
+            'security-events',
+            'facts',
+            'incidents',
+            'capabilities',
+            'signals',
+            'signal-stats',
+          ]);
+          setDataErrors((prev) => {
+            const kept = prev.filter((label) => !attempted.has(label));
+            return errors.length > 0 ? [...new Set([...kept, ...errors])] : kept;
+          });
         } else if (tab === 'spec') {
           const yaml = await api.getPodSpecYaml(uid);
           setSpecYaml(yaml);
         }
+      } catch {
+        const label =
+          tab === 'processes'
+            ? 'processes'
+            : tab === 'network'
+              ? 'network'
+              : tab === 'risks' || tab === 'risk_sbom'
+                ? 'risk-report'
+                : tab === 'sbom'
+                  ? 'sbom'
+                  : tab === 'spec'
+                    ? 'spec'
+                    : `tab-${tab}`;
+        setDataErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
       } finally {
         setTabLoading(false);
       }
