@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
@@ -359,8 +359,8 @@ export const Monitoring: React.FC = () => {
         task
           .then(() => null)
           .catch((e) => {
-            const message = e instanceof Error ? e.message : 'request failed';
-            return `${label}: ${message}`;
+            const issue = getAvailabilityIssue(e, label);
+            return `${issue.title}: ${issue.description}`;
           });
 
       if (canInventoryRead) {
@@ -651,6 +651,7 @@ export const Monitoring: React.FC = () => {
   const systemVerdict: SystemVerdict = useMemo(() => {
     if (error) return 'BROKEN';
     if (!loading && agents.length === 0) return 'BROKEN';
+    if (partialErrors.length > 0) return 'DEGRADED';
     if (!pipelineHealth) return 'DEGRADED';
     const lv = layerVerdicts;
     if (
@@ -693,6 +694,7 @@ export const Monitoring: React.FC = () => {
     error,
     loading,
     agents.length,
+    partialErrors.length,
     pipelineHealth,
     layerVerdicts,
     hasPipelineTs,
