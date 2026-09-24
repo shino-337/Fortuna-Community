@@ -124,6 +124,7 @@ REQUIRED = {
         "TestSystemMetricsBackingQueryFailureIsUnavailable",
         "TestSystemMetricsCountsDuplicatePodUIDAcrossClustersSeparately",
         "TestDashboardStatsAffectedPodCountUsesActiveInventoryScope",
+        "TestClusterInventoryIncludesActiveClusterWithoutPods",
         "TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters",
         "TestDashboardStatsBackingQueryFailureIsUnavailable",
         "TestDashboardStatsMissingSchemaIsNonRetryable",
