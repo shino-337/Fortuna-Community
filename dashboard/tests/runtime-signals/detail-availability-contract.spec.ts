@@ -202,7 +202,7 @@ test('pod primary 503 is unavailable, not not-found', async ({ page }) => {
   });
 
   await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
-  await expect(page.getByText('Could not load pod detail', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Could not load pod detail', exact: true })).toBeVisible();
   await expect(page.getByText('Pod not found', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Retry pod', exact: true })).toBeVisible();
 });
