@@ -127,7 +127,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 			// Serialize first report and subsequent windows under the lifecycle
 			// row lock. A new Agent session is an explicit continuity boundary.
 			candidate := row
-			if candidate.Status == "complete" && producer.Authoritative {
+			if candidate.Status == "complete" && producer.SourceHealthCovers(candidate.WindowStart, candidate.WindowEnd, now) {
 				start := candidate.WindowStart
 				candidate.ContinuousSince = &start
 			}
@@ -163,7 +163,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					// replaced, while its immutable receipt remains in history and
 					// cannot extend continuity.
 					row.ContinuousSince = nil
-					if row.Status == "complete" && producer.Authoritative {
+					if row.Status == "complete" && producer.SourceHealthCovers(row.WindowStart, row.WindowEnd, now) {
 						start := row.WindowStart
 						row.ContinuousSince = &start
 					}
@@ -174,7 +174,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 						return errRuntimeCoverageConflict
 					}
 					row.ContinuousSince = nil
-					if row.Status == "complete" && producer.Authoritative {
+					if row.Status == "complete" && producer.SourceHealthCovers(row.WindowStart, row.WindowEnd, now) {
 						start := row.WindowStart
 						if producer.State == collection.RuntimeProducerActive && prior.Status == "complete" && prior.ContinuousSince != nil && row.WindowStart.Equal(prior.WindowEnd) {
 							start = *prior.ContinuousSince
@@ -217,10 +217,10 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				producer.LastCoverageEnd = &end
 				if row.Status == "complete" {
 					// Complete proves the Agent-side producer loop observed this
-					// interval. It does not prove upstream source liveness unless
-					// Authoritative is independently established.
+					// interval. Absence continuity is established only when the
+					// independent source-health interval covers the same window.
 					producer.State = collection.RuntimeProducerActive
-					if producer.Authoritative {
+					if producer.SourceHealthCovers(row.WindowStart, row.WindowEnd, now) {
 						producer.GapSince = nil
 						producer.GapReason = ""
 					} else {
