@@ -43,15 +43,16 @@ func getActiveAgentCutoff() time.Duration {
 	return 15 * time.Minute
 }
 
-// getClustersForAPI returns clusters for API responses (active by default; optional includeStale).
-// Only clusters with source IN ('auto','env') are returned so the dashboard shows agent-synced
-// clusters only; legacy rows (e.g. id=kubernetes with empty source) are excluded to avoid duplicate display.
+// getClustersForAPI returns the authorized cluster inventory (active by default;
+// optional includeStale). Cluster membership comes from the clusters table itself,
+// not from whether Pod inventory currently contains rows. An active empty cluster
+// remains a real cluster. Only source IN ('auto','env') is returned so legacy
+// synthetic rows (for example id=kubernetes with empty source) stay excluded.
 // Single source for cluster list query so GetClusters and GetClustersStats stay in sync.
 func getClustersForAPI(db *gorm.DB, c *gin.Context) ([]models.Cluster, error) {
 	var clusters []models.Cluster
 	query := db.Model(&models.Cluster{}).
-		Where("source IN ?", []string{"auto", "env"}).
-		Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = clusters.id AND p.deleted_at IS NULL)")
+		Where("source IN ?", []string{"auto", "env"})
 	if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
 		query = query.Where("id IN ?", ids)
 	}
