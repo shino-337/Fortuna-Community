@@ -93,12 +93,28 @@ func PostRuntimeSourceHealth(db *gorm.DB) gin.HandlerFunc {
 					}
 					return nil
 				}
+				if row.Status == collection.RuntimeSourceHealthHealthy {
+					start := row.ObservedAt
+					if prior.Status == collection.RuntimeSourceHealthHealthy &&
+						prior.SessionID == row.SessionID &&
+						prior.SourceKind == row.SourceKind &&
+						prior.ProofKind == row.ProofKind &&
+						!row.ObservedAt.After(prior.ValidUntil) {
+						if prior.ContinuousSince != nil {
+							start = *prior.ContinuousSince
+						} else {
+							start = prior.ObservedAt
+						}
+					}
+					row.ContinuousSince = &start
+				}
 				if err := tx.Model(&prior).Updates(map[string]interface{}{
 					"session_id": row.SessionID,
 					"source_kind": row.SourceKind,
 					"status": row.Status,
 					"proof_kind": row.ProofKind,
 					"observed_at": row.ObservedAt,
+					"continuous_since": row.ContinuousSince,
 					"valid_until": row.ValidUntil,
 					"received_at": row.ReceivedAt,
 					"reason": row.Reason,
@@ -106,6 +122,10 @@ func PostRuntimeSourceHealth(db *gorm.DB) gin.HandlerFunc {
 					return err
 				}
 			case errors.Is(err, gorm.ErrRecordNotFound):
+				if row.Status == collection.RuntimeSourceHealthHealthy {
+					start := row.ObservedAt
+					row.ContinuousSince = &start
+				}
 				if err := tx.Create(&row).Error; err != nil {
 					return err
 				}
@@ -119,6 +139,7 @@ func PostRuntimeSourceHealth(db *gorm.DB) gin.HandlerFunc {
 				"source_health_status": row.Status,
 				"source_health_proof_kind": row.ProofKind,
 				"source_health_observed_at": row.ObservedAt,
+				"source_health_continuous_since": row.ContinuousSince,
 				"source_health_valid_until": row.ValidUntil,
 			}
 			if !authoritative {
