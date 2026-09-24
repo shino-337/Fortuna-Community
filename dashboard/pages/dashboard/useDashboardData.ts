@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { api } from '../../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../../lib/api';
 import type {
   AttackChain,
   AttackPath,
@@ -38,6 +38,8 @@ export interface DashboardStats {
 
 export interface UseDashboardDataResult {
   stats: DashboardStats;
+  statsLoaded: boolean;
+  statsAvailabilityIssue: AvailabilityIssue | null;
   insightsSummary: InsightsSummary | null;
   clusters: Cluster[];
   topRisks: Insight[];
@@ -81,6 +83,8 @@ export function useDashboardData(
   loadPolicy: DashboardDataLoadPolicy = DEFAULT_LOAD_POLICY,
 ): UseDashboardDataResult {
   const [stats, setStats] = useState<DashboardStats>(INITIAL_STATS);
+  const [statsLoaded, setStatsLoaded] = useState(false);
+  const [statsAvailabilityIssue, setStatsAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [insightsSummary, setInsightsSummary] = useState<InsightsSummary | null>(null);
   const [clusters, setClusters] = useState<Cluster[]>([]);
   const [topRisks, setTopRisks] = useState<Insight[]>([]);
@@ -125,9 +129,12 @@ export function useDashboardData(
 
       if (statsResult.status === 'fulfilled') {
         setStats(statsResult.value);
+        setStatsLoaded(true);
+        setStatsAvailabilityIssue(null);
       } else {
-        setStats(INITIAL_STATS);
-        errors.push('Summary KPIs could not be loaded; dashboard is running in degraded mode.');
+        const issue = getAvailabilityIssue(statsResult.reason, 'Dashboard KPIs');
+        setStatsAvailabilityIssue(issue);
+        errors.push(issue.description);
       }
 
       if (summaryResult.status === 'fulfilled' && summaryResult.value) {
@@ -282,6 +289,8 @@ export function useDashboardData(
 
   return {
     stats,
+    statsLoaded,
+    statsAvailabilityIssue,
     insightsSummary,
     clusters,
     topRisks,
