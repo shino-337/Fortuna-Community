@@ -333,8 +333,13 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 		id := c.Param("id")
 		db := db.WithContext(c.Request.Context())
 		if !requireAvailabilityTables(c, db, "cluster_security_summary_schema_unavailable",
-			"Cluster security summary requires cluster, Pod, Insight and capability schemas",
-			"clusters", "pods", "insights", "pod_capabilities") {
+			"Cluster security summary requires cluster, Pod and Insight schemas",
+			"clusters", "pods", "insights") {
+			return
+		}
+		if !hasTable(db, "pod_capabilities") {
+			respondSchemaUnavailable(c, "cluster_security_summary_capabilities_unavailable",
+				"Cluster capability summary requires the pod_capabilities schema")
 			return
 		}
 		var cluster models.Cluster
