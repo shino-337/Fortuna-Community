@@ -76,6 +76,16 @@ func seedRuntimeProducer(t *testing.T, db *gorm.DB, principal *agentidentity.Pri
 		LastManifestAt: heartbeat,
 		LastHeartbeatAt: heartbeat,
 	}
+	if authoritative {
+		observed := heartbeat
+		healthySince := sessionStartedAt
+		row.SourceHealthID = "test-source-health-0001"
+		row.SourceHealthStatus = collection.RuntimeSourceHealthHealthy
+		row.SourceHealthProbeKind = collection.RuntimeSourceHealthProbeFalcoK8sReadiness
+		row.SourceInstanceID = "test-falco-instance"
+		row.SourceHealthObservedAt = &observed
+		row.SourceHealthHealthySince = &healthySince
+	}
 	gap := sessionStartedAt
 	if state != collection.RuntimeProducerActive {
 		row.GapSince = &gap
