@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { NodeDetailResponse } from '../types';
@@ -20,22 +20,34 @@ export const NodeDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    requestRef.current += 1;
+    setNode(null);
+    setError(null);
+    setAvailabilityIssue(null);
+    setUpdatedAt(null);
+  }, [clusterId, nodeName]);
 
   const fetchNode = useCallback(async () => {
     if (!clusterId || !nodeName) return;
+    const requestSeq = ++requestRef.current;
     setLoading(true);
     try {
       const data = await api.getClusterNodeStrict(clusterId, decodeURIComponent(nodeName), { pods: true });
+      if (requestSeq !== requestRef.current) return;
       setNode(data);
       setError(null);
       setAvailabilityIssue(null);
       setUpdatedAt(new Date());
     } catch (err) {
+      if (requestSeq !== requestRef.current) return;
       const issue = getAvailabilityIssue(err, 'Node detail');
       setAvailabilityIssue(issue);
       setError(issue.description);
     } finally {
-      setLoading(false);
+      if (requestSeq === requestRef.current) setLoading(false);
     }
   }, [clusterId, nodeName]);
 
