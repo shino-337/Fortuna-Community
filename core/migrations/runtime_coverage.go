@@ -165,11 +165,13 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 		"ClusterID", "AgentID", "ProducerID", "SourceKind", "SessionID",
 		"SessionStartedAt", "Enabled", "Authoritative", "State",
 		"LastManifestAt", "LastHeartbeatAt", "LastCoverageID",
-		"LastCoverageEnd", "GapSince", "GapReason",
+		"LastCoverageEnd", "SourceHealthID", "SourceHealthStatus",
+		"SourceHealthProbeKind", "SourceInstanceID", "SourceHealthObservedAt",
+		"SourceHealthHealthySince", "SourceHealthReason", "GapSince", "GapReason",
 	}); err != nil {
 		return fmt.Errorf("runtime producer state columns: %w", err)
 	}
-	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
+	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,source_kind,session_id,session_started_at,enabled,authoritative,state,last_manifest_at,last_heartbeat_at,last_coverage_id,last_coverage_end,source_health_id,source_health_status,source_health_probe_kind,source_instance_id,source_health_observed_at,source_health_healthy_since,source_health_reason,gap_since,gap_reason FROM runtime_producer_states LIMIT 0").Error; err != nil {
 		return err
 	}
 	var unownedProducer int64
@@ -181,11 +183,62 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if unownedProducer != 0 {
 		return fmt.Errorf("runtime producer schema contains %d rows without cluster/agent/producer identity", unownedProducer)
 	}
+	// D2 had no independent source-health proof. Any pre-D3 authoritative bit is
+	// therefore untrusted legacy state and must be cleared instead of backfilled
+	// from coverage, configuration or lifecycle heartbeats.
+	if err := db.Model(&models.RuntimeProducerState{}).
+		Where("authoritative = ?", true).
+		Updates(map[string]interface{}{
+			"authoritative": false,
+			"source_health_id": "",
+			"source_health_status": "",
+			"source_health_probe_kind": "",
+			"source_instance_id": "",
+			"source_health_observed_at": nil,
+			"source_health_healthy_since": nil,
+			"source_health_reason": "d3_source_health_required",
+		}).Error; err != nil {
+		return fmt.Errorf("clear legacy runtime authority: %w", err)
+	}
 	if err := ensureIndex(db, "idx_runtime_producer_identity", "runtime_producer_states", "cluster_id,agent_id,producer_id", true); err != nil {
 		return err
 	}
 	if err := ensureIndex(db, "idx_runtime_producer_session", "runtime_producer_states", "session_id", false); err != nil {
 		return err
 	}
-	return ensureIndex(db, "idx_runtime_producer_heartbeat", "runtime_producer_states", "last_heartbeat_at", false)
+	if err := ensureIndex(db, "idx_runtime_producer_heartbeat", "runtime_producer_states", "last_heartbeat_at", false); err != nil {
+		return err
+	}
+	if err := ensureIndex(db, "idx_runtime_producer_source_health_observed", "runtime_producer_states", "source_health_observed_at", false); err != nil {
+		return err
+	}
+
+	if !db.Migrator().HasTable(&models.RuntimeSourceHealthReceipt{}) {
+		if err := db.Migrator().CreateTable(&models.RuntimeSourceHealthReceipt{}); err != nil {
+			return err
+		}
+	}
+	if err := ensureModelColumns(db, &models.RuntimeSourceHealthReceipt{}, []string{
+		"ClusterID", "AgentID", "ProducerID", "SessionID", "HealthID",
+		"SourceKind", "ProbeKind", "SourceInstanceID", "Status",
+		"ObservedAt", "ReceivedAt", "Reason",
+	}); err != nil {
+		return fmt.Errorf("runtime source health receipt columns: %w", err)
+	}
+	if err := db.Exec("SELECT cluster_id,agent_id,producer_id,session_id,health_id,source_kind,probe_kind,source_instance_id,status,observed_at,received_at,reason FROM runtime_source_health_receipts LIMIT 0").Error; err != nil {
+		return err
+	}
+	var unownedHealth int64
+	if err := db.Table("runtime_source_health_receipts").
+		Where("cluster_id IS NULL OR cluster_id = '' OR agent_id IS NULL OR agent_id = '' OR producer_id IS NULL OR producer_id = '' OR session_id IS NULL OR session_id = '' OR health_id IS NULL OR health_id = ''").
+		Count(&unownedHealth).Error; err != nil {
+		return err
+	}
+	if unownedHealth != 0 {
+		return fmt.Errorf("runtime source health history contains %d rows without immutable evidence identity", unownedHealth)
+	}
+	if err := ensureIndex(db, "idx_runtime_source_health_receipt_identity", "runtime_source_health_receipts", "cluster_id,agent_id,producer_id,session_id,health_id", true); err != nil {
+		return err
+	}
+	return ensureIndex(db, "idx_runtime_source_health_receipt_observed", "runtime_source_health_receipts", "observed_at", false)
 }
