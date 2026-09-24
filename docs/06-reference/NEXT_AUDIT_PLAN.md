@@ -290,6 +290,13 @@ E1 starts after #52 and is the current implementation package. Merge only when:
 - dashboard data-integrity cross-checks, catalog health and runtime health do not
   convert query/schema failures into zero counts, no-events, degraded or healthy
   states; required backing-query failure returns retryable 503;
+- the primary Dashboard, Clusters, Resources and Monitoring consumers preserve the
+  backend availability contract: contract-critical API methods throw instead of
+  normalizing failures to empty/zero/null, last-known-good data survives retryable
+  refresh failures, non-retryable schema failures show migration/operator guidance,
+  and successful `200` empty responses retain the normal empty state;
+- dashboard Playwright regressions cover retryable 503 preservation + Retry,
+  non-retryable schema guidance, and genuine 200 empty semantics;
 - named regressions are added to the permanent security contract;
 - exact-head Core/API/dashboard validation and Secret scan pass before merge.
 
