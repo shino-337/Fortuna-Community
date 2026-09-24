@@ -19,6 +19,10 @@ type RuntimeProducerState struct {
 	SessionStartedAt  time.Time  `json:"sessionStartedAt"`
 	Enabled           bool       `gorm:"index" json:"enabled"`
 	Authoritative     bool       `gorm:"index" json:"authoritative"`
+	SourceHealthStatus string    `gorm:"size:32;index" json:"sourceHealthStatus,omitempty"`
+	SourceHealthProofKind string `gorm:"size:64" json:"sourceHealthProofKind,omitempty"`
+	SourceHealthObservedAt *time.Time `gorm:"index" json:"sourceHealthObservedAt,omitempty"`
+	SourceHealthValidUntil *time.Time `gorm:"index" json:"sourceHealthValidUntil,omitempty"`
 	State             string     `gorm:"size:32;index" json:"state"`
 	LastManifestAt    time.Time  `json:"lastManifestAt"`
 	LastHeartbeatAt   time.Time  `gorm:"index" json:"lastHeartbeatAt"`
@@ -53,7 +57,10 @@ func (s RuntimeProducerState) EffectiveStatus(now time.Time) string {
 			now.Sub(*s.LastCoverageEnd) > collection.RuntimeProducerLeaseMaxAge {
 			return "stale"
 		}
-		if !s.Authoritative {
+		if !s.Authoritative ||
+			s.SourceHealthStatus != collection.RuntimeSourceHealthHealthy ||
+			s.SourceHealthObservedAt == nil || s.SourceHealthValidUntil == nil ||
+			now.Before(*s.SourceHealthObservedAt) || !now.Before(*s.SourceHealthValidUntil) {
 			return collection.RuntimeProducerNonAuthoritative
 		}
 		return s.State
