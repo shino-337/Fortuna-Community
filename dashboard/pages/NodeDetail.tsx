@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { NodeDetailResponse } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
@@ -10,6 +10,7 @@ import { ArrowLeft, Server, Box } from 'lucide-react';
 import { formatDateTime } from '../lib/display';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import { DataFreshness } from '../components/DataFreshness';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
 export const NodeDetail: React.FC = () => {
   const { clusterId, nodeName } = useParams<{ clusterId: string; nodeName: string }>();
@@ -17,18 +18,22 @@ export const NodeDetail: React.FC = () => {
   const [node, setNode] = useState<NodeDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const fetchNode = useCallback(async () => {
     if (!clusterId || !nodeName) return;
     setLoading(true);
     try {
-      const data = await api.getClusterNode(clusterId, decodeURIComponent(nodeName), { pods: true });
-      setNode(data ?? null);
+      const data = await api.getClusterNodeStrict(clusterId, decodeURIComponent(nodeName), { pods: true });
+      setNode(data);
       setError(null);
+      setAvailabilityIssue(null);
       setUpdatedAt(new Date());
-    } catch {
-      setError('Node detail could not be refreshed.');
+    } catch (err) {
+      const issue = getAvailabilityIssue(err, 'Node detail');
+      setAvailabilityIssue(issue);
+      setError(issue.description);
     } finally {
       setLoading(false);
     }
@@ -38,7 +43,7 @@ export const NodeDetail: React.FC = () => {
     fetchNode();
   }, [fetchNode]);
 
-  if (loading || !clusterId || !nodeName) {
+  if ((loading && !node) || !clusterId || !nodeName) {
     return <PageLoading message="Loading node detail..." className="min-h-[40dvh]" />;
   }
 
@@ -62,12 +67,19 @@ export const NodeDetail: React.FC = () => {
     >
       {error && !node ? (
         <PageError
-          title="Could not load node"
-          description="The node detail request failed. Retry or return to the cluster inventory."
-          action={<Button variant="secondary" onClick={fetchNode} isLoading={loading}>Retry node</Button>}
+          title={availabilityIssue?.title ?? "Could not load node"}
+          description={availabilityIssue?.description ?? "The node detail request failed. Retry or return to the cluster inventory."}
+          action={availabilityIssue?.retryable !== false ? <Button variant="secondary" onClick={fetchNode} isLoading={loading}>Retry node</Button> : undefined}
         />
       ) : null}
-      {!error && !node ? (
+      {availabilityIssue && node ? (
+        <AvailabilityNotice
+          issue={availabilityIssue}
+          onRetry={availabilityIssue.retryable ? fetchNode : undefined}
+          className="mb-4"
+        />
+      ) : null}
+      {!availabilityIssue && !error && !node ? (
         <PageEmpty title="Node not found" description="The node may no longer be reported by the cluster." className="py-10" />
       ) : null}
       {node ? (
