@@ -145,6 +145,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						next.SourceHealthStatus = ""
 						next.SourceHealthProofKind = ""
 						next.SourceHealthObservedAt = nil
+						next.SourceHealthContinuousSince = nil
 						next.SourceHealthValidUntil = nil
 						if prior.State != collection.RuntimeProducerStopped || prior.GapSince == nil {
 							gap := req.ReportedAt
@@ -161,6 +162,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						next.SourceHealthStatus = ""
 						next.SourceHealthProofKind = ""
 						next.SourceHealthObservedAt = nil
+						next.SourceHealthContinuousSince = nil
 						next.SourceHealthValidUntil = nil
 						next.GapReason = "disabled"
 					case !prior.Enabled || prior.State == collection.RuntimeProducerDisabled || prior.State == collection.RuntimeProducerStopped:
@@ -174,6 +176,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						next.SourceHealthStatus = ""
 						next.SourceHealthProofKind = ""
 						next.SourceHealthObservedAt = nil
+						next.SourceHealthContinuousSince = nil
 						next.SourceHealthValidUntil = nil
 						gap := prior.LastHeartbeatAt.Add(collection.RuntimeProducerLeaseMaxAge)
 						if prior.LastHeartbeatAt.IsZero() || gap.After(now) {
@@ -181,6 +184,14 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 						}
 						next.GapSince = &gap
 						next.GapReason = "lifecycle_lease_expired"
+					case prior.Authoritative && (prior.SourceHealthValidUntil == nil || !now.Before(*prior.SourceHealthValidUntil)):
+						next.Authoritative = false
+						gap := now
+						if prior.SourceHealthValidUntil != nil && !prior.SourceHealthValidUntil.IsZero() {
+							gap = *prior.SourceHealthValidUntil
+						}
+						next.GapSince = &gap
+						next.GapReason = "source_health_lease_expired"
 					case producerSilent:
 						next.State = collection.RuntimeProducerStarting
 						gap := prior.LastCoverageEnd.Add(collection.RuntimeProducerLeaseMaxAge)
