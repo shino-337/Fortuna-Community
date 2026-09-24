@@ -17,7 +17,7 @@ func TestAggregateCacheIsolation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Insight{}, &models.RiskScore{}); err != nil {
+	if err = db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}, &models.RiskScore{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
