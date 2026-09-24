@@ -78,7 +78,8 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
       return clusterFetchPromise;
     }
     const generation = clusterFetchGeneration;
-    const request = fetcher()
+    let request: Promise<Cluster[]>;
+    request = fetcher()
       .then((data) => {
         if (generation === clusterFetchGeneration) {
           set({ clusters: { data, fetchedAt: Date.now() } });
