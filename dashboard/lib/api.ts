@@ -742,9 +742,13 @@ export const api = {
     if (!c || typeof c !== 'object' || Array.isArray(c)) {
       invalidResponse('cluster_detail_invalid_response', 'Cluster detail response is not an object');
     }
+    const responseId = String(c.id ?? '').trim();
+    if (!responseId || responseId !== id) {
+      invalidResponse('cluster_detail_identity_mismatch', 'Cluster detail response does not match the requested cluster ID');
+    }
     const name = String(c.name ?? c.id ?? '').trim() || String(id);
     return {
-      id: String(c.id ?? id),
+      id: responseId,
       name,
       region: c.region != null ? String(c.region) : undefined,
       endpoint: c.endpoint != null ? String(c.endpoint) : undefined,
@@ -1217,7 +1221,14 @@ export const api = {
         const { body, text } = await parseErrorBody(res);
         throw new ApiError(res.status, getErrorMessage(res.status, text || undefined), body);
       }
-      const p = await res.json() as Record<string, unknown>;
+      const p = await res.json() as Record<string, unknown> | null;
+      if (!p || typeof p !== 'object' || Array.isArray(p)) {
+        invalidResponse('pod_detail_invalid_response', 'Pod detail response is not an object');
+      }
+      const responseUid = String(p.uid ?? '').trim();
+      if (!responseUid || responseUid !== uid) {
+        invalidResponse('pod_detail_identity_mismatch', 'Pod detail response does not match the requested pod UID');
+      }
       return mapApiPodToPodWithRisk(p);
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
@@ -2325,6 +2336,10 @@ export const api = {
       if (!Array.isArray(data.insights)) {
         invalidResponse('pod_risk_report_invalid_response', 'Pod risk report response is missing the insights array');
       }
+      const responsePodUid = String(data.podUid ?? '').trim();
+      if (!responsePodUid || responsePodUid !== podUid) {
+        invalidResponse('pod_risk_report_identity_mismatch', 'Pod risk report response does not match the requested pod UID');
+      }
       const insights = data.insights.map((i: any) => ({
         id: String(i.id ?? ''),
         cveId:
@@ -2376,7 +2391,7 @@ export const api = {
           }
         : undefined;
       return {
-        podUid: String(data.podUid ?? podUid),
+        podUid: responsePodUid,
         podName: String(data.podName ?? ''),
         namespace: String(data.namespace ?? ''),
         clusterId: String(data.clusterId ?? ''),
@@ -2671,7 +2686,14 @@ export const api = {
   },
 
   getCapabilityMetadataByIdStrict: async (capabilityId: string): Promise<CapabilityMetadata> => {
-    return request<CapabilityMetadata>(`/capability-metadata/${encodeURIComponent(capabilityId)}`);
+    const data = await request<CapabilityMetadata | null>(`/capability-metadata/${encodeURIComponent(capabilityId)}`);
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      invalidResponse('capability_metadata_invalid_response', 'Capability metadata response is not an object');
+    }
+    if (!String(data.capabilityId ?? '').trim() || String(data.capabilityId) !== capabilityId) {
+      invalidResponse('capability_metadata_identity_mismatch', 'Capability metadata response does not match the requested capability ID');
+    }
+    return data;
   },
 
   // Phase 2.2: Attack Steps
