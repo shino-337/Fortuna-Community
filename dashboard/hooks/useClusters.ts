@@ -1,6 +1,6 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { EMPTY_CLUSTERS, useEntityStore } from '../store/entityStore';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import type { Cluster } from '../types';
 
 /**
@@ -14,30 +14,37 @@ import type { Cluster } from '../types';
 export function useClusters(options: { enabled?: boolean } = {}): {
   clusters: Cluster[];
   loading: boolean;
+  availabilityIssue: AvailabilityIssue | null;
   refresh: () => void;
 } {
   const enabled = options.enabled !== false;
   const clusters = useEntityStore((s) => s.clusters?.data ?? EMPTY_CLUSTERS);
   const fetchClusters = useEntityStore((s) => s.fetchClusters);
-  const loadingRef = useRef(false);
+  const [loading, setLoading] = useState(false);
+  const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
+
+  const runFetch = useCallback(async () => {
+    if (!enabled) return;
+    setLoading(true);
+    try {
+      await fetchClusters(() => api.getClustersStrict());
+      setAvailabilityIssue(null);
+    } catch (err) {
+      setAvailabilityIssue(getAvailabilityIssue(err, 'Cluster inventory'));
+    } finally {
+      setLoading(false);
+    }
+  }, [enabled, fetchClusters]);
 
   useEffect(() => {
-    if (!enabled) return;
-    let cancelled = false;
-    loadingRef.current = true;
-    fetchClusters(() => api.getClusters())
-      .catch(() => [] as Cluster[])
-      .finally(() => {
-        if (!cancelled) loadingRef.current = false;
-      });
-    return () => { cancelled = true; };
-  }, [enabled, fetchClusters]);
+    void runFetch();
+  }, [runFetch]);
 
   const refresh = () => {
     if (!enabled) return;
     useEntityStore.getState().invalidateClusters();
-    fetchClusters(() => api.getClusters()).catch(() => {});
+    void runFetch();
   };
 
-  return { clusters, loading: loadingRef.current, refresh };
+  return { clusters, loading, availabilityIssue, refresh };
 }
