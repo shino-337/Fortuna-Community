@@ -27,6 +27,7 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 	old := now.Add(-2 * ActiveClusterCutoff)
 	if err := db.Create([]models.Cluster{
 		{ID: "cluster-active", Name: "active", Source: "env", Status: "active", LastSync: now},
+		{ID: "cluster-empty", Name: "empty", Source: "env", Status: "active", LastSync: now},
 		{ID: "cluster-stale", Name: "stale", Source: "env", Status: "active", LastSync: old},
 	}).Error; err != nil {
 		t.Fatalf("seed clusters: %v", err)
@@ -60,6 +61,9 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 	var resp DashboardStatsDTO
 	if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode response: %v", err)
+	}
+	if resp.TotalClusters != 2 {
+		t.Fatalf("total clusters=%d, want 2 active inventory clusters including the empty cluster", resp.TotalClusters)
 	}
 	if resp.RunningPods != 1 {
 		t.Fatalf("running pods=%d, want 1 active-cluster pod", resp.RunningPods)
