@@ -353,15 +353,23 @@ const PodDetailContent: React.FC = () => {
       }
       setPod(data);
       setPodAvailabilityIssue(null);
-      setServiceAccountRef(null);
-      setServiceAccountLookupComplete(false);
       if (data?.serviceAccount) {
+        setServiceAccountLookupComplete(false);
         resolveServiceAccountRef(data)
-          .then((sa) => setServiceAccountRef(sa))
-          .catch(() => setServiceAccountRef(null))
+          .then((sa) => {
+            setServiceAccountRef(sa);
+            setDataErrors((prev) => prev.filter((label) => label !== 'service-account'));
+          })
+          .catch(() => {
+            // Preserve the last-known-good reference for this Pod; unavailable is not absent.
+            setDataErrors((prev) => (prev.includes('service-account') ? prev : [...prev, 'service-account']));
+          })
           .finally(() => setServiceAccountLookupComplete(true));
       } else {
+        // The primary Pod response authoritatively says there is no ServiceAccount.
+        setServiceAccountRef(null);
         setServiceAccountLookupComplete(true);
+        setDataErrors((prev) => prev.filter((label) => label !== 'service-account'));
       }
       // Seed unifiedScore from pod response immediately to avoid a visual flash
       // (badge shows riskCount fallback until async getUnifiedRiskScore resolves).
@@ -630,12 +638,31 @@ const PodDetailContent: React.FC = () => {
         try {
           const d = JSON.parse(e.data as string) as { type?: string };
           const t = d?.type;
+          const clearError = (label: string) =>
+            setDataErrors((prev) => prev.filter((item) => item !== label));
+          const markError = (label: string) =>
+            setDataErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
           if (t === 'metrics') {
-            api.getPodRuntimeMetricsStrict(currentUid).then(setRuntimeMetrics).catch(() => {});
+            api.getPodRuntimeMetricsStrict(currentUid)
+              .then((data) => {
+                setRuntimeMetrics(data);
+                clearError('metrics');
+              })
+              .catch(() => markError('metrics'));
           } else if (t === 'processes') {
-            api.getPodProcessesStrict(currentUid).then(setProcesses).catch(() => {});
+            api.getPodProcessesStrict(currentUid)
+              .then((data) => {
+                setProcesses(data);
+                clearError('processes');
+              })
+              .catch(() => markError('processes'));
           } else if (t === 'network') {
-            api.getPodNetworkConnectionsStrict(currentUid).then(setNetworkConnections).catch(() => {});
+            api.getPodNetworkConnectionsStrict(currentUid)
+              .then((data) => {
+                setNetworkConnections(data);
+                clearError('network');
+              })
+              .catch(() => markError('network'));
           } else if (t === 'events') {
             refreshAllData(currentUid);
           } else {
