@@ -74,7 +74,10 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			result.ClusterName = cluster.Name
 			result.TotalClusters = 1
 		} else {
-			if fail(clusters().Where("id IN (?)", pods().Select("cluster_id")).Count(&result.TotalClusters).Error, "dashboard_stats_clusters_unavailable") {
+			// Cluster totals come from the authorized active-cluster inventory itself,
+			// not from whether a cluster currently has Pod rows. An active empty
+			// cluster remains a real cluster and must not disappear from totals.
+			if fail(clusters().Count(&result.TotalClusters).Error, "dashboard_stats_clusters_unavailable") {
 				return
 			}
 		}
