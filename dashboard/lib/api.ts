@@ -621,7 +621,12 @@ export const api = {
   },
 
   getClusterOverviewStrict: async (id: string): Promise<ClusterOverview> => {
-    return request<ClusterOverview>(`/inventory/clusters/${encodeURIComponent(id)}/overview`);
+    const data = await request<Partial<ClusterOverview>>(`/inventory/clusters/${encodeURIComponent(id)}/overview`);
+    return {
+      podCount: requireFiniteNumber(data?.podCount, 'cluster_overview_invalid_response', 'podCount'),
+      nodeCount: requireFiniteNumber(data?.nodeCount, 'cluster_overview_invalid_response', 'nodeCount'),
+      namespaceCount: requireFiniteNumber(data?.namespaceCount, 'cluster_overview_invalid_response', 'namespaceCount'),
+    };
   },
 
   /** GET /api/v1/inventory/clusters/:id/inventory */
@@ -634,7 +639,14 @@ export const api = {
   },
 
   getClusterInventoryStrict: async (id: string): Promise<ClusterInventory> => {
-    return request<ClusterInventory>(`/inventory/clusters/${encodeURIComponent(id)}/inventory`);
+    const data = await request<Partial<ClusterInventory>>(`/inventory/clusters/${encodeURIComponent(id)}/inventory`);
+    if (!Array.isArray(data?.nodes) || !Array.isArray(data?.namespaces)) {
+      invalidResponse('cluster_inventory_detail_invalid_response', 'Cluster inventory response is missing nodes or namespaces');
+    }
+    return {
+      nodes: data.nodes.map((value) => String(value)),
+      namespaces: data.namespaces.map((value) => String(value)),
+    };
   },
 
   /** GET /api/v1/clusters/:id/agents */
@@ -675,7 +687,18 @@ export const api = {
   },
 
   getClusterSecuritySummaryStrict: async (id: string): Promise<ClusterSecuritySummary> => {
-    return request<ClusterSecuritySummary>(`/inventory/clusters/${encodeURIComponent(id)}/security-summary`);
+    const data = await request<Partial<ClusterSecuritySummary>>(`/inventory/clusters/${encodeURIComponent(id)}/security-summary`);
+    if (!data?.riskBySeverity || typeof data.riskBySeverity !== 'object' || Array.isArray(data.riskBySeverity)) {
+      invalidResponse('cluster_security_summary_invalid_response', 'Cluster security summary response is missing riskBySeverity');
+    }
+    return {
+      riskBySeverity: data.riskBySeverity as Record<string, number>,
+      capabilityCount: requireFiniteNumber(data.capabilityCount, 'cluster_security_summary_invalid_response', 'capabilityCount'),
+      criticalCount: requireFiniteNumber(data.criticalCount, 'cluster_security_summary_invalid_response', 'criticalCount'),
+      highCount: requireFiniteNumber(data.highCount, 'cluster_security_summary_invalid_response', 'highCount'),
+      mediumCount: requireFiniteNumber(data.mediumCount, 'cluster_security_summary_invalid_response', 'mediumCount'),
+      lowCount: requireFiniteNumber(data.lowCount, 'cluster_security_summary_invalid_response', 'lowCount'),
+    };
   },
 
   /** GET /api/v1/clusters/:id/nodes/:nodeName – Node Detail (metadata + optional ?pods=true for workloads) */
@@ -689,7 +712,20 @@ export const api = {
 
   getClusterNodeStrict: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse> => {
     const qs = opts?.pods ? '?pods=true' : '';
-    return request<NodeDetailResponse>(`/inventory/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
+    const data = await request<Partial<NodeDetailResponse>>(`/inventory/clusters/${encodeURIComponent(clusterId)}/nodes/${encodeURIComponent(nodeName)}${qs}`);
+    if (!data || typeof data !== 'object' || !String(data.clusterId ?? '').trim() || !String(data.nodeName ?? '').trim()) {
+      invalidResponse('cluster_node_invalid_response', 'Node detail response is missing clusterId or nodeName');
+    }
+    if (data.pods != null && !Array.isArray(data.pods)) {
+      invalidResponse('cluster_node_invalid_response', 'Node detail response has an invalid pods array');
+    }
+    return {
+      ...data,
+      clusterId: String(data.clusterId),
+      nodeName: String(data.nodeName),
+      podCount: requireFiniteNumber(data.podCount, 'cluster_node_invalid_response', 'podCount'),
+      pods: data.pods,
+    } as NodeDetailResponse;
   },
 
   /** GET /api/v1/clusters/:id – single cluster for Cluster Detail */
@@ -702,7 +738,10 @@ export const api = {
   },
 
   getClusterStrict: async (id: string): Promise<Cluster> => {
-    const c = await request<Record<string, unknown>>(`/inventory/clusters/${encodeURIComponent(id)}`);
+    const c = await request<Record<string, unknown> | null>(`/inventory/clusters/${encodeURIComponent(id)}`);
+    if (!c || typeof c !== 'object' || Array.isArray(c)) {
+      invalidResponse('cluster_detail_invalid_response', 'Cluster detail response is not an object');
+    }
     const name = String(c.name ?? c.id ?? '').trim() || String(id);
     return {
       id: String(c.id ?? id),
@@ -2192,8 +2231,11 @@ export const api = {
       if (params?.namespace?.trim()) query.set('namespace', params.namespace.trim());
       const qs = query.toString();
       const url = `/inventory/sbom?${qs}`;
-      const data = await request<{ sboms: PodSbomSummary[] }>(url);
-      const list = (data.sboms || []) as unknown as Array<Record<string, unknown>>;
+      const data = await request<{ sboms?: PodSbomSummary[] }>(url);
+      if (!Array.isArray(data.sboms)) {
+        invalidResponse('sbom_list_invalid_response', 'SBOM list response is missing the sboms array');
+      }
+      const list = data.sboms as unknown as Array<Record<string, unknown>>;
       return list.map((s) => ({
         ...s,
         lastScan: s.lastScan != null ? String(s.lastScan) : '',
@@ -2219,7 +2261,11 @@ export const api = {
   },
 
   getPodSbomStrict: async (podUid: string): Promise<PodSbom> => {
-    return request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
+    const data = await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
+    if (!data || typeof data !== 'object' || !Array.isArray(data.components)) {
+      invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing the components array');
+    }
+    return data;
   },
 
   /** GET /api/v1/malware/threats/:pod_uid – per-pod malware/telemetry matches (requires same auth as SBOM) */
@@ -2276,7 +2322,10 @@ export const api = {
       const data = await request<Record<string, unknown> & { insights?: unknown[]; summary?: Record<string, unknown> }>(
         `/risk/pods/${encodeURIComponent(podUid)}/report`,
       );
-      const insights = (data.insights || []).map((i: any) => ({
+      if (!Array.isArray(data.insights)) {
+        invalidResponse('pod_risk_report_invalid_response', 'Pod risk report response is missing the insights array');
+      }
+      const insights = data.insights.map((i: any) => ({
         id: String(i.id ?? ''),
         cveId:
           i.cveId != null ? String(i.cveId) : i.cve_id != null ? String(i.cve_id) : undefined,
