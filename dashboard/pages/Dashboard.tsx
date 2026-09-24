@@ -1029,7 +1029,7 @@ export const Dashboard: React.FC = () => {
       </button>
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate(risksUrl)}>
         <span className="text-typo-micro block">Active findings</span>
-        <span className="font-mono font-semibold text-body text-text">{activeFindingsCount}</span>
+        <span className="font-mono font-semibold text-body text-text">{activeFindingsMetric ?? '—'}</span>
       </button>
       <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/resources')}>
         <span className="text-typo-micro block">High / critical scored pods</span>
