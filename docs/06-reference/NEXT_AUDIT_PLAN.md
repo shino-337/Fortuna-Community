@@ -283,6 +283,10 @@ E1 starts after #52 and is the current implementation package. Merge only when:
 - system metrics and dashboard stats count Pods by `{cluster_id, uid}`, keep
   Pod Insight aggregates resource-type/cluster qualified, and do not report
   healthy/zero values when their backing queries fail;
+- cluster totals and cluster-list membership come from the authorized fresh
+  `clusters` inventory itself, not from whether Pod rows currently exist; an
+  active empty cluster remains visible/countable while stale and legacy synthetic
+  cluster rows remain excluded by the cluster-inventory contract;
 - dashboard data-integrity cross-checks, catalog health and runtime health do not
   convert query/schema failures into zero counts, no-events, degraded or healthy
   states; required backing-query failure returns retryable 503;
