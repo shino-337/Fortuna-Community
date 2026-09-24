@@ -118,6 +118,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					next.SourceHealthStatus = ""
 					next.SourceHealthProofKind = ""
 					next.SourceHealthObservedAt = nil
+					next.SourceHealthContinuousSince = nil
 					next.SourceHealthValidUntil = nil
 					next.State = reset.State
 					// A restart invalidates continuity from the last accepted
@@ -199,6 +200,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					"source_health_status": next.SourceHealthStatus,
 					"source_health_proof_kind": next.SourceHealthProofKind,
 					"source_health_observed_at": next.SourceHealthObservedAt,
+					"source_health_continuous_since": next.SourceHealthContinuousSince,
 					"source_health_valid_until": next.SourceHealthValidUntil,
 					"state": next.State,
 					"last_manifest_at": next.LastManifestAt,
