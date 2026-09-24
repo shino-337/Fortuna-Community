@@ -304,13 +304,38 @@ E1 is closed on merge commit `a6e49ff`. Its permanent contract remains:
 - named regressions are added to the permanent security contract;
 - exact-head Core/API/dashboard validation and Secret scan pass before merge.
 
+### E2 detail/list availability merge gates
+
+E2 starts from merge commit `a6e49ff`. Merge only when:
+
+- Cluster, Node, Capability and Pod primary-detail reads distinguish a genuine
+  not-found response from transient/schema availability failure;
+- secondary/enrichment failure (cluster stats/overview, tab data, linked rules,
+  SBOM/risk/runtime evidence) does not erase a successfully loaded primary entity;
+- retryable refresh failure preserves last-known-good detail/list state and exposes
+  Retry, while non-retryable schema/deployment failure exposes operator guidance;
+- shared cluster inventory uses stale-while-revalidate semantics: failed
+  revalidation cannot clear the cached cluster selector or cause ownership/scope
+  UI to report a false empty platform;
+- Settings user-scope cluster inventory preserves its last successful allow-list
+  source and never turns a failed refresh into "No clusters available";
+- Pod Detail contract-critical evidence fetches use strict adapters so transport,
+  query and schema failures cannot overwrite prior metrics/process/network/events,
+  SBOM, risk report, runtime signals/facts/incidents or capability state with
+  empty/null values;
+- successful `404`/not-found and successful `200` empty responses retain their
+  genuine not-found/empty semantics;
+- permanent Playwright regressions cover primary 503 versus 404, enrichment/tab
+  503, capability rule failure, Node/Pod last-known-good refresh preservation and
+  successful empty behavior where applicable;
+- exact-head Dashboard typecheck/build/Playwright, Core permanent regressions,
+  PostgreSQL gate, API/Agent tests + vet, shell/hygiene and Secret scan pass.
+
 Current execution order after #53:
-1. E2: remove remaining UI/detail/list availability erasure and add permanent UI
-   regressions for unavailable versus not-found/empty semantics;
-2. finish exact-head dashboard/Core/API/Secret-scan gates and merge E2 manually;
-3. D3: implement independent runtime source-health/authority without inferring
+1. complete E2 against the gates above and merge PR #54 manually;
+2. D3: implement independent runtime source-health/authority without inferring
    authority from clean-empty windows or reader heartbeat;
-4. F: execute the live PostgreSQL/two-cluster/DaemonSet acceptance gate.
+3. F: execute the live PostgreSQL/two-cluster/DaemonSet acceptance gate.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 
