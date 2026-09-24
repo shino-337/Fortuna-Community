@@ -79,6 +79,36 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 	}
 }
 
+
+func TestClusterInventoryIncludesActiveClusterWithoutPods(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&models.Cluster{}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	if err := db.Create([]models.Cluster{
+		{ID: "cluster-without-pods", Name: "empty", Source: "env", LastSync: now},
+		{ID: "cluster-stale", Name: "stale", Source: "env", LastSync: now.Add(-2 * ActiveClusterCutoff)},
+		{ID: "legacy", Name: "legacy", Source: "", LastSync: now},
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/clusters", nil)
+	clusters, err := getClustersForAPI(db, c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clusters) != 1 || clusters[0].ID != "cluster-without-pods" {
+		t.Fatalf("active cluster inventory should not depend on Pod rows: %+v", clusters)
+	}
+}
+
 func TestDashboardStatsKeepsAcknowledgedRisks(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
