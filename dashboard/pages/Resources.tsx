@@ -11,8 +11,9 @@ import { SemanticEmptyState } from '../design-system/components/SemanticEmptySta
 import { Pagination } from '../components/Pagination';
 import { Button } from '../components/ui/Button';
 import { DataFreshness } from '../components/DataFreshness';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { StatCard } from '../components/StatCard';
-import { api, isApiError } from '../lib/api';
+import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { useClusterStore } from '../store/clusterStore';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
@@ -153,6 +154,7 @@ export const Resources: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [dataUpdatedAt, setDataUpdatedAt] = useState<Date | null>(null);
   const [dataError, setDataError] = useState<string | null>(null);
+  const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [searchTerm, setSearchTerm] = useState('');
@@ -211,12 +213,13 @@ export const Resources: React.FC = () => {
   const fetchResources = useCallback(async () => {
     const gen = ++podsFetchGenRef.current;
     setLoading(true);
-    setDataError(null);
     try {
       if (activeTab === 'Inventory') {
         const data = await api.getClustersStats();
         if (gen !== podsFetchGenRef.current) return;
         setInventoryClusters(data);
+        setDataError(null);
+        setAvailabilityIssue(null);
         setDataUpdatedAt(new Date());
         return;
       }
@@ -232,6 +235,8 @@ export const Resources: React.FC = () => {
         if (gen !== podsFetchGenRef.current) return;
         setPods(data.pods);
         setPodsTotal(data.total);
+        setDataError(null);
+        setAvailabilityIssue(null);
         setDataUpdatedAt(new Date());
       } else if (activeTab === 'Bindings') {
         const [rb, crb] = await Promise.all([
@@ -243,11 +248,15 @@ export const Resources: React.FC = () => {
         ]);
         if (gen !== podsFetchGenRef.current) return;
         setResources([...rb, ...crb]);
+        setDataError(null);
+        setAvailabilityIssue(null);
         setDataUpdatedAt(new Date());
       } else if (activeTab === 'ClusterRole') {
         const data = await api.getResources('ClusterRole', { cluster: selectedClusterId ?? undefined });
         if (gen !== podsFetchGenRef.current) return;
         setResources(data);
+        setDataError(null);
+        setAvailabilityIssue(null);
         setDataUpdatedAt(new Date());
       } else {
         const data = await api.getResources(activeTab, {
@@ -256,11 +265,16 @@ export const Resources: React.FC = () => {
         });
         if (gen !== podsFetchGenRef.current) return;
         setResources(data);
+        setDataError(null);
+        setAvailabilityIssue(null);
         setDataUpdatedAt(new Date());
       }
     } catch (err) {
       if (gen === podsFetchGenRef.current) {
-        setDataError(err instanceof Error ? err.message : 'Could not refresh resources');
+        const subject = activeTab === 'Pod' ? 'Pod inventory' : activeTab === 'Inventory' ? 'Cluster inventory' : 'Resource inventory';
+        const issue = getAvailabilityIssue(err, subject);
+        setAvailabilityIssue(issue);
+        setDataError(issue.description);
       }
     } finally {
       if (gen === podsFetchGenRef.current) {
@@ -809,6 +823,9 @@ export const Resources: React.FC = () => {
   const showPagination =
     activeTab !== 'Inventory' && (activeTab === 'Pod' ? podsTotal > 0 : resources.length > 0);
 
+  const contractDataUnavailable =
+    Boolean(availabilityIssue && !dataUpdatedAt && (activeTab === 'Pod' || activeTab === 'Inventory'));
+
   return (
     <PageLayout
       title={PAGE_TITLES.resources}
@@ -870,10 +887,16 @@ export const Resources: React.FC = () => {
       }
     >
       <div className="flex flex-col gap-4">
+        {availabilityIssue ? (
+          <AvailabilityNotice
+            issue={availabilityIssue}
+            onRetry={availabilityIssue.retryable ? refreshClicked : undefined}
+          />
+        ) : null}
         <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
           <StatCard
             title="Pods in scope"
-            value={attackSummaryLoading || loading ? '…' : `${pods.length.toLocaleString('en-US')} / ${podsTotal.toLocaleString('en-US')}`}
+            value={attackSummaryLoading || loading ? '…' : contractDataUnavailable ? '—' : `${pods.length.toLocaleString('en-US')} / ${podsTotal.toLocaleString('en-US')}`}
             icon={<Box className="w-5 h-5" />}
             tone="info"
             subtitle="Visible / total pods"
@@ -932,8 +955,10 @@ export const Resources: React.FC = () => {
                 columns={podColumns}
                 data={pods}
                 loading={loading}
-                emptyTitle="No pods found"
-                emptyDescription="Ensure Core and agents are syncing for the selected scope."
+                emptyTitle={contractDataUnavailable ? "Pod inventory unavailable" : "No pods found"}
+                emptyDescription={contractDataUnavailable
+                  ? "The backing inventory request did not complete. Existing data is preserved when available."
+                  : "Ensure Core and agents are syncing for the selected scope."}
                 rowKey={(p) => p.uid}
                 scrollClassName="ui-table-scroll"
               />
@@ -961,21 +986,21 @@ export const Resources: React.FC = () => {
                 <div className="grid grid-cols-1 gap-3 min-[520px]:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5">
                   <StatCard
                     title="Service accounts"
-                    value={loading ? '…' : inventoryTotals.sa}
+                    value={loading ? '…' : contractDataUnavailable ? '—' : inventoryTotals.sa}
                     icon={<UserCog className="w-5 h-5" />}
                     tone="info"
                     subtitle="Subjects for RoleBindings"
                   />
                   <StatCard
                     title="Roles"
-                    value={loading ? '…' : inventoryTotals.role}
+                    value={loading ? '…' : contractDataUnavailable ? '—' : inventoryTotals.role}
                     icon={<Scroll className="w-5 h-5" />}
                     tone="warning"
                     subtitle="Namespace-scoped rules"
                   />
                   <StatCard
                     title="ClusterRoles"
-                    value={loading ? '…' : inventoryTotals.clusterRole}
+                    value={loading ? '…' : contractDataUnavailable ? '—' : inventoryTotals.clusterRole}
                     icon={<Scroll className="w-5 h-5" />}
                     tone="high"
                     subtitle="Cluster-wide rules"
