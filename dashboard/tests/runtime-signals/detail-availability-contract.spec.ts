@@ -141,3 +141,108 @@ test('node refresh 503 preserves last-known-good node detail', async ({ page }) 
   await expect(page.getByText('v1.29.15', { exact: true })).toBeVisible();
   await expect(page.getByText('Node not found', { exact: true })).toHaveCount(0);
 });
+
+
+const pod = {
+  id: 1,
+  uid: 'pod-a',
+  clusterId: 'cluster-a',
+  name: 'pod-a',
+  namespace: 'default',
+  nodeName: 'node-a',
+  phase: 'Running',
+  status: 'Running',
+  riskCount: 1,
+  restartCount: 0,
+  podIP: '10.0.0.10',
+  startTime: '2026-09-24T00:00:00Z',
+};
+
+function fulfillPodSupportingApis(route: import('@playwright/test').Route) {
+  const url = new URL(route.request().url());
+  const path = url.pathname;
+  if (path.endsWith('/sbom')) return route.fulfill({ status: 404, json: { error: 'no sbom' } });
+  if (path === '/api/v1/inventory/sbom') return route.fulfill({ json: { sboms: [] } });
+  if (path.endsWith('/report')) {
+    return route.fulfill({ json: {
+      podUid: 'pod-a',
+      podName: 'pod-a',
+      namespace: 'default',
+      clusterId: 'cluster-a',
+      insights: [],
+      bindings: [],
+      roles: [],
+      summary: { runtimeSignals24h: 0, insightsInReport: 0 },
+    } });
+  }
+  if (path.includes('/runtime/signals/suppression-stats')) {
+    return route.fulfill({ json: { podUid: 'pod-a', suppressed: 0, total: 0 } });
+  }
+  if (path.includes('/runtime/pods/pod-a/signals')) return route.fulfill({ json: { podUid: 'pod-a', signals: [], count: 0 } });
+  if (path.includes('/runtime/pods/pod-a/metrics') ||
+      path.includes('/runtime/pods/pod-a/processes') ||
+      path.includes('/runtime/pods/pod-a/network') ||
+      path.includes('/runtime/pods/pod-a/events')) {
+    return route.fulfill({ json: { items: [] } });
+  }
+  if (path.includes('/risk/pods/pod-a/runtime/events')) return route.fulfill({ json: { events: [] } });
+  if (path.includes('/runtime/pods/pod-a/capabilities')) return route.fulfill({ json: { capabilities: [] } });
+  if (path.includes('/risk/scores/')) return route.fulfill({ status: 404, json: { error: 'not found' } });
+  if (path.includes('/inventory/serviceaccounts')) return route.fulfill({ json: { serviceAccounts: [], total: 0 } });
+  return route.fulfill({ status: 404, json: { error: 'not found' } });
+}
+
+test('pod primary 503 is unavailable, not not-found', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') {
+      return route.fulfill(unavailable('pod_detail_unavailable', 'Pod inventory query failed'));
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  await expect(page.getByText('Could not load pod detail', { exact: true })).toBeVisible();
+  await expect(page.getByText('Pod not found', { exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Retry pod', exact: true })).toBeVisible();
+});
+
+test('pod 404 remains a genuine not-found state', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') {
+      return route.fulfill({ status: 404, json: { error: 'not found' } });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  await expect(page.getByText('Pod not found', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Could not load pod detail', { exact: true })).toHaveCount(0);
+});
+
+test('pod refresh 503 preserves last-known-good pod detail', async ({ page }) => {
+  let podAttempts = 0;
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') {
+      podAttempts++;
+      return route.fulfill(
+        podAttempts === 1
+          ? { json: pod }
+          : unavailable('pod_detail_unavailable', 'Pod inventory query failed'),
+      );
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  await expect(page.getByText('pod-a', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('10.0.0.10', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('Pod detail temporarily unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('pod-a', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('10.0.0.10', { exact: true })).toBeVisible();
+  await expect(page.getByText('Pod not found', { exact: true })).toHaveCount(0);
+});
