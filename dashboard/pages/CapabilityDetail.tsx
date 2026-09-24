@@ -8,7 +8,7 @@ import { Button } from '../components/ui/Button';
 import { ArrowLeft, ExternalLink, Info, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
-import { PageError, PageLoading } from '../design-system/components/PageStatus';
+import { PageLoading } from '../design-system/components/PageStatus';
 
 export const CapabilityDetail: React.FC = () => {
   const params = useParams<{ id: string }>();
