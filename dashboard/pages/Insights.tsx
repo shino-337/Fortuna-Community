@@ -44,6 +44,7 @@ import { RiskFindingsSavedViews } from '../components/RiskFindingsSavedViews';
 import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { formatMinutesHuman } from '../lib/formatDuration';
 import { formatDateTime } from '../lib/display';
+import { podDetailPath } from '../lib/podRoute';
 import {
   UI_TABLE,
   UI_TD,
@@ -152,11 +153,11 @@ function findingPodUid(insight: Insight): string | undefined {
   return uid || undefined;
 }
 
-function findingResourceTarget(resource?: FindingResource): string | undefined {
+function findingResourceTarget(resource?: FindingResource, clusterId?: string): string | undefined {
   const id = String(resource?.id ?? '').trim();
   if (!resource || !id) return undefined;
   const kind = normalizeFindingResourceKind(resource.kind);
-  if (kind === 'pod') return `/resources/pods/uid/${encodeURIComponent(id)}`;
+  if (kind === 'pod') return podDetailPath(id, clusterId);
   if (kind === 'serviceaccount') return `/identities/uid/${encodeURIComponent(id)}`;
   return undefined;
 }
@@ -2089,7 +2090,7 @@ export const RiskCenter: React.FC = () => {
                                 const resource = risk.affectedResources?.[0];
                                 const label = findingResourceDisplayName(resource);
                                 const kindLabel = findingResourceKindLabel(resource?.kind);
-                                const target = findingResourceTarget(resource);
+                                const target = findingResourceTarget(resource, risk.clusterId);
                                 if (risk.affectedResources.length > 1) {
                                   return `${risk.affectedResources.length} resources`;
                                 }
