@@ -139,7 +139,8 @@ const PodDetailContent: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [dataErrors, setDataErrors] = useState<string[]>([]);
   const dataErrorsRef = useRef<string[]>([]);
-  const runtimeRefreshRef = useRef(0);
+  const sourceRequestRef = useRef<Record<string, number>>({});
+  const tabRequestRef = useRef(0);
   dataErrorsRef.current = dataErrors;
   /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
   const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
@@ -293,6 +294,26 @@ const PodDetailContent: React.FC = () => {
     return { label: s ? src! : '—', className: 'bg-muted-2/25 text-text border-border/40' };
   };
 
+  const refreshSource = useCallback(async <T,>(
+    label: string,
+    fetcher: () => Promise<T>,
+    setter: (value: T) => void,
+  ): Promise<boolean> => {
+    const requestSeq = (sourceRequestRef.current[label] ?? 0) + 1;
+    sourceRequestRef.current[label] = requestSeq;
+    try {
+      const value = await fetcher();
+      if (sourceRequestRef.current[label] !== requestSeq) return false;
+      setter(value);
+      setDataErrors((prev) => prev.filter((item) => item !== label));
+      return true;
+    } catch {
+      if (sourceRequestRef.current[label] !== requestSeq) return false;
+      setDataErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
+      return true;
+    }
+  }, []);
+
   const hasDataError = (label: string): boolean => dataErrors.includes(label);
   const unavailablePlaceholder = (label: string) => (
     <p className="text-body text-amber-300">{label} is temporarily unavailable. Retry from the availability warning above.</p>
@@ -372,107 +393,64 @@ const PodDetailContent: React.FC = () => {
   const fetchTabData = useCallback(
     async (tab: TabId) => {
       if (!pod?.uid) return;
+      const requestSeq = ++tabRequestRef.current;
       setTabLoading(true);
       try {
         const uid = pod.uid;
         if (tab === 'sbom') {
           if (!sbomLoaded || dataErrorsRef.current.includes('sbom')) {
-            try {
-              const data = await loadSbomForPod({
-                uid,
-                name: pod.name,
-                namespace: pod.namespace,
-              });
-              setSbom(data ?? null);
-              setSbomLoaded(true);
-              setDataErrors((p) => p.filter((e) => e !== 'sbom'));
-            } catch {
-              setSbomLoaded(true);
-              setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
-            }
+            const current = await refreshSource('sbom', () => loadSbomForPod({ uid }), (data) => setSbom(data));
+            if (current) setSbomLoaded(true);
           }
         } else if (tab === 'risks') {
           if (dataErrorsRef.current.includes('risk-report') || (relatedRisks.length === 0 && !podRiskReportSummary)) {
-            try {
-              const report = await api.getPodRiskReportStrict(uid);
-              applyPodRiskReport(report, pod);
-              setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
-            } catch {
-              setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
-            }
+            await refreshSource('risk-report', () => api.getPodRiskReportStrict(uid), (report) => applyPodRiskReport(report, pod));
           }
         } else if (tab === 'processes') {
-          if (processes.length === 0) {
-            const data = await api.getPodProcessesStrict(uid);
-            setProcesses(data);
+          if (processes.length === 0 || dataErrorsRef.current.includes('processes')) {
+            await refreshSource('processes', () => api.getPodProcessesStrict(uid), setProcesses);
           }
         } else if (tab === 'network') {
-          if (networkConnections.length === 0) {
-            const [data, topDest] = await Promise.all([
-              api.getPodNetworkConnectionsStrict(uid),
-              api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440 }),
-            ]);
-            setNetworkConnections(data);
-            setNetworkTopDestinations(topDest);
-          } else if (networkTopDestinations.length === 0) {
-            const topDest = await api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440 });
-            setNetworkTopDestinations(topDest);
+          const tasks: Promise<boolean>[] = [];
+          if (networkConnections.length === 0 || dataErrorsRef.current.includes('network')) {
+            tasks.push(refreshSource('network', () => api.getPodNetworkConnectionsStrict(uid), setNetworkConnections));
           }
-        } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
-          // Fetch each slice independently so one unavailable source neither blocks
-          // the others nor erases last-known-good evidence.
-          const errors: string[] = [];
-          const track = (label: string) => () => {
-            errors.push(label);
-          };
-          const tasks: Promise<unknown>[] = [];
-          if (podEvents.length === 0) {
-            tasks.push(api.getPodEventsStrict(uid).then(setPodEvents).catch(track('events')));
-          }
-          if (runtimeSecurityEvents.length === 0) {
-            tasks.push(
-              api.getPodRuntimeSecurityEventsStrict(uid, 150).then(setRuntimeSecurityEvents).catch(track('security-events')),
-            );
-          }
-          if (runtimeFacts.length === 0) {
-            tasks.push(api.getPodRuntimeBehaviorFactsV2Strict(uid, 120).then(setRuntimeFacts).catch(track('facts')));
-          }
-          if (runtimeIncidents.length === 0) {
-            tasks.push(api.getPodRuntimeIncidentsV2Strict(uid, 80).then(setRuntimeIncidents).catch(track('incidents')));
-          }
-          if (podCapabilities.length === 0) {
-            tasks.push(api.getPodCapabilitiesStrict(uid).then(setPodCapabilities).catch(track('capabilities')));
-          }
-          if (runtimeSignals.length === 0) {
-            tasks.push(
-              api
-                .getRuntimeSignalsByPodStrict(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 })
-                .then(setRuntimeSignals)
-                .catch(track('signals')),
-            );
-          }
-          if (signalStats === null) {
-            tasks.push(
-              api
-                .getRuntimeSignalSuppressionStatsStrict({ podUid: uid, sinceMinutes: 60 })
-                .then(setSignalStats)
-                .catch(track('signal-stats')),
-            );
+          if (networkTopDestinations.length === 0 || dataErrorsRef.current.includes('top-dest')) {
+            tasks.push(refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440 }), setNetworkTopDestinations));
           }
           await Promise.all(tasks);
-          const attempted = new Set([
-            'events',
-            'security-events',
-            'facts',
-            'incidents',
-            'capabilities',
-            'signals',
-            'signal-stats',
-          ]);
-          setDataErrors((prev) => {
-            const kept = prev.filter((label) => !attempted.has(label));
-            return errors.length > 0 ? [...new Set([...kept, ...errors])] : kept;
-          });
+        } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
+          const tasks: Promise<boolean>[] = [];
+          if (podEvents.length === 0 || dataErrorsRef.current.includes('events')) {
+            tasks.push(refreshSource('events', () => api.getPodEventsStrict(uid), setPodEvents));
+          }
+          if (runtimeSecurityEvents.length === 0 || dataErrorsRef.current.includes('security-events')) {
+            tasks.push(refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(uid, 150), setRuntimeSecurityEvents));
+          }
+          if (runtimeFacts.length === 0 || dataErrorsRef.current.includes('facts')) {
+            tasks.push(refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(uid, 120), setRuntimeFacts));
+          }
+          if (runtimeIncidents.length === 0 || dataErrorsRef.current.includes('incidents')) {
+            tasks.push(refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(uid, 80), setRuntimeIncidents));
+          }
+          if (podCapabilities.length === 0 || dataErrorsRef.current.includes('capabilities')) {
+            tasks.push(refreshSource('capabilities', () => api.getPodCapabilitiesStrict(uid), setPodCapabilities));
+          }
+          if (runtimeSignals.length === 0 || dataErrorsRef.current.includes('signals')) {
+            tasks.push(refreshSource(
+              'signals',
+              () => api.getRuntimeSignalsByPodStrict(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }),
+              setRuntimeSignals,
+            ));
+          }
+          if (signalStats === null || dataErrorsRef.current.includes('signal-stats')) {
+            tasks.push(refreshSource(
+              'signal-stats',
+              () => api.getRuntimeSignalSuppressionStatsStrict({ podUid: uid, sinceMinutes: 60 }),
+              setSignalStats,
+            ));
+          }
+          await Promise.all(tasks);
         } else if (tab === 'spec') {
           const yaml = await api.getPodSpecYaml(uid);
           setSpecYaml(yaml);
@@ -492,7 +470,7 @@ const PodDetailContent: React.FC = () => {
                     : `tab-${tab}`;
         setDataErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
       } finally {
-        setTabLoading(false);
+        if (requestSeq === tabRequestRef.current) setTabLoading(false);
       }
     },
     [
@@ -511,6 +489,7 @@ const PodDetailContent: React.FC = () => {
       runtimeSignals.length,
       signalStats,
       applyPodRiskReport,
+      refreshSource,
     ]
   );
 
@@ -558,52 +537,32 @@ const PodDetailContent: React.FC = () => {
       });
   }, [pod?.uid]);
 
-  // Refresh only the runtime/evidence sources owned by this function.
-  // A newer refresh supersedes an older one, and unrelated errors (SBOM,
-  // ServiceAccount, spec, risk report) are never cleared here.
+  // Refresh all runtime/evidence sources through the same per-source sequencer
+  // used by lazy tabs and WebSocket updates. A slow older request can therefore
+  // never overwrite a newer observation of the same source.
   const refreshAllData = useCallback(async (podUid: string): Promise<void> => {
-    const requestSeq = ++runtimeRefreshRef.current;
-    const errors: string[] = [];
-    const attempted = new Set([
-      'metrics',
-      'processes',
-      'network',
-      'top-dest',
-      'events',
-      'security-events',
-      'signals',
-      'facts',
-      'incidents',
-      'capabilities',
-      'signal-stats',
-    ]);
-    const track = (label: string) => () => {
-      errors.push(label);
-    };
-    const commit = <T,>(setter: (value: T) => void) => (value: T) => {
-      if (requestSeq === runtimeRefreshRef.current) setter(value);
-    };
-
     await Promise.all([
-      api.getPodRuntimeMetricsStrict(podUid).then(commit(setRuntimeMetrics)).catch(track('metrics')),
-      api.getPodProcessesStrict(podUid).then(commit(setProcesses)).catch(track('processes')),
-      api.getPodNetworkConnectionsStrict(podUid).then(commit(setNetworkConnections)).catch(track('network')),
-      api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440 }).then(commit(setNetworkTopDestinations)).catch(track('top-dest')),
-      api.getPodEventsStrict(podUid).then(commit(setPodEvents)).catch(track('events')),
-      api.getPodRuntimeSecurityEventsStrict(podUid, 150).then(commit(setRuntimeSecurityEvents)).catch(track('security-events')),
-      api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(commit(setRuntimeSignals)).catch(track('signals')),
-      api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120).then(commit(setRuntimeFacts)).catch(track('facts')),
-      api.getPodRuntimeIncidentsV2Strict(podUid, 80).then(commit(setRuntimeIncidents)).catch(track('incidents')),
-      api.getPodCapabilitiesStrict(podUid).then(commit(setPodCapabilities)).catch(track('capabilities')),
-      api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60 }).then(commit(setSignalStats)).catch(track('signal-stats')),
+      refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(podUid), setRuntimeMetrics),
+      refreshSource('processes', () => api.getPodProcessesStrict(podUid), setProcesses),
+      refreshSource('network', () => api.getPodNetworkConnectionsStrict(podUid), setNetworkConnections),
+      refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440 }), setNetworkTopDestinations),
+      refreshSource('events', () => api.getPodEventsStrict(podUid), setPodEvents),
+      refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(podUid, 150), setRuntimeSecurityEvents),
+      refreshSource(
+        'signals',
+        () => api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }),
+        setRuntimeSignals,
+      ),
+      refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120), setRuntimeFacts),
+      refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(podUid, 80), setRuntimeIncidents),
+      refreshSource('capabilities', () => api.getPodCapabilitiesStrict(podUid), setPodCapabilities),
+      refreshSource(
+        'signal-stats',
+        () => api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60 }),
+        setSignalStats,
+      ),
     ]);
-
-    if (requestSeq !== runtimeRefreshRef.current) return;
-    setDataErrors((prev) => {
-      const kept = prev.filter((label) => !attempted.has(label));
-      return errors.length > 0 ? [...new Set([...kept, ...errors])] : kept;
-    });
-  }, []);
+  }, [refreshSource]);
 
   // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data. All use pod UID.
   useEffect(() => {
@@ -632,38 +591,22 @@ const PodDetailContent: React.FC = () => {
         try {
           const d = JSON.parse(e.data as string) as { type?: string };
           const t = d?.type;
-          const clearError = (label: string) =>
-            setDataErrors((prev) => prev.filter((item) => item !== label));
-          const markError = (label: string) =>
-            setDataErrors((prev) => (prev.includes(label) ? prev : [...prev, label]));
           if (t === 'metrics') {
-            api.getPodRuntimeMetricsStrict(currentUid)
-              .then((data) => {
-                setRuntimeMetrics(data);
-                clearError('metrics');
-              })
-              .catch(() => markError('metrics'));
+            void refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(currentUid), setRuntimeMetrics);
           } else if (t === 'processes') {
-            api.getPodProcessesStrict(currentUid)
-              .then((data) => {
-                setProcesses(data);
-                clearError('processes');
-              })
-              .catch(() => markError('processes'));
+            void refreshSource('processes', () => api.getPodProcessesStrict(currentUid), setProcesses);
           } else if (t === 'network') {
-            api.getPodNetworkConnectionsStrict(currentUid)
-              .then((data) => {
-                setNetworkConnections(data);
-                clearError('network');
-              })
-              .catch(() => markError('network'));
+            void Promise.all([
+              refreshSource('network', () => api.getPodNetworkConnectionsStrict(currentUid), setNetworkConnections),
+              refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(currentUid, { sinceMinutes: 1440 }), setNetworkTopDestinations),
+            ]);
           } else if (t === 'events') {
             void refreshAllData(currentUid);
           } else {
             void refreshAllData(currentUid);
           }
         } catch {
-          refreshAllData(currentUid);
+          void refreshAllData(currentUid);
         }
       };
     } catch {
@@ -672,7 +615,7 @@ const PodDetailContent: React.FC = () => {
     return () => {
       if (ws != null) ws.close();
     };
-  }, [wsUid, pod?.uid, hasToken, refreshAllData]);
+  }, [wsUid, pod?.uid, hasToken, refreshAllData, refreshSource]);
 
   const pageSubtitle = useMemo(() => {
     if (!pod) return undefined;
@@ -778,11 +721,7 @@ const PodDetailContent: React.FC = () => {
               try {
                 await fetchPod();
                 await refreshAllData(pod.uid);
-                await loadSbomForPod({
-                  uid: pod.uid,
-                  name: pod.name,
-                  namespace: pod.namespace,
-                })
+                await loadSbomForPod({ uid: pod.uid })
                   .then((d) => {
                     setSbom(d ?? null);
                     setSbomLoaded(true);
@@ -893,11 +832,7 @@ const PodDetailContent: React.FC = () => {
               onClick={() => {
                 if (!pod?.uid) return;
                 void refreshAllData(pod.uid);
-                void loadSbomForPod({
-                  uid: pod.uid,
-                  name: pod.name,
-                  namespace: pod.namespace,
-                })
+                void loadSbomForPod({ uid: pod.uid })
                   .then((d) => {
                     setSbom(d ?? null);
                     setSbomLoaded(true);
