@@ -1814,7 +1814,16 @@ export const api = {
         description: r.description != null ? String(r.description) : undefined,
         logic: r.logic != null ? String(r.logic) : undefined,
         evalTime: r.evalTime != null ? String(r.evalTime) : undefined,
-        matchCount: typeof r.matchCount === 'number' ? r.matchCount : undefined,
+        lastUpdated: r.lastUpdated != null ? String(r.lastUpdated) : undefined,
+        matches: r.matches != null ? Number(r.matches) : undefined,
+        lastMatchedAt: r.lastMatchedAt != null ? String(r.lastMatchedAt) : undefined,
+        source: r.source != null ? String(r.source) : undefined,
+        signature: r.signature != null ? String(r.signature) : undefined,
+        overlapGroup: r.overlapGroup != null ? String(r.overlapGroup) : undefined,
+        isCanonical: r.isCanonical != null ? Boolean(r.isCanonical) : undefined,
+        canonicalRuleId: r.canonicalRuleId != null ? String(r.canonicalRuleId) : undefined,
+        impactedFindings24h: r.impactedFindings24h != null ? Number(r.impactedFindings24h) : undefined,
+        impactedFindings7d: r.impactedFindings7d != null ? Number(r.impactedFindings7d) : undefined,
         relatedCapabilities: Array.isArray(r.relatedCapabilities)
           ? r.relatedCapabilities.map((x) => String(x))
           : undefined,
