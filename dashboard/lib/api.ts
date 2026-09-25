@@ -1906,9 +1906,18 @@ export const api = {
   },
 
   /** GET /api/v1/inventory/serviceaccounts/:uid (uid = K8s ServiceAccount UID) */
-  getServiceAccountByUid: async (uid: string): Promise<Record<string, unknown> | null> => {
+  getServiceAccountByUid: async (uid: string, clusterId?: string): Promise<Record<string, unknown> | null> => {
     try {
-      return await request<Record<string, unknown>>(`/inventory/serviceaccounts/${encodeURIComponent(uid)}`);
+      const data = await request<Record<string, unknown>>(
+        withClusterId(`/inventory/serviceaccounts/${encodeURIComponent(uid)}`, clusterId),
+      );
+      if (String(data.uid ?? '').trim() !== uid) {
+        invalidResponse('service_account_identity_mismatch', 'ServiceAccount response does not match the requested UID');
+      }
+      if (clusterId?.trim() && String(data.clusterId ?? '').trim() !== clusterId.trim()) {
+        invalidResponse('service_account_cluster_identity_mismatch', 'ServiceAccount response does not match the requested cluster');
+      }
+      return data;
     } catch (error) {
       if (isApiError(error) && error.status === 404) return null;
       throw error;
