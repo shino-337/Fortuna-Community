@@ -360,7 +360,7 @@ function AttackPathIssuePanel({
 export const AttackPaths: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { selectedClusterId } = useClusterStore();
+  const { selectedClusterId, setSelectedClusterId } = useClusterStore();
   const canOpenInventory = useCan(P.inventoryRead);
   const graphVisibility = useFeatureVisibility('attack_paths');
   const { graphSemanticMode } = useIncidentMode();
@@ -381,7 +381,9 @@ export const AttackPaths: React.FC = () => {
   const [actionNotice, setActionNotice] = useState<AttackPathIssue | null>(null);
 
   const podUidParam = searchParams.get('podUid') || '';
-  const podClusterIdParam = searchParams.get('clusterId') || selectedClusterId || '';
+  const clusterIdParam = searchParams.get('clusterId') || '';
+  const effectiveClusterId = clusterIdParam || selectedClusterId || '';
+  const podClusterIdParam = effectiveClusterId;
   const [selectedPodPaths, setSelectedPodPaths] = useState<AttackPath[]>([]);
   const [selectedPodLoading, setSelectedPodLoading] = useState(false);
   const [selectedPodIssue, setSelectedPodIssue] = useState<AttackPathIssue | null>(null);
@@ -391,11 +393,17 @@ export const AttackPaths: React.FC = () => {
   /** 1-based — aligns with graph link `stepIndex` when mapped from technique categories */
   const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (clusterIdParam && clusterIdParam !== selectedClusterId) {
+      setSelectedClusterId(clusterIdParam);
+    }
+  }, [clusterIdParam, selectedClusterId, setSelectedClusterId]);
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     setDataIssue(null);
     try {
-      const bundle = await api.getAttackPathsBundleStrict(selectedClusterId || undefined);
+      const bundle = await api.getAttackPathsBundleStrict(effectiveClusterId || undefined);
       if (bundle) {
         setGraphData(bundle.graph);
         setSummary(bundle.summary);
@@ -403,9 +411,9 @@ export const AttackPaths: React.FC = () => {
         setPrimitivePaths(bundle.paths ?? []);
       } else {
         const [graph, sum, chs] = await Promise.all([
-          api.getAttackPathsGraphStrict(),
-          api.getAttackPathsSummaryStrict(selectedClusterId || undefined),
-          api.getAttackChainsStrict(selectedClusterId || undefined),
+          api.getAttackPathsGraphStrict(effectiveClusterId || undefined),
+          api.getAttackPathsSummaryStrict(effectiveClusterId || undefined),
+          api.getAttackChainsStrict(effectiveClusterId || undefined),
         ]);
         setGraphData(graph);
         setSummary(sum);
@@ -424,9 +432,9 @@ export const AttackPaths: React.FC = () => {
       } else {
         try {
           const [graph, sum, chs] = await Promise.all([
-            api.getAttackPathsGraphStrict(),
-            api.getAttackPathsSummaryStrict(selectedClusterId || undefined),
-            api.getAttackChainsStrict(selectedClusterId || undefined),
+            api.getAttackPathsGraphStrict(effectiveClusterId || undefined),
+            api.getAttackPathsSummaryStrict(effectiveClusterId || undefined),
+            api.getAttackChainsStrict(effectiveClusterId || undefined),
           ]);
           setGraphData(graph);
           setSummary(sum);
@@ -444,7 +452,7 @@ export const AttackPaths: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [selectedClusterId]);
+  }, [effectiveClusterId]);
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
@@ -508,8 +516,8 @@ export const AttackPaths: React.FC = () => {
       });
       return;
     }
-    navigate(podDetailPath(nodeId, podClusterIdParam || selectedClusterId));
-  }, [canOpenInventory, focusPathOnGraph, navigate, podClusterIdParam, selectedClusterId]);
+    navigate(podDetailPath(nodeId, effectiveClusterId || undefined));
+  }, [canOpenInventory, effectiveClusterId, focusPathOnGraph, navigate]);
 
   const clearPodUidFilter = useCallback(() => {
     const next = new URLSearchParams(searchParams);
