@@ -177,6 +177,36 @@ func TestUserLifecycle_AdminRegistersNewUserWithClusterScope(t *testing.T) {
 	}
 }
 
+func TestUserLifecycle_AdminRejectsUnknownClusterScopeOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+
+	body := map[string]string{
+		"username":  "unknownscope",
+		"email":     "unknownscope@test.local",
+		"password":  "AnotherPass12!",
+		"role":      "viewer",
+		"scopeJson": `{"clusters":["missing-cluster"]}`,
+	}
+	b, _ := json.Marshal(body)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown scope register: want 400 got %d %s", w.Code, w.Body.String())
+	}
+	var count int64
+	if err := db.Model(&models.User{}).Where("username = ?", "unknownscope").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unknown cluster scope created user")
+	}
+}
+
 func TestUserLifecycle_AdminRegistersClusterAdminWithClusterScope(t *testing.T) {
 	db := setupUserLifecycleDB(t)
 	r := routerUserLifecycleV1(t, db)
@@ -344,6 +374,31 @@ func TestUserLifecycle_AdminPatchesUserClusterScope(t *testing.T) {
 	}
 	if u.ScopeJSON != `{"clusters":["c1"]}` {
 		t.Fatalf("scope after patch: %q", u.ScopeJSON)
+	}
+}
+
+func TestUserLifecycle_AdminRejectsUnknownClusterScopeOnPatch(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	opID := userIDByUsername(t, db, "op1")
+
+	w := httptest.NewRecorder()
+	payload := map[string]string{"scopeJson": `{"clusters":["missing-cluster"]}`}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(opID), 10), bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown scope patch: want 400 got %d %s", w.Code, w.Body.String())
+	}
+	var u models.User
+	if err := db.First(&u, opID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if u.ScopeJSON != "" && u.ScopeJSON != "{}" {
+		t.Fatalf("unknown cluster scope mutated user: %q", u.ScopeJSON)
 	}
 }
 
