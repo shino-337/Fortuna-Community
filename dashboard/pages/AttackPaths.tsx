@@ -381,6 +381,7 @@ export const AttackPaths: React.FC = () => {
   const [actionNotice, setActionNotice] = useState<AttackPathIssue | null>(null);
 
   const podUidParam = searchParams.get('podUid') || '';
+  const podClusterIdParam = searchParams.get('clusterId') || selectedClusterId || '';
   const [selectedPodPaths, setSelectedPodPaths] = useState<AttackPath[]>([]);
   const [selectedPodLoading, setSelectedPodLoading] = useState(false);
   const [selectedPodIssue, setSelectedPodIssue] = useState<AttackPathIssue | null>(null);
@@ -451,7 +452,7 @@ export const AttackPaths: React.FC = () => {
     if (!podUidParam) { setSelectedPodPaths([]); setSelectedPodIssue(null); return; }
     setSelectedPodLoading(true);
     setSelectedPodIssue(null);
-    api.getAttackPathsForPodStrict(podUidParam)
+    api.getAttackPathsForPodStrict(podUidParam, podClusterIdParam || undefined)
       .then((paths) => {
         setSelectedPodPaths(paths);
         setSelectedPodIssue(null);
@@ -461,7 +462,7 @@ export const AttackPaths: React.FC = () => {
         setSelectedPodIssue(classifyAttackPathIssue(err, 'Could not load pod attack paths'));
       })
       .finally(() => setSelectedPodLoading(false));
-  }, [podUidParam]);
+  }, [podUidParam, podClusterIdParam]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -507,8 +508,8 @@ export const AttackPaths: React.FC = () => {
       });
       return;
     }
-    navigate(podDetailPath(nodeId, selectedClusterId));
-  }, [canOpenInventory, focusPathOnGraph, navigate, selectedClusterId]);
+    navigate(podDetailPath(nodeId, podClusterIdParam || selectedClusterId));
+  }, [canOpenInventory, focusPathOnGraph, navigate, podClusterIdParam, selectedClusterId]);
 
   const clearPodUidFilter = useCallback(() => {
     const next = new URLSearchParams(searchParams);
@@ -677,7 +678,7 @@ export const AttackPaths: React.FC = () => {
                 <div className="flex flex-wrap gap-2 shrink-0">
                   {canOpenInventory ? (
                     <Link
-                      to={podDetailPath(podUidParam, selectedClusterId)}
+                      to={podDetailPath(podUidParam, podClusterIdParam)}
                       className="text-caption px-3 py-1.5 rounded-lg border border-border text-text hover:bg-surface-2"
                     >
                       Open pod
@@ -730,7 +731,7 @@ export const AttackPaths: React.FC = () => {
               )}
               <div className="mt-4 border-t border-border/80 pt-4">
                 <p className="text-caption font-semibold text-muted mb-2">Runtime attack steps (this pod)</p>
-                <AttackStepsTimeline podUid={podUidParam} />
+                <AttackStepsTimeline podUid={podUidParam} clusterId={podClusterIdParam || undefined} />
               </div>
             </div>
           )}
