@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { EMPTY_CLUSTERS, useEntityStore } from '../store/entityStore';
 import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import type { Cluster } from '../types';
@@ -22,23 +22,33 @@ export function useClusters(options: { enabled?: boolean } = {}): {
   const fetchClusters = useEntityStore((s) => s.fetchClusters);
   const [loading, setLoading] = useState(false);
   const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
+  const requestRef = useRef(0);
 
   const runFetch = useCallback(async () => {
     if (!enabled) return;
+    const requestSeq = ++requestRef.current;
     setLoading(true);
     try {
       await fetchClusters(() => api.getClustersStrict());
+      if (requestSeq !== requestRef.current) return;
       setAvailabilityIssue(null);
     } catch (err) {
+      if (requestSeq !== requestRef.current) return;
       setAvailabilityIssue(getAvailabilityIssue(err, 'Cluster inventory'));
     } finally {
-      setLoading(false);
+      if (requestSeq === requestRef.current) setLoading(false);
     }
   }, [enabled, fetchClusters]);
 
   useEffect(() => {
+    if (!enabled) {
+      requestRef.current += 1;
+      setLoading(false);
+      setAvailabilityIssue(null);
+      return;
+    }
     void runFetch();
-  }, [runFetch]);
+  }, [enabled, runFetch]);
 
   const refresh = () => {
     if (!enabled) return;
