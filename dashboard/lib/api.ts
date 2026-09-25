@@ -1937,14 +1937,27 @@ export const api = {
       pageSize?: number;
     }>(`/inventory/serviceaccounts?${qs.toString()}`);
 
-    const serviceAccounts = (Array.isArray(data.serviceAccounts) ? data.serviceAccounts : []).map((row) => {
+    if (!Array.isArray(data.serviceAccounts)) {
+      invalidResponse('service_account_inventory_invalid_response', 'ServiceAccount inventory response is missing the serviceAccounts array');
+    }
+    const serviceAccounts = data.serviceAccounts.map((row, index) => {
       const sa = row as Record<string, unknown>;
+      const clusterId = String(sa.clusterId ?? '').trim();
+      const name = String(sa.name ?? '').trim();
+      const namespace = String(sa.namespace ?? '').trim();
+      const uid = String(sa.uid ?? '').trim();
+      if (!clusterId || !name || !namespace || !uid) {
+        invalidResponse(
+          'service_account_inventory_invalid_response',
+          `ServiceAccount inventory contains an entry with incomplete identity at index ${index}`,
+        );
+      }
       return {
         id: Number(sa.id ?? 0),
-        clusterId: String(sa.clusterId ?? ''),
-        name: String(sa.name ?? ''),
-        namespace: String(sa.namespace ?? ''),
-        uid: String(sa.uid ?? ''),
+        clusterId,
+        name,
+        namespace,
+        uid,
         labels: sa.labels != null ? String(sa.labels) : undefined,
         secrets: sa.secrets != null ? String(sa.secrets) : undefined,
         linkedPods: sa.linkedPods != null ? String(sa.linkedPods) : undefined,
@@ -1954,12 +1967,13 @@ export const api = {
       };
     });
 
-    return {
-      serviceAccounts,
-      total: Number(data.total ?? serviceAccounts.length),
-      page: Number(data.page ?? params?.page ?? 1),
-      pageSize: Number(data.pageSize ?? params?.pageSize ?? serviceAccounts.length),
-    };
+    const total = requireFiniteNumber(data.total, 'service_account_inventory_invalid_response', 'total');
+    const page = requireFiniteNumber(data.page, 'service_account_inventory_invalid_response', 'page');
+    const pageSize = requireFiniteNumber(data.pageSize, 'service_account_inventory_invalid_response', 'pageSize');
+    if (total < serviceAccounts.length) {
+      invalidResponse('service_account_inventory_invalid_response', 'ServiceAccount inventory total is smaller than the returned page');
+    }
+    return { serviceAccounts, total, page, pageSize };
   },
 
   /** GET /api/v1/inventory/serviceaccounts/:uid/permissions (effectiveRules + roleBindings + clusterRoleBindings) */
@@ -3005,10 +3019,19 @@ export const api = {
     if (!data.perKey || typeof data.perKey !== 'object' || Array.isArray(data.perKey)) {
       invalidResponse('runtime_signal_stats_invalid_response', 'Runtime signal statistics response is missing perKey');
     }
+    const perKey = Object.fromEntries(
+      Object.entries(data.perKey).map(([key, value]) => [
+        key,
+        requireFiniteNumber(value, 'runtime_signal_stats_invalid_response', `perKey.${key}`),
+      ]),
+    );
+    if (Object.keys(perKey).length !== uniqueKeys) {
+      invalidResponse('runtime_signal_stats_invalid_response', 'Runtime signal statistics uniqueKeys does not match perKey');
+    }
     if (params?.sinceMinutes != null && params.sinceMinutes > 0 && sinceMinutes !== params.sinceMinutes) {
       invalidResponse('runtime_signal_stats_invalid_response', 'Runtime signal statistics response uses an unexpected lookback');
     }
-    return { sinceMinutes, emittedEvents, uniqueKeys, maxRatio, perKey: data.perKey as Record<string, number> };
+    return { sinceMinutes, emittedEvents, uniqueKeys, maxRatio, perKey };
   },
 
   getRuntimeSignalSuppressionStats: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats | null> => {
