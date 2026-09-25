@@ -60,6 +60,7 @@ export interface ThreatSummary {
 
 /** SBOM summary for a pod (scan metadata, package count and vulnerability counts). */
 export interface PodSbomSummary {
+  clusterId?: string;
   podId: string;
   podName: string;
   namespace: string;
