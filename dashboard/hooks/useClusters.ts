@@ -20,6 +20,7 @@ export function useClusters(options: { enabled?: boolean } = {}): {
   const enabled = options.enabled !== false;
   const clusters = useEntityStore((s) => s.clusters?.data ?? EMPTY_CLUSTERS);
   const fetchClusters = useEntityStore((s) => s.fetchClusters);
+  const clusterGeneration = useEntityStore((s) => s.clusterGeneration);
   const [loading, setLoading] = useState(false);
   const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const requestRef = useRef(0);
@@ -27,18 +28,21 @@ export function useClusters(options: { enabled?: boolean } = {}): {
   const runFetch = useCallback(async () => {
     if (!enabled) return;
     const requestSeq = ++requestRef.current;
+    const generation = clusterGeneration;
     setLoading(true);
     try {
       await fetchClusters(() => api.getClustersStrict());
-      if (requestSeq !== requestRef.current) return;
+      if (requestSeq !== requestRef.current || useEntityStore.getState().clusterGeneration !== generation) return;
       setAvailabilityIssue(null);
     } catch (err) {
-      if (requestSeq !== requestRef.current) return;
+      if (requestSeq !== requestRef.current || useEntityStore.getState().clusterGeneration !== generation) return;
       setAvailabilityIssue(getAvailabilityIssue(err, 'Cluster inventory'));
     } finally {
-      if (requestSeq === requestRef.current) setLoading(false);
+      if (requestSeq === requestRef.current && useEntityStore.getState().clusterGeneration === generation) {
+        setLoading(false);
+      }
     }
-  }, [enabled, fetchClusters]);
+  }, [clusterGeneration, enabled, fetchClusters]);
 
   useEffect(() => {
     if (!enabled) {
@@ -52,8 +56,9 @@ export function useClusters(options: { enabled?: boolean } = {}): {
 
   const refresh = () => {
     if (!enabled) return;
+    // The shared generation change re-runs every enabled hook against the same
+    // deduplicated fresh request; do not invoke the stale closure directly.
     useEntityStore.getState().invalidateClusters();
-    void runFetch();
   };
 
   return { clusters, loading, availabilityIssue, refresh };
