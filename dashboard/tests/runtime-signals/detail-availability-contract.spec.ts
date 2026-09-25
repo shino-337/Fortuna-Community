@@ -204,6 +204,140 @@ test('node refresh 503 preserves last-known-good node detail', async ({ page }) 
 });
 
 
+const sbomSummary = (clusterId: string, podName: string) => ({
+  clusterId,
+  podId: 'dup-pod',
+  podName,
+  namespace: 'default',
+  image: `${clusterId}:latest`,
+  lastScan: '2026-09-24T00:00:00Z',
+  activePod: true,
+  lifecycleState: 'current',
+  vulnerabilitySummary: { critical: 0, high: 0, medium: 0, low: 0 },
+});
+
+const sbomDetail = (clusterId: string, packageName: string) => ({
+  clusterId,
+  podId: 'dup-pod',
+  podName: `${clusterId}-pod`,
+  namespace: 'default',
+  image: `${clusterId}:latest`,
+  container: 'app',
+  generatedAt: '2026-09-24T00:00:00Z',
+  packageCount: 1,
+  vulnerablePackageCount: 0,
+  vulnerabilitySummary: { critical: 0, high: 0, medium: 0, low: 0 },
+  activePod: true,
+  lifecycleState: 'current',
+  components: [{
+    id: 1,
+    name: packageName,
+    version: '1.0.0',
+    type: 'library',
+    vulnerabilities: [],
+    cveCount: 0,
+    maxSeverity: '',
+    maxCvss: 0,
+    fixVersion: '',
+  }],
+});
+
+const cleanThreatSummary = (clusterId: string) => ({
+  clusterId,
+  podUid: 'dup-pod',
+  totalThreats: 0,
+  malwareCount: 0,
+  telemetryCount: 0,
+  protestwareCount: 0,
+  highestSeverity: '',
+  affectedPackages: [],
+  requiresAction: false,
+});
+
+test('SBOM list refresh 503 preserves last-known-good inventory instead of rendering empty', async ({ page }) => {
+  let listAttempts = 0;
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/inventory/sbom') {
+      listAttempts++;
+      if (listAttempts === 1) {
+        return route.fulfill({ json: { sboms: [sbomSummary('cluster-a', 'pod-a')], total: 1, limit: 100, offset: 0 } });
+      }
+      return route.fulfill(unavailable('sbom_list_query_unavailable', 'SBOM inventory could not be loaded'));
+    }
+    if (url.pathname === '/api/v1/inventory/pods/dup-pod/sbom') {
+      return route.fulfill({ json: sbomDetail(url.searchParams.get('clusterId') || 'cluster-a', 'pkg-a') });
+    }
+    if (url.pathname === '/api/v1/malware/threats/dup-pod') {
+      return route.fulfill({ json: cleanThreatSummary(url.searchParams.get('clusterId') || 'cluster-a') });
+    }
+    return route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+
+  await page.goto(`${fixture}?path=/sbom`);
+  await expect(page.getByText('pod-a', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('pod-a', { exact: true })).toBeVisible();
+  await expect(page.getByText(/No pods with SBOM data yet/)).toHaveCount(0);
+  await expect(page.getByText(/SBOM inventory could not be loaded/)).toBeVisible();
+});
+
+test('SBOM duplicate Pod UID uses cluster-qualified selection and detail requests', async ({ page }) => {
+  const detailClusters: string[] = [];
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/inventory/sbom') {
+      return route.fulfill({
+        json: {
+          sboms: [sbomSummary('cluster-a', 'pod-a'), sbomSummary('cluster-b', 'pod-b')],
+          total: 2,
+          limit: 100,
+          offset: 0,
+        },
+      });
+    }
+    if (url.pathname === '/api/v1/inventory/pods/dup-pod/sbom') {
+      const clusterId = url.searchParams.get('clusterId') || '';
+      detailClusters.push(clusterId);
+      return route.fulfill({ json: sbomDetail(clusterId, clusterId === 'cluster-b' ? 'pkg-b' : 'pkg-a') });
+    }
+    if (url.pathname === '/api/v1/malware/threats/dup-pod') {
+      const clusterId = url.searchParams.get('clusterId') || '';
+      return route.fulfill({ json: cleanThreatSummary(clusterId) });
+    }
+    return route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+
+  await page.goto(`${fixture}?path=/sbom`);
+  await expect(page.getByText('pkg-a', { exact: true })).toBeVisible();
+  await page.getByText('pod-b', { exact: true }).click();
+  await expect(page.getByText('pkg-b', { exact: true })).toBeVisible();
+  expect(detailClusters).toContain('cluster-a');
+  expect(detailClusters).toContain('cluster-b');
+});
+
+test('SBOM detail 503 is unavailable and is never projected as zero components', async ({ page }) => {
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/inventory/sbom') {
+      return route.fulfill({ json: { sboms: [sbomSummary('cluster-a', 'pod-a')], total: 1, limit: 100, offset: 0 } });
+    }
+    if (url.pathname === '/api/v1/inventory/pods/dup-pod/sbom') {
+      return route.fulfill(unavailable('pod_sbom_components_unavailable', 'Pod SBOM components could not be loaded'));
+    }
+    if (url.pathname === '/api/v1/malware/threats/dup-pod') {
+      return route.fulfill({ json: cleanThreatSummary('cluster-a') });
+    }
+    return route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+
+  await page.goto(`${fixture}?path=/sbom`);
+  await expect(page.getByText('SBOM detail temporarily unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText('Components').locator('..')).toContainText('—');
+  await expect(page.getByText(/No components found matching your search/)).toHaveCount(0);
+});
+
+
 const pod = {
   id: 1,
   uid: 'pod-a',
