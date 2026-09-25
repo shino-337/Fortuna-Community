@@ -2341,16 +2341,17 @@ export const api = {
   },
 
   /** GET /api/v1/inventory/pods/:uid/sbom – SBOM detail by pod UID */
-  getPodSbom: async (podUid: string): Promise<PodSbom | undefined> => {
+  getPodSbom: async (podUid: string, clusterId?: string): Promise<PodSbom | undefined> => {
     try {
-      return await api.getPodSbomStrict(podUid);
+      return await api.getPodSbomStrict(podUid, clusterId);
     } catch {
       return undefined;
     }
   },
 
   getPodSbomStrict: async (podUid: string, clusterId?: string): Promise<PodSbom> => {
-    const data = await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
+    const clusterQuery = clusterId?.trim() ? `?clusterId=${encodeURIComponent(clusterId.trim())}` : '';
+    const data = await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom${clusterQuery}`);
     if (!data || typeof data !== 'object' || !Array.isArray(data.components)) {
       invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing the components array');
     }
@@ -2364,11 +2365,45 @@ export const api = {
   },
 
   /** GET /api/v1/malware/threats/:pod_uid – per-pod malware/telemetry matches (requires same auth as SBOM) */
-  getPodThreatSummary: async (podUid: string): Promise<ThreatSummary | null> => {
+  getPodThreatSummaryStrict: async (podUid: string, clusterId?: string): Promise<ThreatSummary | null> => {
+    const clusterQuery = clusterId?.trim() ? `?clusterId=${encodeURIComponent(clusterId.trim())}` : '';
+    const data = await request<Partial<ThreatSummary>>(`/malware/threats/${encodeURIComponent(podUid)}${clusterQuery}`);
+    if (String(data.podUid ?? '') !== podUid) {
+      invalidResponse('pod_malware_threats_identity_mismatch', 'Malware summary does not match the requested Pod UID');
+    }
+    if (clusterId?.trim() && String(data.clusterId ?? '') !== clusterId.trim()) {
+      invalidResponse('pod_malware_threats_cluster_identity_mismatch', 'Malware summary does not match the requested cluster');
+    }
+    const totalThreats = requireFiniteNumber(data.totalThreats, 'pod_malware_threats_invalid_response', 'totalThreats');
+    const malwareCount = requireFiniteNumber(data.malwareCount, 'pod_malware_threats_invalid_response', 'malwareCount');
+    const telemetryCount = requireFiniteNumber(data.telemetryCount, 'pod_malware_threats_invalid_response', 'telemetryCount');
+    const protestwareCount = requireFiniteNumber(data.protestwareCount, 'pod_malware_threats_invalid_response', 'protestwareCount');
+    if (!Array.isArray(data.affectedPackages)) {
+      invalidResponse('pod_malware_threats_invalid_response', 'Malware summary is missing affectedPackages');
+    }
+    if (typeof data.requiresAction !== 'boolean') {
+      invalidResponse('pod_malware_threats_invalid_response', 'Malware summary is missing requiresAction');
+    }
+    if (malwareCount + telemetryCount + protestwareCount > totalThreats) {
+      invalidResponse('pod_malware_threats_invalid_response', 'Malware summary category counts exceed totalThreats');
+    }
+    const result: ThreatSummary = {
+      clusterId: String(data.clusterId ?? ''),
+      podUid: String(data.podUid ?? ''),
+      totalThreats,
+      malwareCount,
+      telemetryCount,
+      protestwareCount,
+      highestSeverity: String(data.highestSeverity ?? ''),
+      affectedPackages: data.affectedPackages,
+      requiresAction: data.requiresAction,
+    };
+    return totalThreats <= 0 ? null : result;
+  },
+
+  getPodThreatSummary: async (podUid: string, clusterId?: string): Promise<ThreatSummary | null> => {
     try {
-      const data = await request<ThreatSummary>(`/malware/threats/${encodeURIComponent(podUid)}`);
-      if (!data || data.totalThreats <= 0) return null;
-      return data;
+      return await api.getPodThreatSummaryStrict(podUid, clusterId);
     } catch {
       return null;
     }
