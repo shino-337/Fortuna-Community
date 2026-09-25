@@ -548,25 +548,25 @@ const PodDetailContent: React.FC = () => {
   // Refresh all runtime/evidence sources through the same per-source sequencer
   // used by lazy tabs and WebSocket updates. A slow older request can therefore
   // never overwrite a newer observation of the same source.
-  const refreshAllData = useCallback(async (podUid: string): Promise<void> => {
+  const refreshAllData = useCallback(async (podUid: string, podClusterId: string): Promise<void> => {
     await Promise.all([
-      refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(podUid, clusterId), setRuntimeMetrics),
-      refreshSource('processes', () => api.getPodProcessesStrict(podUid, clusterId), setProcesses),
-      refreshSource('network', () => api.getPodNetworkConnectionsStrict(podUid, clusterId), setNetworkConnections),
-      refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440, clusterId }), setNetworkTopDestinations),
-      refreshSource('events', () => api.getPodEventsStrict(podUid, clusterId), setPodEvents),
-      refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(podUid, 150, clusterId), setRuntimeSecurityEvents),
+      refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(podUid, podClusterId), setRuntimeMetrics),
+      refreshSource('processes', () => api.getPodProcessesStrict(podUid, podClusterId), setProcesses),
+      refreshSource('network', () => api.getPodNetworkConnectionsStrict(podUid, podClusterId), setNetworkConnections),
+      refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440, clusterId: podClusterId }), setNetworkTopDestinations),
+      refreshSource('events', () => api.getPodEventsStrict(podUid, podClusterId), setPodEvents),
+      refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(podUid, 150, podClusterId), setRuntimeSecurityEvents),
       refreshSource(
         'signals',
-        () => api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200, clusterId }),
+        () => api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200, clusterId: podClusterId }),
         setRuntimeSignals,
       ),
-      refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120, clusterId), setRuntimeFacts),
-      refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(podUid, 80, clusterId), setRuntimeIncidents),
-      refreshSource('capabilities', () => api.getPodCapabilitiesStrict(podUid, clusterId), setPodCapabilities),
+      refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120, podClusterId), setRuntimeFacts),
+      refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(podUid, 80, podClusterId), setRuntimeIncidents),
+      refreshSource('capabilities', () => api.getPodCapabilitiesStrict(podUid, podClusterId), setPodCapabilities),
       refreshSource(
         'signal-stats',
-        () => api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60, clusterId }),
+        () => api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60, clusterId: podClusterId }),
         setSignalStats,
       ),
     ]);
