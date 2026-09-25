@@ -430,13 +430,7 @@ func countActiveAdmins(db *gorm.DB) (int64, error) {
 // enforces them; accepting them would make an apparently restricted user broader
 // than the administrator intended.
 func validateSupportedUserScope(doc authorization.ScopeDocument) error {
-	if len(doc.Namespaces) > 0 ||
-		len(doc.Environments) > 0 ||
-		len(doc.Tenants) > 0 ||
-		len(doc.BusinessServices) > 0 ||
-		len(doc.CrownJewels) > 0 ||
-		len(doc.RegulatoryDomains) > 0 ||
-		len(doc.Labels) > 0 {
+	if doc.HasUnenforcedRestrictions() {
 		return errors.New("only cluster allow-list scope is currently enforced")
 	}
 	return nil
