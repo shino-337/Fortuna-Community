@@ -2308,22 +2308,43 @@ export const api = {
       if (params?.namespace?.trim()) query.set('namespace', params.namespace.trim());
       const qs = query.toString();
       const url = `/inventory/sbom?${qs}`;
-      const data = await request<{ sboms?: PodSbomSummary[] }>(url);
+      const data = await request<{ sboms?: PodSbomSummary[]; total?: number }>(url);
       if (!Array.isArray(data.sboms)) {
         invalidResponse('sbom_list_invalid_response', 'SBOM list response is missing the sboms array');
+      }
+      if (data.total != null) {
+        const total = requireFiniteNumber(data.total, 'sbom_list_invalid_response', 'total');
+        if (total < data.sboms.length) invalidResponse('sbom_list_invalid_response', 'SBOM total is smaller than the returned page');
       }
       const list = data.sboms as unknown as Array<Record<string, unknown>>;
       return list.map((s, index) => {
         const clusterId = String(s.clusterId ?? '').trim();
         const podId = String(s.podId ?? '').trim();
-        if (!clusterId || !podId) {
-          invalidResponse('sbom_list_invalid_response', `SBOM summary at index ${index} is missing clusterId or podId`);
+        const podName = String(s.podName ?? '').trim();
+        const namespace = String(s.namespace ?? '').trim();
+        const image = String(s.image ?? '').trim();
+        const lastScan = String(s.lastScan ?? '').trim();
+        if (!clusterId || !podId || !podName || !namespace || !image || !lastScan) {
+          invalidResponse('sbom_list_invalid_response', `SBOM summary at index ${index} is missing required identity or scan metadata`);
+        }
+        if (typeof s.activePod !== 'boolean') {
+          invalidResponse('sbom_list_invalid_response', `SBOM summary at index ${index} is missing activePod`);
+        }
+        const vuln = s.vulnerabilitySummary as Record<string, unknown> | undefined;
+        if (!vuln || typeof vuln !== 'object' || Array.isArray(vuln)) {
+          invalidResponse('sbom_list_invalid_response', `SBOM summary at index ${index} is missing vulnerabilitySummary`);
+        }
+        for (const severity of ['critical', 'high', 'medium', 'low'] as const) {
+          requireFiniteNumber(vuln[severity], 'sbom_list_invalid_response', `vulnerabilitySummary.${severity}`);
         }
         if (params?.clusterId?.trim() && clusterId !== params.clusterId.trim()) {
           invalidResponse('sbom_list_identity_mismatch', 'SBOM list returned a row outside the requested cluster');
         }
         return {
           ...s,
+          podName,
+          namespace,
+          image,
           clusterId,
           podId,
           lastScan: s.lastScan != null ? String(s.lastScan) : '',
@@ -2361,6 +2382,21 @@ export const api = {
     if (clusterId?.trim() && String(data.clusterId ?? '') !== clusterId.trim()) {
       invalidResponse('pod_sbom_cluster_identity_mismatch', 'Pod SBOM response does not match the requested cluster');
     }
+    if (!String(data.podName ?? '').trim() || !String(data.namespace ?? '').trim() || !String(data.image ?? '').trim()) {
+      invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing workload or image metadata');
+    }
+    if (typeof data.activePod !== 'boolean') {
+      invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing activePod');
+    }
+    const vulnerabilitySummary = data.vulnerabilitySummary as Record<string, unknown> | undefined;
+    if (!vulnerabilitySummary || typeof vulnerabilitySummary !== 'object' || Array.isArray(vulnerabilitySummary)) {
+      invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing vulnerabilitySummary');
+    }
+    for (const severity of ['critical', 'high', 'medium', 'low'] as const) {
+      requireFiniteNumber(vulnerabilitySummary[severity], 'pod_sbom_invalid_response', `vulnerabilitySummary.${severity}`);
+    }
+    requireFiniteNumber(data.packageCount, 'pod_sbom_invalid_response', 'packageCount');
+    requireFiniteNumber(data.vulnerablePackageCount, 'pod_sbom_invalid_response', 'vulnerablePackageCount');
     return data;
   },
 
