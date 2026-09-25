@@ -1875,13 +1875,15 @@ const PodDetailContent: React.FC = () => {
 
           {tabLoading ? (
             <p className="text-muted text-body">Loading...</p>
-          ) : networkConnections.length > 0 ? (
+          ) : networkConnections.length > 0 || networkTopDestinations.length > 0 ? (
             networkSubView === 'summary' ? (
               <PodNetworkSummary
                 connections={networkConnections}
                 topDestinations={networkTopDestinations}
                 podIP={pod?.podIP}
                 loading={tabLoading}
+                connectionsUnavailable={hasDataError('network')}
+                topDestinationsUnavailable={hasDataError('top-dest')}
               />
             ) : (
             <div className="rounded-lg border border-border bg-base/30 overflow-hidden -mx-1 sm:mx-0">
@@ -1934,8 +1936,15 @@ const PodDetailContent: React.FC = () => {
               </div>
             </div>
             )
-          ) : hasDataError('network') ? (
-            unavailablePlaceholder('Network connection data')
+          ) : hasDataError('network') || hasDataError('top-dest') ? (
+            <PodNetworkSummary
+              connections={networkConnections}
+              topDestinations={networkTopDestinations}
+              podIP={pod?.podIP}
+              loading={false}
+              connectionsUnavailable={hasDataError('network')}
+              topDestinationsUnavailable={hasDataError('top-dest')}
+            />
           ) : (
             <PageEmpty
               title="No network data"
