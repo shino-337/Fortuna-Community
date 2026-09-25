@@ -189,22 +189,29 @@ const PodDetailContent: React.FC = () => {
     const saName = String(podRef.serviceAccount ?? '').trim();
     if (!podRef.clusterId || !podRef.namespace || (!podRef.serviceAccountUid && !saName)) return null;
 
-    // Resolve ServiceAccount identity inside the Pod's canonical cluster/namespace.
-    // Do not use the UID-only detail endpoint here: cluster-owned identities must
-    // remain qualified even if a legacy or test dataset contains duplicate UIDs.
+    if (podRef.serviceAccountUid) {
+      const sa = await api.getServiceAccountByUid(podRef.serviceAccountUid, podRef.clusterId);
+      if (!sa) return null;
+      return {
+        id: Number(sa.id ?? 0),
+        clusterId: String(sa.clusterId ?? podRef.clusterId),
+        name: String(sa.name ?? saName),
+        namespace: String(sa.namespace ?? podRef.namespace),
+        uid: String(sa.uid ?? podRef.serviceAccountUid),
+        labels: sa.labels != null ? String(sa.labels) : undefined,
+        secrets: sa.secrets != null ? String(sa.secrets) : undefined,
+        linkedPods: sa.linkedPods != null ? String(sa.linkedPods) : undefined,
+        lastUsed: sa.lastUsed != null ? String(sa.lastUsed) : null,
+        createdAt: sa.createdAt != null ? String(sa.createdAt) : undefined,
+        updatedAt: sa.updatedAt != null ? String(sa.updatedAt) : undefined,
+      };
+    }
+
     const list = await api.getServiceAccounts({
       clusterId: podRef.clusterId,
       namespace: podRef.namespace,
       pageSize: 1000,
     });
-    if (podRef.serviceAccountUid) {
-      return list.serviceAccounts.find(
-        (sa) =>
-          sa.clusterId === podRef.clusterId &&
-          sa.namespace === podRef.namespace &&
-          sa.uid === podRef.serviceAccountUid,
-      ) ?? null;
-    }
     return list.serviceAccounts.find(
       (sa) => sa.clusterId === podRef.clusterId && sa.namespace === podRef.namespace && sa.name === saName,
     ) ?? null;
