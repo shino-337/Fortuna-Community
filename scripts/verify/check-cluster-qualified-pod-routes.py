@@ -8,6 +8,7 @@ ROUTE_FILES = [
     Path("core/internal/api/routes_inventory.go"),
     Path("core/internal/api/routes_runtime.go"),
     Path("core/internal/api/routes_risk.go"),
+    Path("core/internal/api/routes_graph.go"),
 ]
 
 FORBIDDEN_ROUTE_HANDLERS = {
@@ -61,6 +62,10 @@ REQUIRED = {
     Path("core/internal/api/routes.go"): [
         "PostRuntimeEventsV2Scoped(db)",
     ],
+    Path("core/internal/api/routes_graph.go"): [
+        'middleware.RequirePodUIDClusterScope(db, "uid")',
+        "GetAttackPaths(db)",
+    ],
 }
 
 # Detect identity-bearing direct predicates, not free-text/search filters.
@@ -91,6 +96,7 @@ STRICT_IDENTITY_FILES = {
     "core/pkg/riskengine/runtime_attack_rescore_manager.go",
     "core/internal/repository/sbom_repository.go",
     "core/internal/api/graph_handlers.go",
+    "core/internal/api/attack_steps_handlers.go",
 }
 
 # These dashboard surfaces already have canonical cluster ownership in their
