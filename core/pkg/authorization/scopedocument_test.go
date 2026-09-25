@@ -12,3 +12,40 @@ func TestScopeDocumentValidate(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+
+func TestParseScopeDocumentStrictRejectsMalformedAuthorizationShape(t *testing.T) {
+	tests := []string{
+		`{"clusters":"cluster-a"}`,
+		`{"cluster_ids":{"id":"cluster-a"}}`,
+		`{"labels":["not-a-map"]}`,
+		`{"clustres":["cluster-a"]}`,
+		`null`,
+	}
+	for _, raw := range tests {
+		if _, err := ParseScopeDocumentStrict(raw); err == nil {
+			t.Fatalf("expected malformed scope to be rejected: %s", raw)
+		}
+		doc := ParseScopeDocument(raw)
+		if !doc.RestrictsClusters() || doc.ClusterAllowed("cluster-a") {
+			t.Fatalf("malformed persisted scope must fail closed: %s -> %+v", raw, doc)
+		}
+	}
+}
+
+func TestParseScopeDocumentStrictAcceptsCurrentAndLegacyClusterLists(t *testing.T) {
+	for _, raw := range []string{
+		`{"clusters":["a","b"]}`,
+		`{"cluster_ids":["a","b"]}`,
+		`{"clusters":[]}`,
+		`{}`,
+	} {
+		doc, err := ParseScopeDocumentStrict(raw)
+		if err != nil {
+			t.Fatalf("valid scope rejected %s: %v", raw, err)
+		}
+		if err := doc.Validate(); err != nil {
+			t.Fatalf("valid scope failed validation %s: %v", raw, err)
+		}
+	}
+}
