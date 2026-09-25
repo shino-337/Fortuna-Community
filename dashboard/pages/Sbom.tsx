@@ -156,6 +156,10 @@ export const Sbom: React.FC = () => {
       const refreshedCurrent = currentIdentity ? data.find((item) => sbomIdentity(item) === currentIdentity) : undefined;
       if (refreshedCurrent) {
         setSelectedPod(refreshedCurrent);
+        // The list and detail are separate projections. Revalidate the selected
+        // detail whenever its summary refreshes, while preserving last-known-good
+        // evidence if the detail/threat sources are temporarily unavailable.
+        void loadSelectedPodEvidence(refreshedCurrent, true);
       } else if (data.length > 0) {
         const first = data[0];
         setSelectedPod(first);
