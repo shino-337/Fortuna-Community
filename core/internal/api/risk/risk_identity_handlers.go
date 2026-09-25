@@ -51,7 +51,12 @@ func GetRiskScoreForPodIdentity(db *gorm.DB) gin.HandlerFunc {
 			Limit(1).
 			Find(&score)
 		if tx.Error != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"status":    "unavailable",
+				"code":      "pod_risk_score_query_unavailable",
+				"error":     "Pod risk score could not be loaded",
+				"retryable": true,
+			})
 			return
 		}
 		if tx.RowsAffected == 0 {
