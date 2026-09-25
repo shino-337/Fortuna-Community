@@ -1607,7 +1607,7 @@ export const api = {
         uid: String(r.uid ?? r.id ?? ''),
         name: String(r.name ?? r.id ?? r.uid ?? ''),
         severity: String(r.severity ?? 'medium').toLowerCase(),
-        enabled: Boolean(r.enabled),
+        enabled: r.enabled,
         category: r.category != null ? String(r.category) : undefined,
         type: r.type != null ? String(r.type) : undefined,
         description: r.description != null ? String(r.description) : undefined,
@@ -1821,6 +1821,12 @@ export const api = {
       if (!id) invalidResponse('policy_rules_invalid_response', `Policy rules response contains an entry without identity at index ${index}`);
       const name = String(r.name ?? '').trim();
       if (!name) invalidResponse('policy_rules_invalid_response', `Policy rule ${id} is missing name`);
+      if (typeof r.enabled !== 'boolean') {
+        invalidResponse('policy_rules_invalid_response', `Policy rule ${id} is missing enabled state`);
+      }
+      if (!Array.isArray(r.relatedCapabilities)) {
+        invalidResponse('policy_rules_invalid_response', `Policy rule ${id} is missing relatedCapabilities`);
+      }
       return {
         id,
         uid: String(r.uid ?? r.id ?? ''),
@@ -1842,9 +1848,7 @@ export const api = {
         canonicalRuleId: r.canonicalRuleId != null ? String(r.canonicalRuleId) : undefined,
         impactedFindings24h: r.impactedFindings24h != null ? Number(r.impactedFindings24h) : undefined,
         impactedFindings7d: r.impactedFindings7d != null ? Number(r.impactedFindings7d) : undefined,
-        relatedCapabilities: Array.isArray(r.relatedCapabilities)
-          ? r.relatedCapabilities.map((x) => String(x))
-          : undefined,
+        relatedCapabilities: r.relatedCapabilities.map((x) => String(x)),
       } as SecurityRule;
     });
   },
