@@ -89,6 +89,7 @@ type VulnerabilityDTO struct {
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
 type SBOMDetailDTO struct {
+	ClusterID              string               `json:"clusterId"`
 	PodID                  string               `json:"podId"`
 	Image                  string               `json:"image"`
 	ImageDigest            string               `json:"imageDigest,omitempty"`
@@ -419,6 +420,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 
 		activePod := sbomHasActivePod(db, sbom.ClusterID, sbom.PodUID)
 		dto := SBOMDetailDTO{
+			ClusterID:              sbom.ClusterID,
 			PodID:                  sbom.PodUID,
 			Image:                  fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
 			ImageDigest:            strings.TrimSpace(sbom.ImageDigest),
