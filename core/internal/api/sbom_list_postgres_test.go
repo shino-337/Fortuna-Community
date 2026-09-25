@@ -146,7 +146,7 @@ func TestSBOMListFailClosedPostgres(t *testing.T) {
 	t.Run("pod metadata query failure", func(t *testing.T) {
 		db := sbomListPostgresDB(t)
 		seedSBOMListRows(t, db)
-		require.NoError(t, db.Exec("ALTER TABLE pods RENAME TO pods_unavailable").Error)
+		require.NoError(t, db.Exec("ALTER TABLE pods DROP COLUMN phase").Error)
 
 		c, w := sbomListContext("/api/v1/inventory/sbom?includeStale=true", &models.User{Role: models.RoleAdmin})
 		GetSBOMList(db)(c)
@@ -160,7 +160,7 @@ func TestSBOMListFailClosedPostgres(t *testing.T) {
 	t.Run("CVE aggregation query failure", func(t *testing.T) {
 		db := sbomListPostgresDB(t)
 		seedSBOMListRows(t, db)
-		require.NoError(t, db.Exec("ALTER TABLE cve_matches RENAME TO cve_matches_unavailable").Error)
+		require.NoError(t, db.Exec("ALTER TABLE cve_matches DROP COLUMN severity").Error)
 
 		c, w := sbomListContext("/api/v1/inventory/sbom", &models.User{Role: models.RoleAdmin})
 		GetSBOMList(db)(c)
