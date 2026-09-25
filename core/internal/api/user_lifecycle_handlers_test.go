@@ -3,6 +3,7 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -175,6 +176,37 @@ func TestUserLifecycle_AdminRegistersNewUserWithClusterScope(t *testing.T) {
 	}
 	if u.ScopeJSON != `{"clusters":["c1"]}` {
 		t.Fatalf("scope got %q", u.ScopeJSON)
+	}
+}
+
+
+func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+
+	for i, scopeJSON := range []string{
+		`{"clusters":"c1"}`,
+		`{"cluster_ids":{"id":"c1"}}`,
+		`{"clustres":["c1"]}`,
+		`null`,
+	} {
+		body := map[string]string{
+			"username":  fmt.Sprintf("malformedscope%d", i),
+			"email":     fmt.Sprintf("malformedscope%d@test.local", i),
+			"password":  "AnotherPass12!",
+			"role":      "viewer",
+			"scopeJson": scopeJSON,
+		}
+		b, _ := json.Marshal(body)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("malformed scope register %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
 	}
 }
 
@@ -398,6 +430,39 @@ func TestUserLifecycle_AdminPatchesUserClusterScope(t *testing.T) {
 	}
 	if u.ScopeJSON != `{"clusters":["c1"]}` {
 		t.Fatalf("scope after patch: %q", u.ScopeJSON)
+	}
+}
+
+
+func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnPatch(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	opID := userIDByUsername(t, db, "op1")
+
+	for _, scopeJSON := range []string{
+		`{"clusters":"c1"}`,
+		`{"cluster_ids":{"id":"c1"}}`,
+		`{"clustres":["c1"]}`,
+		`null`,
+	} {
+		w := httptest.NewRecorder()
+		payload := map[string]string{"scopeJson": scopeJSON}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(opID), 10), bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("malformed scope patch %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
+		var u models.User
+		if err := db.First(&u, opID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if u.ScopeJSON != "" && u.ScopeJSON != "{}" {
+			t.Fatalf("malformed scope mutated user: %q", u.ScopeJSON)
+		}
 	}
 }
 
