@@ -334,7 +334,9 @@ E2 starts from merge commit `a6e49ff`. Merge only when:
   503, capability rule failure, Node/Pod last-known-good refresh preservation and
   successful empty behavior where applicable;
 - exact-head Dashboard typecheck/build/Playwright, Core permanent regressions,
-  PostgreSQL gate, API/Agent tests + vet, shell/hygiene and Secret scan pass.
+  PostgreSQL gate, API/Agent tests + vet, shell/hygiene pass. Secret scanning is
+  manual-only while the repository plan/license does not support it as a reliable
+  PR/push gate; scanner availability must not block the functional CI contract.
 
 Current execution order after #53:
 1. complete E2 against the gates above and merge PR #54 manually;
