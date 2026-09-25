@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -53,7 +54,7 @@ func setupUserLifecycleDB(t *testing.T) *gorm.DB {
 			t.Fatalf("seed user: %v", err)
 		}
 	}
-	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1"}).Error; err != nil {
+	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1", Source: "env", LastSync: time.Now()}).Error; err != nil {
 		t.Fatalf("seed cluster: %v", err)
 	}
 	pod := models.Pod{
@@ -204,6 +205,29 @@ func TestUserLifecycle_AdminRejectsUnknownClusterScopeOnRegister(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("unknown cluster scope created user")
+	}
+}
+
+func TestUserLifecycle_AdminRejectsStaleClusterScopeOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	staleAt := time.Now().Add(-8 * 24 * time.Hour)
+	if err := db.Create(&models.Cluster{ID: "stale-cluster", Name: "stale", Source: "env", LastSync: staleAt}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	body := map[string]string{
+		"username": "stalescope", "email": "stalescope@test.local", "password": "AnotherPass12!",
+		"role": "viewer", "scopeJson": `{"clusters":["stale-cluster"]}`,
+	}
+	b, _ := json.Marshal(body)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("stale scope register: want 400 got %d %s", w.Code, w.Body.String())
 	}
 }
 
