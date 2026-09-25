@@ -307,6 +307,44 @@ test('SBOM list refresh 503 preserves last-known-good inventory instead of rende
   await expect(page.getByText(/SBOM inventory could not be loaded/)).toBeVisible();
 });
 
+test('SBOM list refresh revalidates selected detail while preserving identity', async ({ page }) => {
+  let listAttempts = 0;
+  let detailAttempts = 0;
+  await page.route('**/api/v1/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/inventory/sbom') {
+      listAttempts++;
+      return route.fulfill({
+        json: {
+          sboms: [{
+            ...sbomSummary('cluster-a', 'pod-a'),
+            lastScan: listAttempts === 1 ? '2026-09-24T00:00:00Z' : '2026-09-24T01:00:00Z',
+          }],
+          total: 1,
+          limit: 100,
+          offset: 0,
+        },
+      });
+    }
+    if (url.pathname === '/api/v1/inventory/pods/dup-pod/sbom') {
+      detailAttempts++;
+      return route.fulfill({
+        json: sbomDetail('cluster-a', detailAttempts === 1 ? 'pkg-old' : 'pkg-new'),
+      });
+    }
+    if (url.pathname === '/api/v1/malware/threats/dup-pod') {
+      return route.fulfill({ json: cleanThreatSummary('cluster-a') });
+    }
+    return route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+
+  await page.goto(`${fixture}?path=/sbom`);
+  await expect(page.getByText('pkg-old', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('pkg-new', { exact: true })).toBeVisible();
+  expect(detailAttempts).toBeGreaterThanOrEqual(2);
+});
+
 test('SBOM duplicate Pod UID uses cluster-qualified selection and detail requests', async ({ page }) => {
   const detailClusters: string[] = [];
   await page.route('**/api/v1/**', route => {
