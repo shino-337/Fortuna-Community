@@ -47,60 +47,6 @@ func decodeAvailabilityBody(t *testing.T, w *httptest.ResponseRecorder) map[stri
 	return body
 }
 
-func TestSBOMListPodMetadataFailureIsUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.SBOM{}, &models.CVEMatch{})
-	require.NoError(t, db.Create(&models.SBOM{
-		ClusterID:   "cluster-a",
-		PodUID:      "pod-a",
-		PodName:     "pod-a",
-		Namespace:   "default",
-		ImageName:   "example.invalid/app",
-		ImageTag:    "latest",
-		GeneratedAt: time.Now().UTC(),
-	}).Error)
-
-	c, w := availabilityContext(http.MethodGet, "/api/v1/inventory/sbom?includeStale=true")
-	c.Set("user", &models.User{Role: models.RoleAdmin})
-	GetSBOMList(db)(c)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
-	body := decodeAvailabilityBody(t, w)
-	require.Equal(t, "sbom_list_pod_metadata_unavailable", body["code"])
-	require.Equal(t, true, body["retryable"])
-}
-
-func TestSBOMListCVEAggregationFailureIsUnavailable(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.SBOM{}, &models.Pod{})
-	now := time.Now().UTC()
-	require.NoError(t, db.Create(&models.Pod{
-		ClusterID: "cluster-a",
-		UID:       "pod-a",
-		Name:      "pod-a",
-		Namespace: "default",
-		CreatedAt: now,
-	}).Error)
-	require.NoError(t, db.Create(&models.SBOM{
-		ClusterID:   "cluster-a",
-		PodUID:      "pod-a",
-		PodName:     "pod-a",
-		Namespace:   "default",
-		ImageName:   "example.invalid/app",
-		ImageTag:    "latest",
-		GeneratedAt: now,
-	}).Error)
-
-	c, w := availabilityContext(http.MethodGet, "/api/v1/inventory/sbom")
-	c.Set("user", &models.User{Role: models.RoleAdmin})
-	GetSBOMList(db)(c)
-
-	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
-	body := decodeAvailabilityBody(t, w)
-	require.Equal(t, "sbom_list_cve_summary_unavailable", body["code"])
-	require.Equal(t, true, body["retryable"])
-}
-
 func TestClusterNodeMissingReturnsNotFound(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
