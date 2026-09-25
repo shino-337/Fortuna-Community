@@ -113,6 +113,11 @@ type SBOMDetailDTO struct {
 // GetSBOMList returns paginated SBOM summaries (pod-level) with vulnerability counts.
 func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db = db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "sbom_list_schema_unavailable",
+			"SBOM inventory requires SBOM, Pod and CVE match schemas", "sboms", "pods", "cve_matches") {
+			return
+		}
 		scope, ok := resolveRiskGovernanceScope(db, c)
 		if !ok {
 			return
@@ -345,6 +350,12 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		includeStale := strings.EqualFold(strings.TrimSpace(c.Query("includeStale")), "true") ||
 			strings.EqualFold(strings.TrimSpace(c.Query("scope")), "all") ||
 			strings.EqualFold(strings.TrimSpace(c.Query("scope")), "historical")
+		db = db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "pod_sbom_schema_unavailable",
+			"Pod SBOM detail requires SBOM component, CVE and Pod schemas",
+			"sboms", "sbom_components", "cve_matches", "cves", "pods") {
+			return
+		}
 
 		var sbom models.SBOM
 		sbomQuery := db.Where("cluster_id = ? AND pod_uid = ? AND deleted_at IS NULL", clusterID, podUID)
@@ -352,7 +363,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			sbomQuery = sbomQuery.Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = sboms.cluster_id AND p.uid = sboms.pod_uid AND p.deleted_at IS NULL)")
 		}
 		if err := sbomQuery.Order("created_at DESC").Limit(1).Find(&sbom).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_sbom_query_unavailable", "Pod SBOM could not be loaded")
 			return
 		}
 		if sbom.ID == 0 {
@@ -389,13 +400,13 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 
 		var components []models.SBOMComponent
 		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Find(&components).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_sbom_components_unavailable", "Pod SBOM components could not be loaded")
 			return
 		}
 
 		var matches []models.CVEMatch
 		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Preload("CVE").Order("severity DESC").Find(&matches).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_sbom_cve_matches_unavailable", "Pod SBOM vulnerability evidence could not be loaded")
 			return
 		}
 
