@@ -138,16 +138,51 @@ func (d ScopeDocument) ClusterAllowListSize() int {
 
 // Validate checks structural limits for governance (future ABAC expansion).
 func (d ScopeDocument) Validate() error {
+	validateList := func(name string, values []string, maxItems int) error {
+		if len(values) > maxItems {
+			return fmt.Errorf("%s: too many values (%d > %d)", name, len(values), maxItems)
+		}
+		for _, value := range values {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				return fmt.Errorf("%s: empty values are not allowed", name)
+			}
+			if len(trimmed) > 256 {
+				return fmt.Errorf("%s: value too long", name)
+			}
+		}
+		return nil
+	}
+
+	for _, spec := range []struct {
+		name string
+		values []string
+		max int
+	}{
+		{"clusters", d.Clusters, 512},
+		{"cluster_ids", d.LegacyCluster, 512},
+		{"namespaces", d.Namespaces, 512},
+		{"environments", d.Environments, 128},
+		{"tenants", d.Tenants, 128},
+		{"business_services", d.BusinessServices, 256},
+		{"crown_jewels", d.CrownJewels, 256},
+		{"regulatory_domains", d.RegulatoryDomains, 256},
+	} {
+		if err := validateList(spec.name, spec.values, spec.max); err != nil {
+			return err
+		}
+	}
+
 	if len(d.Labels) > 64 {
 		return fmt.Errorf("labels: too many keys (%d > 64)", len(d.Labels))
 	}
 	for k, v := range d.Labels {
+		if strings.TrimSpace(k) == "" {
+			return errors.New("labels: empty key is not allowed")
+		}
 		if len(k) > 128 || len(v) > 256 {
 			return errors.New("labels: key or value too long")
 		}
-	}
-	if len(d.Namespaces) > 512 || len(d.Environments) > 128 || len(d.Tenants) > 128 {
-		return errors.New("scope arrays exceed maximum supported size")
 	}
 	return nil
 }
