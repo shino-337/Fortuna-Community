@@ -89,6 +89,7 @@ export interface PodSbomSummary {
 }
 
 export interface PodSbom {
+  clusterId?: string;
   podId: string;
   podName: string;
   namespace: string;
