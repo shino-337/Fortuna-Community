@@ -453,7 +453,8 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 		resp := NodeDetailResponse{ClusterID: clusterID, NodeName: nodeName}
 		var node models.Node
 		err := db.Where("cluster_id = ? AND node_name = ?", clusterID, nodeName).First(&node).Error
-		if err == nil {
+		nodeExists := err == nil
+		if nodeExists {
 			resp.IP = node.IP
 			resp.KubeletVersion = node.KubeletVersion
 			resp.Role = node.Role
@@ -470,6 +471,13 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		resp.PodCount = podCount
+		// A node is real only when the node inventory reports it or an active Pod
+		// proves the node name exists. Do not synthesize a successful empty node
+		// for an arbitrary route name.
+		if !nodeExists && podCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+			return
+		}
 		includePods := c.Query("pods") == "true" || c.Query("pods") == "1"
 		if includePods && podCount > 0 {
 			var pods []models.Pod
