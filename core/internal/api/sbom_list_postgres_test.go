@@ -59,7 +59,9 @@ func sbomListPostgresDB(t *testing.T) *gorm.DB {
 			created_at timestamptz NOT NULL,
 			phase text,
 			deleted_at timestamptz
-		);
+		)
+	`).Error)
+	require.NoError(t, db.Exec(`
 		CREATE TABLE sboms (
 			id bigserial PRIMARY KEY,
 			cluster_id text NOT NULL,
@@ -77,13 +79,15 @@ func sbomListPostgresDB(t *testing.T) *gorm.DB {
 			go_version text,
 			created_at timestamptz NOT NULL,
 			deleted_at timestamptz
-		);
+		)
+	`).Error)
+	require.NoError(t, db.Exec(`
 		CREATE TABLE cve_matches (
 			id bigserial PRIMARY KEY,
 			sbom_id bigint NOT NULL,
 			severity text NOT NULL,
 			deleted_at timestamptz
-		);
+		)
 	`).Error)
 	return db
 }
