@@ -50,3 +50,25 @@ func TestParseScopeDocumentStrictAcceptsCurrentAndLegacyClusterLists(t *testing.
 		}
 	}
 }
+
+
+func TestPersistedUnenforcedScopeFailsClosedForClusterAuthorization(t *testing.T) {
+	for _, raw := range []string{
+		`{"namespaces":["prod"]}`,
+		`{"environments":["prod"]}`,
+		`{"labels":{"tier":"critical"}}`,
+		`{"clusters":["cluster-a"],"namespaces":["prod"]}`,
+	} {
+		doc := ParseScopeDocument(raw)
+		if !doc.RestrictsClusters() {
+			t.Fatalf("unenforced persisted scope must be restrictive: %s", raw)
+		}
+		if doc.ClusterAllowed("cluster-a") {
+			t.Fatalf("unenforced persisted scope must deny cluster access: %s", raw)
+		}
+		ids := doc.ClusterIDs()
+		if len(ids) != 1 || ids[0] != "__invalid_scope__" {
+			t.Fatalf("unenforced persisted scope must expose deny-all effective cluster ids: %s -> %#v", raw, ids)
+		}
+	}
+}
