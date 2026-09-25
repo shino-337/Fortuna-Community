@@ -13,6 +13,7 @@ import { PageEmpty, PageError, PageLoading } from '../design-system/components/P
 import { formatDateTime, getAgentStatusLabel, getConnectionStatusClass, getConnectionStatusLabel } from '../lib/display';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
+import { useClusterStore } from '../store/clusterStore';
 
 type TabId = 'overview' | 'inventory' | 'agents' | 'security';
 
@@ -21,6 +22,7 @@ const ClusterDetailContent: React.FC = () => {
   const location = useLocation();
   const id = params.id ?? matchPath({ path: '/clusters/:id', end: true }, location.pathname)?.params.id;
   const navigate = useNavigate();
+  const setSelectedClusterId = useClusterStore((s) => s.setSelectedClusterId);
   const [cluster, setCluster] = useState<Cluster | null>(null);
   const [overview, setOverview] = useState<ClusterOverview | null>(null);
   const [inventory, setInventory] = useState<ClusterInventory | null>(null);
@@ -318,7 +320,14 @@ const ClusterDetailContent: React.FC = () => {
                 <ul className="space-y-1 text-body text-text font-mono max-h-48 overflow-y-auto">
                   {inventory.namespaces.length === 0 ? <li className="text-muted">No namespaces</li> : inventory.namespaces.map((ns) => (
                     <li key={ns}>
-                      <button type="button" className="hover:text-brand hover:underline text-left w-full" onClick={() => navigate(`/resources?tab=Pod&namespace=${encodeURIComponent(ns)}`)}>
+                      <button
+                        type="button"
+                        className="hover:text-brand hover:underline text-left w-full"
+                        onClick={() => {
+                          setSelectedClusterId(id);
+                          navigate(`/resources?tab=Pod&namespace=${encodeURIComponent(ns)}`);
+                        }}
+                      >
                         {ns}
                       </button>
                     </li>
