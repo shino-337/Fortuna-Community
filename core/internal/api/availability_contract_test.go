@@ -393,6 +393,34 @@ func TestClusterAgentsMissingHeartbeatIsDisconnectedAndNull(t *testing.T) {
 	require.Nil(t, agent["lastHeartbeat"])
 }
 
+func TestClusterNodeUnknownNameIsNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/nodes/missing-node")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}, {Key: "nodeName", Value: "missing-node"}}
+	GetClusterNode(db)(c)
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+}
+
+func TestClusterNodeCanBeDerivedFromActivePod(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+	require.NoError(t, db.Create(&models.Pod{
+		ClusterID: "cluster-a", UID: "pod-a", Name: "pod-a", Namespace: "ns", NodeName: "node-a",
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/nodes/node-a")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}, {Key: "nodeName", Value: "node-a"}}
+	GetClusterNode(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "node-a", body["nodeName"])
+	require.EqualValues(t, 1, body["podCount"])
+}
+
 func TestClusterNodeMissingRiskSchemaIsNonRetryable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
