@@ -52,6 +52,7 @@ import type { GraphSemanticMode } from '../lib/persona';
 import { useCan } from '../hooks/usePermUser';
 import { P } from '../lib/permissions';
 import type { SemanticVisibilityState } from '../lib/visibilityEngine';
+import { podDetailPath } from '../lib/podRoute';
 
 type AttackPathIssueKind = 'unauthenticated' | 'forbidden' | 'cluster_scope' | 'load_failed';
 
@@ -506,8 +507,8 @@ export const AttackPaths: React.FC = () => {
       });
       return;
     }
-    navigate(`/resources/pods/uid/${encodeURIComponent(nodeId)}`);
-  }, [canOpenInventory, focusPathOnGraph, navigate]);
+    navigate(podDetailPath(nodeId, selectedClusterId));
+  }, [canOpenInventory, focusPathOnGraph, navigate, selectedClusterId]);
 
   const clearPodUidFilter = useCallback(() => {
     const next = new URLSearchParams(searchParams);
@@ -676,7 +677,7 @@ export const AttackPaths: React.FC = () => {
                 <div className="flex flex-wrap gap-2 shrink-0">
                   {canOpenInventory ? (
                     <Link
-                      to={`/resources/pods/uid/${encodeURIComponent(podUidParam)}`}
+                      to={podDetailPath(podUidParam, selectedClusterId)}
                       className="text-caption px-3 py-1.5 rounded-lg border border-border text-text hover:bg-surface-2"
                     >
                       Open pod
