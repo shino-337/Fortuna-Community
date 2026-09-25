@@ -88,6 +88,12 @@ func TestServiceAccountInventoryScope(t *testing.T) {
 			t.Fatalf("%+v: %d %s", tc, w.Code, w.Body)
 		}
 	}
+	if w := request("GET", "/inventory/serviceaccounts/sa-a?clusterId=a", "a", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"clusterId":"a"`) {
+		t.Fatalf("qualified serviceaccount detail: %d %s", w.Code, w.Body)
+	}
+	if w := request("GET", "/inventory/serviceaccounts/sa-a?clusterId=b", "admin", ""); w.Code != 404 {
+		t.Fatalf("mismatched qualified serviceaccount detail: %d %s", w.Code, w.Body)
+	}
 	for _, path := range []string{"/inventory/serviceaccounts/sa-b", "/inventory/serviceaccounts/sa-b/permissions"} {
 		w := request("GET", path, "a", "")
 		if w.Code != 403 {
