@@ -19,6 +19,7 @@ func TestParseScopeDocumentStrictRejectsMalformedAuthorizationShape(t *testing.T
 		`{"clusters":"cluster-a"}`,
 		`{"cluster_ids":{"id":"cluster-a"}}`,
 		`{"labels":["not-a-map"]}`,
+		`{"clusters":null}`,
 		`{"clustres":["cluster-a"]}`,
 		`null`,
 	}
