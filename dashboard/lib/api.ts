@@ -1346,10 +1346,19 @@ export const api = {
     return data.items;
   },
   getPodRuntimeSecurityEventsStrict: async (podUid: string, limit = 100): Promise<PodRuntimeSecurityEvent[]> => {
-    const data = await request<{ events?: PodRuntimeSecurityEvent[] }>(
+    const data = await request<{ podUid?: string; events?: PodRuntimeSecurityEvent[]; total?: number }>(
       `/risk/pods/${encodeURIComponent(podUid)}/runtime/events?limit=${limit}`,
     );
-    if (!Array.isArray(data.events)) invalidResponse('pod_runtime_security_events_invalid_response', 'Runtime security events response is missing the events array');
+    if (!Array.isArray(data.events)) {
+      invalidResponse('pod_runtime_security_events_invalid_response', 'Runtime security events response is missing the events array');
+    }
+    if (String(data.podUid ?? '') !== podUid) {
+      invalidResponse('pod_runtime_security_events_identity_mismatch', 'Runtime security events response does not match the requested Pod UID');
+    }
+    const total = requireFiniteNumber(data.total, 'pod_runtime_security_events_invalid_response', 'total');
+    if (total !== data.events.length) {
+      invalidResponse('pod_runtime_security_events_invalid_response', 'Runtime security events total does not match the events array');
+    }
     return data.events;
   },
   getPodRuntimeBehaviorFactsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeBehaviorFact[]> => {
