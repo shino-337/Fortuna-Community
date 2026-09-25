@@ -161,9 +161,9 @@ const PodDetailContent: React.FC = () => {
   }, [requestedTab]);
 
   const loadSbomForPod = useCallback(
-    async (podRef: Pick<PodWithRisk, 'uid'>): Promise<PodSbom | null> => {
+    async (podRef: Pick<PodWithRisk, 'uid' | 'clusterId'>): Promise<PodSbom | null> => {
       try {
-        return await api.getPodSbomStrict(podRef.uid);
+        return await api.getPodSbomStrict(podRef.uid, podRef.clusterId);
       } catch (err) {
         // 404 is authoritative absence for this exact cluster-qualified Pod UID.
         // Never fall back to a name/namespace list lookup: names are not globally
@@ -399,7 +399,7 @@ const PodDetailContent: React.FC = () => {
         const uid = pod.uid;
         if (tab === 'sbom') {
           if (!sbomLoaded || dataErrorsRef.current.includes('sbom')) {
-            const current = await refreshSource('sbom', () => loadSbomForPod({ uid }), (data) => setSbom(data));
+            const current = await refreshSource('sbom', () => loadSbomForPod({ uid, clusterId: pod.clusterId }), (data) => setSbom(data));
             if (current) setSbomLoaded(true);
           }
         } else if (tab === 'risks') {
@@ -501,7 +501,7 @@ const PodDetailContent: React.FC = () => {
   // Use the same source sequencer as manual refresh/lazy loading.
   useEffect(() => {
     if (pod?.uid) {
-      void refreshSource('sbom', () => loadSbomForPod({ uid: pod.uid }), setSbom)
+      void refreshSource('sbom', () => loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId }), setSbom)
         .then((current) => {
           if (current) setSbomLoaded(true);
         });
@@ -708,7 +708,7 @@ const PodDetailContent: React.FC = () => {
               try {
                 await fetchPod();
                 await refreshAllData(pod.uid);
-                await loadSbomForPod({ uid: pod.uid })
+                await loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId })
                   .then((d) => {
                     setSbom(d ?? null);
                     setSbomLoaded(true);
@@ -819,7 +819,7 @@ const PodDetailContent: React.FC = () => {
               onClick={() => {
                 if (!pod?.uid) return;
                 void refreshAllData(pod.uid);
-                void loadSbomForPod({ uid: pod.uid })
+                void loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId })
                   .then((d) => {
                     setSbom(d ?? null);
                     setSbomLoaded(true);
