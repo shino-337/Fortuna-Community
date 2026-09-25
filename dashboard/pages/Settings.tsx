@@ -401,6 +401,10 @@ export const Settings: React.FC = () => {
   const saveScopeEditor = useCallback(async () => {
     if (!scopeEditorUser) return;
     setScopeError('');
+    if (scopeMode === 'selected' && clusterAvailabilityIssue) {
+      setScopeError('Cluster inventory is unavailable. Retry the inventory before changing a selected-cluster scope.');
+      return;
+    }
     if (scopeMode === 'selected' && selectedScopeClusters.length === 0) {
       setScopeError('Select at least one cluster, or choose All clusters.');
       return;
@@ -418,7 +422,7 @@ export const Settings: React.FC = () => {
     } finally {
       setScopeSaving(false);
     }
-  }, [refreshUsersSilently, scopeEditorUser, scopeMode, selectedScopeClusters, toast]);
+  }, [clusterAvailabilityIssue, refreshUsersSilently, scopeEditorUser, scopeMode, selectedScopeClusters, toast]);
 
   const removeFortunaUser = useCallback(
     async (rowId: string) => {
@@ -450,6 +454,10 @@ export const Settings: React.FC = () => {
       return;
     }
     const newRoleIsAdmin = newUserRole.toLowerCase() === 'admin';
+    if (isFortunaAdmin && !newRoleIsAdmin && newUserScopeMode === 'selected' && clusterAvailabilityIssue) {
+      setAddUserError('Cluster inventory is unavailable. Retry the inventory before assigning a selected-cluster scope.');
+      return;
+    }
     if (isFortunaAdmin && !newRoleIsAdmin && newUserScopeMode === 'selected' && newUserScopeClusters.length === 0) {
       setAddUserError('Select at least one cluster, or choose All clusters.');
       return;
@@ -476,7 +484,7 @@ export const Settings: React.FC = () => {
     } finally {
       setAddUserBusy(false);
     }
-  }, [isFortunaAdmin, newUsername, newEmail, newPassword, newUserRole, newUserScopeMode, newUserScopeClusters, refreshUsersSilently]);
+  }, [clusterAvailabilityIssue, isFortunaAdmin, newUsername, newEmail, newPassword, newUserRole, newUserScopeMode, newUserScopeClusters, refreshUsersSilently]);
 
   useEffect(() => {
     if (activeTab === "Users" && canUsers) {
@@ -1339,7 +1347,12 @@ export const Settings: React.FC = () => {
             <Button type="button" variant="secondary" disabled={addUserBusy} onClick={() => setAddUserOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" isLoading={addUserBusy} onClick={() => void registerFortunaUser()}>
+            <Button
+              type="button"
+              isLoading={addUserBusy}
+              disabled={addUserBusy || (newUserRole.toLowerCase() !== 'admin' && newUserScopeMode === 'selected' && Boolean(clusterAvailabilityIssue))}
+              onClick={() => void registerFortunaUser()}
+            >
               Create user
             </Button>
           </>
@@ -1461,7 +1474,7 @@ export const Settings: React.FC = () => {
                             type="checkbox"
                             className="mt-1"
                             checked={newUserScopeClusters.includes(cluster.id)}
-                            disabled={addUserBusy || newUserScopeMode !== 'selected'}
+                            disabled={addUserBusy || newUserScopeMode !== 'selected' || Boolean(clusterAvailabilityIssue)}
                             onChange={(event) => {
                               const checked = event.target.checked;
                               setNewUserScopeClusters((current) =>
@@ -1498,7 +1511,12 @@ export const Settings: React.FC = () => {
             <Button type="button" variant="secondary" disabled={scopeSaving} onClick={() => setScopeEditorUser(null)}>
               Cancel
             </Button>
-            <Button type="button" isLoading={scopeSaving} onClick={() => void saveScopeEditor()}>
+            <Button
+              type="button"
+              isLoading={scopeSaving}
+              disabled={scopeSaving || (scopeMode === 'selected' && Boolean(clusterAvailabilityIssue))}
+              onClick={() => void saveScopeEditor()}
+            >
               Save access
             </Button>
           </>
@@ -1618,7 +1636,7 @@ export const Settings: React.FC = () => {
                             type="checkbox"
                             className="mt-1"
                             checked={checked}
-                            disabled={scopeSaving || scopeMode !== 'selected'}
+                            disabled={scopeSaving || scopeMode !== 'selected' || Boolean(clusterAvailabilityIssue)}
                             onChange={(event) => {
                               const nextChecked = event.target.checked;
                               setSelectedScopeClusters((current) =>
