@@ -623,7 +623,7 @@ const PodDetailContent: React.FC = () => {
     return () => {
       if (ws != null) ws.close();
     };
-  }, [wsUid, pod?.uid, hasToken, refreshAllData, refreshSource]);
+  }, [wsUid, pod?.uid, pod?.clusterId, hasToken, refreshAllData, refreshSource]);
 
   const pageSubtitle = useMemo(() => {
     if (!pod) return undefined;
@@ -759,6 +759,7 @@ const PodDetailContent: React.FC = () => {
                 uid: pod.uid,
                 name: pod.name,
                 namespace: pod.namespace,
+                clusterId: pod.clusterId,
               })}
             />
           ) : null}
