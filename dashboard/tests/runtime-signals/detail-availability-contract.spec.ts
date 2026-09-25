@@ -242,14 +242,17 @@ function fulfillPodSupportingApis(route: import('@playwright/test').Route) {
   if (path.includes('/runtime/pods/pod-a/signals')) return route.fulfill({ json: { podUid: 'pod-a', signals: [], count: 0 } });
   if (path.includes('/runtime/pods/pod-a/facts')) return route.fulfill({ json: { podUid: 'pod-a', facts: [], total: 0 } });
   if (path.includes('/runtime/pods/pod-a/incidents')) return route.fulfill({ json: { podUid: 'pod-a', incidents: [], total: 0 } });
+  if (path.includes('/runtime/pods/pod-a/network/top-destinations')) {
+    return route.fulfill({ json: { podUid: 'pod-a', sinceMinutes: 1440, items: [] } });
+  }
   if (path.includes('/runtime/pods/pod-a/metrics') ||
       path.includes('/runtime/pods/pod-a/processes') ||
-      path.includes('/runtime/pods/pod-a/network') ||
+      path === '/api/v1/runtime/pods/pod-a/network' ||
       path.includes('/runtime/pods/pod-a/events')) {
-    return route.fulfill({ json: { items: [] } });
+    return route.fulfill({ json: { podUid: 'pod-a', items: [] } });
   }
   if (path.includes('/risk/pods/pod-a/runtime/events')) return route.fulfill({ json: { events: [] } });
-  if (path.includes('/runtime/pods/pod-a/capabilities')) return route.fulfill({ json: { capabilities: [] } });
+  if (path.includes('/runtime/pods/pod-a/capabilities')) return route.fulfill({ json: { podUid: 'pod-a', capabilities: [] } });
   if (path.includes('/risk/scores/')) return route.fulfill({ status: 404, json: { error: 'not found' } });
   if (path.includes('/inventory/serviceaccounts')) return route.fulfill({ json: { serviceAccounts: [], total: 0 } });
   return route.fulfill({ status: 404, json: { error: 'not found' } });
@@ -401,6 +404,7 @@ test('network connections remain usable when top-destination aggregation is unav
     }
     if (path === '/api/v1/runtime/pods/pod-a/network') {
       return route.fulfill({ json: {
+        podUid: 'pod-a',
         items: [{
           id: 1,
           sourceIp: '10.0.0.10',
@@ -422,6 +426,24 @@ test('network connections remain usable when top-destination aggregation is unav
   await expect(page.getByText('1', { exact: true }).first()).toBeVisible();
   await expect(page.getByText('Top remote endpoints are temporarily unavailable.', { exact: true })).toBeVisible();
   await expect(page.getByText('No network data', { exact: true })).toHaveCount(0);
+});
+
+test('runtime evidence identity mismatch is unavailable and never accepted as empty', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: pod });
+    if (path.includes('/runtime/pods/pod-a/signals')) {
+      return route.fulfill({ json: { podUid: 'pod-b', signals: [], count: 0 } });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  const detailPath = encodeURIComponent('/resources/pods/uid/pod-a?tab=events');
+  await page.goto(`${fixture}?path=${detailPath}`);
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('signals');
+  await expect(page.getByText('No runtime signals.', { exact: true })).toHaveCount(0);
 });
 
 test('malformed suppression statistics are unavailable, not a successful zero state', async ({ page }) => {
