@@ -8,6 +8,7 @@ import { ArrowLeft, UserCog, Key, Link2, Boxes } from 'lucide-react';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import type { K8sClusterRoleBindingPermission, K8sEffectiveRule, K8sRoleBindingPermission, PodWithRisk } from '../types';
 import { PageLoading } from '../design-system/components/PageStatus';
+import { podDetailPath } from '../lib/podRoute';
 
 function parseStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((x) => String(x)).filter(Boolean);
@@ -198,7 +199,7 @@ export const IdentityDetail: React.FC = () => {
                 <button
                   key={pod.uid}
                   type="button"
-                  onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}
+                  onClick={() => navigate(podDetailPath(pod.uid, pod.clusterId))}
                   className="block w-full rounded-lg border border-border bg-base/40 px-3 py-2 text-left hover:border-brand/40"
                 >
                   <span className="block font-mono text-caption text-text">{pod.namespace}/{pod.name}</span>
