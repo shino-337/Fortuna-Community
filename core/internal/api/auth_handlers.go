@@ -417,14 +417,18 @@ func countActiveAdmins(db *gorm.DB) (int64, error) {
 }
 
 func validateScopeClusterReferences(db *gorm.DB, scopeJSON string) ([]string, error) {
-	scope := authorization.OperationalScopeFromDocument(scopeJSON)
-	if len(scope.Clusters) == 0 {
+	doc, err := authorization.ParseScopeDocumentStrict(scopeJSON)
+	if err != nil {
+		return nil, err
+	}
+	clusters := doc.ClusterIDs()
+	if len(clusters) == 0 {
 		return nil, nil
 	}
 	var existing []string
 	cutoff := time.Now().Add(-ActiveClusterCutoff)
 	if err := db.Model(&models.Cluster{}).
-		Where("id IN ?", scope.Clusters).
+		Where("id IN ?", clusters).
 		Where("source IN ?", []string{"auto", "env"}).
 		Where("last_sync >= ?", cutoff).
 		Pluck("id", &existing).Error; err != nil {
@@ -435,8 +439,8 @@ func validateScopeClusterReferences(db *gorm.DB, scopeJSON string) ([]string, er
 		known[id] = struct{}{}
 	}
 	unknown := make([]string, 0)
-	seen := make(map[string]struct{}, len(scope.Clusters))
-	for _, id := range scope.Clusters {
+	seen := make(map[string]struct{}, len(clusters))
+	for _, id := range clusters {
 		id = strings.TrimSpace(id)
 		if id == "" {
 			continue
