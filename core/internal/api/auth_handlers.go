@@ -200,6 +200,10 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
 			return
 		}
+		if _, err := authorization.ParseScopeDocumentStrict(scopeJSON); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson has invalid schema", "detail": err.Error()})
+			return
+		}
 		unknownClusters, err := validateScopeClusterReferences(db, scopeJSON)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate cluster scope"})
@@ -569,6 +573,10 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			}
 			if !json.Valid([]byte(raw)) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
+				return
+			}
+			if _, err := authorization.ParseScopeDocumentStrict(raw); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson has invalid schema", "detail": err.Error()})
 				return
 			}
 			unknownClusters, err := validateScopeClusterReferences(db, raw)
