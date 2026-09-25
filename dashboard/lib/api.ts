@@ -3025,14 +3025,15 @@ export const api = {
   },
 
   // Attack Analysis Graph
-  getAttackPathsGraphStrict: async (): Promise<AttackPathGraphData> => {
-    const data = await request<{ data: { nodes: any[]; links: any[] } }>('/graph/attack-paths/graph');
+  getAttackPathsGraphStrict: async (clusterId?: string): Promise<AttackPathGraphData> => {
+    const query = clusterId?.trim() ? `?cluster_id=${encodeURIComponent(clusterId.trim())}` : '';
+    const data = await request<{ data: { nodes: any[]; links: any[] } }>(`/graph/attack-paths/graph${query}`);
     return mapRawAttackPathGraphPayload(data.data);
   },
 
-  getAttackPathsGraph: async (): Promise<AttackPathGraphData> => {
+  getAttackPathsGraph: async (clusterId?: string): Promise<AttackPathGraphData> => {
     try {
-      return await api.getAttackPathsGraphStrict();
+      return await api.getAttackPathsGraphStrict(clusterId);
     } catch (err) {
       // If API fails, return empty graph (no mock data)
       return { nodes: [], links: [] };
