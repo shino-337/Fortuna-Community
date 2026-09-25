@@ -29,7 +29,7 @@ const ClusterDetailContent: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [detailIssues, setDetailIssues] = useState<AvailabilityIssue[]>([]);
-  const [tabIssue, setTabIssue] = useState<AvailabilityIssue | null>(null);
+  const [tabIssue, setTabIssue] = useState<{ tab: Exclude<TabId, 'overview'>; issue: AvailabilityIssue } | null>(null);
   const [inventoryLoaded, setInventoryLoaded] = useState(false);
   const [agentsLoaded, setAgentsLoaded] = useState(false);
   const [securityLoaded, setSecurityLoaded] = useState(false);
@@ -137,10 +137,10 @@ const ClusterDetailContent: React.FC = () => {
         setSecuritySummary(data);
         setSecurityLoaded(true);
       }
-      setTabIssue(null);
+      setTabIssue((prev) => (prev?.tab === tab ? null : prev));
     } catch (err) {
       if (requestSeq !== tabRequestRef.current) return;
-      setTabIssue(getAvailabilityIssue(err, `Cluster ${tab}`));
+      if (tab !== 'overview') setTabIssue({ tab, issue: getAvailabilityIssue(err, `Cluster ${tab}`) });
     } finally {
       if (requestSeq === tabRequestRef.current) setTabLoading(false);
     }
@@ -183,6 +183,7 @@ const ClusterDetailContent: React.FC = () => {
     { id: 'agents', label: 'Agents', icon: <Server className="w-4 h-4" /> },
     { id: 'security', label: 'Security Summary', icon: <Shield className="w-4 h-4" /> },
   ];
+  const currentTabIssue = tabIssue?.tab === activeTab ? tabIssue.issue : null;
 
   return (
     <PageLayout
@@ -232,14 +233,14 @@ const ClusterDetailContent: React.FC = () => {
       {/* Tabs */}
       <Tabs items={tabs} value={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
 
-      {tabIssue && (
+      {currentTabIssue && (
         (activeTab === 'inventory' && inventoryLoaded) ||
         (activeTab === 'agents' && agentsLoaded) ||
         (activeTab === 'security' && securityLoaded)
       ) ? (
         <AvailabilityNotice
-          issue={tabIssue}
-          onRetry={tabIssue.retryable ? () => void fetchTabData(activeTab) : undefined}
+          issue={currentTabIssue}
+          onRetry={currentTabIssue.retryable ? () => void fetchTabData(activeTab) : undefined}
           className="mb-4"
         />
       ) : null}
@@ -325,8 +326,8 @@ const ClusterDetailContent: React.FC = () => {
                 </ul>
               </div>
             </div>
-          ) : tabIssue && !inventoryLoaded ? (
-            <AvailabilityNotice issue={tabIssue} onRetry={tabIssue.retryable ? () => void fetchTabData('inventory') : undefined} />
+          ) : currentTabIssue && !inventoryLoaded ? (
+            <AvailabilityNotice issue={currentTabIssue} onRetry={currentTabIssue.retryable ? () => void fetchTabData('inventory') : undefined} />
           ) : (
             <PageEmpty title="No inventory data" description="No nodes or namespaces returned for this cluster." className="py-8" />
           )}
@@ -365,8 +366,8 @@ const ClusterDetailContent: React.FC = () => {
                 </tbody>
               </table>
             </div>
-          ) : tabIssue && !agentsLoaded ? (
-            <AvailabilityNotice issue={tabIssue} onRetry={tabIssue.retryable ? () => void fetchTabData('agents') : undefined} />
+          ) : currentTabIssue && !agentsLoaded ? (
+            <AvailabilityNotice issue={currentTabIssue} onRetry={currentTabIssue.retryable ? () => void fetchTabData('agents') : undefined} />
           ) : (
             <div>
               <p className="text-muted text-body">No agents for this cluster.</p>
@@ -411,8 +412,8 @@ const ClusterDetailContent: React.FC = () => {
                 View all risks
               </Button>
             </div>
-          ) : tabIssue && !securityLoaded ? (
-            <AvailabilityNotice issue={tabIssue} onRetry={tabIssue.retryable ? () => void fetchTabData('security') : undefined} />
+          ) : currentTabIssue && !securityLoaded ? (
+            <AvailabilityNotice issue={currentTabIssue} onRetry={currentTabIssue.retryable ? () => void fetchTabData('security') : undefined} />
           ) : (
             <div>
               <PageEmpty title="No security summary data" description="No security summary rows were returned for this cluster scope." className="py-2" />
