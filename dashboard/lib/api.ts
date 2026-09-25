@@ -2877,11 +2877,17 @@ export const api = {
   getPodAttackStepsStrict: async (podUid: string, clusterId?: string): Promise<PodAttackStep[]> => {
     if (!podUid) return [];
     const qs = clusterId?.trim() ? `?clusterId=${encodeURIComponent(clusterId.trim())}` : '';
-    const data = await request<{ podUid?: string; steps?: PodAttackStep[]; count?: number }>(`/risk/pods/${encodeURIComponent(podUid)}/attack-steps${qs}`);
+    const data = await request<{ clusterId?: string; podUid?: string; steps?: PodAttackStep[]; count?: number }>(`/risk/pods/${encodeURIComponent(podUid)}/attack-steps${qs}`);
     if (String(data.podUid ?? '') !== podUid || !Array.isArray(data.steps)) {
       invalidResponse('pod_attack_steps_invalid_response', 'Pod attack-step response does not match the requested Pod');
     }
-    requireFiniteNumber(data.count, 'pod_attack_steps_invalid_response', 'count');
+    if (clusterId?.trim() && String(data.clusterId ?? '') !== clusterId.trim()) {
+      invalidResponse('pod_attack_steps_identity_mismatch', 'Pod attack-step response does not match the requested cluster');
+    }
+    const count = requireFiniteNumber(data.count, 'pod_attack_steps_invalid_response', 'count');
+    if (count !== data.steps.length) {
+      invalidResponse('pod_attack_steps_invalid_response', 'Pod attack-step response count does not match the steps array');
+    }
     return data.steps;
   },
 
@@ -3113,7 +3119,10 @@ export const api = {
     if (clusterId?.trim() && String(data.cluster_id ?? '') !== clusterId.trim()) {
       invalidResponse('pod_attack_paths_identity_mismatch', 'Pod attack-path response does not match the requested cluster');
     }
-    requireFiniteNumber(data.count, 'pod_attack_paths_invalid_response', 'count');
+    const count = requireFiniteNumber(data.count, 'pod_attack_paths_invalid_response', 'count');
+    if (count !== data.paths.length) {
+      invalidResponse('pod_attack_paths_invalid_response', 'Pod attack-path response count does not match the paths array');
+    }
     return normalizeAttackPaths(data.paths);
   },
 
