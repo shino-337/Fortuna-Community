@@ -13,6 +13,7 @@ import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import { buildEvidenceLogEntries } from '../lib/evidenceLog';
+import { podDetailPath } from '../lib/podRoute';
 
 const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
   if (!violatedRules) return [];
@@ -378,7 +379,7 @@ export const RiskDetail: React.FC = () => {
                     size="sm"
                     variant="secondary"
                     onClick={() => {
-                      if (r.kind === 'Pod' && r.id) navigate(`/resources/pods/uid/${encodeURIComponent(r.id)}`);
+                      if (r.kind === 'Pod' && r.id) navigate(podDetailPath(r.id, insight.clusterId));
                       if (r.kind === 'ServiceAccount' && r.id) navigate(`/identities/uid/${encodeURIComponent(r.id)}`);
                     }}
                     title={r.kind === 'Pod' ? 'View pod in Resources' : r.kind === 'ServiceAccount' ? 'View identity' : 'View resource'}
@@ -462,7 +463,7 @@ export const RiskDetail: React.FC = () => {
                         {s.podUid ? (
                           <button
                             type="button"
-                            onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(s.podUid)}`)}
+                            onClick={() => navigate(podDetailPath(s.podUid, insight.clusterId))}
                             className="text-brand hover:text-brand/90 hover:underline"
                           >
                             {`${s.podUid.slice(0, 8)}…`}
