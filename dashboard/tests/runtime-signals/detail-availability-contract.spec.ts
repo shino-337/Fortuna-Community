@@ -785,3 +785,51 @@ test('pod runtime evidence 503 remains unavailable instead of empty', async ({ p
   await expect(page.getByText('No runtime signals.', { exact: true })).toHaveCount(0);
   await expect(page.getByText(/No runtime signals in lookback window/)).toHaveCount(0);
 });
+
+
+test('malformed ServiceAccount inventory is unavailable and does not synthesize a missing identity', async ({ page }) => {
+  const podWithServiceAccount = {
+    ...pod,
+    serviceAccount: 'workload-sa',
+    serviceAccountUid: 'sa-uid-a',
+  };
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: podWithServiceAccount });
+    if (path === '/api/v1/inventory/serviceaccounts') {
+      return route.fulfill({ json: {} });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('service-account');
+});
+
+test('suppression statistics reject malformed perKey values and key-count mismatch', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: pod });
+    if (path.includes('/runtime/signals/suppression-stats')) {
+      return route.fulfill({
+        json: {
+          sinceMinutes: 60,
+          emittedEvents: 1,
+          uniqueKeys: 1,
+          maxRatio: 2,
+          perKey: { queueA: 'not-a-number' },
+        },
+      });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  const detailPath = encodeURIComponent('/resources/pods/uid/pod-a?tab=events');
+  await page.goto(`${fixture}?path=${detailPath}`);
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('signal-stats');
+  await expect(page.getByText(/Network anomaly events \(60m\):/)).toHaveCount(0);
+});
