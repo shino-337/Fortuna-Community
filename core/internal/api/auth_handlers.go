@@ -200,8 +200,13 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
 			return
 		}
-		if _, err := authorization.ParseScopeDocumentStrict(scopeJSON); err != nil {
+		doc, err := authorization.ParseScopeDocumentStrict(scopeJSON)
+		if err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson has invalid schema", "detail": err.Error()})
+			return
+		}
+		if err := validateSupportedUserScope(doc); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson contains unsupported restrictions", "detail": err.Error()})
 			return
 		}
 		unknownClusters, err := validateScopeClusterReferences(db, scopeJSON)
@@ -420,6 +425,23 @@ func countActiveAdmins(db *gorm.DB) (int64, error) {
 	return n, err
 }
 
+// Cluster allow-lists are the only user-scope restriction enforced end-to-end today.
+// Reject new writes that populate reserved ABAC dimensions until every read path
+// enforces them; accepting them would make an apparently restricted user broader
+// than the administrator intended.
+func validateSupportedUserScope(doc authorization.ScopeDocument) error {
+	if len(doc.Namespaces) > 0 ||
+		len(doc.Environments) > 0 ||
+		len(doc.Tenants) > 0 ||
+		len(doc.BusinessServices) > 0 ||
+		len(doc.CrownJewels) > 0 ||
+		len(doc.RegulatoryDomains) > 0 ||
+		len(doc.Labels) > 0 {
+		return errors.New("only cluster allow-list scope is currently enforced")
+	}
+	return nil
+}
+
 func validateScopeClusterReferences(db *gorm.DB, scopeJSON string) ([]string, error) {
 	doc, err := authorization.ParseScopeDocumentStrict(scopeJSON)
 	if err != nil {
@@ -575,8 +597,13 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
 				return
 			}
-			if _, err := authorization.ParseScopeDocumentStrict(raw); err != nil {
+			doc, err := authorization.ParseScopeDocumentStrict(raw)
+			if err != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson has invalid schema", "detail": err.Error()})
+				return
+			}
+			if err := validateSupportedUserScope(doc); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson contains unsupported restrictions", "detail": err.Error()})
 				return
 			}
 			unknownClusters, err := validateScopeClusterReferences(db, raw)
