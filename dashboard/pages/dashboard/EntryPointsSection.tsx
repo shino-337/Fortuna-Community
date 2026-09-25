@@ -9,7 +9,7 @@ import { riskLabelTitle } from './utils';
 export interface EntryPointsSectionProps {
   scenarios: EntryScenario[];
   onOpenPanel: (scenario: EntryScenario) => void;
-  onOpenPod: (uid: string) => void;
+  onOpenPod: (scenario: EntryScenario) => void;
   onOpenAttackPaths: (uid: string) => void;
 }
 
@@ -56,7 +56,7 @@ export const EntryPointsSection: React.FC<EntryPointsSectionProps> = ({
               <Button variant="ghost" size="sm" className="!text-caption" onClick={() => onOpenAttackPaths(scenario.pod.uid)}>
                 Attack paths
               </Button>
-              <Button variant="ghost" size="sm" className="!text-caption" onClick={() => onOpenPod(scenario.pod.uid)}>
+              <Button variant="ghost" size="sm" className="!text-caption" onClick={() => onOpenPod(scenario)}>
                 Pod
               </Button>
             </div>
@@ -115,7 +115,7 @@ export const EntryPointsSection: React.FC<EntryPointsSectionProps> = ({
                       <Target className="h-3.5 w-3.5 mr-1 inline" aria-hidden />
                       Paths
                     </Button>
-                    <Button variant="ghost" size="sm" className="h-8 !text-caption" onClick={() => onOpenPod(scenario.pod.uid)}>
+                    <Button variant="ghost" size="sm" className="h-8 !text-caption" onClick={() => onOpenPod(scenario)}>
                       Pod
                     </Button>
                   </div>
