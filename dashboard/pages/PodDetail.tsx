@@ -346,7 +346,10 @@ const PodDetailContent: React.FC = () => {
         data = await api.getPodByLegacyId(idOrUid);
         if (data?.uid) {
           navigate(
-            `/resources/pods/uid/${encodeURIComponent(data.uid)}${requestedTab ? `?tab=${encodeURIComponent(requestedTab)}` : ''}`,
+            `/resources/pods/uid/${encodeURIComponent(data.uid)}?${new URLSearchParams({
+              ...(data.clusterId ? { clusterId: data.clusterId } : {}),
+              ...(requestedTab ? { tab: requestedTab } : {}),
+            }).toString()}`,
             { replace: true },
           );
         }
@@ -2524,6 +2527,8 @@ export const PodDetail: React.FC = () => {
   const location = useLocation();
   const uidFromPath = matchPath({ path: '/resources/pods/uid/:uid', end: true }, location.pathname)?.params.uid;
   const idFromPath = matchPath({ path: '/resources/pods/:id', end: true }, location.pathname)?.params.id;
-  const routeIdentity = uid ?? uidFromPath ?? id ?? idFromPath ?? location.pathname;
+  const [searchParams] = useSearchParams();
+  const clusterId = searchParams.get('clusterId')?.trim() ?? '';
+  const routeIdentity = `${uid ?? uidFromPath ?? id ?? idFromPath ?? location.pathname}|${clusterId}`;
   return <PodDetailContent key={routeIdentity} />;
 };
