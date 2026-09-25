@@ -723,27 +723,21 @@ const PodDetailContent: React.FC = () => {
               if (!pod?.uid) return;
               setRefreshing(true);
               try {
+                const podUid = pod.uid;
+                const clusterId = pod.clusterId;
                 await fetchPod();
-                await refreshAllData(pod.uid);
-                await loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId })
-                  .then((d) => {
-                    setSbom(d ?? null);
-                    setSbomLoaded(true);
-                    setDataErrors((p) => p.filter((e) => e !== 'sbom'));
-                  })
-                  .catch(() => {
-                    setSbomLoaded(true);
-                    setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
-                  });
-                await api
-                  .getPodRiskReportStrict(pod.uid)
-                  .then((report) => {
-                    applyPodRiskReport(report, pod);
-                    setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
-                  })
-                  .catch(() => {
-                    setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
-                  });
+                await refreshAllData(podUid);
+                const sbomCurrent = await refreshSource(
+                  'sbom',
+                  () => loadSbomForPod({ uid: podUid, clusterId }),
+                  setSbom,
+                );
+                if (sbomCurrent) setSbomLoaded(true);
+                await refreshSource(
+                  'risk-report',
+                  () => api.getPodRiskReportStrict(podUid),
+                  (report) => applyPodRiskReport(report, pod),
+                );
               } finally {
                 setRefreshing(false);
               }
@@ -836,25 +830,18 @@ const PodDetailContent: React.FC = () => {
               onClick={() => {
                 if (!pod?.uid) return;
                 void refreshAllData(pod.uid);
-                void loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId })
-                  .then((d) => {
-                    setSbom(d ?? null);
-                    setSbomLoaded(true);
-                    setDataErrors((p) => p.filter((e) => e !== 'sbom'));
-                  })
-                  .catch(() => {
-                    setSbomLoaded(true);
-                    setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
-                  });
-                void api
-                  .getPodRiskReportStrict(pod.uid)
-                  .then((report) => {
-                    applyPodRiskReport(report, pod);
-                    setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
-                  })
-                  .catch(() => {
-                    setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
-                  });
+                void refreshSource(
+                  'sbom',
+                  () => loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId }),
+                  setSbom,
+                ).then((current) => {
+                  if (current) setSbomLoaded(true);
+                });
+                void refreshSource(
+                  'risk-report',
+                  () => api.getPodRiskReportStrict(pod.uid),
+                  (report) => applyPodRiskReport(report, pod),
+                );
               }}
             >
               Retry
