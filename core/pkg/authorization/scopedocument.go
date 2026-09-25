@@ -102,26 +102,42 @@ func (d ScopeDocument) clusterIDs() []string {
 	return out
 }
 
-// ClusterIDs returns the normalized effective cluster allow-list.
+// HasUnenforcedRestrictions reports whether the document asks for an ABAC
+// dimension that is stored/reserved but not yet enforced by every security-data
+// read path. Such a document must fail closed for non-admin authorization.
+func (d ScopeDocument) HasUnenforcedRestrictions() bool {
+	return len(d.Namespaces) > 0 ||
+		len(d.Environments) > 0 ||
+		len(d.Tenants) > 0 ||
+		len(d.BusinessServices) > 0 ||
+		len(d.CrownJewels) > 0 ||
+		len(d.RegulatoryDomains) > 0 ||
+		len(d.Labels) > 0
+}
+
+// ClusterIDs returns the effective cluster allow-list. An unsupported persisted
+// restriction becomes a deny-all marker rather than silently broadening access.
 func (d ScopeDocument) ClusterIDs() []string {
+	if d.HasUnenforcedRestrictions() {
+		return []string{"__invalid_scope__"}
+	}
 	return d.clusterIDs()
 }
 
-// RestrictsClusters is true when the user must be checked against an explicit cluster allow-list.
+// RestrictsClusters is true when the user must be checked against an explicit
+// allow-list or when an unenforced persisted restriction must fail closed.
 func (d ScopeDocument) RestrictsClusters() bool {
-	ids := d.clusterIDs()
-	if len(ids) == 0 {
-		return false
-	}
-	// Malformed scope marker: deny all cluster-scoped routes.
-	if len(ids) == 1 && ids[0] == "__invalid_scope__" {
+	if d.HasUnenforcedRestrictions() {
 		return true
 	}
-	return true
+	return len(d.clusterIDs()) > 0
 }
 
 // ClusterAllowed reports whether clusterKey is in scope (exact string match).
 func (d ScopeDocument) ClusterAllowed(clusterKey string) bool {
+	if d.HasUnenforcedRestrictions() {
+		return false
+	}
 	ids := d.clusterIDs()
 	if len(ids) == 1 && ids[0] == "__invalid_scope__" {
 		return false
@@ -134,9 +150,9 @@ func (d ScopeDocument) ClusterAllowed(clusterKey string) bool {
 	return false
 }
 
-// ClusterAllowListSize returns how many cluster identifiers are in the effective allow-list (0 = unrestricted).
+// ClusterAllowListSize returns how many identifiers are in the effective allow-list.
 func (d ScopeDocument) ClusterAllowListSize() int {
-	return len(d.clusterIDs())
+	return len(d.ClusterIDs())
 }
 
 // Validate checks structural limits for governance (future ABAC expansion).
