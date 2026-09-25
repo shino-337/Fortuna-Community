@@ -316,20 +316,21 @@ export const Sbom: React.FC = () => {
                 ? new Date(pod.podCreatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
                 : '—';
               const statusLabel = pod.podStatus?.trim() || '—';
+              const isSelected = selectedPod != null && sbomIdentity(selectedPod) === sbomIdentity(pod);
               return (
               <div 
                 key={sbomIdentity(pod)} 
                 onClick={() => handleSelectPod(pod)}
                 className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 group ${
-                  selectedPod ? sbomIdentity(selectedPod) === sbomIdentity(pod) : false ? UI_SELECTABLE_ACTIVE : UI_SELECTABLE_IDLE
+                  isSelected ? UI_SELECTABLE_ACTIVE : UI_SELECTABLE_IDLE
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center">
-                    <Box className={`w-4 h-4 mr-2 transition-colors ${selectedPod ? sbomIdentity(selectedPod) === sbomIdentity(pod) : false ? 'text-brand' : 'text-muted group-hover:text-text'}`} />
+                    <Box className={`w-4 h-4 mr-2 transition-colors ${isSelected ? 'text-brand' : 'text-muted group-hover:text-text'}`} />
                     <span className="font-bold text-text text-body">{pod.podName}</span>
                   </div>
-                  <ChevronRight size={14} className={`transition-transform duration-200 ${selectedPod ? sbomIdentity(selectedPod) === sbomIdentity(pod) : false ? 'text-brand rotate-90 lg:rotate-0' : 'text-muted-2'}`} />
+                  <ChevronRight size={14} className={`transition-transform duration-200 ${isSelected ? 'text-brand rotate-90 lg:rotate-0' : 'text-muted-2'}`} />
                 </div>
                 <div className="text-caption text-muted truncate mb-1 font-mono">{pod.image}</div>
                 <ImageTrustStrip item={pod} compact />
