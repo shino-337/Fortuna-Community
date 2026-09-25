@@ -168,6 +168,31 @@ test('linked-rule failure is not presented as no rules', async ({ page }) => {
   await expect(page.getByText(/No rules reference this capability/)).toHaveCount(0);
 });
 
+
+test('malformed linked-rule success is unavailable instead of no linked rules', async ({ page }) => {
+  await page.route('**/api/v1/capability-metadata/CAP_TEST', route =>
+    route.fulfill({ json: {
+      capabilityId: 'CAP_TEST',
+      name: 'Test capability',
+      summary: 'Fixture capability',
+      severityBase: 'medium',
+      domain: 'runtime',
+      category: 'test',
+      confidenceBase: 0.8,
+    } }),
+  );
+  await page.route('**/api/v1/policy/rules?*', route =>
+    route.fulfill({ json: {
+      rules: [{ id: 'RULE-1', name: 'Broken contract', severity: 'high', enabled: true }],
+      total: 1,
+    } }),
+  );
+
+  await page.goto(`${fixture}?path=/capabilities/CAP_TEST`);
+  await expect(page.getByText('Linked policy rules temporarily unavailable', { exact: true })).toBeVisible();
+  await expect(page.getByText(/No rules reference this capability/)).toHaveCount(0);
+});
+
 test('node 404 is rendered as genuine not-found, not unavailable', async ({ page }) => {
   await page.route('**/api/v1/inventory/clusters/cluster-a/nodes/missing-node?*', route =>
     route.fulfill({ status: 404, json: { error: 'Node not found' } }),
