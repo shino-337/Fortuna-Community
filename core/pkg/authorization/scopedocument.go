@@ -44,9 +44,12 @@ func ParseScopeDocumentStrict(scopeJSON string) (ScopeDocument, error) {
 		"tenants": {}, "business_services": {}, "crown_jewels": {},
 		"regulatory_domains": {}, "labels": {},
 	}
-	for key := range raw {
+	for key, value := range raw {
 		if _, ok := allowed[key]; !ok {
 			return ScopeDocument{}, fmt.Errorf("unsupported scope field %q", key)
+		}
+		if strings.TrimSpace(string(value)) == "null" {
+			return ScopeDocument{}, fmt.Errorf("scope field %q cannot be null", key)
 		}
 	}
 
