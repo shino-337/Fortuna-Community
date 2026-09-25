@@ -98,6 +98,7 @@ export const Sbom: React.FC = () => {
   const [threatSummary, setThreatSummary] = useState<ThreatSummary | null>(null);
   const [detailIssue, setDetailIssue] = useState<AvailabilityIssue | null>(null);
   const [threatIssue, setThreatIssue] = useState<AvailabilityIssue | null>(null);
+  const listRequestRef = useRef(0);
   const detailRequestRef = useRef(0);
   const selectedPodRef = useRef<PodSbomSummary | null>(null);
   selectedPodRef.current = selectedPod;
@@ -136,6 +137,7 @@ export const Sbom: React.FC = () => {
   }, []);
 
   const fetchSbomList = useCallback(async (opts?: { showOverlay?: boolean }) => {
+    const requestSeq = ++listRequestRef.current;
     if (opts?.showOverlay) setLoading(true);
     const params =
       podNameFilter.trim() || namespaceFilter.trim()
@@ -143,6 +145,7 @@ export const Sbom: React.FC = () => {
         : undefined;
     try {
       const data = await api.getSbomListStrict(params);
+      if (requestSeq !== listRequestRef.current) return;
       setSbomList(data);
       setLoadError(null);
       setListUpdatedAt(new Date());
@@ -166,10 +169,11 @@ export const Sbom: React.FC = () => {
         setDetailLoading(false);
       }
     } catch (err) {
+      if (requestSeq !== listRequestRef.current) return;
       // Preserve the last-known-good list. Unavailable is not an empty inventory.
       setLoadError(getAvailabilityIssue(err, 'SBOM inventory').description);
     } finally {
-      setLoading(false);
+      if (requestSeq === listRequestRef.current) setLoading(false);
     }
   }, [loadSelectedPodEvidence, namespaceFilter, podNameFilter]);
 
