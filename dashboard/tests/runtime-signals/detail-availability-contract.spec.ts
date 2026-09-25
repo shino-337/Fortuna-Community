@@ -604,6 +604,24 @@ test('pod refresh 503 preserves last-known-good pod detail', async ({ page }) =>
 });
 
 
+test('cluster-qualified Pod detail disambiguates duplicate UID at the primary API boundary', async ({ page }) => {
+  let primaryQualified = false;
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/inventory/pods/dup-pod') {
+      primaryQualified = url.searchParams.get('clusterId') === 'cluster-a';
+      return route.fulfill({ json: { ...pod, uid: 'dup-pod', id: 2, clusterId: 'cluster-a', name: 'dup-a' } });
+    }
+    if (url.pathname === '/api/v1/inventory/pods/dup-pod/sbom') return route.fulfill({ status: 404, json: { error: 'no sbom' } });
+    return route.fulfill({ status: 503, json: { status: 'unavailable', code: 'fixture_unavailable', error: 'fixture unavailable', retryable: true } });
+  });
+
+  const detailPath = encodeURIComponent('/resources/pods/uid/dup-pod?clusterId=cluster-a');
+  await page.goto(`${fixture}?path=${detailPath}`);
+  await expect(page.getByRole('heading', { name: 'dup-a', exact: true })).toBeVisible();
+  expect(primaryQualified).toBe(true);
+});
+
 test('pod route change never reuses last-known-good data from another pod', async ({ page }) => {
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
