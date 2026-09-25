@@ -251,7 +251,7 @@ function fulfillPodSupportingApis(route: import('@playwright/test').Route) {
       path.includes('/runtime/pods/pod-a/events')) {
     return route.fulfill({ json: { podUid: 'pod-a', items: [] } });
   }
-  if (path.includes('/risk/pods/pod-a/runtime/events')) return route.fulfill({ json: { events: [] } });
+  if (path.includes('/risk/pods/pod-a/runtime/events')) return route.fulfill({ json: { podUid: 'pod-a', events: [], total: 0 } });
   if (path.includes('/runtime/pods/pod-a/capabilities')) return route.fulfill({ json: { podUid: 'pod-a', capabilities: [] } });
   if (path.includes('/risk/scores/')) return route.fulfill({ status: 404, json: { error: 'not found' } });
   if (path.includes('/inventory/serviceaccounts')) return route.fulfill({ json: { serviceAccounts: [], total: 0 } });
@@ -462,6 +462,25 @@ test('malformed suppression statistics are unavailable, not a successful zero st
   await expect(failureSummary).toBeVisible();
   await expect(failureSummary).toContainText('signal-stats');
   await expect(page.getByText(/Network anomaly events \(60m\):/)).toHaveCount(0);
+});
+
+test('malformed runtime security event payload is unavailable, not empty evidence', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: pod });
+    if (path.includes('/risk/pods/pod-a/runtime/events')) {
+      return route.fulfill({ json: { podUid: 'wrong-pod', events: [], total: 0 } });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  const detailPath = encodeURIComponent('/resources/pods/uid/pod-a?tab=events');
+  await page.goto(`${fixture}?path=${detailPath}`);
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('security-events');
+  await expect(page.getByText('Security runtime events is temporarily unavailable.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No security runtime events', { exact: true })).toHaveCount(0);
 });
 
 test('pod runtime evidence 503 remains unavailable instead of empty', async ({ page }) => {
