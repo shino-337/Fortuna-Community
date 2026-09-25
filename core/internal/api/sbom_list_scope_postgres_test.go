@@ -18,7 +18,7 @@ import (
 	"gorm.io/gorm"
 )
 
-func TestSBOMListClusterScopePostgres(t *testing.T) {
+func TestSBOMListDuplicateUIDClusterIsolationPostgres(t *testing.T) {
 	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")
 	if dsn == "" {
 		t.Skip("FORTUNA_TEST_POSTGRES_URL is not configured")
