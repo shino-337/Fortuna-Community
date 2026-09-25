@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
+import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { NodeDetailResponse } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
@@ -31,7 +31,11 @@ const NodeDetailContent: React.FC = () => {
   }, [clusterId, nodeName]);
 
   const fetchNode = useCallback(async () => {
-    if (!clusterId || !nodeName) return;
+    if (!clusterId || !nodeName) {
+      setLoading(false);
+      setNode(null);
+      return;
+    }
     const requestSeq = ++requestRef.current;
     setLoading(true);
     try {
@@ -43,9 +47,16 @@ const NodeDetailContent: React.FC = () => {
       setUpdatedAt(new Date());
     } catch (err) {
       if (requestSeq !== requestRef.current) return;
-      const issue = getAvailabilityIssue(err, 'Node detail');
-      setAvailabilityIssue(issue);
-      setError(issue.description);
+      if (isApiError(err) && err.status === 404) {
+        setNode(null);
+        setAvailabilityIssue(null);
+        setError(null);
+        setUpdatedAt(null);
+      } else {
+        const issue = getAvailabilityIssue(err, 'Node detail');
+        setAvailabilityIssue(issue);
+        setError(issue.description);
+      }
     } finally {
       if (requestSeq === requestRef.current) setLoading(false);
     }
@@ -55,8 +66,20 @@ const NodeDetailContent: React.FC = () => {
     fetchNode();
   }, [fetchNode]);
 
-  if ((loading && !node) || !clusterId || !nodeName) {
+  if (loading && !node) {
     return <PageLoading message="Loading node detail..." className="min-h-[40dvh]" />;
+  }
+
+  if (!clusterId || !nodeName) {
+    return (
+      <PageLayout title="Node detail route is incomplete" description="Cluster ID and node name are required.">
+        <PageError
+          title="Node identifier missing"
+          description="Open node detail from a cluster inventory so the route contains both cluster ID and node name."
+          action={<Button variant="secondary" onClick={() => navigate('/clusters')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters</Button>}
+        />
+      </PageLayout>
+    );
   }
 
   const displayName = decodeURIComponent(nodeName);
