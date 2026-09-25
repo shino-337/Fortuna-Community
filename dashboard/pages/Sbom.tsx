@@ -99,6 +99,7 @@ export const Sbom: React.FC = () => {
   const [detailIssue, setDetailIssue] = useState<AvailabilityIssue | null>(null);
   const [threatIssue, setThreatIssue] = useState<AvailabilityIssue | null>(null);
   const listRequestRef = useRef(0);
+  const filterEffectMountedRef = useRef(false);
   const detailRequestRef = useRef(0);
   const selectedPodRef = useRef<PodSbomSummary | null>(null);
   selectedPodRef.current = selectedPod;
@@ -190,11 +191,16 @@ export const Sbom: React.FC = () => {
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.SBOM_RISK_LIST));
   usePolling(fetchSbomList, intervalMs);
 
-  // Refetch when pod/namespace filter changes (debounce 400ms)
+  // Polling already performs the initial load. Debounce only subsequent filter changes
+  // so mount cannot race two identical inventory requests.
   React.useEffect(() => {
-    const t = window.setTimeout(() => fetchSbomList(), 400);
+    if (!filterEffectMountedRef.current) {
+      filterEffectMountedRef.current = true;
+      return;
+    }
+    const t = window.setTimeout(() => void fetchSbomList(), 400);
     return () => clearTimeout(t);
-  }, [podNameFilter, namespaceFilter]);
+  }, [fetchSbomList, podNameFilter, namespaceFilter]);
 
   const toggleExpand = (compId: string) => {
     const newExpanded = new Set(expandedComponents);
