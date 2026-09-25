@@ -2340,13 +2340,16 @@ export const api = {
     }
   },
 
-  getPodSbomStrict: async (podUid: string): Promise<PodSbom> => {
+  getPodSbomStrict: async (podUid: string, clusterId?: string): Promise<PodSbom> => {
     const data = await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
     if (!data || typeof data !== 'object' || !Array.isArray(data.components)) {
       invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing the components array');
     }
     if (String(data.podId ?? '') !== podUid) {
       invalidResponse('pod_sbom_identity_mismatch', 'Pod SBOM response does not match the requested Pod UID');
+    }
+    if (clusterId?.trim() && String(data.clusterId ?? '') !== clusterId.trim()) {
+      invalidResponse('pod_sbom_cluster_identity_mismatch', 'Pod SBOM response does not match the requested cluster');
     }
     return data;
   },
