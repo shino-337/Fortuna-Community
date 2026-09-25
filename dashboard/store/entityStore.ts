@@ -22,6 +22,8 @@ function isStale(entry: CacheEntry<unknown> | undefined, ttlMs = DEFAULT_TTL_MS)
 
 interface ClusterCache {
   clusters: CacheEntry<Cluster[]> | null;
+  /** Shared generation so every hook can reject completions from an invalidated request. */
+  clusterGeneration: number;
   /** Get clusters with dedup — only one fetch in flight at a time */
   fetchClusters: (fetcher: () => Promise<Cluster[]>) => Promise<Cluster[]>;
   /** Direct set (from WebSocket or manual refresh) */
@@ -65,6 +67,7 @@ let clusterFetchGeneration = 0;
 export const useEntityStore = create<EntityState>()((set, get) => ({
   /* ── clusters ─────────────────────────────────────────────── */
   clusters: null,
+  clusterGeneration: 0,
 
   /** Fetch clusters with deduplication — only one fetch in flight at a time. */
   fetchClusters: async (fetcher) => {
@@ -96,9 +99,15 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
     return request;
   },
 
-  /** Direct set (from WebSocket or manual refresh). */
+  /** Direct set (from WebSocket or another authoritative source).
+   * Supersede any older in-flight fetch so it cannot overwrite fresher data. */
   setClusters: (clusters) => {
-    set({ clusters: { data: clusters, fetchedAt: Date.now() } });
+    clusterFetchGeneration += 1;
+    clusterFetchPromise = null;
+    set({
+      clusters: { data: clusters, fetchedAt: Date.now() },
+      clusterGeneration: clusterFetchGeneration,
+    });
   },
 
   /** Get cached value synchronously (may be stale). */
@@ -108,12 +117,13 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
 
   invalidateClusters: () => {
     clusterFetchGeneration += 1;
+    clusterFetchPromise = null;
     set((state) => ({
       clusters: state.clusters
         ? { ...state.clusters, fetchedAt: 0, pending: undefined }
         : null,
+      clusterGeneration: clusterFetchGeneration,
     }));
-    clusterFetchPromise = null;
   },
 
   /* ── insights ─────────────────────────────────────────────── */
