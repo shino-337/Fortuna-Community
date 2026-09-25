@@ -21,43 +21,52 @@ type ScopeDocument struct {
 	LegacyCluster     []string          `json:"cluster_ids"`
 }
 
-// ParseScopeDocument parses user scope JSON. Malformed JSON returns restrictive empty document with RestrictsClusters true.
-func ParseScopeDocument(scopeJSON string) ScopeDocument {
+// ParseScopeDocumentStrict parses and validates the persisted scope schema.
+// Scope is authorization input: malformed types or unknown fields must never be
+// silently ignored because that could turn an intended restriction into an
+// unrestricted document.
+func ParseScopeDocumentStrict(scopeJSON string) (ScopeDocument, error) {
 	s := strings.TrimSpace(scopeJSON)
 	if s == "" || s == "{}" {
-		return ScopeDocument{}
+		return ScopeDocument{}, nil
 	}
+
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(s), &raw); err != nil {
-		return ScopeDocument{Clusters: []string{"__invalid_scope__"}}
+		return ScopeDocument{}, fmt.Errorf("invalid scope JSON: %w", err)
 	}
+	if raw == nil {
+		return ScopeDocument{}, errors.New("scope JSON must be an object")
+	}
+
+	allowed := map[string]struct{}{
+		"clusters": {}, "cluster_ids": {}, "namespaces": {}, "environments": {},
+		"tenants": {}, "business_services": {}, "crown_jewels": {},
+		"regulatory_domains": {}, "labels": {},
+	}
+	for key := range raw {
+		if _, ok := allowed[key]; !ok {
+			return ScopeDocument{}, fmt.Errorf("unsupported scope field %q", key)
+		}
+	}
+
 	var d ScopeDocument
-	if b, ok := raw["clusters"]; ok {
-		_ = json.Unmarshal(b, &d.Clusters)
+	if err := json.Unmarshal([]byte(s), &d); err != nil {
+		return ScopeDocument{}, fmt.Errorf("invalid scope field type: %w", err)
 	}
-	if b, ok := raw["cluster_ids"]; ok {
-		_ = json.Unmarshal(b, &d.LegacyCluster)
+	if err := d.Validate(); err != nil {
+		return ScopeDocument{}, err
 	}
-	if b, ok := raw["namespaces"]; ok {
-		_ = json.Unmarshal(b, &d.Namespaces)
-	}
-	if b, ok := raw["environments"]; ok {
-		_ = json.Unmarshal(b, &d.Environments)
-	}
-	if b, ok := raw["tenants"]; ok {
-		_ = json.Unmarshal(b, &d.Tenants)
-	}
-	if b, ok := raw["labels"]; ok {
-		_ = json.Unmarshal(b, &d.Labels)
-	}
-	if b, ok := raw["business_services"]; ok {
-		_ = json.Unmarshal(b, &d.BusinessServices)
-	}
-	if b, ok := raw["crown_jewels"]; ok {
-		_ = json.Unmarshal(b, &d.CrownJewels)
-	}
-	if b, ok := raw["regulatory_domains"]; ok {
-		_ = json.Unmarshal(b, &d.RegulatoryDomains)
+	return d, nil
+}
+
+// ParseScopeDocument is the read-path fail-closed wrapper. Legacy malformed rows
+// remain denied while write paths can use ParseScopeDocumentStrict to return a
+// validation error to the caller.
+func ParseScopeDocument(scopeJSON string) ScopeDocument {
+	d, err := ParseScopeDocumentStrict(scopeJSON)
+	if err != nil {
+		return ScopeDocument{Clusters: []string{"__invalid_scope__"}}
 	}
 	return d
 }
