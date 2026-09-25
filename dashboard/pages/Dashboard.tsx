@@ -1503,7 +1503,7 @@ export const Dashboard: React.FC = () => {
               scenarios={filteredEntryScenarios}
               onOpenPanel={openScenarioPanel}
               onOpenPod={(scenario) => navigate(podDetailPath(scenario.pod.uid, scenario.pod.clusterId))}
-              onOpenAttackPaths={(uid) => navigate(`/attack-paths?podUid=${encodeURIComponent(uid)}`)}
+              onOpenAttackPaths={(scenario) => navigate(`/attack-paths?podUid=${encodeURIComponent(scenario.pod.uid)}&clusterId=${encodeURIComponent(scenario.pod.clusterId)}`)}
             />
           </div>
         </Section>
