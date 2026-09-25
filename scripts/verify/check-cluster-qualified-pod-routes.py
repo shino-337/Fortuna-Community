@@ -90,6 +90,7 @@ STRICT_IDENTITY_FILES = {
     "core/pkg/riskengine/insight_manager_identity.go",
     "core/pkg/riskengine/runtime_attack_rescore_manager.go",
     "core/internal/repository/sbom_repository.go",
+    "core/internal/api/graph_handlers.go",
 }
 
 # These dashboard surfaces already have canonical cluster ownership in their
