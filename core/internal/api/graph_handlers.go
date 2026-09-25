@@ -194,9 +194,15 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
+			return
+		}
+
 		var pod models.Pod
 		if err := db.WithContext(c.Request.Context()).
-			Where("uid = ? AND deleted_at IS NULL", podUID).
+			Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, podUID).
 			First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				viewerGraphJSON(c, http.StatusOK, gin.H{
@@ -209,13 +215,8 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if !middleware.ClusterAllowed(c, pod.ClusterID) {
-			middleware.AbortClusterScopeDenied(db, c, pod.ClusterID)
-			return
-		}
-
 		builder := graph.NewRelationalPathBuilder(db)
-		allPaths, err := builder.BuildAllPaths(c.Request.Context(), pod.ClusterID, false)
+		allPaths, err := builder.BuildAllPaths(c.Request.Context(), clusterID, false)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{
 				"error": err.Error(),
@@ -232,9 +233,10 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		viewerGraphJSON(c, http.StatusOK, gin.H{
-			"pod_uid": podUID,
-			"paths":   paths,
-			"count":   len(paths),
+			"cluster_id": clusterID,
+			"pod_uid":    podUID,
+			"paths":      paths,
+			"count":      len(paths),
 		})
 	}
 }
