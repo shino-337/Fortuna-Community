@@ -497,28 +497,19 @@ const PodDetailContent: React.FC = () => {
     fetchPod();
   }, [fetchPod]);
 
-  // Load SBOM when pod is available (for Overview summary + SBOM tab)
+  // Load SBOM when pod is available (for Overview summary + SBOM tab).
+  // Use the same source sequencer as manual refresh/lazy loading.
   useEffect(() => {
     if (pod?.uid) {
-      loadSbomForPod({
-        uid: pod.uid,
-        name: pod.name,
-        namespace: pod.namespace,
-      })
-        .then((data) => {
-          setSbom(data ?? null);
-          setSbomLoaded(true);
-          setDataErrors((p) => p.filter((e) => e !== 'sbom'));
-        })
-        .catch(() => {
-          setSbomLoaded(true);
-          setDataErrors((p) => (p.includes('sbom') ? p : [...p, 'sbom']));
+      void refreshSource('sbom', () => loadSbomForPod({ uid: pod.uid }), setSbom)
+        .then((current) => {
+          if (current) setSbomLoaded(true);
         });
     } else {
       setSbom(null);
       setSbomLoaded(false);
     }
-  }, [pod?.uid, pod?.name, pod?.namespace, loadSbomForPod]);
+  }, [pod?.uid, loadSbomForPod, refreshSource]);
 
   useEffect(() => {
     if (!pod?.uid) {
@@ -526,16 +517,12 @@ const PodDetailContent: React.FC = () => {
       setRelatedRisks([]);
       return;
     }
-    api
-      .getPodRiskReportStrict(pod.uid)
-      .then((report) => {
-        applyPodRiskReport(report, pod);
-        setDataErrors((p) => p.filter((e) => e !== 'risk-report'));
-      })
-      .catch(() => {
-        setDataErrors((p) => (p.includes('risk-report') ? p : [...p, 'risk-report']));
-      });
-  }, [pod?.uid]);
+    void refreshSource(
+      'risk-report',
+      () => api.getPodRiskReportStrict(pod.uid),
+      (report) => applyPodRiskReport(report, pod),
+    );
+  }, [pod?.uid, applyPodRiskReport, refreshSource]);
 
   // Refresh all runtime/evidence sources through the same per-source sequencer
   // used by lazy tabs and WebSocket updates. A slow older request can therefore
