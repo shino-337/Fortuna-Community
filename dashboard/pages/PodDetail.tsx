@@ -294,6 +294,9 @@ const PodDetailContent: React.FC = () => {
   };
 
   const hasDataError = (label: string): boolean => dataErrors.includes(label);
+  const unavailablePlaceholder = (label: string) => (
+    <p className="text-body text-amber-300">{label} is temporarily unavailable. Retry from the availability warning above.</p>
+  );
 
   const runtimeDataHints = (): string[] => {
     const out: string[] = [];
@@ -1850,6 +1853,8 @@ const PodDetailContent: React.FC = () => {
               </table>
               </div>
             </div>
+          ) : hasDataError('metrics') ? (
+            unavailablePlaceholder('Runtime metrics')
           ) : (
             <PageEmpty title="No runtime metrics" description="Per-container CPU/memory metrics are reported by the agent. Ensure the agent is running on the pod's node." className="py-6" />
           )}
@@ -1907,6 +1912,8 @@ const PodDetailContent: React.FC = () => {
               </table>
               </div>
             </div>
+          ) : hasDataError('processes') ? (
+            unavailablePlaceholder('Process data')
           ) : (
             <PageEmpty title="No process data" description="Process list is collected by the agent. Ensure the agent is running on the pod's node and Pod Detail collection is enabled." className="py-6" />
           )}
@@ -2005,6 +2012,8 @@ const PodDetailContent: React.FC = () => {
               </div>
             </div>
             )
+          ) : hasDataError('network') ? (
+            unavailablePlaceholder('Network connection data')
           ) : (
             <PageEmpty
               title="No network data"
@@ -2022,6 +2031,8 @@ const PodDetailContent: React.FC = () => {
           </h3>
           {tabLoading ? (
             <p className="text-muted text-body">Loading...</p>
+          ) : hasDataError('spec') ? (
+            unavailablePlaceholder('Pod specification')
           ) : (
             <>
               <div className="flex flex-wrap justify-end gap-2 mb-3">
@@ -2084,6 +2095,7 @@ const PodDetailContent: React.FC = () => {
               </Button>
             </div>
             {(() => {
+              if (hasDataError('security-events')) return unavailablePlaceholder('Security runtime events');
               const filtered = runtimeSecurityEvents.filter((ev) => {
                 const r = (ev.runtime || '').toLowerCase();
                 if (secRuntimeFilter === 'all') return true;
@@ -2185,6 +2197,7 @@ const PodDetailContent: React.FC = () => {
               </div>
             </div>
             {(() => {
+              if (hasDataError('signals')) return unavailablePlaceholder('Runtime signals');
               const filteredSignals = runtimeSignals.filter((s) =>
                 runtimeSignalFilter === 'all' ? true : s.signalType === runtimeSignalFilter
               );
@@ -2257,6 +2270,8 @@ const PodDetailContent: React.FC = () => {
                 </div>
               ))}
             </div>
+          ) : hasDataError('events') ? (
+            unavailablePlaceholder('Kubernetes events')
           ) : (
             <PageEmpty title="No events" description="Kubernetes events for this pod are collected by the agent." className="py-6" />
           )}
@@ -2273,6 +2288,8 @@ const PodDetailContent: React.FC = () => {
           </p>
           {tabLoading ? (
             <p className="text-muted text-body">Loading...</p>
+          ) : hasDataError('incidents') ? (
+            unavailablePlaceholder('Runtime incidents')
           ) : runtimeIncidents.length === 0 ? (
             <>
               <PageEmpty title="No runtime incidents" description="No stateful incidents found in the selected lookback window." className="py-6" />
@@ -2317,15 +2334,15 @@ const PodDetailContent: React.FC = () => {
           <div className="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
             <Card variant="panel" className="bg-surface/40 border-border min-w-0">
               <p className="text-caption text-muted mb-1">Facts in scope</p>
-              <p className="text-body text-text">{runtimeFacts.length}</p>
+              <p className="text-body text-text">{hasDataError('facts') ? '—' : runtimeFacts.length}</p>
             </Card>
             <Card variant="panel" className="bg-surface/40 border-border min-w-0">
               <p className="text-caption text-muted mb-1">Capabilities in scope</p>
-              <p className="text-body text-text">{podCapabilities.length}</p>
+              <p className="text-body text-text">{hasDataError('capabilities') ? '—' : podCapabilities.length}</p>
             </Card>
             <Card variant="panel" className="bg-surface/40 border-border min-w-0">
               <p className="text-caption text-muted mb-1">Insights in report</p>
-              <p className="text-body text-text">{relatedRisks.length}</p>
+              <p className="text-body text-text">{hasDataError('risk-report') ? '—' : relatedRisks.length}</p>
             </Card>
           </div>
         </Card>
@@ -2358,20 +2375,24 @@ const PodDetailContent: React.FC = () => {
                 <Card variant="panel" className="bg-surface/40 border-border min-w-0">
                   <p className="text-caption text-muted mb-1">Coverage by source</p>
                   <p className="text-caption text-text">
-                    Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
-                    {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}
+                    {hasDataError('security-events')
+                      ? 'Unavailable'
+                      : <>Falco {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() === 'falco').length} · Other{' '}
+                          {runtimeSecurityEvents.filter((e) => (e.runtime || '').toLowerCase() !== 'falco').length}</>}
                   </p>
                 </Card>
                 <Card variant="panel" className="bg-surface/40 border-border min-w-0">
                   <p className="text-caption text-muted mb-1">Coverage by layer</p>
                   <p className="text-caption text-text">
-                    Events {runtimeSecurityEvents.length} · Facts {runtimeFacts.length} · Signals {runtimeSignals.length} · Incidents {runtimeIncidents.length}
+                    Events {hasDataError('security-events') ? '—' : runtimeSecurityEvents.length} · Facts {hasDataError('facts') ? '—' : runtimeFacts.length} · Signals {hasDataError('signals') ? '—' : runtimeSignals.length} · Incidents {hasDataError('incidents') ? '—' : runtimeIncidents.length}
                   </p>
                 </Card>
                 <Card variant="panel" className="bg-surface/40 border-border min-w-0">
                   <p className="text-caption text-muted mb-1">Coverage by MITRE tags</p>
                   <p className="text-caption text-text">
-                    {new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques
+                    {hasDataError('security-events')
+                      ? 'Unavailable'
+                      : `${new Set(runtimeSecurityEvents.map((e) => (e.mitreTechnique || '').trim()).filter(Boolean)).size} distinct techniques`}
                   </p>
                 </Card>
               </div>
@@ -2392,7 +2413,9 @@ const PodDetailContent: React.FC = () => {
                           {domain}: {count}
                         </span>
                       ))}
-                    {runtimeFacts.length === 0 ? <span className="text-caption text-muted">No fact coverage yet.</span> : null}
+                    {hasDataError('facts')
+                      ? <span className="text-caption text-amber-300">Fact coverage unavailable.</span>
+                      : runtimeFacts.length === 0 ? <span className="text-caption text-muted">No fact coverage yet.</span> : null}
                   </div>
                 </Card>
                 <Card variant="panel" className="bg-surface/40 border-border min-w-0">
@@ -2411,7 +2434,9 @@ const PodDetailContent: React.FC = () => {
                           {signalType}: {count}
                         </span>
                       ))}
-                    {runtimeSignals.length === 0 ? <span className="text-caption text-muted">No signal coverage yet.</span> : null}
+                    {hasDataError('signals')
+                      ? <span className="text-caption text-amber-300">Signal coverage unavailable.</span>
+                      : runtimeSignals.length === 0 ? <span className="text-caption text-muted">No signal coverage yet.</span> : null}
                   </div>
                 </Card>
               </div>
