@@ -186,11 +186,11 @@ const NodeDetailContent: React.FC = () => {
                     role="link"
                     tabIndex={0}
                     className={`${UI_TR} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-inset`}
-                    onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}
+                    onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}?clusterId=${encodeURIComponent(clusterId)}`)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`);
+                        navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}?clusterId=${encodeURIComponent(clusterId)}`);
                       }
                     }}
                   >
@@ -200,7 +200,7 @@ const NodeDetailContent: React.FC = () => {
                       <span className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-muted'}>{pod.riskCount}</span>
                     </td>
                     <td className={`${UI_TD_COMPACT_TIGHT} text-right`} onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" variant="secondary" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}>
+                      <Button size="sm" variant="secondary" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}?clusterId=${encodeURIComponent(clusterId)}`)}>
                         View
                       </Button>
                     </td>
