@@ -210,6 +210,35 @@ func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnRegister(t *testing.T)
 	}
 }
 
+func TestUserLifecycle_AdminRejectsUnenforcedScopeDimensionsOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+
+	for i, scopeJSON := range []string{
+		`{"namespaces":["prod"]}`,
+		`{"environments":["prod"]}`,
+		`{"labels":{"tier":"critical"}}`,
+	} {
+		body := map[string]string{
+			"username":  fmt.Sprintf("unsupportedscope%d", i),
+			"email":     fmt.Sprintf("unsupportedscope%d@test.local", i),
+			"password":  "AnotherPass12!",
+			"role":      "viewer",
+			"scopeJson": scopeJSON,
+		}
+		b, _ := json.Marshal(body)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("unsupported scope register %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
+	}
+}
+
 func TestUserLifecycle_AdminRejectsUnknownClusterScopeOnRegister(t *testing.T) {
 	db := setupUserLifecycleDB(t)
 	r := routerUserLifecycleV1(t, db)
@@ -462,6 +491,29 @@ func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnPatch(t *testing.T) {
 		}
 		if u.ScopeJSON != "" && u.ScopeJSON != "{}" {
 			t.Fatalf("malformed scope mutated user: %q", u.ScopeJSON)
+		}
+	}
+}
+
+func TestUserLifecycle_AdminRejectsUnenforcedScopeDimensionsOnPatch(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	opID := userIDByUsername(t, db, "op1")
+
+	for _, scopeJSON := range []string{
+		`{"namespaces":["prod"]}`,
+		`{"labels":{"tier":"critical"}}`,
+	} {
+		w := httptest.NewRecorder()
+		payload := map[string]string{"scopeJson": scopeJSON}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(opID), 10), bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("unsupported scope patch %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
 		}
 	}
 }
