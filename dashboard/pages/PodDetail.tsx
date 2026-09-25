@@ -104,6 +104,7 @@ const PodDetailContent: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
+  const requestedClusterId = searchParams.get('clusterId')?.trim() || undefined;
   const [pod, setPod] = useState<PodWithRisk | null>(null);
   const [sbom, setSbom] = useState<PodSbom | null>(null);
   const [relatedRisks, setRelatedRisks] = useState<Insight[]>([]);
@@ -340,7 +341,7 @@ const PodDetailContent: React.FC = () => {
     setLoading(true);
     setLoadError(null);
     try {
-      let data = await api.getPodByUid(idOrUid);
+      let data = await api.getPodByUid(idOrUid, requestedClusterId);
       if (!data && !canonicalUid && /^[0-9]+$/.test(String(idOrUid))) {
         data = await api.getPodByLegacyId(idOrUid);
         if (data?.uid) {
@@ -406,7 +407,7 @@ const PodDetailContent: React.FC = () => {
     } finally {
       if (requestSeq === podRequestRef.current) setLoading(false);
     }
-  }, [canonicalUid, idOrUid, navigate, requestedTab, resolveServiceAccountRef]);
+  }, [canonicalUid, idOrUid, navigate, requestedClusterId, requestedTab, resolveServiceAccountRef]);
 
   const fetchTabData = useCallback(
     async (tab: TabId) => {
@@ -422,55 +423,55 @@ const PodDetailContent: React.FC = () => {
           }
         } else if (tab === 'risks') {
           if (dataErrorsRef.current.includes('risk-report') || (relatedRisks.length === 0 && !podRiskReportSummary)) {
-            await refreshSource('risk-report', () => api.getPodRiskReportStrict(uid), (report) => applyPodRiskReport(report, pod));
+            await refreshSource('risk-report', () => api.getPodRiskReportStrict(uid, pod.clusterId), (report) => applyPodRiskReport(report, pod));
           }
         } else if (tab === 'processes') {
           if (processes.length === 0 || dataErrorsRef.current.includes('processes')) {
-            await refreshSource('processes', () => api.getPodProcessesStrict(uid), setProcesses);
+            await refreshSource('processes', () => api.getPodProcessesStrict(uid, pod.clusterId), setProcesses);
           }
         } else if (tab === 'network') {
           const tasks: Promise<boolean>[] = [];
           if (networkConnections.length === 0 || dataErrorsRef.current.includes('network')) {
-            tasks.push(refreshSource('network', () => api.getPodNetworkConnectionsStrict(uid), setNetworkConnections));
+            tasks.push(refreshSource('network', () => api.getPodNetworkConnectionsStrict(uid, pod.clusterId), setNetworkConnections));
           }
           if (networkTopDestinations.length === 0 || dataErrorsRef.current.includes('top-dest')) {
-            tasks.push(refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440 }), setNetworkTopDestinations));
+            tasks.push(refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(uid, { sinceMinutes: 1440, clusterId: pod.clusterId }), setNetworkTopDestinations));
           }
           await Promise.all(tasks);
         } else if (tab === 'events' || tab === 'timeline' || tab === 'coverage') {
           const tasks: Promise<boolean>[] = [];
           if (podEvents.length === 0 || dataErrorsRef.current.includes('events')) {
-            tasks.push(refreshSource('events', () => api.getPodEventsStrict(uid), setPodEvents));
+            tasks.push(refreshSource('events', () => api.getPodEventsStrict(uid, pod.clusterId), setPodEvents));
           }
           if (runtimeSecurityEvents.length === 0 || dataErrorsRef.current.includes('security-events')) {
-            tasks.push(refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(uid, 150), setRuntimeSecurityEvents));
+            tasks.push(refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(uid, 150, pod.clusterId), setRuntimeSecurityEvents));
           }
           if (runtimeFacts.length === 0 || dataErrorsRef.current.includes('facts')) {
-            tasks.push(refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(uid, 120), setRuntimeFacts));
+            tasks.push(refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(uid, 120, pod.clusterId), setRuntimeFacts));
           }
           if (runtimeIncidents.length === 0 || dataErrorsRef.current.includes('incidents')) {
-            tasks.push(refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(uid, 80), setRuntimeIncidents));
+            tasks.push(refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(uid, 80, pod.clusterId), setRuntimeIncidents));
           }
           if (podCapabilities.length === 0 || dataErrorsRef.current.includes('capabilities')) {
-            tasks.push(refreshSource('capabilities', () => api.getPodCapabilitiesStrict(uid), setPodCapabilities));
+            tasks.push(refreshSource('capabilities', () => api.getPodCapabilitiesStrict(uid, pod.clusterId), setPodCapabilities));
           }
           if (runtimeSignals.length === 0 || dataErrorsRef.current.includes('signals')) {
             tasks.push(refreshSource(
               'signals',
-              () => api.getRuntimeSignalsByPodStrict(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }),
+              () => api.getRuntimeSignalsByPodStrict(uid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200, clusterId: pod.clusterId }),
               setRuntimeSignals,
             ));
           }
           if (signalStats === null || dataErrorsRef.current.includes('signal-stats')) {
             tasks.push(refreshSource(
               'signal-stats',
-              () => api.getRuntimeSignalSuppressionStatsStrict({ podUid: uid, sinceMinutes: 60 }),
+              () => api.getRuntimeSignalSuppressionStatsStrict({ podUid: uid, sinceMinutes: 60, clusterId: pod.clusterId }),
               setSignalStats,
             ));
           }
           await Promise.all(tasks);
         } else if (tab === 'spec') {
-          await refreshSource('spec', () => api.getPodSpecYaml(uid), setSpecYaml);
+          await refreshSource('spec', () => api.getPodSpecYaml(uid, pod.clusterId), setSpecYaml);
         }
       } catch {
         const label =
@@ -536,7 +537,7 @@ const PodDetailContent: React.FC = () => {
     }
     void refreshSource(
       'risk-report',
-      () => api.getPodRiskReportStrict(pod.uid),
+      () => api.getPodRiskReportStrict(pod.uid, pod.clusterId),
       (report) => applyPodRiskReport(report, pod),
     );
   }, [pod?.uid, applyPodRiskReport, refreshSource]);
@@ -546,23 +547,23 @@ const PodDetailContent: React.FC = () => {
   // never overwrite a newer observation of the same source.
   const refreshAllData = useCallback(async (podUid: string): Promise<void> => {
     await Promise.all([
-      refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(podUid), setRuntimeMetrics),
-      refreshSource('processes', () => api.getPodProcessesStrict(podUid), setProcesses),
-      refreshSource('network', () => api.getPodNetworkConnectionsStrict(podUid), setNetworkConnections),
-      refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440 }), setNetworkTopDestinations),
-      refreshSource('events', () => api.getPodEventsStrict(podUid), setPodEvents),
-      refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(podUid, 150), setRuntimeSecurityEvents),
+      refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(podUid, clusterId), setRuntimeMetrics),
+      refreshSource('processes', () => api.getPodProcessesStrict(podUid, clusterId), setProcesses),
+      refreshSource('network', () => api.getPodNetworkConnectionsStrict(podUid, clusterId), setNetworkConnections),
+      refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440, clusterId }), setNetworkTopDestinations),
+      refreshSource('events', () => api.getPodEventsStrict(podUid, clusterId), setPodEvents),
+      refreshSource('security-events', () => api.getPodRuntimeSecurityEventsStrict(podUid, 150, clusterId), setRuntimeSecurityEvents),
       refreshSource(
         'signals',
-        () => api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }),
+        () => api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200, clusterId }),
         setRuntimeSignals,
       ),
-      refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120), setRuntimeFacts),
-      refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(podUid, 80), setRuntimeIncidents),
-      refreshSource('capabilities', () => api.getPodCapabilitiesStrict(podUid), setPodCapabilities),
+      refreshSource('facts', () => api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120, clusterId), setRuntimeFacts),
+      refreshSource('incidents', () => api.getPodRuntimeIncidentsV2Strict(podUid, 80, clusterId), setRuntimeIncidents),
+      refreshSource('capabilities', () => api.getPodCapabilitiesStrict(podUid, clusterId), setPodCapabilities),
       refreshSource(
         'signal-stats',
-        () => api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60 }),
+        () => api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60, clusterId }),
         setSignalStats,
       ),
     ]);
@@ -571,7 +572,7 @@ const PodDetailContent: React.FC = () => {
   // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data. All use pod UID.
   useEffect(() => {
     if (!pod?.uid) return;
-    void refreshAllData(pod.uid);
+    void refreshAllData(pod.uid, pod.clusterId);
   }, [pod?.uid, refreshAllData]);
 
   useEffect(() => {
@@ -585,7 +586,7 @@ const PodDetailContent: React.FC = () => {
   podUidRef.current = pod?.uid;
   useEffect(() => {
     if (!wsUid || !pod?.uid || !hasToken) return;
-    const wsUrl = api.getPodDetailWsUrl(wsUid);
+    const wsUrl = api.getPodDetailWsUrl(wsUid, pod.clusterId);
     let ws: WebSocket | null = null;
     try {
       ws = new WebSocket(wsUrl);
@@ -596,16 +597,16 @@ const PodDetailContent: React.FC = () => {
           const d = JSON.parse(e.data as string) as { type?: string };
           const t = d?.type;
           if (t === 'metrics') {
-            void refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(currentUid), setRuntimeMetrics);
+            void refreshSource('metrics', () => api.getPodRuntimeMetricsStrict(currentUid, pod.clusterId), setRuntimeMetrics);
           } else if (t === 'processes') {
-            void refreshSource('processes', () => api.getPodProcessesStrict(currentUid), setProcesses);
+            void refreshSource('processes', () => api.getPodProcessesStrict(currentUid, pod.clusterId), setProcesses);
           } else if (t === 'network') {
             void Promise.all([
-              refreshSource('network', () => api.getPodNetworkConnectionsStrict(currentUid), setNetworkConnections),
-              refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(currentUid, { sinceMinutes: 1440 }), setNetworkTopDestinations),
+              refreshSource('network', () => api.getPodNetworkConnectionsStrict(currentUid, pod.clusterId), setNetworkConnections),
+              refreshSource('top-dest', () => api.getPodNetworkTopDestinationsStrict(currentUid, { sinceMinutes: 1440, clusterId: pod.clusterId }), setNetworkTopDestinations),
             ]);
           } else if (t === 'events') {
-            void refreshAllData(currentUid);
+            void refreshAllData(currentUid, pod.clusterId);
           } else {
             void refreshAllData(currentUid);
           }
@@ -839,7 +840,7 @@ const PodDetailContent: React.FC = () => {
                 });
                 void refreshSource(
                   'risk-report',
-                  () => api.getPodRiskReportStrict(pod.uid),
+                  () => api.getPodRiskReportStrict(pod.uid, pod.clusterId),
                   (report) => applyPodRiskReport(report, pod),
                 );
               }}
@@ -1983,7 +1984,7 @@ const PodDetailContent: React.FC = () => {
                   onClick={async () => {
                     if (!pod?.uid) return;
                     try {
-                      const blob = await api.getPodSpecYamlBlob(pod.uid);
+                      const blob = await api.getPodSpecYamlBlob(pod.uid, pod.clusterId);
                       const a = document.createElement('a');
                       a.href = URL.createObjectURL(blob);
                       a.download = `pod-${pod?.name ?? 'spec'}.yaml`;
