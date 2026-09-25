@@ -200,6 +200,15 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
 			return
 		}
+		unknownClusters, err := validateScopeClusterReferences(db, scopeJSON)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate cluster scope"})
+			return
+		}
+		if len(unknownClusters) > 0 {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson references unknown cluster ids", "clusterIds": unknownClusters})
+			return
+		}
 
 		// Create user
 		user := models.User{
@@ -407,6 +416,37 @@ func countActiveAdmins(db *gorm.DB) (int64, error) {
 	return n, err
 }
 
+func validateScopeClusterReferences(db *gorm.DB, scopeJSON string) ([]string, error) {
+	scope := authorization.OperationalScopeFromDocument(scopeJSON)
+	if len(scope.Clusters) == 0 {
+		return nil, nil
+	}
+	var existing []string
+	if err := db.Model(&models.Cluster{}).Where("id IN ?", scope.Clusters).Pluck("id", &existing).Error; err != nil {
+		return nil, err
+	}
+	known := make(map[string]struct{}, len(existing))
+	for _, id := range existing {
+		known[id] = struct{}{}
+	}
+	unknown := make([]string, 0)
+	seen := make(map[string]struct{}, len(scope.Clusters))
+	for _, id := range scope.Clusters {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			continue
+		}
+		if _, duplicate := seen[id]; duplicate {
+			continue
+		}
+		seen[id] = struct{}{}
+		if _, ok := known[id]; !ok {
+			unknown = append(unknown, id)
+		}
+	}
+	return unknown, nil
+}
+
 // PatchUser updates role, active, and/or scope bindings (RBAC governance). Prevents removing the last active admin.
 func PatchUser(db *gorm.DB) gin.HandlerFunc {
 	type patchBody struct {
@@ -520,6 +560,15 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			}
 			if !json.Valid([]byte(raw)) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
+				return
+			}
+			unknownClusters, err := validateScopeClusterReferences(db, raw)
+			if err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate cluster scope"})
+				return
+			}
+			if len(unknownClusters) > 0 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson references unknown cluster ids", "clusterIds": unknownClusters})
 				return
 			}
 			target.ScopeJSON = raw
