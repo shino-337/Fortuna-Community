@@ -592,7 +592,8 @@ export const Resources: React.FC = () => {
 
   const openPodDetail = useCallback(
     (pod: PodWithRisk) => {
-      navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`);
+      const clusterQuery = pod.clusterId ? `?clusterId=${encodeURIComponent(pod.clusterId)}` : '';
+      navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}${clusterQuery}`);
     },
     [navigate],
   );
