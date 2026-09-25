@@ -380,7 +380,7 @@ export const Resources: React.FC = () => {
       setSelectedServiceAccountLoading(false);
       setSelectedRbacResourceDetail(null);
       setSelectedRbacResourceLoading(false);
-      api.getAttackPathsForPodStrict(selectedResource.pod.uid).then((paths) => {
+      api.getAttackPathsForPodStrict(selectedResource.pod.uid, selectedResource.pod.clusterId).then((paths) => {
         if (!cancelled) setSelectedAttackPaths(paths);
       }).catch((err) => {
         if (!cancelled) {
