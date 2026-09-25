@@ -27,6 +27,7 @@ type wsAuthorization struct {
 	expiresAt      time.Time
 	permission     authorization.Permission
 	podUID         string
+	podClusterID   string
 	development    bool
 }
 
@@ -40,6 +41,13 @@ func newWSAuthorization(db *gorm.DB, c *gin.Context, permission authorization.Pe
 		return nil, errWSAuthorization
 	}
 	g := &wsAuthorization{db: db, ctx: c.Request.Context(), userID: u.ID, sessionID: c.GetString(middleware.CtxJWTSessionID), permission: permission, podUID: podUID}
+	if podUID != "" {
+		clusterID, ok := middleware.ResolvedPodClusterID(c)
+		if !ok || clusterID == "" {
+			return nil, errWSAuthorization
+		}
+		g.podClusterID = clusterID
+	}
 	if c.GetString("auth_source") == "dev_principal" && u.ID == 0 {
 		g.development = authorization.HasPermission(middleware.GrantedPermissions(c), permission)
 		if !g.development {
@@ -86,11 +94,19 @@ func (g *wsAuthorization) validate() error {
 			return errWSAuthorization
 		}
 	}
-	if g.podUID != "" && authorization.NormalizeRole(user.Role) != models.RoleAdmin {
-		scope := authorization.ParseScopeDocument(user.ScopeJSON)
-		if scope.RestrictsClusters() {
-			var pod models.Pod
-			if db.Unscoped().Select("cluster_id").Where("uid = ?", g.podUID).First(&pod).Error != nil || pod.ClusterID == "" || !scope.ClusterAllowed(pod.ClusterID) {
+	if g.podUID != "" {
+		if g.podClusterID == "" {
+			return errWSAuthorization
+		}
+		var podCount int64
+		if err := db.Unscoped().Model(&models.Pod{}).
+			Where("cluster_id = ? AND uid = ?", g.podClusterID, g.podUID).
+			Count(&podCount).Error; err != nil || podCount == 0 {
+			return errWSAuthorization
+		}
+		if authorization.NormalizeRole(user.Role) != models.RoleAdmin {
+			scope := authorization.ParseScopeDocument(user.ScopeJSON)
+			if scope.RestrictsClusters() && !scope.ClusterAllowed(g.podClusterID) {
 				return errWSAuthorization
 			}
 		}
