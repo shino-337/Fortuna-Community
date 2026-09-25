@@ -479,6 +479,29 @@ test('pod SBOM 404 is authoritative and never falls back to the unqualified SBOM
   await expect(page.getByText('foreign:latest', { exact: true })).toHaveCount(0);
 });
 
+test('pod SBOM 503 is unavailable and never rendered as authoritative absence', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: pod });
+    if (path === '/api/v1/inventory/pods/pod-a/sbom') {
+      return route.fulfill(unavailable('pod_sbom_unavailable', 'Pod SBOM query failed'));
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  const failureSummary = page.getByText(/Failed to load:/);
+  await expect(failureSummary).toBeVisible();
+  await expect(failureSummary).toContainText('sbom');
+  await expect(page.getByText('SBOM data is temporarily unavailable.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No SBOM data available for this pod.', { exact: true })).toHaveCount(0);
+
+  const riskTab = page.getByRole('tab', { name: 'Risk & SBOM', exact: true });
+  await riskTab.click();
+  await expect(page.getByText('Software risk evidence is temporarily unavailable.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No software risk evidence for this pod.', { exact: true })).toHaveCount(0);
+});
+
 test('newer manual SBOM refresh wins over an older in-flight preload', async ({ page }) => {
   let sbomAttempts = 0;
   await page.route('**/api/**', async route => {
@@ -588,6 +611,8 @@ test('malformed successful pod risk report is unavailable, not empty evidence', 
   const failureSummary = page.getByText(/Failed to load:/);
   await expect(failureSummary).toBeVisible();
   await expect(failureSummary).toContainText('risk-report');
+  await expect(page.getByText('Risk insights is temporarily unavailable.', { exact: false })).toBeVisible();
+  await expect(page.getByText('No risk insights for this pod.', { exact: true })).toHaveCount(0);
 });
 
 test('network connections remain usable when top-destination aggregation is unavailable', async ({ page }) => {
