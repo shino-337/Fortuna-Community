@@ -479,6 +479,43 @@ test('pod SBOM 404 is authoritative and never falls back to the unqualified SBOM
   await expect(page.getByText('foreign:latest', { exact: true })).toHaveCount(0);
 });
 
+test('newer manual SBOM refresh wins over an older in-flight preload', async ({ page }) => {
+  let sbomAttempts = 0;
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: pod });
+    if (path === '/api/v1/inventory/pods/pod-a/sbom') {
+      sbomAttempts++;
+      if (sbomAttempts === 1) {
+        await new Promise(resolve => setTimeout(resolve, 400));
+        return route.fulfill({ json: {
+          ...sbomDetail('cluster-a', 'pkg-old'),
+          podId: 'pod-a',
+          podName: 'pod-a',
+          image: 'old:latest',
+        } });
+      }
+      return route.fulfill({ json: {
+        ...sbomDetail('cluster-a', 'pkg-new'),
+        podId: 'pod-a',
+        podName: 'pod-a',
+        image: 'new:latest',
+      } });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  await expect(page.getByText('pod-a', { exact: true }).first()).toBeVisible();
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.getByText('new:latest', { exact: true })).toBeVisible();
+
+  // Let the older preload complete after the manual refresh. It must be ignored.
+  await page.waitForTimeout(500);
+  await expect(page.getByText('new:latest', { exact: true })).toBeVisible();
+  await expect(page.getByText('old:latest', { exact: true })).toHaveCount(0);
+});
+
 test('pod refresh 503 preserves last-known-good pod detail', async ({ page }) => {
   let podAttempts = 0;
   await page.route('**/api/**', route => {
