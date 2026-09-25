@@ -791,7 +791,6 @@ test('malformed ServiceAccount inventory is unavailable and does not synthesize 
   const podWithServiceAccount = {
     ...pod,
     serviceAccount: 'workload-sa',
-    serviceAccountUid: 'sa-uid-a',
   };
   await page.route('**/api/**', route => {
     const path = new URL(route.request().url()).pathname;
@@ -806,6 +805,37 @@ test('malformed ServiceAccount inventory is unavailable and does not synthesize 
   const failureSummary = page.getByText(/Failed to load:/);
   await expect(failureSummary).toBeVisible();
   await expect(failureSummary).toContainText('service-account');
+});
+
+test('Pod ServiceAccount UID lookup is cluster-qualified', async ({ page }) => {
+  let requestedCluster = '';
+  const podWithServiceAccount = {
+    ...pod,
+    serviceAccount: 'workload-sa',
+    serviceAccountUid: 'sa-uid-a',
+  };
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: podWithServiceAccount });
+    if (path === '/api/v1/inventory/serviceaccounts/sa-uid-a') {
+      requestedCluster = url.searchParams.get('clusterId') || '';
+      return route.fulfill({
+        json: {
+          id: 7,
+          clusterId: 'cluster-a',
+          name: 'workload-sa',
+          namespace: 'default',
+          uid: 'sa-uid-a',
+        },
+      });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  await page.goto(`${fixture}?path=/resources/pods/uid/pod-a`);
+  await expect(page.getByText('pod-a', { exact: true }).first()).toBeVisible();
+  await expect.poll(() => requestedCluster).toBe('cluster-a');
 });
 
 test('suppression statistics reject malformed perKey values and key-count mismatch', async ({ page }) => {
