@@ -108,6 +108,33 @@ test('cluster inventory malformed 200 is unavailable, not empty', async ({ page 
   await expect(page.getByText('No inventory data', { exact: true })).toHaveCount(0);
 });
 
+test('cluster tab issue never leaks to a different active tab', async ({ page }) => {
+  await page.route('**/api/v1/inventory/clusters/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/clusters/cluster-a') return route.fulfill({ json: cluster });
+    if (path === '/api/v1/inventory/clusters/stats') return route.fulfill({ json: stats });
+    if (path === '/api/v1/inventory/clusters/cluster-a/overview') return route.fulfill({ json: overview });
+    if (path === '/api/v1/inventory/clusters/cluster-a/inventory') {
+      return route.fulfill({ json: { nodes: ['node-a'], namespaces: ['default'] } });
+    }
+    if (path === '/api/v1/inventory/clusters/cluster-a/agents') {
+      return route.fulfill(unavailable('cluster_agents_unavailable', 'Cluster Agent inventory query failed'));
+    }
+    return route.fulfill({ status: 404, json: { error: 'not found' } });
+  });
+
+  await page.goto(`${fixture}?path=/clusters/cluster-a`);
+  await page.getByRole('tab', { name: 'Inventory', exact: true }).click();
+  await expect(page.getByText('node-a', { exact: true })).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Agents', exact: true }).click();
+  await expect(page.getByText('Cluster agents temporarily unavailable', { exact: true })).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Inventory', exact: true }).click();
+  await expect(page.getByText('node-a', { exact: true })).toBeVisible();
+  await expect(page.getByText('Cluster agents temporarily unavailable', { exact: true })).toHaveCount(0);
+});
+
 test('capability metadata 503 is unavailable, not not-found', async ({ page }) => {
   await page.route('**/api/v1/capability-metadata/CAP_TEST', route =>
     route.fulfill(unavailable('capability_metadata_unavailable', 'Capability metadata query failed')),
@@ -362,6 +389,39 @@ test('malformed successful pod risk report is unavailable, not empty evidence', 
   const failureSummary = page.getByText(/Failed to load:/);
   await expect(failureSummary).toBeVisible();
   await expect(failureSummary).toContainText('risk-report');
+});
+
+test('network connections remain usable when top-destination aggregation is unavailable', async ({ page }) => {
+  await page.route('**/api/**', route => {
+    const url = new URL(route.request().url());
+    const path = url.pathname;
+    if (path === '/api/v1/inventory/pods/pod-a') return route.fulfill({ json: pod });
+    if (path.includes('/runtime/pods/pod-a/network/top-destinations')) {
+      return route.fulfill(unavailable('pod_network_top_destinations_unavailable', 'Top destinations query failed'));
+    }
+    if (path === '/api/v1/runtime/pods/pod-a/network') {
+      return route.fulfill({ json: {
+        items: [{
+          id: 1,
+          sourceIp: '10.0.0.10',
+          sourcePort: 45678,
+          destIp: '10.0.0.20',
+          destPort: 443,
+          protocol: 'tcp',
+          state: 'ESTABLISHED',
+          observedAt: '2026-09-24T01:00:00Z',
+        }],
+      } });
+    }
+    return fulfillPodSupportingApis(route);
+  });
+
+  const detailPath = encodeURIComponent('/resources/pods/uid/pod-a?tab=network');
+  await page.goto(`${fixture}?path=${detailPath}`);
+  await expect(page.getByText('Observed sockets', { exact: true })).toBeVisible();
+  await expect(page.getByText('1', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('Top remote endpoints are temporarily unavailable.', { exact: true })).toBeVisible();
+  await expect(page.getByText('No network data', { exact: true })).toHaveCount(0);
 });
 
 test('malformed suppression statistics are unavailable, not a successful zero state', async ({ page }) => {
