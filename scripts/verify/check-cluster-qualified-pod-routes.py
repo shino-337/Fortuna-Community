@@ -91,6 +91,27 @@ STRICT_IDENTITY_FILES = {
     "core/pkg/riskengine/runtime_attack_rescore_manager.go",
     "core/internal/repository/sbom_repository.go",
 }
+
+# These dashboard surfaces already have canonical cluster ownership in their
+# loaded entity/context. They must route through podDetailPath (or pass the full
+# entity to a child callback) instead of discarding cluster_id and constructing
+# a UID-only Pod Detail URL.
+CLUSTER_AWARE_DASHBOARD_POD_LINK_FILES = {
+    "dashboard/pages/Insights.tsx",
+    "dashboard/pages/RiskDetail.tsx",
+    "dashboard/pages/IdentityDetail.tsx",
+    "dashboard/pages/Dashboard.tsx",
+    "dashboard/pages/AttackPaths.tsx",
+    "dashboard/pages/NetworkActivity.tsx",
+    "dashboard/components/RiskDrawer.tsx",
+}
+DIRECT_DASHBOARD_POD_ROUTE = re.compile(r"/resources/pods/uid/")
+
+def dashboard_pod_link_errors(source):
+    errors = []
+    if DIRECT_DASHBOARD_POD_ROUTE.search(source):
+        errors.append("cluster-aware dashboard surface constructs a direct Pod UID route; use podDetailPath and preserve known cluster_id")
+    return errors
 SQL_LITERAL = re.compile(r'"([^"\n]*)"|`([^`]*)`', re.DOTALL)
 IDENTITY_PREDICATE = re.compile(r'\b(?:pod_uid|resource_uid|uid)\s*(?:=|IN\b)', re.IGNORECASE)
 
@@ -117,6 +138,14 @@ for path in ROUTE_FILES:
     for token in REQUIRED.get(path, []):
         if token not in text:
             errors.append(f"{path}: required cluster-qualified route contract missing: {token!r}")
+
+for raw_path in sorted(CLUSTER_AWARE_DASHBOARD_POD_LINK_FILES):
+    path = Path(raw_path)
+    if not path.exists():
+        errors.append(f"missing cluster-aware dashboard file: {path}")
+        continue
+    text = path.read_text(encoding="utf-8")
+    errors.extend(f"{path}: {error}" for error in dashboard_pod_link_errors(text))
 
 for path in Path("core").rglob("*.go"):
     if path.name.endswith("_test.go"):
