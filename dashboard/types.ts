@@ -49,6 +49,8 @@ export interface ImageTrust {
 
 /** Threat summary for a pod or cluster (CVEs, malware, protestware). */
 export interface ThreatSummary {
+  clusterId?: string;
+  podUid?: string;
   totalThreats: number;
   malwareCount: number;
   telemetryCount: number;
