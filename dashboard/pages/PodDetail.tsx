@@ -141,6 +141,9 @@ const PodDetailContent: React.FC = () => {
   const dataErrorsRef = useRef<string[]>([]);
   const sourceRequestRef = useRef<Record<string, number>>({});
   const tabRequestRef = useRef(0);
+  const podRequestRef = useRef(0);
+  const serviceAccountRequestRef = useRef(0);
+  const unifiedScoreRequestRef = useRef(0);
   dataErrorsRef.current = dataErrors;
   /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
   const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
@@ -333,6 +336,7 @@ const PodDetailContent: React.FC = () => {
       setLoading(false);
       return;
     }
+    const requestSeq = ++podRequestRef.current;
     setLoading(true);
     setLoadError(null);
     try {
@@ -346,26 +350,36 @@ const PodDetailContent: React.FC = () => {
           );
         }
       }
+      if (requestSeq !== podRequestRef.current) return;
+
       setPod(data);
       setPodAvailabilityIssue(null);
+
       if (data?.serviceAccount) {
+        const serviceAccountSeq = ++serviceAccountRequestRef.current;
         setServiceAccountLookupComplete(false);
         resolveServiceAccountRef(data)
           .then((sa) => {
+            if (serviceAccountRequestRef.current !== serviceAccountSeq) return;
             setServiceAccountRef(sa);
             setDataErrors((prev) => prev.filter((label) => label !== 'service-account'));
           })
           .catch(() => {
+            if (serviceAccountRequestRef.current !== serviceAccountSeq) return;
             // Preserve the last-known-good reference for this Pod; unavailable is not absent.
             setDataErrors((prev) => (prev.includes('service-account') ? prev : [...prev, 'service-account']));
           })
-          .finally(() => setServiceAccountLookupComplete(true));
+          .finally(() => {
+            if (serviceAccountRequestRef.current === serviceAccountSeq) setServiceAccountLookupComplete(true);
+          });
       } else {
+        serviceAccountRequestRef.current += 1;
         // The primary Pod response authoritatively says there is no ServiceAccount.
         setServiceAccountRef(null);
         setServiceAccountLookupComplete(true);
         setDataErrors((prev) => prev.filter((label) => label !== 'service-account'));
       }
+
       // Seed unifiedScore from pod response immediately to avoid a visual flash
       // (badge shows riskCount fallback until async getUnifiedRiskScore resolves).
       if (data?.unifiedScore != null && data.finalLevel) {
@@ -375,18 +389,22 @@ const PodDetailContent: React.FC = () => {
           scorerVersion: data.scorerVersion ?? 'v3',
         } as UnifiedRiskScore);
       }
+
       // Then fetch full breakdown (dimensions, toxic combos) from the dedicated risk score endpoint.
+      const scoreSeq = ++unifiedScoreRequestRef.current;
       if (data?.uid) {
         api.getUnifiedRiskScore(data.uid, data.clusterId).then((score) => {
+          if (unifiedScoreRequestRef.current !== scoreSeq) return;
           if (score) setUnifiedScore(score);
         }).catch(() => {/* non-critical */});
       }
     } catch (e) {
+      if (requestSeq !== podRequestRef.current) return;
       const issue = getAvailabilityIssue(e, 'Pod detail');
       setPodAvailabilityIssue(issue);
       setLoadError(issue.description);
     } finally {
-      setLoading(false);
+      if (requestSeq === podRequestRef.current) setLoading(false);
     }
   }, [canonicalUid, idOrUid, navigate, requestedTab, resolveServiceAccountRef]);
 
@@ -452,8 +470,7 @@ const PodDetailContent: React.FC = () => {
           }
           await Promise.all(tasks);
         } else if (tab === 'spec') {
-          const yaml = await api.getPodSpecYaml(uid);
-          setSpecYaml(yaml);
+          await refreshSource('spec', () => api.getPodSpecYaml(uid), setSpecYaml);
         }
       } catch {
         const label =
