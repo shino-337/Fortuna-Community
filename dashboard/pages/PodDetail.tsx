@@ -1157,7 +1157,9 @@ const PodDetailContent: React.FC = () => {
             )}
             {!sbom && sbomLoaded && (
               <div className="mt-4 pt-4 border-t border-border">
-                <p className="text-muted text-body">No SBOM data available for this pod.</p>
+                {hasDataError('sbom')
+                  ? unavailablePlaceholder('SBOM data')
+                  : <p className="text-muted text-body">No SBOM data available for this pod.</p>}
               </div>
             )}
             {!sbom && !sbomLoaded && (
@@ -1671,6 +1673,8 @@ const PodDetailContent: React.FC = () => {
                 );
               })()}
             </div>
+          ) : hasDataError('sbom') ? (
+            unavailablePlaceholder('Software risk evidence')
           ) : (
             <p className="text-muted text-body">No software risk evidence for this pod.</p>
           )}
@@ -1722,6 +1726,8 @@ const PodDetailContent: React.FC = () => {
                 </div>
               ))}
             </div>
+          ) : hasDataError('risk-report') ? (
+            unavailablePlaceholder('Risk insights')
           ) : (
             <p className="text-muted text-body">No risk insights for this pod.</p>
           )}
