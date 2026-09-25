@@ -402,11 +402,13 @@ const PodDetailContent: React.FC = () => {
           if (score) setUnifiedScore(score);
         }).catch(() => {/* non-critical */});
       }
+      return data;
     } catch (e) {
       if (requestSeq !== podRequestRef.current) return;
       const issue = getAvailabilityIssue(e, 'Pod detail');
       setPodAvailabilityIssue(issue);
       setLoadError(issue.description);
+      return undefined;
     } finally {
       if (requestSeq === podRequestRef.current) setLoading(false);
     }
@@ -530,7 +532,7 @@ const PodDetailContent: React.FC = () => {
       setSbom(null);
       setSbomLoaded(false);
     }
-  }, [pod?.uid, loadSbomForPod, refreshSource]);
+  }, [pod?.uid, pod?.clusterId, loadSbomForPod, refreshSource]);
 
   useEffect(() => {
     if (!pod?.uid) {
@@ -543,7 +545,7 @@ const PodDetailContent: React.FC = () => {
       () => api.getPodRiskReportStrict(pod.uid, pod.clusterId),
       (report) => applyPodRiskReport(report, pod),
     );
-  }, [pod?.uid, applyPodRiskReport, refreshSource]);
+  }, [pod?.uid, pod?.clusterId, applyPodRiskReport, refreshSource]);
 
   // Refresh all runtime/evidence sources through the same per-source sequencer
   // used by lazy tabs and WebSocket updates. A slow older request can therefore
@@ -576,7 +578,7 @@ const PodDetailContent: React.FC = () => {
   useEffect(() => {
     if (!pod?.uid) return;
     void refreshAllData(pod.uid, pod.clusterId);
-  }, [pod?.uid, refreshAllData]);
+  }, [pod?.uid, pod?.clusterId, refreshAllData]);
 
   useEffect(() => {
     if (pod && activeTab !== 'overview') fetchTabData(activeTab);
@@ -729,7 +731,11 @@ const PodDetailContent: React.FC = () => {
               try {
                 const podUid = pod.uid;
                 const clusterId = pod.clusterId;
-                await fetchPod();
+                const refreshedPod = await fetchPod();
+                // A genuine 404 makes the previous LKG identity authoritative absence.
+                // Do not continue querying evidence for an entity that no longer exists.
+                if (refreshedPod === null) return;
+                const evidencePod = refreshedPod ?? pod;
                 await refreshAllData(podUid, clusterId);
                 const sbomCurrent = await refreshSource(
                   'sbom',
@@ -740,7 +746,7 @@ const PodDetailContent: React.FC = () => {
                 await refreshSource(
                   'risk-report',
                   () => api.getPodRiskReportStrict(podUid, clusterId),
-                  (report) => applyPodRiskReport(report, pod),
+                  (report) => applyPodRiskReport(report, evidencePod),
                 );
               } finally {
                 setRefreshing(false);
