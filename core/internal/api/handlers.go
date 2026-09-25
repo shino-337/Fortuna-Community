@@ -814,8 +814,12 @@ func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
+		query := db.Preload("Cluster").Where("uid = ?", saUID)
+		if clusterID := strings.TrimSpace(c.Query("clusterId")); clusterID != "" {
+			query = query.Where("cluster_id = ?", clusterID)
+		}
 		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").Where("uid = ?", saUID).First(&sa).Error; err != nil {
+		if err := query.First(&sa).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
 				return
