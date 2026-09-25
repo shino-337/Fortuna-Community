@@ -127,14 +127,14 @@ func TestRequirePodUIDClusterScopeAllowsVerifiedClusterDisambiguation(t *testing
 	admin := makeRouter(&models.User{Role: models.RoleAdmin})
 	w := httptest.NewRecorder()
 	admin.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/pods/dup?clusterId=cluster-b", nil))
-	if w.Code != http.StatusOK || w.Body.String() != "{"clusterId":"cluster-b"}" {
+	if w.Code != http.StatusOK || w.Body.String() != "{\"clusterId\":\"cluster-b\"}" {
 		t.Fatalf("admin disambiguation status=%d body=%s", w.Code, w.Body.String())
 	}
 
 	restricted := makeRouter(&models.User{Role: models.RoleOperator, ScopeJSON: `{"cluster_ids":["cluster-a"]}`})
 	w = httptest.NewRecorder()
 	restricted.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/pods/dup?clusterId=cluster-a", nil))
-	if w.Code != http.StatusOK || w.Body.String() != "{"clusterId":"cluster-a"}" {
+	if w.Code != http.StatusOK || w.Body.String() != "{\"clusterId\":\"cluster-a\"}" {
 		t.Fatalf("scoped disambiguation status=%d body=%s", w.Code, w.Body.String())
 	}
 
