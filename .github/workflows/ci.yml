@@ -82,7 +82,79 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test ./migrations -run '^Test(ClusterResourceIdentityFoundation|ClusterQualifiedPodUniqueness|AgentCompositeIdentity|RuntimeEventIdempotency)Postgres$' -count=1 -timeout=3m
+          go test ./migrations -run '^Test(ClusterResourceIdentityFoundation|ClusterQualifiedPodUniqueness|AgentCompositeIdentity)Postgres          go test ./pkg/riskengine -run '^TestPodInsightLifecyclePostgres$' -count=1 -timeout=2m
+          go test ./internal/repository -run '^TestSBOMConcurrentOwnershipPostgres$' -count=1 -timeout=2m
+          go test ./internal/service -run '^TestInventoryCollectionPostgres$' -count=1 -timeout=2m
+          go test ./internal/api -run '^TestRuntimeCoveragePostgres|^TestSBOMList(ClusterScope|DuplicateUIDClusterIsolation|FailClosed)Postgres$' -count=1 -timeout=3m
+          go test ./pkg/rep -run '^TestRuntimeSourceRecordConcurrentDuplicatePostgres$' -count=1 -timeout=2m
+
+  dashboard:
+    name: Dashboard validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+      - name: Install dependencies
+        working-directory: dashboard
+        run: npm ci
+      - name: Typecheck
+        working-directory: dashboard
+        run: npm run typecheck
+      - name: Build
+        working-directory: dashboard
+        run: npm run build
+      - name: Install Chromium
+        working-directory: dashboard
+        run: npx playwright install --with-deps chromium
+      - name: Runtime evidence regressions
+        working-directory: dashboard
+        run: npx playwright test --config playwright.runtime.config.ts
+
+  scripts:
+    name: Script validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Validate repository scripts
+        run: |
+          set -euo pipefail
+          python -m pip install PyYAML==6.0.2
+          python scripts/verify/check-service-selectors.py
+          python scripts/e2e/test-webhook-bootstrap.py
+          python scripts/verify/test-agent-credential-tool.py
+          python scripts/verify/test-agent-certificate-tool.py
+          python scripts/verify/test-scoped-agent-credential-overlay.py
+          python scripts/verify/check-cluster-resource-models.py
+          python scripts/verify/check-cluster-qualified-pod-routes.py
+          python scripts/verify/test-cluster-qualified-pod-routes.py
+          python scripts/verify/check-retired-routes.py
+          python scripts/verify/test-retired-routes.py
+          while IFS= read -r -d '' file; do bash -n "$file"; done < <(find scripts -type f -name '*.sh' -print0)
+
+  hygiene:
+    name: Repository hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Reject generated/local artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          forbidden='(^|/)(node_modules|\.venv|__pycache__|\.DS_Store)(/|$)|\.(pyc|pyo|tgz|zip|tar|tar\.gz)$'
+          if git ls-files -z | grep -zEq "$forbidden"; then
+            echo 'Forbidden generated/local artifact tracked in repository.'
+            git ls-files | grep -E "$forbidden" || true
+            exit 1
+          fi
+ -count=1 -timeout=3m
+          go test ./migrations -run '^TestRuntimeEventIdempotency' -count=1 -timeout=2m
           go test ./pkg/riskengine -run '^TestPodInsightLifecyclePostgres$' -count=1 -timeout=2m
           go test ./internal/repository -run '^TestSBOMConcurrentOwnershipPostgres$' -count=1 -timeout=2m
           go test ./internal/service -run '^TestInventoryCollectionPostgres$' -count=1 -timeout=2m
