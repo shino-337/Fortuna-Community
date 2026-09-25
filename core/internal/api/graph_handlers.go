@@ -205,11 +205,7 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 			Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, podUID).
 			First(&pod).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
-				viewerGraphJSON(c, http.StatusOK, gin.H{
-					"pod_uid": podUID,
-					"paths":   []graph.AttackPath{},
-					"count":   0,
-				})
+				c.JSON(http.StatusNotFound, gin.H{"error": "pod not found"})
 				return
 			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
