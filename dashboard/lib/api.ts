@@ -1304,18 +1304,21 @@ export const api = {
   /** Runtime domain: pod-scoped APIs use /api/v1/runtime/pods/:uid/... */
   /** Strict pod-detail runtime adapters: failures remain failures so callers can preserve last-known-good state. */
   getPodRuntimeMetricsStrict: async (podUid: string): Promise<PodRuntimeMetric[]> => {
-    const data = await request<{ items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
+    const data = await request<{ podUid?: string; items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
     if (!Array.isArray(data.items)) invalidResponse('pod_runtime_metrics_invalid_response', 'Runtime metrics response is missing the items array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_metrics_identity_mismatch', 'Runtime metrics response does not match the requested Pod UID');
     return data.items;
   },
   getPodProcessesStrict: async (podUid: string): Promise<PodProcessItem[]> => {
-    const data = await request<{ items?: PodProcessItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/processes`);
+    const data = await request<{ podUid?: string; items?: PodProcessItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/processes`);
     if (!Array.isArray(data.items)) invalidResponse('pod_processes_invalid_response', 'Pod processes response is missing the items array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_processes_identity_mismatch', 'Pod processes response does not match the requested Pod UID');
     return data.items;
   },
   getPodNetworkConnectionsStrict: async (podUid: string): Promise<PodNetworkConnectionItem[]> => {
-    const data = await request<{ items?: PodNetworkConnectionItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/network`);
+    const data = await request<{ podUid?: string; items?: PodNetworkConnectionItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/network`);
     if (!Array.isArray(data.items)) invalidResponse('pod_network_invalid_response', 'Pod network response is missing the items array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_network_identity_mismatch', 'Pod network response does not match the requested Pod UID');
     return data.items;
   },
   getPodNetworkTopDestinationsStrict: async (
@@ -1327,13 +1330,19 @@ export const api = {
     if (params?.limit != null && params.limit > 0) q.set('limit', String(params.limit));
     const qs = q.toString();
     const path = `/runtime/pods/${encodeURIComponent(podUid)}/network/top-destinations${qs ? `?${qs}` : ''}`;
-    const data = await request<{ items?: PodNetworkTopDestinationItem[] }>(path);
+    const data = await request<{ podUid?: string; sinceMinutes?: number; items?: PodNetworkTopDestinationItem[] }>(path);
     if (!Array.isArray(data.items)) invalidResponse('pod_network_top_destinations_invalid_response', 'Top destinations response is missing the items array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_network_top_destinations_identity_mismatch', 'Top destinations response does not match the requested Pod UID');
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) {
+      const responseSince = requireFiniteNumber(data.sinceMinutes, 'pod_network_top_destinations_invalid_response', 'sinceMinutes');
+      if (responseSince !== params.sinceMinutes) invalidResponse('pod_network_top_destinations_invalid_response', 'Top destinations response uses an unexpected lookback');
+    }
     return data.items;
   },
   getPodEventsStrict: async (podUid: string): Promise<PodK8sEventItem[]> => {
-    const data = await request<{ items?: PodK8sEventItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/events`);
+    const data = await request<{ podUid?: string; items?: PodK8sEventItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/events`);
     if (!Array.isArray(data.items)) invalidResponse('pod_events_invalid_response', 'Pod events response is missing the items array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_events_identity_mismatch', 'Pod events response does not match the requested Pod UID');
     return data.items;
   },
   getPodRuntimeSecurityEventsStrict: async (podUid: string, limit = 100): Promise<PodRuntimeSecurityEvent[]> => {
@@ -2606,17 +2615,19 @@ export const api = {
   getPodCapabilitiesStrict: async (podUid: string): Promise<PodCapabilityDetail[]> => {
     if (!podUid) return [];
     try {
-      const data = await requestV2<{ capabilities?: PodCapabilityDetail[] }>(
+      const data = await requestV2<{ podUid?: string; capabilities?: PodCapabilityDetail[] }>(
         `/runtime/pods/${encodeURIComponent(podUid)}/capabilities`,
       );
       if (!Array.isArray(data.capabilities)) invalidResponse('pod_capabilities_invalid_response', 'Pod capabilities response is missing the capabilities array');
+      if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_capabilities_identity_mismatch', 'Pod capabilities response does not match the requested Pod UID');
       return data.capabilities;
     } catch (err) {
       if (!(isApiError(err) && err.status === 404)) throw err;
-      const data = await request<{ capabilities?: PodCapabilityDetail[] }>(
+      const data = await request<{ podUid?: string; capabilities?: PodCapabilityDetail[] }>(
         `/inventory/pods/${encodeURIComponent(podUid)}/capabilities`,
       );
       if (!Array.isArray(data.capabilities)) invalidResponse('pod_capabilities_invalid_response', 'Pod capabilities response is missing the capabilities array');
+      if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_capabilities_identity_mismatch', 'Pod capabilities response does not match the requested Pod UID');
       return data.capabilities;
     }
   },
