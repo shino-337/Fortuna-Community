@@ -608,10 +608,10 @@ const PodDetailContent: React.FC = () => {
           } else if (t === 'events') {
             void refreshAllData(currentUid, pod.clusterId);
           } else {
-            void refreshAllData(currentUid);
+            void refreshAllData(currentUid, pod.clusterId);
           }
         } catch {
-          void refreshAllData(currentUid);
+          void refreshAllData(currentUid, pod.clusterId);
         }
       };
     } catch {
@@ -727,7 +727,7 @@ const PodDetailContent: React.FC = () => {
                 const podUid = pod.uid;
                 const clusterId = pod.clusterId;
                 await fetchPod();
-                await refreshAllData(podUid);
+                await refreshAllData(podUid, clusterId);
                 const sbomCurrent = await refreshSource(
                   'sbom',
                   () => loadSbomForPod({ uid: podUid, clusterId }),
@@ -736,7 +736,7 @@ const PodDetailContent: React.FC = () => {
                 if (sbomCurrent) setSbomLoaded(true);
                 await refreshSource(
                   'risk-report',
-                  () => api.getPodRiskReportStrict(podUid),
+                  () => api.getPodRiskReportStrict(podUid, clusterId),
                   (report) => applyPodRiskReport(report, pod),
                 );
               } finally {
@@ -830,7 +830,7 @@ const PodDetailContent: React.FC = () => {
               className="underline hover:text-text"
               onClick={() => {
                 if (!pod?.uid) return;
-                void refreshAllData(pod.uid);
+                void refreshAllData(pod.uid, pod.clusterId);
                 void refreshSource(
                   'sbom',
                   () => loadSbomForPod({ uid: pod.uid, clusterId: pod.clusterId }),
