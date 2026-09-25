@@ -2874,15 +2874,20 @@ export const api = {
   },
 
   // Phase 2.2: Attack Steps
-  getPodAttackStepsStrict: async (podUid: string): Promise<PodAttackStep[]> => {
+  getPodAttackStepsStrict: async (podUid: string, clusterId?: string): Promise<PodAttackStep[]> => {
     if (!podUid) return [];
-    const data = await request<{ podUid: string; steps: PodAttackStep[]; count: number }>(`/risk/pods/${encodeURIComponent(podUid)}/attack-steps`);
-    return data.steps || [];
+    const qs = clusterId?.trim() ? `?clusterId=${encodeURIComponent(clusterId.trim())}` : '';
+    const data = await request<{ podUid?: string; steps?: PodAttackStep[]; count?: number }>(`/risk/pods/${encodeURIComponent(podUid)}/attack-steps${qs}`);
+    if (String(data.podUid ?? '') !== podUid || !Array.isArray(data.steps)) {
+      invalidResponse('pod_attack_steps_invalid_response', 'Pod attack-step response does not match the requested Pod');
+    }
+    requireFiniteNumber(data.count, 'pod_attack_steps_invalid_response', 'count');
+    return data.steps;
   },
 
-  getPodAttackSteps: async (podUid: string): Promise<PodAttackStep[]> => {
+  getPodAttackSteps: async (podUid: string, clusterId?: string): Promise<PodAttackStep[]> => {
     try {
-      return await api.getPodAttackStepsStrict(podUid);
+      return await api.getPodAttackStepsStrict(podUid, clusterId);
     } catch {
       return [];
     }
@@ -3099,14 +3104,22 @@ export const api = {
   },
 
   // Attack Analysis for a specific pod
-  getAttackPathsForPodStrict: async (podUid: string): Promise<AttackPath[]> => {
-    const data = await request<{ paths: AttackPath[]; count: number }>(`/graph/attack-paths/${encodeURIComponent(podUid)}`);
+  getAttackPathsForPodStrict: async (podUid: string, clusterId?: string): Promise<AttackPath[]> => {
+    const qs = clusterId?.trim() ? `?clusterId=${encodeURIComponent(clusterId.trim())}` : '';
+    const data = await request<{ cluster_id?: string; pod_uid?: string; paths?: AttackPath[]; count?: number }>(`/graph/attack-paths/${encodeURIComponent(podUid)}${qs}`);
+    if (String(data.pod_uid ?? '') !== podUid || !Array.isArray(data.paths)) {
+      invalidResponse('pod_attack_paths_invalid_response', 'Pod attack-path response does not match the requested Pod');
+    }
+    if (clusterId?.trim() && String(data.cluster_id ?? '') !== clusterId.trim()) {
+      invalidResponse('pod_attack_paths_identity_mismatch', 'Pod attack-path response does not match the requested cluster');
+    }
+    requireFiniteNumber(data.count, 'pod_attack_paths_invalid_response', 'count');
     return normalizeAttackPaths(data.paths);
   },
 
-  getAttackPathsForPod: async (podUid: string): Promise<AttackPath[]> => {
+  getAttackPathsForPod: async (podUid: string, clusterId?: string): Promise<AttackPath[]> => {
     try {
-      return await api.getAttackPathsForPodStrict(podUid);
+      return await api.getAttackPathsForPodStrict(podUid, clusterId);
     } catch {
       return [];
     }
