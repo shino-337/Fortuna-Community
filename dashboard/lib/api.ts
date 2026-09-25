@@ -168,6 +168,12 @@ const buildUrl = (path: string) => {
 };
 const buildUrlV2 = (path: string) => `${API_V2_BASE}${path}`;
 
+const withClusterId = (path: string, clusterId?: string | null): string => {
+  const id = String(clusterId ?? '').trim();
+  if (!id) return path;
+  return `${path}${path.includes('?') ? '&' : '?'}clusterId=${encodeURIComponent(id)}`;
+};
+
 const getToken = () => useAuthStore.getState().token;
 
 type ApiErrorBody = {
@@ -1223,14 +1229,14 @@ export const api = {
   },
 
   /** GET /api/v1/inventory/pods/:uid – single pod by UID (domain route) */
-  getPodByUid: async (uid: string): Promise<PodWithRisk | null> => {
+  getPodByUid: async (uid: string, clusterId?: string): Promise<PodWithRisk | null> => {
     const controller = new AbortController();
     const timeout = window.setTimeout(() => controller.abort(), 15000);
     const headers: Record<string, string> = { 'Content-Type': 'application/json' };
     const token = getToken();
     if (token) headers.Authorization = `Bearer ${token}`;
     try {
-      const res = await fetch(buildUrl(`/inventory/pods/${encodeURIComponent(uid)}`), {
+      const res = await fetch(buildUrl(withClusterId(`/inventory/pods/${encodeURIComponent(uid)}`, clusterId)), {
         headers,
         signal: controller.signal,
       });
@@ -1251,7 +1257,11 @@ export const api = {
       if (!responseUid || responseUid !== uid) {
         invalidResponse('pod_detail_identity_mismatch', 'Pod detail response does not match the requested pod UID');
       }
-      return mapApiPodToPodWithRisk(p);
+      const mapped = mapApiPodToPodWithRisk(p);
+      if (clusterId?.trim() && mapped.clusterId !== clusterId.trim()) {
+        invalidResponse('pod_detail_cluster_identity_mismatch', 'Pod detail response does not match the requested cluster');
+      }
+      return mapped;
     } catch (e) {
       if (e instanceof DOMException && e.name === 'AbortError') {
         throw new Error('Pod detail request timed out.');
@@ -1280,14 +1290,17 @@ export const api = {
   get getPod() { return this.getPodByUid; },
 
   /** WebSocket URL for pod detail live updates (Phase 5.1). Pass uid; token is appended as query for auth. */
-  getPodDetailWsUrl: (uid: string): string => {
+  getPodDetailWsUrl: (uid: string, clusterId?: string): string => {
     const path = `/api/v1/ws/pod/${encodeURIComponent(uid)}`;
     const base = CORE_API_URL ? CORE_API_URL.replace(/\/$/, '') : window.location.origin;
     const protocol = base.startsWith('https') ? 'wss:' : 'ws:';
     const host = base.startsWith('http') ? new URL(base).host : window.location.host;
     const token = getToken();
-    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
-    return `${protocol}//${host}${path}${qs}`;
+    const params = new URLSearchParams();
+    if (token) params.set('token', token);
+    if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
+    const qs = params.toString();
+    return `${protocol}//${host}${path}${qs ? `?${qs}` : ''}`;
   },
 
   /** WebSocket URL for Risk Center live updates (Phase 2.3). Server pushes insights_updated when data changes. */
@@ -1303,33 +1316,33 @@ export const api = {
 
   /** Runtime domain: pod-scoped APIs use /api/v1/runtime/pods/:uid/... */
   /** Strict pod-detail runtime adapters: failures remain failures so callers can preserve last-known-good state. */
-  getPodRuntimeMetricsStrict: async (podUid: string): Promise<PodRuntimeMetric[]> => {
-    const data = await request<{ podUid?: string; items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
+  getPodRuntimeMetricsStrict: async (podUid: string, clusterId?: string): Promise<PodRuntimeMetric[]> => {
+    const data = await request<{ podUid?: string; items?: PodRuntimeMetric[] }>(withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`, clusterId));
     if (!Array.isArray(data.items)) invalidResponse('pod_runtime_metrics_invalid_response', 'Runtime metrics response is missing the items array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_metrics_identity_mismatch', 'Runtime metrics response does not match the requested Pod UID');
     return data.items;
   },
-  getPodProcessesStrict: async (podUid: string): Promise<PodProcessItem[]> => {
-    const data = await request<{ podUid?: string; items?: PodProcessItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/processes`);
+  getPodProcessesStrict: async (podUid: string, clusterId?: string): Promise<PodProcessItem[]> => {
+    const data = await request<{ podUid?: string; items?: PodProcessItem[] }>(withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/processes`, clusterId));
     if (!Array.isArray(data.items)) invalidResponse('pod_processes_invalid_response', 'Pod processes response is missing the items array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_processes_identity_mismatch', 'Pod processes response does not match the requested Pod UID');
     return data.items;
   },
-  getPodNetworkConnectionsStrict: async (podUid: string): Promise<PodNetworkConnectionItem[]> => {
-    const data = await request<{ podUid?: string; items?: PodNetworkConnectionItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/network`);
+  getPodNetworkConnectionsStrict: async (podUid: string, clusterId?: string): Promise<PodNetworkConnectionItem[]> => {
+    const data = await request<{ podUid?: string; items?: PodNetworkConnectionItem[] }>(withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/network`, clusterId));
     if (!Array.isArray(data.items)) invalidResponse('pod_network_invalid_response', 'Pod network response is missing the items array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_network_identity_mismatch', 'Pod network response does not match the requested Pod UID');
     return data.items;
   },
   getPodNetworkTopDestinationsStrict: async (
     podUid: string,
-    params?: { sinceMinutes?: number; limit?: number },
+    params?: { sinceMinutes?: number; limit?: number; clusterId?: string },
   ): Promise<PodNetworkTopDestinationItem[]> => {
     const q = new URLSearchParams();
     if (params?.sinceMinutes != null && params.sinceMinutes > 0) q.set('sinceMinutes', String(params.sinceMinutes));
     if (params?.limit != null && params.limit > 0) q.set('limit', String(params.limit));
     const qs = q.toString();
-    const path = `/runtime/pods/${encodeURIComponent(podUid)}/network/top-destinations${qs ? `?${qs}` : ''}`;
+    const path = withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/network/top-destinations${qs ? `?${qs}` : ''}`, params?.clusterId);
     const data = await request<{ podUid?: string; sinceMinutes?: number; items?: PodNetworkTopDestinationItem[] }>(path);
     if (!Array.isArray(data.items)) invalidResponse('pod_network_top_destinations_invalid_response', 'Top destinations response is missing the items array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_network_top_destinations_identity_mismatch', 'Top destinations response does not match the requested Pod UID');
@@ -1339,15 +1352,15 @@ export const api = {
     }
     return data.items;
   },
-  getPodEventsStrict: async (podUid: string): Promise<PodK8sEventItem[]> => {
-    const data = await request<{ podUid?: string; items?: PodK8sEventItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/events`);
+  getPodEventsStrict: async (podUid: string, clusterId?: string): Promise<PodK8sEventItem[]> => {
+    const data = await request<{ podUid?: string; items?: PodK8sEventItem[] }>(withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/events`, clusterId));
     if (!Array.isArray(data.items)) invalidResponse('pod_events_invalid_response', 'Pod events response is missing the items array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_events_identity_mismatch', 'Pod events response does not match the requested Pod UID');
     return data.items;
   },
-  getPodRuntimeSecurityEventsStrict: async (podUid: string, limit = 100): Promise<PodRuntimeSecurityEvent[]> => {
+  getPodRuntimeSecurityEventsStrict: async (podUid: string, limit = 100, clusterId?: string): Promise<PodRuntimeSecurityEvent[]> => {
     const data = await request<{ podUid?: string; events?: PodRuntimeSecurityEvent[]; total?: number }>(
-      `/risk/pods/${encodeURIComponent(podUid)}/runtime/events?limit=${limit}`,
+      withClusterId(`/risk/pods/${encodeURIComponent(podUid)}/runtime/events?limit=${limit}`, clusterId),
     );
     if (!Array.isArray(data.events)) {
       invalidResponse('pod_runtime_security_events_invalid_response', 'Runtime security events response is missing the events array');
@@ -1361,16 +1374,16 @@ export const api = {
     }
     return data.events;
   },
-  getPodRuntimeBehaviorFactsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeBehaviorFact[]> => {
-    const data = await requestV2<{ podUid?: string; facts?: PodRuntimeBehaviorFact[]; total?: number }>(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`);
+  getPodRuntimeBehaviorFactsV2Strict: async (podUid: string, limit = 100, clusterId?: string): Promise<PodRuntimeBehaviorFact[]> => {
+    const data = await requestV2<{ podUid?: string; facts?: PodRuntimeBehaviorFact[]; total?: number }>(withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`, clusterId));
     if (!Array.isArray(data.facts)) invalidResponse('pod_runtime_facts_invalid_response', 'Runtime facts response is missing the facts array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_facts_identity_mismatch', 'Runtime facts response does not match the requested Pod UID');
     const total = requireFiniteNumber(data.total, 'pod_runtime_facts_invalid_response', 'total');
     if (total !== data.facts.length) invalidResponse('pod_runtime_facts_invalid_response', 'Runtime facts total does not match the facts array');
     return data.facts;
   },
-  getPodRuntimeIncidentsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeIncident[]> => {
-    const data = await requestV2<{ podUid?: string; incidents?: PodRuntimeIncident[]; total?: number }>(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`);
+  getPodRuntimeIncidentsV2Strict: async (podUid: string, limit = 100, clusterId?: string): Promise<PodRuntimeIncident[]> => {
+    const data = await requestV2<{ podUid?: string; incidents?: PodRuntimeIncident[]; total?: number }>(withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`, clusterId));
     if (!Array.isArray(data.incidents)) invalidResponse('pod_runtime_incidents_invalid_response', 'Runtime incidents response is missing the incidents array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_incidents_identity_mismatch', 'Runtime incidents response does not match the requested Pod UID');
     const total = requireFiniteNumber(data.total, 'pod_runtime_incidents_invalid_response', 'total');
@@ -1494,12 +1507,12 @@ export const api = {
     }
   },
 
-  getPodSpecYaml: async (podUid: string): Promise<string> => {
-    return requestText(`/inventory/pods/${encodeURIComponent(podUid)}/spec`);
+  getPodSpecYaml: async (podUid: string, clusterId?: string): Promise<string> => {
+    return requestText(withClusterId(`/inventory/pods/${encodeURIComponent(podUid)}/spec`, clusterId));
   },
 
-  getPodSpecYamlBlob: async (podUid: string): Promise<Blob> => {
-    return requestBlob(`/inventory/pods/${encodeURIComponent(podUid)}/spec?download=1`);
+  getPodSpecYamlBlob: async (podUid: string, clusterId?: string): Promise<Blob> => {
+    return requestBlob(withClusterId(`/inventory/pods/${encodeURIComponent(podUid)}/spec?download=1`, clusterId));
   },
 
   getPodsStrict: async (params?: {
@@ -2488,9 +2501,9 @@ export const api = {
     }
   },
 
-  getPodRiskReportStrict: async (podUid: string): Promise<PodRiskReport> => {
+  getPodRiskReportStrict: async (podUid: string, clusterId?: string): Promise<PodRiskReport> => {
       const data = await request<Record<string, unknown> & { insights?: unknown[]; summary?: Record<string, unknown> }>(
-        `/risk/pods/${encodeURIComponent(podUid)}/report`,
+        withClusterId(`/risk/pods/${encodeURIComponent(podUid)}/report`, clusterId),
       );
       if (!Array.isArray(data.insights)) {
         invalidResponse('pod_risk_report_invalid_response', 'Pod risk report response is missing the insights array');
@@ -2498,6 +2511,9 @@ export const api = {
       const responsePodUid = String(data.podUid ?? '').trim();
       if (!responsePodUid || responsePodUid !== podUid) {
         invalidResponse('pod_risk_report_identity_mismatch', 'Pod risk report response does not match the requested pod UID');
+      }
+      if (clusterId?.trim() && String(data.clusterId ?? '').trim() !== clusterId.trim()) {
+        invalidResponse('pod_risk_report_cluster_identity_mismatch', 'Pod risk report response does not match the requested cluster');
       }
       const insights = data.insights.map((i: any) => ({
         id: String(i.id ?? ''),
@@ -2699,11 +2715,11 @@ export const api = {
       return { capabilities: [], total: 0 };
     }
   },
-  getPodCapabilitiesStrict: async (podUid: string): Promise<PodCapabilityDetail[]> => {
+  getPodCapabilitiesStrict: async (podUid: string, clusterId?: string): Promise<PodCapabilityDetail[]> => {
     if (!podUid) return [];
     try {
       const data = await requestV2<{ podUid?: string; capabilities?: PodCapabilityDetail[] }>(
-        `/runtime/pods/${encodeURIComponent(podUid)}/capabilities`,
+        withClusterId(`/runtime/pods/${encodeURIComponent(podUid)}/capabilities`, clusterId),
       );
       if (!Array.isArray(data.capabilities)) invalidResponse('pod_capabilities_invalid_response', 'Pod capabilities response is missing the capabilities array');
       if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_capabilities_identity_mismatch', 'Pod capabilities response does not match the requested Pod UID');
@@ -2711,7 +2727,7 @@ export const api = {
     } catch (err) {
       if (!(isApiError(err) && err.status === 404)) throw err;
       const data = await request<{ podUid?: string; capabilities?: PodCapabilityDetail[] }>(
-        `/inventory/pods/${encodeURIComponent(podUid)}/capabilities`,
+        withClusterId(`/inventory/pods/${encodeURIComponent(podUid)}/capabilities`, clusterId),
       );
       if (!Array.isArray(data.capabilities)) invalidResponse('pod_capabilities_invalid_response', 'Pod capabilities response is missing the capabilities array');
       if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_capabilities_identity_mismatch', 'Pod capabilities response does not match the requested Pod UID');
@@ -2931,15 +2947,15 @@ export const api = {
   },
 
 
-  getRuntimeSignalsByPodStrict: async (podUid: string, params?: { signalType?: string; category?: string; sinceMinutes?: number; limit?: number }): Promise<RuntimeSignal[]> => {
+  getRuntimeSignalsByPodStrict: async (podUid: string, params?: { signalType?: string; category?: string; sinceMinutes?: number; limit?: number; clusterId?: string }): Promise<RuntimeSignal[]> => {
     const queryParams = new URLSearchParams();
     if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
     if (params?.signalType) queryParams.append('signalType', params.signalType);
     if (params?.category) queryParams.append('category', params.category);
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     const query = queryParams.toString();
-    const url = query ? `/runtime/pods/${encodeURIComponent(podUid)}/signals?${query}` : `/runtime/pods/${encodeURIComponent(podUid)}/signals`;
-    const data = await request<{ podUid?: string; signals?: RuntimeSignal[]; count?: number }>(url);
+    const baseUrl = query ? `/runtime/pods/${encodeURIComponent(podUid)}/signals?${query}` : `/runtime/pods/${encodeURIComponent(podUid)}/signals`;
+    const data = await request<{ podUid?: string; signals?: RuntimeSignal[]; count?: number }>(withClusterId(baseUrl, params?.clusterId));
     if (!Array.isArray(data.signals)) invalidResponse('pod_runtime_signals_invalid_response', 'Runtime signals response is missing the signals array');
     if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_signals_identity_mismatch', 'Runtime signals response does not match the requested Pod UID');
     const count = requireFiniteNumber(data.count, 'pod_runtime_signals_invalid_response', 'count');
@@ -2964,13 +2980,13 @@ export const api = {
     }
   },
 
-  getRuntimeSignalSuppressionStatsStrict: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats> => {
+  getRuntimeSignalSuppressionStatsStrict: async (params?: { podUid?: string; sinceMinutes?: number; clusterId?: string }): Promise<RuntimeSignalSuppressionStats> => {
     const queryParams = new URLSearchParams();
     if (params?.podUid) queryParams.append('podUid', params.podUid);
     if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
     const query = queryParams.toString();
-    const url = query ? `/runtime/signals/suppression-stats?${query}` : '/runtime/signals/suppression-stats';
-    const data = await request<Partial<RuntimeSignalSuppressionStats>>(url);
+    const baseUrl = query ? `/runtime/signals/suppression-stats?${query}` : '/runtime/signals/suppression-stats';
+    const data = await request<Partial<RuntimeSignalSuppressionStats>>(withClusterId(baseUrl, params?.clusterId));
     const sinceMinutes = requireFiniteNumber(data.sinceMinutes, 'runtime_signal_stats_invalid_response', 'sinceMinutes');
     const emittedEvents = requireFiniteNumber(data.emittedEvents, 'runtime_signal_stats_invalid_response', 'emittedEvents');
     const uniqueKeys = requireFiniteNumber(data.uniqueKeys, 'runtime_signal_stats_invalid_response', 'uniqueKeys');
