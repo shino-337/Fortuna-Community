@@ -79,9 +79,6 @@ function normalizeTabId(value: string | null | undefined): TabId {
   return known.includes(raw as TabId) ? (raw as TabId) : 'overview';
 }
 
-/** Preload failures merged with refreshAllData errors; cleared independently on successful SBOM / risk fetch. */
-const PRELOAD_DATA_ERROR_LABELS = new Set(['sbom', 'risk-report']);
-
 /** Short type label for SBOM (os-package -> os, library -> lib, etc.) */
 function sbomTypeLabel(type: string | undefined): string {
   if (!type) return '—';
@@ -142,6 +139,7 @@ const PodDetailContent: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [dataErrors, setDataErrors] = useState<string[]>([]);
   const dataErrorsRef = useRef<string[]>([]);
+  const runtimeRefreshRef = useRef(0);
   dataErrorsRef.current = dataErrors;
   /** From GET /risk/pods/:uid/report — same 24h window as summary.runtimeSignals24h */
   const [podRiskReportSummary, setPodRiskReportSummary] = useState<PodRiskReportSummary | null>(null);
@@ -162,45 +160,16 @@ const PodDetailContent: React.FC = () => {
   }, [requestedTab]);
 
   const loadSbomForPod = useCallback(
-    async (podRef: Pick<PodWithRisk, 'uid' | 'name' | 'namespace'>): Promise<PodSbom | null> => {
+    async (podRef: Pick<PodWithRisk, 'uid'>): Promise<PodSbom | null> => {
       try {
         return await api.getPodSbomStrict(podRef.uid);
       } catch (err) {
-        if (!(isApiError(err) && err.status === 404)) throw err;
+        // 404 is authoritative absence for this exact cluster-qualified Pod UID.
+        // Never fall back to a name/namespace list lookup: names are not globally
+        // unique and that would re-open cross-cluster evidence contamination.
+        if (isApiError(err) && err.status === 404) return null;
+        throw err;
       }
-
-      const summaries = await api.getSbomListStrict({
-        podName: podRef.name,
-        namespace: podRef.namespace,
-      });
-      const exact =
-        summaries.find((item) => item.podName === podRef.name && item.namespace === podRef.namespace) ??
-        summaries[0];
-      if (!exact) return null;
-      const vulnSummary = exact.vulnerabilitySummary ?? { critical: 0, high: 0, medium: 0, low: 0 };
-      const vulnerablePackageCount =
-        Number(vulnSummary.critical ?? 0) +
-        Number(vulnSummary.high ?? 0) +
-        Number(vulnSummary.medium ?? 0) +
-        Number(vulnSummary.low ?? 0);
-      return {
-        podId: exact.podId || podRef.uid,
-        podName: exact.podName || podRef.name,
-        namespace: exact.namespace || podRef.namespace,
-        image: exact.image || '',
-        imageDigest: exact.imageDigest,
-        imageTrust: exact.imageTrust,
-        packageCount: exact.packageCount,
-        vulnerablePackageCount,
-        vulnerabilitySummary: vulnSummary,
-        components: [],
-        generatedAt: exact.lastScan,
-        activePod: exact.activePod,
-        lifecycleState: exact.lifecycleState,
-        sbomSource: exact.sbomSource,
-        confidence: exact.confidence,
-        goVersion: exact.goVersion,
-      };
     },
     []
   );
@@ -324,12 +293,14 @@ const PodDetailContent: React.FC = () => {
     return { label: s ? src! : '—', className: 'bg-muted-2/25 text-text border-border/40' };
   };
 
+  const hasDataError = (label: string): boolean => dataErrors.includes(label);
+
   const runtimeDataHints = (): string[] => {
     const out: string[] = [];
-    if (runtimeSecurityEvents.length === 0) out.push('No runtime_events for this pod UID yet (sensor -> Core ingest).');
-    if (runtimeFacts.length === 0) out.push('No behavior facts synthesized yet (REP-A output empty).');
-    if (runtimeIncidents.length === 0) out.push('No correlated incidents yet (REP-C threshold/window not reached).');
-    if (runtimeSignals.length === 0) out.push('No runtime signals in lookback window (check signal filters and lookback).');
+    if (!hasDataError('security-events') && runtimeSecurityEvents.length === 0) out.push('No runtime_events for this pod UID yet (sensor -> Core ingest).');
+    if (!hasDataError('facts') && runtimeFacts.length === 0) out.push('No behavior facts synthesized yet (REP-A output empty).');
+    if (!hasDataError('incidents') && runtimeIncidents.length === 0) out.push('No correlated incidents yet (REP-C threshold/window not reached).');
+    if (!hasDataError('signals') && runtimeSignals.length === 0) out.push('No runtime signals in lookback window (check signal filters and lookback).');
     return out;
   };
 
@@ -584,37 +555,57 @@ const PodDetailContent: React.FC = () => {
       });
   }, [pod?.uid]);
 
-  // Helper to refresh all pod-detail data (used by preload + WS + manual refresh)
-  const refreshAllData = useCallback((podUid: string) => {
+  // Refresh only the runtime/evidence sources owned by this function.
+  // A newer refresh supersedes an older one, and unrelated errors (SBOM,
+  // ServiceAccount, spec, risk report) are never cleared here.
+  const refreshAllData = useCallback(async (podUid: string): Promise<void> => {
+    const requestSeq = ++runtimeRefreshRef.current;
     const errors: string[] = [];
+    const attempted = new Set([
+      'metrics',
+      'processes',
+      'network',
+      'top-dest',
+      'events',
+      'security-events',
+      'signals',
+      'facts',
+      'incidents',
+      'capabilities',
+      'signal-stats',
+    ]);
     const track = (label: string) => () => {
       errors.push(label);
     };
-    Promise.all([
-      api.getPodRuntimeMetricsStrict(podUid).then(setRuntimeMetrics).catch(track('metrics')),
-      api.getPodProcessesStrict(podUid).then(setProcesses).catch(track('processes')),
-      api.getPodNetworkConnectionsStrict(podUid).then(setNetworkConnections).catch(track('network')),
-      api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440 }).then(setNetworkTopDestinations).catch(track('top-dest')),
-      api.getPodEventsStrict(podUid).then(setPodEvents).catch(track('events')),
-      api.getPodRuntimeSecurityEventsStrict(podUid, 150).then(setRuntimeSecurityEvents).catch(track('security-events')),
-      api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(setRuntimeSignals).catch(track('signals')),
-      api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120).then(setRuntimeFacts).catch(track('facts')),
-      api.getPodRuntimeIncidentsV2Strict(podUid, 80).then(setRuntimeIncidents).catch(track('incidents')),
-      api.getPodCapabilitiesStrict(podUid).then(setPodCapabilities).catch(track('capabilities')),
-      api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60 }).then(setSignalStats).catch(track('signal-stats')),
-    ]).then(() => {
-      setDataErrors((prev) => {
-        const kept = prev.filter((e) => PRELOAD_DATA_ERROR_LABELS.has(e));
-        if (errors.length > 0) return [...new Set([...kept, ...errors])];
-        return kept;
-      });
+    const commit = <T,>(setter: (value: T) => void) => (value: T) => {
+      if (requestSeq === runtimeRefreshRef.current) setter(value);
+    };
+
+    await Promise.all([
+      api.getPodRuntimeMetricsStrict(podUid).then(commit(setRuntimeMetrics)).catch(track('metrics')),
+      api.getPodProcessesStrict(podUid).then(commit(setProcesses)).catch(track('processes')),
+      api.getPodNetworkConnectionsStrict(podUid).then(commit(setNetworkConnections)).catch(track('network')),
+      api.getPodNetworkTopDestinationsStrict(podUid, { sinceMinutes: 1440 }).then(commit(setNetworkTopDestinations)).catch(track('top-dest')),
+      api.getPodEventsStrict(podUid).then(commit(setPodEvents)).catch(track('events')),
+      api.getPodRuntimeSecurityEventsStrict(podUid, 150).then(commit(setRuntimeSecurityEvents)).catch(track('security-events')),
+      api.getRuntimeSignalsByPodStrict(podUid, { sinceMinutes: RUNTIME_SIGNALS_LOOKBACK_MINUTES, limit: 200 }).then(commit(setRuntimeSignals)).catch(track('signals')),
+      api.getPodRuntimeBehaviorFactsV2Strict(podUid, 120).then(commit(setRuntimeFacts)).catch(track('facts')),
+      api.getPodRuntimeIncidentsV2Strict(podUid, 80).then(commit(setRuntimeIncidents)).catch(track('incidents')),
+      api.getPodCapabilitiesStrict(podUid).then(commit(setPodCapabilities)).catch(track('capabilities')),
+      api.getRuntimeSignalSuppressionStatsStrict({ podUid, sinceMinutes: 60 }).then(commit(setSignalStats)).catch(track('signal-stats')),
+    ]);
+
+    if (requestSeq !== runtimeRefreshRef.current) return;
+    setDataErrors((prev) => {
+      const kept = prev.filter((label) => !attempted.has(label));
+      return errors.length > 0 ? [...new Set([...kept, ...errors])] : kept;
     });
   }, []);
 
   // Preload pod-detail (metrics, processes, network) so Overview shows counts and Network tab has data. All use pod UID.
   useEffect(() => {
     if (!pod?.uid) return;
-    refreshAllData(pod.uid);
+    void refreshAllData(pod.uid);
   }, [pod?.uid, refreshAllData]);
 
   useEffect(() => {
@@ -664,9 +655,9 @@ const PodDetailContent: React.FC = () => {
               })
               .catch(() => markError('network'));
           } else if (t === 'events') {
-            refreshAllData(currentUid);
+            void refreshAllData(currentUid);
           } else {
-            refreshAllData(currentUid);
+            void refreshAllData(currentUid);
           }
         } catch {
           refreshAllData(currentUid);
@@ -783,7 +774,7 @@ const PodDetailContent: React.FC = () => {
               setRefreshing(true);
               try {
                 await fetchPod();
-                refreshAllData(pod.uid);
+                await refreshAllData(pod.uid);
                 await loadSbomForPod({
                   uid: pod.uid,
                   name: pod.name,
@@ -898,7 +889,7 @@ const PodDetailContent: React.FC = () => {
               className="underline hover:text-text"
               onClick={() => {
                 if (!pod?.uid) return;
-                refreshAllData(pod.uid);
+                void refreshAllData(pod.uid);
                 void loadSbomForPod({
                   uid: pod.uid,
                   name: pod.name,
