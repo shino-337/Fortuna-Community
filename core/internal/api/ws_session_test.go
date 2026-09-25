@@ -52,7 +52,7 @@ func TestWSAuthorizationReloadsServerState(t *testing.T) {
 	for _, name := range []string{"revoked", "session expired", "inactive", "password change required", "password changed", "role removed", "scope removed", "JWT expired", "database failure"} {
 		t.Run(name, func(t *testing.T) {
 			db, u, sid := wsSessionFixture(t)
-			g := &wsAuthorization{db: db, ctx: context.Background(), userID: u.ID, sessionID: sid, requireSession: true, expiresAt: time.Now().Add(time.Hour), permission: authorization.PermissionInventoryRead, podUID: "pod-a"}
+			g := &wsAuthorization{db: db, ctx: context.Background(), userID: u.ID, sessionID: sid, requireSession: true, expiresAt: time.Now().Add(time.Hour), permission: authorization.PermissionInventoryRead, podUID: "pod-a", podClusterID: "a"}
 			if err := g.validate(); err != nil {
 				t.Fatal(err)
 			}
@@ -186,5 +186,43 @@ func TestIdleWebSocketRevocationAndTokenDeadline(t *testing.T) {
 				t.Fatalf("wanted idle policy close, got %v", err)
 			}
 		})
+	}
+}
+
+
+func TestWSAuthorizationBindsDuplicatePodUIDToHandshakeCluster(t *testing.T) {
+	db, u, sid := wsSessionFixture(t)
+	if err := db.Create(&models.Pod{UID: "dup", ClusterID: "a", Name: "dup-a", Namespace: "default"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.Pod{UID: "dup", ClusterID: "b", Name: "dup-b", Namespace: "default"}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	allowed := &wsAuthorization{
+		db: db, ctx: context.Background(), userID: u.ID, sessionID: sid, requireSession: true,
+		expiresAt: time.Now().Add(time.Hour), permission: authorization.PermissionInventoryRead,
+		podUID: "dup", podClusterID: "a",
+	}
+	if err := allowed.validate(); err != nil {
+		t.Fatalf("cluster-qualified duplicate Pod should remain authorized: %v", err)
+	}
+
+	foreign := &wsAuthorization{
+		db: db, ctx: context.Background(), userID: u.ID, sessionID: sid, requireSession: true,
+		expiresAt: time.Now().Add(time.Hour), permission: authorization.PermissionInventoryRead,
+		podUID: "dup", podClusterID: "b",
+	}
+	if err := foreign.validate(); err == nil {
+		t.Fatal("foreign duplicate Pod owner was accepted during WebSocket reauthorization")
+	}
+
+	missingOwner := &wsAuthorization{
+		db: db, ctx: context.Background(), userID: u.ID, sessionID: sid, requireSession: true,
+		expiresAt: time.Now().Add(time.Hour), permission: authorization.PermissionInventoryRead,
+		podUID: "dup",
+	}
+	if err := missingOwner.validate(); err == nil {
+		t.Fatal("Pod WebSocket authorization without canonical cluster owner was accepted")
 	}
 }
