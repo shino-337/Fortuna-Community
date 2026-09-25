@@ -810,6 +810,10 @@ export const api = {
       invalidResponse('cluster_stats_invalid_response', 'Cluster statistics response is missing the clusters array');
     }
     const list = data.clusters;
+    const total = requireFiniteNumber(data.total, 'cluster_stats_invalid_response', 'total');
+    if (total !== list.length) {
+      invalidResponse('cluster_stats_invalid_response', 'Cluster statistics total does not match the clusters array');
+    }
     return list.map((c: Record<string, unknown>) => {
       const id = String(c.id ?? '').trim();
       if (!id) {
@@ -817,7 +821,19 @@ export const api = {
       }
       const name = String(c.name ?? c.id ?? '').trim() || id;
       const k8sVersion = c.k8sVersion != null ? String(c.k8sVersion) : c.version != null ? String(c.version) : undefined;
-      const connectionStatus = c.connectionStatus != null ? String(c.connectionStatus) : undefined;
+      const connectionStatus = String(c.connectionStatus ?? '').trim();
+      if (!connectionStatus) {
+        invalidResponse('cluster_stats_invalid_response', `Cluster ${id} is missing connectionStatus`);
+      }
+      const podCount = requireFiniteNumber(c.podCount, 'cluster_stats_invalid_response', `clusters[${id}].podCount`);
+      const deploymentCount = requireFiniteNumber(c.deploymentCount, 'cluster_stats_invalid_response', `clusters[${id}].deploymentCount`);
+      const riskCount = requireFiniteNumber(c.riskCount, 'cluster_stats_invalid_response', `clusters[${id}].riskCount`);
+      const agentCount = requireFiniteNumber(c.agentCount, 'cluster_stats_invalid_response', `clusters[${id}].agentCount`);
+      const serviceAccountCount = requireFiniteNumber(c.serviceAccountCount, 'cluster_stats_invalid_response', `clusters[${id}].serviceAccountCount`);
+      const roleCount = requireFiniteNumber(c.roleCount, 'cluster_stats_invalid_response', `clusters[${id}].roleCount`);
+      const clusterRoleCount = requireFiniteNumber(c.clusterRoleCount, 'cluster_stats_invalid_response', `clusters[${id}].clusterRoleCount`);
+      const roleBindingCount = requireFiniteNumber(c.roleBindingCount, 'cluster_stats_invalid_response', `clusters[${id}].roleBindingCount`);
+      const clusterRoleBindingCount = requireFiniteNumber(c.clusterRoleBindingCount, 'cluster_stats_invalid_response', `clusters[${id}].clusterRoleBindingCount`);
       return {
         id,
         name,
@@ -829,20 +845,17 @@ export const api = {
         k8sVersion,
         source: c.source != null ? String(c.source) : undefined,
         distribution: c.distribution != null ? String(c.distribution) : undefined,
-        podCount: typeof c.podCount === 'number' ? c.podCount : undefined,
-        deploymentCount: typeof c.deploymentCount === 'number' ? c.deploymentCount : undefined,
-        riskCount: typeof c.riskCount === 'number' ? c.riskCount : undefined,
-        agentCount: typeof c.agentCount === 'number' ? c.agentCount : undefined,
+        podCount,
+        deploymentCount,
+        riskCount,
+        agentCount,
         connectionStatus,
         healthScore: connectionStatus === 'connected' ? 90 : connectionStatus === 'degraded' ? 60 : 40,
-        serviceAccountCount: typeof c.serviceAccountCount === 'number' ? c.serviceAccountCount : Number(c.serviceAccountCount) || undefined,
-        roleCount: typeof c.roleCount === 'number' ? c.roleCount : Number(c.roleCount) || undefined,
-        clusterRoleCount: typeof c.clusterRoleCount === 'number' ? c.clusterRoleCount : Number(c.clusterRoleCount) || undefined,
-        roleBindingCount: typeof c.roleBindingCount === 'number' ? c.roleBindingCount : Number(c.roleBindingCount) || undefined,
-        clusterRoleBindingCount:
-          typeof c.clusterRoleBindingCount === 'number'
-            ? c.clusterRoleBindingCount
-            : Number(c.clusterRoleBindingCount) || undefined,
+        serviceAccountCount,
+        roleCount,
+        clusterRoleCount,
+        roleBindingCount,
+        clusterRoleBindingCount,
       } as Cluster;
     });
   },
@@ -1331,13 +1344,19 @@ export const api = {
     return data.events;
   },
   getPodRuntimeBehaviorFactsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeBehaviorFact[]> => {
-    const data = await requestV2<{ facts?: PodRuntimeBehaviorFact[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`);
+    const data = await requestV2<{ podUid?: string; facts?: PodRuntimeBehaviorFact[]; total?: number }>(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`);
     if (!Array.isArray(data.facts)) invalidResponse('pod_runtime_facts_invalid_response', 'Runtime facts response is missing the facts array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_facts_identity_mismatch', 'Runtime facts response does not match the requested Pod UID');
+    const total = requireFiniteNumber(data.total, 'pod_runtime_facts_invalid_response', 'total');
+    if (total !== data.facts.length) invalidResponse('pod_runtime_facts_invalid_response', 'Runtime facts total does not match the facts array');
     return data.facts;
   },
   getPodRuntimeIncidentsV2Strict: async (podUid: string, limit = 100): Promise<PodRuntimeIncident[]> => {
-    const data = await requestV2<{ incidents?: PodRuntimeIncident[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`);
+    const data = await requestV2<{ podUid?: string; incidents?: PodRuntimeIncident[]; total?: number }>(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`);
     if (!Array.isArray(data.incidents)) invalidResponse('pod_runtime_incidents_invalid_response', 'Runtime incidents response is missing the incidents array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_incidents_identity_mismatch', 'Runtime incidents response does not match the requested Pod UID');
+    const total = requireFiniteNumber(data.total, 'pod_runtime_incidents_invalid_response', 'total');
+    if (total !== data.incidents.length) invalidResponse('pod_runtime_incidents_invalid_response', 'Runtime incidents total does not match the incidents array');
     return data.incidents;
   },
 
@@ -1775,22 +1794,32 @@ export const api = {
     if (!Array.isArray(data.rules)) {
       invalidResponse('policy_rules_invalid_response', 'Policy rules response is missing the rules array');
     }
-    return data.rules.map((r) => ({
-      id: String(r.id ?? r.uid ?? ''),
-      uid: String(r.uid ?? r.id ?? ''),
-      name: String(r.name ?? r.id ?? r.uid ?? ''),
-      severity: String(r.severity ?? 'medium').toLowerCase(),
-      enabled: Boolean(r.enabled),
-      category: r.category != null ? String(r.category) : undefined,
-      type: r.type != null ? String(r.type) : undefined,
-      description: r.description != null ? String(r.description) : undefined,
-      logic: r.logic != null ? String(r.logic) : undefined,
-      evalTime: r.evalTime != null ? String(r.evalTime) : undefined,
-      matchCount: typeof r.matchCount === 'number' ? r.matchCount : undefined,
-      relatedCapabilities: Array.isArray(r.relatedCapabilities)
-        ? r.relatedCapabilities.map((x) => String(x))
-        : undefined,
-    } as SecurityRule));
+    if (data.total != null) {
+      const total = requireFiniteNumber(data.total, 'policy_rules_invalid_response', 'total');
+      if (total < data.rules.length) invalidResponse('policy_rules_invalid_response', 'Policy rules total is smaller than the returned rule set');
+    }
+    return data.rules.map((r, index) => {
+      const id = String(r.id ?? r.uid ?? '').trim();
+      if (!id) invalidResponse('policy_rules_invalid_response', `Policy rules response contains an entry without identity at index ${index}`);
+      const name = String(r.name ?? '').trim();
+      if (!name) invalidResponse('policy_rules_invalid_response', `Policy rule ${id} is missing name`);
+      return {
+        id,
+        uid: String(r.uid ?? r.id ?? ''),
+        name,
+        severity: String(r.severity ?? 'medium').toLowerCase(),
+        enabled: Boolean(r.enabled),
+        category: r.category != null ? String(r.category) : undefined,
+        type: r.type != null ? String(r.type) : undefined,
+        description: r.description != null ? String(r.description) : undefined,
+        logic: r.logic != null ? String(r.logic) : undefined,
+        evalTime: r.evalTime != null ? String(r.evalTime) : undefined,
+        matchCount: typeof r.matchCount === 'number' ? r.matchCount : undefined,
+        relatedCapabilities: Array.isArray(r.relatedCapabilities)
+          ? r.relatedCapabilities.map((x) => String(x))
+          : undefined,
+      } as SecurityRule;
+    });
   },
 
   getRule: async (uid: string): Promise<{ rule: SecurityRule & { description?: string }; matchCount: number; recentMatches: Insight[] } | null> => {
@@ -2236,7 +2265,7 @@ export const api = {
       };
   },
 
-  getSbomList: async (params?: { podName?: string; namespace?: string; limit?: number }): Promise<PodSbomSummary[]> => {
+  getSbomList: async (params?: { clusterId?: string; podName?: string; namespace?: string; limit?: number }): Promise<PodSbomSummary[]> => {
     try {
       return await api.getSbomListStrict(params);
     } catch {
@@ -2244,9 +2273,10 @@ export const api = {
     }
   },
 
-  getSbomListStrict: async (params?: { podName?: string; namespace?: string; limit?: number }): Promise<PodSbomSummary[]> => {
+  getSbomListStrict: async (params?: { clusterId?: string; podName?: string; namespace?: string; limit?: number }): Promise<PodSbomSummary[]> => {
       const query = new URLSearchParams();
       query.set('limit', String(params?.limit ?? API_DEFAULTS.LIMIT_LIST));
+      if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
       if (params?.podName?.trim()) query.set('podName', params.podName.trim());
       if (params?.namespace?.trim()) query.set('namespace', params.namespace.trim());
       const qs = query.toString();
@@ -2256,19 +2286,31 @@ export const api = {
         invalidResponse('sbom_list_invalid_response', 'SBOM list response is missing the sboms array');
       }
       const list = data.sboms as unknown as Array<Record<string, unknown>>;
-      return list.map((s) => ({
-        ...s,
-        lastScan: s.lastScan != null ? String(s.lastScan) : '',
-        imageDigest: s.imageDigest != null ? String(s.imageDigest) : undefined,
-        imageTrust: s.imageTrust,
-        podCreatedAt: s.podCreatedAt != null ? String(s.podCreatedAt) : undefined,
-        podStatus: s.podStatus != null ? String(s.podStatus) : undefined,
-        activePod: Boolean(s.activePod),
-        lifecycleState: s.lifecycleState != null ? String(s.lifecycleState) : undefined,
-        sbomSource: s.sbomSource != null ? String(s.sbomSource) : undefined,
-        confidence: s.confidence != null ? String(s.confidence) : undefined,
-        goVersion: s.goVersion != null ? String(s.goVersion) : undefined,
-      })) as PodSbomSummary[];
+      return list.map((s, index) => {
+        const clusterId = String(s.clusterId ?? '').trim();
+        const podId = String(s.podId ?? '').trim();
+        if (!clusterId || !podId) {
+          invalidResponse('sbom_list_invalid_response', `SBOM summary at index ${index} is missing clusterId or podId`);
+        }
+        if (params?.clusterId?.trim() && clusterId !== params.clusterId.trim()) {
+          invalidResponse('sbom_list_identity_mismatch', 'SBOM list returned a row outside the requested cluster');
+        }
+        return {
+          ...s,
+          clusterId,
+          podId,
+          lastScan: s.lastScan != null ? String(s.lastScan) : '',
+          imageDigest: s.imageDigest != null ? String(s.imageDigest) : undefined,
+          imageTrust: s.imageTrust,
+          podCreatedAt: s.podCreatedAt != null ? String(s.podCreatedAt) : undefined,
+          podStatus: s.podStatus != null ? String(s.podStatus) : undefined,
+          activePod: Boolean(s.activePod),
+          lifecycleState: s.lifecycleState != null ? String(s.lifecycleState) : undefined,
+          sbomSource: s.sbomSource != null ? String(s.sbomSource) : undefined,
+          confidence: s.confidence != null ? String(s.confidence) : undefined,
+          goVersion: s.goVersion != null ? String(s.goVersion) : undefined,
+        } as PodSbomSummary;
+      });
   },
 
   /** GET /api/v1/inventory/pods/:uid/sbom – SBOM detail by pod UID */
@@ -2284,6 +2326,9 @@ export const api = {
     const data = await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom`);
     if (!data || typeof data !== 'object' || !Array.isArray(data.components)) {
       invalidResponse('pod_sbom_invalid_response', 'Pod SBOM response is missing the components array');
+    }
+    if (String(data.podId ?? '') !== podUid) {
+      invalidResponse('pod_sbom_identity_mismatch', 'Pod SBOM response does not match the requested Pod UID');
     }
     return data;
   },
@@ -2787,8 +2832,11 @@ export const api = {
     if (params?.limit) queryParams.append('limit', params.limit.toString());
     const query = queryParams.toString();
     const url = query ? `/runtime/pods/${encodeURIComponent(podUid)}/signals?${query}` : `/runtime/pods/${encodeURIComponent(podUid)}/signals`;
-    const data = await request<{ podUid: string; signals?: RuntimeSignal[]; count: number }>(url);
+    const data = await request<{ podUid?: string; signals?: RuntimeSignal[]; count?: number }>(url);
     if (!Array.isArray(data.signals)) invalidResponse('pod_runtime_signals_invalid_response', 'Runtime signals response is missing the signals array');
+    if (String(data.podUid ?? '') !== podUid) invalidResponse('pod_runtime_signals_identity_mismatch', 'Runtime signals response does not match the requested Pod UID');
+    const count = requireFiniteNumber(data.count, 'pod_runtime_signals_invalid_response', 'count');
+    if (count !== data.signals.length) invalidResponse('pod_runtime_signals_invalid_response', 'Runtime signals count does not match the signals array');
     return data.signals;
   },
 
@@ -2815,7 +2863,18 @@ export const api = {
     if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
     const query = queryParams.toString();
     const url = query ? `/runtime/signals/suppression-stats?${query}` : '/runtime/signals/suppression-stats';
-    return request<RuntimeSignalSuppressionStats>(url);
+    const data = await request<Partial<RuntimeSignalSuppressionStats>>(url);
+    const sinceMinutes = requireFiniteNumber(data.sinceMinutes, 'runtime_signal_stats_invalid_response', 'sinceMinutes');
+    const emittedEvents = requireFiniteNumber(data.emittedEvents, 'runtime_signal_stats_invalid_response', 'emittedEvents');
+    const uniqueKeys = requireFiniteNumber(data.uniqueKeys, 'runtime_signal_stats_invalid_response', 'uniqueKeys');
+    const maxRatio = requireFiniteNumber(data.maxRatio, 'runtime_signal_stats_invalid_response', 'maxRatio');
+    if (!data.perKey || typeof data.perKey !== 'object' || Array.isArray(data.perKey)) {
+      invalidResponse('runtime_signal_stats_invalid_response', 'Runtime signal statistics response is missing perKey');
+    }
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0 && sinceMinutes !== params.sinceMinutes) {
+      invalidResponse('runtime_signal_stats_invalid_response', 'Runtime signal statistics response uses an unexpected lookback');
+    }
+    return { sinceMinutes, emittedEvents, uniqueKeys, maxRatio, perKey: data.perKey as Record<string, number> };
   },
 
   getRuntimeSignalSuppressionStats: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats | null> => {
