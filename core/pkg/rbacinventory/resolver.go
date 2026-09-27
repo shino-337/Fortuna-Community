@@ -11,7 +11,9 @@ import (
 
 // These are synchronized RBAC grants, not a live Kubernetes authorization decision.
 type ServiceAccountPermissions struct {
-	ServiceAccountID    uint                           `json:"serviceAccountId"`
+	ServiceAccountID  uint   `json:"serviceAccountId"`
+	ServiceAccountUID string `json:"serviceAccountUid"`
+	ClusterID         string `json:"clusterId"`
 	RoleBindings        []RoleBindingPermission        `json:"roleBindings"`
 	ClusterRoleBindings []ClusterRoleBindingPermission `json:"clusterRoleBindings"`
 	EffectiveRules      []Rule                         `json:"effectiveRules"`
@@ -62,7 +64,7 @@ func SubjectMatches(subject rbacv1.Subject, namespace string, sa *models.Service
 }
 
 func Resolve(db *gorm.DB, sa *models.ServiceAccount) (ServiceAccountPermissions, error) {
-	out := ServiceAccountPermissions{ServiceAccountID: sa.ID, RoleBindings: []RoleBindingPermission{}, ClusterRoleBindings: []ClusterRoleBindingPermission{}, EffectiveRules: []Rule{}}
+	out := ServiceAccountPermissions{ServiceAccountID: sa.ID, ServiceAccountUID: sa.UID, ClusterID: sa.ClusterID, RoleBindings: []RoleBindingPermission{}, ClusterRoleBindings: []ClusterRoleBindingPermission{}, EffectiveRules: []Rule{}}
 	var rbs []models.RoleBinding
 	var crbs []models.ClusterRoleBinding
 	var roles []models.Role
