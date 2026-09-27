@@ -405,8 +405,8 @@ export const Resources: React.FC = () => {
       setSelectedRbacResourceDetail(null);
       setSelectedRbacResourceLoading(false);
       Promise.all([
-        api.getServiceAccountByUid(selectedResource.resource.id),
-        api.getServiceAccountPermissions(selectedResource.resource.id),
+        api.getServiceAccountByUid(selectedResource.resource.id, selectedResource.resource.clusterId),
+        api.getServiceAccountPermissions(selectedResource.resource.id, selectedResource.resource.clusterId),
       ]).then(async ([detail, permissions]) => {
         if (cancelled) return;
         setSelectedServiceAccountDetail(detail);
@@ -576,7 +576,8 @@ export const Resources: React.FC = () => {
   const handleResourceView = useCallback(
     (resource: K8sResource) => {
       if (resource.kind === 'ServiceAccount') {
-        navigate(`/identities/uid/${encodeURIComponent(resource.id)}`);
+        const clusterQuery = resource.clusterId ? `?clusterId=${encodeURIComponent(resource.clusterId)}` : '';
+        navigate(`/identities/uid/${encodeURIComponent(resource.id)}${clusterQuery}`);
       } else if (
         (resource.kind === 'Role' ||
           resource.kind === 'RoleBinding' ||
