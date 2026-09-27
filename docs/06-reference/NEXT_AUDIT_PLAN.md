@@ -259,6 +259,15 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   local source is large and node free space was limited; vulnerability matching
   remains unavailable until a separately verified catalog load. This reset
   still does not satisfy package F's populated migration or two-cluster gate.
+- The no-clean deploy replay exposed a remaining runtime continuity gap: a
+  Falco v2 batch containing an old rollout Pod UID was rejected as a whole by
+  scoped ownership checks (403), and the Agent retried the same in-memory
+  batch indefinitely. A post-inventory Agent restart cleared that transient
+  batch without deleting the host Falco source log; new batches returned
+  `send_ok`. This is an operational recovery, not a durable fix. D/F follow-up
+  must isolate individually rejected stale records while retaining evidence
+  and retrying valid siblings, with scoped mixed-batch, restart and replay
+  regressions; do not weaken Core's all-or-nothing ownership check.
 - D3 follows E2 and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers
