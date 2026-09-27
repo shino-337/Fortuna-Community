@@ -29,19 +29,11 @@ func GetServiceAccountPermissionsByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
-		var sa models.ServiceAccount
-		if err := db.Where("uid = ?", uid).First(&sa).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to load ServiceAccount"})
+		sa, ok := loadScopedServiceAccountByUID(db, c, uid, false)
+		if !ok {
 			return
 		}
-		if !authorizeServiceAccount(db, c, &sa) {
-			return
-		}
-		permissions, err := buildServiceAccountPermissions(db.WithContext(c.Request.Context()), &sa)
+		permissions, err := buildServiceAccountPermissions(db.WithContext(c.Request.Context()), sa)
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unable to resolve permissions from synchronized RBAC inventory"})
 			return
