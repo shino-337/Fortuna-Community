@@ -34,6 +34,16 @@ test('permissions failure can be retried and shows grant namespace', async ({ pa
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
+test('permission response from another cluster is rejected as unavailable', async ({ page }) => {
+  await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => r.fulfill({ json: identity('sa-a') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/permissions(?:\?.*)?$/, r =>
+    r.fulfill({ json: permissions('sa-a', 'cluster-b') }),
+  );
+  await page.goto(fixture);
+  await expect(page.getByRole('alert')).toBeVisible();
+  await expect(page.getByText('No effective rules', { exact: false })).toHaveCount(0);
+});
+
 test('late permission response cannot replace another identity', async ({ page }) => {
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
