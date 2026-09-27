@@ -158,7 +158,10 @@ function findingResourceTarget(resource?: FindingResource, clusterId?: string): 
   if (!resource || !id) return undefined;
   const kind = normalizeFindingResourceKind(resource.kind);
   if (kind === 'pod') return podDetailPath(id, clusterId);
-  if (kind === 'serviceaccount') return `/identities/uid/${encodeURIComponent(id)}`;
+  if (kind === 'serviceaccount') {
+    const clusterQuery = clusterId ? `?clusterId=${encodeURIComponent(clusterId)}` : '';
+    return `/identities/uid/${encodeURIComponent(id)}${clusterQuery}`;
+  }
   return undefined;
 }
 
