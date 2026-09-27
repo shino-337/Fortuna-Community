@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test';
 const fixture = '/tests/runtime-signals/identity.html';
 const identity = (uid: string, clusterId = 'cluster-a') => ({ uid, name: uid, namespace: 'team', clusterId, linkedPods: '[]' });
-const permissions = { roleBindings: [], clusterRoleBindings: [], effectiveRules: [{ scope: 'namespace', namespace: 'team', verbs: ['get'], apiGroups: [''], resources: ['pods'] }] };
+const permissions = (uid = 'sa-a', clusterId = 'cluster-a') => ({ serviceAccountId: 1, serviceAccountUid: uid, clusterId, roleBindings: [], clusterRoleBindings: [], effectiveRules: [{ scope: 'namespace', namespace: 'team', verbs: ['get'], apiGroups: [''], resources: ['pods'] }] });
 
 for (const status of [403, 500]) {
   test(`identity HTTP ${status} is an error, not absence`, async ({ page }) => {
-    await page.route('**/inventory/serviceaccounts/sa-a', r => r.fulfill({ status, json: { error: 'Identity lookup unavailable' } }));
+    await page.route('**/inventory/serviceaccounts/sa-a*', r => r.fulfill({ status, json: { error: 'Identity lookup unavailable' } }));
     await page.goto(fixture);
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.getByText('Identity not found', { exact: true })).toHaveCount(0);
@@ -20,9 +20,9 @@ test('permissions failure can be retried and shows grant namespace', async ({ pa
     detailCluster = new URL(r.request().url()).searchParams.get('clusterId') || '';
     return r.fulfill({ json: identity('sa-a') });
   });
-  await page.route('**/inventory/serviceaccounts/sa-a/permissions', r => {
+  await page.route('**/inventory/serviceaccounts/sa-a/permissions*', r => {
     permissionsCluster = new URL(r.request().url()).searchParams.get('clusterId') || '';
-    return r.fulfill(++attempts === 1 ? { status: 500, json: { error: 'Permission lookup failed' } } : { json: permissions });
+    return r.fulfill(++attempts === 1 ? { status: 500, json: { error: 'Permission lookup failed' } } : { json: permissions() });
   });
   await page.goto(fixture);
   await expect(page.getByRole('alert')).toContainText('Please try again');
@@ -39,9 +39,9 @@ test('late permission response cannot replace another identity', async ({ page }
   const held = new Promise<void>(resolve => { release = resolve; });
   let started = false;
   await page.route('**/inventory/serviceaccounts/sa-a', r => r.fulfill({ json: identity('sa-a') }));
-  await page.route('**/inventory/serviceaccounts/sa-b', r => r.fulfill({ json: identity('sa-b', 'cluster-b') }));
-  await page.route('**/inventory/serviceaccounts/sa-a/permissions', async r => { started = true; await held; await r.fulfill({ json: { ...permissions, effectiveRules: [{ scope: 'namespace', namespace: 'OLD', verbs: ['delete'], resources: ['secrets'] }] } }); });
-  await page.route('**/inventory/serviceaccounts/sa-b/permissions', r => r.fulfill({ json: permissions }));
+  await page.route('**/inventory/serviceaccounts/sa-b*', r => r.fulfill({ json: identity('sa-b', 'cluster-b') }));
+  await page.route('**/inventory/serviceaccounts/sa-a/permissions*', async r => { started = true; await held; await r.fulfill({ json: { ...permissions('sa-a', 'cluster-a'), effectiveRules: [{ scope: 'namespace', namespace: 'OLD', verbs: ['delete'], resources: ['secrets'] }] } }); });
+  await page.route('**/inventory/serviceaccounts/sa-b/permissions*', r => r.fulfill({ json: permissions('sa-b', 'cluster-b') }));
   await page.goto(fixture);
   await expect.poll(() => started).toBe(true);
   await page.getByRole('link', { name: 'Switch identity' }).click();
