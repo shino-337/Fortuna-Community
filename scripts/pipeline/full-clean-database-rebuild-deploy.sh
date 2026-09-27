@@ -675,7 +675,11 @@ _cleanup_old_fortuna_images() {
   done <<< "$refs"
 
   if [ "$CLEAN_BUILD_CACHE_AFTER_DEPLOY" = "true" ]; then
-    nerdctl --namespace "$CONTAINERD_NS" builder prune -f >/dev/null 2>&1 || true
+    if command -v buildctl >/dev/null 2>&1 && [ -S /run/buildkit/buildkitd.sock ]; then
+      buildctl --addr unix:///run/buildkit/buildkitd.sock prune --all >/dev/null || log_warn "BuildKit cache prune failed"
+    else
+      log_warn "BuildKit cache prune skipped (buildctl or socket unavailable)"
+    fi
   fi
   log_success "Old Fortuna image cleanup complete (kept VERSION=$VERSION, latest, and images currently referenced by workloads)"
 }
