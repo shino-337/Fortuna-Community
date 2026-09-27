@@ -249,7 +249,10 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   to 150 seconds before failing that check. Existing scoped HTTP/mTLS
   registries and client CA were reapplied after the Core Deployment replacement;
   subsequent robust deploys detect the provisioned secret set and reapply
-  these overlays before rollout. The server/webhook CA was not rotated.
+  these overlays before rollout. A no-clean/no-rebuild/no-reset replay of the
+  deploy and verification phases finished with all 10 checks passing, including
+  scoped Agent connectivity, runtime events and process snapshots. The
+  server/webhook CA was not rotated.
   At the verification snapshot, 23 Pods, 17 runtime events, 61 Kubernetes
   events and 23 Pod risk profiles were persisted; Falco runtime batches were
   accepted. CVE/OSV catalog loading was intentionally skipped because the
