@@ -63,6 +63,9 @@ echo ""
 # --- Repo: Build script ---
 echo "=== Script build ==="
 [ -x "$PROJECT_ROOT/scripts/build/build-and-load-containerd.sh" ] && ok "build-and-load-containerd.sh" || { err "Thiếu hoặc không executable: scripts/build/build-and-load-containerd.sh"; FAIL=1; }
+for f in scripts/utils/create_mtls_secret.sh scripts/utils/ensure-fortuna-secrets.sh scripts/deploy/deploy-fortuna-robust.sh; do
+  [ -x "$PROJECT_ROOT/$f" ] && ok "$f" || { err "Thiếu hoặc không executable: $f"; FAIL=1; }
+done
 echo ""
 
 # --- Repo: Deploy YAMLs ---
