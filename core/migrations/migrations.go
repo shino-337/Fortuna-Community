@@ -117,6 +117,7 @@ var (
 	_ = Migration144_RepairPolicyEngineTablesSQL
 	_ = Migration145_SeedPolicyEngineBaselineSQL
 	_ = Migration146_SeedLegacyFindingCodeRules
+	_ = Migration151_RepairBaselinePodPolicyCEL
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -346,7 +347,8 @@ func RunMigrations(db *gorm.DB) error {
 		Migration147_UserPasswordBootstrapState,                 // Auth: bootstrap default credential state + first-login password change
 		Migration148_NotificationsContextFields,                 // Notifications: category, routing, dedupe and resource context
 		Migration150_AgentClusterIdentity,
-		Migration149_NotificationsResourceName,                  // Notifications: human-readable resource name for UI traceability
+		Migration149_NotificationsResourceName,  // Notifications: human-readable resource name for UI traceability
+		Migration151_RepairBaselinePodPolicyCEL, // Correct immutable Pod baseline policy CEL and repoint legacy instances
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))

@@ -15,54 +15,54 @@ func Migration145_SeedPolicyEngineBaselineSQL(db *gorm.DB) error {
 	log.Println("Running migration 145: seed policy engine baseline with SQL")
 
 	statements := []string{
-		`INSERT INTO policy_templates (
+		fmt.Sprintf(`INSERT INTO policy_templates (
 			created_at, updated_at, template_id, version, name, description,
 			category, default_severity, cel_expression, default_scope,
 			default_action, supports_remediation, rationale, created_by, is_system
 		) VALUES (
-			NOW(), NOW(), 'k8s-no-privileged-container', '1.0.0',
+			NOW(), NOW(), 'k8s-no-privileged-container', '%s',
 			'Disallow privileged containers',
 			'Flags Pod workloads that run any container with privileged=true.',
 			'security', 'high',
-			'has(object.spec) && has(object.spec.containers) && object.spec.containers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true)',
+			'%s',
 			'{"resourceTypes":["Pod"]}',
 			'alert', false,
 			'Privileged containers weaken isolation boundaries and increase host takeover risk.',
 			'system', true
-		) ON CONFLICT (template_id, version) DO NOTHING;`,
-		`INSERT INTO policy_templates (
+		) ON CONFLICT (template_id, version) DO NOTHING;`, baselinePodPolicyVersion, baselineNoPrivilegedCEL),
+		fmt.Sprintf(`INSERT INTO policy_templates (
 			created_at, updated_at, template_id, version, name, description,
 			category, default_severity, cel_expression, default_scope,
 			default_action, supports_remediation, rationale, created_by, is_system
 		) VALUES (
-			NOW(), NOW(), 'k8s-no-host-namespace-sharing', '1.0.0',
+			NOW(), NOW(), 'k8s-no-host-namespace-sharing', '%s',
 			'Restrict host namespace sharing',
 			'Flags Pod workloads enabling hostNetwork, hostPID, or hostIPC.',
 			'security', 'high',
-			'has(object.spec) && ((has(object.spec.hostNetwork) && object.spec.hostNetwork == true) || (has(object.spec.hostPID) && object.spec.hostPID == true) || (has(object.spec.hostIPC) && object.spec.hostIPC == true))',
+			'%s',
 			'{"resourceTypes":["Pod"]}',
 			'alert', false,
 			'Host namespace sharing broadens lateral movement and process/network visibility on the node.',
 			'system', true
-		) ON CONFLICT (template_id, version) DO NOTHING;`,
-		`INSERT INTO policy_instances (
+		) ON CONFLICT (template_id, version) DO NOTHING;`, baselinePodPolicyVersion, baselineNoHostNamespacesCEL),
+		fmt.Sprintf(`INSERT INTO policy_instances (
 			created_at, updated_at, template_id, template_version, instance_name,
-			description, enabled, action, severity, created_by, updated_by
+			description, enabled, resource_types, action, severity, created_by, updated_by
 		) VALUES (
-			NOW(), NOW(), 'k8s-no-privileged-container', '1.0.0',
+			NOW(), NOW(), 'k8s-no-privileged-container', '%s',
 			'baseline-no-privileged-container',
 			'Default baseline guard for privileged containers.',
-			true, 'alert', 'high', 'system', 'system'
-		) ON CONFLICT (instance_name) DO NOTHING;`,
-		`INSERT INTO policy_instances (
+			true, ARRAY['Pod'], 'alert', 'high', 'system', 'system'
+		) ON CONFLICT (instance_name) DO NOTHING;`, baselinePodPolicyVersion),
+		fmt.Sprintf(`INSERT INTO policy_instances (
 			created_at, updated_at, template_id, template_version, instance_name,
-			description, enabled, action, severity, created_by, updated_by
+			description, enabled, resource_types, action, severity, created_by, updated_by
 		) VALUES (
-			NOW(), NOW(), 'k8s-no-host-namespace-sharing', '1.0.0',
+			NOW(), NOW(), 'k8s-no-host-namespace-sharing', '%s',
 			'baseline-no-host-namespace-sharing',
 			'Default baseline guard for host namespace sharing.',
-			true, 'alert', 'high', 'system', 'system'
-		) ON CONFLICT (instance_name) DO NOTHING;`,
+			true, ARRAY['Pod'], 'alert', 'high', 'system', 'system'
+		) ON CONFLICT (instance_name) DO NOTHING;`, baselinePodPolicyVersion),
 	}
 
 	for _, stmt := range statements {
