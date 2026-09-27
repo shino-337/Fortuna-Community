@@ -380,7 +380,10 @@ export const RiskDetail: React.FC = () => {
                     variant="secondary"
                     onClick={() => {
                       if (r.kind === 'Pod' && r.id) navigate(podDetailPath(r.id, insight.clusterId));
-                      if (r.kind === 'ServiceAccount' && r.id) navigate(`/identities/uid/${encodeURIComponent(r.id)}`);
+                      if (r.kind === 'ServiceAccount' && r.id) {
+                        const clusterQuery = insight.clusterId ? `?clusterId=${encodeURIComponent(insight.clusterId)}` : '';
+                        navigate(`/identities/uid/${encodeURIComponent(r.id)}${clusterQuery}`);
+                      }
                     }}
                     title={r.kind === 'Pod' ? 'View pod in Resources' : r.kind === 'ServiceAccount' ? 'View identity' : 'View resource'}
                   >
