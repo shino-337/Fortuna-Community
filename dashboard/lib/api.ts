@@ -2028,6 +2028,12 @@ export const api = {
     if (!Array.isArray(data.roleBindings) || !Array.isArray(data.clusterRoleBindings) || !Array.isArray(data.effectiveRules)) {
       invalidResponse('service_account_permissions_invalid_response', 'ServiceAccount permissions response is missing required arrays');
     }
+    if (String(data.serviceAccountUid ?? '').trim() !== uid) {
+      invalidResponse('service_account_permissions_identity_mismatch', 'ServiceAccount permissions response does not match the requested UID');
+    }
+    if (clusterId?.trim() && String(data.clusterId ?? '').trim() !== clusterId.trim()) {
+      invalidResponse('service_account_permissions_identity_mismatch', 'ServiceAccount permissions response does not match the requested cluster');
+    }
     return data;
   },
 
