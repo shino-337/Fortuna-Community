@@ -173,6 +173,16 @@ is provisioned; the old shared Agent certificate is not a fallback. If the
 original Fortuna CA private key is unavailable, use the dedicated Agent-client
 CA procedure in that guide rather than rotating Core and webhook certificates.
 
+On a subsequent `deploy-fortuna-robust.sh` run, existing scoped Agent registry
+secrets are detected before the old Core Deployment is deleted. The script
+requires the HTTP registry, mTLS registry and Agent-client CA secret together,
+then reapplies the HTTP/mTLS Core and Agent patches before rollout. Keep the
+per-node token and client-certificate files provisioned at the host paths in
+those patches. Set `APPLY_SCOPED_AGENT_CREDENTIALS=false` only if another
+deployment controller manages these overlays; a partial secret set otherwise
+stops deployment before replacing Core. Scoped mTLS also requires cluster DNS;
+the script refuses the legacy TLS-disabled IP fallback.
+
 ## Security Notes
 
 - Do not commit real secrets, kubeconfigs, certificates, database dumps, or local environment files.

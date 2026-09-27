@@ -113,7 +113,7 @@ spec:
       
       containers:
         - name: core
-          image: ghcr.io/shino-337/fortuna-community/fortuna-core:v1.0.0
+          image: fortuna-core:auditfix-20260927-ee927de95
           imagePullPolicy: IfNotPresent
           
           ports:

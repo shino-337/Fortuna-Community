@@ -230,9 +230,31 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   compliant. The corrected 1.0.1 templates cover app, init, and ephemeral
   containers and host namespace flags; a forward migration repoints legacy
   instances and retires only exact stock broken 1.0.0 templates. Source and
-  PostgreSQL regressions pass, but live rollout must confirm both templates
-  compile and an unsafe Pod produces the expected violation. This finding is
-  not closed by a database reset alone.
+  PostgreSQL regressions confirm safe Pod acceptance and unsafe Pod violations,
+  including a populated legacy-template repair. A fresh live rollout on
+  2026-09-27 confirmed two active 1.0.1 templates and two enabled Pod-scoped
+  instances. The live webhook responds on HTTPS :8443, but no Kubernetes
+  ValidatingWebhookConfiguration is installed; a cluster admission denial was
+  not claimed. This finding is not closed by a database reset alone.
+- The same fresh single-node rollout used local image tag
+  `auditfix-20260927-ee927de95` for Core, Agent and Dashboard. A restricted
+  `pg_dump -Fc` was checked before the dedicated `fortuna` schema reset;
+  its restricted host backup is `/var/backups/fortuna/fortuna-pre-reset-20260927-1115.dump`
+  (SHA-256 `f9edbc448f9721d2750de6522085534556d4b85fb570025ba697601a0902e89a`).
+  All 146 migrations applied. Core/Agent/Dashboard rollouts and the full
+  deployment check passed (0 errors, 0 warnings). The first post-deploy
+  process-snapshot check ran before the Agent's two-minute retry, returned
+  nonzero, and was followed by 20 Pod snapshots; the pipeline now waits up
+  to 150 seconds before failing that check. Existing scoped HTTP/mTLS
+  registries and client CA were reapplied after the Core Deployment replacement;
+  subsequent robust deploys detect the provisioned secret set and reapply
+  these overlays before rollout. The server/webhook CA was not rotated.
+  At the verification snapshot, 23 Pods, 17 runtime events, 61 Kubernetes
+  events and 23 Pod risk profiles were persisted; Falco runtime batches were
+  accepted. CVE/OSV catalog loading was intentionally skipped because the
+  local source is large and node free space was limited; vulnerability matching
+  remains unavailable until a separately verified catalog load. This reset
+  still does not satisfy package F's populated migration or two-cluster gate.
 - D3 follows E2 and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers

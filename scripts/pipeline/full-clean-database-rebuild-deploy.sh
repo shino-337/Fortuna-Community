@@ -1570,8 +1570,20 @@ if [ "$SKIP_DEPLOY" = false ]; then
         log_info "  - Runtime events: 0 (runtime features not enabled)"
       fi
     fi
-    POD_PROC_COUNT=$(kubectl exec -n "$NAMESPACE" "$PG_POD" -- psql -U postgres -d fortuna -tAc "SELECT count(DISTINCT pod_uid) FROM pod_processes" 2>/dev/null || echo "0")
-    POD_PROC_COUNT=$(echo "$POD_PROC_COUNT" | tr -d '[:space:]')
+    # PodDetail reports immediately on startup, then every 2m. The initial
+    # report may precede Core's first accepted inventory and receive 403.
+    # Give the next report a bounded chance without masking a real failure.
+    POD_PROCESS_WAIT_SECONDS="${POD_PROCESS_WAIT_SECONDS:-150}"
+    POD_PROCESS_DEADLINE=$(( $(date +%s) + POD_PROCESS_WAIT_SECONDS ))
+    while :; do
+      POD_PROC_COUNT=$(kubectl exec -n "$NAMESPACE" "$PG_POD" -- psql -U postgres -d fortuna -tAc "SELECT count(DISTINCT pod_uid) FROM pod_processes" 2>/dev/null || echo "0")
+      POD_PROC_COUNT=$(echo "$POD_PROC_COUNT" | tr -d '[:space:]')
+      if [ "${POD_PROC_COUNT:-0}" -gt 0 ] || [ "$(date +%s)" -ge "$POD_PROCESS_DEADLINE" ]; then
+        break
+      fi
+      log_info "  - Process snapshots not yet available; waiting for PodDetail reporter..."
+      sleep 10
+    done
     if [ "${POD_PROC_COUNT:-0}" -gt 0 ]; then
       _v_ok "Process snapshots: $POD_PROC_COUNT pods with data"
     else
