@@ -1358,6 +1358,8 @@ export interface K8sClusterRoleBindingPermission {
 /** RBAC permissions for a Kubernetes ServiceAccount. */
 export interface ServiceAccountK8sPermissions {
   serviceAccountId?: number;
+  serviceAccountUid?: string;
+  clusterId?: string;
   roleBindings?: K8sRoleBindingPermission[];
   clusterRoleBindings?: K8sClusterRoleBindingPermission[];
   effectiveRules?: K8sEffectiveRule[];
