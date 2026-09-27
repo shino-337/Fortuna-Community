@@ -809,25 +809,13 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 
 func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		saUID := c.Param("uid")
+		saUID := strings.TrimSpace(c.Param("uid"))
 		if saUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
-		query := db.Preload("Cluster").Where("uid = ?", saUID)
-		if clusterID := strings.TrimSpace(c.Query("clusterId")); clusterID != "" {
-			query = query.Where("cluster_id = ?", clusterID)
-		}
-		var sa models.ServiceAccount
-		if err := query.First(&sa).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
+		sa, ok := loadScopedServiceAccountByUID(db, c, saUID, true)
+		if !ok {
 			return
 		}
 		c.JSON(http.StatusOK, sa)
