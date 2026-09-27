@@ -142,11 +142,18 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   zero/empty data, primary clients preserve last-known-good state, retryable versus
   operator-action `503` is explicit, and genuine successful empty responses keep
   their normal empty semantics.
-- E2 active from merge commit `a6e49ff`: finish detail/list compatibility across
-  Cluster, Node, Capability, Pod and shared cluster-selection consumers. Remove
-  remaining `catch => []/null/0` availability erasure on contract-backed reads,
-  preserve last-known-good detail/tab state, and distinguish unavailable from
-  not-found/empty in UI regressions.
+- E2 / PR #54 remains active from merge commit `a6e49ff`, with closure fixes
+  reviewed through exact head `ced3aaf82c40ae4e55351712a04eb73296e8983b` on
+  2026-09-27. Cluster, Node, Capability and Pod detail/list availability behavior
+  is implemented; the closure review additionally found and fixed ServiceAccount
+  canonical identity loss and AttackPaths stale/malformed-response handling.
+  ServiceAccount detail and permissions now preserve `{cluster_id, uid}` from
+  navigation through Core resolution, duplicate UID reads fail closed when cluster
+  ownership is ambiguous, and dashboard callers that already know the cluster
+  retain it. AttackPaths now rejects malformed successful graph/bundle payloads
+  and ignores stale page/pod responses after cluster/entity changes. E2 is not
+  merge-ready until the owner records exact-head local CI evidence for the gate
+  below.
 - D3 follows E2 and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers
@@ -174,9 +181,16 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52 and #53 are merged. Active work is E2 from merge commit `a6e49ff`; E2 must
-remain focused on UI/detail/list consumption of the established availability
-contract and must not reopen runtime evidence or inventory ownership contracts.
+security regression gates passed. #51 was retired rather than reused. #52 and #53
+are merged. Active work is E2 from merge commit `a6e49ff`. GitHub-hosted Actions
+for #54 are currently failing before runner execution because of the repository
+account/runner entitlement state; zero-step jobs are not code evidence. For #54
+only, the repository owner may satisfy the exact-head functional gate with a
+recorded local run of the same commands/jobs. Automatic Secret Scan remains
+manual-only and is not part of this functional gate. E2 should remain focused on
+availability/identity correctness of the affected detail/list consumers and must
+not enable runtime absence authority or claim package-F live multi-cluster
+acceptance.
 
 
 ### Final #50 merge blockers closed
@@ -333,10 +347,60 @@ E2 starts from merge commit `a6e49ff`. Merge only when:
 - permanent Playwright regressions cover primary 503 versus 404, enrichment/tab
   503, capability rule failure, Node/Pod last-known-good refresh preservation and
   successful empty behavior where applicable;
+- ServiceAccount detail and permissions preserve canonical `{cluster_id, uid}`
+  identity. A known cluster must be propagated by Pod/Resources/findings links;
+  unqualified duplicate UIDs must return an ambiguity failure rather than selecting
+  an arbitrary row; permission responses return and validate UID + cluster
+  ownership;
+- AttackPaths cluster/entity changes cannot be overwritten by an older in-flight
+  bundle/fallback/pod request, and malformed successful graph/bundle payloads are
+  protocol-unavailable rather than empty graph/path state;
+- the permanent route/static guard ratchets cluster-aware Pod and ServiceAccount
+  navigation plus AttackPaths request-generation/strict-response markers;
 - exact-head Dashboard typecheck/build/Playwright, Core permanent regressions,
-  PostgreSQL gate, API/Agent tests + vet, shell/hygiene pass. Secret scanning is
-  manual-only while the repository plan/license does not support it as a reliable
-  PR/push gate; scanner availability must not block the functional CI contract.
+  PostgreSQL gate, API/Agent tests + vet, script/shell/hygiene pass. For PR #54,
+  owner-recorded local execution of these same gates is accepted while
+  GitHub-hosted jobs fail before execution. Secret scanning is manual-only while
+  the repository plan/license does not support it as a reliable PR/push gate;
+  scanner availability must not block the functional CI contract.
+
+#### #54 local exact-head verification
+
+Before manual merge, record the tested commit SHA and successful local results for:
+
+```bash
+# Core
+(cd core && go test ./... && go vet ./...)
+python3 scripts/verify/test-security-regression-gate.py
+python3 scripts/verify/check-security-regressions.py
+
+# API + Agent
+(cd api && go test ./... && go vet ./...)
+(cd agent && go test ./... && go vet ./...)
+
+# Dashboard
+(cd dashboard && npm ci && npm run typecheck && npm run build)
+(cd dashboard && npx playwright install chromium)
+(cd dashboard && npx playwright test --config playwright.runtime.config.ts)
+
+# Repository/script contracts
+python3 scripts/verify/check-service-selectors.py
+python3 scripts/e2e/test-webhook-bootstrap.py
+python3 scripts/verify/test-agent-credential-tool.py
+python3 scripts/verify/test-agent-certificate-tool.py
+python3 scripts/verify/test-scoped-agent-credential-overlay.py
+python3 scripts/verify/check-cluster-resource-models.py
+python3 scripts/verify/check-cluster-qualified-pod-routes.py
+python3 scripts/verify/test-cluster-qualified-pod-routes.py
+python3 scripts/verify/check-retired-routes.py
+python3 scripts/verify/test-retired-routes.py
+find scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+```
+
+The PostgreSQL job must also be run against a local PostgreSQL 16 instance with
+`FORTUNA_TEST_POSTGRES_URL` set, using the same test selections in
+`.github/workflows/ci.yml`. A local pass applies only to the exact recorded head;
+any subsequent runtime/security-relevant commit resets the gate.
 
 Current execution order after #53:
 1. complete E2 against the gates above and merge PR #54 manually;
