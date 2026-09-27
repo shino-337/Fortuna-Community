@@ -6,6 +6,7 @@ import unittest
 guard = runpy.run_path("scripts/verify/check-cluster-qualified-pod-routes.py")
 check = guard["strict_identity_errors"]
 dashboard_check = guard["dashboard_pod_link_errors"]
+service_account_dashboard_check = guard["dashboard_service_account_link_errors"]
 
 class IdentityGuardTests(unittest.TestCase):
     def test_rejects_uid_resource_uid_raw_sql_and_cache(self):
@@ -28,6 +29,12 @@ class IdentityGuardTests(unittest.TestCase):
         uid_only = "navigate(" + "`/resources/pods/uid/" + "$" + "{encodeURIComponent(pod.uid)}`)"
         self.assertTrue(dashboard_check(uid_only))
         self.assertFalse(dashboard_check("navigate(podDetailPath(pod.uid, pod.clusterId))"))
+
+    def test_rejects_cluster_aware_service_account_link_without_cluster(self):
+        uid_only = "navigate(" + "`/identities/uid/" + "$" + "{encodeURIComponent(sa.uid)}`)"
+        qualified = "const clusterQuery = sa.clusterId ? '?clusterId=' + encodeURIComponent(sa.clusterId) : ''; navigate('/identities/uid/' + sa.uid + clusterQuery)"
+        self.assertTrue(service_account_dashboard_check(uid_only))
+        self.assertFalse(service_account_dashboard_check(qualified))
 
 if __name__ == "__main__":
     unittest.main()
