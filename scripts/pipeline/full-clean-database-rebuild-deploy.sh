@@ -10,7 +10,7 @@
 # When using Docker, images are built with `docker build` then imported into
 # containerd via `ctr -n k8s.io images import` so kubelet sees them.
 #
-# 1. Clean: port-forwards, E2E namespaces, fortuna images by tag and by ID, system/builder prune.
+# 1. Clean: E2E namespaces, Fortuna images by tag and by ID, rebuildable builder cache.
 # 2. Optional DB: run clear_all_cluster_data.sql (--db) or reset_database_full.sql (--db-reset).
 #    When deploy runs, DB clean happens in Phase 2d AFTER Flannel + StorageClass + apply Postgres (PVC must bind).
 #    When --only-db-reset, DB clean runs in Phase 1b (Postgres must already exist).
@@ -675,7 +675,7 @@ _cleanup_old_fortuna_images() {
   done <<< "$refs"
 
   if [ "$CLEAN_BUILD_CACHE_AFTER_DEPLOY" = "true" ]; then
-    nerdctl --namespace "$CONTAINERD_NS" builder prune >/dev/null 2>&1 || true
+    nerdctl --namespace "$CONTAINERD_NS" builder prune -f >/dev/null 2>&1 || true
   fi
   log_success "Old Fortuna image cleanup complete (kept VERSION=$VERSION, latest, and images currently referenced by workloads)"
 }
@@ -702,8 +702,7 @@ if [ "$ONLY_E2E" != true ]; then
 
 # ---- Phase 1: Clean ----
 if [ "$SKIP_CLEAN" = false ]; then
-  log_info "Phase 1: Clean (port-forwards, E2E ns, fortuna images, prune)..."
-  pkill -f "kubectl.*port-forward" 2>/dev/null || true
+  log_info "Phase 1: Clean (E2E ns, Fortuna images, builder cache)..."
   for ns in fortuna-e2e fortuna-e2e-2025; do
     kubectl get namespace "$ns" 2>/dev/null && kubectl delete namespace "$ns" --timeout=60s 2>/dev/null || true
   done
@@ -722,9 +721,8 @@ if [ "$SKIP_CLEAN" = false ]; then
     for id in $fortuna_ids; do
       [ -n "$id" ] && [ "$id" != "ID" ] && nerdctl --namespace "$CONTAINERD_NS" rmi --force "$id" 2>/dev/null || true
     done
-    log_info "Pruning containerd system and build cache..."
-    nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
-    nerdctl --namespace "$CONTAINERD_NS" builder prune 2>/dev/null || true
+    log_info "Pruning rebuildable builder cache (not unrelated containerd images)..."
+    nerdctl --namespace "$CONTAINERD_NS" builder prune -f 2>/dev/null || true
   fi
   # Clean via docker if available
   if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
@@ -732,10 +730,9 @@ if [ "$SKIP_CLEAN" = false ]; then
     for img in fortuna-core fortuna-agent fortuna-dashboard; do
       docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${img}:" | xargs -r docker rmi --force 2>/dev/null || true
     done
-    docker image prune -f 2>/dev/null || true
   fi
   # Clean via ctr if available (catches images not managed by nerdctl/docker)
-  # pipefail: grep exits 1 when there are no matches — would kill the whole script after Docker prune.
+  # pipefail: grep exits 1 when there are no matches — do not abort an empty image list.
   if command -v ctr &>/dev/null; then
     { ctr -n "$CONTAINERD_NS" images list 2>/dev/null || true; } | awk '/fortuna-(core|agent|dashboard)/ {print $1}' | while read -r ref; do
       [ -n "$ref" ] && ctr -n "$CONTAINERD_NS" images rm "$ref" 2>/dev/null || true
