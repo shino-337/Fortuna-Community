@@ -233,7 +233,8 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   PostgreSQL regressions confirm safe Pod acceptance and unsafe Pod violations,
   including a populated legacy-template repair. A fresh live rollout on
   2026-09-27 confirmed two active 1.0.1 templates and two enabled Pod-scoped
-  instances. The live webhook responds on HTTPS :8443, but no Kubernetes
+  instances; the Core evaluator logged successful CEL compilation of both.
+  The live webhook responds on HTTPS :8443, but no Kubernetes
   ValidatingWebhookConfiguration is installed; a cluster admission denial was
   not claimed. This finding is not closed by a database reset alone.
 - The same fresh single-node rollout used local image tag
