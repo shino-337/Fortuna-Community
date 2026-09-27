@@ -125,6 +125,41 @@ function mapRawAttackPathGraphPayload(raw: { nodes?: any[]; links?: any[] } | nu
   return { nodes, links };
 }
 
+function mapRawAttackPathGraphPayloadStrict(
+  raw: { nodes?: unknown; links?: unknown } | null | undefined,
+  code = 'attack_path_graph_invalid_response',
+): AttackPathGraphData {
+  if (!raw || typeof raw !== 'object' || !Array.isArray(raw.nodes) || !Array.isArray(raw.links)) {
+    invalidResponse(code, 'Attack-path graph response is missing required nodes or links arrays');
+  }
+  for (const [index, node] of raw.nodes.entries()) {
+    if (!node || typeof node !== 'object') {
+      invalidResponse(code, `Attack-path graph contains an invalid node at index ${index}`);
+    }
+    const row = node as Record<string, unknown>;
+    const nodeId = String(row.id ?? row.uid ?? '').trim();
+    if (!nodeId) {
+      invalidResponse(code, `Attack-path graph contains a node without an identity at index ${index}`);
+    }
+  }
+  for (const [index, link] of raw.links.entries()) {
+    if (!link || typeof link !== 'object') {
+      invalidResponse(code, `Attack-path graph contains an invalid link at index ${index}`);
+    }
+    const row = link as Record<string, unknown>;
+    const source = typeof row.source === 'object' && row.source != null
+      ? String((row.source as Record<string, unknown>).id ?? '').trim()
+      : String(row.source ?? row.from ?? '').trim();
+    const target = typeof row.target === 'object' && row.target != null
+      ? String((row.target as Record<string, unknown>).id ?? '').trim()
+      : String(row.target ?? row.to ?? '').trim();
+    if (!source || !target) {
+      invalidResponse(code, `Attack-path graph contains a link without source/target identity at index ${index}`);
+    }
+  }
+  return mapRawAttackPathGraphPayload(raw as { nodes: any[]; links: any[] });
+}
+
 function normalizeAttackPath(raw: any): AttackPath | null {
   if (!raw || typeof raw !== 'object') return null;
   return {
@@ -3063,8 +3098,8 @@ export const api = {
   // Attack Analysis Graph
   getAttackPathsGraphStrict: async (clusterId?: string): Promise<AttackPathGraphData> => {
     const query = clusterId?.trim() ? `?cluster_id=${encodeURIComponent(clusterId.trim())}` : '';
-    const data = await request<{ data: { nodes: any[]; links: any[] } }>(`/graph/attack-paths/graph${query}`);
-    return mapRawAttackPathGraphPayload(data.data);
+    const data = await request<{ data?: { nodes?: unknown; links?: unknown } }>(`/graph/attack-paths/graph${query}`);
+    return mapRawAttackPathGraphPayloadStrict(data.data);
   },
 
   getAttackPathsGraph: async (clusterId?: string): Promise<AttackPathGraphData> => {
@@ -3089,12 +3124,17 @@ export const api = {
       };
     }>(`/graph/attack-paths/bundle${query}`);
     const d = data.data;
-    if (!d) return null;
+    if (!d || typeof d !== 'object') {
+      invalidResponse('attack_path_bundle_invalid_response', 'Attack-path bundle response is missing data');
+    }
+    if (!Array.isArray(d.chains) || !Array.isArray(d.objectives) || !Array.isArray(d.paths)) {
+      invalidResponse('attack_path_bundle_invalid_response', 'Attack-path bundle response is missing required chains, objectives, or paths arrays');
+    }
     return {
-      graph: mapRawAttackPathGraphPayload(d.graph),
+      graph: mapRawAttackPathGraphPayloadStrict(d.graph, 'attack_path_bundle_invalid_response'),
       summary: d.summary ?? null,
       chains: normalizeAttackChains(d.chains),
-      objectives: d.objectives || [],
+      objectives: d.objectives,
       paths: normalizeAttackPaths(d.paths),
     };
   },
