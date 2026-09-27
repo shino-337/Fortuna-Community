@@ -114,6 +114,39 @@ CLUSTER_AWARE_DASHBOARD_POD_LINK_FILES = {
 }
 DIRECT_DASHBOARD_POD_ROUTE = re.compile(r"/resources/pods/uid/")
 
+CLUSTER_AWARE_DASHBOARD_SA_LINK_FILES = {
+    "dashboard/pages/PodDetail.tsx",
+    "dashboard/pages/Resources.tsx",
+    "dashboard/pages/Insights.tsx",
+    "dashboard/pages/RiskDetail.tsx",
+}
+SERVICE_ACCOUNT_ROUTE = "/identities/uid/"
+
+SERVICE_ACCOUNT_CORE_REQUIRED = {
+    "core/internal/api/handlers.go": "loadScopedServiceAccountByUID(db, c, saUID, true)",
+    "core/internal/api/permissions_handlers.go": "loadScopedServiceAccountByUID(db, c, uid, false)",
+}
+
+ATTACK_PATH_DASHBOARD_REQUIRED = {
+    "dashboard/pages/AttackPaths.tsx": [
+        "dataRequestSequence = useRef(0)",
+        "podRequestSequence = useRef(0)",
+        "sequence !== dataRequestSequence.current",
+        "sequence !== podRequestSequence.current",
+    ],
+    "dashboard/lib/api.ts": [
+        "mapRawAttackPathGraphPayloadStrict",
+        "attack_path_bundle_invalid_response",
+        "Attack-path bundle response is missing required chains, objectives, or paths arrays",
+    ],
+}
+
+def dashboard_service_account_link_errors(source):
+    errors = []
+    if SERVICE_ACCOUNT_ROUTE in source and "clusterQuery" not in source:
+        errors.append("cluster-aware dashboard surface constructs a ServiceAccount UID route without preserving clusterId")
+    return errors
+
 def dashboard_pod_link_errors(source):
     errors = []
     if DIRECT_DASHBOARD_POD_ROUTE.search(source):
@@ -153,6 +186,33 @@ for raw_path in sorted(CLUSTER_AWARE_DASHBOARD_POD_LINK_FILES):
         continue
     text = path.read_text(encoding="utf-8")
     errors.extend(f"{path}: {error}" for error in dashboard_pod_link_errors(text))
+
+for raw_path in sorted(CLUSTER_AWARE_DASHBOARD_SA_LINK_FILES):
+    path = Path(raw_path)
+    if not path.exists():
+        errors.append(f"missing cluster-aware ServiceAccount dashboard file: {path}")
+        continue
+    text = path.read_text(encoding="utf-8")
+    errors.extend(f"{path}: {error}" for error in dashboard_service_account_link_errors(text))
+
+for raw_path, token in SERVICE_ACCOUNT_CORE_REQUIRED.items():
+    path = Path(raw_path)
+    if not path.exists():
+        errors.append(f"missing ServiceAccount identity file: {path}")
+        continue
+    text = path.read_text(encoding="utf-8")
+    if token not in text:
+        errors.append(f"{path}: required scoped ServiceAccount identity contract missing: {token!r}")
+
+for raw_path, tokens in ATTACK_PATH_DASHBOARD_REQUIRED.items():
+    path = Path(raw_path)
+    if not path.exists():
+        errors.append(f"missing AttackPath availability file: {path}")
+        continue
+    text = path.read_text(encoding="utf-8")
+    for token in tokens:
+        if token not in text:
+            errors.append(f"{path}: required AttackPath availability contract missing: {token!r}")
 
 for path in Path("core").rglob("*.go"):
     if path.name.endswith("_test.go"):
