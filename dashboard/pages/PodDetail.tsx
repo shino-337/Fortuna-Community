@@ -182,8 +182,9 @@ const PodDetailContent: React.FC = () => {
   const serviceAccountName = String(pod?.serviceAccount ?? '').trim();
   const openServiceAccountIdentity = useCallback(() => {
     if (!serviceAccountRef?.uid) return;
-    navigate(`/identities/uid/${encodeURIComponent(serviceAccountRef.uid)}`);
-  }, [navigate, serviceAccountRef?.uid]);
+    const clusterQuery = serviceAccountRef.clusterId ? `?clusterId=${encodeURIComponent(serviceAccountRef.clusterId)}` : '';
+    navigate(`/identities/uid/${encodeURIComponent(serviceAccountRef.uid)}${clusterQuery}`);
+  }, [navigate, serviceAccountRef?.clusterId, serviceAccountRef?.uid]);
 
   const resolveServiceAccountRef = useCallback(async (podRef: PodWithRisk): Promise<K8sServiceAccount | null> => {
     const saName = String(podRef.serviceAccount ?? '').trim();
