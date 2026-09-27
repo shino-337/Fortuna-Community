@@ -5,7 +5,7 @@ const permissions = (uid = 'sa-a', clusterId = 'cluster-a') => ({ serviceAccount
 
 for (const status of [403, 500]) {
   test(`identity HTTP ${status} is an error, not absence`, async ({ page }) => {
-    await page.route('**/inventory/serviceaccounts/sa-a*', r => r.fulfill({ status, json: { error: 'Identity lookup unavailable' } }));
+    await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => r.fulfill({ status, json: { error: 'Identity lookup unavailable' } }));
     await page.goto(fixture);
     await expect(page.getByRole('alert')).toBeVisible();
     await expect(page.getByText('Identity not found', { exact: true })).toHaveCount(0);
@@ -16,11 +16,11 @@ test('permissions failure can be retried and shows grant namespace', async ({ pa
   let attempts = 0;
   let detailCluster = '';
   let permissionsCluster = '';
-  await page.route('**/inventory/serviceaccounts/sa-a', r => {
+  await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => {
     detailCluster = new URL(r.request().url()).searchParams.get('clusterId') || '';
     return r.fulfill({ json: identity('sa-a') });
   });
-  await page.route('**/inventory/serviceaccounts/sa-a/permissions*', r => {
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/permissions(?:\?.*)?$/, r => {
     permissionsCluster = new URL(r.request().url()).searchParams.get('clusterId') || '';
     return r.fulfill(++attempts === 1 ? { status: 500, json: { error: 'Permission lookup failed' } } : { json: permissions() });
   });
@@ -38,15 +38,15 @@ test('late permission response cannot replace another identity', async ({ page }
   let release!: () => void;
   const held = new Promise<void>(resolve => { release = resolve; });
   let started = false;
-  await page.route('**/inventory/serviceaccounts/sa-a', r => r.fulfill({ json: identity('sa-a') }));
-  await page.route('**/inventory/serviceaccounts/sa-b*', r => r.fulfill({ json: identity('sa-b', 'cluster-b') }));
-  await page.route('**/inventory/serviceaccounts/sa-a/permissions*', async r => { started = true; await held; await r.fulfill({ json: { ...permissions('sa-a', 'cluster-a'), effectiveRules: [{ scope: 'namespace', namespace: 'OLD', verbs: ['delete'], resources: ['secrets'] }] } }); });
-  await page.route('**/inventory/serviceaccounts/sa-b/permissions*', r => r.fulfill({ json: permissions('sa-b', 'cluster-b') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => r.fulfill({ json: identity('sa-a') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-b(?:\?.*)?$/, r => r.fulfill({ json: identity('sa-b', 'cluster-b') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/permissions(?:\?.*)?$/, async r => { started = true; await held; await r.fulfill({ json: { ...permissions('sa-a', 'cluster-a'), effectiveRules: [{ scope: 'namespace', namespace: 'OLD', verbs: ['delete'], resources: ['secrets'] }] } }); });
+  await page.route(/\/inventory\/serviceaccounts\/sa-b\/permissions(?:\?.*)?$/, r => r.fulfill({ json: permissions('sa-b', 'cluster-b') }));
   await page.goto(fixture);
   await expect.poll(() => started).toBe(true);
   await page.getByRole('link', { name: 'Switch identity' }).click();
   await expect(page.getByRole('cell', { name: 'Namespace: team', exact: true })).toBeVisible();
-  const lateResponse = page.waitForResponse(response => response.url().endsWith("/sa-a/permissions"));
+  const lateResponse = page.waitForResponse(response => new URL(response.url()).pathname.endsWith('/sa-a/permissions'));
   release();
   await lateResponse;
   await page.waitForTimeout(100);
