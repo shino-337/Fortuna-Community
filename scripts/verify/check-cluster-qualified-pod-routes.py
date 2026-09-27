@@ -133,6 +133,7 @@ ATTACK_PATH_DASHBOARD_REQUIRED = {
         "podRequestSequence = useRef(0)",
         "sequence !== dataRequestSequence.current",
         "sequence !== podRequestSequence.current",
+        "error.status === 502",
     ],
     "dashboard/lib/api.ts": [
         "mapRawAttackPathGraphPayloadStrict",
