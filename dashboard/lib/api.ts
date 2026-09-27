@@ -1986,10 +1986,14 @@ export const api = {
   },
 
   /** GET /api/v1/inventory/serviceaccounts/:uid/permissions (effectiveRules + roleBindings + clusterRoleBindings) */
-  getServiceAccountPermissions: async (uid: string): Promise<ServiceAccountK8sPermissions> => {
-    return request<ServiceAccountK8sPermissions>(
-      `/inventory/serviceaccounts/${encodeURIComponent(uid)}/permissions`,
+  getServiceAccountPermissions: async (uid: string, clusterId?: string): Promise<ServiceAccountK8sPermissions> => {
+    const data = await request<ServiceAccountK8sPermissions>(
+      withClusterId(`/inventory/serviceaccounts/${encodeURIComponent(uid)}/permissions`, clusterId),
     );
+    if (!Array.isArray(data.roleBindings) || !Array.isArray(data.clusterRoleBindings) || !Array.isArray(data.effectiveRules)) {
+      invalidResponse('service_account_permissions_invalid_response', 'ServiceAccount permissions response is missing required arrays');
+    }
+    return data;
   },
 
   getCertificates: async (): Promise<Certificate[]> => {
