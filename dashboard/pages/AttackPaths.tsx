@@ -118,7 +118,10 @@ function classifyAttackPathIssue(error: unknown, fallbackTitle = 'Could not load
 }
 
 function shouldStopAttackPathFallback(error: unknown): boolean {
-  return isApiError(error) && (error.status === 401 || error.status === 403);
+  // 502 is produced locally by strict response validation. Falling back after a
+  // malformed successful payload would erase the protocol failure and could
+  // reinterpret incomplete data as a valid empty/partial attack-path state.
+  return isApiError(error) && (error.status === 401 || error.status === 403 || error.status === 502);
 }
 
 /* ─── helpers ─────────────────────────────────────────────── */
