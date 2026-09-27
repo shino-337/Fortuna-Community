@@ -222,7 +222,9 @@ if deploy_uses_registry_images; then
 elif command -v ctr >/dev/null 2>&1 && { [ -S /run/containerd/containerd.sock ] || [ -S /var/run/containerd/containerd.sock ]; }; then
     echo "Containerd detected, checking images..."
     # Accept both refs: fortuna-core:* and docker.io/library/fortuna-core:*
-    if ctr -n k8s.io images ls 2>/dev/null | grep -qE '(docker.io/library/)?fortuna-core:'; then
+    # Drain ctr's full output: grep -q exits early and pipefail treats ctr's
+    # resulting SIGPIPE (141) as "image missing", triggering a redundant build.
+    if ctr -n k8s.io images ls 2>/dev/null | grep -E '(docker.io/library/)?fortuna-core:' >/dev/null; then
         echo -e "${GREEN}✅${NC} Fortuna images found in containerd"
     else
         echo -e "${YELLOW}⚠️${NC}  Fortuna images not found in containerd"
