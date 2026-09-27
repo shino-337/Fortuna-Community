@@ -142,9 +142,10 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   zero/empty data, primary clients preserve last-known-good state, retryable versus
   operator-action `503` is explicit, and genuine successful empty responses keep
   their normal empty semantics.
-- E2 / PR #54 remains active from merge commit `a6e49ff`, with closure fixes
-  reviewed through exact head `ced3aaf82c40ae4e55351712a04eb73296e8983b` on
-  2026-09-27. Cluster, Node, Capability and Pod detail/list availability behavior
+- E2 / PR #54 remains active from merge commit `a6e49ff`; closure fixes were
+  reviewed on 2026-09-27. The exact merge-candidate SHA is recorded with the local
+  CI evidence rather than embedded here so a documentation-only commit cannot make
+  the recorded head stale. Cluster, Node, Capability and Pod detail/list availability behavior
   is implemented; the closure review additionally found and fixed ServiceAccount
   canonical identity loss and AttackPaths stale/malformed-response handling.
   ServiceAccount detail and permissions now preserve `{cluster_id, uid}` from
