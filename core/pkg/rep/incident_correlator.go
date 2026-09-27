@@ -2,6 +2,7 @@ package rep
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -230,9 +231,13 @@ func correlateExfilLikeSequence(ctx context.Context, db *gorm.DB, event *models.
 }
 
 func runtimeIncidentID(clusterID, podUID, incidentType string, bucket int64) string {
-	// Length-prefix the cluster component so cluster names containing separators
-	// cannot collide. Empty cluster_id remains a distinct legacy namespace.
-	return fmt.Sprintf("%d:%s:%s:%s:%d", len(clusterID), clusterID, podUID, incidentType, bucket)
+	// PostgreSQL stores incident_id as varchar(64). Hash a length-delimited
+	// identity so ordinary cluster/Pod names cannot overflow it or collide at
+	// separator boundaries. The domain prefix keeps this key separate from
+	// other SHA-256 identities.
+	identity := fmt.Sprintf("fortuna:runtime-incident:v2:%d:%s:%d:%s:%d:%s:%d", len(clusterID), clusterID, len(podUID), podUID, len(incidentType), incidentType, bucket)
+	digest := sha256.Sum256([]byte(identity))
+	return fmt.Sprintf("%x", digest)
 }
 
 func upsertIncident(ctx context.Context, db *gorm.DB, row *models.RuntimeIncident) error {

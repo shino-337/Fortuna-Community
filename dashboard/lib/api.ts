@@ -282,6 +282,20 @@ function requireFiniteNumber(value: unknown, code: string, field: string): numbe
   return Number(value);
 }
 
+function requireCapabilitySummary<T extends { count: number }>(data: { summary?: T[]; total?: number }, code: string): T[] {
+  if (!Array.isArray(data.summary)) {
+    invalidResponse(code, 'Capability summary response is missing the summary array');
+  }
+  const total = requireFiniteNumber(data.total, code, 'total');
+  if (total !== data.summary.length) {
+    invalidResponse(code, 'Capability summary total does not match the summary array');
+  }
+  for (const row of data.summary) {
+    requireFiniteNumber(row?.count, code, 'count');
+  }
+  return data.summary;
+}
+
 
 async function parseErrorBody(res: Response): Promise<{ body?: ApiErrorBody; text?: string }> {
   const text = await res.text().catch(() => '');
@@ -807,11 +821,7 @@ export const api = {
 
   /** GET /api/v1/clusters – active clusters only (cutoff), SSOT from DB */
   getClusters: async (): Promise<Cluster[]> => {
-    try {
-      return await api.getClustersStrict();
-    } catch {
-      return [];
-    }
+    return api.getClustersStrict();
   },
 
   getClustersStrict: async (): Promise<Cluster[]> => {
@@ -1615,25 +1625,35 @@ export const api = {
   },
 
   getResources: async (type?: string, params?: { cluster?: string; namespace?: string }): Promise<K8sResource[]> => {
-    try {
       const q = new URLSearchParams();
       if (type) q.set('kind', type);
       if (params?.cluster) q.set('cluster', params.cluster);
       if (params?.namespace) q.set('namespace', params.namespace);
       const qs = q.toString();
-      const data = await request<{ resources: Array<{ kind: string; name: string; namespace?: string; uid: string; clusterId: string }> }>(`/resources${qs ? `?${qs}` : ''}`);
-      return (data.resources || []).map((res) => ({
-        id: res.uid,
-        name: res.name,
-        namespace: res.namespace || '-',
-        kind: res.kind as K8sResource['kind'],
-        clusterId: res.clusterId || undefined,
-        age: '-',
-        status: 'Active',
-      }));
-    } catch (err) {
-      return [];
-    }
+      const data = await request<{ resources?: Array<{ kind: string; name: string; namespace?: string; uid: string; clusterId: string }>; total?: number }>(`/resources${qs ? `?${qs}` : ''}`);
+      if (!Array.isArray(data.resources)) {
+        invalidResponse('resource_inventory_invalid_response', 'Resource inventory response is missing the resources array');
+      }
+      if (requireFiniteNumber(data.total, 'resource_inventory_invalid_response', 'total') !== data.resources.length) {
+        invalidResponse('resource_inventory_invalid_response', 'Resource inventory total does not match the resources array');
+      }
+      return data.resources.map((res) => {
+        if (!res || !['Pod', 'ServiceAccount', 'Role', 'ClusterRole', 'RoleBinding', 'ClusterRoleBinding'].includes(res.kind) ||
+            typeof res.name !== 'string' || !res.name.trim() ||
+            typeof res.uid !== 'string' || !res.uid.trim() ||
+            typeof res.clusterId !== 'string' || !res.clusterId.trim()) {
+          invalidResponse('resource_inventory_invalid_response', 'Resource inventory contains an invalid resource identity');
+        }
+        return {
+          id: res.uid,
+          name: res.name,
+          namespace: res.namespace || '-',
+          kind: res.kind as K8sResource['kind'],
+          clusterId: res.clusterId,
+          age: '-',
+          status: 'Active',
+        };
+      });
   },
 
   getResourceDetail: async (kind: string, uid: string): Promise<K8sRbacResourceDetail | null> => {
@@ -2672,77 +2692,63 @@ export const api = {
   },
 
   getPceSummaryByCluster: async (): Promise<PodCapabilitySummaryCluster[]> => {
-    try {
-      const data = await request<{ summary: PodCapabilitySummaryCluster[] }>('/inventory/pod-capabilities/summary/cluster');
-      return data.summary || [];
-    } catch (err) {
-      return [];
-    }
+    const data = await request<{ summary?: PodCapabilitySummaryCluster[]; total?: number }>('/inventory/pod-capabilities/summary/cluster');
+    return requireCapabilitySummary(data, 'capability_summary_invalid_response');
   },
 
   getPceSummaryByCapability: async (params?: { clusterId?: string }): Promise<PodCapabilitySummaryCapability[]> => {
-    try {
       const query = new URLSearchParams();
       if (params?.clusterId) query.set('clusterId', params.clusterId);
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ summary: PodCapabilitySummaryCapability[] }>(`/inventory/pod-capabilities/summary/capability${suffix}`);
-      return (data.summary || []).sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
-    } catch (err) {
-      return [];
-    }
+      const data = await request<{ summary?: PodCapabilitySummaryCapability[]; total?: number }>(`/inventory/pod-capabilities/summary/capability${suffix}`);
+      return requireCapabilitySummary(data, 'capability_summary_invalid_response').sort((a, b) => (b.count ?? 0) - (a.count ?? 0));
   },
 
   getPceSummaryByNamespace: async (params?: { namespace?: string; severity?: string; capabilityId?: string; clusterId?: string }): Promise<PodCapabilitySummaryNamespace[]> => {
-    try {
       const query = new URLSearchParams();
       if (params?.namespace) query.set('namespace', params.namespace);
       if (params?.severity) query.set('severity', params.severity);
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
       if (params?.clusterId) query.set('clusterId', params.clusterId);
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ summary: PodCapabilitySummaryNamespace[] }>(`/inventory/pod-capabilities/summary/namespace${suffix}`);
-      return data.summary || [];
-    } catch (err) {
-      return [];
-    }
+      const data = await request<{ summary?: PodCapabilitySummaryNamespace[]; total?: number }>(`/inventory/pod-capabilities/summary/namespace${suffix}`);
+      return requireCapabilitySummary(data, 'capability_summary_invalid_response');
   },
 
   getPceSummaryBySeverity: async (params?: { severity?: string; capabilityId?: string; clusterId?: string }): Promise<PodCapabilitySummarySeverity[]> => {
-    try {
       const query = new URLSearchParams();
       if (params?.severity) query.set('severity', params.severity);
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
       if (params?.clusterId) query.set('clusterId', params.clusterId);
       const suffix = query.toString() ? `?${query.toString()}` : '';
-      const data = await request<{ summary: PodCapabilitySummarySeverity[] }>(`/inventory/pod-capabilities/summary/severity${suffix}`);
-      return data.summary || [];
-    } catch (err) {
-      return [];
-    }
+      const data = await request<{ summary?: PodCapabilitySummarySeverity[]; total?: number }>(`/inventory/pod-capabilities/summary/severity${suffix}`);
+      return requireCapabilitySummary(data, 'capability_summary_invalid_response');
   },
 
   getPceTrend: async (days = 7, params?: { namespace?: string; capabilityId?: string; podUid?: string; clusterId?: string }): Promise<PodCapabilityTrendPoint[]> => {
-    try {
       const query = new URLSearchParams({ days: String(days) });
       if (params?.namespace) query.set('namespace', params.namespace);
       if (params?.capabilityId) query.set('capabilityId', params.capabilityId);
       if (params?.podUid) query.set('podUid', params.podUid);
       if (params?.clusterId) query.set('clusterId', params.clusterId);
-      const data = await request<{ points?: PodCapabilityTrendPoint[] }>(`/inventory/pod-capabilities/trends?${query.toString()}`);
+      const data = await request<{ points?: PodCapabilityTrendPoint[]; total?: number }>(`/inventory/pod-capabilities/trends?${query.toString()}`);
       const raw = Array.isArray(data)
         ? data
-        : (Array.isArray((data as any)?.points) ? (data as any).points : Array.isArray((data as any)?.Points) ? (data as any).Points : []);
-      const out = (raw || []).map((p: any) => ({
-        date: String(p.date ?? p.Date ?? ''),
-        critical: Number(p.critical ?? p.critical_count ?? p.CriticalCount ?? 0),
-        high: Number(p.high ?? p.high_count ?? p.HighCount ?? 0),
-        medium: Number(p.medium ?? p.medium_count ?? p.MediumCount ?? 0),
-        low: Number(p.low ?? p.low_count ?? p.LowCount ?? 0),
-      })).filter((p: { date: string }) => p.date);
+        : (Array.isArray(data?.points) ? data.points : Array.isArray((data as any)?.Points) ? (data as any).Points : invalidResponse('capability_trend_invalid_response', 'Capability trend response is missing the points array'));
+      const out = raw.map((p: any) => ({
+        date: (() => {
+          const date = p?.date ?? p?.Date;
+          if (typeof date !== 'string' || !date.trim()) {
+            invalidResponse('capability_trend_invalid_response', 'Capability trend response is missing a valid date');
+          }
+          return date;
+        })(),
+        critical: requireFiniteNumber(p.critical ?? p.critical_count ?? p.CriticalCount, 'capability_trend_invalid_response', 'critical'),
+        high: requireFiniteNumber(p.high ?? p.high_count ?? p.HighCount, 'capability_trend_invalid_response', 'high'),
+        medium: requireFiniteNumber(p.medium ?? p.medium_count ?? p.MediumCount, 'capability_trend_invalid_response', 'medium'),
+        low: requireFiniteNumber(p.low ?? p.low_count ?? p.LowCount, 'capability_trend_invalid_response', 'low'),
+      }));
       return out;
-    } catch {
-      return [];
-    }
   },
 
   getPceCapabilities: async (params?: {
@@ -2754,7 +2760,6 @@ export const api = {
     limit?: number;
     offset?: number;
   }): Promise<{ capabilities: PodCapabilityDetail[]; total: number }> => {
-    try {
       const query = new URLSearchParams();
       if (params?.clusterId) query.set('clusterId', params.clusterId);
       if (params?.namespace) query.set('namespace', params.namespace);
@@ -2765,23 +2770,21 @@ export const api = {
       if (params?.offset) query.set('offset', String(params.offset));
       const suffix = query.toString() ? `?${query.toString()}` : '';
       const data = await request<{
-        capabilities: Array<PodCapabilityDetail & { pod_name?: string }>;
+        capabilities?: Array<PodCapabilityDetail & { pod_name?: string }>;
         total?: number;
         Total?: number;
       }>(`/inventory/pod-capabilities${suffix}`);
-      const raw = data.capabilities || [];
-      const totalRaw = data.total ?? data.Total ?? raw.length;
-      const total = typeof totalRaw === 'number' && Number.isFinite(totalRaw) ? totalRaw : raw.length;
+      if (!Array.isArray(data.capabilities)) {
+        invalidResponse('capability_inventory_invalid_response', 'Capability inventory response is missing the capabilities array');
+      }
+      const total = requireFiniteNumber(data.total ?? data.Total, 'capability_inventory_invalid_response', 'total');
       return {
-        capabilities: raw.map((c) => ({
+        capabilities: data.capabilities.map((c) => ({
           ...c,
           podName: c.podName ?? (c as any).pod_name ?? undefined,
         })) as PodCapabilityDetail[],
         total,
       };
-    } catch (err) {
-      return { capabilities: [], total: 0 };
-    }
   },
   getPodCapabilitiesStrict: async (podUid: string, clusterId?: string): Promise<PodCapabilityDetail[]> => {
     if (!podUid) return [];

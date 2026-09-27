@@ -22,7 +22,9 @@ spec:
             - name: TLS_KEY_PATH
               value: /etc/fortuna/agent-mtls/current/tls.key
             - name: TLS_CA_CERT_PATH
-              value: /etc/fortuna/agent-mtls/current/ca.crt
+              # Verify Core's server certificate with its existing CA, which
+              # may differ from the CA that signed this Agent's client cert.
+              value: /etc/fortuna/ca-cert/ca.crt
           volumeMounts:
             - name: agent-mtls-credential
               mountPath: /etc/fortuna/agent-mtls

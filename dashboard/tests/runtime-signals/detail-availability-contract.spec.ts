@@ -304,7 +304,7 @@ test('SBOM list refresh 503 preserves last-known-good inventory instead of rende
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await expect(page.getByText('pod-a', { exact: true })).toBeVisible();
   await expect(page.getByText(/No pods with SBOM data yet/)).toHaveCount(0);
-  await expect(page.getByText(/SBOM inventory could not be loaded/)).toBeVisible();
+  await expect(page.getByRole('status').filter({ hasText: 'SBOM inventory could not be loaded' })).toBeVisible();
 });
 
 test('SBOM list refresh revalidates selected detail while preserving identity', async ({ page }) => {
@@ -396,7 +396,7 @@ test('SBOM detail 503 is unavailable and is never projected as zero components',
 
   await page.goto(`${fixture}?path=/sbom`);
   await expect(page.getByText('SBOM detail temporarily unavailable', { exact: true })).toBeVisible();
-  await expect(page.getByText('Components').locator('..')).toContainText('—');
+  await expect(page.getByText('Components', { exact: true }).locator('..')).toContainText('—');
   await expect(page.getByText(/No components found matching your search/)).toHaveCount(0);
 });
 
@@ -667,6 +667,7 @@ test('malformed successful pod risk report is unavailable, not empty evidence', 
   const failureSummary = page.getByText(/Failed to load:/);
   await expect(failureSummary).toBeVisible();
   await expect(failureSummary).toContainText('risk-report');
+  await page.getByRole('tab', { name: 'Risk & SBOM' }).click();
   await expect(page.getByText('Risk insights is temporarily unavailable.', { exact: false })).toBeVisible();
   await expect(page.getByText('No risk insights for this pod.', { exact: true })).toHaveCount(0);
 });

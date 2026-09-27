@@ -138,7 +138,16 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   follow-up, not #52 correctness blockers. D is intentionally not yet complete.
 - E1 / PR #53 merged on 2026-09-24 (merge commit `a6e49ff`): backend
   availability plus primary Dashboard/Clusters/Resources/Monitoring compatibility
-  contract is closed. Required query/schema failures remain distinct from
+  work landed. A follow-up audit of #54 found residual E1 paths: resource/capability
+  dashboard adapters still converted failures to empty data, the resource API
+  itself ignored inventory query errors, a selected dashboard
+  cluster bypassed the active-inventory filter, and cluster/worker observability
+  did not consistently distinguish schema/query failure from empty activity;
+  catalog checks could also misclassify a disconnected database as a missing
+  migration. The follow-up checks connectivity before marking a schema absent.
+  The #54 branch carries focused fixes and named regressions for those paths;
+  they are not merged or exact-head validated until the #54 gate passes. Required
+  query/schema failures must remain distinct from
   zero/empty data, primary clients preserve last-known-good state, retryable versus
   operator-action `503` is explicit, and genuine successful empty responses keep
   their normal empty semantics.
@@ -153,8 +162,77 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   ownership is ambiguous, and dashboard callers that already know the cluster
   retain it. AttackPaths now rejects malformed successful graph/bundle payloads
   and ignores stale page/pod responses after cluster/entity changes. E2 is not
-  merge-ready until the owner records exact-head local CI evidence for the gate
+  merge-ready until the residual E1 follow-ups and owner-recorded exact-head local CI evidence pass the gate
   below.
+- A single-node `fortuna` deployment attempt on 2026-09-27 built the Core,
+  Agent and Dashboard images from the dirty #54 worktree, but did not complete
+  rollout. On the existing PostgreSQL 15 database, Core's cluster-resource
+  ownership backfill failed on the `risk_scores` unique key: read-only
+  projection found 10 Pod risk-score keys with one unowned legacy row and one
+  already cluster-owned row targeting the same `{resource_type, resource_uid,
+  cluster_id}`. This is a data reconciliation decision, not permission to delete
+  either row. Core was returned to its prior GHCR image; Agent and Dashboard
+  were not updated. Migration 145 (idempotent policy baseline seed) was recorded
+  before the fail-closed startup check. The build cache also caused temporary
+  node DiskPressure; it was pruned without deleting images or PVC data. A
+  populated migration rehearsal against the existing data shape and an
+  explicitly approved risk-score reconciliation policy are required before
+  retrying this live rollout. This attempt does not close the package F gate.
+- On 2026-09-27 the operator instead authorized a complete reset of the
+  dedicated `fortuna` database. A restricted-access `pg_dump -Fc` was checked
+  before resetting its `public` schema. Fresh migrations completed, and local
+  Core, Agent, and Dashboard images were deployed on the single-node cluster.
+  HTTP Agent ingest uses a per-node scoped token; gRPC Agent ingest uses a
+  per-node certificate and fingerprint registry signed by a new dedicated
+  Agent-client CA. The previous Fortuna server/webhook CA and certificates were
+  not rotated. Agent registration, inventory sync, SBOM ingest, Core health,
+  and the full Kubernetes deployment check were exercised. Fresh-db runtime
+  traffic exposed a missing JSON payload on synthetic network events and an
+  overlong incident key; both were patched with regressions and rebuilt into
+  the local Core image. After an Agent restart cleared its in-memory batch of
+  stale Pod events (the Falco source log was retained), fresh runtime v2
+  batches, network observations, and incident creation were observed without
+  those database errors. This clean reset deliberately discards the legacy
+  collision data, so it does **not** prove a populated migration or close the
+  two-cluster package F gate. OSV/CVE catalogs remain empty until a new source
+  load; the Aikido malware feed repopulates independently.
+- Follow-up runtime check on 2026-09-27 found two live ingestion/evaluation gaps
+  despite all eight Pods being Ready. Scoped Pod-event batches repeatedly returned
+  `pod_ownership_mismatch` 403 and no new `k8s_events` rows arrived after 07:18
+  UTC; historical RBAC evaluation reported 153 duplicate-key errors per sync.
+  The Core rule engine read but did not persist `cluster_id` on generated
+  insights, and the generic insight path did not restore a soft-deleted row
+  covered by the unconditional unique index. Core/Agent fixes now carry
+  cluster identity, restore the exact soft-deleted key, and quarantine only
+  individually ownership-rejected Pod events so valid events can proceed;
+  resync of the same Kubernetes Event UID cannot immediately requeue it.
+  Follow-up Core regressions also use the actual cluster-qualified PCE conflict
+  keys and normalize stored RBAC rules/role references before CEL evaluation,
+  without converting malformed evidence into a successful clean result.
+  Local full Core/Agent tests, vet, the named regression gate and a PostgreSQL
+  16 restore regression passed. Core `gapfix-20260927-0941` and Agent
+  `gapfix-20260927-0929` were deployed to the single-node cluster. The first
+  post-rollout historical evaluation reported `Insights=166, Errors=0` (down
+  from 153, then 13); PCE populated 24 Pod risk profiles and 98 capabilities;
+  `k8s_events` advanced from 1003 to 1070. The full deployment check passed
+  with zero errors and warnings. This is single-cluster runtime evidence, not
+  the package F two-cluster acceptance gate. At that snapshot no active insight
+  had an empty `cluster_id`; 157 unowned soft-deleted rows remain as historical
+  evidence. Do not delete or bulk-assign those rows by node/name inference.
+  A transient Falco 403 during Core replacement cleared after the new Pod
+  appeared in the accepted inventory. At the next accepted inventory sync
+  (09:51 UTC), historical evaluation again reported `Insights=166, Errors=0`,
+  Falco batches continued `send_ok`, runtime events reached 1019, and no
+  active insight had an empty cluster ID. OSV/CVE catalogs remain empty.
+- A later runtime check found that both seeded Pod policy templates failed CEL
+  compilation: they referenced undeclared `object`, while the policy evaluator
+  receives the inner Pod spec as `resource` and treats a true result as
+  compliant. The corrected 1.0.1 templates cover app, init, and ephemeral
+  containers and host namespace flags; a forward migration repoints legacy
+  instances and retires only exact stock broken 1.0.0 templates. Source and
+  PostgreSQL regressions pass, but live rollout must confirm both templates
+  compile and an unsafe Pod produces the expected violation. This finding is
+  not closed by a database reset alone.
 - D3 follows E2 and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers
@@ -323,6 +401,10 @@ E1 is closed on merge commit `a6e49ff`. Its permanent contract remains:
 
 E2 starts from merge commit `a6e49ff`. Merge only when:
 
+- residual E1 paths preserve unavailable versus empty for resource/capability
+  adapters, the shared cluster inventory, selected-cluster dashboard KPIs and
+  required worker persistence; permanent regressions cover failure and real empty
+  responses;
 - Cluster, Node, Capability and Pod primary-detail reads distinguish a genuine
   not-found response from transient/schema availability failure;
 - secondary/enrichment failure (cluster stats/overview, tab data, linked rules,

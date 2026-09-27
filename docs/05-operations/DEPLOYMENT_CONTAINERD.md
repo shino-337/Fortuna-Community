@@ -28,6 +28,59 @@ VERSION=my-local-tag ./scripts/build/build-and-load-containerd.sh
 
 The script builds `fortuna-core`, `fortuna-agent`, and `fortuna-dashboard`, then loads tags into the containerd namespace used by Kubernetes.
 
+## Update an Existing Local Single-Node Installation
+
+For an existing `fortuna` namespace, use a new tag and update only the three
+workload images. This preserves PostgreSQL, NATS, secrets, and runtime sensor
+configuration. Do not use the full-clean pipeline or a database reset for a
+routine application update.
+
+```bash
+kubectl config current-context
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" DiskPressure="}{range .status.conditions[?(@.type=="DiskPressure")]}{.status}{end}{"\n"}{end}'
+kubectl -n fortuna get deploy/fortuna-core deploy/fortuna-dashboard ds/fortuna-agent
+
+FORTUNA_LOCAL_TAG="local-$(git rev-parse --short HEAD)-$(date -u +%Y%m%d%H%M)"
+BUILD_TOOL=nerdctl VERSION="$FORTUNA_LOCAL_TAG" ./scripts/build/build-and-load-containerd.sh
+
+# The image build cache also consumes node disk. Do not begin rollout while
+# the node reports DiskPressure. Prune only the BuildKit cache if needed;
+# this does not remove the images loaded into containerd/k8s.io.
+df -h /
+buildctl du
+kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" DiskPressure="}{range .status.conditions[?(@.type=="DiskPressure")]}{.status}{end}{"\n"}{end}'
+# If BuildKit cache is reclaimable and disk is tight:
+# buildctl prune --all
+# Wait until every target node reports DiskPressure=False.
+
+kubectl -n fortuna set image deployment/fortuna-core core="fortuna-core:$FORTUNA_LOCAL_TAG"
+kubectl -n fortuna rollout status deployment/fortuna-core --timeout=300s
+kubectl -n fortuna set image daemonset/fortuna-agent agent="fortuna-agent:$FORTUNA_LOCAL_TAG"
+kubectl -n fortuna rollout status daemonset/fortuna-agent --timeout=300s
+kubectl -n fortuna set image deployment/fortuna-dashboard dashboard="fortuna-dashboard:$FORTUNA_LOCAL_TAG"
+kubectl -n fortuna rollout status deployment/fortuna-dashboard --timeout=300s
+
+NAMESPACE=fortuna ./scripts/verify/check-full-deployment.sh
+```
+
+Check the container names in the current workloads before `set image`; the
+commands above match the bundled manifests. `IfNotPresent` allows kubelet to
+use the locally loaded, uniquely tagged images. A local image only exists on
+the node where it was built, so do not use this path for a multi-node rollout
+unless the tag is imported on every eligible node. Record the tag and worktree
+state: a dirty worktree cannot be reconstructed from its Git commit alone.
+Applying the GHCR-tagged manifests afterward can revert these image settings.
+If rollout fails, inspect pod events/logs before using `kubectl rollout undo`;
+an image rollback does not reverse database migrations.
+In particular, a startup failure on `backfill risk_scores cluster ownership`
+means legacy unowned and already-owned risk-score rows collide on a unique
+identity. Restore the previous Core image and reconcile those rows under an
+explicit data-retention decision; do not delete or merge them as an automatic
+deploy step.
+On a single-node cluster, kubelet may continue rejecting pods briefly after
+disk space is reclaimed; wait for `DiskPressure=False` before retrying rather
+than repeatedly restarting workloads.
+
 ## Full Local Pipeline
 
 For a clean local rebuild and deploy:
@@ -47,6 +100,17 @@ Common variants:
 ```
 
 The pipeline derives `VERSION` from Git unless `VERSION` is set. Use `FORTUNA_PACKAGE_SOURCE=local` when the rollout should use locally built `fortuna-*:${VERSION}` images. The default package source is `github`, which keeps workloads on `ghcr.io/shino-337/fortuna-community/*:${FORTUNA_VERSION}`.
+
+`--db-reset` is destructive: it recreates the `public` schema in the dedicated
+`fortuna` database, removing users, vulnerability catalogs, migration history,
+and all other application rows. It does not remove the PostgreSQL PVC or
+Kubernetes Secrets. Take and verify a restricted-access `pg_dump -Fc` backup
+before running it; the [deployment maintenance guide](../../deploy/README.md#maintenance)
+has a command sequence. The Core image must be able to migrate a fresh database.
+After the reset, confirm an admin was bootstrapped from the current Secret and
+reload the OSV/CVE catalog if no startup source is configured. A clean reset
+does not validate migration of populated legacy data, so keep that as a
+separate acceptance gate.
 
 ## Multi-Node Clusters
 

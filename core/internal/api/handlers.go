@@ -101,12 +101,17 @@ func GetDefaultActiveClusterID(db *gorm.DB, ctx context.Context) (string, error)
 // Stale clusters (no sync in 7 days) are excluded so dashboard only shows current environment.
 func GetClusters(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clusters, err := getClustersForAPI(db, c)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_inventory_schema_unavailable",
+			"Cluster inventory requires the clusters schema", "clusters") {
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"clusters": clusters})
+		clusters, err := getClustersForAPI(db, c)
+		if err != nil {
+			respondDataUnavailable(c, "cluster_inventory_query_failed", "Cluster inventory could not be loaded")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "clusters": clusters})
 	}
 }
 
@@ -400,13 +405,13 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"dataStatus": "available",
-			"riskBySeverity": riskBySeverity,
+			"dataStatus":      "available",
+			"riskBySeverity":  riskBySeverity,
 			"capabilityCount": capabilityCount,
-			"criticalCount": critical,
-			"highCount": high,
-			"mediumCount": medium,
-			"lowCount": low,
+			"criticalCount":   critical,
+			"highCount":       high,
+			"mediumCount":     medium,
+			"lowCount":        low,
 		})
 	}
 }

@@ -174,11 +174,11 @@ func IngestPodNetworkConnectionsPayloadScoped(db *gorm.DB) gin.HandlerFunc {
 		}
 		if len(normalized) > 0 {
 			upsert := clause.OnConflict{
-				Columns: []clause.Column{{Name:"cluster_id"},{Name:"pod_uid"},{Name:"namespace"},{Name:"container_name"},{Name:"source_ip"},{Name:"source_port"},{Name:"dest_ip"},{Name:"dest_port"},{Name:"protocol"},{Name:"state"},{Name:"bucket_5m"}},
+				Columns: []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}, {Name: "namespace"}, {Name: "container_name"}, {Name: "source_ip"}, {Name: "source_port"}, {Name: "dest_ip"}, {Name: "dest_port"}, {Name: "protocol"}, {Name: "state"}, {Name: "bucket_5m"}},
 				DoUpdates: clause.Assignments(map[string]interface{}{
-					"observed_at": gorm.Expr("GREATEST(pod_network_connections.observed_at, EXCLUDED.observed_at)"),
-					"bytes_sent": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.bytes_sent ELSE pod_network_connections.bytes_sent END"),
-					"bytes_recv": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.bytes_recv ELSE pod_network_connections.bytes_recv END"),
+					"observed_at":    gorm.Expr("GREATEST(pod_network_connections.observed_at, EXCLUDED.observed_at)"),
+					"bytes_sent":     gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.bytes_sent ELSE pod_network_connections.bytes_sent END"),
+					"bytes_recv":     gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.bytes_recv ELSE pod_network_connections.bytes_recv END"),
 					"runtime_source": gorm.Expr("CASE WHEN EXCLUDED.observed_at >= pod_network_connections.observed_at THEN EXCLUDED.runtime_source ELSE pod_network_connections.runtime_source END"),
 				}),
 			}
@@ -189,7 +189,7 @@ func IngestPodNetworkConnectionsPayloadScoped(db *gorm.DB) gin.HandlerFunc {
 						return err
 					}
 					if len(newEvents) > 0 {
-						return tx2.Clauses(clause.OnConflict{DoNothing:true}).CreateInBatches(newEvents, 100).Error
+						return tx2.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(newEvents, 100).Error
 					}
 					return nil
 				})
@@ -212,7 +212,13 @@ func buildNetworkQueueSpikeEventsScoped(db *gorm.DB, clusterID, podUID, namespac
 	multiplier := envFloatDefault("POD_DETAIL_NET_SPIKE_MULTIPLIER", 4.0)
 	minQueueBytes := int64(envIntDefault("POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES", 4096))
 	cooldownMinutes := envIntDefault("POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES", 10)
-	type baselineRow struct { ContainerName, DestIP string; DestPort int; Protocol string; AvgQueue float64; Samples int64 }
+	type baselineRow struct {
+		ContainerName, DestIP string
+		DestPort              int
+		Protocol              string
+		AvgQueue              float64
+		Samples               int64
+	}
 	var baseline []baselineRow
 	fromTime := observedAt.Add(-time.Duration(windowMin) * time.Minute)
 	if err := db.Table("pod_network_connections").
@@ -222,32 +228,50 @@ func buildNetworkQueueSpikeEventsScoped(db *gorm.DB, clusterID, podUID, namespac
 		return nil, err
 	}
 	baseMap := make(map[string]baselineRow, len(baseline))
-	for i := range baseline { baseMap[networkAnomalyKey(baseline[i].ContainerName, baseline[i].DestIP, baseline[i].DestPort, baseline[i].Protocol)] = baseline[i] }
+	for i := range baseline {
+		baseMap[networkAnomalyKey(baseline[i].ContainerName, baseline[i].DestIP, baseline[i].DestPort, baseline[i].Protocol)] = baseline[i]
+	}
 	events := make([]models.RuntimeEvent, 0, len(current))
 	emitted := map[string]struct{}{}
 	for i := range current {
 		row := current[i]
 		key := networkAnomalyKey(row.ContainerName, row.DestIP, row.DestPort, row.Protocol)
-		if _, exists := emitted[key]; exists { continue }
+		if _, exists := emitted[key]; exists {
+			continue
+		}
 		base, ok := baseMap[key]
-		if !ok || base.Samples < int64(minSamples) { continue }
+		if !ok || base.Samples < int64(minSamples) {
+			continue
+		}
 		currentQueue := row.BytesSent + row.BytesRecv
-		if currentQueue < minQueueBytes || base.AvgQueue <= 0 || float64(currentQueue) < base.AvgQueue*multiplier { continue }
+		if currentQueue < minQueueBytes || base.AvgQueue <= 0 || float64(currentQueue) < base.AvgQueue*multiplier {
+			continue
+		}
 		ratio := float64(currentQueue) / base.AvgQueue
 		suppressed, err := isNetworkSpikeSuppressedScoped(db, clusterID, podUID, key, observedAt, cooldownMinutes)
-		if err != nil { return nil, err }
-		if suppressed { continue }
-		target := "key="+key+" dst="+strings.TrimSpace(row.DestIP)+":"+strconv.Itoa(row.DestPort)+" proto="+strings.ToLower(strings.TrimSpace(row.Protocol))+" q="+strconv.FormatInt(currentQueue,10)+" avg="+strconv.FormatFloat(base.AvgQueue,'f',0,64)+" ratio="+strconv.FormatFloat(ratio,'f',2,64)+" samples="+strconv.FormatInt(base.Samples,10)
-		if len(target) > 500 { target = target[:500] }
-		events = append(events, models.RuntimeEvent{ClusterID:clusterID, PodUID:podUID, Namespace:namespace, Syscall:"connect", TargetPath:target, Capability:"NETWORK_TXRX_QUEUE_SPIKE", CreatedAt:observedAt, Confidence:0.75})
+		if err != nil {
+			return nil, err
+		}
+		if suppressed {
+			continue
+		}
+		target := "key=" + key + " dst=" + strings.TrimSpace(row.DestIP) + ":" + strconv.Itoa(row.DestPort) + " proto=" + strings.ToLower(strings.TrimSpace(row.Protocol)) + " q=" + strconv.FormatInt(currentQueue, 10) + " avg=" + strconv.FormatFloat(base.AvgQueue, 'f', 0, 64) + " ratio=" + strconv.FormatFloat(ratio, 'f', 2, 64) + " samples=" + strconv.FormatInt(base.Samples, 10)
+		if len(target) > 500 {
+			target = target[:500]
+		}
+		events = append(events, models.RuntimeEvent{ClusterID: clusterID, PodUID: podUID, Namespace: namespace, Syscall: "connect", TargetPath: target, PayloadJSON: `{}`, Capability: "NETWORK_TXRX_QUEUE_SPIKE", CreatedAt: observedAt, Confidence: 0.75})
 		emitted[key] = struct{}{}
-		if len(events) >= 100 { break }
+		if len(events) >= 100 {
+			break
+		}
 	}
 	return events, nil
 }
 
 func isNetworkSpikeSuppressedScoped(db *gorm.DB, clusterID, podUID, key string, observedAt time.Time, cooldownMinutes int) (bool, error) {
-	if cooldownMinutes <= 0 { return false, nil }
+	if cooldownMinutes <= 0 {
+		return false, nil
+	}
 	from := observedAt.Add(-time.Duration(cooldownMinutes) * time.Minute)
 	var count int64
 	err := db.Model(&models.RuntimeEvent{}).

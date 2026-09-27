@@ -66,11 +66,26 @@ class ScopedAgentCredentialOverlayTest(unittest.TestCase):
                     self.assertEqual(volume["hostPath"]["type"], "Directory")
                     self.assertEqual(volume["hostPath"]["path"], mount["mountPath"])
                     self.assertNotIn("secret", volume)
-                    for env_name, basename in [("TLS_CERT_PATH", "tls.crt"), ("TLS_KEY_PATH", "tls.key"), ("TLS_CA_CERT_PATH", "ca.crt")]:
+                    for env_name, basename in [("TLS_CERT_PATH", "tls.crt"), ("TLS_KEY_PATH", "tls.key")]:
                         self.assertEqual(named(container["env"], env_name)["value"], mount["mountPath"] + "/current/" + basename)
+                    self.assertEqual(named(container["env"], "TLS_CA_CERT_PATH")["value"], "/etc/fortuna/ca-cert/ca.crt")
                 else:
                     self.assertEqual(volume["secret"]["secretName"], "fortuna-agent-mtls-registry")
                     self.assertEqual(volume["secret"]["items"], [{"key": "registry.json", "path": "registry.json"}])
+
+    def test_dedicated_agent_ca_only_changes_core_client_trust(self):
+        doc = load_one(CORE_PATCH.parent / "core-client-ca-patch.yaml")
+        self.assertEqual(doc["kind"], "Deployment")
+        self.assertEqual(doc["metadata"]["name"], "fortuna-core")
+        pod = doc["spec"]["template"]["spec"]
+        volume = named(pod["volumes"], "agent-client-ca")
+        self.assertEqual(volume["secret"]["secretName"], "fortuna-agent-client-ca")
+        self.assertEqual(volume["secret"]["items"], [{"key": "ca.crt", "path": "ca.crt"}])
+        core = named(pod["containers"], "core")
+        self.assertEqual(named(core["env"], "TLS_CA_CERT_PATH")["value"], "/etc/fortuna/agent-client-ca/ca.crt")
+        self.assertTrue(named(core["volumeMounts"], "agent-client-ca")["readOnly"])
+        self.assertNotIn("TLS_CERT_PATH", [item["name"] for item in core["env"]])
+        self.assertNotIn("TLS_KEY_PATH", [item["name"] for item in core["env"]])
 
     def test_agent_patch_mounts_one_node_local_token_and_preserves_legacy_base_mode(self):
         doc = load_one(AGENT_PATCH)

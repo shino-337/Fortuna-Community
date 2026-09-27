@@ -83,3 +83,61 @@ test('successful 200 empty cluster inventory keeps the normal empty state', asyn
   await expect(page.getByText('No clusters match current filters', { exact: true })).toBeVisible();
   await expect(page.getByText(/temporarily unavailable|requires operator action/)).toHaveCount(0);
 });
+
+test('resource and capability adapters keep unavailable distinct from empty', async ({ page }) => {
+  let mode: 'unavailable' | 'malformed' | 'malformed-row' | 'empty' = 'unavailable';
+  await page.route('**/api/v1/**', route => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === '/api/v1/inventory/clusters/stats') {
+      return route.fulfill({ json: { clusters: [], total: 0, dataStatus: 'available' } });
+    }
+    if (mode === 'unavailable') {
+      return route.fulfill({ status: 503, json: { status: 'unavailable', code: 'inventory_query_failed', error: 'Query failed', retryable: true } });
+    }
+    if (mode === 'malformed') return route.fulfill({ json: {} });
+    if (mode === 'malformed-row' && path.endsWith('/trends')) {
+      return route.fulfill({ json: { points: [{ critical: 0, high: 0, medium: 0, low: 0 }], total: 1 } });
+    }
+    if (mode === 'malformed-row' && path === '/api/v1/resources') {
+      return route.fulfill({ json: { resources: [{ kind: 'RoleBinding', name: 'rb', uid: 'uid' }], total: 1 } });
+    }
+    if (mode === 'malformed-row' && path.includes('/summary/')) {
+      return route.fulfill({ json: { summary: [{ capabilityId: 'CAP_SYS_ADMIN' }], total: 1 } });
+    }
+    if (path === '/api/v1/resources') return route.fulfill({ json: { resources: [], total: 0 } });
+    if (path.endsWith('/trends')) return route.fulfill({ json: { points: [], total: 0 } });
+    if (path.endsWith('/pod-capabilities')) return route.fulfill({ json: { capabilities: [], total: 0 } });
+    return route.fulfill({ json: { summary: [], total: 0 } });
+  });
+
+  await page.goto(fixture);
+  const callAdapters = () => page.evaluate(async () => {
+    const { api } = await import('../../lib/api.ts');
+    const calls = [
+      api.getResources('RoleBinding'),
+      api.getPceSummaryByCapability(),
+      api.getPceCapabilities(),
+      api.getPceTrend(),
+    ];
+    return Promise.all(calls.map(async call => {
+      try { return { value: await call }; }
+      catch (error) { return { status: (error as { status?: number }).status }; }
+    }));
+  });
+
+  expect((await callAdapters()).map(result => result.status)).toEqual([503, 503, 503, 503]);
+  mode = 'malformed';
+  expect((await callAdapters()).map(result => result.status)).toEqual([502, 502, 502, 502]);
+  mode = 'malformed-row';
+  const malformedRows = await callAdapters();
+  expect(malformedRows[0].status).toBe(502);
+  expect(malformedRows[1].status).toBe(502);
+  expect(malformedRows[3].status).toBe(502);
+  mode = 'empty';
+  const empty = await callAdapters();
+  expect(empty.map(result => result.status)).toEqual([undefined, undefined, undefined, undefined]);
+  expect(empty[0].value).toEqual([]);
+  expect(empty[1].value).toEqual([]);
+  expect(empty[2].value).toEqual({ capabilities: [], total: 0 });
+  expect(empty[3].value).toEqual([]);
+});

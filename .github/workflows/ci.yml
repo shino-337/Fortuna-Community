@@ -82,9 +82,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test ./migrations -run '^Test(ClusterResourceIdentityFoundation|ClusterQualifiedPodUniqueness|AgentCompositeIdentity)Postgres$' -count=1 -timeout=3m
+          go test ./migrations -run '^Test(ClusterResourceIdentityFoundation|ClusterQualifiedPodUniqueness|AgentCompositeIdentity|BaselinePodPolicySeedAndRepair)Postgres$' -count=1 -timeout=3m
           go test ./migrations -run '^TestRuntimeEventIdempotency' -count=1 -timeout=2m
-          go test ./pkg/riskengine -run '^TestPodInsightLifecyclePostgres$' -count=1 -timeout=2m
+          go test ./pkg/riskengine -run '^Test(PodInsightLifecycle|GenericInsightRestore)Postgres$' -count=1 -timeout=2m
           go test ./internal/repository -run '^TestSBOMConcurrentOwnershipPostgres$' -count=1 -timeout=2m
           go test ./internal/service -run '^TestInventoryCollectionPostgres$' -count=1 -timeout=2m
           go test ./internal/api -run '^TestRuntimeCoveragePostgres|^TestSBOMList(ClusterScope|DuplicateUIDClusterIsolation|FailClosed)Postgres$' -count=1 -timeout=3m

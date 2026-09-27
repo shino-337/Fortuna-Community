@@ -26,6 +26,37 @@ func TestPodInsightRestorePreservesClusterAndException(t *testing.T) {
 	assertPodInsightRestore(t, clusterInsightDB(t))
 }
 
+func TestRuleInsightCarriesClusterIdentity(t *testing.T) {
+	e := &Engine{}
+	insight := e.createInsight(Rule{ID: "rbac-rule"}, "ClusterRoleBinding", map[string]interface{}{
+		"cluster_id": "cluster-a", "uid": "binding-uid", "name": "binding",
+	}, 1)
+	require.Equal(t, "cluster-a", insight.ClusterID)
+}
+
+func TestGenericInsightRestoresSoftDeletedRowWithinCluster(t *testing.T) {
+	db := clusterInsightDB(t)
+	m := NewInsightManager(db)
+	old := &models.Insight{ClusterID: "a", ResourceUID: "same", ResourceType: "ClusterRoleBinding", ResourceName: "binding", InsightType: "rbac", CVEID: "rule", Status: "active", Severity: "high", Title: "old"}
+	foreign := &models.Insight{ClusterID: "b", ResourceUID: "same", ResourceType: "ClusterRoleBinding", ResourceName: "binding", InsightType: "rbac", CVEID: "rule", Status: "active", Severity: "low", Title: "foreign"}
+	require.NoError(t, db.Create(old).Error)
+	require.NoError(t, db.Create(foreign).Error)
+	require.NoError(t, db.Delete(old).Error)
+	incoming := &models.Insight{ClusterID: "a", ResourceUID: "same", ResourceType: "ClusterRoleBinding", ResourceName: "binding", InsightType: "rbac", CVEID: "rule", Severity: "critical", Title: "restored"}
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error { return m.createOrUpdateInsightTx(tx, incoming) }))
+	require.Equal(t, old.ID, incoming.ID)
+	var restored, other models.Insight
+	require.NoError(t, db.First(&restored, old.ID).Error)
+	require.Equal(t, "critical", restored.Severity)
+	require.Equal(t, "restored", restored.Title)
+	require.False(t, restored.DeletedAt.Valid)
+	require.NoError(t, db.First(&other, foreign.ID).Error)
+	require.Equal(t, "foreign", other.Title)
+	var total int64
+	require.NoError(t, db.Unscoped().Model(&models.Insight{}).Count(&total).Error)
+	require.EqualValues(t, 2, total)
+}
+
 func assertPodInsightRestore(t *testing.T, db *gorm.DB) {
 	m := NewInsightManager(db)
 	a := &models.Insight{ClusterID: "a", ResourceUID: "same", ResourceType: "Pod", InsightType: "vulnerability", CVEID: "CVE-1", Status: "active", Severity: "high", Title: "a"}

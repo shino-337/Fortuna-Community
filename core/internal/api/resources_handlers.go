@@ -16,6 +16,7 @@ import (
 // Query params: kind, namespace, cluster
 func GetResources(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		db := db.WithContext(c.Request.Context())
 		kind := c.Query("kind")
 		namespace := c.Query("namespace")
 		clusterID := strings.TrimSpace(c.Query("cluster"))
@@ -23,6 +24,19 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 		if clusterID != "" && restricted && !middleware.ClusterAllowed(c, clusterID) {
 			middleware.AbortClusterScopeDenied(db, c, clusterID)
 			return
+		}
+		tables := []struct{ resourceKind, table string }{
+			{"Pod", "pods"}, {"ServiceAccount", "service_accounts"}, {"Role", "roles"},
+			{"ClusterRole", "cluster_roles"}, {"RoleBinding", "role_bindings"},
+			{"ClusterRoleBinding", "cluster_role_bindings"},
+		}
+		for _, entry := range tables {
+			if kind == "" || kind == entry.resourceKind {
+				if !requireAvailabilityTables(c, db, "resource_inventory_schema_unavailable",
+					"Resource inventory requires the "+entry.table+" schema", entry.table) {
+					return
+				}
+			}
 		}
 
 		resources := make([]map[string]interface{}, 0)
@@ -54,7 +68,10 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			query.Find(&pods)
+			if err := query.Find(&pods).Error; err != nil {
+				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
+				return
+			}
 			for _, pod := range pods {
 				appendResource("Pod", pod.Name, pod.Namespace, pod.UID, pod.ClusterID)
 			}
@@ -67,7 +84,10 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			query.Find(&sas)
+			if err := query.Find(&sas).Error; err != nil {
+				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
+				return
+			}
 			for _, sa := range sas {
 				appendResource("ServiceAccount", sa.Name, sa.Namespace, sa.UID, sa.ClusterID)
 			}
@@ -80,7 +100,10 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			query.Find(&roles)
+			if err := query.Find(&roles).Error; err != nil {
+				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
+				return
+			}
 			for _, role := range roles {
 				appendResource("Role", role.Name, role.Namespace, role.UID, role.ClusterID)
 			}
@@ -90,7 +113,10 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 			var roles []models.ClusterRole
 			query := db.Model(&models.ClusterRole{})
 			query = applyClusterScope(query)
-			query.Find(&roles)
+			if err := query.Find(&roles).Error; err != nil {
+				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
+				return
+			}
 			for _, role := range roles {
 				appendResource("ClusterRole", role.Name, "", role.UID, role.ClusterID)
 			}
@@ -103,7 +129,10 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			query.Find(&bindings)
+			if err := query.Find(&bindings).Error; err != nil {
+				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
+				return
+			}
 			for _, binding := range bindings {
 				appendResource("RoleBinding", binding.Name, binding.Namespace, binding.UID, binding.ClusterID)
 			}
@@ -113,7 +142,10 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 			var bindings []models.ClusterRoleBinding
 			query := db.Model(&models.ClusterRoleBinding{})
 			query = applyClusterScope(query)
-			query.Find(&bindings)
+			if err := query.Find(&bindings).Error; err != nil {
+				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
+				return
+			}
 			for _, binding := range bindings {
 				appendResource("ClusterRoleBinding", binding.Name, "", binding.UID, binding.ClusterID)
 			}

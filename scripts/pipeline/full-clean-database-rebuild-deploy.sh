@@ -16,9 +16,9 @@
 #    When --only-db-reset, DB clean runs in Phase 1b (Postgres must already exist).
 #    Env: PG_RECREATE_PVC=1 scales postgres to 0, deletes PVC postgres-pvc, reapplies manifest (fixes corrupt
 #    data dir: "invalid primary checkpoint" / CrashLoopBackOff). Destroys all DB files on that PVC.
-#    Core runs all migrations on startup; --db-reset (DROP tables) ensures fresh schema
+#    Core runs all migrations on startup; --db-reset recreates the public schema
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
-#    DB reset drops all Fortuna tables in reset_database_full.sql (incl. attack_paths, exception_policies, sbom_processing_state; updated 2026-04-14).
+#    DB reset removes all Fortuna application objects and data, including users.
 # 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl/docker/buildctl → containerd k8s.io).
 #    Phase 2 image wait: fast then slow polls (PHASE2_IMAGE_* env). No second full NO_CACHE rebuild when build exits 0
 #    but image listing lags (avoids ~2× rebuild time). Retry build only after a non-zero build exit code.
@@ -30,7 +30,7 @@
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --menu       # force interactive menu
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full      # clean + rebuild + deploy
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db         # + clear DB data (DELETE, keep schema)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB reset (DROP tables)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB schema reset (destructive)
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
 #   FORTUNA_PACKAGE_SOURCE=github ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --skip-rebuild
 #       # deploy published GitHub/GHCR images and reset DB; no local rebuild/containerd image required
@@ -819,11 +819,11 @@ if [ "$SKIP_DEPLOY" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true
           log_error "kubectl cp reset_database_full.sql failed"
           exit 1
         fi
-        if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql; then
+        if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -v ON_ERROR_STOP=1 -U postgres -d fortuna -f /tmp/reset_db.sql; then
           log_error "psql reset_database_full.sql failed"
           exit 1
         fi
-        log_success "DB full reset (DROP tables) done. Core will re-run migrations on next start."
+        log_success "DB full reset (public schema) done. Core will re-run migrations on next start."
       else
         log_error "File not found: $SQL_FILE"
         exit 1
@@ -1146,11 +1146,11 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ] && { [ "$CLEAN_DB
         log_error "kubectl cp reset_database_full.sql failed"
         exit 1
       fi
-      if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql; then
+      if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -v ON_ERROR_STOP=1 -U postgres -d fortuna -f /tmp/reset_db.sql; then
         log_error "psql reset_database_full.sql failed"
         exit 1
       fi
-      log_success "DB full reset (DROP tables) done before full deploy."
+      log_success "DB full reset (public schema) done before full deploy."
     else
       log_error "File not found: $SQL_FILE"
       exit 1

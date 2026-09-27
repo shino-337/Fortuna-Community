@@ -71,3 +71,46 @@ func TestPodInsightLifecyclePostgres(t *testing.T) {
 	require.NoError(t, db.Model(&models.Insight{}).Where("resource_uid = ?", "race").Count(&count).Error)
 	require.EqualValues(t, 2, count)
 }
+
+func TestGenericInsightRestorePostgres(t *testing.T) {
+	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")
+	if dsn == "" {
+		t.Skip("FORTUNA_TEST_POSTGRES_URL is not configured")
+	}
+	admin, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	adminSQL, err := admin.DB()
+	require.NoError(t, err)
+	defer adminSQL.Close()
+	schema := fmt.Sprintf("insight_restore_%d", time.Now().UnixNano())
+	require.NoError(t, admin.Exec("CREATE SCHEMA "+schema).Error)
+	defer admin.Exec("DROP SCHEMA " + schema + " CASCADE")
+	if strings.Contains(dsn, "://") {
+		u, err := url.Parse(dsn)
+		require.NoError(t, err)
+		q := u.Query()
+		q.Set("search_path", schema)
+		u.RawQuery = q.Encode()
+		dsn = u.String()
+	} else {
+		dsn += " search_path=" + schema
+	}
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	defer sqlDB.Close()
+	require.NoError(t, db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}))
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX idx_insight_resource_identity ON insights(cluster_id,resource_uid,cve_id,insight_type)").Error)
+	m := NewInsightManager(db)
+	old := &models.Insight{ClusterID: "cluster-a", ResourceUID: "uid", ResourceType: "ClusterRoleBinding", ResourceName: "binding", InsightType: "rbac", CVEID: "rule", Status: "active", Severity: "low", Title: "old", Evidence: "{}", ViolatedRules: "[]", Remediation: "{}", DetectedAt: time.Now().UTC()}
+	require.NoError(t, db.Create(old).Error)
+	require.NoError(t, db.Delete(old).Error)
+	incoming := &models.Insight{ClusterID: "cluster-a", ResourceUID: "uid", ResourceType: "ClusterRoleBinding", ResourceName: "binding", InsightType: "rbac", CVEID: "rule", Severity: "high", Title: "new"}
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error { return m.createOrUpdateInsightTx(tx, incoming) }))
+	require.Equal(t, old.ID, incoming.ID)
+	var restored models.Insight
+	require.NoError(t, db.First(&restored, old.ID).Error)
+	require.False(t, restored.DeletedAt.Valid)
+	require.Equal(t, "high", restored.Severity)
+}

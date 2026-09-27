@@ -212,7 +212,9 @@ export function useDashboardData(
       else errors.push('Notifications could not be loaded.');
       if (threatResult.status === 'fulfilled') setThreatVelocity(threatResult.value);
       if (pceResult.status === 'fulfilled') setPceSummary(pceResult.value.slice(0, 5));
+      else if (loadPolicy.pce) errors.push(getAvailabilityIssue(pceResult.reason, 'Capability summary').description);
       if (pceTrendResult.status === 'fulfilled') setPceTrend(pceTrendResult.value);
+      else if (loadPolicy.pce) errors.push(getAvailabilityIssue(pceTrendResult.reason, 'Capability trend').description);
       if (loadPolicy.entryPods) {
         if (podsResult.status === 'fulfilled') setEntryPods(podsResult.value.pods || []);
         else errors.push('Pod inventory for entry points could not be loaded.');

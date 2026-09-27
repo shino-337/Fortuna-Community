@@ -3,6 +3,7 @@ package rep
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -10,6 +11,23 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
+
+func TestRuntimeIncidentIDFitsPersistedColumnAndKeepsIdentity(t *testing.T) {
+	base := runtimeIncidentID("sha256-0fa1a9335ddd2729", strings.Repeat("p", 100), "POST_EXPLOIT_EXEC_CHAIN", 123456789)
+	if len(base) != 64 || base != runtimeIncidentID("sha256-0fa1a9335ddd2729", strings.Repeat("p", 100), "POST_EXPLOIT_EXEC_CHAIN", 123456789) {
+		t.Fatalf("incident id must be a stable 64-character digest, got %q", base)
+	}
+	for _, changed := range []string{
+		runtimeIncidentID("sha256-0fa1a9335ddd2720", strings.Repeat("p", 100), "POST_EXPLOIT_EXEC_CHAIN", 123456789),
+		runtimeIncidentID("sha256-0fa1a9335ddd2729", strings.Repeat("q", 100), "POST_EXPLOIT_EXEC_CHAIN", 123456789),
+		runtimeIncidentID("sha256-0fa1a9335ddd2729", strings.Repeat("p", 100), "RECON_BURST", 123456789),
+		runtimeIncidentID("sha256-0fa1a9335ddd2729", strings.Repeat("p", 100), "POST_EXPLOIT_EXEC_CHAIN", 123456790),
+	} {
+		if changed == base {
+			t.Fatal("distinct incident identities must not reuse the same id")
+		}
+	}
+}
 
 func TestCorrelateAndPersistRuntimeIncidents_ReconBurst(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})

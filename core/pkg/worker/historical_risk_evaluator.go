@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -19,6 +20,51 @@ type HistoricalRiskEvaluator struct {
 	riskEngine *riskengine.Engine
 	yamlEngine *riskengine.YAMLEngine
 	insightMgr *riskengine.InsightManager
+}
+
+func historicalPolicyRules(raw string) ([]interface{}, error) {
+	var rules []interface{}
+	if err := json.Unmarshal([]byte(raw), &rules); err != nil || rules == nil {
+		return nil, fmt.Errorf("invalid policy rules JSON")
+	}
+	for _, item := range rules {
+		rule, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("invalid policy rule object")
+		}
+		if _, ok := rule["resources"]; !ok {
+			// Kubernetes non-resource URL rules legitimately omit resources.
+			// The empty list is only a CEL read shape, not stored evidence.
+			if _, urlRule := rule["nonResourceURLs"]; !urlRule {
+				return nil, fmt.Errorf("policy rule has no resource targets")
+			}
+			rule["resources"] = []interface{}{}
+		}
+	}
+	return rules, nil
+}
+
+func historicalRoleRef(raw string) (map[string]interface{}, error) {
+	var ref map[string]interface{}
+	if err := json.Unmarshal([]byte(raw), &ref); err != nil || ref == nil {
+		return nil, fmt.Errorf("invalid roleRef JSON")
+	}
+	kind, _ := ref["kind"].(string)
+	if strings.TrimSpace(kind) == "" {
+		return nil, fmt.Errorf("roleRef kind is required")
+	}
+	return ref, nil
+}
+
+func historicalSubjects(raw string) ([]interface{}, error) {
+	if strings.TrimSpace(raw) == "" {
+		return []interface{}{}, nil
+	}
+	var subjects []interface{}
+	if err := json.Unmarshal([]byte(raw), &subjects); err != nil || subjects == nil {
+		return nil, fmt.Errorf("invalid binding subjects JSON")
+	}
+	return subjects, nil
 }
 
 // NewHistoricalRiskEvaluator creates a new historical risk evaluator
@@ -171,15 +217,11 @@ func (e *HistoricalRiskEvaluator) evaluateRoles(ctx context.Context, stats *stru
 	stats.Roles = len(roles)
 
 	for _, role := range roles {
-		// Parse rules JSON to ensure proper format
-		var rules interface{}
-		if role.Rules != "" {
-			if err := json.Unmarshal([]byte(role.Rules), &rules); err != nil {
-				log.Printf("[HistoricalRiskEvaluator] Failed to parse rules JSON for Role %s/%s: %v", role.Namespace, role.Name, err)
-				rules = []interface{}{}
-			}
-		} else {
-			rules = []interface{}{}
+		rules, err := historicalPolicyRules(role.Rules)
+		if err != nil {
+			log.Printf("[HistoricalRiskEvaluator] Invalid Role %s/%s rules: %v", role.Namespace, role.Name, err)
+			stats.Errors++
+			continue
 		}
 
 		normalizedData := map[string]interface{}{
@@ -229,13 +271,19 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoles(ctx context.Context, stat
 	stats.ClusterRoles = len(clusterRoles)
 
 	for _, cr := range clusterRoles {
+		rules, err := historicalPolicyRules(cr.Rules)
+		if err != nil {
+			log.Printf("[HistoricalRiskEvaluator] Invalid ClusterRole %s rules: %v", cr.Name, err)
+			stats.Errors++
+			continue
+		}
 		normalizedData := map[string]interface{}{
 			"kind":       "ClusterRole",
 			"name":       cr.Name,
 			"namespace":  "", // ClusterRole has no namespace
 			"cluster_id": cr.ClusterID,
 			"uid":        cr.UID,
-			"rules":      cr.Rules,
+			"rules":      rules,
 		}
 
 		insights, err := e.evaluateResource(ctx, "ClusterRole", normalizedData)
@@ -276,14 +324,26 @@ func (e *HistoricalRiskEvaluator) evaluateRoleBindings(ctx context.Context, stat
 	stats.RoleBindings = len(roleBindings)
 
 	for _, rb := range roleBindings {
+		roleRef, err := historicalRoleRef(rb.RoleRef)
+		if err != nil {
+			log.Printf("[HistoricalRiskEvaluator] Invalid RoleBinding %s/%s roleRef: %v", rb.Namespace, rb.Name, err)
+			stats.Errors++
+			continue
+		}
+		subjects, err := historicalSubjects(rb.Subjects)
+		if err != nil {
+			log.Printf("[HistoricalRiskEvaluator] Invalid RoleBinding %s/%s subjects: %v", rb.Namespace, rb.Name, err)
+			stats.Errors++
+			continue
+		}
 		normalizedData := map[string]interface{}{
 			"kind":       "RoleBinding",
 			"name":       rb.Name,
 			"namespace":  rb.Namespace,
 			"cluster_id": rb.ClusterID,
 			"uid":        rb.UID,
-			"roleRef":    rb.RoleRef,
-			"subjects":   rb.Subjects,
+			"roleRef":    roleRef,
+			"subjects":   subjects,
 		}
 
 		insights, err := e.evaluateResource(ctx, "RoleBinding", normalizedData)
@@ -335,18 +395,20 @@ func (e *HistoricalRiskEvaluator) evaluateClusterRoleBindings(ctx context.Contex
 		}
 
 		// Parse roleRef and subjects from JSON strings
-		if crb.RoleRef != "" {
-			var roleRef map[string]interface{}
-			if err := json.Unmarshal([]byte(crb.RoleRef), &roleRef); err == nil {
-				normalizedData["roleRef"] = roleRef
-			}
+		roleRef, err := historicalRoleRef(crb.RoleRef)
+		if err != nil {
+			log.Printf("[HistoricalRiskEvaluator] Invalid ClusterRoleBinding %s roleRef: %v", crb.Name, err)
+			stats.Errors++
+			continue
 		}
-		if crb.Subjects != "" {
-			var subjects []interface{}
-			if err := json.Unmarshal([]byte(crb.Subjects), &subjects); err == nil {
-				normalizedData["subjects"] = subjects
-			}
+		normalizedData["roleRef"] = roleRef
+		subjects, err := historicalSubjects(crb.Subjects)
+		if err != nil {
+			log.Printf("[HistoricalRiskEvaluator] Invalid ClusterRoleBinding %s subjects: %v", crb.Name, err)
+			stats.Errors++
+			continue
 		}
+		normalizedData["subjects"] = subjects
 
 		insights, err := e.evaluateResource(ctx, "ClusterRoleBinding", normalizedData)
 		if err != nil {

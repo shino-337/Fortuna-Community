@@ -31,6 +31,37 @@ func capabilityIDs(caps []Capability) map[string]struct{} {
 	return out
 }
 
+func TestPCEUpsertsUseClusterQualifiedPodIdentity(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.AutoMigrate(&models.PodCapability{}, &models.PodRiskProfile{}); err != nil {
+		t.Fatal(err)
+	}
+	a := models.Pod{ClusterID: "cluster-a", UID: "same", Namespace: "ns", HostPID: true}
+	b := models.Pod{ClusterID: "cluster-b", UID: "same", Namespace: "ns"}
+	for _, pod := range []models.Pod{a, b} {
+		if err := upsertPodRiskProfile(db, pod, []Capability{{ID: "CAP", Group: "API", Severity: "HIGH", Evidence: map[string]interface{}{}}}); err != nil {
+			t.Fatal(err)
+		}
+		if err := upsertCapabilities(db, pod, []Capability{{ID: "CAP", Group: "API", Severity: "HIGH", Evidence: map[string]interface{}{}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var profiles []models.PodRiskProfile
+	if err := db.Order("cluster_id").Find(&profiles).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(profiles) != 2 || profiles[0].ClusterID != "cluster-a" || profiles[0].StaticRisk != 40 || profiles[1].ClusterID != "cluster-b" || profiles[1].StaticRisk != 0 {
+		t.Fatalf("cross-cluster risk profile collision: %+v", profiles)
+	}
+	var capabilities []models.PodCapability
+	if err := db.Order("cluster_id").Find(&capabilities).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(capabilities) != 2 || capabilities[0].ClusterID != "cluster-a" || capabilities[1].ClusterID != "cluster-b" {
+		t.Fatalf("cross-cluster capability collision: %+v", capabilities)
+	}
+}
+
 // TestEvaluateAndUpsertPod_SkipsWhenSpecHashMismatch ensures async PCE discards when spec_hash changed (race protection).
 func TestEvaluateAndUpsertPod_SkipsWhenSpecHashMismatch(t *testing.T) {
 	db := newTestDB(t)
@@ -54,17 +85,17 @@ func TestEvaluatePod_PrivilegedHostPathNetworkKernelAutomount(t *testing.T) {
 	ctx := context.Background()
 
 	pod := &models.Pod{
-		ClusterID:      "c1",
-		UID:            "pod-1",
-		Name:           "p1",
-		Namespace:      "default",
-		ServiceAccount: "default",
-		HostNetwork:    true,
-		HostPID:        true,
-		HostIPC:        false,
+		ClusterID:                 "c1",
+		UID:                       "pod-1",
+		Name:                      "p1",
+		Namespace:                 "default",
+		ServiceAccount:            "default",
+		HostNetwork:               true,
+		HostPID:                   true,
+		HostIPC:                   false,
 		ContainerSecurityContexts: `{"app":{"privileged":true}}`,
-		Volumes: `[{"name":"host","hostPath":{"path":"/"}}]`,
-		VolumeMounts: `[{"name":"host","mountPath":"/"}]`,
+		Volumes:                   `[{"name":"host","hostPath":{"path":"/"}}]`,
+		VolumeMounts:              `[{"name":"host","mountPath":"/"}]`,
 	}
 
 	caps, err := EvaluatePod(ctx, db, pod)
@@ -94,11 +125,11 @@ func TestEvaluatePod_AutomountFalse_NoTokenSteal(t *testing.T) {
 
 	auto := false
 	pod := &models.Pod{
-		ClusterID:                   "c1",
-		UID:                         "pod-2",
-		Name:                        "p2",
-		Namespace:                   "default",
-		ServiceAccount:              "default",
+		ClusterID:                    "c1",
+		UID:                          "pod-2",
+		Name:                         "p2",
+		Namespace:                    "default",
+		ServiceAccount:               "default",
 		AutomountServiceAccountToken: &auto,
 	}
 

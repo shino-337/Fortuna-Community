@@ -362,6 +362,7 @@ func (e *Engine) createInsight(rule Rule, resourceType string, resourceData map[
 	recommendedAction := e.getRecommendedAction(rule, resourceType)
 
 	return &models.Insight{
+		ClusterID:         clusterID,
 		ResourceType:      resourceType,
 		ResourceNamespace: namespace,
 		ResourceName:      name,

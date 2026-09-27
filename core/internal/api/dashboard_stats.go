@@ -29,8 +29,8 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			{"agents", "dashboard_stats_agents_schema_unavailable"},
 			{"insights", "dashboard_stats_insights_schema_unavailable"},
 		} {
-			if !db.Migrator().HasTable(required.table) {
-				respondSchemaUnavailable(c, required.code, "Dashboard statistics require the "+required.table+" schema")
+			if !requireAvailabilityTables(c, db, required.code,
+				"Dashboard statistics require the "+required.table+" schema", required.table) {
 				return
 			}
 		}
@@ -42,14 +42,15 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 			return false
 		}
 		clusters := func() *gorm.DB {
-			q := db.Model(&models.Cluster{})
+			q := db.Model(&models.Cluster{}).
+				Where("source IN ? AND last_sync >= ?", []string{"auto", "env"}, time.Now().Add(-ActiveClusterCutoff))
 			if filter.ClusterID != "" {
 				return q.Where("id = ?", filter.ClusterID)
 			}
 			if len(filter.ScopedClusterIDs) > 0 {
 				q = q.Where("id IN ?", filter.ScopedClusterIDs)
 			}
-			return q.Where("source IN ? AND last_sync >= ?", []string{"auto", "env"}, time.Now().Add(-ActiveClusterCutoff))
+			return q
 		}
 		pods := func() *gorm.DB {
 			q := db.Model(&models.Pod{})

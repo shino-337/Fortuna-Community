@@ -27,6 +27,9 @@ func TestGraphAndRuntimeClusterAliases(t *testing.T) {
 }
 func TestRuntimePodFilterUsesExplicitClusterToDisambiguateDuplicateUID(t *testing.T) {
 	db, _ := serviceAccountScopeFixture(t)
+	if err := db.AutoMigrate(&models.Pod{}); err != nil {
+		t.Fatal(err)
+	}
 	for _, clusterID := range []string{"a", "b"} {
 		pod := models.Pod{ClusterID: clusterID, UID: "dup-runtime", Name: "dup-" + clusterID, Namespace: "default"}
 		if err := db.Create(&pod).Error; err != nil {
