@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-FROM node:20-alpine AS build
+FROM node:24-alpine AS build
 WORKDIR /app
 
 COPY dashboard/package*.json /app/
@@ -14,7 +14,8 @@ RUN --mount=type=cache,target=/root/.npm \
 # Write build stamp via Node (avoids shell/date quoting issues under BuildKit).
 RUN node -e "require('fs').writeFileSync('/app/dist/version.txt', 'build=' + new Date().toISOString() + ' utc\\n')"
 
-FROM nginx:1.25-alpine
+FROM nginx:1.30.5-alpine3.24
+RUN apk upgrade --no-cache
 COPY dashboard/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/dist /usr/share/nginx/html
 

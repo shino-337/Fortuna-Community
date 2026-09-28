@@ -175,7 +175,7 @@ echo -e "${BLUE}Step 4: Deploying/updating infrastructure...${NC}"
 
 kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/postgresql-with-age.yaml"
 echo "Waiting for PostgreSQL (max 300s)..."
-if kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app=postgres --timeout=300s; then
+if kubectl rollout status deployment/postgres -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} PostgreSQL pod is Ready"
 else
     echo -e "${RED}❌${NC} PostgreSQL did not become Ready within 300s."
@@ -209,7 +209,7 @@ echo -e "${GREEN}✅${NC} PostgreSQL applied"
 
 kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/nats.yaml"
 echo "Waiting for NATS (max 300s)..."
-if kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app=nats --timeout=300s; then
+if kubectl rollout status statefulset/nats -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} NATS pod is Ready"
 else
     echo -e "${RED}❌${NC} NATS did not become Ready within 300s."

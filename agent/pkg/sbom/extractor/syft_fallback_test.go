@@ -1,9 +1,32 @@
 package extractor
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
+
+func TestSyftAdapterUsesScanAndParsesStdoutOnly(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "syft")
+	script := "#!/bin/sh\n" +
+		"[ \"$1\" = scan ] && [ \"$2\" = example:1 ] && [ \"$3\" = -o ] && [ \"$4\" = json ] || exit 19\n" +
+		"printf 'warning on stderr\\n' >&2\n" +
+		"printf '{\"artifacts\":[{\"name\":\"demo\",\"version\":\"1.2.3\",\"type\":\"go-module\"}]}\\n'\n"
+	if err := os.WriteFile(bin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SBOM_SYFT_BIN", bin)
+
+	packages, err := NewSyftAdapter(nil, time.Minute, 10).DiscoverPackages(context.Background(), "example:1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(packages) != 1 || packages[0].Name != "demo" || packages[0].Version != "1.2.3" {
+		t.Fatalf("unexpected Syft packages: %+v", packages)
+	}
+}
 
 func TestShouldInvokeSyft_ZeroFortunaDistroless(t *testing.T) {
 	e := &Extractor{
@@ -104,4 +127,3 @@ func TestSyftResultCache_TTLExpiry(t *testing.T) {
 		t.Fatalf("cache entry should be expired; got=%v", got)
 	}
 }
-

@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: dashboard
-        image: fortuna-dashboard:auditfix-20260927-ee927de95
+        image: fortuna-dashboard:depfix-20260927-54-r2
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80

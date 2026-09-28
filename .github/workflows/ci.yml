@@ -18,6 +18,8 @@ jobs:
   go-test:
     name: Go tests (${{ matrix.module }})
     runs-on: ubuntu-latest
+    env:
+      GOWORK: 'off'
     strategy:
       fail-fast: false
       matrix:
@@ -26,7 +28,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.24.x'
+          go-version: '1.26.8'
           cache: true
           cache-dependency-path: |
             go.work
@@ -51,6 +53,8 @@ jobs:
   cluster-identity-postgres:
     name: Cluster identity PostgreSQL migration
     runs-on: ubuntu-latest
+    env:
+      GOWORK: 'off'
     services:
       postgres:
         image: postgres:16
@@ -59,7 +63,7 @@ jobs:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: fortuna_test
         ports:
-          - 5432:5432
+          - '127.0.0.1:5432:5432'
         options: >-
           --health-cmd "pg_isready -U postgres -d fortuna_test"
           --health-interval 10s
@@ -69,7 +73,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-go@v6
         with:
-          go-version: '1.24.x'
+          go-version: '1.26.8'
           cache: true
           cache-dependency-path: |
             go.work
@@ -97,7 +101,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: 20
+          node-version: 24
           cache: npm
           cache-dependency-path: dashboard/package-lock.json
       - name: Install dependencies

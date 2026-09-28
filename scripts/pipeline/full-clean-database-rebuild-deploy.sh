@@ -568,11 +568,6 @@ _sync_deploy_image_tags() {
     log_info "Deploy image tag sync skipped (SYNC_DEPLOY_IMAGE_TAG=false)"
     return 0
   fi
-  if [ "$SKIP_REBUILD" = true ] && [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
-    log_info "Deploy image tag sync skipped because local rebuild is skipped"
-    return 0
-  fi
-
   _image_ref() {
     local name="$1"
     case "$FORTUNA_PACKAGE_SOURCE" in
@@ -598,7 +593,9 @@ _sync_deploy_image_tags() {
     log_success "  ${file##*/} -> ${ref}"
   }
 
-  log_info "Syncing deploy image refs (source=$FORTUNA_PACKAGE_SOURCE, version=${FORTUNA_VERSION:-$VERSION})..."
+  local display_version="$FORTUNA_VERSION"
+  [ "$FORTUNA_PACKAGE_SOURCE" = "local" ] && display_version="$VERSION"
+  log_info "Syncing deploy image refs (source=$FORTUNA_PACKAGE_SOURCE, version=$display_version)..."
   case "${COMPONENT_ONLY:-}" in
     core)
       _sync_manifest_image "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" "fortuna-core"
@@ -618,9 +615,6 @@ _sync_deploy_image_tags() {
 }
 
 _set_workload_images_for_tag() {
-  if [ "$SKIP_REBUILD" = true ] && [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
-    return 0
-  fi
   local core_image agent_image dashboard_image
   if [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
     core_image="fortuna-core:${VERSION}"
@@ -953,6 +947,7 @@ else
       _sync_deploy_image_tags
     elif _phase2_required_images_present; then
       log_success "Required images already visible in containerd"
+      _sync_deploy_image_tags
     else
       log_error "--skip-rebuild was requested, but required Fortuna image(s) are missing in containerd namespace $CONTAINERD_NS."
       log_info "Run without --skip-rebuild, or build/load manually: CONTAINERD_NAMESPACE=$CONTAINERD_NS $SCRIPTS/build/build-and-load-containerd.sh"

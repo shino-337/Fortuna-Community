@@ -165,7 +165,7 @@ Fortuna requires:
 
 | Tool | Version | Purpose |
 |------|--------|---------|
-| **Go** | 1.24+ | Build Fortuna components |
+| **Go** | 1.26.8+ | Build and test Fortuna components |
 | **Docker** | 20.10+ | Build container images |
 | **Git** | Latest | Clone repository |
 | **Make** | Latest | Build automation |

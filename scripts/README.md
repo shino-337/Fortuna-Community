@@ -16,6 +16,7 @@ Scripts are grouped by intent. Run scripts from the repository root and use full
 | Clean local host image/cache pressure | `./scripts/clean/check-and-clean-host-resources.sh --clean -y` |
 | Enable optional admission webhook | `./scripts/deploy/enable-webhook.sh` (see [webhook guide](../docs/05-operations/WEBHOOK.md)) |
 | Verify deployment health | `./scripts/verify/check-full-deployment.sh` |
+| Run GitHub CI locally | `./scripts/verify/run-local-ci.sh all` (see [local CI guide](../docs/05-operations/LOCAL_CI.md)) |
 | Verify multi-cluster DB/API sync | `./scripts/verify/verify-multicluster-sync.sh` |
 | Open dashboard locally | `./scripts/utils/port-forward-dashboard.sh` |
 
@@ -257,7 +258,7 @@ Live-cluster attack-path validation remains a root-level exception:
 | `create_mtls_secret.sh` | Create Core/Agent mTLS secrets |
 | `rotate_mtls_secret.sh` | Rotate mTLS material |
 | `manage-port-forwards.sh` | Start/stop/list local Core/Dashboard port-forwards |
-| `port-forward-dashboard.sh` | Dashboard-only port-forward helper |
+| `port-forward-dashboard.sh` | Dashboard on the VM host IP (Core API on VM loopback); optional ports and Dashboard bind IP |
 | `push-images-to-workers.sh` | Copy local Core/Agent runtime images to nodes for registryless clusters |
 | `force-fortuna-image-refresh.sh` | Purge/verify/restart local Fortuna images and pods |
 | `rebuild-fortuna-workloads-safe.sh` | Safe rebuild helper for local images |

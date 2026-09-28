@@ -341,6 +341,16 @@ build_nerdctl() {
     $cache_flag \
     "$PROJECT_ROOT"
 
+  # nerdctl may leave an existing :latest reference on its old digest even
+  # when the versioned tag was rebuilt successfully. Keep both refs aligned.
+  if [ -n "$CTR_BIN" ]; then
+    "$CTR_BIN" -n "$CONTAINERD_NS" images tag --force \
+      "docker.io/library/$name:$tag" "docker.io/library/$name:latest"
+  else
+    "$nerdcli" --namespace "$CONTAINERD_NS" rmi "$name:latest" 2>/dev/null || true
+    "$nerdcli" --namespace "$CONTAINERD_NS" tag "$name:$tag" "$name:latest"
+  fi
+
   if ! verify_image_listed_in_containerd "$name"; then
     log_err "nerdctl build finished but $name not listed in containerd (namespace=$CONTAINERD_NS)."
     return 1
@@ -440,8 +450,8 @@ build_buildctl() {
     log_info "Importing $name:$tag into containerd from tarball..."
     $CTR_BIN -n "$CONTAINERD_NS" images import "$tarball"
     # Also tag as :latest
-    $CTR_BIN -n "$CONTAINERD_NS" images tag "docker.io/library/$name:$tag" "docker.io/library/$name:latest" 2>/dev/null || \
-      $CTR_BIN -n "$CONTAINERD_NS" images tag "$name:$tag" "$name:latest" 2>/dev/null || true
+    $CTR_BIN -n "$CONTAINERD_NS" images tag --force "docker.io/library/$name:$tag" "docker.io/library/$name:latest" 2>/dev/null || \
+      $CTR_BIN -n "$CONTAINERD_NS" images tag --force "$name:$tag" "$name:latest" 2>/dev/null || true
     log_ok "$name imported into containerd"
   elif [ "$SKIP_CONTAINERD_IMPORT" = "true" ]; then
     log_warn "ctr not found; tarball saved at $tarball (not imported; SKIP_CONTAINERD_IMPORT=true)."

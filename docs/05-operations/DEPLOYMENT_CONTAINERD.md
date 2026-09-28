@@ -101,6 +101,13 @@ Common variants:
 
 The pipeline derives `VERSION` from Git unless `VERSION` is set. Use `FORTUNA_PACKAGE_SOURCE=local` when the rollout should use locally built `fortuna-*:${VERSION}` images. The default package source is `github`, which keeps workloads on `ghcr.io/shino-337/fortuna-community/*:${FORTUNA_VERSION}`.
 
+To deploy images already built and loaded into the local containerd namespace,
+set the exact `VERSION` and add `--skip-rebuild`. The pipeline verifies that all
+three versioned images exist, then updates the manifests and workload image
+references to that tag. For a fresh application database, add `--db-reset` only
+after taking and checking the dump described below; this does not delete NATS
+or any PVC.
+
 `--db-reset` is destructive: it recreates the `public` schema in the dedicated
 `fortuna` database, removing users, vulnerability catalogs, migration history,
 and all other application rows. It does not remove the PostgreSQL PVC or
@@ -111,6 +118,20 @@ After the reset, confirm an admin was bootstrapped from the current Secret and
 reload the OSV/CVE catalog if no startup source is configured. A clean reset
 does not validate migration of populated legacy data, so keep that as a
 separate acceptance gate.
+
+On a single-node local-image deployment, the post-reset CVE loader can run as
+a Kubernetes Job using the newly deployed Core image and in-cluster PostgreSQL
+DNS. For a CPU-saturated lab node, lower only its scheduling request:
+
+```bash
+CVE_LOAD_MODE=job CORE_IMAGE="fortuna-core:${VERSION}" \
+  CVE_LOADER_CPU_REQUEST=25m CLEAN_LOCAL_SOURCE_AFTER_LOAD=false \
+  ./scripts/verify/ensure-cve-catalog-ready.sh
+```
+
+The guard verifies database rows and an active catalog generation; merely
+having local marker files is not sufficient after a reset. Keep the source
+files until the Job completes successfully.
 
 ## Multi-Node Clusters
 

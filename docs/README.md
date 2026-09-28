@@ -16,6 +16,7 @@ The project name is **Fortuna**. The public repository is `shino-337/Fortuna-Com
 | Operate a deployment | [05-operations/DEPLOYMENT.md](05-operations/DEPLOYMENT.md) |
 | Production deployment | [05-operations/PRODUCTION_DEPLOYMENT.md](05-operations/PRODUCTION_DEPLOYMENT.md) |
 | Local containerd build/deploy | [05-operations/DEPLOYMENT_CONTAINERD.md](05-operations/DEPLOYMENT_CONTAINERD.md) |
+| Run GitHub CI locally | [05-operations/LOCAL_CI.md](05-operations/LOCAL_CI.md) |
 | Troubleshoot common failures | [05-operations/DEPLOYMENT.md](05-operations/DEPLOYMENT.md) |
 | Architecture overview | [02-architecture/ARCHITECTURE.md](02-architecture/ARCHITECTURE.md) |
 | Component catalog | [03-components/README.md](03-components/README.md) |

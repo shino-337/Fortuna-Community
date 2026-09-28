@@ -37,7 +37,7 @@ The full public image workflow is in [QUICKSTART.md](./QUICKSTART.md). Local bui
 - 4GB+ RAM (8GB recommended)
 - 20GB+ free disk space
 - Kubernetes 1.28+
-- Go 1.24+ only when building images locally
+- Go 1.26.8+ only when building or testing Go modules locally
 - kubectl configured
 
 ## Verification Steps
