@@ -1,7 +1,8 @@
 # Post-merge audit implementation plan
 
 Baseline verified after PR #53 merged on 2026-09-24 (merge commit `a6e49ff`);
-the local deployment and remaining gates were reviewed again on 2026-09-28 UTC.
+the local deployment was reviewed on 2026-09-28 UTC and source/GAP status on
+2026-09-29 UTC.
 Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
@@ -51,15 +52,23 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 
 ## Implementation progress
 
-### Current checkpoint — 2026-09-28 UTC
+### Current checkpoint — 2026-09-29 UTC
 
 | Scope | Verified state | Remaining gate |
 | --- | --- | --- |
 | A–C | Source packages merged; scoped HTTP/mTLS ingest exercised on the single-node lab | Live two-cluster isolation is still owned by F |
 | D | D1 and D2 merged; absence-based runtime auto-resolution remains disabled | D3 independent source health, then F live-topology validation |
-| E | E1 merged; E2 and residual E1 fixes are on the #54 branch | Exact committed-head local CI evidence, owner review and manual merge |
-| F | Local PostgreSQL 16 regressions passed on 2026-09-27 | Populated live migration rehearsal and the real two-cluster/DaemonSet gate |
+| E | E1 merged; E2 and residual E1 fixes are on the #54 branch; full native working-tree CI passed on 2026-09-29 | Exact committed-head local CI evidence, owner review and manual merge |
+| F | All seven PostgreSQL 16 workflow selections passed again on 2026-09-29 in an isolated database | Populated live migration rehearsal and the real two-cluster/DaemonSet gate |
 | G–I | Pending | Scoped AGE, mutations/revocation, performance and investigation walkthrough |
+
+The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
+records source fixes, historical live observations and remaining acceptance gates
+separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions but
+still require a live Agent rollout with the durable-state configuration. They
+do not close D3 or package F. PR #54 remains open; the 2026-09-28 hosted CI run
+for its previous head executed zero steps in all seven jobs. Existing local
+status or earlier working-tree results must not be reused for a new commit.
 
 The 2026-09-27 dependency/deployment follow-up built and deployed local
 `depfix-20260927-54-r2` Core, Agent and Dashboard images. Container config IDs
@@ -104,13 +113,46 @@ and record the exact committed head outside this plan. GitHub's existing #54
 jobs failed before execution because of account billing/spending entitlement;
 their failures do not demonstrate a code failure or a local pass.
 
-Open runtime follow-up remains explicit: the stale-Falco mixed-batch retry
-limitation recorded below is not durably fixed by restart or current `send_ok`
+The historical runtime observations remain explicit: the stale-Falco mixed-batch
+retry limitation recorded below was not durably fixed by restart or `send_ok`
 traffic. A 2026-09-28 Agent log snapshot also contains repeated HTTP 429 during
 Pod-event retry/quarantine (75 rate-limit failures and 705 quarantine log
-entries in a bounded recent sample). Bounded retry/backpressure and replay
-behavior need investigation and regression coverage; do not treat Ready Pods
+entries in a bounded recent sample). Source fixes and regression coverage are
+now present below; their live rollout and recovery checks remain open. Do not treat Ready Pods
 or healthy Falco traffic as proof that all Pod-event ingestion is complete.
+
+The 2026-09-28/29 source implementation addresses those two bounded
+retry gaps without changing Core ownership authorization. Pod-event delivery
+now has a shared 12-request flush budget, stops all siblings after a transient
+or non-ownership rejection, honors `Retry-After`, and keeps deferred quarantine
+out of the fresh-event queue. Falco has an optional persistent cursor/outbox,
+enabled by a node-local DaemonSet mount: payloads are prepared and durably
+saved before delivery, only explicit `runtime_ownership_mismatch` responses
+are isolated, and rejected records remain quarantined for bounded retry.
+Source-record identity and canonical payloads survive restart/source rotation;
+corrupt, wrong-principal, concurrently locked or full state fails closed.
+Quarantined/pending evidence keeps coverage failed, never authoritative clean.
+Backlogs drain within the outbox capacity; persistence failure sends nothing
+and does not advance the cursor. Informer updates received during a Pod-event
+flush retain the newest version without bypassing quarantine or backoff.
+Named regressions are added to the permanent gate. Native local CI now reads
+workflow run steps, executes job groups sequentially, isolates PostgreSQL,
+records SHA/source/log hashes, and refuses publishable status for a dirty or
+changing worktree. Full native CI passed on the 2026-09-29 working-tree snapshot:
+Core/Agent/API tests and vet, the permanent regression contract, 20 repeated
+SQLite risk-engine runs, all seven PostgreSQL selections, Dashboard
+typecheck/build and 52 Playwright tests, plus script/shell/hygiene checks.
+That dirty-tree report is non-publishable; record a fresh clean committed-head
+run outside this plan before push/merge readiness. A later live Agent rollout
+is still required before these fixes are claimed deployed; D3, F and G–I remain open.
+The rollout must add the state env/volume/mount as well as the Agent image;
+see [Falco delivery-state operations](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
+
+The 2026-09-29 continuation also fixes Pod-event quarantine starvation under
+the shared request limit: deferred records take the next retry turn before
+records already ownership-rejected during that flush. A permanent regression
+reproduces a recovered event behind a permanently rejected prefix, verifies
+eventual delivery, and checks the per-flush budget and evidence retention.
 
 - A: merged in PR #36. Runtime evidence read failures propagate into evaluation and
   reconciliation retains findings when required evidence is unavailable.
@@ -326,10 +368,11 @@ or healthy Falco traffic as proof that all Pod-event ingestion is complete.
   scoped ownership checks (403), and the Agent retried the same in-memory
   batch indefinitely. A post-inventory Agent restart cleared that transient
   batch without deleting the host Falco source log; new batches returned
-  `send_ok`. This is an operational recovery, not a durable fix. D/F follow-up
-  must isolate individually rejected stale records while retaining evidence
-  and retrying valid siblings, with scoped mixed-batch, restart and replay
-  regressions; do not weaken Core's all-or-nothing ownership check.
+  `send_ok`. This was an operational recovery. The subsequent durable source fix
+  is recorded as `INGEST-01`; mixed-batch, restart, rotation, replay and persistence
+  failure regressions now pass. Live rollout of its state env/volume/mount and
+  verification of valid-sibling delivery and retained stale evidence remain open.
+  Core's all-or-nothing ownership check is preserved.
 - D3 follows E2 and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers

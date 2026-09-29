@@ -14,15 +14,19 @@ success and skipped-subtest cases. New findings must add a focused reproduction
 to this contract where appropriate; changing a required case needs review.
 
 The contract currently covers runtime input failure, reconciliation retention,
-shared RBAC semantics, inventory/mutation scope, agent association, graph/cache
-boundaries and the agent credential foundation. Other existing tests
+shared RBAC semantics, inventory/mutation scope, scoped HTTP/gRPC identity,
+cluster-qualified storage, receipt lifecycle/replay, API availability, graph/cache
+boundaries and bounded durable ingest delivery. Other existing tests
 remain covered by the normal full suite; this contract is not complete evidence
 of all future HTTP/gRPC isolation behavior.
 
 ## Review and merge controls
 
-- Require the CI checks (Core, Agent, API, Dashboard, scripts and hygiene) and
-  Secret scan on main; require PR review and current-base validation.
+- Require functional CI (Core, Agent, API, PostgreSQL, Dashboard, scripts and
+  hygiene), PR review and current-base validation. PR #54 has the owner-recorded
+  exact-head local exception described in [the plan](NEXT_AUDIT_PLAN.md#54-local-exact-head-verification)
+  while hosted jobs fail before execution. Secret scanning is manual-only under
+  the current repository plan/license and remains a separate check.
 - Restrict bypass/direct pushes so failing checks cannot be merged routinely.
 - Review changes to CI, the required test list and permission/scope helpers as
   changes to security controls.
@@ -47,7 +51,15 @@ be verified by the repository owner; their absence has not been established.
 | #36 runtime input errors | TestRuntimeInputFailureReachesEvaluators, TestRuntimeInputRejectsCorruptSnapshot, TestRuntimeInputRejectsMalformedBindings, TestReconciliationPreservesFindingOnRuntimeInputFailure |
 | Earlier aggregate/action scope | TestAggregateCacheIsolation, TestRuntimeScopeAndFindingActions, TestBulkRequiresActionPermissionAndNonemptySelection |
 | C1 credential foundation | TestCredentialIdentityIsolation, TestCredentialRotationRevocationAndExpiry, TestCredentialRegistryFailsClosed, TestCredentialRequiresVerifiedTLS |
+| INGEST-01 durable Falco ownership isolation/replay | TestFalcoDurableMixedBatchRestartAndRecovery, TestFalcoDurableRotationReplaysPendingBeforeReadingReplacement, TestFalcoDurableBackoffSurvivesRestartAndMissingSource, TestFalcoDurablePersistenceFailureDoesNotSendOrAdvanceCursor, TestFalcoDurableStateFailsClosedOnCorruptionBindingAndConcurrentWriter, TestFalcoDurableIsolationBudgetAndCapacityKeepEvidence, TestFalcoDurableLargeBacklogDrainsWithinCapacity |
+| INGEST-02 bounded Pod/Falco retry and backoff | TestDeliveryBudgetBoundsIsolationAndRetainsUnsent, TestDeliveryStopsSiblingsOnRateLimitAndOtherForbidden, TestPostErrorHonorsRetryAfterAndCancelledDelivery, TestEventsCollectorRateLimitStopsFlushAndPreservesQuarantine, TestEventsCollectorQuarantineRetryHasSharedRequestBudget |
+| INGEST-03 quarantine fairness/informer updates | TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents, TestEventsCollectorResyncDuringDeliveryPreservesQueueClassAndNewestVersion |
+| INSIGHT-01 generated/restored insight ownership | TestRuleInsightCarriesClusterIdentity, TestGenericInsightRestoresSoftDeletedRowWithinCluster; PostgreSQL job: TestGenericInsightRestorePostgres |
+| POLICY-01 stock Pod CEL repair | Full Core suite: TestBaselinePodPoliciesCompileAndDetectUnsafeSpec, TestMigration151PreservesModifiedLegacyTemplate; PostgreSQL job: TestBaselinePodPolicySeedAndRepairPostgres |
+| CI-01 exact-head local evidence | Scripts job: test-local-ci-native.py verifies complete workflow groups/matrix, rejected unknown controls, sanitized inherited environment, failure/source-change reports and clean stable all-job publishability |
 
 These are named coverage anchors, not a guarantee against deleting assertions or
-introducing a different failure mode. Review remains required. Endpoint isolation
-coverage will be added when C2/C3 wire the credential library into real routes.
+introducing a different failure mode. Review remains required. C2/C3 registered
+HTTP/gRPC isolation regressions are now required by the named gate; permanent
+PostgreSQL selections additionally cover real database contracts. Neither these
+tests nor the mocked Dashboard suite close package F's live acceptance gates.

@@ -333,3 +333,29 @@ a valid pre-history latest receipt may be backfilled exactly once.
 PostgreSQL coverage arbitration is a permanent CI gate: concurrent first reports
 must converge without unique-key 500s, storage failure must roll back latest state
 and immutable history, and recovery/startup migration must preserve evidence.
+
+### Bounded ingest and durable Falco delivery
+
+Only an explicit machine-readable ownership rejection may trigger batch
+isolation. A transient, authentication or other forbidden response stops all
+remaining sibling requests in the same flush. Fresh delivery, isolation and
+quarantine share a 12-request budget; 429/503 backoff honors `Retry-After`.
+Deferred Pod-event quarantine stays out of the fresh-event queue, takes its next
+turn before already-rejected records, and retains informer updates received
+while HTTP delivery is in progress.
+
+When `FALCO_DELIVERY_STATE_PATH` is configured, complete canonical payloads,
+physical source-record identities and cursor must be persisted together before
+delivery. The state is bound to the exact cluster, Agent, Core URL and source
+path, exclusively locked, atomically replaced and synced. Missing persistence,
+corruption, binding mismatch, another writer or exhausted capacity blocks
+ingestion without discarding retained evidence. Restart/rotation preserves
+pending/quarantined payload identity and retry deadlines. Accepted events may
+replay after an acknowledgement/checkpoint failure; Core's authenticated
+source-record deduplication prevents repeated effects against an unchanged DB.
+
+Pending/quarantined evidence is failed coverage, never clean or authoritative.
+These guarantees do not extend to the legacy Falco mode without a state path or
+make the in-memory Pod-event queue restart-durable. Its documented capacity/drop
+behavior remains explicit. The INGEST-01–03 regressions in the named gate protect
+these boundaries; a live state-volume rollout is a separate acceptance gate.
