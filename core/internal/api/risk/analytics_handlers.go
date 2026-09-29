@@ -51,115 +51,12 @@ func GetRiskTrendsAnalytics(db *gorm.DB) gin.HandlerFunc {
 
 		cutoffDate := time.Now().UTC().AddDate(0, 0, -days)
 
-		// Build query
-		query := scope.apply(db.WithContext(ctx).Model(&models.RiskScore{}), "cluster_id").
-			Where("calculated_at >= ?", cutoffDate)
-
-		if namespace != "" {
-			query = query.Where("namespace = ?", namespace)
-		}
-
-		// Fetch all scores
-		var scores []models.RiskScore
-		if err := query.Find(&scores).Error; err != nil {
-			log.Printf("[GetRiskTrendsAnalytics] Error fetching scores: %v", err)
+		trends, err := loadRiskTrendPoints(db.WithContext(ctx), scope, period, namespace, cutoffDate)
+		if err != nil {
+			log.Printf("[GetRiskTrendsAnalytics] Error fetching trends: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch trends"})
 			return
 		}
-
-		// Aggregate by period
-		trendsMap := make(map[string]*TrendAggregator)
-
-		for _, score := range scores {
-			score.CalculatedAt = score.CalculatedAt.UTC()
-			var dateKey string
-			switch period {
-			case "daily":
-				dateKey = score.CalculatedAt.Format("2006-01-02")
-			case "weekly":
-				// Get week start (Monday)
-				weekStart := score.CalculatedAt
-				for weekStart.Weekday() != time.Monday {
-					weekStart = weekStart.AddDate(0, 0, -1)
-				}
-				dateKey = weekStart.Format("2006-01-02")
-			case "monthly":
-				dateKey = score.CalculatedAt.Format("2006-01")
-			case "yearly":
-				dateKey = score.CalculatedAt.Format("2006")
-			default:
-				dateKey = score.CalculatedAt.Format("2006-01-02")
-			}
-
-			if _, exists := trendsMap[dateKey]; !exists {
-				trendsMap[dateKey] = &TrendAggregator{
-					scoreSum:      0,
-					count:         0,
-					CriticalCount: 0,
-					HighCount:     0,
-					MediumCount:   0,
-					LowCount:      0,
-					maxScore:      -1,
-					minScore:      101,
-				}
-			}
-
-			agg := trendsMap[dateKey]
-			agg.scoreSum += score.TotalScore
-			agg.count++
-
-			if score.TotalScore > agg.maxScore {
-				agg.maxScore = score.TotalScore
-			}
-			if score.TotalScore < agg.minScore {
-				agg.minScore = score.TotalScore
-			}
-
-			// Count by priority
-			switch score.PriorityLevel {
-			case "P0":
-				agg.CriticalCount++
-			case "P1":
-				agg.HighCount++
-			case "P2":
-				agg.MediumCount++
-			case "P3":
-				agg.LowCount++
-			}
-		}
-
-		// Convert to response format
-		trends := make([]TrendPoint, 0, len(trendsMap))
-		for date, agg := range trendsMap {
-			avgScore := 0.0
-			if agg.count > 0 {
-				avgScore = agg.scoreSum / float64(agg.count)
-			}
-
-			maxScore := agg.maxScore
-			minScore := agg.minScore
-			if maxScore < 0 {
-				maxScore = 0
-			}
-			if minScore > 100 {
-				minScore = 0
-			}
-
-			trends = append(trends, TrendPoint{
-				Date:     date,
-				AvgScore: avgScore,
-				Count:    int64(agg.count),
-				P0Count:  agg.CriticalCount,
-				P1Count:  agg.HighCount,
-				P2Count:  agg.MediumCount,
-				P3Count:  agg.LowCount,
-				MaxScore: maxScore,
-				MinScore: minScore,
-			})
-		}
-
-		// Sort by date
-		sortTrendsByDate(trends)
 
 		c.JSON(http.StatusOK, gin.H{
 			"trends":       trends,

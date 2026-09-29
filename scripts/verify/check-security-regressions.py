@@ -7,14 +7,16 @@ subtests are listed explicitly so deleting one case cannot hide behind a passing
 parent test.
 """
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
 import sys
 
 REQUIRED = {
-    "./pkg/mutations": ["TestMutationIdentityReplayAndDurability", "TestMutationBlocksReplacementAndChangedBindings", "TestDurableDeletionRetainsUIDPrecondition"],
-    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
+    "./internal/api/risk": ["TestRiskTrendsBoundedAggregationScopeAndCalendar"],
+    "./pkg/mutations": ["TestMutationIdentityReplayAndDurability", "TestMutationBlocksReplacementAndChangedBindings", "TestDurableDeletionRetainsUIDPrecondition", "TestMutationDigestSurvivesJSONBRepresentation"],
+    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers", "TestAttackPathBuildFailsClosedOnSnapshotError", "TestAttackPathCacheIsolation", "TestAttackPathCacheNestedMutationAndInvalidEncoding"],
     "./internal/service": [
         "TestInventoryCollectionCommitAndFailure", "TestInventoryCollectionEmptyMissingReplayAndScope",
         "TestInventoryCollectionEmptyMissingReplayAndScope/empty",
@@ -54,6 +56,7 @@ REQUIRED = {
         "TestRuntimeSameSecondIdenticalObservationsRemainDistinct",
     ],
     "./pkg/riskengine": [
+        "TestAssetSecurityStateExplicitFreshRead",
         "TestResolutionDetectorDependencies",
         "TestPodInsightRestorePreservesClusterAndException",
         "TestRuleInsightCarriesClusterIdentity",
@@ -115,6 +118,7 @@ REQUIRED = {
         "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
     ],
     "./internal/api": [
+        "TestFullSyncEvaluationCoalescesAndRetainsPendingPass",
         "TestMutationHTTPPermissionAndScope",
         "TestSourceHealthAuthorityReplayFailureAndRestart",
         "TestSourceHealthRejectsUntrustedEvidence",
@@ -273,8 +277,18 @@ REQUIRED = {
     ],
 }
 
+POSTGRES_REQUIRED = {
+    "./migrations": ["TestClusterResourceIdentityFoundationPostgres", "TestClusterQualifiedPodUniquenessPostgres", "TestAgentCompositeIdentityPostgres", "TestMigrationMetadataUsesCurrentSchemaPostgres", "TestRiskScoreOwnershipQuarantinePostgres", "TestBaselinePodPolicySeedAndRepairPostgres", "TestRuntimeEventIdempotencyPostgres", "TestRuntimeEventIdempotencyRejectsPreexistingDuplicateSourceRecordsPostgres"],
+    "./pkg/riskengine": ["TestPodInsightLifecyclePostgres", "TestGenericInsightRestorePostgres"],
+    "./internal/repository": ["TestSBOMConcurrentOwnershipPostgres"],
+    "./internal/service": ["TestInventoryCollectionPostgres"],
+    "./internal/api": ["TestSourceHealthPostgresConcurrencyAndRollback", "TestRuntimeCoveragePostgres", "TestRuntimeCoveragePostgresLegacySchemaUpgrade", "TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows", "TestSBOMListClusterScopePostgres", "TestSBOMListDuplicateUIDClusterIsolationPostgres", "TestSBOMListFailClosedPostgres"],
+    "./pkg/rep": ["TestRuntimeSourceRecordConcurrentDuplicatePostgres"],
+    "./pkg/graph": ["TestAGEScopedTraversalPostgres"],
+    "./internal/api/risk": ["TestRiskTrendsAggregationPostgres"],
+}
+
 API_REQUIRED = {
-    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
     "./collection": [
         "TestRuntimeProducerManifestRequiresCompleteFailClosedRegistry",
         "TestRuntimeCoverageRequiresExecutionSession",
@@ -282,7 +296,6 @@ API_REQUIRED = {
 }
 
 AGENT_REQUIRED = {
-    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
     "./internal/config": [
         "TestRuntimePollingDurationsClampNonPositiveValues",
         "TestRuntimeCoverageCadenceIndependentFromPoll",
@@ -438,9 +451,18 @@ def run_required(module_dir, module_name, required_by_package, errors):
 def main():
     repo = Path(__file__).resolve().parents[2]
     errors = []
-    run_required(repo / "core", "core", REQUIRED, errors)
-    run_required(repo / "api", "api", API_REQUIRED, errors)
-    run_required(repo / "agent", "agent", AGENT_REQUIRED, errors)
+    if sys.argv[1:] == ["--postgres"]:
+        if not os.environ.get("FORTUNA_TEST_POSTGRES_URL"):
+            print("isolated FORTUNA_TEST_POSTGRES_URL required", file=sys.stderr)
+            return 2
+        run_required(repo / "core", "core", POSTGRES_REQUIRED, errors)
+    elif not sys.argv[1:]:
+        run_required(repo / "core", "core", REQUIRED, errors)
+        run_required(repo / "api", "api", API_REQUIRED, errors)
+        run_required(repo / "agent", "agent", AGENT_REQUIRED, errors)
+    else:
+        print("usage: check-security-regressions.py [--postgres]", file=sys.stderr)
+        return 2
     if errors:
         print("\n".join(errors), file=sys.stderr)
         return 1

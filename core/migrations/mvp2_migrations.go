@@ -16,7 +16,7 @@ func Migration012_AddRiskScores(db *gorm.DB) error {
 
 	// Check if table already exists
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'risk_scores')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'risk_scores')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("failed to check if risk_scores table exists: %w", err)
 	}
 
@@ -123,7 +123,7 @@ func Migration013_AddRiskScoresDeletedAt(db *gorm.DB) error {
 
 	// Check if table exists
 	var tableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'risk_scores')").Scan(&tableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'risk_scores')").Scan(&tableExists).Error; err != nil {
 		return fmt.Errorf("failed to check if risk_scores table exists: %w", err)
 	}
 
@@ -134,7 +134,7 @@ func Migration013_AddRiskScoresDeletedAt(db *gorm.DB) error {
 
 	// Check if column already exists
 	var columnExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'risk_scores' AND column_name = 'deleted_at')").Scan(&columnExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'risk_scores' AND column_name = 'deleted_at')").Scan(&columnExists).Error; err != nil {
 		return fmt.Errorf("failed to check if deleted_at column exists: %w", err)
 	}
 
@@ -199,7 +199,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'risk_scores' AND column_name = 'deleted_at'
+        WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'risk_scores' AND column_name = 'deleted_at'
     ) THEN
         ALTER TABLE risk_scores ADD COLUMN deleted_at TIMESTAMP WITH TIME ZONE;
     END IF;
@@ -225,7 +225,7 @@ func Migration014_AddPolicyTemplates(db *gorm.DB) error {
 
 	// Check if table already exists
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'policy_templates')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'policy_templates')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("failed to check if policy_templates table exists: %w", err)
 	}
 
@@ -303,7 +303,7 @@ func Migration015_AddPolicyInstances(db *gorm.DB) error {
 
 	// Check if table already exists
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'policy_instances')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'policy_instances')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("failed to check if policy_instances table exists: %w", err)
 	}
 
@@ -327,7 +327,7 @@ func Migration016_AddPolicyViolations(db *gorm.DB) error {
 
 	// Check if table already exists
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'policy_violations')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'policy_violations')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("failed to check if policy_violations table exists: %w", err)
 	}
 
@@ -353,7 +353,7 @@ func Migration018_AddRiskScoresV2Columns(db *gorm.DB) error {
 
 	// Check if table exists
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'risk_scores')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'risk_scores')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("failed to check if risk_scores table exists: %w", err)
 	}
 
@@ -445,7 +445,7 @@ func Migration019_AddCVETables(db *gorm.DB) error {
 
 	// Check if cves table already exists
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'cves')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cves')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("failed to check if cves table exists: %w", err)
 	}
 
@@ -548,13 +548,13 @@ func Migration020_AddSBOMTables(db *gorm.DB) error {
 	var sbomComponentsExists bool
 	var cveMatchesExists bool
 	
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sboms')").Scan(&sbomsExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms')").Scan(&sbomsExists).Error; err != nil {
 		return fmt.Errorf("failed to check if sboms table exists: %w", err)
 	}
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sbom_components')").Scan(&sbomComponentsExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sbom_components')").Scan(&sbomComponentsExists).Error; err != nil {
 		return fmt.Errorf("failed to check if sbom_components table exists: %w", err)
 	}
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'cve_matches')").Scan(&cveMatchesExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cve_matches')").Scan(&cveMatchesExists).Error; err != nil {
 		return fmt.Errorf("failed to check if cve_matches table exists: %w", err)
 	}
 
@@ -567,7 +567,7 @@ func Migration020_AddSBOMTables(db *gorm.DB) error {
 		checkSQL := `
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.columns 
-				WHERE table_name = 'sboms' 
+				WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms'
 				AND column_name IN ('image_digest', 'pod_uid', 'pod_name', 'namespace', 'container_name', 'os_name', 'package_count')
 			)
 		`
@@ -724,17 +724,17 @@ func Migration021_FixSBOMSchema(db *gorm.DB) error {
 	// Fix sbom_components.p_url -> purl
 	log.Println("[Migration 021] Checking sbom_components table for p_url column...")
 	var componentsTableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sbom_components')").Scan(&componentsTableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sbom_components')").Scan(&componentsTableExists).Error; err != nil {
 		log.Printf("[Migration 021] ⚠️  Failed to check if sbom_components table exists: %v", err)
 	} else if componentsTableExists {
 		var pUrlExists bool
 		var purlExists bool
-		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'sbom_components' AND column_name = 'p_url')").Scan(&pUrlExists).Error; err != nil {
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sbom_components' AND column_name = 'p_url')").Scan(&pUrlExists).Error; err != nil {
 			log.Printf("[Migration 021] ⚠️  Failed to check for p_url column: %v", err)
 		} else {
 			log.Printf("[Migration 021] p_url column exists: %v", pUrlExists)
 		}
-		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'sbom_components' AND column_name = 'purl')").Scan(&purlExists).Error; err != nil {
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sbom_components' AND column_name = 'purl')").Scan(&purlExists).Error; err != nil {
 			log.Printf("[Migration 021] ⚠️  Failed to check for purl column: %v", err)
 		} else {
 			log.Printf("[Migration 021] purl column exists: %v", purlExists)
@@ -771,7 +771,7 @@ func Migration021_FixSBOMSchema(db *gorm.DB) error {
 	// Fix insights.source column
 	log.Println("[Migration 021] Checking insights table for source column...")
 	var insightsSourceExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'insights' AND column_name = 'source')").Scan(&insightsSourceExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights' AND column_name = 'source')").Scan(&insightsSourceExists).Error; err != nil {
 		log.Printf("[Migration 021] ⚠️  Failed to check for insights.source column: %v", err)
 	} else {
 		log.Printf("[Migration 021] insights.source column exists: %v", insightsSourceExists)
@@ -810,7 +810,7 @@ func Migration022_AddCVEColumnsToInsights(db *gorm.DB) error {
 
 	// Check if insights table exists
 	var insightsTableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'insights')").Scan(&insightsTableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights')").Scan(&insightsTableExists).Error; err != nil {
 		return fmt.Errorf("failed to check if insights table exists: %w", err)
 	}
 
@@ -867,7 +867,7 @@ func Migration022_AddCVEColumnsToInsights(db *gorm.DB) error {
 	// Add each column if it doesn't exist
 	for _, col := range columns {
 		var columnExists bool
-		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'insights' AND column_name = ?)", col.name).Scan(&columnExists).Error; err != nil {
+		if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights' AND column_name = ?)", col.name).Scan(&columnExists).Error; err != nil {
 			log.Printf("[Migration 022] ⚠️  Failed to check for %s column: %v", col.name, err)
 			continue
 		}

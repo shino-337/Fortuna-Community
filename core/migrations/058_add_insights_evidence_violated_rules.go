@@ -12,7 +12,7 @@ func Migration058_AddInsightsEvidenceViolatedRules(db *gorm.DB) error {
 	log.Println("Running migration 058: Add evidence and violated_rules to insights")
 
 	var tableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'insights')").Scan(&tableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights')").Scan(&tableExists).Error; err != nil {
 		return err
 	}
 	if !tableExists {

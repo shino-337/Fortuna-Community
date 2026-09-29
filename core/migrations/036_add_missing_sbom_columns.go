@@ -16,7 +16,7 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'sboms' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms'
 			AND column_name = 'pod_uid'
 		)
 	`).Scan(&hasPodUID).Error; err != nil {
@@ -51,7 +51,7 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'sboms' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms'
 			AND column_name = 'pod_name'
 		)
 	`).Scan(&hasPodName).Error; err != nil {
@@ -77,7 +77,7 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'sboms' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms'
 			AND column_name IN ('namespace', 'pod_namespace')
 		)
 	`).Scan(&hasNamespace).Error; err != nil {
@@ -112,7 +112,7 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'sboms' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms'
 			AND column_name = 'container_name'
 		)
 	`).Scan(&hasContainerName).Error; err != nil {

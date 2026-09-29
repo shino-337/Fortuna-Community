@@ -20,7 +20,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT data_type 
 		FROM information_schema.columns 
-		WHERE table_schema = 'public'
+		WHERE table_schema = CURRENT_SCHEMA()
 		AND table_name = 'cve_matches' 
 		AND column_name = 'cvss_score'
 	`).Scan(&currentType).Error; err != nil {
@@ -51,7 +51,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'insights' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights'
 			AND column_name = 'cvss'
 		)
 	`).Scan(&hasCVSSColumn).Error; err != nil {
@@ -63,7 +63,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT data_type 
 			FROM information_schema.columns 
-			WHERE table_name = 'insights' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights'
 			AND column_name = 'cvss'
 		`).Scan(&cvssType).Error; err != nil {
 			log.Printf("[Migration 034] ⚠️  Error checking insights.cvss type: %v", err)
@@ -92,7 +92,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'insights' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights'
 			AND column_name = 'cvss_score'
 		)
 	`).Scan(&hasCVSSScoreColumn).Error; err != nil {
@@ -112,7 +112,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.tables 
-			WHERE table_name = 'cves'
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cves'
 		)
 	`).Scan(&hasCVEsTable).Error; err != nil {
 		log.Printf("[Migration 034] ⚠️  Error checking cves table: %v", err)
@@ -123,7 +123,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.columns 
-				WHERE table_name = 'cves' 
+				WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cves'
 				AND column_name = 'cvss_score'
 			)
 		`).Scan(&hasCVSSColumn).Error; err != nil {
@@ -133,7 +133,7 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 			if err := db.Raw(`
 				SELECT data_type 
 				FROM information_schema.columns 
-				WHERE table_name = 'cves' 
+				WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cves'
 				AND column_name = 'cvss_score'
 			`).Scan(&cvssType).Error; err != nil {
 				log.Printf("[Migration 034] ⚠️  Error checking cves.cvss_score type: %v", err)

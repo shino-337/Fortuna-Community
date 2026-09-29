@@ -38,6 +38,13 @@ func createClusterIdentityFoundationSchema(t *testing.T, db *gorm.DB, omittedTab
 			continue
 		}
 		columns := target.uidColumn + " TEXT"
+		if target.table == "risk_scores" {
+			idType := "INTEGER"
+			if db.Dialector.Name() == "postgres" {
+				idType = "BIGSERIAL"
+			}
+			columns = "id " + idType + " PRIMARY KEY, " + columns
+		}
 		if target.extra != "" {
 			columns += ", resource_type TEXT NOT NULL"
 		}

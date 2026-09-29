@@ -594,7 +594,7 @@ func Migration002_AddUsers(db *gorm.DB) error {
 
 	// Ensure deleted_at column exists (in case table was created by migration 001 without it)
 	var columnExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'deleted_at')").Scan(&columnExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'users' AND column_name = 'deleted_at')").Scan(&columnExists).Error; err != nil {
 		log.Printf("Warning: Failed to check deleted_at column: %v", err)
 	} else if !columnExists {
 		log.Println("Adding deleted_at column to users table (was missing)")

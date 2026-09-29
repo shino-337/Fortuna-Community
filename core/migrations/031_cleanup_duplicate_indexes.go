@@ -55,7 +55,7 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM pg_indexes 
-				WHERE schemaname = 'public' 
+				WHERE schemaname = CURRENT_SCHEMA()
 				AND indexname = $1
 			)
 		`, idx).Scan(&exists).Error; err == nil && exists {
@@ -80,7 +80,7 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM pg_indexes 
-				WHERE schemaname = 'public' 
+				WHERE schemaname = CURRENT_SCHEMA()
 				AND indexname = $1
 			)
 		`, idx).Scan(&exists).Error; err == nil && exists {
@@ -106,7 +106,7 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM pg_indexes 
-				WHERE schemaname = 'public' 
+				WHERE schemaname = CURRENT_SCHEMA()
 				AND indexname = $1
 			)
 		`, idx).Scan(&exists).Error; err == nil && exists {

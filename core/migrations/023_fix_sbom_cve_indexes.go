@@ -16,11 +16,11 @@ func Migration023_FixSBOMCVEIndexes(db *gorm.DB) error {
 
 	// Guard: only run if tables exist
 	var sbomComponentsExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'sbom_components')").Scan(&sbomComponentsExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sbom_components')").Scan(&sbomComponentsExists).Error; err != nil {
 		return fmt.Errorf("check sbom_components table exists: %w", err)
 	}
 	var cveMatchesExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'cve_matches')").Scan(&cveMatchesExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cve_matches')").Scan(&cveMatchesExists).Error; err != nil {
 		return fmt.Errorf("check cve_matches table exists: %w", err)
 	}
 

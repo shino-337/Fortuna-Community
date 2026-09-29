@@ -25,7 +25,7 @@ func Migration101_AddPodRuntimeMetricsNetDev(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT COUNT(*)
 			FROM information_schema.columns
-			WHERE table_name = 'pod_runtime_metrics' AND column_name = ?
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pod_runtime_metrics' AND column_name = ?
 		`, c.name).Scan(&exists).Error; err != nil {
 			return err
 		}

@@ -24,7 +24,7 @@ func Migration035_EvaluateTrivyTables(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.tables 
-				WHERE table_schema = 'public' 
+				WHERE table_schema = CURRENT_SCHEMA()
 				AND table_name = ?
 			)
 		`, tableName).Scan(&exists).Error; err != nil {
@@ -64,7 +64,7 @@ func Migration035_EvaluateTrivyTables(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.table_constraints 
-				WHERE table_name = ? 
+				WHERE table_schema = CURRENT_SCHEMA() AND table_name = ?
 				AND constraint_type = 'FOREIGN KEY'
 			)
 		`, tableName).Scan(&hasFK).Error; err != nil {

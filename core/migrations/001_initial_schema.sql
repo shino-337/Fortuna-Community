@@ -95,16 +95,16 @@ CREATE TABLE IF NOT EXISTS pods (
 DO $$ 
 BEGIN
     -- Check if pods table exists but doesn't have id column
-    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = 'pods')
-       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'pods' AND column_name = 'id') THEN
+    IF EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pods')
+       AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pods' AND column_name = 'id') THEN
         -- Drop existing primary key constraint if uid is the primary key
         IF EXISTS (
             SELECT 1 FROM information_schema.table_constraints 
-            WHERE table_name = 'pods' 
+            WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pods'
             AND constraint_type = 'PRIMARY KEY'
             AND constraint_name IN (
                 SELECT constraint_name FROM information_schema.key_column_usage 
-                WHERE table_name = 'pods' AND column_name = 'uid'
+                WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pods' AND column_name = 'uid'
             )
         ) THEN
             ALTER TABLE pods DROP CONSTRAINT pods_pkey;
@@ -116,7 +116,7 @@ BEGIN
         -- Make uid unique (not primary key)
         IF NOT EXISTS (
             SELECT 1 FROM information_schema.table_constraints 
-            WHERE table_name = 'pods' 
+            WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pods'
             AND constraint_type = 'UNIQUE'
             AND constraint_name = 'pods_uid_unique'
         ) THEN

@@ -25,7 +25,7 @@ func buildAllPathsSingleflightKey(clusterID string, persist bool) string {
 }
 
 type attackPathBuildCacheEntry struct {
-	paths     []AttackPath
+	encoded   []byte
 	expiresAt time.Time
 }
 
@@ -65,12 +65,13 @@ func getCachedAttackPathsAll(clusterID string) ([]AttackPath, bool) {
 	if !ok {
 		return nil, false
 	}
-	ent := v.(attackPathBuildCacheEntry)
+	ent := v.(*attackPathBuildCacheEntry)
 	if time.Now().After(ent.expiresAt) {
-		attackPathBuildCache.Delete(key)
+		attackPathBuildCache.CompareAndDelete(key, ent)
 		return nil, false
 	}
-	paths, err := cloneAttackPaths(ent.paths)
+	var paths []AttackPath
+	err := json.Unmarshal(ent.encoded, &paths)
 	return paths, err == nil
 }
 
@@ -79,13 +80,13 @@ func setCachedAttackPathsAll(clusterID string, paths []AttackPath) {
 	if ttl <= 0 {
 		return
 	}
-	paths, err := cloneAttackPaths(paths)
+	encoded, err := json.Marshal(paths)
 	if err != nil {
 		return
 	}
 	key := attackPathCacheKey(clusterID)
-	attackPathBuildCache.Store(key, attackPathBuildCacheEntry{
-		paths:     paths,
+	attackPathBuildCache.Store(key, &attackPathBuildCacheEntry{
+		encoded:   encoded,
 		expiresAt: time.Now().Add(ttl),
 	})
 }

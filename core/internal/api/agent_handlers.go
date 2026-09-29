@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"log"
 	"net/http"
@@ -13,9 +12,7 @@ import (
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/internal/service"
 	"github.com/fortuna/core/pkg/agentidentity"
-	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/models"
-	"github.com/fortuna/core/pkg/worker"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -179,24 +176,7 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 		}
 
 		if isFull, ok := req.Data["isFullSync"].(bool); ok && isFull {
-			go func(cid string) {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				log.Printf("[AgentAPI] Triggering historical risk evaluation for cluster=%s", cid)
-				evaluator := worker.NewHistoricalRiskEvaluator(db)
-				if err := evaluator.EvaluateAllResources(ctx); err != nil {
-					log.Printf("[AgentAPI] Risk evaluation failed: %v", err)
-				}
-			}(clusterID)
-
-			go func() {
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-				defer cancel()
-				log.Printf("[AgentAPI] Triggering PodCapabilityEngine evaluation")
-				if err := capability.EvaluateAllPods(ctx, db); err != nil {
-					log.Printf("[AgentAPI] PCE evaluation failed: %v", err)
-				}
-			}()
+			triggerFullSyncEvaluation(db)
 		}
 
 		inventoryStatus := "unknown"
@@ -204,9 +184,9 @@ func SyncDataFromAgent(db *gorm.DB, clusterLimiter *ingest.ClusterRateLimiter) g
 			inventoryStatus = receipt.EffectiveStatus(time.Now())
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"success":         true,
-			"message":         "Data synced successfully",
-			"collection":      receipt,
+			"success":               true,
+			"message":               "Data synced successfully",
+			"collection":            receipt,
 			"inventoryStatus":       inventoryStatus,
 			"projectionSemantics":   collection.ProjectionSemanticsNonAuthoritativeDeletion,
 			"deletionAuthoritative": false,

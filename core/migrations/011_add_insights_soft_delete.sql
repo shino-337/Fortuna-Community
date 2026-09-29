@@ -7,7 +7,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'insights' AND column_name = 'status'
+        WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights' AND column_name = 'status'
     ) THEN
         ALTER TABLE insights ADD COLUMN status VARCHAR(50) DEFAULT 'active';
         CREATE INDEX idx_insights_status ON insights(status);
@@ -20,7 +20,7 @@ DO $$
 BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM information_schema.columns 
-        WHERE table_name = 'insights' AND column_name = 'deleted_at'
+        WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights' AND column_name = 'deleted_at'
     ) THEN
         ALTER TABLE insights ADD COLUMN deleted_at TIMESTAMP;
         CREATE INDEX idx_insights_deleted_at ON insights(deleted_at);

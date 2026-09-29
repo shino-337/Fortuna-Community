@@ -67,7 +67,7 @@ func Migration032_MigrateCVEMatchesComplete(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.columns 
-				WHERE table_schema = 'public'
+				WHERE table_schema = CURRENT_SCHEMA()
 				AND table_name = 'cve_matches' 
 				AND column_name = $1
 			)
@@ -90,7 +90,7 @@ func Migration032_MigrateCVEMatchesComplete(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_schema = 'public'
+			WHERE table_schema = CURRENT_SCHEMA()
 			AND table_name = 'cve_matches' 
 			AND column_name = 'component_id'
 		)
@@ -129,7 +129,7 @@ func Migration032_MigrateCVEMatchesComplete(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM pg_indexes 
-				WHERE schemaname = 'public' 
+				WHERE schemaname = CURRENT_SCHEMA()
 				AND indexname = $1
 			)
 		`, idx.name).Scan(&exists).Error; err == nil && !exists {
@@ -161,7 +161,7 @@ func Migration032_MigrateCVEMatchesComplete(db *gorm.DB) error {
 		if err := db.Raw(`
 			SELECT EXISTS (
 				SELECT 1 FROM information_schema.columns 
-				WHERE table_schema = 'public'
+				WHERE table_schema = CURRENT_SCHEMA()
 				AND table_name = 'cve_matches' 
 				AND column_name = $1
 			)
