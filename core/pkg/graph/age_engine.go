@@ -58,7 +58,7 @@ func (e *AgeGraphEngine) connection(ctx context.Context) (*sql.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, command := range []string{"LOAD 'age'", "SET search_path = ag_catalog, public"} {
+	for _, command := range []string{"LOAD 'age'"} {
 		if _, err = conn.ExecContext(ctx, command); err != nil {
 			conn.Close()
 			return nil, err
@@ -80,6 +80,9 @@ func (e *AgeGraphEngine) Initialize(ctx context.Context) error {
 		return err
 	}
 	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "SELECT set_config('search_path', 'ag_catalog, ' || current_setting('search_path'), true)"); err != nil {
+		return err
+	}
 	if _, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", e.graphName); err != nil {
 		return err
 	}
@@ -110,7 +113,15 @@ func (e *AgeGraphEngine) query(ctx context.Context, cypher, columns string, para
 		return nil, err
 	}
 	query := fmt.Sprintf("SELECT * FROM ag_catalog.cypher('%s', $fortuna$%s$fortuna$, $1) AS (%s)", e.graphName, cypher, columns)
-	stmt, err := conn.PrepareContext(ctx, query)
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "SELECT set_config('search_path', 'ag_catalog, ' || current_setting('search_path'), true)"); err != nil {
+		return nil, err
+	}
+	stmt, err := tx.PrepareContext(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -129,6 +140,12 @@ func (e *AgeGraphEngine) query(ctx context.Context, cypher, columns string, para
 		results = append(results, value)
 	}
 	if err = rows.Err(); err != nil {
+		return nil, err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return results, nil

@@ -49,6 +49,9 @@ func TestAGEScopedTraversalPostgres(t *testing.T) {
 	b, err := NewAgeGraphEngine(db, "cluster-b-"+suffix)
 	require.NoError(t, err)
 	ctx := context.Background()
+	pool.SetMaxOpenConns(1)
+	var originalSearchPath string
+	require.NoError(t, pool.QueryRow("SHOW search_path").Scan(&originalSearchPath))
 	for _, engine := range []*AgeGraphEngine{a, b} {
 		require.NoError(t, engine.Initialize(ctx))
 		defer func(e *AgeGraphEngine) {
@@ -81,6 +84,9 @@ func TestAGEScopedTraversalPostgres(t *testing.T) {
 	require.Error(t, err)
 	_, err = a.CreateVertex(ctx, "Pod) DELETE v", nil)
 	require.Error(t, err)
+	var currentSearchPath string
+	require.NoError(t, pool.QueryRow("SHOW search_path").Scan(&currentSearchPath))
+	require.Equal(t, originalSearchPath, currentSearchPath, "AGE must not poison a shared relational connection")
 	_ = foreign
 	service := &QueryService{engine: a}
 	paths, err := service.FindPaths(ctx, "duplicate-pod", "duplicate-secret", PathConstraint{MaxDepth: 2})
