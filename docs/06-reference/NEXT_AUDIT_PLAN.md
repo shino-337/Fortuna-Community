@@ -417,7 +417,7 @@ and record complete quarantine evidence; the synthetic PostgreSQL case verifies
 that policy and unchanged snapshot upserts. The new gate exposed/fixed foreign-schema
 metadata lookup and JSONB representation/digest mismatches. Required graph snapshot
 failures now return unavailable, and overlapping full-sync global evaluations
-coalesce into one running pass with a retained pending refresh.
+coalesce into one running pass with a retained pending refresh. Generic RBAC insight merges also retain acknowledgement under row locks; concurrent keyed/empty-key SQLite and PostgreSQL cases protect manual state.
 
 These commits require a fresh clean exact-head native all-job result before
 push/readiness claims; store that result outside tracked documents to avoid a

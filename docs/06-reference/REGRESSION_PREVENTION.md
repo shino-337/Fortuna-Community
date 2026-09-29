@@ -55,6 +55,7 @@ be verified by the repository owner; their absence has not been established.
 | INGEST-02 bounded Pod/Falco retry and backoff | TestDeliveryBudgetBoundsIsolationAndRetainsUnsent, TestDeliveryStopsSiblingsOnRateLimitAndOtherForbidden, TestPostErrorHonorsRetryAfterAndCancelledDelivery, TestEventsCollectorRateLimitStopsFlushAndPreservesQuarantine, TestEventsCollectorQuarantineRetryHasSharedRequestBudget |
 | INGEST-03 quarantine fairness/informer updates | TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents, TestEventsCollectorResyncDuringDeliveryPreservesQueueClassAndNewestVersion |
 | INSIGHT-01 generated/restored insight ownership | TestRuleInsightCarriesClusterIdentity, TestGenericInsightRestoresSoftDeletedRowWithinCluster; PostgreSQL job: TestGenericInsightRestorePostgres |
+| INSIGHT-02 generic manual acknowledgement | TestGenericInsightRetainsAcknowledgedState/key-0 and /key-1; PostgreSQL: TestGenericInsightRestorePostgres/key-0 and /key-1 |
 | POLICY-01 stock Pod CEL repair | Full Core suite: TestBaselinePodPoliciesCompileAndDetectUnsafeSpec, TestMigration151PreservesModifiedLegacyTemplate; PostgreSQL job: TestBaselinePodPolicySeedAndRepairPostgres |
 | D3 signed health | TestSourceHealthAuthorityReplayFailureAndRestart, TestSourceHealthRejectsUntrustedEvidence (see named contract for exact subtests); PostgreSQL: TestSourceHealthPostgresConcurrencyAndRollback |
 | G scoped AGE | TestAGECanonicalScopeAndIdentifiers; PostgreSQL: TestAGEScopedTraversalPostgres |

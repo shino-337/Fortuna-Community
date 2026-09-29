@@ -1,6 +1,9 @@
 package riskengine
 
 import (
+	"fmt"
+	"github.com/stretchr/testify/require"
+	"sync"
 	"testing"
 	"time"
 
@@ -31,19 +34,19 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 
 	// 1. Create a vulnerability insight in dismissed state (simulating a user dismiss action).
 	dismissed := &models.Insight{
-		ClusterID:     clusterID,
-		ResourceType:  "Pod",
-		ResourceName:  "web-pod",
-		ResourceUID:   uid,
-		InsightType:   "vulnerability",
-		Severity:      "high",
-		Title:         "High CVE in nginx",
-		Description:   "desc",
-		CVEID:         cveID,
-		Status:        "dismissed",
-		DetectedAt:    now,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ClusterID:    clusterID,
+		ResourceType: "Pod",
+		ResourceName: "web-pod",
+		ResourceUID:  uid,
+		InsightType:  "vulnerability",
+		Severity:     "high",
+		Title:        "High CVE in nginx",
+		Description:  "desc",
+		CVEID:        cveID,
+		Status:       "dismissed",
+		DetectedAt:   now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := db.Create(dismissed).Error; err != nil {
 		t.Fatal(err)
@@ -64,19 +67,19 @@ func TestCreateOrUpdateInsight_ExceptionPolicyPreventsReactivation(t *testing.T)
 
 	// 3. Simulate a re-scan by calling CreateOrUpdateInsight with the same vulnerability.
 	rescan := &models.Insight{
-		ClusterID:     clusterID,
-		ResourceType:  "Pod",
-		ResourceName:  "web-pod",
-		ResourceUID:   uid,
-		InsightType:   "vulnerability",
-		Severity:      "high",
-		Title:         "High CVE in nginx",
-		Description:   "desc updated",
-		CVEID:         cveID,
-		Status:        "active",
-		DetectedAt:    now,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ClusterID:    clusterID,
+		ResourceType: "Pod",
+		ResourceName: "web-pod",
+		ResourceUID:  uid,
+		InsightType:  "vulnerability",
+		Severity:     "high",
+		Title:        "High CVE in nginx",
+		Description:  "desc updated",
+		CVEID:        cveID,
+		Status:       "active",
+		DetectedAt:   now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := m.CreateOrUpdateInsight(rescan); err != nil {
 		t.Fatalf("CreateOrUpdateInsight failed: %v", err)
@@ -113,19 +116,19 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 
 	// Create dismissed insight
 	dismissed := &models.Insight{
-		ClusterID:     clusterID,
-		ResourceType:  "Pod",
-		ResourceName:  "api-pod",
-		ResourceUID:   uid,
-		InsightType:   "vulnerability",
-		Severity:      "critical",
-		Title:         "Critical CVE",
-		Description:   "desc",
-		CVEID:         cveID,
-		Status:        "dismissed",
-		DetectedAt:    now,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ClusterID:    clusterID,
+		ResourceType: "Pod",
+		ResourceName: "api-pod",
+		ResourceUID:  uid,
+		InsightType:  "vulnerability",
+		Severity:     "critical",
+		Title:        "Critical CVE",
+		Description:  "desc",
+		CVEID:        cveID,
+		Status:       "dismissed",
+		DetectedAt:   now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := db.Create(dismissed).Error; err != nil {
 		t.Fatal(err)
@@ -147,19 +150,19 @@ func TestCreateOrUpdateInsight_ExpiredExceptionPolicyAllowsReactivation(t *testi
 
 	// Re-scan should re-activate because policy is expired
 	rescan := &models.Insight{
-		ClusterID:     clusterID,
-		ResourceType:  "Pod",
-		ResourceName:  "api-pod",
-		ResourceUID:   uid,
-		InsightType:   "vulnerability",
-		Severity:      "critical",
-		Title:         "Critical CVE",
-		Description:   "desc updated",
-		CVEID:         cveID,
-		Status:        "active",
-		DetectedAt:    now,
-		CreatedAt:     now,
-		UpdatedAt:     now,
+		ClusterID:    clusterID,
+		ResourceType: "Pod",
+		ResourceName: "api-pod",
+		ResourceUID:  uid,
+		InsightType:  "vulnerability",
+		Severity:     "critical",
+		Title:        "Critical CVE",
+		Description:  "desc updated",
+		CVEID:        cveID,
+		Status:       "active",
+		DetectedAt:   now,
+		CreatedAt:    now,
+		UpdatedAt:    now,
 	}
 	if err := m.CreateOrUpdateInsight(rescan); err != nil {
 		t.Fatalf("CreateOrUpdateInsight failed: %v", err)
@@ -321,7 +324,7 @@ func TestCreateOrUpdateInsight_NonVulnCVEIDKeyUpserts(t *testing.T) {
 }
 
 // Empty cve_id still participates in UNIQUE(resource_uid, cve_id, insight_type).
-// Title-only dedup misses when the engine changes the title; must upsert on (uid, '', type).
+// Title-only dedup misses when the engine changes the title; must upsert on (uid, ”, type).
 func TestCreateOrUpdateInsight_EmptyCVEKeyUpserts(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	if err != nil {
@@ -389,5 +392,48 @@ func TestCreateOrUpdateInsight_EmptyCVEKeyUpserts(t *testing.T) {
 	}
 	if stored.Title != "Renamed title" || stored.Severity != "critical" {
 		t.Fatalf("expected updated fields, got title=%q severity=%q", stored.Title, stored.Severity)
+	}
+}
+
+func TestGenericInsightRetainsAcknowledgedState(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	configureRiskEngineTestDB(t, db)
+	require.NoError(t, db.AutoMigrate(&models.Insight{}, &models.ExceptionPolicy{}))
+	require.NoError(t, db.Exec("CREATE UNIQUE INDEX idx_insight_ack_identity ON insights(cluster_id,resource_uid,cve_id,insight_type)").Error)
+	assertGenericInsightAcknowledgement(t, db)
+}
+
+func assertGenericInsightAcknowledgement(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	for index, key := range []string{"rule-ack", ""} {
+		t.Run(fmt.Sprintf("key-%d", index), func(t *testing.T) {
+			uid := fmt.Sprintf("generic-ack-%d", index)
+			original := models.Insight{ClusterID: "cluster-ack", ResourceUID: uid, ResourceType: "ClusterRoleBinding", ResourceName: "grant", InsightType: "rbac", CVEID: key, Severity: "low", Title: "grant", Status: "active", DetectedAt: time.Now(), Evidence: "{}", ViolatedRules: "[]", Remediation: "{}"}
+			require.NoError(t, db.Create(&original).Error)
+			require.NoError(t, db.Model(&original).Update("status", "acknowledged").Error)
+			var writes sync.WaitGroup
+			failures := make(chan error, 6)
+			for i := 0; i < 6; i++ {
+				writes.Add(1)
+				go func() {
+					defer writes.Done()
+					incoming := original
+					incoming.ID = 0
+					incoming.Status = "active"
+					incoming.Severity = "high"
+					failures <- NewInsightManager(db).CreateOrUpdateInsight(&incoming)
+				}()
+			}
+			writes.Wait()
+			close(failures)
+			for err := range failures {
+				require.NoError(t, err)
+			}
+			var stored models.Insight
+			require.NoError(t, db.First(&stored, original.ID).Error)
+			require.Equal(t, "acknowledged", stored.Status)
+			require.Equal(t, "high", stored.Severity)
+		})
 	}
 }

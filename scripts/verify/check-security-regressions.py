@@ -57,6 +57,9 @@ REQUIRED = {
     ],
     "./pkg/riskengine": [
         "TestAssetSecurityStateExplicitFreshRead",
+        "TestGenericInsightRetainsAcknowledgedState",
+        "TestGenericInsightRetainsAcknowledgedState/key-0",
+        "TestGenericInsightRetainsAcknowledgedState/key-1",
         "TestResolutionDetectorDependencies",
         "TestPodInsightRestorePreservesClusterAndException",
         "TestRuleInsightCarriesClusterIdentity",
@@ -279,7 +282,7 @@ REQUIRED = {
 
 POSTGRES_REQUIRED = {
     "./migrations": ["TestClusterResourceIdentityFoundationPostgres", "TestClusterQualifiedPodUniquenessPostgres", "TestAgentCompositeIdentityPostgres", "TestMigrationMetadataUsesCurrentSchemaPostgres", "TestRiskScoreOwnershipQuarantinePostgres", "TestBaselinePodPolicySeedAndRepairPostgres", "TestRuntimeEventIdempotencyPostgres", "TestRuntimeEventIdempotencyRejectsPreexistingDuplicateSourceRecordsPostgres"],
-    "./pkg/riskengine": ["TestPodInsightLifecyclePostgres", "TestGenericInsightRestorePostgres"],
+    "./pkg/riskengine": ["TestPodInsightLifecyclePostgres", "TestGenericInsightRestorePostgres", "TestGenericInsightRestorePostgres/key-0", "TestGenericInsightRestorePostgres/key-1"],
     "./internal/repository": ["TestSBOMConcurrentOwnershipPostgres"],
     "./internal/service": ["TestInventoryCollectionPostgres"],
     "./internal/api": ["TestSourceHealthPostgresConcurrencyAndRollback", "TestRuntimeCoveragePostgres", "TestRuntimeCoveragePostgresLegacySchemaUpgrade", "TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows", "TestSBOMListClusterScopePostgres", "TestSBOMListDuplicateUIDClusterIsolationPostgres", "TestSBOMListFailClosedPostgres"],
