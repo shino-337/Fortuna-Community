@@ -42,7 +42,11 @@ func run() error {
 			before[table] = count
 		}
 	}
-	if len(before) == 0 {
+	var populated int64
+	for _, count := range before {
+		populated += count
+	}
+	if populated == 0 {
 		return fmt.Errorf("populated backup required")
 	}
 	for i := 0; i < 2; i++ {

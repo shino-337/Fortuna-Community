@@ -333,8 +333,8 @@ func TestTwoClusterDaemonSetLive(t *testing.T) {
 	}
 	reconcileCtx, reconcileCancel := context.WithTimeout(context.Background(), 60*time.Second)
 	reconciliationErr := worker.NewInsightStatusUpdater(db).UpdateStatusForResolvedRisks(reconcileCtx)
+	require.NoError(t, reconcileCtx.Err(), "worker gate must finish within its deadline")
 	reconcileCancel()
-	require.NotErrorIs(t, reconciliationErr, context.DeadlineExceeded, "worker gate must finish within its deadline")
 	if reconciliationErr != nil {
 		t.Logf("worker reports incomplete evidence: %v", reconciliationErr)
 	}
