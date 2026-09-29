@@ -142,6 +142,7 @@ jobs:
           python scripts/verify/test-cluster-qualified-pod-routes.py
           python scripts/verify/check-retired-routes.py
           python scripts/verify/test-retired-routes.py
+          python scripts/verify/test-local-ci-native.py
           while IFS= read -r -d '' file; do bash -n "$file"; done < <(find scripts -type f -name '*.sh' -print0)
 
   hygiene:

@@ -5,9 +5,15 @@ repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 cd "$repo_root"
 
 usage() {
-  printf 'Usage: %s [list|all|hygiene|scripts|go-test|cluster-identity-postgres|dashboard]\n' "$0"
+  printf 'Usage: %s [--backend native|act] [list|all|hygiene|scripts|go-test|cluster-identity-postgres|dashboard]\n' "$0"
 }
 
+backend=${LOCAL_CI_BACKEND:-native}
+if [[ ${1:-} == --backend ]]; then
+  if (( $# < 2 )); then usage >&2; exit 2; fi
+  backend=$2
+  shift 2
+fi
 if (( $# > 1 )); then
   usage >&2
   exit 2
@@ -18,6 +24,12 @@ case "$selection" in
   list|all|hygiene|scripts|go-test|cluster-identity-postgres|dashboard) ;;
   -h|--help) usage; exit 0 ;;
   *) usage >&2; exit 2 ;;
+esac
+
+case "$backend" in
+  native) exec python3 scripts/verify/run-local-ci-native.py "$selection" ;;
+  act) ;;
+  *) printf 'Unsupported LOCAL_CI_BACKEND: %s\n' "$backend" >&2; exit 2 ;;
 esac
 
 if ! command -v act >/dev/null 2>&1; then
