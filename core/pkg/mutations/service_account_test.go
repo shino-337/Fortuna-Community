@@ -2,6 +2,7 @@ package mutations
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -140,4 +141,18 @@ func TestDurableDeletionRetainsUIDPrecondition(t *testing.T) {
 	var count int64
 	require.NoError(t, db.Model(&models.ServiceAccount{}).Count(&count).Error)
 	require.EqualValues(t, 1, count)
+}
+
+func TestMutationDigestSurvivesJSONBRepresentation(t *testing.T) {
+	db, client, sa := mutationFixture(t)
+	job, err := QueueDeletion(db, sa, 0, "operator")
+	require.NoError(t, err)
+	var value any
+	require.NoError(t, json.Unmarshal([]byte(job.Plan), &value))
+	stored, err := json.MarshalIndent(value, "", "  ")
+	require.NoError(t, err)
+	require.NotEqual(t, job.Plan, string(stored))
+	require.NoError(t, db.Model(&job).Update("plan", string(stored)).Error)
+	require.NoError(t, Process(context.Background(), db, fakeFactory(client), job.ID))
+	require.Equal(t, "succeeded", jobState(t, db, job.ID).Status)
 }

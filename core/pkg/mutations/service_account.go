@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"reflect"
 	"time"
 
@@ -287,7 +288,13 @@ func Process(ctx context.Context, db *gorm.DB, factory ClientFactory, id string)
 	}
 	var plan Plan
 	applyErr := json.Unmarshal([]byte(job.Plan), &plan)
-	hash := sha256.Sum256([]byte(job.Plan))
+	// PostgreSQL JSONB rewrites whitespace and key order. Bind the reviewed
+	// typed plan rather than its storage representation.
+	canonical, canonicalErr := json.Marshal(plan)
+	if applyErr == nil {
+		applyErr = canonicalErr
+	}
+	hash := sha256.Sum256(canonical)
 	if applyErr == nil && (plan.Version != 1 || job.Digest != hex.EncodeToString(hash[:]) || job.NextStep < 0 || job.NextStep > len(plan.Steps)) {
 		applyErr = ErrDrift
 	}
@@ -351,7 +358,9 @@ func Start(ctx context.Context, db *gorm.DB) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = ProcessOne(ctx, db, factory)
+			if err := ProcessOne(ctx, db, factory); err != nil && ctx.Err() == nil {
+				log.Printf("[ServiceAccountMutation] Persistence unavailable; durable lease will be retried")
+			}
 		}
 	}
 }
