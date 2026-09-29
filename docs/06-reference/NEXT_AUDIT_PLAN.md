@@ -56,11 +56,13 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 
 | Scope | Verified state | Remaining gate |
 | --- | --- | --- |
-| A–C | Source packages merged; scoped HTTP/mTLS ingest exercised on the single-node lab | Live two-cluster isolation is still owned by F |
-| D | D1 and D2 merged; absence-based runtime auto-resolution remains disabled | D3 independent source health, then F live-topology validation |
-| E | E1 merged; E2 and residual E1 fixes are on the #54 branch; full native working-tree CI passed on 2026-09-29 | Exact committed-head local CI evidence, owner review and manual merge |
-| F | All seven PostgreSQL 16 workflow selections passed again on 2026-09-29 in an isolated database | Populated live migration rehearsal and the real two-cluster/DaemonSet gate |
-| G–I | Pending | Scoped AGE, mutations/revocation, performance and investigation walkthrough |
+| A–C | Merged; real two-cluster scoped HTTP/DaemonSet and backend RBAC investigation passed | Live mTLS/gRPC certificate lifecycle and browser rollout |
+| D | D1/D2 merged; D3 signed-health protocol and PostgreSQL authority/replay regressions implemented on `fix/audit-d3-f-gi`; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
+| E | E1 merged; E2/residual E1 on #54; clean committed-head native CI passed for `21223f39c` | Each new head requires fresh CI, owner review and manual merge |
+| F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed; named PostgreSQL/live gates enforce run/pass readback | Repeat at exact committed head; live browser and mTLS/gRPC rollout remain operational acceptance |
+| G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions implemented | Owner review; arbitrary/legacy HTTP routes remain retired |
+| H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests implemented; real Kubernetes retry/replacement gate passed | Dashboard preview controls and deployed workflow validation |
+| I | 50,000-row trend/cache benchmarks, measured allocation fixes, bounded evaluation coalescing and backend first investigation completed | Live browser S2 walkthrough; production-scale latency/storage/SLO validation |
 
 The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
 records source fixes, historical live observations and remaining acceptance gates
@@ -144,7 +146,7 @@ SQLite risk-engine runs, all seven PostgreSQL selections, Dashboard
 typecheck/build and 52 Playwright tests, plus script/shell/hygiene checks.
 That dirty-tree report is non-publishable; record a fresh clean committed-head
 run outside this plan before push/merge readiness. A later live Agent rollout
-is still required before these fixes are claimed deployed; D3, F and G–I remain open.
+is still required before these ingest fixes are claimed deployed. The newer D3/F/G–I source and backend acceptance checkpoint is recorded above.
 The rollout must add the state env/volume/mount as well as the Agent image;
 see [Falco delivery-state operations](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
 
@@ -382,7 +384,7 @@ eventual delivery, and checks the per-flush budget and evidence retention.
 - F (PR number may shift): permanent PostgreSQL/two-cluster integration gate and populated
   migration evidence. Completing package F is the point at which A–F behavior can be
   claimed as validated end to end.
-- G–I remain pending after the A–F gate: scoped AGE, explicit mutation/revocation
+- At the earlier checkpoint, G–I remained pending after the A–F gate: scoped AGE, explicit mutation/revocation
   workflows, then performance/load validation and the first-investigation demo.
 
 ## D3 source checkpoint — 2026-09-29
@@ -398,6 +400,30 @@ PostgreSQL concurrent replay and injected-update rollback regressions are includ
 in the permanent workflow. See [source-health operations](../05-operations/RUNTIME_SOURCE_HEALTH.md).
 Runtime auto-resolution remains disabled pending F acceptance and deployment of
 an independently measuring attestor. No live source-health rollout is claimed.
+
+## F/G/H/I source and acceptance checkpoint — 2026-09-29
+
+The new branch implements [scoped AGE](SCOPED_AGE.md), [reviewed durable
+mutations](SERVICEACCOUNT_MUTATIONS.md), [permanent real integration gates](INTEGRATION_ACCEPTANCE.md)
+and [measured performance changes](PERFORMANCE_BASELINE_20260929.md). The live
+backend gate passed with two clusters, three nodes, four DaemonSets and six real
+Agents. It includes actual JWT permissions, first finding/RBAC investigation,
+manual-state concurrency, revocation isolation, replacement UID protection,
+PostgreSQL post-effect audit failure/retry and a real Agent session restart.
+
+Populated backup rehearsal preserves the six evidence-table row counts through
+two migration runs. Risk ownership collisions retain every original row unowned
+and record complete quarantine evidence; the synthetic PostgreSQL case verifies
+that policy and unchanged snapshot upserts. The new gate exposed/fixed foreign-schema
+metadata lookup and JSONB representation/digest mismatches. Required graph snapshot
+failures now return unavailable, and overlapping full-sync global evaluations
+coalesce into one running pass with a retained pending refresh.
+
+These commits require a fresh clean exact-head native all-job result before
+push/readiness claims; store that result outside tracked documents to avoid a
+self-referential SHA. The register records new findings and remaining deployment
+gates. No lab rollout, independent measuring sensor, runtime auto-resolution,
+Dashboard revocation UI or live browser acceptance is claimed by these source changes.
 
 ## Repository governance prerequisite
 
@@ -415,7 +441,7 @@ resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
 security regression gates passed. #51 was retired rather than reused. #52 and #53
-are merged. Active work is E2 from merge commit `a6e49ff`. GitHub-hosted Actions
+are merged. E2 remains on #54; the new D3/F/G–I commits are isolated on `fix/audit-d3-f-gi`, based on its checked source head `21223f39c`. GitHub-hosted Actions
 for #54 are currently failing before runner execution because of the repository
 account/runner entitlement state; zero-step jobs are not code evidence. For #54
 only, the repository owner may satisfy the exact-head functional gate with a
@@ -639,7 +665,7 @@ The PostgreSQL job must also be run against a local PostgreSQL 16 instance with
 `.github/workflows/ci.yml`. A local pass applies only to the exact recorded head;
 any subsequent runtime/security-relevant commit resets the gate.
 
-Current execution order after #53:
+The original execution order after #53 was:
 1. complete E2 against the gates above and merge PR #54 manually;
 2. D3: implement independent runtime source-health/authority without inferring
    authority from clean-empty windows or reader heartbeat;
@@ -694,6 +720,4 @@ disable/stop and lease expiry fail closed.
 The review also found that file/Falco reader liveness cannot prove the upstream
 writer/sensor is alive. To avoid a false complete-empty claim, manifest v1 now
 rejects every `Authoritative=true` declaration. Current file, Falco and built-in
-eBPF coverage is operational telemetry only; no current producer may satisfy
-absence-based auto-resolution. A later protocol must add an independent source
-health proof before authority can be enabled.
+eBPF coverage is operational telemetry only. D3 adds separately verified signed source-health proof for file/Falco; self-declared manifest authority and the eBPF stub remain rejected. No absence-based automatic resolution is enabled.

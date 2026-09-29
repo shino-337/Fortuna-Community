@@ -10,7 +10,7 @@ The six legacy AGE HTTP operations (blast-radius, shortest-path,
 accessible-resource, arbitrary Cypher, permissions and risky-pods) are removed,
 including their route registrations and handlers. The relational graph and scoped
 attack-path views remain supported. No in-repository client used the retired
-graph endpoints; external callers must migrate to these views. The internal AGE
+graph endpoints; external callers must migrate to these views. The cluster-scoped internal AGE
 engine is not exposed through a replacement arbitrary-query endpoint.
 
 Runtime event ingest uses only POST /api/v2/runtime/events. File, Falco and eBPF

@@ -22,16 +22,14 @@ coverage or a guarantee that the repository has no further defects.
 | C / Agent and resource identity | HTTP/gRPC credentials, composite Agent identity and cluster-qualified storage merged through #48 | Real two-cluster duplicate UID/node/digest and credential lifecycle in F |
 | D1 / inventory resolution | Merged #49; evidence eligibility and concurrent-update guards | Live topology in F |
 | D2 / inventory and runtime receipts | Merged #50/#52; immutable receipts, session lifecycle and replay guards | Multi-writer/namespace-scope DaemonSet acceptance in F |
-| D3 / independent runtime source health | Open; every current producer remains non-authoritative | Independent sensor-health protocol, authenticated producer/session binding, expiry/restart regressions, then F |
-| E / availability | E1 merged #53; E2/residual E1 fixes on #54; full working-tree CI passed 2026-09-29 | Clean exact committed-head CI, owner review and manual merge |
-| F / integration | Seven PostgreSQL 16 workflow selections passed 2026-09-29 against a temporary database | Populated legacy-data rehearsal, real two-cluster/DaemonSet tests, worker/manual-action concurrency and Kubernetes deletion retry |
-| G / scoped AGE | Open; legacy unscoped routes removed, relational views available | Scoped traversal entry points/nodes/edges and two-cluster leak regressions |
-| H / mutations and revocation | Open; UID-guarded deletion exists, unsupported disable returns 501 | Explicit revocation workflow and durable retry/audit/live acceptance |
-| I / performance and investigation | Open | Measured load/cache/storage results and a verified first-investigation walkthrough |
+| D3 / independent runtime source health | Signed Ed25519 protocol, separate registry/relay, exact session binding and PostgreSQL replay/rollback regressions implemented | Deploy an independently measuring attestor; auto-resolution remains disabled |
+| E / availability | E1 merged #53; E2/residual E1 on #54; clean native CI passed at `21223f39c` | Fresh CI for later heads, owner review and manual merge |
+| F / integration | Two populated backup rehearsals, ownership-collision fixture and real two-cluster/three-node/six-Agent backend gate passed | Exact-head repeat; live browser, mTLS/gRPC and production rollout acceptance |
+| G / scoped AGE | Scoped internal AGE and real extension traversal/foreign-edge/pool regressions implemented | Review/rollout; arbitrary and legacy AGE HTTP routes remain retired |
+| H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed | Dashboard preview controls and deployed operation validation; legacy disable remains 501 |
+| I / performance and investigation | 50,000-row trend and 500-path cache baselines, bounded allocation/coalescing fixes and backend investigation passed | Live browser walkthrough; production retention, scale/SLO and workload-specific sizing |
 
-The historical single-node rollouts and database resets in
-[the plan](NEXT_AUDIT_PLAN.md) do not close F's populated migration or two-cluster
-gates. No live rollout of the 2026-09-28/29 ingest fixes is recorded. The previous
+The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. New source commits are on `fix/audit-d3-f-gi` and require their own exact-head CI. No live rollout of the 2026-09-28/29 ingest fixes is recorded. The previous
 #54 hosted CI run has seven failed jobs with zero executed steps; its local
 success status does not establish validation of a later head. Exact tested SHA,
 source fingerprint and log hashes belong in external CI evidence.
@@ -49,7 +47,12 @@ without an established attack path.
 | INGEST-03 | Under a bounded flush, an ownership-rejected quarantine prefix was retried first every time, starving a recovered event at the tail. The new reproduction failed after 33 retry turns before the fix. | Deferred quarantine records get the next turn before already-rejected records. `TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents` verifies eventual delivery, request limits and retained evidence; informer-update regressions preserve the newest version. | Source fixed; full working-tree CI passed 2026-09-29. Live rollout still open with INGEST-02. |
 | INSIGHT-01 | Historical RBAC evaluation generated insights without `cluster_id` and failed to restore an exact soft-deleted unique key; the 2026-09-27 log reported 153 duplicate-key errors per sync. | Persist cluster-qualified identity and restore only the exact key. `TestRuleInsightCarriesClusterIdentity`, `TestGenericInsightRestoresSoftDeletedRowWithinCluster`, `TestGenericInsightRestorePostgres`. | Source fix and single-node success recorded 2026-09-27 (`Insights=166, Errors=0`). Real two-cluster/concurrency acceptance remains F. Unowned historical rows must not be guessed or deleted. |
 | POLICY-01 | Stock Pod policies referenced undeclared `object` and had incompatible evaluator semantics, preventing CEL compilation. | Corrected 1.0.1 templates use `resource`; forward repair preserves customized templates. `TestBaselinePodPoliciesCompileAndDetectUnsafeSpec`, `TestMigration151PreservesModifiedLegacyTemplate`, `TestBaselinePodPolicySeedAndRepairPostgres`. | Source fix and live compilation recorded 2026-09-27. No installed ValidatingWebhookConfiguration was observed, so admission denial remains unverified. |
-| MIGRATION-01 | A populated PostgreSQL 15 rollout hit 10 risk-score key collisions between unowned legacy and cluster-owned rows. The later approved fresh-database reset removed that data shape. | Startup continues to fail closed; backup retained. A fresh database cannot prove collision reconciliation or populated migration safety. | Open F gate: rehearse against the populated shape and define an explicit evidence-preserving reconciliation policy. |
+| MIGRATION-01 | Historical rollout hit ten unowned/owned risk snapshot collisions; a reset removed that shape. | Preserve every collision row unowned and its complete original JSON in `risk_score_ownership_quarantines`; retain snapshot upsert uniqueness. `TestRiskScoreOwnershipQuarantinePostgres` covers occupied/duplicate keys and reruns. | Source policy fixed; two populated backup rehearsals preserve counts. Original ten-row shape is absent from those backups; collision proof uses a populated fixture. |
+| MIGRATION-02 | Real F startup detected another schema's `risk_scores`, and migration 030 inspected `public` rather than its target schema, leaving legacy `insights.type NOT NULL` and rejecting new findings. | Metadata/index inspection uses CURRENT_SCHEMA; `TestMigrationMetadataUsesCurrentSchemaPostgres` and complete live startup/finding gate. | Source fixed; permanent PostgreSQL/live acceptance passed. |
+| MUTATION-01 | PostgreSQL JSONB rewrote reviewed plan JSON, so a byte-string digest blocked every real mutation. SQLite did not reproduce it. | Digest canonical typed plan content; `TestMutationDigestSurvivesJSONBRepresentation`, plus real PostgreSQL/Kubernetes live revocation and audit-failure replay. | Source fixed and live backend gate passed. |
+| GRAPH-01 | Relational BuildAllPaths logged snapshot/per-Pod/cleanup errors and continued, returning a partial successful graph. | Propagate required input/reconciliation errors; `TestAttackPathBuildFailsClosedOnSnapshotError` in permanent gate. | Source fixed; full suite remains required on each head. |
+| PERF-01 | Trends loaded 50,000 complete RiskScore rows per request; cache reads serialized and decoded 500 paths repeatedly. | Database UTC bucket aggregation and immutable encoded cache; scope/calendar/failure/nested-mutation tests and recorded benchmarks. | Source fixed; see measured resource limits in performance baseline. |
+| PERF-02 | Six real Agents' full syncs repeatedly spawned overlapping global historical/PCE scans, starving an eight-connection test pool. | One coalesced evaluation per DB with a pending refresh; `TestFullSyncEvaluationCoalescesAndRetainsPendingPass`. Real acceptance uses 30s sync and 25 connections. | Source fixed; representative production-scale capacity remains a separate gate. |
 | CI-01 | A dirty/changed tree or inherited test-selection/database settings could make local results unsuitable for an exact-head claim. This is a validation limitation, not a reported production exploit. | Native runner reads workflow jobs, isolates PostgreSQL, clears inherited test selectors/live DB URL, hashes source/logs and permits publishable results only for clean unchanged all-job success. `test-local-ci-native.py` covers failure, source changes and publishability. | Tooling implemented; each new candidate commit requires a fresh clean all-job result. Hosted entitlement failure remains external to functional validation. |
 
 All three ingest fixes retain Core ownership authorization and mark pending or
@@ -91,10 +94,9 @@ Behavior changes worth reviewing:
 - Bulk delete now reaches Kubernetes and requires target kubeconfig plus both
   inventory.bulk and inventory.delete. HTTP 207 identifies partial failures.
 - Disable and disable-inactive intentionally return 501. Inventory disappearance
-  is not credential revocation. A real revocation workflow remains unimplemented.
+  is not credential revocation. The reviewed mutation API now provides explicit revocation; Dashboard preview controls remain pending.
 - Legacy AGE HTTP routes and handlers were removed in #46. Scoped
-  relational graph/attack-path views remain available; scoped AGE support remains
-  unimplemented.
+  relational graph/attack-path views remain available; internal scoped AGE is implemented and tested against AGE 1.6; no arbitrary-query HTTP route is exposed.
 - Existing agents without cluster assignment are quarantined until authenticated
   ownership can be established. Scoped mTLS authorization and per-Agent
   certificate lifecycle/composite identity are merged through #48; the real
@@ -115,8 +117,7 @@ Behavior changes worth reviewing:
 6. Test actual login/navigation and the end-to-end demo flow in the lab. Browser
    fixtures mock API responses and do not replace this test.
 
-The remaining backlog includes independent runtime source health, live
-multi-cluster credential/topology validation, scoped AGE, revocation and load tests.
+The remaining deployment backlog includes independently measured sensor health, live browser and mTLS/gRPC credential rollout, Dashboard mutation controls and production-scale load/storage validation.
 Source freshness/lifecycle and scoped credential implementations are merged but
 do not establish completion of these live gates. The documents below record
 specific behavior and remaining boundaries, rather than treating a mitigation as

@@ -56,10 +56,16 @@ be verified by the repository owner; their absence has not been established.
 | INGEST-03 quarantine fairness/informer updates | TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents, TestEventsCollectorResyncDuringDeliveryPreservesQueueClassAndNewestVersion |
 | INSIGHT-01 generated/restored insight ownership | TestRuleInsightCarriesClusterIdentity, TestGenericInsightRestoresSoftDeletedRowWithinCluster; PostgreSQL job: TestGenericInsightRestorePostgres |
 | POLICY-01 stock Pod CEL repair | Full Core suite: TestBaselinePodPoliciesCompileAndDetectUnsafeSpec, TestMigration151PreservesModifiedLegacyTemplate; PostgreSQL job: TestBaselinePodPolicySeedAndRepairPostgres |
+| D3 signed health | TestSourceHealthAuthorityReplayFailureAndRestart, TestSourceHealthRejectsUntrustedEvidence (see named contract for exact subtests); PostgreSQL: TestSourceHealthPostgresConcurrencyAndRollback |
+| G scoped AGE | TestAGECanonicalScopeAndIdentifiers; PostgreSQL: TestAGEScopedTraversalPostgres |
+| H reviewed durable mutations | TestMutationIdentityReplayAndDurability, TestMutationBlocksReplacementAndChangedBindings, TestDurableDeletionRetainsUIDPrecondition, TestMutationDigestSurvivesJSONBRepresentation |
+| MIGRATION-01/02 populated ownership/schema | PostgreSQL: TestRiskScoreOwnershipQuarantinePostgres, TestMigrationMetadataUsesCurrentSchemaPostgres; isolated populated-backup rehearsal |
+| GRAPH-01 unavailable snapshot | TestAttackPathBuildFailsClosedOnSnapshotError |
+| PERF-01 scoped trend/cache allocation | TestRiskTrendsBoundedAggregationScopeAndCalendar, TestAttackPathCacheNestedMutationAndInvalidEncoding; PostgreSQL: TestRiskTrendsAggregationPostgres |
+| F real topology | Mandatory TestTwoClusterDaemonSetLive receipt; scripts test-two-cluster-integration.py rejects missing/skipped/failed tests and incomplete/overstated evidence |
 | CI-01 exact-head local evidence | Scripts job: test-local-ci-native.py verifies complete workflow groups/matrix, rejected unknown controls, sanitized inherited environment, failure/source-change reports and clean stable all-job publishability |
 
 These are named coverage anchors, not a guarantee against deleting assertions or
 introducing a different failure mode. Review remains required. C2/C3 registered
 HTTP/gRPC isolation regressions are now required by the named gate; permanent
-PostgreSQL selections additionally cover real database contracts. Neither these
-tests nor the mocked Dashboard suite close package F's live acceptance gates.
+PostgreSQL selections additionally cover real database contracts. The real kind gate covers HTTP/DaemonSet/Kubernetes/backend investigation; mocked Dashboard tests do not establish a live browser walkthrough or mTLS/gRPC rollout.
