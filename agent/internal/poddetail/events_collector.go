@@ -4,9 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
 	"sync"
@@ -54,6 +51,7 @@ type EventsCollector struct {
 	queue               []K8sEventPayload
 	quarantine          []K8sEventPayload
 	lastQuarantineRetry time.Time
+	nextDeliveryAttempt time.Time
 }
 
 // NewEventsCollector creates an EventsCollector.
@@ -154,16 +152,22 @@ func eventToPayload(ev *corev1.Event) K8sEventPayload {
 
 func (e *EventsCollector) flush(ctx context.Context) {
 	e.mu.Lock()
+	now := time.Now()
+	if now.Before(e.nextDeliveryAttempt) {
+		e.mu.Unlock()
+		return
+	}
 	batch := e.queue
 	e.queue = make([]K8sEventPayload, 0, eventsBatchMax*2)
 	var quarantine []K8sEventPayload
-	if len(e.quarantine) > 0 && time.Since(e.lastQuarantineRetry) >= eventsQuarantineRetry {
+	if len(e.quarantine) > 0 && now.Sub(e.lastQuarantineRetry) >= eventsQuarantineRetry {
 		quarantine = e.quarantine
 		e.quarantine = nil
-		e.lastQuarantineRetry = time.Now()
+		e.lastQuarantineRetry = now
 	}
 	e.mu.Unlock()
-	var retry, denied []K8sEventPayload
+	var retry, denied, deferredQuarantine []K8sEventPayload
+	budget := &corehttp.DeliveryBudget{Remaining: corehttp.DeliveryRequestLimit, Now: now}
 	// Isolate ownership-rejected events without letting one stale Pod block
 	// unrelated events. Other failures remain retryable as an intact batch.
 	for i := 0; i < len(batch); i += eventsBatchMax {
@@ -172,24 +176,24 @@ func (e *EventsCollector) flush(ctx context.Context) {
 			end = len(batch)
 		}
 		chunk := batch[i:end]
-		failed, rejected := e.deliver(ctx, chunk)
-		retry = append(retry, failed...)
-		denied = append(denied, rejected...)
+		result := corehttp.DeliverIsolated(ctx, chunk, budget, "pod_ownership_mismatch", e.post)
+		retry = append(retry, result.Retry...)
+		denied = append(denied, result.Rejected...)
 	}
-	// Quarantined events are retried individually after inventory has had time
-	// to catch up. They never grant themselves ownership or block fresh events.
-	for _, event := range quarantine {
-		failed, rejected := e.deliver(ctx, []K8sEventPayload{event})
-		retry = append(retry, failed...)
-		denied = append(denied, rejected...)
+	// Retry quarantine as a bounded batch, using only the remaining fresh-event
+	// budget. A transient failure must not promote quarantine into the hot queue.
+	for i := 0; i < len(quarantine); i += eventsBatchMax {
+		end := min(i+eventsBatchMax, len(quarantine))
+		result := corehttp.DeliverIsolated(ctx, quarantine[i:end], budget, "pod_ownership_mismatch", e.post)
+		denied = append(denied, result.Rejected...)
+		deferredQuarantine = append(deferredQuarantine, result.Retry...)
 	}
+	// Give deferred evidence the next turn before retrying records already
+	// rejected in this flush, so a permanently stale prefix cannot starve it.
+	denied = append(deferredQuarantine, denied...)
 	e.mu.Lock()
-	e.queue = append(retry, e.queue...)
-	if len(e.queue) > eventsQuarantineMax {
-		log.Printf("[PodDetail] events retry queue overflow: dropping %d oldest events", len(e.queue)-eventsQuarantineMax)
-		e.queue = e.queue[len(e.queue)-eventsQuarantineMax:]
-	}
-	if len(e.quarantine) == 0 && len(quarantine) == 0 && len(denied) > 0 {
+	e.nextDeliveryAttempt = budget.RetryAt
+	if len(quarantine) > 0 || (len(e.quarantine) == 0 && len(denied) > 0) {
 		e.lastQuarantineRetry = time.Now()
 	}
 	for _, event := range denied {
@@ -208,47 +212,43 @@ func (e *EventsCollector) flush(ctx context.Context) {
 		}
 		e.quarantine = append(e.quarantine, event)
 	}
+	// Informer updates can arrive while HTTP delivery has detached both queues.
+	// Merge their newest version back into the right queue, never hot-requeue an
+	// event just classified as quarantined or duplicate a transient retry.
+	quarantined := make(map[string]int, len(e.quarantine))
+	for i, event := range e.quarantine {
+		if event.EventUID != "" {
+			quarantined[event.EventUID] = i
+		}
+	}
+	queue := make([]K8sEventPayload, 0, len(retry)+len(e.queue))
+	positions := make(map[string]int)
+	for _, events := range [][]K8sEventPayload{retry, e.queue} {
+		for _, event := range events {
+			if event.EventUID != "" {
+				if i, ok := quarantined[event.EventUID]; ok {
+					e.quarantine[i] = event
+					continue
+				}
+				if i, ok := positions[event.EventUID]; ok {
+					queue[i] = event
+					continue
+				}
+				positions[event.EventUID] = len(queue)
+			}
+			queue = append(queue, event)
+		}
+	}
+	e.queue = queue
+	if len(e.queue) > eventsQuarantineMax {
+		log.Printf("[PodDetail] events retry queue overflow: dropping %d oldest events", len(e.queue)-eventsQuarantineMax)
+		e.queue = e.queue[len(e.queue)-eventsQuarantineMax:]
+	}
 	if len(e.quarantine) > eventsQuarantineMax {
 		log.Printf("[PodDetail] events ownership quarantine overflow: dropping %d oldest events", len(e.quarantine)-eventsQuarantineMax)
 		e.quarantine = e.quarantine[len(e.quarantine)-eventsQuarantineMax:]
 	}
 	e.mu.Unlock()
-}
-
-type eventPostError struct {
-	status int
-	code   string
-}
-
-func (e *eventPostError) Error() string {
-	return fmt.Sprintf("pod-events POST: %d (%s)", e.status, e.code)
-}
-
-func isPodOwnershipRejection(err error) bool {
-	var postErr *eventPostError
-	return errors.As(err, &postErr) && postErr.status == http.StatusForbidden && postErr.code == "pod_ownership_mismatch"
-}
-
-func (e *EventsCollector) deliver(ctx context.Context, events []K8sEventPayload) (retry, denied []K8sEventPayload) {
-	if len(events) == 0 {
-		return nil, nil
-	}
-	err := e.post(ctx, events)
-	if err == nil {
-		return nil, nil
-	}
-	if !isPodOwnershipRejection(err) {
-		log.Printf("[PodDetail] events POST failed: %v (re-queuing %d events)", err, len(events))
-		return events, nil
-	}
-	if len(events) == 1 {
-		log.Printf("[PodDetail] quarantined ownership-rejected event uid=%s involved_uid=%s", events[0].EventUID, events[0].InvolvedUID)
-		return nil, events
-	}
-	mid := len(events) / 2
-	leftRetry, leftDenied := e.deliver(ctx, events[:mid])
-	rightRetry, rightDenied := e.deliver(ctx, events[mid:])
-	return append(leftRetry, rightRetry...), append(leftDenied, rightDenied...)
 }
 
 func (e *EventsCollector) post(ctx context.Context, events []K8sEventPayload) error {
@@ -273,11 +273,9 @@ func (e *EventsCollector) post(ctx context.Context, events []K8sEventPayload) er
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var body struct {
-			Code string `json:"code"`
-		}
-		_ = json.NewDecoder(io.LimitReader(resp.Body, 1024)).Decode(&body)
-		return &eventPostError{status: resp.StatusCode, code: body.Code}
+		err := corehttp.DecodePostError(resp, time.Now())
+		log.Printf("[PodDetail] events POST failed: %v", err)
+		return err
 	}
 	return nil
 }

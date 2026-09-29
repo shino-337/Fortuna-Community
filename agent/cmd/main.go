@@ -151,6 +151,7 @@ func main() {
 	}
 	if cfg.FalcoEventsEnabled {
 		reader := runtime.NewFalcoReader(cfg.FalcoEventsPath, cfg.FalcoEventsPoll, cfg.CoreHTTPEndpoint, cfg.NodeName, k8sClient.Clientset, runtimeSessionID)
+		reader.SetDeliveryState(cfg.FalcoDeliveryStatePath, cfg.ClusterID, cfg.AgentID)
 		reader.SetCoverageCadence(cfg.RuntimeCoverageCadence)
 		go reader.Start(ctx)
 		log.Printf("✅ Falco events reader enabled (path=%s poll=%s)", cfg.FalcoEventsPath, cfg.FalcoEventsPoll)
@@ -406,7 +407,6 @@ func logConfig(cfg *config.Config) {
 	}
 	log.Printf("========================================")
 }
-
 
 func runtimeProducerDeclarations(cfg *config.Config) []collection.RuntimeProducerDeclaration {
 	producers := []collection.RuntimeProducerDeclaration{

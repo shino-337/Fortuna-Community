@@ -42,15 +42,16 @@ type Config struct {
 	WatchNamespace string
 
 	// Runtime event ingestion (optional)
-	RuntimeEventsEnabled bool
-	RuntimeEventsPath    string
-	RuntimeEventsPoll    time.Duration
+	RuntimeEventsEnabled   bool
+	RuntimeEventsPath      string
+	RuntimeEventsPoll      time.Duration
 	RuntimeCoverageCadence time.Duration
 
 	// Falco JSON output ingestion (optional) (R9 practical source)
-	FalcoEventsEnabled bool
-	FalcoEventsPath    string
-	FalcoEventsPoll    time.Duration
+	FalcoEventsEnabled     bool
+	FalcoEventsPath        string
+	FalcoEventsPoll        time.Duration
+	FalcoDeliveryStatePath string
 
 	// eBPF runtime telemetry (R9)
 	EBPFEnabled            bool
@@ -91,6 +92,7 @@ func LoadConfig() *Config {
 		FalcoEventsEnabled:     getEnv("FALCO_EVENTS_ENABLED", "false") == "true",
 		FalcoEventsPath:        getEnv("FALCO_EVENTS_PATH", "/var/log/falco/events.jsonl"),
 		FalcoEventsPoll:        parsePositiveDuration(getEnv("FALCO_EVENTS_POLL", "5s"), 5*time.Second),
+		FalcoDeliveryStatePath: getEnv("FALCO_DELIVERY_STATE_PATH", ""),
 		EBPFEnabled:            getEnv("EBPF_ENABLED", "false") == "true",
 		EBPFMode:               getEnv("EBPF_MODE", "exec"),
 		EBPFEventFlushInterval: parsePositiveDuration(getEnv("EBPF_EVENT_FLUSH_INTERVAL", "5s"), 5*time.Second),

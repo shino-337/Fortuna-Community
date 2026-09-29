@@ -63,6 +63,10 @@ spec:
           hostPath:
             path: /var/log/falco
             type: DirectoryOrCreate
+        - name: delivery-state
+          hostPath:
+            path: /var/lib/fortuna-agent
+            type: DirectoryOrCreate
       
       containers:
         - name: agent
@@ -147,14 +151,17 @@ spec:
             # Approximate per-process CPU% from /proc; set false to disable
             - name: POD_DETAIL_PROCESS_CPU_APPROX_FROM_PROC
               value: "true"
-            # Falco JSONL → Core (R9). Agent tails from EOF on first open (see FalcoReader) to avoid
-            # reading multi-GB backlog into memory; rotate/truncate host /var/log/falco/events.jsonl if needed.
+            # Falco JSONL → Core (R9). First use skips complete historical records;
+            # subsequent rollouts resume the durable cursor. Never clear logs/state to retry ingestion.
             - name: FALCO_EVENTS_ENABLED
               value: "true"
             - name: FALCO_EVENTS_PATH
               value: "/var/log/falco/events.jsonl"
             - name: FALCO_EVENTS_POLL
               value: "5s"
+            # Persistent cursor/outbox survives Agent rollout. Source log stays read-only.
+            - name: FALCO_DELIVERY_STATE_PATH
+              value: "/var/lib/fortuna-agent/falco-delivery.json"
             - name: RUNTIME_COVERAGE_CADENCE
               value: "30s"
             # Lower peak memory when many pods queue SBOM (default queue workers=2 in code).
@@ -189,6 +196,8 @@ spec:
             - name: falco-events
               mountPath: /var/log/falco
               readOnly: true
+            - name: delivery-state
+              mountPath: /var/lib/fortuna-agent
           
           # SBOM + Falco JSONL poll: 2Gi limit caused OOM when Falco backlog was read before tail-from-EOF fix; keep headroom.
           resources:
