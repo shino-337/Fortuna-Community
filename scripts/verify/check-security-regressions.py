@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 REQUIRED = {
+    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
     "./internal/service": [
         "TestInventoryCollectionCommitAndFailure", "TestInventoryCollectionEmptyMissingReplayAndScope",
         "TestInventoryCollectionEmptyMissingReplayAndScope/empty",
@@ -271,6 +272,7 @@ REQUIRED = {
 }
 
 API_REQUIRED = {
+    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
     "./collection": [
         "TestRuntimeProducerManifestRequiresCompleteFailClosedRegistry",
         "TestRuntimeCoverageRequiresExecutionSession",
@@ -278,6 +280,7 @@ API_REQUIRED = {
 }
 
 AGENT_REQUIRED = {
+    "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
     "./internal/config": [
         "TestRuntimePollingDurationsClampNonPositiveValues",
         "TestRuntimeCoverageCadenceIndependentFromPoll",

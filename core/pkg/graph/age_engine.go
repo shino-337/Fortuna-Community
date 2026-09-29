@@ -2,316 +2,324 @@ package graph
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
+	"regexp"
+	"sort"
+	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
 )
 
-// AgeGraphEngine provides graph operations using Apache AGE
+// AgeGraphEngine owns exactly one cluster graph. The caller must resolve an
+// authorized cluster before constructing it; there is no unscoped query API.
 type AgeGraphEngine struct {
-	db      *gorm.DB
-	sqlDB   *sql.DB
-	enabled bool
+	sqlDB                *sql.DB
+	clusterID, graphName string
 }
 
-// GetSQLDB returns the underlying sql.DB (for QueryService)
-func (e *AgeGraphEngine) GetSQLDB() *sql.DB {
-	return e.sqlDB
-}
+var ageLabel = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,62}$`)
 
-// NewAgeGraphEngine creates a new AGE graph engine
-func NewAgeGraphEngine(db *gorm.DB) (*AgeGraphEngine, error) {
-	sqlDB, err := db.DB()
+func clusterGraphName(clusterID string) (string, error) {
+	if clusterID == "" || len(clusterID) > 255 || strings.TrimSpace(clusterID) != clusterID {
+		return "", fmt.Errorf("canonical cluster scope required")
+	}
+	sum := sha256.Sum256([]byte(clusterID))
+	return "fortuna_" + hex.EncodeToString(sum[:24]), nil
+}
+func NewAgeGraphEngine(db *gorm.DB, clusterID string) (*AgeGraphEngine, error) {
+	name, err := clusterGraphName(clusterID)
 	if err != nil {
-		return nil, fmt.Errorf("failed to get sql.DB: %w", err)
+		return nil, err
 	}
-
-	engine := &AgeGraphEngine{
-		db:     db,
-		sqlDB:  sqlDB,
-		enabled: false,
+	pool, err := db.DB()
+	if err != nil {
+		return nil, err
 	}
-
-	// Check if AGE is available
-	if err := engine.checkAGE(); err != nil {
-		log.Printf("[AgeGraphEngine] AGE not available: %v. Graph features will be disabled.", err)
-		return engine, nil // Return engine but disabled
+	var installed bool
+	if err = pool.QueryRow("SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname = 'age')").Scan(&installed); err != nil {
+		return nil, err
 	}
-
-	engine.enabled = true
-	log.Printf("[AgeGraphEngine] AGE graph engine initialized successfully")
-	return engine, nil
+	if !installed {
+		return nil, fmt.Errorf("AGE extension unavailable")
+	}
+	return &AgeGraphEngine{sqlDB: pool, clusterID: clusterID, graphName: name}, nil
+}
+func (e *AgeGraphEngine) IsEnabled() bool { return e != nil && e.sqlDB != nil && e.clusterID != "" }
+func (e *AgeGraphEngine) connection(ctx context.Context) (*sql.Conn, error) {
+	if !e.IsEnabled() {
+		return nil, fmt.Errorf("scoped AGE unavailable")
+	}
+	conn, err := e.sqlDB.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, command := range []string{"LOAD 'age'", "SET search_path = ag_catalog, public"} {
+		if _, err = conn.ExecContext(ctx, command); err != nil {
+			conn.Close()
+			return nil, err
+		}
+	}
+	return conn, nil
 }
 
-// checkAGE checks if AGE extension is available
-func (e *AgeGraphEngine) checkAGE() error {
+// Initialize is an explicit operator/writer operation; read queries do not
+// silently create graphs or convert missing extension/schema into empty data.
+func (e *AgeGraphEngine) Initialize(ctx context.Context) error {
+	conn, err := e.connection(ctx)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err = tx.ExecContext(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1,0))", e.graphName); err != nil {
+		return err
+	}
 	var exists bool
-	err := e.sqlDB.QueryRow(`
-		SELECT EXISTS(
-			SELECT 1 FROM pg_extension WHERE extname = 'age'
-		)
-	`).Scan(&exists)
-
-	if err != nil {
-		return fmt.Errorf("failed to check AGE extension: %w", err)
+	if err = tx.QueryRowContext(ctx, "SELECT EXISTS(SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1)", e.graphName).Scan(&exists); err != nil {
+		return err
 	}
-
 	if !exists {
-		return fmt.Errorf("AGE extension not installed")
+		if _, err = tx.ExecContext(ctx, "SELECT ag_catalog.create_graph($1)", e.graphName); err != nil {
+			return err
+		}
 	}
-
-	return nil
+	return tx.Commit()
 }
 
-// IsEnabled returns whether AGE is enabled
-func (e *AgeGraphEngine) IsEnabled() bool {
-	return e.enabled
-}
-
-// CreateVertex creates a vertex in the graph
-func (e *AgeGraphEngine) CreateVertex(ctx context.Context, label string, properties map[string]interface{}) (string, error) {
-	if !e.enabled {
-		return "", fmt.Errorf("AGE not enabled")
-	}
-
-	// Build properties JSON
-	propsJSON := buildPropertiesJSON(properties)
-
-	query := fmt.Sprintf(`
-		SELECT * FROM cypher('fortuna_graph', $$
-			CREATE (v:%s %s)
-			RETURN id(v)
-		$$) as (id agtype)
-	`, label, propsJSON)
-
-	var vertexID string
-	err := e.sqlDB.QueryRowContext(ctx, query).Scan(&vertexID)
+// Queries and column contracts are private constants chosen by named methods.
+// Only a validated label/depth and a hash-derived graph name enter SQL text;
+// all data values travel in a prepared agtype parameter map on one connection.
+func (e *AgeGraphEngine) query(ctx context.Context, cypher, columns string, params map[string]any) ([]string, error) {
+	conn, err := e.connection(ctx)
 	if err != nil {
-		return "", fmt.Errorf("failed to create vertex: %w", err)
+		return nil, err
 	}
-
-	return vertexID, nil
-}
-
-// CreateEdge creates an edge between two vertices
-func (e *AgeGraphEngine) CreateEdge(ctx context.Context, fromID, toID, label string, properties map[string]interface{}) (string, error) {
-	if !e.enabled {
-		return "", fmt.Errorf("AGE not enabled")
-	}
-
-	propsJSON := buildPropertiesJSON(properties)
-
-	query := fmt.Sprintf(`
-		SELECT * FROM cypher('fortuna_graph', $$
-			MATCH (a), (b)
-			WHERE id(a) = %s AND id(b) = %s
-			CREATE (a)-[e:%s %s]->(b)
-			RETURN id(e)
-		$$) as (id agtype)
-	`, fromID, toID, label, propsJSON)
-
-	var edgeID string
-	err := e.sqlDB.QueryRowContext(ctx, query).Scan(&edgeID)
+	defer conn.Close()
+	params["cluster"] = e.clusterID
+	raw, err := json.Marshal(params)
 	if err != nil {
-		return "", fmt.Errorf("failed to create edge: %w", err)
+		return nil, err
 	}
-
-	return edgeID, nil
-}
-
-// GetAccessibleSecrets returns all secrets accessible by a ServiceAccount
-func (e *AgeGraphEngine) GetAccessibleSecrets(ctx context.Context, saID string) ([]string, error) {
-	if !e.enabled {
-		return []string{}, nil
-	}
-
-	query := `
-		SELECT * FROM cypher('fortuna_graph', $$
-			MATCH (sa:ServiceAccount {id: $saID})-[:USES]->(r:Role|ClusterRole)-[:GRANTS]->(s:Secret)
-			RETURN s.name
-		$$, $1) as (name agtype)
-	`
-
-	rows, err := e.sqlDB.QueryContext(ctx, query, saID)
+	query := fmt.Sprintf("SELECT * FROM ag_catalog.cypher('%s', $fortuna$%s$fortuna$, $1) AS (%s)", e.graphName, cypher, columns)
+	stmt, err := conn.PrepareContext(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("failed to query accessible secrets: %w", err)
+		return nil, err
+	}
+	defer stmt.Close()
+	rows, err := stmt.QueryContext(ctx, string(raw))
+	if err != nil {
+		return nil, err
 	}
 	defer rows.Close()
-
-	var secrets []string
+	results := []string{}
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			continue
+		var value string
+		if err = rows.Scan(&value); err != nil {
+			return nil, err
 		}
-		secrets = append(secrets, name)
+		results = append(results, value)
 	}
-
-	return secrets, nil
-}
-
-// ShortestPath finds shortest path between two resources
-func (e *AgeGraphEngine) ShortestPath(ctx context.Context, fromID, toID string) ([]string, error) {
-	if !e.enabled {
-		return []string{}, nil
+	if err = rows.Err(); err != nil {
+		return nil, err
 	}
-
-	query := fmt.Sprintf(`
-		SELECT * FROM cypher('fortuna_graph', $$
-			MATCH path = shortestPath((a)-[*]-(b))
-			WHERE id(a) = %s AND id(b) = %s
-			RETURN [node in nodes(path) | id(node)]
-		$$) as (path agtype)
-	`, fromID, toID)
-
-	var pathStr string
-	err := e.sqlDB.QueryRowContext(ctx, query).Scan(&pathStr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to find shortest path: %w", err)
-	}
-
-	// Parse path (simplified - would need proper parsing in production)
-	return []string{pathStr}, nil
-}
-
-// GetBlastRadius returns all resources reachable from a resource within maxDepth
-func (e *AgeGraphEngine) GetBlastRadius(ctx context.Context, resourceID string, maxDepth int) ([]string, error) {
-	if !e.enabled {
-		return []string{}, nil
-	}
-
-	query := fmt.Sprintf(`
-		SELECT * FROM cypher('fortuna_graph', $$
-			MATCH (start {id: $resourceID})-[*1..%d]-(connected)
-			RETURN DISTINCT id(connected)
-		$$, $1) as (id agtype)
-	`, maxDepth)
-
-	rows, err := e.sqlDB.QueryContext(ctx, query, resourceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get blast radius: %w", err)
-	}
-	defer rows.Close()
-
-	var resources []string
-	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
-			continue
-		}
-		resources = append(resources, id)
-	}
-
-	return resources, nil
-}
-
-// GetNeighborhood returns neighbors of a resource within depth
-func (e *AgeGraphEngine) GetNeighborhood(ctx context.Context, resourceID string, depth int) ([]string, error) {
-	if !e.enabled {
-		return []string{}, nil
-	}
-
-	return e.GetBlastRadius(ctx, resourceID, depth)
-}
-
-// buildPropertiesJSON builds JSON string for properties
-func buildPropertiesJSON(properties map[string]interface{}) string {
-	if len(properties) == 0 {
-		return "{}"
-	}
-
-	// Use proper JSON marshaling
-	jsonBytes, err := json.Marshal(properties)
-	if err != nil {
-		log.Printf("[AgeGraphEngine] Failed to marshal properties: %v", err)
-		return "{}"
-	}
-
-	return string(jsonBytes)
-}
-
-// ExecuteCypher executes a Cypher query
-func (e *AgeGraphEngine) ExecuteCypher(ctx context.Context, query string, params map[string]interface{}) ([]map[string]interface{}, error) {
-	if !e.enabled {
-		return []map[string]interface{}{}, fmt.Errorf("AGE not enabled")
-	}
-
-	// Build parameterized query
-	// Note: AGE Cypher queries use $1, $2, etc. for parameters
-	var args []interface{}
-	argIndex := 1
-	for k, v := range params {
-		query = strings.ReplaceAll(query, "$"+k, fmt.Sprintf("$%d", argIndex))
-		args = append(args, v)
-		argIndex++
-	}
-
-	rows, err := e.sqlDB.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute Cypher query: %w", err)
-	}
-	defer rows.Close()
-
-	columns, err := rows.Columns()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get columns: %w", err)
-	}
-
-	var results []map[string]interface{}
-	for rows.Next() {
-		values := make([]interface{}, len(columns))
-		valuePtrs := make([]interface{}, len(columns))
-		for i := range values {
-			valuePtrs[i] = &values[i]
-		}
-
-		if err := rows.Scan(valuePtrs...); err != nil {
-			continue
-		}
-
-		result := make(map[string]interface{})
-		for i, col := range columns {
-			result[col] = values[i]
-		}
-		results = append(results, result)
-	}
-
 	return results, nil
 }
-
-// GetAttackPath finds attack paths from a pod to sensitive resources
-// This is a convenience method that uses QueryService
-func (e *AgeGraphEngine) GetAttackPath(ctx context.Context, podUID string, maxDepth int) ([]AttackPath, error) {
-	if !e.enabled {
-		return []AttackPath{}, nil
+func (e *AgeGraphEngine) scopedProperties(properties map[string]any) (map[string]any, error) {
+	if owner, ok := properties["cluster_id"]; ok && owner != e.clusterID {
+		return nil, fmt.Errorf("foreign vertex/edge cluster")
 	}
-
-	// Use QueryService for implementation
-	queryService := &QueryService{engine: e}
-	return queryService.GetAttackPath(ctx, podUID, maxDepth)
+	copy := make(map[string]any, len(properties)+1)
+	for k, v := range properties {
+		copy[k] = v
+	}
+	copy["cluster_id"] = e.clusterID
+	if _, err := json.Marshal(copy); err != nil {
+		return nil, err
+	}
+	return copy, nil
+}
+func agePropertiesLiteral(props map[string]any) (string, map[string]any, error) {
+	keys := make([]string, 0, len(props))
+	for key := range props {
+		if !ageLabel.MatchString(key) {
+			return "", nil, fmt.Errorf("invalid AGE property name")
+		}
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	parts := make([]string, 0, len(keys))
+	params := map[string]any{}
+	for i, key := range keys {
+		p := fmt.Sprintf("value_%d", i)
+		parts = append(parts, key+": $"+p)
+		params[p] = props[key]
+	}
+	return "{" + strings.Join(parts, ", ") + "}", params, nil
+}
+func (e *AgeGraphEngine) CreateVertex(ctx context.Context, label string, properties map[string]any) (string, error) {
+	if !ageLabel.MatchString(label) {
+		return "", fmt.Errorf("invalid AGE label")
+	}
+	props, err := e.scopedProperties(properties)
+	if err != nil {
+		return "", err
+	}
+	literal, params, err := agePropertiesLiteral(props)
+	if err != nil {
+		return "", err
+	}
+	rows, err := e.query(ctx, fmt.Sprintf("CREATE (v:%s %s) RETURN id(v)", label, literal), "id agtype", params)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) != 1 {
+		return "", fmt.Errorf("vertex was not created")
+	}
+	return rows[0], nil
+}
+func ageVertexID(value string) (int64, error) {
+	id, err := strconv.ParseInt(value, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != value {
+		return 0, fmt.Errorf("invalid AGE vertex ID")
+	}
+	return id, nil
+}
+func (e *AgeGraphEngine) CreateEdge(ctx context.Context, fromID, toID, label string, properties map[string]any) (string, error) {
+	if !ageLabel.MatchString(label) {
+		return "", fmt.Errorf("invalid AGE label")
+	}
+	from, err := ageVertexID(fromID)
+	if err != nil {
+		return "", err
+	}
+	to, err := ageVertexID(toID)
+	if err != nil {
+		return "", err
+	}
+	props, err := e.scopedProperties(properties)
+	if err != nil {
+		return "", err
+	}
+	literal, params, err := agePropertiesLiteral(props)
+	if err != nil {
+		return "", err
+	}
+	params["from"] = from
+	params["to"] = to
+	rows, err := e.query(ctx, fmt.Sprintf("MATCH (a), (b) WHERE id(a) = $from AND id(b) = $to AND a.cluster_id = $cluster AND b.cluster_id = $cluster CREATE (a)-[e:%s %s]->(b) RETURN id(e)", label, literal), "id agtype", params)
+	if err != nil {
+		return "", err
+	}
+	if len(rows) != 1 {
+		return "", fmt.Errorf("edge endpoints missing or foreign")
+	}
+	return rows[0], nil
 }
 
-// GetServiceAccountPermissionsGraph gets all permissions for a service account via graph
-func (e *AgeGraphEngine) GetServiceAccountPermissionsGraph(ctx context.Context, saUID string) ([]Permission, error) {
-	if !e.enabled {
-		return []Permission{}, nil
+func boundedDepth(depth int) (int, error) {
+	if depth < 1 || depth > 8 {
+		return 0, fmt.Errorf("AGE traversal depth must be 1..8")
 	}
-
-	queryService := &QueryService{engine: e}
-	return queryService.GetServiceAccountPermissions(ctx, saUID)
+	return depth, nil
 }
-
-// GetPodsWithEscalationRisk finds pods that can escalate privileges
-func (e *AgeGraphEngine) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPod, error) {
-	if !e.enabled {
-		return []RiskyPod{}, nil
+func (e *AgeGraphEngine) paths(ctx context.Context, depth int, selector string, params map[string]any) ([]AttackPath, error) {
+	if _, err := boundedDepth(depth); err != nil {
+		return nil, err
 	}
-
-	queryService := &QueryService{engine: e}
-	return queryService.GetPodsWithEscalationRisk(ctx)
+	raw, err := e.query(ctx, fmt.Sprintf("MATCH p = (a)-[*1..%d {cluster_id: $cluster}]->(b) WHERE a.cluster_id = $cluster AND b.cluster_id = $cluster AND %s RETURN p LIMIT 1000", depth, selector), "path agtype", params)
+	if err != nil {
+		return nil, err
+	}
+	paths := make([]AttackPath, 0, len(raw))
+	for _, value := range raw {
+		p, err := decodeAGEPath(value, e.clusterID)
+		if err != nil {
+			return nil, err
+		}
+		paths = append(paths, p)
+	}
+	return paths, nil
 }
-
+func (e *AgeGraphEngine) GetBlastRadius(ctx context.Context, resourceID string, maxDepth int) ([]string, error) {
+	id, err := ageVertexID(resourceID)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := e.paths(ctx, maxDepth, "id(a) = $id", map[string]any{"id": id})
+	if err != nil {
+		return nil, err
+	}
+	ids := []string{}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		id := p.Nodes[len(p.Nodes)-1].ID
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	sort.Strings(ids)
+	return ids, nil
+}
+func (e *AgeGraphEngine) GetNeighborhood(ctx context.Context, resourceID string, depth int) ([]string, error) {
+	return e.GetBlastRadius(ctx, resourceID, depth)
+}
+func (e *AgeGraphEngine) ShortestPath(ctx context.Context, fromID, toID string) ([]string, error) {
+	from, err := ageVertexID(fromID)
+	if err != nil {
+		return nil, err
+	}
+	to, err := ageVertexID(toID)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := e.paths(ctx, 8, "id(a) = $from AND id(b) = $to", map[string]any{"from": from, "to": to})
+	if err != nil {
+		return nil, err
+	}
+	if len(paths) == 0 {
+		return []string{}, nil
+	}
+	best := paths[0]
+	for _, p := range paths {
+		if p.Length < best.Length {
+			best = p
+		}
+	}
+	ids := make([]string, 0, len(best.Nodes))
+	for _, n := range best.Nodes {
+		ids = append(ids, n.ID)
+	}
+	return ids, nil
+}
+func (e *AgeGraphEngine) GetAccessibleSecrets(ctx context.Context, saID string) ([]string, error) {
+	id, err := ageVertexID(saID)
+	if err != nil {
+		return nil, err
+	}
+	paths, err := e.paths(ctx, 8, "id(a) = $id", map[string]any{"id": id})
+	if err != nil {
+		return nil, err
+	}
+	result := []string{}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		n := p.Nodes[len(p.Nodes)-1]
+		uid, ok := n.Properties["uid"].(string)
+		if n.Type == "Secret" && ok && !seen[uid] {
+			result = append(result, uid)
+			seen[uid] = true
+		}
+	}
+	sort.Strings(result)
+	return result, nil
+}
