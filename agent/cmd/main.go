@@ -118,6 +118,11 @@ func main() {
 		log.Printf("✅ Runtime producer lifecycle registered (session=%s)", runtimeSessionID)
 	}
 	go runtimeLifecycle.Start(ctx)
+	if err := runtime.WriteSourceHealthChallenge(cfg.SourceHealthChallengePath, cfg.ClusterID, cfg.AgentID, runtimeSessionID, runtimeSessionStartedAt); err != nil {
+		log.Fatalf("Cannot publish source-health session challenge: %v", err)
+	}
+	healthRelay := &runtime.SourceHealthRelay{CoreURL: cfg.CoreHTTPEndpoint, Path: cfg.SourceHealthPath, ClusterID: cfg.ClusterID, AgentID: cfg.AgentID, SessionID: runtimeSessionID}
+	go healthRelay.Start(ctx)
 
 	// Start periodic full sync to Core HTTP endpoint (pods/RBAC/resources)
 	syncClientset, ok := k8sClient.Clientset.(*kubernetes.Clientset)

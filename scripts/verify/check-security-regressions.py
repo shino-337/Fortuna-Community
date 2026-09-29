@@ -113,6 +113,9 @@ REQUIRED = {
         "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
     ],
     "./internal/api": [
+        "TestSourceHealthAuthorityReplayFailureAndRestart",
+        "TestSourceHealthRejectsUntrustedEvidence",
+        "TestSourceHealthRegistryRotationFailsClosed",
         "TestScopedInventoryCollectionHTTPContract",
         "TestScopedInventoryCollectionHTTPContract/empty",
         "TestScopedInventoryCollectionHTTPContract/failed",
@@ -323,6 +326,8 @@ AGENT_REQUIRED = {
         "TestEventsCollectorDeduplicatesResyncedQuarantine",
     ],
     "./internal/runtime": [
+        "TestSourceHealthRelayPreservesSignatureAndRejectsOldSession",
+        "TestSourceHealthRelayBackoffStopsSiblingRequests",
         "TestFalcoDurableMixedBatchRestartAndRecovery",
         "TestFalcoDurableBackoffSurvivesRestartAndMissingSource",
         "TestFalcoDurableStateFailsClosedOnCorruptionBindingAndConcurrentWriter",

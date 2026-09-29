@@ -59,7 +59,7 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := ensureModelColumns(db, &models.RuntimeCoverage{}, []string{
 		"ClusterID", "AgentID", "ProducerID", "SessionID", "CoverageID",
 		"SourceKind", "Status", "WindowStart", "WindowEnd", "ReceivedAt",
-		"ContinuousSince", "Emitted", "Delivered", "Dropped", "Invalid",
+		"ContinuousSince", "SourceSessionID", "Emitted", "Delivered", "Dropped", "Invalid",
 		"Errors", "Reason",
 	}); err != nil {
 		return fmt.Errorf("runtime coverage columns: %w", err)
@@ -166,6 +166,7 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 		"SessionStartedAt", "Enabled", "Authoritative", "State",
 		"LastManifestAt", "LastHeartbeatAt", "LastCoverageID",
 		"LastCoverageEnd", "GapSince", "GapReason",
+		"SourceSessionID", "SourceStartedAt", "SourceHealthSince", "SourceHealthEnd", "SourceHealthReceivedAt", "SourceHealthSequence", "SourceHealthExpiresAt",
 	}); err != nil {
 		return fmt.Errorf("runtime producer state columns: %w", err)
 	}
@@ -187,5 +188,24 @@ func EnsureRuntimeCoverage(db *gorm.DB) error {
 	if err := ensureIndex(db, "idx_runtime_producer_session", "runtime_producer_states", "session_id", false); err != nil {
 		return err
 	}
-	return ensureIndex(db, "idx_runtime_producer_heartbeat", "runtime_producer_states", "last_heartbeat_at", false)
+	if err := ensureIndex(db, "idx_runtime_producer_heartbeat", "runtime_producer_states", "last_heartbeat_at", false); err != nil {
+		return err
+	}
+	if err := ensureModelColumns(db, &models.RuntimeCoverageReceipt{}, []string{"SourceSessionID"}); err != nil {
+		return err
+	}
+	if !db.Migrator().HasTable(&models.RuntimeSourceHealthReceipt{}) {
+		return db.Migrator().CreateTable(&models.RuntimeSourceHealthReceipt{})
+	}
+	if err := ensureModelColumns(db, &models.RuntimeSourceHealthReceipt{}, []string{"ClusterID", "AgentID", "ProducerID", "SessionID", "SourceSessionID", "Sequence", "KeyID", "PayloadHash", "Payload", "Signature", "ReceivedAt"}); err != nil {
+		return err
+	}
+	var invalidHealth int64
+	if err := db.Model(&models.RuntimeSourceHealthReceipt{}).Where("cluster_id IS NULL OR cluster_id = '' OR agent_id IS NULL OR agent_id = '' OR producer_id IS NULL OR producer_id = '' OR session_id IS NULL OR session_id = '' OR source_session_id IS NULL OR source_session_id = '' OR sequence IS NULL OR sequence < 1 OR payload_hash IS NULL OR payload_hash = '' OR signature IS NULL OR signature = ''").Count(&invalidHealth).Error; err != nil {
+		return err
+	}
+	if invalidHealth != 0 {
+		return fmt.Errorf("source health contains %d rows without signed evidence identity", invalidHealth)
+	}
+	return ensureIndex(db, "idx_runtime_source_health_receipt_identity", "runtime_source_health_receipts", "cluster_id,agent_id,producer_id,session_id,source_session_id,sequence", true)
 }

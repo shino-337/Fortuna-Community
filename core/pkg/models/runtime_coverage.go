@@ -15,6 +15,7 @@ type RuntimeCoverage struct {
 	AgentID         string     `gorm:"primaryKey;size:255" json:"agentId"`
 	ProducerID      string     `gorm:"primaryKey;size:128" json:"producerId"`
 	SessionID       string     `gorm:"size:128;index" json:"sessionId"`
+	SourceSessionID string     `gorm:"size:128" json:"sourceSessionId,omitempty"`
 	CoverageID      string     `gorm:"size:128" json:"coverageId"`
 	SourceKind      string     `gorm:"size:64;index" json:"sourceKind"`
 	Status          string     `gorm:"size:32;index" json:"status"`
@@ -44,6 +45,9 @@ func (c RuntimeCoverage) EffectiveStatus(producer *RuntimeProducerState, now tim
 	if c.ContinuousSince == nil || c.ContinuousSince.IsZero() {
 		return "unknown"
 	}
+	if c.SourceSessionID != producer.SourceSessionID || !producer.SourceHealthCovers(*c.ContinuousSince, c.WindowEnd, now) {
+		return "non_authoritative"
+	}
 	if c.WindowEnd.IsZero() || c.WindowEnd.After(now) || now.Sub(c.WindowEnd) > collection.RuntimeCoverageMaxAge {
 		return "stale"
 	}
@@ -58,6 +62,7 @@ func (c RuntimeCoverage) CoversInterval(producer *RuntimeProducerState, required
 		return false
 	}
 	return c.EffectiveStatus(producer, now) == "complete" &&
+		producer.SourceHealthCovers(requiredStart, requiredEnd, now) &&
 		c.ContinuousSince != nil &&
 		!c.ContinuousSince.After(requiredStart) &&
 		!c.WindowEnd.Before(requiredEnd)

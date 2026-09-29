@@ -77,6 +77,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		runtimeIngestV2.POST("/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 		runtimeIngestV2.POST("/producers", PostRuntimeProducerManifest(db))
 		runtimeIngestV2.POST("/coverage", PostRuntimeCoverage(db))
+		runtimeIngestV2.POST("/source-health", PostRuntimeSourceHealth(db, cfg.RuntimeSourceHealthRegistryPath))
 	}
 	log.Printf("[API] Runtime ingest routes registered: POST /api/v2/runtime/events, /api/v2/runtime/producers, /api/v2/runtime/coverage")
 

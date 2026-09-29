@@ -10,6 +10,7 @@ type RuntimeCoverageReceipt struct {
 	AgentID         string     `gorm:"primaryKey;size:255" json:"agentId"`
 	ProducerID      string     `gorm:"primaryKey;size:128" json:"producerId"`
 	SessionID       string     `gorm:"primaryKey;size:128;index" json:"sessionId"`
+	SourceSessionID string     `gorm:"size:128" json:"sourceSessionId,omitempty"`
 	CoverageID      string     `gorm:"primaryKey;size:128" json:"coverageId"`
 	SourceKind      string     `gorm:"size:64;index" json:"sourceKind"`
 	Status          string     `gorm:"size:32;index" json:"status"`
@@ -27,45 +28,46 @@ type RuntimeCoverageReceipt struct {
 
 func RuntimeCoverageReceiptFrom(row RuntimeCoverage) RuntimeCoverageReceipt {
 	return RuntimeCoverageReceipt{
-		ClusterID: row.ClusterID,
-		AgentID: row.AgentID,
-		ProducerID: row.ProducerID,
-		SessionID: row.SessionID,
-		CoverageID: row.CoverageID,
-		SourceKind: row.SourceKind,
-		Status: row.Status,
-		WindowStart: row.WindowStart,
-		WindowEnd: row.WindowEnd,
-		ReceivedAt: row.ReceivedAt,
+		ClusterID:       row.ClusterID,
+		AgentID:         row.AgentID,
+		ProducerID:      row.ProducerID,
+		SessionID:       row.SessionID,
+		SourceSessionID: row.SourceSessionID,
+		CoverageID:      row.CoverageID,
+		SourceKind:      row.SourceKind,
+		Status:          row.Status,
+		WindowStart:     row.WindowStart,
+		WindowEnd:       row.WindowEnd,
+		ReceivedAt:      row.ReceivedAt,
 		ContinuousSince: row.ContinuousSince,
-		Emitted: row.Emitted,
-		Delivered: row.Delivered,
-		Dropped: row.Dropped,
-		Invalid: row.Invalid,
-		Errors: row.Errors,
-		Reason: row.Reason,
+		Emitted:         row.Emitted,
+		Delivered:       row.Delivered,
+		Dropped:         row.Dropped,
+		Invalid:         row.Invalid,
+		Errors:          row.Errors,
+		Reason:          row.Reason,
 	}
 }
 
-
 func RuntimeCoverageFromReceipt(row RuntimeCoverageReceipt) RuntimeCoverage {
 	return RuntimeCoverage{
-		ClusterID: row.ClusterID,
-		AgentID: row.AgentID,
-		ProducerID: row.ProducerID,
-		SessionID: row.SessionID,
-		CoverageID: row.CoverageID,
-		SourceKind: row.SourceKind,
-		Status: row.Status,
-		WindowStart: row.WindowStart,
-		WindowEnd: row.WindowEnd,
-		ReceivedAt: row.ReceivedAt,
+		ClusterID:       row.ClusterID,
+		AgentID:         row.AgentID,
+		ProducerID:      row.ProducerID,
+		SessionID:       row.SessionID,
+		SourceSessionID: row.SourceSessionID,
+		CoverageID:      row.CoverageID,
+		SourceKind:      row.SourceKind,
+		Status:          row.Status,
+		WindowStart:     row.WindowStart,
+		WindowEnd:       row.WindowEnd,
+		ReceivedAt:      row.ReceivedAt,
 		ContinuousSince: row.ContinuousSince,
-		Emitted: row.Emitted,
-		Delivered: row.Delivered,
-		Dropped: row.Dropped,
-		Invalid: row.Invalid,
-		Errors: row.Errors,
-		Reason: row.Reason,
+		Emitted:         row.Emitted,
+		Delivered:       row.Delivered,
+		Dropped:         row.Dropped,
+		Invalid:         row.Invalid,
+		Errors:          row.Errors,
+		Reason:          row.Reason,
 	}
 }

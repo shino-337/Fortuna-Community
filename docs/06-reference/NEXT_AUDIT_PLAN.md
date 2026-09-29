@@ -385,6 +385,20 @@ eventual delivery, and checks the per-flush budget and evidence retention.
 - G–I remain pending after the A–F gate: scoped AGE, explicit mutation/revocation
   workflows, then performance/load validation and the first-investigation demo.
 
+## D3 source checkpoint — 2026-09-29
+
+D3 now accepts independently signed Ed25519 source-health windows with a separate
+operator trust registry, immutable signed receipts, exact cluster/Agent/producer/
+Agent-session/sensor-session binding, and bounded expiry. Adjacent health and
+coverage must both cover the whole required interval. Failure, replay, restarts,
+disable and expired leases cannot retain absence eligibility. Agent relay inputs
+are optional and read-only; current built-in readers still cannot assert their own
+sensor health. SQLite lifecycle/coverage and Agent relay regressions pass; real
+PostgreSQL concurrent replay and injected-update rollback regressions are included
+in the permanent workflow. See [source-health operations](../05-operations/RUNTIME_SOURCE_HEALTH.md).
+Runtime auto-resolution remains disabled pending F acceptance and deployment of
+an independently measuring attestor. No live source-health rollout is claimed.
+
 ## Repository governance prerequisite
 
 Security-sensitive paths are covered by CODEOWNERS, but repository rules must

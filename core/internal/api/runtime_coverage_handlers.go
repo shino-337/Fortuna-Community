@@ -15,9 +15,9 @@ import (
 )
 
 var (
-	errRuntimeCoverageConflict = errors.New("runtime coverage replay or ordering conflict")
+	errRuntimeCoverageConflict  = errors.New("runtime coverage replay or ordering conflict")
 	errRuntimeLifecycleRequired = errors.New("runtime producer lifecycle state required")
-	errRuntimeProducerInactive = errors.New("runtime producer is not active for this session")
+	errRuntimeProducerInactive  = errors.New("runtime producer is not active for this session")
 )
 
 func runtimeCoverageReceiptMatches(receipt models.RuntimeCoverageReceipt, row models.RuntimeCoverage) bool {
@@ -25,6 +25,7 @@ func runtimeCoverageReceiptMatches(receipt models.RuntimeCoverageReceipt, row mo
 		receipt.AgentID == row.AgentID &&
 		receipt.ProducerID == row.ProducerID &&
 		receipt.SessionID == row.SessionID &&
+		receipt.SourceSessionID == row.SourceSessionID &&
 		receipt.CoverageID == row.CoverageID &&
 		receipt.SourceKind == row.SourceKind &&
 		receipt.Status == row.Status &&
@@ -62,22 +63,22 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		row := models.RuntimeCoverage{
-			ClusterID: principal.ClusterID,
-			AgentID: principal.AgentID,
-			ProducerID: req.ProducerID,
-			SessionID: req.SessionID,
-			CoverageID: req.ID,
-			SourceKind: req.SourceKind,
-			Status: req.Status,
+			ClusterID:   principal.ClusterID,
+			AgentID:     principal.AgentID,
+			ProducerID:  req.ProducerID,
+			SessionID:   req.SessionID,
+			CoverageID:  req.ID,
+			SourceKind:  req.SourceKind,
+			Status:      req.Status,
 			WindowStart: req.WindowStart,
-			WindowEnd: req.WindowEnd,
-			ReceivedAt: now,
-			Emitted: req.Emitted,
-			Delivered: req.Delivered,
-			Dropped: req.Dropped,
-			Invalid: req.Invalid,
-			Errors: req.Errors,
-			Reason: req.Reason,
+			WindowEnd:   req.WindowEnd,
+			ReceivedAt:  now,
+			Emitted:     req.Emitted,
+			Delivered:   req.Delivered,
+			Dropped:     req.Dropped,
+			Invalid:     req.Invalid,
+			Errors:      req.Errors,
+			Reason:      req.Reason,
 		}
 
 		replay := false
@@ -100,6 +101,8 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				producer.State == collection.RuntimeProducerStopped {
 				return errRuntimeProducerInactive
 			}
+
+			row.SourceSessionID = producer.SourceSessionID
 
 			// CoverageID is immutable evidence identity. Check history first so an
 			// exact replay of any previously accepted receipt is idempotent, while
@@ -127,12 +130,12 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 			// Serialize first report and subsequent windows under the lifecycle
 			// row lock. A new Agent session is an explicit continuity boundary.
 			candidate := row
-			if candidate.Status == "complete" && producer.Authoritative {
+			if candidate.Status == "complete" && producer.SourceHealthCovers(candidate.WindowStart, candidate.WindowEnd, now) {
 				start := candidate.WindowStart
 				candidate.ContinuousSince = &start
 			}
 			insert := tx.Clauses(clause.OnConflict{
-				Columns: []clause.Column{{Name: "cluster_id"}, {Name: "agent_id"}, {Name: "producer_id"}},
+				Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "agent_id"}, {Name: "producer_id"}},
 				DoNothing: true,
 			}).Create(&candidate)
 			if insert.Error != nil {
@@ -163,7 +166,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					// replaced, while its immutable receipt remains in history and
 					// cannot extend continuity.
 					row.ContinuousSince = nil
-					if row.Status == "complete" && producer.Authoritative {
+					if row.Status == "complete" && producer.SourceHealthCovers(row.WindowStart, row.WindowEnd, now) {
 						start := row.WindowStart
 						row.ContinuousSince = &start
 					}
@@ -174,9 +177,9 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 						return errRuntimeCoverageConflict
 					}
 					row.ContinuousSince = nil
-					if row.Status == "complete" && producer.Authoritative {
+					if row.Status == "complete" && producer.SourceHealthCovers(row.WindowStart, row.WindowEnd, now) {
 						start := row.WindowStart
-						if producer.State == collection.RuntimeProducerActive && prior.Status == "complete" && prior.ContinuousSince != nil && row.WindowStart.Equal(prior.WindowEnd) {
+						if producer.State == collection.RuntimeProducerActive && prior.SourceSessionID == row.SourceSessionID && prior.Status == "complete" && prior.ContinuousSince != nil && row.WindowStart.Equal(prior.WindowEnd) && producer.SourceHealthCovers(*prior.ContinuousSince, row.WindowEnd, now) {
 							start = *prior.ContinuousSince
 						}
 						row.ContinuousSince = &start
@@ -185,20 +188,21 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 
 				if !replay {
 					if err := tx.Model(&prior).Updates(map[string]interface{}{
-						"session_id": row.SessionID,
-						"coverage_id": row.CoverageID,
-						"source_kind": row.SourceKind,
-						"status": row.Status,
-						"window_start": row.WindowStart,
-						"window_end": row.WindowEnd,
-						"received_at": row.ReceivedAt,
-						"continuous_since": row.ContinuousSince,
-						"emitted": row.Emitted,
-						"delivered": row.Delivered,
-						"dropped": row.Dropped,
-						"invalid": row.Invalid,
-						"errors": row.Errors,
-						"reason": row.Reason,
+						"session_id":        row.SessionID,
+						"source_session_id": row.SourceSessionID,
+						"coverage_id":       row.CoverageID,
+						"source_kind":       row.SourceKind,
+						"status":            row.Status,
+						"window_start":      row.WindowStart,
+						"window_end":        row.WindowEnd,
+						"received_at":       row.ReceivedAt,
+						"continuous_since":  row.ContinuousSince,
+						"emitted":           row.Emitted,
+						"delivered":         row.Delivered,
+						"dropped":           row.Dropped,
+						"invalid":           row.Invalid,
+						"errors":            row.Errors,
+						"reason":            row.Reason,
 					}).Error; err != nil {
 						return err
 					}
@@ -220,7 +224,7 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 					// interval. It does not prove upstream source liveness unless
 					// Authoritative is independently established.
 					producer.State = collection.RuntimeProducerActive
-					if producer.Authoritative {
+					if row.ContinuousSince != nil && producer.SourceHealthCovers(*row.ContinuousSince, row.WindowEnd, now) {
 						producer.GapSince = nil
 						producer.GapReason = ""
 					} else {
@@ -247,11 +251,11 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 				if err := tx.Model(&models.RuntimeProducerState{}).
 					Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", producer.ClusterID, producer.AgentID, producer.ProducerID).
 					Updates(map[string]interface{}{
-						"state": producer.State,
-						"last_coverage_id": producer.LastCoverageID,
+						"state":             producer.State,
+						"last_coverage_id":  producer.LastCoverageID,
 						"last_coverage_end": producer.LastCoverageEnd,
-						"gap_since": producer.GapSince,
-						"gap_reason": producer.GapReason,
+						"gap_since":         producer.GapSince,
+						"gap_reason":        producer.GapReason,
 					}).Error; err != nil {
 					return err
 				}
@@ -273,10 +277,10 @@ func PostRuntimeCoverage(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"success": true,
-			"replay": replay,
-			"coverage": row,
-			"producer": producer,
+			"success":         true,
+			"replay":          replay,
+			"coverage":        row,
+			"producer":        producer,
 			"effectiveStatus": row.EffectiveStatus(&producer, time.Now().UTC()),
 		})
 	}
