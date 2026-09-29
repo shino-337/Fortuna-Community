@@ -27,7 +27,7 @@ func serviceAccountScopeFixture(t *testing.T) (*gorm.DB, func(string, string, st
 	}
 	sqlDB.SetMaxOpenConns(1)
 	t.Cleanup(func() { sqlDB.Close() })
-	if err := db.AutoMigrate(&models.Cluster{}, &models.ServiceAccount{}, &models.Role{}, &models.ClusterRole{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.AuditLog{}, &models.SecurityActivityLog{}); err != nil {
+	if err := db.AutoMigrate(&models.Cluster{}, &models.ServiceAccount{}, &models.Role{}, &models.ClusterRole{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.AuditLog{}, &models.ServiceAccountMutation{}, &models.SecurityActivityLog{}); err != nil {
 		t.Fatal(err)
 	}
 	for _, cluster := range []string{"a", "b"} {

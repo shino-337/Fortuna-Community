@@ -1143,20 +1143,12 @@ func DeleteServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
-		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").Where("uid = ?", uid).First(&sa).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
+		sa, ok := loadScopedServiceAccountByUID(db, c, uid, false)
+		if !ok {
 			return
 		}
 
-		code, message := deleteServiceAccountResource(db, c, &sa)
+		code, message := deleteServiceAccountResource(db, c, sa)
 		if code != http.StatusOK {
 			c.JSON(code, gin.H{"error": message})
 			return

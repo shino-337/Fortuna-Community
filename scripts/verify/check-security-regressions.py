@@ -13,6 +13,7 @@ import subprocess
 import sys
 
 REQUIRED = {
+    "./pkg/mutations": ["TestMutationIdentityReplayAndDurability", "TestMutationBlocksReplacementAndChangedBindings", "TestDurableDeletionRetainsUIDPrecondition"],
     "./pkg/graph": ["TestAGECanonicalScopeAndIdentifiers"],
     "./internal/service": [
         "TestInventoryCollectionCommitAndFailure", "TestInventoryCollectionEmptyMissingReplayAndScope",
@@ -114,6 +115,7 @@ REQUIRED = {
         "TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights",
     ],
     "./internal/api": [
+        "TestMutationHTTPPermissionAndScope",
         "TestSourceHealthAuthorityReplayFailureAndRestart",
         "TestSourceHealthRejectsUntrustedEvidence",
         "TestSourceHealthRegistryRotationFailsClosed",

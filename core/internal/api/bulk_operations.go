@@ -1,14 +1,16 @@
 package api
 
 import (
+	"context"
 	"github.com/fortuna/core/internal/k8s"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/mutations"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"k8s.io/client-go/kubernetes"
 	"net/http"
-	"strconv"
 )
 
 func auditUserID(c *gin.Context) uint {
@@ -135,22 +137,27 @@ func deleteServiceAccountResource(db *gorm.DB, c *gin.Context, sa *models.Servic
 	if err != nil {
 		return 502, "failed to initialize the target cluster client"
 	}
-	if err = client.DeleteServiceAccountUID(c.Request.Context(), sa.Namespace, sa.Name, sa.UID); err != nil {
-		return 502, "Kubernetes deletion failed or UID changed; inventory record retained"
-	}
-	// Persist the deletion and audit together. A retry accepts Kubernetes NotFound.
-	err = db.WithContext(c.Request.Context()).Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("id = ? AND uid = ? AND cluster_id = ?", sa.ID, sa.UID, sa.ClusterID).Delete(&models.ServiceAccount{}).Error; err != nil {
-			return err
-		}
-		row := models.AuditLog{ClusterID: sa.ClusterID, UserID: auditUserID(c), Action: "delete", Resource: "serviceaccount", ResourceID: strconv.FormatUint(uint64(sa.ID), 10), User: c.GetString("username"), IP: c.ClientIP(), Details: `{"k8s_deletion":"success"}`}
-		if row.UserID == 0 {
-			return tx.Omit("UserID").Create(&row).Error
-		}
-		return tx.Create(&row).Error
-	})
+	job, err := mutations.QueueDeletion(db.WithContext(c.Request.Context()), *sa, auditUserID(c), c.GetString("username"))
 	if err != nil {
-		return 500, "Kubernetes deletion completed but inventory/audit persistence failed; retry to reconcile"
+		return 503, "Unable to persist deletion intent; no Kubernetes changes made"
 	}
-	return 200, "ServiceAccount deleted from Kubernetes and inventory"
+	factory := func(ctx context.Context, clusterID string) (kubernetes.Interface, error) {
+		if clusterID != sa.ClusterID {
+			return nil, mutations.ErrDrift
+		}
+		return client.Clientset, nil
+	}
+	if err = mutations.Process(c.Request.Context(), db, factory, job.ID); err != nil {
+		return 503, "Deletion intent retained; worker will retry after persistence recovery"
+	}
+	if err = db.First(&job, "id = ?", job.ID).Error; err != nil {
+		return 503, "Deletion status unavailable; durable intent retained"
+	}
+	if job.Status == "succeeded" {
+		return 200, "ServiceAccount deleted from Kubernetes and inventory"
+	}
+	if job.Status == "blocked" {
+		return 409, "Kubernetes identity or permission changed; review a new mutation preview"
+	}
+	return 502, "Kubernetes deletion pending durable retry; inventory record retained"
 }
