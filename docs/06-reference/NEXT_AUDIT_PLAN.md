@@ -52,13 +52,13 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 
 ## Implementation progress
 
-### Current checkpoint — 2026-09-29 UTC
+### Current checkpoint — 2026-10-01 UTC
 
 | Scope | Verified state | Remaining gate |
 | --- | --- | --- |
 | A–C | Merged; real two-cluster scoped HTTP/DaemonSet and backend RBAC investigation passed | Live mTLS/gRPC certificate lifecycle and browser rollout |
 | D | D1/D2 merged; D3 signed-health protocol and PostgreSQL authority/replay regressions implemented on `fix/audit-d3-f-gi`; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
-| E | E1 merged; E2/residual E1 on #54; clean committed-head native CI passed for `21223f39c` | Each new head requires fresh CI, owner review and manual merge |
+| E | E1/#53 and E2/residual E1/#54 merged; all seven hosted CI jobs passed on #54 head `3ff4da767` | Live browser rollout remains an operational acceptance gate |
 | F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed; named PostgreSQL/live gates enforce run/pass readback | Repeat at exact committed head; live browser and mTLS/gRPC rollout remain operational acceptance |
 | G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions implemented | Owner review; arbitrary/legacy HTTP routes remain retired |
 | H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests implemented; real Kubernetes retry/replacement gate passed | Dashboard preview controls and deployed workflow validation |
@@ -68,9 +68,10 @@ The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
 records source fixes, historical live observations and remaining acceptance gates
 separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions but
 still require a live Agent rollout with the durable-state configuration. They
-do not close D3 or package F. PR #54 remains open; the 2026-09-28 hosted CI run
-for its previous head executed zero steps in all seven jobs. Existing local
-status or earlier working-tree results must not be reused for a new commit.
+do not close D3 or package F. PR #54 merged on 2026-10-01 as `80f24e98f` after
+all seven hosted CI jobs passed at `3ff4da767`. Its earlier zero-step failures
+were infrastructure failures, not source validation. The D3/F/G–I branch requires
+its own exact-head CI; #54 results cannot validate its later commits.
 
 The 2026-09-27 dependency/deployment follow-up built and deployed local
 `depfix-20260927-54-r2` Core, Agent and Dashboard images. Container config IDs
@@ -111,9 +112,10 @@ Local Core/Agent/API tests and vet, the permanent security regression gate,
 Dashboard typecheck/build and 52 Playwright tests, plus script/shell/hygiene
 checks passed on 2026-09-27. This was direct local execution of workflow steps;
 a complete `act all` run was not claimed. Commit/push preparation must rerun
-and record the exact committed head outside this plan. GitHub's existing #54
-jobs failed before execution because of account billing/spending entitlement;
-their failures do not demonstrate a code failure or a local pass.
+and record the exact committed head outside this plan. The earlier #54 jobs
+failed before execution because of account billing/spending entitlement; their
+failures did not demonstrate a code failure or a local pass. Hosted CI resumed
+and passed on the final #54 head on 2026-10-01.
 
 The historical runtime observations remain explicit: the stale-Falco mixed-batch
 retry limitation recorded below was not durably fixed by restart or `send_ok`
@@ -251,13 +253,13 @@ eventual delivery, and checks the per-flush budget and evidence retention.
   did not consistently distinguish schema/query failure from empty activity;
   catalog checks could also misclassify a disconnected database as a missing
   migration. The follow-up checks connectivity before marking a schema absent.
-  The #54 branch carries focused fixes and named regressions for those paths;
-  they are not merged or exact-head validated until the #54 gate passes. Required
+  The #54 branch carried focused fixes and named regressions for those paths;
+  its final head passed hosted CI and was merged. Required
   query/schema failures must remain distinct from
   zero/empty data, primary clients preserve last-known-good state, retryable versus
   operator-action `503` is explicit, and genuine successful empty responses keep
   their normal empty semantics.
-- E2 / PR #54 remains active from merge commit `a6e49ff`; closure fixes were
+- E2 / PR #54 merged on 2026-10-01 as `80f24e98f`; closure fixes were
   reviewed on 2026-09-27. The exact merge-candidate SHA is recorded with the local
   CI evidence rather than embedded here so a documentation-only commit cannot make
   the recorded head stale. Cluster, Node, Capability and Pod detail/list availability behavior
@@ -267,9 +269,9 @@ eventual delivery, and checks the per-flush budget and evidence retention.
   navigation through Core resolution, duplicate UID reads fail closed when cluster
   ownership is ambiguous, and dashboard callers that already know the cluster
   retain it. AttackPaths now rejects malformed successful graph/bundle payloads
-  and ignores stale page/pod responses after cluster/entity changes. E2 is not
-  merge-ready until the residual E1 follow-ups and owner-recorded exact-head local CI evidence pass the gate
-  below.
+  and ignores stale page/pod responses after cluster/entity changes. The final
+  #54 head `3ff4da767` passed all seven hosted CI jobs before merge; the gate
+  below records its acceptance contract.
 - A single-node `fortuna` deployment attempt on 2026-09-27 built the Core,
   Agent and Dashboard images from the dirty #54 worktree, but did not complete
   rollout. On the existing PostgreSQL 15 database, Core's cluster-resource
@@ -431,6 +433,8 @@ Security-sensitive paths are covered by CODEOWNERS, but repository rules must
 require CODEOWNER review and required CI checks on `main`. Direct/force pushes or
 merges that bypass those checks defeat the regression-prevention contract and must
 remain disabled by owner-side branch/ruleset configuration.
+On 2026-10-01 the repository's `main-security-gate` ruleset was disabled and no
+branch protection applied to `main`; owner-side enforcement remains open.
 
 
 ## Merge-readiness discipline
@@ -440,16 +444,12 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52 and #53
-are merged. E2 remains on #54; the new D3/F/G–I commits are isolated on `fix/audit-d3-f-gi`, based on its checked source head `21223f39c`. GitHub-hosted Actions
-for #54 are currently failing before runner execution because of the repository
-account/runner entitlement state; zero-step jobs are not code evidence. For #54
-only, the repository owner may satisfy the exact-head functional gate with a
-recorded local run of the same commands/jobs. Automatic Secret Scan remains
-manual-only and is not part of this functional gate. E2 should remain focused on
-availability/identity correctness of the affected detail/list consumers and must
-not enable runtime absence authority or claim package-F live multi-cluster
-acceptance.
+security regression gates passed. #51 was retired rather than reused. #52–#54
+are merged. The D3/F/G–I commits are isolated on `fix/audit-d3-f-gi` and have
+been rebased onto the #54 merge commit. All seven hosted jobs passed on #54's
+final head; that result does not cover the D3/F/G–I commits. Run the full
+exact-head gate on the latter before requesting review or merge. Automatic
+Secret Scan remains manual-only and is not part of the functional CI gate.
 
 
 ### Final #50 merge blockers closed
@@ -621,15 +621,14 @@ E2 starts from merge commit `a6e49ff`. Merge only when:
 - the permanent route/static guard ratchets cluster-aware Pod and ServiceAccount
   navigation plus AttackPaths request-generation/strict-response markers;
 - exact-head Dashboard typecheck/build/Playwright, Core permanent regressions,
-  PostgreSQL gate, API/Agent tests + vet, script/shell/hygiene pass. For PR #54,
-  owner-recorded local execution of these same gates is accepted while
-  GitHub-hosted jobs fail before execution. Secret scanning is manual-only while
+  PostgreSQL gate, API/Agent tests + vet, script/shell/hygiene pass. The final
+  #54 head passed these hosted jobs. Secret scanning is manual-only while
   the repository plan/license does not support it as a reliable PR/push gate;
   scanner availability must not block the functional CI contract.
 
-#### #54 local exact-head verification
+#### Historical #54 local exact-head verification
 
-Before manual merge, record the tested commit SHA and successful local results for:
+Before #54 merged, the local fallback required the tested commit SHA and successful results for:
 
 ```bash
 # Core
