@@ -4,7 +4,9 @@ import runpy
 from pathlib import Path
 import unittest
 
-validate = runpy.run_path(str(Path(__file__).with_name("run-two-cluster-integration.py")))["validate_receipt"]
+module = runpy.run_path(str(Path(__file__).with_name("run-two-cluster-integration.py")))
+validate = module["validate_receipt"]
+kind_gateway = module["kind_gateway"]
 
 class LiveIntegrationGateTests(unittest.TestCase):
     def setUp(self):
@@ -28,5 +30,10 @@ class LiveIntegrationGateTests(unittest.TestCase):
         for key in ("dashboardBrowserVerified", "runtimeAutoResolutionEnabled"):
             changed = {**self.report, key: True}
             with self.assertRaises(RuntimeError): validate(0, self.events, changed)
+
+    def test_kind_gateway_tolerates_ipam_entries_without_gateway(self):
+        network = {"IPAM": {"Config": [{"Subnet": "fd00::/64"}, {"Subnet": "172.18.0.0/16", "Gateway": "172.18.0.1"}]}}
+        self.assertEqual(kind_gateway(network), "172.18.0.1")
+        with self.assertRaises(RuntimeError): kind_gateway({"IPAM": {"Config": [{"Subnet": "fd00::/64"}]}})
 
 if __name__ == "__main__": unittest.main()

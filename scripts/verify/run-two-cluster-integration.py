@@ -19,6 +19,13 @@ def validate_receipt(returncode, events, report):
     if report.get("runtimeAutoResolutionEnabled") is not False or report.get("dashboardBrowserVerified") is not False:
         raise RuntimeError("receipt overstates runtime or browser validation")
 
+def kind_gateway(network):
+    for entry in network.get("IPAM", {}).get("Config", []):
+        gateway = entry.get("Gateway", "")
+        if gateway and ":" not in gateway:
+            return gateway
+    raise RuntimeError("kind Docker network has no IPv4 gateway")
+
 def main():
     if platform.system()!="Linux" or platform.machine() not in ("x86_64","amd64"):raise RuntimeError("live gate requires Linux amd64")
     if not os.environ.get("FORTUNA_TEST_POSTGRES_URL"):raise RuntimeError("isolated FORTUNA_TEST_POSTGRES_URL required")
@@ -49,7 +56,7 @@ def main():
             owned.append(name)
             call([kind,"create","cluster","--name",name,"--image",NODE_IMAGE,"--config",config,"--kubeconfig",folder/(name+".kubeconfig"),"--wait","120s"])
             call([kind,"load","docker-image",image,"--name",name])
-        network=json.loads(subprocess.check_output(["docker","network","inspect","kind"],text=True))[0];gateway=next(item["Gateway"] for item in network["IPAM"]["Config"] if ":" not in item["Gateway"])
+        network=json.loads(subprocess.check_output(["docker","network","inspect","kind"],text=True))[0];gateway=kind_gateway(network)
         env.update(FORTUNA_RUN_LIVE_INTEGRATION="1",FORTUNA_TEST_AGENT_IMAGE=image,FORTUNA_TEST_CORE_HOST_IP=gateway,FORTUNA_TEST_KUBECONFIG_A=str(folder/(names[0]+".kubeconfig")),FORTUNA_TEST_KUBECONFIG_B=str(folder/(names[1]+".kubeconfig")),FORTUNA_TEST_EVIDENCE_DIR=str(folder))
         # JSON readback proves the selected test ran and passed; a removed,
         # renamed, skipped or empty -run selection cannot silently pass this gate.
