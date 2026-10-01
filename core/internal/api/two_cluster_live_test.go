@@ -30,6 +30,7 @@ import (
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/worker"
 	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -396,11 +397,17 @@ func TestTwoClusterDaemonSetLive(t *testing.T) {
 	agentPods, err := a.client.CoreV1().Pods("audit-agents").List(context.Background(), metav1.ListOptions{LabelSelector: "app=audit-agent-a", FieldSelector: "spec.nodeName=" + a.nodes[0]})
 	require.NoError(t, err)
 	require.Len(t, agentPods.Items, 1)
-	require.NoError(t, a.client.CoreV1().Pods("audit-agents").Delete(context.Background(), agentPods.Items[0].Name, metav1.DeleteOptions{}))
-	require.Eventually(t, func() bool {
+	// Force an abrupt restart so the acceptance gate exercises lost in-memory
+	// state without spending most of its deadline on the default Pod grace period.
+	grace := int64(0)
+	require.NoError(t, a.client.CoreV1().Pods("audit-agents").Delete(context.Background(), agentPods.Items[0].Name, metav1.DeleteOptions{GracePeriodSeconds: &grace}))
+	require.EventuallyWithT(t, func(collect *assert.CollectT) {
 		var producer models.RuntimeProducerState
-		return db.Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", a.id, agentID, "falco").First(&producer).Error == nil && producer.SessionID != priorProducer.SessionID && !producer.Authoritative
-	}, 45*time.Second, time.Second)
+		if assert.NoError(collect, db.Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", a.id, agentID, "falco").First(&producer).Error) {
+			assert.NotEqual(collect, priorProducer.SessionID, producer.SessionID)
+			assert.False(collect, producer.Authoritative)
+		}
+	}, 90*time.Second, time.Second)
 	// Ownership check uses an actual credential from A against a forged B sync.
 	tokenA := a.tokens["a"][a.nodes[0]]
 	request := httptest.NewRequest("POST", "/api/v1/agent/sync", strings.NewReader(`{"clusterId":"audit-cluster-b","agent":{"agentId":"foreign"},"data":{}}`))

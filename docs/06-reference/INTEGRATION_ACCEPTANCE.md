@@ -34,7 +34,9 @@ A while B remains allowed, and verifies refreshed binding inventory. Real UID
 replacement survives a queued delete. A PostgreSQL audit trigger fails after a
 successful Kubernetes deletion; lease replay through NotFound completes its durable
 ledger. A real Agent Pod restart changes execution session without granting
-runtime authority.
+runtime authority. The restart gate deletes one Agent Pod with zero grace to
+exercise loss of in-memory state, then waits for the replacement Agent's new
+persisted session and verifies that source authority remains false.
 
 Agent sync cadence is 30 seconds, the database pool limit is 25, and both graph
 and security-state caches use `0s` for explicit fresh-read verification. Default
