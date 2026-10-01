@@ -24,9 +24,9 @@ Host requirements for production build: **nerdctl** and **containerd** only. `np
 
 ## Run Locally (optional – only for development)
 
-Use **Node.js 20+** (Vite 6 / React Router 7 declare `^20.19` or `>=22.12`). npm bundles **`npx`** (same version as npm).
+Use **Node.js 24 LTS** for the same version used by CI and the Dashboard builder image. npm bundles **`npx`** (same version as npm).
 
-On Ubuntu, if `apt install nodejs` from distro is too old, use [NodeSource Node 20](https://github.com/nodesource/distributions). If `dpkg` fails with `libnode-dev` file conflicts, remove the distro meta-package first: `apt remove -y libnode-dev` (or `apt install nodejs` from NodeSource after removing conflicting `-dev` packages), then install Node 20.
+On Ubuntu, if `apt install nodejs` from the distro is too old, use the [NodeSource installation instructions](https://github.com/nodesource/distributions) for Node 24. If `dpkg` reports `libnode-dev` file conflicts, remove the conflicting distro development package before installing Node 24.
 
 From `dashboard/`:
 

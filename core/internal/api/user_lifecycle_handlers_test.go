@@ -3,10 +3,12 @@ package api_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -53,7 +55,7 @@ func setupUserLifecycleDB(t *testing.T) *gorm.DB {
 			t.Fatalf("seed user: %v", err)
 		}
 	}
-	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1"}).Error; err != nil {
+	if err := db.Create(&models.Cluster{ID: "c1", Name: "c1", Source: "env", LastSync: time.Now()}).Error; err != nil {
 		t.Fatalf("seed cluster: %v", err)
 	}
 	pod := models.Pod{
@@ -174,6 +176,119 @@ func TestUserLifecycle_AdminRegistersNewUserWithClusterScope(t *testing.T) {
 	}
 	if u.ScopeJSON != `{"clusters":["c1"]}` {
 		t.Fatalf("scope got %q", u.ScopeJSON)
+	}
+}
+
+
+func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+
+	for i, scopeJSON := range []string{
+		`{"clusters":"c1"}`,
+		`{"cluster_ids":{"id":"c1"}}`,
+		`{"clustres":["c1"]}`,
+		`null`,
+	} {
+		body := map[string]string{
+			"username":  fmt.Sprintf("malformedscope%d", i),
+			"email":     fmt.Sprintf("malformedscope%d@test.local", i),
+			"password":  "AnotherPass12!",
+			"role":      "viewer",
+			"scopeJson": scopeJSON,
+		}
+		b, _ := json.Marshal(body)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("malformed scope register %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestUserLifecycle_AdminRejectsUnenforcedScopeDimensionsOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+
+	for i, scopeJSON := range []string{
+		`{"namespaces":["prod"]}`,
+		`{"environments":["prod"]}`,
+		`{"labels":{"tier":"critical"}}`,
+	} {
+		body := map[string]string{
+			"username":  fmt.Sprintf("unsupportedscope%d", i),
+			"email":     fmt.Sprintf("unsupportedscope%d@test.local", i),
+			"password":  "AnotherPass12!",
+			"role":      "viewer",
+			"scopeJson": scopeJSON,
+		}
+		b, _ := json.Marshal(body)
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("unsupported scope register %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestUserLifecycle_AdminRejectsUnknownClusterScopeOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+
+	body := map[string]string{
+		"username":  "unknownscope",
+		"email":     "unknownscope@test.local",
+		"password":  "AnotherPass12!",
+		"role":      "viewer",
+		"scopeJson": `{"clusters":["missing-cluster"]}`,
+	}
+	b, _ := json.Marshal(body)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown scope register: want 400 got %d %s", w.Code, w.Body.String())
+	}
+	var count int64
+	if err := db.Model(&models.User{}).Where("username = ?", "unknownscope").Count(&count).Error; err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("unknown cluster scope created user")
+	}
+}
+
+func TestUserLifecycle_AdminRejectsStaleClusterScopeOnRegister(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	staleAt := time.Now().Add(-8 * 24 * time.Hour)
+	if err := db.Create(&models.Cluster{ID: "stale-cluster", Name: "stale", Source: "env", LastSync: staleAt}).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	body := map[string]string{
+		"username": "stalescope", "email": "stalescope@test.local", "password": "AnotherPass12!",
+		"role": "viewer", "scopeJson": `{"clusters":["stale-cluster"]}`,
+	}
+	b, _ := json.Marshal(body)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("stale scope register: want 400 got %d %s", w.Code, w.Body.String())
 	}
 }
 
@@ -344,6 +459,87 @@ func TestUserLifecycle_AdminPatchesUserClusterScope(t *testing.T) {
 	}
 	if u.ScopeJSON != `{"clusters":["c1"]}` {
 		t.Fatalf("scope after patch: %q", u.ScopeJSON)
+	}
+}
+
+
+func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnPatch(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	opID := userIDByUsername(t, db, "op1")
+
+	for _, scopeJSON := range []string{
+		`{"clusters":"c1"}`,
+		`{"cluster_ids":{"id":"c1"}}`,
+		`{"clustres":["c1"]}`,
+		`null`,
+	} {
+		w := httptest.NewRecorder()
+		payload := map[string]string{"scopeJson": scopeJSON}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(opID), 10), bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("malformed scope patch %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
+		var u models.User
+		if err := db.First(&u, opID).Error; err != nil {
+			t.Fatal(err)
+		}
+		if u.ScopeJSON != "" && u.ScopeJSON != "{}" {
+			t.Fatalf("malformed scope mutated user: %q", u.ScopeJSON)
+		}
+	}
+}
+
+func TestUserLifecycle_AdminRejectsUnenforcedScopeDimensionsOnPatch(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	opID := userIDByUsername(t, db, "op1")
+
+	for _, scopeJSON := range []string{
+		`{"namespaces":["prod"]}`,
+		`{"labels":{"tier":"critical"}}`,
+	} {
+		w := httptest.NewRecorder()
+		payload := map[string]string{"scopeJson": scopeJSON}
+		b, _ := json.Marshal(payload)
+		req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(opID), 10), bytes.NewReader(b))
+		req.Header.Set("Authorization", "Bearer "+tok)
+		req.Header.Set("Content-Type", "application/json")
+		r.ServeHTTP(w, req)
+		if w.Code != http.StatusBadRequest {
+			t.Fatalf("unsupported scope patch %q: want 400 got %d %s", scopeJSON, w.Code, w.Body.String())
+		}
+	}
+}
+
+func TestUserLifecycle_AdminRejectsUnknownClusterScopeOnPatch(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	opID := userIDByUsername(t, db, "op1")
+
+	w := httptest.NewRecorder()
+	payload := map[string]string{"scopeJson": `{"clusters":["missing-cluster"]}`}
+	b, _ := json.Marshal(payload)
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(opID), 10), bytes.NewReader(b))
+	req.Header.Set("Authorization", "Bearer "+tok)
+	req.Header.Set("Content-Type", "application/json")
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("unknown scope patch: want 400 got %d %s", w.Code, w.Body.String())
+	}
+	var u models.User
+	if err := db.First(&u, opID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if u.ScopeJSON != "" && u.ScopeJSON != "{}" {
+		t.Fatalf("unknown cluster scope mutated user: %q", u.ScopeJSON)
 	}
 }
 

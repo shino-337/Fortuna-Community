@@ -3,7 +3,7 @@
 # Build context: repository root
 # Usage: docker build -f agent/Dockerfile -t fortuna-agent:latest .
 # Go deps/build use BuildKit cache mounts when BuildKit is enabled.
-FROM golang:1.24 AS builder
+FROM golang:1.26.8 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
 
@@ -38,7 +38,7 @@ COPY agent/ ./
 
 RUN --mount=type=cache,target=/gomodcache \
     --mount=type=cache,target=/gocache \
-    GOMODCACHE=/gomodcache GOCACHE=/gocache \
+    export GOMODCACHE=/gomodcache GOCACHE=/gocache; \
     go mod verify && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
@@ -55,50 +55,18 @@ RUN test -f /fortuna-agent || (echo "ERROR: /fortuna-agent not found after build
 # Build identifier for verifying image in pod (same pattern as dashboard)
 RUN echo "build=$(date -Iseconds) utc" > /build-version.txt
 
-# Syft acquirer stage (optional build arg cache URL, release fallback)
-FROM debian:bookworm-slim AS syft-acquirer
-ENV DEBIAN_FRONTEND=noninteractive
-WORKDIR /tmp
-
-ARG SYFT_VERSION=v0.98.0
-ARG SYFT_BIN_CACHE_URL=""
-
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends ca-certificates curl tar && \
-    rm -rf /var/lib/apt/lists/*
-
-# 1) Try internal binary cache first (fast path) if configured.
-# 2) Fall back to official GitHub release artifact with retries (transient resets/timeouts are common).
-RUN set -eux; \
-    if [ -n "${SYFT_BIN_CACHE_URL}" ]; then \
-      echo "Trying Syft binary cache: ${SYFT_BIN_CACHE_URL}"; \
-      if curl -fsSL --max-time 30 --retry 3 --retry-delay 3 "${SYFT_BIN_CACHE_URL}/syft-${SYFT_VERSION}-linux-amd64.tar.gz" -o /tmp/syft.tgz; then \
-        tar -xzf /tmp/syft.tgz -C /tmp; \
-      fi; \
-    fi; \
-    if [ ! -f /tmp/syft ]; then \
-      url="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}/syft_${SYFT_VERSION#v}_linux_amd64.tar.gz"; \
-      echo "Downloading Syft from ${url}"; \
-      ok=0; \
-      for i in 1 2 3 4 5 6; do \
-        if curl -fsSL --max-time 180 --retry 5 --retry-delay 8 --retry-all-errors "$url" -o /tmp/syft.tgz; then \
-          ok=1; \
-          break; \
-        fi; \
-        echo "Syft download attempt $i failed, retrying in 20s..."; \
-        rm -f /tmp/syft.tgz; \
-        sleep 20; \
-      done; \
-      test "$ok" = 1; \
-      tar -xzf /tmp/syft.tgz -C /tmp; \
-    fi; \
-    test -f /tmp/syft; \
-    install -m 0755 /tmp/syft /syft-bin; \
-    /syft-bin --version; \
-    rm -rf /tmp/*
+# Build the pinned Syft release with the patched Go toolchain. The upstream
+# v1.52.0 binary was built with Go 1.26.3, which has known stdlib findings.
+FROM golang:1.26.8 AS syft-builder
+ARG SYFT_VERSION=v1.52.0
+RUN --mount=type=cache,target=/gomodcache \
+    --mount=type=cache,target=/gocache \
+    export GOMODCACHE=/gomodcache GOCACHE=/gocache GOBIN=/out CGO_ENABLED=0; \
+    go install -ldflags="-w -s -X main.version=${SYFT_VERSION}" github.com/anchore/syft/cmd/syft@${SYFT_VERSION} && \
+    /out/syft --version
 
 # Final stage - minimal runtime image
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG FORTUNA_BUILD_VERSION=dev
@@ -106,18 +74,19 @@ ARG FORTUNA_BUILD_COMMIT=none
 ARG FORTUNA_BUILD_TIME=unknown
 
 # Install only runtime dependencies
-# Note: docker-cli is needed for SBOM extraction
+# The Agent uses the containerd Go client and Syft directly; Docker CLI and
+# its bundled daemon/runc/containerd packages are not needed in this image.
 # Retry apt-get update in case of network issues (up to 5 retries)
 RUN for i in 1 2 3 4 5; do \
         echo "Attempt $i: Updating Debian packages..." && \
         apt-get update && break || \
         (echo "Attempt $i failed, retrying in 5 seconds..." && sleep 5); \
     done && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     tzdata \
-    docker.io \
     && \
     # Create non-root user (UID/GID 500 to avoid SYS_UID_MAX warning and conflict with existing 100)
     groupadd -r -g 500 fortuna && \
@@ -131,7 +100,7 @@ WORKDIR /app
 # Copy binary and version file from builder
 COPY --from=builder --chown=fortuna:fortuna /fortuna-agent /app/fortuna-agent
 COPY --from=builder /build-version.txt /app/version.txt
-COPY --from=syft-acquirer --chown=root:root /syft-bin /usr/local/bin/syft
+COPY --from=syft-builder --chown=root:root /out/syft /usr/local/bin/syft
 
 # Ensure all files are owned by fortuna user
 RUN chown -R fortuna:fortuna /app && \

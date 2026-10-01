@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
 import { Cluster, User, RiskRuleItem, RiskRuleFull, FortunaUserSession, SecurityActivityItem } from '../types';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { Shield, Plus, Pencil, Trash2, HelpCircle, CheckCircle, XCircle, FileDown, FileUp } from 'lucide-react';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty, PageError } from '../design-system/components/PageStatus';
@@ -25,6 +25,7 @@ import { usePermUser } from '../hooks/usePermUser';
 import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
 import { isPlatformAdmin } from '../lib/roles';
 import { PAGE_TITLES } from '../lib/pageTitles';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
 const CATEGORIES = ['rbac', 'pod-security', 'network-policy', 'secrets', 'runtime-behavior', 'compliance'] as const;
@@ -176,6 +177,7 @@ export const Settings: React.FC = () => {
   const [riskRulesSource, setRiskRulesSource] = useState<string>('');
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [loadingClusters, setLoadingClusters] = useState(false);
+  const [clusterAvailabilityIssue, setClusterAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [usersError, setUsersError] = useState<string | null>(null);
   const [savingUserId, setSavingUserId] = useState<string | null>(null);
   const [loadingRiskRules, setLoadingRiskRules] = useState(false);
@@ -266,8 +268,9 @@ export const Settings: React.FC = () => {
     setLoadingClusters(true);
     try {
       setClusters(await api.getClustersStats());
-    } catch {
-      setClusters([]);
+      setClusterAvailabilityIssue(null);
+    } catch (err) {
+      setClusterAvailabilityIssue(getAvailabilityIssue(err, 'Cluster scope inventory'));
     } finally {
       setLoadingClusters(false);
     }
@@ -398,6 +401,10 @@ export const Settings: React.FC = () => {
   const saveScopeEditor = useCallback(async () => {
     if (!scopeEditorUser) return;
     setScopeError('');
+    if (scopeMode === 'selected' && clusterAvailabilityIssue) {
+      setScopeError('Cluster inventory is unavailable. Retry the inventory before changing a selected-cluster scope.');
+      return;
+    }
     if (scopeMode === 'selected' && selectedScopeClusters.length === 0) {
       setScopeError('Select at least one cluster, or choose All clusters.');
       return;
@@ -415,7 +422,7 @@ export const Settings: React.FC = () => {
     } finally {
       setScopeSaving(false);
     }
-  }, [refreshUsersSilently, scopeEditorUser, scopeMode, selectedScopeClusters, toast]);
+  }, [clusterAvailabilityIssue, refreshUsersSilently, scopeEditorUser, scopeMode, selectedScopeClusters, toast]);
 
   const removeFortunaUser = useCallback(
     async (rowId: string) => {
@@ -447,6 +454,10 @@ export const Settings: React.FC = () => {
       return;
     }
     const newRoleIsAdmin = newUserRole.toLowerCase() === 'admin';
+    if (isFortunaAdmin && !newRoleIsAdmin && newUserScopeMode === 'selected' && clusterAvailabilityIssue) {
+      setAddUserError('Cluster inventory is unavailable. Retry the inventory before assigning a selected-cluster scope.');
+      return;
+    }
     if (isFortunaAdmin && !newRoleIsAdmin && newUserScopeMode === 'selected' && newUserScopeClusters.length === 0) {
       setAddUserError('Select at least one cluster, or choose All clusters.');
       return;
@@ -473,7 +484,7 @@ export const Settings: React.FC = () => {
     } finally {
       setAddUserBusy(false);
     }
-  }, [isFortunaAdmin, newUsername, newEmail, newPassword, newUserRole, newUserScopeMode, newUserScopeClusters, refreshUsersSilently]);
+  }, [clusterAvailabilityIssue, isFortunaAdmin, newUsername, newEmail, newPassword, newUserRole, newUserScopeMode, newUserScopeClusters, refreshUsersSilently]);
 
   useEffect(() => {
     if (activeTab === "Users" && canUsers) {
@@ -1336,7 +1347,12 @@ export const Settings: React.FC = () => {
             <Button type="button" variant="secondary" disabled={addUserBusy} onClick={() => setAddUserOpen(false)}>
               Cancel
             </Button>
-            <Button type="button" isLoading={addUserBusy} onClick={() => void registerFortunaUser()}>
+            <Button
+              type="button"
+              isLoading={addUserBusy}
+              disabled={addUserBusy || (newUserRole.toLowerCase() !== 'admin' && newUserScopeMode === 'selected' && Boolean(clusterAvailabilityIssue))}
+              onClick={() => void registerFortunaUser()}
+            >
               Create user
             </Button>
           </>
@@ -1439,8 +1455,13 @@ export const Settings: React.FC = () => {
                     <div className="rounded border border-border bg-surface/50 p-2 text-caption text-muted">
                       Platform admin is always unrestricted. Cluster scope is applied to viewer, operator, and user admin accounts.
                     </div>
-                  ) : loadingClusters ? (
+                  ) : loadingClusters && clusters.length === 0 ? (
                     <div className="text-caption text-muted">Loading clusters…</div>
+                  ) : clusterAvailabilityIssue && clusters.length === 0 ? (
+                    <AvailabilityNotice
+                      issue={clusterAvailabilityIssue}
+                      onRetry={clusterAvailabilityIssue.retryable ? () => void loadClustersForScope() : undefined}
+                    />
                   ) : clusters.length === 0 ? (
                     <div className="rounded border border-border bg-surface/50 p-2 text-caption text-muted">
                       No active clusters returned by /inventory/clusters/stats.
@@ -1453,7 +1474,7 @@ export const Settings: React.FC = () => {
                             type="checkbox"
                             className="mt-1"
                             checked={newUserScopeClusters.includes(cluster.id)}
-                            disabled={addUserBusy || newUserScopeMode !== 'selected'}
+                            disabled={addUserBusy || newUserScopeMode !== 'selected' || Boolean(clusterAvailabilityIssue)}
                             onChange={(event) => {
                               const checked = event.target.checked;
                               setNewUserScopeClusters((current) =>
@@ -1490,7 +1511,12 @@ export const Settings: React.FC = () => {
             <Button type="button" variant="secondary" disabled={scopeSaving} onClick={() => setScopeEditorUser(null)}>
               Cancel
             </Button>
-            <Button type="button" isLoading={scopeSaving} onClick={() => void saveScopeEditor()}>
+            <Button
+              type="button"
+              isLoading={scopeSaving}
+              disabled={scopeSaving || (scopeMode === 'selected' && Boolean(clusterAvailabilityIssue))}
+              onClick={() => void saveScopeEditor()}
+            >
               Save access
             </Button>
           </>
@@ -1575,50 +1601,66 @@ export const Settings: React.FC = () => {
                 </span>
               ) : null}
             </div>
-            {loadingClusters ? (
+            {loadingClusters && clusters.length === 0 ? (
               <div className="rounded-lg border border-border bg-base/35 p-4 text-body text-muted">Loading clusters…</div>
-            ) : clusters.length === 0 ? (
+            ) : clusterAvailabilityIssue && clusters.length === 0 ? (
+              <AvailabilityNotice
+                issue={clusterAvailabilityIssue}
+                onRetry={clusterAvailabilityIssue.retryable ? () => void loadClustersForScope() : undefined}
+              />
+            ) : (
+              <>
+                {clusterAvailabilityIssue ? (
+                  <AvailabilityNotice
+                    issue={clusterAvailabilityIssue}
+                    onRetry={clusterAvailabilityIssue.retryable ? () => void loadClustersForScope() : undefined}
+                    className="mb-3"
+                  />
+                ) : null}
+                {clusters.length === 0 ? (
               <PageEmpty
                 title="No clusters available"
                 description="No active synced clusters were returned by /inventory/clusters/stats."
                 className="rounded-lg border border-border py-6"
               />
-            ) : (
-              <div className="grid gap-2 sm:grid-cols-2">
-                {clusters.map((cluster) => {
-                  const checked = selectedScopeClusters.includes(cluster.id);
-                  return (
-                    <label
-                      key={cluster.id}
-                      className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-base/35 p-3"
-                    >
-                      <input
-                        type="checkbox"
-                        className="mt-1"
-                        checked={checked}
-                        disabled={scopeSaving || scopeMode !== 'selected'}
-                        onChange={(event) => {
-                          const nextChecked = event.target.checked;
-                          setSelectedScopeClusters((current) =>
-                            nextChecked
-                              ? Array.from(new Set([...current, cluster.id]))
-                              : current.filter((id) => id !== cluster.id),
-                          );
-                        }}
-                      />
-                      <span className="min-w-0">
-                        <span className="block truncate text-body font-semibold text-text" title={clusterDisplayName(cluster)}>
-                          {cluster.name || cluster.id}
-                        </span>
-                        <span className="mt-1 block break-all font-mono text-[11px] text-muted">{cluster.id}</span>
-                        <span className="mt-1 block text-caption text-muted">
-                          {cluster.podCount ?? cluster.pods ?? 0} pods · {cluster.connectionStatus || cluster.status || 'unknown'}
-                        </span>
-                      </span>
-                    </label>
-                  );
-                })}
-              </div>
+                ) : (
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {clusters.map((cluster) => {
+                      const checked = selectedScopeClusters.includes(cluster.id);
+                      return (
+                        <label
+                          key={cluster.id}
+                          className="flex cursor-pointer items-start gap-3 rounded-lg border border-border bg-base/35 p-3"
+                        >
+                          <input
+                            type="checkbox"
+                            className="mt-1"
+                            checked={checked}
+                            disabled={scopeSaving || scopeMode !== 'selected' || Boolean(clusterAvailabilityIssue)}
+                            onChange={(event) => {
+                              const nextChecked = event.target.checked;
+                              setSelectedScopeClusters((current) =>
+                                nextChecked
+                                  ? Array.from(new Set([...current, cluster.id]))
+                                  : current.filter((id) => id !== cluster.id),
+                              );
+                            }}
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-body font-semibold text-text" title={clusterDisplayName(cluster)}>
+                              {cluster.name || cluster.id}
+                            </span>
+                            <span className="mt-1 block break-all font-mono text-[11px] text-muted">{cluster.id}</span>
+                            <span className="mt-1 block text-caption text-muted">
+                              {cluster.podCount ?? cluster.pods ?? 0} pods · {cluster.connectionStatus || cluster.status || 'unknown'}
+                            </span>
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
         </div>

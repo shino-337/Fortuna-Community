@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortuna-core
+  namespace: fortuna
+spec:
+  template:
+    spec:
+      volumes:
+        - name: agent-client-ca
+          secret:
+            secretName: fortuna-agent-client-ca
+            items:
+              - key: ca.crt
+                path: ca.crt
+      containers:
+        - name: core
+          env:
+            # gRPC client trust is independent of Core's server certificate CA.
+            - name: TLS_CA_CERT_PATH
+              value: /etc/fortuna/agent-client-ca/ca.crt
+          volumeMounts:
+            - name: agent-client-ca
+              mountPath: /etc/fortuna/agent-client-ca
+              readOnly: true

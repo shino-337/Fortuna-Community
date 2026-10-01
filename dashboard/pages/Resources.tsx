@@ -380,7 +380,7 @@ export const Resources: React.FC = () => {
       setSelectedServiceAccountLoading(false);
       setSelectedRbacResourceDetail(null);
       setSelectedRbacResourceLoading(false);
-      api.getAttackPathsForPodStrict(selectedResource.pod.uid).then((paths) => {
+      api.getAttackPathsForPodStrict(selectedResource.pod.uid, selectedResource.pod.clusterId).then((paths) => {
         if (!cancelled) setSelectedAttackPaths(paths);
       }).catch((err) => {
         if (!cancelled) {
@@ -405,8 +405,8 @@ export const Resources: React.FC = () => {
       setSelectedRbacResourceDetail(null);
       setSelectedRbacResourceLoading(false);
       Promise.all([
-        api.getServiceAccountByUid(selectedResource.resource.id),
-        api.getServiceAccountPermissions(selectedResource.resource.id),
+        api.getServiceAccountByUid(selectedResource.resource.id, selectedResource.resource.clusterId),
+        api.getServiceAccountPermissions(selectedResource.resource.id, selectedResource.resource.clusterId),
       ]).then(async ([detail, permissions]) => {
         if (cancelled) return;
         setSelectedServiceAccountDetail(detail);
@@ -576,7 +576,8 @@ export const Resources: React.FC = () => {
   const handleResourceView = useCallback(
     (resource: K8sResource) => {
       if (resource.kind === 'ServiceAccount') {
-        navigate(`/identities/uid/${encodeURIComponent(resource.id)}`);
+        const clusterQuery = resource.clusterId ? `?clusterId=${encodeURIComponent(resource.clusterId)}` : '';
+        navigate(`/identities/uid/${encodeURIComponent(resource.id)}${clusterQuery}`);
       } else if (
         (resource.kind === 'Role' ||
           resource.kind === 'RoleBinding' ||
@@ -592,7 +593,8 @@ export const Resources: React.FC = () => {
 
   const openPodDetail = useCallback(
     (pod: PodWithRisk) => {
-      navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`);
+      const clusterQuery = pod.clusterId ? `?clusterId=${encodeURIComponent(pod.clusterId)}` : '';
+      navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}${clusterQuery}`);
     },
     [navigate],
   );

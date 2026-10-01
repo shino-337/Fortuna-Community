@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -88,6 +89,12 @@ func TestServiceAccountInventoryScope(t *testing.T) {
 			t.Fatalf("%+v: %d %s", tc, w.Code, w.Body)
 		}
 	}
+	if w := request("GET", "/inventory/serviceaccounts/sa-a?clusterId=a", "a", ""); w.Code != 200 || !strings.Contains(w.Body.String(), `"clusterId":"a"`) {
+		t.Fatalf("qualified serviceaccount detail: %d %s", w.Code, w.Body)
+	}
+	if w := request("GET", "/inventory/serviceaccounts/sa-a?clusterId=b", "admin", ""); w.Code != 404 {
+		t.Fatalf("mismatched qualified serviceaccount detail: %d %s", w.Code, w.Body)
+	}
 	for _, path := range []string{"/inventory/serviceaccounts/sa-b", "/inventory/serviceaccounts/sa-b/permissions"} {
 		w := request("GET", path, "a", "")
 		if w.Code != 403 {
@@ -110,6 +117,34 @@ func TestServiceAccountInventoryScope(t *testing.T) {
 	}
 	if w := request("GET", "/inventory/serviceaccounts/sa-a/permissions", "a", ""); w.Code != 200 {
 		t.Fatalf("own permissions: %d %s", w.Code, w.Body)
+	}
+	if w := request("GET", "/inventory/serviceaccounts/sa-a/permissions?clusterId=a", "a", ""); w.Code != 200 {
+		t.Fatalf("qualified own permissions: %d %s", w.Code, w.Body)
+	}
+
+	// Duplicate Kubernetes UIDs across clusters must never be resolved with First(uid).
+	db, duplicateRequest := serviceAccountScopeFixture(t)
+	if err := db.Create(&models.ServiceAccount{UID: "sa-shared", ClusterID: "a", Namespace: "shared", Name: "shared-a", Labels: "{}"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(&models.ServiceAccount{UID: "sa-shared", ClusterID: "b", Namespace: "shared", Name: "shared-b", Labels: "{}"}).Error; err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{
+		"/inventory/serviceaccounts/sa-shared",
+		"/inventory/serviceaccounts/sa-shared/permissions",
+	} {
+		if w := duplicateRequest("GET", path, "admin", ""); w.Code != http.StatusConflict || !strings.Contains(w.Body.String(), "cluster_identity_required") {
+			t.Fatalf("ambiguous %s: %d %s", path, w.Code, w.Body)
+		}
+	}
+	for _, path := range []string{
+		"/inventory/serviceaccounts/sa-shared?clusterId=a",
+		"/inventory/serviceaccounts/sa-shared/permissions?clusterId=a",
+	} {
+		if w := duplicateRequest("GET", path, "admin", ""); w.Code != http.StatusOK {
+			t.Fatalf("qualified duplicate %s: %d %s", path, w.Code, w.Body)
+		}
 	}
 }
 

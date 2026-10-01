@@ -23,15 +23,37 @@ func scopeRuntimeQuery(db *gorm.DB, c *gin.Context, query *gorm.DB) (*gorm.DB, s
 
 	podClusterID := ""
 	if uid := strings.TrimSpace(c.Query("podUid")); uid != "" {
-		resolved, err := resourceUIDClusterID(db, uid)
-		if err != nil {
-			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
-				"error": "cluster-qualified pod identity required",
-				"code":  "cluster_qualified_identity_required",
-			})
-			return query, "", false
+		resolved := ""
+		if scope.clusterID != "" {
+			// An explicit authorized cluster disambiguates duplicate Pod UIDs.
+			// Verify the exact canonical pair rather than resolving UID globally.
+			var count int64
+			if err := db.Unscoped().Model(&models.Pod{}).
+				Where("cluster_id = ? AND uid = ?", scope.clusterID, uid).
+				Count(&count).Error; err != nil {
+				c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{
+					"status": "unavailable", "code": "runtime_pod_identity_unavailable",
+					"error": "Pod ownership could not be verified", "retryable": true,
+				})
+				return query, "", false
+			}
+			if count == 0 {
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "pod not found in requested cluster"})
+				return query, "", false
+			}
+			resolved = scope.clusterID
+		} else {
+			var err error
+			resolved, err = resourceUIDClusterID(db, uid)
+			if err != nil {
+				c.AbortWithStatusJSON(http.StatusConflict, gin.H{
+					"error": "cluster-qualified pod identity required",
+					"code":  "cluster_qualified_identity_required",
+				})
+				return query, "", false
+			}
 		}
-		if resolved == "" || !middleware.ClusterAllowed(c, resolved) || (scope.clusterID != "" && scope.clusterID != resolved) {
+		if resolved == "" || !middleware.ClusterAllowed(c, resolved) {
 			middleware.AbortClusterScopeDenied(db, c, resolved)
 			return query, "", false
 		}

@@ -10,6 +10,7 @@ import type { SemanticVisibilityState } from '../lib/visibilityEngine';
 
 interface AttackStepsTimelineProps {
   podUid: string;
+  clusterId?: string;
 }
 
 type TimelineIssue = {
@@ -42,7 +43,7 @@ const getConfidenceBadge = (confidence: number) => {
   return 'bg-info-background text-info-foreground border-info-border';
 };
 
-export const AttackStepsTimeline: React.FC<AttackStepsTimelineProps> = ({ podUid }) => {
+export const AttackStepsTimeline: React.FC<AttackStepsTimelineProps> = ({ podUid, clusterId }) => {
   const [steps, setSteps] = useState<PodAttackStep[]>([]);
   const [loading, setLoading] = useState(true);
   const [issue, setIssue] = useState<TimelineIssue | null>(null);
@@ -105,7 +106,7 @@ export const AttackStepsTimeline: React.FC<AttackStepsTimelineProps> = ({ podUid
       try {
         setLoading(true);
         setIssue(null);
-        const data = await api.getPodAttackStepsStrict(podUid);
+        const data = await api.getPodAttackStepsStrict(podUid, clusterId);
         const sorted = [...data].sort((a, b) => {
           const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
           const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
@@ -126,7 +127,7 @@ export const AttackStepsTimeline: React.FC<AttackStepsTimelineProps> = ({ podUid
     return () => {
       cancelled = true;
     };
-  }, [podUid, canReadAttackSteps]);
+  }, [podUid, clusterId, canReadAttackSteps]);
 
   if (!canReadAttackSteps) {
     return (

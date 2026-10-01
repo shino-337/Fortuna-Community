@@ -21,5 +21,5 @@ func registerGraphRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	g.GET("/attack-paths/objectives", p(authorization.PermissionGraphReadPaths), GetAttackPathObjectives(db))
 	g.GET("/attack-paths/bundle", p(authorization.PermissionGraphReadPaths), GetAttackPathsBundle(db))
 	g.GET("/attack-paths/graph", p(authorization.PermissionGraphReadPaths), AttackPathsGraph(db))
-	g.GET("/attack-paths/:uid", p(authorization.PermissionGraphReadPaths), GetAttackPaths(db))
+	g.GET("/attack-paths/:uid", p(authorization.PermissionGraphReadPaths), middleware.RequirePodUIDClusterScope(db, "uid"), GetAttackPaths(db))
 }

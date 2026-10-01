@@ -21,43 +21,55 @@ type ScopeDocument struct {
 	LegacyCluster     []string          `json:"cluster_ids"`
 }
 
-// ParseScopeDocument parses user scope JSON. Malformed JSON returns restrictive empty document with RestrictsClusters true.
-func ParseScopeDocument(scopeJSON string) ScopeDocument {
+// ParseScopeDocumentStrict parses and validates the persisted scope schema.
+// Scope is authorization input: malformed types or unknown fields must never be
+// silently ignored because that could turn an intended restriction into an
+// unrestricted document.
+func ParseScopeDocumentStrict(scopeJSON string) (ScopeDocument, error) {
 	s := strings.TrimSpace(scopeJSON)
 	if s == "" || s == "{}" {
-		return ScopeDocument{}
+		return ScopeDocument{}, nil
 	}
+
 	var raw map[string]json.RawMessage
 	if err := json.Unmarshal([]byte(s), &raw); err != nil {
-		return ScopeDocument{Clusters: []string{"__invalid_scope__"}}
+		return ScopeDocument{}, fmt.Errorf("invalid scope JSON: %w", err)
 	}
+	if raw == nil {
+		return ScopeDocument{}, errors.New("scope JSON must be an object")
+	}
+
+	allowed := map[string]struct{}{
+		"clusters": {}, "cluster_ids": {}, "namespaces": {}, "environments": {},
+		"tenants": {}, "business_services": {}, "crown_jewels": {},
+		"regulatory_domains": {}, "labels": {},
+	}
+	for key, value := range raw {
+		if _, ok := allowed[key]; !ok {
+			return ScopeDocument{}, fmt.Errorf("unsupported scope field %q", key)
+		}
+		if strings.TrimSpace(string(value)) == "null" {
+			return ScopeDocument{}, fmt.Errorf("scope field %q cannot be null", key)
+		}
+	}
+
 	var d ScopeDocument
-	if b, ok := raw["clusters"]; ok {
-		_ = json.Unmarshal(b, &d.Clusters)
+	if err := json.Unmarshal([]byte(s), &d); err != nil {
+		return ScopeDocument{}, fmt.Errorf("invalid scope field type: %w", err)
 	}
-	if b, ok := raw["cluster_ids"]; ok {
-		_ = json.Unmarshal(b, &d.LegacyCluster)
+	if err := d.Validate(); err != nil {
+		return ScopeDocument{}, err
 	}
-	if b, ok := raw["namespaces"]; ok {
-		_ = json.Unmarshal(b, &d.Namespaces)
-	}
-	if b, ok := raw["environments"]; ok {
-		_ = json.Unmarshal(b, &d.Environments)
-	}
-	if b, ok := raw["tenants"]; ok {
-		_ = json.Unmarshal(b, &d.Tenants)
-	}
-	if b, ok := raw["labels"]; ok {
-		_ = json.Unmarshal(b, &d.Labels)
-	}
-	if b, ok := raw["business_services"]; ok {
-		_ = json.Unmarshal(b, &d.BusinessServices)
-	}
-	if b, ok := raw["crown_jewels"]; ok {
-		_ = json.Unmarshal(b, &d.CrownJewels)
-	}
-	if b, ok := raw["regulatory_domains"]; ok {
-		_ = json.Unmarshal(b, &d.RegulatoryDomains)
+	return d, nil
+}
+
+// ParseScopeDocument is the read-path fail-closed wrapper. Legacy malformed rows
+// remain denied while write paths can use ParseScopeDocumentStrict to return a
+// validation error to the caller.
+func ParseScopeDocument(scopeJSON string) ScopeDocument {
+	d, err := ParseScopeDocumentStrict(scopeJSON)
+	if err != nil {
+		return ScopeDocument{Clusters: []string{"__invalid_scope__"}}
 	}
 	return d
 }
@@ -90,26 +102,42 @@ func (d ScopeDocument) clusterIDs() []string {
 	return out
 }
 
-// ClusterIDs returns the normalized effective cluster allow-list.
+// HasUnenforcedRestrictions reports whether the document asks for an ABAC
+// dimension that is stored/reserved but not yet enforced by every security-data
+// read path. Such a document must fail closed for non-admin authorization.
+func (d ScopeDocument) HasUnenforcedRestrictions() bool {
+	return len(d.Namespaces) > 0 ||
+		len(d.Environments) > 0 ||
+		len(d.Tenants) > 0 ||
+		len(d.BusinessServices) > 0 ||
+		len(d.CrownJewels) > 0 ||
+		len(d.RegulatoryDomains) > 0 ||
+		len(d.Labels) > 0
+}
+
+// ClusterIDs returns the effective cluster allow-list. An unsupported persisted
+// restriction becomes a deny-all marker rather than silently broadening access.
 func (d ScopeDocument) ClusterIDs() []string {
+	if d.HasUnenforcedRestrictions() {
+		return []string{"__invalid_scope__"}
+	}
 	return d.clusterIDs()
 }
 
-// RestrictsClusters is true when the user must be checked against an explicit cluster allow-list.
+// RestrictsClusters is true when the user must be checked against an explicit
+// allow-list or when an unenforced persisted restriction must fail closed.
 func (d ScopeDocument) RestrictsClusters() bool {
-	ids := d.clusterIDs()
-	if len(ids) == 0 {
-		return false
-	}
-	// Malformed scope marker: deny all cluster-scoped routes.
-	if len(ids) == 1 && ids[0] == "__invalid_scope__" {
+	if d.HasUnenforcedRestrictions() {
 		return true
 	}
-	return true
+	return len(d.clusterIDs()) > 0
 }
 
 // ClusterAllowed reports whether clusterKey is in scope (exact string match).
 func (d ScopeDocument) ClusterAllowed(clusterKey string) bool {
+	if d.HasUnenforcedRestrictions() {
+		return false
+	}
 	ids := d.clusterIDs()
 	if len(ids) == 1 && ids[0] == "__invalid_scope__" {
 		return false
@@ -122,23 +150,58 @@ func (d ScopeDocument) ClusterAllowed(clusterKey string) bool {
 	return false
 }
 
-// ClusterAllowListSize returns how many cluster identifiers are in the effective allow-list (0 = unrestricted).
+// ClusterAllowListSize returns how many identifiers are in the effective allow-list.
 func (d ScopeDocument) ClusterAllowListSize() int {
-	return len(d.clusterIDs())
+	return len(d.ClusterIDs())
 }
 
 // Validate checks structural limits for governance (future ABAC expansion).
 func (d ScopeDocument) Validate() error {
+	validateList := func(name string, values []string, maxItems int) error {
+		if len(values) > maxItems {
+			return fmt.Errorf("%s: too many values (%d > %d)", name, len(values), maxItems)
+		}
+		for _, value := range values {
+			trimmed := strings.TrimSpace(value)
+			if trimmed == "" {
+				return fmt.Errorf("%s: empty values are not allowed", name)
+			}
+			if len(trimmed) > 256 {
+				return fmt.Errorf("%s: value too long", name)
+			}
+		}
+		return nil
+	}
+
+	for _, spec := range []struct {
+		name string
+		values []string
+		max int
+	}{
+		{"clusters", d.Clusters, 512},
+		{"cluster_ids", d.LegacyCluster, 512},
+		{"namespaces", d.Namespaces, 512},
+		{"environments", d.Environments, 128},
+		{"tenants", d.Tenants, 128},
+		{"business_services", d.BusinessServices, 256},
+		{"crown_jewels", d.CrownJewels, 256},
+		{"regulatory_domains", d.RegulatoryDomains, 256},
+	} {
+		if err := validateList(spec.name, spec.values, spec.max); err != nil {
+			return err
+		}
+	}
+
 	if len(d.Labels) > 64 {
 		return fmt.Errorf("labels: too many keys (%d > 64)", len(d.Labels))
 	}
 	for k, v := range d.Labels {
+		if strings.TrimSpace(k) == "" {
+			return errors.New("labels: empty key is not allowed")
+		}
 		if len(k) > 128 || len(v) > 256 {
 			return errors.New("labels: key or value too long")
 		}
-	}
-	if len(d.Namespaces) > 512 || len(d.Environments) > 128 || len(d.Tenants) > 128 {
-		return errors.New("scope arrays exceed maximum supported size")
 	}
 	return nil
 }

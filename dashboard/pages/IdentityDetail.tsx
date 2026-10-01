@@ -8,6 +8,7 @@ import { ArrowLeft, UserCog, Key, Link2, Boxes } from 'lucide-react';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import type { K8sClusterRoleBindingPermission, K8sEffectiveRule, K8sRoleBindingPermission, PodWithRisk } from '../types';
 import { PageLoading } from '../design-system/components/PageStatus';
+import { podDetailPath } from '../lib/podRoute';
 
 function parseStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((x) => String(x)).filter(Boolean);
@@ -47,6 +48,7 @@ export const IdentityDetail: React.FC = () => {
   const canonicalUid = uid ?? uidFromPath;
   const legacyId = id ?? idFromPath;
   const idOrUid = canonicalUid ?? legacyId;
+  const requestedClusterId = new URLSearchParams(location.search).get('clusterId')?.trim() || '';
 
   const fetchData = useCallback(async () => {
     if (!idOrUid) return;
@@ -55,10 +57,10 @@ export const IdentityDetail: React.FC = () => {
     setError(null);
     try {
       let saData = canonicalUid
-        ? await api.getServiceAccountByUid(idOrUid)
-        : await api.getServiceAccountByUid(idOrUid);
+        ? await api.getServiceAccountByUid(idOrUid, requestedClusterId || undefined)
+        : await api.getServiceAccountByUid(idOrUid, requestedClusterId || undefined);
       if (!saData && !canonicalUid && /^[0-9]+$/.test(idOrUid)) {
-        const list = await api.getServiceAccounts({ pageSize: 1000 });
+        const list = await api.getServiceAccounts({ clusterId: requestedClusterId || undefined, pageSize: 1000 });
         const legacyMatch = list.serviceAccounts.find((sa) => String(sa.id) === idOrUid);
         saData = legacyMatch ? legacyMatch as unknown as Record<string, unknown> : null;
       }
@@ -66,8 +68,9 @@ export const IdentityDetail: React.FC = () => {
       setSa(saData ?? null);
       if (saData) {
         const uidForPermissions = (saData as { uid?: string; id?: string }).uid ?? (saData as { id?: string }).id;
+        const resolvedClusterId = String((saData as { clusterId?: unknown }).clusterId ?? requestedClusterId).trim();
         if (uidForPermissions != null) {
-          const permData = await api.getServiceAccountPermissions(String(uidForPermissions));
+          const permData = await api.getServiceAccountPermissions(String(uidForPermissions), resolvedClusterId || undefined);
           if (sequence !== requestSequence.current) return;
           const rb = permData.roleBindings ?? [];
           const crb = permData.clusterRoleBindings ?? [];
@@ -107,7 +110,7 @@ export const IdentityDetail: React.FC = () => {
     } finally {
       if (sequence === requestSequence.current) setLoading(false);
     }
-  }, [canonicalUid, idOrUid]);
+  }, [canonicalUid, idOrUid, requestedClusterId]);
 
   useEffect(() => {
     void fetchData();
@@ -198,7 +201,7 @@ export const IdentityDetail: React.FC = () => {
                 <button
                   key={pod.uid}
                   type="button"
-                  onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}
+                  onClick={() => navigate(podDetailPath(pod.uid, pod.clusterId))}
                   className="block w-full rounded-lg border border-border bg-base/40 px-3 py-2 text-left hover:border-brand/40"
                 >
                   <span className="block font-mono text-caption text-text">{pod.namespace}/{pod.name}</span>

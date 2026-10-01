@@ -24,6 +24,7 @@ NAMESPACE="${NAMESPACE:-fortuna}"
 USE_IP_FALLBACK="${USE_IP_FALLBACK:-true}"
 AUTO_LOAD_CVE_ON_DEPLOY="${AUTO_LOAD_CVE_ON_DEPLOY:-true}"
 PUSH_DASHBOARD="${PUSH_DASHBOARD:-false}"
+APPLY_SCOPED_AGENT_CREDENTIALS="${APPLY_SCOPED_AGENT_CREDENTIALS:-auto}"
 
 deploy_image_ref() {
     local file="$1"
@@ -69,6 +70,35 @@ if kubectl get namespace "$NAMESPACE" >/dev/null 2>&1; then
 else
     kubectl create namespace "$NAMESPACE"
     echo -e "${GREEN}✅${NC} Namespace $NAMESPACE created"
+fi
+
+# A fresh Core Deployment loses kubectl-applied credential overlays. Detect an
+# already provisioned scoped setup before deleting the old Deployment, and fail
+# closed if only part of its secret set is present.
+SCOPED_CREDENTIALS_READY=false
+if [ "$APPLY_SCOPED_AGENT_CREDENTIALS" != "false" ]; then
+    if [ "$APPLY_SCOPED_AGENT_CREDENTIALS" = "true" ] || \
+       kubectl get secret fortuna-agent-credential-registry -n "$NAMESPACE" >/dev/null 2>&1 || \
+       kubectl get secret fortuna-agent-mtls-registry -n "$NAMESPACE" >/dev/null 2>&1 || \
+       kubectl get secret fortuna-agent-client-ca -n "$NAMESPACE" >/dev/null 2>&1; then
+        for secret in fortuna-agent-credential-registry fortuna-agent-mtls-registry fortuna-agent-client-ca; do
+            if ! kubectl get secret "$secret" -n "$NAMESPACE" >/dev/null 2>&1; then
+                echo -e "${RED}❌${NC} Scoped Agent credentials are incomplete: missing secret $secret in $NAMESPACE"
+                exit 1
+            fi
+        done
+        SCOPED_CREDENTIALS_READY=true
+        echo -e "${GREEN}✅${NC} Scoped Agent registry and client-CA secrets present; deployment overlays will be reapplied"
+        if [ "$USE_IP_FALLBACK" = "true" ]; then
+            # Check before Step 3 deletes Core: scoped mTLS cannot use the
+            # legacy IP fallback, which disables TLS on the Agent.
+            if ! kubectl run "scoped-dns-check-$(date +%s)" --image=busybox:1.36 --rm -i --restart=Never \
+                --namespace="$NAMESPACE" -- nslookup "postgres.$NAMESPACE.svc.cluster.local" >/dev/null 2>&1; then
+                echo -e "${RED}❌${NC} Scoped Agent mTLS requires working cluster DNS; refusing deployment before Core replacement"
+                exit 1
+            fi
+        fi
+    fi
 fi
 
 # Step 3: Comprehensive cleanup
@@ -145,7 +175,7 @@ echo -e "${BLUE}Step 4: Deploying/updating infrastructure...${NC}"
 
 kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/postgresql-with-age.yaml"
 echo "Waiting for PostgreSQL (max 300s)..."
-if kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app=postgres --timeout=300s; then
+if kubectl rollout status deployment/postgres -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} PostgreSQL pod is Ready"
 else
     echo -e "${RED}❌${NC} PostgreSQL did not become Ready within 300s."
@@ -179,7 +209,7 @@ echo -e "${GREEN}✅${NC} PostgreSQL applied"
 
 kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/nats.yaml"
 echo "Waiting for NATS (max 300s)..."
-if kubectl wait --for=condition=ready pod -n "$NAMESPACE" -l app=nats --timeout=300s; then
+if kubectl rollout status statefulset/nats -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} NATS pod is Ready"
 else
     echo -e "${RED}❌${NC} NATS did not become Ready within 300s."
@@ -222,7 +252,9 @@ if deploy_uses_registry_images; then
 elif command -v ctr >/dev/null 2>&1 && { [ -S /run/containerd/containerd.sock ] || [ -S /var/run/containerd/containerd.sock ]; }; then
     echo "Containerd detected, checking images..."
     # Accept both refs: fortuna-core:* and docker.io/library/fortuna-core:*
-    if ctr -n k8s.io images ls 2>/dev/null | grep -qE '(docker.io/library/)?fortuna-core:'; then
+    # Drain ctr's full output: grep -q exits early and pipefail treats ctr's
+    # resulting SIGPIPE (141) as "image missing", triggering a redundant build.
+    if ctr -n k8s.io images ls 2>/dev/null | grep -E '(docker.io/library/)?fortuna-core:' >/dev/null; then
         echo -e "${GREEN}✅${NC} Fortuna images found in containerd"
     else
         echo -e "${YELLOW}⚠️${NC}  Fortuna images not found in containerd"
@@ -279,6 +311,10 @@ if [ "$USE_IP_FALLBACK" = "true" ]; then
     else
         echo -e "${YELLOW}⚠️${NC}  DNS resolution failed, using IP fallback"
         USE_DNS=false
+        if [ "$SCOPED_CREDENTIALS_READY" = true ]; then
+            echo -e "${RED}❌${NC} Scoped Agent mTLS requires DNS validation; refusing the TLS-disabled IP fallback"
+            exit 1
+        fi
         echo -e "${YELLOW}⚠️${NC}  IP fallback: Step 8 sets DATABASE_URL to Postgres ClusterIP; Step 9 sets CORE_GRPC_ENDPOINT and TLS_ENABLED=false on the Agent (gRPC over IP cannot validate cert SANs)."
     fi
 fi
@@ -451,6 +487,15 @@ fi
 echo ""
 echo -e "${BLUE}Step 9: Deploying Agent...${NC}"
 kubectl apply -f "${PROJECT_ROOT}/deploy/fortuna-agent-daemonset.yaml"
+
+if [ "$SCOPED_CREDENTIALS_READY" = true ]; then
+    echo "Reapplying scoped Agent HTTP and mTLS overlays..."
+    kubectl patch deployment fortuna-core -n "$NAMESPACE" --type strategic --patch-file "${PROJECT_ROOT}/deploy/scoped-agent-credentials/core-registry-patch.yaml"
+    kubectl patch deployment fortuna-core -n "$NAMESPACE" --type strategic --patch-file "${PROJECT_ROOT}/deploy/scoped-agent-credentials/core-mtls-registry-patch.yaml"
+    kubectl patch deployment fortuna-core -n "$NAMESPACE" --type strategic --patch-file "${PROJECT_ROOT}/deploy/scoped-agent-credentials/core-client-ca-patch.yaml"
+    kubectl patch daemonset fortuna-agent -n "$NAMESPACE" --type strategic --patch-file "${PROJECT_ROOT}/deploy/scoped-agent-credentials/agent-token-file-patch.yaml"
+    kubectl patch daemonset fortuna-agent -n "$NAMESPACE" --type strategic --patch-file "${PROJECT_ROOT}/deploy/scoped-agent-credentials/agent-mtls-patch.yaml"
+fi
 
 # Configure CORE_GRPC_ENDPOINT
 if [ "$USE_DNS" = "false" ] && [ "$USE_IP_FALLBACK" = "true" ]; then

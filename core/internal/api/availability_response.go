@@ -2,6 +2,7 @@ package api
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -30,6 +31,13 @@ func respondSchemaUnavailable(c *gin.Context, code, message string) {
 func requireAvailabilityTables(c *gin.Context, db *gorm.DB, code, message string, tables ...string) bool {
 	for _, table := range tables {
 		if !db.Migrator().HasTable(table) {
+			// HasTable only returns a bool and also reports false when its catalog
+			// query cannot reach the database. Confirm connectivity before calling
+			// the absence a non-retryable migration problem.
+			if err := db.Exec("SELECT 1").Error; err != nil {
+				respondDataUnavailable(c, strings.TrimSuffix(code, "_schema_unavailable")+"_query_failed", message)
+				return false
+			}
 			respondSchemaUnavailable(c, code, message)
 			return false
 		}

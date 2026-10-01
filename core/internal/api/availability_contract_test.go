@@ -47,6 +47,23 @@ func decodeAvailabilityBody(t *testing.T, w *httptest.ResponseRecorder) map[stri
 	return body
 }
 
+func TestClusterNodeMissingReturnsNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/inventory/clusters/cluster-a/nodes/missing-node?pods=true")
+	c.Params = gin.Params{
+		{Key: "id", Value: "cluster-a"},
+		{Key: "nodeName", Value: "missing-node"},
+	}
+	GetClusterNode(db)(c)
+
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "Node not found", body["error"])
+}
+
 func TestAgentStatusMissingSchemaIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t)
@@ -65,11 +82,11 @@ func TestAgentStatusUsesPersistedIdentityVersionAndHeartbeat(t *testing.T) {
 	db := availabilityTestDB(t, &models.Cluster{}, &models.Agent{})
 	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
 	require.NoError(t, db.Create(&models.Agent{
-		ClusterID: "cluster-a",
-		AgentID:   "agent-a",
-		NodeName:  "node-a",
-		Version:   "v9.9.9",
-		Status:    "ready",
+		ClusterID:  "cluster-a",
+		AgentID:    "agent-a",
+		NodeName:   "node-a",
+		Version:    "v9.9.9",
+		Status:     "ready",
 		LastSeenAt: nil,
 	}).Error)
 
@@ -104,7 +121,6 @@ func TestSystemMetricsBackingQueryFailureIsUnavailable(t *testing.T) {
 	body := decodeAvailabilityBody(t, w)
 	require.Equal(t, "system_metrics_pods_unavailable", body["code"])
 }
-
 
 func TestSystemMetricsCountsDuplicatePodUIDAcrossClustersSeparately(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -142,7 +158,6 @@ func TestDashboardIntegrityClusterQualifiesPodAndSBOMCoverage(t *testing.T) {
 	require.EqualValues(t, 2, body.CrossChecks.PodsCount)
 	require.EqualValues(t, 1, body.CrossChecks.PodsMissingSbom)
 }
-
 
 func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -182,6 +197,103 @@ func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
 	require.EqualValues(t, 2, body.CriticalRisks)
 }
 
+func TestDashboardStatsSelectedClusterRespectsActiveInventory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{})
+	now := time.Now().UTC()
+	for _, item := range []struct {
+		id, source string
+		lastSync   time.Time
+	}{
+		{"active", "env", now},
+		{"stale", "env", now.Add(-ActiveClusterCutoff - time.Hour)},
+		{"legacy", "", now},
+	} {
+		require.NoError(t, db.Create(&models.Cluster{ID: item.id, Name: item.id, Source: item.source, LastSync: item.lastSync}).Error)
+		require.NoError(t, db.Create(&models.Pod{ClusterID: item.id, UID: "pod-" + item.id, Name: "pod", Namespace: "ns"}).Error)
+		require.NoError(t, db.Create(&models.Insight{
+			ClusterID: item.id, ResourceType: "Pod", ResourceUID: "pod-" + item.id,
+			ResourceName: "pod", InsightType: "vulnerability", Severity: "critical",
+			Title: item.id, Description: item.id, Status: "active", DetectedAt: now,
+		}).Error)
+	}
+	for _, item := range []struct {
+		id   string
+		want int64
+	}{{"active", 1}, {"stale", 0}, {"legacy", 0}} {
+		t.Run(item.id, func(t *testing.T) {
+			c, w := availabilityContext(http.MethodGet, "/api/v1/dashboard/stats?clusterId="+item.id)
+			c.Set("user", &models.User{Role: models.RoleAdmin})
+			GetDashboardStats(db)(c)
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			var body DashboardStatsDTO
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Equal(t, item.want, body.TotalClusters)
+			require.Equal(t, item.want, body.RunningPods)
+			require.Equal(t, item.want, body.TotalRisks)
+		})
+	}
+}
+
+func TestClusterInventoryUnavailableIsDistinctFromEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t)
+	c, w := availabilityContext(http.MethodGet, "/api/v1/inventory/clusters")
+	GetClusters(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "cluster_inventory_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
+
+	require.NoError(t, db.Exec("CREATE TABLE clusters (id TEXT PRIMARY KEY)").Error)
+	c, w = availabilityContext(http.MethodGet, "/api/v1/inventory/clusters")
+	GetClusters(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body = decodeAvailabilityBody(t, w)
+	require.Equal(t, "cluster_inventory_query_failed", body["code"])
+	require.Equal(t, true, body["retryable"])
+}
+
+func TestClusterInventoryDatabaseFailureIsRetryable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{})
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/inventory/clusters")
+	GetClusters(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "cluster_inventory_query_failed", body["code"])
+	require.Equal(t, true, body["retryable"])
+}
+
+func TestResourceInventoryUnavailableIsDistinctFromEmpty(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t)
+	c, w := availabilityContext(http.MethodGet, "/api/v1/resources?kind=Pod")
+	GetResources(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "resource_inventory_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
+
+	require.NoError(t, db.Exec("CREATE TABLE pods (id INTEGER PRIMARY KEY)").Error)
+	c, w = availabilityContext(http.MethodGet, "/api/v1/resources?kind=Pod")
+	GetResources(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body = decodeAvailabilityBody(t, w)
+	require.Equal(t, "resource_inventory_query_failed", body["code"])
+	require.Equal(t, true, body["retryable"])
+
+	goodDB := availabilityTestDB(t, &models.Pod{})
+	c, w = availabilityContext(http.MethodGet, "/api/v1/resources?kind=Pod")
+	GetResources(goodDB)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.JSONEq(t, `{"resources":[],"total":0}`, w.Body.String())
+}
+
 func TestDashboardStatsBackingQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{})
@@ -216,6 +328,22 @@ func TestDashboardStatsMissingSchemaIsNonRetryable(t *testing.T) {
 	body := decodeAvailabilityBody(t, w)
 	require.Equal(t, "dashboard_stats_insights_schema_unavailable", body["code"])
 	require.Equal(t, false, body["retryable"])
+}
+
+func TestDashboardStatsCatalogFailureIsRetryable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{})
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
+
+	c, w := availabilityContext(http.MethodGet, "/api/v1/dashboard/stats")
+	c.Set("user", &models.User{Role: models.RoleAdmin})
+	GetDashboardStats(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "dashboard_stats_clusters_query_failed", body["code"])
+	require.Equal(t, true, body["retryable"])
 }
 
 func TestClusterNodeSurfacesDoNotConvertMissingPodsTableToEmpty(t *testing.T) {
@@ -260,9 +388,22 @@ func TestCapabilityDetailAndListShareUnavailableSemantics(t *testing.T) {
 	require.Equal(t, false, listBody["retryable"])
 }
 
+func TestCapabilityCatalogFailureIsRetryable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.PodCapability{})
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
 
-
-
+	c, w := availabilityContext(http.MethodGet, "/pods/pod-a/capabilities")
+	c.Params = gin.Params{{Key: "uid", Value: "pod-a"}}
+	c.Set(middleware.CtxPodClusterID, "cluster-a")
+	GetPodCapabilitiesScoped(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "capability_inventory_query_failed", body["code"])
+	require.Equal(t, true, body["retryable"])
+}
 
 func TestDashboardIntegrityMissingCoreSchemaIsNonRetryable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -331,7 +472,7 @@ func TestDashboardCatalogHealthQueryFailureIsUnavailable(t *testing.T) {
 
 func TestWorkerMetricsQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t)
+	db := availabilityTestDB(t, &models.SBOM{}, &models.Insight{}, &models.RiskScore{})
 	require.NoError(t, db.Exec("CREATE TABLE sbom_match_runs (id INTEGER PRIMARY KEY)").Error)
 
 	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/workers")
@@ -339,6 +480,17 @@ func TestWorkerMetricsQueryFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
 	body := decodeAvailabilityBody(t, w)
 	require.Equal(t, "worker_metrics_query_failed", body["code"])
+}
+
+func TestWorkerMetricsMissingCoreSchemaIsUnavailable(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.SBOM{}, &models.SBOMMatchRun{}, &models.Insight{})
+	c, w := availabilityContext(http.MethodGet, "/api/v1/metrics/workers")
+	GetWorkerStatus(db)(c)
+	require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "worker_metrics_schema_unavailable", body["code"])
+	require.Equal(t, false, body["retryable"])
 }
 
 func TestPolicyEvaluationMetricsFailureIsUnavailable(t *testing.T) {
@@ -354,8 +506,6 @@ func TestPolicyEvaluationMetricsFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, "policy_evaluation_metrics_unavailable", body["code"])
 }
 
-
-
 func TestClusterAgentsMissingSchemaIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Cluster{})
@@ -369,7 +519,6 @@ func TestClusterAgentsMissingSchemaIsUnavailable(t *testing.T) {
 	require.Equal(t, "cluster_agents_schema_unavailable", body["code"])
 	require.Equal(t, false, body["retryable"])
 }
-
 
 func TestClusterAgentsMissingHeartbeatIsDisconnectedAndNull(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -391,6 +540,34 @@ func TestClusterAgentsMissingHeartbeatIsDisconnectedAndNull(t *testing.T) {
 	agent := agents[0].(map[string]interface{})
 	require.Equal(t, "disconnected", agent["status"])
 	require.Nil(t, agent["lastHeartbeat"])
+}
+
+func TestClusterNodeUnknownNameIsNotFound(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/nodes/missing-node")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}, {Key: "nodeName", Value: "missing-node"}}
+	GetClusterNode(db)(c)
+	require.Equal(t, http.StatusNotFound, w.Code, w.Body.String())
+}
+
+func TestClusterNodeCanBeDerivedFromActivePod(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Node{}, &models.Pod{})
+	require.NoError(t, db.Create(&models.Cluster{ID: "cluster-a", Name: "Cluster A"}).Error)
+	require.NoError(t, db.Create(&models.Pod{
+		ClusterID: "cluster-a", UID: "pod-a", Name: "pod-a", Namespace: "ns", NodeName: "node-a",
+	}).Error)
+
+	c, w := availabilityContext(http.MethodGet, "/clusters/cluster-a/nodes/node-a")
+	c.Params = gin.Params{{Key: "id", Value: "cluster-a"}, {Key: "nodeName", Value: "node-a"}}
+	GetClusterNode(db)(c)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	body := decodeAvailabilityBody(t, w)
+	require.Equal(t, "node-a", body["nodeName"])
+	require.EqualValues(t, 1, body["podCount"])
 }
 
 func TestClusterNodeMissingRiskSchemaIsNonRetryable(t *testing.T) {
@@ -467,7 +644,6 @@ func TestClusterSecuritySummaryMissingCapabilitySchemaIsUnavailable(t *testing.T
 	require.Equal(t, false, body["retryable"])
 }
 
-
 func TestPipelineHealthIsClusterScoped(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t,
@@ -532,7 +708,6 @@ func TestPipelineHealthQueryFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, "pipeline_health_layer1_insights_unavailable", body["code"])
 }
 
-
 func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Pod{}, &models.Insight{}, &models.RiskScore{})
@@ -591,7 +766,6 @@ func TestPodListRiskCountsSeparateDuplicateUIDAcrossClusters(t *testing.T) {
 	require.EqualValues(t, 90, scores["cluster-b"])
 }
 
-
 func TestPodListRiskQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := availabilityTestDB(t, &models.Pod{})
@@ -609,7 +783,6 @@ func TestPodListRiskQueryFailureIsUnavailable(t *testing.T) {
 	require.Equal(t, "pod_risk_counts_unavailable", body["code"])
 	require.Equal(t, true, body["retryable"])
 }
-
 
 func TestPodListRiskScoreQueryFailureIsUnavailable(t *testing.T) {
 	gin.SetMode(gin.TestMode)

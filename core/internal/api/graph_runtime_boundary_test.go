@@ -25,6 +25,32 @@ func TestGraphAndRuntimeClusterAliases(t *testing.T) {
 		}
 	}
 }
+func TestRuntimePodFilterUsesExplicitClusterToDisambiguateDuplicateUID(t *testing.T) {
+	db, _ := serviceAccountScopeFixture(t)
+	if err := db.AutoMigrate(&models.Pod{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, clusterID := range []string{"a", "b"} {
+		pod := models.Pod{ClusterID: clusterID, UID: "dup-runtime", Name: "dup-" + clusterID, Namespace: "default"}
+		if err := db.Create(&pod).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	qualified, w := testGraphContext("?podUid=dup-runtime&clusterId=a")
+	qualified.Set("user", &models.User{Role: models.RoleOperator, ScopeJSON: `{"cluster_ids":["a"]}`})
+	_, clusterID, ok := scopeRuntimeQuery(db, qualified, db.Model(&models.RuntimeEvent{}))
+	if !ok || w.Code >= 400 || clusterID != "a" {
+		t.Fatalf("qualified duplicate runtime Pod was not resolved: ok=%v status=%d cluster=%q body=%s", ok, w.Code, clusterID, w.Body.String())
+	}
+
+	ambiguous, w := testGraphContext("?podUid=dup-runtime")
+	ambiguous.Set("user", &models.User{Role: models.RoleAdmin})
+	if _, _, ok := scopeRuntimeQuery(db, ambiguous, db.Model(&models.RuntimeEvent{})); ok || w.Code != 409 {
+		t.Fatalf("UID-only duplicate runtime Pod should remain ambiguous: ok=%v status=%d body=%s", ok, w.Code, w.Body.String())
+	}
+}
+
 func testGraphContext(query string) (*gin.Context, *httptest.ResponseRecorder) {
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)

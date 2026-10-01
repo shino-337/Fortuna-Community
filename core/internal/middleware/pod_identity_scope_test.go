@@ -91,3 +91,62 @@ func TestRequirePodUIDClusterScopeDoesNotDiscloseAmbiguousClustersToRestrictedUs
 		t.Fatalf("unexpected disclosure body=%s", body)
 	}
 }
+
+
+func TestRequirePodUIDClusterScopeAllowsVerifiedClusterDisambiguation(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&models.Pod{}, &models.AuditLog{}, &models.SecurityActivityLog{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
+		pod := models.Pod{ClusterID: clusterID, UID: "dup", Name: clusterID, Namespace: "ns", ServiceAccount: "default"}
+		if err := db.Create(&pod).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	makeRouter := func(user *models.User) *gin.Engine {
+		r := gin.New()
+		r.GET("/pods/:uid", func(c *gin.Context) {
+			c.Set("user", user)
+		}, middleware.RequirePodUIDClusterScope(db, "uid"), func(c *gin.Context) {
+			clusterID, ok := middleware.ResolvedPodClusterID(c)
+			if !ok {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "missing resolved cluster"})
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"clusterId": clusterID})
+		})
+		return r
+	}
+
+	admin := makeRouter(&models.User{Role: models.RoleAdmin})
+	w := httptest.NewRecorder()
+	admin.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/pods/dup?clusterId=cluster-b", nil))
+	if w.Code != http.StatusOK || w.Body.String() != "{\"clusterId\":\"cluster-b\"}" {
+		t.Fatalf("admin disambiguation status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	restricted := makeRouter(&models.User{Role: models.RoleOperator, ScopeJSON: `{"cluster_ids":["cluster-a"]}`})
+	w = httptest.NewRecorder()
+	restricted.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/pods/dup?clusterId=cluster-a", nil))
+	if w.Code != http.StatusOK || w.Body.String() != "{\"clusterId\":\"cluster-a\"}" {
+		t.Fatalf("scoped disambiguation status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	restricted.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/pods/dup?clusterId=cluster-b", nil))
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("foreign cluster disambiguation status=%d body=%s", w.Code, w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	admin.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/pods/dup?clusterId=cluster-c", nil))
+	if w.Code != http.StatusNotFound {
+		t.Fatalf("non-owner disambiguation status=%d body=%s", w.Code, w.Body.String())
+	}
+}

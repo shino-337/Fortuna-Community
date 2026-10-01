@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { NodeDetailResponse } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
@@ -10,27 +10,55 @@ import { ArrowLeft, Server, Box } from 'lucide-react';
 import { formatDateTime } from '../lib/display';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import { DataFreshness } from '../components/DataFreshness';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
-export const NodeDetail: React.FC = () => {
+const NodeDetailContent: React.FC = () => {
   const { clusterId, nodeName } = useParams<{ clusterId: string; nodeName: string }>();
   const navigate = useNavigate();
   const [node, setNode] = useState<NodeDetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    requestRef.current += 1;
+    setNode(null);
+    setError(null);
+    setAvailabilityIssue(null);
+    setUpdatedAt(null);
+  }, [clusterId, nodeName]);
 
   const fetchNode = useCallback(async () => {
-    if (!clusterId || !nodeName) return;
+    if (!clusterId || !nodeName) {
+      setLoading(false);
+      setNode(null);
+      return;
+    }
+    const requestSeq = ++requestRef.current;
     setLoading(true);
     try {
-      const data = await api.getClusterNode(clusterId, decodeURIComponent(nodeName), { pods: true });
-      setNode(data ?? null);
+      const data = await api.getClusterNodeStrict(clusterId, decodeURIComponent(nodeName), { pods: true });
+      if (requestSeq !== requestRef.current) return;
+      setNode(data);
       setError(null);
+      setAvailabilityIssue(null);
       setUpdatedAt(new Date());
-    } catch {
-      setError('Node detail could not be refreshed.');
+    } catch (err) {
+      if (requestSeq !== requestRef.current) return;
+      if (isApiError(err) && err.status === 404) {
+        setNode(null);
+        setAvailabilityIssue(null);
+        setError(null);
+        setUpdatedAt(null);
+      } else {
+        const issue = getAvailabilityIssue(err, 'Node detail');
+        setAvailabilityIssue(issue);
+        setError(issue.description);
+      }
     } finally {
-      setLoading(false);
+      if (requestSeq === requestRef.current) setLoading(false);
     }
   }, [clusterId, nodeName]);
 
@@ -38,8 +66,20 @@ export const NodeDetail: React.FC = () => {
     fetchNode();
   }, [fetchNode]);
 
-  if (loading || !clusterId || !nodeName) {
+  if (loading && !node) {
     return <PageLoading message="Loading node detail..." className="min-h-[40dvh]" />;
+  }
+
+  if (!clusterId || !nodeName) {
+    return (
+      <PageLayout title="Node detail route is incomplete" description="Cluster ID and node name are required.">
+        <PageError
+          title="Node identifier missing"
+          description="Open node detail from a cluster inventory so the route contains both cluster ID and node name."
+          action={<Button variant="secondary" onClick={() => navigate('/clusters')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters</Button>}
+        />
+      </PageLayout>
+    );
   }
 
   const displayName = decodeURIComponent(nodeName);
@@ -62,12 +102,19 @@ export const NodeDetail: React.FC = () => {
     >
       {error && !node ? (
         <PageError
-          title="Could not load node"
-          description="The node detail request failed. Retry or return to the cluster inventory."
-          action={<Button variant="secondary" onClick={fetchNode} isLoading={loading}>Retry node</Button>}
+          title={availabilityIssue?.title ?? "Could not load node"}
+          description={availabilityIssue?.description ?? "The node detail request failed. Retry or return to the cluster inventory."}
+          action={availabilityIssue?.retryable !== false ? <Button variant="secondary" onClick={fetchNode} isLoading={loading}>Retry node</Button> : undefined}
         />
       ) : null}
-      {!error && !node ? (
+      {availabilityIssue && node ? (
+        <AvailabilityNotice
+          issue={availabilityIssue}
+          onRetry={availabilityIssue.retryable ? fetchNode : undefined}
+          className="mb-4"
+        />
+      ) : null}
+      {!availabilityIssue && !error && !node ? (
         <PageEmpty title="Node not found" description="The node may no longer be reported by the cluster." className="py-10" />
       ) : null}
       {node ? (
@@ -139,11 +186,11 @@ export const NodeDetail: React.FC = () => {
                     role="link"
                     tabIndex={0}
                     className={`${UI_TR} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-inset`}
-                    onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}
+                    onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}?clusterId=${encodeURIComponent(clusterId)}`)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter' || event.key === ' ') {
                         event.preventDefault();
-                        navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`);
+                        navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}?clusterId=${encodeURIComponent(clusterId)}`);
                       }
                     }}
                   >
@@ -153,7 +200,7 @@ export const NodeDetail: React.FC = () => {
                       <span className={pod.riskCount > 0 ? 'text-amber-400 font-medium' : 'text-muted'}>{pod.riskCount}</span>
                     </td>
                     <td className={`${UI_TD_COMPACT_TIGHT} text-right`} onClick={(e) => e.stopPropagation()}>
-                      <Button size="sm" variant="secondary" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}`)}>
+                      <Button size="sm" variant="secondary" onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.uid)}?clusterId=${encodeURIComponent(clusterId)}`)}>
                         View
                       </Button>
                     </td>
@@ -168,4 +215,12 @@ export const NodeDetail: React.FC = () => {
       ) : null}
     </PageLayout>
   );
+};
+
+
+/** Keep last-known-good detail state scoped to one cluster/node route identity. */
+export const NodeDetail: React.FC = () => {
+  const { clusterId, nodeName } = useParams<{ clusterId: string; nodeName: string }>();
+  const routeIdentity = `${clusterId ?? 'missing-cluster'}/${nodeName ?? 'missing-node'}`;
+  return <NodeDetailContent key={routeIdentity} />;
 };

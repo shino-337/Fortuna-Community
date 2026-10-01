@@ -101,12 +101,17 @@ func GetDefaultActiveClusterID(db *gorm.DB, ctx context.Context) (string, error)
 // Stale clusters (no sync in 7 days) are excluded so dashboard only shows current environment.
 func GetClusters(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		clusters, err := getClustersForAPI(db, c)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "cluster_inventory_schema_unavailable",
+			"Cluster inventory requires the clusters schema", "clusters") {
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"clusters": clusters})
+		clusters, err := getClustersForAPI(db, c)
+		if err != nil {
+			respondDataUnavailable(c, "cluster_inventory_query_failed", "Cluster inventory could not be loaded")
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "clusters": clusters})
 	}
 }
 
@@ -400,13 +405,13 @@ func GetClusterSecuritySummary(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, gin.H{
-			"dataStatus": "available",
-			"riskBySeverity": riskBySeverity,
+			"dataStatus":      "available",
+			"riskBySeverity":  riskBySeverity,
 			"capabilityCount": capabilityCount,
-			"criticalCount": critical,
-			"highCount": high,
-			"mediumCount": medium,
-			"lowCount": low,
+			"criticalCount":   critical,
+			"highCount":       high,
+			"mediumCount":     medium,
+			"lowCount":        low,
 		})
 	}
 }
@@ -453,7 +458,8 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 		resp := NodeDetailResponse{ClusterID: clusterID, NodeName: nodeName}
 		var node models.Node
 		err := db.Where("cluster_id = ? AND node_name = ?", clusterID, nodeName).First(&node).Error
-		if err == nil {
+		nodeExists := err == nil
+		if nodeExists {
 			resp.IP = node.IP
 			resp.KubeletVersion = node.KubeletVersion
 			resp.Role = node.Role
@@ -470,6 +476,13 @@ func GetClusterNode(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		resp.PodCount = podCount
+		// A node is real only when the node inventory reports it or an active Pod
+		// proves the node name exists. Do not synthesize a successful empty node
+		// for an arbitrary route name.
+		if !nodeExists && podCount == 0 {
+			c.JSON(http.StatusNotFound, gin.H{"error": "Node not found"})
+			return
+		}
 		includePods := c.Query("pods") == "true" || c.Query("pods") == "1"
 		if includePods && podCount > 0 {
 			var pods []models.Pod
@@ -801,21 +814,13 @@ func GetServiceAccounts(db *gorm.DB) gin.HandlerFunc {
 
 func GetServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		saUID := c.Param("uid")
+		saUID := strings.TrimSpace(c.Param("uid"))
 		if saUID == "" {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
-		var sa models.ServiceAccount
-		if err := db.Preload("Cluster").Where("uid = ?", saUID).First(&sa).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
+		sa, ok := loadScopedServiceAccountByUID(db, c, saUID, true)
+		if !ok {
 			return
 		}
 		c.JSON(http.StatusOK, sa)

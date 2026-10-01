@@ -77,10 +77,13 @@ func chunkRuleIDs(ids []string, size int) [][]string {
 	return out
 }
 
-func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]ruleActivationMeta {
+func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) (map[string]ruleActivationMeta, error) {
 	meta := make(map[string]ruleActivationMeta, len(rules))
-	if db == nil || len(rules) == 0 {
-		return meta
+	if len(rules) == 0 {
+		return meta, nil
+	}
+	if db == nil {
+		return nil, fmt.Errorf("rules activation database is unavailable")
 	}
 
 	ruleIDs := make([]string, 0, len(rules))
@@ -90,7 +93,7 @@ func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]
 		}
 	}
 	if len(ruleIDs) == 0 {
-		return meta
+		return meta, nil
 	}
 	for _, id := range ruleIDs {
 		meta[id] = ruleActivationMeta{RelatedCapabilities: []string{}}
@@ -116,7 +119,7 @@ func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]
 			Scopes(scopeInsightsForYAMLRuleIDsIn(chunk)).
 			Group("cve_id").
 			Scan(&totals).Error; err != nil {
-			log.Printf("[collectRuleActivationMeta] totals: %v", err)
+			return nil, fmt.Errorf("load rule activation totals: %w", err)
 		}
 		for _, row := range totals {
 			if m, ok := meta[row.CVEID]; ok {
@@ -127,12 +130,14 @@ func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]
 		}
 
 		var c24 []cntRow
-		_ = db.Model(&models.Insight{}).
+		if err := db.Model(&models.Insight{}).
 			Select("cve_id, COUNT(*) AS cnt").
 			Scopes(scopeInsightsForYAMLRuleIDsIn(chunk)).
 			Where("created_at >= ?", t24).
 			Group("cve_id").
-			Scan(&c24)
+			Scan(&c24).Error; err != nil {
+			return nil, fmt.Errorf("load 24h rule activation counts: %w", err)
+		}
 		for _, row := range c24 {
 			if m, ok := meta[row.CVEID]; ok {
 				m.ImpactedFindings24h = row.Cnt
@@ -141,12 +146,14 @@ func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]
 		}
 
 		var c7 []cntRow
-		_ = db.Model(&models.Insight{}).
+		if err := db.Model(&models.Insight{}).
 			Select("cve_id, COUNT(*) AS cnt").
 			Scopes(scopeInsightsForYAMLRuleIDsIn(chunk)).
 			Where("created_at >= ?", t7).
 			Group("cve_id").
-			Scan(&c7)
+			Scan(&c7).Error; err != nil {
+			return nil, fmt.Errorf("load 7d rule activation counts: %w", err)
+		}
 		for _, row := range c7 {
 			if m, ok := meta[row.CVEID]; ok {
 				m.ImpactedFindings7d = row.Cnt
@@ -156,12 +163,14 @@ func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]
 	}
 
 	var recent []models.Insight
-	_ = db.Model(&models.Insight{}).
+	if err := db.Model(&models.Insight{}).
 		Select("cve_id", "evidence").
 		Where("cve_id IN ?", ruleIDs).
 		Order("created_at DESC").
 		Limit(2500).
-		Find(&recent).Error
+		Find(&recent).Error; err != nil {
+		return nil, fmt.Errorf("load rule capability evidence: %w", err)
+	}
 
 	consumed := make(map[string]int, len(ruleIDs))
 	capFreqByRule := make(map[string]map[string]int, len(ruleIDs))
@@ -189,7 +198,7 @@ func collectRuleActivationMeta(db *gorm.DB, rules []riskengine.Rule) map[string]
 		m.RelatedCapabilities = topNCapabilityKeys(freq, 3)
 		meta[rid] = m
 	}
-	return meta
+	return meta, nil
 }
 
 func scopeInsightsForYAMLRuleIDsIn(ids []string) func(*gorm.DB) *gorm.DB {
@@ -419,7 +428,11 @@ func GetRules(db *gorm.DB) gin.HandlerFunc {
 				disabledCount++
 			}
 		}
-		activationMeta := collectRuleActivationMeta(db, filteredRules)
+		activationMeta, err := collectRuleActivationMeta(db, filteredRules)
+		if err != nil {
+			respondDataUnavailable(c, "policy_rules_activation_unavailable", "Policy rule activation metadata could not be loaded")
+			return
+		}
 		ruleSource := collectRuleSource(db, manager)
 		decorations := decorateRules(filteredRules)
 
@@ -500,17 +513,28 @@ func GetRule(db *gorm.DB) gin.HandlerFunc {
 
 		// Match count: YAML rules persist rule id in insights.cve_id (see riskengine.createInsight).
 		var matchCount int64
-		db.Model(&models.Insight{}).Scopes(scopeInsightsForYAMLRuleID(ruleID)).Count(&matchCount)
+		if err := db.Model(&models.Insight{}).Scopes(scopeInsightsForYAMLRuleID(ruleID)).Count(&matchCount).Error; err != nil {
+			respondDataUnavailable(c, "policy_rule_matches_unavailable", "Policy rule match count could not be loaded")
+			return
+		}
 
 		var recentMatches []models.Insight
-		db.Model(&models.Insight{}).Scopes(scopeInsightsForYAMLRuleID(ruleID)).
+		if err := db.Model(&models.Insight{}).Scopes(scopeInsightsForYAMLRuleID(ruleID)).
 			Order("created_at DESC").
 			Limit(10).
-			Find(&recentMatches)
+			Find(&recentMatches).Error; err != nil {
+			respondDataUnavailable(c, "policy_rule_matches_unavailable", "Policy rule recent matches could not be loaded")
+			return
+		}
 
 		source := collectRuleSource(db, manager)[ruleID]
 		decoration := decorateRules(rules)[ruleID]
-		activation := collectRuleActivationMeta(db, []riskengine.Rule{*rule})[ruleID]
+		activationMeta, err := collectRuleActivationMeta(db, []riskengine.Rule{*rule})
+		if err != nil {
+			respondDataUnavailable(c, "policy_rule_activation_unavailable", "Policy rule activation metadata could not be loaded")
+			return
+		}
+		activation := activationMeta[ruleID]
 
 		c.JSON(http.StatusOK, gin.H{
 			"rule":                rule,

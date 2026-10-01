@@ -10,15 +10,15 @@
 # When using Docker, images are built with `docker build` then imported into
 # containerd via `ctr -n k8s.io images import` so kubelet sees them.
 #
-# 1. Clean: port-forwards, E2E namespaces, fortuna images by tag and by ID, system/builder prune.
+# 1. Clean: E2E namespaces, Fortuna images by tag and by ID, rebuildable builder cache.
 # 2. Optional DB: run clear_all_cluster_data.sql (--db) or reset_database_full.sql (--db-reset).
 #    When deploy runs, DB clean happens in Phase 2d AFTER Flannel + StorageClass + apply Postgres (PVC must bind).
 #    When --only-db-reset, DB clean runs in Phase 1b (Postgres must already exist).
 #    Env: PG_RECREATE_PVC=1 scales postgres to 0, deletes PVC postgres-pvc, reapplies manifest (fixes corrupt
 #    data dir: "invalid primary checkpoint" / CrashLoopBackOff). Destroys all DB files on that PVC.
-#    Core runs all migrations on startup; --db-reset (DROP tables) ensures fresh schema
+#    Core runs all migrations on startup; --db-reset recreates the public schema
 #    (e.g. migration 062: clusters.region/endpoint/kubeconfig — fixes agent sync 500 if missing).
-#    DB reset drops all Fortuna tables in reset_database_full.sql (incl. attack_paths, exception_policies, sbom_processing_state; updated 2026-04-14).
+#    DB reset removes all Fortuna application objects and data, including users.
 # 3. Rebuild: core, agent, dashboard via build-and-load-containerd.sh (nerdctl/docker/buildctl → containerd k8s.io).
 #    Phase 2 image wait: fast then slow polls (PHASE2_IMAGE_* env). No second full NO_CACHE rebuild when build exits 0
 #    but image listing lags (avoids ~2× rebuild time). Retry build only after a non-zero build exit code.
@@ -30,7 +30,7 @@
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --menu       # force interactive menu
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full      # clean + rebuild + deploy
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db         # + clear DB data (DELETE, keep schema)
-#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB reset (DROP tables)
+#   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset   # + full DB schema reset (destructive)
 #   ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-rebuild   # clean + deploy only
 #   FORTUNA_PACKAGE_SOURCE=github ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --skip-rebuild
 #       # deploy published GitHub/GHCR images and reset DB; no local rebuild/containerd image required
@@ -568,11 +568,6 @@ _sync_deploy_image_tags() {
     log_info "Deploy image tag sync skipped (SYNC_DEPLOY_IMAGE_TAG=false)"
     return 0
   fi
-  if [ "$SKIP_REBUILD" = true ] && [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
-    log_info "Deploy image tag sync skipped because local rebuild is skipped"
-    return 0
-  fi
-
   _image_ref() {
     local name="$1"
     case "$FORTUNA_PACKAGE_SOURCE" in
@@ -598,7 +593,9 @@ _sync_deploy_image_tags() {
     log_success "  ${file##*/} -> ${ref}"
   }
 
-  log_info "Syncing deploy image refs (source=$FORTUNA_PACKAGE_SOURCE, version=${FORTUNA_VERSION:-$VERSION})..."
+  local display_version="$FORTUNA_VERSION"
+  [ "$FORTUNA_PACKAGE_SOURCE" = "local" ] && display_version="$VERSION"
+  log_info "Syncing deploy image refs (source=$FORTUNA_PACKAGE_SOURCE, version=$display_version)..."
   case "${COMPONENT_ONLY:-}" in
     core)
       _sync_manifest_image "$PROJECT_ROOT/deploy/fortuna-core-deployment.yaml" "fortuna-core"
@@ -618,9 +615,6 @@ _sync_deploy_image_tags() {
 }
 
 _set_workload_images_for_tag() {
-  if [ "$SKIP_REBUILD" = true ] && [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
-    return 0
-  fi
   local core_image agent_image dashboard_image
   if [ "$FORTUNA_PACKAGE_SOURCE" = "local" ]; then
     core_image="fortuna-core:${VERSION}"
@@ -675,7 +669,11 @@ _cleanup_old_fortuna_images() {
   done <<< "$refs"
 
   if [ "$CLEAN_BUILD_CACHE_AFTER_DEPLOY" = "true" ]; then
-    nerdctl --namespace "$CONTAINERD_NS" builder prune >/dev/null 2>&1 || true
+    if command -v buildctl >/dev/null 2>&1 && [ -S /run/buildkit/buildkitd.sock ]; then
+      buildctl --addr unix:///run/buildkit/buildkitd.sock prune --all >/dev/null || log_warn "BuildKit cache prune failed"
+    else
+      log_warn "BuildKit cache prune skipped (buildctl or socket unavailable)"
+    fi
   fi
   log_success "Old Fortuna image cleanup complete (kept VERSION=$VERSION, latest, and images currently referenced by workloads)"
 }
@@ -702,8 +700,7 @@ if [ "$ONLY_E2E" != true ]; then
 
 # ---- Phase 1: Clean ----
 if [ "$SKIP_CLEAN" = false ]; then
-  log_info "Phase 1: Clean (port-forwards, E2E ns, fortuna images, prune)..."
-  pkill -f "kubectl.*port-forward" 2>/dev/null || true
+  log_info "Phase 1: Clean (E2E ns, Fortuna images, builder cache)..."
   for ns in fortuna-e2e fortuna-e2e-2025; do
     kubectl get namespace "$ns" 2>/dev/null && kubectl delete namespace "$ns" --timeout=60s 2>/dev/null || true
   done
@@ -722,9 +719,8 @@ if [ "$SKIP_CLEAN" = false ]; then
     for id in $fortuna_ids; do
       [ -n "$id" ] && [ "$id" != "ID" ] && nerdctl --namespace "$CONTAINERD_NS" rmi --force "$id" 2>/dev/null || true
     done
-    log_info "Pruning containerd system and build cache..."
-    nerdctl --namespace "$CONTAINERD_NS" system prune -f 2>/dev/null || true
-    nerdctl --namespace "$CONTAINERD_NS" builder prune 2>/dev/null || true
+    log_info "Pruning rebuildable builder cache (not unrelated containerd images)..."
+    nerdctl --namespace "$CONTAINERD_NS" builder prune -f 2>/dev/null || true
   fi
   # Clean via docker if available
   if command -v docker &>/dev/null && docker info &>/dev/null 2>&1; then
@@ -732,10 +728,9 @@ if [ "$SKIP_CLEAN" = false ]; then
     for img in fortuna-core fortuna-agent fortuna-dashboard; do
       docker images --format '{{.Repository}}:{{.Tag}}' 2>/dev/null | grep "^${img}:" | xargs -r docker rmi --force 2>/dev/null || true
     done
-    docker image prune -f 2>/dev/null || true
   fi
   # Clean via ctr if available (catches images not managed by nerdctl/docker)
-  # pipefail: grep exits 1 when there are no matches — would kill the whole script after Docker prune.
+  # pipefail: grep exits 1 when there are no matches — do not abort an empty image list.
   if command -v ctr &>/dev/null; then
     { ctr -n "$CONTAINERD_NS" images list 2>/dev/null || true; } | awk '/fortuna-(core|agent|dashboard)/ {print $1}' | while read -r ref; do
       [ -n "$ref" ] && ctr -n "$CONTAINERD_NS" images rm "$ref" 2>/dev/null || true
@@ -819,11 +814,11 @@ if [ "$SKIP_DEPLOY" = true ] && { [ "$CLEAN_DB" = true ] || [ "$DB_RESET" = true
           log_error "kubectl cp reset_database_full.sql failed"
           exit 1
         fi
-        if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql; then
+        if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -v ON_ERROR_STOP=1 -U postgres -d fortuna -f /tmp/reset_db.sql; then
           log_error "psql reset_database_full.sql failed"
           exit 1
         fi
-        log_success "DB full reset (DROP tables) done. Core will re-run migrations on next start."
+        log_success "DB full reset (public schema) done. Core will re-run migrations on next start."
       else
         log_error "File not found: $SQL_FILE"
         exit 1
@@ -952,6 +947,7 @@ else
       _sync_deploy_image_tags
     elif _phase2_required_images_present; then
       log_success "Required images already visible in containerd"
+      _sync_deploy_image_tags
     else
       log_error "--skip-rebuild was requested, but required Fortuna image(s) are missing in containerd namespace $CONTAINERD_NS."
       log_info "Run without --skip-rebuild, or build/load manually: CONTAINERD_NAMESPACE=$CONTAINERD_NS $SCRIPTS/build/build-and-load-containerd.sh"
@@ -1146,11 +1142,11 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ] && { [ "$CLEAN_DB
         log_error "kubectl cp reset_database_full.sql failed"
         exit 1
       fi
-      if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -U postgres -d fortuna -f /tmp/reset_db.sql; then
+      if ! kubectl exec -n "$NAMESPACE" "$POD" -c "$PG_CONTAINER" -- psql -v ON_ERROR_STOP=1 -U postgres -d fortuna -f /tmp/reset_db.sql; then
         log_error "psql reset_database_full.sql failed"
         exit 1
       fi
-      log_success "DB full reset (DROP tables) done before full deploy."
+      log_success "DB full reset (public schema) done before full deploy."
     else
       log_error "File not found: $SQL_FILE"
       exit 1
@@ -1573,8 +1569,20 @@ if [ "$SKIP_DEPLOY" = false ]; then
         log_info "  - Runtime events: 0 (runtime features not enabled)"
       fi
     fi
-    POD_PROC_COUNT=$(kubectl exec -n "$NAMESPACE" "$PG_POD" -- psql -U postgres -d fortuna -tAc "SELECT count(DISTINCT pod_uid) FROM pod_processes" 2>/dev/null || echo "0")
-    POD_PROC_COUNT=$(echo "$POD_PROC_COUNT" | tr -d '[:space:]')
+    # PodDetail reports immediately on startup, then every 2m. The initial
+    # report may precede Core's first accepted inventory and receive 403.
+    # Give the next report a bounded chance without masking a real failure.
+    POD_PROCESS_WAIT_SECONDS="${POD_PROCESS_WAIT_SECONDS:-150}"
+    POD_PROCESS_DEADLINE=$(( $(date +%s) + POD_PROCESS_WAIT_SECONDS ))
+    while :; do
+      POD_PROC_COUNT=$(kubectl exec -n "$NAMESPACE" "$PG_POD" -- psql -U postgres -d fortuna -tAc "SELECT count(DISTINCT pod_uid) FROM pod_processes" 2>/dev/null || echo "0")
+      POD_PROC_COUNT=$(echo "$POD_PROC_COUNT" | tr -d '[:space:]')
+      if [ "${POD_PROC_COUNT:-0}" -gt 0 ] || [ "$(date +%s)" -ge "$POD_PROCESS_DEADLINE" ]; then
+        break
+      fi
+      log_info "  - Process snapshots not yet available; waiting for PodDetail reporter..."
+      sleep 10
+    done
     if [ "${POD_PROC_COUNT:-0}" -gt 0 ]; then
       _v_ok "Process snapshots: $POD_PROC_COUNT pods with data"
     else

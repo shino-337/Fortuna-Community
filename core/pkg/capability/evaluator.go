@@ -12,8 +12,8 @@ import (
 
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/rbac"
-	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/fortuna/core/pkg/resourceidentity"
+	"github.com/fortuna/core/pkg/riskengine"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 )
@@ -377,6 +377,7 @@ func upsertCapabilities(db *gorm.DB, pod models.Pod, caps []Capability) error {
 	for _, c := range caps {
 		evidenceJSON, _ := json.Marshal(c.Evidence)
 		records = append(records, models.PodCapability{
+			ClusterID:       pod.ClusterID,
 			PodUID:          pod.UID,
 			Namespace:       pod.Namespace,
 			CapabilityID:    c.ID,
@@ -392,7 +393,7 @@ func upsertCapabilities(db *gorm.DB, pod models.Pod, caps []Capability) error {
 	}
 
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "pod_uid"}, {Name: "capability_id"}},
+		Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}, {Name: "capability_id"}},
 		DoUpdates: clause.AssignmentColumns([]string{"capability_group", "severity", "evidence", "mitre", "updated_at"}),
 	}).Create(&records).Error
 }
@@ -405,6 +406,7 @@ func upsertPodRiskProfile(db *gorm.DB, pod models.Pod, caps []Capability) error 
 	}
 	now := time.Now()
 	profile := models.PodRiskProfile{
+		ClusterID:    pod.ClusterID,
 		PodUID:       pod.UID,
 		Namespace:    pod.Namespace,
 		StaticRisk:   staticRisk,
@@ -415,7 +417,7 @@ func upsertPodRiskProfile(db *gorm.DB, pod models.Pod, caps []Capability) error 
 	}
 
 	return db.Clauses(clause.OnConflict{
-		Columns:   []clause.Column{{Name: "pod_uid"}},
+		Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}},
 		DoUpdates: clause.AssignmentColumns([]string{"namespace", "static_risk", "capabilities", "updated_at"}),
 	}).Create(&profile).Error
 }

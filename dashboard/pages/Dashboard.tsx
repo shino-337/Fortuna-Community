@@ -63,6 +63,7 @@ import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { deriveUnifiedRiskLevelFromScore, getSeverityBadgeClass } from '../lib/severity';
 import { STAT_LABELS } from '../constants/labels';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
+import { podDetailPath } from '../lib/podRoute';
 import { reconcileAttackGraphEntryExit } from '../lib/attackPathGraphTopology';
 import { UI_TD_COMPACT, UI_TH, UI_TR, UI_TABLE } from '../lib/tableChrome';
 import {
@@ -1501,8 +1502,8 @@ export const Dashboard: React.FC = () => {
             <EntryPointsSection
               scenarios={filteredEntryScenarios}
               onOpenPanel={openScenarioPanel}
-              onOpenPod={(uid) => navigate(`/resources/pods/uid/${encodeURIComponent(uid)}`)}
-              onOpenAttackPaths={(uid) => navigate(`/attack-paths?podUid=${encodeURIComponent(uid)}`)}
+              onOpenPod={(scenario) => navigate(podDetailPath(scenario.pod.uid, scenario.pod.clusterId))}
+              onOpenAttackPaths={(scenario) => navigate(`/attack-paths?podUid=${encodeURIComponent(scenario.pod.uid)}&clusterId=${encodeURIComponent(scenario.pod.clusterId)}`)}
             />
           </div>
         </Section>
@@ -1562,11 +1563,11 @@ export const Dashboard: React.FC = () => {
                       role="link"
                       tabIndex={0}
                       className={`${UI_TR} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-inset`}
-                      onClick={() => navigate(`/resources/pods/uid/${encodeURIComponent(pod.resourceUid)}`)}
+                      onClick={() => navigate(podDetailPath(pod.resourceUid, pod.clusterId))}
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' || event.key === ' ') {
                           event.preventDefault();
-                          navigate(`/resources/pods/uid/${encodeURIComponent(pod.resourceUid)}`);
+                          navigate(podDetailPath(pod.resourceUid, pod.clusterId));
                         }
                       }}
                     >

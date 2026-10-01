@@ -13,10 +13,39 @@ not interpret endpoint reachability as authenticated ingest readiness.
 
 ## Issue and install
 
-Use the same CA already trusted by Core for client authentication. Keep its private
-key on the operator host; never copy it to Agent nodes. Core's server certificate
-must remain valid for `fortuna-core.fortuna.svc.cluster.local`. The Agent's `ca.crt`
-must trust that server certificate (this overlay assumes the existing shared CA).
+Keep the signing CA private key on the operator host; never copy it to Agent
+nodes or a Kubernetes Secret. Core's server certificate must remain valid for
+`fortuna-core.fortuna.svc.cluster.local`. The Agent verifies that server using
+the existing `fortuna-ca-cert` Secret; its client certificate may be signed by
+a separate, dedicated Agent CA.
+
+If the original Fortuna CA private key is unavailable, do **not** run
+`MTLS_REGEN=1 scripts/utils/create_mtls_secret.sh` merely to issue Agent certs:
+that replaces the Core and webhook certificates and the shared trust Secret.
+Instead, create a dedicated Agent-client CA in a private operator directory,
+then install only its public certificate as Core's client trust root:
+
+```bash
+install -d -m 0700 /secure/agent-client-ca
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes \
+  -keyout /secure/agent-client-ca/ca.key -out /secure/agent-client-ca/ca.crt \
+  -days 365 -sha256 -subj '/CN=Fortuna Agent Client CA/O=Fortuna' \
+  -addext 'basicConstraints=critical,CA:TRUE,pathlen:0' \
+  -addext 'keyUsage=critical,keyCertSign,cRLSign'
+chmod 0600 /secure/agent-client-ca/ca.key
+kubectl -n fortuna create secret generic fortuna-agent-client-ca \
+  --from-file=ca.crt=/secure/agent-client-ca/ca.crt \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n fortuna patch deployment fortuna-core --type strategic \
+  --patch-file deploy/scoped-agent-credentials/core-client-ca-patch.yaml
+```
+
+Core's `TLS_CA_CERT_PATH` is its gRPC **client** trust pool, separate from the
+server certificate/key. This patch keeps `fortuna-core-tls`, `fortuna-ca-cert`,
+and the webhook Secret unchanged. The Agent mTLS overlay keeps
+`TLS_CA_CERT_PATH=/etc/fortuna/ca-cert/ca.crt` to verify Core's existing server
+certificate. Preserve the new CA key securely for future 30-day leaf renewals;
+back it up outside the repository and plan CA renewal before its expiry.
 
 ```bash
 python3 scripts/deploy/agent-certificate-tool.py issue \
@@ -36,6 +65,9 @@ new private output directory. Existing output directories are refused. The Core
 registry contains fingerprints, exact validity times and ownership, never keys.
 Only copy `nodes/<this-node>/` to the corresponding node. Keep its key mode 0600
 and directories private to the Agent's runtime UID (adjust ownership if non-root).
+The tool also copies the signing CA certificate into that directory for offline
+chain verification; the Agent overlay uses the existing Core-server CA mount for
+TLS server verification.
 
 Store generations beneath `/etc/fortuna/agent-mtls/releases/` on each node. Switch
 `current` using a relative symlink rename on that same filesystem:

@@ -8,6 +8,14 @@ import (
 	"gorm.io/gorm"
 )
 
+const (
+	baselinePodPolicyVersion = "1.0.1"
+	// PolicyEvaluator binds resource to the Pod spec and treats a true CEL result
+	// as compliant. Cover all Kubernetes container kinds, not just app containers.
+	baselineNoPrivilegedCEL     = "!(has(resource.containers) && resource.containers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true)) && !(has(resource.initContainers) && resource.initContainers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true)) && !(has(resource.ephemeralContainers) && resource.ephemeralContainers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true))"
+	baselineNoHostNamespacesCEL = "!(has(resource.hostNetwork) && resource.hostNetwork == true) && !(has(resource.hostPID) && resource.hostPID == true) && !(has(resource.hostIPC) && resource.hostIPC == true)"
+)
+
 // Migration096_PolicyEngineBaselineBootstrap ensures policy engine schema and seeds baseline data.
 func Migration096_PolicyEngineBaselineBootstrap(db *gorm.DB) error {
 	log.Println("Running migration 096: Policy engine baseline bootstrap")
@@ -35,12 +43,12 @@ func seedBaselinePolicyTemplates(db *gorm.DB) error {
 	templates := []models.PolicyTemplate{
 		{
 			TemplateID:          "k8s-no-privileged-container",
-			Version:             "1.0.0",
+			Version:             baselinePodPolicyVersion,
 			Name:                "Disallow privileged containers",
 			Description:         "Flags Pod workloads that run any container with privileged=true.",
 			Category:            "security",
 			DefaultSeverity:     "high",
-			CELExpression:       "has(object.spec) && has(object.spec.containers) && object.spec.containers.exists(c, has(c.securityContext) && has(c.securityContext.privileged) && c.securityContext.privileged == true)",
+			CELExpression:       baselineNoPrivilegedCEL,
 			DefaultScope:        `{"resourceTypes":["Pod"]}`,
 			DefaultAction:       "alert",
 			SupportsRemediation: false,
@@ -50,12 +58,12 @@ func seedBaselinePolicyTemplates(db *gorm.DB) error {
 		},
 		{
 			TemplateID:          "k8s-no-host-namespace-sharing",
-			Version:             "1.0.0",
+			Version:             baselinePodPolicyVersion,
 			Name:                "Restrict host namespace sharing",
 			Description:         "Flags Pod workloads enabling hostNetwork, hostPID, or hostIPC.",
 			Category:            "security",
 			DefaultSeverity:     "high",
-			CELExpression:       "has(object.spec) && ((has(object.spec.hostNetwork) && object.spec.hostNetwork == true) || (has(object.spec.hostPID) && object.spec.hostPID == true) || (has(object.spec.hostIPC) && object.spec.hostIPC == true))",
+			CELExpression:       baselineNoHostNamespacesCEL,
 			DefaultScope:        `{"resourceTypes":["Pod"]}`,
 			DefaultAction:       "alert",
 			SupportsRemediation: false,
@@ -78,10 +86,11 @@ func seedBaselinePolicyInstances(db *gorm.DB) error {
 	instances := []models.PolicyInstance{
 		{
 			TemplateID:      "k8s-no-privileged-container",
-			TemplateVersion: "1.0.0",
+			TemplateVersion: baselinePodPolicyVersion,
 			InstanceName:    "baseline-no-privileged-container",
 			Description:     "Default baseline guard for privileged containers.",
 			Enabled:         true,
+			ResourceTypes:   models.StringArray{"Pod"},
 			Action:          "alert",
 			Severity:        "high",
 			CreatedBy:       "system",
@@ -89,10 +98,11 @@ func seedBaselinePolicyInstances(db *gorm.DB) error {
 		},
 		{
 			TemplateID:      "k8s-no-host-namespace-sharing",
-			TemplateVersion: "1.0.0",
+			TemplateVersion: baselinePodPolicyVersion,
 			InstanceName:    "baseline-no-host-namespace-sharing",
 			Description:     "Default baseline guard for host namespace sharing.",
 			Enabled:         true,
+			ResourceTypes:   models.StringArray{"Pod"},
 			Action:          "alert",
 			Severity:        "high",
 			CreatedBy:       "system",

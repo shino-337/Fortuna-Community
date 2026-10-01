@@ -12,6 +12,7 @@ import {
 } from '../lib/tableChrome';
 import { PinToInvestigationButton } from './PinToInvestigationButton';
 import { findingInvestigationEntity } from '../lib/investigationEntities';
+import { podDetailPath } from '../lib/podRoute';
 
 /* ─── props ──────────────────────────────────────────────── */
 
@@ -366,7 +367,11 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
                       type="button"
                       onClick={() => {
                         const podUid = context.pods[0]?.uid || affectedPodUid(insight);
-                        if (podUid) { onClose(); navigate(`/resources/pods/uid/${encodeURIComponent(String(podUid))}`); }
+                        if (podUid) {
+                          const clusterId = context?.cluster?.id ?? insight.clusterId;
+                          onClose();
+                          navigate(podDetailPath(String(podUid), clusterId == null ? undefined : String(clusterId)));
+                        }
                       }}
                       className="inline-flex items-center px-2 py-1 rounded bg-base border border-border text-text hover:border-brand"
                     >

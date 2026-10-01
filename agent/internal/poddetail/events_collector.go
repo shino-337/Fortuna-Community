@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"sync"
@@ -20,8 +19,10 @@ import (
 )
 
 const (
-	eventsFlushInterval = 30 * time.Second
-	eventsBatchMax      = 200
+	eventsFlushInterval   = 30 * time.Second
+	eventsBatchMax        = 200
+	eventsQuarantineMax   = 400
+	eventsQuarantineRetry = 5 * time.Minute
 )
 
 // K8sEventPayload matches Core K8sEvent ingest JSON.
@@ -42,12 +43,15 @@ type K8sEventPayload struct {
 
 // EventsCollector watches K8s Events and POSTs batches to Core.
 type EventsCollector struct {
-	client      kubernetes.Interface
-	coreBaseURL string
-	clusterID   string
-	httpClient  *http.Client
-	mu          sync.Mutex
-	queue       []K8sEventPayload
+	client              kubernetes.Interface
+	coreBaseURL         string
+	clusterID           string
+	httpClient          *http.Client
+	mu                  sync.Mutex
+	queue               []K8sEventPayload
+	quarantine          []K8sEventPayload
+	lastQuarantineRetry time.Time
+	nextDeliveryAttempt time.Time
 }
 
 // NewEventsCollector creates an EventsCollector.
@@ -56,7 +60,7 @@ func NewEventsCollector(client kubernetes.Interface, coreBaseURL, clusterID stri
 		client:      client,
 		coreBaseURL: coreBaseURL,
 		clusterID:   clusterID,
-		httpClient:   &http.Client{Timeout: 20 * time.Second},
+		httpClient:  &http.Client{Timeout: 20 * time.Second},
 		queue:       make([]K8sEventPayload, 0, eventsBatchMax*2),
 	}
 }
@@ -98,9 +102,26 @@ func (e *EventsCollector) enqueue(obj interface{}) {
 	}
 	payload := eventToPayload(ev)
 	e.mu.Lock()
+	if payload.EventUID != "" {
+		for i := range e.queue {
+			if e.queue[i].EventUID == payload.EventUID {
+				e.queue[i] = payload
+				e.mu.Unlock()
+				return
+			}
+		}
+		for i := range e.quarantine {
+			if e.quarantine[i].EventUID == payload.EventUID {
+				e.quarantine[i] = payload
+				e.mu.Unlock()
+				return
+			}
+		}
+	}
 	e.queue = append(e.queue, payload)
-	if len(e.queue) > eventsBatchMax*2 {
-		e.queue = e.queue[len(e.queue)-eventsBatchMax : len(e.queue)]
+	if len(e.queue) > eventsQuarantineMax {
+		log.Printf("[PodDetail] events queue overflow: dropping %d oldest events", len(e.queue)-eventsQuarantineMax)
+		e.queue = e.queue[len(e.queue)-eventsQuarantineMax:]
 	}
 	e.mu.Unlock()
 }
@@ -131,30 +152,103 @@ func eventToPayload(ev *corev1.Event) K8sEventPayload {
 
 func (e *EventsCollector) flush(ctx context.Context) {
 	e.mu.Lock()
-	batch := e.queue
-	e.queue = make([]K8sEventPayload, 0, eventsBatchMax*2)
-	e.mu.Unlock()
-	if len(batch) == 0 {
+	now := time.Now()
+	if now.Before(e.nextDeliveryAttempt) {
+		e.mu.Unlock()
 		return
 	}
-	// Send in chunks to avoid huge payload
+	batch := e.queue
+	e.queue = make([]K8sEventPayload, 0, eventsBatchMax*2)
+	var quarantine []K8sEventPayload
+	if len(e.quarantine) > 0 && now.Sub(e.lastQuarantineRetry) >= eventsQuarantineRetry {
+		quarantine = e.quarantine
+		e.quarantine = nil
+		e.lastQuarantineRetry = now
+	}
+	e.mu.Unlock()
+	var retry, denied, deferredQuarantine []K8sEventPayload
+	budget := &corehttp.DeliveryBudget{Remaining: corehttp.DeliveryRequestLimit, Now: now}
+	// Isolate ownership-rejected events without letting one stale Pod block
+	// unrelated events. Other failures remain retryable as an intact batch.
 	for i := 0; i < len(batch); i += eventsBatchMax {
 		end := i + eventsBatchMax
 		if end > len(batch) {
 			end = len(batch)
 		}
 		chunk := batch[i:end]
-		if err := e.post(ctx, chunk); err != nil {
-			log.Printf("[PodDetail] events POST failed: %v (re-queuing %d events)", err, len(chunk))
-			e.mu.Lock()
-			e.queue = append(chunk, e.queue...)
-			if len(e.queue) > eventsBatchMax*2 {
-				e.queue = e.queue[:eventsBatchMax*2]
+		result := corehttp.DeliverIsolated(ctx, chunk, budget, "pod_ownership_mismatch", e.post)
+		retry = append(retry, result.Retry...)
+		denied = append(denied, result.Rejected...)
+	}
+	// Retry quarantine as a bounded batch, using only the remaining fresh-event
+	// budget. A transient failure must not promote quarantine into the hot queue.
+	for i := 0; i < len(quarantine); i += eventsBatchMax {
+		end := min(i+eventsBatchMax, len(quarantine))
+		result := corehttp.DeliverIsolated(ctx, quarantine[i:end], budget, "pod_ownership_mismatch", e.post)
+		denied = append(denied, result.Rejected...)
+		deferredQuarantine = append(deferredQuarantine, result.Retry...)
+	}
+	// Give deferred evidence the next turn before retrying records already
+	// rejected in this flush, so a permanently stale prefix cannot starve it.
+	denied = append(deferredQuarantine, denied...)
+	e.mu.Lock()
+	e.nextDeliveryAttempt = budget.RetryAt
+	if len(quarantine) > 0 || (len(e.quarantine) == 0 && len(denied) > 0) {
+		e.lastQuarantineRetry = time.Now()
+	}
+	for _, event := range denied {
+		if event.EventUID != "" {
+			duplicate := false
+			for i := range e.quarantine {
+				if e.quarantine[i].EventUID == event.EventUID {
+					e.quarantine[i] = event
+					duplicate = true
+					break
+				}
 			}
-			e.mu.Unlock()
-			return
+			if duplicate {
+				continue
+			}
+		}
+		e.quarantine = append(e.quarantine, event)
+	}
+	// Informer updates can arrive while HTTP delivery has detached both queues.
+	// Merge their newest version back into the right queue, never hot-requeue an
+	// event just classified as quarantined or duplicate a transient retry.
+	quarantined := make(map[string]int, len(e.quarantine))
+	for i, event := range e.quarantine {
+		if event.EventUID != "" {
+			quarantined[event.EventUID] = i
 		}
 	}
+	queue := make([]K8sEventPayload, 0, len(retry)+len(e.queue))
+	positions := make(map[string]int)
+	for _, events := range [][]K8sEventPayload{retry, e.queue} {
+		for _, event := range events {
+			if event.EventUID != "" {
+				if i, ok := quarantined[event.EventUID]; ok {
+					e.quarantine[i] = event
+					continue
+				}
+				if i, ok := positions[event.EventUID]; ok {
+					queue[i] = event
+					continue
+				}
+				positions[event.EventUID] = len(queue)
+			}
+			queue = append(queue, event)
+		}
+	}
+	e.queue = queue
+	if len(e.queue) > eventsQuarantineMax {
+		log.Printf("[PodDetail] events retry queue overflow: dropping %d oldest events", len(e.queue)-eventsQuarantineMax)
+		e.queue = e.queue[len(e.queue)-eventsQuarantineMax:]
+	}
+	if len(e.quarantine) > eventsQuarantineMax {
+		log.Printf("[PodDetail] events ownership quarantine overflow: dropping %d oldest events", len(e.quarantine)-eventsQuarantineMax)
+		e.quarantine = e.quarantine[len(e.quarantine)-eventsQuarantineMax:]
+	}
+	e.mu.Unlock()
 }
 
 func (e *EventsCollector) post(ctx context.Context, events []K8sEventPayload) error {
@@ -179,7 +273,9 @@ func (e *EventsCollector) post(ctx context.Context, events []K8sEventPayload) er
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("POST %s: %d", url, resp.StatusCode)
+		err := corehttp.DecodePostError(resp, time.Now())
+		log.Printf("[PodDetail] events POST failed: %v", err)
+		return err
 	}
 	return nil
 }

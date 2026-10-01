@@ -37,7 +37,15 @@ echo ""
 echo "=== Kubernetes cluster ==="
 if kubectl cluster-info &>/dev/null; then
   ok "Cluster accessible"
-  kubectl get nodes --no-headers 2>/dev/null | wc -l | xargs -I{} info "Số node: {}"
+  node_count="$(kubectl get nodes --no-headers 2>/dev/null | wc -l | tr -d ' ')"
+  info "Số node: $node_count"
+  disk_pressure_nodes="$(kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{"="}{range .status.conditions[?(@.type=="DiskPressure")]}{.status}{end}{" "}{end}' 2>/dev/null || true)"
+  if [[ "$disk_pressure_nodes" == *"=True"* ]]; then
+    err "Node đang DiskPressure ($disk_pressure_nodes); giải phóng dung lượng và đợi trạng thái False trước rollout"
+    FAIL=1
+  else
+    ok "Không có node DiskPressure"
+  fi
 else
   err "Không kết nối được cluster (kubectl cluster-info thất bại)"
   warn "Bật cluster (kind/kubeadm/minikube) rồi chạy lại. Deploy chỉ chạy khi cluster đã sẵn sàng."
@@ -55,6 +63,9 @@ echo ""
 # --- Repo: Build script ---
 echo "=== Script build ==="
 [ -x "$PROJECT_ROOT/scripts/build/build-and-load-containerd.sh" ] && ok "build-and-load-containerd.sh" || { err "Thiếu hoặc không executable: scripts/build/build-and-load-containerd.sh"; FAIL=1; }
+for f in scripts/utils/create_mtls_secret.sh scripts/utils/ensure-fortuna-secrets.sh scripts/deploy/deploy-fortuna-robust.sh; do
+  [ -x "$PROJECT_ROOT/$f" ] && ok "$f" || { err "Thiếu hoặc không executable: $f"; FAIL=1; }
+done
 echo ""
 
 # --- Repo: Deploy YAMLs ---
@@ -82,8 +93,11 @@ echo "=========================================="
 if [ $FAIL -eq 0 ]; then
   echo -e "${GREEN}Kết luận: Môi trường đủ để rebuild & deploy (khi cluster đã bật).${NC}"
   echo ""
-  echo "Lệnh rebuild + deploy toàn bộ:"
-  echo "  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh"
+  echo "Cluster đã có dữ liệu: dùng quy trình cập nhật image không xóa dữ liệu:"
+  echo "  docs/05-operations/DEPLOYMENT_CONTAINERD.md#update-an-existing-local-single-node-installation"
+  echo ""
+  echo "Pipeline clean/rebuild/deploy dành cho trường hợp chủ động clean:"
+  echo "  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full"
   echo ""
   echo "Chỉ rebuild (không deploy):"
   echo "  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --skip-deploy"

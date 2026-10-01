@@ -1,6 +1,8 @@
 # Post-merge audit implementation plan
 
-Status verified after PR #52 merged on 2026-09-23 (merge commit `e8efc99`).
+Baseline verified after PR #53 merged on 2026-09-24 (merge commit `a6e49ff`);
+the local deployment was reviewed on 2026-09-28 UTC and source/GAP status on
+2026-09-29 UTC.
 Changes continue as focused PRs and are reviewed/merged manually. A–I are work packages. PR numbers for
 unopened work are estimates: D is split into D1 and D2 inventory/runtime work, so later PR numbers may shift.
 
@@ -49,6 +51,108 @@ HTTP/gRPC agent identity, duplicate Pod UID/node name/image digest, evidence
 loss/recovery, deletion retry and actual UI/API/worker flow.
 
 ## Implementation progress
+
+### Current checkpoint — 2026-09-29 UTC
+
+| Scope | Verified state | Remaining gate |
+| --- | --- | --- |
+| A–C | Source packages merged; scoped HTTP/mTLS ingest exercised on the single-node lab | Live two-cluster isolation is still owned by F |
+| D | D1 and D2 merged; absence-based runtime auto-resolution remains disabled | D3 independent source health, then F live-topology validation |
+| E | E1 merged; E2 and residual E1 fixes are on the #54 branch; full native working-tree CI passed on 2026-09-29 | Exact committed-head local CI evidence, owner review and manual merge |
+| F | All seven PostgreSQL 16 workflow selections passed again on 2026-09-29 in an isolated database | Populated live migration rehearsal and the real two-cluster/DaemonSet gate |
+| G–I | Pending | Scoped AGE, mutations/revocation, performance and investigation walkthrough |
+
+The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
+records source fixes, historical live observations and remaining acceptance gates
+separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions but
+still require a live Agent rollout with the durable-state configuration. They
+do not close D3 or package F. PR #54 remains open; the 2026-09-28 hosted CI run
+for its previous head executed zero steps in all seven jobs. Existing local
+status or earlier working-tree results must not be reused for a new commit.
+
+The 2026-09-27 dependency/deployment follow-up built and deployed local
+`depfix-20260927-54-r2` Core, Agent and Dashboard images. Container config IDs
+were compared with the running Pods, not only the workload tag or the CRI
+display name: all three match the newly built images. `latest` references also
+match their corresponding versioned image manifests. All three workloads are
+Ready, Core readiness and Dashboard return HTTP 200, and admin login was tested
+without logging its Secret. On 2026-09-28 the node has no DiskPressure and about
+15 GiB of free root-filesystem space. These are single-cluster observations,
+not evidence that D3/F/G–I are complete.
+
+The operator-authorized dedicated database reset was preceded by a restricted
+custom-format backup at
+`/var/backups/fortuna/fortuna-pre-depfix-20260927.dump` (SHA-256
+`a2a18b48c6dc692eb50b5ce8bdc771e4fa6e088ddceb4a48072579c1a9ae743e`).
+The `public` schema was recreated; PVCs, NATS state and existing Secrets were
+retained. The CVE loader Job subsequently completed with 772,828 CVEs,
+2,689,199 package-vulnerability rows and 772,828 file-metadata rows. CVE
+generation 7 is `active` with validation `passed` and mirror version 2; the
+earlier empty-catalog snapshots below are historical, not the current state.
+The loader now relies on Core migration 138 for the generation table, avoiding
+the redundant GORM AutoMigrate introspection failure on PostgreSQL.
+
+The dependency baseline now uses Go 1.26.8 builders/CI, upgraded Go modules,
+Node 24 and patched Dashboard dependencies/runtime packages. Syft v1.52.0 is
+built from source with the patched Go toolchain; the Agent uses `syft scan`
+and parses stdout separately from diagnostic stderr. The unnecessary packaged
+Docker daemon/CLI was removed from the Agent image. At the 2026-09-27 scan,
+Core/Agent Go binaries (including Syft and both CVE loaders) and the Dashboard
+image had no HIGH/CRITICAL findings. Core and Agent each still had 51 Debian
+HIGH findings with no fixed version reported, and no CRITICAL findings.
+Agent containerd v1 module advisories and the host runtime upgrade remain
+follow-up; client-only use is not a claim that the upstream module or host
+runtime is vulnerability-free.
+
+Local Core/Agent/API tests and vet, the permanent security regression gate,
+20 repeated SQLite risk-engine runs, all seven PostgreSQL CI selections,
+Dashboard typecheck/build and 52 Playwright tests, plus script/shell/hygiene
+checks passed on 2026-09-27. This was direct local execution of workflow steps;
+a complete `act all` run was not claimed. Commit/push preparation must rerun
+and record the exact committed head outside this plan. GitHub's existing #54
+jobs failed before execution because of account billing/spending entitlement;
+their failures do not demonstrate a code failure or a local pass.
+
+The historical runtime observations remain explicit: the stale-Falco mixed-batch
+retry limitation recorded below was not durably fixed by restart or `send_ok`
+traffic. A 2026-09-28 Agent log snapshot also contains repeated HTTP 429 during
+Pod-event retry/quarantine (75 rate-limit failures and 705 quarantine log
+entries in a bounded recent sample). Source fixes and regression coverage are
+now present below; their live rollout and recovery checks remain open. Do not treat Ready Pods
+or healthy Falco traffic as proof that all Pod-event ingestion is complete.
+
+The 2026-09-28/29 source implementation addresses those two bounded
+retry gaps without changing Core ownership authorization. Pod-event delivery
+now has a shared 12-request flush budget, stops all siblings after a transient
+or non-ownership rejection, honors `Retry-After`, and keeps deferred quarantine
+out of the fresh-event queue. Falco has an optional persistent cursor/outbox,
+enabled by a node-local DaemonSet mount: payloads are prepared and durably
+saved before delivery, only explicit `runtime_ownership_mismatch` responses
+are isolated, and rejected records remain quarantined for bounded retry.
+Source-record identity and canonical payloads survive restart/source rotation;
+corrupt, wrong-principal, concurrently locked or full state fails closed.
+Quarantined/pending evidence keeps coverage failed, never authoritative clean.
+Backlogs drain within the outbox capacity; persistence failure sends nothing
+and does not advance the cursor. Informer updates received during a Pod-event
+flush retain the newest version without bypassing quarantine or backoff.
+Named regressions are added to the permanent gate. Native local CI now reads
+workflow run steps, executes job groups sequentially, isolates PostgreSQL,
+records SHA/source/log hashes, and refuses publishable status for a dirty or
+changing worktree. Full native CI passed on the 2026-09-29 working-tree snapshot:
+Core/Agent/API tests and vet, the permanent regression contract, 20 repeated
+SQLite risk-engine runs, all seven PostgreSQL selections, Dashboard
+typecheck/build and 52 Playwright tests, plus script/shell/hygiene checks.
+That dirty-tree report is non-publishable; record a fresh clean committed-head
+run outside this plan before push/merge readiness. A later live Agent rollout
+is still required before these fixes are claimed deployed; D3, F and G–I remain open.
+The rollout must add the state env/volume/mount as well as the Agent image;
+see [Falco delivery-state operations](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
+
+The 2026-09-29 continuation also fixes Pod-event quarantine starvation under
+the shared request limit: deferred records take the next retry turn before
+records already ownership-rejected during that flush. A permanent regression
+reproduces a recovered event behind a permanently rejected prefix, verifies
+eventual delivery, and checks the per-flush budget and evidence retention.
 
 - A: merged in PR #36. Runtime evidence read failures propagate into evaluation and
   reconciliation retains findings when required evidence is unavailable.
@@ -136,13 +240,139 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
   independent source-health proof and package F live-topology validation exist.
   Retention/partition/archive/storage metrics remain production-operations
   follow-up, not #52 correctness blockers. D is intentionally not yet complete.
-- E1 / PR #53 active draft: backend availability contract for stats, node,
-  capability and Agent observability APIs. Missing schema/query failures must not collapse into
-  legitimate zero/empty results; Agent version/cluster identity must come from the
-  persisted Agent record; data availability must remain distinct from Agent
-  heartbeat/liveness.
-- E2 follows E1: dashboard/detail/list retry and unavailable states consume the
-  backend contract consistently without replacing errors with zero KPIs.
+- E1 / PR #53 merged on 2026-09-24 (merge commit `a6e49ff`): backend
+  availability plus primary Dashboard/Clusters/Resources/Monitoring compatibility
+  work landed. A follow-up audit of #54 found residual E1 paths: resource/capability
+  dashboard adapters still converted failures to empty data, the resource API
+  itself ignored inventory query errors, a selected dashboard
+  cluster bypassed the active-inventory filter, and cluster/worker observability
+  did not consistently distinguish schema/query failure from empty activity;
+  catalog checks could also misclassify a disconnected database as a missing
+  migration. The follow-up checks connectivity before marking a schema absent.
+  The #54 branch carries focused fixes and named regressions for those paths;
+  they are not merged or exact-head validated until the #54 gate passes. Required
+  query/schema failures must remain distinct from
+  zero/empty data, primary clients preserve last-known-good state, retryable versus
+  operator-action `503` is explicit, and genuine successful empty responses keep
+  their normal empty semantics.
+- E2 / PR #54 remains active from merge commit `a6e49ff`; closure fixes were
+  reviewed on 2026-09-27. The exact merge-candidate SHA is recorded with the local
+  CI evidence rather than embedded here so a documentation-only commit cannot make
+  the recorded head stale. Cluster, Node, Capability and Pod detail/list availability behavior
+  is implemented; the closure review additionally found and fixed ServiceAccount
+  canonical identity loss and AttackPaths stale/malformed-response handling.
+  ServiceAccount detail and permissions now preserve `{cluster_id, uid}` from
+  navigation through Core resolution, duplicate UID reads fail closed when cluster
+  ownership is ambiguous, and dashboard callers that already know the cluster
+  retain it. AttackPaths now rejects malformed successful graph/bundle payloads
+  and ignores stale page/pod responses after cluster/entity changes. E2 is not
+  merge-ready until the residual E1 follow-ups and owner-recorded exact-head local CI evidence pass the gate
+  below.
+- A single-node `fortuna` deployment attempt on 2026-09-27 built the Core,
+  Agent and Dashboard images from the dirty #54 worktree, but did not complete
+  rollout. On the existing PostgreSQL 15 database, Core's cluster-resource
+  ownership backfill failed on the `risk_scores` unique key: read-only
+  projection found 10 Pod risk-score keys with one unowned legacy row and one
+  already cluster-owned row targeting the same `{resource_type, resource_uid,
+  cluster_id}`. This is a data reconciliation decision, not permission to delete
+  either row. Core was returned to its prior GHCR image; Agent and Dashboard
+  were not updated. Migration 145 (idempotent policy baseline seed) was recorded
+  before the fail-closed startup check. The build cache also caused temporary
+  node DiskPressure; it was pruned without deleting images or PVC data. A
+  populated migration rehearsal against the existing data shape and an
+  explicitly approved risk-score reconciliation policy are required before
+  retrying this live rollout. This attempt does not close the package F gate.
+- On 2026-09-27 the operator instead authorized a complete reset of the
+  dedicated `fortuna` database. A restricted-access `pg_dump -Fc` was checked
+  before resetting its `public` schema. Fresh migrations completed, and local
+  Core, Agent, and Dashboard images were deployed on the single-node cluster.
+  HTTP Agent ingest uses a per-node scoped token; gRPC Agent ingest uses a
+  per-node certificate and fingerprint registry signed by a new dedicated
+  Agent-client CA. The previous Fortuna server/webhook CA and certificates were
+  not rotated. Agent registration, inventory sync, SBOM ingest, Core health,
+  and the full Kubernetes deployment check were exercised. Fresh-db runtime
+  traffic exposed a missing JSON payload on synthetic network events and an
+  overlong incident key; both were patched with regressions and rebuilt into
+  the local Core image. After an Agent restart cleared its in-memory batch of
+  stale Pod events (the Falco source log was retained), fresh runtime v2
+  batches, network observations, and incident creation were observed without
+  those database errors. This clean reset deliberately discards the legacy
+  collision data, so it does **not** prove a populated migration or close the
+  two-cluster package F gate. OSV/CVE catalogs remain empty until a new source
+  load; the Aikido malware feed repopulates independently.
+- Follow-up runtime check on 2026-09-27 found two live ingestion/evaluation gaps
+  despite all eight Pods being Ready. Scoped Pod-event batches repeatedly returned
+  `pod_ownership_mismatch` 403 and no new `k8s_events` rows arrived after 07:18
+  UTC; historical RBAC evaluation reported 153 duplicate-key errors per sync.
+  The Core rule engine read but did not persist `cluster_id` on generated
+  insights, and the generic insight path did not restore a soft-deleted row
+  covered by the unconditional unique index. Core/Agent fixes now carry
+  cluster identity, restore the exact soft-deleted key, and quarantine only
+  individually ownership-rejected Pod events so valid events can proceed;
+  resync of the same Kubernetes Event UID cannot immediately requeue it.
+  Follow-up Core regressions also use the actual cluster-qualified PCE conflict
+  keys and normalize stored RBAC rules/role references before CEL evaluation,
+  without converting malformed evidence into a successful clean result.
+  Local full Core/Agent tests, vet, the named regression gate and a PostgreSQL
+  16 restore regression passed. Core `gapfix-20260927-0941` and Agent
+  `gapfix-20260927-0929` were deployed to the single-node cluster. The first
+  post-rollout historical evaluation reported `Insights=166, Errors=0` (down
+  from 153, then 13); PCE populated 24 Pod risk profiles and 98 capabilities;
+  `k8s_events` advanced from 1003 to 1070. The full deployment check passed
+  with zero errors and warnings. This is single-cluster runtime evidence, not
+  the package F two-cluster acceptance gate. At that snapshot no active insight
+  had an empty `cluster_id`; 157 unowned soft-deleted rows remain as historical
+  evidence. Do not delete or bulk-assign those rows by node/name inference.
+  A transient Falco 403 during Core replacement cleared after the new Pod
+  appeared in the accepted inventory. At the next accepted inventory sync
+  (09:51 UTC), historical evaluation again reported `Insights=166, Errors=0`,
+  Falco batches continued `send_ok`, runtime events reached 1019, and no
+  active insight had an empty cluster ID. OSV/CVE catalogs remain empty.
+- A later runtime check found that both seeded Pod policy templates failed CEL
+  compilation: they referenced undeclared `object`, while the policy evaluator
+  receives the inner Pod spec as `resource` and treats a true result as
+  compliant. The corrected 1.0.1 templates cover app, init, and ephemeral
+  containers and host namespace flags; a forward migration repoints legacy
+  instances and retires only exact stock broken 1.0.0 templates. Source and
+  PostgreSQL regressions confirm safe Pod acceptance and unsafe Pod violations,
+  including a populated legacy-template repair. A fresh live rollout on
+  2026-09-27 confirmed two active 1.0.1 templates and two enabled Pod-scoped
+  instances; the Core evaluator logged successful CEL compilation of both.
+  The live webhook responds on HTTPS :8443, but no Kubernetes
+  ValidatingWebhookConfiguration is installed; a cluster admission denial was
+  not claimed. This finding is not closed by a database reset alone.
+- The same fresh single-node rollout used local image tag
+  `auditfix-20260927-ee927de95` for Core, Agent and Dashboard. A restricted
+  `pg_dump -Fc` was checked before the dedicated `fortuna` schema reset;
+  its restricted host backup is `/var/backups/fortuna/fortuna-pre-reset-20260927-1115.dump`
+  (SHA-256 `f9edbc448f9721d2750de6522085534556d4b85fb570025ba697601a0902e89a`).
+  All 146 migrations applied. Core/Agent/Dashboard rollouts and the full
+  deployment check passed (0 errors, 0 warnings). The first post-deploy
+  process-snapshot check ran before the Agent's two-minute retry, returned
+  nonzero, and was followed by 20 Pod snapshots; the pipeline now waits up
+  to 150 seconds before failing that check. Existing scoped HTTP/mTLS
+  registries and client CA were reapplied after the Core Deployment replacement;
+  subsequent robust deploys detect the provisioned secret set and reapply
+  these overlays before rollout. A no-clean/no-rebuild/no-reset replay of the
+  deploy and verification phases finished with all 10 checks passing, including
+  scoped Agent connectivity, runtime events and process snapshots. The
+  server/webhook CA was not rotated.
+  At the verification snapshot, 23 Pods, 17 runtime events, 61 Kubernetes
+  events and 23 Pod risk profiles were persisted; Falco runtime batches were
+  accepted. CVE/OSV catalog loading was intentionally skipped because the
+  local source is large and node free space was limited; vulnerability matching
+  remains unavailable until a separately verified catalog load. This reset
+  still does not satisfy package F's populated migration or two-cluster gate.
+- The no-clean deploy replay exposed a remaining runtime continuity gap: a
+  Falco v2 batch containing an old rollout Pod UID was rejected as a whole by
+  scoped ownership checks (403), and the Agent retried the same in-memory
+  batch indefinitely. A post-inventory Agent restart cleared that transient
+  batch without deleting the host Falco source log; new batches returned
+  `send_ok`. This was an operational recovery. The subsequent durable source fix
+  is recorded as `INGEST-01`; mixed-batch, restart, rotation, replay and persistence
+  failure regressions now pass. Live rollout of its state env/volume/mount and
+  verification of valid-sibling delivery and retained stale evidence remain open.
+  Core's all-or-nothing ownership check is preserved.
 - D3 follows E2 and precedes final F acceptance: define a runtime source-health
   protocol that is independent of file existence/reader heartbeat, bind health to
   the exact authenticated producer/session, allow authority only for producers
@@ -170,9 +400,16 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52 is merged. Active work starts E1 from merge commit `e8efc99`; E1 must remain
-focused on API availability semantics and must not reopen runtime evidence or
-inventory ownership contracts.
+security regression gates passed. #51 was retired rather than reused. #52 and #53
+are merged. Active work is E2 from merge commit `a6e49ff`. GitHub-hosted Actions
+for #54 are currently failing before runner execution because of the repository
+account/runner entitlement state; zero-step jobs are not code evidence. For #54
+only, the repository owner may satisfy the exact-head functional gate with a
+recorded local run of the same commands/jobs. Automatic Secret Scan remains
+manual-only and is not part of this functional gate. E2 should remain focused on
+availability/identity correctness of the affected detail/list consumers and must
+not enable runtime absence authority or claim package-F live multi-cluster
+acceptance.
 
 
 ### Final #50 merge blockers closed
@@ -261,9 +498,9 @@ upstream health signal. The D3 acceptance contract is:
 - package F validates the protocol on the real DaemonSet/two-cluster topology
   before runtime auto-resolution is enabled in production.
 
-### E1 API availability merge gates
+### E1 API availability merge gates — merged in #53
 
-E1 starts after #52 and is the current implementation package. Merge only when:
+E1 is closed on merge commit `a6e49ff`. Its permanent contract remains:
 
 - required DB/schema/query failures return an explicit unavailable/error response
   rather than a successful zero/empty projection; transient query/storage failures
@@ -300,15 +537,99 @@ E1 starts after #52 and is the current implementation package. Merge only when:
 - named regressions are added to the permanent security contract;
 - exact-head Core/API/dashboard validation and Secret scan pass before merge.
 
-Current #53 execution order after the merged #52 baseline:
-1. close backend availability semantics for Agent, cluster/node, capability, system
-   metrics, pipeline health and dashboard data-integrity surfaces;
-2. re-scan aggregate/detail handlers for ignored DB errors and add named regressions
-   for every remaining zero-on-error path in E1 scope;
-3. freeze the backend response contract and run exact-head CI/security gates;
-4. merge #53 manually, then start E2 dashboard retry/unavailable-state consumption;
-5. after E2, implement D3 source-health/authority; only then execute final package F
-   live two-cluster/DaemonSet acceptance.
+### E2 detail/list availability merge gates
+
+E2 starts from merge commit `a6e49ff`. Merge only when:
+
+- residual E1 paths preserve unavailable versus empty for resource/capability
+  adapters, the shared cluster inventory, selected-cluster dashboard KPIs and
+  required worker persistence; permanent regressions cover failure and real empty
+  responses;
+- Cluster, Node, Capability and Pod primary-detail reads distinguish a genuine
+  not-found response from transient/schema availability failure;
+- secondary/enrichment failure (cluster stats/overview, tab data, linked rules,
+  SBOM/risk/runtime evidence) does not erase a successfully loaded primary entity;
+- last-known-good state is keyed to the exact route/entity identity; navigation from
+  entity A to entity B cannot render or retain A's primary/enrichment evidence, and
+  delayed responses from A cannot overwrite B;
+- malformed successful payloads (for example missing required arrays, counters or
+  mismatched IDs) are protocol-unavailable failures rather than valid empty data;
+- retryable refresh failure preserves last-known-good detail/list state and exposes
+  Retry, while non-retryable schema/deployment failure exposes operator guidance;
+- shared cluster inventory uses stale-while-revalidate semantics: failed
+  revalidation cannot clear the cached cluster selector or cause ownership/scope
+  UI to report a false empty platform;
+- Settings user-scope cluster inventory preserves its last successful allow-list
+  source and never turns a failed refresh into "No clusters available";
+- Pod Detail contract-critical evidence fetches use strict adapters so transport,
+  query and schema failures cannot overwrite prior metrics/process/network/events,
+  SBOM, risk report, runtime signals/facts/incidents or capability state with
+  empty/null values;
+- successful `404`/not-found and successful `200` empty responses retain their
+  genuine not-found/empty semantics;
+- permanent Playwright regressions cover primary 503 versus 404, enrichment/tab
+  503, capability rule failure, Node/Pod last-known-good refresh preservation and
+  successful empty behavior where applicable;
+- ServiceAccount detail and permissions preserve canonical `{cluster_id, uid}`
+  identity. A known cluster must be propagated by Pod/Resources/findings links;
+  unqualified duplicate UIDs must return an ambiguity failure rather than selecting
+  an arbitrary row; permission responses return and validate UID + cluster
+  ownership;
+- AttackPaths cluster/entity changes cannot be overwritten by an older in-flight
+  bundle/fallback/pod request, and malformed successful graph/bundle payloads are
+  protocol-unavailable rather than empty graph/path state;
+- the permanent route/static guard ratchets cluster-aware Pod and ServiceAccount
+  navigation plus AttackPaths request-generation/strict-response markers;
+- exact-head Dashboard typecheck/build/Playwright, Core permanent regressions,
+  PostgreSQL gate, API/Agent tests + vet, script/shell/hygiene pass. For PR #54,
+  owner-recorded local execution of these same gates is accepted while
+  GitHub-hosted jobs fail before execution. Secret scanning is manual-only while
+  the repository plan/license does not support it as a reliable PR/push gate;
+  scanner availability must not block the functional CI contract.
+
+#### #54 local exact-head verification
+
+Before manual merge, record the tested commit SHA and successful local results for:
+
+```bash
+# Core
+(cd core && go test ./... && go vet ./...)
+python3 scripts/verify/test-security-regression-gate.py
+python3 scripts/verify/check-security-regressions.py
+
+# API + Agent
+(cd api && go test ./... && go vet ./...)
+(cd agent && go test ./... && go vet ./...)
+
+# Dashboard
+(cd dashboard && npm ci && npm run typecheck && npm run build)
+(cd dashboard && npx playwright install chromium)
+(cd dashboard && npx playwright test --config playwright.runtime.config.ts)
+
+# Repository/script contracts
+python3 scripts/verify/check-service-selectors.py
+python3 scripts/e2e/test-webhook-bootstrap.py
+python3 scripts/verify/test-agent-credential-tool.py
+python3 scripts/verify/test-agent-certificate-tool.py
+python3 scripts/verify/test-scoped-agent-credential-overlay.py
+python3 scripts/verify/check-cluster-resource-models.py
+python3 scripts/verify/check-cluster-qualified-pod-routes.py
+python3 scripts/verify/test-cluster-qualified-pod-routes.py
+python3 scripts/verify/check-retired-routes.py
+python3 scripts/verify/test-retired-routes.py
+find scripts -type f -name '*.sh' -print0 | xargs -0 -n1 bash -n
+```
+
+The PostgreSQL job must also be run against a local PostgreSQL 16 instance with
+`FORTUNA_TEST_POSTGRES_URL` set, using the same test selections in
+`.github/workflows/ci.yml`. A local pass applies only to the exact recorded head;
+any subsequent runtime/security-relevant commit resets the gate.
+
+Current execution order after #53:
+1. complete E2 against the gates above and merge PR #54 manually;
+2. D3: implement independent runtime source-health/authority without inferring
+   authority from clean-empty windows or reader heartbeat;
+3. F: execute the live PostgreSQL/two-cluster/DaemonSet acceptance gate.
 
 ### #52 production operations follow-up (not a correctness merge blocker)
 

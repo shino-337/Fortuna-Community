@@ -39,11 +39,13 @@ export function podInvestigationEntity(pod: {
   uid: string;
   name: string;
   namespace?: string;
+  clusterId?: string;
 }): Omit<InvestigationEntity, 'id' | 'pinnedAt'> {
+  const clusterQuery = pod.clusterId ? `?clusterId=${encodeURIComponent(pod.clusterId)}` : '';
   return {
     type: 'pod',
     label: `${pod.namespace ?? 'default'}/${pod.name}`,
-    href: `#/resources/pods/uid/${encodeURIComponent(pod.uid)}`,
-    meta: { uid: pod.uid },
+    href: `#/resources/pods/uid/${encodeURIComponent(pod.uid)}${clusterQuery}`,
+    meta: { uid: pod.uid, clusterId: pod.clusterId ?? '' },
   };
 }

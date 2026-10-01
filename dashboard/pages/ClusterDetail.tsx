@@ -1,6 +1,6 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { Cluster, ClusterOverview, ClusterInventory, ClusterAgent, ClusterSecuritySummary } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
@@ -9,17 +9,20 @@ import { Button } from '../components/ui/Button';
 import { ArrowLeft, Globe, Layers, Server, Shield } from 'lucide-react';
 import clsx from 'clsx';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
-import { PageEmpty, PageLoading } from '../design-system/components/PageStatus';
+import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { formatDateTime, getAgentStatusLabel, getConnectionStatusClass, getConnectionStatusLabel } from '../lib/display';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
+import { useClusterStore } from '../store/clusterStore';
 
 type TabId = 'overview' | 'inventory' | 'agents' | 'security';
 
-export const ClusterDetail: React.FC = () => {
+const ClusterDetailContent: React.FC = () => {
   const params = useParams<{ id: string }>();
   const location = useLocation();
   const id = params.id ?? matchPath({ path: '/clusters/:id', end: true }, location.pathname)?.params.id;
   const navigate = useNavigate();
+  const setSelectedClusterId = useClusterStore((s) => s.setSelectedClusterId);
   const [cluster, setCluster] = useState<Cluster | null>(null);
   const [overview, setOverview] = useState<ClusterOverview | null>(null);
   const [inventory, setInventory] = useState<ClusterInventory | null>(null);
@@ -27,8 +30,32 @@ export const ClusterDetail: React.FC = () => {
   const [securitySummary, setSecuritySummary] = useState<ClusterSecuritySummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [detailIssues, setDetailIssues] = useState<AvailabilityIssue[]>([]);
+  const [tabIssue, setTabIssue] = useState<{ tab: Exclude<TabId, 'overview'>; issue: AvailabilityIssue } | null>(null);
+  const [inventoryLoaded, setInventoryLoaded] = useState(false);
+  const [agentsLoaded, setAgentsLoaded] = useState(false);
+  const [securityLoaded, setSecurityLoaded] = useState(false);
   const [tabLoading, setTabLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const detailRequestRef = useRef(0);
+  const tabRequestRef = useRef(0);
+
+  useEffect(() => {
+    detailRequestRef.current += 1;
+    tabRequestRef.current += 1;
+    setCluster(null);
+    setOverview(null);
+    setInventory(null);
+    setAgents([]);
+    setSecuritySummary(null);
+    setLoadError(null);
+    setDetailIssues([]);
+    setTabIssue(null);
+    setInventoryLoaded(false);
+    setAgentsLoaded(false);
+    setSecurityLoaded(false);
+    setActiveTab('overview');
+  }, [id]);
 
   const fetchCluster = useCallback(async () => {
     if (!id) {
@@ -37,46 +64,87 @@ export const ClusterDetail: React.FC = () => {
       setOverview(null);
       return;
     }
+    const requestSeq = ++detailRequestRef.current;
     setLoading(true);
     setLoadError(null);
+    const issues: AvailabilityIssue[] = [];
     try {
-      const [clusterData, statsList, overviewData] = await Promise.all([
-        api.getCluster(id),
-        api.getClustersStats().catch(() => []),
-        api.getClusterOverview(id).catch(() => null),
+      const [clusterResult, statsResult, overviewResult] = await Promise.allSettled([
+        api.getClusterStrict(id),
+        api.getClustersStats(),
+        api.getClusterOverviewStrict(id),
       ]);
-      const fromStats = Array.isArray(statsList) ? statsList.find((c) => c.id === id) : null;
-      if (clusterData && fromStats) {
-        setCluster({ ...clusterData, podCount: fromStats.podCount, deploymentCount: fromStats.deploymentCount, riskCount: fromStats.riskCount, agentCount: fromStats.agentCount, connectionStatus: fromStats.connectionStatus });
+
+      if (requestSeq !== detailRequestRef.current) return;
+
+      if (clusterResult.status === 'fulfilled') {
+        let nextCluster = clusterResult.value;
+        if (statsResult.status === 'fulfilled') {
+          const fromStats = statsResult.value.find((c) => c.id === id);
+          if (fromStats) {
+            nextCluster = {
+              ...nextCluster,
+              podCount: fromStats.podCount,
+              deploymentCount: fromStats.deploymentCount,
+              riskCount: fromStats.riskCount,
+              agentCount: fromStats.agentCount,
+              connectionStatus: fromStats.connectionStatus,
+            };
+          }
+        } else {
+          issues.push(getAvailabilityIssue(statsResult.reason, 'Cluster statistics'));
+        }
+        setCluster(nextCluster);
+      } else if (isApiError(clusterResult.reason) && clusterResult.reason.status === 404) {
+        setCluster(null);
+        setOverview(null);
+        setDetailIssues([]);
+        setLoadError(null);
+        return;
       } else {
-        setCluster(clusterData ?? null);
+        const issue = getAvailabilityIssue(clusterResult.reason, 'Cluster detail');
+        issues.push(issue);
+        setLoadError(issue.description);
       }
-      setOverview(overviewData ?? null);
-    } catch (err) {
-      setCluster(null);
-      setOverview(null);
-      setLoadError(err instanceof Error ? err.message : 'Cluster detail could not be loaded.');
+
+      if (overviewResult.status === 'fulfilled') {
+        setOverview(overviewResult.value);
+      } else {
+        issues.push(getAvailabilityIssue(overviewResult.reason, 'Cluster overview'));
+      }
+      setDetailIssues(issues);
     } finally {
-      setLoading(false);
+      if (requestSeq === detailRequestRef.current) setLoading(false);
     }
   }, [id]);
 
   const fetchTabData = useCallback(async (tab: TabId) => {
     if (!id) return;
+    const requestSeq = ++tabRequestRef.current;
     setTabLoading(true);
     try {
       if (tab === 'inventory') {
-        const data = await api.getClusterInventory(id);
-        setInventory(data ?? null);
+        const data = await api.getClusterInventoryStrict(id);
+        if (requestSeq !== tabRequestRef.current) return;
+        setInventory(data);
+        setInventoryLoaded(true);
       } else if (tab === 'agents') {
-        const { agents: list } = await api.getClusterAgents(id);
+        const { agents: list } = await api.getClusterAgentsStrict(id);
+        if (requestSeq !== tabRequestRef.current) return;
         setAgents(list);
+        setAgentsLoaded(true);
       } else if (tab === 'security') {
-        const data = await api.getClusterSecuritySummary(id);
-        setSecuritySummary(data ?? null);
+        const data = await api.getClusterSecuritySummaryStrict(id);
+        if (requestSeq !== tabRequestRef.current) return;
+        setSecuritySummary(data);
+        setSecurityLoaded(true);
       }
+      setTabIssue((prev) => (prev?.tab === tab ? null : prev));
+    } catch (err) {
+      if (requestSeq !== tabRequestRef.current) return;
+      if (tab !== 'overview') setTabIssue({ tab, issue: getAvailabilityIssue(err, `Cluster ${tab}`) });
     } finally {
-      setTabLoading(false);
+      if (requestSeq === tabRequestRef.current) setTabLoading(false);
     }
   }, [id]);
 
@@ -88,19 +156,25 @@ export const ClusterDetail: React.FC = () => {
     if (id && activeTab !== 'overview') fetchTabData(activeTab);
   }, [id, activeTab, fetchTabData]);
 
-  if (loading) {
+  if (loading && !cluster) {
     return <PageLoading message="Loading cluster detail..." className="min-h-[40dvh]" />;
   }
 
   if (!id || !cluster) {
+    const issue = detailIssues[0];
     return (
       <PageLayout
-        title={loadError ? 'Cluster detail unavailable' : 'Cluster not found'}
-        description={loadError ?? 'The cluster may have been removed or you lack access.'}
+        title={loadError || issue ? 'Cluster detail unavailable' : 'Cluster not found'}
+        description={loadError ?? issue?.description ?? 'The cluster may have been removed or you lack access.'}
       >
-        <Button variant="secondary" onClick={() => navigate('/clusters')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {(loadError || issue) && issue?.retryable !== false ? (
+            <Button variant="secondary" onClick={() => void fetchCluster()} isLoading={loading}>Retry cluster</Button>
+          ) : null}
+          <Button variant="secondary" onClick={() => navigate('/clusters')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters
+          </Button>
+        </div>
       </PageLayout>
     );
   }
@@ -111,6 +185,7 @@ export const ClusterDetail: React.FC = () => {
     { id: 'agents', label: 'Agents', icon: <Server className="w-4 h-4" /> },
     { id: 'security', label: 'Security Summary', icon: <Shield className="w-4 h-4" /> },
   ];
+  const currentTabIssue = tabIssue?.tab === activeTab ? tabIssue.issue : null;
 
   return (
     <PageLayout
@@ -122,6 +197,14 @@ export const ClusterDetail: React.FC = () => {
         </Button>
       }
     >
+      {detailIssues.map((issue, index) => (
+        <AvailabilityNotice
+          key={`${issue.code ?? issue.title}-${index}`}
+          issue={issue}
+          onRetry={issue.retryable ? () => void fetchCluster() : undefined}
+          className="mb-3"
+        />
+      ))}
       <div className="mb-4 flex flex-wrap items-center gap-2 text-caption">
         <span className={`px-2.5 py-1 rounded-full font-medium ${getConnectionStatusClass(cluster.connectionStatus)}`}>
           {getConnectionStatusLabel(cluster.connectionStatus)}
@@ -151,6 +234,18 @@ export const ClusterDetail: React.FC = () => {
 
       {/* Tabs */}
       <Tabs items={tabs} value={activeTab} onChange={(id) => setActiveTab(id as TabId)} />
+
+      {currentTabIssue && (
+        (activeTab === 'inventory' && inventoryLoaded) ||
+        (activeTab === 'agents' && agentsLoaded) ||
+        (activeTab === 'security' && securityLoaded)
+      ) ? (
+        <AvailabilityNotice
+          issue={currentTabIssue}
+          onRetry={currentTabIssue.retryable ? () => void fetchTabData(activeTab) : undefined}
+          className="mb-4"
+        />
+      ) : null}
 
       {/* Tab content – real data from Core APIs */}
       {activeTab === 'overview' && (
@@ -225,7 +320,14 @@ export const ClusterDetail: React.FC = () => {
                 <ul className="space-y-1 text-body text-text font-mono max-h-48 overflow-y-auto">
                   {inventory.namespaces.length === 0 ? <li className="text-muted">No namespaces</li> : inventory.namespaces.map((ns) => (
                     <li key={ns}>
-                      <button type="button" className="hover:text-brand hover:underline text-left w-full" onClick={() => navigate(`/resources?tab=Pod&namespace=${encodeURIComponent(ns)}`)}>
+                      <button
+                        type="button"
+                        className="hover:text-brand hover:underline text-left w-full"
+                        onClick={() => {
+                          setSelectedClusterId(id);
+                          navigate(`/resources?tab=Pod&namespace=${encodeURIComponent(ns)}`);
+                        }}
+                      >
                         {ns}
                       </button>
                     </li>
@@ -233,6 +335,8 @@ export const ClusterDetail: React.FC = () => {
                 </ul>
               </div>
             </div>
+          ) : currentTabIssue && !inventoryLoaded ? (
+            <AvailabilityNotice issue={currentTabIssue} onRetry={currentTabIssue.retryable ? () => void fetchTabData('inventory') : undefined} />
           ) : (
             <PageEmpty title="No inventory data" description="No nodes or namespaces returned for this cluster." className="py-8" />
           )}
@@ -271,9 +375,11 @@ export const ClusterDetail: React.FC = () => {
                 </tbody>
               </table>
             </div>
+          ) : currentTabIssue && !agentsLoaded ? (
+            <AvailabilityNotice issue={currentTabIssue} onRetry={currentTabIssue.retryable ? () => void fetchTabData('agents') : undefined} />
           ) : (
             <div>
-              <p className="text-muted text-body">No agents for this cluster. Agents are matched by node name from pods.</p>
+              <p className="text-muted text-body">No agents for this cluster.</p>
               <Button variant="secondary" className="mt-4" onClick={() => navigate('/monitoring')}>
                 View all agents
               </Button>
@@ -315,9 +421,11 @@ export const ClusterDetail: React.FC = () => {
                 View all risks
               </Button>
             </div>
+          ) : currentTabIssue && !securityLoaded ? (
+            <AvailabilityNotice issue={currentTabIssue} onRetry={currentTabIssue.retryable ? () => void fetchTabData('security') : undefined} />
           ) : (
             <div>
-              <PageEmpty title="No security summary data" description="Severity totals are unavailable for this cluster scope." className="py-2" />
+              <PageEmpty title="No security summary data" description="No security summary rows were returned for this cluster scope." className="py-2" />
               <Button variant="secondary" className="mt-4" onClick={() => navigate('/risks')}>
                 View all risks
               </Button>
@@ -327,4 +435,11 @@ export const ClusterDetail: React.FC = () => {
       )}
     </PageLayout>
   );
+};
+
+
+/** Keep last-known-good detail state scoped to one cluster route identity. */
+export const ClusterDetail: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <ClusterDetailContent key={id ?? 'missing-cluster'} />;
 };

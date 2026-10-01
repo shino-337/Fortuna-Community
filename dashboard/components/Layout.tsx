@@ -75,7 +75,7 @@ export const Layout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { clusters } = useClusters();
+  const { clusters, loading: clustersLoading, availabilityIssue: clusterAvailabilityIssue } = useClusters();
   const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
 
@@ -316,7 +316,9 @@ export const Layout: React.FC = () => {
                       </button>
                     ))}
                     {clusters.length === 0 && (
-                      <div className="px-4 py-2 text-muted-2 text-body">No clusters</div>
+                      <div className="px-4 py-2 text-muted-2 text-body">
+                        {clusterAvailabilityIssue ? 'Cluster inventory unavailable' : clustersLoading ? 'Loading clusters…' : 'No clusters'}
+                      </div>
                     )}
                   </div>
                 </>
@@ -441,7 +443,9 @@ export const Layout: React.FC = () => {
                         </button>
                       ))}
                       {clusters.length === 0 && (
-                        <div className="px-4 py-2 text-muted-2 text-caption">No clusters</div>
+                        <div className="px-4 py-2 text-muted-2 text-caption">
+                          {clusterAvailabilityIssue ? 'Cluster inventory unavailable' : clustersLoading ? 'Loading clusters…' : 'No clusters'}
+                        </div>
                       )}
                     </div>
                   </>

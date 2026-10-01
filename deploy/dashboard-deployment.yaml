@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - name: dashboard
-        image: ghcr.io/shino-337/fortuna-community/fortuna-dashboard:v1.0.0
+        image: fortuna-dashboard:depfix-20260927-54-r2
         imagePullPolicy: IfNotPresent
         ports:
         - containerPort: 80

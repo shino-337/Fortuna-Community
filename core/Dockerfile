@@ -3,7 +3,7 @@
 # Build context: repository root
 # Usage: docker build -f core/Dockerfile -t fortuna-core:latest .
 # Go deps/build use BuildKit cache mounts (shared across rebuilds; use NO_CACHE on the build tool for cold layers).
-FROM golang:1.24 AS builder
+FROM golang:1.26.8 AS builder
 ENV DEBIAN_FRONTEND=noninteractive
 WORKDIR /build
 
@@ -41,7 +41,7 @@ COPY core/ ./
 # Verify + build Core (no -a: allows incremental compile from gocache between builds)
 RUN --mount=type=cache,target=/gomodcache \
     --mount=type=cache,target=/gocache \
-    GOMODCACHE=/gomodcache GOCACHE=/gocache \
+    export GOMODCACHE=/gomodcache GOCACHE=/gocache; \
     go mod verify && \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build \
     -ldflags="-w -s \
@@ -78,7 +78,7 @@ RUN --mount=type=cache,target=/gomodcache \
     fi
 
 # Final stage - minimal runtime image
-FROM debian:bookworm-slim
+FROM debian:trixie-slim
 ENV DEBIAN_FRONTEND=noninteractive
 
 ARG FORTUNA_BUILD_VERSION=dev
@@ -92,6 +92,7 @@ RUN for i in 1 2 3 4 5; do \
         apt-get update && break || \
         (echo "Attempt $i failed, retrying in 5 seconds..." && sleep 5); \
     done && \
+    apt-get upgrade -y --no-install-recommends && \
     apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \

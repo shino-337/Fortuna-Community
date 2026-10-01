@@ -102,13 +102,13 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"dataStatus":    "available",
-			"healthBasis":   "lastSeenAt",
-			"agents":        agents,
-			"total":         len(agents),
-			"healthy":       healthyCount,
-			"slow":          slowCount,
-			"disconnected":  disconnectedCount,
+			"dataStatus":   "available",
+			"healthBasis":  "lastSeenAt",
+			"agents":       agents,
+			"total":        len(agents),
+			"healthy":      healthyCount,
+			"slow":         slowCount,
+			"disconnected": disconnectedCount,
 		})
 	}
 }
@@ -335,6 +335,11 @@ func policyStageDescription(hasViolationsTable, hasInstancesTable, hasTemplatesT
 func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		db := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "worker_metrics_schema_unavailable",
+			"Worker metrics require SBOM, match-run, Insight and risk-score schemas",
+			"sboms", "sbom_match_runs", "insights", "risk_scores") {
+			return
+		}
 		var queryErr error
 		captureErr := func(err error) {
 			if err != nil && queryErr == nil {
@@ -506,7 +511,7 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 			},
 		}
 
-		c.JSON(http.StatusOK, gin.H{"workers": workers})
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "workers": workers})
 	}
 }
 

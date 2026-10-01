@@ -11,6 +11,8 @@ export interface PodNetworkSummaryProps {
   topDestinations: PodNetworkTopDestinationItem[];
   podIP?: string;
   loading?: boolean;
+  connectionsUnavailable?: boolean;
+  topDestinationsUnavailable?: boolean;
 }
 
 interface ProtocolBreakdown {
@@ -59,6 +61,8 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
   topDestinations,
   podIP,
   loading,
+  connectionsUnavailable = false,
+  topDestinationsUnavailable = false,
 }) => {
   const directions = useMemo<DirectionBreakdown>(() => {
     const r: DirectionBreakdown = { inbound: 0, outbound: 0, listen: 0 };
@@ -95,18 +99,18 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
     return <p className="text-muted-2 text-body py-4">Loading summary…</p>;
   }
 
-  if (connections.length === 0 && topDestinations.length === 0) {
-    return null; // nothing to show — parent will render empty state
+  if (connections.length === 0 && topDestinations.length === 0 && !connectionsUnavailable && !topDestinationsUnavailable) {
+    return null; // nothing to show — parent will render authoritative empty state
   }
 
   return (
     <div className="space-y-4 min-w-0">
       {/* ── KPI cards ── */}
       <div className="grid min-w-0 grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
-        <Kpi label="Observed sockets" value={connections.length} />
-        <Kpi label="Unique remotes" value={uniqueRemotes} />
-        <Kpi label="Outbound" value={directions.outbound} accent="sky" />
-        <Kpi label="Inbound" value={directions.inbound} accent="brand" />
+        <Kpi label="Observed sockets" value={connectionsUnavailable ? '—' : connections.length} />
+        <Kpi label="Unique remotes" value={connectionsUnavailable ? '—' : uniqueRemotes} />
+        <Kpi label="Outbound" value={connectionsUnavailable ? '—' : directions.outbound} accent="sky" />
+        <Kpi label="Inbound" value={connectionsUnavailable ? '—' : directions.inbound} accent="brand" />
       </div>
 
       {/* ── Direction + Protocol mini-bars ── */}
@@ -114,30 +118,38 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
         {/* Direction bar */}
         <div className="bg-surface/40 border border-border rounded-lg p-3">
           <p className="text-caption text-muted-2 mb-2 uppercase tracking-wider">Direction breakdown</p>
-          <MiniBar
+          {connectionsUnavailable ? <p className="text-caption text-amber-300">Connection summary unavailable.</p> : <MiniBar
             items={[
               { label: 'Outbound', value: directions.outbound, color: GRAPH_THEME.info },
               { label: 'Inbound', value: directions.inbound, color: GRAPH_THEME.brand },
               { label: 'Listen', value: directions.listen, color: GRAPH_THEME.muted2 },
             ]}
-          />
+          />}
         </div>
 
         {/* Protocol bar */}
         <div className="bg-surface/40 border border-border rounded-lg p-3">
           <p className="text-caption text-muted-2 mb-2 uppercase tracking-wider">Protocol breakdown</p>
-          <MiniBar
-            items={protocols.map((p, i) => ({
-              label: p.protocol,
-              value: p.count,
-              color: PROTO_COLORS[i % PROTO_COLORS.length],
-            }))}
-          />
+          {connectionsUnavailable ? (
+            <p className="text-caption text-amber-300">Connection summary unavailable.</p>
+          ) : (
+            <MiniBar
+              items={protocols.map((p, i) => ({
+                label: p.protocol,
+                value: p.count,
+                color: PROTO_COLORS[i % PROTO_COLORS.length],
+              }))}
+            />
+          )}
         </div>
       </div>
 
       {/* ── Top destinations ── */}
-      {topDestinations.length > 0 && (
+      {topDestinationsUnavailable ? (
+        <div className="rounded-lg border border-amber-700/40 bg-amber-950/20 p-3 text-caption text-amber-300">
+          Top remote endpoints are temporarily unavailable.
+        </div>
+      ) : topDestinations.length > 0 && (
         <div className="min-w-0">
           <p className="text-caption text-muted-2 mb-2 uppercase tracking-wider">
             Top remote endpoints (aggregated, 24 h)
@@ -195,7 +207,7 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
 
 /* ──────────────── sub-components ──────────────── */
 
-function Kpi({ label, value, accent }: { label: string; value: number; accent?: 'sky' | 'brand' }) {
+function Kpi({ label, value, accent }: { label: string; value: number | string; accent?: 'sky' | 'brand' }) {
   const textColor =
     accent === 'sky' ? 'text-sky-400' : accent === 'brand' ? 'text-brand' : 'text-text';
   return (

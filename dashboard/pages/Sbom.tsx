@@ -1,5 +1,5 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { PodSbom, PodSbomSummary, ThreatSummary } from '../types';
@@ -8,6 +8,7 @@ import { Badge } from '../design-system/components/Badge';
 import { FilterBar } from '../design-system/components/FilterBar';
 import { Button } from '../components/ui/Button';
 import { DataFreshness } from '../components/DataFreshness';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLoading } from '../design-system/components/PageStatus';
 import { Package, ChevronRight, ChevronDown, Info, ExternalLink, Box, AlertTriangle, CheckCircle2, Download, RefreshCw, ShieldCheck, ShieldQuestion } from 'lucide-react';
 import { exportSbomAsCsv, exportSbomAsCycloneDxJson, exportSbomAsJson, exportSbomAsSpdxJson } from '../lib/exportSbom';
@@ -42,6 +43,10 @@ function compactDigest(digest?: string): string {
   if (!d) return 'missing';
   if (d.length <= 22) return d;
   return `${d.slice(0, 18)}...`;
+}
+
+function sbomIdentity(pod: Pick<PodSbomSummary, 'clusterId' | 'podId'>): string {
+  return `${String(pod.clusterId ?? '').trim()}\u0000${pod.podId}`;
 }
 
 const ImageTrustStrip: React.FC<{ item?: Pick<PodSbomSummary, 'imageTrust' | 'imageDigest' | 'lifecycleState' | 'activePod'> | Pick<PodSbom, 'imageTrust' | 'imageDigest' | 'lifecycleState' | 'activePod'>; compact?: boolean }> = ({ item, compact }) => {
@@ -91,36 +96,91 @@ export const Sbom: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [listUpdatedAt, setListUpdatedAt] = useState<Date | null>(null);
   const [threatSummary, setThreatSummary] = useState<ThreatSummary | null>(null);
-  const initialSelectionDone = useRef(false);
+  const [detailIssue, setDetailIssue] = useState<AvailabilityIssue | null>(null);
+  const [threatIssue, setThreatIssue] = useState<AvailabilityIssue | null>(null);
+  const listRequestRef = useRef(0);
+  const filterEffectMountedRef = useRef(false);
+  const detailRequestRef = useRef(0);
+  const selectedPodRef = useRef<PodSbomSummary | null>(null);
+  selectedPodRef.current = selectedPod;
+
+  const loadSelectedPodEvidence = useCallback(async (pod: PodSbomSummary, preserveCurrent = false) => {
+    const requestSeq = ++detailRequestRef.current;
+    setDetailLoading(true);
+    setDetailIssue(null);
+    setThreatIssue(null);
+    if (!preserveCurrent) {
+      setSelectedDetail(null);
+      setThreatSummary(null);
+      setExpandedComponents(new Set());
+    }
+
+    const [detailResult, threatResult] = await Promise.allSettled([
+      api.getPodSbomStrict(pod.podId, pod.clusterId),
+      api.getPodThreatSummaryStrict(pod.podId, pod.clusterId),
+    ]);
+    if (requestSeq !== detailRequestRef.current) return;
+
+    if (detailResult.status === 'fulfilled') {
+      setSelectedDetail(detailResult.value);
+      setDetailIssue(null);
+    } else {
+      setDetailIssue(getAvailabilityIssue(detailResult.reason, 'SBOM detail'));
+    }
+
+    if (threatResult.status === 'fulfilled') {
+      setThreatSummary(threatResult.value);
+      setThreatIssue(null);
+    } else {
+      setThreatIssue(getAvailabilityIssue(threatResult.reason, 'Malware evidence'));
+    }
+    setDetailLoading(false);
+  }, []);
 
   const fetchSbomList = useCallback(async (opts?: { showOverlay?: boolean }) => {
+    const requestSeq = ++listRequestRef.current;
     if (opts?.showOverlay) setLoading(true);
-    setLoadError(null);
     const params =
       podNameFilter.trim() || namespaceFilter.trim()
         ? { podName: podNameFilter.trim() || undefined, namespace: namespaceFilter.trim() || undefined }
         : undefined;
     try {
-      const data = await api.getSbomList(params);
+      const data = await api.getSbomListStrict(params);
+      if (requestSeq !== listRequestRef.current) return;
       setSbomList(data);
+      setLoadError(null);
       setListUpdatedAt(new Date());
-      if (data.length > 0 && !initialSelectionDone.current) {
-        initialSelectionDone.current = true;
+
+      const current = selectedPodRef.current;
+      const currentIdentity = current ? sbomIdentity(current) : '';
+      const refreshedCurrent = currentIdentity ? data.find((item) => sbomIdentity(item) === currentIdentity) : undefined;
+      if (refreshedCurrent) {
+        setSelectedPod(refreshedCurrent);
+        // The list and detail are separate projections. Revalidate the selected
+        // detail whenever its summary refreshes, while preserving last-known-good
+        // evidence if the detail/threat sources are temporarily unavailable.
+        void loadSelectedPodEvidence(refreshedCurrent, true);
+      } else if (data.length > 0) {
         const first = data[0];
         setSelectedPod(first);
-        setDetailLoading(true);
-        const detail = await api.getPodSbom(first.podId);
-        setSelectedDetail(detail || null);
+        void loadSelectedPodEvidence(first);
+      } else {
+        detailRequestRef.current += 1;
+        setSelectedPod(null);
+        setSelectedDetail(null);
+        setThreatSummary(null);
+        setDetailIssue(null);
+        setThreatIssue(null);
         setDetailLoading(false);
-        const threats = await api.getPodThreatSummary(first.podId);
-        setThreatSummary(threats);
       }
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : 'Failed to load SBOM list. Please log in or check connection.');
-      setSbomList([]);
+      if (requestSeq !== listRequestRef.current) return;
+      // Preserve the last-known-good list. Unavailable is not an empty inventory.
+      setLoadError(getAvailabilityIssue(err, 'SBOM inventory').description);
+    } finally {
+      if (requestSeq === listRequestRef.current) setLoading(false);
     }
-    setLoading(false);
-  }, [podNameFilter, namespaceFilter]);
+  }, [loadSelectedPodEvidence, namespaceFilter, podNameFilter]);
 
   const namespaceOptions = useMemo(() => {
     const s = new Set<string>();
@@ -135,11 +195,16 @@ export const Sbom: React.FC = () => {
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.SBOM_RISK_LIST));
   usePolling(fetchSbomList, intervalMs);
 
-  // Refetch when pod/namespace filter changes (debounce 400ms)
+  // Polling already performs the initial load. Debounce only subsequent filter changes
+  // so mount cannot race two identical inventory requests.
   React.useEffect(() => {
-    const t = window.setTimeout(() => fetchSbomList(), 400);
+    if (!filterEffectMountedRef.current) {
+      filterEffectMountedRef.current = true;
+      return;
+    }
+    const t = window.setTimeout(() => void fetchSbomList(), 400);
     return () => clearTimeout(t);
-  }, [podNameFilter, namespaceFilter]);
+  }, [fetchSbomList, podNameFilter, namespaceFilter]);
 
   const toggleExpand = (compId: string) => {
     const newExpanded = new Set(expandedComponents);
@@ -151,15 +216,10 @@ export const Sbom: React.FC = () => {
     setExpandedComponents(newExpanded);
   };
 
-  const handleSelectPod = async (pod: PodSbomSummary) => {
+  const handleSelectPod = (pod: PodSbomSummary) => {
+    if (selectedPod && sbomIdentity(selectedPod) === sbomIdentity(pod)) return;
     setSelectedPod(pod);
-    setDetailLoading(true);
-    setThreatSummary(null);
-    const detail = await api.getPodSbom(pod.podId);
-    setSelectedDetail(detail || null);
-    setDetailLoading(false);
-    const threats = await api.getPodThreatSummary(pod.podId);
-    setThreatSummary(threats);
+    void loadSelectedPodEvidence(pod);
   };
 
   const getSeverityBorder = (severity: string) => {
@@ -270,20 +330,21 @@ export const Sbom: React.FC = () => {
                 ? new Date(pod.podCreatedAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' })
                 : '—';
               const statusLabel = pod.podStatus?.trim() || '—';
+              const isSelected = selectedPod != null && sbomIdentity(selectedPod) === sbomIdentity(pod);
               return (
               <div 
-                key={pod.podId} 
+                key={sbomIdentity(pod)} 
                 onClick={() => handleSelectPod(pod)}
                 className={`p-4 rounded-xl border cursor-pointer transition-all duration-200 group ${
-                  selectedPod?.podId === pod.podId ? UI_SELECTABLE_ACTIVE : UI_SELECTABLE_IDLE
+                  isSelected ? UI_SELECTABLE_ACTIVE : UI_SELECTABLE_IDLE
                 }`}
               >
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center">
-                    <Box className={`w-4 h-4 mr-2 transition-colors ${selectedPod?.podId === pod.podId ? 'text-brand' : 'text-muted group-hover:text-text'}`} />
+                    <Box className={`w-4 h-4 mr-2 transition-colors ${isSelected ? 'text-brand' : 'text-muted group-hover:text-text'}`} />
                     <span className="font-bold text-text text-body">{pod.podName}</span>
                   </div>
-                  <ChevronRight size={14} className={`transition-transform duration-200 ${selectedPod?.podId === pod.podId ? 'text-brand rotate-90 lg:rotate-0' : 'text-muted-2'}`} />
+                  <ChevronRight size={14} className={`transition-transform duration-200 ${isSelected ? 'text-brand rotate-90 lg:rotate-0' : 'text-muted-2'}`} />
                 </div>
                 <div className="text-caption text-muted truncate mb-1 font-mono">{pod.image}</div>
                 <ImageTrustStrip item={pod} compact />
@@ -355,6 +416,20 @@ export const Sbom: React.FC = () => {
                     Loading SBOM detail...
                   </div>
                 )}
+                {detailIssue ? (
+                  <AvailabilityNotice
+                    issue={detailIssue}
+                    onRetry={detailIssue.retryable ? () => void loadSelectedPodEvidence(selectedPod, true) : undefined}
+                    className="mb-4"
+                  />
+                ) : null}
+                {threatIssue ? (
+                  <AvailabilityNotice
+                    issue={threatIssue}
+                    onRetry={threatIssue.retryable ? () => void loadSelectedPodEvidence(selectedPod, true) : undefined}
+                    className="mb-4"
+                  />
+                ) : null}
                 {!detailLoading && (selectedDetail || selectedPod) && (
                   <>
                     <ImageTrustStrip item={selectedDetail ?? selectedPod} />
@@ -402,13 +477,13 @@ export const Sbom: React.FC = () => {
                   <div className="flex items-center space-x-6">
                     <div className="text-center">
                       <div className="ui-micro-label">Components</div>
-                      <div className="text-xl font-bold text-text">{selectedDetail?.components.length || 0}</div>
+                      <div className="text-xl font-bold text-text">{detailIssue && !selectedDetail ? '—' : selectedDetail?.components.length ?? '—'}</div>
                     </div>
                     <div className="h-8 w-px bg-surface-2"></div>
                     <div className="text-center">
                       <div className="ui-micro-label">Vulnerabilities</div>
                       <div className="text-xl font-bold text-red-500">
-                        {selectedDetail?.components.reduce((acc, c) => acc + c.vulnerabilities.length, 0) || 0}
+                        {detailIssue && !selectedDetail ? '—' : selectedDetail?.components.reduce((acc, c) => acc + c.vulnerabilities.length, 0) ?? '—'}
                       </div>
                     </div>
                   </div>
@@ -416,7 +491,7 @@ export const Sbom: React.FC = () => {
                 </div>
 
                 <div className="space-y-4">
-                  {filteredComponents.length > 0 ? filteredComponents.map(comp => {
+                  {detailIssue && !selectedDetail ? null : filteredComponents.length > 0 ? filteredComponents.map(comp => {
                     const compKey = String(comp.id);
                     const isExpanded = expandedComponents.has(compKey);
                     const vulnTotal = comp.vulnerabilities.length;

@@ -38,13 +38,73 @@ export interface OwnershipContext {
 }
 
 export function parseScopeDocument(raw: string | undefined | null): ScopeDocument {
-  if (!raw || !String(raw).trim()) return {};
+  if (!raw || !String(raw).trim() || String(raw).trim() === '{}') return {};
+  const invalid = (): ScopeDocument => ({ clusters: ['__invalid_scope__'] });
   try {
-    const o = JSON.parse(raw) as ScopeDocument;
-    if (!o || typeof o !== 'object') return {};
-    return o;
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return invalid();
+    const o = parsed as Record<string, unknown>;
+    const allowed = new Set([
+      'clusters',
+      'cluster_ids',
+      'namespaces',
+      'environments',
+      'tenants',
+      'business_services',
+      'crown_jewels',
+      'regulatory_domains',
+      'labels',
+    ]);
+    if (Object.keys(o).some((key) => !allowed.has(key))) return invalid();
+
+    const readList = (key: string): string[] | undefined | null => {
+      if (!(key in o)) return undefined;
+      const value = o[key];
+      if (!Array.isArray(value)) return null;
+      const out: string[] = [];
+      for (const item of value) {
+        if (typeof item !== 'string' || !item.trim()) return null;
+        out.push(item.trim());
+      }
+      return out;
+    };
+
+    const clusters = readList('clusters');
+    const clusterIds = readList('cluster_ids');
+    const namespaces = readList('namespaces');
+    const environments = readList('environments');
+    const tenants = readList('tenants');
+    const businessServices = readList('business_services');
+    const crownJewels = readList('crown_jewels');
+    const regulatoryDomains = readList('regulatory_domains');
+    if ([clusters, clusterIds, namespaces, environments, tenants, businessServices, crownJewels, regulatoryDomains].some((v) => v === null)) {
+      return invalid();
+    }
+
+    let labels: Record<string, string> | undefined;
+    if ('labels' in o) {
+      const value = o.labels;
+      if (!value || typeof value !== 'object' || Array.isArray(value)) return invalid();
+      labels = {};
+      for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+        if (!key.trim() || typeof item !== 'string') return invalid();
+        labels[key] = item;
+      }
+    }
+
+    return {
+      clusters: clusters ?? undefined,
+      cluster_ids: clusterIds ?? undefined,
+      namespaces: namespaces ?? undefined,
+      environments: environments ?? undefined,
+      tenants: tenants ?? undefined,
+      business_services: businessServices ?? undefined,
+      crown_jewels: crownJewels ?? undefined,
+      regulatory_domains: regulatoryDomains ?? undefined,
+      labels,
+    };
   } catch {
-    return { clusters: ['__invalid_scope__'] };
+    return invalid();
   }
 }
 

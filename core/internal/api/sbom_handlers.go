@@ -18,6 +18,7 @@ type vulnerabilitySummary map[string]int
 
 // SBOMSummaryDTO contains the summary data returned by /sbom
 type SBOMSummaryDTO struct {
+	ClusterID            string               `json:"clusterId"`
 	PodID                string               `json:"podId"`
 	PodName              string               `json:"podName"`
 	Namespace            string               `json:"namespace"`
@@ -88,6 +89,7 @@ type VulnerabilityDTO struct {
 
 // SBOMDetailDTO is returned by GET /sbom/{podId}
 type SBOMDetailDTO struct {
+	ClusterID              string               `json:"clusterId"`
 	PodID                  string               `json:"podId"`
 	Image                  string               `json:"image"`
 	ImageDigest            string               `json:"imageDigest,omitempty"`
@@ -111,6 +113,15 @@ type SBOMDetailDTO struct {
 // GetSBOMList returns paginated SBOM summaries (pod-level) with vulnerability counts.
 func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		requestDB := db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, requestDB, "sbom_list_schema_unavailable",
+			"SBOM inventory requires SBOM, Pod and CVE match schemas", "sboms", "pods", "cve_matches") {
+			return
+		}
+		scope, ok := resolveRiskGovernanceScope(requestDB, c)
+		if !ok {
+			return
+		}
 		limit := 50
 		if l := c.Query("limit"); l != "" {
 			if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 && parsed <= 200 {
@@ -144,6 +155,14 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 
 		baseWhere := "s.deleted_at IS NULL"
 		args := []interface{}{}
+		if scope.clusterID != "" {
+			baseWhere += " AND s.cluster_id = ?"
+			args = append(args, scope.clusterID)
+		}
+		if scope.restricted {
+			baseWhere += " AND s.cluster_id IN ?"
+			args = append(args, scope.clusterIDs)
+		}
 		if podNameFilter != "" {
 			baseWhere += " AND s.pod_name ILIKE ?"
 			args = append(args, "%"+podNameFilter+"%")
@@ -154,9 +173,15 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var total int64
-		countQuery := db.Model(&models.SBOM{}).Where("sboms.deleted_at IS NULL")
+		countQuery := requestDB.Model(&models.SBOM{}).Select("sboms.cluster_id, sboms.pod_uid").Where("sboms.deleted_at IS NULL")
 		if !includeStale {
 			countQuery = countQuery.Joins("INNER JOIN pods ON pods.cluster_id = sboms.cluster_id AND pods.uid = sboms.pod_uid AND pods.deleted_at IS NULL")
+		}
+		if scope.clusterID != "" {
+			countQuery = countQuery.Where("sboms.cluster_id = ?", scope.clusterID)
+		}
+		if scope.restricted {
+			countQuery = countQuery.Where("sboms.cluster_id IN ?", scope.clusterIDs)
 		}
 		if podNameFilter != "" {
 			countQuery = countQuery.Where("sboms.pod_name ILIKE ?", "%"+podNameFilter+"%")
@@ -164,8 +189,9 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		if namespaceFilter != "" {
 			countQuery = countQuery.Where("sboms.namespace ILIKE ?", "%"+namespaceFilter+"%")
 		}
-		if err := countQuery.Distinct("pod_uid").Count(&total).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		countQuery = countQuery.Distinct("sboms.cluster_id", "sboms.pod_uid")
+		if err := requestDB.Table("(?) AS scoped_sboms", countQuery).Count(&total).Error; err != nil {
+			respondDataUnavailable(c, "sbom_list_count_unavailable", "SBOM inventory count could not be loaded")
 			return
 		}
 
@@ -175,43 +201,52 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		}
 		query := `
 			SELECT * FROM (
-				SELECT DISTINCT ON (s.pod_uid) s.*
+				SELECT DISTINCT ON (s.cluster_id, s.pod_uid) s.*
 				FROM sboms s
 				` + joinActivePods + `
 				WHERE ` + baseWhere + `
-				ORDER BY s.pod_uid, s.created_at DESC
+				ORDER BY s.cluster_id, s.pod_uid, s.created_at DESC
 			) AS latest
 			ORDER BY created_at DESC
 			LIMIT ? OFFSET ?
 		`
 		queryArgs := append(append([]interface{}{}, args...), limit, offset)
 		var sboms []models.SBOM
-		if err := db.Raw(query, queryArgs...).Scan(&sboms).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		if err := requestDB.Raw(query, queryArgs...).Scan(&sboms).Error; err != nil {
+			respondDataUnavailable(c, "sbom_list_query_unavailable", "SBOM inventory could not be loaded")
 			return
 		}
 
-		// Batch lookup pod created_at by uid (pods table has uid, created_at)
+		// Batch lookup active Pod metadata by canonical cluster-qualified identity.
 		podUIDs := make([]string, 0, len(sboms))
+		clusterIDs := make([]string, 0, len(sboms))
 		for _, s := range sboms {
-			if s.PodUID != "" {
+			if s.PodUID != "" && s.ClusterID != "" {
 				podUIDs = append(podUIDs, s.PodUID)
+				clusterIDs = append(clusterIDs, s.ClusterID)
 			}
 		}
+		identityKey := func(clusterID, uid string) string { return clusterID + "\x00" + uid }
 		uidToCreatedAt := make(map[string]time.Time)
 		uidToPhase := make(map[string]string)
 		if len(podUIDs) > 0 {
 			var podRows []struct {
+				ClusterID string `gorm:"column:cluster_id"`
 				UID       string
 				CreatedAt time.Time
 				Phase     string
 			}
-			if err := db.Table("pods").Select("uid, created_at, phase").Where("uid IN ? AND deleted_at IS NULL", podUIDs).Find(&podRows).Error; err == nil {
-				for _, r := range podRows {
-					uidToCreatedAt[r.UID] = r.CreatedAt
-					if strings.TrimSpace(r.Phase) != "" {
-						uidToPhase[r.UID] = strings.TrimSpace(r.Phase)
-					}
+			if err := requestDB.Table("pods").Select("cluster_id, uid, created_at, phase").
+				Where("uid IN ? AND cluster_id IN ? AND deleted_at IS NULL", podUIDs, clusterIDs).
+				Find(&podRows).Error; err != nil {
+				respondDataUnavailable(c, "sbom_list_pod_metadata_unavailable", "SBOM Pod lifecycle metadata could not be loaded")
+				return
+			}
+			for _, r := range podRows {
+				key := identityKey(r.ClusterID, r.UID)
+				uidToCreatedAt[key] = r.CreatedAt
+				if strings.TrimSpace(r.Phase) != "" {
+					uidToPhase[key] = strings.TrimSpace(r.Phase)
 				}
 			}
 		}
@@ -229,27 +264,31 @@ func GetSBOMList(db *gorm.DB) gin.HandlerFunc {
 		sevBySBOM := make(map[uint]map[string]int, len(sboms))
 		if len(sbomIDs) > 0 {
 			var rows []sevAgg
-			if err := db.Model(&models.CVEMatch{}).
+			if err := requestDB.Model(&models.CVEMatch{}).
 				Select("sbom_id, LOWER(severity) as severity, COUNT(*) as count").
 				Where("sbom_id IN ? AND deleted_at IS NULL", sbomIDs).
 				Group("sbom_id, LOWER(severity)").
-				Scan(&rows).Error; err == nil {
-				for _, row := range rows {
-					if _, ok := sevBySBOM[row.SBOMID]; !ok {
-						sevBySBOM[row.SBOMID] = map[string]int{}
-					}
-					sevBySBOM[row.SBOMID][strings.ToLower(strings.TrimSpace(row.Severity))] = row.Count
+				Scan(&rows).Error; err != nil {
+				respondDataUnavailable(c, "sbom_list_cve_summary_unavailable", "SBOM vulnerability summary could not be loaded")
+				return
+			}
+			for _, row := range rows {
+				if _, ok := sevBySBOM[row.SBOMID]; !ok {
+					sevBySBOM[row.SBOMID] = map[string]int{}
 				}
+				sevBySBOM[row.SBOMID][strings.ToLower(strings.TrimSpace(row.Severity))] = row.Count
 			}
 		}
 		for _, sbom := range sboms {
 			var podCreatedAt *time.Time
-			_, activePod := uidToCreatedAt[sbom.PodUID]
-			if t, ok := uidToCreatedAt[sbom.PodUID]; ok {
+			key := identityKey(sbom.ClusterID, sbom.PodUID)
+			_, activePod := uidToCreatedAt[key]
+			if t, ok := uidToCreatedAt[key]; ok {
 				podCreatedAt = &t
 			}
-			podPhase := uidToPhase[sbom.PodUID]
+			podPhase := uidToPhase[key]
 			summary := SBOMSummaryDTO{
+				ClusterID:      sbom.ClusterID,
 				PodID:          sbom.PodUID,
 				PodName:        sbom.PodName,
 				Namespace:      sbom.Namespace,
@@ -311,6 +350,12 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		includeStale := strings.EqualFold(strings.TrimSpace(c.Query("includeStale")), "true") ||
 			strings.EqualFold(strings.TrimSpace(c.Query("scope")), "all") ||
 			strings.EqualFold(strings.TrimSpace(c.Query("scope")), "historical")
+		db = db.WithContext(c.Request.Context())
+		if !requireAvailabilityTables(c, db, "pod_sbom_schema_unavailable",
+			"Pod SBOM detail requires SBOM component, CVE and Pod schemas",
+			"sboms", "sbom_components", "cve_matches", "cves", "pods") {
+			return
+		}
 
 		var sbom models.SBOM
 		sbomQuery := db.Where("cluster_id = ? AND pod_uid = ? AND deleted_at IS NULL", clusterID, podUID)
@@ -318,13 +363,16 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 			sbomQuery = sbomQuery.Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = sboms.cluster_id AND p.uid = sboms.pod_uid AND p.deleted_at IS NULL)")
 		}
 		if err := sbomQuery.Order("created_at DESC").Limit(1).Find(&sbom).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_sbom_query_unavailable", "Pod SBOM could not be loaded")
 			return
 		}
 		if sbom.ID == 0 {
 			if !includeStale {
 				var staleCount int64
-				db.Model(&models.SBOM{}).Where("cluster_id = ? AND pod_uid = ? AND deleted_at IS NULL", clusterID, podUID).Count(&staleCount)
+				if err := db.Model(&models.SBOM{}).Where("cluster_id = ? AND pod_uid = ? AND deleted_at IS NULL", clusterID, podUID).Count(&staleCount).Error; err != nil {
+					respondDataUnavailable(c, "pod_sbom_history_unavailable", "Pod SBOM history could not be checked")
+					return
+				}
 				if staleCount > 0 {
 					c.JSON(http.StatusNotFound, gin.H{
 						"error":        "active sbom not found for pod",
@@ -352,13 +400,13 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 
 		var components []models.SBOMComponent
 		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Find(&components).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_sbom_components_unavailable", "Pod SBOM components could not be loaded")
 			return
 		}
 
 		var matches []models.CVEMatch
 		if err := db.Where("sbom_id = ? AND deleted_at IS NULL", sbom.ID).Preload("CVE").Order("severity DESC").Find(&matches).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondDataUnavailable(c, "pod_sbom_cve_matches_unavailable", "Pod SBOM vulnerability evidence could not be loaded")
 			return
 		}
 
@@ -366,14 +414,16 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		byNameVer := make(map[string]models.MalwareMatch)
 		if db.Migrator().HasTable("malware_matches") {
 			var mmRows []models.MalwareMatch
-			if err := db.Where("sbom_id = ?", sbom.ID).Find(&mmRows).Error; err == nil {
-				for _, mm := range mmRows {
-					if mm.ComponentID != 0 {
-						byCompID[mm.ComponentID] = mm
-					}
-					k := strings.ToLower(strings.TrimSpace(mm.PackageName)) + ":" + strings.TrimSpace(mm.PackageVersion)
-					byNameVer[k] = mm
+			if err := db.Where("sbom_id = ?", sbom.ID).Find(&mmRows).Error; err != nil {
+				respondDataUnavailable(c, "pod_sbom_malware_unavailable", "Pod SBOM malware evidence could not be loaded")
+				return
+			}
+			for _, mm := range mmRows {
+				if mm.ComponentID != 0 {
+					byCompID[mm.ComponentID] = mm
 				}
+				k := strings.ToLower(strings.TrimSpace(mm.PackageName)) + ":" + strings.TrimSpace(mm.PackageVersion)
+				byNameVer[k] = mm
 			}
 		}
 
@@ -388,8 +438,13 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 		}
 		vulnerablePackageCount := len(byName)
 
-		activePod := sbomHasActivePod(db, sbom.ClusterID, sbom.PodUID)
+		activePod, err := sbomHasActivePod(db, sbom.ClusterID, sbom.PodUID)
+		if err != nil {
+			respondDataUnavailable(c, "pod_sbom_lifecycle_unavailable", "Pod SBOM lifecycle state could not be loaded")
+			return
+		}
 		dto := SBOMDetailDTO{
+			ClusterID:              sbom.ClusterID,
 			PodID:                  sbom.PodUID,
 			Image:                  fmt.Sprintf("%s:%s", sbom.ImageName, sbom.ImageTag),
 			ImageDigest:            strings.TrimSpace(sbom.ImageDigest),
@@ -489,15 +544,21 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-func sbomHasActivePod(db *gorm.DB, clusterID, podUID string) bool {
-	if db == nil || strings.TrimSpace(clusterID) == "" || strings.TrimSpace(podUID) == "" || !db.Migrator().HasTable("pods") {
-		return false
+func sbomHasActivePod(db *gorm.DB, clusterID, podUID string) (bool, error) {
+	if db == nil {
+		return false, fmt.Errorf("database is required")
+	}
+	if strings.TrimSpace(clusterID) == "" || strings.TrimSpace(podUID) == "" {
+		return false, fmt.Errorf("cluster and pod identity are required")
+	}
+	if !db.Migrator().HasTable("pods") {
+		return false, fmt.Errorf("pods table is unavailable")
 	}
 	var count int64
 	if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", clusterID, podUID).Count(&count).Error; err != nil {
-		return false
+		return false, err
 	}
-	return count > 0
+	return count > 0, nil
 }
 
 func sbomLifecycleState(activePod bool) string {

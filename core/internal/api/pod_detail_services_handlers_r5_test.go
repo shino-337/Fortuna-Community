@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -69,6 +70,9 @@ func TestBuildNetworkQueueSpikeEvents_EmitsSpikeEvent(t *testing.T) {
 	}
 	if events[0].Capability != "NETWORK_TXRX_QUEUE_SPIKE" || events[0].Syscall != "connect" {
 		t.Fatalf("unexpected event markers: %+v", events[0])
+	}
+	if !json.Valid([]byte(events[0].PayloadJSON)) {
+		t.Fatalf("spike event payload_json must be valid JSON, got %q", events[0].PayloadJSON)
 	}
 }
 

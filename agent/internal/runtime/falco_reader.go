@@ -35,13 +35,13 @@ type falcoEvent struct {
 }
 
 type FalcoReader struct {
-	path       string
-	poll       time.Duration
-	coreURL    string
-	nodeName   string
-	kubeClient kubernetes.Interface
-	httpClient *http.Client
-	logger     *log.Logger
+	path        string
+	poll        time.Duration
+	coreURL     string
+	nodeName    string
+	kubeClient  kubernetes.Interface
+	httpClient  *http.Client
+	logger      *log.Logger
 	offset      int64
 	initialized bool
 	fileInfo    os.FileInfo
@@ -60,6 +60,7 @@ type FalcoReader struct {
 	failedEvents  uint64
 	v2Success     uint64
 	coverage      *CoverageReporter
+	delivery      *falcoDeliveryState
 }
 
 type podUIDCacheEntry struct {
@@ -91,6 +92,7 @@ func (r *FalcoReader) SetCoverageCadence(cadence time.Duration) {
 }
 
 func (r *FalcoReader) Start(ctx context.Context) {
+	defer r.CloseDeliveryState()
 	r.readAndSend(ctx)
 	ticker := time.NewTicker(r.poll)
 	defer ticker.Stop()
@@ -111,13 +113,52 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	stats := CoverageStats{}
 	reason := ""
 	reportCoverage := true
+	budget := &corehttp.DeliveryBudget{Remaining: corehttp.DeliveryRequestLimit, Now: time.Now()}
 	defer func() {
+		if r.delivery != nil && r.delivery.loaded {
+			if err := r.flushDelivery(ctx, budget, &stats, true); err != nil {
+				stats.Errors++
+				reason = mergeCoverageReason(reason, "falco durable delivery failed")
+			}
+			if len(r.delivery.state.Pending)+len(r.delivery.state.Quarantine) > 0 || budget.Blocked {
+				stats.Errors++
+				reason = mergeCoverageReason(reason, "falco evidence pending or quarantined")
+				reportCoverage = true
+			}
+		}
 		if reportCoverage {
 			if err := r.coverage.Observe(time.Now().UTC(), stats, reason); err != nil {
 				r.logger.Printf("Falco coverage report failed: %v", err)
 			}
 		}
 	}()
+	if r.delivery != nil {
+		if err := r.delivery.load(); err != nil {
+			stats.Errors++
+			reason = "falco delivery state unavailable"
+			r.logger.Printf("Falco delivery state failed: %v", err)
+			return
+		}
+		if !r.initialized && r.delivery.checkpoint {
+			r.initialized = true
+			r.offset = r.delivery.state.Offset
+		}
+		if err := r.flushDelivery(ctx, budget, &stats, false); err != nil {
+			stats.Errors++
+			reason = "falco pending delivery failed"
+			return
+		}
+		if len(r.delivery.state.Pending) > 0 || budget.Blocked {
+			stats.Errors++
+			reason = "falco pending delivery backpressure"
+			return
+		}
+		if len(r.delivery.state.Quarantine) >= falcoStateMaxEvents {
+			stats.Errors++
+			reason = "falco outbox capacity reached"
+			return
+		}
+	}
 
 	f, err := os.Open(r.path)
 	if err != nil {
@@ -153,6 +194,11 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 			}
 			r.offset = lastComplete
 			if lastComplete == fileSize {
+				if err := r.checkpointDelivery(st, r.offset, nil); err != nil {
+					stats.Errors++
+					reason = "falco checkpoint failed"
+					return
+				}
 				reportCoverage = false
 				return
 			}
@@ -161,6 +207,9 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	// Detect both in-place truncate and replacement/inode rotation. Size alone is
 	// insufficient: a replacement file may already be larger than the old offset.
 	rotated := r.fileInfo != nil && !os.SameFile(r.fileInfo, st)
+	if r.delivery != nil && r.delivery.state.SourceFile != "" && r.delivery.state.SourceFile != falcoSourceFile(st) {
+		rotated = true
+	}
 	if rotated || r.offset > fileSize {
 		r.offset = 0
 		r.lineBuf = nil
@@ -178,7 +227,8 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		return
 	}
 
-	chunk, err := io.ReadAll(f)
+	// Bound each read even when the node source accumulates a large backlog.
+	chunk, err := io.ReadAll(io.LimitReader(f, 1<<20))
 	if err != nil {
 		r.logger.Printf("Failed to read falco events file: %v", err)
 		stats.Errors++
@@ -193,6 +243,10 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 	r.lineBuf = nil
 
 	events := make([]Event, 0, 20)
+	capacity := falcoStateMaxEvents
+	if r.delivery != nil {
+		capacity -= len(r.delivery.state.Quarantine)
+	}
 	consumed := int64(0)
 	resolveCtx, cancelResolve := context.WithTimeout(ctx, r.podUIDResolutionBudget())
 	defer cancelResolve()
@@ -206,9 +260,9 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		line := bytes.TrimSpace(rawLine)
 		recordOffset := startOffset + consumed
 		step := int64(idx + 1)
-		consumed += step
 		data = data[idx+1:]
 		if len(line) == 0 {
+			consumed += step
 			continue
 		}
 		fes, err := parseFalcoJSONLines(line)
@@ -217,8 +271,10 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 			stats.Invalid++
 			reason = mergeCoverageReason(reason, "invalid falco JSON")
 			r.logger.Printf("Invalid falco JSON: %v", err)
+			consumed += step
 			continue
 		}
+		recordEvents := make([]Event, 0, len(fes))
 		for i := range fes {
 			ev, ok := r.toRuntimeEvent(resolveCtx, &fes[i])
 			if !ok {
@@ -227,8 +283,15 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 				continue
 			}
 			ev.SourceRecordID = sourceFileRecordID(r.path, st, recordOffset, rawLine, i)
-			events = append(events, ev)
+			recordEvents = append(recordEvents, ev)
 		}
+		if len(events)+len(recordEvents) > capacity {
+			stats.Errors++
+			reason = mergeCoverageReason(reason, "falco backlog awaiting bounded delivery")
+			break // Do not commit any byte of this physical record yet.
+		}
+		events = append(events, recordEvents...)
+		consumed += step
 	}
 
 	nextOffset := startOffset + consumed
@@ -237,11 +300,35 @@ func (r *FalcoReader) readAndSend(ctx context.Context) {
 		// observed. The next successful interval can resume continuity.
 		stats.Errors++
 		reason = mergeCoverageReason(reason, "partial falco record pending")
+	} else if nextOffset < fileSize {
+		stats.Errors++
+		reason = mergeCoverageReason(reason, "falco backlog awaiting bounded delivery")
 	}
 	if len(events) == 0 {
+		if err := r.checkpointDelivery(st, nextOffset, nil); err != nil {
+			stats.Errors++
+			reason = "falco checkpoint failed"
+			return
+		}
 		// No deliverable event exists in this slice. Commit consumed bytes while
 		// preserving any incomplete trailing line in lineBuf for the next poll.
 		r.offset = nextOffset
+		return
+	}
+	if r.delivery != nil {
+		PrepareEventsV2(events)
+		if err := r.checkpointDelivery(st, nextOffset, events); err != nil {
+			stats.Errors++
+			reason = "falco outbox persistence failed"
+			r.logger.Printf("Falco outbox persistence failed: %v", err)
+			return
+		}
+		r.offset = nextOffset
+		if err := r.flushDelivery(ctx, budget, &stats, false); err != nil {
+			stats.Errors++
+			reason = mergeCoverageReason(reason, "falco durable delivery failed")
+		}
+		r.logIngestionStats("durable_delivery")
 		return
 	}
 	stats.Emitted += uint64(len(events))
@@ -317,10 +404,14 @@ func parseFalcoJSONLines(line []byte) ([]falcoEvent, error) {
 }
 
 func (r *FalcoReader) send(events []Event) error {
+	return r.sendContext(context.Background(), events)
+}
+
+func (r *FalcoReader) sendContext(ctx context.Context, events []Event) error {
 	PrepareEventsV2(events)
 	body, _ := json.Marshal(events)
 	// Canonical v2 endpoint; failed batches are retried without protocol downgrade.
-	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/v2/runtime/events", r.coreURL), bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", fmt.Sprintf("%s/api/v2/runtime/events", r.coreURL), bytes.NewReader(body))
 	if err != nil {
 		return err
 	}
@@ -332,7 +423,7 @@ func (r *FalcoReader) send(events []Event) error {
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("falco events v2 POST failed: %s", resp.Status)
+		return corehttp.DecodePostError(resp, time.Now())
 	}
 	atomic.AddUint64(&r.v2Success, 1)
 	return nil

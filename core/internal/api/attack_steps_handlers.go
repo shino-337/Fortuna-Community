@@ -35,9 +35,10 @@ func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"podUid": podUID,
-			"steps":  steps,
-			"count":  len(steps),
+			"clusterId": clusterID,
+			"podUid":    podUID,
+			"steps":     steps,
+			"count":     len(steps),
 		})
 	}
 }

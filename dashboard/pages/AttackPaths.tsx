@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageError, PageLoading } from '../design-system/components/PageStatus';
@@ -52,6 +52,7 @@ import type { GraphSemanticMode } from '../lib/persona';
 import { useCan } from '../hooks/usePermUser';
 import { P } from '../lib/permissions';
 import type { SemanticVisibilityState } from '../lib/visibilityEngine';
+import { podDetailPath } from '../lib/podRoute';
 
 type AttackPathIssueKind = 'unauthenticated' | 'forbidden' | 'cluster_scope' | 'load_failed';
 
@@ -117,7 +118,10 @@ function classifyAttackPathIssue(error: unknown, fallbackTitle = 'Could not load
 }
 
 function shouldStopAttackPathFallback(error: unknown): boolean {
-  return isApiError(error) && (error.status === 401 || error.status === 403);
+  // 502 is produced locally by strict response validation. Falling back after a
+  // malformed successful payload would erase the protocol failure and could
+  // reinterpret incomplete data as a valid empty/partial attack-path state.
+  return isApiError(error) && (error.status === 401 || error.status === 403 || error.status === 502);
 }
 
 /* ─── helpers ─────────────────────────────────────────────── */
@@ -359,7 +363,7 @@ function AttackPathIssuePanel({
 export const AttackPaths: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { selectedClusterId } = useClusterStore();
+  const { selectedClusterId, setSelectedClusterId } = useClusterStore();
   const canOpenInventory = useCan(P.inventoryRead);
   const graphVisibility = useFeatureVisibility('attack_paths');
   const { graphSemanticMode } = useIncidentMode();
@@ -378,8 +382,13 @@ export const AttackPaths: React.FC = () => {
   const [refreshing, setRefreshing] = useState(false);
   const [dataIssue, setDataIssue] = useState<AttackPathIssue | null>(null);
   const [actionNotice, setActionNotice] = useState<AttackPathIssue | null>(null);
+  const dataRequestSequence = useRef(0);
+  const podRequestSequence = useRef(0);
 
   const podUidParam = searchParams.get('podUid') || '';
+  const clusterIdParam = searchParams.get('clusterId') || '';
+  const effectiveClusterId = clusterIdParam || selectedClusterId || '';
+  const podClusterIdParam = effectiveClusterId;
   const [selectedPodPaths, setSelectedPodPaths] = useState<AttackPath[]>([]);
   const [selectedPodLoading, setSelectedPodLoading] = useState(false);
   const [selectedPodIssue, setSelectedPodIssue] = useState<AttackPathIssue | null>(null);
@@ -389,11 +398,19 @@ export const AttackPaths: React.FC = () => {
   /** 1-based — aligns with graph link `stepIndex` when mapped from technique categories */
   const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null);
 
+  useEffect(() => {
+    if (clusterIdParam && clusterIdParam !== selectedClusterId) {
+      setSelectedClusterId(clusterIdParam);
+    }
+  }, [clusterIdParam, selectedClusterId, setSelectedClusterId]);
+
   const fetchData = useCallback(async () => {
+    const sequence = ++dataRequestSequence.current;
     setLoading(true);
     setDataIssue(null);
     try {
-      const bundle = await api.getAttackPathsBundleStrict(selectedClusterId || undefined);
+      const bundle = await api.getAttackPathsBundleStrict(effectiveClusterId || undefined);
+      if (sequence !== dataRequestSequence.current) return;
       if (bundle) {
         setGraphData(bundle.graph);
         setSummary(bundle.summary);
@@ -401,18 +418,21 @@ export const AttackPaths: React.FC = () => {
         setPrimitivePaths(bundle.paths ?? []);
       } else {
         const [graph, sum, chs] = await Promise.all([
-          api.getAttackPathsGraphStrict(),
-          api.getAttackPathsSummaryStrict(selectedClusterId || undefined),
-          api.getAttackChainsStrict(selectedClusterId || undefined),
+          api.getAttackPathsGraphStrict(effectiveClusterId || undefined),
+          api.getAttackPathsSummaryStrict(effectiveClusterId || undefined),
+          api.getAttackChainsStrict(effectiveClusterId || undefined),
         ]);
+        if (sequence !== dataRequestSequence.current) return;
         setGraphData(graph);
         setSummary(sum);
         setChains(chs);
         setPrimitivePaths([]);
       }
+      if (sequence !== dataRequestSequence.current) return;
       setDataIssue(null);
       setActionNotice(null);
     } catch (err) {
+      if (sequence !== dataRequestSequence.current) return;
       if (shouldStopAttackPathFallback(err)) {
         setGraphData({ nodes: [], links: [] });
         setSummary(null);
@@ -422,16 +442,18 @@ export const AttackPaths: React.FC = () => {
       } else {
         try {
           const [graph, sum, chs] = await Promise.all([
-            api.getAttackPathsGraphStrict(),
-            api.getAttackPathsSummaryStrict(selectedClusterId || undefined),
-            api.getAttackChainsStrict(selectedClusterId || undefined),
+            api.getAttackPathsGraphStrict(effectiveClusterId || undefined),
+            api.getAttackPathsSummaryStrict(effectiveClusterId || undefined),
+            api.getAttackChainsStrict(effectiveClusterId || undefined),
           ]);
+          if (sequence !== dataRequestSequence.current) return;
           setGraphData(graph);
           setSummary(sum);
           setChains(chs);
           setPrimitivePaths([]);
           setDataIssue(null);
         } catch (fallbackErr) {
+          if (sequence !== dataRequestSequence.current) return;
           setGraphData({ nodes: [], links: [] });
           setSummary(null);
           setChains([]);
@@ -440,27 +462,41 @@ export const AttackPaths: React.FC = () => {
         }
       }
     } finally {
-      setLoading(false);
+      if (sequence === dataRequestSequence.current) setLoading(false);
     }
-  }, [selectedClusterId]);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
+  }, [effectiveClusterId]);
 
   useEffect(() => {
-    if (!podUidParam) { setSelectedPodPaths([]); setSelectedPodIssue(null); return; }
+    void fetchData();
+    return () => { dataRequestSequence.current++; };
+  }, [fetchData]);
+
+  useEffect(() => {
+    const sequence = ++podRequestSequence.current;
+    if (!podUidParam) {
+      setSelectedPodPaths([]);
+      setSelectedPodIssue(null);
+      setSelectedPodLoading(false);
+      return () => { podRequestSequence.current++; };
+    }
     setSelectedPodLoading(true);
     setSelectedPodIssue(null);
-    api.getAttackPathsForPodStrict(podUidParam)
+    api.getAttackPathsForPodStrict(podUidParam, podClusterIdParam || undefined)
       .then((paths) => {
+        if (sequence !== podRequestSequence.current) return;
         setSelectedPodPaths(paths);
         setSelectedPodIssue(null);
       })
       .catch((err) => {
+        if (sequence !== podRequestSequence.current) return;
         setSelectedPodPaths([]);
         setSelectedPodIssue(classifyAttackPathIssue(err, 'Could not load pod attack paths'));
       })
-      .finally(() => setSelectedPodLoading(false));
-  }, [podUidParam]);
+      .finally(() => {
+        if (sequence === podRequestSequence.current) setSelectedPodLoading(false);
+      });
+    return () => { podRequestSequence.current++; };
+  }, [podUidParam, podClusterIdParam]);
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -506,8 +542,8 @@ export const AttackPaths: React.FC = () => {
       });
       return;
     }
-    navigate(`/resources/pods/uid/${encodeURIComponent(nodeId)}`);
-  }, [canOpenInventory, focusPathOnGraph, navigate]);
+    navigate(podDetailPath(nodeId, effectiveClusterId || undefined));
+  }, [canOpenInventory, effectiveClusterId, focusPathOnGraph, navigate]);
 
   const clearPodUidFilter = useCallback(() => {
     const next = new URLSearchParams(searchParams);
@@ -676,7 +712,7 @@ export const AttackPaths: React.FC = () => {
                 <div className="flex flex-wrap gap-2 shrink-0">
                   {canOpenInventory ? (
                     <Link
-                      to={`/resources/pods/uid/${encodeURIComponent(podUidParam)}`}
+                      to={podDetailPath(podUidParam, podClusterIdParam)}
                       className="text-caption px-3 py-1.5 rounded-lg border border-border text-text hover:bg-surface-2"
                     >
                       Open pod
@@ -729,7 +765,7 @@ export const AttackPaths: React.FC = () => {
               )}
               <div className="mt-4 border-t border-border/80 pt-4">
                 <p className="text-caption font-semibold text-muted mb-2">Runtime attack steps (this pod)</p>
-                <AttackStepsTimeline podUid={podUidParam} />
+                <AttackStepsTimeline podUid={podUidParam} clusterId={podClusterIdParam || undefined} />
               </div>
             </div>
           )}

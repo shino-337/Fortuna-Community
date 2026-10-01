@@ -49,6 +49,8 @@ export interface ImageTrust {
 
 /** Threat summary for a pod or cluster (CVEs, malware, protestware). */
 export interface ThreatSummary {
+  clusterId?: string;
+  podUid?: string;
   totalThreats: number;
   malwareCount: number;
   telemetryCount: number;
@@ -60,6 +62,7 @@ export interface ThreatSummary {
 
 /** SBOM summary for a pod (scan metadata, package count and vulnerability counts). */
 export interface PodSbomSummary {
+  clusterId?: string;
   podId: string;
   podName: string;
   namespace: string;
@@ -88,6 +91,7 @@ export interface PodSbomSummary {
 }
 
 export interface PodSbom {
+  clusterId?: string;
   podId: string;
   podName: string;
   namespace: string;
@@ -1354,6 +1358,8 @@ export interface K8sClusterRoleBindingPermission {
 /** RBAC permissions for a Kubernetes ServiceAccount. */
 export interface ServiceAccountK8sPermissions {
   serviceAccountId?: number;
+  serviceAccountUid?: string;
+  clusterId?: string;
   roleBindings?: K8sRoleBindingPermission[];
   clusterRoleBindings?: K8sClusterRoleBindingPermission[];
   effectiveRules?: K8sEffectiveRule[];

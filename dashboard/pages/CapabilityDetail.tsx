@@ -1,15 +1,16 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { CapabilityMetadata, SecurityRule } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ExternalLink, Info, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLoading } from '../design-system/components/PageStatus';
 
-export const CapabilityDetail: React.FC = () => {
+const CapabilityDetailContent: React.FC = () => {
   const params = useParams<{ id: string }>();
   const location = useLocation();
   const id = params.id ?? matchPath({ path: '/capabilities/:id', end: true }, location.pathname)?.params.id;
@@ -18,6 +19,20 @@ export const CapabilityDetail: React.FC = () => {
   const [rules, setRules] = useState<SecurityRule[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [metaIssue, setMetaIssue] = useState<AvailabilityIssue | null>(null);
+  const [rulesIssue, setRulesIssue] = useState<AvailabilityIssue | null>(null);
+  const [rulesLoaded, setRulesLoaded] = useState(false);
+  const requestRef = useRef(0);
+
+  useEffect(() => {
+    requestRef.current += 1;
+    setMeta(null);
+    setRules([]);
+    setLoadError(null);
+    setMetaIssue(null);
+    setRulesIssue(null);
+    setRulesLoaded(false);
+  }, [id]);
 
   const load = useCallback(async () => {
     if (!id) {
@@ -27,25 +42,37 @@ export const CapabilityDetail: React.FC = () => {
       setLoading(false);
       return;
     }
+    const requestSeq = ++requestRef.current;
     setLoading(true);
     setLoadError(null);
-    try {
-      const [m, r] = await Promise.all([
-        api.getCapabilityMetadataById(id),
-        api.getRules().catch(() => []),
-      ]);
-      setMeta(m);
-      setRules(r);
-      if (!m) {
-        setLoadError('Capability metadata was not found for this id.');
-      }
-    } catch (err) {
+    const [metaResult, rulesResult] = await Promise.allSettled([
+      api.getCapabilityMetadataByIdStrict(id),
+      api.getRulesStrict(),
+    ]);
+
+    if (requestSeq !== requestRef.current) return;
+
+    if (metaResult.status === 'fulfilled') {
+      setMeta(metaResult.value);
+      setMetaIssue(null);
+    } else if (isApiError(metaResult.reason) && metaResult.reason.status === 404) {
       setMeta(null);
-      setRules([]);
-      setLoadError(err instanceof Error ? err.message : 'Capability detail could not be loaded.');
-    } finally {
-      setLoading(false);
+      setMetaIssue(null);
+      setLoadError(null);
+    } else {
+      const issue = getAvailabilityIssue(metaResult.reason, 'Capability metadata');
+      setMetaIssue(issue);
+      setLoadError(issue.description);
     }
+
+    if (rulesResult.status === 'fulfilled') {
+      setRules(rulesResult.value);
+      setRulesLoaded(true);
+      setRulesIssue(null);
+    } else {
+      setRulesIssue(getAvailabilityIssue(rulesResult.reason, 'Linked policy rules'));
+    }
+    if (requestSeq === requestRef.current) setLoading(false);
   }, [id]);
 
   useEffect(() => {
@@ -54,16 +81,24 @@ export const CapabilityDetail: React.FC = () => {
 
   const linkedRules = (rules || []).filter((r) => (r.relatedCapabilities || []).includes(id || ''));
 
-  if (loading) {
+  if (loading && !meta) {
     return <PageLoading message="Loading capability…" className="min-h-[40dvh]" />;
   }
 
   if (!meta) {
     return (
-      <PageLayout title="Capability not found" description={loadError ?? 'Unknown or removed capability id.'}>
-        <Button variant="secondary" onClick={() => navigate('/capabilities')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back
-        </Button>
+      <PageLayout
+        title={metaIssue ? metaIssue.title : 'Capability not found'}
+        description={metaIssue?.description ?? loadError ?? 'Unknown or removed capability id.'}
+      >
+        <div className="flex flex-wrap gap-2">
+          {metaIssue?.retryable ? (
+            <Button variant="secondary" onClick={() => void load()} isLoading={loading}>Retry capability</Button>
+          ) : null}
+          <Button variant="secondary" onClick={() => navigate('/capabilities')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back
+          </Button>
+        </div>
       </PageLayout>
     );
   }
@@ -80,6 +115,9 @@ export const CapabilityDetail: React.FC = () => {
         </Button>
       }
     >
+      {metaIssue ? (
+        <AvailabilityNotice issue={metaIssue} onRetry={metaIssue.retryable ? () => void load() : undefined} className="mb-4" />
+      ) : null}
       <Card className="p-6 mb-6">
         <div className="flex flex-wrap items-center gap-3 text-body">
           <span className={`px-2 py-0.5 rounded text-caption font-medium border ${getSeverityBadgeClass(meta.severityBase?.toLowerCase())}`}>{meta.severityBase}</span>
@@ -107,9 +145,16 @@ export const CapabilityDetail: React.FC = () => {
           <h3 className="text-body font-semibold text-text mb-3 flex items-center gap-2">
             <Info className="w-4 h-4 text-brand" /> Linked rules
           </h3>
-          {linkedRules.length === 0 ? (
-            <p className="text-body text-muted">No rules reference this capability in recent analytics.</p>
+          {rulesIssue && !rulesLoaded ? (
+            <AvailabilityNotice issue={rulesIssue} onRetry={rulesIssue.retryable ? () => void load() : undefined} />
           ) : (
+            <>
+              {rulesIssue ? (
+                <AvailabilityNotice issue={rulesIssue} onRetry={rulesIssue.retryable ? () => void load() : undefined} className="mb-3" />
+              ) : null}
+              {linkedRules.length === 0 ? (
+                <p className="text-body text-muted">No rules reference this capability in the successfully loaded rule set.</p>
+              ) : (
             <ul className="space-y-2 text-body text-text">
               {linkedRules.slice(0, 20).map((r) => (
                 <li key={r.id} className="flex justify-between gap-2 border-b border-border/80 pb-2">
@@ -120,6 +165,8 @@ export const CapabilityDetail: React.FC = () => {
                 </li>
               ))}
             </ul>
+              )}
+            </>
           )}
         </Card>
 
@@ -231,4 +278,11 @@ export const CapabilityDetail: React.FC = () => {
       </p>
     </PageLayout>
   );
+};
+
+
+/** Keep last-known-good detail state scoped to one capability route identity. */
+export const CapabilityDetail: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <CapabilityDetailContent key={id ?? 'missing-capability'} />;
 };

@@ -41,6 +41,7 @@ import type {
 } from '../types';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import type { SemanticVisibilityState } from '../lib/visibilityEngine';
+import { podDetailPath } from '../lib/podRoute';
 
 type NetworkMainTab = 'topology' | 'pods' | 'connections';
 
@@ -1399,8 +1400,8 @@ export function NetworkActivity() {
     void fetchTopology({ mode: 'full' });
   }, [refreshTrigger, mainTab, fetchTopology]);
 
-  const goPod = (podUid: string) => {
-    navigate(`/resources/pods/uid/${encodeURIComponent(podUid)}`);
+  const goPod = (podUid: string, clusterId?: string | null) => {
+    navigate(podDetailPath(podUid, clusterId));
   };
 
   const drillConnectionsForPod = useCallback((row: NetworkActivityWorkloadRow) => {
@@ -1836,7 +1837,7 @@ export function NetworkActivity() {
                                   size="sm"
                                   type="button"
                                   className="mt-2 h-8 text-caption"
-                                  onClick={() => goPod(topologySelection.id.replace(/^pod:/, ''))}
+                                  onClick={() => goPod(topologySelection.id.replace(/^pod:/, ''), selectedClusterId)}
                                 >
                                   <ExternalLink className="mr-1 h-3.5 w-3.5" />
                                   Open pod
@@ -1988,7 +1989,7 @@ export function NetworkActivity() {
                                       title="Pod detail"
                                       onClick={(e) => {
                                         e.stopPropagation();
-                                        goPod(row.podUid);
+                                        goPod(row.podUid, row.clusterId);
                                       }}
                                     >
                                       <ExternalLink className="mr-1 h-3.5 w-3.5" />
@@ -2165,7 +2166,7 @@ export function NetworkActivity() {
                                           className="h-8 w-8 p-0"
                                           title="Open Pod detail"
                                           aria-label="Open Pod detail"
-                                          onClick={() => goPod((row.podUid ?? '').trim())}
+                                          onClick={() => goPod((row.podUid ?? '').trim(), row.clusterId)}
                                         >
                                           <ExternalLink className="w-3.5 h-3.5" />
                                         </Button>

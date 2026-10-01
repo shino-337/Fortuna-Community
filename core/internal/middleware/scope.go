@@ -79,6 +79,23 @@ func RequirePodUIDClusterScope(db *gorm.DB, param string) gin.HandlerFunc {
 			}
 			unique[clusterID] = struct{}{}
 		}
+		requestedClusterID := strings.TrimSpace(c.Query("clusterId"))
+		if requestedClusterID != "" && !unresolved {
+			if _, exists := unique[requestedClusterID]; !exists {
+				// Authorize the requested cluster before distinguishing "not an owner"
+				// from "out of scope". This avoids disclosing foreign ownership.
+				if !ClusterAllowed(c, requestedClusterID) {
+					AbortClusterScopeDenied(db, c, requestedClusterID)
+					return
+				}
+				c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": "pod not found in requested cluster"})
+				return
+			}
+			c.Set(CtxPodClusterID, requestedClusterID)
+			enforceClusterScope(c, db, requestedClusterID)
+			return
+		}
+
 		if unresolved || len(unique) != 1 {
 			// Do not disclose the set of owning clusters to a cluster-scoped user.
 			if _, restricted := ScopedClusterIDs(c); restricted {

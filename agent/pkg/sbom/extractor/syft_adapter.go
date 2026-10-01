@@ -1,6 +1,7 @@
 package extractor
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -58,14 +59,16 @@ func (s *SyftAdapter) DiscoverPackages(ctx context.Context, imageRef string) ([]
 
 	// Syft JSON output typically includes an "artifacts" array with fields:
 	// name, version, type, purl (best-effort).
-	cmd := exec.CommandContext(ctx, s.syftBin, "packages", imageRef, "-o", "json")
-	b, err := cmd.CombinedOutput()
+	cmd := exec.CommandContext(ctx, s.syftBin, "scan", imageRef, "-o", "json")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	b, err := cmd.Output()
 	if err != nil {
 		// If the command was killed due to timeout, prefer a clean error message.
 		if ctx.Err() != nil {
 			return nil, fmt.Errorf("syft discovery timeout after %s", s.timeout)
 		}
-		return nil, fmt.Errorf("syft discovery failed: %w (output=%q)", err, strings.TrimSpace(string(b)))
+		return nil, fmt.Errorf("syft discovery failed: %w (stderr=%q)", err, strings.TrimSpace(stderr.String()))
 	}
 
 	var parsed syftPackagesJSON
@@ -201,4 +204,3 @@ func minInt(a, b int) int {
 	}
 	return b
 }
-

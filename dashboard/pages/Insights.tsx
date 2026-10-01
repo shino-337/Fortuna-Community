@@ -1,7 +1,7 @@
 import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import { normalizeInsightStatus } from '../lib/api';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useAbortSignal, isAbortError } from '../hooks/useAbortSignal';
 import { useClusters } from '../hooks/useClusters';
@@ -22,6 +22,7 @@ import {
   AuditLog,
 } from '../types';
 import { Button } from '../components/ui/Button';
+import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
 import { Pagination } from '../components/Pagination';
@@ -44,6 +45,7 @@ import { RiskFindingsSavedViews } from '../components/RiskFindingsSavedViews';
 import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { formatMinutesHuman } from '../lib/formatDuration';
 import { formatDateTime } from '../lib/display';
+import { podDetailPath } from '../lib/podRoute';
 import {
   UI_TABLE,
   UI_TD,
@@ -152,12 +154,15 @@ function findingPodUid(insight: Insight): string | undefined {
   return uid || undefined;
 }
 
-function findingResourceTarget(resource?: FindingResource): string | undefined {
+function findingResourceTarget(resource?: FindingResource, clusterId?: string): string | undefined {
   const id = String(resource?.id ?? '').trim();
   if (!resource || !id) return undefined;
   const kind = normalizeFindingResourceKind(resource.kind);
-  if (kind === 'pod') return `/resources/pods/uid/${encodeURIComponent(id)}`;
-  if (kind === 'serviceaccount') return `/identities/uid/${encodeURIComponent(id)}`;
+  if (kind === 'pod') return podDetailPath(id, clusterId);
+  if (kind === 'serviceaccount') {
+    const clusterQuery = clusterId ? `?clusterId=${encodeURIComponent(clusterId)}` : '';
+    return `/identities/uid/${encodeURIComponent(id)}${clusterQuery}`;
+  }
   return undefined;
 }
 
@@ -187,6 +192,8 @@ export const RiskCenter: React.FC = () => {
   const [risksTotal, setRisksTotal] = useState(0);
   const [pceSummary, setPceSummary] = useState<PodCapabilitySummarySeverity[]>([]);
   const [pceDetails, setPceDetails] = useState<PodCapabilityDetail[]>([]);
+  const [pceIssue, setPceIssue] = useState<AvailabilityIssue | null>(null);
+  const pceRequestRef = useRef(0);
   const { clusters } = useClusters();
   const [pceClusterId, setPceClusterId] = useState('');
   const [pceNamespace, setPceNamespace] = useState('');
@@ -266,6 +273,15 @@ export const RiskCenter: React.FC = () => {
 
   // Resolve cluster + time: URL from Dashboard link overrides store so Risk Center shows same scope
   const effectiveClusterId = clusterIdFromUrl ?? selectedClusterId ?? undefined;
+  useEffect(() => {
+    pceRequestRef.current += 1;
+    setPceSummary([]);
+    setPceDetails([]);
+    setPceListTotal(0);
+    setPceTrend([]);
+    setPceHeatmap([]);
+    setPceIssue(null);
+  }, [effectiveClusterId, pceClusterId]);
   const effectiveSinceMinutes = sinceMinutesFromUrl != null ? parseInt(sinceMinutesFromUrl, 10) : timeWindowMinutes;
   const effectiveSinceMinutesNum = Number.isFinite(effectiveSinceMinutes) && effectiveSinceMinutes > 0 ? effectiveSinceMinutes : undefined;
 
@@ -403,6 +419,7 @@ export const RiskCenter: React.FC = () => {
       return byLevel;
     };
     const runPceBlock = async (errors: string[]) => {
+      const requestId = ++pceRequestRef.current;
       const pceDrillCluster = (pceClusterId || '').trim() || clusterId;
       const pceResults = await Promise.allSettled([
         api.getPceSummaryBySeverity({ clusterId: pceDrillCluster || undefined }),
@@ -418,30 +435,31 @@ export const RiskCenter: React.FC = () => {
         api.getPceTrend(pceTrendDays, { clusterId: clusterId ?? undefined }),
         api.getPceSummaryByNamespace({ clusterId: clusterId ?? undefined }),
       ]);
+      if (requestId !== pceRequestRef.current) return;
       const [pceSummaryResult, pceListResult, pceTrendResult, pceHeatmapResult] = pceResults;
+      const failed = pceResults.find((result) => result.status === 'rejected');
+      setPceIssue(failed?.status === 'rejected' ? getAvailabilityIssue(failed.reason, 'Capability data') : null);
       if (pceSummaryResult.status === 'fulfilled') {
         setPceSummary(pceSummaryResult.value);
       } else {
-        setPceSummary([]);
-        errors.push('PCE summary: ' + (pceSummaryResult.reason?.message || String(pceSummaryResult.reason)));
+        errors.push(getAvailabilityIssue(pceSummaryResult.reason, 'Capability summary').description);
       }
       if (pceListResult.status === 'fulfilled') {
         const v = pceListResult.value;
         setPceDetails(v.capabilities);
         setPceListTotal(v.total);
       } else {
-        setPceDetails([]);
-        setPceListTotal(0);
+        errors.push(getAvailabilityIssue(pceListResult.reason, 'Capability inventory').description);
       }
       if (pceTrendResult.status === 'fulfilled') {
         setPceTrend(Array.isArray(pceTrendResult.value) ? pceTrendResult.value : []);
       } else {
-        setPceTrend([]);
+        errors.push(getAvailabilityIssue(pceTrendResult.reason, 'Capability trend').description);
       }
       if (pceHeatmapResult.status === 'fulfilled') {
         setPceHeatmap(Array.isArray(pceHeatmapResult.value) ? pceHeatmapResult.value : []);
       } else {
-        setPceHeatmap([]);
+        errors.push(getAvailabilityIssue(pceHeatmapResult.reason, 'Capability heatmap').description);
       }
     };
     try {
@@ -1188,6 +1206,20 @@ export const RiskCenter: React.FC = () => {
       </PageContract>
     );
   }
+
+  const loadPceDetails = async (params: Parameters<typeof api.getPceCapabilities>[0]) => {
+    const requestId = ++pceRequestRef.current;
+    try {
+      const result = await api.getPceCapabilities(params);
+      if (requestId !== pceRequestRef.current) return;
+      setPceDetails(result.capabilities);
+      setPceListTotal(result.total);
+    } catch (err) {
+      if (requestId !== pceRequestRef.current) return;
+      setPceIssue(getAvailabilityIssue(err, 'Capability inventory'));
+      setError(getAvailabilityIssue(err, 'Capability inventory').description);
+    }
+  };
 
   const allTabs: { id: TabId; label: string }[] = [
     { id: 'overview', label: 'Summary' },
@@ -2089,7 +2121,7 @@ export const RiskCenter: React.FC = () => {
                                 const resource = risk.affectedResources?.[0];
                                 const label = findingResourceDisplayName(resource);
                                 const kindLabel = findingResourceKindLabel(resource?.kind);
-                                const target = findingResourceTarget(resource);
+                                const target = findingResourceTarget(resource, risk.clusterId);
                                 if (risk.affectedResources.length > 1) {
                                   return `${risk.affectedResources.length} resources`;
                                 }
@@ -2228,6 +2260,7 @@ export const RiskCenter: React.FC = () => {
       {/* ----- PCE tab ----- */}
       {activeTab === 'pce' && (
         <div className="space-y-6">
+          {pceIssue ? <AvailabilityNotice issue={pceIssue} onRetry={pceIssue.retryable ? () => { void fetchData(); } : undefined} /> : null}
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <h1 className="text-section-title text-text">Capability exposure</h1>
             {pceHeatmap.length > 0 && (
@@ -2261,9 +2294,9 @@ export const RiskCenter: React.FC = () => {
               Counts by severity from current pod capability inventory. These numbers are separate from active findings and do not use the Risk Operations time window.
               {scopeClusterDisplay ? ` Scoped to cluster: ${scopeClusterDisplay}.` : ' All clusters.'}
             </p>
-            {pceSummary.length === 0 ? (
+            {pceSummary.length === 0 && !pceIssue ? (
               <p className="text-body text-muted">No capability exposure data available for this scope.</p>
-            ) : (
+            ) : pceSummary.length > 0 ? (
               <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
                 {pceSummary.map((row) => (
                   <div key={row.severity} className="bg-base border border-border rounded p-3 flex items-center justify-between">
@@ -2272,7 +2305,7 @@ export const RiskCenter: React.FC = () => {
                   </div>
                 ))}
               </div>
-            )}
+            ) : null}
           </div>
 
           {/* Capability exposure trend */}
@@ -2342,15 +2375,13 @@ export const RiskCenter: React.FC = () => {
                 effectiveClusterId ||
                 selectedClusterId ||
                 undefined;
-              const res = await api.getPceCapabilities({
+              await loadPceDetails({
                 clusterId: merged,
                 namespace: ns,
                 severity,
                 limit: pceListPageSize,
                 offset: 0,
               });
-              setPceDetails(res.capabilities);
-              setPceListTotal(res.total);
             };
             return (
               <div className="bg-surface border border-border p-4 rounded-lg">
@@ -2440,13 +2471,11 @@ export const RiskCenter: React.FC = () => {
                       effectiveClusterId ||
                       selectedClusterId ||
                       undefined;
-                    const res = await api.getPceCapabilities({
+                    await loadPceDetails({
                       clusterId: merged,
                       limit: pceListPageSize,
                       offset: 0,
                     });
-                    setPceDetails(res.capabilities);
-                    setPceListTotal(res.total);
                   }}
                 >
                   Clear filter
@@ -2518,7 +2547,7 @@ export const RiskCenter: React.FC = () => {
                       effectiveClusterId ||
                       selectedClusterId ||
                       undefined;
-                    const res = await api.getPceCapabilities({
+                    await loadPceDetails({
                       clusterId: merged,
                       namespace: pceNamespace.trim() || undefined,
                       severity: pceSeverityFilter || undefined,
@@ -2527,8 +2556,6 @@ export const RiskCenter: React.FC = () => {
                       limit: pceListPageSize,
                       offset: 0,
                     });
-                    setPceDetails(res.capabilities);
-                    setPceListTotal(res.total);
                   }}
                 >
                   Apply &amp; search
@@ -2564,11 +2591,11 @@ export const RiskCenter: React.FC = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {pceDetails.length === 0 ? (
+                  {pceDetails.length === 0 && !pceIssue ? (
                     <tr>
                       <td colSpan={7} className={`${UI_TD_COMPACT_TIGHT} py-4 text-center text-muted`}>No matching capability records. Adjust filters and run again.</td>
                     </tr>
-                  ) : (
+                  ) : pceDetails.length > 0 ? (
                     sortedPceDetails.map((row) => {
                       const evSum = summarizePceEvidence(row.evidence);
                       const lastSeen = row.lastSeenAt ? (() => {
@@ -2610,7 +2637,7 @@ export const RiskCenter: React.FC = () => {
                         </tr>
                       );
                     })
-                  )}
+                  ) : null}
                 </tbody>
               </table>
             </div>

@@ -22,6 +22,8 @@ function isStale(entry: CacheEntry<unknown> | undefined, ttlMs = DEFAULT_TTL_MS)
 
 interface ClusterCache {
   clusters: CacheEntry<Cluster[]> | null;
+  /** Shared generation so every hook can reject completions from an invalidated request. */
+  clusterGeneration: number;
   /** Get clusters with dedup — only one fetch in flight at a time */
   fetchClusters: (fetcher: () => Promise<Cluster[]>) => Promise<Cluster[]>;
   /** Direct set (from WebSocket or manual refresh) */
@@ -57,12 +59,15 @@ interface PodCache {
 
 type EntityState = ClusterCache & InsightCache & PodCache;
 
-// We use a singleton promise to deduplicate cluster fetches
+// We use a singleton promise to deduplicate cluster fetches. The generation
+// prevents an invalidated/stale request from committing after a newer refresh.
 let clusterFetchPromise: Promise<Cluster[]> | null = null;
+let clusterFetchGeneration = 0;
 
 export const useEntityStore = create<EntityState>()((set, get) => ({
   /* ── clusters ─────────────────────────────────────────────── */
   clusters: null,
+  clusterGeneration: 0,
 
   /** Fetch clusters with deduplication — only one fetch in flight at a time. */
   fetchClusters: async (fetcher) => {
@@ -71,26 +76,38 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
     if (state.clusters && !isStale(state.clusters, 60_000)) {
       return state.clusters.data;
     }
-    // Deduplicate in-flight requests
+    // Deduplicate in-flight requests for the current generation.
     if (clusterFetchPromise) {
       return clusterFetchPromise;
     }
-    clusterFetchPromise = fetcher()
+    const generation = clusterFetchGeneration;
+    let request: Promise<Cluster[]>;
+    request = fetcher()
       .then((data) => {
-        set({ clusters: { data, fetchedAt: Date.now() } });
-        clusterFetchPromise = null;
+        if (generation === clusterFetchGeneration) {
+          set({ clusters: { data, fetchedAt: Date.now() } });
+        }
         return data;
       })
-      .catch((err) => {
-        clusterFetchPromise = null;
-        throw err;
+      .finally(() => {
+        // An older request must never clear a newer in-flight request.
+        if (clusterFetchPromise === request) {
+          clusterFetchPromise = null;
+        }
       });
-    return clusterFetchPromise;
+    clusterFetchPromise = request;
+    return request;
   },
 
-  /** Direct set (from WebSocket or manual refresh). */
+  /** Direct set (from WebSocket or another authoritative source).
+   * Supersede any older in-flight fetch so it cannot overwrite fresher data. */
   setClusters: (clusters) => {
-    set({ clusters: { data: clusters, fetchedAt: Date.now() } });
+    clusterFetchGeneration += 1;
+    clusterFetchPromise = null;
+    set({
+      clusters: { data: clusters, fetchedAt: Date.now() },
+      clusterGeneration: clusterFetchGeneration,
+    });
   },
 
   /** Get cached value synchronously (may be stale). */
@@ -99,8 +116,14 @@ export const useEntityStore = create<EntityState>()((set, get) => ({
   },
 
   invalidateClusters: () => {
-    set({ clusters: null });
+    clusterFetchGeneration += 1;
     clusterFetchPromise = null;
+    set((state) => ({
+      clusters: state.clusters
+        ? { ...state.clusters, fetchedAt: 0, pending: undefined }
+        : null,
+      clusterGeneration: clusterFetchGeneration,
+    }));
   },
 
   /* ── insights ─────────────────────────────────────────────── */

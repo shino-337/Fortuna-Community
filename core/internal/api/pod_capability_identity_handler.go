@@ -26,8 +26,7 @@ func GetPodCapabilitiesScoped(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
 			return
 		}
-		if !hasPodCapabilitiesTable(db) {
-			respondSchemaUnavailable(c, "capability_inventory_schema_unavailable", "Capability inventory is unavailable; migration required")
+		if !requirePodCapabilitiesTable(c, db.WithContext(c.Request.Context())) {
 			return
 		}
 
