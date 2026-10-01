@@ -10,16 +10,35 @@ import (
 	"strings"
 
 	"github.com/fortuna/core/internal/storage"
+	"github.com/jackc/pgx/v5/pgconn"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 )
 
+func validateRehearsalDSN(dsn string) error {
+	u, err := url.Parse(dsn)
+	if err != nil || u.Scheme != "postgres" || u.Hostname() != "127.0.0.1" || u.Port() == "" || !strings.HasPrefix(u.Path, "/fortuna_rehearsal_") {
+		return fmt.Errorf("dedicated loopback fortuna_rehearsal_ database required")
+	}
+	// pgx applies URL query options after the authority and path. Check the
+	// effective connection target, including every fallback, before migrating.
+	config, err := pgconn.ParseConfig(dsn)
+	if err != nil || config.Host != u.Hostname() || config.Database != strings.TrimPrefix(u.Path, "/") || fmt.Sprint(config.Port) != u.Port() {
+		return fmt.Errorf("dedicated loopback fortuna_rehearsal_ database required")
+	}
+	for _, fallback := range config.Fallbacks {
+		if fallback.Host != config.Host || fallback.Port != config.Port {
+			return fmt.Errorf("dedicated loopback fortuna_rehearsal_ database required")
+		}
+	}
+	return nil
+}
+
 func run() error {
 	dsn := os.Getenv("FORTUNA_REHEARSAL_POSTGRES_URL")
-	u, err := url.Parse(dsn)
-	if err != nil || u.Scheme != "postgres" || u.Hostname() != "127.0.0.1" || !strings.HasPrefix(u.Path, "/fortuna_rehearsal_") {
-		return fmt.Errorf("dedicated loopback fortuna_rehearsal_ database required")
+	if err := validateRehearsalDSN(dsn); err != nil {
+		return err
 	}
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
 	if err != nil {

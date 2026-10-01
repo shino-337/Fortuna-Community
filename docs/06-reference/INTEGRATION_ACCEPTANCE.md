@@ -67,7 +67,10 @@ python3 scripts/verify/rehearse-populated-migration.py --backup /path/to/backup.
 ```
 
 The command restores into its own loopback PostgreSQL container, runs startup
-migration twice and rejects evidence-row count loss. The September 27 pre-depfix
+migration twice and rejects evidence-row count loss. The standalone Go rehearsal
+command also checks the effective pgx host, port and database, so URL query
+overrides cannot redirect migration away from its dedicated loopback database.
+The September 27 pre-depfix
 backup retained 253 insights, 29 Pods, 29 risk snapshots, 1,646 runtime events,
 25 SBOMs and 2,194 components. The pre-reset backup retained 394 insights, 34 Pods,
 34 risk snapshots, 1,640 events, 28 SBOMs and 3,132 components. Both rehearsals
