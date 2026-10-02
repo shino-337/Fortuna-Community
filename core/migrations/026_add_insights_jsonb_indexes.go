@@ -16,7 +16,7 @@ func Migration026_AddInsightsJSONBIndexes(db *gorm.DB) error {
 
 	// Guard: only run if table exists
 	var tableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'insights')").Scan(&tableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights')").Scan(&tableExists).Error; err != nil {
 		return fmt.Errorf("check insights table exists: %w", err)
 	}
 
@@ -31,7 +31,7 @@ func Migration026_AddInsightsJSONBIndexes(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'insights' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights'
 			AND column_name = 'affected_resources'
 		)
 	`).Scan(&columnExists).Error; err == nil && columnExists {
@@ -53,8 +53,8 @@ CREATE INDEX IF NOT EXISTS idx_insights_affected_resources_gin
 	// Note: Column name changed from 'type' to 'insight_type' in refactoring
 	// Check which column exists
 	var hasType, hasInsightType bool
-	db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='insights' AND column_name='type')").Scan(&hasType)
-	db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='insights' AND column_name='insight_type')").Scan(&hasInsightType)
+	db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name='insights' AND column_name='type')").Scan(&hasType)
+	db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name='insights' AND column_name='insight_type')").Scan(&hasInsightType)
 	
 	if hasInsightType {
 		// New schema uses insight_type

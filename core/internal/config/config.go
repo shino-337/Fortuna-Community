@@ -37,7 +37,8 @@ type Config struct {
 	// AgentCredentialRegistryPath points to the operator-managed JSON registry used
 	// by scoped per-agent/per-cluster HTTP authentication. Empty preserves the
 	// legacy shared-token mode during migration.
-	AgentCredentialRegistryPath string
+	AgentCredentialRegistryPath     string
+	RuntimeSourceHealthRegistryPath string
 	// GRPCAgentCredentialRegistryPath independently enables scoped gRPC agent
 	// authentication. It uses the same registry schema and trusted Principal as
 	// HTTP, but is a separate migration switch because HTTP token credentials and
@@ -80,32 +81,33 @@ func Load(configPath string) (*Config, error) {
 	fmt.Fprintf(os.Stdout, "[Config] TLS_ENABLED env='%s', parsed=%v\n", tlsEnabledStr, tlsEnabled)
 
 	cfg := &Config{
-		DatabaseURL:                    getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/fortuna?sslmode=disable"),
-		RedisURL:                       getEnv("REDIS_URL", ""),
-		GRPCPort:                       getEnv("GRPC_PORT", "9090"),
-		HTTPPort:                       getEnv("HTTP_PORT", "8080"),
-		NATSEndpoint:                   getEnv("NATS_ENDPOINT", "nats://nats.fortuna.svc.cluster.local:4222"),
-		LogLevel:                       getEnv("LOG_LEVEL", "info"),
-		AuthEnabled:                    getEnv("AUTH_ENABLED", "true") == "true",
-		JWTSecret:                      jwtSecretFromEnv(),
-		TokenExpirationHours:           parseInt(getEnv("TOKEN_EXPIRATION_HOURS", "24")),
-		IngestToken:                    strings.TrimSpace(getEnv("FORTUNA_INGEST_TOKEN", "")),
-		AgentCredentialRegistryPath:    strings.TrimSpace(getEnv("FORTUNA_AGENT_CREDENTIAL_REGISTRY", "")),
+		DatabaseURL:                     getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/fortuna?sslmode=disable"),
+		RedisURL:                        getEnv("REDIS_URL", ""),
+		GRPCPort:                        getEnv("GRPC_PORT", "9090"),
+		HTTPPort:                        getEnv("HTTP_PORT", "8080"),
+		NATSEndpoint:                    getEnv("NATS_ENDPOINT", "nats://nats.fortuna.svc.cluster.local:4222"),
+		LogLevel:                        getEnv("LOG_LEVEL", "info"),
+		AuthEnabled:                     getEnv("AUTH_ENABLED", "true") == "true",
+		JWTSecret:                       jwtSecretFromEnv(),
+		TokenExpirationHours:            parseInt(getEnv("TOKEN_EXPIRATION_HOURS", "24")),
+		IngestToken:                     strings.TrimSpace(getEnv("FORTUNA_INGEST_TOKEN", "")),
+		AgentCredentialRegistryPath:     strings.TrimSpace(getEnv("FORTUNA_AGENT_CREDENTIAL_REGISTRY", "")),
+		RuntimeSourceHealthRegistryPath: strings.TrimSpace(getEnv("FORTUNA_SOURCE_HEALTH_REGISTRY", "")),
 		GRPCAgentCredentialRegistryPath: strings.TrimSpace(getEnv("FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY", "")),
-		TLSEnabled:                     tlsEnabled,
-		TLSCACertPath:                  getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/server/ca.crt"),
-		TLSCertPath:                    getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/server/tls.crt"),
-		TLSKeyPath:                     getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/server/tls.key"),
-		WebhookTLSCertPath:             getEnv("WEBHOOK_TLS_CERT_PATH", "/etc/webhook/certs/tls.crt"),
-		WebhookTLSKeyPath:              getEnv("WEBHOOK_TLS_KEY_PATH", "/etc/webhook/certs/tls.key"),
-		PCESchedulerEnabled:            getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
-		PCESchedulerInterval:           parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
-		PodDetailEncryptionKey:         getEnv("POD_DETAIL_ENCRYPTION_KEY", ""),
-		RateLimitPerClusterEnabled:     getEnv("RATE_LIMIT_PER_CLUSTER_ENABLED", "true") == "true",
-		RateLimitSyncPerClusterRPS:     parseFloat(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_RPS", "10"), 10),
-		RateLimitSyncPerClusterBurst:   parseIntEnv(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_BURST", "20"), 20),
-		RateLimitSBOMPerClusterRPS:     parseFloat(getEnv("RATE_LIMIT_SBOM_PER_CLUSTER_RPS", "50"), 50),
-		RateLimitSBOMPerClusterBurst:   parseIntEnv(getEnv("RATE_LIMIT_SBOM_PER_CLUSTER_BURST", "100"), 100),
+		TLSEnabled:                      tlsEnabled,
+		TLSCACertPath:                   getEnv("TLS_CA_CERT_PATH", "/etc/fortuna/tls/server/ca.crt"),
+		TLSCertPath:                     getEnv("TLS_CERT_PATH", "/etc/fortuna/tls/server/tls.crt"),
+		TLSKeyPath:                      getEnv("TLS_KEY_PATH", "/etc/fortuna/tls/server/tls.key"),
+		WebhookTLSCertPath:              getEnv("WEBHOOK_TLS_CERT_PATH", "/etc/webhook/certs/tls.crt"),
+		WebhookTLSKeyPath:               getEnv("WEBHOOK_TLS_KEY_PATH", "/etc/webhook/certs/tls.key"),
+		PCESchedulerEnabled:             getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
+		PCESchedulerInterval:            parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
+		PodDetailEncryptionKey:          getEnv("POD_DETAIL_ENCRYPTION_KEY", ""),
+		RateLimitPerClusterEnabled:      getEnv("RATE_LIMIT_PER_CLUSTER_ENABLED", "true") == "true",
+		RateLimitSyncPerClusterRPS:      parseFloat(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_RPS", "10"), 10),
+		RateLimitSyncPerClusterBurst:    parseIntEnv(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_BURST", "20"), 20),
+		RateLimitSBOMPerClusterRPS:      parseFloat(getEnv("RATE_LIMIT_SBOM_PER_CLUSTER_RPS", "50"), 50),
+		RateLimitSBOMPerClusterBurst:    parseIntEnv(getEnv("RATE_LIMIT_SBOM_PER_CLUSTER_BURST", "100"), 100),
 	}
 
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",

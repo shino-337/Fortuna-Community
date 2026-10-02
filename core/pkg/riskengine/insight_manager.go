@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/fortuna/core/pkg/evidence"
 	"github.com/fortuna/core/pkg/models"
@@ -71,7 +72,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		var existingVuln models.Insight
 
 		// Use efficient composite index query
-		query := tx.Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND cve_id = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL",
+		query := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND cve_id = ? AND (status = ? OR status IS NULL) AND deleted_at IS NULL",
 			insight.ClusterID, "vulnerability", insight.ResourceUID, insight.CVEID, "active")
 
 		if query.First(&existingVuln).Error == nil {
@@ -108,7 +109,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 		}
 
 		// Check for resolved/dismissed vulnerability insights
-		queryResolved := tx.Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND cve_id = ? AND status IN (?, ?) AND deleted_at IS NULL",
+		queryResolved := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND cve_id = ? AND status IN (?, ?) AND deleted_at IS NULL",
 			insight.ClusterID, "vulnerability", insight.ResourceUID, insight.CVEID, "resolved", "dismissed")
 
 		if queryResolved.First(&existingVuln).Error == nil {
@@ -144,7 +145,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 	if insight.InsightType != "vulnerability" && insight.CVEID != "" {
 		cveKey := insight.CVEID
 		var existingKey models.Insight
-		if tx.Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND cve_id = ? AND deleted_at IS NULL",
+		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND cve_id = ? AND deleted_at IS NULL",
 			insight.ClusterID, insight.InsightType, insight.ResourceUID, cveKey).First(&existingKey).Error == nil {
 			wasResolvedOrDismissed := existingKey.Status == "resolved" || existingKey.Status == "dismissed"
 			// RP-5: respect active exception policies — keep dismissed if exempted.
@@ -153,7 +154,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 					existingKey.ID, existingKey.ClusterID, insight.ResourceUID, insight.InsightType, cveKey)
 				return nil
 			}
-			existingKey.Status = "active"
+			if existingKey.Status != "acknowledged" {
+				existingKey.Status = "active"
+			}
 			existingKey.Severity = insight.Severity
 			existingKey.Description = insight.Description
 			existingKey.Recommendation = insight.Recommendation
@@ -175,7 +178,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 	// still allow only one row per (uid, '', type). Title-based dedup below misses if the title changes.
 	if insight.CVEID == "" {
 		var existingEmptyCVE models.Insight
-		if tx.Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND deleted_at IS NULL AND (cve_id IS NULL OR cve_id = '')",
+		if tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("cluster_id = ? AND insight_type = ? AND resource_uid = ? AND deleted_at IS NULL AND (cve_id IS NULL OR cve_id = '')",
 			insight.ClusterID, insight.InsightType, insight.ResourceUID).First(&existingEmptyCVE).Error == nil {
 			wasResolvedOrDismissed := existingEmptyCVE.Status == "resolved" || existingEmptyCVE.Status == "dismissed"
 			if existingEmptyCVE.Status == "dismissed" && isExempted(tx, existingEmptyCVE.ClusterID, insight.ResourceUID, "", insight.InsightType) {
@@ -183,7 +186,9 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 					existingEmptyCVE.ID, existingEmptyCVE.ClusterID, insight.ResourceUID, insight.InsightType)
 				return nil
 			}
-			existingEmptyCVE.Status = "active"
+			if existingEmptyCVE.Status != "acknowledged" {
+				existingEmptyCVE.Status = "active"
+			}
 			existingEmptyCVE.Severity = insight.Severity
 			existingEmptyCVE.Description = insight.Description
 			existingEmptyCVE.Recommendation = insight.Recommendation
@@ -206,7 +211,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 	}
 
 	// For other non-vulnerability insights, deduplicate by resource_uid + insight_type + title.
-	keyQuery := tx.Where(
+	keyQuery := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where(
 		"cluster_id = ? AND resource_uid = ? AND insight_type = ? AND title = ? AND deleted_at IS NULL",
 		insight.ClusterID, insight.ResourceUID, insight.InsightType, insight.Title,
 	)
@@ -268,7 +273,7 @@ func (m *InsightManager) createOrUpdateInsightTx(tx *gorm.DB, insight *models.In
 // Used when tx.Create hits a unique violation (race or legacy row shape).
 func (m *InsightManager) mergeInsightAfterUniqueConflict(tx *gorm.DB, insight *models.Insight) error {
 	var existing models.Insight
-	q := tx.Unscoped().Where("cluster_id = ? AND resource_uid = ? AND insight_type = ?", insight.ClusterID, insight.ResourceUID, insight.InsightType)
+	q := tx.Unscoped().Clauses(clause.Locking{Strength: "UPDATE"}).Where("cluster_id = ? AND resource_uid = ? AND insight_type = ?", insight.ClusterID, insight.ResourceUID, insight.InsightType)
 	if insight.CVEID == "" {
 		q = q.Where("(cve_id IS NULL OR cve_id = '')")
 	} else {
@@ -359,7 +364,9 @@ func (m *InsightManager) mergeInsightAfterUniqueConflict(tx *gorm.DB, insight *m
 			existing.ID, existing.ClusterID, insight.ResourceUID, insight.InsightType, cveKey)
 		return nil
 	}
-	existing.Status = "active"
+	if existing.Status != "acknowledged" {
+		existing.Status = "active"
+	}
 	existing.Severity = insight.Severity
 	existing.Description = insight.Description
 	existing.Recommendation = insight.Recommendation

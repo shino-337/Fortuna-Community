@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"gorm.io/gorm"
+	"os"
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
@@ -57,7 +58,13 @@ func (e *Engine) projectAssetSecurityStateForIdentity(ctx context.Context, id re
 		return fmt.Errorf("read previous security state: %w", tx.Error)
 	}
 	if tx.Error == nil {
-		if !force && time.Since(prev.UpdatedAt) < 5*time.Minute {
+		ttl := 5 * time.Minute
+		if value := os.Getenv("FORTUNA_SECURITY_STATE_CACHE_TTL"); value != "" {
+			if configured, err := time.ParseDuration(value); err == nil && configured >= 0 && configured <= ttl {
+				ttl = configured
+			}
+		}
+		if !force && time.Since(prev.UpdatedAt) < ttl {
 			return nil
 		}
 	}

@@ -28,13 +28,13 @@ func runtimeProducerManifestState(decl collection.RuntimeProducerDeclaration, ag
 	}
 	g := gap
 	return models.RuntimeProducerState{
-		ProducerID: decl.ProducerID,
-		SourceKind: decl.SourceKind,
-		Enabled: decl.Enabled,
+		ProducerID:    decl.ProducerID,
+		SourceKind:    decl.SourceKind,
+		Enabled:       decl.Enabled,
 		Authoritative: decl.Authoritative,
-		State: state,
-		GapSince: &g,
-		GapReason: reason,
+		State:         state,
+		GapSince:      &g,
+		GapReason:     reason,
 	}
 }
 
@@ -75,7 +75,7 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 				base.LastHeartbeatAt = now
 
 				insert := tx.Clauses(clause.OnConflict{
-					Columns: []clause.Column{{Name: "cluster_id"}, {Name: "agent_id"}, {Name: "producer_id"}},
+					Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "agent_id"}, {Name: "producer_id"}},
 					DoNothing: true,
 				}).Create(&base)
 				if insert.Error != nil {
@@ -104,7 +104,8 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 
 				next := prior
 				next.Enabled = decl.Enabled
-				next.Authoritative = decl.Authoritative
+				// Manifests never establish authority. Only independent signed health does.
+				next.Authoritative = prior.Authoritative
 				next.LastManifestAt = req.ReportedAt
 				next.LastHeartbeatAt = now
 
@@ -172,18 +173,23 @@ func PostRuntimeProducerManifest(db *gorm.DB) gin.HandlerFunc {
 					}
 				}
 
+				if next.SessionID != prior.SessionID || next.State != prior.State || !next.Enabled || (next.Authoritative && (next.SourceHealthEnd == nil || !next.SourceHealthCovers(*next.SourceHealthEnd, *next.SourceHealthEnd, now))) {
+					next.InvalidateSourceHealth()
+				}
+
 				if err := tx.Model(&prior).Updates(map[string]interface{}{
-					"session_id": next.SessionID,
-					"session_started_at": next.SessionStartedAt,
-					"enabled": next.Enabled,
-					"authoritative": next.Authoritative,
-					"state": next.State,
-					"last_manifest_at": next.LastManifestAt,
-					"last_heartbeat_at": next.LastHeartbeatAt,
-					"last_coverage_id": next.LastCoverageID,
-					"last_coverage_end": next.LastCoverageEnd,
-					"gap_since": next.GapSince,
-					"gap_reason": next.GapReason,
+					"session_id":          next.SessionID,
+					"session_started_at":  next.SessionStartedAt,
+					"enabled":             next.Enabled,
+					"authoritative":       next.Authoritative,
+					"source_health_since": next.SourceHealthSince,
+					"state":               next.State,
+					"last_manifest_at":    next.LastManifestAt,
+					"last_heartbeat_at":   next.LastHeartbeatAt,
+					"last_coverage_id":    next.LastCoverageID,
+					"last_coverage_end":   next.LastCoverageEnd,
+					"gap_since":           next.GapSince,
+					"gap_reason":          next.GapReason,
 				}).Error; err != nil {
 					return err
 				}

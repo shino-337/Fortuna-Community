@@ -120,6 +120,7 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"POST", "/api/v2/runtime/events", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 	add(routeB{"POST", "/api/v2/runtime/producers", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 	add(routeB{"POST", "/api/v2/runtime/coverage", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
+	add(routeB{"POST", "/api/v2/runtime/source-health", authIngest, auditIngestToken, graphNone, false, false, false, false, false, ""})
 
 	// --- JWT /api/v1 (alphabetical by path prefix groups) ---
 	add(routeB{"GET", "/api/v1/agents/status", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityAgentsRead})
@@ -185,6 +186,9 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"GET", "/api/v1/inventory/serviceaccounts/:uid/permissions", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"PUT", "/api/v1/inventory/serviceaccounts/:uid", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryModify})
 	add(routeB{"DELETE", "/api/v1/inventory/serviceaccounts/:uid", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryDelete})
+	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/:uid/mutations/preview", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryRead})
+	add(routeB{"GET", "/api/v1/inventory/serviceaccount-mutations/:operationID", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
+	add(routeB{"POST", "/api/v1/inventory/serviceaccount-mutations/:operationID/execute", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/bulk/delete", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/bulk/disable", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/disable-inactive", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})

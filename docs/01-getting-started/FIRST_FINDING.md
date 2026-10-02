@@ -2,7 +2,12 @@
 
 Use this walkthrough after installing Fortuna in an **isolated, disposable cluster**. It uses the existing S2 fixture, which grants a test ServiceAccount `cluster-admin`. Do not apply it to a production or shared cluster.
 
-This is a manual validation procedure, not a recorded successful run. Record your version and results. The expected path is pod → ServiceAccount → ClusterRoleBinding → ClusterRole.
+The equivalent backend flow is covered by the permanent two-cluster live gate:
+real Agent inventory, scoped JWT access, RBAC path/finding, acknowledge, reviewed
+revocation, authorization denial and fresh inventory. See
+[integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md). This S2
+Dashboard procedure still requires a recorded live browser run. Record your
+version and results. The expected path is pod → ServiceAccount → ClusterRoleBinding → ClusterRole.
 
 ## Before you begin
 
@@ -58,6 +63,12 @@ The sleeping pod does not simulate a compromise. A static permission path alone 
 
 ## 4. Remove the dangerous grant and check again
 
+Alternatively, review and execute the new explicit mutation API plan for this
+ServiceAccount. Inspect every target and limitation before sending its digest;
+see [mutation contract](../06-reference/SERVICEACCOUNT_MUTATIONS.md). The legacy
+Dashboard disable action remains unsupported. The commands below delete only
+the fixture binding.
+
 ```bash
 kubectl delete clusterrolebinding crb-rbac-admin
 kubectl auth can-i get secrets --all-namespaces   --as=system:serviceaccount:fortuna-test:sa-rbac
@@ -65,7 +76,7 @@ kubectl auth can-i get secrets --all-namespaces   --as=system:serviceaccount:for
 
 Expected output in a clean lab: `no` (kubectl returns a nonzero status for denial). If it is `yes`, inspect other grants to this identity before drawing conclusions.
 
-Wait for Fortuna to ingest the removal and reconcile. Check whether the active path still depends on the removed binding. Historical findings may remain; inspect their status and timestamps. If a current path still claims the removed grant, record that discrepancy as feedback rather than declaring success.
+Wait for Fortuna to ingest the removal and reconcile. Security-state caching defaults to five minutes; a fresh-read lab may set `FORTUNA_SECURITY_STATE_CACHE_TTL=0s` on Core. This is separate from the Agent sync interval. Check whether the active path still depends on the removed binding. Historical findings may remain; inspect their status and timestamps. If a current path still claims the removed grant, record that discrepancy as feedback rather than declaring success.
 
 | Check | Before removal | After removal |
 |---|---|---|

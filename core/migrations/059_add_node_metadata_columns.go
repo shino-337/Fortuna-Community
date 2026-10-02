@@ -12,7 +12,7 @@ func Migration059_AddNodeMetadataColumns(db *gorm.DB) error {
 	log.Println("Running migration 059: Add role, os, runtime to nodes")
 
 	var tableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'nodes')").Scan(&tableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'nodes')").Scan(&tableExists).Error; err != nil {
 		return err
 	}
 	if !tableExists {

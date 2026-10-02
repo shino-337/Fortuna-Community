@@ -16,7 +16,7 @@ func Migration103_AddRuntimeSignalsCount(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT COUNT(*)
 		FROM information_schema.columns
-		WHERE table_name = 'runtime_signals' AND column_name = 'count'
+		WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'runtime_signals' AND column_name = 'count'
 	`).Scan(&exists).Error; err != nil {
 		return err
 	}

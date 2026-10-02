@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"sort"
@@ -15,8 +14,8 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
-	"github.com/fortuna/core/pkg/resourceidentity"
 	"github.com/fortuna/core/pkg/rbac"
+	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
 // RelationalPathBuilder computes attack paths using relational (SQL) queries
@@ -128,20 +127,17 @@ func (b *RelationalPathBuilder) buildAllPathsNoCache(ctx context.Context, cluste
 	for cid, plist := range byCluster {
 		snap, err := b.loadClusterPathSnapshot(ctx, cid)
 		if err != nil {
-			log.Printf("[RelationalPathBuilder] cluster %s snapshot failed: %v", cid, err)
-			continue
+			return nil, fmt.Errorf("cluster %s graph snapshot unavailable: %w", cid, err)
 		}
 		for i := range plist {
 			pod := plist[i]
 			id, idErr := resourceidentity.New(cid, pod.UID)
 			if idErr != nil {
-				log.Printf("[RelationalPathBuilder] invalid pod identity %s/%s: %v", cid, pod.UID, idErr)
-				continue
+				return nil, fmt.Errorf("graph pod identity unavailable: %w", idErr)
 			}
 			paths, err := b.buildPathsForPodIdentityWithSnapshot(ctx, id, &pod, snap, persist)
 			if err != nil {
-				log.Printf("[RelationalPathBuilder] failed to build paths for pod %s: %v", pod.UID, err)
-				continue
+				return nil, fmt.Errorf("graph path evidence unavailable for pod %s: %w", pod.UID, err)
 			}
 			allPaths = append(allPaths, paths...)
 		}
@@ -149,7 +145,7 @@ func (b *RelationalPathBuilder) buildAllPathsNoCache(ctx context.Context, cluste
 
 	if persist {
 		if err := cleanupStaleAttackPaths(ctx, b.db, clusterID); err != nil {
-			log.Printf("[RelationalPathBuilder] stale attack_paths cleanup failed: %v", err)
+			return nil, fmt.Errorf("graph reconciliation cleanup unavailable: %w", err)
 		}
 	}
 
@@ -1199,7 +1195,7 @@ func (b *RelationalPathBuilder) BuildAttackPathsViewBundle(ctx context.Context, 
 		return nil, err
 	}
 	if err := cleanupStaleAttackPaths(ctx, b.db, clusterID); err != nil {
-		log.Printf("[RelationalPathBuilder] stale attack_paths cleanup failed: %v", err)
+		return nil, fmt.Errorf("graph reconciliation cleanup unavailable: %w", err)
 	}
 	paths, err := b.BuildAllPaths(ctx, clusterID, false)
 	if err != nil {

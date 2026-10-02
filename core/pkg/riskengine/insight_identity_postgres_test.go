@@ -113,4 +113,5 @@ func TestGenericInsightRestorePostgres(t *testing.T) {
 	require.NoError(t, db.First(&restored, old.ID).Error)
 	require.False(t, restored.DeletedAt.Valid)
 	require.Equal(t, "high", restored.Severity)
+	assertGenericInsightAcknowledgement(t, db)
 }

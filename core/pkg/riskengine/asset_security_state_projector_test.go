@@ -2,6 +2,7 @@ package riskengine
 
 import (
 	"context"
+	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
 
@@ -85,4 +86,23 @@ func TestAssetSecurityStateRuntimeTimestamp(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestAssetSecurityStateExplicitFreshRead(t *testing.T) {
+	db, err := gorm.Open(puresqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	configureRiskEngineTestDB(t, db)
+	require.NoError(t, db.AutoMigrate(&models.Pod{}, &models.RuntimeSignal{}, &models.AssetSecurityState{}, &models.PodCapability{}, &models.RoleBinding{}, &models.ClusterRoleBinding{}, &models.Role{}, &models.ClusterRole{}))
+	pod := models.Pod{ClusterID: "fresh-cluster", UID: "fresh-pod", Name: "p", Namespace: "ns", ServiceAccount: "sa"}
+	require.NoError(t, db.Create(&pod).Error)
+	engine := &Engine{db: db}
+	require.NoError(t, engine.UpsertAssetSecurityState(context.Background(), pod.UID))
+	require.NoError(t, db.Model(&pod).Update("host_network", true).Error)
+	t.Setenv("FORTUNA_SECURITY_STATE_CACHE_TTL", "0s")
+	require.NoError(t, engine.UpsertAssetSecurityState(context.Background(), pod.UID))
+	var state models.AssetSecurityState
+	require.NoError(t, db.Where("cluster_id = ? AND pod_uid = ?", pod.ClusterID, pod.UID).First(&state).Error)
+	require.True(t, state.HostNetwork)
+	require.NoError(t, db.Migrator().DropTable(&models.RoleBinding{}))
+	require.Error(t, engine.UpsertAssetSecurityState(context.Background(), pod.UID), "fresh read must report missing required RBAC evidence")
 }

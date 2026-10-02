@@ -15,7 +15,7 @@ func Migration024_AddPodImageScansUniqueIndex(db *gorm.DB) error {
 	log.Println("========================================")
 
 	var exists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'pod_image_scans')").Scan(&exists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'pod_image_scans')").Scan(&exists).Error; err != nil {
 		return fmt.Errorf("check pod_image_scans exists: %w", err)
 	}
 	if !exists {

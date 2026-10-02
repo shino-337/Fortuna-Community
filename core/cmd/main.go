@@ -31,6 +31,7 @@ import (
 	malwarePkg "github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/messaging"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/mutations"
 	"github.com/fortuna/core/pkg/policy"
 	"github.com/fortuna/core/pkg/reconciler"
 	"github.com/fortuna/core/pkg/riskengine"
@@ -154,6 +155,7 @@ func main() {
 	}()
 
 	ctx, cancel := context.WithCancel(context.Background())
+	go mutations.Start(ctx, db)
 	defer cancel()
 
 	if kev.Enabled() {

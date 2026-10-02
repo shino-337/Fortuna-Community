@@ -46,7 +46,7 @@ func Migration033_AddUniqueConstraints(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM pg_indexes 
-			WHERE schemaname = 'public' 
+			WHERE schemaname = CURRENT_SCHEMA()
 			AND tablename = 'cve_matches' 
 			AND indexname LIKE '%package_name%'
 			AND indexdef LIKE '%UNIQUE%'
@@ -59,7 +59,7 @@ func Migration033_AddUniqueConstraints(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM pg_indexes 
-			WHERE schemaname = 'public' 
+			WHERE schemaname = CURRENT_SCHEMA()
 			AND tablename = 'cve_matches' 
 			AND indexname LIKE '%component_id%'
 			AND indexdef LIKE '%UNIQUE%'
@@ -73,7 +73,7 @@ func Migration033_AddUniqueConstraints(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM information_schema.columns 
-			WHERE table_name = 'cve_matches' 
+			WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'cve_matches'
 			AND column_name = 'package_name'
 		)
 	`).Scan(&hasPackageNameColumn).Error; err != nil {
@@ -101,7 +101,7 @@ func Migration033_AddUniqueConstraints(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM pg_indexes 
-			WHERE schemaname = 'public' 
+			WHERE schemaname = CURRENT_SCHEMA()
 			AND tablename = 'insights' 
 			AND indexname LIKE '%unique_resource_cve_type%'
 		)
@@ -130,7 +130,7 @@ func Migration033_AddUniqueConstraints(db *gorm.DB) error {
 	if err := db.Raw(`
 		SELECT EXISTS (
 			SELECT 1 FROM pg_indexes 
-			WHERE schemaname = 'public' 
+			WHERE schemaname = CURRENT_SCHEMA()
 			AND tablename = 'sbom_components' 
 			AND indexname LIKE '%unique_sbom_purl%'
 		)

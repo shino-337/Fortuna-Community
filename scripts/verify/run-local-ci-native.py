@@ -191,7 +191,7 @@ class Runner:
 
     def postgres(self, job, log):
         service = job["services"]["postgres"]
-        if service["image"] != "postgres:16" or service["env"] != {"POSTGRES_USER": "postgres", "POSTGRES_PASSWORD": "postgres", "POSTGRES_DB": "fortuna_test"}:
+        if service["image"] != "apache/age:release_PG16_1.6.0@sha256:16aa423d20a31aed36a3313244bf7aa00731325862f20ed584510e381f2feaed" or service["env"] != {"POSTGRES_USER": "postgres", "POSTGRES_PASSWORD": "postgres", "POSTGRES_DB": "fortuna_test"}:
             raise ValueError("PostgreSQL workflow service changed; refusing an unverified local database configuration")
         container = None
         name = "fortuna-local-ci-pg-" + uuid.uuid4().hex[:12]

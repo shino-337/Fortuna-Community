@@ -103,6 +103,9 @@ func ensureClusterResourceIdentityColumns(db *gorm.DB) error {
 // backfillUnambiguousPodClusterOwnership copies ownership only when the
 // authoritative pods table maps a UID to exactly one distinct cluster.
 func backfillUnambiguousPodClusterOwnership(db *gorm.DB) error {
+	if err := quarantineRiskScoreOwnershipCollisions(db); err != nil {
+		return err
+	}
 	for _, target := range clusterOwnedPodTables {
 		stmt := fmt.Sprintf(`UPDATE %s
 SET cluster_id = (
@@ -118,6 +121,9 @@ WHERE COALESCE(cluster_id, '') = ''
   AND COALESCE(%s, '') <> ''`, target.table, target.table, target.uidColumn, target.uidColumn)
 		if target.extra != "" {
 			stmt += "\n  AND (" + target.extra + ")"
+		}
+		if target.table == "risk_scores" && db.Dialector.Name() == "postgres" {
+			stmt += "\n AND NOT EXISTS (SELECT 1 FROM risk_score_ownership_quarantines q WHERE q.risk_score_id = risk_scores.id)"
 		}
 		stmt += fmt.Sprintf(`
   AND (

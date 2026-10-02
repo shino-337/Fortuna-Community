@@ -12,7 +12,7 @@ func Migration077_AddInsightExplanationRemediation(db *gorm.DB) error {
 	log.Println("Running migration 077: Add risk_explanation and remediation to insights")
 
 	var tableExists bool
-	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'insights')").Scan(&tableExists).Error; err != nil {
+	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'insights')").Scan(&tableExists).Error; err != nil {
 		return err
 	}
 	if !tableExists {

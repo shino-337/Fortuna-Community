@@ -13,24 +13,27 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 	continuous := base
 	now := base.Add(5 * time.Second)
 	row := RuntimeCoverage{
-		ClusterID: "cluster-a",
-		AgentID: "agent-a",
-		ProducerID: "falco",
-		SessionID: "session-000000000001",
-		Status: "complete",
-		WindowStart: base.Add(2 * time.Second),
-		WindowEnd: base.Add(4 * time.Second),
+		ClusterID:       "cluster-a",
+		AgentID:         "agent-a",
+		ProducerID:      "falco",
+		SessionID:       "session-000000000001",
+		Status:          "complete",
+		WindowStart:     base.Add(2 * time.Second),
+		WindowEnd:       base.Add(4 * time.Second),
 		ContinuousSince: &continuous,
 	}
 	lastCoverageEnd := row.WindowEnd
+	leaseEnd := now.Add(time.Minute)
+	row.SourceSessionID = "sensor-000000000001"
 	producer := RuntimeProducerState{
-		ClusterID: "cluster-a",
-		AgentID: "agent-a",
-		ProducerID: "falco",
-		SessionID: "session-000000000001",
-		Enabled: true,
-		Authoritative: true,
-		State: "active",
+		ClusterID:       "cluster-a",
+		AgentID:         "agent-a",
+		ProducerID:      "falco",
+		SessionID:       "session-000000000001",
+		Enabled:         true,
+		Authoritative:   true,
+		SourceSessionID: row.SourceSessionID, SourceHealthSince: &continuous, SourceHealthEnd: &lastCoverageEnd, SourceHealthReceivedAt: &now, SourceHealthExpiresAt: &leaseEnd,
+		State:           "active",
 		LastHeartbeatAt: now,
 		LastCoverageEnd: &lastCoverageEnd,
 	}
@@ -66,18 +69,17 @@ func TestRuntimeCoverageCoversIntervalRequiresBothBounds(t *testing.T) {
 		"coverage from a previous Agent session cannot prove coverage")
 }
 
-
 func TestRuntimeProducerEffectiveStatusSeparatesActivityFromAuthority(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	recent := now.Add(-time.Second)
 	state := RuntimeProducerState{
-		ClusterID: "cluster-a",
-		AgentID: "agent-a",
-		ProducerID: "falco",
-		SessionID: "session-000000000001",
-		Enabled: true,
-		Authoritative: false,
-		State: collection.RuntimeProducerActive,
+		ClusterID:       "cluster-a",
+		AgentID:         "agent-a",
+		ProducerID:      "falco",
+		SessionID:       "session-000000000001",
+		Enabled:         true,
+		Authoritative:   false,
+		State:           collection.RuntimeProducerActive,
 		LastHeartbeatAt: now,
 		LastCoverageEnd: &recent,
 	}

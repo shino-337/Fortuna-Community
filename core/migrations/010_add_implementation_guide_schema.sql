@@ -69,7 +69,7 @@ CREATE INDEX IF NOT EXISTS idx_events_index_ts ON events_index(ts);
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='clusters' AND column_name='region') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='clusters' AND column_name='region') THEN
     ALTER TABLE clusters ADD COLUMN region TEXT;
   END IF;
 END $$;
@@ -78,11 +78,11 @@ END $$;
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='namespaces' AND column_name='labels') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='namespaces' AND column_name='labels') THEN
     ALTER TABLE namespaces ADD COLUMN labels JSONB;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='namespaces' AND column_name='annotations') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='namespaces' AND column_name='annotations') THEN
     ALTER TABLE namespaces ADD COLUMN annotations JSONB;
   END IF;
 END $$;
@@ -92,15 +92,15 @@ END $$;
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='pods' AND column_name='containers') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='pods' AND column_name='containers') THEN
     ALTER TABLE pods ADD COLUMN containers JSONB;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='pods' AND column_name='image_digests') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='pods' AND column_name='image_digests') THEN
     ALTER TABLE pods ADD COLUMN image_digests JSONB;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='pods' AND column_name='node_id') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='pods' AND column_name='node_id') THEN
     ALTER TABLE pods ADD COLUMN node_id INTEGER REFERENCES nodes(id) ON DELETE SET NULL;
     CREATE INDEX IF NOT EXISTS idx_pods_node_id ON pods(node_id);
   END IF;
@@ -110,11 +110,11 @@ END $$;
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='service_accounts' AND column_name='linked_pods') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='service_accounts' AND column_name='linked_pods') THEN
     ALTER TABLE service_accounts ADD COLUMN linked_pods JSONB;
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='service_accounts' AND column_name='last_used') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='service_accounts' AND column_name='last_used') THEN
     ALTER TABLE service_accounts ADD COLUMN last_used TIMESTAMP;
   END IF;
 END $$;
@@ -123,7 +123,7 @@ END $$;
 DO $$ 
 BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns 
-                 WHERE table_name='roles' AND column_name='cluster_scoped') THEN
+                 WHERE table_schema = CURRENT_SCHEMA() AND table_name='roles' AND column_name='cluster_scoped') THEN
     ALTER TABLE roles ADD COLUMN cluster_scoped BOOLEAN DEFAULT FALSE;
   END IF;
 END $$;

@@ -1,29 +1,46 @@
-# ServiceAccount mutations
+# ServiceAccount mutation contract
 
-Updating labels changes synchronized Inventory metadata only; the agent may
-replace it on the next sync. It does not patch the Kubernetes ServiceAccount.
+Explicit revocation uses a reviewed, immutable plan. In a selected authorized
+cluster, call `POST /api/v1/inventory/serviceaccounts/:uid/mutations/preview`
+with `{"action":"revoke"}` or `{"action":"delete"}`. The response returns
+`operation` and `plan`, including exact targets, Kubernetes UIDs, resource versions,
+subject changes and limitations. Execute with
+`POST /api/v1/inventory/serviceaccount-mutations/:operationID/execute` and
+`{"digest":"<reviewed digest>"}` within ten minutes. Read progress at the same
+operation path with GET. Preview, execute and readback recheck JWT permissions,
+cluster scope and the initiating user. Revoke requires both inventory.modify and
+inventory.delete; delete requires inventory.delete.
 
-Single and bulk deletion use the target cluster's stored kubeconfig, a 30-second
-request deadline, and the observed Kubernetes UID as a delete precondition. A
-replacement object with the same name is not deleted. Kubernetes NotFound is
-accepted on retry, allowing reconciliation after a previous Kubernetes success
-and database failure. The inventory soft-delete and audit write share a database
-transaction; Kubernetes and PostgreSQL cannot share that transaction.
+Revocation removes only direct subjects for the selected ServiceAccount from
+RoleBindings/ClusterRoleBindings, preserving other subjects and role references.
+It deletes only legacy ServiceAccount-token Secrets whose name and UID annotations
+match the target. It does not remove inherited group grants, revoke externally
+copied credentials or bound TokenRequest tokens, delete Pods, prevent new grants,
+or constitute a general Kubernetes account-disable mechanism. A preview rejects
+truncated binding/Secret lists rather than silently omitting effects.
 
-Bulk deletion requires both inventory.bulk and inventory.delete. The entire set
-of 1–100 database IDs is checked before deletion; duplicates are collapsed and an
-unavailable or unauthorized member rejects the batch. After prevalidation,
-individual Kubernetes failures are possible: HTTP 207 includes results with each
-ID, HTTP-style status, and message. `count` counts complete successes. Failed
-Kubernetes deletes retain inventory. If database persistence fails after a
-Kubernetes success, the response explicitly says to retry reconciliation.
+Execution rechecks the account UID, binding UID/resource version/role reference
+and reviewed subjects. Drift, replacement objects and authorization denial block
+the operation and require a new preview. Exact resulting subjects or NotFound
+allow idempotent replay. Secret deletion uses UID and resource-version
+preconditions; account deletion uses its UID. Plan digests use canonical typed
+JSON, so PostgreSQL JSONB key ordering/whitespace cannot invalidate a valid plan.
 
-The legacy bulk/disable and disable-inactive endpoints return HTTP 501 and do not
-change data. They previously hid inventory rows without revoking Kubernetes
-credentials. A real disable workflow needs defined token/RBAC revocation and
-verified usage evidence; metadata updated_at is not evidence of inactivity.
-These endpoints require inventory.bulk and inventory.modify.
+Intent and its audit record commit before Kubernetes effects. A durable worker
+claims one step with a 45-second lease and a 15-second Kubernetes request deadline.
+Transient failures retry after 30 seconds. Progress and completion audit commit
+in one database transaction; a persistence failure leaves the lease for replay.
+Inventory soft deletion happens only after successful Kubernetes deletion and in
+the completion transaction. Kubernetes and PostgreSQL cannot share a transaction.
 
-Validation includes cluster-scope rejection before effects, permission checks,
-failed-delete preservation, duplicate IDs and Kubernetes UID-precondition tests.
-Live kubeconfig/RBAC, PostgreSQL rollback and retry behavior still need lab tests.
+Existing single/bulk DELETE endpoints also queue durable cluster/UID deletion
+intent and attempt it immediately. Bulk requires inventory.bulk plus inventory.delete,
+prevalidates the complete set and reports individual failures with HTTP 207.
+Labels remain synchronized Inventory metadata. Legacy disable/disable-inactive
+still return HTTP 501; their Dashboard actions do not expose the new preview flow.
+
+Named regressions cover scope/actor/digest rejection, binding drift, replacement
+UIDs and persistence failure after Kubernetes success. The permanent two-cluster
+kind gate additionally exercises real JWT routes, Kubernetes revocation and
+SubjectAccessReview, replacement UID protection and PostgreSQL audit-failure
+recovery. See [integration evidence](INTEGRATION_ACCEPTANCE.md).

@@ -57,7 +57,7 @@ jobs:
       GOWORK: 'off'
     services:
       postgres:
-        image: postgres:16
+        image: apache/age:release_PG16_1.6.0@sha256:16aa423d20a31aed36a3313244bf7aa00731325862f20ed584510e381f2feaed
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -86,13 +86,12 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go test ./migrations -run '^Test(ClusterResourceIdentityFoundation|ClusterQualifiedPodUniqueness|AgentCompositeIdentity|BaselinePodPolicySeedAndRepair)Postgres$' -count=1 -timeout=3m
-          go test ./migrations -run '^TestRuntimeEventIdempotency' -count=1 -timeout=2m
-          go test ./pkg/riskengine -run '^Test(PodInsightLifecycle|GenericInsightRestore)Postgres$' -count=1 -timeout=2m
-          go test ./internal/repository -run '^TestSBOMConcurrentOwnershipPostgres$' -count=1 -timeout=2m
-          go test ./internal/service -run '^TestInventoryCollectionPostgres$' -count=1 -timeout=2m
-          go test ./internal/api -run '^TestRuntimeCoveragePostgres|^TestSBOMList(ClusterScope|DuplicateUIDClusterIsolation|FailClosed)Postgres$' -count=1 -timeout=3m
-          go test ./pkg/rep -run '^TestRuntimeSourceRecordConcurrentDuplicatePostgres$' -count=1 -timeout=2m
+          python3 ../scripts/verify/check-security-regressions.py --postgres
+
+      - name: Verify real two-cluster DaemonSet isolation and first investigation
+        env:
+          FORTUNA_TEST_POSTGRES_URL: postgres://postgres:postgres@localhost:5432/fortuna_test?sslmode=disable
+        run: python3 scripts/verify/run-two-cluster-integration.py
 
   dashboard:
     name: Dashboard validation
@@ -143,6 +142,7 @@ jobs:
           python scripts/verify/check-retired-routes.py
           python scripts/verify/test-retired-routes.py
           python scripts/verify/test-local-ci-native.py
+          python scripts/verify/test-two-cluster-integration.py
           while IFS= read -r -d '' file; do bash -n "$file"; done < <(find scripts -type f -name '*.sh' -print0)
 
   hygiene:

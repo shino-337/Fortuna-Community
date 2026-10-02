@@ -21,7 +21,7 @@ func runtimeCoverageDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.RuntimeCoverage{}, &models.RuntimeCoverageReceipt{}, &models.RuntimeProducerState{}))
+	require.NoError(t, db.AutoMigrate(&models.RuntimeCoverage{}, &models.RuntimeCoverageReceipt{}, &models.RuntimeProducerState{}, &models.RuntimeSourceHealthReceipt{}))
 	return db
 }
 
@@ -49,37 +49,46 @@ const runtimeTestSession = "session-000000000001"
 
 func coverageWindow(id string, start, end time.Time) collection.RuntimeCoverage {
 	return collection.RuntimeCoverage{
-		Version: collection.RuntimeCoverageVersion,
-		ID: id,
-		ProducerID: "falco",
-		SourceKind: collection.RuntimeSourceFalco,
-		SessionID: runtimeTestSession,
-		Status: "complete",
+		Version:     collection.RuntimeCoverageVersion,
+		ID:          id,
+		ProducerID:  "falco",
+		SourceKind:  collection.RuntimeSourceFalco,
+		SessionID:   runtimeTestSession,
+		Status:      "complete",
 		WindowStart: start,
-		WindowEnd: end,
+		WindowEnd:   end,
 	}
 }
-
 
 func seedRuntimeProducer(t *testing.T, db *gorm.DB, principal *agentidentity.Principal, producerID, sourceKind, sessionID string, sessionStartedAt, heartbeat time.Time, enabled, authoritative bool, state string) models.RuntimeProducerState {
 	t.Helper()
 	row := models.RuntimeProducerState{
-		ClusterID: principal.ClusterID,
-		AgentID: principal.AgentID,
-		ProducerID: producerID,
-		SourceKind: sourceKind,
-		SessionID: sessionID,
+		ClusterID:        principal.ClusterID,
+		AgentID:          principal.AgentID,
+		ProducerID:       producerID,
+		SourceKind:       sourceKind,
+		SessionID:        sessionID,
 		SessionStartedAt: sessionStartedAt,
-		Enabled: enabled,
-		Authoritative: authoritative,
-		State: state,
-		LastManifestAt: heartbeat,
-		LastHeartbeatAt: heartbeat,
+		Enabled:          enabled,
+		Authoritative:    authoritative,
+		State:            state,
+		LastManifestAt:   heartbeat,
+		LastHeartbeatAt:  heartbeat,
 	}
 	gap := sessionStartedAt
 	if state != collection.RuntimeProducerActive {
 		row.GapSince = &gap
 		row.GapReason = "test"
+	}
+	if authoritative {
+		end := heartbeat
+		expires := heartbeat.Add(time.Minute)
+		row.SourceSessionID = "sensor-000000000001"
+		row.SourceStartedAt = &sessionStartedAt
+		row.SourceHealthSince = &sessionStartedAt
+		row.SourceHealthEnd = &end
+		row.SourceHealthReceivedAt = &heartbeat
+		row.SourceHealthExpiresAt = &expires
 	}
 	require.NoError(t, db.Create(&row).Error)
 	return row
@@ -89,8 +98,8 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	db := runtimeCoverageDB(t)
 	principal := &agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	first := coverageWindow("coverage-000000000001", now.Add(-3*time.Second), now.Add(-2*time.Second))
-	seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-4*time.Second), now, true, true, collection.RuntimeProducerStarting)
+	first := coverageWindow("coverage-000000000001", now.Add(-5*time.Second), now.Add(-4*time.Second))
+	seedRuntimeProducer(t, db, principal, "falco", collection.RuntimeSourceFalco, runtimeTestSession, now.Add(-6*time.Second), now, true, true, collection.RuntimeProducerStarting)
 
 	w := postCoverage(t, db, principal, first)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
@@ -113,7 +122,7 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 
 	// Adjacent clean window preserves continuity.
-	second := coverageWindow("coverage-000000000002", first.WindowEnd, now.Add(-time.Second))
+	second := coverageWindow("coverage-000000000002", first.WindowEnd, now.Add(-3*time.Second))
 	w = postCoverage(t, db, principal, second)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.NoError(t, db.First(&row, "cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").Error)
@@ -121,7 +130,7 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	require.True(t, row.ContinuousSince.Equal(first.WindowStart))
 
 	// Failure breaks continuity.
-	failed := coverageWindow("coverage-000000000003", second.WindowEnd, now)
+	failed := coverageWindow("coverage-000000000003", second.WindowEnd, now.Add(-2*time.Second))
 	failed.Status = "failed"
 	failed.Emitted = 1
 	failed.Errors = 1
@@ -136,7 +145,7 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	require.Equal(t, collection.RuntimeProducerDegraded, failedRow.EffectiveStatus(&failedProducer, time.Now().UTC()))
 
 	// Later success starts a new continuity interval.
-	recovered := coverageWindow("coverage-000000000004", failed.WindowEnd, now.Add(time.Second))
+	recovered := coverageWindow("coverage-000000000004", failed.WindowEnd, now.Add(-time.Second))
 	w = postCoverage(t, db, principal, recovered)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	var recoveredRow models.RuntimeCoverage
@@ -144,7 +153,6 @@ func TestRuntimeCoverageScopedContinuityAndReplay(t *testing.T) {
 	require.NotNil(t, recoveredRow.ContinuousSince)
 	require.True(t, recoveredRow.ContinuousSince.Equal(recovered.WindowStart))
 }
-
 
 func TestFailedCoverageGapStartsAtLastAcceptedCoverageEnd(t *testing.T) {
 	db := runtimeCoverageDB(t)

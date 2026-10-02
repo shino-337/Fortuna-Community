@@ -359,3 +359,38 @@ These guarantees do not extend to the legacy Falco mode without a state path or
 make the in-memory Pod-event queue restart-durable. Its documented capacity/drop
 behavior remains explicit. The INGEST-01–03 regressions in the named gate protect
 these boundaries; a live state-volume rollout is a separate acceptance gate.
+
+### Independently verified source health
+
+Runtime authority requires an independent Ed25519 key bound to the exact
+cluster/Agent/producer and both Agent and sensor executions. Reader lifecycle
+cannot assert it. Signed windows must be fresh, sequential and loss-free;
+replay cannot renew authority. Failure, expiry or restart breaks continuity.
+Accepted signed receipts and latest state commit atomically. The eBPF stub is
+ineligible and absence-based automatic resolution remains disabled.
+
+### Scoped graph and explicit mutation effects
+
+AGE constructors require a nonempty cluster; its physical graph is derived from
+that cluster. Controlled traversals filter nodes and edges and validate every
+returned intermediate object. Unscoped/raw Cypher entry points remain retired.
+AGE connection search paths are transaction-local. Relational graph input errors
+must return unavailable rather than a partial successful graph.
+
+Mutation intent and audit must precede external effects. A reviewed canonical
+plan, UID/resource-version preconditions, lease ownership and transactional
+completion protect replacement objects and retries after persistence failure.
+A changed preview blocks execution; deleting Inventory is not revocation.
+
+### Populated migrations and bounded analytics
+
+Metadata lookup is restricted to CURRENT_SCHEMA(). Colliding unowned legacy
+risk snapshots remain unowned, with their complete original row recorded in
+risk_score_ownership_quarantines. Migration must retain snapshot uniqueness used
+by production upserts; it may not select a winner or delete collision evidence.
+
+Trend queries aggregate authorized observations into UTC calendar buckets in the
+database. Database failure remains an error. Cache entries must remain independent
+of caller mutation, including nested properties; invalid encoding cannot cache a
+successful empty graph. Live CI must prove the named integration test ran and
+passed and read back its complete receipt; an empty or skipped selection fails.
