@@ -35,26 +35,50 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 
 ## Implementation progress
 
-### Current checkpoint — 2026-10-01 UTC
+### Current checkpoint — 2026-10-04 UTC
 
 | Scope | Verified state | Remaining gate |
 | --- | --- | --- |
 | A–C | Merged; real two-cluster scoped HTTP/DaemonSet and backend RBAC investigation passed | Live mTLS/gRPC certificate lifecycle and browser rollout |
-| D | D1/D2 merged; D3 signed-health protocol and PostgreSQL authority/replay regressions merged in #55; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
+| D | D1/D2 and D3 protocol merged through #55; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
 | E | E1/#53 and E2/residual E1/#54 merged; all seven hosted CI jobs passed on #54 head `3ff4da767` | Live browser rollout remains an operational acceptance gate |
-| F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed; named PostgreSQL/live gates enforce run/pass readback | Repeat at exact committed head; live browser and mTLS/gRPC rollout remain operational acceptance |
-| G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions implemented | Owner review; arbitrary/legacy HTTP routes remain retired |
-| H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests implemented; real Kubernetes retry/replacement gate passed | Dashboard preview controls and deployed workflow validation |
+| F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed on #55 exact head | Live browser and mTLS/gRPC rollout remain operational acceptance |
+| G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions merged in #55 | Internal API remains scoped; arbitrary/legacy HTTP routes remain retired |
+| H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests merged in #55; real Kubernetes retry/replacement gate passed | Dashboard preview controls are in the current follow-up branch; deployed workflow validation remains open |
 | I | 50,000-row trend/cache benchmarks, measured allocation fixes, bounded evaluation coalescing and backend first investigation completed | Live browser S2 walkthrough; production-scale latency/storage/SLO validation |
+
+The single-node lab recovered on 2026-10-04 after DiskPressure and roughly 9,400
+evicted Pod records. Archived journals and disposable Go build cache were removed;
+the stale failed Pod records were deleted after their workload images were restored.
+Core and Agent now run the published #55 image tag `sha-92a08cc18ba3`; Dashboard
+runs a locally built image of follow-up head `849c1b8ff`. All workloads passed
+`check-full-deployment.sh` with zero errors/warnings, and the node is Ready with
+`DiskPressure=False`. A populated custom-format backup was taken before rollout at
+`/var/backups/fortuna/fortuna-pre-post55-rollout-20261004.dump` (SHA-256
+`8c1982bfb3288df0cb12fadc2fb409b4427282c15ac02f6bee122c245eaf3a18`).
+Its archive listing was verified; a fresh isolated migration rehearsal was stopped
+before completion to preserve node disk headroom. Earlier complete populated
+rehearsals and the permanent PostgreSQL gate remain the migration evidence.
+
+The Agent now mounts `/var/lib/fortuna-agent` and uses
+`FALCO_DELIVERY_STATE_PATH=/var/lib/fortuna-agent/falco-delivery.json`. The
+root-only state survived an Agent restart; fresh Falco events were sent, while
+eight historical ownership-rejected records remained quarantined in a bounded
+sample. Pod Detail evidence for current Pods was accepted after inventory sync;
+Kubernetes Events referencing replaced Pod UIDs still produce ownership 403 and
+are isolated. This observation does not prove complete historical delivery or
+close the independent sensor, live browser, two-cluster credential, or scale gates.
 
 The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
 records source fixes, historical live observations and remaining acceptance gates
-separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions but
-still require a live Agent rollout with the durable-state configuration. They
-do not close D3 or package F. PR #54 merged on 2026-10-01 as `80f24e98f` after
-all seven hosted CI jobs passed at `3ff4da767`. Its earlier zero-step failures
-were infrastructure failures, not source validation. The D3/F/G–I commits were later
-merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head.
+separately. Ingest findings `INGEST-01`–`INGEST-03` now have a live Agent rollout
+with durable Falco state, but retained-event recovery and Pod-event rate-limit
+acceptance remain open. They do not close D3 or package F's deployment
+acceptance. PR #54 merged on
+2026-10-01 as `80f24e98f`. PR #55 merged on 2026-10-02 as `92a08cc18`;
+its seven hosted CI jobs passed on exact head `238429f57`. The clean local
+all-job result for that head recorded `publishable=true`. These results validate
+the source and disposable integration topology, not the existing lab rollout.
 
 The 2026-09-27 dependency/deployment follow-up built and deployed local
 `depfix-20260927-54-r2` Core, Agent and Dashboard images. Container config IDs
@@ -130,8 +154,10 @@ Core/Agent/API tests and vet, the permanent regression contract, 20 repeated
 SQLite risk-engine runs, all seven PostgreSQL selections, Dashboard
 typecheck/build and 52 Playwright tests, plus script/shell/hygiene checks.
 That dirty-tree report is non-publishable; record a fresh clean committed-head
-run outside this plan before push/merge readiness. A later live Agent rollout
-is still required before these ingest fixes are claimed deployed. The newer D3/F/G–I source and backend acceptance checkpoint is recorded above.
+run outside this plan before push/merge readiness. The later 2026-10-04
+single-node Agent rollout is recorded above; it does not complete retained-event
+recovery or rate-limit acceptance. The newer D3/F/G–I source and backend
+acceptance checkpoint is recorded above.
 The rollout must add the state env/volume/mount as well as the Agent image;
 see [Falco delivery-state operations](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
 
@@ -404,26 +430,29 @@ metadata lookup and JSONB representation/digest mismatches. Required graph snaps
 failures now return unavailable, and overlapping full-sync global evaluations
 coalesce into one running pass with a retained pending refresh. Generic RBAC insight merges also retain acknowledgement under row locks; concurrent keyed/empty-key SQLite and PostgreSQL cases protect manual state.
 
-These commits require a fresh clean exact-head native all-job result before
-push/readiness claims; store that result outside tracked documents to avoid a
-self-referential SHA. The register records new findings and remaining deployment
-gates. No lab rollout, independent measuring sensor, runtime auto-resolution,
-Dashboard revocation UI or live browser acceptance is claimed by these source changes.
+The #55 exact-head native and hosted all-job runs passed before merge. Store
+future result artifacts outside tracked documents to avoid a self-referential
+SHA. The register records new findings and remaining deployment gates. No lab
+rollout, independent measuring sensor, runtime auto-resolution or live browser
+acceptance is claimed by #55.
 
 ## Repository governance prerequisite
 
 The requirement is defined in [security invariants](../06-reference/SECURITY_INVARIANTS.md#repository-governance-prerequisite).
-On 2026-10-01 the repository's `main-security-gate` ruleset was disabled and no
-branch protection applied to `main`; owner-side enforcement remains open.
+On 2026-10-04 `main-security-gate` is active and requires one approving review,
+but its rules still set `require_code_owner_review=false` and contain no required
+status-check rule. CODEOWNER and exact-head CI enforcement therefore remain
+open. PR #55 was merged without a recorded review before this ruleset change.
 
 
 ## Merge-readiness discipline
 
 The rule is the [security-change review protocol](../06-reference/SECURITY_INVARIANTS.md#security-change-review-protocol):
 any runtime-code commit resets readiness, and only an exact head with passing Core,
-Agent, API, PostgreSQL and security-regression gates is merged. #51 was retired rather than reused. #52–#55
-are merged; the D3/F/G–I commits were merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head. Automatic
-Secret Scan remains manual-only and is not part of the functional CI gate.
+Agent, API, PostgreSQL and security-regression gates is merged. #51 was retired
+rather than reused. #52–#55 are merged. The D3/F/G–I #55 head passed all seven
+hosted jobs before merge; new follow-up commits require their own exact-head gate.
+Automatic Secret Scan remains manual-only and is not part of the functional CI gate.
 
 
 ### Final #50 merge blockers closed
