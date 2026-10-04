@@ -34,9 +34,9 @@ of all future HTTP/gRPC isolation behavior.
 - Add PostgreSQL/Kubernetes integration coverage in package F; mocked UI tests and
   SQLite unit tests do not prove deployment behavior.
 
-The current GitHub connection cannot read branch protection (403 Resource not
-accessible by integration). Required-check enforcement and bypass settings must
-be verified by the repository owner; their absence has not been established.
+On 2026-10-01 the `main-security-gate` ruleset was disabled and no branch
+protection applied to `main` (see the [plan](NEXT_AUDIT_PLAN.md#repository-governance-prerequisite)).
+Required-check enforcement and bypass settings remain an owner-side action.
 
 ## Finding-to-test map
 

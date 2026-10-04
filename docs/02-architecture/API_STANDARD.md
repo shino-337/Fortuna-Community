@@ -7,14 +7,14 @@ This document describes the public API shape used by Fortuna Core. It is intenti
 ```text
 Dashboard -> nginx -> Core REST API :8080
 Agent -> Core gRPC :9090 over mTLS
-Agent and sensors -> Core HTTP ingest :8080 with ingest token
+Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legacy shared token)
 ```
 
 - User-facing REST APIs use JSON under `/api/v1`.
 - Runtime layer APIs also expose selected `/api/v2/runtime` endpoints.
 - Agent gRPC traffic uses mTLS.
-- HTTP ingest routes require `FORTUNA_INGEST_TOKEN`.
-- Protected user routes require JWT auth when `AUTH_ENABLED=true`.
+- HTTP ingest routes require an Agent credential: a per-Agent token when `FORTUNA_AGENT_CREDENTIAL_REGISTRY` is set, otherwise the legacy shared `FORTUNA_INGEST_TOKEN`. See [scoped Agent credentials](../../deploy/scoped-agent-credentials/README.md).
+- Protected user routes require JWT auth. `AUTH_ENABLED=false` is refused unless `FORTUNA_DEV_MODE=1`.
 
 ## Route Domains
 
@@ -55,7 +55,7 @@ Agent and sensors -> Core HTTP ingest :8080 with ingest token
 | Action | `POST /api/v1/risk/insights/:id/acknowledge` | Workflow state transitions are action endpoints |
 | Partial update | `PATCH /api/v1/risk/insights/:id` | Used for partial status changes |
 | Bulk action | `POST /api/v1/risk/insights/bulk` | Used when a command targets multiple entities |
-| Ingest | `POST /api/v1/agent/sync` | Authenticated with ingest token, not user JWT |
+| Ingest | `POST /api/v1/agent/sync` | Authenticated with an Agent credential, not a user JWT |
 
 ## Error Response Format
 

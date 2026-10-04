@@ -42,7 +42,7 @@ flowchart TD
   workers --> db
 ```
 
-`/healthz` responds once PostgreSQL and NATS are reachable; migrations run at startup. Database errors in Core logs usually mean missing migrations, stale data or a mismatch between the secret and the database.
+Migrations run at startup. `/healthz` only reports that the process is up; use `/status` to check PostgreSQL and NATS (see [Core health endpoints](../../core/README.md#health-endpoints)). Database errors in Core logs usually mean missing migrations, stale data or a mismatch between the secret and the database.
 
 ### Agent
 
@@ -52,7 +52,7 @@ The built-in eBPF sensor is experimental: it attaches no-op tracepoints and repo
 
 ### Dashboard
 
-Pages distinguish four empty states: **unauthenticated** (session missing or expired), **forbidden** (role lacks permission), **cluster scope** (the route is allowed but not for the selected cluster) and **no data** (the request succeeded with no rows).
+Pages distinguish **unauthenticated**, **forbidden**, **cluster scope**, **no telemetry**, **no data** and **stale** states; the [user guide](../04-user-guide/README.md#reading-empty-or-blocked-states) explains each one.
 
 ## Product domains
 

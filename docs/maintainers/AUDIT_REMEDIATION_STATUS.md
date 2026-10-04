@@ -29,9 +29,8 @@ coverage or a guarantee that the repository has no further defects.
 | H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed | Dashboard preview controls and deployed operation validation; legacy disable remains 501 |
 | I / performance and investigation | 50,000-row trend and 500-path cache baselines, bounded allocation/coalescing fixes and backend investigation passed | Live browser walkthrough; production retention, scale/SLO and workload-specific sizing |
 
-The new acceptance evidence is documented in [integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. New source commits are on `fix/audit-d3-f-gi` and require their own exact-head CI. No live rollout of the 2026-09-28/29 ingest fixes is recorded. Earlier
-#54 zero-step CI failures were followed by a successful seven-job hosted run;
-that pass does not validate the D3/F/G–I branch. Exact tested SHA,
+The new acceptance evidence is documented in [integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. The D3/F/G–I source commits were merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head. No live rollout of the 2026-09-28/29 ingest fixes is recorded. Earlier
+#54 zero-step CI failures were followed by a successful seven-job hosted run. Exact tested SHA,
 source fingerprint and log hashes belong in external CI evidence.
 
 ## New findings and deployment follow-ups

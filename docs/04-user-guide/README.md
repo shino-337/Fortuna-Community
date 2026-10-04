@@ -15,7 +15,7 @@ Then open `http://127.0.0.1:8081/`.
 Development login:
 
 - Username: `admin`
-- Password: `<FORTUNA_ADMIN_PASSWORD>`, or `Fortuna_ChangeMe_123!` for a fresh bootstrap deploy where no admin password was configured. The bootstrap default must be changed before use. Existing databases keep the current admin password.
+- Password: `<FORTUNA_ADMIN_PASSWORD>`, or `Fortuna_ChangeMe_123!` for a fresh bootstrap deploy where no admin password was configured. The bootstrap default must be changed at first login and never overwrites an existing admin. When `FORTUNA_ADMIN_PASSWORD` is set, Core re-applies it on every restart, so change the admin password through that Secret rather than only in the UI.
 
 Roles determine route visibility and actions:
 
@@ -92,7 +92,9 @@ These images are representative captures from one local multi-cluster deployment
 | Unauthenticated | The JWT/session is missing or expired. | Sign in again. |
 | Forbidden | Your role lacks the required permission. | Ask an admin to update role or permission grants. |
 | Cluster scope | You selected or opened a cluster outside your assigned scope. | Change cluster selector or request access. |
-| No data | The route is allowed, but current filters or ingestion have no records. | Clear filters, widen time range, or verify agent/CVE/runtime ingestion. |
+| No telemetry | The page needs Agent or runtime data that has not arrived for this cluster. | Check Pipeline & Runtime Health and the Agent or sensor for that cluster. |
+| No data | The route is allowed and data is flowing, but current filters have no records. | Clear filters or widen the time range. |
+| Stale | Data exists but its freshness checks failed, so it may not reflect the cluster now. | Check data timestamps and Agent sync before acting on it. |
 
 ## Common Navigation Flow
 

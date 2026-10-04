@@ -57,7 +57,7 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 | Scope | Verified state | Remaining gate |
 | --- | --- | --- |
 | A–C | Merged; real two-cluster scoped HTTP/DaemonSet and backend RBAC investigation passed | Live mTLS/gRPC certificate lifecycle and browser rollout |
-| D | D1/D2 merged; D3 signed-health protocol and PostgreSQL authority/replay regressions implemented on `fix/audit-d3-f-gi`; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
+| D | D1/D2 merged; D3 signed-health protocol and PostgreSQL authority/replay regressions merged in #55; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
 | E | E1/#53 and E2/residual E1/#54 merged; all seven hosted CI jobs passed on #54 head `3ff4da767` | Live browser rollout remains an operational acceptance gate |
 | F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed; named PostgreSQL/live gates enforce run/pass readback | Repeat at exact committed head; live browser and mTLS/gRPC rollout remain operational acceptance |
 | G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions implemented | Owner review; arbitrary/legacy HTTP routes remain retired |
@@ -70,8 +70,8 @@ separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions bu
 still require a live Agent rollout with the durable-state configuration. They
 do not close D3 or package F. PR #54 merged on 2026-10-01 as `80f24e98f` after
 all seven hosted CI jobs passed at `3ff4da767`. Its earlier zero-step failures
-were infrastructure failures, not source validation. The D3/F/G–I branch requires
-its own exact-head CI; #54 results cannot validate its later commits.
+were infrastructure failures, not source validation. The D3/F/G–I commits were later
+merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head.
 
 The 2026-09-27 dependency/deployment follow-up built and deployed local
 `depfix-20260927-54-r2` Core, Agent and Dashboard images. Container config IDs
@@ -444,11 +444,8 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52–#54
-are merged. The D3/F/G–I commits are isolated on `fix/audit-d3-f-gi` and have
-been rebased onto the #54 merge commit. All seven hosted jobs passed on #54's
-final head; that result does not cover the D3/F/G–I commits. Run the full
-exact-head gate on the latter before requesting review or merge. Automatic
+security regression gates passed. #51 was retired rather than reused. #52–#55
+are merged; the D3/F/G–I commits were merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head. Automatic
 Secret Scan remains manual-only and is not part of the functional CI gate.
 
 

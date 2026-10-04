@@ -285,7 +285,7 @@ Or using binary:
 
 ### Kubernetes Deployment
 
-See [Production Deployment Guide](../docs/05-operations/PRODUCTION_DEPLOYMENT.md) for complete deployment instructions.
+Install with [Install on a cluster](../docs/01-getting-started/QUICKSTART.md), then harden with the [production deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md) guide.
 
 ---
 

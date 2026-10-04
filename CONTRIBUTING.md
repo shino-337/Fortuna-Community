@@ -40,7 +40,7 @@ Fortuna has three Go modules and one dashboard package:
 go work use ./core ./agent ./api
 ```
 
-Use Node.js 20+ for dashboard development.
+Use Node.js 24 for dashboard development, the version CI and the Dashboard image use.
 
 ## Checks
 
@@ -96,7 +96,7 @@ When changing docs:
 
 Release-facing changes must keep these aligned:
 
-- README Quick Start.
+- README "Try it locally" and the [local demo](docs/01-getting-started/DEMO.md).
 - [docs/01-getting-started/QUICKSTART.md](docs/01-getting-started/QUICKSTART.md).
 - [deploy/README.md](deploy/README.md) and any changed manifests.
 - `.github/workflows/publish-images.yml` when image publishing behavior changes.

@@ -18,7 +18,7 @@ Install with the [Quickstart](../01-getting-started/QUICKSTART.md), then apply t
 ## Network
 
 - Apply `deploy/infrastructure/network-policies.yaml` and confirm your CNI enforces NetworkPolicy. NATS has no client authentication; only Core may reach it.
-- Set `FORTUNA_TRUSTED_PROXIES` on Core to the CIDR of the dashboard proxy or ingress only. The bundled manifest trusts all private ranges so that it works out of the box.
+- Set `FORTUNA_TRUSTED_PROXIES` on Core to the CIDR of the dashboard proxy or ingress only. Core trusts no proxy when the variable is unset, but the bundled manifest sets it to all RFC 1918 ranges so that it works out of the box; narrow it.
 - Set `FORTUNA_WS_ALLOWED_ORIGINS` to the real dashboard origin(s).
 - Expose the dashboard through your ingress with TLS. Do not expose Core's HTTP port publicly; remote Agents should reach it through a dedicated, access-controlled endpoint.
 

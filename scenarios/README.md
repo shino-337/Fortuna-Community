@@ -68,7 +68,7 @@ Optional lab manifests (same CRB/SA as S2; apply manually if needed):
 | `optional/s2-rbac-pod-master.yaml` | `rbac-pod` on control-plane node (Falco co-located with Fortuna on small clusters). Delete the existing `rbac-pod` before applying because pod scheduling fields are immutable. |
 | `optional/s2-rbac-api-sim-pod.yaml` | `rbac-api-sim` with `curl` image for valid TLS to the Kubernetes API (busybox cannot) |
 
-Attack-path design, MITRE, and `risk_signals`: [`docs/03-components/README.md#attack-paths`](../docs/03-components/README.md#attack-paths).
+How attack paths are presented: [Components: attack paths](../docs/03-components/README.md#attack-paths). What a path does and does not claim: [graph and runtime boundaries](../docs/06-reference/GRAPH_RUNTIME_BOUNDARIES.md).
 
 ## Teardown
 

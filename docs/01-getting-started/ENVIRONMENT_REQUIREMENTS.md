@@ -6,7 +6,7 @@ This document summarizes the hardware, software, storage, network, and security 
 
 | Component | Minimum | Recommended | Production |
 |-----------|---------|-------------|------------|
-| **Nodes** | 2 (1 master + 1 worker) | 3 (1 master + 2 workers) | 5+ (1 master + 4+ workers) |
+| **Nodes** | 1 (lab; the [kind demo](DEMO.md) uses one node) | 3 (1 master + 2 workers) | 5+ (1 master + 4+ workers) |
 | **CPU** | 4 cores total | 8 cores total | 16+ cores total |
 | **RAM** | 8GB total | 16GB total | 32GB+ total |
 | **Disk** | 40GB total | 100GB total | 500GB+ total |
@@ -85,8 +85,7 @@ Fortuna requires a StorageClass that supports:
 
 ### Cluster Network
 
-- **Pod Network CIDR**: `10.244.0.0/16` (default for Flannel)
-- **Service CIDR**: `10.96.0.0/12` (default)
+- **Pod and Service CIDRs**: any; Fortuna has no CIDR requirement of its own
 - **Node Network**: All nodes must be on same network or routable
 
 ### Port Requirements
@@ -139,36 +138,28 @@ Fortuna requires:
 
 | Runtime | Version | Status |
 |---------|--------|--------|
-| **containerd** | 1.7+ | Recommended |
-| **Docker** | 20.10+ | Supported |
-| **CRI-O** | 1.28+ | Supported; may need adjustments |
+| **containerd** | 1.7+ | Required for SBOM extraction |
+| **CRI-O**, Docker (cri-dockerd) | — | Inventory, RBAC paths and Pod Detail work; SBOM extraction does not |
 
-**Note**: Fortuna Agent requires access to container runtime socket for SBOM extraction:
-- **containerd**: `/run/containerd/containerd.sock`
-- **Docker**: `/var/run/docker.sock`
+**Note**: the Agent extracts SBOMs only through the containerd socket (`CONTAINERD_SOCKET`, default `/run/containerd/containerd.sock`).
 
 ### Kubernetes
 
 | Component | Version | Status |
 |-----------|--------|--------|
-| **kubeadm** | 1.28+ | Required |
-| **kubelet** | 1.28+ | Required |
+| **Kubernetes** | 1.28+ | Required; any distribution (kubeadm, kind, managed) |
 | **kubectl** | 1.28+ | Required |
 
-**CNI Plugins**:
-- **Flannel**: recommended default
-- **Calico**: supported
-- **Cilium**: supported
-- **Weave**: supported
+**CNI**: any CNI works for Fortuna itself. Use one that **enforces NetworkPolicy** (Calico, Cilium) for anything beyond a lab: NATS has no client authentication, and `deploy/infrastructure/network-policies.yaml` is what limits it and PostgreSQL to Core. Flannel does not enforce NetworkPolicy.
 
 ### Build Tools (Optional - for building images)
 
 | Tool | Version | Purpose |
 |------|--------|---------|
-| **Go** | 1.26.8+ | Build and test Fortuna components |
-| **Docker** | 20.10+ | Build container images |
+| **Go** | 1.26.8 (the version CI pins) | Build and test Fortuna components |
+| **nerdctl**, Docker or buildctl | — | Build container images |
+| **Node.js** | 24 | Dashboard development only |
 | **Git** | Latest | Clone repository |
-| **Make** | Latest | Build automation |
 
 ---
 
@@ -180,21 +171,19 @@ Fortuna requires:
   - CA certificate
   - Server certificate (Core)
   - Client certificate (Agent)
-- **Kubernetes Certificates**: Managed by kubeadm
 
 ### RBAC
 
-Fortuna requires:
-- **ServiceAccount** for Core (read-only cluster access)
-- **ServiceAccount** for Agent (read-only pod access on local node)
-- **ClusterRole** and **ClusterRoleBinding** for Core
-- **ClusterRole** and **ClusterRoleBinding** for Agent
+`deploy/fortuna-rbac.yaml` creates:
+
+- **Core**: read-only, cluster-wide (pods, services, namespaces, ServiceAccounts, RBAC objects, NetworkPolicies). ServiceAccount revocation does not use this identity; it uses a per-cluster kubeconfig you provide ([details](../05-operations/SERVICEACCOUNT_MUTATIONS.md)).
+- **Agent**: cluster-wide reads of pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC objects, plus `create` on `pods/exec` in every namespace. On the node it runs as root with host PID, extra capabilities and the containerd socket. Treat an Agent compromise as a cluster compromise; see [Agent security](../../agent/README.md#security).
 
 ### Network Security
 
 - **Pod-to-Pod encryption**: Optional (via CNI plugin)
 - **Service mesh**: Optional (Istio, Linkerd)
-- **Network policies**: Optional (for pod isolation)
+- **Network policies**: required outside a lab (see CNI above)
 
 ---
 
@@ -214,7 +203,7 @@ Fortuna requires:
 | **CPU** | 100m | 1000m |
 | **Memory** | 1Gi | 6Gi |
 
-**Note**: Agent runs as DaemonSet (one per node). The Agent requires significant memory for eBPF-based runtime monitoring, SBOM extraction, and container image analysis. When Falco JSONL tail reader is enabled, ensure 6Gi limit and set `SBOM_WORKERS=1`.
+**Note**: Agent runs as DaemonSet (one per node). Most of the Agent's memory goes to SBOM extraction and container image analysis. The bundled manifest sets a 6Gi limit and `SBOM_WORKERS=1`; keep both when the Falco reader is enabled. The built-in eBPF sensor is an experimental scaffold and is disabled by default.
 
 ### PostgreSQL
 
@@ -246,7 +235,7 @@ Fortuna requires:
 - [ ] OS installed and updated
 - [ ] containerd installed and configured
 - [ ] Kubernetes components installed
-- [ ] CNI plugin ready
+- [ ] CNI plugin ready and enforcing NetworkPolicy
 
 ### Network
 - [ ] All required ports open

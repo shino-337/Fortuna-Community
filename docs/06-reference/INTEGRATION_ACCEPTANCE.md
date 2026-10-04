@@ -6,8 +6,8 @@ Run `python3 scripts/verify/run-local-ci-native.py all` from the checkout to exe
 the workflow locally, including its isolated PostgreSQL 16/AGE 1.6 service and
 real two-cluster kind gate. Results contain the exact source SHA, source/workflow
 fingerprints and log hashes outside the worktree. Only an unchanged clean all-job
-pass is publishable. Hosted CI resumed on 2026-10-01 for #54; that run does not
-validate the later D3/F/G/H branch until its own exact head is tested.
+pass is publishable. Hosted CI resumed on 2026-10-01 for #54. The D3/F/G/H commits were
+merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head.
 
 The dedicated live gate is `scripts/verify/run-two-cluster-integration.py`. It
 builds the real Agent, creates only its uniquely named disposable clusters/images,
