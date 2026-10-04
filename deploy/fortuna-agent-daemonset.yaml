@@ -17,11 +17,21 @@ spec:
       labels:
         app.kubernetes.io/name: fortuna
         app.kubernetes.io/component: agent
+      annotations:
+        kubectl.kubernetes.io/default-container: agent
     spec:
       serviceAccountName: fortuna-agent
-      hostNetwork: false
-      # hostPID: true required for host inspection (read /proc/<pid>/cgroup to map PID → container)
-      hostPID: true
+      # Privileges are kept to what the Agent uses and are checked in CI by
+      # scripts/verify/check-agent-privileges.py; see the "Agent privileges"
+      # section of docs/06-reference/SECURITY.md before adding any.
+      # No hostPID/hostNetwork/hostIPC: process and socket data are read from the
+      # read-only host /proc mount below.
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      # The ServiceAccount token is projected into the agent container only
+      # (kube-api-access below), never into image-export.
+      automountServiceAccountToken: false
       
       # Allow Agent to run on all nodes including master (if master has taints)
       tolerations:
@@ -48,7 +58,23 @@ spec:
             items:
               - key: ca.crt
                 path: ca.crt
-        # Containerd socket
+        - name: kube-api-access
+          projected:
+            sources:
+              - serviceAccountToken:
+                  path: token
+                  expirationSeconds: 3607
+              - configMap:
+                  name: kube-root-ca.crt
+                  items:
+                    - key: ca.crt
+                      path: ca.crt
+              - downwardAPI:
+                  items:
+                    - path: namespace
+                      fieldRef:
+                        fieldPath: metadata.namespace
+        # Containerd socket: mounted only into the image-export container.
         - name: containerd-socket
           hostPath:
             path: /run/containerd/containerd.sock
@@ -67,6 +93,15 @@ spec:
           hostPath:
             path: /var/lib/fortuna-agent
             type: DirectoryOrCreate
+        # Scratch space for SBOM extraction (image layers, syft cache). The root
+        # filesystem is read-only.
+        - name: scratch
+          emptyDir:
+            sizeLimit: 10Gi
+        # Pod-local unix socket between the agent and image-export containers.
+        - name: image-export
+          emptyDir:
+            sizeLimit: 1Mi
       
       containers:
         - name: agent
@@ -133,11 +168,10 @@ spec:
             - name: TLS_CA_CERT_PATH
               value: "/etc/fortuna/ca-cert/ca.crt"
             
-            # Containerd config
-            - name: CONTAINERD_SOCKET
-              value: "/run/containerd/containerd.sock"
-            - name: CONTAINERD_NAMESPACE
-              value: "k8s.io"
+            # SBOM: image archives come from the image-export container; this
+            # container has no containerd socket.
+            - name: IMAGE_EXPORT_SOCKET
+              value: "/run/fortuna-image-export/export.sock"
             
             # Logging
             - name: LOG_LEVEL
@@ -161,10 +195,20 @@ spec:
               value: "/var/lib/fortuna-agent/falco-delivery.json"
             - name: RUNTIME_COVERAGE_CADENCE
               value: "30s"
+            # Writable paths live on the scratch emptyDir (read-only root filesystem).
+            - name: TMPDIR
+              value: "/tmp"
+            - name: HOME
+              value: "/tmp"
+            - name: XDG_CACHE_HOME
+              value: "/tmp/.cache"
+            - name: SBOM_CACHE_DIR
+              value: "/tmp/sbom-cache"
             # Lower peak memory when many pods queue SBOM (default queue workers=2 in code).
             - name: SBOM_WORKERS
               value: "1"
-            # R9 eBPF sensor (phase-1 scaffold). Keep disabled by default for safe rollout.
+            # Experimental eBPF scaffold. It needs extra capabilities that this
+            # manifest deliberately does not grant; leave it disabled.
             - name: EBPF_ENABLED
               value: "false"
             - name: EBPF_MODE
@@ -184,9 +228,11 @@ spec:
             - name: ca-cert
               mountPath: /etc/fortuna/ca-cert
               readOnly: true
-            - name: containerd-socket
-              mountPath: /run/containerd/containerd.sock
+            - name: kube-api-access
+              mountPath: /var/run/secrets/kubernetes.io/serviceaccount
               readOnly: true
+            - name: image-export
+              mountPath: /run/fortuna-image-export
             - name: host-proc
               mountPath: /host/proc
               readOnly: true
@@ -195,6 +241,8 @@ spec:
               readOnly: true
             - name: delivery-state
               mountPath: /var/lib/fortuna-agent
+            - name: scratch
+              mountPath: /tmp
           
           # SBOM + Falco JSONL poll: 2Gi limit caused OOM when Falco backlog was read before tail-from-EOF fix; keep headroom.
           resources:
@@ -205,17 +253,51 @@ spec:
               cpu: "1"
               memory: 6Gi
           
-          # Security context - root required for containerd socket access
+          # Root (uid 0) with every capability dropped: it cannot override file
+          # permissions, load eBPF, ptrace or change kernel settings. It is kept
+          # for the root-owned Falco log and delivery state on existing nodes.
           securityContext:
             runAsNonRoot: false
             runAsUser: 0
-            allowPrivilegeEscalation: true
-            readOnlyRootFilesystem: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop:
                 - ALL
-              add:
-                - SYS_BPF
-                - SYS_RESOURCE
-                - PERFMON
-                - SYS_ADMIN
+
+        # The only container with the containerd socket. It has no ServiceAccount
+        # token, no Core credentials and no other host mounts, and answers one
+        # request type ("stream the archive for this image reference") on the
+        # pod-local socket. It never parses image content.
+        - name: image-export
+          image: fortuna-agent:depfix-20260927-54-r2
+          imagePullPolicy: IfNotPresent
+          command: ["/app/fortuna-image-export"]
+          env:
+            - name: IMAGE_EXPORT_SOCKET
+              value: "/run/fortuna-image-export/export.sock"
+            - name: CONTAINERD_SOCKET
+              value: "/run/containerd/containerd.sock"
+            - name: CONTAINERD_NAMESPACE
+              value: "k8s.io"
+          volumeMounts:
+            - name: containerd-socket
+              mountPath: /run/containerd/containerd.sock
+              readOnly: true
+            - name: image-export
+              mountPath: /run/fortuna-image-export
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL

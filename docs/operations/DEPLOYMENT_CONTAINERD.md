@@ -55,7 +55,7 @@ kubectl get nodes -o jsonpath='{range .items[*]}{.metadata.name}{" DiskPressure=
 
 kubectl -n fortuna set image deployment/fortuna-core core="fortuna-core:$FORTUNA_LOCAL_TAG"
 kubectl -n fortuna rollout status deployment/fortuna-core --timeout=300s
-kubectl -n fortuna set image daemonset/fortuna-agent agent="fortuna-agent:$FORTUNA_LOCAL_TAG"
+kubectl -n fortuna set image daemonset/fortuna-agent agent="fortuna-agent:$FORTUNA_LOCAL_TAG" image-export="fortuna-agent:$FORTUNA_LOCAL_TAG"
 kubectl -n fortuna rollout status daemonset/fortuna-agent --timeout=300s
 kubectl -n fortuna set image deployment/fortuna-dashboard dashboard="fortuna-dashboard:$FORTUNA_LOCAL_TAG"
 kubectl -n fortuna rollout status deployment/fortuna-dashboard --timeout=300s

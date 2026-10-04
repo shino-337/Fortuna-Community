@@ -48,6 +48,11 @@ RUN --mount=type=cache,target=/gomodcache \
     -trimpath \
     -buildvcs=false \
     -o /fortuna-agent ./cmd/main.go
+RUN --mount=type=cache,target=/gomodcache \
+    --mount=type=cache,target=/gocache \
+    export GOMODCACHE=/gomodcache GOCACHE=/gocache; \
+    CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags="-w -s" -trimpath -buildvcs=false \
+    -o /fortuna-image-export ./cmd/image-export
 
 # Verify Agent binary exists
 RUN test -f /fortuna-agent || (echo "ERROR: /fortuna-agent not found after build" && exit 1)
@@ -99,6 +104,7 @@ WORKDIR /app
 
 # Copy binary and version file from builder
 COPY --from=builder --chown=fortuna:fortuna /fortuna-agent /app/fortuna-agent
+COPY --from=builder /fortuna-image-export /app/fortuna-image-export
 COPY --from=builder /build-version.txt /app/version.txt
 COPY --from=syft-builder --chown=root:root /out/syft /usr/local/bin/syft
 
@@ -108,14 +114,10 @@ RUN chown -R fortuna:fortuna /app && \
     syft --version > /app/syft-version.txt && \
     test -f /app/fortuna-agent && test -f /usr/local/bin/syft
 
-# Note: Agent runs as root (USER root) because it needs access to:
-# - Docker socket (/var/run/docker.sock)
-# - Container runtime for SBOM extraction
-# This is a known security trade-off for DaemonSet workloads that need host access.
-# In production, consider:
-# 1. Using a dedicated service account with minimal privileges
-# 2. Running in a security context with only necessary capabilities
-# 3. Using rootless Docker or containerd if possible
+# Runs as root so the image-export container (same image, command
+# /app/fortuna-image-export) can open the root-owned containerd socket. The
+# DaemonSet drops every capability for both containers; see
+# docs/06-reference/SECURITY.md#agent-privileges.
 USER root
 
 # Healthcheck: ensure agent process and syft binary are available
