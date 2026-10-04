@@ -21,7 +21,7 @@ unopened work are estimates: D is split into D1 and D2 inventory/runtime work, s
 ## Regression-prevention contract
 
 The permanent rules, PR review checklist and finding-to-test map live in
-[security invariants](../06-reference/SECURITY_INVARIANTS.md). Every security
+[security invariants](../reference/SECURITY_INVARIANTS.md). Every security
 finding fixed in packages C–F must become a named regression or static CI
 invariant there; this plan only records status.
 
@@ -159,7 +159,7 @@ single-node Agent rollout is recorded above; it does not complete retained-event
 recovery or rate-limit acceptance. The newer D3/F/G–I source and backend
 acceptance checkpoint is recorded above.
 The rollout must add the state env/volume/mount as well as the Agent image;
-see [Falco delivery-state operations](../05-operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
+see [Falco delivery-state operations](../operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
 
 The 2026-09-29 continuation also fixes Pod-event quarantine starvation under
 the shared request limit: deferred records take the next retry turn before
@@ -408,14 +408,14 @@ disable and expired leases cannot retain absence eligibility. Agent relay inputs
 are optional and read-only; current built-in readers still cannot assert their own
 sensor health. SQLite lifecycle/coverage and Agent relay regressions pass; real
 PostgreSQL concurrent replay and injected-update rollback regressions are included
-in the permanent workflow. See [source-health operations](../05-operations/RUNTIME_SENSORS.md).
+in the permanent workflow. See [source-health operations](../operations/RUNTIME_SENSORS.md).
 Runtime auto-resolution remains disabled pending F acceptance and deployment of
 an independently measuring attestor. No live source-health rollout is claimed.
 
 ## F/G/H/I source and acceptance checkpoint — 2026-09-29
 
-The new branch implements [scoped AGE](../06-reference/GRAPH.md), [reviewed durable
-mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md), [permanent real integration gates](INTEGRATION_ACCEPTANCE_20260929.md)
+The new branch implements [scoped AGE](../reference/GRAPH.md), [reviewed durable
+mutations](../operations/SERVICEACCOUNT_MUTATIONS.md), [permanent real integration gates](INTEGRATION_ACCEPTANCE_20260929.md)
 and [measured performance changes](PERFORMANCE_BASELINE_20260929.md). The live
 backend gate passed with two clusters, three nodes, four DaemonSets and six real
 Agents. It includes actual JWT permissions, first finding/RBAC investigation,
@@ -438,7 +438,7 @@ acceptance is claimed by #55.
 
 ## Repository governance prerequisite
 
-The requirement is defined in [security invariants](../06-reference/SECURITY_INVARIANTS.md#repository-governance-prerequisite).
+The requirement is defined in [security invariants](../reference/SECURITY_INVARIANTS.md#repository-governance-prerequisite).
 On 2026-10-04 `main-security-gate` is active and requires one approving review,
 but its rules still set `require_code_owner_review=false` and contain no required
 status-check rule. CODEOWNER and exact-head CI enforcement therefore remain
@@ -447,7 +447,7 @@ open. PR #55 was merged without a recorded review before this ruleset change.
 
 ## Merge-readiness discipline
 
-The rule is the [security-change review protocol](../06-reference/SECURITY_INVARIANTS.md#security-change-review-protocol):
+The rule is the [security-change review protocol](../reference/SECURITY_INVARIANTS.md#security-change-review-protocol):
 any runtime-code commit resets readiness, and only an exact head with passing Core,
 Agent, API, PostgreSQL and security-regression gates is merged. #51 was retired
 rather than reused. #52–#55 are merged. The D3/F/G–I #55 head passed all seven

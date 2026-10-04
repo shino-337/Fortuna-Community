@@ -1,6 +1,6 @@
 # Local Containerd Build And Deploy
 
-Use this path for local development when you need to build images from the current source tree. For normal users and multi-node clusters, prefer published images from GHCR as described in [Quickstart](../01-getting-started/QUICKSTART.md).
+Use this path for local development when you need to build images from the current source tree. For normal users and multi-node clusters, prefer published images from GHCR as described in [Quickstart](../getting-started/QUICKSTART.md).
 
 ## Requirements
 

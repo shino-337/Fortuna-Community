@@ -1,6 +1,6 @@
 # Runtime sensors
 
-Runtime evidence comes from Falco through the Agent. The built-in eBPF sensor is an experimental scaffold that attaches no-op tracepoints; keep `EBPF_ENABLED=false` and `EBPF_SIMULATE` disabled for real evidence. What runtime evidence does and does not prove is in [runtime evidence](../06-reference/RUNTIME_EVIDENCE.md).
+Runtime evidence comes from Falco through the Agent. The built-in eBPF sensor is an experimental scaffold that attaches no-op tracepoints; keep `EBPF_ENABLED=false` and `EBPF_SIMULATE` disabled for real evidence. What runtime evidence does and does not prove is in [runtime evidence](../reference/RUNTIME_EVIDENCE.md).
 
 ## Install Falco
 
@@ -51,7 +51,7 @@ durable mixed-batch fix is active in that mode.
 
 ## Signed source health (optional)
 
-Core accepts runtime source health only when it is signed by an attestor that is independent of the Agent; the [protocol](../06-reference/RUNTIME_EVIDENCE.md#independently-signed-runtime-source-health-protocol-v1) defines the report and the `FORTUNA_SOURCE_HEALTH_REGISTRY` file.
+Core accepts runtime source health only when it is signed by an attestor that is independent of the Agent; the [protocol](../reference/RUNTIME_EVIDENCE.md#independently-signed-runtime-source-health-protocol-v1) defines the report and the `FORTUNA_SOURCE_HEALTH_REGISTRY` file.
 
 The Agent can relay reports produced by an independent attestor. Configure:
 

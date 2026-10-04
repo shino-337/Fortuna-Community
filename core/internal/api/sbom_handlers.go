@@ -392,7 +392,7 @@ func GetSBOMDetail(db *gorm.DB) gin.HandlerFunc {
 					"Pod must run on a node where Fortuna Agent is running (DaemonSet).",
 					"Agent logs: look for [SBOMProcessor] or [SBOMQueue] for this pod; check for 'Queue full' or 'SBOM extraction failed' or 'SendSBOMFinding RPC failed'.",
 					"Core logs: look for [SBOM] Received SBOM / Created new SBOM for this pod_uid.",
-					"See docs/03-components/README.md#sbom-and-cve.",
+					"See docs/components/README.md#sbom-and-cve.",
 				},
 			})
 			return
