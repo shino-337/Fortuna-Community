@@ -106,10 +106,6 @@ spec:
         - name: webhook-certs
           secret:
             secretName: fortuna-webhook-tls
-        - name: containerd-sock
-          hostPath:
-            path: /run/containerd/containerd.sock
-            type: Socket
       
       containers:
         - name: core
@@ -178,6 +174,12 @@ spec:
             # handshake, so local dashboard WS streams authenticate via ?token=.
             - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
               value: "true"
+            # Proxies allowed to set X-Forwarded-For / X-Real-IP (the dashboard nginx
+            # runs on the pod network). Without this, every dashboard user would share
+            # one login rate-limit bucket; with gin's default (trust everyone), clients
+            # could spoof their IP. Narrow this to your pod CIDR where possible.
+            - name: FORTUNA_TRUSTED_PROXIES
+              value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
             - name: FORTUNA_WS_ALLOWED_ORIGINS
               value: "http://localhost:8081,http://127.0.0.1:8081"
             - name: JWT_SECRET
@@ -253,8 +255,6 @@ spec:
             - name: webhook-certs
               mountPath: /etc/webhook/certs
               readOnly: true
-            - name: containerd-sock
-              mountPath: /run/containerd/containerd.sock
           
           # Production-ready resource limits
           resources:
