@@ -43,3 +43,16 @@ func CollectNetworkFromHost(procRoot string, containerMap map[string]PodContaine
 	}
 	return result
 }
+
+// connectionPayload matches Core PodNetworkConnection JSON for ingest.
+type connectionPayload struct {
+	ContainerName string `json:"containerName"`
+	SourceIP      string `json:"sourceIp"`
+	SourcePort    int    `json:"sourcePort"`
+	DestIP        string `json:"destIp"`
+	DestPort      int    `json:"destPort"`
+	Protocol      string `json:"protocol"`
+	State         string `json:"state"`
+	BytesSent     int64  `json:"bytesSent,omitempty"`
+	BytesRecv     int64  `json:"bytesRecv,omitempty"`
+}

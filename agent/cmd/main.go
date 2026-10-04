@@ -139,7 +139,7 @@ func main() {
 			podDetailInterval = dur
 		}
 	}
-	podDetailReporter := poddetail.NewReporter(syncClientset, k8sClient.Config, cfg.CoreHTTPEndpoint, clusterInfo.ID, cfg.NodeName, podDetailInterval)
+	podDetailReporter := poddetail.NewReporter(syncClientset, cfg.CoreHTTPEndpoint, clusterInfo.ID, cfg.NodeName, podDetailInterval)
 	go podDetailReporter.Start(ctx)
 
 	// K8s Events collector: informer → batch POST to Core (Phase 2.1)

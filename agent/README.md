@@ -256,7 +256,7 @@ go run cmd/main.go
 
 ### RBAC Permissions
 
-The Agent reads pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC resources cluster-wide. It also has `create` on `pods/exec` in every namespace, which it uses to collect process and socket lists for Pod Detail. Treat an Agent compromise as a cluster compromise. See `deploy/fortuna-rbac.yaml` for the exact rules.
+The Agent reads pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC resources cluster-wide. It has no write verbs and no `pods/exec`: Pod Detail reads processes and sockets from the host `/proc` mount. See `deploy/fortuna-rbac.yaml` for the exact rules.
 
 ### mTLS
 

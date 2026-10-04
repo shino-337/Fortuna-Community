@@ -69,7 +69,8 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: agent
 ---
-# ClusterRole for Agent (read pods, SAs, RBAC for sync + container runtime + Pod Detail exec)
+# ClusterRole for Agent: read-only inventory. The Agent never execs into pods;
+# Pod Detail reads processes and sockets from the host /proc mount.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -83,12 +84,6 @@ rules:
   resources:
     - pods
   verbs: ["get", "list", "watch"]
-
-# Pod Detail: exec into containers for process (ps) and network (ss/netstat) collection
-- apiGroups: [""]
-  resources:
-    - pods/exec
-  verbs: ["create"]
 
 # Watch Kubernetes events (Pod Detail – events collector informer)
 - apiGroups: [""]

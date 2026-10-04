@@ -14,7 +14,6 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/rest"
 
 	"github.com/fortuna/agent/internal/corehttp"
 )
@@ -27,7 +26,6 @@ const (
 // Data is collected from real pods on this node only; no seed or mock.
 type Reporter struct {
 	client      kubernetes.Interface
-	restConfig  *rest.Config // optional: when set, real process collection via exec is enabled
 	coreBaseURL string
 	clusterID   string
 	nodeName    string
@@ -36,14 +34,13 @@ type Reporter struct {
 }
 
 // NewReporter creates a Reporter. coreBaseURL is the Core HTTP base (e.g. http://fortuna-core:8080).
-// restConfig: when non-nil, process list is collected via exec into each container (real data); when nil, process payload is empty.
-func NewReporter(client kubernetes.Interface, restConfig *rest.Config, coreBaseURL, clusterID, nodeName string, interval time.Duration) *Reporter {
+// Process and socket data come only from the host /proc mount; the Agent never execs into pods.
+func NewReporter(client kubernetes.Interface, coreBaseURL, clusterID, nodeName string, interval time.Duration) *Reporter {
 	if interval <= 0 {
 		interval = defaultReportInterval
 	}
 	return &Reporter{
 		client:      client,
-		restConfig:  restConfig,
 		coreBaseURL: coreBaseURL,
 		clusterID:   clusterID,
 		nodeName:    nodeName,
@@ -73,20 +70,14 @@ func (r *Reporter) Start(ctx context.Context) {
 	}
 }
 
-// useHostRuntime returns true when runtime collection should use host (/proc) instead of exec.
-// - "host" or "1" or "true": always host.
-// - "exec": always exec (skip host).
-// - "auto" or unset: use host if hostProcRoot() is readable (e.g. DaemonSet with hostPID + /proc mount), else exec.
-func useHostRuntime() bool {
+// warnIfExecRuntimeRequested reports that exec-based collection was removed.
+// Exec needed cluster-wide pods/exec, which lets a compromised Agent run commands
+// in any pod; process and socket data now come only from the host /proc mount.
+func warnIfExecRuntimeRequested() {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("POD_DETAIL_RUNTIME_SOURCE")))
 	if v == "exec" || v == "0" || v == "false" {
-		return false
+		log.Printf("[PodDetail] POD_DETAIL_RUNTIME_SOURCE=%s is no longer supported; collecting from the host /proc mount instead", v)
 	}
-	if v == "host" || v == "1" || v == "true" {
-		return true
-	}
-	// auto or empty: try host if proc root is available
-	return canUseHostProc(hostProcRoot())
 }
 
 // canUseHostProc returns true if procRoot exists and we can read it (e.g. /host/proc when mounted).
@@ -124,7 +115,9 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 	var processesByPod map[string][]processPayload
 	var connectionsByPod map[string][]connectionPayload
 	var netCountersByPod map[string]NetDevCounters
-	if useHostRuntime() {
+	warnIfExecRuntimeRequested()
+	hostRt := canUseHostProc(hostProcRoot())
+	if hostRt {
 		procRoot := hostProcRoot()
 		containerMap := BuildContainerIDToPodMap(pods)
 		observedAt := time.Now().Format(time.RFC3339)
@@ -156,7 +149,6 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 		}
 	}
 
-	hostRt := useHostRuntime()
 	for i := range pods {
 		pod := &pods[i]
 		uid := string(pod.UID)
@@ -289,7 +281,7 @@ type processPayload struct {
 }
 
 // sendProcessSnapshotsForPod sends process list for one pod. When runtimeFromHost is true, hostProcesses
-// is used as-is (may be empty); no exec fallback. When false, collects via exec when restConfig is set.
+// is used as-is (may be empty). When false (host /proc unavailable), an empty list is sent.
 func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.Pod, hostProcesses []processPayload, runtimeFromHost bool) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
@@ -298,12 +290,6 @@ func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.P
 	var processes []processPayload
 	if runtimeFromHost {
 		processes = hostProcesses
-	} else if r.restConfig != nil {
-		var err error
-		processes, err = CollectProcessesFromPod(ctx, r.client, r.restConfig, pod)
-		if err != nil {
-			return err
-		}
 	}
 	body := map[string]interface{}{
 		"podUid":    uid,
@@ -373,12 +359,6 @@ func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1
 	var connections []connectionPayload
 	if runtimeFromHost {
 		connections = hostConnections
-	} else if r.restConfig != nil {
-		var err error
-		connections, err = CollectNetworkFromPod(ctx, r.client, r.restConfig, pod)
-		if err != nil {
-			return err
-		}
 	}
 	body := map[string]interface{}{
 		"podUid":      uid,
