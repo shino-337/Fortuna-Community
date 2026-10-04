@@ -1,9 +1,6 @@
 # Fortuna Agent
 
-**Version**: 1.0.0  
-**Status**: Production Ready
-
-Fortuna Agent is a lightweight DaemonSet for **Fortuna**. It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
+Fortuna Agent is a privileged DaemonSet for **Fortuna**. It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
 
 ---
 
@@ -113,13 +110,14 @@ agent/
 ### Environment Variables
 
 **Core Connection**:
-- `CORE_GRPC_ENDPOINT`: Core gRPC endpoint (required)
-  - Example: `fortuna-core.fortuna.svc.cluster.local:9090`
+- `CORE_GRPC_ENDPOINT`: Core gRPC endpoint (default `fortuna-core.fortuna.svc.cluster.local:9090`)
+- `CORE_HTTP_ENDPOINT`: Core HTTP endpoint for inventory and runtime ingest (default `http://fortuna-core.fortuna.svc.cluster.local:8080`)
+- `FORTUNA_INGEST_TOKEN`: Shared HTTP ingest token (legacy; see [scoped Agent credentials](../deploy/scoped-agent-credentials/README.md))
 
 **Agent Identity**:
-- `AGENT_ID`: Unique agent identifier (default: auto-generated)
-- `NODE_NAME`: Kubernetes node name (required, auto-detected)
-- `NODE_ID`: Node identifier (default: node name)
+- `NODE_NAME`: Kubernetes node name (set from the downward API)
+- `AGENT_ID`: Agent identifier (default `<NODE_NAME>-agent`)
+- `CLUSTER_ID`, `CLUSTER_NAME`: Fixed cluster identity; discovered from the API server when unset
 
 **TLS/mTLS**:
 - `TLS_ENABLED`: Enable mTLS (default: `true`)
@@ -135,7 +133,11 @@ agent/
 
 **SBOM Processing**:
 - `SBOM_WORKERS`: Number of SBOM extraction workers (default: `3`)
-- `SBOM_QUEUE_SIZE`: Work queue size (default: `100`)
+
+**Inventory and runtime**:
+- `SYNC_INTERVAL` (default `30s`; the bundled manifest uses `5m`), `HEARTBEAT_INTERVAL`, `WATCH_NAMESPACE`
+- `FALCO_EVENTS_ENABLED`, `FALCO_EVENTS_PATH`, `FALCO_DELIVERY_STATE_PATH`
+- `EBPF_ENABLED`, `EBPF_SIMULATE` (synthetic events; never use as real evidence)
 
 ---
 
@@ -143,7 +145,7 @@ agent/
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.26+ (see `go.mod`)
 - Access to Kubernetes cluster (for testing)
 - Containerd or Docker (for image access)
 
@@ -254,7 +256,7 @@ go run cmd/main.go
 
 ### RBAC Permissions
 
-Agent requires **read-only** permissions (pods, nodes, namespaces, serviceaccounts, RBAC resources). See `deploy/fortuna-rbac.yaml` at repo root for the full RBAC used in deployment.
+The Agent reads pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC resources cluster-wide. It also has `create` on `pods/exec` in every namespace, which it uses to collect process and socket lists for Pod Detail. Treat an Agent compromise as a cluster compromise. See `deploy/fortuna-rbac.yaml` for the exact rules.
 
 ### mTLS
 
@@ -262,11 +264,9 @@ Agent requires **read-only** permissions (pods, nodes, namespaces, serviceaccoun
 - **CA Verification**: Validates Core server certificate
 - **Secure Channel**: All gRPC communication encrypted
 
-### Least Privilege
+### Node privileges
 
-- No write permissions
-- No access to secrets
-- Only reads pod/node information
+The Agent runs as root with host PID access, `SYS_ADMIN`, `SYS_BPF`, `PERFMON` and `SYS_RESOURCE`, and mounts the containerd socket, `/proc`, the Falco log directory and its state directory from the host. These are required for container image access, PID-to-container mapping and runtime sensors. It has no RBAC access to Secrets, but the containerd socket and root on the node give equivalent reach. Run it only in clusters where that trade-off is acceptable.
 
 ---
 
