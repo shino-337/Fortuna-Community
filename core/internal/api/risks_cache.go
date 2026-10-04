@@ -11,7 +11,7 @@ var defaultRisksCache RisksCache
 
 var risksCacheTTL = 60 * time.Second
 
-// RisksCache is a TTL cache for risk list and insights summary responses (in-memory when Redis not configured).
+// RisksCache is an in-memory TTL cache for risk list and insights summary responses.
 type RisksCache interface {
 	Get(key string) ([]byte, bool)
 	Set(key string, value []byte, ttl time.Duration)

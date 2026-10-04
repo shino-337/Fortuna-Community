@@ -14,9 +14,6 @@ type Config struct {
 	// Database
 	DatabaseURL string
 
-	// Redis (optional)
-	RedisURL string
-
 	// Server ports
 	GRPCPort     string
 	HTTPPort     string
@@ -82,7 +79,6 @@ func Load(configPath string) (*Config, error) {
 
 	cfg := &Config{
 		DatabaseURL:                     getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/fortuna?sslmode=disable"),
-		RedisURL:                        getEnv("REDIS_URL", ""),
 		GRPCPort:                        getEnv("GRPC_PORT", "9090"),
 		HTTPPort:                        getEnv("HTTP_PORT", "8080"),
 		NATSEndpoint:                    getEnv("NATS_ENDPOINT", "nats://nats.fortuna.svc.cluster.local:4222"),
