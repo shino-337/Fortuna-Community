@@ -1,6 +1,6 @@
 # Components
 
-What each part of Fortuna does, where its code lives, and what to check when it misbehaves. For data flows across components, see [Architecture](../02-architecture/ARCHITECTURE.md); for the dashboard workspaces and screenshots, see the [user guide](../04-user-guide/README.md).
+What each part of Fortuna does, where its code lives, and what to check when it misbehaves. For data flows across components, see [Architecture](../architecture/ARCHITECTURE.md); for the dashboard workspaces and screenshots, see the [user guide](../user-guide/README.md).
 
 ## Runtime workloads
 
@@ -52,7 +52,7 @@ The built-in eBPF sensor is experimental: it attaches no-op tracepoints and repo
 
 ### Dashboard
 
-Pages distinguish **unauthenticated**, **forbidden**, **cluster scope**, **no telemetry**, **no data** and **stale** states; the [user guide](../04-user-guide/README.md#reading-empty-or-blocked-states) explains each one.
+Pages distinguish **unauthenticated**, **forbidden**, **cluster scope**, **no telemetry**, **no data** and **stale** states; the [user guide](../user-guide/README.md#reading-empty-or-blocked-states) explains each one.
 
 ## Product domains
 
@@ -84,7 +84,7 @@ CVE matching needs the catalog loaded into PostgreSQL (`./scripts/utils/load-cve
 
 ## Attack paths
 
-An attack path shows the source workload and namespace, the target or objective, the key RBAC, network or runtime edge, its confidence and evidence type, and linked findings. A path is an inference of what is possible; runtime confirmation requires matching telemetry. See [graph and runtime boundaries](../06-reference/GRAPH.md).
+An attack path shows the source workload and namespace, the target or objective, the key RBAC, network or runtime edge, its confidence and evidence type, and linked findings. A path is an inference of what is possible; runtime confirmation requires matching telemetry. See [graph and runtime boundaries](../reference/GRAPH.md).
 
 ## Risk model
 

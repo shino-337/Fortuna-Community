@@ -176,7 +176,7 @@ Fortuna requires:
 
 `deploy/fortuna-rbac.yaml` creates:
 
-- **Core**: read-only, cluster-wide (pods, services, namespaces, ServiceAccounts, RBAC objects, NetworkPolicies). ServiceAccount revocation does not use this identity; it uses a per-cluster kubeconfig you provide ([details](../05-operations/SERVICEACCOUNT_MUTATIONS.md)).
+- **Core**: read-only, cluster-wide (pods, services, namespaces, ServiceAccounts, RBAC objects, NetworkPolicies). ServiceAccount revocation does not use this identity; it uses a per-cluster kubeconfig you provide ([details](../operations/SERVICEACCOUNT_MUTATIONS.md)).
 - **Agent**: cluster-wide reads of pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC objects, plus `create` on `pods/exec` in every namespace. On the node it runs as root with host PID, extra capabilities and the containerd socket. Treat an Agent compromise as a cluster compromise; see [Agent security](../../agent/README.md#security).
 
 ### Network Security
@@ -286,5 +286,5 @@ Fortuna requires:
 ## Related Documentation
 
 - [Install on a cluster](QUICKSTART.md)
-- [Production deployment](../05-operations/PRODUCTION_DEPLOYMENT.md)
-- [Architecture](../02-architecture/ARCHITECTURE.md)
+- [Production deployment](../operations/PRODUCTION_DEPLOYMENT.md)
+- [Architecture](../architecture/ARCHITECTURE.md)

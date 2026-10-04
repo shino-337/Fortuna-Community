@@ -94,7 +94,7 @@ if [ $FAIL -eq 0 ]; then
   echo -e "${GREEN}Kết luận: Môi trường đủ để rebuild & deploy (khi cluster đã bật).${NC}"
   echo ""
   echo "Cluster đã có dữ liệu: dùng quy trình cập nhật image không xóa dữ liệu:"
-  echo "  docs/05-operations/DEPLOYMENT_CONTAINERD.md#update-an-existing-local-single-node-installation"
+  echo "  docs/operations/DEPLOYMENT_CONTAINERD.md#update-an-existing-local-single-node-installation"
   echo ""
   echo "Pipeline clean/rebuild/deploy dành cho trường hợp chủ động clean:"
   echo "  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full"

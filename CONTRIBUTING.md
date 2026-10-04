@@ -7,7 +7,7 @@ Fortuna is an open-source Kubernetes security platform focused on **attack paths
 - Read [README.md](README.md) for the product model and user paths.
 - Check the [Roadmap](ROADMAP.md) for security capabilities and community priorities.
 - Read [docs/README.md](docs/README.md) for the documentation map.
-- For installation and deployment work, start with [Getting Started](docs/01-getting-started/README.md).
+- For installation and deployment work, start with [Getting Started](docs/getting-started/README.md).
 - For script changes, read [scripts/README.md](scripts/README.md) and keep scripts in the documented directory contract.
 
 ## What Contributions Are Most Valuable?
@@ -96,8 +96,8 @@ When changing docs:
 
 Release-facing changes must keep these aligned:
 
-- README "Try it locally" and the [local demo](docs/01-getting-started/DEMO.md).
-- [docs/01-getting-started/QUICKSTART.md](docs/01-getting-started/QUICKSTART.md).
+- README "Try it locally" and the [local demo](docs/getting-started/DEMO.md).
+- [docs/getting-started/QUICKSTART.md](docs/getting-started/QUICKSTART.md).
 - [deploy/README.md](deploy/README.md) and any changed manifests.
 - `.github/workflows/publish-images.yml` when image publishing behavior changes.
 - `scripts/README.md` when script entrypoints or package source behavior changes.

@@ -27,7 +27,7 @@ In multi-cluster deployments, Core/Dashboard/PostgreSQL/NATS run once in the man
 
 ## Workloads
 
-Core, Agent, Dashboard, PostgreSQL and NATS JetStream; the [component catalog](../03-components/README.md#runtime-workloads) lists each one's Kubernetes shape, code and purpose.
+Core, Agent, Dashboard, PostgreSQL and NATS JetStream; the [component catalog](../components/README.md#runtime-workloads) lists each one's Kubernetes shape, code and purpose.
 
 ## Data Ownership
 
@@ -171,7 +171,7 @@ Core routes are grouped by product domain under `/api/v1` (plus `/api/v2/runtime
 
 ## Related Docs
 
-- [Component catalog](../03-components/README.md)
-- [User guide](../04-user-guide/README.md)
-- [Production deployment](../05-operations/PRODUCTION_DEPLOYMENT.md)
-- [Security guide](../06-reference/SECURITY.md)
+- [Component catalog](../components/README.md)
+- [User guide](../user-guide/README.md)
+- [Production deployment](../operations/PRODUCTION_DEPLOYMENT.md)
+- [Security guide](../reference/SECURITY.md)

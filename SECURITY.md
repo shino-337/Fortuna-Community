@@ -13,5 +13,5 @@ If private reporting is not available, open a minimal public issue asking the ma
 ## Handling secrets
 
 - Contributors: see the repository rules in [CONTRIBUTING.md](CONTRIBUTING.md#repository-rules).
-- Operators: see [runtime secrets and deployment notes](docs/06-reference/SECURITY.md).
+- Operators: see [runtime secrets and deployment notes](docs/reference/SECURITY.md).
 - Maintainers making a formerly private repository public: run the [public release checklist](docs/maintainers/PUBLIC_RELEASE_CHECKLIST.md), including full-history secret scanning and credential rotation.

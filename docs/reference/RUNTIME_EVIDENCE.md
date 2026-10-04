@@ -1,6 +1,6 @@
 # Runtime evidence
 
-How runtime producer coverage is reported, and the signed source-health protocol that can make a runtime source authoritative. Operator setup for Falco and the source-health relay is in [runtime sensors](../05-operations/RUNTIME_SENSORS.md).
+How runtime producer coverage is reported, and the signed source-health protocol that can make a runtime source authoritative. Operator setup for Falco and the source-health relay is in [runtime sensors](../operations/RUNTIME_SENSORS.md).
 
 ## Runtime Coverage Evidence
 

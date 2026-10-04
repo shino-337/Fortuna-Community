@@ -22,7 +22,7 @@ step() { printf '\n\033[1;34m==> %s\033[0m\n' "$*"; }
 die() { printf '\033[1;31mERROR:\033[0m %s\n' "$*" >&2; exit 1; }
 
 for tool in docker kind kubectl openssl; do
-  command -v "$tool" >/dev/null 2>&1 || die "$tool is required (see docs/01-getting-started/DEMO.md)"
+  command -v "$tool" >/dev/null 2>&1 || die "$tool is required (see docs/getting-started/DEMO.md)"
 done
 docker info >/dev/null 2>&1 || die "docker is installed but the daemon is not reachable"
 
@@ -117,7 +117,7 @@ Fortuna is running in kind cluster '${CLUSTER_NAME}'.
   3. Investigate pod fortuna-test/rbac-pod: its ServiceAccount sa-rbac is bound
      to cluster-admin through ClusterRoleBinding crb-rbac-admin. The agent
      syncs inventory every 5 minutes, so the finding can take a few minutes to
-     appear. Walkthrough: docs/01-getting-started/FIRST_FINDING.md
+     appear. Walkthrough: docs/getting-started/FIRST_FINDING.md
 
 Remove everything with: ./scripts/demo/down.sh
 EOF

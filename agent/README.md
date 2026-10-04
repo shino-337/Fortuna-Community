@@ -302,7 +302,7 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 ### Common Issues
 
 **Issue**: Falco alerts not reaching Core / empty `runtime_events` for a pod
-- **Solution**: Set `FALCO_EVENTS_ENABLED=true` and mount host `/var/log/falco` (see `deploy/fortuna-agent-daemonset.yaml`). Ensure Falco writes `events.jsonl` on that node. The agent resolves `pod_uid` from `k8s.pod.name` + namespace via **list** if **get** is denied by RBAC. On first use the reader skips records already in the file and starts with new alerts; later restarts resume from the durable cursor in `FALCO_DELIVERY_STATE_PATH`. **Never truncate the Falco log or delete the state file to retry ingestion**: that discards evidence that has not been sent yet. See [Preserve Falco delivery state](../docs/05-operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
+- **Solution**: Set `FALCO_EVENTS_ENABLED=true` and mount host `/var/log/falco` (see `deploy/fortuna-agent-daemonset.yaml`). Ensure Falco writes `events.jsonl` on that node. The agent resolves `pod_uid` from `k8s.pod.name` + namespace via **list** if **get** is denied by RBAC. On first use the reader skips records already in the file and starts with new alerts; later restarts resume from the durable cursor in `FALCO_DELIVERY_STATE_PATH`. **Never truncate the Falco log or delete the state file to retry ingestion**: that discards evidence that has not been sent yet. See [Preserve Falco delivery state](../docs/operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
 
 **Issue**: Agent `OOMKilled` when Falco is enabled
 - **Solution**: DaemonSet uses higher memory limits and optional `SBOM_WORKERS=1` to reduce peak usage; ensure the deployed manifest matches `deploy/fortuna-agent-daemonset.yaml`.
@@ -340,8 +340,8 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 
 ## Related Documentation
 
-- [Architecture](../docs/02-architecture/ARCHITECTURE.md)
-- [Production Deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
+- [Architecture](../docs/architecture/ARCHITECTURE.md)
+- [Production Deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md)
 - [Core README](../core/README.md)
 
 ---

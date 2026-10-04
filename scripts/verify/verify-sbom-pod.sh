@@ -100,5 +100,5 @@ echo ""
 
 echo "=========================================="
 echo "Summary: If sboms table has no row for pod_uid, Agent has not sent SBOM for this pod."
-echo "See docs/03-components/README.md#sbom-and-cve."
+echo "See docs/components/README.md#sbom-and-cve."
 echo "=========================================="

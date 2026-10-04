@@ -1,6 +1,6 @@
 # Deployment manifests
 
-Kubernetes manifests for Fortuna. To install, follow [Install on a cluster](../docs/01-getting-started/QUICKSTART.md); to try it locally, use the [demo](../docs/01-getting-started/DEMO.md).
+Kubernetes manifests for Fortuna. To install, follow [Install on a cluster](../docs/getting-started/QUICKSTART.md); to try it locally, use the [demo](../docs/getting-started/DEMO.md).
 
 ## Manifests
 
@@ -14,7 +14,7 @@ Kubernetes manifests for Fortuna. To install, follow [Install on a cluster](../d
 | `infrastructure/postgresql-with-age.yaml` | Bundled PostgreSQL (default); `postgresql.yaml` is a simpler fallback |
 | `infrastructure/nats.yaml` | NATS JetStream event bus |
 | `infrastructure/network-policies.yaml` | Limits NATS and PostgreSQL ingress to Core |
-| `webhook-service.yaml`, `webhook-config.yaml` | Optional admission webhook; enable with `./scripts/deploy/enable-webhook.sh` ([guide](../docs/05-operations/WEBHOOK.md)) |
+| `webhook-service.yaml`, `webhook-config.yaml` | Optional admission webhook; enable with `./scripts/deploy/enable-webhook.sh` ([guide](../docs/operations/WEBHOOK.md)) |
 | `risk-evaluation-cronjob.yaml` | Optional CronJob that triggers historical risk evaluation every 6 hours |
 | `falco/helm-values-fortuna.yaml` | Falco values used by `./scripts/deploy/install-falco-fortuna.sh` |
 | `prometheus/risk-center.alerts.yaml` | Prometheus alert rules for active findings; usable only once Core exposes a `/metrics` endpoint (not yet available) |
@@ -57,11 +57,11 @@ the script refuses the legacy TLS-disabled IP fallback.
 
 ## Backup, reset and data maintenance
 
-See [backup and reset](../docs/05-operations/BACKUP_AND_RESET.md). Both resets there delete data; take a backup first.
+See [backup and reset](../docs/operations/BACKUP_AND_RESET.md). Both resets there delete data; take a backup first.
 
 ## Security notes
 
 - Never commit secrets, kubeconfigs, certificates, database dumps or local environment files.
 - Keep mTLS enabled between Core and Agents, and keep the CA private key offline.
 - Restrict `FORTUNA_WS_ALLOWED_ORIGINS` and `FORTUNA_TRUSTED_PROXIES` to your real dashboard origin and proxy.
-- See [production deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md) for the full hardening list.
+- See [production deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md) for the full hardening list.

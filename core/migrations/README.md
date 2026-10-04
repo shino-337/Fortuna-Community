@@ -6,7 +6,7 @@ Core runs every migration in this directory at startup (`storage.Migrate` in `co
 
 `RunMigrations` in `migrations.go` holds one ordered slice of migration functions. Each entry's **version is its position in that slice** (`i + 1`), not the number in its file or function name, and it is recorded in the `schema_migrations` table once it succeeds. Function numbers have gaps (004–007, 017, 085) and some entries are listed out of numeric order (082 before 080 and 081, 150 before 149), so do not infer the recorded version from a file name.
 
-Because of this, the slice is **append-only** ([security invariant 7](../../docs/06-reference/SECURITY_INVARIANTS.md#invariant-7--migration-history-is-append-only)):
+Because of this, the slice is **append-only** ([security invariant 7](../../docs/reference/SECURITY_INVARIANTS.md#invariant-7--migration-history-is-append-only)):
 
 - Add new migrations only at the end of the slice.
 - Never reorder, remove or insert entries before already-shipped ones. That would shift every later version and make Core skip or re-run migrations on existing databases.
