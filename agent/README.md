@@ -253,7 +253,7 @@ go run cmd/main.go
 
 ### RBAC Permissions
 
-The Agent reads pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC resources cluster-wide. It has no write verbs and no `pods/exec`: Pod Detail reads processes and sockets from the host `/proc` mount. See `deploy/fortuna-rbac.yaml` for the exact rules.
+The Agent reads pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC resources cluster-wide. It has no write verbs, no `pods/exec` and no `nodes/proxy` (which the kubelet also accepts for exec): Pod Detail reads processes and sockets from the host `/proc` mount and CPU/memory usage from the `metrics.k8s.io` API. Without metrics-server, the usage columns stay empty and the Agent logs why. `scripts/verify/test-agent-privileges.py` fails CI if any of these grants come back. See `deploy/fortuna-rbac.yaml` for the exact rules.
 
 ### mTLS
 

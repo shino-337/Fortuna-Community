@@ -107,9 +107,9 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("list pods: %w", err)
 	}
-	usageByPod, err := collectPodRuntimeUsageFromKubelet(ctx, r.client, r.nodeName)
+	usageByPod, err := collectPodRuntimeUsage(ctx, r.client, pods)
 	if err != nil {
-		log.Printf("[PodDetail] runtime usage source unavailable (node=%s): %v", r.nodeName, err)
+		log.Printf("[PodDetail] CPU/memory usage unavailable (node=%s; needs metrics-server): %v", r.nodeName, err)
 	}
 
 	var processesByPod map[string][]processPayload

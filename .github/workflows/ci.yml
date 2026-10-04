@@ -136,6 +136,7 @@ jobs:
           python scripts/verify/test-agent-credential-tool.py
           python scripts/verify/test-agent-certificate-tool.py
           python scripts/verify/test-scoped-agent-credential-overlay.py
+          python scripts/verify/test-agent-privileges.py
           python scripts/verify/check-cluster-resource-models.py
           python scripts/verify/check-cluster-qualified-pod-routes.py
           python scripts/verify/test-cluster-qualified-pod-routes.py

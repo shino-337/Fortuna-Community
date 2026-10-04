@@ -69,8 +69,9 @@ metadata:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: agent
 ---
-# ClusterRole for Agent: read-only inventory. The Agent never execs into pods;
-# Pod Detail reads processes and sockets from the host /proc mount.
+# ClusterRole for Agent: read-only inventory. The Agent never execs into pods,
+# directly (pods/exec) or through the kubelet (nodes/proxy); Pod Detail reads
+# processes and sockets from the host /proc mount.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -96,11 +97,13 @@ rules:
   resources:
     - nodes
   verbs: ["get", "list"]
-- apiGroups: [""]
-  resources:
-    - nodes/proxy
-  verbs: ["get"]
 
+# Pod Detail CPU/memory usage (metrics-server). Never grant nodes/proxy: the kubelet
+# accepts get on it for exec, attach and run in any pod on the node.
+- apiGroups: ["metrics.k8s.io"]
+  resources:
+    - pods
+  verbs: ["get", "list"]
 
 # Read namespaces for context
 - apiGroups: [""]
