@@ -242,7 +242,7 @@ warn() { echo "- **WARN** $1"; }
   echo ""
   step "6.2 Agents (DB vs DaemonSet)"
   DB_AGENTS=$(kubectl exec -n "$NAMESPACE" "$PG_POD" -- psql -U postgres -d fortuna -t -c "SELECT COUNT(*) FROM agents WHERE deleted_at IS NULL;" 2>/dev/null | tr -d ' ' || echo "0")
-  K8S_AGENTS=$(kubectl get pods -n "$NAMESPACE" -l app=fortuna-agent --no-headers 2>/dev/null | grep -c Running || echo "0")
+  K8S_AGENTS=$(kubectl get pods -n "$NAMESPACE" -l app.kubernetes.io/component=agent --no-headers 2>/dev/null | grep -c Running || echo "0")
   echo "- DB agents: $DB_AGENTS | K8s agent pods (Running): $K8S_AGENTS"
   echo ""
 

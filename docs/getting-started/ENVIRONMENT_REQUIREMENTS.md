@@ -141,7 +141,7 @@ Fortuna requires:
 | **containerd** | 1.7+ | Required for SBOM extraction |
 | **CRI-O**, Docker (cri-dockerd) | — | Inventory, RBAC paths and Pod Detail work; SBOM extraction does not |
 
-**Note**: the Agent extracts SBOMs only through the containerd socket (`CONTAINERD_SOCKET`, default `/run/containerd/containerd.sock`).
+**Note**: the Agent reads images from the node's containerd socket (`/run/containerd/containerd.sock`) through its `image-export` sidecar, falling back to anonymous registry pulls.
 
 ### Kubernetes
 
@@ -178,7 +178,7 @@ Fortuna requires:
 `deploy/fortuna-rbac.yaml` creates:
 
 - **Core**: read-only, cluster-wide (pods, services, namespaces, ServiceAccounts, RBAC objects, NetworkPolicies). ServiceAccount revocation does not use this identity; it uses a per-cluster kubeconfig you provide ([details](../operations/SERVICEACCOUNT_MUTATIONS.md)).
-- **Agent**: cluster-wide reads of pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC objects, plus read access to pod metrics (`metrics.k8s.io`). It cannot exec into pods. On the node it runs as root with host PID, extra capabilities and the containerd socket. Treat an Agent compromise as a cluster compromise; see [Agent security](../../agent/README.md#security).
+- **Agent**: cluster-wide reads of pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC objects, plus read access to pod metrics (`metrics.k8s.io`). It cannot exec into pods. On the node it reads host `/proc` and the Falco log, with no host namespaces and no added capabilities; only its credential-less `image-export` sidecar mounts the containerd socket, which is root-equivalent on that node. See [Agent privileges](../reference/SECURITY.md#agent-privileges).
 
 ### Network Security
 

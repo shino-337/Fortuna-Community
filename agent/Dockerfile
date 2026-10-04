@@ -117,7 +117,7 @@ RUN chown -R fortuna:fortuna /app && \
 # Runs as root so the image-export container (same image, command
 # /app/fortuna-image-export) can open the root-owned containerd socket. The
 # DaemonSet drops every capability for both containers; see
-# docs/06-reference/SECURITY.md#agent-privileges.
+# docs/reference/SECURITY.md#agent-privileges.
 USER root
 
 # Healthcheck: ensure agent process and syft binary are available

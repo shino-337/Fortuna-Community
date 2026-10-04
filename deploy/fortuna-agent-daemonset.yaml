@@ -22,8 +22,8 @@ spec:
     spec:
       serviceAccountName: fortuna-agent
       # Privileges are kept to what the Agent uses and are checked in CI by
-      # scripts/verify/check-agent-privileges.py; see the "Agent privileges"
-      # section of docs/06-reference/SECURITY.md before adding any.
+      # scripts/verify/test-agent-privileges.py; see the "Agent privileges"
+      # section of docs/reference/SECURITY.md before adding any.
       # No hostPID/hostNetwork/hostIPC: process and socket data are read from the
       # read-only host /proc mount below.
       securityContext:

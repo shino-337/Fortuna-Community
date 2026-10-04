@@ -15,9 +15,16 @@ Install with the [Quickstart](../getting-started/QUICKSTART.md), then apply the 
 - Keep the CA from `create_mtls_secret.sh` (`.certs/`) offline and access-controlled. Do not regenerate it with `MTLS_REGEN=1` on a running installation; Agents would stop being trusted.
 - Move from the shared ingest token to per-Agent credentials: HTTP tokens and gRPC client certificates bound to one Agent and one cluster. See [scoped Agent credentials](../../deploy/scoped-agent-credentials/README.md) and [per-Agent mTLS](../../deploy/scoped-agent-credentials/MTLS.md). Without the gRPC registry, Core refuses Agent SBOM writes over gRPC.
 
+## Agent
+
+- Keep the bundled Agent security settings. [Agent privileges](../reference/SECURITY.md#agent-privileges) explains each one and what remains; `python3 scripts/verify/test-agent-privileges.py` checks your copy of the manifests.
+- Install metrics-server if you want CPU and memory in Pod Detail. The Agent reads it through the read-only Metrics API.
+- If node-root exposure through the containerd socket is not acceptable, remove the `image-export` container and set `SBOM_PREFER_REGISTRY=1`; images from private registries then get no SBOM.
+- Alert on denied or non-read requests from the `fortuna-agent` ServiceAccount in the Kubernetes audit log.
+
 ## Network
 
-- Apply `deploy/infrastructure/network-policies.yaml` and confirm your CNI enforces NetworkPolicy. NATS has no client authentication; only Core may reach it.
+- Apply `deploy/infrastructure/network-policies.yaml` and confirm your CNI enforces NetworkPolicy. NATS has no client authentication; only Core may reach it. Agent pods accept no ingress.
 - Set `FORTUNA_TRUSTED_PROXIES` on Core to the CIDR of the dashboard proxy or ingress only. Core trusts no proxy when the variable is unset, but the bundled manifest sets it to all RFC 1918 ranges so that it works out of the box; narrow it.
 - Set `FORTUNA_WS_ALLOWED_ORIGINS` to the real dashboard origin(s).
 - Core serves unauthenticated Prometheus metrics on port 9091 (`FORTUNA_METRICS_ADDR`). The Service does not expose it; restrict it to your Prometheus with a NetworkPolicy, or unset the variable to disable it.
@@ -36,6 +43,6 @@ kubectl -n fortuna exec deploy/postgres -- psql -U postgres -d fortuna -c "selec
 
 ## Optional components
 
-- **Runtime evidence:** install Falco with `./scripts/deploy/install-falco-fortuna.sh`. The built-in eBPF sensor is experimental; keep `EBPF_SIMULATE` disabled. Signed sensor health is described in [runtime source health](RUNTIME_SENSORS.md).
+- **Runtime evidence:** install Falco with `./scripts/deploy/install-falco-fortuna.sh`. The built-in eBPF sensor is an experimental no-op scaffold and the bundled manifest grants it no capabilities; leave it disabled. Signed sensor health is described in [runtime source health](RUNTIME_SENSORS.md).
 - **Admission webhook:** enable only through `./scripts/deploy/enable-webhook.sh`; see the [webhook guide](WEBHOOK.md).
 - **ServiceAccount revocation:** previewed, reviewed revocation needs a per-cluster kubeconfig; see [ServiceAccount mutations](SERVICEACCOUNT_MUTATIONS.md).

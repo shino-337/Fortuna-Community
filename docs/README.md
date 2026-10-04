@@ -27,7 +27,7 @@
 |---|---|
 | Architecture and data flows | [Architecture](architecture/ARCHITECTURE.md) and [API conventions](architecture/API_STANDARD.md) |
 | Components and detection model | [Components](components/README.md) |
-| Security model and credentials | [Security](reference/SECURITY.md) |
+| Agent privileges, security model and credentials | [Security](reference/SECURITY.md) |
 | Exact behavior contracts | [Reference](reference/README.md) |
 
 ## Contribute

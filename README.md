@@ -86,7 +86,7 @@ The Agent collects Kubernetes inventory, image SBOMs and available runtime event
 
 Start in a disposable cluster. Read these first:
 
-- **Agent privileges.** The Agent runs as root with host PID access, host mounts (including the containerd socket) and extra Linux capabilities. Review the [manifest](deploy/fortuna-agent-daemonset.yaml).
+- **Agent privileges.** The Agent has read-only RBAC (no Secrets, no `pods/exec`), adds no Linux capabilities and reads the host `/proc`. Only a small sidecar without credentials touches the containerd socket, which is still root-equivalent on the node. CI fails if the manifests grant more. See [Agent privileges](docs/reference/SECURITY.md#agent-privileges).
 - **Runtime coverage** depends on your sensors. The built-in eBPF sensor is an experimental scaffold, not a real exec/connect collector; Falco ingestion is a separate path. Keep `EBPF_SIMULATE` disabled for real evidence.
 - **Not yet modeled:** external ingress-to-workload reachability, network reachability correlation and business-context weighting (see the [roadmap](ROADMAP.md)).
 - This README tracks `main`. The latest release is [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0); use the docs and manifests from that tag for it.

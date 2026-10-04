@@ -31,7 +31,7 @@ else
 fi
 
 section "2. Agent logs (SBOM / Send / fail / Queue) last 200 lines"
-kubectl logs -n "$NAMESPACE" -l app=fortuna-agent --tail=200 2>/dev/null | grep -iE 'SBOM|SendSBOM|Queued|Failed to process|client not connected|Extracted.*packages' | tail -25
+kubectl logs -n "$NAMESPACE" -l app.kubernetes.io/component=agent -c agent --tail=200 2>/dev/null | grep -iE 'SBOM|SendSBOM|Queued|Failed to process|client not connected|Extracted.*packages' | tail -25
 
 section "3. Core logs ([SBOM] Received / Created) last 100 lines"
 kubectl logs -n "$NAMESPACE" deployment/fortuna-core --tail=100 2>/dev/null | grep '\[SBOM\]' || echo "(no [SBOM] lines)"
