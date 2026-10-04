@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================================
 # E2E: Verify pod-delete cleanup and display (PCE, risk, SBOM, insights)
-# - Gọi các API đã chỉnh (summary/trend chỉ pod còn tồn tại).
-# - Tạo pod test → đếm → xóa pod → đợi correlator → đếm lại; kiểm tra nhất quán.
+# - Calls the adjusted APIs (summary/trend count only pods that still exist).
+# - Creates a test pod, counts, deletes it, waits for the correlator, counts again; checks consistency.
 # ============================================================================
 
 set -euo pipefail

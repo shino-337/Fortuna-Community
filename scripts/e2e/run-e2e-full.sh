@@ -16,9 +16,9 @@ exec 3>&1
 exec 1>"$REPORT"
 exec 2>&1
 
-echo "# E2E Full Run – Chi tiết từng bước"
+echo "# E2E Full Run – Step by step"
 echo ""
-echo "**Thời gian**: $(date -Iseconds)"
+echo "**Time**: $(date -Iseconds)"
 echo "**Namespace**: $NAMESPACE"
 echo ""
 
@@ -164,9 +164,9 @@ if [ -n "$NODE_PORT" ]; then
   fi
 fi
 echo ""
-echo "Port-forward (nếu cần):"
+echo "Port-forward (if needed):"
 echo "  kubectl port-forward -n $NAMESPACE svc/$DASH_SVC 8081:${DASH_PORT}"
-echo "  Sau đó truy cập: http://localhost:8081"
+echo "  Then open: http://localhost:8081"
 echo ""
 
 # 5. Test scripts
@@ -190,7 +190,7 @@ section "6. Core unit tests"
 
 echo ""
 echo "---"
-echo "**Kết thúc báo cáo E2E.** File: $REPORT"
+echo "**End of E2E report.** File: $REPORT"
 
 exec 1>&3
 exec 3>&-

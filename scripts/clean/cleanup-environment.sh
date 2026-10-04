@@ -1,10 +1,10 @@
 #!/bin/bash
 # ============================================================================
-# Clean environment (script chính – dọn môi trường)
+# Clean the local environment (main cleanup script)
 # ============================================================================
 # Port-forward, E2E/test namespaces, completed/failed/evicted pods, old images, build cache.
 # Usage:
-#   ./scripts/clean/cleanup-environment.sh              # clean mặc định (giữ 3 image mới nhất)
+#   ./scripts/clean/cleanup-environment.sh              # default clean (keeps the 3 newest images)
 #   ./scripts/clean/cleanup-environment.sh --db        # + xóa E2E test data trong Postgres
 #   ./scripts/clean/cleanup-environment.sh --aggressive # + xóa thêm test ns, image không latest
 # ============================================================================

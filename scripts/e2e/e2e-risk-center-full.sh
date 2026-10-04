@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # ============================================================================
-# E2E Risk Center – Full test suite (Phase 1–4 cải tiến)
+# E2E Risk Center – Full test suite (Phase 1–4 improvements)
 # ============================================================================
-# Chạy toàn bộ test case cho Risk Center: risks + scores, export CSV/PDF,
+# Runs every Risk Center test case: risks + scores, CSV/PDF export,
 # insights summary / by-cluster, risk-rules CRUD, PCE trends/summary, WS.
-# Kết quả chi tiết ghi vào: test-results/risk-center-e2e-YYYYMMDD-HHMMSS.md
+# Detailed results are written to: test-results/risk-center-e2e-YYYYMMDD-HHMMSS.md
 # ============================================================================
 # Usage: ./scripts/e2e/e2e-risk-center-full.sh
 #        NAMESPACE=fortuna ./scripts/e2e/e2e-risk-center-full.sh
@@ -104,18 +104,18 @@ run_tc() {
     ((FAIL_COUNT++)) || true
   fi
   report "### TC-$id: $name"
-  report "- **Kết quả:** $result"
-  report "- **Mô tả:** $expected"
-  report "- **Thực tế:** $actual"
-  [ -n "$detail" ] && report "- **Chi tiết:** $detail"
+  report "- **Result:** $result"
+  report "- **Expected:** $expected"
+  report "- **Actual:** $actual"
+  [ -n "$detail" ] && report "- **Detail:** $detail"
   report ""
 }
 
 # ----- Init report -----
 {
-  echo "# Risk Center E2E – Báo cáo chi tiết"
+  echo "# Risk Center E2E – Detailed report"
   echo ""
-  echo "**Thời gian:** $(date -Iseconds)"
+  echo "**Time:** $(date -Iseconds)"
   echo "**Namespace:** $NAMESPACE"
   echo "**Core pod:** $CORE_POD"
   echo ""
@@ -252,7 +252,7 @@ TR=$(echo "$BODY" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d
 if [ "$CODE" = "200" ] && [ "${TR:- -1}" -ge 0 ]; then
   run_tc "05d" "GET /dashboard/stats?byType=all" "HTTP 200, totalRisks>=0" "HTTP $CODE, totalRisks=$TR" "PASS"
 else
-  run_tc "05d" "GET /dashboard/stats?byType=all" "HTTP 200, JSON hợp lệ" "HTTP $CODE" "FAIL" "Body: ${BODY:0:240}"
+  run_tc "05d" "GET /dashboard/stats?byType=all" "HTTP 200, valid JSON" "HTTP $CODE" "FAIL" "Body: ${BODY:0:240}"
 fi
 
 RESP=$(api_get "dashboard/metrics/threat-velocity?byType=all&days=7")
@@ -273,7 +273,7 @@ CODE=$(get_http_code "$RESP")
 BODY=$(get_body "$RESP")
 IS_CSV=$(echo "$BODY" | head -1 | grep -qE '^[^,]*,[^,]*,' && echo "yes" || echo "no")
 if [ "$CODE" = "200" ]; then
-  run_tc "06" "GET /risks/export (CSV)" "HTTP 200, CSV body hoặc attachment" "HTTP $CODE, looks_csv=$IS_CSV" "PASS"
+  run_tc "06" "GET /risks/export (CSV)" "HTTP 200, CSV body or attachment" "HTTP $CODE, looks_csv=$IS_CSV" "PASS"
 else
   run_tc "06" "GET /risks/export" "HTTP 200" "HTTP $CODE" "FAIL"
 fi
@@ -306,7 +306,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# TC-09: GET /risk-rules/:id (chỉ khi có rule)
+# TC-09: GET /risk-rules/:id (only when a rule exists)
 # ---------------------------------------------------------------------------
 FIRST_RULE_ID=$(echo "$BODY" | python3 -c "
 import sys,json
@@ -317,13 +317,13 @@ print(r[0]['id'] if r and r[0].get('id') else '')
 if [ -n "$FIRST_RULE_ID" ]; then
   RESP=$(api_get "risk-rules/$(echo "$FIRST_RULE_ID" | sed 's/ /%20/g')")
   CODE=$(get_http_code "$RESP")
-  run_tc "09" "GET /risk-rules/:id (chi tiết rule)" "HTTP 200 khi có rule" "HTTP $CODE (id=$FIRST_RULE_ID)" "$([ "$CODE" = "200" ] && echo PASS || echo FAIL)"
+  run_tc "09" "GET /risk-rules/:id (rule detail)" "HTTP 200 when a rule exists" "HTTP $CODE (id=$FIRST_RULE_ID)" "$([ "$CODE" = "200" ] && echo PASS || echo FAIL)"
 else
-  run_tc "09" "GET /risk-rules/:id" "HTTP 200 khi có rule" "Không có rule nào để test" "SKIP" "rules rỗng"
+  run_tc "09" "GET /risk-rules/:id" "HTTP 200 when a rule exists" "No rule available to test" "SKIP" "no rules"
 fi
 
 # ---------------------------------------------------------------------------
-# TC-10/11/12: Risk rules CRUD (chỉ khi source=db)
+# TC-10/11/12: Risk rules CRUD (only when source=db)
 # ---------------------------------------------------------------------------
 if [ "$SOURCE" = "db" ]; then
   # Clean up leftover rule from previous run (avoid duplicate rule_id on create)
@@ -350,9 +350,9 @@ if [ "$SOURCE" = "db" ]; then
     run_tc "12" "DELETE /risk-rules/:id" "N/A" "Skip (create failed)" "SKIP"
   fi
 else
-  run_tc "10" "POST /risk-rules (CRUD)" "Chỉ khi source=db" "source=$SOURCE" "SKIP" "Rules từ files, CRUD bỏ qua"
-  run_tc "11" "PUT /risk-rules/:id" "Chỉ khi source=db" "source=$SOURCE" "SKIP"
-  run_tc "12" "DELETE /risk-rules/:id" "Chỉ khi source=db" "source=$SOURCE" "SKIP"
+  run_tc "10" "POST /risk-rules (CRUD)" "Only when source=db" "source=$SOURCE" "SKIP" "Rules come from files; CRUD skipped"
+  run_tc "11" "PUT /risk-rules/:id" "Only when source=db" "source=$SOURCE" "SKIP"
+  run_tc "12" "DELETE /risk-rules/:id" "Only when source=db" "source=$SOURCE" "SKIP"
 fi
 
 # ---------------------------------------------------------------------------
@@ -378,16 +378,16 @@ CODE=$(get_http_code "$RESP")
 run_tc "15" "GET /runtime-signals (Reference tab)" "HTTP 200" "HTTP $CODE" "$([ "$CODE" = "200" ] && echo PASS || echo FAIL)"
 
 # ---------------------------------------------------------------------------
-# TC-16: WebSocket /ws/risks (endpoint tồn tại)
+# TC-16: WebSocket /ws/risks (endpoint exists)
 # ---------------------------------------------------------------------------
 # Only check that Core responds to GET /api/v1/ws/risks (upgrade request); full WS test would need a client
 WS_RESP=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -o /dev/null -w "%{http_code}" \
   -H "Upgrade: websocket" -H "Connection: Upgrade" "http://localhost:8080/api/v1/ws/risks" 2>/dev/null || echo "000")
 # 101 = Switching Protocols (success), 400/401 also possible if no WS key
 if [ "$WS_RESP" = "101" ] || [ "$WS_RESP" = "400" ] || [ "$WS_RESP" = "401" ]; then
-  run_tc "16" "WebSocket GET /ws/risks (endpoint)" "Endpoint phản hồi (101/400/401)" "HTTP $WS_RESP" "PASS"
+  run_tc "16" "WebSocket GET /ws/risks (endpoint)" "Endpoint responds (101/400/401)" "HTTP $WS_RESP" "PASS"
 else
-  run_tc "16" "WebSocket GET /ws/risks" "Endpoint phản hồi" "HTTP $WS_RESP" "FAIL"
+  run_tc "16" "WebSocket GET /ws/risks" "Endpoint responds" "HTTP $WS_RESP" "FAIL"
 fi
 
 # ---------------------------------------------------------------------------
@@ -415,12 +415,12 @@ except Exception:
   print('err')
 " 2>/dev/null || echo "err")
   if [ "$CODE" = "200" ] && { [ "$HAS_SUMMARY" = "runtime" ] || [ "$HAS_SUMMARY" = "legacy" ]; }; then
-    run_tc "17" "GET /risk/pods/:uid/report (summary)" "HTTP 200, summary (runtime hoặc RBAC legacy)" "HTTP $CODE, summaryKind=$HAS_SUMMARY" "PASS"
+    run_tc "17" "GET /risk/pods/:uid/report (summary)" "HTTP 200, summary (runtime or legacy RBAC)" "HTTP $CODE, summaryKind=$HAS_SUMMARY" "PASS"
   else
-    run_tc "17" "GET /risk/pods/:uid/report" "HTTP 200 + summary hợp lệ" "HTTP $CODE, summaryKind=$HAS_SUMMARY" "FAIL" "${BODY:0:240}"
+    run_tc "17" "GET /risk/pods/:uid/report" "HTTP 200 + valid summary" "HTTP $CODE, summaryKind=$HAS_SUMMARY" "FAIL" "${BODY:0:240}"
   fi
 else
-  run_tc "17" "GET /risk/pods/:uid/report" "Cần ít nhất một pod trong namespace" "no pod uid" "SKIP"
+  run_tc "17" "GET /risk/pods/:uid/report" "Needs at least one pod in the namespace" "no pod uid" "SKIP"
 fi
 
 # ---------------------------------------------------------------------------
@@ -444,7 +444,7 @@ except Exception:
     run_tc "18" "GET /runtime/pods/:uid/signals" "HTTP 200, signals[]" "HTTP $CODE" "FAIL" "${BODY:0:200}"
   fi
 else
-  run_tc "18" "GET /runtime/pods/:uid/signals" "Cần pod uid" "SKIP" "no pod in namespace"
+  run_tc "18" "GET /runtime/pods/:uid/signals" "Needs a pod UID" "SKIP" "no pod in namespace"
 fi
 
 # ---------------------------------------------------------------------------
@@ -464,16 +464,16 @@ echo ""
 {
   echo "---"
   echo ""
-  echo "## Tổng kết"
+  echo "## Summary"
   echo ""
-  echo "| Kết quả | Số lượng |"
+  echo "| Result | Count |"
   echo "|---------|----------|"
   echo "| PASS    | $PASS_COUNT |"
   echo "| FAIL    | $FAIL_COUNT |"
   echo "| SKIP    | $SKIP_COUNT |"
-  echo "| **Tổng** | **$TOTAL_TC** |"
+  echo "| **Total** | **$TOTAL_TC** |"
   echo ""
 } >> "$REPORT_FILE"
 
-info "Chi tiết: $REPORT_FILE"
+info "Details: $REPORT_FILE"
 [ "$FAIL_COUNT" -gt 0 ] && exit 1 || exit 0
