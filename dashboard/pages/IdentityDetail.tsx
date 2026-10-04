@@ -9,6 +9,7 @@ import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } 
 import type { K8sClusterRoleBindingPermission, K8sEffectiveRule, K8sRoleBindingPermission, PodWithRisk } from '../types';
 import { PageLoading } from '../design-system/components/PageStatus';
 import { podDetailPath } from '../lib/podRoute';
+import { ServiceAccountMutationPanel } from '../components/ServiceAccountMutationPanel';
 
 function parseStringArray(value: unknown): string[] {
   if (Array.isArray(value)) return value.map((x) => String(x)).filter(Boolean);
@@ -117,7 +118,8 @@ export const IdentityDetail: React.FC = () => {
     return () => { requestSequence.current++; };
   }, [fetchData]);
 
-  if (loading || !idOrUid) {
+  if (loading || !idOrUid || (sa && canonicalUid && String(sa.uid ?? '') !== canonicalUid) ||
+      (sa && requestedClusterId && String(sa.clusterId ?? '') !== requestedClusterId)) {
     return <PageLoading message="Loading identity..." className="min-h-[40dvh]" />;
   }
 
@@ -285,6 +287,15 @@ export const IdentityDetail: React.FC = () => {
           <p className="text-muted text-body">No effective rules (no bindings or roles synced yet).</p>
         )}
       </Card>
+      {sa.uid && sa.clusterId ? (
+        <ServiceAccountMutationPanel
+          key={`${String(sa.clusterId)}/${String(sa.uid)}`}
+          uid={String(sa.uid)}
+          clusterId={String(sa.clusterId)}
+          name={name}
+          namespace={namespace}
+        />
+      ) : null}
     </PageLayout>
   );
 };

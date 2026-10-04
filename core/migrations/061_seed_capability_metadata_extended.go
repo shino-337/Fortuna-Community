@@ -21,7 +21,7 @@ func Migration061_SeedCapabilityMetadataExtended(db *gorm.DB) error {
 		return nil
 	}
 
-	// capability_id -> extended metadata (from docs/03-components/podCapabilityEngine/Capability_Specification–MITRE_ATT&C.md)
+	// capability_id -> extended metadata (from docs/components/podCapabilityEngine/Capability_Specification–MITRE_ATT&C.md)
 	seeds := map[string]struct {
 		Name                        string
 		Summary                     string

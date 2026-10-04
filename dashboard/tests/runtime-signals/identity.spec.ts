@@ -62,3 +62,75 @@ test('late permission response cannot replace another identity', async ({ page }
   await page.waitForTimeout(100);
   await expect(page.getByRole('cell', { name: 'Namespace: OLD', exact: true })).toHaveCount(0);
 });
+
+test('reviewed revocation uses the server digest and resumes status after reload', async ({ page }) => {
+  const digest = 'a'.repeat(64);
+  let status = 'preview';
+  let executeCount = 0;
+  const plan = {
+    version: 1,
+    namespace: 'team',
+    name: 'sa-a',
+    steps: [{ kind: 'RoleBinding', namespace: 'team', name: 'admin', uid: 'binding-uid', resourceVersion: '9',
+      before: [{ kind: 'ServiceAccount', namespace: 'team', name: 'sa-a' }, { kind: 'User', name: 'alice' }],
+      after: [{ kind: 'User', name: 'alice' }] }],
+    limitations: ['Bound tokens and existing Pods remain valid.'],
+  };
+  const response = () => ({ operation: { id: 'op-1', clusterId: 'cluster-a', uid: 'sa-a', action: 'revoke', digest,
+    status, completedSteps: status === 'succeeded' ? 1 : 0, attempts: status === 'succeeded' ? 1 : 0,
+    expiresAt: new Date(Date.now() + 600_000).toISOString(), retryAt: new Date().toISOString() }, plan });
+  await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => r.fulfill({ json: identity('sa-a') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/permissions(?:\?.*)?$/, r => r.fulfill({ json: permissions() }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/mutations\/preview(?:\?.*)?$/, async r => {
+    expect(new URL(r.request().url()).searchParams.get('clusterId')).toBe('cluster-a');
+    expect(r.request().postDataJSON()).toEqual({ action: 'revoke' });
+    await r.fulfill({ json: response() });
+  });
+  await page.route(/\/inventory\/serviceaccount-mutations\/op-1\/execute(?:\?.*)?$/, async r => {
+    expect(new URL(r.request().url()).searchParams.get('clusterId')).toBe('cluster-a');
+    expect(r.request().postDataJSON()).toEqual({ digest });
+    executeCount++;
+    status = 'queued';
+    await r.fulfill({ status: 202, json: { operationId: 'op-1', status: 'queued' } });
+  });
+  await page.route(/\/inventory\/serviceaccount-mutations\/op-1(?:\?.*)?$/, r => r.fulfill({ json: response() }));
+
+  await page.goto(fixture);
+  await page.getByRole('button', { name: 'Preview direct grant revocation' }).click();
+  await expect(page.getByText('RoleBinding team/admin')).toBeVisible();
+  await expect(page.getByText('Before: ServiceAccount team/sa-a, User alice')).toBeVisible();
+  await expect(page.getByText('After: User alice')).toBeVisible();
+  await expect(page.getByText('Bound tokens and existing Pods remain valid.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Execute reviewed revoke' })).toBeDisabled();
+  await page.getByRole('checkbox').check();
+  await page.getByRole('button', { name: 'Execute reviewed revoke' }).click();
+  await expect.poll(() => executeCount).toBe(1);
+  status = 'succeeded';
+  await page.getByRole('button', { name: 'Refresh operation' }).click();
+  await expect(page.getByText('Completed steps: 1 / 1', { exact: false })).toBeVisible();
+  await page.goto(`${fixture}?operationId=op-1`);
+  await expect(page.getByText('Completed steps: 1 / 1', { exact: false })).toBeVisible();
+  expect(executeCount).toBe(1);
+});
+
+test('mutation preview rejects a different cluster and never offers execute', async ({ page }) => {
+  await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => r.fulfill({ json: identity('sa-a') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/permissions(?:\?.*)?$/, r => r.fulfill({ json: permissions() }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/mutations\/preview(?:\?.*)?$/, r => r.fulfill({ json: {
+    operation: { id: 'foreign', clusterId: 'cluster-b', uid: 'sa-a', action: 'delete', digest: 'a'.repeat(64),
+      status: 'preview', completedSteps: 0, attempts: 0, expiresAt: new Date(Date.now() + 600_000).toISOString() },
+    plan: { version: 1, namespace: 'team', name: 'sa-a', steps: [], limitations: [] },
+  } }));
+  await page.goto(fixture);
+  await page.getByRole('button', { name: 'Preview ServiceAccount deletion' }).click();
+  await expect(page.getByRole('alert')).toContainText('Mutation response has incomplete or mismatched identity');
+  await expect(page.getByRole('button', { name: /Execute reviewed/ })).toHaveCount(0);
+});
+
+test('read-only identity has no mutation controls', async ({ page }) => {
+  await page.route(/\/inventory\/serviceaccounts\/sa-a(?:\?.*)?$/, r => r.fulfill({ json: identity('sa-a') }));
+  await page.route(/\/inventory\/serviceaccounts\/sa-a\/permissions(?:\?.*)?$/, r => r.fulfill({ json: permissions() }));
+  await page.goto(`${fixture}?readOnly=1`);
+  await expect(page.getByText('Synchronized RBAC grants')).toBeVisible();
+  await expect(page.getByText('Kubernetes identity action')).toHaveCount(0);
+});

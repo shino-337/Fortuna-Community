@@ -1039,7 +1039,7 @@ if [ "$SKIP_DEPLOY" = false ] && [ "$DEPLOY_MINIMAL" = false ]; then
       log_warn "ensure-storage-class.sh failed or StorageClass not ready; PVCs may stay Pending. Install manually: kubectl apply -f https://raw.githubusercontent.com/rancher/local-path-provisioner/v0.0.24/deploy/local-path-storage.yaml"
     fi
   else
-    log_warn "ensure-storage-class.sh not found; if PVCs stay Pending, install local-path-provisioner (see docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md)"
+    log_warn "ensure-storage-class.sh not found; if PVCs stay Pending, install local-path-provisioner (see docs/getting-started/ENVIRONMENT_REQUIREMENTS.md)"
   fi
   log_info "Sleep 10s so PVCs can bind when infra is deployed..."
   sleep 10
@@ -1681,7 +1681,7 @@ echo "  If Core pod shows ErrImageNeverPull: image must be on the node that runs
 echo "    fix: ./scripts/utils/push-images-to-workers.sh (pushes Core/Agent to nodes including master; set SSH_USER/SSH_PASS or use keys)."
 echo "  Dashboard is scheduled on control-plane/master for local registryless deploys; set PUSH_DASHBOARD=true only if you intentionally schedule it elsewhere."
 echo "  If Agent CrashLoopBackOff (OOMKilled): daemonset has memory limit 2Gi; optional SBOM_WORKERS=1 and rebuild agent."
-echo "  Monitor errors: ./scripts/monitor/monitor-agent-core-errors.sh (or --follow). Troubleshooting: docs/05-operations/DEPLOYMENT_CONTAINERD.md"
+echo "  Monitor errors: ./scripts/monitor/monitor-agent-core-errors.sh (or --follow). Troubleshooting: docs/operations/DEPLOYMENT_CONTAINERD.md"
 echo "  Malware DB: Core auto-syncs Aikido feeds on startup (~122k packages). Verify: curl localhost:8080/api/v1/malware/stats"
 echo "    Manual upload: curl -X POST localhost:8080/api/v1/malware/db/upload -d @malware.json"
 echo "  E2E tests: ./scripts/e2e/run-e2e.sh --suite=full-report  (or: --with-e2e flag in this pipeline)"

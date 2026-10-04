@@ -7,7 +7,7 @@ Fortuna maps every workload to the permissions it really holds: **pod → Servic
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/shino-337/Fortuna-Community/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shino-337/Fortuna-Community/actions/workflows/ci.yml)
 
-[Try it locally](#try-it-locally) · [Screenshots](docs/04-user-guide/README.md#workspace-screenshots) · [First investigation](docs/01-getting-started/FIRST_FINDING.md) · [Website](https://fortunahub.dev)
+[Try it locally](#try-it-locally) · [Screenshots](docs/user-guide/README.md#workspace-screenshots) · [First investigation](docs/getting-started/FIRST_FINDING.md) · [Website](https://fortunahub.dev)
 
 ![Fortuna Attack Paths workspace from a local deployment](docs/assets/screenshots/attack-analysis.png)
 
@@ -42,7 +42,7 @@ cd Fortuna-Community
 ./scripts/demo/up.sh
 ```
 
-The script installs Fortuna from published images, loads an example pod whose ServiceAccount is bound to `cluster-admin`, and prints the dashboard URL and login. The first run takes a few minutes while images are pulled and the database is migrated. See the [demo guide](docs/01-getting-started/DEMO.md) for options and troubleshooting, then follow [your first investigation](docs/01-getting-started/FIRST_FINDING.md). Clean up with `./scripts/demo/down.sh`.
+The script installs Fortuna from published images, loads an example pod whose ServiceAccount is bound to `cluster-admin`, and prints the dashboard URL and login. The first run takes a few minutes while images are pulled and the database is migrated. See the [demo guide](docs/getting-started/DEMO.md) for options and troubleshooting, then follow [your first investigation](docs/getting-started/FIRST_FINDING.md). Clean up with `./scripts/demo/down.sh`.
 
 ## How it compares
 
@@ -80,7 +80,7 @@ An inferred permission path shows what is **possible**, not proof that an attack
                                  Dashboard (web UI)
 ```
 
-The Agent collects Kubernetes inventory, image SBOMs and available runtime events and sends them to Core. Core correlates them into findings and attack paths; the dashboard is where you investigate. See [Architecture](docs/02-architecture/ARCHITECTURE.md).
+The Agent collects Kubernetes inventory, image SBOMs and available runtime events and sends them to Core. Core correlates them into findings and attack paths; the dashboard is where you investigate. See [Architecture](docs/architecture/ARCHITECTURE.md).
 
 ## Before you install in a real cluster
 
@@ -91,18 +91,18 @@ Start in a disposable cluster. Read these first:
 - **Not yet modeled:** external ingress-to-workload reachability, network reachability correlation and business-context weighting (see the [roadmap](ROADMAP.md)).
 - This README tracks `main`. The latest release is [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0); use the docs and manifests from that tag for it.
 
-For a full installation (secrets, mTLS, storage, rollout), follow the [Quickstart](docs/01-getting-started/QUICKSTART.md) and the [environment requirements](docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md).
+For a full installation (secrets, mTLS, storage, rollout), follow the [Quickstart](docs/getting-started/QUICKSTART.md) and the [environment requirements](docs/getting-started/ENVIRONMENT_REQUIREMENTS.md).
 
 ## Documentation
 
 | Need | Guide |
 |---|---|
-| Install and first finding | [Getting started](docs/01-getting-started/README.md) |
-| Dashboard workflows | [User guide](docs/04-user-guide/README.md) |
-| Architecture and multi-cluster model | [Architecture](docs/02-architecture/ARCHITECTURE.md) |
-| Production operations | [Operations](docs/05-operations/PRODUCTION_DEPLOYMENT.md) |
+| Install and first finding | [Getting started](docs/getting-started/README.md) |
+| Dashboard workflows | [User guide](docs/user-guide/README.md) |
+| Architecture and multi-cluster model | [Architecture](docs/architecture/ARCHITECTURE.md) |
+| Production operations | [Operations](docs/operations/PRODUCTION_DEPLOYMENT.md) |
 | Validation scenarios | [Scenarios](scenarios/README.md) |
-| Design records and security invariants (maintainers) | [Reference](docs/06-reference/README.md) |
+| Design records and security invariants (maintainers) | [Reference](docs/reference/README.md) |
 
 ## Contributing
 

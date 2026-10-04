@@ -51,9 +51,6 @@ agent/
 │   │   └── client.go              # K8s client setup
 │   └── config/                    # Configuration
 │       └── config.go              # Config loading
-├── deploy/
-│   ├── rbac.yaml                  # RBAC permissions
-│   └── daemonset.yaml            # DaemonSet manifest
 ├── Dockerfile
 ├── go.mod
 └── go.sum
@@ -93,7 +90,7 @@ agent/
 
 - **Non-Blocking**: Pod detection continues while SBOM extraction runs
 - **Parallel Processing**: Multiple workers process pods concurrently
-- **Configurable Workers**: Default 3 workers (configurable)
+- **Configurable Workers**: 2 workers by default; the bundled manifest sets `SBOM_WORKERS=1`
 - **Queue Management**: Prevents memory buildup with bounded queue
 
 ### 4. gRPC Communication
@@ -132,7 +129,7 @@ agent/
 - `LOG_LEVEL`: Log level (default: `info`)
 
 **SBOM Processing**:
-- `SBOM_WORKERS`: Number of SBOM extraction workers (default: `3`)
+- `SBOM_WORKERS`: Number of SBOM extraction workers (default: `2`; the bundled manifest uses `1`)
 
 **Inventory and runtime**:
 - `SYNC_INTERVAL` (default `30s`; the bundled manifest uses `5m`), `HEARTBEAT_INTERVAL`, `WATCH_NAMESPACE`
@@ -180,14 +177,14 @@ nerdctl -n k8s.io build -t docker.io/library/fortuna-agent:dev -f agent/Dockerfi
 
 The Agent is deployed as a DaemonSet to run on every node.
 
-**Recommended (repo root):** Use the manifests in the repository root. From repo root:
+Use the manifests in the repository root. From repo root:
 
 ```bash
 kubectl apply -f deploy/fortuna-rbac.yaml    # RBAC for core + agent
 kubectl apply -f deploy/fortuna-agent-daemonset.yaml
 ```
 
-The `agent/deploy/` directory (rbac.yaml, daemonset.yaml) is for reference; the canonical deployment is `deploy/fortuna-agent-daemonset.yaml` and `deploy/fortuna-rbac.yaml` at repo root. See [deploy/README.md](../deploy/README.md).
+See [deploy/README.md](../deploy/README.md) for every manifest and its settings.
 
 #### Verify deployment
 
@@ -291,7 +288,7 @@ kubectl auth can-i list pods \
 ```bash
 # From agent pod
 kubectl exec -it <agent-pod> -n fortuna -- \
-  wget -O- http://fortuna-core.fortuna.svc.cluster.local:8080/health
+  wget -O- http://fortuna-core.fortuna.svc.cluster.local:8080/healthz
 ```
 
 ### Verify Containerd Access
@@ -305,7 +302,7 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 ### Common Issues
 
 **Issue**: Falco alerts not reaching Core / empty `runtime_events` for a pod
-- **Solution**: Set `FALCO_EVENTS_ENABLED=true` and mount host `/var/log/falco` (see `deploy/fortuna-agent-daemonset.yaml`). Ensure Falco writes `events.jsonl` on that node. The agent resolves `pod_uid` from `k8s.pod.name` + namespace via **list** if **get** is denied by RBAC. If the JSONL file is huge, the reader **starts at EOF** on first run (new alerts only); rotate or truncate the file on the host if you need a clean slate.
+- **Solution**: Set `FALCO_EVENTS_ENABLED=true` and mount host `/var/log/falco` (see `deploy/fortuna-agent-daemonset.yaml`). Ensure Falco writes `events.jsonl` on that node. The agent resolves `pod_uid` from `k8s.pod.name` + namespace via **list** if **get** is denied by RBAC. On first use the reader skips records already in the file and starts with new alerts; later restarts resume from the durable cursor in `FALCO_DELIVERY_STATE_PATH`. **Never truncate the Falco log or delete the state file to retry ingestion**: that discards evidence that has not been sent yet. See [Preserve Falco delivery state](../docs/operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
 
 **Issue**: Agent `OOMKilled` when Falco is enabled
 - **Solution**: DaemonSet uses higher memory limits and optional `SBOM_WORKERS=1` to reduce peak usage; ensure the deployed manifest matches `deploy/fortuna-agent-daemonset.yaml`.
@@ -328,9 +325,9 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 
 ### Resource Usage
 
-- **CPU**: 50m-500m (configurable)
-- **Memory**: 256Mi-2Gi (configurable)
-- **Workers**: 3 workers by default (configurable)
+- **CPU**: request 100m, limit 1 core (bundled manifest)
+- **Memory**: request 1Gi, limit 6Gi (bundled manifest; SBOM extraction of large images is the main consumer)
+- **Workers**: 2 SBOM workers by default, 1 in the bundled manifest
 
 ### Optimization
 
@@ -343,8 +340,8 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 
 ## Related Documentation
 
-- [Architecture](../docs/02-architecture/ARCHITECTURE.md)
-- [Production Deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
+- [Architecture](../docs/architecture/ARCHITECTURE.md)
+- [Production Deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md)
 - [Core README](../core/README.md)
 
 ---

@@ -94,7 +94,7 @@ if [ $FAIL -eq 0 ]; then
   echo -e "${GREEN}Result: this environment can rebuild and deploy (once the cluster is running).${NC}"
   echo ""
   echo "Cluster already has data: use the image update procedure that keeps data:"
-  echo "  docs/05-operations/DEPLOYMENT_CONTAINERD.md#update-an-existing-local-single-node-installation"
+  echo "  docs/operations/DEPLOYMENT_CONTAINERD.md#update-an-existing-local-single-node-installation"
   echo ""
   echo "Use the clean/rebuild/deploy pipeline only when you intend a clean reset:"
   echo "  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full"

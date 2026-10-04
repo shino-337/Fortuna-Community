@@ -229,6 +229,81 @@ export type AvailabilityIssue = {
   description: string;
 };
 
+export type ServiceAccountMutationAction = 'revoke' | 'delete';
+export type ServiceAccountMutationStatus = 'preview' | 'queued' | 'running' | 'retry' | 'blocked' | 'succeeded';
+export type ServiceAccountMutation = {
+  id: string;
+  clusterId: string;
+  uid: string;
+  action: ServiceAccountMutationAction;
+  digest: string;
+  status: ServiceAccountMutationStatus;
+  completedSteps: number;
+  attempts: number;
+  lastError?: string;
+  expiresAt: string;
+  retryAt: string;
+};
+export type ServiceAccountMutationStep = {
+  kind: 'RoleBinding' | 'ClusterRoleBinding' | 'Secret' | 'ServiceAccount';
+  namespace?: string;
+  name: string;
+  uid: string;
+  resourceVersion?: string;
+  before?: Array<{ kind: string; name: string; namespace?: string }>;
+  after?: Array<{ kind: string; name: string; namespace?: string }>;
+};
+export type ServiceAccountMutationPreview = {
+  operation: ServiceAccountMutation;
+  plan: {
+    version: number;
+    namespace: string;
+    name: string;
+    steps: ServiceAccountMutationStep[];
+    limitations: string[];
+  };
+};
+
+function mutationResponse(
+  data: unknown,
+  clusterId: string,
+  uid: string,
+  operationId?: string,
+  action?: ServiceAccountMutationAction,
+): ServiceAccountMutationPreview {
+  if (!data || typeof data !== 'object') invalidResponse('service_account_mutation_invalid_response', 'Mutation response is missing');
+  const result = data as Record<string, unknown>;
+  const operation = result.operation as Record<string, unknown> | undefined;
+  const plan = result.plan as Record<string, unknown> | undefined;
+  if (!operation || !plan || typeof operation.id !== 'string' || !operation.id ||
+      operation.clusterId !== clusterId || operation.uid !== uid ||
+      (operationId && operation.id !== operationId) ||
+      (action && operation.action !== action) ||
+      !['revoke', 'delete'].includes(String(operation.action)) ||
+      !['preview', 'queued', 'running', 'retry', 'blocked', 'succeeded'].includes(String(operation.status)) ||
+      !/^[a-f0-9]{64}$/.test(String(operation.digest ?? '')) ||
+      !Number.isInteger(operation.completedSteps) || !Number.isInteger(operation.attempts) ||
+      !Number.isFinite(Date.parse(String(operation.expiresAt ?? ''))) ||
+      !Array.isArray(plan.steps) || !Array.isArray(plan.limitations) ||
+      plan.version !== 1 || typeof plan.name !== 'string' || !plan.name ||
+      typeof plan.namespace !== 'string' || !plan.namespace ||
+      plan.steps.some((step: unknown) => {
+        if (!step || typeof step !== 'object') return true;
+        const row = step as Record<string, unknown>;
+        return !['RoleBinding', 'ClusterRoleBinding', 'Secret', 'ServiceAccount'].includes(String(row.kind)) ||
+          typeof row.name !== 'string' || !row.name || typeof row.uid !== 'string' || !row.uid ||
+          (row.kind === 'ServiceAccount' && row.uid !== uid) ||
+          ['before', 'after'].some((field) => row[field] != null &&
+            (!Array.isArray(row[field]) || (row[field] as unknown[]).some((subject) =>
+              !subject || typeof subject !== 'object' ||
+              typeof (subject as Record<string, unknown>).kind !== 'string' ||
+              typeof (subject as Record<string, unknown>).name !== 'string')));
+      }) || plan.limitations.some((item: unknown) => typeof item !== 'string')) {
+    invalidResponse('service_account_mutation_invalid_response', 'Mutation response has incomplete or mismatched identity and plan');
+  }
+  return data as ServiceAccountMutationPreview;
+}
+
 export function getAvailabilityIssue(error: unknown, subject = 'Data'): AvailabilityIssue {
   if (isApiError(error) && (error.status === 503 || error.body?.retryable != null)) {
     const retryable = error.body?.retryable !== false;
@@ -2055,6 +2130,42 @@ export const api = {
       invalidResponse('service_account_permissions_identity_mismatch', 'ServiceAccount permissions response does not match the requested cluster');
     }
     return data;
+  },
+
+  previewServiceAccountMutation: async (
+    uid: string,
+    clusterId: string,
+    action: ServiceAccountMutationAction,
+  ): Promise<ServiceAccountMutationPreview> => {
+    const data = await request<unknown>(
+      withClusterId(`/inventory/serviceaccounts/${encodeURIComponent(uid)}/mutations/preview`, clusterId),
+      { method: 'POST', body: JSON.stringify({ action }) },
+    );
+    return mutationResponse(data, clusterId, uid, undefined, action);
+  },
+
+  getServiceAccountMutation: async (
+    operationId: string,
+    uid: string,
+    clusterId: string,
+  ): Promise<ServiceAccountMutationPreview> => {
+    const data = await request<unknown>(
+      withClusterId(`/inventory/serviceaccount-mutations/${encodeURIComponent(operationId)}`, clusterId),
+    );
+    return mutationResponse(data, clusterId, uid, operationId);
+  },
+
+  executeServiceAccountMutation: async (
+    preview: ServiceAccountMutationPreview,
+  ): Promise<void> => {
+    const { operation } = preview;
+    const data = await request<{ operationId?: string; status?: string }>(
+      withClusterId(`/inventory/serviceaccount-mutations/${encodeURIComponent(operation.id)}/execute`, operation.clusterId),
+      { method: 'POST', body: JSON.stringify({ digest: operation.digest }) },
+    );
+    if (data.operationId !== operation.id || data.status !== 'queued') {
+      invalidResponse('service_account_mutation_queue_invalid_response', 'Mutation queue response does not match the reviewed operation');
+    }
   },
 
   getCertificates: async (): Promise<Certificate[]> => {

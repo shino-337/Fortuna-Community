@@ -1,0 +1,97 @@
+# D3/F/G/H integration acceptance — updated 2026-10-04
+
+## Permanent execution
+
+Run `python3 scripts/verify/run-local-ci-native.py all` from the checkout to execute
+the workflow locally, including its isolated PostgreSQL 16/AGE 1.6 service and
+real two-cluster kind gate. Results contain the exact source SHA, source/workflow
+fingerprints and log hashes outside the worktree. Only an unchanged clean all-job
+pass is publishable. PR #55's D3/F/G/H exact head `238429f57` passed a clean
+native all-job run and all seven hosted CI jobs before its 2026-10-02 merge.
+Later follow-up commits need a new exact-head result.
+
+The dedicated live gate is `scripts/verify/run-two-cluster-integration.py`. It
+builds the real Agent, creates only its uniquely named disposable clusters/images,
+verifies the pinned kind binary checksum and node image, and cleans up those owned
+resources. `FORTUNA_TEST_POSTGRES_URL` must point to an isolated test database.
+No lab database, kubeconfig context or deployed workload is used. The gate refuses
+missing/skipped/failed named-test events and reads back all required evidence
+flags; its negative validator tests run in CI.
+
+## Live backend coverage
+
+The topology contains two clusters, three nodes (two in A), four DaemonSets and
+six scoped Agents collecting two namespace scopes. All Agent inventory uses the
+real binary, Kubernetes API, scoped HTTP credentials and Core's registered routes.
+JWT users/sessions, permissions and cluster scope use the production middleware.
+The Core routes run on a host test server with real PostgreSQL; Core main, NATS,
+gRPC and a Dashboard browser are outside this harness.
+
+The gate checks cross-cluster JWT and ingest rejection, same Pod names in repeated
+namespaces, authenticated receipts for every Agent, scoped relational attack paths,
+YAML finding creation, concurrent acknowledge/upserts and reconciliation. It then
+previews/executes actual revocation, verifies Kubernetes SubjectAccessReview denies
+A while B remains allowed, and verifies refreshed binding inventory. Real UID
+replacement survives a queued delete. A PostgreSQL audit trigger fails after a
+successful Kubernetes deletion; lease replay through NotFound completes its durable
+ledger. A real Agent Pod restart changes execution session without granting
+runtime authority. The restart gate deletes one Agent Pod with zero grace to
+exercise loss of in-memory state, then waits for the replacement Agent's new
+persisted session and verifies that source authority remains false.
+
+Agent sync cadence is 30 seconds, the database pool limit is 25, and both graph
+and security-state caches use `0s` for explicit fresh-read verification. Default
+security-state caching is five minutes; optional
+`FORTUNA_SECURITY_STATE_CACHE_TTL` accepts durations from zero to five minutes.
+Production timing/resource expectations must include the configured cadence/cache.
+Concurrent full syncs coalesce global evaluation into one running pass plus a
+pending refresh, rather than creating overlapping global scans per Agent.
+
+Inventory receipts remain latest-per-cluster with explicit namespace scope.
+The gate does not fabricate an aggregate completeness receipt for independent
+namespace writers. A reconciliation error or ineligible receipt must preserve the
+finding; a verified resolution requires its transactionally persisted evidence audit.
+
+## PostgreSQL and migration coverage
+
+Permanent PostgreSQL selections additionally cover duplicate Pod UID/node name,
+image content/digest ownership, concurrent ingest and immutable runtime replay,
+source-health rollback, insight lifecycle and AGE traversal. AGE tests use real
+vertices/edges, duplicate names/UIDs in separate physical graphs, imported foreign
+intermediates, parameterized delimiter-containing data and transaction-local pool
+search paths.
+
+Run populated backup rehearsals with:
+
+```bash
+python3 scripts/verify/rehearse-populated-migration.py --backup /path/to/backup.dump
+```
+
+The command restores into its own loopback PostgreSQL container, runs startup
+migration twice and rejects evidence-row count loss. The standalone Go rehearsal
+command also checks the effective pgx host, port and database, so URL query
+overrides cannot redirect migration away from its dedicated loopback database.
+The September 27 pre-depfix
+backup retained 253 insights, 29 Pods, 29 risk snapshots, 1,646 runtime events,
+25 SBOMs and 2,194 components. The pre-reset backup retained 394 insights, 34 Pods,
+34 risk snapshots, 1,640 events, 28 SBOMs and 3,132 components. Both rehearsals
+passed with equal before/after counts. Their retained backups do not reproduce
+the original ten ownership collisions; the synthetic populated PostgreSQL
+regression separately verifies collision quarantine, complete payload preservation,
+idempotent reruns and unchanged production snapshot upserts.
+
+## Remaining deployment acceptance
+
+The single-node lab now runs Core/Agent #55 and a local build of the Dashboard
+follow-up head. A pre-rollout populated backup was verified, and the deployment
+check passed after recovery from DiskPressure eviction. This is rollout evidence,
+not a second-cluster or browser acceptance result. The Dashboard login attempt
+using the stored bootstrap Secret was rejected by the current database account;
+the disposable S2 fixture was removed after that attempt and can be recreated
+for a credentialed walkthrough. Independent attestor keys/measurement remain a
+separate action. Sensor health cannot be inferred from file-reader activity;
+absence-based runtime auto-resolution stays disabled. The live browser walkthrough,
+real mTLS/gRPC certificate lifecycle across clusters, retained-event recovery,
+and production-scale storage retention/sizing remain explicit operational gates.
+Backend first-investigation evidence and mocked
+Dashboard browser regressions do not close those gates.
