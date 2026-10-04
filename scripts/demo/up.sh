@@ -65,7 +65,7 @@ export FORTUNA_POSTGRES_PASSWORD; FORTUNA_POSTGRES_PASSWORD="$(cat "$STATE_DIR/p
 export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
 export FORTUNA_BOOTSTRAP_DEFAULT_CREDENTIAL=false
 # The helper scripts use plain kubectl, which follows the exported KUBECONFIG.
-NAMESPACE="$NAMESPACE" "$ROOT/scripts/utils/create_mtls_secret.sh" >/dev/null
+CERT_DIR="$STATE_DIR/certs" NAMESPACE="$NAMESPACE" "$ROOT/scripts/utils/create_mtls_secret.sh" >/dev/null
 "$ROOT/scripts/utils/ensure-fortuna-secrets.sh" "$NAMESPACE" >/dev/null
 
 step "Installing PostgreSQL and NATS"

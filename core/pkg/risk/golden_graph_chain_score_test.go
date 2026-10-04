@@ -585,7 +585,7 @@ func TestGolden_RbacOnlyClusterAdmin_NoEscapeInflation(t *testing.T) {
 	require.Less(t, scRbac.AttackPathScore, scEscape.AttackPathScore)
 	t.Logf("rbac-only fixture baseline: TotalScore=%.2f attack_path_dim=%.2f; escape fixture: Total=%.2f attack_path_dim=%.2f",
 		scRbac.TotalScore, scRbac.AttackPathScore, scEscape.TotalScore, scEscape.AttackPathScore)
-	// Minimal DB (paths only, no ESC_HOSTPATH_NODE CKDB row): tuned band after temporal/MITRE/runtime guards — see docs/03-components/COMPONENTS.md#attack-path-and-risk-signals (Golden score regression).
+	// Minimal DB (paths only, no ESC_HOSTPATH_NODE CKDB row): tuned band after temporal/MITRE/runtime guards — see docs/03-components/README.md#attack-paths (Golden score regression).
 	require.GreaterOrEqual(t, scRbac.TotalScore, 5.0)
 	require.LessOrEqual(t, scRbac.TotalScore, 9.5)
 	require.GreaterOrEqual(t, scRbac.AttackPathScore, 6.0)

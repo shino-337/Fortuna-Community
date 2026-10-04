@@ -84,13 +84,13 @@ func main() {
 	log.Printf("[Config] TLS_KEY_PATH=%s", cfg.TLSKeyPath)
 	log.Printf("========================================")
 
-	// 🥇 BƯỚC 1: Ensure database is available BEFORE starting gRPC/HTTP servers
+	// Step 1: Ensure database is available BEFORE starting gRPC/HTTP servers
 	//
 	// The system relies on DB-backed handlers (gRPC SBOM ingestion, REST APIs). Starting servers
 	// with a nil DB causes permanent "database not available" behavior because handlers capture
 	// the initial nil pointer.
 	log.Printf("[MAIN] ========================================")
-	log.Printf("[MAIN] 🥇 BƯỚC 1: Connecting database (blocking) BEFORE starting servers")
+	log.Printf("[MAIN] Step 1: Connecting database (blocking) BEFORE starting servers")
 	log.Printf("[MAIN] ========================================")
 
 	var db *gorm.DB

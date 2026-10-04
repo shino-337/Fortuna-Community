@@ -7,6 +7,7 @@
 # By default, if all TLS secrets already exist in the namespace, exits without
 # regenerating (avoids Agent disconnect on every deploy). Force new certs:
 #   MTLS_REGEN=1 NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
+# Certificates and the CA key are written to CERT_DIR (default: <repo>/.certs).
 # ============================================================================
 
 set -euo pipefail
@@ -41,7 +42,7 @@ log_warning() {
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
-CERT_DIR="$PROJECT_ROOT/.certs"
+CERT_DIR="${CERT_DIR:-$PROJECT_ROOT/.certs}"
 
 # Check prerequisites
 if ! command -v openssl >/dev/null 2>&1; then

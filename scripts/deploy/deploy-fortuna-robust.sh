@@ -406,7 +406,7 @@ if [ "${SKIP_DNS_PREREQ:-0}" = "1" ]; then
 elif [ -x "$SCRIPTS/verify/check-dns-prereq.sh" ]; then
     echo -e "${BLUE}Step 7f: DNS pre-flight (postgres, nats in $NAMESPACE)...${NC}"
     if ! NAMESPACE="$NAMESPACE" bash "$SCRIPTS/verify/check-dns-prereq.sh"; then
-        echo -e "${RED}❌${NC} DNS pre-flight failed. Fix CoreDNS / cluster networking (see docs/05-operations/DEPLOYMENT.md), then retry."
+        echo -e "${RED}❌${NC} DNS pre-flight failed. Fix CoreDNS / cluster networking (see docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md), then retry."
         exit 1
     fi
     echo -e "${GREEN}✅${NC} DNS pre-flight OK"
