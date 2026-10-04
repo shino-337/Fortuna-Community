@@ -127,7 +127,7 @@ completion of the underlying feature.
 ## Contracts
 
 - [RBAC grants](../06-reference/FINDING_RUNTIME_CONTRACT.md)
-- [ServiceAccount mutations](../06-reference/SERVICEACCOUNT_MUTATIONS.md)
+- [ServiceAccount mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md)
 - [Workload and capability scope](../06-reference/INVENTORY_SCOPE.md)
 - [Agent identity and migration](../06-reference/AGENT_CLUSTER_IDENTITY.md)
 - [Graph/runtime boundaries](../06-reference/GRAPH_RUNTIME_BOUNDARIES.md)

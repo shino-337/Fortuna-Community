@@ -24,7 +24,7 @@ of all future HTTP/gRPC isolation behavior.
 
 - Require functional CI (Core, Agent, API, PostgreSQL, Dashboard, scripts and
   hygiene), PR review and current-base validation. PR #54 has the owner-recorded
-  exact-head local exception described in [the plan](NEXT_AUDIT_PLAN.md#54-local-exact-head-verification)
+  exact-head local exception described in [the plan](NEXT_AUDIT_PLAN.md#historical-54-local-exact-head-verification)
   while hosted jobs fail before execution. Secret scanning is manual-only under
   the current repository plan/license and remains a separate check.
 - Restrict bypass/direct pushes so failing checks cannot be merged routinely.

@@ -21,7 +21,7 @@ Detailed contracts for operators and contributors who need to know exactly how F
 - [Graph and runtime boundaries](GRAPH_RUNTIME_BOUNDARIES.md): what the attack graph does and does not claim.
 - [Runtime coverage evidence](RUNTIME_COVERAGE_EVIDENCE.md): how runtime producer coverage is reported.
 - [Risk reconciliation](RISK_RECONCILIATION.md): how findings are resolved and re-scored.
-- [ServiceAccount mutations](SERVICEACCOUNT_MUTATIONS.md): previewed, reviewed revocation.
+- [ServiceAccount mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md): previewed, reviewed revocation.
 - [Integration acceptance](INTEGRATION_ACCEPTANCE.md): the live two-cluster acceptance gate.
 
 Planning and audit history lives in [Maintainer records](../maintainers/README.md).

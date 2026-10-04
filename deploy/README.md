@@ -1,135 +1,47 @@
-# Fortuna Deployment
+# Deployment manifests
 
-Kubernetes manifests for running Fortuna Core, Agent, Dashboard, and the bundled infrastructure services.
+Kubernetes manifests for Fortuna. To install, follow [Install on a cluster](../docs/01-getting-started/QUICKSTART.md); to try it locally, use the [demo](../docs/01-getting-started/DEMO.md).
 
-## Components
+## Manifests
 
-| Component | File | Notes |
-|-----------|------|-------|
-| Core | `fortuna-core-deployment.yaml` | API, gRPC ingest, auth, risk processing, admission webhook backend |
-| Agent | `fortuna-agent-daemonset.yaml` | Runs on cluster nodes, reads Kubernetes/runtime data, sends data to Core over mTLS |
-| Dashboard | `dashboard-deployment.yaml` + `dashboard-nginx-configmap.yaml` | Web UI and nginx proxy to Core |
-| RBAC | `fortuna-rbac.yaml` | ServiceAccounts, ClusterRoles, ClusterRoleBindings |
-| PostgreSQL | `infrastructure/postgresql-with-age.yaml` | Recommended bundled database manifest |
-| NATS | `infrastructure/nats.yaml` | JetStream event bus |
-| Redis | `infrastructure/redis.yaml` | Optional cache |
-| Certificates | `certs/` | cert-manager Certificate/Issuer manifests |
-| Webhook | `webhook-service.yaml` + `webhook-config.yaml` | Optional admission webhook wiring |
-| Operations SQL | `sql/` | Maintenance helpers only; not required for first install |
-| Samples | `samples/` | Optional YAML examples for GHCR pull secrets and package tag overlays |
+| File | Purpose |
+|------|---------|
+| `fortuna-core-deployment.yaml` | Core: REST API, gRPC ingest, auth, risk processing, admission webhook backend |
+| `fortuna-agent-daemonset.yaml` | Agent on every node: Kubernetes inventory, SBOM and runtime data sent to Core |
+| `dashboard-deployment.yaml`, `dashboard-nginx-configmap.yaml` | Web UI and the nginx proxy to Core |
+| `fortuna-rbac.yaml` | ServiceAccounts, ClusterRoles and bindings for Core and Agent |
+| `fortuna-core-external-service.yaml` | NodePort for Agents in remote clusters |
+| `infrastructure/postgresql-with-age.yaml` | Bundled PostgreSQL (default); `postgresql.yaml` is a simpler fallback |
+| `infrastructure/nats.yaml` | NATS JetStream event bus |
+| `infrastructure/network-policies.yaml` | Limits NATS and PostgreSQL ingress to Core |
+| `webhook-service.yaml`, `webhook-config.yaml` | Optional admission webhook; enable with `./scripts/deploy/enable-webhook.sh` ([guide](../docs/05-operations/WEBHOOK.md)) |
+| `risk-evaluation-cronjob.yaml` | Optional CronJob that triggers historical risk evaluation every 6 hours |
+| `falco/helm-values-fortuna.yaml` | Falco values used by `./scripts/deploy/install-falco-fortuna.sh` |
+| `prometheus/risk-center.alerts.yaml` | Prometheus alert rules for active findings; usable only once Core exposes a `/metrics` endpoint (not yet available) |
+| `certs/` | cert-manager alternative to `create_mtls_secret.sh` |
+| `scoped-agent-credentials/` | Overlays for per-Agent tokens and mTLS ([guide](scoped-agent-credentials/README.md)) |
+| `samples/` | Private registry pull secrets and image tag overlays ([guide](samples/README.md)) |
+| `sql/` | Maintenance SQL used by the procedures below and by helper scripts |
 
-## Required Setup
-
-- Kubernetes 1.28+
-- A working CNI
-- A `local-path` StorageClass or equivalent `ReadWriteOnce` storage
-- `kubectl` configured for the target cluster
-- Secrets created before Core and Agent start
-
-Create secrets from environment variables instead of committing real values:
-
-```bash
-export FORTUNA_POSTGRES_PASSWORD="<replace-me>"
-export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
-export FORTUNA_ADMIN_PASSWORD="<replace-me>"
-
-./scripts/utils/ensure-fortuna-secrets.sh fortuna
-NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
-```
-
-`FORTUNA_JWT_SECRET`, `FORTUNA_INGEST_TOKEN`, and `POD_DETAIL_ENCRYPTION_KEY` can also be supplied. The helper script generates missing JWT and ingest values.
-
-## Images
-
-The public release manifests use GHCR images:
-
-- `ghcr.io/shino-337/fortuna-community/fortuna-core:v1.0.0`
-- `ghcr.io/shino-337/fortuna-community/fortuna-agent:v1.0.0`
-- `ghcr.io/shino-337/fortuna-community/fortuna-dashboard:v1.0.0`
-
-For production, prefer immutable version tags or digests. For local registryless testing, build and load matching `fortuna-*:<tag>` images into the node runtime and update the image fields. For an existing single-node installation, use the non-destructive [containerd update procedure](../docs/05-operations/DEPLOYMENT_CONTAINERD.md#update-an-existing-local-single-node-installation); the full-clean pipeline is not required.
-
-If GHCR packages are private, use `deploy/samples/ghcr-pull-secret.example.yaml` as a template and attach it with `deploy/samples/ghcr-imagepullsecrets.example.yaml`. For Kustomize-based installs, `deploy/samples/github-packages-kustomization.example.yaml` shows the package image tag overlay.
-
-## Deploy Order
-
-```bash
-kubectl create namespace fortuna
-
-./scripts/deploy/ensure-storage-class.sh
-
-kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
-kubectl apply -f deploy/infrastructure/nats.yaml
-
-./scripts/utils/ensure-fortuna-secrets.sh fortuna
-NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
-
-kubectl apply -f deploy/fortuna-rbac.yaml
-kubectl apply -f deploy/fortuna-core-deployment.yaml
-kubectl apply -f deploy/fortuna-agent-daemonset.yaml
-kubectl apply -f deploy/dashboard-nginx-configmap.yaml
-kubectl apply -f deploy/dashboard-deployment.yaml
-```
-
-Optional:
-
-```bash
-kubectl apply -f deploy/webhook-service.yaml
-kubectl apply -f deploy/webhook-config.yaml
-kubectl apply -f deploy/infrastructure/redis.yaml
-```
-
-The robust deploy script performs the ordered setup checks automatically:
-
-```bash
-./scripts/deploy/deploy-fortuna-robust.sh
-```
-
-## Access
-
-```bash
-kubectl port-forward --address 0.0.0.0 -n fortuna svc/fortuna-dashboard 8081:80
-kubectl port-forward -n fortuna svc/fortuna-core 8080:8080
-```
-
-Dashboard: `http://localhost:8081`
-
-Core health: `http://localhost:8080/healthz`
-
-## Verification
-
-```bash
-./scripts/deploy/check-prerequisites-core-agent.sh
-./scripts/verify/check-full-deployment.sh
-./scripts/verify/verify-agent-core-connectivity.sh
-```
+The image fields in the workload manifests are local build tags. Installs from the registry override them with `kubectl set image`, as the Quickstart shows.
 
 ## Configuration
 
-Core reads the following important settings:
+Core settings (environment variables in `fortuna-core-deployment.yaml`):
 
-- `DATABASE_URL`
-- `NATS_ENDPOINT`
-- `TLS_ENABLED`
-- `AUTH_ENABLED`
-- `JWT_SECRET`
-- `FORTUNA_INGEST_TOKEN`
-- `FORTUNA_ADMIN_USERNAME`
-- `FORTUNA_ADMIN_PASSWORD`
-- `FORTUNA_WS_ALLOWED_ORIGINS`
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL`, `NATS_ENDPOINT` | Data stores |
+| `JWT_SECRET`, `FORTUNA_ADMIN_USERNAME`, `FORTUNA_ADMIN_PASSWORD` | Authentication and bootstrap admin |
+| `FORTUNA_INGEST_TOKEN` | Shared Agent ingest token (legacy; see scoped credentials) |
+| `FORTUNA_AGENT_CREDENTIAL_REGISTRY`, `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` | Per-Agent HTTP and gRPC credentials |
+| `TLS_ENABLED`, `TLS_*_PATH`, `WEBHOOK_TLS_*_PATH` | mTLS for gRPC and the webhook server |
+| `FORTUNA_TRUSTED_PROXIES` | Proxies allowed to set `X-Forwarded-For`; unset trusts none |
+| `FORTUNA_WS_ALLOWED_ORIGINS` | Dashboard origins allowed to open WebSockets |
+| `FORTUNA_MAX_REQUEST_BODY_BYTES` | Request body limit (default 64 MiB) |
+| `AUTH_ENABLED` | Must stay `true`; `false` is accepted only with `FORTUNA_DEV_MODE=1` |
 
-Agent reads the following important settings:
-
-- `CORE_GRPC_ENDPOINT`
-- `CORE_HTTP_ENDPOINT`
-- `FORTUNA_INGEST_TOKEN`
-- `CLUSTER_ID` and `CLUSTER_NAME` when explicit cluster identity is required
-- `SYNC_INTERVAL`
-- `TLS_ENABLED`
-- `CONTAINERD_SOCKET`
-- `SBOM_CACHE_DIR`
-
-Cluster identity is auto-discovered by default. Only set `CLUSTER_ID` or `CLUSTER_NAME` when the operator needs a fixed identity.
+Agent settings (in `fortuna-agent-daemonset.yaml`): `CORE_GRPC_ENDPOINT`, `CORE_HTTP_ENDPOINT`, `FORTUNA_INGEST_TOKEN`, `SYNC_INTERVAL`, `HEARTBEAT_INTERVAL`, `TLS_ENABLED`, `CONTAINERD_SOCKET`, `FALCO_EVENTS_ENABLED`, `EBPF_ENABLED`. Cluster identity is discovered automatically; set `CLUSTER_ID` or `CLUSTER_NAME` only when you need fixed values.
 
 ## Maintenance
 
@@ -183,14 +95,9 @@ deployment controller manages these overlays; a partial secret set otherwise
 stops deployment before replacing Core. Scoped mTLS also requires cluster DNS;
 the script refuses the legacy TLS-disabled IP fallback.
 
-## Security Notes
+## Security notes
 
-- Do not commit real secrets, kubeconfigs, certificates, database dumps, or local environment files.
-- Rotate credentials if they were ever committed before history cleanup.
-- Keep mTLS enabled for Core and Agent traffic.
-- Restrict `FORTUNA_WS_ALLOWED_ORIGINS` to the real Dashboard origins used by your environment.
-
-
-## Optional admission webhook
-
-Use `./scripts/deploy/enable-webhook.sh` to validate the serving certificate and inject its CA. Do not apply the webhook configuration alone. See the [webhook guide](../docs/05-operations/WEBHOOK.md) for existing certificates, opt-in namespaces, verification, and disabling.
+- Never commit secrets, kubeconfigs, certificates, database dumps or local environment files.
+- Keep mTLS enabled between Core and Agents, and keep the CA private key offline.
+- Restrict `FORTUNA_WS_ALLOWED_ORIGINS` and `FORTUNA_TRUSTED_PROXIES` to your real dashboard origin and proxy.
+- See [production deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md) for the full hardening list.

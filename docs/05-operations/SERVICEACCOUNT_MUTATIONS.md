@@ -42,3 +42,15 @@ a failed HTTP request as proof that no Kubernetes effect occurred.
 
 Current Dashboard disable actions remain unavailable. Use this API workflow to
 inspect exact effects; no automatic inactive-account revocation is enabled.
+
+## Details
+
+- A preview fails instead of silently omitting effects when the cluster has more
+  than 500 RoleBindings, ClusterRoleBindings or Secrets in the namespace to scan.
+- Plan digests are computed over canonical typed JSON, so PostgreSQL JSONB key
+  ordering or whitespace cannot invalidate a reviewed plan.
+- Bulk DELETE requires `inventory.bulk` plus `inventory.delete`, validates the
+  whole set first and reports per-item failures with HTTP 207.
+- Coverage: unit regressions for scope, actor, digest, binding drift, replacement
+  UIDs and persistence failure, plus the live two-cluster
+  [integration gate](../06-reference/INTEGRATION_ACCEPTANCE.md).

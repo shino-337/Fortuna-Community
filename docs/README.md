@@ -1,38 +1,40 @@
-# Fortuna Documentation
+# Fortuna documentation
 
-This documentation set is intentionally small and user-facing. It covers how to install Fortuna, operate it, understand the architecture, and use the dashboard.
+## Use Fortuna
 
-The project name is **Fortuna**. The public repository is `shino-337/Fortuna-Community`, and published GHCR images use the lowercase repository namespace `ghcr.io/shino-337/fortuna-community`.
+| Goal | Guide |
+|---|---|
+| Try it locally in one command | [Local demo](01-getting-started/DEMO.md) |
+| Investigate your first RBAC attack path | [First investigation](01-getting-started/FIRST_FINDING.md) |
+| Learn the dashboard workspaces | [User guide](04-user-guide/README.md) and [use cases](04-user-guide/USE_CASES.md) |
 
-## Start Here
+## Install and operate
 
-| Goal | Document |
-|------|----------|
-| Try Fortuna locally in one command | [01-getting-started/DEMO.md](01-getting-started/DEMO.md) |
-| Investigate your first RBAC attack path | [01-getting-started/FIRST_FINDING.md](01-getting-started/FIRST_FINDING.md) |
-| Check environment requirements | [01-getting-started/ENVIRONMENT_REQUIREMENTS.md](01-getting-started/ENVIRONMENT_REQUIREMENTS.md) |
-| Install from published images | [01-getting-started/INSTALLATION.md](01-getting-started/INSTALLATION.md) |
-| Fast deploy path | [01-getting-started/QUICKSTART.md](01-getting-started/QUICKSTART.md) |
-| Use the dashboard | [04-user-guide/README.md](04-user-guide/README.md) |
-| Main investigation workflows | [04-user-guide/USE_CASES.md](04-user-guide/USE_CASES.md) |
-| Operate a deployment | [05-operations/DEPLOYMENT.md](05-operations/DEPLOYMENT.md) |
-| Production deployment | [05-operations/PRODUCTION_DEPLOYMENT.md](05-operations/PRODUCTION_DEPLOYMENT.md) |
-| Local containerd build/deploy | [05-operations/DEPLOYMENT_CONTAINERD.md](05-operations/DEPLOYMENT_CONTAINERD.md) |
-| Run GitHub CI locally | [05-operations/LOCAL_CI.md](05-operations/LOCAL_CI.md) |
-| Troubleshoot common failures | [05-operations/DEPLOYMENT.md](05-operations/DEPLOYMENT.md) |
-| Architecture overview | [02-architecture/ARCHITECTURE.md](02-architecture/ARCHITECTURE.md) |
-| Component catalog | [03-components/README.md](03-components/README.md) |
-| Security and credentials | [06-reference/SECURITY.md](06-reference/SECURITY.md) |
-| Detailed behavior contracts | [06-reference/README.md](06-reference/README.md) |
+| Goal | Guide |
+|---|---|
+| Check requirements | [Environment requirements](01-getting-started/ENVIRONMENT_REQUIREMENTS.md) |
+| Install on a cluster from published images | [Install on a cluster](01-getting-started/QUICKSTART.md) |
+| Harden a long-lived installation | [Production deployment](05-operations/PRODUCTION_DEPLOYMENT.md) |
+| Build and deploy from source | [Local containerd build and deploy](05-operations/DEPLOYMENT_CONTAINERD.md) |
+| Optional features | [Admission webhook](05-operations/WEBHOOK.md), [runtime source health](05-operations/RUNTIME_SOURCE_HEALTH.md), [ServiceAccount revocation](05-operations/SERVICEACCOUNT_MUTATIONS.md), [scoped AGE graph](05-operations/SCOPED_AGE.md) |
+| Manifest reference | [deploy/README.md](../deploy/README.md) |
+| Helper scripts | [scripts/README.md](../scripts/README.md) |
 
-## Diagrams And Screenshots
+## Understand how it works
 
-Architecture and component diagrams are maintained as Mermaid or text diagrams in the relevant documents. User-facing dashboard screenshots live under [assets/screenshots](assets/screenshots/) and are referenced from the user guide and component catalog.
+| Goal | Guide |
+|---|---|
+| Architecture and data flows | [Architecture](02-architecture/ARCHITECTURE.md) and [API conventions](02-architecture/API_STANDARD.md) |
+| Components and detection model | [Components](03-components/README.md) |
+| Security model and credentials | [Security](06-reference/SECURITY.md) |
+| Exact behavior contracts | [Reference](06-reference/README.md) |
 
-## Maintainer Records
+## Contribute
 
-Audit plans, remediation status, regression controls and release checklists are kept separately in [maintainers/](maintainers/README.md). You do not need them to install or use Fortuna.
+| Goal | Guide |
+|---|---|
+| Contribution workflow | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Run CI checks locally | [Local CI](05-operations/LOCAL_CI.md) |
+| Audit plans, remediation status, release checklist | [Maintainer records](maintainers/README.md) |
 
-## What Is Not Included
-
-Generated test reports, local review notes, credentials, kubeconfigs, and private environment captures are not part of the documentation. Keep them local or attach them to private issues/PRs when needed.
+Dashboard screenshots live in [assets/screenshots](assets/screenshots/). Do not add generated reports, credentials, kubeconfigs or private environment captures to the documentation.

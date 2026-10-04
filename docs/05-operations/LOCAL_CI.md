@@ -7,7 +7,7 @@ Python/PostgreSQL containers; the optional `act` backend uses
 not a replacement for the required GitHub check on the exact PR head.
 PR #54 has a specific owner-approved local-gate exception while hosted jobs
 fail before execution because of account entitlement; see
-[`NEXT_AUDIT_PLAN.md`](../maintainers/NEXT_AUDIT_PLAN.md#54-local-exact-head-verification).
+[`NEXT_AUDIT_PLAN.md`](../maintainers/NEXT_AUDIT_PLAN.md#historical-54-local-exact-head-verification).
 That exception requires results for the exact committed SHA and does not make
 an interrupted `act` run or earlier working-tree run sufficient evidence.
 

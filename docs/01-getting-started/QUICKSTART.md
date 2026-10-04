@@ -1,283 +1,168 @@
-# Quickstart
+# Install Fortuna on a cluster
 
-Use this guide when you want a working Fortuna deployment. Start in an isolated lab and review the [environment requirements](ENVIRONMENT_REQUIREMENTS.md).
+This is the single install guide for running Fortuna from published images. To try Fortuna on your laptop first, use the [one-command local demo](DEMO.md). To build images from source, see [local containerd build and deploy](../05-operations/DEPLOYMENT_CONTAINERD.md). For hardening a long-lived installation, continue with [production deployment](../05-operations/PRODUCTION_DEPLOYMENT.md).
 
-For a released version, use the documentation and manifests in the matching checkout (`git clone --branch v1.0.0 --depth 1 https://github.com/shino-337/Fortuna-Community.git`). This file on `main` may describe changes newer than that release.
+Start in an isolated cluster and read the [environment requirements](ENVIRONMENT_REQUIREMENTS.md). The Agent runs privileged on every node.
 
-After installation, follow [Your first RBAC investigation](FIRST_FINDING.md) for one concrete result and a remediation check. To evaluate Fortuna on your laptop first, use the [one-command local demo](DEMO.md).
+## Prerequisites
 
-The public repository is `shino-337/Fortuna-Community`, and published GHCR images use `ghcr.io/shino-337/fortuna-community`.
+- Kubernetes 1.28+ and `kubectl` pointed at the target cluster (`kubectl config current-context`).
+- A `local-path` StorageClass, or run `./scripts/deploy/ensure-storage-class.sh`.
+- A CNI that enforces NetworkPolicy (Calico, Cilium) if you want NATS and PostgreSQL restricted to Core.
+- This repository checked out at the version you install. For a release, use its tag so the manifests match the images:
 
-There are two paths:
+```bash
+git clone --branch v1.0.0 --depth 1 https://github.com/shino-337/Fortuna-Community.git
+cd Fortuna-Community
+```
 
-- **Public install:** deploy from images already published by GitHub Actions. This is the recommended path for users.
-- **Developer local build:** build images on your own node and deploy with local pipeline scripts. Use this for development.
-
-## 1. Public Install From Published Images
-
-Prerequisites:
-
-- Kubernetes 1.28+ with `kubectl` configured.
-- A working StorageClass for PostgreSQL/NATS PVCs.
-- Internet access from nodes to pull images from GHCR, or an imagePullSecret if the package is private.
-- The repository checked out locally for manifests and helper scripts.
-
-Set the image registry and version:
+## 1. Choose the image version
 
 ```bash
 export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
 export FORTUNA_VERSION="v1.0.0"
 ```
 
-Set deployment secrets:
+GitHub Actions publishes `fortuna-core`, `fortuna-agent` and `fortuna-dashboard` under that registry:
+
+| Tag | Published when |
+|---|---|
+| `vX.Y.Z` | a release tag is pushed |
+| `latest`, `sha-<12-char-commit>` | every push to `main` |
+| a custom value | the publish workflow is run manually |
+
+Use a tag that matches your checkout. Tags written into `deploy/*.yaml` by local build scripts are local containerd tags, not registry tags.
+
+## 2. Create secrets
 
 ```bash
-export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>" # recommended; omit only for first-login bootstrap default
-export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
-
-# Bundled PostgreSQL path. Use your external DB URL instead if you do not deploy deploy/infrastructure/postgresql-with-age.yaml.
-export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
-export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
-```
-
-Create the namespace first. If GHCR packages are private, create and attach an image pull secret before applying workloads. `GITHUB_TOKEN` must have `read:packages`:
-
-```bash
-kubectl create namespace fortuna --dry-run=client -o yaml | kubectl apply -f -
-```
-
-Skip the following block for public packages. Run it only when your registry requires authentication and `GITHUB_USER` / `GITHUB_TOKEN` have been set:
-
-```bash
-kubectl -n fortuna create secret docker-registry ghcr-pull \
-  --docker-server=ghcr.io \
-  --docker-username="$GITHUB_USER" \
-  --docker-password="$GITHUB_TOKEN" \
-  --dry-run=client -o yaml | kubectl apply -f -
-```
-
-Create namespace, secrets, and infrastructure:
-
-```bash
-./scripts/deploy/ensure-storage-class.sh
-NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
-./scripts/utils/ensure-fortuna-secrets.sh fortuna
-
-kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
-kubectl apply -f deploy/infrastructure/nats.yaml
-kubectl apply -f deploy/infrastructure/network-policies.yaml  # restrict NATS/Postgres to Core
-kubectl apply -f deploy/fortuna-rbac.yaml
-kubectl apply -f deploy/dashboard-nginx-configmap.yaml
-```
-
-Attach the optional GHCR pull secret, deploy Fortuna, and point workloads at the published images:
-
-```bash
-if kubectl -n fortuna get secret ghcr-pull >/dev/null 2>&1; then
-  kubectl -n fortuna patch serviceaccount fortuna-core \
-    -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
-  kubectl -n fortuna patch serviceaccount fortuna-agent \
-    -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
-  kubectl -n fortuna patch serviceaccount default \
-    -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
-fi
-
-kubectl apply -f deploy/fortuna-core-deployment.yaml
-kubectl apply -f deploy/fortuna-agent-daemonset.yaml
-kubectl apply -f deploy/dashboard-deployment.yaml
-
-kubectl -n fortuna set image deployment/fortuna-core \
-  core="${FORTUNA_REGISTRY}/fortuna-core:${FORTUNA_VERSION}"
-kubectl -n fortuna set image daemonset/fortuna-agent \
-  agent="${FORTUNA_REGISTRY}/fortuna-agent:${FORTUNA_VERSION}"
-kubectl -n fortuna set image deployment/fortuna-dashboard \
-  dashboard="${FORTUNA_REGISTRY}/fortuna-dashboard:${FORTUNA_VERSION}"
-```
-
-Anonymous pulls fail with `401 Unauthorized` when the package is private. Either make the GHCR package public or use the pull secret above.
-
-YAML examples are available for private GHCR package pulls:
-
-- `deploy/samples/ghcr-pull-secret.example.yaml`
-- `deploy/samples/ghcr-imagepullsecrets.example.yaml`
-- `deploy/samples/github-packages-kustomization.example.yaml`
-
-Wait for workloads:
-
-```bash
-kubectl rollout status -n fortuna deployment/fortuna-core --timeout=180s
-kubectl rollout status -n fortuna daemonset/fortuna-agent --timeout=180s
-kubectl rollout status -n fortuna deployment/fortuna-dashboard --timeout=180s
-kubectl get pods,svc -n fortuna -o wide
-```
-
-<details>
-<summary>Developer/operations only: reset an existing lab database</summary>
-
-This resets database state. It is not a first-install or upgrade command. Use it only when you intend to discard the existing lab data.
-
-For a scripted deploy from published images with a database reset and no local rebuild:
-
-```bash
-export FORTUNA_PACKAGE_SOURCE="github"
-export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="v1.0.0"
 export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>"
 export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
 export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
 export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
 
-CVE_CATALOG_POST_DEPLOY_CHECK=skip \
-  ./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --skip-rebuild
+kubectl create namespace fortuna --dry-run=client -o yaml | kubectl apply -f -
+./scripts/deploy/ensure-storage-class.sh
+NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
+./scripts/utils/ensure-fortuna-secrets.sh fortuna
 ```
 
-Use `PG_RECREATE_PVC=1` with that command only when you intentionally want to delete and recreate the PostgreSQL PVC files.
+`ensure-fortuna-secrets.sh` creates `fortuna-secrets` (database URL, JWT secret, ingest token, admin password, bootstrap flag) and `postgres-credentials`. It generates any value you did not export and reuses existing ones on later runs. `create_mtls_secret.sh` writes the CA and certificates to `.certs/`; keep that directory, because remote clusters reuse it.
 
-</details>
+If you omit `FORTUNA_ADMIN_PASSWORD`, the admin starts with the bootstrap password `Fortuna_ChangeMe_123!` and must change it at first login. Only do that in an isolated lab.
 
-## 2. Developer Local Build
-
-Use this only when you want to build images on the cluster node or test local changes.
+**Private registry only.** If the packages are not public, create a pull secret and attach it before deploying workloads (YAML equivalents are in [`deploy/samples/`](../../deploy/samples/README.md)):
 
 ```bash
-export FORTUNA_ADMIN_PASSWORD="<strong-admin-password>" # recommended; omit only for first-login bootstrap default
-export FORTUNA_JWT_SECRET="$(openssl rand -base64 32)"
-export FORTUNA_POSTGRES_PASSWORD="$(openssl rand -base64 24 | tr -d '=+/ ' | cut -c1-24)"
-export FORTUNA_DATABASE_URL="postgres://postgres:${FORTUNA_POSTGRES_PASSWORD}@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable"
-export FORTUNA_PACKAGE_SOURCE="local"
-
-./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --with-runtime
+kubectl -n fortuna create secret docker-registry ghcr-pull \
+  --docker-server=ghcr.io --docker-username="$GITHUB_USER" --docker-password="$GITHUB_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+for sa in fortuna-core fortuna-agent default; do
+  kubectl -n fortuna patch serviceaccount "$sa" -p '{"imagePullSecrets":[{"name":"ghcr-pull"}]}'
+done
 ```
 
-Use `--db-reset` when you want a clean schema and empty data:
+Run the loop after step 3, once the `fortuna-core` and `fortuna-agent` ServiceAccounts exist.
+
+## 3. Deploy
 
 ```bash
-./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --db-reset --with-runtime
+kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
+kubectl apply -f deploy/infrastructure/nats.yaml
+kubectl apply -f deploy/infrastructure/network-policies.yaml
+kubectl apply -f deploy/fortuna-rbac.yaml
+kubectl apply -f deploy/dashboard-nginx-configmap.yaml
+
+kubectl apply -f deploy/fortuna-core-deployment.yaml
+kubectl apply -f deploy/fortuna-agent-daemonset.yaml
+kubectl apply -f deploy/dashboard-deployment.yaml
+
+kubectl -n fortuna set image deployment/fortuna-core core="${FORTUNA_REGISTRY}/fortuna-core:${FORTUNA_VERSION}"
+kubectl -n fortuna set image daemonset/fortuna-agent agent="${FORTUNA_REGISTRY}/fortuna-agent:${FORTUNA_VERSION}"
+kubectl -n fortuna set image deployment/fortuna-dashboard dashboard="${FORTUNA_REGISTRY}/fortuna-dashboard:${FORTUNA_VERSION}"
 ```
 
-The local pipeline:
+`./scripts/deploy/deploy-fortuna-robust.sh` performs the same steps with additional prerequisite checks.
 
-- Builds `fortuna-core`, `fortuna-agent`, and `fortuna-dashboard`.
-- Loads images into local containerd.
-- Syncs the built `VERSION` into `deploy/*.yaml`.
-- Creates `fortuna-secrets`, `postgres-credentials`, and Core/Agent mTLS secrets before rollout.
-- Deploys and verifies local workloads.
+Wait for the rollout. Core runs database migrations on first start, which takes a few minutes:
 
-Notes:
+```bash
+kubectl -n fortuna rollout status deployment/fortuna-core --timeout=600s
+kubectl -n fortuna rollout status daemonset/fortuna-agent --timeout=300s
+kubectl -n fortuna rollout status deployment/fortuna-dashboard --timeout=300s
+kubectl -n fortuna get pods -o wide
+```
 
-- First local build needs internet access for Go modules, npm packages, base images, Syft, Helm charts, and Falco images.
-- Multi-node clusters need Core/Agent images on the nodes where those workloads run. Prefer a registry accessible to every node. If you are air-gapped or intentionally registryless, configure `scripts/utils/push-images.config` or SSH env variables and run `./scripts/utils/push-images-to-workers.sh`. The full pipeline pushes the same rebuilt `VERSION` tag only when `FORTUNA_PACKAGE_SOURCE=local` and the current cluster has more than one node, or when `PUSH_IMAGES_AFTER_REBUILD=true` is set.
-- After `--db-reset`, the pipeline verifies the CVE catalog. If the catalog is empty, `AUTO_LOAD_CVE_CATALOG=true` loads the public OSV/package catalog, currently a large download of about 1.2GB plus extract/import time. For a fast deployment smoke test, set `CVE_CATALOG_POST_DEPLOY_CHECK=skip`.
+Expect one `fortuna-core`, one `fortuna-dashboard`, one `postgres`, three `nats` pods and one `fortuna-agent` pod per node, all `Running`.
 
-## 3. Add A Remote Cluster
+## 4. Log in
 
-Use this when one Fortuna management cluster should receive telemetry from another Kubernetes cluster.
+```bash
+kubectl -n fortuna port-forward svc/fortuna-dashboard 8081:80
+```
 
-Management cluster runs:
+Open `http://localhost:8081` and log in as `admin` with `FORTUNA_ADMIN_PASSWORD`. The Agent syncs inventory every 5 minutes, so data appears gradually after the first start. Then follow [Your first RBAC investigation](FIRST_FINDING.md).
 
-- Core, Dashboard, PostgreSQL, NATS.
-- Local Agent and optional Falco.
-- `fortuna-core-external` Service when remote agents connect through NodePort.
+To check authentication from inside the cluster:
 
-Remote cluster runs:
+```bash
+kubectl -n fortuna exec deploy/fortuna-core -- curl -s -X POST http://localhost:8080/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d "{\"username\":\"admin\",\"password\":\"${FORTUNA_ADMIN_PASSWORD}\"}"
+```
 
-- `fortuna-agent` only.
-- Optional Falco if runtime events are required from that cluster.
+With the bootstrap password, the response contains `"mustChangePassword": true`, and data APIs return `403 password_change_required` until the password is changed. Core never resets an existing admin back to the bootstrap password.
 
-Expose Core from the management cluster:
+## 5. Load security data (optional)
+
+Vulnerability matching needs the CVE catalog, and runtime findings need a sensor:
+
+```bash
+./scripts/utils/load-cve-data.sh            # large download (about 1.2 GB)
+./scripts/deploy/install-falco-fortuna.sh   # Falco with Fortuna settings
+kubectl -n fortuna rollout restart daemonset/fortuna-agent
+```
+
+## 6. Add a remote cluster (optional)
+
+One Fortuna installation can observe several clusters. The management cluster runs Core, Dashboard, PostgreSQL, NATS and its own Agent; each remote cluster runs only the Agent (and optionally Falco).
+
+Expose Core from the management cluster, then deploy the Agent to each remote cluster with the same `.certs` material. Do not set `MTLS_REGEN=1`, or Core will stop trusting remote Agents.
 
 ```bash
 kubectl -n fortuna apply -f deploy/fortuna-core-external-service.yaml
-kubectl -n fortuna get svc fortuna-core-external
-```
 
-Deploy the Agent prerequisites to the remote cluster. Reuse the existing `.certs` generated for the management cluster; do not regenerate mTLS with `MTLS_REGEN=1`, because Core must trust the remote Agent client certificate.
-
-```bash
-export REMOTE_KUBECONFIG=/path/to/remote.kubeconfig
 export MANAGEMENT_NODE=<management-node-ip-or-dns>
-export REMOTE_KUBECONFIGS="cluster02=${REMOTE_KUBECONFIG}"
-export FORTUNA_REGISTRY="ghcr.io/shino-337/fortuna-community"
-export FORTUNA_VERSION="v1.0.0"
-
+export REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig"
 ./scripts/deploy/sync-remote-agent.sh
 ```
 
-The script creates/updates the remote namespace, mTLS secrets, ingest secret, RBAC, Agent DaemonSet, image, Core endpoints, and rollout. It does not set `CLUSTER_ID` by default; Agent auto-discovers a stable ID from the cluster API. Use `REMOTE_IMAGE_MODE=local` when the remote cluster cannot pull from a registry and SSH image import is required. Registry image pull policy defaults to `Always` for `:latest`, otherwise `IfNotPresent`.
+The script creates the remote namespace, secrets, RBAC and Agent DaemonSet, and points the Agent at Core. Each Agent discovers a stable cluster ID from its API server; set `CLUSTER_ID` only when you need a fixed one. Use `REMOTE_IMAGE_MODE=local` when the remote cluster cannot pull from a registry.
 
-Verify sync:
+Check that every cluster reports consistent data:
 
 ```bash
-FORTUNA_JWT="<admin-or-operator-jwt>" \
-CORE_URL="http://127.0.0.1:8080" \
-REMOTE_KUBECONFIGS="cluster101=${REMOTE_KUBECONFIG}" \
+FORTUNA_JWT="<admin-jwt>" CORE_URL="http://127.0.0.1:8080" \
+REMOTE_KUBECONFIGS="cluster02=/path/to/cluster02.kubeconfig" \
 ./scripts/verify/verify-multicluster-sync.sh
 ```
 
-## 4. Open the Dashboard
+## Troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `401 Unauthorized` pulling images | The packages are private: create `ghcr-pull` as in step 2, or make them public |
+| Pods stay `Pending` | No usable StorageClass: run `./scripts/deploy/ensure-storage-class.sh` |
+| Core restarts during first start | Migrations are still running; check `kubectl -n fortuna logs deploy/fortuna-core` and wait |
+| Pods run old code | Compare the workload image (`kubectl -n fortuna get deploy fortuna-core -o jsonpath='{..image}'`) with the pod's `imageID` |
+| Bootstrap password rejected | The database already has an admin with another password; use that password |
+| Full health check | `./scripts/verify/check-full-deployment.sh` |
+
+## Uninstall or reset
 
 ```bash
-kubectl port-forward -n fortuna svc/fortuna-dashboard 8081:80
+kubectl delete namespace fortuna          # removes Fortuna and its data
+kubectl delete -f deploy/fortuna-rbac.yaml --ignore-not-found   # cluster-wide roles and bindings
 ```
 
-Open `http://127.0.0.1:8081/`.
-
-Development login:
-
-- Username: `admin`
-- Password: value provided in `FORTUNA_ADMIN_PASSWORD`; if omitted on a fresh deployment, use `Fortuna_ChangeMe_123!` and change it when prompted.
-
-The bootstrap default is only for first deployment. If the database already contains an `admin` user, Core will not reset that password back to the default on restart.
-
-Verify auth/bootstrap behavior from Core:
-
-```bash
-CORE_POD="$(kubectl -n fortuna get pod -l app.kubernetes.io/component=core -o jsonpath='{.items[0].metadata.name}')"
-kubectl -n fortuna exec "$CORE_POD" -- curl -s \
-  -X POST http://localhost:8080/api/v1/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"Fortuna_ChangeMe_123!"}' | python3 -m json.tool
-```
-
-When the bootstrap default is active, the response includes `"mustChangePassword": true`, and normal data APIs return `403` with `password_change_required` until the password is changed.
-
-## 5. Verify Data
-
-```bash
-kubectl logs -n fortuna -l app.kubernetes.io/component=core --tail=50
-kubectl logs -n fortuna -l app.kubernetes.io/component=agent --tail=50
-```
-
-After login, the dashboard should show:
-
-- Platform Integrity: telemetry and pipeline health.
-- Dashboard: high-level security posture.
-- Kubernetes Inventory: discovered Kubernetes pods and workload context.
-- Findings Queue: active findings and unified risk scores.
-- Attack Paths: attack paths and runtime-supported graph signals.
-- Runtime Network: runtime topology when agent telemetry is available.
-- Pipeline & Runtime Health: pipeline, runtime, and sensor visibility.
-
-## 6. Image Publishing
-
-GitHub Actions builds and publishes images through `.github/workflows/publish-images.yml`:
-
-- Push to `main`: publishes `latest` and `sha-<short-sha>`.
-- Push tag `v*`: publishes the tag and `sha-<short-sha>`.
-- Manual dispatch: publishes the supplied `version`.
-- Pull request: builds images without pushing.
-
-Use `latest`, `sha-<12-char-commit>`, a pushed release tag such as `v1.0.0`, or a manual workflow `version` value as `FORTUNA_VERSION`. Tags generated by local scripts, for example `git describe` values written into `deploy/*.yaml`, are local containerd tags unless the publish workflow was run with the same value.
-
-Published image names:
-
-- `ghcr.io/shino-337/fortuna-community/fortuna-core:<tag>`
-- `ghcr.io/shino-337/fortuna-community/fortuna-agent:<tag>`
-- `ghcr.io/shino-337/fortuna-community/fortuna-dashboard:<tag>`
-
-## 7. Next Steps
-
-- Installation details: [INSTALLATION.md](INSTALLATION.md)
-- User workflows: [../04-user-guide/README.md](../04-user-guide/README.md)
-- Main use cases: [../04-user-guide/USE_CASES.md](../04-user-guide/USE_CASES.md)
-- Operations guide: [../05-operations/DEPLOYMENT.md](../05-operations/DEPLOYMENT.md)
+To reset only the data while keeping the installation, follow the backup-first procedure in [deploy/README.md](../../deploy/README.md#maintenance).
