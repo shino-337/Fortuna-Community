@@ -34,9 +34,10 @@ of all future HTTP/gRPC isolation behavior.
 - Add PostgreSQL/Kubernetes integration coverage in package F; mocked UI tests and
   SQLite unit tests do not prove deployment behavior.
 
-On 2026-10-01 the `main-security-gate` ruleset was disabled and no branch
-protection applied to `main` (see the [plan](NEXT_AUDIT_PLAN.md#repository-governance-prerequisite)).
-Required-check enforcement and bypass settings remain an owner-side action.
+The current enforcement status is recorded in the
+[plan](NEXT_AUDIT_PLAN.md#repository-governance-prerequisite): on 2026-10-04 the
+`main-security-gate` ruleset requires one approving review, but not CODEOWNER
+review or required status checks.
 
 ## Finding-to-test map
 
