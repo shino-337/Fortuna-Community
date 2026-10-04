@@ -1,4 +1,4 @@
-# D3/F/G/H integration acceptance — 2026-09-29
+# D3/F/G/H integration acceptance — updated 2026-10-04
 
 ## Permanent execution
 
@@ -6,8 +6,9 @@ Run `python3 scripts/verify/run-local-ci-native.py all` from the checkout to exe
 the workflow locally, including its isolated PostgreSQL 16/AGE 1.6 service and
 real two-cluster kind gate. Results contain the exact source SHA, source/workflow
 fingerprints and log hashes outside the worktree. Only an unchanged clean all-job
-pass is publishable. Hosted CI resumed on 2026-10-01 for #54; that run does not
-validate the later D3/F/G/H branch until its own exact head is tested.
+pass is publishable. PR #55's D3/F/G/H exact head `238429f57` passed a clean
+native all-job run and all seven hosted CI jobs before its 2026-10-02 merge.
+Later follow-up commits need a new exact-head result.
 
 The dedicated live gate is `scripts/verify/run-two-cluster-integration.py`. It
 builds the real Agent, creates only its uniquely named disposable clusters/images,
@@ -81,10 +82,16 @@ idempotent reruns and unchanged production snapshot upserts.
 
 ## Remaining deployment acceptance
 
-Deploying these commits and independent attestor keys/measurement remains a
+The single-node lab now runs Core/Agent #55 and a local build of the Dashboard
+follow-up head. A pre-rollout populated backup was verified, and the deployment
+check passed after recovery from DiskPressure eviction. This is rollout evidence,
+not a second-cluster or browser acceptance result. The Dashboard login attempt
+using the stored bootstrap Secret was rejected by the current database account;
+the disposable S2 fixture was removed after that attempt and can be recreated
+for a credentialed walkthrough. Independent attestor keys/measurement remain a
 separate action. Sensor health cannot be inferred from file-reader activity;
 absence-based runtime auto-resolution stays disabled. The live browser walkthrough,
-Dashboard revocation controls, real mTLS/gRPC certificate lifecycle across clusters,
-ingest backlog/state-volume rollout and production-scale storage retention/sizing
-remain explicit operational gates. Backend first-investigation evidence and mocked
+real mTLS/gRPC certificate lifecycle across clusters, retained-event recovery,
+and production-scale storage retention/sizing remain explicit operational gates.
+Backend first-investigation evidence and mocked
 Dashboard browser regressions do not close those gates.
