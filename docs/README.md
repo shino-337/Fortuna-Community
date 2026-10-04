@@ -16,7 +16,8 @@
 | Install on a cluster from published images | [Install on a cluster](01-getting-started/QUICKSTART.md) |
 | Harden a long-lived installation | [Production deployment](05-operations/PRODUCTION_DEPLOYMENT.md) |
 | Build and deploy from source | [Local containerd build and deploy](05-operations/DEPLOYMENT_CONTAINERD.md) |
-| Optional features | [Admission webhook](05-operations/WEBHOOK.md), [runtime source health](05-operations/RUNTIME_SOURCE_HEALTH.md), [ServiceAccount revocation](05-operations/SERVICEACCOUNT_MUTATIONS.md), [scoped AGE graph](05-operations/SCOPED_AGE.md) |
+| Optional features | [Runtime sensors (Falco, source health)](05-operations/RUNTIME_SENSORS.md), [admission webhook](05-operations/WEBHOOK.md), [ServiceAccount revocation](05-operations/SERVICEACCOUNT_MUTATIONS.md) |
+| Back up or reset data | [Backup and reset](05-operations/BACKUP_AND_RESET.md) |
 | Manifest reference | [deploy/README.md](../deploy/README.md) |
 | Helper scripts | [scripts/README.md](../scripts/README.md) |
 
@@ -34,7 +35,7 @@
 | Goal | Guide |
 |---|---|
 | Contribution workflow | [CONTRIBUTING.md](../CONTRIBUTING.md) |
-| Run CI checks locally | [Local CI](05-operations/LOCAL_CI.md) |
+| Run CI checks locally | [Local CI](maintainers/LOCAL_CI.md) |
 | Audit plans, remediation status, release checklist | [Maintainer records](maintainers/README.md) |
 
 Dashboard screenshots live in [assets/screenshots](assets/screenshots/). Do not add generated reports, credentials, kubeconfigs or private environment captures to the documentation.

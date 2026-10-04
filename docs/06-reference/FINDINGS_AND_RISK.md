@@ -1,4 +1,8 @@
-# Finding actions and runtime evidence
+# Findings and risk
+
+Scope rules for finding actions and runtime signal lists, and how findings are evaluated, resolved and re-scored.
+
+## Finding actions and runtime evidence
 
 Runtime signal lists and suppression statistics enforce the signed-in user's cluster scope. The optional `clusterId` parameter narrows that scope; it never grants access. Explicit out-of-scope or unknown pod selections return 403 for restricted users. Retained evidence ownership is checked against soft-deleted pods as well.
 
@@ -11,7 +15,7 @@ Bulk actions validate the scope of every existing selected finding before writin
 The dashboard preserves dismissed and unknown statuses instead of displaying them as In review. Runtime evidence follows the selected cluster; filter, sort, time scope, and page-size changes reset pagination.
 
 
-## Follow-up audit: scope guards and action feedback
+### Follow-up audit: scope guards and action feedback
 
 - Pod scope middleware checks soft-deleted inventory. Unknown pods return 403 to cluster-restricted users and 404 to unrestricted users; lookup failures return 500 without executing the downstream handler.
 - The combined permission/scope guard validates both checks before invoking the handler. Risk-score reads and recalculation routes now use the pod ownership guard.
@@ -22,7 +26,7 @@ The dashboard preserves dismissed and unknown statuses instead of displaying the
 
 This audit covers these paths and their regression tests; it does not establish complete multi-cluster isolation. Aggregate analytics/list endpoints and broadcasts still require a separate scope audit, including counts, cache keys and subscriptions. PostgreSQL integration and live lab workflows also remain to be verified.
 
-## Aggregate and notification isolation
+### Aggregate and notification isolation
 
 Summary (including global and by-cluster), histogram, dashboard statistics and threat velocity now apply the current user's cluster scope before aggregation. An explicit unauthorized cluster returns 403 before cache lookup. Database failures return errors instead of successful empty summary/statistics responses.
 
@@ -34,7 +38,7 @@ Regression coverage warms caches as an unrestricted admin, then requests the sam
 
 Remaining work: scope review of the other risk analytics/inventory/graph endpoints; WebSocket session expiry and permission revocation after connection; cluster-qualified agent identity (the current agent inventory identifies nodes by name); PostgreSQL and live multi-cluster integration. Generic global invalidation still reveals that some update occurred, without entity identifiers.
 
-## WebSocket authorization lifetime
+### WebSocket authorization lifetime
 
 Risk and pod WebSocket connections now capture the validated JWT expiry and server session identity. They reload the user, session and required permission before each notification and every 15 seconds while idle. Pod connections also reload cluster scope and ownership. Revoked/expired sessions, disabled/deleted users, password-change restrictions, loss of permission/scope, or failed authorization queries close the socket with code 1008 and a generic reason. JWT expiry has its own timer.
 
@@ -44,7 +48,7 @@ The explicit development principal continues to support auth-disabled local deve
 
 These changes cover both `/ws/risks` and `/ws/pod/:uid`. Other analytics/inventory/graph scope checks and cluster-qualified agent identity remain separate audit items.
 
-### Risk analytics cluster authorization
+#### Risk analytics cluster authorization
 
 The five `/api/v1/risk/analytics/*` endpoints (trends, comparison, correlation,
 supply-chain, runtime-cve) resolve the authenticated user's cluster allow-list
@@ -78,7 +82,7 @@ This patch does not certify those remaining APIs. Correlation summaries are base
 on the limited result set; runtime event/CVE pair counts are not distinct event or
 CVE counts. PostgreSQL behavior still requires integration validation in the lab.
 
-### Risk score lists, statistics and synchronization
+#### Risk score lists, statistics and synchronization
 
 `GET /risk/scores`, `/risk/priorities`, `/risk/top`, `/risk/grouped`,
 `/risk/trends` and `POST /risk/scores/sync` now use the same authenticated
@@ -109,7 +113,7 @@ Remaining risk audit: global finding evaluation/historical evaluation, exception
 and attack-step aggregates. Inventory, graph and other runtime surfaces follow.
 Live PostgreSQL validation and end-to-end lab validation remain pending.
 
-### Evaluation, exceptions and attack-step summaries
+#### Evaluation, exceptions and attack-step summaries
 
 The legacy `/risk/insights/evaluate` and `/risk/insights/evaluate/historical`
 operations run across the database. They still require `risk.evaluate`, and now
@@ -143,7 +147,7 @@ Invalid exception IDs return 400; query errors return generic 500 responses.
 Attack-step summaries include only active pods in the authorized clusters.
 Authorization and cluster filtering happen before grouping and averaging.
 
-### ServiceAccount inventory authorization
+#### ServiceAccount inventory authorization
 
 ServiceAccount list totals and pages are restricted to authorized clusters;
 `cluster` and `clusterId` are supported with conflict/foreign-filter rejection.
@@ -169,7 +173,7 @@ ClusterRoles and namespace-qualified grants), bulk mutation semantics, deploymen
 ReplicaSet surfaces, capability summaries and cluster/agent identity. This change
 secures access to the permission view but does not certify its effective-rule calculation.
 
-### ServiceAccount RBAC grant resolution
+#### ServiceAccount RBAC grant resolution
 
 The permissions endpoint resolves Role and ClusterRole references separately within
 one cluster. RoleBinding grants retain the binding namespace; ClusterRoleBinding
@@ -191,7 +195,7 @@ rules supplied by Kubernetes.
 
 Reference: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
 
-## Shared RBAC resolution (work package B)
+### Shared RBAC resolution (work package B)
 
 Permissions API, Pod RBAC reports and the risk-engine cluster-admin projection
 use `core/pkg/rbacinventory`. The resolver matches ServiceAccount subjects,
@@ -216,3 +220,53 @@ Existing security-state snapshots retain their five-minute cache lifetime before
 recomputation. Source freshness/invalidation remains work package D.
 
 Reference: https://kubernetes.io/docs/reference/access-authn-authz/rbac/
+
+## Risk evaluation and reconciliation
+
+RBAC YAML rules declare applicable Kubernetes kinds through resource-kind tags.
+Role rules run on Role/ClusterRole, binding rules on their binding kinds, and
+ServiceAccount/Pod rules on their own kinds. Existing database overrides inherit
+the shipped kind tags unless explicitly configured. This prevents CEL expressions
+for one object shape from running against an unrelated shape. Normalization sets
+kind from the evaluator's resource type.
+
+Engine and YAML evaluation return rule errors; failed evaluation must not be
+interpreted as no findings. Historical evaluation and auto-resolution use the
+configured YAML/CEL engine without silent fallback to the simpler evaluator.
+An empty, partially invalid, or unreadable configured catalog stops these workers.
+Malformed DB rule conditions are reported instead of skipped. DB rule storage is
+still optional when its table has not been deployed.
+
+For an existing resource, auto-resolution requires the same enabled detector to
+still apply to that resource kind (rule ID, or title for legacy findings). A
+removed/disabled detector is not evidence of remediation. Invalid synchronized
+pod container JSON also preserves the finding and reports failure. Deleted exact
+UIDs retain the existing resolution behavior; supply-chain findings remain owned
+by their separate reconciliation pipeline.
+
+Each resolution and its system audit record are committed in one transaction.
+Audit failure rolls back the status change. The status predicate preserves manual
+resolved/dismissed changes made during evaluation. The overall batch is not
+atomic: completed per-finding transactions remain if a later finding fails, and
+the caller receives an incomplete-reconciliation error.
+
+Tests cover evaluator errors, partial/empty catalogs, disabled detectors, audit
+rollback, exact UID matching, and shipped RBAC rules. Runtime enrichment readers
+and source freshness remain separate concerns: this is not proof of end-to-end
+runtime coverage. PostgreSQL transactions and concurrent live ingestion remain
+lab validation gates.
+
+### Runtime input failures
+
+Pod evaluation now propagates failures from security-state projection and reads,
+runtime/capability queries, binding queries and malformed persisted evidence.
+A failed refresh cannot fall back to the previous snapshot or zero/false inputs.
+The base, YAML and runtime-only evaluators return the error; reconciliation retains
+the finding and reports an incomplete run instead of recording auto-resolution.
+
+Deploy the required runtime, capability, binding and security-state schema before
+enabling live Pod evaluation. Partial migrations now produce explicit errors.
+Database-free rule previews remain supported. The existing five-minute snapshot
+cache remains; telemetry completeness and invalidation are tracked in package D of
+[NEXT_AUDIT_PLAN.md](../maintainers/NEXT_AUDIT_PLAN.md). Successful reads alone do not prove that
+a sensor is healthy or that all events have arrived.
