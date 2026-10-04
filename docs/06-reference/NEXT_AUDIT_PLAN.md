@@ -64,19 +64,34 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 | H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests merged in #55; real Kubernetes retry/replacement gate passed | Dashboard preview controls are in the current follow-up branch; deployed workflow validation remains open |
 | I | 50,000-row trend/cache benchmarks, measured allocation fixes, bounded evaluation coalescing and backend first investigation completed | Live browser S2 walkthrough; production-scale latency/storage/SLO validation |
 
-The existing single-node lab is currently a rollout prerequisite, not acceptance
-evidence. On 2026-10-04 its workloads were 0/1 Ready after prolonged node
-DiskPressure and Pod eviction. Reclaiming archived journals and the disposable
-Go build cache restored `DiskPressure=False`, but kubelet then reported missing
-local `depfix-20260927-54-r2` Core/Agent/Dashboard images and pull denial. Recover
-the lab with verified images and a populated-database backup before attempting
-the #55 application rollout; retain PostgreSQL PVCs and Agent delivery state.
+The single-node lab recovered on 2026-10-04 after DiskPressure and roughly 9,400
+evicted Pod records. Archived journals and disposable Go build cache were removed;
+the stale failed Pod records were deleted after their workload images were restored.
+Core and Agent now run the published #55 image tag `sha-92a08cc18ba3`; Dashboard
+runs a locally built image of follow-up head `849c1b8ff`. All workloads passed
+`check-full-deployment.sh` with zero errors/warnings, and the node is Ready with
+`DiskPressure=False`. A populated custom-format backup was taken before rollout at
+`/var/backups/fortuna/fortuna-pre-post55-rollout-20261004.dump` (SHA-256
+`8c1982bfb3288df0cb12fadc2fb409b4427282c15ac02f6bee122c245eaf3a18`).
+Its archive listing was verified; a fresh isolated migration rehearsal was stopped
+before completion to preserve node disk headroom. Earlier complete populated
+rehearsals and the permanent PostgreSQL gate remain the migration evidence.
+
+The Agent now mounts `/var/lib/fortuna-agent` and uses
+`FALCO_DELIVERY_STATE_PATH=/var/lib/fortuna-agent/falco-delivery.json`. The
+root-only state survived an Agent restart; fresh Falco events were sent, while
+eight historical ownership-rejected records remained quarantined in a bounded
+sample. Pod Detail evidence for current Pods was accepted after inventory sync;
+Kubernetes Events referencing replaced Pod UIDs still produce ownership 403 and
+are isolated. This observation does not prove complete historical delivery or
+close the independent sensor, live browser, two-cluster credential, or scale gates.
 
 The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
 records source fixes, historical live observations and remaining acceptance gates
-separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions but
-still require a live Agent rollout with the durable-state configuration. They
-do not close D3 or package F's deployment acceptance. PR #54 merged on
+separately. Ingest findings `INGEST-01`–`INGEST-03` now have a live Agent rollout
+with durable Falco state, but retained-event recovery and Pod-event rate-limit
+acceptance remain open. They do not close D3 or package F's deployment
+acceptance. PR #54 merged on
 2026-10-01 as `80f24e98f`. PR #55 merged on 2026-10-02 as `92a08cc18`;
 its seven hosted CI jobs passed on exact head `238429f57`. The clean local
 all-job result for that head recorded `publishable=true`. These results validate
@@ -156,8 +171,10 @@ Core/Agent/API tests and vet, the permanent regression contract, 20 repeated
 SQLite risk-engine runs, all seven PostgreSQL selections, Dashboard
 typecheck/build and 52 Playwright tests, plus script/shell/hygiene checks.
 That dirty-tree report is non-publishable; record a fresh clean committed-head
-run outside this plan before push/merge readiness. A later live Agent rollout
-is still required before these ingest fixes are claimed deployed. The newer D3/F/G–I source and backend acceptance checkpoint is recorded above.
+run outside this plan before push/merge readiness. The later 2026-10-04
+single-node Agent rollout is recorded above; it does not complete retained-event
+recovery or rate-limit acceptance. The newer D3/F/G–I source and backend
+acceptance checkpoint is recorded above.
 The rollout must add the state env/volume/mount as well as the Agent image;
 see [Falco delivery-state operations](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
 

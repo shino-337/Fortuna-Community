@@ -82,10 +82,16 @@ idempotent reruns and unchanged production snapshot upserts.
 
 ## Remaining deployment acceptance
 
-Deploying these commits and independent attestor keys/measurement remains a
+The single-node lab now runs Core/Agent #55 and a local build of the Dashboard
+follow-up head. A pre-rollout populated backup was verified, and the deployment
+check passed after recovery from DiskPressure eviction. This is rollout evidence,
+not a second-cluster or browser acceptance result. The Dashboard login attempt
+using the stored bootstrap Secret was rejected by the current database account;
+the disposable S2 fixture was removed after that attempt and can be recreated
+for a credentialed walkthrough. Independent attestor keys/measurement remain a
 separate action. Sensor health cannot be inferred from file-reader activity;
 absence-based runtime auto-resolution stays disabled. The live browser walkthrough,
-Dashboard revocation controls, real mTLS/gRPC certificate lifecycle across clusters,
-ingest backlog/state-volume rollout and production-scale storage retention/sizing
-remain explicit operational gates. Backend first-investigation evidence and mocked
+real mTLS/gRPC certificate lifecycle across clusters, retained-event recovery,
+and production-scale storage retention/sizing remain explicit operational gates.
+Backend first-investigation evidence and mocked
 Dashboard browser regressions do not close those gates.
