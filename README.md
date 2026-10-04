@@ -1,93 +1,113 @@
 # Fortuna
 
-### Understand Kubernetes RBAC attack paths and the evidence behind them.
+### Find the pods that can take over your Kubernetes cluster, and see exactly how.
 
-Fortuna helps Kubernetes security engineers, pentesters, and platform teams investigate **which workloads have dangerous permissions and how those permissions connect to an attack path**. It brings workload inventory, RBAC, vulnerability findings, and available runtime evidence into one investigation.
-
-**Start with one question: could this pod's ServiceAccount give an attacker cluster-wide access?**
+Fortuna maps every workload to the permissions it really holds: **pod → ServiceAccount → RoleBinding → Role → what that lets an attacker do**. It shows the full path in one view, together with the vulnerabilities and runtime activity of the same pod, so you can decide what to fix first.
 
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 [![CI](https://github.com/shino-337/Fortuna-Community/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/shino-337/Fortuna-Community/actions/workflows/ci.yml)
 
-[Explore the screenshots](docs/04-user-guide/README.md#workspace-screenshots) · [Try the RBAC walkthrough](docs/01-getting-started/FIRST_FINDING.md) · [Install Fortuna](docs/01-getting-started/QUICKSTART.md) · [Website](https://fortunahub.dev)
+[Try it locally](#try-it-locally) · [Screenshots](docs/04-user-guide/README.md#workspace-screenshots) · [First investigation](docs/01-getting-started/FIRST_FINDING.md) · [Website](https://fortunahub.dev)
 
 ![Fortuna Attack Paths workspace from a local deployment](docs/assets/screenshots/attack-analysis.png)
 
-*Representative capture from a local deployment. Your findings and graph depend on the cluster, collected inventory, and enabled sensors. This image is not a before/after verification result.*
+## Why
 
-## Your first investigation
+Most Kubernetes clusters have a few workloads that are one `kubectl exec` away from `cluster-admin`, and nobody knows which ones. RBAC is spread across Roles, ClusterRoles and bindings, so a dangerous grant is easy to miss in review:
 
-A pod does not need a hostPath mount to have dangerous access. A ServiceAccount bound to `cluster-admin` can already carry cluster-wide permissions.
-
-The [RBAC walkthrough](docs/01-getting-started/FIRST_FINDING.md) uses the existing S2 lab fixture to help you:
-
-1. Identify the pod and its ServiceAccount.
-2. Follow the ClusterRoleBinding to the granted role.
-3. Compare Kubernetes authorization with Fortuna's workload-specific evidence.
-4. Remove the binding and check the result after inventory reconciliation.
-
-An inferred permission path is **not proof that an attacker executed it**. Runtime confirmation requires corresponding telemetry and evidence.
-
-## Choose how to explore
-
-| Your goal | Start here |
-|---|---|
-| See the interface without installing | [Screenshot tour](docs/04-user-guide/README.md#workspace-screenshots) |
-| Run Fortuna in an isolated lab | [Quickstart using released images](docs/01-getting-started/QUICKSTART.md) |
-| Investigate one concrete RBAC condition | [First finding walkthrough](docs/01-getting-started/FIRST_FINDING.md) |
-| Evaluate permissions and resource requirements | [Environment requirements](docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md) and [Agent manifest](deploy/fortuna-agent-daemonset.yaml) |
-| Build or contribute | [Contributing](CONTRIBUTING.md) |
-
-A hosted interactive demo and one-command demonstration environment are not available yet; see the [roadmap](ROADMAP.md).
-
-## What you can investigate
-
-| Area | Evidence to inspect |
-|---|---|
-| Workload and RBAC posture | Pods, ServiceAccounts, roles, bindings, dangerous permissions, and pod capabilities |
-| Attack paths | Workload-specific relationships, granted permissions, missing edges, and path classification |
-| Vulnerabilities | Workload SBOM, package matching, and vulnerability evidence |
-| Runtime | Available Falco/agent telemetry and its relationship to static posture |
-| Prioritization | Contributing factors behind a workload's risk score |
-
-### Coverage and limits
-
-- This README describes the evolving `main` branch. The latest published release is [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0); use its versioned documentation and manifests for that release.
-- Runtime coverage depends on sensor configuration. The built-in eBPF sensor is an experimental no-op attach scaffold, not a real exec/connect collector. `EBPF_SIMULATE=true` emits synthetic events; keep it disabled for real-evidence demos. Falco ingestion is a separate path.
-- External ingress-to-workload modeling, network reachability correlation, and business-context weighting remain roadmap work.
-- Scenario manifests define expected behavior. They are not evidence that your deployment passed those checks.
-- Start in an isolated cluster. The current Agent uses host PID access, root, host mounts including the containerd socket, and additional Linux capabilities. Review the [manifest](deploy/fortuna-agent-daemonset.yaml) before installation.
-
-## Installation
-
-Use the [Quickstart](docs/01-getting-started/QUICKSTART.md) for published images. It covers Kubernetes/storage prerequisites, secrets, mTLS, rollout, and dashboard access. Review the [environment requirements](docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md) first.
-
-For v1.0.0, start from a matching checkout:
-
-```bash
-git clone --branch v1.0.0 --depth 1 https://github.com/shino-337/Fortuna-Community.git
-cd Fortuna-Community
+```yaml
+# Looks harmless on its own...
+kind: ClusterRoleBinding
+metadata: { name: crb-rbac-admin }
+roleRef: { kind: ClusterRole, name: cluster-admin }
+subjects:
+  - { kind: ServiceAccount, name: sa-rbac, namespace: fortuna-test }
+# ...until a pod runs as sa-rbac. Anyone who compromises that pod owns the cluster.
 ```
 
-Follow the Quickstart **inside that checkout**. Newer documentation and features on `main` may differ. Source builds and database reset workflows are developer/operations paths, not required to explore the screenshots.
+Fortuna answers, per pod:
 
-## Architecture and documentation
+- **Can this pod's identity reach cluster-wide access?** And through which bindings?
+- **What could an attacker do next?** Read Secrets, create pods, escalate RBAC, reach the node.
+- **Is it also exploitable?** Known CVEs in the same pod's images, and runtime signals when a sensor is available.
+- **Did my fix work?** Remove the binding and watch the path disappear after the next inventory sync.
 
-Fortuna Agent collects Kubernetes/runtime inventory and sends it to Core over gRPC/mTLS. Core and workers correlate evidence using PostgreSQL and NATS; the dashboard exposes findings, inventory, risk factors, and attack paths.
+## Try it locally
+
+You need Docker, [kind](https://kind.sigs.k8s.io/), `kubectl` and `openssl`. Everything runs in a throwaway local cluster with its own kubeconfig.
+
+```bash
+git clone https://github.com/shino-337/Fortuna-Community.git
+cd Fortuna-Community
+./scripts/demo/up.sh
+```
+
+The script installs Fortuna from published images, loads an example pod whose ServiceAccount is bound to `cluster-admin`, and prints the dashboard URL and login. The first run takes a few minutes while images are pulled and the database is migrated. See the [demo guide](docs/01-getting-started/DEMO.md) for options and troubleshooting, then follow [your first investigation](docs/01-getting-started/FIRST_FINDING.md). Clean up with `./scripts/demo/down.sh`.
+
+## How it compares
+
+Fortuna is workload-centric: it starts from a running pod and asks what its identity can reach. It is not a compliance scanner.
+
+| Tool | Main focus |
+|---|---|
+| **Fortuna** | Per-workload RBAC attack paths, combined with the same pod's vulnerabilities and runtime evidence, in one investigation UI |
+| [KubeHound](https://github.com/DataDog/KubeHound) | Cluster-wide attack graph built for graph queries |
+| [Kubescape](https://github.com/kubescape/kubescape) | Posture and compliance scanning against frameworks (NSA, CIS, MITRE) |
+| [rbac-police](https://github.com/PaloAltoNetworks/rbac-police) / [KubiScan](https://github.com/cyberark/KubiScan) | Enumerate risky RBAC permissions from the command line |
+| [Trivy Operator](https://github.com/aquasecurity/trivy-operator) | Continuous vulnerability and misconfiguration reports |
+
+They work well together: use a scanner for broad coverage, and Fortuna to investigate which workload findings actually lead somewhere.
+
+## What you get
+
+| Area | What you can inspect |
+|---|---|
+| Attack paths | Workload-specific chain from pod to granted permissions, with missing edges and path classification |
+| RBAC inventory | Pods, ServiceAccounts, Roles, bindings and dangerous verbs, per cluster |
+| Vulnerabilities | Workload SBOM, package matching and CVE evidence |
+| Runtime | Falco/agent telemetry linked to the static posture of the same pod |
+| Prioritization | The factors behind each workload's risk score |
+| Remediation | Reviewed, previewed revocation of a ServiceAccount's bindings |
+
+An inferred permission path shows what is **possible**, not proof that an attacker used it. Runtime confirmation needs matching telemetry.
+
+## How it works
+
+```
+ Agent (DaemonSet) ──HTTP/gRPC──▶ Core (API, correlation) ──▶ PostgreSQL + NATS
+   inventory, SBOM, runtime            │
+                                       ▼
+                                 Dashboard (web UI)
+```
+
+The Agent collects Kubernetes inventory, image SBOMs and available runtime events and sends them to Core. Core correlates them into findings and attack paths; the dashboard is where you investigate. See [Architecture](docs/02-architecture/ARCHITECTURE.md).
+
+## Before you install in a real cluster
+
+Start in a disposable cluster. Read these first:
+
+- **Agent privileges.** The Agent runs as root with host PID access, host mounts (including the containerd socket) and extra Linux capabilities, and can exec into pods to collect process lists. Review the [manifest](deploy/fortuna-agent-daemonset.yaml).
+- **Runtime coverage** depends on your sensors. The built-in eBPF sensor is an experimental scaffold, not a real exec/connect collector; Falco ingestion is a separate path. Keep `EBPF_SIMULATE` disabled for real evidence.
+- **Not yet modeled:** external ingress-to-workload reachability, network reachability correlation and business-context weighting (see the [roadmap](ROADMAP.md)).
+- This README tracks `main`. The latest release is [v1.0.0](https://github.com/shino-337/Fortuna-Community/releases/tag/v1.0.0); use the docs and manifests from that tag for it.
+
+For a full installation (secrets, mTLS, storage, rollout), follow the [Quickstart](docs/01-getting-started/QUICKSTART.md) and the [environment requirements](docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md).
+
+## Documentation
 
 | Need | Guide |
 |---|---|
-| Architecture and multi-cluster model | [Architecture](docs/02-architecture/ARCHITECTURE.md) |
-| Components and detection model | [Components](docs/03-components/README.md) |
+| Install and first finding | [Getting started](docs/01-getting-started/README.md) |
 | Dashboard workflows | [User guide](docs/04-user-guide/README.md) |
-| Live-cluster validation scenarios | [Scenarios](scenarios/README.md) |
-| Production operations | [Production deployment](docs/05-operations/PRODUCTION_DEPLOYMENT.md) |
-| Planned capabilities | [Roadmap](ROADMAP.md) |
+| Architecture and multi-cluster model | [Architecture](docs/02-architecture/ARCHITECTURE.md) |
+| Production operations | [Operations](docs/05-operations/PRODUCTION_DEPLOYMENT.md) |
+| Validation scenarios | [Scenarios](scenarios/README.md) |
+| Design records and security invariants (maintainers) | [Reference](docs/06-reference/README.md) |
 
-## Feedback and contributions
+## Contributing
 
-Useful feedback includes your Fortuna version, Kubernetes/runtime version, the step that blocked you, and expected versus observed evidence. Remove credentials and sensitive cluster data before sharing.
+Bug reports, detection scenarios and documentation fixes are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md). When reporting a problem, include your Fortuna and Kubernetes versions, the step that failed, and what you expected. Remove credentials and cluster data first.
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for bug reports, documentation improvements, and detection scenarios. If Fortuna is useful to you, star the repository to help others discover it.
+If Fortuna helped you find something, a star helps other people find it too.
 
-For vulnerabilities, follow [SECURITY.md](SECURITY.md). Fortuna is licensed under [Apache-2.0](LICENSE).
+Report vulnerabilities through [SECURITY.md](SECURITY.md). Licensed under [Apache-2.0](LICENSE).
