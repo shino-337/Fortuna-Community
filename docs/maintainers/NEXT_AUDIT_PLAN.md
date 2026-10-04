@@ -18,29 +18,12 @@ unopened work are estimates: D is split into D1 and D2 inventory/runtime work, s
 | H | Mutations | Explicit revocation workflow and durable deletion/retry/audit semantics | User knows the exact Kubernetes effects; retry cannot delete replacement objects | C, F |
 | I | Performance and first investigation | Benchmark trend queries/cache, optimize measured bottlenecks, versioned docs and validated walkthrough | Recorded load/resource results and successful first-finding investigation | A–F; feature claims reflect G/H status |
 
-## Permanent regression-prevention contract
+## Regression-prevention contract
 
-`SECURITY_INVARIANTS.md` defines the rules that survive the individual fixing PRs.
-Every security finding fixed in packages C–F must become a named regression or static CI
-invariant. The package F PostgreSQL/two-cluster integration suite becomes a permanent
-gate for later changes touching cluster identity, ingest, authorization, storage,
-runtime evidence, findings or migrations.
-
-The target is to make recurrence of known defect classes fail CI. This does not
-claim that arbitrary future software defects are impossible; new findings must be
-converted into a reproducible invariant before their fixing PR is complete.
-
-## Review checklist for every PR
-
-- Document the problem, behavior change and remaining limitations.
-- Add regressions for the failure scenario and retain successful-path coverage.
-- Run relevant tests, then the repository CI gates before declaring ready.
-- Add security-critical tests to the named regression contract when removal or
-  silent fallback would recreate a previous finding.
-- Preserve `{cluster_id, resource_uid}` in any new cluster-owned storage/query path.
-- Treat missing/ambiguous ownership and unavailable required evidence as fail-closed.
-- Include migration/compatibility notes where applicable.
-- Leave merge to the repository owner.
+The permanent rules, PR review checklist and finding-to-test map live in
+[security invariants](../06-reference/SECURITY_INVARIANTS.md). Every security
+finding fixed in packages C–F must become a named regression or static CI
+invariant there; this plan only records status.
 
 ## Deployment/demo gate
 
@@ -429,22 +412,16 @@ Dashboard revocation UI or live browser acceptance is claimed by these source ch
 
 ## Repository governance prerequisite
 
-Security-sensitive paths are covered by CODEOWNERS, but repository rules must
-require CODEOWNER review and required CI checks on `main`. Direct/force pushes or
-merges that bypass those checks defeat the regression-prevention contract and must
-remain disabled by owner-side branch/ruleset configuration.
+The requirement is defined in [security invariants](../06-reference/SECURITY_INVARIANTS.md#repository-governance-prerequisite).
 On 2026-10-01 the repository's `main-security-gate` ruleset was disabled and no
 branch protection applied to `main`; owner-side enforcement remains open.
 
 
 ## Merge-readiness discipline
 
-For #50 and subsequent security packages, runtime code is reviewed as one complete
-state machine rather than a sequence of isolated findings. Any runtime-code commit
-resets readiness and requires re-review of identity, scope, failure/replay,
-concurrency, rollback, alternate writers, migrations and deployment topology.
-Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52–#55
+The rule is the [security-change review protocol](../06-reference/SECURITY_INVARIANTS.md#security-change-review-protocol):
+any runtime-code commit resets readiness, and only an exact head with passing Core,
+Agent, API, PostgreSQL and security-regression gates is merged. #51 was retired rather than reused. #52–#55
 are merged; the D3/F/G–I commits were merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head. Automatic
 Secret Scan remains manual-only and is not part of the functional CI gate.
 

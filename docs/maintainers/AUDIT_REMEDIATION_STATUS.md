@@ -58,7 +58,7 @@ without an established attack path.
 All three ingest fixes retain Core ownership authorization and mark pending or
 quarantined Falco evidence as failed coverage. They do not grant runtime authority
 or enable absence-based auto-resolution. Permanent test mappings are in
-[REGRESSION_PREVENTION.md](REGRESSION_PREVENTION.md); rollout configuration and
+the [security invariants finding-to-test map](../06-reference/SECURITY_INVARIANTS.md#appendix-finding-to-test-map); rollout configuration and
 state retention are in
 [DEPLOYMENT_CONTAINERD.md](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
 
