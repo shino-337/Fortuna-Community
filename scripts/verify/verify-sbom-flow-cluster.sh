@@ -41,5 +41,5 @@ PODS=$(kubectl -n "$NAMESPACE" exec "$PG_POD" -- psql -U postgres -d fortuna -t 
 SBOMS=$(kubectl -n "$NAMESPACE" exec "$PG_POD" -- psql -U postgres -d fortuna -t -A -c "SELECT COUNT(*) FROM sboms WHERE deleted_at IS NULL;" 2>/dev/null || echo "?")
 echo "Pods in DB: $PODS | SBOMs in DB: $SBOMS"
 if [ "${SBOMS:-0}" -lt "${PODS:-1}" ] 2>/dev/null; then
-  warn "Dashboard will show 'no SBOM' for pods without a row in sboms. See docs/03-components/README.md#sbom-and-cve and agent logs (client not connected?)."
+  warn "Dashboard will show 'no SBOM' for pods without a row in sboms. See docs/components/README.md#sbom-and-cve and agent logs (client not connected?)."
 fi

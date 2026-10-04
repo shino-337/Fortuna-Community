@@ -1,111 +1,41 @@
-# Database Migrations
+# Database migrations
 
-This directory contains database migration files for Fortuna Core.
+Core runs every migration in this directory at startup (`storage.Migrate` in `core/internal/storage`). There is no separate migration command.
 
-## Migration System
+## How versions are recorded
 
-The migration system uses GORM's AutoMigrate feature to automatically create and update database tables.
+`RunMigrations` in `migrations.go` holds one ordered slice of migration functions. Each entry's **version is its position in that slice** (`i + 1`), not the number in its file or function name, and it is recorded in the `schema_migrations` table once it succeeds. Function numbers have gaps (004–007, 017, 085) and some entries are listed out of numeric order (082 before 080 and 081, 150 before 149), so do not infer the recorded version from a file name.
 
-## Migration Files
+Because of this, the slice is **append-only** ([security invariant 7](../../docs/reference/SECURITY_INVARIANTS.md#invariant-7--migration-history-is-append-only)):
 
-### Migration 001: Initial Schema
-Creates the initial database schema:
-- `clusters` - Kubernetes cluster information
-- `service_accounts` - ServiceAccount data
-- `role_bindings` - RoleBinding data
-- `cluster_role_bindings` - ClusterRoleBinding data
-- `roles` - Role data
-- `cluster_roles` - ClusterRole data
-- `pods` - Pod data
-- `audit_logs` - Audit log entries
+- Add new migrations only at the end of the slice.
+- Never reorder, remove or insert entries before already-shipped ones. That would shift every later version and make Core skip or re-run migrations on existing databases.
 
-### Migration 002: Add Users
-Creates the `users` table for authentication:
-- `id` - Primary key
-- `username` - Unique username
-- `email` - Unique email
-- `password` - Hashed password
-- `role` - User role (admin, user, viewer)
-- `active` - Active status
-- `last_login` - Last login timestamp
-- `created_at`, `updated_at`, `deleted_at` - Timestamps
+A migration that returns an error is logged and not recorded, and the loop continues. It runs again on the next start. Check Core startup logs for `Migration N failed` after an upgrade.
 
-### Migration 003: Add User to Audit Logs
-Adds `user_id` column to `audit_logs` table and creates foreign key constraint.
+## Guards that run after the slice
 
-## Running Migrations
+After `RunMigrations`, `storage.Migrate` runs schema guards that must hold for security-critical ownership (for example `EnsureClusterResourceIdentityFoundation`, `EnsureClusterQualifiedPodUniqueness`, `EnsureSBOMContentIdentity`, `EnsureAgentCompositeIdentity`). These fail startup instead of continuing. They live in the unnumbered files in this directory.
 
-Migrations are automatically run when the application starts. They are executed in order:
+## Post-migrations and the bootstrap admin
 
-1. `Migration001_InitialSchema`
-2. `Migration002_AddUsers`
-3. `Migration003_AddUserToAuditLogs`
+`RunPostMigrations` creates or updates the admin account:
 
-## Post-Migrations
+| Variable | Default | Effect |
+|---|---|---|
+| `FORTUNA_ADMIN_USERNAME` | `admin` | Admin username |
+| `FORTUNA_ADMIN_PASSWORD` | unset | When set, the admin is created with it, and an existing admin is re-synced to it whenever it no longer matches. Rotate it through the Secret, not only in the UI |
+| *(unset password)* | `Fortuna_ChangeMe_123!` | Bootstrap credential: the admin must change it at first login, and it never overwrites an existing account |
+| `FORTUNA_ADMIN_EMAIL` | `<username>@fortuna.local` | Admin email |
+| `FORTUNA_ALLOW_WEAK_BOOTSTRAP_PASSWORD` | `false` | Allows a password below the policy (12+ chars, upper, lower, digit, special). Non-production only |
 
-After schema migrations, post-migrations are run:
-- `CreateDefaultAdmin` - Creates a default admin user if environment variables are set
+Seed migrations (050, 051, 061) insert reference data only when `FORTUNA_ENABLE_SEED_DATA=true`.
 
-### Environment Variables for Default Admin
+## Adding a migration
 
-- `FORTUNA_ADMIN_USERNAME` - Admin username (required)
-- `FORTUNA_ADMIN_PASSWORD` - Admin password (required). Must meet Core password policy (≥12 chars, upper, lower, digit, special) unless `FORTUNA_ALLOW_WEAK_BOOTSTRAP_PASSWORD=true` (non-production only).
+1. Copy `MIGRATION_TEMPLATE.go` to `NNN_short_name.go`, using the next free number.
+2. Make it safe to re-run against a partially migrated database: check for tables, columns and indexes before creating them. Return errors instead of logging and continuing.
+3. Append the function to the end of the slice in `RunMigrations`.
+4. Add a test. Changes to ownership or identity schema also need a PostgreSQL test in the populated-migration CI job.
 
-Example:
-```bash
-export FORTUNA_ADMIN_USERNAME=admin
-export FORTUNA_ADMIN_PASSWORD='Fortuna_DevOnly_P@ssw0rd'
-export FORTUNA_ADMIN_EMAIL=admin@example.com
-```
-
-## Manual Migration
-
-To run migrations manually:
-
-```go
-import (
-    "github.com/fortuna/core/migrations"
-    "gorm.io/gorm"
-)
-
-// Run migrations
-if err := migrations.RunMigrations(db); err != nil {
-    log.Fatal(err)
-}
-
-// Run post-migrations
-if err := migrations.RunPostMigrations(db); err != nil {
-    log.Fatal(err)
-}
-```
-
-## Adding New Migrations
-
-To add a new migration:
-
-1. Create a new migration function in `migrations.go`:
-```go
-func Migration004_YourMigration(db *gorm.DB) error {
-    log.Println("Running migration 004: Your migration")
-    // Your migration logic here
-    return nil
-}
-```
-
-2. Add it to the `RunMigrations` function:
-```go
-migrations := []func(*gorm.DB) error{
-    Migration001_InitialSchema,
-    Migration002_AddUsers,
-    Migration003_AddUserToAuditLogs,
-    Migration004_YourMigration, // Add here
-}
-```
-
-## Notes
-
-- Migrations are idempotent - they can be run multiple times safely
-- Use `db.Migrator().HasColumn()` to check if a column exists before adding it
-- Always test migrations on a development database first
-- Back up your database before running migrations in production
-
+Back up the database before upgrading. An image rollback does not reverse migrations.

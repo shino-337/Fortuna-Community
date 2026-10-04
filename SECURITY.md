@@ -10,11 +10,8 @@ Do not disclose vulnerability details in a public issue. Use GitHub private vuln
 
 If private reporting is not available, open a minimal public issue asking the maintainers for a private contact channel. Do not include exploit steps, secrets, tokens, kubeconfigs, hostnames, IP addresses, or screenshots that expose sensitive data.
 
-## Secret Handling
+## Handling secrets
 
-- Never commit real Kubernetes secrets, kubeconfigs, certificates, private keys, database dumps, tokens, `.env` files, or local node credentials.
-- Use `FORTUNA_JWT_SECRET`, `FORTUNA_ADMIN_PASSWORD`, `FORTUNA_INGEST_TOKEN`, and Kubernetes Secrets for runtime values.
-- Use immutable release image tags or commit SHA tags for production installs.
-- Before making a formerly private repository public, run the [public release checklist](docs/maintainers/PUBLIC_RELEASE_CHECKLIST.md), including full-history secret scanning and credential rotation.
-
-Additional runtime guidance is in [docs/06-reference/SECURITY.md](docs/06-reference/SECURITY.md).
+- Contributors: see the repository rules in [CONTRIBUTING.md](CONTRIBUTING.md#repository-rules).
+- Operators: see [runtime secrets and deployment notes](docs/reference/SECURITY.md).
+- Maintainers making a formerly private repository public: run the [public release checklist](docs/maintainers/PUBLIC_RELEASE_CHECKLIST.md), including full-history secret scanning and credential rotation.

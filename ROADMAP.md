@@ -64,7 +64,7 @@ The roadmap is organized around security capabilities rather than internal imple
 - [x] Authenticated Agent-to-Core communication
 - [x] Dashboard security workspaces
 - [x] Reproducible deployment and verification scripts
-- [ ] Simplified one-command demonstration environment
+- [x] Simplified one-command demonstration environment
 - [ ] Improved upgrade and migration experience
 - [ ] Expanded operational telemetry and health reporting
 
