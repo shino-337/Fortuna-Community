@@ -1,8 +1,8 @@
-# Audit remediation status — September 2026
+# Audit remediation status — October 2026
 
-Source/GAP checkpoint: 2026-10-01 UTC. PRs #29–#50 and #52–#54 are merged;
-#51 was retired. PR #54 passed all seven hosted CI jobs on its final head
-`3ff4da767` before merge. PR #47 added immutable image-content
+Source/GAP checkpoint: 2026-10-04 UTC. PRs #29–#50 and #52–#55 are merged;
+#51 was retired. PRs #54 and #55 each passed all seven hosted CI jobs on their
+final heads (`3ff4da767` and `238429f57`). PR #47 added immutable image-content
 snapshots with separate workload observations,
 container-qualified ingest, ownership validation before matching/linking, retired
 combined finding writes, and cluster propagation to CVE/malware matches. Its startup
@@ -24,14 +24,12 @@ coverage or a guarantee that the repository has no further defects.
 | D2 / inventory and runtime receipts | Merged #50/#52; immutable receipts, session lifecycle and replay guards | Multi-writer/namespace-scope DaemonSet acceptance in F |
 | D3 / independent runtime source health | Signed Ed25519 protocol, separate registry/relay, exact session binding and PostgreSQL replay/rollback regressions implemented | Deploy an independently measuring attestor; auto-resolution remains disabled |
 | E / availability | E1/#53 and E2/residual E1/#54 merged; final #54 hosted CI passed at `3ff4da767` | Live browser rollout acceptance |
-| F / integration | Two populated backup rehearsals, ownership-collision fixture and real two-cluster/three-node/six-Agent backend gate passed | Exact-head repeat; live browser, mTLS/gRPC and production rollout acceptance |
-| G / scoped AGE | Scoped internal AGE and real extension traversal/foreign-edge/pool regressions implemented | Review/rollout; arbitrary and legacy AGE HTTP routes remain retired |
-| H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed | Dashboard preview controls and deployed operation validation; legacy disable remains 501 |
+| F / integration | Two populated backup rehearsals, ownership-collision fixture and real two-cluster/three-node/six-Agent backend gate passed on #55 exact head | Live browser, mTLS/gRPC and production rollout acceptance |
+| G / scoped AGE | Scoped internal AGE and real extension traversal/foreign-edge/pool regressions merged in #55 | Rollout; arbitrary and legacy AGE HTTP routes remain retired |
+| H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed in #55 | Dashboard preview controls are in the current follow-up branch; deployed operation validation remains open; legacy disable remains 501 |
 | I / performance and investigation | 50,000-row trend and 500-path cache baselines, bounded allocation/coalescing fixes and backend investigation passed | Live browser walkthrough; production retention, scale/SLO and workload-specific sizing |
 
-The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE_20260929.md); historical single-node rollouts/resets alone do not establish those results. The D3/F/G–I source commits were merged in PR #55 (merge commit `92a08cc`) on 2026-10-01 after all seven hosted CI jobs passed on its final head. No live rollout of the 2026-09-28/29 ingest fixes is recorded. Earlier
-#54 zero-step CI failures were followed by a successful seven-job hosted run. Exact tested SHA,
-source fingerprint and log hashes belong in external CI evidence.
+The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE_20260929.md); historical single-node rollouts/resets alone do not establish those results. PR #55 exact-head native and hosted CI passed before merge. On 2026-10-04 the single-node lab recovered from DiskPressure eviction, then Core/Agent #55 and the follow-up Dashboard image rolled out with all workloads Ready. Agent durable Falco state survived restart, but eight historical ownership-rejected records remained quarantined and old Pod Events still returned ownership 403; retained-event recovery and live browser acceptance remain open. Exact tested SHA, source fingerprint and log hashes belong in external CI evidence.
 
 ## New findings and deployment follow-ups
 
@@ -41,9 +39,9 @@ without an established attack path.
 
 | ID | Finding and evidence | Fix / regression | Status and remaining gate |
 | --- | --- | --- | --- |
-| INGEST-01 | A Falco batch containing an old rollout Pod UID returned ownership 403 indefinitely, blocking valid siblings. Restart restored fresh traffic but did not preserve a durable retry state. | Optional principal/source-bound disk cursor/outbox; isolate only `runtime_ownership_mismatch`, preserve canonical payloads/source IDs, bounded quarantine/backoff. `TestFalcoDurableMixedBatchRestartAndRecovery`, `TestFalcoDurableRotationReplaysPendingBeforeReadingReplacement`, `TestFalcoDurableBackoffSurvivesRestartAndMissingSource`, `TestFalcoDurablePersistenceFailureDoesNotSendOrAdvanceCursor`. | Source fixed; pending live image plus state env/volume/mount rollout, restart/rotation and retained-evidence recovery. Without the state path, legacy whole-slice retry still applies. |
-| INGEST-02 | Pod-event retry/quarantine generated repeated rate limiting: the 2026-09-28 bounded log sample contained 75 HTTP 429 failures and 705 quarantine entries. Recursive splitting and individual quarantine retry could consume excessive requests. | Shared 12-request flush budget; stop siblings on transient/non-ownership failure; honor `Retry-After`; keep deferred quarantine separate from fresh events. `TestEventsCollectorRateLimitStopsFlushAndPreservesQuarantine`, `TestEventsCollectorQuarantineRetryHasSharedRequestBudget`, `TestDeliveryStopsSiblingsOnRateLimitAndOtherForbidden`. | Source fixed; pending live rate-limit/backoff/recovery verification. The in-memory Pod-event queues remain bounded and are not restart-durable. |
-| INGEST-03 | Under a bounded flush, an ownership-rejected quarantine prefix was retried first every time, starving a recovered event at the tail. The new reproduction failed after 33 retry turns before the fix. | Deferred quarantine records get the next turn before already-rejected records. `TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents` verifies eventual delivery, request limits and retained evidence; informer-update regressions preserve the newest version. | Source fixed; full working-tree CI passed 2026-09-29. Live rollout still open with INGEST-02. |
+| INGEST-01 | A Falco batch containing an old rollout Pod UID returned ownership 403 indefinitely, blocking valid siblings. Restart restored fresh traffic but did not preserve a durable retry state. | Optional principal/source-bound disk cursor/outbox; isolate only `runtime_ownership_mismatch`, preserve canonical payloads/source IDs, bounded quarantine/backoff. `TestFalcoDurableMixedBatchRestartAndRecovery`, `TestFalcoDurableRotationReplaysPendingBeforeReadingReplacement`, `TestFalcoDurableBackoffSurvivesRestartAndMissingSource`, `TestFalcoDurablePersistenceFailureDoesNotSendOrAdvanceCursor`. | #55 Agent image and node-local state path rolled out; state survived restart, fresh sends succeeded, and eight old records remained quarantined. Rotation and retained-evidence recovery still need live verification. Without the state path, legacy whole-slice retry still applies. |
+| INGEST-02 | Pod-event retry/quarantine generated repeated rate limiting: the 2026-09-28 bounded log sample contained 75 HTTP 429 failures and 705 quarantine entries. Recursive splitting and individual quarantine retry could consume excessive requests. | Shared 12-request flush budget; stop siblings on transient/non-ownership failure; honor `Retry-After`; keep deferred quarantine separate from fresh events. `TestEventsCollectorRateLimitStopsFlushAndPreservesQuarantine`, `TestEventsCollectorQuarantineRetryHasSharedRequestBudget`, `TestDeliveryStopsSiblingsOnRateLimitAndOtherForbidden`. | #55 Agent image rolled out; old Pod UID events still produce ownership 403 while valid siblings receive 200. Live rate-limit/backoff/recovery verification remains open. The in-memory Pod-event queues remain bounded and are not restart-durable. |
+| INGEST-03 | Under a bounded flush, an ownership-rejected quarantine prefix was retried first every time, starving a recovered event at the tail. The new reproduction failed after 33 retry turns before the fix. | Deferred quarantine records get the next turn before already-rejected records. `TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents` verifies eventual delivery, request limits and retained evidence; informer-update regressions preserve the newest version. | Source fixed and #55 Agent rolled out on one node. Live recovered-tail delivery and rate-limit acceptance remain open with INGEST-02. |
 | INSIGHT-01 | Historical RBAC evaluation generated insights without `cluster_id` and failed to restore an exact soft-deleted unique key; the 2026-09-27 log reported 153 duplicate-key errors per sync. | Persist cluster-qualified identity and restore only the exact key. `TestRuleInsightCarriesClusterIdentity`, `TestGenericInsightRestoresSoftDeletedRowWithinCluster`, `TestGenericInsightRestorePostgres`. | Source fix and single-node success recorded 2026-09-27 (`Insights=166, Errors=0`). Real two-cluster/manual concurrency acceptance passed in F. Unowned historical rows must not be guessed or deleted. |
 | INSIGHT-02 | Generic RBAC upserts reset acknowledged findings to active on the next sync and could race manual writes. Pod-specific upserts already retained acknowledgement. | Lock the existing generic row before merge, retain acknowledged state in keyed/empty-key/conflict paths; `TestGenericInsightRetainsAcknowledgedState` plus concurrent PostgreSQL variants in `TestGenericInsightRestorePostgres`. | Source fixed; SQLite/PostgreSQL regression passes. Reconciliation still may resolve an acknowledged risk with verified evidence and audit. |
 | POLICY-01 | Stock Pod policies referenced undeclared `object` and had incompatible evaluator semantics, preventing CEL compilation. | Corrected 1.0.1 templates use `resource`; forward repair preserves customized templates. `TestBaselinePodPoliciesCompileAndDetectUnsafeSpec`, `TestMigration151PreservesModifiedLegacyTemplate`, `TestBaselinePodPolicySeedAndRepairPostgres`. | Source fix and live compilation recorded 2026-09-27. No installed ValidatingWebhookConfiguration was observed, so admission denial remains unverified. |
@@ -53,7 +51,7 @@ without an established attack path.
 | GRAPH-01 | Relational BuildAllPaths logged snapshot/per-Pod/cleanup errors and continued, returning a partial successful graph. | Propagate required input/reconciliation errors; `TestAttackPathBuildFailsClosedOnSnapshotError` in permanent gate. | Source fixed; full suite remains required on each head. |
 | PERF-01 | Trends loaded 50,000 complete RiskScore rows per request; cache reads serialized and decoded 500 paths repeatedly. | Database UTC bucket aggregation and immutable encoded cache; scope/calendar/failure/nested-mutation tests and recorded benchmarks. | Source fixed; see measured resource limits in performance baseline. |
 | PERF-02 | Six real Agents' full syncs repeatedly spawned overlapping global historical/PCE scans, starving an eight-connection test pool. | One coalesced evaluation per DB with a pending refresh; `TestFullSyncEvaluationCoalescesAndRetainsPendingPass`. Real acceptance uses 30s sync and 25 connections. | Source fixed; representative production-scale capacity remains a separate gate. |
-| CI-01 | A dirty/changed tree or inherited test-selection/database settings could make local results unsuitable for an exact-head claim. This is a validation limitation, not a reported production exploit. | Native runner reads workflow jobs, isolates PostgreSQL, clears inherited test selectors/live DB URL, hashes source/logs and permits publishable results only for clean unchanged all-job success. `test-local-ci-native.py` covers failure, source changes and publishability. | Tooling implemented; each new candidate commit requires a fresh clean all-job result. Hosted CI resumed for #54; later heads still need their own run. |
+| CI-01 | A dirty/changed tree or inherited test-selection/database settings could make local results unsuitable for an exact-head claim. This is a validation limitation, not a reported production exploit. | Native runner reads workflow jobs, isolates PostgreSQL, clears inherited test selectors/live DB URL, hashes source/logs and permits publishable results only for clean unchanged all-job success. `test-local-ci-native.py` covers failure, source changes and publishability. | Tooling implemented; #55 clean exact-head native and hosted CI passed. Each new candidate commit needs its own run. |
 
 All three ingest fixes retain Core ownership authorization and mark pending or
 quarantined Falco evidence as failed coverage. They do not grant runtime authority
@@ -94,7 +92,9 @@ Behavior changes worth reviewing:
 - Bulk delete now reaches Kubernetes and requires target kubeconfig plus both
   inventory.bulk and inventory.delete. HTTP 207 identifies partial failures.
 - Disable and disable-inactive intentionally return 501. Inventory disappearance
-  is not credential revocation. The reviewed mutation API now provides explicit revocation; Dashboard preview controls remain pending.
+  is not credential revocation. The reviewed mutation API now provides explicit
+  revocation; Dashboard preview controls are implemented in draft PR #57 and
+  still need a credentialed live walkthrough.
 - Legacy AGE HTTP routes and handlers were removed in #46. Scoped
   relational graph/attack-path views remain available; internal scoped AGE is implemented and tested against AGE 1.6; no arbitrary-query HTTP route is exposed.
 - Existing agents without cluster assignment are quarantined until authenticated
@@ -117,7 +117,10 @@ Behavior changes worth reviewing:
 6. Test actual login/navigation and the end-to-end demo flow in the lab. Browser
    fixtures mock API responses and do not replace this test.
 
-The remaining deployment backlog includes independently measured sensor health, live browser and mTLS/gRPC credential rollout, Dashboard mutation controls and production-scale load/storage validation.
+The remaining deployment backlog includes independently measured sensor health,
+live browser and mTLS/gRPC credential rollout, and production-scale load/storage
+validation. Dashboard mutation controls are implemented in draft PR #57 but
+still need the credentialed live walkthrough.
 Source freshness/lifecycle and scoped credential implementations are merged but
 do not establish completion of these live gates. The documents below record
 specific behavior and remaining boundaries, rather than treating a mitigation as

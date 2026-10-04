@@ -40,8 +40,13 @@ completion audit commit atomically only after successful UID-guarded deletion.
 Workers resume after Core restart; watch the operation status rather than treating
 a failed HTTP request as proof that no Kubernetes effect occurred.
 
-Current Dashboard disable actions remain unavailable. Use this API workflow to
-inspect exact effects; no automatic inactive-account revocation is enabled.
+The Dashboard ServiceAccount identity detail now exposes the same preview,
+execute and status workflow for users with the required permissions. It shows
+each target UID, binding subject change and plan limitation before execution,
+and stores the operation ID in the page URL so progress can be reopened.
+The UI is part of the post-#55 follow-up and requires deployment validation.
+Legacy Dashboard disable actions remain unavailable; no automatic
+inactive-account revocation is enabled.
 
 ## Details
 
