@@ -58,9 +58,9 @@ without an established attack path.
 All three ingest fixes retain Core ownership authorization and mark pending or
 quarantined Falco evidence as failed coverage. They do not grant runtime authority
 or enable absence-based auto-resolution. Permanent test mappings are in
-the [security invariants finding-to-test map](../06-reference/SECURITY_INVARIANTS.md#appendix-finding-to-test-map); rollout configuration and
+the [security invariants finding-to-test map](../reference/SECURITY_INVARIANTS.md#appendix-finding-to-test-map); rollout configuration and
 state retention are in
-[DEPLOYMENT_CONTAINERD.md](../05-operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
+[DEPLOYMENT_CONTAINERD.md](../operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
 
 ## Earlier merged findings
 
@@ -125,9 +125,9 @@ completion of the underlying feature.
 
 ## Contracts
 
-- [RBAC grants](../06-reference/FINDINGS_AND_RISK.md)
-- [ServiceAccount mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md)
-- [Workload and capability scope](../06-reference/INVENTORY.md)
-- [Agent identity and migration](../06-reference/AGENT_IDENTITY.md)
-- [Graph/runtime boundaries](../06-reference/GRAPH.md)
-- [Risk reconciliation](../06-reference/FINDINGS_AND_RISK.md)
+- [RBAC grants](../reference/FINDINGS_AND_RISK.md)
+- [ServiceAccount mutations](../operations/SERVICEACCOUNT_MUTATIONS.md)
+- [Workload and capability scope](../reference/INVENTORY.md)
+- [Agent identity and migration](../reference/AGENT_IDENTITY.md)
+- [Graph/runtime boundaries](../reference/GRAPH.md)
+- [Risk reconciliation](../reference/FINDINGS_AND_RISK.md)

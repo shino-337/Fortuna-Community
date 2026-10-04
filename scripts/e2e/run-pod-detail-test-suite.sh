@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Pod Detail test suite — see docs/03-components/README.md#agent
+# Pod Detail test suite — see docs/components/README.md#agent
 # Runs: unit tests (spec hash, PCE, API), DB verification, index check.
 # Report: process info, database state.
 # =============================================================================

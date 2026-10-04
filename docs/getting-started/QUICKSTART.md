@@ -1,6 +1,6 @@
 # Install Fortuna on a cluster
 
-This is the single install guide for running Fortuna from published images. To try Fortuna on your laptop first, use the [one-command local demo](DEMO.md). To build images from source, see [local containerd build and deploy](../05-operations/DEPLOYMENT_CONTAINERD.md). For hardening a long-lived installation, continue with [production deployment](../05-operations/PRODUCTION_DEPLOYMENT.md).
+This is the single install guide for running Fortuna from published images. To try Fortuna on your laptop first, use the [one-command local demo](DEMO.md). To build images from source, see [local containerd build and deploy](../operations/DEPLOYMENT_CONTAINERD.md). For hardening a long-lived installation, continue with [production deployment](../operations/PRODUCTION_DEPLOYMENT.md).
 
 Start in an isolated cluster and read the [environment requirements](ENVIRONMENT_REQUIREMENTS.md). The Agent runs privileged on every node.
 
@@ -123,7 +123,7 @@ Vulnerability matching needs the CVE catalog, and runtime findings need a sensor
 kubectl -n fortuna rollout restart daemonset/fortuna-agent
 ```
 
-Read [runtime sensors](../05-operations/RUNTIME_SENSORS.md) before relying on runtime evidence, in particular the rules for Falco delivery state.
+Read [runtime sensors](../operations/RUNTIME_SENSORS.md) before relying on runtime evidence, in particular the rules for Falco delivery state.
 
 ## 6. Add a remote cluster (optional)
 
@@ -167,4 +167,4 @@ kubectl delete namespace fortuna          # removes Fortuna and its data
 kubectl delete -f deploy/fortuna-rbac.yaml --ignore-not-found   # cluster-wide roles and bindings
 ```
 
-To reset only the data while keeping the installation, follow the backup-first procedure in [deploy/README.md](../05-operations/BACKUP_AND_RESET.md).
+To reset only the data while keeping the installation, follow the backup-first procedure in [deploy/README.md](../operations/BACKUP_AND_RESET.md).

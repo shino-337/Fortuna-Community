@@ -124,7 +124,7 @@ core/
 
 ### 5. REST API
 
-REST API used by the dashboard and external tools. Health endpoints are listed under [Monitoring](#health-endpoints); the route groups are in the [API route overview](../docs/02-architecture/API_STANDARD.md).
+REST API used by the dashboard and external tools. Health endpoints are listed under [Monitoring](#health-endpoints); the route groups are in the [API route overview](../docs/architecture/API_STANDARD.md).
 
 Every `/api/*` route is declared in `internal/api/route_security_inventory.go`; Core refuses to start if a registered route is missing from that inventory.
 
@@ -177,7 +177,7 @@ Every `/api/*` route is declared in `internal/api/route_security_inventory.go`; 
 - `FORTUNA_MAX_REQUEST_BODY_BYTES`: Request body limit (default 64 MiB).
 - `FORTUNA_DEV_MODE`: `1` for local development only: allows a generated JWT secret and `AUTH_ENABLED=false`.
 
-See [Agent credential foundation](../docs/06-reference/AGENT_IDENTITY.md) for scoped HTTP/gRPC identity semantics and migration status.
+See [Agent credential foundation](../docs/reference/AGENT_IDENTITY.md) for scoped HTTP/gRPC identity semantics and migration status.
 
 **NATS Durables**:
 - `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)
@@ -274,7 +274,7 @@ Or using binary:
 
 ### Kubernetes Deployment
 
-Install with [Install on a cluster](../docs/01-getting-started/QUICKSTART.md), then harden with the [production deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md) guide.
+Install with [Install on a cluster](../docs/getting-started/QUICKSTART.md), then harden with the [production deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md) guide.
 
 ---
 
@@ -376,10 +376,10 @@ go test ./...
 
 ## Related Documentation
 
-- [Architecture](../docs/02-architecture/ARCHITECTURE.md)
-- [API route overview](../docs/02-architecture/API_STANDARD.md)
-- [Production Deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
-- [Agent credential foundation](../docs/06-reference/AGENT_IDENTITY.md)
+- [Architecture](../docs/architecture/ARCHITECTURE.md)
+- [API route overview](../docs/architecture/API_STANDARD.md)
+- [Production Deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md)
+- [Agent credential foundation](../docs/reference/AGENT_IDENTITY.md)
 - [Migrations](migrations/README.md)
 
 ---

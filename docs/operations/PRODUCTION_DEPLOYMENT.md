@@ -1,6 +1,6 @@
 # Production deployment
 
-Install with the [Quickstart](../01-getting-started/QUICKSTART.md), then apply the changes below before relying on Fortuna outside a lab.
+Install with the [Quickstart](../getting-started/QUICKSTART.md), then apply the changes below before relying on Fortuna outside a lab.
 
 ## Images
 
