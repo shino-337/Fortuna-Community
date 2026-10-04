@@ -8,6 +8,8 @@ The project name is **Fortuna**. The public repository is `shino-337/Fortuna-Com
 
 | Goal | Document |
 |------|----------|
+| Try Fortuna locally in one command | [01-getting-started/DEMO.md](01-getting-started/DEMO.md) |
+| Investigate your first RBAC attack path | [01-getting-started/FIRST_FINDING.md](01-getting-started/FIRST_FINDING.md) |
 | Check environment requirements | [01-getting-started/ENVIRONMENT_REQUIREMENTS.md](01-getting-started/ENVIRONMENT_REQUIREMENTS.md) |
 | Install from published images | [01-getting-started/INSTALLATION.md](01-getting-started/INSTALLATION.md) |
 | Fast deploy path | [01-getting-started/QUICKSTART.md](01-getting-started/QUICKSTART.md) |
@@ -21,11 +23,16 @@ The project name is **Fortuna**. The public repository is `shino-337/Fortuna-Com
 | Architecture overview | [02-architecture/ARCHITECTURE.md](02-architecture/ARCHITECTURE.md) |
 | Component catalog | [03-components/README.md](03-components/README.md) |
 | Security and credentials | [06-reference/SECURITY.md](06-reference/SECURITY.md) |
+| Detailed behavior contracts | [06-reference/README.md](06-reference/README.md) |
 
 ## Diagrams And Screenshots
 
 Architecture and component diagrams are maintained as Mermaid or text diagrams in the relevant documents. User-facing dashboard screenshots live under [assets/screenshots](assets/screenshots/) and are referenced from the user guide and component catalog.
 
+## Maintainer Records
+
+Audit plans, remediation status, regression controls and release checklists are kept separately in [maintainers/](maintainers/README.md). You do not need them to install or use Fortuna.
+
 ## What Is Not Included
 
-Generated test reports, local review notes, design backlog, internal audit reports, planning backlogs, credentials, kubeconfigs, and private environment captures are not part of the public documentation. Keep them local or attach them to private issues/PRs when needed.
+Generated test reports, local review notes, credentials, kubeconfigs, and private environment captures are not part of the documentation. Keep them local or attach them to private issues/PRs when needed.

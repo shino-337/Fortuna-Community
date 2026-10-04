@@ -29,7 +29,7 @@ coverage or a guarantee that the repository has no further defects.
 | H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed | Dashboard preview controls and deployed operation validation; legacy disable remains 501 |
 | I / performance and investigation | 50,000-row trend and 500-path cache baselines, bounded allocation/coalescing fixes and backend investigation passed | Live browser walkthrough; production retention, scale/SLO and workload-specific sizing |
 
-The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. New source commits are on `fix/audit-d3-f-gi` and require their own exact-head CI. No live rollout of the 2026-09-28/29 ingest fixes is recorded. Earlier
+The new acceptance evidence is documented in [integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. New source commits are on `fix/audit-d3-f-gi` and require their own exact-head CI. No live rollout of the 2026-09-28/29 ingest fixes is recorded. Earlier
 #54 zero-step CI failures were followed by a successful seven-job hosted run;
 that pass does not validate the D3/F/G–I branch. Exact tested SHA,
 source fingerprint and log hashes belong in external CI evidence.
@@ -126,9 +126,9 @@ completion of the underlying feature.
 
 ## Contracts
 
-- [RBAC grants](FINDING_RUNTIME_CONTRACT.md)
-- [ServiceAccount mutations](SERVICEACCOUNT_MUTATIONS.md)
-- [Workload and capability scope](INVENTORY_SCOPE.md)
-- [Agent identity and migration](AGENT_CLUSTER_IDENTITY.md)
-- [Graph/runtime boundaries](GRAPH_RUNTIME_BOUNDARIES.md)
-- [Risk reconciliation](RISK_RECONCILIATION.md)
+- [RBAC grants](../06-reference/FINDING_RUNTIME_CONTRACT.md)
+- [ServiceAccount mutations](../06-reference/SERVICEACCOUNT_MUTATIONS.md)
+- [Workload and capability scope](../06-reference/INVENTORY_SCOPE.md)
+- [Agent identity and migration](../06-reference/AGENT_CLUSTER_IDENTITY.md)
+- [Graph/runtime boundaries](../06-reference/GRAPH_RUNTIME_BOUNDARIES.md)
+- [Risk reconciliation](../06-reference/RISK_RECONCILIATION.md)
