@@ -96,12 +96,6 @@ These images are representative captures from one local multi-cluster deployment
 | No data | The route is allowed and data is flowing, but current filters have no records. | Clear filters or widen the time range. |
 | Stale | Data exists but its freshness checks failed, so it may not reflect the cluster now. | Check data timestamps and Agent sync before acting on it. |
 
-## Common Navigation Flow
+## Next
 
-1. Start at Platform Integrity to confirm data freshness and runtime coverage.
-2. Open Findings Queue and sort by unified risk score.
-3. Open a finding drawer or full detail page to inspect evidence.
-4. Jump to Attack Paths for path context.
-5. Open the affected pod in Kubernetes Inventory for SBOM, runtime, network, and event detail.
-6. Use Policy Rules to understand the rule or catalog entry behind the finding.
-7. Export from Reports when you need a time-windowed operational handoff.
+The [use cases](USE_CASES.md) walk through the usual investigation flow, from checking platform health to exporting a report.

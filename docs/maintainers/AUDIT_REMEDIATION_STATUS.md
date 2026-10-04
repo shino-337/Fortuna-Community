@@ -29,7 +29,7 @@ coverage or a guarantee that the repository has no further defects.
 | H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed in #55 | Dashboard preview controls are in the current follow-up branch; deployed operation validation remains open; legacy disable remains 501 |
 | I / performance and investigation | 50,000-row trend and 500-path cache baselines, bounded allocation/coalescing fixes and backend investigation passed | Live browser walkthrough; production retention, scale/SLO and workload-specific sizing |
 
-The new acceptance evidence is documented in [integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. PR #55 exact-head native and hosted CI passed before merge. On 2026-10-04 the single-node lab recovered from DiskPressure eviction, then Core/Agent #55 and the follow-up Dashboard image rolled out with all workloads Ready. Agent durable Falco state survived restart, but eight historical ownership-rejected records remained quarantined and old Pod Events still returned ownership 403; retained-event recovery and live browser acceptance remain open. Exact tested SHA, source fingerprint and log hashes belong in external CI evidence.
+The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE_20260929.md); historical single-node rollouts/resets alone do not establish those results. PR #55 exact-head native and hosted CI passed before merge. On 2026-10-04 the single-node lab recovered from DiskPressure eviction, then Core/Agent #55 and the follow-up Dashboard image rolled out with all workloads Ready. Agent durable Falco state survived restart, but eight historical ownership-rejected records remained quarantined and old Pod Events still returned ownership 403; retained-event recovery and live browser acceptance remain open. Exact tested SHA, source fingerprint and log hashes belong in external CI evidence.
 
 ## New findings and deployment follow-ups
 
@@ -58,7 +58,7 @@ quarantined Falco evidence as failed coverage. They do not grant runtime authori
 or enable absence-based auto-resolution. Permanent test mappings are in
 the [security invariants finding-to-test map](../06-reference/SECURITY_INVARIANTS.md#appendix-finding-to-test-map); rollout configuration and
 state retention are in
-[DEPLOYMENT_CONTAINERD.md](../05-operations/DEPLOYMENT_CONTAINERD.md#preserve-falco-delivery-state).
+[DEPLOYMENT_CONTAINERD.md](../05-operations/RUNTIME_SENSORS.md#preserve-falco-delivery-state).
 
 ## Earlier merged findings
 
@@ -128,9 +128,9 @@ completion of the underlying feature.
 
 ## Contracts
 
-- [RBAC grants](../06-reference/FINDING_RUNTIME_CONTRACT.md)
+- [RBAC grants](../06-reference/FINDINGS_AND_RISK.md)
 - [ServiceAccount mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md)
-- [Workload and capability scope](../06-reference/INVENTORY_SCOPE.md)
-- [Agent identity and migration](../06-reference/AGENT_CLUSTER_IDENTITY.md)
-- [Graph/runtime boundaries](../06-reference/GRAPH_RUNTIME_BOUNDARIES.md)
-- [Risk reconciliation](../06-reference/RISK_RECONCILIATION.md)
+- [Workload and capability scope](../06-reference/INVENTORY.md)
+- [Agent identity and migration](../06-reference/AGENT_IDENTITY.md)
+- [Graph/runtime boundaries](../06-reference/GRAPH.md)
+- [Risk reconciliation](../06-reference/FINDINGS_AND_RISK.md)
