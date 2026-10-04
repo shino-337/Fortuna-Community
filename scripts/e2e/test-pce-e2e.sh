@@ -103,29 +103,40 @@ done
 echo ""
 
 # Step 6: Send runtime event (simulate proc root pivot)
+# Runtime events are Agent ingest: POST /api/v2/runtime/events with the Agent
+# ingest token (legacy shared-token mode). With scoped Agent credentials
+# (FORTUNA_AGENT_CREDENTIAL_REGISTRY) the shared token is rejected; pass a
+# per-Agent token in INGEST_TOKEN instead.
 echo "Step 6: Sending runtime event (PROC_ROOT_PIVOT)..."
 CORE_POD="$(require_core_pod)"
-TOKEN="$(require_jwt_token "$CORE_POD")"
+INGEST_TOKEN="${INGEST_TOKEN:-$(kubectl -n "${NAMESPACE}" get secret fortuna-secrets -o jsonpath='{.data.ingest-token}' 2>/dev/null | base64 -d 2>/dev/null || true)}"
+SOURCE_RECORD_ID="$(printf 'pce-e2e:%s:%s' "${POD_UID}" "$(date +%s%N)" | sha256sum | cut -d' ' -f1)"
 
 RUNTIME_EVENT=$(cat <<EOF
 [{
-  "pod_uid": "${POD_UID}",
-  "namespace": "${NAMESPACE}",
+  "source_record_id": "${SOURCE_RECORD_ID}",
+  "observed_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "source_kind": "e2e",
+  "pod": {"uid": "${POD_UID}", "namespace": "${NAMESPACE}", "name": "${TEST_POD_NAME}"},
   "syscall": "open",
-  "target_path": "/proc/1/root",
-  "capability": "",
-  "timestamp": $(date +%s)
+  "target": "/proc/1/root",
+  "confidence": 0.9
 }]
 EOF
 )
 
-RESPONSE=$(kubectl -n "${NAMESPACE}" exec "${CORE_POD}" -- curl -s -X POST \
-  -H "Authorization: Bearer ${TOKEN}" \
-  -H "Content-Type: application/json" \
-  -d "${RUNTIME_EVENT}" \
-  http://localhost:8080/api/v1/runtime-events 2>&1)
+if [ -z "${INGEST_TOKEN}" ]; then
+  echo "⚠️  No ingest token found (secret fortuna-secrets/ingest-token or INGEST_TOKEN); skipping runtime event"
+  RESPONSE=""
+else
+  RESPONSE=$(kubectl -n "${NAMESPACE}" exec "${CORE_POD}" -- curl -s -X POST \
+    -H "X-Fortuna-Ingest-Token: ${INGEST_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "${RUNTIME_EVENT}" \
+    http://localhost:8080/api/v2/runtime/events 2>&1)
+fi
 
-if echo "$RESPONSE" | grep -q "processed"; then
+if echo "$RESPONSE" | grep -q '"processed":[1-9]'; then
   echo "✅ Runtime event sent successfully"
   echo "Response: $RESPONSE"
 else
