@@ -1,8 +1,8 @@
-# Audit remediation status — September 2026
+# Audit remediation status — October 2026
 
-Source/GAP checkpoint: 2026-10-01 UTC. PRs #29–#50 and #52–#54 are merged;
-#51 was retired. PR #54 passed all seven hosted CI jobs on its final head
-`3ff4da767` before merge. PR #47 added immutable image-content
+Source/GAP checkpoint: 2026-10-04 UTC. PRs #29–#50 and #52–#55 are merged;
+#51 was retired. PRs #54 and #55 each passed all seven hosted CI jobs on their
+final heads (`3ff4da767` and `238429f57`). PR #47 added immutable image-content
 snapshots with separate workload observations,
 container-qualified ingest, ownership validation before matching/linking, retired
 combined finding writes, and cluster propagation to CVE/malware matches. Its startup
@@ -24,15 +24,12 @@ coverage or a guarantee that the repository has no further defects.
 | D2 / inventory and runtime receipts | Merged #50/#52; immutable receipts, session lifecycle and replay guards | Multi-writer/namespace-scope DaemonSet acceptance in F |
 | D3 / independent runtime source health | Signed Ed25519 protocol, separate registry/relay, exact session binding and PostgreSQL replay/rollback regressions implemented | Deploy an independently measuring attestor; auto-resolution remains disabled |
 | E / availability | E1/#53 and E2/residual E1/#54 merged; final #54 hosted CI passed at `3ff4da767` | Live browser rollout acceptance |
-| F / integration | Two populated backup rehearsals, ownership-collision fixture and real two-cluster/three-node/six-Agent backend gate passed | Exact-head repeat; live browser, mTLS/gRPC and production rollout acceptance |
-| G / scoped AGE | Scoped internal AGE and real extension traversal/foreign-edge/pool regressions implemented | Review/rollout; arbitrary and legacy AGE HTTP routes remain retired |
-| H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed | Dashboard preview controls and deployed operation validation; legacy disable remains 501 |
+| F / integration | Two populated backup rehearsals, ownership-collision fixture and real two-cluster/three-node/six-Agent backend gate passed on #55 exact head | Live browser, mTLS/gRPC and production rollout acceptance |
+| G / scoped AGE | Scoped internal AGE and real extension traversal/foreign-edge/pool regressions merged in #55 | Rollout; arbitrary and legacy AGE HTTP routes remain retired |
+| H / mutations and revocation | Reviewed plans, durable leases/audit, JSONB-stable digests; real revocation and deletion fault/replacement gate passed in #55 | Dashboard preview controls are in the current follow-up branch; deployed operation validation remains open; legacy disable remains 501 |
 | I / performance and investigation | 50,000-row trend and 500-path cache baselines, bounded allocation/coalescing fixes and backend investigation passed | Live browser walkthrough; production retention, scale/SLO and workload-specific sizing |
 
-The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. New source commits are on `fix/audit-d3-f-gi` and require their own exact-head CI. No live rollout of the 2026-09-28/29 ingest fixes is recorded. Earlier
-#54 zero-step CI failures were followed by a successful seven-job hosted run;
-that pass does not validate the D3/F/G–I branch. Exact tested SHA,
-source fingerprint and log hashes belong in external CI evidence.
+The new acceptance evidence is documented in [integration acceptance](INTEGRATION_ACCEPTANCE.md); historical single-node rollouts/resets alone do not establish those results. PR #55 exact-head native and hosted CI passed before merge. No live rollout of the 2026-09-28/29 ingest fixes is recorded. The existing lab needs recovery from DiskPressure eviction and missing local workload images before rollout acceptance. Exact tested SHA, source fingerprint and log hashes belong in external CI evidence.
 
 ## New findings and deployment follow-ups
 
@@ -54,7 +51,7 @@ without an established attack path.
 | GRAPH-01 | Relational BuildAllPaths logged snapshot/per-Pod/cleanup errors and continued, returning a partial successful graph. | Propagate required input/reconciliation errors; `TestAttackPathBuildFailsClosedOnSnapshotError` in permanent gate. | Source fixed; full suite remains required on each head. |
 | PERF-01 | Trends loaded 50,000 complete RiskScore rows per request; cache reads serialized and decoded 500 paths repeatedly. | Database UTC bucket aggregation and immutable encoded cache; scope/calendar/failure/nested-mutation tests and recorded benchmarks. | Source fixed; see measured resource limits in performance baseline. |
 | PERF-02 | Six real Agents' full syncs repeatedly spawned overlapping global historical/PCE scans, starving an eight-connection test pool. | One coalesced evaluation per DB with a pending refresh; `TestFullSyncEvaluationCoalescesAndRetainsPendingPass`. Real acceptance uses 30s sync and 25 connections. | Source fixed; representative production-scale capacity remains a separate gate. |
-| CI-01 | A dirty/changed tree or inherited test-selection/database settings could make local results unsuitable for an exact-head claim. This is a validation limitation, not a reported production exploit. | Native runner reads workflow jobs, isolates PostgreSQL, clears inherited test selectors/live DB URL, hashes source/logs and permits publishable results only for clean unchanged all-job success. `test-local-ci-native.py` covers failure, source changes and publishability. | Tooling implemented; each new candidate commit requires a fresh clean all-job result. Hosted CI resumed for #54; later heads still need their own run. |
+| CI-01 | A dirty/changed tree or inherited test-selection/database settings could make local results unsuitable for an exact-head claim. This is a validation limitation, not a reported production exploit. | Native runner reads workflow jobs, isolates PostgreSQL, clears inherited test selectors/live DB URL, hashes source/logs and permits publishable results only for clean unchanged all-job success. `test-local-ci-native.py` covers failure, source changes and publishability. | Tooling implemented; #55 clean exact-head native and hosted CI passed. Each new candidate commit needs its own run. |
 
 All three ingest fixes retain Core ownership authorization and mark pending or
 quarantined Falco evidence as failed coverage. They do not grant runtime authority

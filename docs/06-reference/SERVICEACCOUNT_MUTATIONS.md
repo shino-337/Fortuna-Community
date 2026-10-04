@@ -36,8 +36,11 @@ the completion transaction. Kubernetes and PostgreSQL cannot share a transaction
 Existing single/bulk DELETE endpoints also queue durable cluster/UID deletion
 intent and attempt it immediately. Bulk requires inventory.bulk plus inventory.delete,
 prevalidates the complete set and reports individual failures with HTTP 207.
-Labels remain synchronized Inventory metadata. Legacy disable/disable-inactive
-still return HTTP 501; their Dashboard actions do not expose the new preview flow.
+Labels remain synchronized Inventory metadata. The post-#55 Dashboard identity
+detail offers explicit preview, execute and operation-status controls, subject to
+the same backend permissions and cluster scope. Its live deployment is still an
+acceptance gate. Legacy disable/disable-inactive still return HTTP 501; those
+actions do not imply Kubernetes account disablement.
 
 Named regressions cover scope/actor/digest rejection, binding drift, replacement
 UIDs and persistence failure after Kubernetes success. The permanent two-cluster

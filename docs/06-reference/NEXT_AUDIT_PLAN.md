@@ -52,26 +52,35 @@ loss/recovery, deletion retry and actual UI/API/worker flow.
 
 ## Implementation progress
 
-### Current checkpoint — 2026-10-01 UTC
+### Current checkpoint — 2026-10-04 UTC
 
 | Scope | Verified state | Remaining gate |
 | --- | --- | --- |
 | A–C | Merged; real two-cluster scoped HTTP/DaemonSet and backend RBAC investigation passed | Live mTLS/gRPC certificate lifecycle and browser rollout |
-| D | D1/D2 merged; D3 signed-health protocol and PostgreSQL authority/replay regressions implemented on `fix/audit-d3-f-gi`; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
+| D | D1/D2 and D3 protocol merged through #55; live Agent restart remains non-authoritative | Deploy and measure an independent attestor; absence auto-resolution remains disabled |
 | E | E1/#53 and E2/residual E1/#54 merged; all seven hosted CI jobs passed on #54 head `3ff4da767` | Live browser rollout remains an operational acceptance gate |
-| F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed; named PostgreSQL/live gates enforce run/pass readback | Repeat at exact committed head; live browser and mTLS/gRPC rollout remain operational acceptance |
-| G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions implemented | Owner review; arbitrary/legacy HTTP routes remain retired |
-| H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests implemented; real Kubernetes retry/replacement gate passed | Dashboard preview controls and deployed workflow validation |
+| F | Populated backup rehearsals, collision fixture and real two-cluster/six-Agent backend gate passed on #55 exact head | Live browser and mTLS/gRPC rollout remain operational acceptance |
+| G | Scoped AGE constructors/traversals and real AGE 1.6 foreign-intermediate/pool regressions merged in #55 | Internal API remains scoped; arbitrary/legacy HTTP routes remain retired |
+| H | Reviewed revocation plans, durable deletion/audit and JSONB-stable digests merged in #55; real Kubernetes retry/replacement gate passed | Dashboard preview controls are in the current follow-up branch; deployed workflow validation remains open |
 | I | 50,000-row trend/cache benchmarks, measured allocation fixes, bounded evaluation coalescing and backend first investigation completed | Live browser S2 walkthrough; production-scale latency/storage/SLO validation |
+
+The existing single-node lab is currently a rollout prerequisite, not acceptance
+evidence. On 2026-10-04 its workloads were 0/1 Ready after prolonged node
+DiskPressure and Pod eviction. Reclaiming archived journals and the disposable
+Go build cache restored `DiskPressure=False`, but kubelet then reported missing
+local `depfix-20260927-54-r2` Core/Agent/Dashboard images and pull denial. Recover
+the lab with verified images and a populated-database backup before attempting
+the #55 application rollout; retain PostgreSQL PVCs and Agent delivery state.
 
 The [GAP and finding register](AUDIT_REMEDIATION_STATUS.md#current-gap-status)
 records source fixes, historical live observations and remaining acceptance gates
 separately. Ingest findings `INGEST-01`–`INGEST-03` have source regressions but
 still require a live Agent rollout with the durable-state configuration. They
-do not close D3 or package F. PR #54 merged on 2026-10-01 as `80f24e98f` after
-all seven hosted CI jobs passed at `3ff4da767`. Its earlier zero-step failures
-were infrastructure failures, not source validation. The D3/F/G–I branch requires
-its own exact-head CI; #54 results cannot validate its later commits.
+do not close D3 or package F's deployment acceptance. PR #54 merged on
+2026-10-01 as `80f24e98f`. PR #55 merged on 2026-10-02 as `92a08cc18`;
+its seven hosted CI jobs passed on exact head `238429f57`. The clean local
+all-job result for that head recorded `publishable=true`. These results validate
+the source and disposable integration topology, not the existing lab rollout.
 
 The 2026-09-27 dependency/deployment follow-up built and deployed local
 `depfix-20260927-54-r2` Core, Agent and Dashboard images. Container config IDs
@@ -421,11 +430,11 @@ metadata lookup and JSONB representation/digest mismatches. Required graph snaps
 failures now return unavailable, and overlapping full-sync global evaluations
 coalesce into one running pass with a retained pending refresh. Generic RBAC insight merges also retain acknowledgement under row locks; concurrent keyed/empty-key SQLite and PostgreSQL cases protect manual state.
 
-These commits require a fresh clean exact-head native all-job result before
-push/readiness claims; store that result outside tracked documents to avoid a
-self-referential SHA. The register records new findings and remaining deployment
-gates. No lab rollout, independent measuring sensor, runtime auto-resolution,
-Dashboard revocation UI or live browser acceptance is claimed by these source changes.
+The #55 exact-head native and hosted all-job runs passed before merge. Store
+future result artifacts outside tracked documents to avoid a self-referential
+SHA. The register records new findings and remaining deployment gates. No lab
+rollout, independent measuring sensor, runtime auto-resolution or live browser
+acceptance is claimed by #55.
 
 ## Repository governance prerequisite
 
@@ -433,8 +442,10 @@ Security-sensitive paths are covered by CODEOWNERS, but repository rules must
 require CODEOWNER review and required CI checks on `main`. Direct/force pushes or
 merges that bypass those checks defeat the regression-prevention contract and must
 remain disabled by owner-side branch/ruleset configuration.
-On 2026-10-01 the repository's `main-security-gate` ruleset was disabled and no
-branch protection applied to `main`; owner-side enforcement remains open.
+On 2026-10-04 `main-security-gate` is active and requires one approving review,
+but its rules still set `require_code_owner_review=false` and contain no required
+status-check rule. CODEOWNER and exact-head CI enforcement therefore remain
+open. PR #55 was merged without a recorded review before this ruleset change.
 
 
 ## Merge-readiness discipline
@@ -444,12 +455,10 @@ state machine rather than a sequence of isolated findings. Any runtime-code comm
 resets readiness and requires re-review of identity, scope, failure/replay,
 concurrency, rollback, alternate writers, migrations and deployment topology.
 Merge only the exact head for which Core, Agent, API, PostgreSQL and permanent
-security regression gates passed. #51 was retired rather than reused. #52–#54
-are merged. The D3/F/G–I commits are isolated on `fix/audit-d3-f-gi` and have
-been rebased onto the #54 merge commit. All seven hosted jobs passed on #54's
-final head; that result does not cover the D3/F/G–I commits. Run the full
-exact-head gate on the latter before requesting review or merge. Automatic
-Secret Scan remains manual-only and is not part of the functional CI gate.
+security regression gates passed. #51 was retired rather than reused. #52–#55
+are merged. The D3/F/G–I #55 head passed all seven hosted jobs before merge;
+new follow-up commits require their own exact-head gate. Automatic Secret Scan
+remains manual-only and is not part of the functional CI gate.
 
 
 ### Final #50 merge blockers closed
