@@ -51,9 +51,6 @@ agent/
 │   │   └── client.go              # K8s client setup
 │   └── config/                    # Configuration
 │       └── config.go              # Config loading
-├── deploy/
-│   ├── rbac.yaml                  # RBAC permissions
-│   └── daemonset.yaml            # DaemonSet manifest
 ├── Dockerfile
 ├── go.mod
 └── go.sum
@@ -180,14 +177,14 @@ nerdctl -n k8s.io build -t docker.io/library/fortuna-agent:dev -f agent/Dockerfi
 
 The Agent is deployed as a DaemonSet to run on every node.
 
-**Recommended (repo root):** Use the manifests in the repository root. From repo root:
+Use the manifests in the repository root. From repo root:
 
 ```bash
 kubectl apply -f deploy/fortuna-rbac.yaml    # RBAC for core + agent
 kubectl apply -f deploy/fortuna-agent-daemonset.yaml
 ```
 
-The `agent/deploy/` directory (rbac.yaml, daemonset.yaml) is for reference; the canonical deployment is `deploy/fortuna-agent-daemonset.yaml` and `deploy/fortuna-rbac.yaml` at repo root. See [deploy/README.md](../deploy/README.md).
+See [deploy/README.md](../deploy/README.md) for every manifest and its settings.
 
 #### Verify deployment
 
