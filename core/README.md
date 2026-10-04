@@ -325,7 +325,7 @@ Core automatically runs database migrations on startup. Migrations are located i
 
 ### Metrics
 
-Core registers Prometheus metrics (`core/pkg/metrics`, `core/internal/metrics`) for ingest, CVE matching, insights and the admission webhook, but does **not** expose a `/metrics` HTTP endpoint yet. Operational counters are available to authenticated users through `GET /api/v1/metrics/system` and `GET /api/v1/metrics/workers`.
+Set `FORTUNA_METRICS_ADDR` (for example `:9091`, as the bundled manifest does) to serve Prometheus metrics at `/metrics` on a separate listener. It is unauthenticated, so keep that port off any public Service; it is disabled when the variable is unset. Metrics cover HTTP requests, ingest, workers, database connections, CVE matching, insights and the admission webhook (`core/pkg/metrics`, `core/internal/metrics`). Authenticated users can also read operational counters through `GET /api/v1/metrics/system` and `GET /api/v1/metrics/workers`.
 
 ---
 

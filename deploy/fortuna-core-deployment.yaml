@@ -43,6 +43,11 @@ spec:
       labels:
         app.kubernetes.io/name: fortuna
         app.kubernetes.io/component: core
+      annotations:
+        # Prometheus scrapes the pod directly; the metrics port is not on the Service.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: /metrics
     spec:
       serviceAccountName: fortuna-core
       
@@ -119,6 +124,9 @@ spec:
             - name: grpc
               containerPort: 9090
               protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
           
           env:
             # Database
@@ -178,6 +186,10 @@ spec:
             # runs on the pod network). Without this, every dashboard user would share
             # one login rate-limit bucket; with gin's default (trust everyone), clients
             # could spoof their IP. Narrow this to your pod CIDR where possible.
+            # Prometheus /metrics on a separate, unauthenticated listener that the
+            # Service does not expose. Remove to disable.
+            - name: FORTUNA_METRICS_ADDR
+              value: ":9091"
             - name: FORTUNA_TRUSTED_PROXIES
               value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
             - name: FORTUNA_WS_ALLOWED_ORIGINS
