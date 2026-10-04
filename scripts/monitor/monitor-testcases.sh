@@ -88,8 +88,8 @@ else
 fi
 
 # 5. Dashboard API verify
-if [ -z "${SKIP_DASHBOARD_API:-}" ] && [ -x "$SCRIPTS/verify/verify-dashboard-api.sh" ]; then
-  run_script "verify-dashboard-api" "$SCRIPTS/verify/verify-dashboard-api.sh" || FAIL_COUNT=$((FAIL_COUNT+1))
+if [ -z "${SKIP_DASHBOARD_API:-}" ] && [ -x "$SCRIPTS/verify/verify-dashboard-apis.sh" ]; then
+  run_script "verify-dashboard-apis" "$SCRIPTS/verify/verify-dashboard-apis.sh" || FAIL_COUNT=$((FAIL_COUNT+1))
 fi
 
 # 6. Agent–Core connectivity
@@ -98,7 +98,6 @@ if [ -z "${SKIP_AGENT_CORE:-}" ] && [ -x "$SCRIPTS/verify/verify-agent-core-conn
 fi
 
 section "Kết thúc"
-echo "Chi tiết tất cả testcase: docs/TESTCASE_MONITOR.md"
 echo "Chạy toàn bộ E2E + báo cáo: ./scripts/e2e/run-e2e.sh (hoặc --suite=full-report)"
 if [ -n "$REPORT_FILE" ]; then
   echo "Đã ghi: $REPORT_FILE"

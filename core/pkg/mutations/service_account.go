@@ -26,6 +26,9 @@ import (
 
 var ErrDrift = errors.New("Kubernetes identity or preview changed; create a fresh preview")
 
+// MaxAttempts bounds transient retries (30s apart, about 10 minutes in total).
+const MaxAttempts = 20
+
 type Step struct {
 	Kind            string `json:"kind"`
 	Namespace       string `json:"namespace,omitempty"`
@@ -322,6 +325,11 @@ func Process(ctx context.Context, db *gorm.DB, factory ClientFactory, id string)
 		if errors.Is(applyErr, ErrDrift) || apierrors.IsConflict(applyErr) || apierrors.IsForbidden(applyErr) || apierrors.IsUnauthorized(applyErr) {
 			status = "blocked"
 			message = "Identity, preview or permission changed; review a new preview"
+		} else if job.Attempts >= MaxAttempts {
+			// Stop retrying an unreachable cluster forever; the operator reviews
+			// a fresh preview once the cluster is reachable again.
+			status = "blocked"
+			message = "Kubernetes operation unavailable after repeated retries; review a new preview"
 		}
 	}
 	retryAt := time.Now().UTC()

@@ -81,5 +81,5 @@ fi
 
 echo ""
 echo "=========================================="
-echo "Done. See docs/03-components/COMPONENTS.md#pod-detail for ingest and API checklist."
+echo "Done. See docs/03-components/README.md#agent for ingest and API checklist."
 echo "=========================================="

@@ -12,17 +12,17 @@ webhooks:
         port: 443
       # Run scripts/deploy/enable-webhook.sh to inject the installed CA before applying.
     
+    # Only Pods are evaluated. Workload controllers (Deployments, StatefulSets,
+    # DaemonSets, ReplicaSets) are still covered because the Pods they create
+    # pass through this webhook. Do not route controller kinds here: Core does
+    # not parse them and its fail-closed default would deny every rollout.
     rules:
       - operations: ["CREATE", "UPDATE"]
         apiGroups: [""]
         apiVersions: ["v1"]
         resources: ["pods"]
-      - operations: ["CREATE", "UPDATE"]
-        apiGroups: ["apps"]
-        apiVersions: ["v1"]
-        resources: ["deployments", "statefulsets", "daemonsets", "replicasets"]
-    
-    admissionReviewVersions: ["v1", "v1beta1"]
+
+    admissionReviewVersions: ["v1"]
     sideEffects: None
     timeoutSeconds: 10
     failurePolicy: Ignore  # Start with Ignore for testing

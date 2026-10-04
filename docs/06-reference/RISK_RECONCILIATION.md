@@ -45,5 +45,5 @@ Deploy the required runtime, capability, binding and security-state schema befor
 enabling live Pod evaluation. Partial migrations now produce explicit errors.
 Database-free rule previews remain supported. The existing five-minute snapshot
 cache remains; telemetry completeness and invalidation are tracked in package D of
-[NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md). Successful reads alone do not prove that
+[NEXT_AUDIT_PLAN.md](../maintainers/NEXT_AUDIT_PLAN.md). Successful reads alone do not prove that
 a sensor is healthy or that all events have arrived.

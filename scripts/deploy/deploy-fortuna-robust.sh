@@ -208,6 +208,8 @@ fi
 echo -e "${GREEN}✅${NC} PostgreSQL applied"
 
 kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/nats.yaml"
+# NATS has no client auth; restrict NATS and Postgres ingress to Core.
+kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/network-policies.yaml"
 echo "Waiting for NATS (max 300s)..."
 if kubectl rollout status statefulset/nats -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} NATS pod is Ready"
@@ -404,7 +406,7 @@ if [ "${SKIP_DNS_PREREQ:-0}" = "1" ]; then
 elif [ -x "$SCRIPTS/verify/check-dns-prereq.sh" ]; then
     echo -e "${BLUE}Step 7f: DNS pre-flight (postgres, nats in $NAMESPACE)...${NC}"
     if ! NAMESPACE="$NAMESPACE" bash "$SCRIPTS/verify/check-dns-prereq.sh"; then
-        echo -e "${RED}❌${NC} DNS pre-flight failed. Fix CoreDNS / cluster networking (see docs/05-operations/DEPLOYMENT.md), then retry."
+        echo -e "${RED}❌${NC} DNS pre-flight failed. Fix CoreDNS / cluster networking (see docs/01-getting-started/ENVIRONMENT_REQUIREMENTS.md), then retry."
         exit 1
     fi
     echo -e "${GREEN}✅${NC} DNS pre-flight OK"

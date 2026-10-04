@@ -40,3 +40,34 @@ func TestCreateDefaultAdminBootstrapDoesNotOverwriteChangedPassword(t *testing.T
 	require.False(t, user.MustChangePassword)
 	require.False(t, user.BootstrapCredential)
 }
+
+func TestCreateDefaultAdminOperatorPasswordIsStableAcrossRestarts(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:operator_admin_restart?mode=memory&cache=shared"), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.User{}))
+	require.NoError(t, Migration147_UserPasswordBootstrapState(db))
+
+	const operatorPassword = "Operator_Provided_Secret_123!"
+	require.NoError(t, CreateDefaultAdmin(db, "admin", operatorPassword, "admin@fortuna.local", false, false))
+
+	var first models.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&first).Error)
+
+	// A restart with the same operator password must not rewrite the hash or
+	// bump password_changed_at, which would invalidate every admin session.
+	require.NoError(t, CreateDefaultAdmin(db, "admin", operatorPassword, "admin@fortuna.local", false, false))
+
+	var second models.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&second).Error)
+	require.Equal(t, first.Password, second.Password)
+	require.Equal(t, first.PasswordChangedAt, second.PasswordChangedAt)
+
+	// Rotating the operator password still syncs it.
+	const rotatedPassword = "Operator_Rotated_Secret_456!"
+	require.NoError(t, CreateDefaultAdmin(db, "admin", rotatedPassword, "admin@fortuna.local", false, false))
+
+	var rotated models.User
+	require.NoError(t, db.Where("username = ?", "admin").First(&rotated).Error)
+	require.True(t, auth.CheckPasswordHash(rotatedPassword, rotated.Password))
+	require.NotNil(t, rotated.PasswordChangedAt)
+}

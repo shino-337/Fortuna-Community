@@ -1,8 +1,5 @@
 # Fortuna Core
 
-**Version**: 1.0.0  
-**Status**: Production Ready
-
 Fortuna Core is the central processing and storage component of **Fortuna**. It provides SBOM management, CVE matching, security insights generation, policy evaluation, and comprehensive REST/gRPC APIs.
 
 ---
@@ -127,20 +124,19 @@ core/
 
 ### 5. REST API
 
-Comprehensive REST API with 50+ endpoints:
+REST API used by the dashboard and external tools:
 
-- **Health**: `/health`, `/ready`, `/live`
-- **Risk findings (insights)**: `/api/v1/risk/insights` (list, filters, summary, export, actions)
-- **SBOMs**: `/api/v1/sboms` (list, get, components)
-- **CVEs**: `/api/v1/cves` (list, get, matches)
-- **Risk**: `/api/v1/risk` (scores, trends, analytics)
-- **Clusters**: `/api/v1/clusters`
-- **Pods**: `/api/v1/pods`
-- **Service Accounts**: `/api/v1/serviceaccounts`
-- **Graph**: `/api/v1/graph` (blast radius, attack paths)
-- **Audit**: `/api/v1/audit`
-- **Policy**: `/api/v1/policy`
-- **Metrics**: `/metrics` (Prometheus)
+- **Health**: `/healthz`, `/ready`, `/live`, `/status`
+- **Auth and users**: `/api/v1/auth/*`, `/api/v1/me`, `/api/v1/users`, `/api/v1/sessions`
+- **Inventory**: `/api/v1/inventory/{clusters,pods,serviceaccounts,deployments,replicasets,sbom}`
+- **Risk**: `/api/v1/risk/{insights,scores,pods,top,trends,analytics,rules,exceptions}`
+- **Graph**: `/api/v1/graph`, `/api/v1/graph/attack-paths`
+- **Runtime**: `/api/v1/runtime/*` (signals, pods, network activity), `/api/v2/runtime/*` (Agent ingest)
+- **Policy, audit, governance**: `/api/v1/policy/*`, `/api/v1/audit/*`, `/api/v1/governance/*`
+- **Agent ingest**: `/api/v1/agent/*` (Agent credentials, not user JWTs)
+- **Live updates**: `/api/v1/ws/risks`, `/api/v1/ws/pod/:uid`
+
+Every `/api/*` route is declared in `internal/api/route_security_inventory.go`; Core refuses to start if a registered route is missing from that inventory.
 
 See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST groups and conventions.
 
@@ -184,10 +180,13 @@ See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST group
 - `JWT_SECRET` / `FORTUNA_JWT_SECRET`: JWT signing secret; production startup requires at least 32 bytes.
 - `FORTUNA_INGEST_TOKEN`: Legacy shared HTTP Agent/runtime ingest token. It is used only when scoped HTTP identity is not configured.
 - `FORTUNA_AGENT_CREDENTIAL_REGISTRY`: Operator-managed scoped HTTP Agent credential registry. When set, Agent/runtime HTTP ingest authenticates per Agent/cluster and does not silently fall back to `FORTUNA_INGEST_TOKEN`.
-- `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY`: Opt-in scoped gRPC Agent credential registry using client-certificate SHA-256 fingerprints. Requires `TLS_ENABLED=true`. C3a provides transport identity; RPC/resource ownership enforcement and certificate deployment provisioning are completed in later C3 packages.
+- `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY`: Opt-in scoped gRPC Agent credential registry using client-certificate SHA-256 fingerprints. Requires `TLS_ENABLED=true`. Without it, Core refuses Agent gRPC writes.
 - `FORTUNA_ALLOWED_ORIGINS`: Comma-separated extra browser origins allowed for CORS, in addition to localhost dev origins.
 - `FORTUNA_ALLOW_AUTH_QUERY_TOKEN`: Set `true` only when browser WebSocket clients must authenticate with `?token=`; non-WebSocket routes ignore query tokens.
 - `FORTUNA_WS_ALLOWED_ORIGINS`: Comma-separated browser origins allowed by WebSocket `CheckOrigin`, for example the local dashboard host `http://localhost:8081` or NodePort origin `http://dashboard.example.com:30956`.
+- `FORTUNA_TRUSTED_PROXIES`: Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-For`/`X-Real-IP`. Unset trusts none.
+- `FORTUNA_MAX_REQUEST_BODY_BYTES`: Request body limit (default 64 MiB).
+- `FORTUNA_DEV_MODE`: `1` for local development only: allows a generated JWT secret and `AUTH_ENABLED=false`.
 
 See [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATION.md) for scoped HTTP/gRPC identity semantics and migration status.
 
@@ -209,15 +208,13 @@ See [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATI
 - `FORTUNA_KEV_URL`: Feed URL (default CISA JSON).
 - `FORTUNA_KEV_REFRESH`: Refresh interval for background catalog reload (default `6h`).
 
-**Risk Center – Insights retention** (cleanup job chạy mỗi 24h):
-- `INSIGHTS_RESOLVED_RETENTION_DAYS`: Số ngày giữ insights đã resolved trước khi soft-delete (default: `30`). Ví dụ: `14`, `90`.
-- `INSIGHTS_ACTIVE_RETENTION_DAYS`: Số ngày giữ insights active không cập nhật trước khi soft-delete (default: `90`). Ví dụ: `180`.
+**Retention** (cleanup jobs run every 24h):
+- `INSIGHTS_RESOLVED_RETENTION_DAYS`: Days to keep resolved insights before soft deletion (default `30`).
+- `INSIGHTS_ACTIVE_RETENTION_DAYS`: Days to keep active insights that stopped updating (default `90`).
+- `PCE_CLEANUP_RETENTION_DAYS`: Days to keep `pod_capabilities` rows by `last_seen_at` (default `30`).
 
-**Risk Center – PCE cleanup** (job chạy mỗi 24h):
-- `PCE_CLEANUP_RETENTION_DAYS`: Số ngày giữ bản ghi `pod_capabilities` (xóa bản ghi có `last_seen_at` cũ hơn; default: `30`).
-
-**Risk Center – WebSocket**:
-- `RISKS_WS_MAX_CONNS_PER_IP`: Số kết nối WebSocket `/ws/risks` tối đa mỗi IP (default: `10`). Tránh abuse.
+**WebSocket**:
+- `RISKS_WS_MAX_CONNS_PER_IP`: Maximum `/ws/risks` connections per client IP (default `10`).
 
 ---
 
@@ -225,7 +222,7 @@ See [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATI
 
 ### Prerequisites
 
-- Go 1.21+
+- Go 1.26+ (see `go.mod`)
 - PostgreSQL 15+
 - NATS JetStream 2.10+
 
@@ -273,6 +270,7 @@ export DATABASE_URL=postgres://postgres:postgres@localhost:5432/fortuna?sslmode=
 export NATS_ENDPOINT=nats://localhost:4222
 export HTTP_PORT=8080
 export GRPC_PORT=9090
+export FORTUNA_DEV_MODE=1   # generates an ephemeral JWT secret; set JWT_SECRET (32+ bytes) otherwise
 ```
 
 4. **Run**:
@@ -320,19 +318,14 @@ Core automatically runs database migrations on startup. Migrations are located i
 
 ### Health Endpoints
 
-- `GET /health`: Basic health check
-- `GET /ready`: Readiness check (database + NATS)
-- `GET /live`: Liveness check
+- `GET /healthz`, `GET /live`: liveness (process is up)
+- `GET /ready`: readiness (HTTP and gRPC listeners are up; does not check PostgreSQL or NATS)
+- `GET /health`: PostgreSQL connectivity
+- `GET /status`: full dependency status, including PostgreSQL and NATS
 
 ### Metrics
 
-Prometheus metrics available at `/metrics`:
-
-- Database connection pool metrics
-- Worker queue depth
-- CVE matching performance
-- API request metrics
-- Admission webhook metrics
+Core registers Prometheus metrics (`core/pkg/metrics`, `core/internal/metrics`) for ingest, CVE matching, insights and the admission webhook, but does **not** expose a `/metrics` HTTP endpoint yet. Operational counters are available to authenticated users through `GET /api/v1/metrics/system` and `GET /api/v1/metrics/workers`.
 
 ---
 

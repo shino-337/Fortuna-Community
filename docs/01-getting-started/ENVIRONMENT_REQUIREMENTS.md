@@ -296,7 +296,6 @@ Fortuna requires:
 
 ## Related Documentation
 
-- [Quickstart](QUICKSTART.md)
-- [Installation](INSTALLATION.md)
+- [Install on a cluster](QUICKSTART.md)
 - [Production deployment](../05-operations/PRODUCTION_DEPLOYMENT.md)
 - [Architecture](../02-architecture/ARCHITECTURE.md)

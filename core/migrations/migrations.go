@@ -770,9 +770,12 @@ func CreateDefaultAdmin(db *gorm.DB, username, password, email string, forcePass
 		return nil
 	}
 
-	// User exists: sync operator-provided password when the hash differs (e.g. after credential rotation).
+	// User exists: sync operator-provided password only when it no longer matches the stored hash
+	// (e.g. after credential rotation). bcrypt hashes are salted, so compare the password against the
+	// stored hash; comparing two hashes would always differ and reset the password, and invalidate
+	// every admin session, on each restart.
 	// Never sync the built-in bootstrap password over an existing account; that would undo the first-login change.
-	if user.Password != hashedPassword {
+	if !auth.CheckPasswordHash(password, user.Password) {
 		if bootstrapCredential {
 			log.Printf("[Security] Existing admin %s is not overwritten by built-in bootstrap credentials", username)
 			return nil

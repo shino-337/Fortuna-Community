@@ -11,7 +11,7 @@ From repo root:
 ```bash
 ./scripts/build/build-and-load-containerd.sh
 # or dashboard only:
-./scripts/build/build-dashboard-containerd.sh
+BUILD_DASHBOARD_ONLY=true ./scripts/build/build-and-load-containerd.sh
 ```
 
 Or with nerdctl directly:
@@ -37,10 +37,4 @@ From `dashboard/`:
 
 ## Deploy in Kubernetes
 
-Apply the manifest:
-
-```
-kubectl apply -f deploy/dashboard-deployment.yaml
-```
-
-Dashboard runs as `fortuna-dashboard` service in the `fortuna` namespace.
+The dashboard is deployed with the rest of Fortuna (`deploy/dashboard-deployment.yaml` plus `deploy/dashboard-nginx-configmap.yaml`); see [Install on a cluster](../docs/01-getting-started/QUICKSTART.md). It runs as the `fortuna-dashboard` Service in the `fortuna` namespace.

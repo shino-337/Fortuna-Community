@@ -84,13 +84,13 @@ func main() {
 	log.Printf("[Config] TLS_KEY_PATH=%s", cfg.TLSKeyPath)
 	log.Printf("========================================")
 
-	// 🥇 BƯỚC 1: Ensure database is available BEFORE starting gRPC/HTTP servers
+	// Step 1: Ensure database is available BEFORE starting gRPC/HTTP servers
 	//
 	// The system relies on DB-backed handlers (gRPC SBOM ingestion, REST APIs). Starting servers
 	// with a nil DB causes permanent "database not available" behavior because handlers capture
 	// the initial nil pointer.
 	log.Printf("[MAIN] ========================================")
-	log.Printf("[MAIN] 🥇 BƯỚC 1: Connecting database (blocking) BEFORE starting servers")
+	log.Printf("[MAIN] Step 1: Connecting database (blocking) BEFORE starting servers")
 	log.Printf("[MAIN] ========================================")
 
 	var db *gorm.DB
@@ -623,11 +623,19 @@ func main() {
 	// Use gin.New() instead of gin.Default() to avoid default middleware that might interfere
 	router := gin.New()
 
+	// Only trust forwarding headers from configured proxies; otherwise ClientIP()
+	// (rate limits, audit IPs) would come from attacker-controlled headers.
+	if err := router.SetTrustedProxies(middleware.TrustedProxiesFromEnv()); err != nil {
+		log.Fatalf("[Main] invalid FORTUNA_TRUSTED_PROXIES: %v", err)
+	}
+
 	// Add recovery middleware (from gin.Default())
 	router.Use(gin.Recovery())
 
-	// Add logger middleware (from gin.Default())
-	router.Use(gin.Logger())
+	// Access log with ?token= values redacted (WebSocket auth must not reach logs).
+	router.Use(middleware.RedactingLogger())
+
+	router.Use(middleware.MaxRequestBody(middleware.MaxRequestBodyBytesFromEnv()))
 
 	// Add middleware - CORS must be first to handle preflight
 	router.Use(middleware.CORS())
@@ -642,11 +650,10 @@ func main() {
 	// /live: Alias for liveness (backward compatibility)
 	// /status: Full status check (includes DB, NATS - for observability only)
 	router.GET("/healthz", health.LivenessCheck())
-	router.GET("/health", health.HealthCheck(db))                                  // Legacy endpoint
-	router.GET("/health/dashboard-data-integrity", api.DashboardDataIntegrity(db)) // Dashboard data traceability
-	router.GET("/ready", health.ReadinessCheck(db, cfg.GRPCPort))                  // Readiness: HTTP + gRPC listening (avoids Agent "connection refused" on 9090)
-	router.GET("/live", health.LivenessCheck())                                    // Alias for /healthz
-	router.GET("/status", health.StatusCheck(db))                                  // Full status: includes DB, NATS
+	router.GET("/health", health.HealthCheck(db))                 // Legacy endpoint
+	router.GET("/ready", health.ReadinessCheck(db, cfg.GRPCPort)) // Readiness: HTTP + gRPC listening (avoids Agent "connection refused" on 9090)
+	router.GET("/live", health.LivenessCheck())                   // Alias for /healthz
+	router.GET("/status", health.StatusCheck(db))                 // Full status: includes DB, NATS
 
 	// Phase 2.7: Initialize Admission Webhook
 	log.Printf("[Main] ========================================")
@@ -714,8 +721,11 @@ func main() {
 
 		// Dedicated HTTPS server on port 8443 (standard webhook port)
 		webhookServer = &http.Server{
-			Addr:    ":8443",
-			Handler: webhookRouter,
+			Addr:              ":8443",
+			Handler:           webhookRouter,
+			ReadHeaderTimeout: 10 * time.Second,
+			ReadTimeout:       15 * time.Second,
+			WriteTimeout:      15 * time.Second,
 			TLSConfig: &tls.Config{
 				MinVersion: tls.VersionTLS12,
 				CipherSuites: []uint16{
@@ -746,9 +756,13 @@ func main() {
 	}
 
 	// REST API HTTP server (port 8080)
+	// No Read/WriteTimeout: WebSocket streams are long-lived and manage their own
+	// deadlines. Header and idle timeouts still bound slow or abandoned clients.
 	httpServer := &http.Server{
-		Addr:    ":" + cfg.HTTPPort,
-		Handler: router,
+		Addr:              ":" + cfg.HTTPPort,
+		Handler:           router,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {

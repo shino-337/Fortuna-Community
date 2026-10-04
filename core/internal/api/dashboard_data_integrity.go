@@ -13,7 +13,7 @@ import (
 )
 
 // Dashboard endpoints (GET /dashboard/stats, GET /dashboard/metrics/*) are aggregate APIs:
-// they compose multiple sources and may use cache; not stable for external clients (see docs/02-architecture/API_ARCHITECTURE_RECOMMENDATIONS.md §6.2).
+// they compose multiple sources and may use cache; not stable for external clients.
 
 // DashboardDataIntegrityResponse is the response for GET /health/dashboard-data-integrity.
 // It allows operators to verify that dashboard data is traceable and identifies stubs/placeholders.

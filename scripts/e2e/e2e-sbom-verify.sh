@@ -30,7 +30,7 @@ get_token() {
     -d "{\"username\":\"${FORTUNA_ADMIN_USER:-admin}\",\"password\":\"${FORTUNA_ADMIN_PASSWORD:-${FORTUNA_DEFAULT_ADMIN_PASSWORD:-Fortuna_ChangeMe_123!}}\"}" 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin).get('token','') or '')" 2>/dev/null
 }
 
-# Check if pod name appears in GET /api/v1/sbom (with optional podName filter)
+# Check if pod name appears in GET /api/v1/inventory/sbom (with optional podName filter)
 check_pod_in_sbom_api() {
   local pod_name="$1"
   local _ns="${2:-}"
@@ -42,7 +42,7 @@ check_pod_in_sbom_api() {
   [ -n "$pod_name" ] && filter="?podName=${pod_name}&limit=100"
   [ -z "$filter" ] && filter="?limit=100"
   local out
-  out=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $token" "http://localhost:8080/api/v1/sbom${filter}" 2>/dev/null) || true
+  out=$(kubectl -n "$NAMESPACE" exec "$CORE_POD" -- curl -s -H "Authorization: Bearer $token" "http://localhost:8080/api/v1/inventory/sbom${filter}" 2>/dev/null) || true
   if echo "$out" | grep -q "\"podName\":\"$pod_name\""; then
     echo "OK: Pod '$pod_name' found in SBOM API"
     return 0

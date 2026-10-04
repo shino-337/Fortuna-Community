@@ -6,6 +6,7 @@ Scripts are grouped by intent. Run scripts from the repository root and use full
 
 | Goal | Command |
 |------|---------|
+| Try Fortuna locally on kind | `./scripts/demo/up.sh` (remove with `./scripts/demo/down.sh`) |
 | Full local rebuild and deploy | `./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full` |
 | Full rebuild, deploy, and E2E | `./scripts/pipeline/full-clean-database-rebuild-deploy.sh --full --with-e2e` |
 | Full DB reset, rebuild, deploy | `./scripts/pipeline/full-clean-database-rebuild-deploy.sh --db-reset --full` |
@@ -26,6 +27,7 @@ For normal user installs, prefer published images through the docs in `docs/01-g
 
 | Directory | Purpose | Keep Here |
 |-----------|---------|-----------|
+| `demo/` | Disposable local demo | One-command kind demo and its teardown |
 | `pipeline/` | End-to-end local workflows | Scripts that orchestrate clean/build/deploy/verify steps |
 | `build/` | Image build and load | Containerd/Docker/buildctl build scripts |
 | `deploy/` | Kubernetes apply and cluster prerequisites | CNI/storage/secret/deploy helpers |
@@ -178,11 +180,11 @@ Focused checks:
 
 | Area | Scripts |
 |------|---------|
-| Dashboard/API | `verify-dashboard-api.sh`, `verify-dashboard-apis.sh` |
+| Dashboard/API | `verify-dashboard-apis.sh` |
 | Agent/runtime | `verify-agent-core-connectivity.sh`, `verify-risk-runtime-unit.sh` |
 | SBOM/CVE | `ensure-cve-catalog-ready.sh`, `verify-sbom-pod.sh`, `verify-sbom-flow-cluster.sh` |
-| Pod detail | `check-pod-detail-api.sh`, `verify-pod-detail-api-and-db.sh`, `verify-pod-detail-empty-response.sh` |
-| Risk/rules | `check-pod-risk.sh`, `verify-risk-rules-api.sh`, `verify-threat-velocity-pipeline.sh` |
+| Pod detail | `check-pod-detail-api.sh`, `verify-pod-detail-empty-response.sh` |
+| Risk/rules | `verify-risk-rules-api.sh`, `verify-threat-velocity-pipeline.sh` |
 | Multi-cluster | `verify-multicluster-sync.sh` |
 
 Generated reports belong under ignored local output paths such as `test-results/`.

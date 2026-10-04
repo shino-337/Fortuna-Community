@@ -2,7 +2,7 @@ package rep
 
 import "time"
 
-// REP_CDetector is governance metadata for a stateful correlator (REP-C). See docs/adr/004-rep-detector-governance.md.
+// REP_CDetector is governance metadata for a stateful correlator (REP-C).
 type REP_CDetector struct {
 	ID               string
 	Version          string
