@@ -9,19 +9,14 @@ Detailed contracts for operators and contributors who need to know exactly how F
 
 ## Identity and data ownership
 
-- [Agent credential foundation](AGENT_CREDENTIAL_FOUNDATION.md): per-agent credential boundaries and their enforcement.
-- [Agent cluster identity](AGENT_CLUSTER_IDENTITY.md): how agents are bound to one cluster, and migration from the shared token.
-- [Inventory scope](INVENTORY_SCOPE.md): workload and capability scope rules.
-- [Inventory collection evidence](INVENTORY_COLLECTION_EVIDENCE.md): when inventory is complete enough to resolve findings.
-- [SBOM content ownership](SBOM_CONTENT_OWNERSHIP.md): how SBOMs, CVEs and malware matches are tied to workloads.
+- [Agent identity](AGENT_IDENTITY.md): per-Agent HTTP and gRPC credentials, and how Agents are bound to one cluster.
+- [Inventory](INVENTORY.md): cluster scope for inventory reads, when a collection is complete enough to resolve findings, and how SBOMs, CVEs and malware matches are tied to workloads.
 
 ## Findings, graph and runtime
 
-- [Finding actions and runtime evidence](FINDING_RUNTIME_CONTRACT.md): scope rules for finding actions and runtime signal lists.
-- [Graph and runtime boundaries](GRAPH_RUNTIME_BOUNDARIES.md): what the attack graph does and does not claim.
-- [Runtime coverage evidence](RUNTIME_COVERAGE_EVIDENCE.md): how runtime producer coverage is reported.
-- [Risk reconciliation](RISK_RECONCILIATION.md): how findings are resolved and re-scored.
+- [Findings and risk](FINDINGS_AND_RISK.md): scope rules for finding actions and runtime signal lists, and how findings are evaluated, resolved and re-scored.
+- [Attack graph](GRAPH.md): what the attack graph does and does not claim, and the cluster-scoped internal AGE graph.
+- [Runtime evidence](RUNTIME_EVIDENCE.md): how runtime producer coverage is reported, and the signed source-health protocol.
 - [ServiceAccount mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md): previewed, reviewed revocation.
-- [Integration acceptance](INTEGRATION_ACCEPTANCE.md): the live two-cluster acceptance gate.
 
-Planning and audit history lives in [Maintainer records](../maintainers/README.md).
+Planning, audit history and the dated [integration acceptance](../maintainers/INTEGRATION_ACCEPTANCE_20260929.md) record live in [Maintainer records](../maintainers/README.md).

@@ -2,12 +2,7 @@
 
 Use this walkthrough after installing Fortuna in an **isolated, disposable cluster**. It uses the existing S2 fixture, which grants a test ServiceAccount `cluster-admin`. Do not apply it to a production or shared cluster.
 
-The equivalent backend flow is covered by the permanent two-cluster live gate:
-real Agent inventory, scoped JWT access, RBAC path/finding, acknowledge, reviewed
-revocation, authorization denial and fresh inventory. See
-[integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md). This S2
-Dashboard procedure still requires a recorded live browser run. Record your
-version and results. The expected path is pod → ServiceAccount → ClusterRoleBinding → ClusterRole.
+The expected path is pod → ServiceAccount → ClusterRoleBinding → ClusterRole. Record your Fortuna version and results as you go; the [last section](#share-the-result) lists what is useful to share.
 
 ## Before you begin
 

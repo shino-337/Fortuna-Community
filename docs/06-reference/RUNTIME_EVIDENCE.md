@@ -1,11 +1,15 @@
-# Runtime Coverage Evidence
+# Runtime evidence
+
+How runtime producer coverage is reported, and the signed source-health protocol that can make a runtime source authoritative. Operator setup for Falco and the source-health relay is in [runtime sensors](../05-operations/RUNTIME_SENSORS.md).
+
+## Runtime Coverage Evidence
 
 PR #52 adds authenticated producer coverage evidence for runtime telemetry. The
 goal is to distinguish a genuinely observed zero-event interval from event silence
 caused by an unavailable sensor, malformed input, dropped records or delivery
 failure.
 
-## Trust boundary
+### Trust boundary
 
 Coverage is accepted only from a scoped Agent principal and is stored under
 `{cluster_id, agent_id, producer_id}`. Runtime event silence never creates
@@ -19,7 +23,7 @@ The current producer registry is intentionally bounded:
 
 A producer ID cannot be rebound to a different source kind.
 
-## Window semantics
+### Window semantics
 
 A runtime coverage record is a positive-duration interval
 `[windowStart, windowEnd]`.
@@ -47,7 +51,7 @@ Absence reasoning must name both ends of the interval it requires. The supported
 primitive is `CoversInterval(requiredStart, requiredEnd, now)`; a fresh receipt
 whose window ended before `requiredEnd` cannot prove the interval.
 
-## Producer lifecycle and restart/disable semantics
+### Producer lifecycle and restart/disable semantics
 
 Core persists one lifecycle row per `{cluster_id, agent_id, producer_id}` with
 the Agent execution `session_id`, configured enablement, operational state,
@@ -78,7 +82,7 @@ Old receipts are tied to the old session ID. They remain stored for diagnostics
 but `EffectiveStatus`/`CoversInterval` reject them after restart, disable,
 stopping or lifecycle lease expiry.
 
-## Continuity and retry
+### Continuity and retry
 
 Coverage POST is at-least-once. Until Core acknowledges a report, the Agent keeps
 the same coverage ID and exact payload. New observations accumulate behind that
@@ -106,9 +110,9 @@ The PostgreSQL CI gate verifies concurrent first report arbitration, exact repla
 immutable history, real SQL rollback/recovery, a populated legacy schema with
 missing columns, valid pre-history backfill and migration rerun behavior.
 
-## Producer behavior
+### Producer behavior
 
-### Generic runtime file
+#### Generic runtime file
 
 The reader tracks file identity, an in-memory cursor and an incomplete trailing
 record. The source file itself is the durable retry buffer for partial records.
@@ -126,7 +130,7 @@ record. The source file itself is the durable retry buffer for partial records.
 - malformed complete records increment `invalid`;
 - failed event delivery keeps the prior cursor for retry.
 
-### Falco
+#### Falco
 
 Falco has an explicit initialized state; `offset == 0` is not a first-run
 sentinel.
@@ -142,7 +146,7 @@ sentinel.
 - records that cannot resolve a Pod UID are counted as dropped;
 - event delivery failure retains both offset and partial-line state.
 
-### Built-in eBPF
+#### Built-in eBPF
 
 The built-in eBPF sensor is currently experimental and attaches no-op tracepoints.
 It does not collect authoritative exec/connect syscall records.
@@ -153,7 +157,7 @@ coverage until a real observation pipeline and its loss semantics are implemente
 and regression-tested. `EBPF_SIMULATE=true` is synthetic test traffic and is not
 runtime evidence.
 
-## Production operations follow-up
+### Production operations follow-up
 
 The following items are intentionally outside the correctness scope of PR #52 and
 remain required before claiming large-scale production readiness:
@@ -173,7 +177,7 @@ blocks. Valid JSONL normally finds a newline near EOF. A pathological newline-fr
 file can require scanning the complete file; this is an operational I/O edge case,
 not an evidence-correctness failure.
 
-## Runtime event replay idempotency
+### Runtime event replay idempotency
 
 Runtime event delivery is at-least-once, so event processing has a separate physical
 source-record identity from the older semantic `event_id`.
@@ -207,7 +211,7 @@ Permanent regressions cover:
 - the same local source identity under different authenticated Agents remaining
   separate.
 
-## Deliberate limitations
+### Deliberate limitations
 
 PR #52 does not enable Pod/runtime/cross-resource auto-resolution. Coverage is
 producer-specific, and current protocol v1 deliberately has **zero authoritative
@@ -233,3 +237,38 @@ period but cannot reconstruct data removed outside Fortuna.
 
 Live DaemonSet, two-cluster, restart and populated migration acceptance remain
 package F gates.
+
+## Independently signed runtime source health (protocol v1)
+
+Core accepts `POST /api/v2/runtime/source-health` through scoped Agent HTTP
+credentials. An Agent credential cannot grant source authority: Core separately
+verifies an Ed25519 signature against `FORTUNA_SOURCE_HEALTH_REGISTRY`, an
+operator-managed JSON file containing `version: 1` and `keys`. Each key contains
+`id`, `clusterId`, `agentId`, `producerId`, base64 Ed25519 `publicKey`,
+`notBefore`, `expiresAt`, and `revoked`. Reloading the registry applies to new
+reports immediately. Previously accepted leases expire within one minute;
+revocation does not retrospectively rewrite immutable receipts.
+
+The signed envelope contains `report` and base64 `signature`. The report fields
+are defined in `api/collection/source_health.go`. Signing uses the domain prefix
+`fortuna/runtime-source-health/v1\n` followed by JSON in the Go struct field order,
+with UTC timestamps truncated to microseconds. `sourceSessionId` identifies one
+sensor execution; `sessionId` identifies the Agent execution. Sequence numbers
+increase within a sensor execution. Healthy windows must have zero errors and
+zero dropped records. Windows span at most one minute, end in the past, and
+expire no later than one minute after their end or the key's expiration.
+Only adjacent, sequential healthy windows extend continuity. Restarts, failure,
+disable, stopping, expired health and expired Agent leases break eligibility.
+Exact replay returns success without renewing receipt time or authority.
+
+The independent sensor/attestor must verify upstream collection health for the
+whole interval, including loss/drop counters and sensor restart state. File
+existence, file-reader activity, an Agent heartbeat, configuration enablement,
+and a clean empty window cannot establish this contract. Built-in file/Falco
+readers and the current eBPF stub do not generate trusted health themselves.
+eBPF health is rejected until a real upstream contract is implemented.
+
+Runtime absence-based automatic resolution remains disabled. This protocol adds
+bounded independently verified source evidence; enabling automatic resolution
+still requires the package F live topology/evaluator acceptance gate. Receipt
+retention and production partition sizing remain deployment responsibilities.

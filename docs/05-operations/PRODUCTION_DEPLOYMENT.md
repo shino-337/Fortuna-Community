@@ -25,7 +25,7 @@ Install with the [Quickstart](../01-getting-started/QUICKSTART.md), then apply t
 ## Data
 
 - Use `deploy/infrastructure/postgresql-with-age.yaml` (the default) or an external PostgreSQL; `postgresql.yaml` is a simpler fallback only.
-- Back up PostgreSQL regularly (`pg_dump -Fc`). The [maintenance procedure](../../deploy/README.md#maintenance) shows a verified backup before a reset.
+- Back up PostgreSQL regularly (`pg_dump -Fc`). The [maintenance procedure](BACKUP_AND_RESET.md) shows a verified backup before a reset.
 - Check migration and admin state after upgrades:
 
 ```bash
@@ -35,6 +35,6 @@ kubectl -n fortuna exec deploy/postgres -- psql -U postgres -d fortuna -c "selec
 
 ## Optional components
 
-- **Runtime evidence:** install Falco with `./scripts/deploy/install-falco-fortuna.sh`. The built-in eBPF sensor is experimental; keep `EBPF_SIMULATE` disabled. Signed sensor health is described in [runtime source health](RUNTIME_SOURCE_HEALTH.md).
+- **Runtime evidence:** install Falco with `./scripts/deploy/install-falco-fortuna.sh`. The built-in eBPF sensor is experimental; keep `EBPF_SIMULATE` disabled. Signed sensor health is described in [runtime source health](RUNTIME_SENSORS.md).
 - **Admission webhook:** enable only through `./scripts/deploy/enable-webhook.sh`; see the [webhook guide](WEBHOOK.md).
 - **ServiceAccount revocation:** previewed, reviewed revocation needs a per-cluster kubeconfig; see [ServiceAccount mutations](SERVICEACCOUNT_MUTATIONS.md).

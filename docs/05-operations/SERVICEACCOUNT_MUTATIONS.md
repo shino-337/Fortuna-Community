@@ -53,4 +53,4 @@ inspect exact effects; no automatic inactive-account revocation is enabled.
   whole set first and reports per-item failures with HTTP 207.
 - Coverage: unit regressions for scope, actor, digest, binding drift, replacement
   UIDs and persistence failure, plus the live two-cluster
-  [integration gate](../06-reference/INTEGRATION_ACCEPTANCE.md).
+  [integration gate](../maintainers/INTEGRATION_ACCEPTANCE_20260929.md).

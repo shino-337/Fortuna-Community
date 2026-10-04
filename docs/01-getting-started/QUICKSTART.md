@@ -123,6 +123,8 @@ Vulnerability matching needs the CVE catalog, and runtime findings need a sensor
 kubectl -n fortuna rollout restart daemonset/fortuna-agent
 ```
 
+Read [runtime sensors](../05-operations/RUNTIME_SENSORS.md) before relying on runtime evidence, in particular the rules for Falco delivery state.
+
 ## 6. Add a remote cluster (optional)
 
 One Fortuna installation can observe several clusters. The management cluster runs Core, Dashboard, PostgreSQL, NATS and its own Agent; each remote cluster runs only the Agent (and optionally Falco).
@@ -165,4 +167,4 @@ kubectl delete namespace fortuna          # removes Fortuna and its data
 kubectl delete -f deploy/fortuna-rbac.yaml --ignore-not-found   # cluster-wide roles and bindings
 ```
 
-To reset only the data while keeping the installation, follow the backup-first procedure in [deploy/README.md](../../deploy/README.md#maintenance).
+To reset only the data while keeping the installation, follow the backup-first procedure in [deploy/README.md](../05-operations/BACKUP_AND_RESET.md).

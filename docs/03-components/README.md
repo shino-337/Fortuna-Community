@@ -84,7 +84,7 @@ CVE matching needs the catalog loaded into PostgreSQL (`./scripts/utils/load-cve
 
 ## Attack paths
 
-An attack path shows the source workload and namespace, the target or objective, the key RBAC, network or runtime edge, its confidence and evidence type, and linked findings. A path is an inference of what is possible; runtime confirmation requires matching telemetry. See [graph and runtime boundaries](../06-reference/GRAPH_RUNTIME_BOUNDARIES.md).
+An attack path shows the source workload and namespace, the target or objective, the key RBAC, network or runtime edge, its confidence and evidence type, and linked findings. A path is an inference of what is possible; runtime confirmation requires matching telemetry. See [graph and runtime boundaries](../06-reference/GRAPH.md).
 
 ## Risk model
 

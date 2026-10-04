@@ -124,21 +124,10 @@ core/
 
 ### 5. REST API
 
-REST API used by the dashboard and external tools:
-
-- **Health**: `/healthz`, `/ready`, `/live`, `/status`
-- **Auth and users**: `/api/v1/auth/*`, `/api/v1/me`, `/api/v1/users`, `/api/v1/sessions`
-- **Inventory**: `/api/v1/inventory/{clusters,pods,serviceaccounts,deployments,replicasets,sbom}`
-- **Risk**: `/api/v1/risk/{insights,scores,pods,top,trends,analytics,rules,exceptions}`
-- **Graph**: `/api/v1/graph`, `/api/v1/graph/attack-paths`
-- **Runtime**: `/api/v1/runtime/*` (signals, pods, network activity), `/api/v2/runtime/*` (Agent ingest)
-- **Policy, audit, governance**: `/api/v1/policy/*`, `/api/v1/audit/*`, `/api/v1/governance/*`
-- **Agent ingest**: `/api/v1/agent/*` (Agent credentials, not user JWTs)
-- **Live updates**: `/api/v1/ws/risks`, `/api/v1/ws/pod/:uid`
+REST API used by the dashboard and external tools. Health endpoints are listed under [Monitoring](#health-endpoints); the route groups are in the [API route overview](../docs/02-architecture/API_STANDARD.md).
 
 Every `/api/*` route is declared in `internal/api/route_security_inventory.go`; Core refuses to start if a registered route is missing from that inventory.
 
-See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST groups and conventions.
 
 ### 6. gRPC API
 
@@ -188,7 +177,7 @@ See [API route overview](../docs/02-architecture/API_STANDARD.md) for REST group
 - `FORTUNA_MAX_REQUEST_BODY_BYTES`: Request body limit (default 64 MiB).
 - `FORTUNA_DEV_MODE`: `1` for local development only: allows a generated JWT secret and `AUTH_ENABLED=false`.
 
-See [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATION.md) for scoped HTTP/gRPC identity semantics and migration status.
+See [Agent credential foundation](../docs/06-reference/AGENT_IDENTITY.md) for scoped HTTP/gRPC identity semantics and migration status.
 
 **NATS Durables**:
 - `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)
@@ -390,7 +379,7 @@ go test ./...
 - [Architecture](../docs/02-architecture/ARCHITECTURE.md)
 - [API route overview](../docs/02-architecture/API_STANDARD.md)
 - [Production Deployment](../docs/05-operations/PRODUCTION_DEPLOYMENT.md)
-- [Agent credential foundation](../docs/06-reference/AGENT_CREDENTIAL_FOUNDATION.md)
+- [Agent credential foundation](../docs/06-reference/AGENT_IDENTITY.md)
 - [Migrations](migrations/README.md)
 
 ---
