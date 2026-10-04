@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # =============================================================================
-# Runtime Signals E2E – test cases thực tế
+# Runtime Signals E2E – live test cases
 # 1. POST /api/v2/runtime/events (ingest event)
-# 2. Kiểm tra DB: runtime_events, runtime_signals
+# 2. Check the DB: runtime_events, runtime_signals
 # 3. GET /api/v1/runtime/signals
 # 4. GET /api/v1/runtime/pods/:uid/signals
-# Chạy từ repo root; cần kubectl, namespace fortuna, Core + Postgres chạy.
+# Run from the repo root; needs kubectl, the fortuna namespace, and running Core + Postgres.
 # =============================================================================
 set -euo pipefail
 

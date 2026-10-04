@@ -425,6 +425,44 @@ func countActiveAdmins(db *gorm.DB) (int64, error) {
 	return n, err
 }
 
+// adminGuardLockKey is the PostgreSQL advisory lock that serializes changes able
+// to remove an active admin.
+const adminGuardLockKey int64 = 0x666f7274756e61 // "fortuna"
+
+var errLastActiveAdmin = errors.New("last active admin")
+
+func isActiveAdmin(u models.User) bool {
+	return u.Active && authorization.NormalizeRole(u.Role) == models.RoleAdmin
+}
+
+// saveUserKeepingAnAdmin persists a user change and, when the change removes an
+// active admin, re-checks under a lock that another active admin remains. A count
+// taken before the write is not enough: two concurrent demotions under READ
+// COMMITTED would each see the other admin and both succeed.
+func saveUserKeepingAnAdmin(db *gorm.DB, before models.User, write func(tx *gorm.DB) error) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if isActiveAdmin(before) {
+			if tx.Dialector.Name() == "postgres" {
+				if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", adminGuardLockKey).Error; err != nil {
+					return err
+				}
+			}
+			if err := write(tx); err != nil {
+				return err
+			}
+			remaining, err := countActiveAdmins(tx)
+			if err != nil {
+				return err
+			}
+			if remaining < 1 {
+				return errLastActiveAdmin
+			}
+			return nil
+		}
+		return write(tx)
+	})
+}
+
 // Cluster allow-lists are the only user-scope restriction enforced end-to-end today.
 // Reject new writes that populate reserved ABAC dimensions until every read path
 // enforces them; accepting them would make an apparently restricted user broader
@@ -527,6 +565,7 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			"active":    target.Active,
 			"scopeJson": target.ScopeJSON,
 		}
+		original := target
 		prevNorm := authorization.NormalizeRole(target.Role)
 
 		if body.Role != nil {
@@ -611,7 +650,11 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			}
 			target.ScopeJSON = raw
 		}
-		if err := db.Save(&target).Error; err != nil {
+		if err := saveUserKeepingAnAdmin(db, original, func(tx *gorm.DB) error { return tx.Save(&target).Error }); err != nil {
+			if errors.Is(err, errLastActiveAdmin) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot remove the last active admin"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -679,18 +722,24 @@ func DeleteUser(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot delete admin accounts"})
 			return
 		}
-		if authorization.NormalizeRole(target.Role) == models.RoleAdmin {
-			var adminCount int64
-			if err := db.Model(&models.User{}).Where("deleted_at IS NULL").Where("LOWER(role) = ?", models.RoleAdmin).Count(&adminCount).Error; err != nil {
+		// Count active admins, consistent with PatchUser: an inactive admin cannot
+		// sign in, so it does not keep the platform administrable.
+		if isActiveAdmin(target) {
+			activeAdmins, err := countActiveAdmins(db)
+			if err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
-			if adminCount <= 1 {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the only admin user"})
+			if activeAdmins <= 1 {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the last active admin"})
 				return
 			}
 		}
-		if err := db.Delete(&target).Error; err != nil {
+		if err := saveUserKeepingAnAdmin(db, target, func(tx *gorm.DB) error { return tx.Delete(&target).Error }); err != nil {
+			if errors.Is(err, errLastActiveAdmin) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the last active admin"})
+				return
+			}
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # ============================================================================
-# E2E Runner – Entry point duy nhất cho E2E
+# E2E runner – the single entry point for E2E suites
 # ============================================================================
-# Chạy theo suite: full | full-report | risk-center | priority1 | runtime |
+# Suites: full | full-report | risk-center | priority1 | runtime |
 #                  runtime-gap | falco-runtime | pce | dashboard |
 #                  consistency | pod-detail | pod-detail-live |
 #                  sbom | sbom-full | sbom-quality
@@ -182,7 +182,7 @@ case "$SUITE" in
     run_script "e2e-sbom-verify.sh (default pod)" "$SCRIPTS/e2e/e2e-sbom-verify.sh"
     ;;
   sbom-full)
-    # SBOM luồng hiện tại: busybox + distroless + CoreDNS (kiểu control-plane)
+    # Current SBOM flow: busybox + distroless + CoreDNS (control-plane style)
     export CORE_API_URL="http://localhost:8080"
     start_core_port_forward || true
     FAIL=0

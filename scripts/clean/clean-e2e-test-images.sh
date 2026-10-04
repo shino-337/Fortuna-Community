@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Dọn image test E2E (vuln alpine, debian9, ubuntu18, ...)
+# Remove E2E test images (vuln alpine, debian9, ubuntu18, ...)
 # ============================================================================
-# Xóa pod đang dùng image → xóa image. Chạy khi cần giải phóng dung lượng hoặc
-# trước khi build lại image test.
+# Deletes pods using the images, then the images. Run to free disk space or
+# before rebuilding the test images.
 # Usage: ./scripts/clean/clean-e2e-test-images.sh [--pods-only]
-#   --pods-only: chỉ xóa pod, không xóa image
+#   --pods-only: delete pods only, keep images
 # ============================================================================
 set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -22,7 +22,7 @@ done
 echo "=== E2E test images cleanup ==="
 echo ""
 
-# 1. Xóa pod test vuln (để image có thể bị xóa)
+# 1. Delete vulnerable test pods (so their images can be removed)
 echo "[1] Deleting E2E vuln pods (fortuna-e2e namespace)..."
 for name in fortuna-e2e-vuln-alpine fortuna-e2e-vuln-debian9 fortuna-e2e-vuln-debian10 fortuna-e2e-vuln-ubuntu18; do
   kubectl delete pod -n fortuna-e2e "$name" --ignore-not-found=true 2>/dev/null && echo "  deleted pod $name" || true

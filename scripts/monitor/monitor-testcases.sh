@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # ============================================================================
-# Monitor chi tiết các testcase – chạy lần lượt và in kết quả từng bước
+# Run test cases one by one and print each step's result
 # ============================================================================
 # Usage:
 #   ./scripts/monitor/monitor-testcases.sh              # in ra stdout
 #   ./scripts/monitor/monitor-testcases.sh --report F   # in ra stdout và ghi vào file F
-# Env: NAMESPACE=fortuna (mặc định), SKIP_DEPLOYMENT=1, SKIP_PRIORITY1=1, ...
-#      để bỏ qua từng nhóm test (bất kỳ giá trị không rỗng = skip).
+# Env: NAMESPACE=fortuna (default), SKIP_DEPLOYMENT=1, SKIP_PRIORITY1=1, ...
+#      skip individual test groups (any non-empty value skips).
 # ============================================================================
 
 set -euo pipefail
@@ -97,11 +97,11 @@ if [ -z "${SKIP_AGENT_CORE:-}" ] && [ -x "$SCRIPTS/verify/verify-agent-core-conn
   run_script "verify-agent-core-connectivity" "$SCRIPTS/verify/verify-agent-core-connectivity.sh" || FAIL_COUNT=$((FAIL_COUNT+1))
 fi
 
-section "Kết thúc"
-echo "Chạy toàn bộ E2E + báo cáo: ./scripts/e2e/run-e2e.sh (hoặc --suite=full-report)"
+section "Done"
+echo "Run all E2E suites with a report: ./scripts/e2e/run-e2e.sh (or --suite=full-report)"
 if [ -n "$REPORT_FILE" ]; then
-  echo "Đã ghi: $REPORT_FILE"
+  echo "Written: $REPORT_FILE"
 fi
-[ "$FAIL_COUNT" -gt 0 ] && echo -e "${RED}Tổng số bước FAIL: $FAIL_COUNT${NC}" && exit 1
-echo -e "${GREEN}Tất cả bước đã chạy (có thể có FAIL ở trên).${NC}"
+[ "$FAIL_COUNT" -gt 0 ] && echo -e "${RED}Failed steps: $FAIL_COUNT${NC}" && exit 1
+echo -e "${GREEN}All steps ran (check above for any FAIL).${NC}"
 exit 0

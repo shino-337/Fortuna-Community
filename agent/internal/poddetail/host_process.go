@@ -347,3 +347,10 @@ func parseMemTotalKB(meminfo string) int64 {
 	}
 	return 0
 }
+
+func truncate(s string, max int) string {
+	if len(s) <= max {
+		return s
+	}
+	return s[:max]
+}

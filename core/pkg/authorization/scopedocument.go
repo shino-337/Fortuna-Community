@@ -57,6 +57,15 @@ func ParseScopeDocumentStrict(scopeJSON string) (ScopeDocument, error) {
 	if err := json.Unmarshal([]byte(s), &d); err != nil {
 		return ScopeDocument{}, fmt.Errorf("invalid scope field type: %w", err)
 	}
+	// An explicit empty cluster allow-list would otherwise mean "no restriction",
+	// so clearing the last cluster would grant every cluster. Unrestricted access
+	// is expressed only by omitting the field ("{}").
+	if _, ok := raw["clusters"]; ok && len(d.Clusters) == 0 {
+		return ScopeDocument{}, errors.New("clusters: list must not be empty; omit the field for access to all clusters")
+	}
+	if _, ok := raw["cluster_ids"]; ok && len(d.LegacyCluster) == 0 {
+		return ScopeDocument{}, errors.New("cluster_ids: list must not be empty; omit the field for access to all clusters")
+	}
 	if err := d.Validate(); err != nil {
 		return ScopeDocument{}, err
 	}

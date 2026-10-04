@@ -20,6 +20,7 @@ Install with the [Quickstart](../getting-started/QUICKSTART.md), then apply the 
 - Apply `deploy/infrastructure/network-policies.yaml` and confirm your CNI enforces NetworkPolicy. NATS has no client authentication; only Core may reach it.
 - Set `FORTUNA_TRUSTED_PROXIES` on Core to the CIDR of the dashboard proxy or ingress only. Core trusts no proxy when the variable is unset, but the bundled manifest sets it to all RFC 1918 ranges so that it works out of the box; narrow it.
 - Set `FORTUNA_WS_ALLOWED_ORIGINS` to the real dashboard origin(s).
+- Core serves unauthenticated Prometheus metrics on port 9091 (`FORTUNA_METRICS_ADDR`). The Service does not expose it; restrict it to your Prometheus with a NetworkPolicy, or unset the variable to disable it.
 - Expose the dashboard through your ingress with TLS. Do not expose Core's HTTP port publicly; remote Agents should reach it through a dedicated, access-controlled endpoint.
 
 ## Data

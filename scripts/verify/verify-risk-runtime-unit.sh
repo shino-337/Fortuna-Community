@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Unit tests cho risk/runtime GAP (không cần cluster). Chạy từ repo root:
+# Unit tests for the risk/runtime GAP checks (no cluster needed). Run from the repo root:
 #   ./scripts/verify/verify-risk-runtime-unit.sh
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

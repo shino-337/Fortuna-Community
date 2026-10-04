@@ -149,6 +149,7 @@ Fortuna requires:
 |-----------|--------|--------|
 | **Kubernetes** | 1.28+ | Required; any distribution (kubeadm, kind, managed) |
 | **kubectl** | 1.28+ | Required |
+| **metrics-server** | any | Optional; Pod Detail shows CPU and memory usage only when it is installed |
 
 **CNI**: any CNI works for Fortuna itself. Use one that **enforces NetworkPolicy** (Calico, Cilium) for anything beyond a lab: NATS has no client authentication, and `deploy/infrastructure/network-policies.yaml` is what limits it and PostgreSQL to Core. Flannel does not enforce NetworkPolicy.
 
@@ -177,7 +178,7 @@ Fortuna requires:
 `deploy/fortuna-rbac.yaml` creates:
 
 - **Core**: read-only, cluster-wide (pods, services, namespaces, ServiceAccounts, RBAC objects, NetworkPolicies). ServiceAccount revocation does not use this identity; it uses a per-cluster kubeconfig you provide ([details](../operations/SERVICEACCOUNT_MUTATIONS.md)).
-- **Agent**: cluster-wide reads of pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC objects, plus `create` on `pods/exec` in every namespace. On the node it runs as root with host PID, extra capabilities and the containerd socket. Treat an Agent compromise as a cluster compromise; see [Agent security](../../agent/README.md#security).
+- **Agent**: cluster-wide reads of pods, nodes, namespaces, ServiceAccounts, workloads, events and RBAC objects, plus read access to pod metrics (`metrics.k8s.io`). It cannot exec into pods. On the node it runs as root with host PID, extra capabilities and the containerd socket. Treat an Agent compromise as a cluster compromise; see [Agent security](../../agent/README.md#security).
 
 ### Network Security
 

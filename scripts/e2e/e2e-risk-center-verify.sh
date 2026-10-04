@@ -2,14 +2,14 @@
 # ============================================================================
 # E2E Risk Center – seed test insight và verify APIs
 # ============================================================================
-# Risk Center (tab Risks) cần: GET /risks, GET /insights/summary (vulnerability).
-# Nếu insights table trống thì Risk Center hiển thị "Total: 0". Script này:
-# 1. Lấy cluster_id và một pod uid từ DB (pod thuộc cluster).
-# 2. Xóa insight E2E cũ (cve_id = 'E2E-RISK-CENTER') nếu có.
-# 3. Insert 1 insight vulnerability (active, high) cho pod đó.
-# 4. Gọi GET /api/v1/risk/insights?clusterId=... và GET /api/v1/risk/insights/summary?clusterId=...
-# 5. Assert total >= 1 và summary high hoặc critical >= 1.
-# 6. Gọi GET /api/v1/runtime/signals (tab Reference) và ghi kết quả.
+# The Risk Center (Risks tab) needs GET /risks and GET /insights/summary (vulnerability).
+# If the insights table is empty the Risk Center shows "Total: 0". This script:
+# 1. Reads a cluster_id and a pod UID from the DB (a pod in that cluster).
+# 2. Deletes the previous E2E insight (cve_id = 'E2E-RISK-CENTER'), if any.
+# 3. Inserts one vulnerability insight (active, high) for that pod.
+# 4. Calls GET /api/v1/risk/insights?clusterId=... and GET /api/v1/risk/insights/summary?clusterId=...
+# 5. Asserts total >= 1 and summary high or critical >= 1.
+# 6. Calls GET /api/v1/runtime/signals (Reference tab) and records the result.
 # ============================================================================
 
 set -euo pipefail

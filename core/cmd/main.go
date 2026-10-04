@@ -21,6 +21,7 @@ import (
 	"github.com/fortuna/core/internal/grpc"
 	"github.com/fortuna/core/internal/health"
 	"github.com/fortuna/core/internal/ingest"
+	internalmetrics "github.com/fortuna/core/internal/metrics"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/internal/scheduler"
 	"github.com/fortuna/core/internal/storage"
@@ -773,6 +774,18 @@ func main() {
 	}()
 	log.Printf("[Main] ✅ HTTP server goroutine launched (non-blocking)")
 
+	// Prometheus endpoint on its own listener (disabled unless FORTUNA_METRICS_ADDR is set).
+	var metricsServer *http.Server
+	if addr := internalmetrics.AddrFromEnv(); addr != "" {
+		metricsServer = internalmetrics.NewServer(addr)
+		go func() {
+			log.Printf("[Main] Serving Prometheus metrics on %s/metrics", addr)
+			if err := metricsServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("[Main] ⚠️  WARNING: metrics server stopped: %v (non-fatal)", err)
+			}
+		}()
+	}
+
 	// Wait for interrupt signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -787,6 +800,12 @@ func main() {
 	// Shutdown REST API server
 	if err := httpServer.Shutdown(ctx); err != nil {
 		log.Printf("Error shutting down HTTP server: %v", err)
+	}
+
+	if metricsServer != nil {
+		if err := metricsServer.Shutdown(ctx); err != nil {
+			log.Printf("Error shutting down metrics server: %v", err)
+		}
 	}
 
 	// Shutdown webhook server if running

@@ -135,14 +135,14 @@ for _ in $(seq 1 24); do
 done
 
 echo ""
-echo "--- DB: pod_risk_profiles (risk score thực tế) ---"
+echo "--- DB: pod_risk_profiles (actual risk score) ---"
 kubectl -n "$NAMESPACE" exec "$PG_POD" -- psql -U postgres -d fortuna -c \
   "SELECT pod_uid, namespace, static_risk, runtime_score, (static_risk + runtime_score) AS total_risk, capabilities, updated_at
    FROM pod_risk_profiles
    WHERE pod_uid = '$POD_UID';"
 
 echo ""
-echo "--- DB: pod_attack_steps (attack path thực tế) ---"
+echo "--- DB: pod_attack_steps (actual attack path) ---"
 kubectl -n "$NAMESPACE" exec "$PG_POD" -- psql -U postgres -d fortuna -c \
   "SELECT pod_uid, step_id, category, confidence, created_at
    FROM pod_attack_steps
@@ -170,10 +170,10 @@ echo ""
 echo "--- Quick summary ---"
 echo "runtime_signals=$RS_CNT | attack_steps=$ATTACK_STEP_CNT | toxic_combo_insights=$TOXIC_INSIGHT_CNT"
 if [ "${ATTACK_STEP_CNT:-0}" -eq 0 ] 2>/dev/null; then
-  yellow "⚠️  Attack path chưa materialize (pod_attack_steps=0). Có thể cần đợi attack_path_reconcile_job chạy thêm."
+  yellow "⚠️  Attack path not materialized yet (pod_attack_steps=0). attack_path_reconcile_job may need more time."
 fi
 if [ "${TOXIC_INSIGHT_CNT:-0}" -eq 0 ] 2>/dev/null; then
-  yellow "⚠️  Chưa thấy insight title chứa 'toxic combo'; hiện tại engine đang ghi nhận theo capability-level insights."
+  yellow "⚠️  No insight title contains 'toxic combo' yet; the engine currently records capability-level insights."
 fi
 
 echo ""

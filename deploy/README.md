@@ -17,7 +17,7 @@ Kubernetes manifests for Fortuna. To install, follow [Install on a cluster](../d
 | `webhook-service.yaml`, `webhook-config.yaml` | Optional admission webhook; enable with `./scripts/deploy/enable-webhook.sh` ([guide](../docs/operations/WEBHOOK.md)) |
 | `risk-evaluation-cronjob.yaml` | Optional CronJob that triggers historical risk evaluation every 6 hours |
 | `falco/helm-values-fortuna.yaml` | Falco values used by `./scripts/deploy/install-falco-fortuna.sh` |
-| `prometheus/risk-center.alerts.yaml` | Prometheus alert rules for active findings; usable only once Core exposes a `/metrics` endpoint (not yet available) |
+| `prometheus/risk-center.alerts.yaml` | Prometheus alert rules for active findings (scrape Core's `metrics` port) |
 | `certs/` | cert-manager alternative to `create_mtls_secret.sh` |
 | `scoped-agent-credentials/` | Overlays for per-Agent tokens and mTLS ([guide](scoped-agent-credentials/README.md)) |
 | `samples/` | Private registry pull secrets and image tag overlays ([guide](samples/README.md)) |
@@ -39,6 +39,7 @@ Core settings (environment variables in `fortuna-core-deployment.yaml`):
 | `FORTUNA_TRUSTED_PROXIES` | Proxies allowed to set `X-Forwarded-For`; unset trusts none |
 | `FORTUNA_WS_ALLOWED_ORIGINS` | Dashboard origins allowed to open WebSockets |
 | `FORTUNA_MAX_REQUEST_BODY_BYTES` | Request body limit (default 64 MiB) |
+| `FORTUNA_METRICS_ADDR` | Listen address for Prometheus `/metrics` (manifest: `:9091`); unset disables it |
 | `AUTH_ENABLED` | Must stay `true`; `false` is accepted only with `FORTUNA_DEV_MODE=1` |
 
 Agent settings (in `fortuna-agent-daemonset.yaml`): `CORE_GRPC_ENDPOINT`, `CORE_HTTP_ENDPOINT`, `FORTUNA_INGEST_TOKEN`, `SYNC_INTERVAL`, `HEARTBEAT_INTERVAL`, `TLS_ENABLED`, `CONTAINERD_SOCKET`, `FALCO_EVENTS_ENABLED`, `EBPF_ENABLED`. Cluster identity is discovered automatically; set `CLUSTER_ID` or `CLUSTER_NAME` only when you need fixed values.
