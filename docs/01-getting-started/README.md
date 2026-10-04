@@ -8,6 +8,7 @@ The project name is Fortuna. The public repository is `shino-337/Fortuna-Communi
 
 | Document | Purpose |
 |----------|---------|
+| [DEMO.md](./DEMO.md) | Try Fortuna in a local kind cluster with one command |
 | [FIRST_FINDING.md](./FIRST_FINDING.md) | Investigate one RBAC path and check it after removing the grant |
 | [QUICKSTART.md](./QUICKSTART.md) | Short path to a running stack |
 | [INSTALLATION.md](./INSTALLATION.md) | Full install, runtime coverage, verification, and reset workflow |

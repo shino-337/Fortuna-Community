@@ -4,7 +4,7 @@ Use this guide when you want a working Fortuna deployment. Start in an isolated 
 
 For a released version, use the documentation and manifests in the matching checkout (`git clone --branch v1.0.0 --depth 1 https://github.com/shino-337/Fortuna-Community.git`). This file on `main` may describe changes newer than that release.
 
-After installation, follow [Your first RBAC investigation](FIRST_FINDING.md) for one concrete result and a remediation check. A hosted demo and one-command lab are not available yet.
+After installation, follow [Your first RBAC investigation](FIRST_FINDING.md) for one concrete result and a remediation check. To evaluate Fortuna on your laptop first, use the [one-command local demo](DEMO.md).
 
 The public repository is `shino-337/Fortuna-Community`, and published GHCR images use `ghcr.io/shino-337/fortuna-community`.
 
