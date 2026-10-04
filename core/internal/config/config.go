@@ -14,9 +14,6 @@ type Config struct {
 	// Database
 	DatabaseURL string
 
-	// Redis (optional)
-	RedisURL string
-
 	// Server ports
 	GRPCPort     string
 	HTTPPort     string
@@ -82,7 +79,6 @@ func Load(configPath string) (*Config, error) {
 
 	cfg := &Config{
 		DatabaseURL:                     getEnv("DATABASE_URL", "postgres://postgres:postgres@postgres:5432/fortuna?sslmode=disable"),
-		RedisURL:                        getEnv("REDIS_URL", ""),
 		GRPCPort:                        getEnv("GRPC_PORT", "9090"),
 		HTTPPort:                        getEnv("HTTP_PORT", "8080"),
 		NATSEndpoint:                    getEnv("NATS_ENDPOINT", "nats://nats.fortuna.svc.cluster.local:4222"),
@@ -113,6 +109,11 @@ func Load(configPath string) (*Config, error) {
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",
 		cfg.TLSEnabled, cfg.TLSCertPath, cfg.TLSCACertPath)
 	devMode := envEnabled("FORTUNA_DEV_MODE")
+	if !cfg.AuthEnabled && !devMode {
+		// AUTH_ENABLED=false grants every caller a synthetic admin and opens
+		// /api/v1/auth/register; never allow that by accident.
+		return nil, fmt.Errorf("AUTH_ENABLED=false requires FORTUNA_DEV_MODE=1 (local development only)")
+	}
 	if cfg.JWTSecret == "" {
 		if !devMode {
 			return nil, fmt.Errorf("JWT_SECRET or FORTUNA_JWT_SECRET must be set; set FORTUNA_DEV_MODE=1 only for local development")

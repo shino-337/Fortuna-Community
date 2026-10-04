@@ -6,15 +6,32 @@ metadata:
   namespace: fortuna
 data:
   default.conf: |
+    # Log $uri (no query string): browser WebSocket clients authenticate with
+    # ?token=<JWT>, which must not be written to access logs.
+    log_format fortuna_noquery '$remote_addr - $remote_user [$time_local] '
+                               '"$request_method $uri $server_protocol" $status $body_bytes_sent '
+                               '"$http_referer" "$http_user_agent"';
+
     server {
       listen 80;
       server_name _;
+      access_log /var/log/nginx/access.log fortuna_noquery;
 
       root /usr/share/nginx/html;
       index index.html;
 
       location / {
         try_files $uri /index.html;
+      }
+
+      # Agent ingest is served by Core directly (ClusterIP / NodePort), never
+      # through the browser-facing dashboard proxy.
+      location ^~ /api/v1/agent/ {
+        return 404;
+      }
+
+      location ~ ^/api/v2/runtime/(events|producers|coverage|source-health)$ {
+        return 404;
       }
 
       location /api/ {
@@ -30,7 +47,9 @@ data:
         proxy_set_header Connection "upgrade";
         proxy_set_header Host $upstream_core;
         proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        # Overwrite (not append): Core trusts this header only from this proxy,
+        # so clients must not be able to inject their own X-Forwarded-For values.
+        proxy_set_header X-Forwarded-For $remote_addr;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Authorization $http_authorization;
         proxy_set_header Sec-WebSocket-Key $http_sec_websocket_key;

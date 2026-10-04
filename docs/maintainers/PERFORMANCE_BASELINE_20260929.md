@@ -56,5 +56,5 @@ The receipt retention/partition/archive and storage-capacity follow-up in
 [NEXT_AUDIT_PLAN.md](NEXT_AUDIT_PLAN.md#52-production-operations-follow-up-not-a-correctness-merge-blocker)
 remains open. These benchmarks do not enable runtime absence resolution or prove
 large-scale storage readiness. The backend first-investigation flow is recorded
-in [integration acceptance](INTEGRATION_ACCEPTANCE.md); live Dashboard navigation
+in [integration acceptance](../06-reference/INTEGRATION_ACCEPTANCE.md); live Dashboard navigation
 and the S2 browser walkthrough remain deployment validation.

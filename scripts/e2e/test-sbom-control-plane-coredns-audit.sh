@@ -171,12 +171,12 @@ fi
 echo ""
 
 echo "[5/7] Querying CVE insights..."
-INSIGHTS=$(curl -s "${CURL_AUTH[@]}" "${CORE_URL}/api/v1/insights?resource_uid=${POD_UID}" 2>/dev/null || echo "{}")
-if command -v jq >/dev/null 2>&1 && echo "$INSIGHTS" | jq . >/dev/null 2>&1; then
-  INS_COUNT=$(echo "$INSIGHTS" | jq '.insights | length // 0' 2>/dev/null || echo "0")
-  echo "  Insights: $INS_COUNT"
+# The insights list API has no per-resource filter; count this pod's insights in the DB.
+INS_COUNT=$(query_db "SELECT COUNT(*) FROM insights WHERE resource_uid='${POD_UID}';" 2>/dev/null || echo "")
+if [ -n "${INS_COUNT}" ]; then
+  echo "  Insights: ${INS_COUNT}"
 else
-  echo "  INFO: No insights response"
+  echo "  INFO: Could not query insights"
 fi
 echo ""
 

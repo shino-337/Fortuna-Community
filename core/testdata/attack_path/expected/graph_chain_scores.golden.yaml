@@ -1,5 +1,5 @@
 # Range-based golden — operator context:
-#   docs/03-components/COMPONENTS.md#attack-path-and-risk-signals
+#   docs/03-components/README.md#attack-paths
 #
 # Summary:
 # - total / components.attack_path_* are Unified V3 outputs (attack_path dimension: 0–15).

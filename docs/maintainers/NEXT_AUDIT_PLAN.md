@@ -405,8 +405,8 @@ an independently measuring attestor. No live source-health rollout is claimed.
 
 ## F/G/H/I source and acceptance checkpoint — 2026-09-29
 
-The new branch implements [scoped AGE](SCOPED_AGE.md), [reviewed durable
-mutations](SERVICEACCOUNT_MUTATIONS.md), [permanent real integration gates](INTEGRATION_ACCEPTANCE.md)
+The new branch implements [scoped AGE](../05-operations/SCOPED_AGE.md), [reviewed durable
+mutations](../05-operations/SERVICEACCOUNT_MUTATIONS.md), [permanent real integration gates](../06-reference/INTEGRATION_ACCEPTANCE.md)
 and [measured performance changes](PERFORMANCE_BASELINE_20260929.md). The live
 backend gate passed with two clusters, three nodes, four DaemonSets and six real
 Agents. It includes actual JWT permissions, first finding/RBAC investigation,

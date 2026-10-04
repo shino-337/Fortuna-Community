@@ -227,3 +227,6 @@ node-cred.md
 progress.txt
 SECURITY_FINDINGS_SUMMARY.md
 SECURITY_FIXES_PLAN.md
+
+# Local demo cluster state (scripts/demo/up.sh)
+.fortuna-demo/

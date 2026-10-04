@@ -33,8 +33,8 @@ A worker claims one step under a 45-second database lease and a 15-second reques
 budget. Progress and step audit commit together after Kubernetes succeeds. A
 crash or persistence failure leaves durable intent: replay recognizes the exact
 post-update subjects or NotFound deletion without repeating broader effects.
-Transient failures retry after 30 seconds; identity/permission conflicts become
-blocked. The existing explicit single/bulk DELETE endpoints also persist a
+Transient failures retry after 30 seconds, up to 20 attempts (about 10 minutes),
+then become blocked; identity/permission conflicts become blocked immediately. The existing explicit single/bulk DELETE endpoints also persist a
 cluster/UID-keyed intent before Kubernetes deletion. Inventory soft deletion and
 completion audit commit atomically only after successful UID-guarded deletion.
 Workers resume after Core restart; watch the operation status rather than treating
@@ -42,3 +42,15 @@ a failed HTTP request as proof that no Kubernetes effect occurred.
 
 Current Dashboard disable actions remain unavailable. Use this API workflow to
 inspect exact effects; no automatic inactive-account revocation is enabled.
+
+## Details
+
+- A preview fails instead of silently omitting effects when the cluster has more
+  than 500 RoleBindings, ClusterRoleBindings or Secrets in the namespace to scan.
+- Plan digests are computed over canonical typed JSON, so PostgreSQL JSONB key
+  ordering or whitespace cannot invalidate a reviewed plan.
+- Bulk DELETE requires `inventory.bulk` plus `inventory.delete`, validates the
+  whole set first and reports per-item failures with HTTP 207.
+- Coverage: unit regressions for scope, actor, digest, binding drift, replacement
+  UIDs and persistence failure, plus the live two-cluster
+  [integration gate](../06-reference/INTEGRATION_ACCEPTANCE.md).

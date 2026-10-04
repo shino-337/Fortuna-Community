@@ -65,7 +65,7 @@ The sleeping pod does not simulate a compromise. A static permission path alone 
 
 Alternatively, review and execute the new explicit mutation API plan for this
 ServiceAccount. Inspect every target and limitation before sending its digest;
-see [mutation contract](../06-reference/SERVICEACCOUNT_MUTATIONS.md). The legacy
+see [mutation contract](../05-operations/SERVICEACCOUNT_MUTATIONS.md). The legacy
 Dashboard disable action remains unsupported. The commands below delete only
 the fixture binding.
 
