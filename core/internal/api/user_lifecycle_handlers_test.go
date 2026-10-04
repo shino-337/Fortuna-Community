@@ -831,3 +831,51 @@ func TestUserLifecycle_UserAdminCannotPatchOperatorToClusterAdmin(t *testing.T) 
 		t.Fatalf("want 403 got %d %s", w.Code, w.Body.String())
 	}
 }
+
+func TestUserLifecycle_InactiveAdminsDoNotCountAsRemainingAdmins(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	hash, err := auth.HashPassword("UnitTestPass12!")
+	if err != nil {
+		t.Fatalf("hash: %v", err)
+	}
+	// admin3 is an admin account that is inactive and cannot sign in.
+	for _, u := range []models.User{
+		{Username: "admin2", Email: "admin2@test.local", Password: hash, Role: models.RoleAdmin, Active: true},
+		{Username: "admin3", Email: "admin3@test.local", Password: hash, Role: models.RoleAdmin, Active: true},
+	} {
+		if err := db.Create(&u).Error; err != nil {
+			t.Fatalf("seed: %v", err)
+		}
+	}
+	if err := db.Model(&models.User{}).Where("username = ?", "admin3").Update("active", false).Error; err != nil {
+		t.Fatalf("deactivate admin3: %v", err)
+	}
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin2")
+	del := func(username string) int {
+		w := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+strconv.FormatUint(uint64(userIDByUsername(t, db, username)), 10), nil)
+		req.Header.Set("Authorization", "Bearer "+tok)
+		r.ServeHTTP(w, req)
+		return w.Code
+	}
+	if code := del("admin1"); code != http.StatusOK {
+		t.Fatalf("deleting one of two active admins: want 200 got %d", code)
+	}
+	// admin2 is now the only active admin. Inactive admin accounts (admin3,
+	// admin4) must not count, so admin2 cannot deactivate itself.
+	if err := db.Create(&models.User{Username: "admin4", Email: "admin4@test.local", Password: hash, Role: models.RoleAdmin, Active: true}).Error; err != nil {
+		t.Fatalf("seed admin4: %v", err)
+	}
+	if err := db.Model(&models.User{}).Where("username = ?", "admin4").Update("active", false).Error; err != nil {
+		t.Fatalf("deactivate admin4: %v", err)
+	}
+	r2 := routerPatchUserWithPermissions(t, db, "admin2", authorization.PermissionUsersUpdate, authorization.PermissionUsersRoleAssign)
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPatch, "/api/v1/users/"+strconv.FormatUint(uint64(userIDByUsername(t, db, "admin2")), 10), bytes.NewReader([]byte(`{"active":false}`)))
+	req.Header.Set("Content-Type", "application/json")
+	r2.ServeHTTP(w, req)
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("deactivating the last active admin: want 400 got %d %s", w.Code, w.Body.String())
+	}
+}
