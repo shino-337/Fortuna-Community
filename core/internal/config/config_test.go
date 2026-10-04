@@ -46,3 +46,28 @@ func TestLoadGeneratesEphemeralJWTSecretInDevMode(t *testing.T) {
 		t.Fatalf("expected generated dev JWT secret, got length %d", len(cfg.JWTSecret))
 	}
 }
+
+func TestLoadRejectsAuthDisabledOutsideDevMode(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("a", 32))
+	t.Setenv("AUTH_ENABLED", "false")
+	t.Setenv("FORTUNA_DEV_MODE", "")
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), "AUTH_ENABLED=false") {
+		t.Fatalf("expected AUTH_ENABLED=false to be rejected outside dev mode, got %v", err)
+	}
+}
+
+func TestLoadAllowsAuthDisabledInDevMode(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("a", 32))
+	t.Setenv("AUTH_ENABLED", "false")
+	t.Setenv("FORTUNA_DEV_MODE", "1")
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load failed: %v", err)
+	}
+	if cfg.AuthEnabled {
+		t.Fatal("expected auth to be disabled in dev mode")
+	}
+}

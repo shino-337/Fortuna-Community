@@ -113,6 +113,11 @@ func Load(configPath string) (*Config, error) {
 	log.Printf("[Config] Final config: TLSEnabled=%v, TLSCertPath=%s, TLSCACertPath=%s",
 		cfg.TLSEnabled, cfg.TLSCertPath, cfg.TLSCACertPath)
 	devMode := envEnabled("FORTUNA_DEV_MODE")
+	if !cfg.AuthEnabled && !devMode {
+		// AUTH_ENABLED=false grants every caller a synthetic admin and opens
+		// /api/v1/auth/register; never allow that by accident.
+		return nil, fmt.Errorf("AUTH_ENABLED=false requires FORTUNA_DEV_MODE=1 (local development only)")
+	}
 	if cfg.JWTSecret == "" {
 		if !devMode {
 			return nil, fmt.Errorf("JWT_SECRET or FORTUNA_JWT_SECRET must be set; set FORTUNA_DEV_MODE=1 only for local development")
