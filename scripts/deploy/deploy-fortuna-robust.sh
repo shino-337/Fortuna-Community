@@ -208,6 +208,8 @@ fi
 echo -e "${GREEN}✅${NC} PostgreSQL applied"
 
 kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/nats.yaml"
+# NATS has no client auth; restrict NATS and Postgres ingress to Core.
+kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/network-policies.yaml"
 echo "Waiting for NATS (max 300s)..."
 if kubectl rollout status statefulset/nats -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} NATS pod is Ready"

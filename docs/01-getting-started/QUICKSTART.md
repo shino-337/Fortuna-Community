@@ -65,6 +65,7 @@ NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
 
 kubectl apply -f deploy/infrastructure/postgresql-with-age.yaml
 kubectl apply -f deploy/infrastructure/nats.yaml
+kubectl apply -f deploy/infrastructure/network-policies.yaml  # restrict NATS/Postgres to Core
 kubectl apply -f deploy/fortuna-rbac.yaml
 kubectl apply -f deploy/dashboard-nginx-configmap.yaml
 ```
