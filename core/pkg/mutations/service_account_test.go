@@ -156,3 +156,31 @@ func TestMutationDigestSurvivesJSONBRepresentation(t *testing.T) {
 	require.NoError(t, Process(context.Background(), db, fakeFactory(client), job.ID))
 	require.Equal(t, "succeeded", jobState(t, db, job.ID).Status)
 }
+
+func TestMutationStopsRetryingAfterMaxAttempts(t *testing.T) {
+	db, client, sa := mutationFixture(t)
+	ctx := context.Background()
+	plan, err := Preview(ctx, client, sa, "revoke")
+	require.NoError(t, err)
+	job, err := SavePreview(db, sa, 0, "operator", "revoke", plan)
+	require.NoError(t, err)
+	require.NoError(t, Queue(db, job.ID, job.Digest, 0))
+
+	unreachable := func(context.Context, string) (kubernetes.Interface, error) {
+		return nil, context.DeadlineExceeded
+	}
+	for attempt := 1; attempt <= MaxAttempts; attempt++ {
+		require.NoError(t, Process(ctx, db, unreachable, job.ID))
+		state := jobState(t, db, job.ID)
+		if attempt < MaxAttempts {
+			require.Equal(t, "retry", state.Status, "attempt %d", attempt)
+			require.NoError(t, db.Model(&state).Update("retry_at", time.Now().Add(-time.Second)).Error)
+			continue
+		}
+		require.Equal(t, "blocked", state.Status)
+		require.Equal(t, MaxAttempts, state.Attempts)
+	}
+	// A blocked job is never claimed again.
+	require.NoError(t, Process(ctx, db, unreachable, job.ID))
+	require.Equal(t, MaxAttempts, jobState(t, db, job.ID).Attempts)
+}
