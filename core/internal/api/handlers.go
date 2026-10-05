@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/graph"
@@ -47,7 +48,9 @@ func getClustersForAPI(db *gorm.DB, c *gin.Context) ([]models.Cluster, error) {
 		cutoff := time.Now().Add(-ActiveClusterCutoff)
 		query = query.Where("last_sync >= ?", cutoff)
 	}
-	if err := query.Order("last_sync DESC").Find(&clusters).Error; err != nil {
+	// Hard cap (not a page size): the dashboard builds its cluster selector
+	// from this list, so maxClustersListed sits far above realistic fleets.
+	if err := query.Order("last_sync DESC").Limit(maxClustersListed).Find(&clusters).Error; err != nil {
 		return nil, err
 	}
 	return clusters, nil
@@ -136,6 +139,8 @@ func GetClusterOverview(db *gorm.DB) gin.HandlerFunc {
 type ClusterInventoryResponse struct {
 	Nodes      []string `json:"nodes"`
 	Namespaces []string `json:"namespaces"`
+	// Truncated is true when either list hit the row limit.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // GetClusterInventory returns distinct node names and namespaces from pods for the cluster.
@@ -156,19 +161,26 @@ func GetClusterInventory(db *gorm.DB) gin.HandlerFunc {
 			respondDataUnavailable(c, "cluster_inventory_cluster_unavailable", "Cluster inventory could not verify cluster state")
 			return
 		}
+		limit := listlimit.Parse(c, clusterInventoryDefaultLimit, clusterInventoryMaxLimit)
 		var nodes []string
 		if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).
-			Distinct("node_name").Pluck("node_name", &nodes).Error; err != nil {
+			Distinct("node_name").Order("node_name").Limit(limit+1).Pluck("node_name", &nodes).Error; err != nil {
 			respondDataUnavailable(c, "cluster_inventory_nodes_unavailable", "Cluster node inventory could not be loaded")
 			return
 		}
 		var namespaces []string
 		if err := db.Model(&models.Pod{}).Where("cluster_id = ? AND deleted_at IS NULL", id).
-			Distinct("namespace").Pluck("namespace", &namespaces).Error; err != nil {
+			Distinct("namespace").Order("namespace").Limit(limit+1).Pluck("namespace", &namespaces).Error; err != nil {
 			respondDataUnavailable(c, "cluster_inventory_namespaces_unavailable", "Cluster namespace inventory could not be loaded")
 			return
 		}
-		c.JSON(http.StatusOK, ClusterInventoryResponse{Nodes: nodes, Namespaces: namespaces})
+		nodes, nodesTruncated := listlimit.Trim(nodes, limit)
+		namespaces, namespacesTruncated := listlimit.Trim(namespaces, limit)
+		c.JSON(http.StatusOK, ClusterInventoryResponse{
+			Nodes:      nodes,
+			Namespaces: namespaces,
+			Truncated:  nodesTruncated || namespacesTruncated,
+		})
 	}
 }
 
@@ -190,11 +202,13 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 			respondDataUnavailable(c, "cluster_agents_cluster_unavailable", "Cluster Agent inventory could not verify cluster state")
 			return
 		}
+		limit := listlimit.Parse(c, clusterAgentsDefaultLimit, clusterAgentsMaxLimit)
 		var agents []models.Agent
-		if err := db.WithContext(c.Request.Context()).Where("cluster_id = ? AND (status = ? OR status IS NULL)", id, "ready").Order("last_seen_at DESC NULLS LAST").Find(&agents).Error; err != nil {
+		if err := db.WithContext(c.Request.Context()).Where("cluster_id = ? AND (status = ? OR status IS NULL)", id, "ready").Order("last_seen_at DESC NULLS LAST").Limit(limit + 1).Find(&agents).Error; err != nil {
 			respondDataUnavailable(c, "cluster_agents_query_failed", "Cluster Agent inventory could not be loaded")
 			return
 		}
+		agents, truncated := listlimit.Trim(agents, limit)
 
 		list := make([]map[string]interface{}, 0, len(agents))
 		for _, a := range agents {
@@ -216,7 +230,7 @@ func GetClusterAgents(db *gorm.DB) gin.HandlerFunc {
 				"version":       a.Version,
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "agents": list, "total": len(list)})
+		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "agents": list, "total": len(list), "truncated": truncated})
 	}
 }
 
@@ -1450,15 +1464,19 @@ func GetAuditReports(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("created_at >= ?", cutoff)
 		}
 
+		limit := listlimit.Parse(c, auditReportsDefaultLimit, auditReportsMaxLimit)
 		reports := make([]Report, 0)
 		if err := query.
 			Select("resource, action, COUNT(*) as count").
 			Group("resource, action").
+			Order("count DESC, resource, action").
+			Limit(limit + 1).
 			Scan(&reports).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		reports, truncated := listlimit.Trim(reports, limit)
 
-		c.JSON(http.StatusOK, gin.H{"reports": reports})
+		c.JSON(http.StatusOK, gin.H{"reports": reports, "truncated": truncated})
 	}
 }

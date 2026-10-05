@@ -96,6 +96,17 @@ export const API_DEFAULTS = {
   LIMIT_DETAIL: 100,
   LIMIT_DASHBOARD: 5,
   TREND_DAYS: 7,
+  /**
+   * Explicit limits for screens that render a full collection (Core hard maxima,
+   * see core/internal/api/list_limits.go). Passing them keeps those screens from
+   * being cut by the server's smaller default limit.
+   */
+  LIMIT_ALL_RULES: 5000,
+  LIMIT_ALL_USERS: 5000,
+  LIMIT_ALL_RESOURCES: 20000,
+  LIMIT_ALL_INVESTIGATIONS: 2000,
+  LIMIT_ALL_TIMELINE: 5000,
+  LIMIT_ALL_AGENTS: 5000,
 } as const;
 
 function asArray<T = any>(value: unknown): T[] {
@@ -520,6 +531,7 @@ function mapNotification(n: Record<string, unknown>): Notification {
     source: n.source ? String(n.source) : undefined,
     category: n.category ? String(n.category) : undefined,
     route: n.route ? String(n.route) : undefined,
+    clusterId: n.clusterId ? String(n.clusterId) : undefined,
     resourceUid: n.resourceUid ? String(n.resourceUid) : undefined,
     resourceName: n.resourceName ? String(n.resourceName) : undefined,
     readAt,
@@ -787,7 +799,7 @@ export const api = {
   },
 
   getClusterAgentsStrict: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
-    const data = await request<{ agents?: ClusterAgent[]; total?: number }>(`/inventory/clusters/${encodeURIComponent(id)}/agents`);
+    const data = await request<{ agents?: ClusterAgent[]; total?: number }>(`/inventory/clusters/${encodeURIComponent(id)}/agents?limit=${API_DEFAULTS.LIMIT_ALL_AGENTS}`);
     if (!Array.isArray(data.agents)) {
       invalidResponse('cluster_agents_invalid_response', 'Cluster agents response is missing the agents array');
     }
@@ -1143,133 +1155,129 @@ export const api = {
     /** instance (default) | group — grouped findings by type + CVE/title */
     view?: 'instance' | 'group';
   }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number; view?: string }> => {
-    try {
-      const query = new URLSearchParams();
-      if (params?.type) query.set('type', params.type);
-      if (params?.page != null) query.set('page', String(params.page));
-      if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
-      if (params?.status != null) query.set('status', params.status);
-      if (params?.search?.trim()) query.set('search', params.search.trim());
-      if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
-      if (params?.namespace?.trim()) query.set('resourceNamespace', params.namespace.trim());
-      if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
-      // Unified display standard: always request authoritative risk_scores.
-      if (params?.withScores === 1 || params?.withScores == null) query.set('withScores', '1');
-      if (params?.finalLevel?.trim()) query.set('finalLevel', params.finalLevel.trim());
-      if (params?.scoreBin != null && params.scoreBin >= 0 && params.scoreBin <= 90 && params.scoreBin % 10 === 0) query.set('scoreBin', String(params.scoreBin));
-      if (params?.view === 'group') query.set('view', 'group');
-      else if (params?.view === 'instance') query.set('view', 'instance');
-      const qs = query.toString();
-      const url = qs ? `/risk/insights?${qs}` : '/risk/insights';
-      const data = await request<{
-        total: number;
-        page?: number;
-        pageSize?: number;
-        insights: any[];
-        view?: string;
-        groups?: Record<string, unknown>[];
-      }>(url);
-      const view = String(data.view || 'instance').toLowerCase();
-      if (view === 'group' && Array.isArray(data.groups)) {
-        const insights = data.groups.map(mapRiskInsightGroupToInsight);
-        return {
-          insights,
-          total: Number(data.total) ?? 0,
-          page: Number(data.page) ?? 1,
-          pageSize: Number(data.pageSize) ?? 20,
-          view: 'group',
-        };
-      }
-      const insights = (data.insights || []).map((insight) => {
-        const severity = (insight.severity || 'medium').toLowerCase();
-        // Unified display standard: score comes from authoritative risk_scores.
-        const totalScoreFromApi = insight.totalScore != null ? Number(insight.totalScore) : null;
-        const finalScoreFromApi =
-          insight.final_score != null
-            ? Number(insight.final_score)
-            : insight.finalScore != null
-              ? Number(insight.finalScore)
-              : totalScoreFromApi;
-        const finalLevel =
-          insight.final_level != null
-            ? String(insight.final_level).toLowerCase()
-            : insight.finalLevel != null
-              ? String(insight.finalLevel).toLowerCase()
-              : deriveUnifiedRiskLevelFromScore(finalScoreFromApi ?? undefined);
-        const severityHint =
-          insight.severity_hint != null
-            ? String(insight.severity_hint).toLowerCase()
-            : insight.severityHint != null
-              ? String(insight.severityHint).toLowerCase()
-              : severity;
-        const exploitabilityScore =
-          insight.exploitabilityScore != null ? Number(insight.exploitabilityScore) : undefined;
-        const businessImpactScore =
-          insight.businessImpactScore != null ? Number(insight.businessImpactScore) : undefined;
-        const timeDecay = insight.timeDecay != null ? Number(insight.timeDecay) : undefined;
-        const itype = (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string;
-        return {
-          id: String(insight.id),
-          cveId:
-            insight.cveId != null
-              ? String(insight.cveId)
-              : insight.cve_id != null
-                ? String(insight.cve_id)
-                : undefined,
-          affectedComponent:
-            insight.affectedComponent != null
-              ? String(insight.affectedComponent)
-              : insight.affected_component != null
-                ? String(insight.affected_component)
-                : undefined,
-          affectedVersion:
-            insight.affectedVersion != null
-              ? String(insight.affectedVersion)
-              : insight.affected_version != null
-                ? String(insight.affected_version)
-                : undefined,
-          title: insight.title,
-          description: insight.description,
-          severity,
-          severityHint,
-          finalLevel,
-          breakdown: Array.isArray(insight.breakdown) ? insight.breakdown : undefined,
-          score: finalScoreFromApi != null ? Math.min(100, Math.max(0, Math.round(finalScoreFromApi))) : undefined,
-          category: itype === 'vulnerability' || itype === 'supply_chain_malware' ? 'sbom' : 'security',
-          insightType: itype,
-          status: normalizeInsightStatus(insight.status),
-          timestamp: insight.detectedAt || insight.createdAt,
-          updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
-          clusterId: (insight.clusterId ?? insight.resourceNamespace) ?? '',
-          clusterName: (insight.clusterName ?? insight.resourceNamespace) ?? '',
-          affectedResources: [
-            {
-              id: insight.resourceUid || String(insight.id),
-              name: insight.resourceName,
-              kind: insight.resourceType,
-              namespace: insight.resourceNamespace,
-            },
-          ],
-          impact: insight.recommendation,
-          evidence: insight.evidence,
-          violatedRules: insight.violatedRules,
-          totalScore: finalScoreFromApi ?? undefined,
-          finalScore: finalScoreFromApi ?? undefined,
-          exploitabilityScore,
-          businessImpactScore,
-          timeDecay,
-        } as Insight;
-      });
+    const query = new URLSearchParams();
+    if (params?.type) query.set('type', params.type);
+    if (params?.page != null) query.set('page', String(params.page));
+    if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
+    if (params?.status != null) query.set('status', params.status);
+    if (params?.search?.trim()) query.set('search', params.search.trim());
+    if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+    if (params?.namespace?.trim()) query.set('resourceNamespace', params.namespace.trim());
+    if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
+    // Unified display standard: always request authoritative risk_scores.
+    if (params?.withScores === 1 || params?.withScores == null) query.set('withScores', '1');
+    if (params?.finalLevel?.trim()) query.set('finalLevel', params.finalLevel.trim());
+    if (params?.scoreBin != null && params.scoreBin >= 0 && params.scoreBin <= 90 && params.scoreBin % 10 === 0) query.set('scoreBin', String(params.scoreBin));
+    if (params?.view === 'group') query.set('view', 'group');
+    else if (params?.view === 'instance') query.set('view', 'instance');
+    const qs = query.toString();
+    const url = qs ? `/risk/insights?${qs}` : '/risk/insights';
+    const data = await request<{
+      total: number;
+      page?: number;
+      pageSize?: number;
+      insights: any[];
+      view?: string;
+      groups?: Record<string, unknown>[];
+    }>(url);
+    const view = String(data.view || 'instance').toLowerCase();
+    if (view === 'group' && Array.isArray(data.groups)) {
+      const insights = data.groups.map(mapRiskInsightGroupToInsight);
       return {
         insights,
         total: Number(data.total) ?? 0,
         page: Number(data.page) ?? 1,
         pageSize: Number(data.pageSize) ?? 20,
-        view: 'instance',
+        view: 'group',
       };
-    } catch (err) {
-      return { insights: [], total: 0, page: 1, pageSize: 20, view: 'instance' };
     }
+    const insights = (data.insights || []).map((insight) => {
+      const severity = (insight.severity || 'medium').toLowerCase();
+      // Unified display standard: score comes from authoritative risk_scores.
+      const totalScoreFromApi = insight.totalScore != null ? Number(insight.totalScore) : null;
+      const finalScoreFromApi =
+        insight.final_score != null
+          ? Number(insight.final_score)
+          : insight.finalScore != null
+            ? Number(insight.finalScore)
+            : totalScoreFromApi;
+      const finalLevel =
+        insight.final_level != null
+          ? String(insight.final_level).toLowerCase()
+          : insight.finalLevel != null
+            ? String(insight.finalLevel).toLowerCase()
+            : deriveUnifiedRiskLevelFromScore(finalScoreFromApi ?? undefined);
+      const severityHint =
+        insight.severity_hint != null
+          ? String(insight.severity_hint).toLowerCase()
+          : insight.severityHint != null
+            ? String(insight.severityHint).toLowerCase()
+            : severity;
+      const exploitabilityScore =
+        insight.exploitabilityScore != null ? Number(insight.exploitabilityScore) : undefined;
+      const businessImpactScore =
+        insight.businessImpactScore != null ? Number(insight.businessImpactScore) : undefined;
+      const timeDecay = insight.timeDecay != null ? Number(insight.timeDecay) : undefined;
+      const itype = (insight.insightType ?? insight.insight_type ?? 'vulnerability') as string;
+      return {
+        id: String(insight.id),
+        cveId:
+          insight.cveId != null
+            ? String(insight.cveId)
+            : insight.cve_id != null
+              ? String(insight.cve_id)
+              : undefined,
+        affectedComponent:
+          insight.affectedComponent != null
+            ? String(insight.affectedComponent)
+            : insight.affected_component != null
+              ? String(insight.affected_component)
+              : undefined,
+        affectedVersion:
+          insight.affectedVersion != null
+            ? String(insight.affectedVersion)
+            : insight.affected_version != null
+              ? String(insight.affected_version)
+              : undefined,
+        title: insight.title,
+        description: insight.description,
+        severity,
+        severityHint,
+        finalLevel,
+        breakdown: Array.isArray(insight.breakdown) ? insight.breakdown : undefined,
+        score: finalScoreFromApi != null ? Math.min(100, Math.max(0, Math.round(finalScoreFromApi))) : undefined,
+        category: itype === 'vulnerability' || itype === 'supply_chain_malware' ? 'sbom' : 'security',
+        insightType: itype,
+        status: normalizeInsightStatus(insight.status),
+        timestamp: insight.detectedAt || insight.createdAt,
+        updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
+        clusterId: (insight.clusterId ?? insight.resourceNamespace) ?? '',
+        clusterName: (insight.clusterName ?? insight.resourceNamespace) ?? '',
+        affectedResources: [
+          {
+            id: insight.resourceUid || String(insight.id),
+            name: insight.resourceName,
+            kind: insight.resourceType,
+            namespace: insight.resourceNamespace,
+          },
+        ],
+        impact: insight.recommendation,
+        evidence: insight.evidence,
+        violatedRules: insight.violatedRules,
+        totalScore: finalScoreFromApi ?? undefined,
+        finalScore: finalScoreFromApi ?? undefined,
+        exploitabilityScore,
+        businessImpactScore,
+        timeDecay,
+      } as Insight;
+    });
+    return {
+      insights,
+      total: Number(data.total) ?? 0,
+      page: Number(data.page) ?? 1,
+      pageSize: Number(data.pageSize) ?? 20,
+      view: 'instance',
+    };
   },
 
   /** GET /api/v1/risk/insights/export – download the Risk Center findings as CSV (same filters as the list). */
@@ -1582,8 +1590,12 @@ export const api = {
       if (type) q.set('kind', type);
       if (params?.cluster) q.set('cluster', params.cluster);
       if (params?.namespace) q.set('namespace', params.namespace);
+      q.set('limit', String(API_DEFAULTS.LIMIT_ALL_RESOURCES));
       const qs = q.toString();
-      const data = await request<{ resources?: Array<{ kind: string; name: string; namespace?: string; uid: string; clusterId: string }>; total?: number }>(`/resources${qs ? `?${qs}` : ''}`);
+      const data = await request<{ resources?: Array<{ kind: string; name: string; namespace?: string; uid: string; clusterId: string }>; total?: number; truncated?: boolean }>(`/resources?${qs}`);
+      if (data.truncated) {
+        console.warn(`Resource inventory truncated at ${API_DEFAULTS.LIMIT_ALL_RESOURCES} rows; narrow by cluster or namespace.`);
+      }
       if (!Array.isArray(data.resources)) {
         invalidResponse('resource_inventory_invalid_response', 'Resource inventory response is missing the resources array');
       }
@@ -1619,7 +1631,7 @@ export const api = {
     }
   },
 
-  getRules: async (limit = API_DEFAULTS.LIMIT_LIST): Promise<SecurityRule[]> => {
+  getRules: async (limit: number = API_DEFAULTS.LIMIT_ALL_RULES): Promise<SecurityRule[]> => {
     try {
       const data = await request<{ rules: Array<Record<string, unknown>>; total?: number; active?: number; disabled?: number }>(`/policy/rules?limit=${limit}`);
       const raw = data.rules || [];
@@ -1669,7 +1681,7 @@ export const api = {
 
   /** GET /api/v1/risk-rules – list from DB (or files when DB empty) */
   getRiskRules: async (): Promise<{ rules: RiskRuleItem[]; total: number; source: string }> => {
-    const data = await request<{ rules: RiskRuleItem[]; total: number; source?: string }>('/risk/rules');
+    const data = await request<{ rules: RiskRuleItem[]; total: number; source?: string }>(`/risk/rules?limit=${API_DEFAULTS.LIMIT_ALL_RULES}`);
     return {
       rules: data.rules ?? [],
       total: data.total ?? 0,
@@ -1808,7 +1820,7 @@ export const api = {
   },
 
   /** GET /api/v1/policy/rules/uid/:uid – single rule + matchCount + recentMatches */
-  getRulesStrict: async (limit = API_DEFAULTS.LIMIT_LIST): Promise<SecurityRule[]> => {
+  getRulesStrict: async (limit: number = API_DEFAULTS.LIMIT_ALL_RULES): Promise<SecurityRule[]> => {
     const data = await request<{ rules?: Array<Record<string, unknown>>; total?: number; active?: number; disabled?: number }>(`/policy/rules?limit=${limit}`);
     if (!Array.isArray(data.rules)) {
       invalidResponse('policy_rules_invalid_response', 'Policy rules response is missing the rules array');
@@ -2060,7 +2072,7 @@ export const api = {
         status: string;
         lastHeartbeat: string;
       }>;
-    }>('/agents/status');
+    }>(`/agents/status?limit=${API_DEFAULTS.LIMIT_ALL_AGENTS}`);
       const raw = data.agents || [];
       return raw.map((a) => ({
         id: a.agentId,
@@ -2071,7 +2083,7 @@ export const api = {
   },
 
   getUsers: async (): Promise<User[]> => {
-    const data = await request<{ users: Array<Record<string, unknown>> }>('/users');
+    const data = await request<{ users: Array<Record<string, unknown>> }>(`/users?limit=${API_DEFAULTS.LIMIT_ALL_USERS}`);
     return (data.users || []).map((u) => ({
       id: String(u.id ?? ''),
       username: String(u.username ?? ''),
@@ -2110,13 +2122,21 @@ export const api = {
     }
   },
 
-  getNotificationsSummary: async (limit = 20): Promise<{ notifications: Notification[]; unreadCount: number }> => {
-    try {
-      const data = await request<{ notifications?: Array<Record<string, unknown>>; unreadCount?: number }>(`/notifications?limit=${limit}`);
-      return { notifications: (data.notifications || []).map(mapNotification), unreadCount: Number(data.unreadCount || 0) };
-    } catch {
-      return { notifications: [], unreadCount: 0 };
-    }
+  /** One page of the caller's notifications. Read state is per user. Throws on API errors. */
+  getNotificationsPage: async (
+    opts: { limit?: number; offset?: number; unreadOnly?: boolean } = {},
+  ): Promise<{ notifications: Notification[]; total: number; unreadCount: number }> => {
+    const query = new URLSearchParams({ limit: String(opts.limit ?? 20) });
+    if (opts.offset) query.set('offset', String(opts.offset));
+    if (opts.unreadOnly) query.set('unreadOnly', 'true');
+    const data = await request<{ notifications?: Array<Record<string, unknown>>; total?: number; unreadCount?: number }>(
+      `/notifications?${query.toString()}`,
+    );
+    return {
+      notifications: (data.notifications || []).map(mapNotification),
+      total: Number(data.total || 0),
+      unreadCount: Number(data.unreadCount || 0),
+    };
   },
 
   markNotificationRead: async (id: string): Promise<void> => {
@@ -2154,42 +2174,38 @@ export const api = {
     resourceId?: string;
     action?: string;
   }): Promise<{ logs: AuditLog[]; total: number; page: number; pageSize: number }> => {
-    try {
-      const query = new URLSearchParams();
-      if (params?.page != null) query.set('page', String(params.page));
-      if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
-      if (params?.resource?.trim()) query.set('resource', params.resource.trim());
-      if (params?.resourceId?.trim()) query.set('resource_id', params.resourceId.trim());
-      if (params?.action?.trim()) query.set('action', params.action.trim());
-      const qs = query.toString();
-      const url = qs ? `/audit/logs?${qs}` : '/audit/logs';
-      const data = await request<{ logs: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }>(url);
-      const logs = (data.logs || []).map((l) => {
-        const detailsRaw = l.details;
-        let status: AuditLog['status'] = 'success';
-        if (typeof detailsRaw === 'string' && detailsRaw.toLowerCase().includes('failed')) status = 'failure';
-        return {
-          id: String(l.id ?? ''),
-          action: String(l.action ?? ''),
-          resource: String(l.resource ?? ''),
-          resourceId: l.resourceId != null ? String(l.resourceId) : undefined,
-          timestamp: String(l.createdAt ?? l.timestamp ?? ''),
-          user: l.user ? String(l.user) : undefined,
-          actor: String(l.user ?? l.userId ?? 'system'),
-          ip: l.ip != null ? String(l.ip) : undefined,
-          details: typeof detailsRaw === 'string' ? detailsRaw : detailsRaw ? JSON.stringify(detailsRaw) : '',
-          status,
-        } as AuditLog;
-      });
+    const query = new URLSearchParams();
+    if (params?.page != null) query.set('page', String(params.page));
+    if (params?.pageSize != null) query.set('pageSize', String(params.pageSize));
+    if (params?.resource?.trim()) query.set('resource', params.resource.trim());
+    if (params?.resourceId?.trim()) query.set('resource_id', params.resourceId.trim());
+    if (params?.action?.trim()) query.set('action', params.action.trim());
+    const qs = query.toString();
+    const url = qs ? `/audit/logs?${qs}` : '/audit/logs';
+    const data = await request<{ logs: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }>(url);
+    const logs = (data.logs || []).map((l) => {
+      const detailsRaw = l.details;
+      let status: AuditLog['status'] = 'success';
+      if (typeof detailsRaw === 'string' && detailsRaw.toLowerCase().includes('failed')) status = 'failure';
       return {
-        logs,
-        total: Number(data.total) ?? 0,
-        page: Number(data.page) ?? 1,
-        pageSize: Number(data.pageSize) ?? 50,
-      };
-    } catch (err) {
-      return { logs: [], total: 0, page: 1, pageSize: 50 };
-    }
+        id: String(l.id ?? ''),
+        action: String(l.action ?? ''),
+        resource: String(l.resource ?? ''),
+        resourceId: l.resourceId != null ? String(l.resourceId) : undefined,
+        timestamp: String(l.createdAt ?? l.timestamp ?? ''),
+        user: l.user ? String(l.user) : undefined,
+        actor: String(l.user ?? l.userId ?? 'system'),
+        ip: l.ip != null ? String(l.ip) : undefined,
+        details: typeof detailsRaw === 'string' ? detailsRaw : detailsRaw ? JSON.stringify(detailsRaw) : '',
+        status,
+      } as AuditLog;
+    });
+    return {
+      logs,
+      total: Number(data.total) ?? 0,
+      page: Number(data.page) ?? 1,
+      pageSize: Number(data.pageSize) ?? 50,
+    };
   },
 
   /** POST /api/v1/risk/insights/bulk – bulk acknowledge/resolve/dismiss insights. */
@@ -2721,50 +2737,38 @@ export const api = {
     limit?: number;
     offset?: number;
   }): Promise<{ metadata: CapabilityMetadata[]; total: number; count: number; limit: number; offset: number }> => {
-    try {
-      const q = new URLSearchParams();
-      if (params?.search?.trim()) q.set('search', params.search.trim());
-      if (params?.domain && params.domain !== 'all') q.set('domain', params.domain);
-      if (params?.limit != null && params.limit > 0) q.set('limit', String(params.limit));
-      if (params?.offset != null && params.offset >= 0) q.set('offset', String(params.offset));
-      const qs = q.toString();
-      const data = await request<{
-        metadata: CapabilityMetadata[];
-        count: number;
-        total?: number;
-        limit?: number;
-        offset?: number;
-      }>(`/capability-metadata${qs ? `?${qs}` : ''}`);
-      const meta = data.metadata || [];
-      const total = data.total ?? data.count ?? meta.length;
-      return {
-        metadata: meta,
-        total,
-        count: data.count ?? meta.length,
-        limit: data.limit ?? meta.length,
-        offset: data.offset ?? 0,
-      };
-    } catch {
-      return { metadata: [], total: 0, count: 0, limit: 0, offset: 0 };
-    }
+    const q = new URLSearchParams();
+    if (params?.search?.trim()) q.set('search', params.search.trim());
+    if (params?.domain && params.domain !== 'all') q.set('domain', params.domain);
+    if (params?.limit != null && params.limit > 0) q.set('limit', String(params.limit));
+    if (params?.offset != null && params.offset >= 0) q.set('offset', String(params.offset));
+    const qs = q.toString();
+    const data = await request<{
+      metadata: CapabilityMetadata[];
+      count: number;
+      total?: number;
+      limit?: number;
+      offset?: number;
+    }>(`/capability-metadata${qs ? `?${qs}` : ''}`);
+    const meta = data.metadata || [];
+    const total = data.total ?? data.count ?? meta.length;
+    return {
+      metadata: meta,
+      total,
+      count: data.count ?? meta.length,
+      limit: data.limit ?? meta.length,
+      offset: data.offset ?? 0,
+    };
   },
 
   getPolicyTemplates: async (): Promise<PolicyTemplateRow[]> => {
-    try {
-      const data = await request<{ templates: PolicyTemplateRow[] }>('/policy/templates');
-      return data.templates || [];
-    } catch {
-      return [];
-    }
+    const data = await request<{ templates: PolicyTemplateRow[] }>('/policy/templates');
+    return data.templates || [];
   },
 
   getPolicyInstances: async (): Promise<PolicyInstanceRow[]> => {
-    try {
-      const data = await request<{ instances: PolicyInstanceRow[] }>('/policy/instances');
-      return data.instances || [];
-    } catch {
-      return [];
-    }
+    const data = await request<{ instances: PolicyInstanceRow[] }>('/policy/instances');
+    return data.instances || [];
   },
 
   createPolicyTemplate: async (tpl: Omit<PolicyTemplateRow, 'id'>): Promise<PolicyTemplateRow> => {
@@ -3284,7 +3288,7 @@ export const api = {
   },
 
   listInvestigationCases: async (): Promise<{ items: InvestigationCaseApi[]; total: number }> => {
-    const data = await request<{ items: InvestigationCaseApi[]; total: number }>('/investigations');
+    const data = await request<{ items: InvestigationCaseApi[]; total: number }>(`/investigations?limit=${API_DEFAULTS.LIMIT_ALL_INVESTIGATIONS}`);
     return { items: data.items ?? [], total: Number(data.total ?? 0) };
   },
 
@@ -3351,7 +3355,7 @@ export const api = {
     caseId: string,
   ): Promise<{ items: InvestigationTimelineEntryApi[]; total: number }> => {
     const data = await request<{ items: InvestigationTimelineEntryApi[]; total: number }>(
-      `/investigations/${encodeURIComponent(caseId)}/timeline`,
+      `/investigations/${encodeURIComponent(caseId)}/timeline?limit=${API_DEFAULTS.LIMIT_ALL_TIMELINE}`,
     );
     return { items: data.items ?? [], total: Number(data.total ?? 0) };
   },

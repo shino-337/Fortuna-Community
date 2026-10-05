@@ -1186,6 +1186,7 @@ export interface Notification {
   source?: string;
   category?: string;
   route?: string;
+  clusterId?: string;
   resourceUid?: string;
   resourceName?: string;
   read?: boolean;

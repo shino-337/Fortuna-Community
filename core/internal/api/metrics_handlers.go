@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
@@ -25,20 +26,25 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var agentsList []models.Agent
-		agentQuery := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready")
-		// Agents name nodes and clusters; restricted users only see their clusters.
-		if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
-			if len(ids) == 0 {
-				agentQuery = agentQuery.Where("1 = 0")
-			} else {
-				agentQuery = agentQuery.Where("cluster_id IN ?", ids)
+		agentQuery := func() *gorm.DB {
+			q := db.Model(&models.Agent{}).Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready")
+			// Agents name nodes and clusters; restricted users only see their clusters.
+			if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
+				if len(ids) == 0 {
+					q = q.Where("1 = 0")
+				} else {
+					q = q.Where("cluster_id IN ?", ids)
+				}
 			}
+			return q
 		}
-		if err := agentQuery.
-			Order("last_seen_at DESC NULLS LAST").Find(&agentsList).Error; err != nil {
+		limit := listlimit.Parse(c, agentStatusDefaultLimit, agentStatusMaxLimit)
+		if err := agentQuery().
+			Order("last_seen_at DESC NULLS LAST").Limit(limit + 1).Find(&agentsList).Error; err != nil {
 			respondDataUnavailable(c, "agent_status_query_failed", "Agent status could not be loaded")
 			return
 		}
+		agentsList, truncated := listlimit.Trim(agentsList, limit)
 
 		clusterIDs := make([]string, 0, len(agentsList))
 		seenClusters := make(map[string]struct{}, len(agentsList))
@@ -111,11 +117,32 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 			})
 		}
 
+		total := int64(len(agents))
+		if truncated {
+			// The list is capped, but the fleet-wide counters stay exact.
+			var healthy, slow int64
+			if err := agentQuery().Count(&total).Error; err != nil {
+				respondDataUnavailable(c, "agent_status_query_failed", "Agent status could not be loaded")
+				return
+			}
+			if err := agentQuery().Where("last_seen_at IS NOT NULL AND last_seen_at >= ?", now.Add(-5*time.Minute)).Count(&healthy).Error; err != nil {
+				respondDataUnavailable(c, "agent_status_query_failed", "Agent status could not be loaded")
+				return
+			}
+			if err := agentQuery().Where("last_seen_at IS NOT NULL AND last_seen_at < ? AND last_seen_at >= ?", now.Add(-5*time.Minute), now.Add(-15*time.Minute)).Count(&slow).Error; err != nil {
+				respondDataUnavailable(c, "agent_status_query_failed", "Agent status could not be loaded")
+				return
+			}
+			healthyCount, slowCount = int(healthy), int(slow)
+			disconnectedCount = int(total - healthy - slow)
+		}
+
 		c.JSON(http.StatusOK, gin.H{
 			"dataStatus":   "available",
 			"healthBasis":  "lastSeenAt",
 			"agents":       agents,
-			"total":        len(agents),
+			"total":        total,
+			"truncated":    truncated,
 			"healthy":      healthyCount,
 			"slow":         slowCount,
 			"disconnected": disconnectedCount,

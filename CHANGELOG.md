@@ -8,6 +8,7 @@
 - Notifications, agent status and the counts in `/metrics/system` follow the user's cluster scope. Marking notifications read only affects notifications in scope.
 - Revoking another user's session needs `sessions.revoke_all` instead of `users.read`, so a User admin can no longer sign an Admin out.
 - A User admin can no longer change, disable or delete Cluster admin accounts, matching the rule that they cannot create them.
+- Every list endpoint has a default and a maximum `limit` (31 routes were unbounded, including users, resources, investigations, graphs and policy rules), and reports `truncated` when rows are cut. `limit=-1` on rule matches no longer returns every row.
 
 ### Dashboard
 
@@ -16,6 +17,9 @@
 - The Risk Center ignores responses from a superseded request, so a slow earlier response can no longer overwrite the current filter's results.
 - All downloads share one helper, and dashboard-generated CSV files neutralize formula cells.
 - Removed unused API client methods, imports and dead state, and enabled `noUnusedLocals` so the typecheck rejects new dead code.
+- Notification read state is per user: one person reading or clearing the bell no longer clears it for everyone. The bell links to the Notifications page, which has an Unread filter, counts and Load more.
+- Filters, search and cluster changes refetch immediately on Capabilities, Resources, Dashboard and Attack Paths, reset paging and selection, and ignore responses from superseded requests. API errors on findings, audit logs, capability metadata and policy templates/instances show an error state instead of an empty list.
+- Removed 21 unused dashboard files. Fixed the admin dashboard's link to a missing `/policies` page, hid Certificates links from users who cannot open it, added Platform Health to the operator nav, and a viewer deep link to a hidden Risk Center tab opens the default tab.
 
 ### Docs
 

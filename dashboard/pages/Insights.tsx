@@ -88,6 +88,8 @@ type BulkFindingAction = 'acknowledge' | 'resolve' | 'dismiss';
 
 /** Shared table chrome for Risk Center data tables */
 const RISK_FINDINGS_COLS_KEY = 'fortuna-risk-findings-table-cols-v1';
+/** GET /risk/insights silently falls back to 20 rows when pageSize > 100, so never request more. */
+const RISKS_API_MAX_PAGE_SIZE = 100;
 
 type RiskFindingsTableCols = {
   type: boolean;
@@ -235,6 +237,7 @@ export const RiskCenter: React.FC = () => {
   const [pceTrend, setPceTrend] = useState<PodCapabilityTrendPoint[]>([]);
   const [pceHeatmap, setPceHeatmap] = useState<PodCapabilitySummaryNamespace[]>([]);
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
+  const [debouncedNamespaceFilter, setDebouncedNamespaceFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   /** When summary API fails: 'page' = current table page only; 'sample' = first N rows (≤1000); 'exact' = trusted counts */
@@ -323,6 +326,11 @@ export const RiskCenter: React.FC = () => {
     const id = window.setTimeout(() => setDebouncedSearchTerm(searchTerm.trim()), 400);
     return () => window.clearTimeout(id);
   }, [searchTerm]);
+  // Free-text namespace is sent to the API; debounce it like search so each keystroke is not a request.
+  React.useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedNamespaceFilter(namespaceFilter.trim()), 400);
+    return () => window.clearTimeout(id);
+  }, [namespaceFilter]);
 
   const clusterLabelById = useMemo(() => {
     const m = new Map<string, string>();
@@ -336,16 +344,16 @@ export const RiskCenter: React.FC = () => {
   // Sync active tab with route: /risks, /risks/findings, /risks/pce, /risks/evidence
   React.useEffect(() => {
     const path = location.pathname || '';
-    if (path.endsWith('/pce')) {
-      setActiveTab('pce');
-    } else if (path.endsWith('/evidence')) {
-      setActiveTab('reference');
-    } else if (path.endsWith('/findings')) {
-      setActiveTab('triage');
-    } else {
-      setActiveTab('overview');
-    }
-  }, [location.pathname]);
+    const tab: TabId = path.endsWith('/pce')
+      ? 'pce'
+      : path.endsWith('/evidence')
+        ? 'reference'
+        : path.endsWith('/findings')
+          ? 'triage'
+          : 'overview';
+    // A deep link must not open a tab the persona's workspace hides.
+    setActiveTab(riskWorkspace.visibleTabs.includes(tab as RiskTabId) ? tab : (riskWorkspace.defaultTab as TabId));
+  }, [location.pathname, riskWorkspace]);
 
   // Sync URL -> store so Dashboard link scope is applied (and persisted for next visits)
   React.useEffect(() => {
@@ -355,6 +363,27 @@ export const RiskCenter: React.FC = () => {
     const m = sinceMinutesFromUrl != null ? parseInt(sinceMinutesFromUrl, 10) : NaN;
     if (Number.isFinite(m) && m >= 0) setTimeWindowMinutes(m);
   }, [sinceMinutesFromUrl, setTimeWindowMinutes]);
+  // URL scope wins over the store, so once the user changes the global cluster selector or time window,
+  // drop the now-stale URL params; otherwise the header change would never reach this page.
+  const scopeSyncMountedRef = React.useRef(false);
+  React.useEffect(() => {
+    if (!scopeSyncMountedRef.current) {
+      scopeSyncMountedRef.current = true;
+      return;
+    }
+    const urlCluster = clusterIdFromUrl?.trim() || null;
+    const urlMinutes = sinceMinutesFromUrl != null ? parseInt(sinceMinutesFromUrl, 10) : NaN;
+    const clusterDiverged = urlCluster != null && selectedClusterId !== urlCluster;
+    const windowDiverged = Number.isFinite(urlMinutes) && urlMinutes >= 0 && timeWindowMinutes !== urlMinutes;
+    if (!clusterDiverged && !windowDiverged) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      if (clusterDiverged) next.delete('clusterId');
+      if (windowDiverged) next.delete('sinceMinutes');
+      return next;
+    }, { replace: true });
+    // Only react to store changes; the URL -> store effects above handle URL changes.
+  }, [selectedClusterId, timeWindowMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Sync filter and search from URL (e.g. from global search or deep links)
   React.useEffect(() => {
@@ -362,11 +391,11 @@ export const RiskCenter: React.FC = () => {
       setRiskLevelFilter(finalLevelFromUrl);
     }
   }, [finalLevelFromUrl]);
+  // Keep the input and the applied search in sync with the URL, including when ?search= is removed;
+  // otherwise the box keeps stale text while the list is unfiltered.
   React.useEffect(() => {
-    if (searchFromUrl) setSearchTerm(searchFromUrl);
-  }, [searchFromUrl]);
-  React.useEffect(() => {
-    setDebouncedSearchTerm((searchFromUrl ?? '').trim());
+    setSearchTerm(searchFromUrl);
+    setDebouncedSearchTerm(searchFromUrl.trim());
   }, [searchFromUrl]);
 
   React.useEffect(() => {
@@ -390,7 +419,7 @@ export const RiskCenter: React.FC = () => {
       status: statusFilter,
       search: debouncedSearchTerm || undefined,
       clusterId: clusterId ?? undefined,
-      namespace: namespaceFilter.trim() || undefined,
+      namespace: debouncedNamespaceFilter || undefined,
       type: typeFilter || undefined,
       sinceMinutes,
       withScores: useScores ? 1 : undefined,
@@ -500,7 +529,7 @@ export const RiskCenter: React.FC = () => {
         if (errors.length > 0) setError(errors.join('; '));
       } else {
         const errors: string[] = [];
-        const overviewRisksPageSize = isOverviewPage || activeTab === 'reference' ? 250 : risksPageSize;
+        const overviewRisksPageSize = isOverviewPage || activeTab === 'reference' ? RISKS_API_MAX_PAGE_SIZE : risksPageSize;
         const risksPromise = api.getRisks({
           page: activeTab === 'reference' ? 1 : risksPage,
           pageSize: overviewRisksPageSize,
@@ -572,7 +601,7 @@ export const RiskCenter: React.FC = () => {
         } else if (risksResult.status === 'fulfilled') {
           const { insights, total } = risksResult.value;
           const totalN = num(total);
-          const sampleSize = Math.min(1000, Math.max(1, totalN));
+          const sampleSize = Math.min(RISKS_API_MAX_PAGE_SIZE, Math.max(1, totalN));
           try {
             const wide = await api.getRisks({
               page: 1,
@@ -657,7 +686,7 @@ export const RiskCenter: React.FC = () => {
     riskSort,
     riskLevelFilter,
     selectedScoreBin,
-    namespaceFilter,
+    debouncedNamespaceFilter,
     typeFilter,
     trendDays,
     activeTab,
@@ -751,7 +780,10 @@ export const RiskCenter: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, namespaceFilter, typeFilter]);
+  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, selectedChartDate]);
+  React.useEffect(() => { setPceListPage(1); }, [effectiveClusterId, pceClusterId, pceNamespace, pceSeverityFilter, pcePodName, pceCapabilityId]);
+  // Bulk selection must not carry hidden findings across a filter or scope change.
+  React.useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, debouncedSearchTerm, sinceMinutesForApi, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, findingsListView]);
   React.useEffect(() => { setSelectedScoreBin(null); }, [effectiveClusterId, effectiveSinceMinutesNum]);
 
   // Global drawer: open by URL ?insightId= (from Overview/PCE/Evidence deep link)
@@ -898,7 +930,7 @@ export const RiskCenter: React.FC = () => {
     risksTotal === 0 &&
     !debouncedSearchTerm &&
     !riskLevelFilter &&
-    !namespaceFilter &&
+    !debouncedNamespaceFilter &&
     !typeFilter &&
     statusFilter === 'active';
 
@@ -1479,7 +1511,9 @@ export const RiskCenter: React.FC = () => {
                 </summary>
                 <div className="mt-3 grid gap-3 lg:grid-cols-3">
                   <div className="rounded border border-border/60 bg-surface/35 p-2">
-                    <div className="text-micro uppercase tracking-wide text-muted-2">Loaded findings</div>
+                    <div className="text-micro uppercase tracking-wide text-muted-2">
+                      Loaded findings{risksTotal > risks.length ? ` (latest ${risks.length} of ${risksTotal})` : ''}
+                    </div>
                     <div className="mt-1 text-text">
                       <span className="font-mono font-semibold text-amber-200">{newExisting.nu}</span> new ·{' '}
                       <span className="font-mono">{newExisting.existing}</span> existing
@@ -1648,7 +1682,7 @@ export const RiskCenter: React.FC = () => {
               >
                 {severityCountTrust === 'sample' ? (
                   <>
-                    Summary API unavailable: risk-level counts use the <strong>first up to 1,000</strong> findings matching your filters. Total count is still the server total.
+                    Summary API unavailable: risk-level counts use the <strong>first up to {RISKS_API_MAX_PAGE_SIZE}</strong> findings matching your filters. Total count is still the server total.
                   </>
                 ) : (
                   <>
@@ -1774,8 +1808,25 @@ export const RiskCenter: React.FC = () => {
               setRiskLevelFilter(filters.riskLevelFilter);
               setSearchTerm(filters.searchTerm);
               setDebouncedSearchTerm(filters.searchTerm);
-              if (filters.clusterId) setSelectedClusterId(filters.clusterId);
+              // A saved view fully defines the queue: drop filters it does not store and URL params
+              // (which override the store) so the applied view is exactly what was saved.
+              setNamespaceFilter('');
+              setDebouncedNamespaceFilter('');
+              setTypeFilter('');
+              setSelectedScoreBin(null);
+              setSelectedChartDate(null);
+              setSelectedClusterId(filters.clusterId ?? null);
               if (filters.sinceMinutes != null) setTimeWindowMinutes(filters.sinceMinutes);
+              setSearchParams((prev) => {
+                const next = new URLSearchParams(prev);
+                ['severity', 'clusterId', 'sinceMinutes'].forEach((k) => next.delete(k));
+                // search/finalLevel are re-synced from the URL, so mirror the view instead of deleting them.
+                if (filters.searchTerm) next.set('search', filters.searchTerm);
+                else next.delete('search');
+                if (filters.riskLevelFilter) next.set('finalLevel', filters.riskLevelFilter);
+                else next.delete('finalLevel');
+                return next;
+              }, { replace: true });
               setRisksPage(1);
             }}
           />
@@ -1855,9 +1906,13 @@ export const RiskCenter: React.FC = () => {
               />
             </div>
             <div>
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Sort</label>
+              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">
+                {/* /risk/insights has no sort parameter: rows are fetched newest-first and sorted per page. */}
+                {risksTotal > risks.length ? 'Sort (current page)' : 'Sort'}
+              </label>
               <select
                 value={riskSort}
+                title={risksTotal > risks.length ? 'Sorting applies to the rows on the current page; pages are ordered newest-first by the server.' : undefined}
                 onChange={(e) => setRiskSort(e.target.value as typeof riskSort)}
                 className="h-10 w-full rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand"
               >
@@ -2253,7 +2308,8 @@ export const RiskCenter: React.FC = () => {
               total={risksTotal}
               onPageChange={setRisksPage}
               onPageSizeChange={(size) => { setRisksPageSize(size); setRisksPage(1); }}
-              pageSizeOptions={[10, 20, 50, 100]}
+              // Persona defaults (15, 25) are not in the stock list; keep the select in sync with the real page size.
+              pageSizeOptions={Array.from(new Set([10, 20, 50, 100, risksPageSize])).sort((a, b) => a - b)}
 	              itemLabel={findingsListView === 'group' ? 'groups' : 'findings'}
 	              className="order-2"
 	            />

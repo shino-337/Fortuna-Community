@@ -856,9 +856,11 @@ export const Dashboard: React.FC = () => {
 
   usePolling(fetchData, intervalMs, { refreshTrigger });
 
+  // usePolling only re-runs on its interval, so refetch as soon as the trend range or the global
+  // cluster / time-window scope changes (the initial load is done by usePolling).
   useEffect(() => {
     if (coreReady) void refresh();
-  }, [trendDays]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [trendDays, selectedClusterId, sinceMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Build /risks URL with current scope (cluster + time) so Risk Center shows same data as Dashboard Security Risks. */
   const risksUrl = useMemo(() => {
@@ -940,7 +942,7 @@ export const Dashboard: React.FC = () => {
         primaryAction: 'Open monitoring',
         primaryRoute: '/monitoring',
         secondaryAction: 'Review policies',
-        secondaryRoute: '/policies',
+        secondaryRoute: '/rules',
         riskTitle: 'Risk controls',
       };
     }

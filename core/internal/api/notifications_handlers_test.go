@@ -24,6 +24,7 @@ func setupNotificationsTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(
 		&models.Notification{},
+		&models.NotificationRead{},
 		&models.Pod{},
 		&models.Insight{},
 		&models.AttackPath{},
@@ -34,6 +35,10 @@ func setupNotificationsTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	require.NoError(t, db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe_key_unique ON notifications(dedupe_key) WHERE dedupe_key <> '' AND deleted_at IS NULL`).Error)
 
 	r := gin.New()
+	r.Use(func(c *gin.Context) {
+		c.Set("user", &models.User{ID: 1, Role: models.RoleAdmin, Active: true})
+		c.Next()
+	})
 	r.GET("/notifications", GetNotifications(db))
 	r.PATCH("/notifications/:id/read", MarkNotificationRead(db))
 	r.POST("/notifications/read-all", MarkAllNotificationsRead(db))

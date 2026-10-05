@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
@@ -36,11 +37,16 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 		if limit > 100 {
 			limit = 100
 		}
+		offset := 0
+		if v, err := strconv.Atoi(strings.TrimSpace(c.Query("offset"))); err == nil && v > 0 {
+			offset = v
+		}
 		unreadOnly := strings.EqualFold(strings.TrimSpace(c.Query("unreadOnly")), "true")
+		userID := notificationUserID(c)
 
-		base := scopedNotifications(db, c)
+		base := withReadState(scopedNotifications(db, c), userID)
 		if unreadOnly {
-			base = base.Where("read_at IS NULL")
+			base = base.Where("nr.notification_id IS NULL")
 		}
 
 		var total int64
@@ -49,17 +55,22 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var unreadCount int64
-		if err := scopedNotifications(db, c).Where("read_at IS NULL").Count(&unreadCount).Error; err != nil {
+		if err := withReadState(scopedNotifications(db, c), userID).Where("nr.notification_id IS NULL").Count(&unreadCount).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
 
-		var list []models.Notification
-		if err := base.Order("created_at DESC").Limit(limit).Find(&list).Error; err != nil {
+		var list []notificationWithReadState
+		if err := base.Select("notifications.*, nr.read_at AS user_read_at").
+			Order("notifications.created_at DESC, notifications.id DESC").Limit(limit).Offset(offset).Find(&list).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		podNames := podDisplayNamesByUID(db, notificationResourceUIDs(list))
+		rows := make([]models.Notification, 0, len(list))
+		for _, n := range list {
+			rows = append(rows, n.Notification)
+		}
+		podNames := podDisplayNamesByUID(db, notificationResourceUIDs(rows))
 		notifications := make([]map[string]interface{}, 0, len(list))
 		for _, n := range list {
 			ts := n.CreatedAt.Format(time.RFC3339)
@@ -82,7 +93,7 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 				"clusterId":    n.ClusterID,
 				"resourceUid":  n.ResourceUID,
 				"resourceName": resourceName,
-				"readAt":       n.ReadAt,
+				"readAt":       n.UserReadAt,
 			})
 		}
 		c.JSON(http.StatusOK, gin.H{
@@ -99,14 +110,33 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 // Every notification is derived from a cluster resource, so a row without a
 // cluster is hidden from restricted users rather than shown to all of them.
 func scopedNotifications(db *gorm.DB, c *gin.Context) *gorm.DB {
-	q := db.Model(&models.Notification{}).Where("deleted_at IS NULL")
+	q := db.Model(&models.Notification{}).Where("notifications.deleted_at IS NULL")
 	if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
 		if len(ids) == 0 {
 			return q.Where("1 = 0")
 		}
-		q = q.Where("cluster_id IN ?", ids)
+		q = q.Where("notifications.cluster_id IN ?", ids)
 	}
 	return q
+}
+
+// notificationWithReadState is a notification plus the caller's own read time.
+type notificationWithReadState struct {
+	models.Notification
+	UserReadAt *time.Time
+}
+
+// withReadState joins the caller's read marks as "nr". Read state is per user,
+// so a notification is unread for the caller while nr.notification_id is NULL.
+func withReadState(q *gorm.DB, userID uint) *gorm.DB {
+	return q.Joins("LEFT JOIN notification_reads nr ON nr.notification_id = notifications.id AND nr.user_id = ?", userID)
+}
+
+func notificationUserID(c *gin.Context) uint {
+	if u, ok := investigationUser(c); ok {
+		return u.ID
+	}
+	return actorUserID(c)
 }
 
 func synthesizeSecurityNotifications(db *gorm.DB) {
@@ -465,7 +495,7 @@ func titleWord(s string) string {
 	return strings.ToUpper(s[:1]) + s[1:]
 }
 
-// MarkNotificationRead marks one notification as read.
+// MarkNotificationRead marks one notification as read for the caller.
 func MarkNotificationRead(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !db.Migrator().HasTable("notifications") {
@@ -477,10 +507,25 @@ func MarkNotificationRead(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid notification id"})
 			return
 		}
-		now := time.Now().UTC()
-		tx := scopedNotifications(db, c).
-			Where("id = ? AND read_at IS NULL", id).
-			Update("read_at", now)
+		userID := notificationUserID(c)
+		if userID == 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		var visible int64
+		if err := scopedNotifications(db, c).Where("notifications.id = ?", id).Count(&visible).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
+		if visible == 0 {
+			c.JSON(http.StatusOK, gin.H{"updated": 0})
+			return
+		}
+		tx := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&models.NotificationRead{
+			NotificationID: uint(id),
+			UserID:         userID,
+			ReadAt:         time.Now().UTC(),
+		})
 		if tx.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
 			return
@@ -489,17 +534,22 @@ func MarkNotificationRead(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// MarkAllNotificationsRead marks all current notifications as read.
+// MarkAllNotificationsRead marks every notification the caller can see as read for the caller.
 func MarkAllNotificationsRead(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !db.Migrator().HasTable("notifications") {
 			c.JSON(http.StatusOK, gin.H{"updated": 0})
 			return
 		}
-		now := time.Now().UTC()
-		tx := scopedNotifications(db, c).
-			Where("read_at IS NULL").
-			Update("read_at", now)
+		userID := notificationUserID(c)
+		if userID == 0 {
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+			return
+		}
+		unread := withReadState(scopedNotifications(db, c), userID).
+			Where("nr.notification_id IS NULL").
+			Select("notifications.id, ?, ?", userID, time.Now().UTC())
+		tx := db.Exec("INSERT INTO notification_reads (notification_id, user_id, read_at) ?", unread)
 		if tx.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
 			return

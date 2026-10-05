@@ -15,6 +15,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -61,12 +62,14 @@ func GetRuntimeSignalStepMappings(db *gorm.DB) gin.HandlerFunc {
 		if activeOnly := c.Query("activeOnly"); activeOnly == "true" {
 			q = q.Where("(effective_from IS NULL OR effective_from <= ?)", now)
 		}
+		limit := listlimit.Parse(c, stepMappingsDefaultLimit, stepMappingsMaxLimit)
 		var rows []models.RuntimeSignalStepMapping
-		if err := q.Order("signal_type, step_id").Find(&rows).Error; err != nil {
+		if err := q.Order("signal_type, step_id").Limit(limit + 1).Find(&rows).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"mappings": rows, "count": len(rows)})
+		rows, truncated := listlimit.Trim(rows, limit)
+		c.JSON(http.StatusOK, gin.H{"mappings": rows, "count": len(rows), "truncated": truncated})
 	}
 }
 

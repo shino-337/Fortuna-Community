@@ -395,11 +395,26 @@ export const AttackPaths: React.FC = () => {
   /** 1-based — aligns with graph link `stepIndex` when mapped from technique categories */
   const [highlightedStepIndex, setHighlightedStepIndex] = useState<number | null>(null);
 
+  // Apply a deep-linked ?clusterId= to the global selector when the URL changes. This must not depend on
+  // selectedClusterId: otherwise every header cluster change is immediately reverted to the URL value.
   useEffect(() => {
-    if (clusterIdParam && clusterIdParam !== selectedClusterId) {
-      setSelectedClusterId(clusterIdParam);
+    if (clusterIdParam) setSelectedClusterId(clusterIdParam);
+  }, [clusterIdParam, setSelectedClusterId]);
+
+  // Once the user picks another cluster in the header, the URL param is stale; drop it so the new scope wins.
+  const clusterSyncMountedRef = useRef(false);
+  useEffect(() => {
+    if (!clusterSyncMountedRef.current) {
+      clusterSyncMountedRef.current = true;
+      return;
     }
-  }, [clusterIdParam, selectedClusterId, setSelectedClusterId]);
+    if (!clusterIdParam || selectedClusterId === clusterIdParam) return;
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('clusterId');
+      return next;
+    }, { replace: true });
+  }, [selectedClusterId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchData = useCallback(async () => {
     const sequence = ++dataRequestSequence.current;
@@ -1054,6 +1069,23 @@ export const AttackPaths: React.FC = () => {
                </div>
             </section>
           )}
+        </div>
+      ) : groupedScenarios.length > 0 ? (
+        // Scenarios exist but the confidence filters hide all of them; the filter controls live in the
+        // populated branch, so offer the way back here instead of claiming nothing was detected.
+        <div className="flex flex-col items-center justify-center min-h-[420px] gap-3 text-muted">
+          <Shield size={48} className="text-muted-2" />
+          <p>No attack scenarios match the current confidence filter ({groupedScenarios.length} hidden).</p>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => {
+              setConfidenceLane('all');
+              setShowLowConfidenceScenarios(true);
+            }}
+          >
+            Show all scenarios
+          </Button>
         </div>
       ) : (
         <div className="flex flex-col items-center justify-center min-h-[420px] text-muted">

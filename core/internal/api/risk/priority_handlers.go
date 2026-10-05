@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -252,12 +253,17 @@ func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 			MinScore float64 `gorm:"column:min_score"`
 		}
 
+		// Grouping by namespace is open-ended and includeRisks issues one
+		// query per group, so the number of groups is capped.
+		limit := listlimit.Parse(c, groupedRisksDefaultLimit, groupedRisksMaxLimit)
 		var results []GroupResult
 		err := query.
 			Select(groupColumn + " as key, COUNT(*) as count, AVG(total_score) as avg_score, MAX(total_score) as max_score, MIN(total_score) as min_score").
 			Group(groupColumn).
-			Order("avg_score DESC").
+			Order("avg_score DESC, key ASC").
+			Limit(limit + 1).
 			Find(&results).Error
+		results, truncated := listlimit.Trim(results, limit)
 
 		if err != nil {
 			log.Printf("[GetGroupedRisks] Error fetching grouped risks: %v", err)
@@ -321,9 +327,15 @@ func GetGroupedRisks(db *gorm.DB) gin.HandlerFunc {
 			"cluster":      clusterID,
 			"namespace":    namespace,
 			"includeRisks": includeRisks,
+			"truncated":    truncated,
 		})
 	}
 }
+
+const (
+	groupedRisksDefaultLimit = 100
+	groupedRisksMaxLimit     = 1000
+)
 
 // contains checks if a string slice contains a value
 func contains(slice []string, value string) bool {

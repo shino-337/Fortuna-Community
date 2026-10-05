@@ -118,6 +118,7 @@ var (
 	_ = Migration145_SeedPolicyEngineBaselineSQL
 	_ = Migration146_SeedLegacyFindingCodeRules
 	_ = Migration151_RepairBaselinePodPolicyCEL
+	_ = Migration152_NotificationReads
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -349,6 +350,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration150_AgentClusterIdentity,
 		Migration149_NotificationsResourceName,  // Notifications: human-readable resource name for UI traceability
 		Migration151_RepairBaselinePodPolicyCEL, // Correct immutable Pod baseline policy CEL and repoint legacy instances
+		Migration152_NotificationReads,          // Notifications: per-user read state
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))

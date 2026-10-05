@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { CapabilityMetadataBrowser } from '../components/CapabilityMetadataBrowser';
 import { Card } from '../design-system/components/Card';
 import { RefreshCw } from 'lucide-react';
@@ -21,7 +21,7 @@ export const Capabilities: React.FC = () => {
   const [metadata, setMetadata] = useState<CapabilityMetadata[]>([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(25);
+  const [pageSize, setPageSize] = useState(20);
   const [searchTerm, setSearchTerm] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [domain, setDomain] = useState<string>('all');
@@ -53,7 +53,9 @@ export const Capabilities: React.FC = () => {
     }
   }, []);
 
+  const pageRequestRef = useRef(0);
   const loadPage = useCallback(async () => {
+    const seq = ++pageRequestRef.current;
     setError(null);
     setLoading(true);
     try {
@@ -64,20 +66,22 @@ export const Capabilities: React.FC = () => {
         limit: pageSize,
         offset,
       });
+      if (seq !== pageRequestRef.current) return;
       setMetadata(res.metadata);
       setTotal(res.total);
     } catch (e) {
+      if (seq !== pageRequestRef.current) return;
       setError(e instanceof Error ? e.message : 'Failed to load capability metadata');
       setMetadata([]);
       setTotal(0);
     } finally {
-      setLoading(false);
+      if (seq === pageRequestRef.current) setLoading(false);
     }
   }, [page, pageSize, debouncedSearch, domain]);
 
   const loadRules = useCallback(async () => {
     try {
-      const r = await api.getRules();
+      const r = await api.getRulesStrict();
       setRules(r);
       setRulesError(null);
     } catch {
@@ -90,6 +94,17 @@ export const Capabilities: React.FC = () => {
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
   usePolling(loadPage, intervalMs, { refreshTrigger });
   usePolling(loadRules, intervalMs, { refreshTrigger });
+
+  // usePolling only re-runs on its interval; refetch immediately when search, domain or page changes.
+  // The first run is skipped because polling already performs the initial load.
+  const filtersMountedRef = useRef(false);
+  useEffect(() => {
+    if (!filtersMountedRef.current) {
+      filtersMountedRef.current = true;
+      return;
+    }
+    void loadPage();
+  }, [loadPage]);
 
   useEffect(() => {
     loadDomainsOnce();

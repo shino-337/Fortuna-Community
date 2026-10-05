@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
 import { Cluster, User, RiskRuleItem, RiskRuleFull, FortunaUserSession, SecurityActivityItem } from '../types';
@@ -243,6 +243,19 @@ export const Settings: React.FC = () => {
   const [sessionRows, setSessionRows] = useState<FortunaUserSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionUserIdFilter, setSessionUserIdFilter] = useState('');
+  const [sessionsError, setSessionsError] = useState<string | null>(null);
+  // Free-text filters are debounced before they reach the API (each keystroke would otherwise refetch).
+  const [debouncedGovAction, setDebouncedGovAction] = useState('');
+  const [debouncedSessionUserId, setDebouncedSessionUserId] = useState('');
+  const governanceRequestRef = useRef(0);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedGovAction(govAction.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [govAction]);
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedSessionUserId(sessionUserIdFilter.trim()), 300);
+    return () => window.clearTimeout(t);
+  }, [sessionUserIdFilter]);
   const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
 
   const loadRiskRules = useCallback(async () => {
@@ -299,6 +312,9 @@ export const Settings: React.FC = () => {
 
 
   const loadGovernance = useCallback(async () => {
+    // Overlapping filter changes: only the newest request may update the tables.
+    const seq = ++governanceRequestRef.current;
+    const isStale = () => seq !== governanceRequestRef.current;
     if (canGovAudit) {
       setGovLoading(true);
       try {
@@ -307,30 +323,38 @@ export const Settings: React.FC = () => {
           offset: govActivityOffset,
           severity: govSeverity.trim() || undefined,
           result: govResult.trim() || undefined,
-          action: govAction.trim() || undefined,
+          action: debouncedGovAction || undefined,
         });
+        if (isStale()) return;
         setGovActivityItems(r.items);
         setGovActivityTotal(r.total);
       } catch (e) {
+        if (isStale()) return;
         setGovActivityItems([]);
         setGovActivityTotal(0);
         toast({ title: 'Settings action failed', description: String(e instanceof Error ? e.message : e), variant: 'error' });
       } finally {
-        setGovLoading(false);
+        if (!isStale()) setGovLoading(false);
       }
     }
+    if (isStale()) return;
     if (canSessionsRead) {
       setSessionsLoading(true);
       try {
         const uid =
-          isFortunaAdmin && canUsersReadForSessions && sessionUserIdFilter.trim() !== ''
-            ? sessionUserIdFilter.trim()
+          isFortunaAdmin && canUsersReadForSessions && debouncedSessionUserId !== ''
+            ? debouncedSessionUserId
             : undefined;
-        setSessionRows(await api.listUserSessions(uid));
-      } catch {
+        const rows = await api.listUserSessions(uid);
+        if (isStale()) return;
+        setSessionRows(rows);
+        setSessionsError(null);
+      } catch (e) {
+        if (isStale()) return;
         setSessionRows([]);
+        setSessionsError(e instanceof Error ? e.message : 'Failed to load sessions');
       } finally {
-        setSessionsLoading(false);
+        if (!isStale()) setSessionsLoading(false);
       }
     }
   }, [
@@ -339,10 +363,10 @@ export const Settings: React.FC = () => {
     govActivityOffset,
     govSeverity,
     govResult,
-    govAction,
+    debouncedGovAction,
     isFortunaAdmin,
     canUsersReadForSessions,
-    sessionUserIdFilter,
+    debouncedSessionUserId,
     govActivityLimit,
     toast,
   ]);
@@ -1259,6 +1283,8 @@ export const Settings: React.FC = () => {
                 </div>
                 {sessionsLoading ? (
                   <div className="p-8 text-muted">Loading sessions…</div>
+                ) : sessionsError ? (
+                  <PageEmpty title="Sessions unavailable" description={sessionsError} className="py-8" />
                 ) : sessionRows.length === 0 ? (
                   <PageEmpty
                     title="No sessions"

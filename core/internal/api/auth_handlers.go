@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/auth"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/internal/sessions"
@@ -351,11 +352,13 @@ func GetUsers(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to validate users schema"})
 			return
 		}
+		limit := listlimit.Parse(c, usersListDefaultLimit, usersListMaxLimit)
 		var users []models.User
-		if err := db.Where("deleted_at IS NULL").Order("created_at DESC").Find(&users).Error; err != nil {
+		if err := db.Where("deleted_at IS NULL").Order("created_at DESC, id DESC").Limit(limit + 1).Find(&users).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		users, truncated := listlimit.Trim(users, limit)
 		list := make([]map[string]interface{}, 0, len(users))
 		for _, u := range users {
 			list = append(list, map[string]interface{}{
@@ -375,7 +378,7 @@ func GetUsers(db *gorm.DB) gin.HandlerFunc {
 				"updatedAt":           u.UpdatedAt,
 			})
 		}
-		c.JSON(http.StatusOK, gin.H{"users": list, "total": len(list)})
+		c.JSON(http.StatusOK, gin.H{"users": list, "total": len(list), "truncated": truncated})
 	}
 }
 

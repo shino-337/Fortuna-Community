@@ -6,20 +6,24 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 )
 
 // GetPromotionRulesList returns all promotion rules. Uses GORM model so JSONB required_capabilities is scanned via JSONBStringArray.
 func GetPromotionRulesList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		limit := listlimit.Parse(c, promotionRulesDefaultLimit, promotionRulesMaxLimit)
 		var rules []models.PromotionRule
-		if err := db.Order("capability_id, signal_type, promote_to").Find(&rules).Error; err != nil {
+		if err := db.Order("capability_id, signal_type, promote_to").Limit(limit + 1).Find(&rules).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		rules, truncated := listlimit.Trim(rules, limit)
 		c.JSON(http.StatusOK, gin.H{
-			"rules": rules,
-			"count": len(rules),
+			"rules":     rules,
+			"count":     len(rules),
+			"truncated": truncated,
 		})
 	}
 }
@@ -32,15 +36,18 @@ func GetPromotionRulesByCapability(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "capability_id is required"})
 			return
 		}
+		limit := listlimit.Parse(c, promotionRulesDefaultLimit, promotionRulesMaxLimit)
 		var rules []models.PromotionRule
-		if err := db.Where("capability_id = ?", capabilityID).Order("signal_type, promote_to").Find(&rules).Error; err != nil {
+		if err := db.Where("capability_id = ?", capabilityID).Order("signal_type, promote_to").Limit(limit + 1).Find(&rules).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		rules, truncated := listlimit.Trim(rules, limit)
 		c.JSON(http.StatusOK, gin.H{
 			"capabilityId": capabilityID,
 			"rules":        rules,
 			"count":        len(rules),
+			"truncated":    truncated,
 		})
 	}
 }
@@ -53,15 +60,18 @@ func GetPromotionRulesBySignalType(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "signal_type is required"})
 			return
 		}
+		limit := listlimit.Parse(c, promotionRulesDefaultLimit, promotionRulesMaxLimit)
 		var rules []models.PromotionRule
-		if err := db.Where("signal_type = ?", signalType).Order("capability_id, promote_to").Find(&rules).Error; err != nil {
+		if err := db.Where("signal_type = ?", signalType).Order("capability_id, promote_to").Limit(limit + 1).Find(&rules).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		rules, truncated := listlimit.Trim(rules, limit)
 		c.JSON(http.StatusOK, gin.H{
 			"signalType": signalType,
 			"rules":      rules,
 			"count":      len(rules),
+			"truncated":  truncated,
 		})
 	}
 }

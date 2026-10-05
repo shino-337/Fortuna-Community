@@ -28,3 +28,16 @@ type Notification struct {
 func (Notification) TableName() string {
 	return "notifications"
 }
+
+// NotificationRead records that one user has read one notification. Read state
+// is per user: one operator clearing the bell must not clear it for everyone.
+type NotificationRead struct {
+	NotificationID uint      `gorm:"primaryKey;autoIncrement:false" json:"notificationId"`
+	UserID         uint      `gorm:"primaryKey;autoIncrement:false;index" json:"userId"`
+	ReadAt         time.Time `gorm:"not null" json:"readAt"`
+}
+
+// TableName overrides table name
+func (NotificationRead) TableName() string {
+	return "notification_reads"
+}

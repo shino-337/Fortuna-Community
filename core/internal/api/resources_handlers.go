@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
@@ -40,8 +41,25 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		resources := make([]map[string]interface{}, 0)
+		// One budget across all kinds: each kind query fetches at most the
+		// remaining budget plus one row so truncation is detectable.
+		limit := listlimit.Parse(c, resourcesDefaultLimit, resourcesMaxLimit)
+		truncated := false
+		remaining := func() int { return limit - len(resources) }
+		bounded := func(query *gorm.DB, namespaced bool) *gorm.DB {
+			if namespaced {
+				query = query.Order("cluster_id, namespace, name, uid")
+			} else {
+				query = query.Order("cluster_id, name, uid")
+			}
+			return query.Limit(remaining() + 1)
+		}
 
 		appendResource := func(kind string, name string, namespace string, uid string, clusterID string) {
+			if len(resources) >= limit {
+				truncated = true
+				return
+			}
 			resources = append(resources, map[string]interface{}{
 				"kind":      kind,
 				"name":      name,
@@ -68,7 +86,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			if err := query.Find(&pods).Error; err != nil {
+			if err := bounded(query, true).Find(&pods).Error; err != nil {
 				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
 				return
 			}
@@ -84,7 +102,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			if err := query.Find(&sas).Error; err != nil {
+			if err := bounded(query, true).Find(&sas).Error; err != nil {
 				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
 				return
 			}
@@ -100,7 +118,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			if err := query.Find(&roles).Error; err != nil {
+			if err := bounded(query, true).Find(&roles).Error; err != nil {
 				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
 				return
 			}
@@ -113,7 +131,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 			var roles []models.ClusterRole
 			query := db.Model(&models.ClusterRole{})
 			query = applyClusterScope(query)
-			if err := query.Find(&roles).Error; err != nil {
+			if err := bounded(query, false).Find(&roles).Error; err != nil {
 				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
 				return
 			}
@@ -129,7 +147,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 				query = query.Where("namespace = ?", namespace)
 			}
 			query = applyClusterScope(query)
-			if err := query.Find(&bindings).Error; err != nil {
+			if err := bounded(query, true).Find(&bindings).Error; err != nil {
 				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
 				return
 			}
@@ -142,7 +160,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 			var bindings []models.ClusterRoleBinding
 			query := db.Model(&models.ClusterRoleBinding{})
 			query = applyClusterScope(query)
-			if err := query.Find(&bindings).Error; err != nil {
+			if err := bounded(query, false).Find(&bindings).Error; err != nil {
 				respondDataUnavailable(c, "resource_inventory_query_failed", "Resource inventory could not be loaded")
 				return
 			}
@@ -154,6 +172,7 @@ func GetResources(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"resources": resources,
 			"total":     len(resources),
+			"truncated": truncated,
 		})
 	}
 }

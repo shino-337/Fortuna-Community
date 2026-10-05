@@ -72,6 +72,7 @@ test('non-retryable schema 503 shows migration and operator guidance', async ({ 
   await expect(page.getByText('Cluster inventory requires operator action', { exact: true })).toBeVisible();
   await expect(page.getByText(/Apply the required migration\/deployment repair or contact the platform operator/).first()).toBeVisible();
   await expect(page.getByText('No clusters match current filters', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('No clusters registered', { exact: true })).toHaveCount(0);
 });
 
 test('successful 200 empty cluster inventory keeps the normal empty state', async ({ page }) => {
@@ -80,7 +81,7 @@ test('successful 200 empty cluster inventory keeps the normal empty state', asyn
   );
 
   await page.goto(fixture);
-  await expect(page.getByText('No clusters match current filters', { exact: true })).toBeVisible();
+  await expect(page.getByText('No clusters registered', { exact: true })).toBeVisible();
   await expect(page.getByText(/temporarily unavailable|requires operator action/)).toHaveCount(0);
 });
 

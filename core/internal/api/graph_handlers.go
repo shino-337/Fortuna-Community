@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/graph"
 	"github.com/fortuna/core/pkg/models"
@@ -28,7 +29,7 @@ func GetGraph(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(500, gin.H{"error": "Unable to build graph from inventory"})
 			return
 		}
-		viewerGraphJSON(c, 200, gin.H{"message": "Graph from synchronized inventory", "data": data})
+		viewerGraphJSON(c, 200, gin.H{"message": "Graph from synchronized inventory", "data": capGraphData(data, graphMaxNodes, graphMaxLinks)})
 	}
 }
 
@@ -121,7 +122,8 @@ func GetAttackChains(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		viewerGraphJSON(c, http.StatusOK, gin.H{"data": chains, "count": len(chains)})
+		chains, truncated := listlimit.Trim(chains, attackChainsMax)
+		viewerGraphJSON(c, http.StatusOK, gin.H{"data": chains, "count": len(chains), "truncated": truncated})
 	}
 }
 
@@ -143,7 +145,8 @@ func GetAttackPathsBundle(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		viewerGraphJSON(c, http.StatusOK, gin.H{"data": bundle})
+		truncated := capAttackPathsBundle(bundle)
+		viewerGraphJSON(c, http.StatusOK, gin.H{"data": bundle, "truncated": truncated})
 	}
 }
 
@@ -201,11 +204,13 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
+		paths, truncated := capAttackPaths(paths, listlimit.Parse(c, podAttackPathsDefault, podAttackPathsMaxLimit), nil)
 		viewerGraphJSON(c, http.StatusOK, gin.H{
 			"cluster_id": clusterID,
 			"pod_uid":    podUID,
 			"paths":      paths,
 			"count":      len(paths),
+			"truncated":  truncated,
 		})
 	}
 }

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
@@ -27,6 +27,8 @@ type AccessSignal = { code: string; severity: string; userId?: number; username?
 
 type CorrSig = { code: string; severity: string; detail?: Record<string, unknown> };
 
+const TIMELINE_LIMIT = 80;
+
 export const Governance: React.FC = () => {
   const permUser = usePermUser();
   const allowed = can(permUser, P.systemAuditRead);
@@ -36,6 +38,8 @@ export const Governance: React.FC = () => {
   const [accessSignals, setAccessSignals] = useState<AccessSignal[]>([]);
   const [corr, setCorr] = useState<CorrSig[]>([]);
   const [events, setEvents] = useState<SecurityActivityItem[]>([]);
+  const [eventsTotal, setEventsTotal] = useState(0);
+  const timelineRequestRef = useRef(0);
   const [domain, setDomain] = useState('');
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -68,12 +72,18 @@ export const Governance: React.FC = () => {
     }
   }, []);
   const loadTimeline = useCallback(async () => {
+    // Ignore responses for a previously selected domain that resolve after a newer request.
+    const seq = ++timelineRequestRef.current;
     try {
-      const d = await api.getInvestigationEvents({ limit: 80, domain: domain || undefined });
+      const d = await api.getInvestigationEvents({ limit: TIMELINE_LIMIT, domain: domain || undefined });
+      if (seq !== timelineRequestRef.current) return;
       setEvents(d.items || []);
+      setEventsTotal(d.total);
     } catch (err) {
+      if (seq !== timelineRequestRef.current) return;
       setErr('Timeline events failed: ' + String(err));
       setEvents([]);
+      setEventsTotal(0);
     }
   }, [domain]);
 
@@ -137,6 +147,11 @@ export const Governance: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
+                {permRows.length === 0 && !err && !busy ? (
+                  <tr>
+                    <td colSpan={5} className={`${UI_TD} text-muted text-caption`}>No permissions returned.</td>
+                  </tr>
+                ) : null}
                 {permRows.map((r) => (
                   <tr key={r.permission} className={UI_TR}>
                     <td className={`${UI_TD} font-mono text-caption`}>{r.permission}</td>
@@ -158,7 +173,7 @@ export const Governance: React.FC = () => {
       {tab === 'access' && (
         <Card className="p-4">
           <ul className="space-y-2">
-            {accessSignals.length === 0 ? <li className="text-muted text-caption">No hygiene signals for current heuristics.</li> : null}
+            {accessSignals.length === 0 && !err && !busy ? <li className="text-muted text-caption">No hygiene signals for current heuristics.</li> : null}
             {accessSignals.map((s, i) => (
               <li key={`${s.code}-${i}`} className="text-body border-b border-border/60 pb-2">
                 <span className="font-semibold">{s.code}</span>{' '}
@@ -173,7 +188,7 @@ export const Governance: React.FC = () => {
       {tab === 'intel' && (
         <Card className="p-4">
           <ul className="space-y-2">
-            {corr.length === 0 ? <li className="text-muted text-caption">No burst patterns in the last 24h window.</li> : null}
+            {corr.length === 0 && !err && !busy ? <li className="text-muted text-caption">No burst patterns in the last 24h window.</li> : null}
             {corr.map((s, i) => (
               <li key={`${s.code}-${i}`} className="text-caption">
                 <span className="font-medium text-text">{s.code}</span> ({s.severity}) — {JSON.stringify(s.detail)}
@@ -200,9 +215,14 @@ export const Governance: React.FC = () => {
               <option value="sessions">sessions</option>
               <option value="auth">auth</option>
             </select>
-            <Button size="sm" variant="secondary" type="button" onClick={() => void loadTimeline()}>
+            <Button size="sm" variant="secondary" type="button" onClick={() => { setErr(''); void loadTimeline(); }}>
               Refresh
             </Button>
+            {eventsTotal > events.length ? (
+              <span className="text-caption text-muted">
+                Showing latest {events.length.toLocaleString('en-US')} of {eventsTotal.toLocaleString('en-US')} events
+              </span>
+            ) : null}
           </div>
           <div className="ui-table-scroll max-h-[65vh]">
             <table className={UI_TABLE}>
@@ -215,6 +235,11 @@ export const Governance: React.FC = () => {
                 </tr>
               </thead>
               <tbody>
+                {events.length === 0 && !err && !busy ? (
+                  <tr>
+                    <td colSpan={4} className={`${UI_TD} text-muted text-caption`}>No investigation events for this domain.</td>
+                  </tr>
+                ) : null}
                 {events.map((e) => (
                   <tr key={`${e.id}-${e.eventId}`} className={UI_TR}>
                     <td className={UI_TD}>{e.createdAt ? formatDateTime(e.createdAt) : '—'}</td>

@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
@@ -428,6 +428,11 @@ func GetRules(db *gorm.DB) gin.HandlerFunc {
 				disabledCount++
 			}
 		}
+		// "total" keeps counting every rule that matched the filters; the
+		// returned page is capped by ?limit.
+		totalFiltered := len(filteredRules)
+		limit := listlimit.Parse(c, policyRulesDefaultLimit, policyRulesMaxLimit)
+		filteredRules, truncated := listlimit.Trim(filteredRules, limit)
 		activationMeta, err := collectRuleActivationMeta(db, filteredRules)
 		if err != nil {
 			respondDataUnavailable(c, "policy_rules_activation_unavailable", "Policy rule activation metadata could not be loaded")
@@ -476,11 +481,12 @@ func GetRules(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		c.JSON(http.StatusOK, gin.H{
-			"rules":    respRules,
-			"total":    len(filteredRules),
-			"active":   activeCount,
-			"disabled": disabledCount,
-			"totalAll": len(rules),
+			"rules":     respRules,
+			"total":     totalFiltered,
+			"truncated": truncated,
+			"active":    activeCount,
+			"disabled":  disabledCount,
+			"totalAll":  len(rules),
 		})
 	}
 }
@@ -905,12 +911,8 @@ func GetRuleMetrics(db *gorm.DB) gin.HandlerFunc {
 func GetRuleMatches(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		ruleID := policyRuleUID(c)
-		limitStr := c.DefaultQuery("limit", "50")
-		limit, _ := strconv.Atoi(limitStr)
-
-		if limit > 100 {
-			limit = 100
-		}
+		// Zero/negative values used to reach GORM as-is (negative = no LIMIT).
+		limit := listlimit.Parse(c, ruleMatchesDefaultLimit, ruleMatchesMaxLimit)
 
 		var matches []models.Insight
 		db.Model(&models.Insight{}).Scopes(scopeInsightsForYAMLRuleID(ruleID)).
