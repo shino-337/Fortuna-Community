@@ -84,7 +84,7 @@ The CA key is used only during rendering and never stored.
 {{- $_ := set $out "webhookKey" (get $webhook.data "tls.key" | b64dec) -}}
 {{- else -}}
 {{- $days := int .Values.tls.validityDays -}}
-{{- $caCert := genCA "Fortuna CA" $days -}}
+{{- $caCert := genCA "Fortuna CA" (int .Values.tls.caValidityDays) -}}
 {{- $serverNames := list "fortuna-core" (printf "fortuna-core.%s" $ns) (printf "fortuna-core.%s.svc" $ns) (printf "fortuna-core.%s.svc.cluster.local" $ns) (printf "fortuna-webhook.%s.svc" $ns) (printf "fortuna-webhook.%s.svc.cluster.local" $ns) -}}
 {{- $server := genSignedCert (printf "fortuna-core.%s.svc.cluster.local" $ns) (list "127.0.0.1") $serverNames $days $caCert -}}
 {{- $client := genSignedCert "fortuna-agent" nil (list "fortuna-agent") $days $caCert -}}

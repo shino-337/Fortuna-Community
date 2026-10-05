@@ -102,7 +102,7 @@ For a full installation (secrets, mTLS, storage, rollout), follow the [Quickstar
 | Architecture and multi-cluster model | [Architecture](docs/architecture/ARCHITECTURE.md) |
 | Production operations | [Operations](docs/operations/PRODUCTION_DEPLOYMENT.md) |
 | Validation scenarios | [Scenarios](scenarios/README.md) |
-| Design records and security invariants (maintainers) | [Reference](docs/reference/README.md) |
+| Behavior contracts, security model and invariants | [Reference](docs/reference/README.md) |
 
 ## Contributing
 

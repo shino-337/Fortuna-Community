@@ -13,6 +13,7 @@ Scripts are grouped by intent. Run scripts from the repository root and use full
 | Deploy existing images/manifests | `./scripts/deploy/deploy-fortuna-robust.sh` |
 | Sync remote Agent-only clusters | `REMOTE_KUBECONFIGS="cluster02=/path/to/kubeconfig" MANAGEMENT_NODE=<ip> ./scripts/deploy/sync-remote-agent.sh` |
 | Build local containerd images | `./scripts/build/build-and-load-containerd.sh` |
+| Re-render `deploy/*.yaml` after changing the Helm chart | `./scripts/build/render-manifests.sh` (`--check` in CI) |
 | Publish release tag | `./scripts/utils/create-github-release.sh vX.Y.Z` |
 | Clean local host image/cache pressure | `./scripts/clean/check-and-clean-host-resources.sh --clean -y` |
 | Enable optional admission webhook | `./scripts/deploy/enable-webhook.sh` (see [webhook guide](../docs/operations/WEBHOOK.md)) |
@@ -63,7 +64,7 @@ Important environment variables:
 | `FORTUNA_PACKAGE_SOURCE` | `github` by default; set `local` for registryless source builds |
 | `FORTUNA_REGISTRY` | GHCR registry namespace, default `ghcr.io/shino-337/fortuna-community` |
 | `FORTUNA_VERSION` | Published package tag, default `v1.0.0` |
-| `SYNC_DEPLOY_IMAGE_TAG` | Defaults to `true`; syncs built tag into deploy YAML |
+| `SYNC_DEPLOY_IMAGE_TAG` | Defaults to `true`: deploy the built (`local`) or `FORTUNA_VERSION` (registry) images. Images are substituted in temporary copies; `deploy/*.yaml` is never edited |
 | `BUILD_TOOL` | `nerdctl`, `docker`, or `buildctl` |
 | `PUSH_IMAGES_AFTER_REBUILD` | Defaults to `true` only when current cluster has more than one node; controls registryless node image copy/import |
 | `WITH_RUNTIME` | Enable runtime sensor install path where supported |
@@ -258,7 +259,8 @@ Live-cluster attack-path validation remains a root-level exception:
 | `ensure-cve-tables.sh` | Ensure CVE-related tables are available |
 | `ensure-fortuna-secrets.sh` | Create/update required app secrets |
 | `create_mtls_secret.sh` | Create Core/Agent mTLS secrets |
-| `rotate_mtls_secret.sh` | Rotate mTLS material |
+| `rotate_mtls_secret.sh` | Renew Core, webhook and Agent certificates from the existing CA and restart them |
+| `fortuna-images.sh` | Sourced by the install scripts: selects images from `FORTUNA_VERSION`/`FORTUNA_REGISTRY` or `FORTUNA_*_IMAGE` and applies them to temporary manifest copies |
 | `manage-port-forwards.sh` | Start/stop/list local Core/Dashboard port-forwards |
 | `port-forward-dashboard.sh` | Dashboard on the VM host IP (Core API on VM loopback); optional ports and Dashboard bind IP |
 | `push-images-to-workers.sh` | Copy local Core/Agent runtime images to nodes for registryless clusters |
@@ -268,7 +270,7 @@ Live-cluster attack-path validation remains a root-level exception:
 | `sync-package-vulnerability-source.sh` | Sync OSV bulk vulnerability source into local CVE data |
 | `create-github-release.sh` | Create and push a `v*` release tag |
 
-For multi-node clusters, prefer a registry. Use `push-images-to-workers.sh` only for local registryless environments; it pushes Core and Agent images by default. Add `--include-dashboard` or `PUSH_DASHBOARD=true` when the Dashboard image also needs to be imported onto worker nodes. The full pipeline passes the rebuilt `VERSION` explicitly to this script when the current cluster has more than one node. Single-node clusters skip this step unless `PUSH_IMAGES_AFTER_REBUILD=true` is set. Standalone use detects image tags from `deploy/*.yaml` unless `CORE_IMAGE`, `AGENT_IMAGE`, or `DASHBOARD_IMAGE` are provided. Configure private worker credentials in `scripts/utils/push-images.config`, which is ignored by Git.
+For multi-node clusters, prefer a registry. Use `push-images-to-workers.sh` only for local registryless environments; it pushes Core and Agent images by default. Add `--include-dashboard` or `PUSH_DASHBOARD=true` when the Dashboard image also needs to be imported onto worker nodes. The full pipeline passes the rebuilt `VERSION` explicitly to this script when the current cluster has more than one node. Single-node clusters skip this step unless `PUSH_IMAGES_AFTER_REBUILD=true` is set. Standalone use detects image tags from `deploy/*.yaml` (registry `latest`) unless `CORE_IMAGE`, `AGENT_IMAGE`, or `DASHBOARD_IMAGE` are provided. Configure private worker credentials in `scripts/utils/push-images.config`, which is ignored by Git.
 
 ## Adding Or Changing Scripts
 

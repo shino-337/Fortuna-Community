@@ -145,10 +145,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
 
             # mTLS Configuration
             - name: TLS_ENABLED
@@ -165,9 +161,6 @@ spec:
             - name: IMAGE_EXPORT_SOCKET
               value: "/run/fortuna-image-export/export.sock"
 
-            # Logging
-            - name: LOG_LEVEL
-              value: {{ .Values.agent.logLevel | quote }}
             # Host /proc mount used by the process and network collectors.
             - name: POD_DETAIL_PROC_ROOT
               value: "/host/proc"

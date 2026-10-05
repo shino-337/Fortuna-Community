@@ -14,8 +14,10 @@ Sign in as "{{ .Values.core.admin.username }}". The password is in the fortuna-s
   kubectl -n {{ .Release.Namespace }} get secret fortuna-secrets -o jsonpath='{.data.admin-password}' | base64 -d; echo
 {{- if and .Values.tls.generate (eq .Values.manifestMode "helm") }}
 
-The generated mTLS certificates are valid for {{ .Values.tls.validityDays }} days. They are kept on
-upgrade; delete the four TLS Secrets and run "helm upgrade" to issue new ones.
+The generated mTLS certificates are valid for {{ .Values.tls.validityDays }} days and are kept on
+upgrade. To renew them, delete fortuna-ca-cert, fortuna-core-tls, fortuna-agent-tls and
+fortuna-webhook-tls, then run "helm upgrade": this issues a new CA, so Agents in other
+clusters need the new certificates too.
 {{- end }}
 {{- if not .Values.secrets.create }}
 

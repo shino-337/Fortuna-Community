@@ -56,6 +56,7 @@ Run from anywhere in the checkout:
 ./scripts/verify/run-local-ci.sh list
 ./scripts/verify/run-local-ci.sh hygiene
 ./scripts/verify/run-local-ci.sh scripts
+./scripts/verify/run-local-ci.sh helm
 ./scripts/verify/run-local-ci.sh go-test
 ./scripts/verify/run-local-ci.sh cluster-identity-postgres
 ./scripts/verify/run-local-ci.sh dashboard
@@ -66,7 +67,7 @@ Run from anywhere in the checkout:
 `LOCAL_CI_BACKEND=native` (default) or `LOCAL_CI_BACKEND=act` selects the backend.
 `LOCAL_CI_OUTPUT_DIR=/absolute/path/outside/the/repo` sets the parent for unique
 native evidence directories; otherwise they are created under the system temp
-directory. `LOCAL_CI_CACHE_DIR` controls the dedicated Node cache.
+directory. `LOCAL_CI_CACHE_DIR` controls the dedicated Node cache. The native `helm` group uses the `helm` on `PATH` and fails unless its version matches the one the workflow pins.
 
 Native runs produce per-job logs and `results.json` containing the Git SHA,
 dirty-worktree flag, source fingerprint, workflow hash, individual outcomes and
@@ -76,7 +77,7 @@ groups passing on a clean, unchanged commit; a dirty working-tree pass does not
 authorize publishing success for its parent SHA. The runner does not publish
 statuses, push, merge, deploy or reset live data automatically.
 
-`all` executes the five workflow job groups sequentially and stops at the first
+`all` executes the six workflow job groups sequentially and stops at the first
 failure. The act helper runs the Go matrix (`core`, `agent`, `api`) one entry at a
 time with `--matrix`, because act may initialize matrix entries concurrently
 even when its concurrent-job limit is one. The
