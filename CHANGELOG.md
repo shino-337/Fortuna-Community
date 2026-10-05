@@ -12,6 +12,7 @@
 
 ### Dashboard
 
+- Platform Health (formerly Pipeline & Runtime Health) has Certificates and Notifications as tabs (`/monitoring/certificates`, `/monitoring/notifications`). Rules & Catalog (formerly Policy Rules) has Risk scoring rules, moved out of Settings, and the Capability catalog (`/rules/risk-scoring`, `/rules/catalog`). Operators and cluster admins, who hold `rules.write` but not `users.read`, can now edit risk scoring rules. Old links to `/certificates`, `/notifications` and `/capabilities` redirect.
 - Findings can be reopened (`PATCH /risk/insights/:id` with `status: active`, permission `findings.reopen`) from the finding detail page; the Risk Center status filter includes Dismissed.
 - Reports: export failures show an error instead of failing silently, the Audit activity card shows audit data instead of investigation counts, and unavailable investigation stats show `n/a` instead of 0.
 - The Risk Center ignores responses from a superseded request, so a slow earlier response can no longer overwrite the current filter's results.

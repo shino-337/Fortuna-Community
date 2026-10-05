@@ -595,7 +595,7 @@ export const RiskDetail: React.FC = () => {
                       <p className="text-caption text-muted font-mono">{c.capabilityId}</p>
                     </div>
                   ))}
-                  <Button size="sm" variant="secondary" onClick={() => navigate('/capabilities')}>
+                  <Button size="sm" variant="secondary" onClick={() => navigate('/rules/catalog')}>
                     Open Capabilities
                   </Button>
                 </div>

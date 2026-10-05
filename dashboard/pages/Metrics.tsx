@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { PLATFORM_HEALTH_SECTIONS, SectionNav } from '../components/SectionNav';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, getAvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
@@ -966,7 +967,7 @@ export const Monitoring: React.FC = () => {
                   variant="secondary"
                   size="sm"
                   className="text-body px-3 py-2"
-                  onClick={() => navigate('/certificates')}
+                  onClick={() => navigate('/monitoring/certificates')}
                 >
                   <Lock className="mr-1.5 h-4 w-4 shrink-0" /> Certificates
                 </Button>
@@ -986,6 +987,7 @@ export const Monitoring: React.FC = () => {
         />
       }
     >
+      <SectionNav sections={PLATFORM_HEALTH_SECTIONS} ariaLabel="Platform health sections" />
       {personaId === 'admin' ? <MonitoringPersonaStrip /> : null}
       {error && (
         <div className="mb-4 flex items-center gap-3 p-3 rounded-lg border border-red-800 bg-red-950/40 text-red-300">
@@ -1605,7 +1607,7 @@ export const Monitoring: React.FC = () => {
             actions={
               canCertificates ? (
                 <Link
-                  to="/certificates"
+                  to="/monitoring/certificates"
                   className="text-body font-medium text-brand hover:text-brand"
                 >
                   Certificates
@@ -1696,7 +1698,7 @@ export const Monitoring: React.FC = () => {
                 </h4>
                 {certs.length > 0 && canCertificates && (
                   <Link
-                    to="/certificates"
+                    to="/monitoring/certificates"
                     className="text-caption font-medium text-brand hover:text-brand"
                   >
                     View all

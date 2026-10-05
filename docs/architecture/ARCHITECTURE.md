@@ -47,7 +47,7 @@ Cluster identity is part of the primary data contract. Agent either auto-discove
 | CVE matches | Core matcher against loaded CVE catalog | Risk, Pod Detail, Reports |
 | Runtime events | Falco/eBPF/agent facts through runtime ingest | Monitoring, Pod Detail, Attack Analysis, Risk |
 | Network activity | Agent runtime observations | Network Activity, Pod Detail, Attack Analysis |
-| Rules | Policy/rule catalog and mapped legacy identifiers | Policy Rules, Risk evidence |
+| Rules | Policy/rule catalog and mapped legacy identifiers | Rules & Catalog, Risk evidence |
 | Risk | Core unified scorer | Dashboard, Risk Operations, Resources, Pod Detail |
 | Reports | Core report APIs scoped by role, cluster, and time | Reports |
 
@@ -110,7 +110,7 @@ Attack paths are generated from relationships between workloads, identities, RBA
 
 ### Rules
 
-Policy Rules is the rule catalog. Rule detail links use stable rule UIDs (`/#/rules/uid/<rule_uid>`); older code-based identifiers may still appear in imported data.
+Rules & Catalog holds the rule catalog, risk scoring rules and the capability catalog. Rule detail links use stable rule UIDs (`/#/rules/uid/<rule_uid>`); older code-based identifiers may still appear in imported data.
 
 ### Runtime Monitoring
 
@@ -169,8 +169,8 @@ flowchart LR
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
 | Kubernetes Inventory / Pod Detail | Workload inventory and per-pod evidence | Pods, containers, SBOM, CVE, processes, network, events |
 | Runtime Network | Runtime topology and external destinations | Agent network observations |
-| Policy Rules | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
-| Pipeline & Runtime Health | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
+| Rules & Catalog | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
+| Platform Health | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
 | Reports | Time-windowed summaries | Findings, resources, runtime events, posture |
 
 ## API Shape

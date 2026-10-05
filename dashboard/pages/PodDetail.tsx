@@ -1188,7 +1188,7 @@ const PodDetailContent: React.FC = () => {
                   <Zap className="w-4 h-4 text-orange-400 shrink-0" /> Capabilities
                   <button
                     type="button"
-                    onClick={() => navigate('/capabilities')}
+                    onClick={() => navigate('/rules/catalog')}
                     className="ml-auto text-caption font-medium text-brand hover:text-brand inline-flex items-center gap-1"
                   >
                     View all <Target className="w-3.5 h-3.5" />
@@ -2510,7 +2510,7 @@ const PodDetailContent: React.FC = () => {
           <Button variant="secondary" size="sm" onClick={() => navigate('/risks')}>
             View all risks
           </Button>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/capabilities')}>
+          <Button variant="secondary" size="sm" onClick={() => navigate('/rules/catalog')}>
             Capabilities
           </Button>
           <Button variant="secondary" size="sm" onClick={() => navigate('/resources?tab=Pod')}>

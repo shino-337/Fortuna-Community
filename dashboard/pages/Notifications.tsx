@@ -1,9 +1,10 @@
 
+import { PLATFORM_HEALTH_SECTIONS, SectionNav } from '../components/SectionNav';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Notification } from '../types';
-import { Check, Info, AlertTriangle, XCircle, CheckCircle, ArrowLeft, ExternalLink } from 'lucide-react';
+import { Check, Info, AlertTriangle, XCircle, CheckCircle, ExternalLink } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
@@ -103,13 +104,10 @@ export const Notifications: React.FC = () => {
 
   return (
     <PageLayout
-      title={PAGE_TITLES.notifications}
+      title={PAGE_TITLES.monitoring}
       description="Security events for the clusters you can access. Read state is your own."
       actions={
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="secondary" size="sm" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back
-          </Button>
           <div className="inline-flex rounded-lg border border-border p-0.5" role="group" aria-label="Filter notifications">
             {([false, true] as const).map((only) => (
               <button
@@ -135,6 +133,7 @@ export const Notifications: React.FC = () => {
         </div>
       }
     >
+      <SectionNav sections={PLATFORM_HEALTH_SECTIONS} ariaLabel="Platform health sections" />
       {loading && notifications.length === 0 ? (
         <PageLoading message="Loading notifications..." className="min-h-[30dvh]" />
       ) : error && notifications.length === 0 ? (

@@ -36,10 +36,10 @@ Roles determine route visibility and actions:
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Runtime Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. |
 | Kubernetes Inventory | `/#/resources` | Browse pods and open pod detail for SBOM, risk, runtime, events, and spec. |
-| Policy Rules | `/#/rules` | Review rule catalog metadata and linked findings. |
-| Pipeline & Runtime Health | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility, and data freshness. |
+| Rules & Catalog | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
+| Platform Health | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility and data freshness; certificates (`/#/monitoring/certificates`) and notifications (`/#/monitoring/notifications`). |
 | Reports | `/#/reports` | Export and review time-windowed operational reports. |
-| Settings | `/#/settings` | Manage users, roles, sessions, and administrative controls. |
+| Settings | `/#/settings` | Manage users, roles and sessions. |
 
 ## Cluster Scope
 
@@ -57,9 +57,9 @@ These images are representative captures from one local multi-cluster deployment
 
 ![Platform Integrity](../assets/screenshots/platform-integrity.png)
 
-### Pipeline & Runtime Health
+### Platform Health
 
-![Pipeline & Runtime Health](../assets/screenshots/monitoring.png)
+![Platform Health](../assets/screenshots/monitoring.png)
 
 ### Findings Queue
 
@@ -77,9 +77,9 @@ These images are representative captures from one local multi-cluster deployment
 
 ![Kubernetes Inventory](../assets/screenshots/resources.png)
 
-### Policy Rules
+### Rules & Catalog
 
-![Policy Rules](../assets/screenshots/policy-rules.png)
+![Rules & Catalog](../assets/screenshots/policy-rules.png)
 
 ### Reports
 
@@ -92,7 +92,7 @@ These images are representative captures from one local multi-cluster deployment
 | Unauthenticated | The JWT/session is missing or expired. | Sign in again. |
 | Forbidden | Your role lacks the required permission. | Ask an admin to update role or permission grants. |
 | Cluster scope | You selected or opened a cluster outside your assigned scope. | Change cluster selector or request access. |
-| No telemetry | The page needs Agent or runtime data that has not arrived for this cluster. | Check Pipeline & Runtime Health and the Agent or sensor for that cluster. |
+| No telemetry | The page needs Agent or runtime data that has not arrived for this cluster. | Check Platform Health and the Agent or sensor for that cluster. |
 | No data | The route is allowed and data is flowing, but current filters have no records. | Clear filters or widen the time range. |
 | Stale | Data exists but its freshness checks failed, so it may not reflect the cluster now. | Check data timestamps and Agent sync before acting on it. |
 
@@ -105,7 +105,7 @@ A typical investigation:
 3. Open a finding drawer or full detail page to inspect evidence.
 4. Jump to Attack Paths for path context.
 5. Open the affected pod in Kubernetes Inventory for SBOM, runtime, network, and event detail.
-6. Use Policy Rules to understand the rule or catalog entry behind the finding.
+6. Use Rules & Catalog to understand the rule or catalog entry behind the finding.
 7. Export from Reports when you need a time-windowed operational handoff.
 
 Each step is described below.
@@ -114,7 +114,7 @@ Each step is described below.
 
 Goal: make sure missing data is not caused by ingestion or sensor failure.
 
-Reference screens: [Platform Integrity](../assets/screenshots/platform-integrity.png), [Pipeline & Runtime Health](../assets/screenshots/monitoring.png).
+Reference screens: [Platform Integrity](../assets/screenshots/platform-integrity.png), [Platform Health](../assets/screenshots/monitoring.png).
 
 Steps:
 
@@ -123,7 +123,7 @@ Steps:
 3. Open `/#/monitoring`.
 4. Confirm pipeline processing activity, agent visibility, Falco/runtime event visibility, and recent data timestamps.
 
-Decision rule: do not treat a quiet Findings Queue as safe until Pipeline & Runtime Health confirms ingestion is healthy.
+Decision rule: do not treat a quiet Findings Queue as safe until Platform Health confirms ingestion is healthy.
 
 ### 2. Triage High-Risk Findings
 
@@ -188,11 +188,11 @@ Steps:
 
 Expected data source: agent network activity snapshots and runtime telemetry APIs.
 
-### 6. Manage and Audit Policy Rules
+### 6. Manage and Audit Rules
 
 Goal: understand why a rule matched and whether it is catalog-backed.
 
-Reference screen: [Policy Rules](../assets/screenshots/policy-rules.png).
+Reference screen: [Rules & Catalog](../assets/screenshots/policy-rules.png).
 
 Steps:
 

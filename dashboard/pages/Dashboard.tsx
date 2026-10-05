@@ -1352,7 +1352,7 @@ export const Dashboard: React.FC = () => {
                               <strong className="text-error">{exploitedCapCount}</strong> exploited signal(s)
                             </span>
                           </div>
-                          <Button variant="ghost" size="sm" onClick={() => navigate('/capabilities')} className="!h-6 !py-0 !text-micro !text-error">
+                          <Button variant="ghost" size="sm" onClick={() => navigate('/rules/catalog')} className="!h-6 !py-0 !text-micro !text-error">
                             View
                           </Button>
                         </div>
@@ -1577,7 +1577,7 @@ export const Dashboard: React.FC = () => {
                       <button
                         key={`${row.capabilityId}-${row.severity}`}
                         type="button"
-                        onClick={() => navigate('/capabilities')}
+                        onClick={() => navigate('/rules/catalog')}
                         className="rounded-md border border-border/70 bg-surface/40 px-2 py-0.5 text-micro transition-colors hover:border-brand/40 hover:text-brand"
                       >
                         {row.capabilityId} <span className="text-muted-2">({row.count})</span>
