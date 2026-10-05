@@ -558,6 +558,12 @@ func Migration002_AddUsers(db *gorm.DB) error {
 		}
 	}
 
+	// Migration 001 creates users without deleted_at; add it first so the SQL file's
+	// deleted_at index applies instead of failing into the AutoMigrate fallback.
+	if err := db.Exec("ALTER TABLE IF EXISTS users ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE").Error; err != nil {
+		return fmt.Errorf("add users.deleted_at: %w", err)
+	}
+
 	// Production: SQL file is mandatory
 	if env == "production" || env == "staging" {
 		if err != nil || len(sqlBytes) == 0 {

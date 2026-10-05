@@ -3,6 +3,8 @@ package messaging
 import (
 	"fmt"
 	"log"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -81,6 +83,15 @@ func NewNATSClient(servers string) (*NATSClient, error) {
 	return client, nil
 }
 
+// streamReplicas returns FORTUNA_NATS_STREAM_REPLICAS (1-5, default 3). It must not
+// exceed the number of NATS servers, or JetStream refuses to create the streams.
+func streamReplicas() int {
+	if n, err := strconv.Atoi(strings.TrimSpace(os.Getenv("FORTUNA_NATS_STREAM_REPLICAS"))); err == nil && n >= 1 && n <= 5 {
+		return n
+	}
+	return 3
+}
+
 // SetupStreams creates required NATS JetStream streams
 func (c *NATSClient) SetupStreams() error {
 	streams := []struct {
@@ -148,7 +159,7 @@ func (c *NATSClient) SetupStreams() error {
 			Retention: retention,
 			MaxAge:    maxAge,
 			Storage:   nats.FileStorage,
-			Replicas:  3, // Use 3 replicas for HA (quorum = 2)
+			Replicas:  streamReplicas(),
 			MaxMsgs:   maxMsgs,
 			MaxBytes:  maxBytes,
 			Discard:   nats.DiscardOld, // Discard oldest when limits reached

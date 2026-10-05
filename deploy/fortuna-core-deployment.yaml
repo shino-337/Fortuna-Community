@@ -164,6 +164,9 @@ spec:
             # NATS
             - name: NATS_ENDPOINT
               value: "nats://nats-client.fortuna.svc.cluster.local:4222"
+            # JetStream stream replicas cannot exceed the number of NATS servers.
+            - name: FORTUNA_NATS_STREAM_REPLICAS
+              value: "3"
 
             # Ports
             - name: HTTP_PORT
@@ -199,10 +202,6 @@ spec:
 
             # Auth
             - name: AUTH_ENABLED
-              value: "true"
-            # Browser WebSocket clients cannot set Authorization headers during the
-            # handshake, so local dashboard WS streams authenticate via ?token=.
-            - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
               value: "true"
             # Prometheus /metrics on a separate, unauthenticated listener that the
             # Service does not expose.

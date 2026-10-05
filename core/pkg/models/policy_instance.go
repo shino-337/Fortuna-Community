@@ -143,3 +143,10 @@ func (a *StringArray) UnmarshalJSON(data []byte) error {
 	*a = StringArray(arr)
 	return nil
 }
+
+// BeforeSave stores empty JSON fields as valid JSON; PostgreSQL rejects ” in jsonb columns.
+func (i *PolicyInstance) BeforeSave(*gorm.DB) error {
+	i.LabelSelectors = jsonOrDefault(i.LabelSelectors, "{}")
+	i.Exemptions = jsonOrDefault(i.Exemptions, "[]")
+	return nil
+}
