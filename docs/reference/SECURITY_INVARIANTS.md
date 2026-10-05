@@ -1,8 +1,8 @@
 # Security invariants and regression-prevention contract
 
-Fortuna treats security fixes as invariants, not one-time patches. The goal of the
-C3c–F work (#45–#51 planning sequence) is to make known security failure classes
-machine-detectable so a later change cannot silently reintroduce them.
+Fortuna treats security fixes as invariants, not one-time patches. Known security
+failure classes are made machine-detectable so a later change cannot silently
+reintroduce them.
 
 This contract reduces regression risk; it is not a claim that software can never
 contain a new defect. New findings must be converted into a reproducible test or
@@ -44,10 +44,10 @@ converted into an empty, zero, healthy or clean security result. Required eviden
 that is unavailable, stale, malformed or incomplete must remain explicit and must
 not auto-resolve an active finding.
 
-The D/E packages extend this into source health, observation time, completeness,
-freshness and UI/API availability semantics.
+The same rule covers source health, observation time, completeness, freshness
+and UI/API availability.
 
-### API availability contract (E1)
+### API availability contract
 
 Availability is a data property, not a zero value. For observability, inventory and
 security-summary endpoints:
@@ -107,9 +107,6 @@ A security fix is incomplete until its regression is anchored in
 contract. Removal, rename, skip or failure of a required regression must fail CI.
 Static architectural invariants belong under `scripts/verify/` and are run by CI.
 
-Each #45–#51 package must add or strengthen its corresponding gate rather than
-only relying on broad `go test ./...` coverage.
-
 CI runs the script in the Core job in addition to all package tests. It requires
 explicit run and pass events for every listed test; missing or renamed tests,
 package failures and skipped subtests fail the gate, and parser tests cover false
@@ -123,18 +120,20 @@ evidence of all future HTTP/gRPC isolation behavior. The
 
 ## Invariant 7 — migration history is append-only
 
-The legacy migration runner currently records migration versions by slice position.
+The migration runner records migration versions by slice position.
 Existing entries in the migration list therefore must not be reordered or inserted
 in front of already-shipped entries. New versioned migrations are append-only.
-Security-critical schema invariants that cannot safely rely on the legacy runner
-must fail startup explicitly until the migration framework is made identity-based.
+Security-critical schema invariants that cannot safely rely on the runner are
+checked at startup and fail it explicitly.
 
 ## Invariant 8 — real multi-cluster behavior is a release gate
 
 Unit and SQLite tests are necessary but do not establish end-to-end isolation.
-#45 includes a focused PostgreSQL migration gate for the cluster-resource identity
-foundation; package F (#51 plan) must still provide reproducible populated-database
-and real two-cluster tests for at least:
+The `cluster-identity-postgres` CI job runs the PostgreSQL contracts and
+`scripts/verify/run-two-cluster-integration.py`, which builds the real Agent,
+creates two disposable kind clusters (three nodes, four DaemonSets, six scoped
+Agents across two namespace scopes) and requires `TestTwoClusterDaemonSetLive`
+to run and pass with a complete evidence receipt. Together they cover at least:
 
 - identical Pod UID in different clusters;
 - identical node/Agent names in different clusters;
@@ -146,9 +145,10 @@ and real two-cluster tests for at least:
 - authorization for restricted users and aggregate endpoints;
 - deletion/replacement UID race behavior.
 
-The #51 gate becomes permanent CI/lab evidence. Future changes touching cluster
-identity, ingest, storage, authorization, runtime evidence, findings or migration
-code must continue to pass it.
+Changes touching cluster identity, ingest, storage, authorization, runtime
+evidence, findings or migration code must keep passing it.
+`scripts/verify/rehearse-populated-migration.py` rehearses an upgrade against a
+restored copy of a populated database.
 
 ## Invariant 9 — Agent privileges are an allowlist
 
@@ -170,20 +170,17 @@ review. The repository owner must protect `main` (ruleset or branch protection) 
 require the relevant CI checks plus CODEOWNER review. Direct or force pushes that
 bypass those gates defeat the regression-prevention model.
 
-- Require functional CI (Core, Agent, API, PostgreSQL, Dashboard, scripts and
-  hygiene), PR review and current-base validation. Secret scanning is manual-only
-  under the current repository plan and remains a separate check.
+- Require functional CI (Core, Agent, API, PostgreSQL, Dashboard, scripts, Helm
+  and hygiene), PR review and current-base validation. The secret-scan workflow
+  runs on manual dispatch and is a separate check.
 - Review changes to CI, the required test list and permission/scope helpers as
   changes to security controls.
 - Mocked UI tests and SQLite unit tests do not prove deployment behavior; storage
   or scope changes need PostgreSQL/Kubernetes integration coverage.
 
-The current enforcement status is recorded in the
-[audit plan](../maintainers/NEXT_AUDIT_PLAN.md#repository-governance-prerequisite).
-
 ## Completion rule for a finding
 
-For every security finding fixed during #45–#51:
+For every security finding:
 
 1. reproduce the failure;
 2. encode the expected invariant;
@@ -197,16 +194,15 @@ For every security finding fixed during #45–#51:
 A finding is not considered permanently closed merely because its current code
 path was patched.
 
-## Evidence eligibility for automatic resolution (D1 + D2 inventory)
+## Evidence eligibility for automatic resolution
 
 Database absence is not an authoritative deletion observation. Reconciliation
 must retain findings for missing/ambiguous owners, stale/invalid snapshots,
 malformed evidence, unavailable detectors and unknown collection coverage.
 Runtime silence and expiry of a lookback window never prove remediation.
 
-D1 permits automatic resolution only for self-contained Role/ClusterRole CEL
-checks reading fields from that exact static snapshot. D2 inventory additionally
-requires an authenticated collection receipt: the resource-kind List start bound
+Automatic resolution is permitted only for self-contained Role/ClusterRole CEL
+checks reading fields from that exact static snapshot. It additionally requires an authenticated collection receipt: the resource-kind List start bound
 must be at most ten minutes old, not future-dated, not older than the finding, and
 its digest must match that exact cluster/kind/UID/name/namespace/rules projection. A missing, failed, unverified or
 stale receipt blocks resolution. The rules array must be structurally valid. CEL dependencies are checked
@@ -216,8 +212,8 @@ runtime or cross-resource inputs. Unknown dependencies are denied.
 A snapshot update timestamp is NOT a collector observation or completeness
 receipt. Agent heartbeats, Cluster.LastSync, runtime event timestamps and projector
 UpdatedAt must not be substituted for such receipts. Runtime, Pod and
-cross-resource auto-resolution remains blocked until D2 provides a verified
-producer-to-evaluator coverage contract. This is intentionally conservative:
+cross-resource auto-resolution stays disabled until a verified
+producer-to-evaluator coverage contract exists. This is intentionally conservative:
 findings may remain active after remediation and need explicit human review.
 
 The resource snapshot is locked and version-checked before committing resolution;
@@ -227,10 +223,10 @@ cluster-qualified resolution audit commit together or both roll back.
 
 Diagnostics are emitted by InsightStatusUpdater with a resolution-evidence reason.
 Inventory observation status/timestamps and complete-empty lists are persisted
-and returned to the scoped Agent. Runtime coverage windows and API/UI presentation
-remain D2 runtime/E work; inventory receipts do not establish sensor coverage.
+and returned to the scoped Agent. Inventory receipts do not establish sensor
+coverage.
 
-## Inventory receipt integrity (D2 inventory)
+## Inventory receipt integrity
 
 Only scoped Agent identity can issue a verified receipt. A request authenticated
 as a scoped Agent must include collection evidence; missing collection metadata is
@@ -283,14 +279,14 @@ row is serialized with a database lock. Therefore:
 - different namespace scopes may supersede one another and reduce eligibility,
   but a scope mismatch must preserve findings rather than resolve them.
 
-This is a fail-closed availability trade-off, not proof of multi-scope aggregation.
-Package F must exercise the real DaemonSet topology and decide whether
-latest-per-cluster remains acceptable or the receipt key must become scope-qualified.
+This is a fail-closed availability trade-off, not multi-scope aggregation. The
+two-cluster CI gate exercises it with two namespace scopes; a topology that needs
+independent per-scope completeness would require a scope-qualified receipt key.
 
 ## Security-change review protocol
 
-For security-sensitive changes after #50, review the complete state machine before
-writing the fix. Every PR touching identity, ingest, persistence, reconciliation,
+For security-sensitive changes, review the complete state machine before writing
+the fix. Every PR touching identity, ingest, persistence, reconciliation,
 runtime evidence or migrations must explicitly map these dimensions:
 
 1. trust boundary and authoritative identity;
@@ -390,10 +386,10 @@ replay after an acknowledgement/checkpoint failure; Core's authenticated
 source-record deduplication prevents repeated effects against an unchanged DB.
 
 Pending/quarantined evidence is failed coverage, never clean or authoritative.
-These guarantees do not extend to the legacy Falco mode without a state path or
-make the in-memory Pod-event queue restart-durable. Its documented capacity/drop
-behavior remains explicit. The INGEST-01–03 regressions in the named gate protect
-these boundaries; a live state-volume rollout is a separate acceptance gate.
+These guarantees do not extend to Falco delivery without a state path, and do not
+make the in-memory Pod-event queue restart-durable; its capacity and drop
+behavior stays explicit. The ingest regressions in the named gate protect these
+boundaries.
 
 ### Independently verified source health
 
@@ -432,33 +428,35 @@ passed and read back its complete receipt; an empty or skipped selection fails.
 
 ## Appendix: finding-to-test map
 
-| Fix area | Required regression examples |
+| Area | Required regression examples |
 | --- | --- |
-| #28–30 inventory scope and mutations | TestServiceAccountInventoryScope, TestServiceAccountMutationsProtectIdentity, TestServiceAccountBulkFailuresPreserveInventory |
-| #29/#37 RBAC semantics | TestServiceAccountRBACResolution, TestClusterAdminBindingForPod, TestPodRiskReportUsesResolvedRBACScope |
-| #31 workload/capability scope | TestInventoryWorkloadCapabilityScope |
-| #32 agent association | TestAgentClusterIdentityIsolation |
-| #33 graph/cache boundaries | TestLegacyGraphFailsBeforeGlobalQuery, TestNetworkServiceCacheSeparatesClustersAndCredentials |
-| #34 evaluator/reconciliation failures | TestEvaluationReportsRuleFailure, TestConfiguredCatalogRejectsPartialAndEmptyLoad, TestReconciliationAuditRollbackAndCatalogFailure, TestReconciliationPreservesDisabledDetector |
-| #36 runtime input errors | TestRuntimeInputFailureReachesEvaluators, TestRuntimeInputRejectsCorruptSnapshot, TestRuntimeInputRejectsMalformedBindings, TestReconciliationPreservesFindingOnRuntimeInputFailure |
-| Earlier aggregate/action scope | TestAggregateCacheIsolation, TestRuntimeScopeAndFindingActions, TestBulkRequiresActionPermissionAndNonemptySelection |
-| C1 credential foundation | TestCredentialIdentityIsolation, TestCredentialRotationRevocationAndExpiry, TestCredentialRegistryFailsClosed, TestCredentialRequiresVerifiedTLS |
-| INGEST-01 durable Falco ownership isolation/replay | TestFalcoDurableMixedBatchRestartAndRecovery, TestFalcoDurableRotationReplaysPendingBeforeReadingReplacement, TestFalcoDurableBackoffSurvivesRestartAndMissingSource, TestFalcoDurablePersistenceFailureDoesNotSendOrAdvanceCursor, TestFalcoDurableStateFailsClosedOnCorruptionBindingAndConcurrentWriter, TestFalcoDurableIsolationBudgetAndCapacityKeepEvidence, TestFalcoDurableLargeBacklogDrainsWithinCapacity |
-| INGEST-02 bounded Pod/Falco retry and backoff | TestDeliveryBudgetBoundsIsolationAndRetainsUnsent, TestDeliveryStopsSiblingsOnRateLimitAndOtherForbidden, TestPostErrorHonorsRetryAfterAndCancelledDelivery, TestEventsCollectorRateLimitStopsFlushAndPreservesQuarantine, TestEventsCollectorQuarantineRetryHasSharedRequestBudget |
-| INGEST-03 quarantine fairness/informer updates | TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents, TestEventsCollectorResyncDuringDeliveryPreservesQueueClassAndNewestVersion |
-| INSIGHT-01 generated/restored insight ownership | TestRuleInsightCarriesClusterIdentity, TestGenericInsightRestoresSoftDeletedRowWithinCluster; PostgreSQL job: TestGenericInsightRestorePostgres |
-| INSIGHT-02 generic manual acknowledgement | TestGenericInsightRetainsAcknowledgedState/key-0 and /key-1; PostgreSQL: TestGenericInsightRestorePostgres/key-0 and /key-1 |
-| POLICY-01 stock Pod CEL repair | Full Core suite: TestBaselinePodPoliciesCompileAndDetectUnsafeSpec, TestMigration151PreservesModifiedLegacyTemplate; PostgreSQL job: TestBaselinePodPolicySeedAndRepairPostgres |
-| D3 signed health | TestSourceHealthAuthorityReplayFailureAndRestart, TestSourceHealthRejectsUntrustedEvidence (see named contract for exact subtests); PostgreSQL: TestSourceHealthPostgresConcurrencyAndRollback |
-| G scoped AGE | TestAGECanonicalScopeAndIdentifiers; PostgreSQL: TestAGEScopedTraversalPostgres |
-| H reviewed durable mutations | TestMutationIdentityReplayAndDurability, TestMutationBlocksReplacementAndChangedBindings, TestDurableDeletionRetainsUIDPrecondition, TestMutationDigestSurvivesJSONBRepresentation |
-| MIGRATION-01/02 populated ownership/schema | PostgreSQL: TestRiskScoreOwnershipQuarantinePostgres, TestMigrationMetadataUsesCurrentSchemaPostgres; isolated populated-backup rehearsal |
-| GRAPH-01 unavailable snapshot | TestAttackPathBuildFailsClosedOnSnapshotError |
-| PERF-01 scoped trend/cache allocation | TestRiskTrendsBoundedAggregationScopeAndCalendar, TestAttackPathCacheNestedMutationAndInvalidEncoding; PostgreSQL: TestRiskTrendsAggregationPostgres |
-| F real topology | Mandatory TestTwoClusterDaemonSetLive receipt; scripts test-two-cluster-integration.py rejects missing/skipped/failed tests and incomplete/overstated evidence |
-| CI-01 exact-head local evidence | Scripts job: test-local-ci-native.py verifies complete workflow groups/matrix, rejected unknown controls, sanitized inherited environment, failure/source-change reports and clean stable all-job publishability |
+| Inventory scope and mutations | TestServiceAccountInventoryScope, TestServiceAccountMutationsProtectIdentity, TestServiceAccountBulkFailuresPreserveInventory |
+| RBAC semantics | TestServiceAccountRBACResolution, TestClusterAdminBindingForPod, TestPodRiskReportUsesResolvedRBACScope |
+| Workload and capability scope | TestInventoryWorkloadCapabilityScope |
+| Agent cluster association | TestAgentClusterIdentityIsolation |
+| Graph and cache boundaries | TestLegacyGraphFailsBeforeGlobalQuery, TestNetworkServiceCacheSeparatesClustersAndCredentials |
+| Evaluator and reconciliation failures | TestEvaluationReportsRuleFailure, TestConfiguredCatalogRejectsPartialAndEmptyLoad, TestReconciliationAuditRollbackAndCatalogFailure, TestReconciliationPreservesDisabledDetector |
+| Runtime input errors | TestRuntimeInputFailureReachesEvaluators, TestRuntimeInputRejectsCorruptSnapshot, TestRuntimeInputRejectsMalformedBindings, TestReconciliationPreservesFindingOnRuntimeInputFailure |
+| Aggregate and finding-action scope | TestAggregateCacheIsolation, TestRuntimeScopeAndFindingActions, TestBulkRequiresActionPermissionAndNonemptySelection |
+| Agent credentials | TestCredentialIdentityIsolation, TestCredentialRotationRevocationAndExpiry, TestCredentialRegistryFailsClosed, TestCredentialRequiresVerifiedTLS |
+| Durable Falco ownership isolation and replay | TestFalcoDurableMixedBatchRestartAndRecovery, TestFalcoDurableRotationReplaysPendingBeforeReadingReplacement, TestFalcoDurableBackoffSurvivesRestartAndMissingSource, TestFalcoDurablePersistenceFailureDoesNotSendOrAdvanceCursor, TestFalcoDurableStateFailsClosedOnCorruptionBindingAndConcurrentWriter, TestFalcoDurableIsolationBudgetAndCapacityKeepEvidence, TestFalcoDurableLargeBacklogDrainsWithinCapacity |
+| Bounded Pod/Falco retry and backoff | TestDeliveryBudgetBoundsIsolationAndRetainsUnsent, TestDeliveryStopsSiblingsOnRateLimitAndOtherForbidden, TestPostErrorHonorsRetryAfterAndCancelledDelivery, TestEventsCollectorRateLimitStopsFlushAndPreservesQuarantine, TestEventsCollectorQuarantineRetryHasSharedRequestBudget |
+| Quarantine fairness and informer updates | TestEventsCollectorQuarantineBudgetDoesNotStarveRecoveredEvents, TestEventsCollectorResyncDuringDeliveryPreservesQueueClassAndNewestVersion |
+| Generated and restored insight ownership | TestRuleInsightCarriesClusterIdentity, TestGenericInsightRestoresSoftDeletedRowWithinCluster; PostgreSQL job: TestGenericInsightRestorePostgres |
+| Manual acknowledgement of generic insights | TestGenericInsightRetainsAcknowledgedState/key-0 and /key-1; PostgreSQL: TestGenericInsightRestorePostgres/key-0 and /key-1 |
+| Stock Pod CEL policies | Full Core suite: TestBaselinePodPoliciesCompileAndDetectUnsafeSpec, TestMigration151PreservesModifiedLegacyTemplate; PostgreSQL job: TestBaselinePodPolicySeedAndRepairPostgres |
+| Signed source health | TestSourceHealthAuthorityReplayFailureAndRestart, TestSourceHealthRejectsUntrustedEvidence (see named contract for exact subtests); PostgreSQL: TestSourceHealthPostgresConcurrencyAndRollback |
+| Cluster-scoped AGE graph | TestAGECanonicalScopeAndIdentifiers; PostgreSQL: TestAGEScopedTraversalPostgres |
+| Reviewed durable mutations | TestMutationIdentityReplayAndDurability, TestMutationBlocksReplacementAndChangedBindings, TestDurableDeletionRetainsUIDPrecondition, TestMutationDigestSurvivesJSONBRepresentation |
+| Populated-database ownership and schema | PostgreSQL: TestRiskScoreOwnershipQuarantinePostgres, TestMigrationMetadataUsesCurrentSchemaPostgres; isolated populated-backup rehearsal |
+| Unavailable graph snapshot | TestAttackPathBuildFailsClosedOnSnapshotError |
+| Scoped trends and cache allocation | TestRiskTrendsBoundedAggregationScopeAndCalendar, TestAttackPathCacheNestedMutationAndInvalidEncoding; PostgreSQL: TestRiskTrendsAggregationPostgres |
+| Real two-cluster topology | TestTwoClusterDaemonSetLive receipt; `scripts/verify/test-two-cluster-integration.py` rejects missing/skipped/failed tests and incomplete/overstated evidence |
+| Local CI evidence | Scripts job: test-local-ci-native.py verifies complete workflow groups/matrix, rejected unknown controls, sanitized inherited environment, failure/source-change reports and clean stable all-job publishability |
 
 These are named coverage anchors, not a guarantee against deleting assertions or
-introducing a different failure mode. Review remains required. C2/C3 registered
-HTTP/gRPC isolation regressions are now required by the named gate; permanent
-PostgreSQL selections additionally cover real database contracts. The real kind gate covers HTTP/DaemonSet/Kubernetes/backend investigation; mocked Dashboard tests do not establish a live browser walkthrough or mTLS/gRPC rollout.
+introducing a different failure mode. Review remains required. Scoped HTTP and
+gRPC isolation regressions are part of the named gate, and the PostgreSQL job
+covers real database contracts. The kind-based two-cluster test covers HTTP
+ingest, DaemonSets, Kubernetes and backend investigation; it does not run a
+browser against the Dashboard or roll out gRPC mTLS.

@@ -40,13 +40,12 @@ completion audit commit atomically only after successful UID-guarded deletion.
 Workers resume after Core restart; watch the operation status rather than treating
 a failed HTTP request as proof that no Kubernetes effect occurred.
 
-The Dashboard ServiceAccount identity detail now exposes the same preview,
+The Dashboard ServiceAccount identity detail exposes the same preview,
 execute and status workflow for users with the required permissions. It shows
 each target UID, binding subject change and plan limitation before execution,
 and stores the operation ID in the page URL so progress can be reopened.
-The UI is part of the post-#55 follow-up and requires deployment validation.
-Legacy Dashboard disable actions remain unavailable; no automatic
-inactive-account revocation is enabled.
+The Dashboard has no disable action, and no automatic inactive-account
+revocation is enabled.
 
 ## Details
 
@@ -57,5 +56,6 @@ inactive-account revocation is enabled.
 - Bulk DELETE requires `inventory.bulk` plus `inventory.delete`, validates the
   whole set first and reports per-item failures with HTTP 207.
 - Coverage: unit regressions for scope, actor, digest, binding drift, replacement
-  UIDs and persistence failure, plus the live two-cluster
-  [integration gate](../maintainers/INTEGRATION_ACCEPTANCE_20260929.md).
+  UIDs and persistence failure, plus the live two-cluster CI gate
+  (`scripts/verify/run-two-cluster-integration.py`), which previews and executes a
+  real revocation and checks it with a SubjectAccessReview.

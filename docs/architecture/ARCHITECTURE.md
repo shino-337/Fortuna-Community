@@ -2,18 +2,15 @@
 
 Fortuna is a Kubernetes security platform for workload inventory, SBOM/CVE visibility, runtime telemetry, policy/rule evidence, attack-path analysis, and unified risk operations.
 
-This document describes the current public architecture. It intentionally avoids phase notes, internal backlog, and design-system gap tracking.
-
 ## Runtime Topology
 
 ```mermaid
 flowchart LR
   browser[Browser] --> dashboard[Dashboard nginx]
   dashboard --> core[Core REST API]
-  agent[Agent DaemonSet] -->|gRPC mTLS| core
-  remote[Remote cluster Agent] -->|gRPC mTLS via NodePort/Ingress| core
-  agent -->|HTTP ingest fallback| core
-  remote -->|HTTP ingest fallback| core
+  agent[Agent DaemonSet] -->|gRPC mTLS: SBOMs| core
+  agent -->|HTTP: inventory, Pod Detail, runtime| core
+  remote[Remote cluster Agent] -->|same, via NodePort/Ingress| core
   falco[Optional Falco/eBPF sensors] --> agent
   core --> db[(PostgreSQL)]
   core <--> nats[(NATS JetStream)]
@@ -21,7 +18,7 @@ flowchart LR
   workers --> db
 ```
 
-Dashboard is a projection of Core APIs. Agent and optional sensors write evidence into Core; Core persists source-of-truth state and publishes asynchronous processing work through NATS JetStream.
+Dashboard is a projection of Core APIs. The Agent sends SBOMs over gRPC with a per-Agent client certificate, and inventory, Pod Detail and runtime evidence over HTTP with a per-Agent token ([Agent identity](../reference/AGENT_IDENTITY.md)). Agent and optional sensors write evidence into Core; Core persists source-of-truth state and publishes asynchronous processing work through NATS JetStream.
 
 In multi-cluster deployments, Core/Dashboard/PostgreSQL/NATS run once in the management cluster. Remote clusters run Agent only. Every inventory, SBOM, runtime, network, risk, and attack-path record is owned by `cluster_id`; dashboard cluster totals are computed from active cluster-scoped records.
 
@@ -134,8 +131,6 @@ Implementation should reuse dashboard primitives where possible:
 - `dashboard/design-system/components/Table.tsx`
 - shared form/table chrome in `dashboard/lib/`
 
-Detailed visual design guidance is not published in this repo documentation.
-
 ```mermaid
 flowchart LR
   request[Dashboard route request] --> auth{Authenticated?}
@@ -162,12 +157,13 @@ Core routes are grouped by product domain under `/api/v1` (plus `/api/v2/runtime
 | Path | Purpose |
 |------|---------|
 | `agent/` | Node agent Go module |
-| `api/` | gRPC definitions and generated code |
+| `api/` | Shared module: gRPC definitions, generated code and HTTP collection payloads |
 | `core/` | Core API, workers, models, migrations |
 | `dashboard/` | React/Vite dashboard |
-| `deploy/` | Kubernetes manifests and deployment examples |
+| `deploy/` | Helm chart (`deploy/helm/fortuna`), the manifests rendered from it, and optional overlays |
+| `scenarios/` | Reproducible attack-path validation scenarios |
 | `scripts/` | Build, deploy, verify, and utility scripts |
-| `docs/` | Public documentation |
+| `docs/` | Documentation |
 
 ## Related Docs
 

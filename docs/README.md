@@ -37,7 +37,6 @@
 |---|---|
 | Contribution workflow | [CONTRIBUTING.md](../CONTRIBUTING.md) |
 | Release history | [CHANGELOG.md](../CHANGELOG.md) |
-| Run CI checks locally | [Local CI](maintainers/LOCAL_CI.md) |
-| Audit plans, remediation status, release checklist | [Maintainer records](maintainers/README.md) |
+| Run CI checks locally, the two-cluster test and a migration rehearsal | [Local CI](development/LOCAL_CI.md) |
 
 Dashboard screenshots live in [assets/screenshots](assets/screenshots/). Do not add generated reports, credentials, kubeconfigs or private environment captures to the documentation.

@@ -10,20 +10,15 @@ than one cluster must select one. Database/build errors are returned instead of
 an empty fallback graph. Existing scoped attack-path summary, chains, objectives,
 and bundle APIs use the same cluster resolver.
 
-The six legacy AGE HTTP operations (blast-radius, shortest-path,
-accessible-resource, arbitrary Cypher, permissions and risky-pods) are removed,
-including their route registrations and handlers. The relational graph and scoped
-attack-path views remain supported. No in-repository client used the retired
-graph endpoints; external callers must migrate to these views. The cluster-scoped internal AGE
-engine is not exposed through a replacement arbitrary-query endpoint.
+The older AGE HTTP operations (blast-radius, shortest-path, accessible-resource,
+arbitrary Cypher, permissions and risky-pods) no longer exist; use the relational
+graph and scoped attack-path views instead. The cluster-scoped internal AGE
+engine is not exposed through any arbitrary-query endpoint.
 
-Runtime event ingest uses only POST /api/v2/runtime/events. File, Falco and eBPF
-producers send the canonical v2 metadata, including observed_at; they retain failed
-batches for retry without downgrading to v1. Runtime v1 read APIs remain supported.
-This is a coordinated Core/Agent upgrade: upgrade agents to this v2-capable build
-before or alongside Core. Old agents that only send v1 cannot ingest after removal.
-Shared-token authentication migration mode is unchanged; configure scoped agent
-credentials for per-agent/per-cluster authentication.
+Runtime event ingest uses only `POST /api/v2/runtime/events`. File, Falco and eBPF
+producers send the canonical v2 metadata, including `observed_at`, and retain
+failed batches for retry. Runtime v1 read APIs remain. Configure scoped Agent
+credentials for per-Agent, per-cluster authentication.
 
 Attack-path cache keys distinguish global builds from a cluster literally named
 __all_clusters__. Cached and singleflight results are copied before returning to
@@ -35,13 +30,12 @@ kubeconfig, never Core's own in-cluster credentials. Cache keys include cluster
 and credential digest, entries expire after 30 seconds, failures do not reuse
 expired results, and live lookup has a five-second deadline. Missing credentials
 leave optional service names absent; observed connections remain visible.
-Runtime signal list/count queries now share typed-principal and alias validation.
+Runtime signal list and count queries share the same principal and alias validation.
 
 Regression tests verify retired routes return 404 and are absent from the router,
 supported routes remain present, senders never downgrade, runtime aliases, cache mutation and
 key collisions, and service-cache separation across clusters/credential changes.
-PostgreSQL regressions run in CI. Live service discovery, coordinated upgrades
-and load validation remain lab gates.
+PostgreSQL regressions run in CI.
 
 
 Unused HTTP aliases are also retired:
@@ -79,15 +73,13 @@ selected cluster, with consistent edge endpoints, before any result is returned.
 Foreign imported intermediate data fails the whole request. Type annotations
 are removed outside JSON strings only; property text remains intact.
 
-There is no automatic import from the old shared `fortuna_graph`: legacy data
-must be rebuilt from cluster-qualified evidence. QueryService exposes scoped
+There is no automatic import from the older shared `fortuna_graph`; graph data
+is rebuilt from cluster-qualified evidence. QueryService exposes scoped
 UID path lookup. Risk scores, runtime-evidence constraints and permissions have
 no validated AGE contract, so these projections explicitly direct callers to
-the existing relational risk/attack-path/RBAC APIs. Retired legacy HTTP AGE
-routes remain unavailable; no restricted-user endpoint is reopened by this
-internal change.
+the relational risk, attack-path and RBAC APIs.
 
-The permanent PostgreSQL workflow now uses the digest-pinned Apache AGE 1.6.0 /
+The PostgreSQL CI job uses the digest-pinned Apache AGE 1.6.0 /
 PostgreSQL 16 image and executes `TestAGEScopedTraversalPostgres` in addition to
 the populated migration/concurrency tests. It verifies duplicate resource names
 and UIDs, foreign node/edge import, parameter data containing Cypher delimiters,

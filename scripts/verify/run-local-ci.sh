@@ -33,7 +33,7 @@ case "$backend" in
 esac
 
 if ! command -v act >/dev/null 2>&1; then
-  printf 'act is required; see docs/maintainers/LOCAL_CI.md\n' >&2
+  printf 'act is required; see docs/development/LOCAL_CI.md\n' >&2
   exit 1
 fi
 if ! docker info >/dev/null 2>&1; then

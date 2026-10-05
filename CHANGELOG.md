@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Docs
+
+- Removed internal working notes (audit plan, remediation status, dated integration and performance records, public-release checklist). The reference docs now describe current behavior only.
+- The local CI guide moved to `docs/development/LOCAL_CI.md` and also covers the two-cluster integration test and the populated-migration rehearsal.
+
 ## v1.0.0 (refreshed 2026-10-05)
 
 The `v1.0.0` tag was moved from the July 2026 build (`895d73d`) to the current `main`, and its images were rebuilt. Installs that pinned `sha-895d73df322c` keep the original build. The original release notes are kept in the GitHub release history.
@@ -35,7 +42,7 @@ The `v1.0.0` tag was moved from the July 2026 build (`895d73d`) to the current `
 
 ### Since the July build
 
-- Audit remediation #23 to #57: cluster-scoped identity and inventory, per-Agent HTTP and gRPC credentials, runtime evidence and source health, reviewed ServiceAccount revocation, and availability fixes. See `docs/maintainers/AUDIT_REMEDIATION_STATUS.md`.
+- Audit remediation #23 to #57: cluster-scoped identity and inventory, per-Agent HTTP and gRPC credentials, runtime evidence and source health, reviewed ServiceAccount revocation, and availability fixes.
 - Documentation consolidated (#59 to #62). New configuration reference in `docs/reference/CONFIGURATION.md`, checked against the manifests and source in CI.
 
 ### CI

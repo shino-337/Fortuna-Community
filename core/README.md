@@ -22,52 +22,41 @@ Fortuna Core orchestrates security analysis across Kubernetes clusters. It recei
 
 ## Architecture
 
-### Components
+### Layout
 
 ```
 core/
 ├── cmd/
-│   └── main.go                    # Application entry point
+│   ├── main.go               # Core server
+│   ├── cve-loader/           # Loads an OSV/CVE catalog into PostgreSQL
+│   └── migration-rehearsal/  # Runs migrations against a restored backup
 ├── internal/
-│   ├── api/                       # REST API handlers
-│   │   ├── routes.go              # Route definitions
-│   │   ├── insights_handlers.go  # Insights API
-│   │   ├── sbom_handlers.go      # SBOM API
-│   │   └── ...
-│   ├── grpc/                      # gRPC server
-│   │   ├── handler_sbom.go        # SBOM gRPC handlers
-│   │   └── ...
-│   ├── storage/                   # Database layer
-│   │   └── storage.go            # GORM database connection
-│   ├── config/                    # Configuration management
-│   ├── health/                    # Health check endpoints
-│   ├── middleware/                # HTTP middleware (CORS, auth, metrics)
-│   ├── scheduler/                 # Background jobs
-│   ├── webhook/                   # Admission webhook
-│   └── service/                   # Business logic services
+│   ├── api/                  # REST handlers; routes*.go register them and
+│   │                         # route_security_inventory.go declares every route
+│   ├── grpc/                 # Agent gRPC server and per-RPC authorization
+│   ├── auth/, sessions/      # JWT login and server-side sessions
+│   ├── middleware/           # CORS, auth, cluster scope, metrics
+│   ├── ingest/               # Agent HTTP ingest
+│   ├── webhook/              # Admission webhook
+│   ├── scheduler/, service/  # Background jobs and services
+│   └── config/, health/, storage/, metrics/, k8s/, repository/
 ├── pkg/
-│   ├── messaging/                 # NATS JetStream client
-│   │   ├── nats_client.go         # NATS connection & streams
-│   │   └── publisher.go          # Event publishing
-│   ├── worker/                    # Background workers
-│   │   ├── sbom_worker.go        # SBOM processing worker
-│   │   ├── cve_matcher_worker.go # CVE matching worker
-│   │   ├── correlator_worker.go  # Event correlation worker
-│   │   ├── risk_worker.go        # Risk scoring worker
-│   │   └── pool.go               # Worker pool management
-│   ├── cve/                       # CVE matching logic
-│   ├── models/                    # Database models
-│   ├── policy/                    # Policy engine
-│   ├── reconciler/                # State reconciliation
-│   └── metrics/                   # Prometheus metrics
-├── migrations/                    # Database migrations
-│   ├── migrations.go              # Migration orchestrator
-│   └── mvp2/                      # MVP2 migrations
-├── proto/                         # gRPC proto definitions
-├── Dockerfile
-├── go.mod
-└── go.sum
+│   ├── agentidentity/        # Per-Agent HTTP and gRPC credential registries
+│   ├── authorization/        # Permissions and cluster scope
+│   ├── messaging/            # NATS JetStream client and streams
+│   ├── worker/               # SBOM, CVE matcher, correlator, risk and DLQ workers
+│   ├── riskengine/, risk/    # Rule evaluation, scoring and resolution evidence
+│   ├── rbacinventory/        # Shared RBAC grant resolver
+│   ├── graph/                # Attack graph and cluster-scoped AGE queries
+│   ├── mutations/            # Reviewed ServiceAccount revocation
+│   ├── sourcehealth/         # Signed runtime source-health verification
+│   ├── models/               # Database models
+│   └── ...                   # cve, sbom, policy, malware, epss, kev and more
+├── migrations/               # Schema migrations (see migrations/README.md)
+└── Dockerfile
 ```
+
+The gRPC protocol is defined in the shared [`api`](../api/README.md) module.
 
 ---
 
@@ -99,12 +88,13 @@ core/
 
 ### 4. Event-Driven Architecture
 
-**NATS JetStream Streams**:
+**NATS JetStream streams** (file storage, 3 replicas, oldest messages discarded at the limit; `core/pkg/messaging/nats_client.go`):
 
-- `fortuna-raw`: Raw events from agents (WorkQueuePolicy, 24h, 100K msgs, 1GB)
-- `fortuna-events`: Normalized events and SBOM/CVE processing (WorkQueuePolicy, 48h, 200K msgs, 2GB)
-- `fortuna-insights`: Insight generation events (LimitsPolicy, 48h, 50K msgs, 512MB)
-- `fortuna-normalized`: Normalized event processing (WorkQueuePolicy, 24h, 100K msgs, 1GB)
+- `fortuna-raw`: raw inventory events (work queue, 24h, 100K messages, 1 GiB)
+- `fortuna-events`: runtime, SBOM and CVE events (work queue, 48h, 200K messages, 2 GiB)
+- `fortuna-insights`: insight created/updated events (limits, 7 days, 50K messages, 512 MiB)
+- `fortuna-normalized`: normalized events (work queue, 24h, 100K messages, 1 GiB)
+- `fortuna-siem`: security audit events for SIEM export (limits, 7 days, 100K messages, 1 GiB)
 
 **NATS Subjects**:
 
@@ -112,8 +102,9 @@ core/
 - `fortuna.events.runtime`: Runtime events
 - `fortuna.sbom.created`: SBOM creation events
 - `fortuna.cve.*`: CVE-related events
-- `fortuna.insights.created`: Insight creation events
+- `fortuna.insights.created`, `fortuna.insights.updated`: Insight events
 - `fortuna.normalized.*`: Normalized events
+- `fortuna.siem.events`: Security audit events
 
 **Workers**:
 
@@ -131,79 +122,18 @@ Every `/api/*` route is declared in `internal/api/route_security_inventory.go`; 
 
 ### 6. gRPC API
 
-- `RegisterAgent`: Agent registration
-- `Heartbeat`: Agent heartbeat
-- `Ping`: Health check
-- `SendSBOMFinding`: SBOM submission from Agents
-- `BatchSendSBOMFindings`: Client-streamed SBOM submission
-- `SendCVEFinding`: CVE finding submission
-- `SendCombinedFinding`: Combined SBOM/CVE submission
+Defined in `api/proto/agent/service.proto` and served on `GRPC_PORT` with TLS. Agent calls are authorized per RPC against the per-Agent certificate registry ([Agent identity](../docs/reference/AGENT_IDENTITY.md)).
+
+- `RegisterAgent`, `Heartbeat`, `Ping`: Agent registration and liveness
+- `SendSBOMFinding`: SBOM submission from an Agent
+- `BatchSendSBOMFindings`: client-streamed SBOM submission
+- `SendCVEFinding` and `SendCombinedFinding` are not served: Core derives CVE matches from SBOMs itself.
 
 ---
 
 ## Configuration
 
-### Environment Variables
-
-**Database**:
-- `DATABASE_URL`: PostgreSQL connection string (required)
-  - Example: `postgres://postgres:postgres@postgres.fortuna.svc.cluster.local:5432/fortuna?sslmode=disable`
-
-**NATS**:
-- `NATS_ENDPOINT`: NATS server endpoint (required)
-  - Example: `nats://nats-client.fortuna.svc.cluster.local:4222`
-
-**Server**:
-- `HTTP_PORT`: HTTP server port (default: `8080`)
-- `GRPC_PORT`: gRPC server port (default: `9090`)
-- `LOG_LEVEL`: Log level (default: `info`)
-
-**TLS/mTLS**:
-- `TLS_ENABLED`: Enable TLS (default: `false`)
-- `TLS_CERT_PATH`: Server certificate path
-- `TLS_KEY_PATH`: Server private key path
-- `TLS_CA_CERT_PATH`: CA certificate path used to verify gRPC client certificates
-
-**Authentication**:
-- `AUTH_ENABLED`: Enable JWT authentication (default: `true`)
-- `JWT_SECRET` / `FORTUNA_JWT_SECRET`: JWT signing secret; production startup requires at least 32 bytes.
-- `FORTUNA_INGEST_TOKEN`: Legacy shared HTTP Agent/runtime ingest token. It is used only when scoped HTTP identity is not configured.
-- `FORTUNA_AGENT_CREDENTIAL_REGISTRY`: Operator-managed scoped HTTP Agent credential registry. When set, Agent/runtime HTTP ingest authenticates per Agent/cluster and does not silently fall back to `FORTUNA_INGEST_TOKEN`.
-- `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY`: Opt-in scoped gRPC Agent credential registry using client-certificate SHA-256 fingerprints. Requires `TLS_ENABLED=true`. Without it, Core refuses Agent gRPC writes.
-- `FORTUNA_ALLOWED_ORIGINS`: Comma-separated extra browser origins allowed for CORS, in addition to localhost dev origins.
-- `FORTUNA_ALLOW_AUTH_QUERY_TOKEN`: Set `true` only when browser WebSocket clients must authenticate with `?token=`; non-WebSocket routes ignore query tokens.
-- `FORTUNA_WS_ALLOWED_ORIGINS`: Comma-separated browser origins allowed by WebSocket `CheckOrigin`, for example the local dashboard host `http://localhost:8081` or NodePort origin `http://dashboard.example.com:30956`.
-- `FORTUNA_TRUSTED_PROXIES`: Comma-separated proxy IPs/CIDRs allowed to set `X-Forwarded-For`/`X-Real-IP`. Unset trusts none.
-- `FORTUNA_MAX_REQUEST_BODY_BYTES`: Request body limit (default 64 MiB).
-- `FORTUNA_DEV_MODE`: `1` for local development only: allows a generated JWT secret and `AUTH_ENABLED=false`.
-
-See [Agent credential foundation](../docs/reference/AGENT_IDENTITY.md) for scoped HTTP/gRPC identity semantics and migration status.
-
-**NATS Durables**:
-- `FORTUNA_JS_DURABLES`: Enable durable consumers (default: `false`)
-
-**SBOM DLQ observability**:
-- `FORTUNA_SBOM_DLQ_DEPTH_POLL_INTERVAL`: Poll JetStream for DLQ subject backlog gauge `fortuna_sbom_created_dlq_stream_messages` (default `30s`; `0`/`off` disables).
-
-**EPSS (RISK-1 — optional)**:
-- `FORTUNA_EPSS_ENABLED`: `true`/`1` to fetch FIRST.org EPSS into `Insight.evidence` during CVE match (default off).
-- `FORTUNA_EPSS_MAX_PER_SBOM`: Max **unique** CVE EPSS lookups per SBOM (default `40`; `0` disables enrichment; negative caps at 10k).
-- `FORTUNA_EPSS_CONCURRENCY`: Parallel EPSS HTTP requests (default `8`).
-- `FORTUNA_EPSS_BASE_URL`: Override API base (default `https://api.first.org/data/v1/epss`).
-- `FORTUNA_EPSS_CACHE_TTL`: Cache TTL for EPSS responses (default `24h`).
-
-**CISA KEV (RISK-1+ — optional)**:
-- `FORTUNA_KEV_ENABLED`: `true`/`1` to tag insights with `cisa_kev` when CVE is in the CISA catalog (default off).
-- `FORTUNA_KEV_URL`: Feed URL (default CISA JSON).
-- `FORTUNA_KEV_REFRESH`: Refresh interval for background catalog reload (default `6h`).
-
-**Retention** (cleanup jobs run every 24h):
-- `INSIGHTS_RESOLVED_RETENTION_DAYS`: Days to keep resolved insights before soft deletion (default `30`).
-- `INSIGHTS_ACTIVE_RETENTION_DAYS`: Days to keep active insights that stopped updating (default `90`).
-- `PCE_CLEANUP_RETENTION_DAYS`: Days to keep `pod_capabilities` rows by `last_seen_at` (default `30`).
-
-**WebSocket**:
-- `RISKS_WS_MAX_CONNS_PER_IP`: Maximum `/ws/risks` connections per client IP (default `10`).
+Core needs `DATABASE_URL`, `NATS_ENDPOINT` and a `JWT_SECRET` of at least 32 bytes (or `FORTUNA_DEV_MODE=1` for local development). Every other setting, with its default, is in the [configuration reference](../docs/reference/CONFIGURATION.md); Agent credentials are described in [Agent identity](../docs/reference/AGENT_IDENTITY.md).
 
 ---
 
@@ -322,14 +252,7 @@ Set `FORTUNA_METRICS_ADDR` (for example `:9091`, as the bundled manifest does) t
 
 ### Generate gRPC Code
 
-```bash
-# Install protoc and plugins
-go install google.golang.org/protobuf/cmd/protoc-gen-go@latest
-go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@latest
-
-# Generate Go code from proto
-protoc --go_out=. --go-grpc_out=. proto/fortuna.proto
-```
+The protocol lives in the shared module; regenerate it with `make -C api/proto/agent` from the repository root.
 
 ### Run Tests
 
@@ -342,7 +265,6 @@ go test ./...
 - **`internal/`**: Internal packages (not exported)
 - **`pkg/`**: Public packages (exported)
 - **`migrations/`**: Database migrations
-- **`proto/`**: gRPC proto definitions
 
 ---
 
@@ -379,10 +301,6 @@ go test ./...
 - [Architecture](../docs/architecture/ARCHITECTURE.md)
 - [API route overview](../docs/architecture/API_STANDARD.md)
 - [Production Deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md)
-- [Agent credential foundation](../docs/reference/AGENT_IDENTITY.md)
+- [Configuration reference](../docs/reference/CONFIGURATION.md)
+- [Agent identity](../docs/reference/AGENT_IDENTITY.md)
 - [Migrations](migrations/README.md)
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: 2026-09-16

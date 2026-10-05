@@ -2,10 +2,11 @@
 
 How runtime producer coverage is reported, and the signed source-health protocol that can make a runtime source authoritative. Operator setup for Falco and the source-health relay is in [runtime sensors](../operations/RUNTIME_SENSORS.md).
 
-## Runtime Coverage Evidence
+## Runtime coverage evidence
 
-PR #52 adds authenticated producer coverage evidence for runtime telemetry. The
-goal is to distinguish a genuinely observed zero-event interval from event silence
+The Agent reports authenticated coverage evidence for each runtime producer
+(`POST /api/v2/runtime/producers` and `POST /api/v2/runtime/coverage`). It lets
+Core distinguish a genuinely observed zero-event interval from event silence
 caused by an unavailable sensor, malformed input, dropped records or delivery
 failure.
 
@@ -106,7 +107,7 @@ preserved but are not fabricated into historical evidence.
 Continuity extends only across adjacent complete authoritative windows. A failed
 window or time gap resets continuity.
 
-The PostgreSQL CI gate verifies concurrent first report arbitration, exact replay,
+The `cluster-identity-postgres` CI job verifies concurrent first report arbitration, exact replay,
 immutable history, real SQL rollback/recovery, a populated legacy schema with
 missing columns, valid pre-history backfill and migration rerun behavior.
 
@@ -157,20 +158,13 @@ coverage until a real observation pipeline and its loss semantics are implemente
 and regression-tested. `EBPF_SIMULATE=true` is synthetic test traffic and is not
 runtime evidence.
 
-### Production operations follow-up
+### Storage and capacity
 
-The following items are intentionally outside the correctness scope of PR #52 and
-remain required before claiming large-scale production readiness:
-
-- explicit retention, with 7 days as the initial production target unless an
-  archive/export requirement overrides it;
-- time partitioning for `runtime_coverage_receipts`, plus automatic cleanup and
-  archive;
-- storage metrics for receipt ingest rate, allocated receipt bytes and oldest
-  retained receipt age;
-- capacity validation for the composite string indexes used by
-  `runtime_coverages` and `runtime_coverage_receipts`;
-- initial planning budget of 2 KiB/receipt plus 50% headroom.
+Core does not prune, partition or archive `runtime_coverage_receipts`; the table
+grows with every accepted window. For a large installation, plan retention
+(7 days is a reasonable starting point), time partitioning and storage
+monitoring yourself, and budget about 2 KiB per receipt plus headroom for the
+composite string indexes on `runtime_coverages` and `runtime_coverage_receipts`.
 
 At startup Falco locates the last complete record by scanning backwards in 64 KiB
 blocks. Valid JSONL normally finds a newline near EOF. A pathological newline-free
@@ -203,7 +197,7 @@ serializes concurrent duplicate submissions. An exact replay returns duplicate a
 does not execute downstream effects or rescore notification; reusing the same
 physical identity with changed semantic payload fails closed.
 
-Permanent regressions cover:
+Regression tests cover:
 - generic runtime-file restart reconstructing identical source IDs;
 - two identical same-second records retaining separate physical IDs;
 - API exact replay leaving event/signal/risk counts unchanged;
@@ -213,8 +207,8 @@ Permanent regressions cover:
 
 ### Deliberate limitations
 
-PR #52 does not enable Pod/runtime/cross-resource auto-resolution. Coverage is
-producer-specific, and current protocol v1 deliberately has **zero authoritative
+Coverage never auto-resolves Pod, runtime or cross-resource findings. Coverage
+is producer-specific, and protocol v1 deliberately has **zero authoritative
 runtime producers** for absence reasoning.
 
 The Agent coverage pending/backlog queue remains intentionally in memory. Restart
@@ -223,20 +217,19 @@ not guaranteed to contain every locally observed pre-restart interval. The new
 execution session is persisted as an explicit continuity boundary and `GapSince`
 reaches back to the prior accepted coverage end when available. Old receipts from
 the prior session cannot satisfy `EffectiveStatus` or `CoversInterval`. This
-trade-off preserves fail-closed correctness and is accepted for #52.
+trade-off preserves fail-closed correctness.
 
-To enable absence-based auto-resolution in a later PR, the system must first add
+Before absence-based auto-resolution can be enabled, the system must first add
 and verify an upstream source-health/enablement proof for the required producer
 (e.g. Falco readiness/heartbeat or an equivalent signed/owned health signal).
 Configuration enablement, file existence, reader heartbeat, and complete-empty
 windows are insufficient.
 
-API/UI availability and explanations remain package E work. External source replacement/truncation while the Agent is down can still destroy
+Coverage and source health are stored by Core for evaluation; there is no read
+API or Dashboard view for them yet. External source replacement/truncation while
+the Agent is down can still destroy
 source bytes; the new lifecycle session/gap prevents absence reasoning across that
 period but cannot reconstruct data removed outside Fortuna.
-
-Live DaemonSet, two-cluster, restart and populated migration acceptance remain
-package F gates.
 
 ## Independently signed runtime source health (protocol v1)
 
@@ -268,7 +261,7 @@ and a clean empty window cannot establish this contract. Built-in file/Falco
 readers and the current eBPF stub do not generate trusted health themselves.
 eBPF health is rejected until a real upstream contract is implemented.
 
-Runtime absence-based automatic resolution remains disabled. This protocol adds
-bounded independently verified source evidence; enabling automatic resolution
-still requires the package F live topology/evaluator acceptance gate. Receipt
-retention and production partition sizing remain deployment responsibilities.
+Runtime absence-based automatic resolution remains disabled. This protocol only
+records bounded, independently verified source evidence. Receipt retention and
+partition sizing are deployment responsibilities (see
+[storage and capacity](#storage-and-capacity)).

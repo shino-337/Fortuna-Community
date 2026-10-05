@@ -18,7 +18,8 @@ Scripts are grouped by intent. Run scripts from the repository root and use full
 | Clean local host image/cache pressure | `./scripts/clean/check-and-clean-host-resources.sh --clean -y` |
 | Enable optional admission webhook | `./scripts/deploy/enable-webhook.sh` (see [webhook guide](../docs/operations/WEBHOOK.md)) |
 | Verify deployment health | `./scripts/verify/check-full-deployment.sh` |
-| Run GitHub CI locally | `./scripts/verify/run-local-ci.sh all` (see [local CI guide](../docs/maintainers/LOCAL_CI.md)) |
+| Run GitHub CI locally | `./scripts/verify/run-local-ci.sh all` (see [local CI guide](../docs/development/LOCAL_CI.md)) |
+| Rehearse an upgrade on a database backup | `python3 scripts/verify/rehearse-populated-migration.py --backup <dump>` |
 | Verify multi-cluster DB/API sync | `./scripts/verify/verify-multicluster-sync.sh` |
 | Open dashboard locally | `./scripts/utils/port-forward-dashboard.sh` |
 

@@ -18,9 +18,7 @@ Detailed contracts for operators and contributors who need to know exactly how F
 
 ## Findings, graph and runtime
 
-- [Findings and risk](FINDINGS_AND_RISK.md): scope rules for finding actions and runtime signal lists, and how findings are evaluated, resolved and re-scored.
+- [Findings and risk](FINDINGS_AND_RISK.md): cluster scope on the risk APIs, finding actions, evaluation, auto-resolution, scoring and ServiceAccount permission resolution.
 - [Attack graph](GRAPH.md): what the attack graph does and does not claim, and the cluster-scoped internal AGE graph.
 - [Runtime evidence](RUNTIME_EVIDENCE.md): how runtime producer coverage is reported, and the signed source-health protocol.
 - [ServiceAccount mutations](../operations/SERVICEACCOUNT_MUTATIONS.md): previewed, reviewed revocation.
-
-Planning, audit history and the dated [integration acceptance](../maintainers/INTEGRATION_ACCEPTANCE_20260929.md) record live in [Maintainer records](../maintainers/README.md).

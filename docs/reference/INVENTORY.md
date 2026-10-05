@@ -16,12 +16,11 @@ before aggregation. Aggregates describe active pods only. Missing capability
 schema returns 503, not a successful empty inventory. Count/query errors return
 500. Trends cover exactly the requested UTC calendar days, include zero days,
 and count capability creation observations rather than daily active capability
-snapshots. The portable timestamp path is covered by SQLite tests; PostgreSQL
-and volume testing remain lab gates.
+snapshots.
 
 ## Inventory observation receipts
 
-The HTTP Syncer now sends a version-1 `collection` envelope alongside `data`:
+The Agent's HTTP Syncer sends a version-1 `collection` envelope alongside `data`:
 collection ID, collection start/end timestamps, per-kind List start bounds,
 namespace scope and counts for Pods, ServiceAccounts, Roles, RoleBindings,
 ClusterRoles, ClusterRoleBindings, Deployments and ReplicaSets. All eight lists must be explicit arrays on success.
@@ -90,15 +89,15 @@ attempt recovers the receipt. This is fail-closed availability behavior.
 If multiple Agents for one cluster are configured with different
 `WATCH_NAMESPACE` values, their receipts can also supersede one another. This
 fails closed for resolution because a namespace mismatch preserves the finding,
-but it can reduce automatic-resolution eligibility for the displaced scope. A live
-multi-scope topology test (and a scope-qualified receipt key if that topology is
-required) remains part of package F; this PR does not claim concurrent
-namespace-scope aggregation. A complete receipt proves
+but it can reduce automatic-resolution eligibility for the displaced scope.
+Receipts are not aggregated across namespace scopes, so give every Agent in one
+cluster the same `WATCH_NAMESPACE`. A complete receipt proves
 acceptance of the included projection, not authoritative Kubernetes deletion:
 existing safeguards retain objects on empty/suspiciously reduced snapshots.
 Derived PCE/risk processing and audit export are separate from collection coverage.
 
-Role/ClusterRole auto-resolution requires all D1 detector constraints plus:
+Role/ClusterRole auto-resolution requires the detector constraints in
+[Findings and risk](FINDINGS_AND_RISK.md#auto-resolution) plus:
 
 - a complete, fresh, authenticated receipt whose resource-kind List start bound
   is at or after finding detection;
@@ -114,29 +113,31 @@ Changes after the observation invalidate its digest. Unknown/stale/failed eviden
 preserves the finding. The resolution audit records collection ID and observation
 time. No legacy data is backfilled into verified evidence during migration.
 
-Roll out **Core first, then Agent**. Core #50 with an older Agent accepts the
-compatibility write as unverified and therefore blocks receipt-based resolution.
-The inverse order is not equivalent: Core #49 ignores the new `collection`
-envelope and retains D1's older static-snapshot freshness semantics. Do not use
-Agent-first rollout as evidence that #50 protections are active.
+### Upgrade order
+
+Roll out **Core first, then Agent**. A receipt-aware Core accepts an older
+Agent's sync as an unverified compatibility write, which blocks receipt-based
+resolution. The inverse order is not equivalent: a Core without receipt support
+ignores the `collection` envelope and keeps older static-snapshot freshness
+semantics, so an Agent-first rollout is no evidence that receipt protections are
+active.
 
 Upgrade Core, verify the inventory receipt schema/startup invariant, then roll out
 the Agent and configure the scoped HTTP token/registry described in
 `deploy/scoped-agent-credentials/README.md`. Check the sync response's
 `inventoryStatus`/`collection`. Old Agents continue ingesting in the configured compatibility mode, but cannot
-provide verified receipts. Rolling Core back to #49 also rolls back the stronger
-receipt requirement; treat that as a security-semantic rollback requiring explicit
+provide verified receipts. Rolling Core back to a version without receipts also
+rolls back the stronger receipt requirement; treat that as a security-semantic rollback requiring explicit
 risk acceptance rather than an ordinary transparent application rollback. The response always
 reports runtime coverage as `unknown`: inventory lists and Agent heartbeats do not
-prove runtime sensor coverage. Runtime/Pod/cross-resource auto-resolution remains
-blocked pending D2 runtime producer windows, loss/error/recovery reporting and
-complete evidence dependencies. User-facing evidence views remain package E.
+prove runtime sensor coverage. Runtime, Pod and cross-resource auto-resolution
+stay disabled (see [runtime evidence](RUNTIME_EVIDENCE.md)), and there is no
+Dashboard view of collection receipts yet.
 
 CI covers HTTP ownership, Agent collection failure/empty/pagination behavior,
 per-kind List start bounds, cross-namespace rejection/pruning boundaries, receipt
 freshness/digests, Agent-liveness rollback, DaemonSet multi-writer arbitration and
-PostgreSQL concurrent replay plus SQL-trigger rollback/recovery. Real two-cluster deployment
-acceptance remains package F.
+PostgreSQL concurrent replay plus SQL-trigger rollback/recovery.
 
 ## SBOM content and workload ownership
 
@@ -176,7 +177,7 @@ Do not bypass the startup failure by disabling the guards. Preserve a database
 backup before a populated upgrade. Index creation and backfill can block writes;
 plan the rollout accordingly. Rolling back the binary does not remove the guards
 or restore the retired combined RPC; an older writer that violates the identity
-contract will fail. Certificate/Agent identity cutover remains a separate package.
+contract will fail.
 
 ### Verification
 
@@ -187,4 +188,3 @@ must pass rather than skip. It starts with populated pre-content storage, verifi
 resumable backfill/quarantine, immutable content and owner guards, foreign
 CVE/malware/scan rejection, concurrent first ingest and direct duplicate rejection.
 Conflicting duplicate evidence is preserved when migration refuses startup.
-The live two-cluster deployment gate remains in work package F.

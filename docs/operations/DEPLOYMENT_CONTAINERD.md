@@ -73,7 +73,7 @@ Applying the GHCR-tagged manifests afterward can revert these image settings.
 If rollout fails, inspect pod events/logs before using `kubectl rollout undo`;
 an image rollback does not reverse database migrations.
 In particular, a startup failure on `backfill risk_scores cluster ownership`
-means legacy unowned and already-owned risk-score rows collide on a unique
+means older unowned and already-owned risk-score rows collide on a unique
 identity. Restore the previous Core image and reconcile those rows under an
 explicit data-retention decision; do not delete or merge them as an automatic
 deploy step.
@@ -120,12 +120,12 @@ before running it; the [deployment maintenance guide](BACKUP_AND_RESET.md)
 has a command sequence. The Core image must be able to migrate a fresh database.
 After the reset, confirm an admin was bootstrapped from the current Secret and
 reload the OSV/CVE catalog if no startup source is configured. A clean reset
-does not validate migration of populated legacy data, so keep that as a
-separate acceptance gate.
+does not exercise migration of existing data; rehearse that against a backup
+with [`rehearse-populated-migration.py`](../development/LOCAL_CI.md#two-cluster-integration-and-migration-rehearsal).
 
 On a single-node local-image deployment, the post-reset CVE loader can run as
 a Kubernetes Job using the newly deployed Core image and in-cluster PostgreSQL
-DNS. For a CPU-saturated lab node, lower only its scheduling request:
+DNS. On a CPU-saturated node, lower only its scheduling request:
 
 ```bash
 CVE_LOAD_MODE=job CORE_IMAGE="fortuna-core:${VERSION}" \

@@ -97,6 +97,7 @@ For a full installation (secrets, mTLS, storage, rollout), follow the [Quickstar
 
 | Need | Guide |
 |---|---|
+| Everything, by task | [Documentation index](docs/README.md) |
 | Install and first finding | [Getting started](docs/getting-started/README.md) |
 | Dashboard workflows | [User guide](docs/user-guide/README.md) |
 | Architecture and multi-cluster model | [Architecture](docs/architecture/ARCHITECTURE.md) |
