@@ -35,6 +35,7 @@ import { DecisionLogPanel } from '../components/investigation/DecisionLogPanel';
 import { WorkspaceGraphPanel } from '../components/investigation/WorkspaceGraphPanel';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import clsx from 'clsx';
+import { downloadText } from '../lib/download';
 
 const STATUS_OPTIONS: { value: InvestigationStatus; label: string }[] = [
   { value: 'OPEN', label: 'Open' },
@@ -120,8 +121,6 @@ export const Investigation: React.FC = () => {
     return <Navigate to="/" replace />;
   }
 
-  const casesEmpty = !loading && cases.length === 0;
-
   const patchActive = (patch: Partial<InvestigationCase>) => {
     if (!activeCase || !canWrite) return;
     void updateCase(activeCase.id, { ...activeCase, ...patch });
@@ -149,13 +148,7 @@ export const Investigation: React.FC = () => {
       '## Notes',
       ...c.notes.map((n) => `- ${n.createdAt} (${n.author}): ${n.body}`),
     ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `investigation-${c.id}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(lines.join('\n'), `investigation-${c.id}.md`, 'text/markdown;charset=utf-8');
   };
 
   return (

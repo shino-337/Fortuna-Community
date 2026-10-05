@@ -55,6 +55,7 @@ import { can, canAny, P } from '../lib/permissions';
 import { usePermUser } from '../hooks/usePermUser';
 import { usePersona } from '../hooks/usePersona';
 import { MonitoringPersonaStrip } from '../components/MonitoringPersonaStrip';
+import { downloadText } from '../lib/download';
 
 type LayerVerdict = 'OK' | 'DEGRADED' | 'BLOCKED' | 'UNKNOWN';
 type SystemVerdict = 'HEALTHY' | 'DEGRADED' | 'BROKEN';
@@ -773,17 +774,7 @@ export const Monitoring: React.FC = () => {
       dataIntegrity,
       recentErrorLogs: errorLogs,
     };
-    const blob = new Blob([JSON.stringify(data, null, 2)], {
-      type: 'application/json',
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `monitoring-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    downloadText(JSON.stringify(data, null, 2), `monitoring-export-${new Date().toISOString().replace(/[:.]/g, '-')}.json`, 'application/json');
   };
 
   const sv = systemVerdictStyle(systemVerdict);

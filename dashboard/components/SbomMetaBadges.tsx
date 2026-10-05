@@ -1,4 +1,3 @@
-import React from 'react';
 import { Info, Tag, Boxes } from 'lucide-react';
 
 export type SbomMetaBadgesProps = {

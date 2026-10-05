@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -37,7 +38,7 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 		}
 		unreadOnly := strings.EqualFold(strings.TrimSpace(c.Query("unreadOnly")), "true")
 
-		base := db.Model(&models.Notification{}).Where("deleted_at IS NULL")
+		base := scopedNotifications(db, c)
 		if unreadOnly {
 			base = base.Where("read_at IS NULL")
 		}
@@ -48,7 +49,7 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		var unreadCount int64
-		if err := db.Model(&models.Notification{}).Where("deleted_at IS NULL AND read_at IS NULL").Count(&unreadCount).Error; err != nil {
+		if err := scopedNotifications(db, c).Where("read_at IS NULL").Count(&unreadCount).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -90,6 +91,22 @@ func GetNotifications(db *gorm.DB) gin.HandlerFunc {
 			"unreadCount":   unreadCount,
 		})
 	}
+}
+
+// scopedNotifications limits notifications to the caller's cluster scope.
+// Notifications name pods, findings and attack paths, so a user restricted to
+// some clusters must neither read nor mark as read those of other clusters.
+// Every notification is derived from a cluster resource, so a row without a
+// cluster is hidden from restricted users rather than shown to all of them.
+func scopedNotifications(db *gorm.DB, c *gin.Context) *gorm.DB {
+	q := db.Model(&models.Notification{}).Where("deleted_at IS NULL")
+	if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
+		if len(ids) == 0 {
+			return q.Where("1 = 0")
+		}
+		q = q.Where("cluster_id IN ?", ids)
+	}
+	return q
 }
 
 func synthesizeSecurityNotifications(db *gorm.DB) {
@@ -254,7 +271,15 @@ func createNotificationIfMissing(db *gorm.DB, n models.Notification) {
 	if n.CreatedAt.IsZero() {
 		n.CreatedAt = time.Now().UTC()
 	}
-	_ = db.Where("dedupe_key = ? AND deleted_at IS NULL", n.DedupeKey).FirstOrCreate(&n).Error
+	clusterID := strings.TrimSpace(n.ClusterID)
+	if err := db.Where("dedupe_key = ? AND deleted_at IS NULL", n.DedupeKey).FirstOrCreate(&n).Error; err != nil {
+		return
+	}
+	// Rows written before notifications carried a cluster have none; stamp it
+	// so cluster-scoped users can see them.
+	if clusterID != "" && strings.TrimSpace(n.ClusterID) == "" {
+		_ = db.Model(&models.Notification{}).Where("id = ?", n.ID).Update("cluster_id", clusterID).Error
+	}
 }
 
 func derivedInsightNotifications(db *gorm.DB, now time.Time) []models.Notification {
@@ -287,6 +312,7 @@ func derivedInsightNotifications(db *gorm.DB, now time.Time) []models.Notificati
 			Category:     "risk",
 			Route:        "/risks/findings?search=" + url.QueryEscape(resourceSearchTerm(resourceDisplay, i.ResourceUID)),
 			DedupeKey:    fmt.Sprintf("insight:%d", i.ID),
+			ClusterID:    i.ClusterID,
 			ResourceUID:  i.ResourceUID,
 			ResourceName: resourceDisplay,
 			CreatedAt:    createdAt,
@@ -328,6 +354,7 @@ func derivedAttackPathNotifications(db *gorm.DB, now time.Time) []models.Notific
 			Category:     "attack-path",
 			Route:        "/attack-paths?path=" + url.QueryEscape(p.PathID),
 			DedupeKey:    fmt.Sprintf("attack-path:%d", p.ID),
+			ClusterID:    p.ClusterID,
 			ResourceUID:  p.PodUID,
 			ResourceName: resourceName,
 			CreatedAt:    createdAt,
@@ -363,6 +390,7 @@ func derivedCVENotifications(db *gorm.DB, now time.Time) []models.Notification {
 			Category:     "cve",
 			Route:        "/resources?tab=Pod&search=" + url.QueryEscape(resourceSearchTerm(resourceName, m.PodUID)),
 			DedupeKey:    fmt.Sprintf("cve-match:%d", m.ID),
+			ClusterID:    m.ClusterID,
 			ResourceUID:  m.PodUID,
 			ResourceName: resourceName,
 			CreatedAt:    createdAt,
@@ -401,6 +429,7 @@ func derivedMalwareNotifications(db *gorm.DB, now time.Time) []models.Notificati
 			Category:     "malware",
 			Route:        "/resources?tab=Pod&search=" + url.QueryEscape(resourceSearchTerm(resourceName, m.PodUID)),
 			DedupeKey:    fmt.Sprintf("malware-match:%d", m.ID),
+			ClusterID:    m.ClusterID,
 			ResourceUID:  m.PodUID,
 			ResourceName: resourceName,
 			CreatedAt:    createdAt,
@@ -449,8 +478,8 @@ func MarkNotificationRead(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		now := time.Now().UTC()
-		tx := db.Model(&models.Notification{}).
-			Where("id = ? AND deleted_at IS NULL AND read_at IS NULL", id).
+		tx := scopedNotifications(db, c).
+			Where("id = ? AND read_at IS NULL", id).
 			Update("read_at", now)
 		if tx.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})
@@ -468,8 +497,8 @@ func MarkAllNotificationsRead(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		now := time.Now().UTC()
-		tx := db.Model(&models.Notification{}).
-			Where("deleted_at IS NULL AND read_at IS NULL").
+		tx := scopedNotifications(db, c).
+			Where("read_at IS NULL").
 			Update("read_at", now)
 		if tx.Error != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": tx.Error.Error()})

@@ -27,7 +27,6 @@ import { DataControlBar } from '../DataControlBar';
 import { NotificationBell } from '../NotificationBell';
 import { getClusterDisplayName } from '../../lib/clusterDisplay';
 import { can, P } from '../../lib/permissions';
-import { fortunaRoleShortLabel, fortunaRoleTooltip } from '../../lib/fortunaRoles';
 import type { MissionNavSection } from '../../lib/personaMissionNavigation';
 
 const NAV_ICONS: Record<string, React.ReactElement> = {

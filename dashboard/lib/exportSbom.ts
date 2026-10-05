@@ -1,11 +1,6 @@
 import type { PodSbom, SbomComponent } from '../types';
+import { downloadText, toCsv } from './download';
 
-function escapeCsv(s: string): string {
-  if (/[",\n\r]/.test(s)) {
-    return `"${s.replace(/"/g, '""')}"`;
-  }
-  return s;
-}
 
 /**
  * Export SBOM components as CSV (one row per component; vulnerabilities as comma-separated).
@@ -43,27 +38,14 @@ export function exportSbomAsCsv(sbom: PodSbom): void {
     (c.vulnerabilities || []).map((v) => v.id).join('; '),
     (c.vulnerabilities || []).map((v) => v.severity).join('; '),
   ]);
-  const lines = [headers.map(escapeCsv).join(',')].concat(rows.map((r) => r.map(escapeCsv).join(',')));
-  const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `sbom-${sbom.podName || sbom.podId}-${new Date().toISOString().slice(0, 10)}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadText(toCsv([headers, ...rows]), `sbom-${sbom.podName || sbom.podId}-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
 }
 
 /**
  * Export full SBOM as JSON (pod metadata + all components with vulnerabilities).
  */
 export function exportSbomAsJson(sbom: PodSbom): void {
-  const blob = new Blob([JSON.stringify(sbom, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = `sbom-${sbom.podName || sbom.podId}-${new Date().toISOString().slice(0, 10)}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadJson(`sbom-${sbom.podName || sbom.podId}-${new Date().toISOString().slice(0, 10)}.json`, sbom);
 }
 
 function safeRef(s: string | undefined): string {
@@ -94,13 +76,7 @@ function maxSeverityRank(vulns: Array<{ severity?: string }>): string {
 }
 
 function downloadJson(filename: string, data: unknown): void {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  downloadText(JSON.stringify(data, null, 2), filename, 'application/json;charset=utf-8');
 }
 
 function toCdxSeverity(input?: string): 'critical' | 'high' | 'medium' | 'low' | 'info' | 'none' | 'unknown' {

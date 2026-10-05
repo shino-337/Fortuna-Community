@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+### Security
+
+- The findings export (CSV and print-ready HTML) now applies the user's cluster scope; a cluster-scoped user could previously export findings from every cluster. CSV cells that start with a formula character are prefixed with `'`.
+- Notifications, agent status and the counts in `/metrics/system` follow the user's cluster scope. Marking notifications read only affects notifications in scope.
+- Revoking another user's session needs `sessions.revoke_all` instead of `users.read`, so a User admin can no longer sign an Admin out.
+- A User admin can no longer change, disable or delete Cluster admin accounts, matching the rule that they cannot create them.
+
+### Dashboard
+
+- Findings can be reopened (`PATCH /risk/insights/:id` with `status: active`, permission `findings.reopen`) from the finding detail page; the Risk Center status filter includes Dismissed.
+- Reports: export failures show an error instead of failing silently, the Audit activity card shows audit data instead of investigation counts, and unavailable investigation stats show `n/a` instead of 0.
+- The Risk Center ignores responses from a superseded request, so a slow earlier response can no longer overwrite the current filter's results.
+- All downloads share one helper, and dashboard-generated CSV files neutralize formula cells.
+- Removed unused API client methods, imports and dead state, and enabled `noUnusedLocals` so the typecheck rejects new dead code.
+
 ### Docs
 
 - Removed internal working notes (audit plan, remediation status, dated integration and performance records, public-release checklist). The reference docs now describe current behavior only.

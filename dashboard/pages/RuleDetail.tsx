@@ -5,7 +5,7 @@ import { SecurityRule, Insight } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
-import { ArrowLeft, ScrollText, ShieldAlert, Info } from 'lucide-react';
+import { ArrowLeft, ShieldAlert, Info } from 'lucide-react';
 import { getSeverityBadgeClass } from '../lib/severity';
 import { PageError, PageLoading } from '../design-system/components/PageStatus';
 import { DataFreshness } from '../components/DataFreshness';

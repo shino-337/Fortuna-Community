@@ -733,6 +733,20 @@ func roundPercent(v float64) float64 {
 
 const maxRisksExportLimit = 10000
 
+// csvSafeCell stops spreadsheet apps from evaluating a cell as a formula.
+// Finding titles and resource names come from cluster objects, so a pod named
+// "=HYPERLINK(...)" would otherwise run when an analyst opens the export.
+func csvSafeCell(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + v
+	}
+	return v
+}
+
 // writeRisksExportHTML writes print-optimized HTML table for "Print to PDF" (Phase 3.3).
 func writeRisksExportHTML(w http.ResponseWriter, insights []models.Insight) {
 	w.Write([]byte(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Risks Export</title>`))
@@ -761,6 +775,11 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
+		// Exports leave the platform, so they get the same user cluster scope and
+		// the same filters as the Risk Center list they are exported from.
+		if !applyRiskFilterClusterScope(db, c, &filter) {
+			return
+		}
 		format := strings.ToLower(strings.TrimSpace(c.Query("format")))
 		hasScoreBin := strings.TrimSpace(c.Query("scoreBin")) != ""
 		statusFilter := strings.TrimSpace(filter.Status)
@@ -768,43 +787,16 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 			statusFilter = "active"
 		}
 
-		query := db.Model(&models.Insight{})
-		if strings.TrimSpace(filter.ClusterID) != "" {
-			clusterID := NormalizeClusterID(db, strings.TrimSpace(filter.ClusterID))
-			query = query.Where(
-				"resource_type = ? AND resource_uid IN (SELECT uid FROM pods WHERE cluster_id = ? AND deleted_at IS NULL)",
-				"Pod", clusterID,
-			)
-		} else {
-			query = query.Where("(resource_type != 'Pod' OR EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = insights.cluster_id AND p.uid = insights.resource_uid AND p.deleted_at IS NULL))")
-		}
-		if filter.Severity != "" {
-			query = query.Where("LOWER(severity) = ?", filter.Severity)
-		}
-		if statusFilter != "" && statusFilter != "all" {
-			query = query.Where("status = ?", statusFilter)
-		}
-		if filter.Type != "" {
-			query = query.Where("insight_type = ?", filter.Type)
-		}
-		if filter.Search != "" {
-			search := "%" + strings.ToLower(filter.Search) + "%"
-			query = query.Where(
-				"LOWER(title) LIKE ? OR LOWER(description) LIKE ? OR LOWER(resource_name) LIKE ? OR LOWER(cve_id) LIKE ? OR LOWER(affected_component) LIKE ?",
-				search, search, search, search, search,
-			)
-		}
-		if filter.SinceMinutes > 0 && riskInsightsListTimeWindowApplies(filter.Type) {
-			since := time.Now().Add(-time.Duration(filter.SinceMinutes) * time.Minute)
-			query = query.Where("detected_at >= ?", since)
-		}
-		if strings.TrimSpace(filter.ResourceNamespace) != "" {
-			query = query.Where("resource_namespace = ?", strings.TrimSpace(filter.ResourceNamespace))
+		query := insightsListApplyFilters(db.Model(&models.Insight{}), db, filter, statusFilter)
+		// The list scopes through pod UIDs, which are unique only inside a
+		// cluster; an export also pins the finding's own cluster.
+		if scopedIDs, restricted := middleware.ScopedClusterIDs(c); restricted {
+			query = query.Where("insights.cluster_id IN ?", scopedIDs)
 		}
 		// Histogram bin filter: score in [scoreBin, scoreBin+10) (e.g. scoreBin=10 → 10–19)
 		// Only apply when scoreBin query param is explicitly provided.
 		if hasScoreBin && filter.ScoreBin >= 0 && filter.ScoreBin <= 90 && (filter.ScoreBin%10) == 0 {
-			query = query.Where("resource_uid IN (SELECT resource_uid FROM risk_scores WHERE total_score >= ? AND total_score < ? AND deleted_at IS NULL)",
+			query = query.Where("insights.resource_uid IN (SELECT resource_uid FROM risk_scores WHERE total_score >= ? AND total_score < ? AND deleted_at IS NULL)",
 				filter.ScoreBin, filter.ScoreBin+10)
 		}
 
@@ -863,16 +855,16 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 			for _, i := range chunk {
 				_ = csvW.Write([]string{
 					strconv.FormatUint(uint64(i.ID), 10),
-					i.Title,
-					i.Description,
-					i.Severity,
-					i.Status,
-					i.InsightType,
-					i.ResourceType,
-					i.ResourceName,
-					i.ResourceNamespace,
-					i.ResourceUID,
-					i.CVEID,
+					csvSafeCell(i.Title),
+					csvSafeCell(i.Description),
+					csvSafeCell(i.Severity),
+					csvSafeCell(i.Status),
+					csvSafeCell(i.InsightType),
+					csvSafeCell(i.ResourceType),
+					csvSafeCell(i.ResourceName),
+					csvSafeCell(i.ResourceNamespace),
+					csvSafeCell(i.ResourceUID),
+					csvSafeCell(i.CVEID),
 					i.DetectedAt.Format(time.RFC3339),
 					i.CreatedAt.Format(time.RFC3339),
 					i.UpdatedAt.Format(time.RFC3339),
@@ -920,14 +912,19 @@ func UpdateInsightStatus(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if payload.Status != "acknowledged" && payload.Status != "resolved" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be acknowledged or resolved"})
+		// "active" reopens a finding; the route already admits findings.reopen
+		// holders, so the handler must accept the transition they are granted.
+		if payload.Status != "acknowledged" && payload.Status != "resolved" && payload.Status != "active" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "status must be acknowledged, resolved or active"})
 			return
 		}
 
 		needed := authorization.PermissionFindingsAck
-		if payload.Status == "resolved" {
+		switch payload.Status {
+		case "resolved":
 			needed = authorization.PermissionFindingsResolve
+		case "active":
+			needed = authorization.PermissionFindingsReopen
 		}
 		if !authorization.HasPermission(middleware.GrantedPermissions(c), needed) {
 			c.JSON(http.StatusForbidden, gin.H{"error": "permission denied"})
@@ -946,9 +943,16 @@ func UpdateInsightStatus(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusConflict, gin.H{"error": "closed findings cannot be acknowledged"})
 			return
 		}
+		if payload.Status == "active" && before.Status != "resolved" && before.Status != "dismissed" && before.Status != "acknowledged" {
+			c.JSON(http.StatusConflict, gin.H{"error": "only resolved, dismissed or acknowledged findings can be reopened"})
+			return
+		}
 		updates := map[string]interface{}{"status": payload.Status, "updated_at": time.Now()}
-		if payload.Status == "resolved" {
+		switch payload.Status {
+		case "resolved":
 			updates["resolved_at"] = time.Now()
+		case "active":
+			updates["resolved_at"] = nil
 		}
 		if err := db.Model(&models.Insight{}).Where("id = ?", id).Updates(updates).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})

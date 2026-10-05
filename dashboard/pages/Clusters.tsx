@@ -23,7 +23,6 @@ import { DataFreshness } from '../components/DataFreshness';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
-const HEALTH_FILTER_OPTIONS = ['all', 'connected', 'degraded', 'disconnected'] as const;
 
 export const Clusters: React.FC = () => {
   const navigate = useNavigate();
