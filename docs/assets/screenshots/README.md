@@ -8,12 +8,12 @@ These screenshots are committed as user-guide assets. They show a local multi-cl
 |------|-------|-------------------|
 | `platform-integrity.png` | `/#/` | Platform Integrity workspace |
 | `dashboard-overview.png` | `/#/dashboard` | Operations Dashboard |
-| `monitoring.png` | `/#/monitoring` | Pipeline & Runtime Health |
+| `monitoring.png` | `/#/monitoring` | Platform Health |
 | `risk-operations.png` | `/#/risks/findings` | Findings Queue |
 | `attack-analysis.png` | `/#/attack-paths` | Attack Paths |
 | `network-activity.png` | `/#/network-activity` with a selected cluster | Runtime Network |
 | `resources.png` | `/#/resources` | Kubernetes Inventory and pod investigation entry point |
-| `policy-rules.png` | `/#/rules` | Policy Rules |
+| `policy-rules.png` | `/#/rules` | Rules & Catalog |
 | `reports.png` | `/#/reports` | Reports |
 
 ## Refresh Guidance

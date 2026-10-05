@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { RULES_CATALOG_SECTIONS, SectionNav } from '../components/SectionNav';
 import { CapabilityMetadataBrowser } from '../components/CapabilityMetadataBrowser';
 import { Card } from '../design-system/components/Card';
 import { RefreshCw } from 'lucide-react';
@@ -14,6 +15,8 @@ import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
 import { PAGE_TITLES } from '../lib/pageTitles';
+import { can, P } from '../lib/permissions';
+import { usePermUser } from '../hooks/usePermUser';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
 
@@ -79,7 +82,10 @@ export const Capabilities: React.FC = () => {
     }
   }, [page, pageSize, debouncedSearch, domain]);
 
+  // Rule counts come from the policy catalog; users without policies.read (viewers) see the catalog without them.
+  const canPoliciesRead = can(usePermUser(), P.policiesRead);
   const loadRules = useCallback(async () => {
+    if (!canPoliciesRead) return;
     try {
       const r = await api.getRulesStrict();
       setRules(r);
@@ -88,7 +94,7 @@ export const Capabilities: React.FC = () => {
       setRules([]);
       setRulesError('Detection rule enrichment is unavailable. Capability metadata is still shown without related rule counts.');
     }
-  }, []);
+  }, [canPoliciesRead]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
@@ -116,8 +122,8 @@ export const Capabilities: React.FC = () => {
 
   return (
     <PageLayout
-      title={PAGE_TITLES.capabilities}
-      description="Semantic reference for capabilities (MITRE, impact, mitigations). Use Risk Findings for incident triage."
+      title={PAGE_TITLES.policyRules}
+      description="Capability catalog: MITRE techniques, impact and mitigations for each capability. Exposure per pod is in Risk Findings → Exposure."
       actions={
         <Button variant="secondary" isLoading={loading} onClick={() => { loadPage(); loadRules(); }}>
           <RefreshCw className="w-4 h-4 mr-2" /> Refresh
@@ -149,6 +155,7 @@ export const Capabilities: React.FC = () => {
         />
       }
     >
+      <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
       {error && (
         <PageError
           title="Could not load capabilities"

@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { PLATFORM_HEALTH_SECTIONS, SectionNav } from '../components/SectionNav';
 import { api } from '../lib/api';
 import { Certificate, RotationEvent } from '../types';
 import { usePermUser } from '../hooks/usePermUser';
 import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
 import { Card } from '../design-system/components/Card';
-import { Lock, AlertCircle, CheckCircle, XCircle, RefreshCw, ArrowLeft } from 'lucide-react';
+import { Lock, AlertCircle, CheckCircle, XCircle, RefreshCw } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
@@ -15,7 +15,6 @@ import { PAGE_TITLES } from '../lib/pageTitles';
 import { DataFreshness } from '../components/DataFreshness';
 
 export const Certificates: React.FC = () => {
-  const navigate = useNavigate();
   const permUser = usePermUser();
   const canRotateClusterCert = canRunAction(permUser, ACTION_IDS.certificateRotate);
   const [certs, setCerts] = useState<Certificate[]>([]);
@@ -82,13 +81,10 @@ export const Certificates: React.FC = () => {
 
   return (
     <PageLayout
-      title={PAGE_TITLES.certificates}
+      title={PAGE_TITLES.monitoring}
       description="Core TLS certificate status and rotation history."
       actions={
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
-          </Button>
           <DataFreshness updatedAt={updatedAt} loading={loading} error={error} />
           <Button variant="secondary" onClick={fetchData} isLoading={loading}>
             <RefreshCw className="w-4 h-4 mr-2" /> Refresh
@@ -101,6 +97,7 @@ export const Certificates: React.FC = () => {
         </div>
       }
     >
+      <SectionNav sections={PLATFORM_HEALTH_SECTIONS} ariaLabel="Platform health sections" />
       {error && certs.length === 0 ? (
         <PageError
           title="Could not load certificates"

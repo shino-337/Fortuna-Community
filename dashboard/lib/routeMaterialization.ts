@@ -47,16 +47,18 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
     '/identities/:id',
   ],
   '/clusters': ['/clusters/:id', '/clusters/:clusterId/nodes/:nodeName'],
-  '/capabilities': ['/capabilities/:id'],
+  '/rules/catalog': ['/capabilities/:id'],
+  '/rules/risk-scoring': [],
   '/rules': ['/rules/uid/:uid', '/rules/:id'],
   '/attack-paths': [],
   '/investigation': [],
   '/network-activity': [],
-  '/monitoring': ['/notifications'],
+  '/monitoring': [],
+  '/monitoring/certificates': [],
+  '/monitoring/notifications': [],
   '/governance': [],
   '/settings': [],
   '/reports': [],
-  '/notifications': [],
 };
 
 const ALL_APP_ROUTES = [
@@ -77,18 +79,19 @@ const ALL_APP_ROUTES = [
   '/risks/evidence',
   '/risks/:id',
   '/investigation',
-  '/capabilities',
   '/capabilities/:id',
   '/rules',
+  '/rules/risk-scoring',
+  '/rules/catalog',
   '/rules/uid/:uid',
   '/rules/:id',
   '/attack-paths',
   '/monitoring',
+  '/monitoring/certificates',
+  '/monitoring/notifications',
   '/governance',
   '/settings',
-  '/certificates',
   '/reports',
-  '/notifications',
 ];
 
 const IDENTITY: Record<
@@ -165,7 +168,7 @@ function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
   if (can(ctx.user, P.inventoryRead)) {
     routes.add('/resources');
     routes.add('/clusters');
-    routes.add('/capabilities');
+    routes.add('/rules/catalog');
   }
   if (can(ctx.user, P.runtimeRead)) routes.add('/network-activity');
   if (can(ctx.user, P.graphReadPaths)) routes.add('/attack-paths');
@@ -175,7 +178,9 @@ function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
     routes.add('/monitoring');
   }
   if (can(ctx.user, P.systemAuditRead)) routes.add('/governance');
-  if (can(ctx.user, P.clusterCertificatesRotate)) routes.add('/certificates');
+  if (can(ctx.user, P.observabilityMetricsRead)) routes.add('/monitoring/notifications');
+  if (can(ctx.user, P.clusterCertificatesRotate)) routes.add('/monitoring/certificates');
+  if (can(ctx.user, P.rulesRead)) routes.add('/rules/risk-scoring');
   if (can(ctx.user, P.usersRead)) routes.add('/settings');
   if (can(ctx.user, P.exportFindings) || can(ctx.user, P.findingsRead)) routes.add('/reports');
 

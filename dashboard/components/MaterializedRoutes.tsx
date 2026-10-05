@@ -14,6 +14,7 @@ const Settings = React.lazy(() => import('../pages/Settings').then((m) => ({ def
 const Certificates = React.lazy(() => import('../pages/Certificates').then((m) => ({ default: m.Certificates })));
 const Reports = React.lazy(() => import('../pages/Reports').then((m) => ({ default: m.Reports })));
 const Notifications = React.lazy(() => import('../pages/Notifications').then((m) => ({ default: m.Notifications })));
+const RiskScoringRules = React.lazy(() => import('../pages/RiskScoringRules').then((m) => ({ default: m.RiskScoringRules })));
 const Capabilities = React.lazy(() => import('../pages/Capabilities').then((m) => ({ default: m.Capabilities })));
 const CapabilityDetail = React.lazy(() => import('../pages/CapabilityDetail').then((m) => ({ default: m.CapabilityDetail })));
 const Clusters = React.lazy(() => import('../pages/Clusters').then((m) => ({ default: m.Clusters })));
@@ -41,25 +42,35 @@ const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/risks/evidence', element: <RiskCenter /> },
   { pattern: '/investigation', element: <Investigation /> },
   { pattern: '/risks/:id', element: <RiskDetail /> },
-  { pattern: '/capabilities', element: <Capabilities /> },
   { pattern: '/capabilities/:id', element: <CapabilityDetail /> },
   { pattern: '/identities/uid/:uid', element: <IdentityDetail /> },
   { pattern: '/identities/:id', element: <IdentityDetail /> },
   { pattern: '/rules', element: <Rules /> },
+  { pattern: '/rules/risk-scoring', element: <RiskScoringRules /> },
+  { pattern: '/rules/catalog', element: <Capabilities /> },
   { pattern: '/rules/uid/:uid', element: <RuleDetail /> },
   { pattern: '/rules/:id', element: <RuleDetail /> },
   { pattern: '/attack-paths', element: <AttackPaths /> },
   { pattern: '/monitoring', element: <Monitoring /> },
+  { pattern: '/monitoring/certificates', element: <Certificates /> },
+  { pattern: '/monitoring/notifications', element: <Notifications /> },
   { pattern: '/governance', element: <Governance /> },
   { pattern: '/settings', element: <Settings /> },
-  { pattern: '/certificates', element: <Certificates /> },
   { pattern: '/reports', element: <Reports /> },
-  { pattern: '/notifications', element: <Notifications /> },
 ];
 
 function buildRedirectTarget(path: string, search: string): string | null {
   if (path === '/network') {
     return `/network-activity${search}`;
+  }
+  // Pages merged into Platform Health and Rules & Catalog keep working as links.
+  const merged: Record<string, string> = {
+    '/certificates': '/monitoring/certificates',
+    '/notifications': '/monitoring/notifications',
+    '/capabilities': '/rules/catalog',
+  };
+  if (merged[path]) {
+    return `${merged[path]}${search}`;
   }
 
   const lowerPath = path.toLowerCase();

@@ -4,6 +4,7 @@ import React, {
   useMemo,
   useState,
 } from "react";
+import { RULES_CATALOG_SECTIONS, SectionNav } from "../components/SectionNav";
 import { useNavigate } from "react-router-dom";
 import { api } from "../lib/api";
 import { PolicyInstanceRow, PolicyTemplateRow, SecurityRule } from "../types";
@@ -387,6 +388,7 @@ export const Rules: React.FC = () => {
         title={PAGE_TITLES.policyRules}
         description="Detection rules, CEL templates, and policy instances."
       >
+        <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
         <SemanticEmptyState
           state={rulesVisibility.semanticState}
           reason={rulesVisibility.reason}
@@ -584,6 +586,7 @@ export const Rules: React.FC = () => {
       title={PAGE_TITLES.policyRules}
       description="Manage detection rules, reusable CEL templates, and scoped policy instances."
     >
+      <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
       {activeTab === "detection" && error && (
         <div className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-amber-200 text-body">
           {error}

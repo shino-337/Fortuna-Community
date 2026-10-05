@@ -95,7 +95,7 @@ const CapabilityDetailContent: React.FC = () => {
           {metaIssue?.retryable ? (
             <Button variant="secondary" onClick={() => void load()} isLoading={loading}>Retry capability</Button>
           ) : null}
-          <Button variant="secondary" onClick={() => navigate('/capabilities')}>
+          <Button variant="secondary" onClick={() => navigate('/rules/catalog')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back
           </Button>
         </div>
@@ -110,7 +110,7 @@ const CapabilityDetailContent: React.FC = () => {
       title={meta.name || meta.capabilityId}
       description={meta.summary || meta.description}
       actions={
-        <Button variant="secondary" onClick={() => navigate('/capabilities')}>
+        <Button variant="secondary" onClick={() => navigate('/rules/catalog')}>
           <ArrowLeft className="w-4 h-4 mr-2" /> Back to list
         </Button>
       }

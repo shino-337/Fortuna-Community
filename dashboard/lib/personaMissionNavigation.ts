@@ -21,7 +21,7 @@ export interface MissionNavSection {
 
 const MISSION_CATALOG: Record<
   string,
-  { label: string; path: string; iconKey: string; search?: string; highlight?: boolean }
+  { label: string; path: string; iconKey: string; search?: string; highlight?: boolean; fallbackPaths?: string[] }
 > = {
   home: { label: PAGE_TITLES.homeViewer, path: '/', iconKey: 'dashboard' },
   dashboardKpis: { label: PAGE_TITLES.dashboard, path: '/dashboard', iconKey: 'dashboard' },
@@ -30,8 +30,8 @@ const MISSION_CATALOG: Record<
   reports: { label: PAGE_TITLES.reports, path: '/reports', iconKey: 'reports' },
   clusters: { label: PAGE_TITLES.clusters, path: '/clusters', iconKey: 'clusters' },
   resources: { label: PAGE_TITLES.resources, path: '/resources', iconKey: 'resources' },
-  capabilities: { label: PAGE_TITLES.capabilities, path: '/capabilities', iconKey: 'capabilities' },
-  rules: { label: PAGE_TITLES.policyRules, path: '/rules', iconKey: 'rules' },
+  // Rules & Catalog opens on the first section the user can read (viewers only see the catalog).
+  rules: { label: PAGE_TITLES.policyRules, path: '/rules', iconKey: 'rules', fallbackPaths: ['/rules/catalog'] },
   attackPaths: { label: PAGE_TITLES.attackAnalysis, path: '/attack-paths', iconKey: 'attackPaths' },
   activeResponse: { label: PAGE_TITLES.homeOperator, path: '/', iconKey: 'dashboard' },
   threatOps: { label: 'Findings Queue', path: '/risks/findings', iconKey: 'risks' },
@@ -44,19 +44,19 @@ const MISSION_CATALOG: Record<
 
 const VIEWER_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Overview', keys: ['home', 'dashboardKpis', 'exposure', 'investigations', 'reports'] },
-  { section: 'Context', keys: ['attackPaths', 'runtime', 'resources', 'clusters', 'capabilities', 'telemetry'] },
+  { section: 'Context', keys: ['attackPaths', 'runtime', 'resources', 'clusters', 'rules', 'telemetry'] },
 ];
 
 const OPERATOR_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Triage', keys: ['activeResponse', 'dashboardKpis', 'threatOps', 'investigations'] },
-  { section: 'Evidence', keys: ['attackPaths', 'runtime', 'resources', 'clusters', 'capabilities'] },
+  { section: 'Evidence', keys: ['attackPaths', 'runtime', 'resources', 'clusters'] },
   { section: 'Controls', keys: ['rules', 'telemetry'] },
 ];
 
 const ADMIN_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Overview', keys: ['platform', 'dashboardKpis', 'telemetry'] },
   { section: 'Risk workflow', keys: ['threatOps', 'investigations', 'attackPaths', 'runtime'] },
-  { section: 'Inventory', keys: ['resources', 'clusters', 'capabilities', 'reports'] },
+  { section: 'Inventory', keys: ['resources', 'clusters', 'reports'] },
   { section: 'Controls', keys: ['rules'] },
   { section: 'Administration', keys: ['governance', 'settings'] },
 ];
@@ -79,10 +79,12 @@ function buildSections(
       title: section,
       items: keys
         .map((k) => {
-          const base = MISSION_CATALOG[k];
-          if (!base) return null;
-          if (!routeAllowed(base.path, allowedRoutes)) return null;
-          return { id: k, ...base };
+          const entry = MISSION_CATALOG[k];
+          if (!entry) return null;
+          const { fallbackPaths, ...base } = entry;
+          const path = [base.path, ...(fallbackPaths ?? [])].find((candidate) => routeAllowed(candidate, allowedRoutes));
+          if (!path) return null;
+          return { id: k, ...base, path };
         })
         .filter(Boolean) as MissionNavItem[],
     }))
