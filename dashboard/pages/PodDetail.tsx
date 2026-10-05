@@ -2110,7 +2110,7 @@ const PodDetailContent: React.FC = () => {
                   })}
                 </div>
                 {filtered.length > 80 && (
-                  <p className="text-caption text-muted mt-2">Showing 80 of {filtered.length} events. Use the Coverage tab for full breakdown.</p>
+                  <p className="text-caption text-muted mt-2">Showing 80 of {filtered.length}{runtimeSecurityEvents.length >= 150 ? '+ (latest 150 fetched)' : ''} events. Use the Coverage tab for full breakdown.</p>
                 )}
                 </>
               );
@@ -2190,7 +2190,7 @@ const PodDetailContent: React.FC = () => {
                   })}
                 </div>
                 {filteredSignals.length > 20 && (
-                  <p className="text-caption text-muted mt-2">Showing 20 of {filteredSignals.length} signals.</p>
+                  <p className="text-caption text-muted mt-2">Showing 20 of {filteredSignals.length}{runtimeSignals.length >= 200 ? '+ (latest 200 fetched)' : ''} signals.</p>
                 )}
                 </>
               );

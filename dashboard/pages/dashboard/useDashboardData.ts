@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { api, getAvailabilityIssue, type AvailabilityIssue } from '../../lib/api';
 import type {
   AttackChain,
@@ -116,7 +116,11 @@ export function useDashboardData(
     clusters: 'idle',
   });
 
+  const requestSeqRef = useRef(0);
   const refresh = useCallback(async () => {
+    // Cluster / time-window changes can overlap with a poll; only the newest refresh may write state.
+    const seq = ++requestSeqRef.current;
+    const isStale = () => seq !== requestSeqRef.current;
     setInitialError(null);
     const errors: string[] = [];
     setSectionState({ risks: 'loading', attack: 'loading', pipeline: 'loading', clusters: 'loading' });
@@ -126,6 +130,7 @@ export function useDashboardData(
         api.getStats(selectedClusterId ?? undefined, sinceMinutes, 'all'),
         api.getInsightsSummary(selectedClusterId ?? undefined, sinceMinutes),
       ]);
+      if (isStale()) return;
 
       if (statsResult.status === 'fulfilled') {
         setStats(statsResult.value);
@@ -178,6 +183,7 @@ export function useDashboardData(
           ? api.getAttackPathsBundle(selectedClusterId ?? undefined)
           : Promise.resolve(null),
       ]);
+      if (isStale()) return;
 
       if (clustersResult.status === 'fulfilled') {
         setClusters(clustersResult.value);
@@ -248,6 +254,7 @@ export function useDashboardData(
         api.getTopRiskyPods(1000, selectedClusterId ?? undefined),
         loadPolicy.pipelineHealth ? api.getPipelineHealth() : Promise.resolve(null),
       ]);
+      if (isStale()) return;
 
       if (topPodsResult.status === 'fulfilled') setTopRiskyPods(topPodsResult.value);
       else errors.push('Top risky workloads could not be loaded.');
@@ -281,6 +288,7 @@ export function useDashboardData(
         clusters: clustersResult.status === 'fulfilled' ? 'ready' : 'error',
       });
     } catch (e) {
+      if (isStale()) return;
       const message = e instanceof Error ? e.message : 'Unable to load dashboard data';
       setInitialError(message);
       setPartialErrors([message]);

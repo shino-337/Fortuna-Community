@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Bell, CheckCheck, ShieldAlert, Route, PackageSearch, Bug, Info, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
+import { podDetailPath } from '../lib/podRoute';
 import type { Notification } from '../types';
 
 function severityTone(note: Notification): string {
@@ -24,9 +25,11 @@ function notificationRoute(note: Notification): string {
   if (note.route) return note.route;
   const key = `${note.category || ''} ${note.source || ''} ${note.title || ''} ${note.message || ''}`.toLowerCase();
   if (key.includes('attack')) return '/attack-paths';
-  if (key.includes('malware') || key.includes('sbom') || key.includes('cve')) return '/resources?tab=Pod';
+  if (key.includes('malware') || key.includes('sbom') || key.includes('cve')) {
+    return note.resourceUid ? podDetailPath(note.resourceUid, note.clusterId) : '/resources?tab=Pod';
+  }
   if (key.includes('risk') || key.includes('finding')) return '/risks/findings';
-  return '/dashboard';
+  return '/';
 }
 
 function shortTime(value?: string): string {
@@ -53,12 +56,11 @@ export const NotificationBell: React.FC = () => {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.getNotificationsSummary(20);
+      const res = await api.getNotificationsPage({ limit: 20 });
       setItems(res.notifications);
       setUnreadCount(res.unreadCount);
     } catch {
-      setItems([]);
-      setUnreadCount(0);
+      // Keep the last known list; the next poll retries.
     } finally {
       setLoading(false);
     }
@@ -173,6 +175,18 @@ export const NotificationBell: React.FC = () => {
                 ))}
               </div>
             )}
+          </div>
+          <div className="border-t border-border px-3 py-2">
+            <button
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                navigate('/notifications');
+              }}
+              className="w-full rounded-lg px-2 py-1.5 text-caption font-semibold text-brand transition-colors hover:bg-surface-2/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+            >
+              View all notifications
+            </button>
           </div>
         </div>
       ) : null}

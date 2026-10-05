@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -21,6 +22,13 @@ func NewPolicyHandler(db *gorm.DB) *PolicyHandler {
 		db: db,
 	}
 }
+
+// Policy templates and instances are configuration; the defaults sit at the
+// hard maximum so the Rules page keeps showing every row.
+const (
+	policyListDefaultLimit = 1000
+	policyListMaxLimit     = 1000
+)
 
 // ==================== Policy Templates ====================
 
@@ -41,14 +49,17 @@ func (h *PolicyHandler) ListTemplates(c *gin.Context) {
 		query = query.Where("is_system = ?", isSystemBool)
 	}
 
-	if err := query.Find(&templates).Error; err != nil {
+	limit := listlimit.Parse(c, policyListDefaultLimit, policyListMaxLimit)
+	if err := query.Order("template_id, version").Limit(limit + 1).Find(&templates).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list templates"})
 		return
 	}
+	templates, truncated := listlimit.Trim(templates, limit)
 
 	c.JSON(http.StatusOK, gin.H{
 		"templates": templates,
 		"count":     len(templates),
+		"truncated": truncated,
 	})
 }
 
@@ -214,14 +225,17 @@ func (h *PolicyHandler) ListInstances(c *gin.Context) {
 		query = query.Where("enabled = ?", enabledBool)
 	}
 
-	if err := query.Find(&instances).Error; err != nil {
+	limit := listlimit.Parse(c, policyListDefaultLimit, policyListMaxLimit)
+	if err := query.Order("instance_name").Limit(limit + 1).Find(&instances).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to list instances"})
 		return
 	}
+	instances, truncated := listlimit.Trim(instances, limit)
 
 	c.JSON(http.StatusOK, gin.H{
 		"instances": instances,
 		"count":     len(instances),
+		"truncated": truncated,
 	})
 }
 

@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
@@ -26,19 +27,23 @@ func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "resolved pod cluster is required"})
 			return
 		}
+		limit := listlimit.Parse(c, podAttackStepsDefault, podAttackStepsMax)
 		var steps []models.PodAttackStep
 		if err := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).
-			Order("created_at DESC").
+			Order("created_at DESC, step_id ASC").
+			Limit(limit + 1).
 			Find(&steps).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attack steps"})
 			return
 		}
+		steps, truncated := listlimit.Trim(steps, limit)
 
 		c.JSON(http.StatusOK, gin.H{
 			"clusterId": clusterID,
 			"podUid":    podUID,
 			"steps":     steps,
 			"count":     len(steps),
+			"truncated": truncated,
 		})
 	}
 }
@@ -68,14 +73,17 @@ func GetAttackStepsSummary(db *gorm.DB) gin.HandlerFunc {
 			Select("pod_attack_steps.step_id, pod_attack_steps.category, COUNT(*) as count, AVG(pod_attack_steps.confidence) as avg_confidence").
 			Group("pod_attack_steps.step_id, pod_attack_steps.category").
 			Order("count DESC, pod_attack_steps.step_id ASC, pod_attack_steps.category ASC").
+			Limit(attackStepsSummaryMax + 1).
 			Scan(&summaries).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to fetch attack steps"})
 			return
 		}
+		summaries, truncated := listlimit.Trim(summaries, attackStepsSummaryMax)
 
 		c.JSON(http.StatusOK, gin.H{
-			"summary": summaries,
-			"count":   len(summaries),
+			"summary":   summaries,
+			"count":     len(summaries),
+			"truncated": truncated,
 		})
 	}
 }

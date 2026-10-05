@@ -50,7 +50,7 @@ const VIEWER_MISSIONS: { section: string; keys: string[] }[] = [
 const OPERATOR_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Triage', keys: ['activeResponse', 'dashboardKpis', 'threatOps', 'investigations'] },
   { section: 'Evidence', keys: ['attackPaths', 'runtime', 'resources', 'clusters', 'capabilities'] },
-  { section: 'Controls', keys: ['rules'] },
+  { section: 'Controls', keys: ['rules', 'telemetry'] },
 ];
 
 const ADMIN_MISSIONS: { section: string; keys: string[] }[] = [

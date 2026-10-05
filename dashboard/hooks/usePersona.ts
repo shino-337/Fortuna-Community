@@ -10,7 +10,6 @@ import {
   type WorkflowPhase,
 } from '../lib/persona';
 import { getDashboardComposition, type DashboardComposition } from '../lib/dashboardComposition';
-import { buildPersonaNavigation, type PersonaNavSection } from '../lib/personaNavigation';
 import { useClusters } from './useClusters';
 import { useClusterStore } from '../store/clusterStore';
 import { buildOwnershipContext } from '../lib/ownershipContext';
@@ -20,7 +19,6 @@ import { can, P } from '../lib/permissions';
 export function usePersona(): {
   id: PersonaId;
   profile: PersonaProfile;
-  navigation: PersonaNavSection[];
   dashboard: DashboardComposition;
   workflowPhase: WorkflowPhase;
   workflowLabel: string;
@@ -42,7 +40,6 @@ export function usePersona(): {
     return {
       id,
       profile,
-      navigation: buildPersonaNavigation(id),
       dashboard: getDashboardComposition(id, user, ownership, telemetry),
       workflowPhase,
       workflowLabel: workflowPhaseLabel(workflowPhase),

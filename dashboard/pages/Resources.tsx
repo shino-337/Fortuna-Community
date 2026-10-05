@@ -311,19 +311,28 @@ export const Resources: React.FC = () => {
 
   usePolling(fetchResources, intervalMs, { refreshTrigger });
 
+  const namespacesRequestRef = useRef(0);
   const reloadClusterNamespaces = useCallback(async () => {
+    const seq = ++namespacesRequestRef.current;
     if (!selectedClusterId) {
       setClusterNamespaces([]);
       return;
     }
     try {
       const inv = await api.getClusterInventory(selectedClusterId);
+      if (seq !== namespacesRequestRef.current) return;
       const raw = inv?.namespaces ?? [];
       setClusterNamespaces([...raw].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
     } catch {
-      setClusterNamespaces([]);
+      if (seq === namespacesRequestRef.current) setClusterNamespaces([]);
     }
   }, [selectedClusterId]);
+
+  // usePolling does not re-run when the cluster changes; reload the namespace list immediately.
+  useEffect(() => {
+    void reloadClusterNamespaces();
+  }, [reloadClusterNamespaces]);
+
   usePolling(reloadClusterNamespaces, intervalMs, { refreshTrigger });
 
   const fetchAttackSummary = useCallback(async () => {
@@ -347,6 +356,8 @@ export const Resources: React.FC = () => {
   usePolling(fetchAttackSummary, intervalMs, { refreshTrigger });
 
   useEffect(() => {
+    // Rows from the previous tab/cluster must not be shown (or survive a failed fetch) under the new scope.
+    setResources([]);
     setSelectedResource(null);
     setSelectedAttackPaths([]);
     setSelectedAttackPathsError(null);
@@ -1054,8 +1065,10 @@ export const Resources: React.FC = () => {
                 columns={resourceColumns}
                 data={paginatedResources as K8sResource[]}
                 loading={loading}
-                emptyTitle="No resources found"
-                emptyDescription="Try adjusting tab, namespace, or search filters."
+                emptyTitle={dataError && resources.length === 0 ? 'Resource inventory unavailable' : 'No resources found'}
+                emptyDescription={dataError && resources.length === 0
+                  ? dataError
+                  : 'Try adjusting tab, namespace, or search filters.'}
                 rowKey={(r) => `${r.id}-${r.kind}`}
                 scrollClassName="ui-table-scroll"
               />

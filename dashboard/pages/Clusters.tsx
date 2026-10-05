@@ -15,7 +15,7 @@ import { STAT_LABELS } from '../constants/labels';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
 import { FilterBar } from '../design-system/components/FilterBar';
 import { UI_FILTER_SELECT } from '../lib/formChrome';
-import { PageEmpty, PageError } from '../design-system/components/PageStatus';
+import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { getConnectionStatusClass, getConnectionStatusLabel } from '../lib/display';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
 import { PAGE_TITLES } from '../lib/pageTitles';
@@ -176,11 +176,21 @@ export const Clusters: React.FC = () => {
               {paginatedClusters.length === 0 ? (
                 <tr>
                   <td colSpan={7} className={`${UI_TD} py-8`}>
-                    <PageEmpty
-                      title="No clusters match current filters"
-                      description="Try clearing search text or health filter."
-                      className="py-6"
-                    />
+                    {loading && !updatedAt ? (
+                      <PageLoading message="Loading clusters…" className="py-6" />
+                    ) : clusters.length === 0 ? (
+                      <PageEmpty
+                        title="No clusters registered"
+                        description="Clusters appear here once an agent connects to Core."
+                        className="py-6"
+                      />
+                    ) : (
+                      <PageEmpty
+                        title="No clusters match current filters"
+                        description="Try clearing search text or health filter."
+                        className="py-6"
+                      />
+                    )}
                   </td>
                 </tr>
               ) : paginatedClusters.map((cluster) => (

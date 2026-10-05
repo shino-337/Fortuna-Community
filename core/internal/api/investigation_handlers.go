@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	invpkg "github.com/fortuna/core/pkg/investigation"
@@ -347,22 +348,36 @@ func ListInvestigationCases(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-		var rows []models.InvestigationCase
-		q := db.Model(&models.InvestigationCase{})
-		if !investigationIsAdmin(c) {
-			q = q.Where("created_by_user_id = ? OR LOWER(owner) = LOWER(?)", u.ID, u.Username)
+		limit := listlimit.Parse(c, investigationCasesDefaultLimit, investigationCasesMaxLimit)
+		baseQuery := func() *gorm.DB {
+			q := db.Model(&models.InvestigationCase{})
+			if !investigationIsAdmin(c) {
+				q = q.Where("created_by_user_id = ? OR LOWER(owner) = LOWER(?)", u.ID, u.Username)
+			}
+			return q
 		}
-		if err := q.Order("updated_at DESC").Find(&rows).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		filtered := make([]investigationCaseDTO, 0, len(rows))
-		for i := range rows {
-			if investigationCanAccessCase(c, &rows[i]) {
-				filtered = append(filtered, toInvestigationDTO(rows[i]))
+		// Access is decided per case in Go (cluster scope), so scan in
+		// chunks until limit+1 accessible cases are found, with a hard cap on
+		// the rows read per request.
+		const chunk = 500
+		filtered := make([]investigationCaseDTO, 0)
+		for offset := 0; offset < investigationCasesScanCap && len(filtered) <= limit; offset += chunk {
+			var rows []models.InvestigationCase
+			if err := baseQuery().Order("updated_at DESC, id DESC").Limit(chunk).Offset(offset).Find(&rows).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+				return
+			}
+			for i := range rows {
+				if investigationCanAccessCase(c, &rows[i]) {
+					filtered = append(filtered, toInvestigationDTO(rows[i]))
+				}
+			}
+			if len(rows) < chunk {
+				break
 			}
 		}
-		c.JSON(http.StatusOK, gin.H{"items": filtered, "total": len(filtered)})
+		filtered, truncated := listlimit.Trim(filtered, limit)
+		c.JSON(http.StatusOK, gin.H{"items": filtered, "total": len(filtered), "truncated": truncated})
 	}
 }
 
@@ -771,16 +786,19 @@ func ListInvestigationTimeline(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusOK, gin.H{"items": []investigationTimelineDTO{}, "total": 0})
 			return
 		}
+		// Keep the newest `limit` entries, still returned oldest-first.
+		limit := listlimit.Parse(c, investigationTimelineDefaultLimit, investigationTimelineMaxLimit)
 		var rows []models.InvestigationActivityLog
-		if err := db.Where("case_id = ?", id).Order("created_at ASC, id ASC").Find(&rows).Error; err != nil {
+		if err := db.Where("case_id = ?", id).Order("created_at DESC, id DESC").Limit(limit + 1).Find(&rows).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		rows, truncated := listlimit.Trim(rows, limit)
 		items := make([]investigationTimelineDTO, 0, len(rows))
-		for i := range rows {
+		for i := len(rows) - 1; i >= 0; i-- {
 			items = append(items, timelineRowToDTO(rows[i]))
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items)})
+		c.JSON(http.StatusOK, gin.H{"items": items, "total": len(items), "truncated": truncated})
 	}
 }
 

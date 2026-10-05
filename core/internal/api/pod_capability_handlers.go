@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -184,14 +185,16 @@ func GetPodCapabilitiesSummary(db *gorm.DB) gin.HandlerFunc {
 		rows := []summaryRow{}
 		if err := query.Group("p.cluster_id, pc.namespace, pc.capability_id, pc.severity").
 			Order("p.cluster_id, pc.namespace, pc.capability_id, pc.severity").
-			Scan(&rows).Error; err != nil {
+			Limit(capabilitySummaryMaxRows + 1).Scan(&rows).Error; err != nil {
 			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
+		rows, truncated := listlimit.Trim(rows, capabilitySummaryMaxRows)
 
 		c.JSON(http.StatusOK, gin.H{
-			"summary": rows,
-			"total":   len(rows),
+			"summary":   rows,
+			"total":     len(rows),
+			"truncated": truncated,
 		})
 	}
 }
@@ -270,14 +273,16 @@ func GetPodCapabilitiesSummaryByCapability(db *gorm.DB) gin.HandlerFunc {
 
 		rows := []row{}
 		if err := query.Group("pc.capability_id, pc.severity").
-			Order("pc.capability_id, pc.severity").Scan(&rows).Error; err != nil {
+			Order("pc.capability_id, pc.severity").Limit(capabilitySummaryMaxRows + 1).Scan(&rows).Error; err != nil {
 			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
+		rows, truncated := listlimit.Trim(rows, capabilitySummaryMaxRows)
 
 		c.JSON(http.StatusOK, gin.H{
-			"summary": rows,
-			"total":   len(rows),
+			"summary":   rows,
+			"total":     len(rows),
+			"truncated": truncated,
 		})
 	}
 }
@@ -320,14 +325,16 @@ func GetPodCapabilitiesSummaryByNamespace(db *gorm.DB) gin.HandlerFunc {
 
 		rows := []row{}
 		if err := query.Group("pc.namespace, pc.severity").
-			Order("pc.namespace, pc.severity").Scan(&rows).Error; err != nil {
+			Order("pc.namespace, pc.severity").Limit(capabilitySummaryMaxRows + 1).Scan(&rows).Error; err != nil {
 			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
+		rows, truncated := listlimit.Trim(rows, capabilitySummaryMaxRows)
 
 		c.JSON(http.StatusOK, gin.H{
-			"summary": rows,
-			"total":   len(rows),
+			"summary":   rows,
+			"total":     len(rows),
+			"truncated": truncated,
 		})
 	}
 }

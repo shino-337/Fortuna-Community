@@ -8,7 +8,7 @@ import { Card } from '../design-system/components/Card';
 import { Lock, AlertCircle, CheckCircle, XCircle, RefreshCw, ArrowLeft } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
-import { PageEmpty, PageError } from '../design-system/components/PageStatus';
+import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { formatDateTime } from '../lib/display';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
 import { PAGE_TITLES } from '../lib/pageTitles';
@@ -107,6 +107,8 @@ export const Certificates: React.FC = () => {
           description="Certificate status is unavailable. Retry when Core certificate APIs are reachable."
           action={<Button variant="secondary" onClick={fetchData} isLoading={loading}>Retry certificates</Button>}
         />
+      ) : certs.length === 0 && loading && !updatedAt ? (
+        <PageLoading message="Loading certificates…" />
       ) : certs.length === 0 ? (
         <PageEmpty title="No certificate data available" description="Enable TLS/CertManager in Core to expose certificate information." />
       ) : (
@@ -140,7 +142,13 @@ export const Certificates: React.FC = () => {
       )}
 
       <Card className="mt-6 p-0 overflow-hidden" title="Rotation History">
-        {history.length === 0 ? (
+        {history.length === 0 && !updatedAt ? (
+          loading ? (
+            <PageLoading message="Loading rotation history…" className="py-8" />
+          ) : (
+            <PageError title="Rotation history unavailable" description="Rotation history could not be loaded." className="py-8" />
+          )
+        ) : history.length === 0 ? (
           <PageEmpty title="No rotation history records" description="Rotation history table is not populated yet." className="py-8" />
         ) : (
         <div className="ui-table-scroll">

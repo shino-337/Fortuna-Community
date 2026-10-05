@@ -107,8 +107,7 @@ func TestCSVSafeCell(t *testing.T) {
 }
 
 func TestNotificationsFollowClusterScope(t *testing.T) {
-	db := reviewDB(t, &models.Notification{}, &models.Pod{}, &models.Insight{}, &models.AttackPath{},
-		&models.SBOM{}, &models.CVEMatch{}, &models.MalwareMatch{}, &models.Cluster{})
+	db := notificationTestDB(t)
 	seedTwoClusterFindings(t, db)
 	r := reviewRouter(scopedViewer("c1"))
 	r.GET("/notifications", GetNotifications(db))
@@ -136,8 +135,68 @@ func TestNotificationsFollowClusterScope(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/notifications/read-all", nil))
 	require.Equal(t, http.StatusOK, w.Code)
 
-	require.NoError(t, db.First(&foreign, foreign.ID).Error)
-	require.Nil(t, foreign.ReadAt, "a scoped user must not change read state of another cluster's notification")
+	var foreignReads int64
+	require.NoError(t, db.Model(&models.NotificationRead{}).Where("notification_id = ?", foreign.ID).Count(&foreignReads).Error)
+	require.Zero(t, foreignReads, "a scoped user must not change read state of another cluster's notification")
+}
+
+func notificationTestDB(t *testing.T) *gorm.DB {
+	t.Helper()
+	return reviewDB(t, &models.Notification{}, &models.NotificationRead{}, &models.Pod{}, &models.Insight{},
+		&models.AttackPath{}, &models.SBOM{}, &models.CVEMatch{}, &models.MalwareMatch{}, &models.Cluster{})
+}
+
+func TestNotificationReadStateIsPerUser(t *testing.T) {
+	db := notificationTestDB(t)
+	seedTwoClusterFindings(t, db)
+	alice := &models.User{ID: 10, Role: models.RoleAdmin, Active: true}
+	bob := &models.User{ID: 11, Role: models.RoleAdmin, Active: true}
+
+	unread := func(u *models.User) (int, []map[string]any) {
+		r := reviewRouter(u)
+		r.GET("/notifications", GetNotifications(db))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/notifications", nil))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var got struct {
+			Notifications []map[string]any `json:"notifications"`
+			UnreadCount   int              `json:"unreadCount"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+		return got.UnreadCount, got.Notifications
+	}
+	call := func(u *models.User, method, path string) int64 {
+		r := reviewRouter(u)
+		r.PATCH("/notifications/:id/read", MarkNotificationRead(db))
+		r.POST("/notifications/read-all", MarkAllNotificationsRead(db))
+		w := httptest.NewRecorder()
+		r.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		var got struct {
+			Updated int64 `json:"updated"`
+		}
+		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &got))
+		return got.Updated
+	}
+
+	n, list := unread(alice)
+	require.Equal(t, 2, n)
+	require.Len(t, list, 2)
+	firstID := strconv.Itoa(int(list[0]["id"].(float64)))
+
+	require.EqualValues(t, 1, call(alice, http.MethodPatch, "/notifications/"+firstID+"/read"))
+	require.EqualValues(t, 0, call(alice, http.MethodPatch, "/notifications/"+firstID+"/read"), "marking twice is a no-op")
+	n, list = unread(alice)
+	require.Equal(t, 1, n)
+	require.NotNil(t, list[0]["readAt"])
+
+	require.EqualValues(t, 1, call(alice, http.MethodPost, "/notifications/read-all"))
+	n, _ = unread(alice)
+	require.Zero(t, n)
+
+	n, list = unread(bob)
+	require.Equal(t, 2, n, "another user's reads must not clear this user's bell")
+	require.Nil(t, list[0]["readAt"])
 }
 
 func TestRevokeAnotherUsersSessionNeedsRevokeAll(t *testing.T) {

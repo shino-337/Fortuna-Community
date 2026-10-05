@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -39,18 +40,29 @@ func GetCapabilityMetadataList(db *gorm.DB) gin.HandlerFunc {
 		paginate := limitStr != "" || offsetStr != ""
 
 		if !paginate {
+			// Legacy "full list" mode is still hard-capped (same cap as the
+			// paginated max); total stays exact when the cap is hit.
 			var list []models.CapabilityMetadata
-			if err := base.Order("capability_id").Find(&list).Error; err != nil {
+			if err := base.Order("capability_id").Limit(capabilityMetadataUnpaginatedMax + 1).Find(&list).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
+			list, truncated := listlimit.Trim(list, capabilityMetadataUnpaginatedMax)
 			n := len(list)
+			total := int64(n)
+			if truncated {
+				if err := capabilityMetadataListQuery(db, domain, search).Count(&total).Error; err != nil {
+					c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+					return
+				}
+			}
 			c.JSON(http.StatusOK, gin.H{
-				"metadata": list,
-				"count":    n,
-				"total":    int64(n),
-				"limit":    n,
-				"offset":   0,
+				"metadata":  list,
+				"count":     n,
+				"total":     total,
+				"limit":     n,
+				"offset":    0,
+				"truncated": truncated,
 			})
 			return
 		}

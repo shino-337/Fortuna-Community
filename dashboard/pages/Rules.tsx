@@ -105,12 +105,13 @@ export const Rules: React.FC = () => {
     setError(null);
     setLoading(true);
     try {
-      const data = await api.getRules();
+      // Strict variant: the lenient getRules() turns API failures into an empty catalog.
+      const data = await api.getRulesStrict();
       setRules(data);
       setRulesUpdatedAt(new Date());
     } catch (err) {
+      // Keep the last-known-good catalog; the error banner explains the failed refresh.
       setError(err instanceof Error ? err.message : "Failed to load rules");
-      setRules([]);
     } finally {
       setLoading(false);
       setInitialBoot(false);
@@ -683,11 +684,19 @@ export const Rules: React.FC = () => {
                     {paginatedRules.length === 0 ? (
                       <tr>
                         <td colSpan={7} className={`${UI_TD} py-8`}>
-                          <PageEmpty
-                            title="No rules match current filters"
-                            description="Adjust search or filter conditions."
-                            className="py-6"
-                          />
+                          {error && rules.length === 0 ? (
+                            <PageEmpty
+                              title="Rules unavailable"
+                              description="The rule catalog could not be loaded. Retry with Refresh."
+                              className="py-6"
+                            />
+                          ) : (
+                            <PageEmpty
+                              title={rules.length === 0 ? "No rules loaded" : "No rules match current filters"}
+                              description={rules.length === 0 ? "The detection engine returned no rules." : "Adjust search or filter conditions."}
+                              className="py-6"
+                            />
+                          )}
                         </td>
                       </tr>
                     ) : (
@@ -863,8 +872,8 @@ export const Rules: React.FC = () => {
                         <tr>
                           <td colSpan={6} className={`${UI_TD} py-8`}>
                             <PageEmpty
-                              title="No templates"
-                              description="Click 'New template' to create one."
+                              title={templates.length > 0 ? "No templates match search" : "No templates"}
+                              description={templates.length > 0 ? "Clear or change the search text." : "Click 'New template' to create one."}
                               className="py-6"
                             />
                           </td>
@@ -978,8 +987,8 @@ export const Rules: React.FC = () => {
                         <tr>
                           <td colSpan={6} className={`${UI_TD} py-8`}>
                             <PageEmpty
-                              title="No policy instances"
-                              description="Click 'New instance' to create one."
+                              title={instances.length > 0 ? "No instances match search" : "No policy instances"}
+                              description={instances.length > 0 ? "Clear or change the search text." : "Click 'New instance' to create one."}
                               className="py-6"
                             />
                           </td>

@@ -291,7 +291,7 @@ func TestResourceInventoryUnavailableIsDistinctFromEmpty(t *testing.T) {
 	c, w = availabilityContext(http.MethodGet, "/api/v1/resources?kind=Pod")
 	GetResources(goodDB)(c)
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
-	require.JSONEq(t, `{"resources":[],"total":0}`, w.Body.String())
+	require.JSONEq(t, `{"resources":[],"total":0,"truncated":false}`, w.Body.String())
 }
 
 func TestDashboardStatsBackingQueryFailureIsUnavailable(t *testing.T) {

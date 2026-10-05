@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import type { Report } from '../types';
@@ -85,7 +85,10 @@ export const Reports: React.FC = () => {
   // null = not loaded (no permission or the request failed); never shown as 0.
   const [investigationStats, setInvestigationStats] = useState<{ openCases: number; overdueRemediation: number } | null>(null);
 
+  const auditRequestRef = useRef(0);
   const loadAuditReports = useCallback(() => {
+    // A slower response for a previous range must not overwrite the current range.
+    const seq = ++auditRequestRef.current;
     if (!canPlatformAudit) {
       setReports([]);
       setLoading(false);
@@ -96,10 +99,12 @@ export const Reports: React.FC = () => {
     setAuditError(null);
     api.getReportsStrict({ hours: rangeToHours(rangeDays) })
       .then((data) => {
+        if (seq !== auditRequestRef.current) return;
         setReports(data);
         setLoading(false);
       })
       .catch((err) => {
+        if (seq !== auditRequestRef.current) return;
         setAuditError(err instanceof Error ? err.message : 'Could not load audit aggregates.');
         setReports([]);
         setLoading(false);
@@ -273,8 +278,8 @@ export const Reports: React.FC = () => {
       description={`Posture exports, audit aggregates, and report-ready evidence for the last ${activeRangeLabel}.`}
       actions={
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
+          <Button variant="secondary" size="sm" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back
           </Button>
           <Button variant="secondary" size="sm" onClick={refreshAll} disabled={loading || postureLoading}>
             <RefreshCw className={`w-4 h-4 mr-2 ${loading || postureLoading ? 'animate-spin motion-reduce:animate-none' : ''}`} />

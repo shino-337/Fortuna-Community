@@ -1,5 +1,5 @@
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { Notification } from '../types';
@@ -11,40 +11,68 @@ import { formatDateTime } from '../lib/display';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { DataFreshness } from '../components/DataFreshness';
 
+const PAGE_SIZE = 50;
+
 export const Notifications: React.FC = () => {
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [total, setTotal] = useState(0);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [unreadOnly, setUnreadOnly] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [markingId, setMarkingId] = useState<string | null>(null);
+  const requestRef = useRef(0);
 
-  const loadNotifications = () => {
+  /** Reload the first page; a newer request supersedes an older one. */
+  const loadNotifications = useCallback(async (onlyUnread: boolean) => {
+    const requestId = ++requestRef.current;
     setLoading(true);
-    api.getNotifications().then((data) => {
-      setNotifications(data);
+    try {
+      const page = await api.getNotificationsPage({ limit: PAGE_SIZE, unreadOnly: onlyUnread });
+      if (requestId !== requestRef.current) return;
+      setNotifications(page.notifications);
+      setTotal(page.total);
+      setUnreadCount(page.unreadCount);
       setError(null);
       setUpdatedAt(new Date());
-    }).catch(() => {
-      setError('Notifications could not be refreshed.');
-    }).finally(() => {
-      setLoading(false);
-    });
-  };
+    } catch {
+      if (requestId === requestRef.current) setError('Notifications could not be refreshed.');
+    } finally {
+      if (requestId === requestRef.current) setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    loadNotifications();
-  }, []);
+    void loadNotifications(unreadOnly);
+  }, [loadNotifications, unreadOnly]);
+
+  const loadMore = async () => {
+    const requestId = requestRef.current;
+    setLoadingMore(true);
+    try {
+      const page = await api.getNotificationsPage({ limit: PAGE_SIZE, offset: notifications.length, unreadOnly });
+      if (requestId !== requestRef.current) return;
+      setNotifications((prev) => {
+        const seen = new Set(prev.map((n) => n.id));
+        return [...prev, ...page.notifications.filter((n) => !seen.has(n.id))];
+      });
+      setTotal(page.total);
+      setUnreadCount(page.unreadCount);
+    } catch {
+      setError('More notifications could not be loaded.');
+    } finally {
+      setLoadingMore(false);
+    }
+  };
 
   const markNotificationRead = async (id: string) => {
     setMarkingId(id);
     try {
       await api.markNotificationRead(id);
-      await api.getNotifications().then((data) => {
-        setNotifications(data);
-        setError(null);
-        setUpdatedAt(new Date());
-      });
+      await loadNotifications(unreadOnly);
     } catch {
       setError('Notification read state could not be updated.');
     } finally {
@@ -56,11 +84,7 @@ export const Notifications: React.FC = () => {
     setMarkingId('all');
     try {
       await api.markAllNotificationsRead();
-      await api.getNotifications().then((data) => {
-        setNotifications(data);
-        setError(null);
-        setUpdatedAt(new Date());
-      });
+      await loadNotifications(unreadOnly);
     } catch {
       setError('Notification read state could not be updated.');
     } finally {
@@ -80,17 +104,32 @@ export const Notifications: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.notifications}
-      description="System events from database-backed notifications."
+      description="Security events for the clusters you can access. Read state is your own."
       actions={
         <div className="flex items-center gap-2 flex-wrap">
-          <Button variant="secondary" size="sm" onClick={() => navigate('/monitoring')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Monitoring
+          <Button variant="secondary" size="sm" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back
           </Button>
+          <div className="inline-flex rounded-lg border border-border p-0.5" role="group" aria-label="Filter notifications">
+            {([false, true] as const).map((only) => (
+              <button
+                key={String(only)}
+                type="button"
+                aria-pressed={unreadOnly === only}
+                onClick={() => setUnreadOnly(only)}
+                className={`rounded-md px-2.5 py-1 text-caption font-medium transition-colors ${
+                  unreadOnly === only ? 'bg-surface-2 text-text' : 'text-muted hover:text-text'
+                }`}
+              >
+                {only ? `Unread (${unreadCount})` : 'All'}
+              </button>
+            ))}
+          </div>
           <DataFreshness updatedAt={updatedAt} loading={loading} error={error} />
-          <Button variant="secondary" onClick={() => loadNotifications()} isLoading={loading}>
+          <Button variant="secondary" onClick={() => void loadNotifications(unreadOnly)} isLoading={loading}>
             Refresh
           </Button>
-          <Button variant="secondary" onClick={markAllRead} isLoading={markingId === 'all'} disabled={notifications.every((n) => n.read)}>
+          <Button variant="secondary" onClick={markAllRead} isLoading={markingId === 'all'} disabled={unreadCount === 0}>
             Mark all read
           </Button>
         </div>
@@ -102,10 +141,13 @@ export const Notifications: React.FC = () => {
         <PageError
           title="Could not load notifications"
           description="Notification records are unavailable. Retry when the monitoring API is reachable."
-          action={<Button variant="secondary" onClick={loadNotifications} isLoading={loading}>Retry notifications</Button>}
+          action={<Button variant="secondary" onClick={() => void loadNotifications(unreadOnly)} isLoading={loading}>Retry notifications</Button>}
         />
       ) : notifications.length === 0 ? (
-        <PageEmpty title="No notifications" description="No notification records in database." />
+        <PageEmpty
+          title={unreadOnly ? 'No unread notifications' : 'No notifications'}
+          description={unreadOnly ? 'You have read every notification in your scope.' : 'No security events in your scope yet.'}
+        />
       ) : (
         <div className="space-y-4">
           {notifications.map((note) => (
@@ -133,7 +175,7 @@ export const Notifications: React.FC = () => {
                   <button
                     type="button"
                     className="mt-2 inline-flex items-center gap-1.5 rounded-lg px-2 py-1 text-caption font-medium text-brand transition-colors hover:bg-brand/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
-                    onClick={() => navigate(note.route || '/dashboard')}
+                    onClick={() => navigate(note.route || '/')}
                   >
                     Open target <ExternalLink size={13} aria-hidden />
                   </button>
@@ -152,6 +194,16 @@ export const Notifications: React.FC = () => {
               )}
             </div>
           ))}
+          <div className="flex items-center justify-between gap-3 text-caption text-muted">
+            <span>
+              Showing {notifications.length} of {total}
+            </span>
+            {notifications.length < total ? (
+              <Button variant="secondary" size="sm" onClick={() => void loadMore()} isLoading={loadingMore}>
+                Load more
+              </Button>
+            ) : null}
+          </div>
         </div>
       )}
     </PageLayout>

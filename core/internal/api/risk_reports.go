@@ -10,6 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/rbacinventory"
@@ -50,6 +51,7 @@ type PodRiskReport struct {
 	Bindings          []BindingReport        `json:"bindings"`
 	Roles             []RoleReport           `json:"roles"`
 	Insights          []models.Insight       `json:"insights"`
+	InsightsTruncated bool                   `json:"insightsTruncated,omitempty"` // Insights hit podReportMaxInsights
 	Summary           map[string]interface{} `json:"summary"`
 }
 
@@ -159,9 +161,10 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 
 		if len(resourceUIDs) > 0 {
 			if err := db.Where("cluster_id = ? AND resource_uid IN ? AND deleted_at IS NULL", pod.ClusterID, resourceUIDs).
-				Order("detected_at DESC").Find(&report.Insights).Error; err != nil {
+				Order("detected_at DESC, id DESC").Limit(podReportMaxInsights + 1).Find(&report.Insights).Error; err != nil {
 				log.Printf("[GetPodRiskReport] Failed to load insights: %v", err)
 			}
+			report.Insights, report.InsightsTruncated = listlimit.Trim(report.Insights, podReportMaxInsights)
 		}
 
 		// Align with risk engine / UI: 24h runtime signal window (same default as FORTUNA_RUNTIME_RISK_LOOKBACK_HOURS).

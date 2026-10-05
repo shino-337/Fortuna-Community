@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, getAvailabilityIssue } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
@@ -38,7 +38,7 @@ import { Button } from '../components/ui/Button';
 import { FilterBar } from '../design-system/components/FilterBar';
 import { UI_FILTER_SELECT } from '../lib/formChrome';
 import { PageLayout } from '../design-system/layouts/PageLayout';
-import { PageEmpty, PageLoading } from '../design-system/components/PageStatus';
+import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { formatDateTime } from '../lib/display';
 import {
   UI_TABLE,
@@ -316,6 +316,8 @@ export const Monitoring: React.FC = () => {
   const canObservabilityAgents = can(permUser, P.observabilityAgentsRead);
   const canObservabilityLogs = can(permUser, P.observabilityLogsRead);
   const canInventoryRead = can(permUser, P.inventoryRead);
+  // The Certificates page is gated by rotate permission; hide links that would bounce.
+  const canCertificates = can(permUser, P.clusterCertificatesRotate);
   const canObservabilityShell = canAny(permUser, [
     P.observabilityMetricsRead,
     P.observabilityAgentsRead,
@@ -342,6 +344,8 @@ export const Monitoring: React.FC = () => {
   const [auditPage, setAuditPage] = useState(1);
   const [auditPageSize, setAuditPageSize] = useState(20);
   const [auditLoading, setAuditLoading] = useState(false);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const auditRequestRef = useRef(0);
 
   const [errLogs, setErrLogs] = useState<ErrorLog[]>([]);
   const [errTotal, setErrTotal] = useState(0);
@@ -350,6 +354,8 @@ export const Monitoring: React.FC = () => {
   const [errLevel, setErrLevel] = useState('');
   const [errSource, setErrSource] = useState('');
   const [errLoading, setErrLoading] = useState(false);
+  const [errError, setErrError] = useState<string | null>(null);
+  const errRequestRef = useRef(0);
 
   const fetchData = useCallback(async () => {
     setError(null);
@@ -438,9 +444,11 @@ export const Monitoring: React.FC = () => {
   }, [fetchData]);
 
   const fetchAuditPage = useCallback(async () => {
+    const seq = ++auditRequestRef.current;
     if (!canPlatformAudit) {
       setAuditLogs([]);
       setAuditTotal(0);
+      setAuditError(null);
       setAuditLoading(false);
       return;
     }
@@ -450,13 +458,17 @@ export const Monitoring: React.FC = () => {
         page: auditPage,
         pageSize: auditPageSize,
       });
+      if (seq !== auditRequestRef.current) return;
       setAuditLogs(data.logs);
       setAuditTotal(Number.isFinite(data.total) ? data.total : 0);
-    } catch {
+      setAuditError(null);
+    } catch (e) {
+      if (seq !== auditRequestRef.current) return;
       setAuditLogs([]);
       setAuditTotal(0);
+      setAuditError(getAvailabilityIssue(e, 'Platform audit logs').description);
     } finally {
-      setAuditLoading(false);
+      if (seq === auditRequestRef.current) setAuditLoading(false);
     }
   }, [canPlatformAudit, auditPage, auditPageSize]);
 
@@ -465,9 +477,12 @@ export const Monitoring: React.FC = () => {
   }, [fetchAuditPage]);
 
   const fetchErrorLogsPage = useCallback(async () => {
+    // Level/source/page changes can overlap; only the latest request may update the table.
+    const seq = ++errRequestRef.current;
     if (!canObservabilityLogs) {
       setErrLogs([]);
       setErrTotal(0);
+      setErrError(null);
       setErrLoading(false);
       return;
     }
@@ -479,13 +494,17 @@ export const Monitoring: React.FC = () => {
         ...(errLevel ? { level: errLevel } : {}),
         ...(errSource ? { source: errSource } : {}),
       });
+      if (seq !== errRequestRef.current) return;
       setErrLogs(data.logs);
       setErrTotal(Number.isFinite(data.total) ? data.total : 0);
-    } catch {
+      setErrError(null);
+    } catch (e) {
+      if (seq !== errRequestRef.current) return;
       setErrLogs([]);
       setErrTotal(0);
+      setErrError(getAvailabilityIssue(e, 'Operational error logs').description);
     } finally {
-      setErrLoading(false);
+      if (seq === errRequestRef.current) setErrLoading(false);
     }
   }, [canObservabilityLogs, errPage, errPageSize, errLevel, errSource]);
 
@@ -942,14 +961,16 @@ export const Monitoring: React.FC = () => {
                   <AlertCircle className="mr-1.5 h-4 w-4 shrink-0" /> Error logs
                 </Button>
               ) : null}
-              <Button
-                variant="secondary"
-                size="sm"
-                className="text-body px-3 py-2"
-                onClick={() => navigate('/certificates')}
-              >
-                <Lock className="mr-1.5 h-4 w-4 shrink-0" /> Certificates
-              </Button>
+              {canCertificates ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  className="text-body px-3 py-2"
+                  onClick={() => navigate('/certificates')}
+                >
+                  <Lock className="mr-1.5 h-4 w-4 shrink-0" /> Certificates
+                </Button>
+              ) : null}
               {canPlatformAudit ? (
                 <Button
                   variant="secondary"
@@ -1582,12 +1603,14 @@ export const Monitoring: React.FC = () => {
           <Card
             title="Agents & certificates"
             actions={
-              <Link
-                to="/certificates"
-                className="text-body font-medium text-brand hover:text-brand"
-              >
-                Certificates
-              </Link>
+              canCertificates ? (
+                <Link
+                  to="/certificates"
+                  className="text-body font-medium text-brand hover:text-brand"
+                >
+                  Certificates
+                </Link>
+              ) : undefined
             }
           >
             {agents.length === 0 ? (
@@ -1671,7 +1694,7 @@ export const Monitoring: React.FC = () => {
                 <h4 className="text-caption font-semibold uppercase tracking-wide text-muted">
                   Certificates
                 </h4>
-                {certs.length > 0 && (
+                {certs.length > 0 && canCertificates && (
                   <Link
                     to="/certificates"
                     className="text-caption font-medium text-brand hover:text-brand"
@@ -1766,6 +1789,12 @@ export const Monitoring: React.FC = () => {
             </div>
             {errLoading ? (
               <PageLoading className="py-8 px-3" />
+            ) : errError ? (
+              <PageError
+                title="Error logs unavailable"
+                description={errError}
+                className="py-8 px-3"
+              />
             ) : errLogs.length === 0 ? (
               <PageEmpty
                 title="No error log rows"
@@ -1848,6 +1877,12 @@ export const Monitoring: React.FC = () => {
           >
             {auditLoading ? (
               <PageLoading className="py-8 px-3" />
+            ) : auditError ? (
+              <PageError
+                title="Audit logs unavailable"
+                description={auditError}
+                className="py-8 px-3"
+              />
             ) : auditLogs.length === 0 ? (
               <PageEmpty
                 title="No audit entries"
@@ -1933,6 +1968,9 @@ export const Monitoring: React.FC = () => {
                 {f}
               </Button>
             ))}
+            <span className="text-caption text-muted">
+              Filters the {errorLogs.length} most recent entries
+            </span>
             <Link
               to="/monitoring?section=error-logs"
               className="text-caption font-medium text-brand hover:text-brand ml-auto"

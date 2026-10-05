@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
@@ -34,17 +35,20 @@ func GetPodCapabilitiesScoped(db *gorm.DB) gin.HandlerFunc {
 		if class := strings.TrimSpace(c.Query("class")); class != "" {
 			query = query.Where("capability_class = ?", class)
 		}
+		limit := listlimit.Parse(c, podCapabilitiesDefault, podCapabilitiesMax)
 		var caps []models.PodCapability
-		if err := query.Order("created_at DESC").Find(&caps).Error; err != nil {
+		if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&caps).Error; err != nil {
 			respondDataUnavailable(c, "capability_inventory_query_failed", "Capability inventory could not be loaded")
 			return
 		}
+		caps, truncated := listlimit.Trim(caps, limit)
 		dtos := mapPodCapabilities(caps)
 		c.JSON(http.StatusOK, gin.H{
 			"podUid":       podUID,
 			"clusterId":    clusterID,
 			"capabilities": dtos,
 			"total":        len(dtos),
+			"truncated":    truncated,
 		})
 	}
 }

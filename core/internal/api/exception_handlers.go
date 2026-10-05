@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/models"
@@ -172,13 +173,15 @@ func ListExceptions(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("cluster_id IN ?", scope.clusterIDs)
 		}
 
+		limit := listlimit.Parse(c, exceptionsDefaultLimit, exceptionsMaxLimit)
 		var policies []models.ExceptionPolicy
-		if err := query.Order("created_at DESC").Find(&policies).Error; err != nil {
+		if err := query.Order("created_at DESC, id DESC").Limit(limit + 1).Find(&policies).Error; err != nil {
 			log.Printf("[ExceptionHandler] Failed to list exception policies: %v", err)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list exception policies"})
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"exceptions": policies, "total": len(policies)})
+		policies, truncated := listlimit.Trim(policies, limit)
+		c.JSON(http.StatusOK, gin.H{"exceptions": policies, "total": len(policies), "truncated": truncated})
 	}
 }
 

@@ -167,10 +167,34 @@ func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
+		// Signals scale with the user count (up to three per user); cap the
+		// list so the payload stays bounded. Aggregate signals are appended
+		// last, so they are kept ahead of per-user signals when trimming.
+		signalsTruncated := false
+		if len(signals) > accessReviewMaxSignals {
+			signalsTruncated = true
+			keep := make([]signal, 0, accessReviewMaxSignals)
+			for _, s := range signals {
+				if s.UserID == 0 {
+					keep = append(keep, s)
+				}
+			}
+			for _, s := range signals {
+				if len(keep) >= accessReviewMaxSignals {
+					break
+				}
+				if s.UserID != 0 {
+					keep = append(keep, s)
+				}
+			}
+			signals = keep
+		}
+
 		c.JSON(http.StatusOK, gin.H{
-			"signals":     signals,
-			"userTotal":   len(users),
-			"generatedAt": now.Format(time.RFC3339),
+			"signals":          signals,
+			"signalsTruncated": signalsTruncated,
+			"userTotal":        len(users),
+			"generatedAt":      now.Format(time.RFC3339),
 		})
 	}
 }

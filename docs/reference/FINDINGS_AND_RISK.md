@@ -50,6 +50,14 @@ Attack-step summaries include only active pods in the authorized clusters; scope
 
 Exception lists and mutations enforce resource ownership through retained pod records, including soft-deleted pods, for both history and create/delete. Orphan policies are hidden from scoped lists and cannot be changed by scoped users. Scoped users cannot manage exceptions on non-pod resources. Invalid exception IDs return 400; query errors return a generic 500.
 
+## Notification center
+
+`GET /notifications` returns the caller's notifications newest first (`limit` up to 100, `offset`, `unreadOnly=true`) with `total` and `unreadCount`. Read state is per user and stored in `notification_reads`: marking one notification or all of them read changes only the caller's bell. Migration 152 keeps notifications that were already marked read under the old shared `read_at` column read for every existing user.
+
+## List limits
+
+Every list endpoint caps the rows it returns. A missing, zero, negative or non-numeric `limit` uses the endpoint's default, and a larger value is lowered to its maximum; the values are in `core/internal/api/list_limits.go`. When rows are cut the response sets `truncated` (or `signalsTruncated`, `insightsTruncated`); existing `total` fields keep their meaning. Graph responses keep the highest-risk nodes, drop links to removed nodes and report `totalNodes`/`totalLinks`. The risk rules YAML export sets `X-Fortuna-Export-Truncated` when cut.
+
 ## Live notifications
 
 The global risk WebSocket (`/ws/risks`) emits only `{"type":"insights_updated"}`. Producer IDs and change types are not broadcast because producers do not supply authoritative cluster ownership; clients refetch through scoped HTTP endpoints. The notification still reveals that some update occurred. Pod subscriptions (`/ws/pod/:uid`) authorize the same UID the route names, and the hub holds its read lock until sends finish, so a disconnect cannot close a channel mid-broadcast.

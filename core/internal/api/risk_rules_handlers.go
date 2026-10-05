@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/gin-gonic/gin"
@@ -42,12 +43,14 @@ func (s *flexibleString) UnmarshalJSON(data []byte) error {
 // GET /api/v1/risk-rules
 func GetRiskRulesList(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		limit := listlimit.Parse(c, riskRulesDefaultLimit, riskRulesMaxLimit)
 		if db != nil && db.Migrator().HasTable(&models.RiskRule{}) {
 			var rows []models.RiskRule
-			if err := db.Where("deleted_at IS NULL").Order("rule_id").Find(&rows).Error; err != nil {
+			if err := db.Where("deleted_at IS NULL").Order("rule_id").Limit(limit + 1).Find(&rows).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
 			}
+			rows, truncated := listlimit.Trim(rows, limit)
 			if len(rows) > 0 {
 				list := make([]riskengine.RiskRuleSummary, 0, len(rows))
 				for i := range rows {
@@ -62,7 +65,7 @@ func GetRiskRulesList(db *gorm.DB) gin.HandlerFunc {
 					})
 				}
 				log.Printf("[RiskRules] GET /risk/rules: returning %d rules from db", len(list))
-				c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "db"})
+				c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "db", "truncated": truncated})
 				return
 			}
 			// DB exists but empty: try file-based fallback to avoid empty Rule Center.
@@ -70,8 +73,9 @@ func GetRiskRulesList(db *gorm.DB) gin.HandlerFunc {
 			rulesDir := os.Getenv("FORTUNA_RULES_DIR")
 			list, err := riskengine.ListRuleSummariesFromDir(rulesDir)
 			if err == nil && len(list) > 0 {
+				list, truncated := listlimit.Trim(list, limit)
 				log.Printf("[RiskRules] GET /risk/rules: returning %d rules from files fallback", len(list))
-				c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "files-fallback"})
+				c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "files-fallback", "truncated": truncated})
 				return
 			}
 			// Keep backward-compatible behavior when fallback source is also empty/unavailable.
@@ -87,8 +91,9 @@ func GetRiskRulesList(db *gorm.DB) gin.HandlerFunc {
 		if list == nil {
 			list = []riskengine.RiskRuleSummary{}
 		}
+		list, truncated := listlimit.Trim(list, limit)
 		log.Printf("[RiskRules] GET /risk/rules: returning %d rules from files (risk_rules table missing or not used)", len(list))
-		c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "files"})
+		c.JSON(http.StatusOK, gin.H{"rules": list, "total": len(list), "source": "files", "truncated": truncated})
 	}
 }
 
@@ -220,9 +225,16 @@ func ExportRiskRulesYAML(db *gorm.DB) gin.HandlerFunc {
 			}
 			rows = []models.RiskRule{one}
 		} else {
-			if err := db.Where("deleted_at IS NULL").Order("rule_id").Find(&rows).Error; err != nil {
+			// Bounded download: at most riskRulesExportMaxRules rules; the
+			// X-Fortuna-Export-Truncated header flags a cut export.
+			if err := db.Where("deleted_at IS NULL").Order("rule_id").Limit(riskRulesExportMaxRules + 1).Find(&rows).Error; err != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 				return
+			}
+			var truncated bool
+			rows, truncated = listlimit.Trim(rows, riskRulesExportMaxRules)
+			if truncated {
+				c.Header("X-Fortuna-Export-Truncated", "true")
 			}
 		}
 		rules := make([]riskengine.Rule, 0, len(rows))
