@@ -32,7 +32,7 @@ Install with the [Quickstart](../getting-started/QUICKSTART.md), then apply the 
 
 ## Data
 
-- Use `deploy/infrastructure/postgresql-with-age.yaml` (the default) or an external PostgreSQL; `postgresql.yaml` is a simpler fallback only.
+- Use the bundled `deploy/infrastructure/postgresql.yaml` (single instance) or an external PostgreSQL (`postgresql.enabled=false` and `secrets.databaseUrl` in the Helm chart).
 - Back up PostgreSQL regularly (`pg_dump -Fc`). The [maintenance procedure](BACKUP_AND_RESET.md) shows a verified backup before a reset.
 - Check migration and admin state after upgrades:
 

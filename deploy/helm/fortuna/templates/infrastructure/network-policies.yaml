@@ -1,5 +1,4 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
+{{- if .Values.networkPolicies.enabled }}
 ---
 # Restrict the data plane to Fortuna Core.
 #
@@ -15,7 +14,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: nats-allow-core-only
-  namespace: fortuna
+  namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
     matchLabels:
@@ -47,7 +46,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: postgres-allow-core-only
-  namespace: fortuna
+  namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
     matchLabels:
@@ -70,7 +69,7 @@ apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
   name: agent-deny-ingress
-  namespace: fortuna
+  namespace: {{ .Release.Namespace }}
 spec:
   podSelector:
     matchLabels:
@@ -78,3 +77,4 @@ spec:
       app.kubernetes.io/component: agent
   policyTypes:
     - Ingress
+{{- end }}

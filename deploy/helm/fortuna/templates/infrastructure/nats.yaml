@@ -1,43 +1,5 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nats
-  namespace: fortuna
-spec:
-  publishNotReadyAddresses: true
-  clusterIP: None
-  selector:
-    app: nats
-  ports:
-    - port: 4222
-      targetPort: 4222
-      name: client
-    - port: 8222
-      targetPort: 8222
-      name: monitor
-    - port: 6222
-      targetPort: 6222
-      name: cluster
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nats-client
-  namespace: fortuna
-spec:
-  type: ClusterIP
-  selector:
-    app: nats
-  ports:
-    - port: 4222
-      targetPort: 4222
-      name: client
-    - port: 8222
-      targetPort: 8222
-      name: monitor
+{{- if .Values.nats.enabled }}
+{{- $ns := .Release.Namespace }}
 ---
 # NATS JetStream cluster used by Core. It has no client authentication; the
 # NetworkPolicies in network-policies.yaml limit it to Core.
@@ -45,10 +7,10 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: nats
-  namespace: fortuna
+  namespace: {{ $ns }}
 spec:
   serviceName: nats
-  replicas: 3
+  replicas: {{ .Values.nats.replicas }}
   selector:
     matchLabels:
       app: nats
@@ -63,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: nats
-          image: nats:2.10-alpine
+          image: {{ .Values.nats.image }}
           command:
             - /bin/sh
             - -c
@@ -77,9 +39,9 @@ spec:
                 port: 6222
                 advertise: ${POD_NAME}.nats.${POD_NAMESPACE}.svc.cluster.local:6222
                 routes = [
-                  nats://nats-0.nats.fortuna.svc.cluster.local:6222
-                  nats://nats-1.nats.fortuna.svc.cluster.local:6222
-                  nats://nats-2.nats.fortuna.svc.cluster.local:6222
+              {{- range $i := until (int .Values.nats.replicas) }}
+                  nats://nats-{{ $i }}.nats.{{ $ns }}.svc.cluster.local:6222
+              {{- end }}
                 ]
                 no_advertise: false
               }
@@ -129,12 +91,7 @@ spec:
             - name: data
               mountPath: /data/jetstream
           resources:
-            limits:
-              cpu: 500m
-              memory: 1Gi
-            requests:
-              cpu: 250m
-              memory: 384Mi
+            {{- toYaml .Values.nats.resources | nindent 12 }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
@@ -146,7 +103,48 @@ spec:
       spec:
         accessModes:
           - ReadWriteOnce
-        storageClassName: local-path
+        {{- with .Values.nats.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
         resources:
           requests:
-            storage: 10Gi
+            storage: {{ .Values.nats.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: {{ $ns }}
+spec:
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: 4222
+      name: client
+    - port: 8222
+      targetPort: 8222
+      name: monitor
+    - port: 6222
+      targetPort: 6222
+      name: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-client
+  namespace: {{ $ns }}
+spec:
+  type: ClusterIP
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: 4222
+      name: client
+    - port: 8222
+      targetPort: 8222
+      name: monitor
+{{- end }}

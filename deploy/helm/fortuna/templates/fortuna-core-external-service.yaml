@@ -1,5 +1,4 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
+{{- if and .Values.core.enabled .Values.core.externalService.enabled }}
 ---
 # NodePort Service for Agents in remote clusters. Not needed for a single-cluster
 # install; the in-cluster Agent uses the fortuna-core ClusterIP Service.
@@ -7,7 +6,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: fortuna-core-external
-  namespace: fortuna
+  namespace: {{ .Release.Namespace }}
   labels:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
@@ -20,10 +19,11 @@ spec:
     - name: http
       port: 8080
       targetPort: 8080
-      nodePort: 30080
+      nodePort: {{ .Values.core.externalService.httpNodePort }}
       protocol: TCP
     - name: grpc
       port: 9090
       targetPort: 9090
-      nodePort: 30090
+      nodePort: {{ .Values.core.externalService.grpcNodePort }}
       protocol: TCP
+{{- end }}

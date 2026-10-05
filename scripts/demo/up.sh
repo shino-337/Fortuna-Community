@@ -69,11 +69,10 @@ CERT_DIR="$STATE_DIR/certs" NAMESPACE="$NAMESPACE" "$ROOT/scripts/utils/create_m
 "$ROOT/scripts/utils/ensure-fortuna-secrets.sh" "$NAMESPACE" >/dev/null
 
 step "Installing PostgreSQL and NATS"
-k apply -f "$ROOT/deploy/infrastructure/postgresql-with-age.yaml"
+k apply -f "$ROOT/deploy/infrastructure/postgresql.yaml"
 k apply -f "$ROOT/deploy/infrastructure/nats.yaml"
 k apply -f "$ROOT/deploy/infrastructure/network-policies.yaml"
 k apply -f "$ROOT/deploy/fortuna-rbac.yaml"
-k apply -f "$ROOT/deploy/dashboard-nginx-configmap.yaml"
 
 step "Installing Fortuna (${REGISTRY}/fortuna-*:${VERSION})"
 k apply -f "$ROOT/deploy/fortuna-core-deployment.yaml"

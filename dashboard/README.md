@@ -37,4 +37,4 @@ From `dashboard/`:
 
 ## Deploy in Kubernetes
 
-The dashboard is deployed with the rest of Fortuna (`deploy/dashboard-deployment.yaml` plus `deploy/dashboard-nginx-configmap.yaml`); see [Install on a cluster](../docs/getting-started/QUICKSTART.md). It runs as the `fortuna-dashboard` Service in the `fortuna` namespace.
+The dashboard is deployed with the rest of Fortuna (`deploy/dashboard-deployment.yaml`, or the Helm chart in `deploy/helm/fortuna`); see [Install on a cluster](../docs/getting-started/QUICKSTART.md). It runs as the `fortuna-dashboard` Service in the `fortuna` namespace.

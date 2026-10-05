@@ -5,6 +5,11 @@
 # ============================================================================
 # Deploy only (no clean/rebuild). Core runs DB migrations on startup.
 # Called by full-clean-database-rebuild-deploy.sh.
+#
+# Images: deploy/ uses ghcr.io/shino-337/fortuna-community/fortuna-*:latest.
+# Set FORTUNA_VERSION (and optionally FORTUNA_REGISTRY), or FORTUNA_CORE_IMAGE,
+# FORTUNA_AGENT_IMAGE and FORTUNA_DASHBOARD_IMAGE, to install another build
+# (see scripts/utils/fortuna-images.sh).
 # ============================================================================
 
 set -euo pipefail
@@ -12,6 +17,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 SCRIPTS="$PROJECT_ROOT/scripts"
+# shellcheck source=../utils/fortuna-images.sh
+. "$SCRIPTS/utils/fortuna-images.sh"
+fortuna_resolve_images
 
 # Colors
 RED='\033[0;31m'
@@ -22,7 +30,9 @@ NC='\033[0m'
 
 NAMESPACE="${NAMESPACE:-fortuna}"
 USE_IP_FALLBACK="${USE_IP_FALLBACK:-true}"
-AUTO_LOAD_CVE_ON_DEPLOY="${AUTO_LOAD_CVE_ON_DEPLOY:-true}"
+# Loading CVE references runs SQL against the database; opt in explicitly.
+AUTO_LOAD_CVE_ON_DEPLOY="${AUTO_LOAD_CVE_ON_DEPLOY:-false}"
+SKIP_PREDEPLOY_CHECKS="${SKIP_PREDEPLOY_CHECKS:-false}"
 PUSH_DASHBOARD="${PUSH_DASHBOARD:-false}"
 APPLY_SCOPED_AGENT_CREDENTIALS="${APPLY_SCOPED_AGENT_CREDENTIALS:-auto}"
 
@@ -30,10 +40,7 @@ deploy_image_ref() {
     local file="$1"
     local name="$2"
     [ -f "$file" ] || return 0
-    grep -E "image:[[:space:]]*([^[:space:]#]+/)?${name}:" "$file" 2>/dev/null \
-        | sed -E 's/.*image:[[:space:]]*([^[:space:]#]+).*/\1/' \
-        | tr -d '"' \
-        | head -1
+    fortuna_image_in "$file" "$name"
 }
 
 deploy_uses_registry_images() {
@@ -56,7 +63,12 @@ echo ""
 echo -e "${BLUE}Step 1: Pre-deployment checks...${NC}"
 if [ -f "$SCRIPTS/deploy/pre-deployment-checks.sh" ]; then
     if ! bash "$SCRIPTS/deploy/pre-deployment-checks.sh"; then
-        echo -e "${YELLOW}⚠️${NC}  Pre-deployment checks failed, but continuing..."
+        if [ "$SKIP_PREDEPLOY_CHECKS" = "true" ]; then
+            echo -e "${YELLOW}⚠️${NC}  Pre-deployment checks failed; continuing because SKIP_PREDEPLOY_CHECKS=true"
+        else
+            echo -e "${RED}❌${NC} Pre-deployment checks failed. Fix the reported problems, or set SKIP_PREDEPLOY_CHECKS=true to override."
+            exit 1
+        fi
     fi
 else
     echo -e "${YELLOW}⚠️${NC}  Pre-deployment checks script not found, skipping..."
@@ -173,7 +185,7 @@ fi
 echo ""
 echo -e "${BLUE}Step 4: Deploying/updating infrastructure...${NC}"
 
-kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/postgresql-with-age.yaml"
+kubectl apply -f "${PROJECT_ROOT}/deploy/infrastructure/postgresql.yaml"
 echo "Waiting for PostgreSQL (max 300s)..."
 if kubectl rollout status deployment/postgres -n "$NAMESPACE" --timeout=300s; then
     echo -e "${GREEN}✅${NC} PostgreSQL pod is Ready"
@@ -417,7 +429,8 @@ fi
 # Step 8: Deploy Core
 echo ""
 echo -e "${BLUE}Step 8: Deploying Core...${NC}"
-kubectl apply -f "${PROJECT_ROOT}/deploy/fortuna-core-deployment.yaml"
+kubectl apply -f "$(fortuna_manifest "${PROJECT_ROOT}/deploy/fortuna-core-deployment.yaml")"
+echo "Core image: $(deploy_image_ref "${PROJECT_ROOT}/deploy/fortuna-core-deployment.yaml" fortuna-core)"
 
 # Configure DATABASE_URL
 if [ "$USE_DNS" = "false" ] && [ "$USE_IP_FALLBACK" = "true" ]; then
@@ -488,7 +501,8 @@ fi
 # Step 9: Deploy Agent
 echo ""
 echo -e "${BLUE}Step 9: Deploying Agent...${NC}"
-kubectl apply -f "${PROJECT_ROOT}/deploy/fortuna-agent-daemonset.yaml"
+kubectl apply -f "$(fortuna_manifest "${PROJECT_ROOT}/deploy/fortuna-agent-daemonset.yaml")"
+echo "Agent image: $(deploy_image_ref "${PROJECT_ROOT}/deploy/fortuna-agent-daemonset.yaml" fortuna-agent)"
 
 if [ "$SCOPED_CREDENTIALS_READY" = true ]; then
     echo "Reapplying scoped Agent HTTP and mTLS overlays..."
@@ -560,8 +574,7 @@ fi
 # Step 9b: Deploy Dashboard
 echo ""
 echo -e "${BLUE}Step 9b: Deploying Dashboard...${NC}"
-[ -f "${PROJECT_ROOT}/deploy/dashboard-nginx-configmap.yaml" ] && kubectl apply -f "${PROJECT_ROOT}/deploy/dashboard-nginx-configmap.yaml"
-[ -f "${PROJECT_ROOT}/deploy/dashboard-deployment.yaml" ] && kubectl apply -f "${PROJECT_ROOT}/deploy/dashboard-deployment.yaml"
+kubectl apply -f "$(fortuna_manifest "${PROJECT_ROOT}/deploy/dashboard-deployment.yaml")"
 echo -e "${GREEN}✅${NC} Dashboard deployed"
 
 # Step 10: Rollout restart workloads so new images (from rebuild) are used

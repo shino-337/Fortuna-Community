@@ -1,14 +1,14 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
+{{- if .Values.postgresql.enabled }}
+{{- $ns := .Release.Namespace }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-config
-  namespace: fortuna
+  namespace: {{ $ns }}
 data:
-  POSTGRES_DB: "fortuna"
-  POSTGRES_USER: "postgres"
+  POSTGRES_DB: {{ .Values.postgresql.database | quote }}
+  POSTGRES_USER: {{ .Values.postgresql.user | quote }}
 ---
 # Runs once, on an empty data directory. Images without Apache AGE (such as the
 # stock postgres image) keep working: Core falls back to relational graph queries.
@@ -16,7 +16,7 @@ apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-init-scripts
-  namespace: fortuna
+  namespace: {{ $ns }}
 data:
   01-init-age.sh: |
     #!/bin/bash
@@ -40,33 +40,27 @@ apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
   name: postgres-pvc
-  namespace: fortuna
+  namespace: {{ $ns }}
+  {{- if eq .Values.manifestMode "helm" }}
+  annotations:
+    # Keep the database when the release is uninstalled.
+    helm.sh/resource-policy: keep
+  {{- end }}
 spec:
   accessModes:
     - ReadWriteOnce
-  storageClassName: local-path
+  {{- with .Values.postgresql.storageClassName }}
+  storageClassName: {{ . }}
+  {{- end }}
   resources:
     requests:
-      storage: 20Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-  namespace: fortuna
-spec:
-  selector:
-    app: postgres
-  ports:
-    - port: 5432
-      targetPort: 5432
-  type: ClusterIP
+      storage: {{ .Values.postgresql.size }}
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: postgres
-  namespace: fortuna
+  namespace: {{ $ns }}
 spec:
   replicas: 1
   strategy:
@@ -85,7 +79,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: postgres
-          image: postgres:15-alpine
+          image: {{ .Values.postgresql.image }}
           ports:
             - containerPort: 5432
           env:
@@ -115,12 +109,7 @@ spec:
             - name: init-scripts
               mountPath: /docker-entrypoint-initdb.d
           resources:
-            limits:
-              cpu: 1000m
-              memory: 2Gi
-            requests:
-              cpu: 10m
-              memory: 512Mi
+            {{- toYaml .Values.postgresql.resources | nindent 12 }}
           # The image entrypoint starts as root and switches to the postgres user.
           securityContext:
             allowPrivilegeEscalation: false
@@ -132,3 +121,17 @@ spec:
           configMap:
             name: postgres-init-scripts
             defaultMode: 0755
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: {{ $ns }}
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
+{{- end }}

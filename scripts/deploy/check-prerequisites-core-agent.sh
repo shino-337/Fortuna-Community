@@ -72,7 +72,7 @@ fi
 
 # 2. PostgreSQL: service exists and has endpoints (so Core can connect)
 if ! kubectl get service postgres -n "$NAMESPACE" &>/dev/null; then
-  fail "Service postgres not found in $NAMESPACE. Deploy infrastructure first: kubectl apply -f $PROJECT_ROOT/deploy/infrastructure/postgresql-with-age.yaml"
+  fail "Service postgres not found in $NAMESPACE. Deploy infrastructure first: kubectl apply -f $PROJECT_ROOT/deploy/infrastructure/postgresql.yaml"
 fi
 EP_COUNT=$(kubectl get endpoints postgres -n "$NAMESPACE" -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null | tr ' ' '\n' | grep -c . 2>/dev/null || echo "0")
 if [ "${EP_COUNT:-0}" -lt 1 ]; then

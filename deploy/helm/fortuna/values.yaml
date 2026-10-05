@@ -1,0 +1,221 @@
+# Default values for the Fortuna chart.
+#
+# The chart is also the source of the plain manifests in deploy/: they are
+# rendered from it with ci/raw-manifests-values.yaml by
+# scripts/build/render-manifests.sh, and CI fails when they drift. Edit the
+# chart, then re-render.
+
+# "helm" for a Helm release. "raw" renders deploy/*.yaml: no generated
+# Secrets or certificates and no Helm bookkeeping labels.
+manifestMode: helm
+
+image:
+  # Registry prefix for the Fortuna images (fortuna-core, fortuna-agent, fortuna-dashboard).
+  registry: ghcr.io/shino-337/fortuna-community
+  # Image tag for all Fortuna images. Empty uses the chart's appVersion.
+  tag: ""
+  pullPolicy: IfNotPresent
+  # Names of existing docker-registry Secrets, for private registries.
+  pullSecrets: []
+
+core:
+  enabled: true
+  image:
+    repository: fortuna-core
+    # Overrides image.tag for Core only.
+    tag: ""
+  logLevel: info
+  # Deployment tier used by the risk context multiplier: dev, staging or prod.
+  riskContextTier: prod
+  # Dashboard origins allowed to open WebSockets to Core.
+  wsAllowedOrigins: "http://localhost:8081,http://127.0.0.1:8081"
+  # Proxies allowed to set X-Forwarded-For / X-Real-IP. The dashboard nginx runs
+  # on the pod network; narrow this to your pod CIDR where possible.
+  trustedProxies: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+  metrics:
+    # Serves Prometheus /metrics on its own unauthenticated port, not on the Service.
+    enabled: true
+    port: 9091
+  admin:
+    username: admin
+    email: admin@fortuna.local
+  admission:
+    riskGateEnabled: true
+    sensitiveNamespaces: "prod,fortuna"
+    blockThreshold: 70
+    # audit or enforce
+    mode: audit
+  pceScheduler:
+    enabled: true
+    interval: 6h
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+  nodeSelector: {}
+  # Core prefers control-plane nodes when they are schedulable, and runs
+  # anywhere else (managed clusters have no schedulable control plane).
+  affinity:
+    nodeAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          preference:
+            matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+    - key: node.kubernetes.io/disk-pressure
+      operator: Exists
+      effect: NoSchedule
+  # Extra environment variables for the core container (list of EnvVar).
+  extraEnv: []
+  # NodePort Service that Agents in remote clusters connect to.
+  externalService:
+    enabled: false
+    httpNodePort: 30080
+    grpcNodePort: 30090
+  # Optional validating admission webhook (docs/operations/WEBHOOK.md).
+  webhook:
+    enabled: false
+    # Keep Ignore until certificate, endpoint and policy checks pass.
+    failurePolicy: Ignore
+  # Optional CronJob that triggers historical risk evaluation.
+  riskEvaluationCronJob:
+    enabled: false
+    schedule: "0 */6 * * *"
+    image: curlimages/curl:8.11.1
+
+agent:
+  enabled: true
+  image:
+    repository: fortuna-agent
+    tag: ""
+  # Core endpoints. Empty uses the in-cluster Core Service; set both for an
+  # Agent-only install that reports to Core in another cluster.
+  coreGrpcEndpoint: ""
+  coreHttpEndpoint: ""
+  # Cluster identity is discovered from the API server; set only to force values.
+  clusterId: ""
+  clusterName: ""
+  syncInterval: 5m
+  heartbeatInterval: 15s
+  logLevel: info
+  falco:
+    # Read Falco's JSONL output from /var/log/falco on each node.
+    enabled: true
+  sbomWorkers: 1
+  resources:
+    requests:
+      cpu: 100m
+      memory: 1Gi
+    limits:
+      cpu: "1"
+      memory: 6Gi
+  imageExport:
+    resources:
+      requests:
+        cpu: 10m
+        memory: 32Mi
+      limits:
+        cpu: 500m
+        memory: 256Mi
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      operator: Exists
+      effect: NoSchedule
+    - key: node-role.kubernetes.io/master
+      operator: Exists
+      effect: NoSchedule
+  extraEnv: []
+
+dashboard:
+  enabled: true
+  image:
+    repository: fortuna-dashboard
+    tag: ""
+  service:
+    # ClusterIP by default: reach it with kubectl port-forward or an Ingress.
+    # LoadBalancer exposes the login page outside the cluster.
+    type: ClusterIP
+    port: 80
+  resources:
+    requests:
+      cpu: 10m
+      memory: 64Mi
+    limits:
+      cpu: 100m
+      memory: 128Mi
+
+postgresql:
+  # Bundled single-instance PostgreSQL. Disable and set secrets.databaseUrl to
+  # use an external database.
+  enabled: true
+  # The stock image has no Apache AGE; graph queries then use the relational
+  # fallback. An AGE image (for example apache/age) enables them on new installs.
+  # Do not change the major version of an existing data directory.
+  image: postgres:15-alpine
+  database: fortuna
+  user: postgres
+  storageClassName: local-path
+  size: 20Gi
+  resources:
+    requests:
+      cpu: 10m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+nats:
+  enabled: true
+  image: nats:2.10-alpine
+  replicas: 3
+  storageClassName: local-path
+  size: 10Gi
+  resources:
+    requests:
+      cpu: 250m
+      memory: 384Mi
+    limits:
+      cpu: 500m
+      memory: 1Gi
+
+# NetworkPolicies that limit NATS and PostgreSQL to Core and deny all ingress to
+# Agent pods. They need a CNI that enforces NetworkPolicy.
+networkPolicies:
+  enabled: true
+
+# Secrets read by Core and the Agent: fortuna-secrets and postgres-credentials.
+secrets:
+  # Create them in this release. Empty values are generated once and kept on
+  # upgrade. Set false when they are managed outside the chart
+  # (scripts/utils/ensure-fortuna-secrets.sh, an external secret operator).
+  create: true
+  # Bootstrap admin password. Empty generates a random one; read it with
+  #   kubectl -n <namespace> get secret fortuna-secrets -o jsonpath='{.data.admin-password}' | base64 -d
+  adminPassword: ""
+  jwtSecret: ""
+  ingestToken: ""
+  # Encrypts process command lines at rest (base64 of 32 bytes).
+  podDetailEncryptionKey: ""
+  postgresPassword: ""
+  # Full connection string for an external database. Empty points at the bundled PostgreSQL.
+  databaseUrl: ""
+
+# mTLS between Core and Agents, and the webhook serving certificate.
+tls:
+  # Generate a CA and certificates in this release (kept on upgrade). The CA key
+  # is not stored in the cluster. Set false to use secrets created by
+  # scripts/utils/create_mtls_secret.sh or cert-manager (deploy/certs/):
+  # fortuna-ca-cert, fortuna-core-tls, fortuna-agent-tls, fortuna-webhook-tls.
+  generate: true
+  validityDays: 365

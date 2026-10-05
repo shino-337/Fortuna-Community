@@ -1,16 +1,15 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
+{{- if and .Values.core.enabled .Values.core.riskEvaluationCronJob.enabled }}
 ---
 # Triggers historical risk evaluation on a schedule, logging in as the bootstrap admin.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: fortuna-risk-evaluation
-  namespace: fortuna
+  namespace: {{ .Release.Namespace }}
   labels:
     app: fortuna-risk-evaluation
 spec:
-  schedule: "0 */6 * * *"
+  schedule: {{ .Values.core.riskEvaluationCronJob.schedule | quote }}
   successfulJobsHistoryLimit: 3
   failedJobsHistoryLimit: 3
   concurrencyPolicy: Forbid
@@ -29,7 +28,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: risk-evaluator
-              image: curlimages/curl:8.11.1
+              image: {{ .Values.core.riskEvaluationCronJob.image }}
               command:
                 - /bin/sh
                 - -c
@@ -62,9 +61,9 @@ spec:
                   fi
               env:
                 - name: CORE_SERVICE_URL
-                  value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
+                  value: "http://{{ include "fortuna.coreHost" . }}:8080"
                 - name: ADMIN_USERNAME
-                  value: "admin"
+                  value: {{ .Values.core.admin.username | quote }}
                 - name: ADMIN_PASSWORD
                   valueFrom:
                     secretKeyRef:
@@ -85,3 +84,4 @@ spec:
                 capabilities:
                   drop:
                     - ALL
+{{- end }}

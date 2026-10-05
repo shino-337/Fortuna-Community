@@ -12,14 +12,10 @@ FALCO_EVENTS_POLL="${FALCO_EVENTS_POLL:-5s}"
 WAIT_TIMEOUT="${FALCO_WAIT_TIMEOUT:-180s}"
 TRUNCATE_FALCO_EVENTS="${TRUNCATE_FALCO_EVENTS:-true}"
 
+# Helm is a prerequisite: this script does not download and run installers.
 if ! command -v helm >/dev/null 2>&1; then
-  echo "[INFO] Helm not found — installing..."
-  curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
-  if ! command -v helm >/dev/null 2>&1; then
-    echo "[ERR] Helm installation failed."
-    exit 1
-  fi
-  echo "[OK] Helm installed: $(helm version --short)"
+  echo "[ERR] Helm 3 is required. Install it from your package manager or https://helm.sh/docs/intro/install/ and re-run."
+  exit 1
 fi
 
 helm repo add falcosecurity https://falcosecurity.github.io/charts 2>/dev/null || true

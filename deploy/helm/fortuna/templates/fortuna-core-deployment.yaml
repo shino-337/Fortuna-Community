@@ -1,11 +1,11 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
+{{- if .Values.core.enabled }}
+{{- $ns := .Release.Namespace }}
 ---
 apiVersion: v1
 kind: Service
 metadata:
   name: fortuna-core
-  namespace: fortuna
+  namespace: {{ $ns }}
   labels:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
@@ -28,7 +28,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: fortuna-core
-  namespace: fortuna
+  namespace: {{ $ns }}
   labels:
     app.kubernetes.io/name: fortuna
     app.kubernetes.io/component: core
@@ -45,36 +45,32 @@ spec:
       labels:
         app.kubernetes.io/name: fortuna
         app.kubernetes.io/component: core
+      {{- if .Values.core.metrics.enabled }}
       annotations:
         # Prometheus scrapes the pod directly; the metrics port is not on the Service.
         prometheus.io/scrape: "true"
-        prometheus.io/port: "9091"
+        prometheus.io/port: {{ .Values.core.metrics.port | quote }}
         prometheus.io/path: /metrics
+      {{- end }}
     spec:
       serviceAccountName: fortuna-core
-      
+      {{- include "fortuna.imagePullSecrets" . | nindent 6 }}
       securityContext:
         seccompProfile:
           type: RuntimeDefault
+      {{- with .Values.core.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.affinity }}
       # Prefers control-plane nodes when they are schedulable, runs anywhere otherwise.
       affinity:
-        nodeAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-          - preference:
-              matchExpressions:
-              - key: node-role.kubernetes.io/control-plane
-                operator: Exists
-            weight: 100
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.tolerations }}
       tolerations:
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/control-plane
-          operator: Exists
-        - effect: NoSchedule
-          key: node-role.kubernetes.io/master
-          operator: Exists
-        - effect: NoSchedule
-          key: node.kubernetes.io/disk-pressure
-          operator: Exists
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
 
       # Avoid Core starting migrations before Postgres/NATS accept connections (reduces CrashLoopBackOff race).
       initContainers:
@@ -85,9 +81,9 @@ spec:
             - -c
             - |
               set -e
-              echo "Waiting for PostgreSQL at postgres.fortuna.svc.cluster.local:5432 ..."
+              echo "Waiting for PostgreSQL at postgres.{{ $ns }}.svc.cluster.local:5432 ..."
               i=0
-              while ! nc -z postgres.fortuna.svc.cluster.local 5432; do
+              while ! nc -z postgres.{{ $ns }}.svc.cluster.local 5432; do
                 i=$((i + 1))
                 if [ "$i" -ge 600 ]; then echo "timeout after ${i}s"; exit 1; fi
                 sleep 1
@@ -108,9 +104,9 @@ spec:
             - -c
             - |
               set -e
-              echo "Waiting for NATS at nats-client.fortuna.svc.cluster.local:4222 ..."
+              echo "Waiting for NATS at nats-client.{{ $ns }}.svc.cluster.local:4222 ..."
               i=0
-              while ! nc -z nats-client.fortuna.svc.cluster.local 4222; do
+              while ! nc -z nats-client.{{ $ns }}.svc.cluster.local 4222; do
                 i=$((i + 1))
                 if [ "$i" -ge 600 ]; then echo "timeout after ${i}s"; exit 1; fi
                 sleep 1
@@ -139,8 +135,8 @@ spec:
 
       containers:
         - name: core
-          image: ghcr.io/shino-337/fortuna-community/fortuna-core:latest
-          imagePullPolicy: IfNotPresent
+          image: {{ include "fortuna.image" (dict "root" . "image" .Values.core.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
 
           ports:
             - name: http
@@ -149,9 +145,11 @@ spec:
             - name: grpc
               containerPort: 9090
               protocol: TCP
+            {{- if .Values.core.metrics.enabled }}
             - name: metrics
-              containerPort: 9091
+              containerPort: {{ .Values.core.metrics.port }}
               protocol: TCP
+            {{- end }}
 
           env:
             # Database
@@ -163,7 +161,7 @@ spec:
 
             # NATS
             - name: NATS_ENDPOINT
-              value: "nats://nats-client.fortuna.svc.cluster.local:4222"
+              value: "nats://nats-client.{{ $ns }}.svc.cluster.local:4222"
 
             # Ports
             - name: HTTP_PORT
@@ -189,10 +187,10 @@ spec:
 
             # Logging
             - name: LOG_LEVEL
-              value: "info"
+              value: {{ .Values.core.logLevel | quote }}
             # Risk context multiplier tier (dev|staging|prod).
             - name: FORTUNA_RISK_CONTEXT_TIER
-              value: "prod"
+              value: {{ .Values.core.riskContextTier | quote }}
             # Seed capability_metadata + promotion_rules (Capability Catalog & PCE). Required for catalog to show data.
             - name: FORTUNA_ENABLE_SEED_DATA
               value: "true"
@@ -204,18 +202,20 @@ spec:
             # handshake, so local dashboard WS streams authenticate via ?token=.
             - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
               value: "true"
+            {{- if .Values.core.metrics.enabled }}
             # Prometheus /metrics on a separate, unauthenticated listener that the
             # Service does not expose.
             - name: FORTUNA_METRICS_ADDR
-              value: ":9091"
+              value: ":{{ .Values.core.metrics.port }}"
+            {{- end }}
             # Proxies allowed to set X-Forwarded-For / X-Real-IP (the dashboard nginx
             # runs on the pod network). Without this, every dashboard user would share
             # one login rate-limit bucket; with gin's default (trust everyone), clients
             # could spoof their IP. Narrow this to your pod CIDR where possible.
             - name: FORTUNA_TRUSTED_PROXIES
-              value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+              value: {{ .Values.core.trustedProxies | quote }}
             - name: FORTUNA_WS_ALLOWED_ORIGINS
-              value: "http://localhost:8081,http://127.0.0.1:8081"
+              value: {{ .Values.core.wsAllowedOrigins | quote }}
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:
@@ -256,16 +256,16 @@ spec:
               value: "10"
             # Hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
             - name: ADMISSION_RISK_GATE_ENABLED
-              value: "true"
+              value: {{ .Values.core.admission.riskGateEnabled | quote }}
             - name: ADMISSION_RISK_SENSITIVE_NAMESPACES
-              value: "prod,fortuna"
+              value: {{ .Values.core.admission.sensitiveNamespaces | quote }}
             - name: ADMISSION_RISK_BLOCK_THRESHOLD
-              value: "70"
+              value: {{ .Values.core.admission.blockThreshold | quote }}
             - name: ADMISSION_RISK_GATE_MODE
-              value: "audit"
+              value: {{ .Values.core.admission.mode | quote }}
             # Bootstrap admin, created by migrations. The password comes from fortuna-secrets.
             - name: FORTUNA_ADMIN_USERNAME
-              value: "admin"
+              value: {{ .Values.core.admin.username | quote }}
             - name: FORTUNA_ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -278,13 +278,16 @@ spec:
                   key: bootstrap-default-credential
                   optional: true
             - name: FORTUNA_ADMIN_EMAIL
-              value: "admin@fortuna.local"
+              value: {{ .Values.core.admin.email | quote }}
 
             # PCE Scheduler
             - name: PCE_SCHEDULER_ENABLED
-              value: "true"
+              value: {{ .Values.core.pceScheduler.enabled | quote }}
             - name: PCE_SCHEDULER_INTERVAL
-              value: "6h"
+              value: {{ .Values.core.pceScheduler.interval | quote }}
+            {{- with .Values.core.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
 
           volumeMounts:
             - name: fortuna-core-server-tls
@@ -298,12 +301,7 @@ spec:
               readOnly: true
 
           resources:
-            limits:
-              cpu: 1000m
-              memory: 1Gi
-            requests:
-              cpu: 100m
-              memory: 256Mi
+            {{- toYaml .Values.core.resources | nindent 12 }}
 
           # Non-root, no capabilities. The root filesystem stays writable because
           # rules created through the API are written under /app/rules.
@@ -343,3 +341,4 @@ spec:
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
+{{- end }}

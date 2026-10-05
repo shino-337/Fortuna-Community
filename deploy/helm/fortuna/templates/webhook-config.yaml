@@ -1,5 +1,5 @@
-# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
-# Do not edit: change the chart and re-render. CI fails when they differ.
+{{- if and .Values.core.enabled .Values.core.webhook.enabled }}
+{{- $ns := .Release.Namespace }}
 ---
 # See docs/operations/WEBHOOK.md before switching failurePolicy to Fail.
 apiVersion: admissionregistration.k8s.io/v1
@@ -11,10 +11,14 @@ webhooks:
     clientConfig:
       service:
         name: fortuna-webhook
-        namespace: fortuna
+        namespace: {{ $ns }}
         path: /admission/validate
         port: 443
+      {{- if and (eq .Values.manifestMode "helm") .Values.tls.generate }}
+      caBundle: {{ (include "fortuna.generatedTLS" . | fromYaml).caCrt | b64enc }}
+      {{- else }}
       # Run scripts/deploy/enable-webhook.sh to inject the installed CA before applying.
+      {{- end }}
 
     # Only Pods are evaluated. Workload controllers (Deployments, StatefulSets,
     # DaemonSets, ReplicaSets) are still covered because the Pods they create
@@ -30,7 +34,7 @@ webhooks:
     sideEffects: None
     timeoutSeconds: 10
     # Keep Ignore until certificate, endpoint and policy checks pass.
-    failurePolicy: Ignore
+    failurePolicy: {{ .Values.core.webhook.failurePolicy }}
 
     # Only namespaces labelled fortuna.io/policy-enabled=true are evaluated.
     namespaceSelector:
@@ -38,3 +42,4 @@ webhooks:
         - key: fortuna.io/policy-enabled
           operator: In
           values: ["true"]
+{{- end }}

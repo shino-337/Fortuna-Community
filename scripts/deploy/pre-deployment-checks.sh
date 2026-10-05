@@ -179,8 +179,9 @@ elif command -v docker >/dev/null 2>&1; then
 elif command -v podman >/dev/null 2>&1; then
     echo -e "${GREEN}✅${NC} podman found"
 else
-    echo -e "${RED}❌${NC} No container runtime found. For k8s deploy with containerd: install nerdctl and ctr (containerd)."
-    ERRORS=$((ERRORS+1))
+    # Only local image builds need a runtime here; registry installs pull on the nodes.
+    echo -e "${YELLOW}⚠️${NC}  No container runtime CLI found (nerdctl, docker or podman). Needed only to build images locally."
+    WARNINGS=$((WARNINGS+1))
 fi
 
 echo ""
@@ -226,8 +227,9 @@ check_kube_proxy() {
     KUBE_PROXY_PODS=$(kubectl get pods -n kube-system -l k8s-app=kube-proxy --no-headers 2>/dev/null | wc -l)
     KUBE_PROXY_RUNNING=$(kubectl get pods -n kube-system -l k8s-app=kube-proxy --no-headers 2>/dev/null | grep -c "Running" || echo "0")
     if [ "${KUBE_PROXY_RUNNING:-0}" -eq 0 ]; then
-        echo -e "${RED}❌${NC} No kube-proxy pods Running (ClusterIP/Flannel may fail). Run: ./scripts/deploy/ensure-cluster-addons.sh"
-        ERRORS=$((ERRORS+1))
+        # CNIs such as Cilium replace kube-proxy, so this is not fatal.
+        echo -e "${YELLOW}⚠️${NC}  No kube-proxy pods Running. Fine with a kube-proxy replacement (Cilium); otherwise run ./scripts/deploy/ensure-cluster-addons.sh"
+        WARNINGS=$((WARNINGS+1))
     else
         echo -e "${GREEN}✅${NC} kube-proxy: $KUBE_PROXY_RUNNING pod(s) Running"
     fi
@@ -278,8 +280,9 @@ check_storage_class() {
     if kubectl get storageclass local-path &>/dev/null; then
         echo -e "${GREEN}✅${NC} StorageClass local-path exists"
     else
-        echo -e "${RED}❌${NC} StorageClass local-path not found (PVCs may stay Pending). Run: ./scripts/deploy/ensure-storage-class.sh"
-        ERRORS=$((ERRORS+1))
+        # deploy-fortuna-robust.sh installs it in Step 3b.
+        echo -e "${YELLOW}⚠️${NC}  StorageClass local-path not found; the deploy installs it (./scripts/deploy/ensure-storage-class.sh)"
+        WARNINGS=$((WARNINGS+1))
     fi
 }
 check_storage_class
