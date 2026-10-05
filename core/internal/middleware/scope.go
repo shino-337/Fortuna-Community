@@ -197,3 +197,15 @@ func ScopedClusterIDs(c *gin.Context) ([]string, bool) {
 	}
 	return doc.ClusterIDs(), true
 }
+
+// RequireUnrestrictedScope admits only callers without a cluster allow-list. It guards
+// platform-wide views whose counts span every cluster.
+func RequireUnrestrictedScope(db *gorm.DB) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if _, restricted := ScopedClusterIDs(c); restricted {
+			AbortClusterScopeDenied(db, c, "*")
+			return
+		}
+		c.Next()
+	}
+}

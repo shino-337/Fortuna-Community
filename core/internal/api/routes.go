@@ -95,7 +95,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		malwareMgr := malware.NewManager(db)
 		registerMalwareRoutes(v1, db, malwareMgr)
 
-		v1.GET("/health/dashboard-data-integrity", p(authorization.PermissionObservabilityMetricsRead), DashboardDataIntegrity(db))
+		v1.GET("/health/dashboard-data-integrity", p(authorization.PermissionObservabilityMetricsRead), middleware.RequireUnrestrictedScope(db), DashboardDataIntegrity(db))
 
 		v1.GET("/me", p(authorization.PermissionAuthSession), GetCurrentUser())
 		v1.POST("/change-password", p(authorization.PermissionAuthPasswordChange), ChangePassword(db))
@@ -129,15 +129,15 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		cluster := v1.Group("/cluster")
 		cluster.Use(middleware.RequireClusterScope(db, "id"))
 		cluster.GET("/certificates/rotation/history", p(authorization.PermissionInventoryRead), GetCertificateRotationHistory(db))
+		certHandler := NewCertHandler(certManager)
+		cluster.GET("/certificates/info", p(authorization.PermissionInventoryRead), certHandler.GetCertificateInfo)
 		if certManager != nil {
-			log.Printf("[API] Registering cluster certificate routes")
-			certHandler := NewCertHandler(certManager)
-			cluster.GET("/certificates/info", p(authorization.PermissionInventoryRead), certHandler.GetCertificateInfo)
+			log.Printf("[API] Registering cluster certificate rotation")
 			cluster.POST("/certificates/rotate", p(authorization.PermissionClusterCertificatesRotate), RotateCertificateHandler(db, certManager))
 		}
 
 		v1.GET("/metrics/system", p(authorization.PermissionObservabilityMetricsRead), GetSystemMetrics(db))
-		v1.GET("/metrics/workers", p(authorization.PermissionObservabilityMetricsRead), GetWorkerStatus(db))
+		v1.GET("/metrics/workers", p(authorization.PermissionObservabilityMetricsRead), middleware.RequireUnrestrictedScope(db), GetWorkerStatus(db))
 		v1.GET("/error-logs", p(authorization.PermissionObservabilityLogsRead), GetErrorLogs(db))
 		v1.GET("/agents/status", p(authorization.PermissionObservabilityAgentsRead), GetAgentStatus(db))
 

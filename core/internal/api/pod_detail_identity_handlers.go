@@ -134,7 +134,7 @@ func GetPodNetworkTopDestinationsByUIDScoped(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 		sinceBucket := networkbucket.FloorBucket5MUTC(time.Now().UTC().Add(-time.Duration(sinceMinutes) * time.Minute))
-		var rows []podNetworkTopDestRow
+		rows := []podNetworkTopDestRow{}
 		err := db.Model(&models.PodNetworkConnection{}).
 			Select(`dest_ip, dest_port, protocol,
 				COUNT(*) AS observation_count,

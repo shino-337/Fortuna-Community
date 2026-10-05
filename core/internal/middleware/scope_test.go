@@ -195,3 +195,35 @@ func TestPodScopeRetainedUnknownAndLookupFailure(t *testing.T) {
 		})
 	}
 }
+
+func TestRequireUnrestrictedScope(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = db.AutoMigrate(&models.AuditLog{}, &models.SecurityActivityLog{})
+
+	for _, tc := range []struct {
+		name string
+		user *models.User
+		want int
+	}{
+		{"admin with cluster list", &models.User{ID: 1, Username: "a", Role: models.RoleAdmin, ScopeJSON: `{"cluster_ids":["1"]}`}, http.StatusOK},
+		{"operator without cluster list", &models.User{ID: 2, Username: "op", Role: models.RoleOperator, ScopeJSON: "{}"}, http.StatusOK},
+		{"operator with cluster list", &models.User{ID: 3, Username: "sc", Role: models.RoleOperator, ScopeJSON: `{"cluster_ids":["1"]}`}, http.StatusForbidden},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := gin.New()
+			r.GET("/platform", func(c *gin.Context) {
+				c.Set("user", tc.user)
+				c.Set(middleware.CtxPermissions, authorization.PermissionsForRole(tc.user.Role))
+			}, middleware.RequireUnrestrictedScope(db), func(c *gin.Context) { c.Status(http.StatusOK) })
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/platform", nil))
+			if w.Code != tc.want {
+				t.Fatalf("got %d, want %d", w.Code, tc.want)
+			}
+		})
+	}
+}

@@ -223,10 +223,7 @@ func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 				"status": "healthy",
 				"source": "database",
 			},
-			"sync": map[string]interface{}{
-				"lastFullScan": lastSync,
-				"nextScan":     lastSync.Add(10 * time.Minute),
-			},
+			"sync": syncTimes(lastSync),
 			"resources": map[string]interface{}{
 				"clusters":        clusterCount,
 				"pods":            podCount,
@@ -557,4 +554,12 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "workers": workers})
 	}
+}
+
+// syncTimes reports the latest Agent sync; both values are null before any Agent has synced.
+func syncTimes(lastSync time.Time) gin.H {
+	if lastSync.IsZero() {
+		return gin.H{"lastFullScan": nil, "nextScan": nil}
+	}
+	return gin.H{"lastFullScan": lastSync, "nextScan": lastSync.Add(10 * time.Minute)}
 }

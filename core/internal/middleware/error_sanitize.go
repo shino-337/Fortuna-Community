@@ -31,8 +31,10 @@ func (w *responseBuffer) WriteHeader(code int) {
 }
 
 func (w *responseBuffer) WriteToReal() {
-	if w.status == 0 {
-		w.status = http.StatusOK
+	if !w.wrote {
+		// Nothing was written: leave the response to gin, which answers unmatched
+		// routes with 404 only while the real writer is still untouched.
+		return
 	}
 	w.ResponseWriter.WriteHeader(w.status)
 	if w.status >= 500 && w.status < 600 && w.body.Len() > 0 {
@@ -60,6 +62,7 @@ func ErrorSanitize() gin.HandlerFunc {
 		}
 		c.Writer = buf
 		c.Next()
+		c.Writer = buf.ResponseWriter
 		buf.WriteToReal()
 	}
 }
