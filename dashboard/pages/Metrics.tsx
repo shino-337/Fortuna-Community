@@ -316,6 +316,8 @@ export const Monitoring: React.FC = () => {
   const canObservabilityAgents = can(permUser, P.observabilityAgentsRead);
   const canObservabilityLogs = can(permUser, P.observabilityLogsRead);
   const canInventoryRead = can(permUser, P.inventoryRead);
+  // Worker status and catalog health are platform-wide; Core returns 403 to cluster-scoped accounts.
+  const isClusterScoped = (permUser?.operationalScope?.clusters?.length ?? 0) > 0;
   // The Certificates page is gated by rotate permission; hide links that would bounce.
   const canCertificates = can(permUser, P.clusterCertificatesRotate);
   const canObservabilityShell = canAny(permUser, [
@@ -375,15 +377,20 @@ export const Monitoring: React.FC = () => {
       }
       if (canObservabilityMetrics) {
         tasks.push(run('Sync status', api.getSyncStatus().then(setSyncStatus)));
-        tasks.push(
-          run('Worker status', api.getWorkerStatus().then(setWorkerStatus)),
-        );
-        tasks.push(
-          run(
-            'Catalog health',
-            api.getDashboardDataIntegrity().then(setDataIntegrity),
-          ),
-        );
+        if (isClusterScoped) {
+          setWorkerStatus([]);
+          setDataIntegrity(null);
+        } else {
+          tasks.push(
+            run('Worker status', api.getWorkerStatus().then(setWorkerStatus)),
+          );
+          tasks.push(
+            run(
+              'Catalog health',
+              api.getDashboardDataIntegrity().then(setDataIntegrity),
+            ),
+          );
+        }
         tasks.push(
           run(
             'Pipeline health',
@@ -425,6 +432,7 @@ export const Monitoring: React.FC = () => {
     canObservabilityAgents,
     canObservabilityLogs,
     canObservabilityMetrics,
+    isClusterScoped,
   ]);
 
   const intervalMs = useRefreshIntervalStore((s) =>

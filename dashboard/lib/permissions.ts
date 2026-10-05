@@ -63,7 +63,6 @@ export const P = {
   sessionsRevokeAll: 'sessions.revoke_all',
 
   malwareRead: 'malware.read',
-  malwareUpload: 'malware.upload',
 
   usersRead: 'users.read',
   usersCreate: 'users.create',
@@ -79,8 +78,6 @@ export const P = {
   observabilityAgentsRead: 'observability.agents.read',
   observabilityDebugRead: 'observability.debug.read',
 
-  systemDebug: 'system.debug',
-  internalCveTrigger: 'internal.cve.trigger',
   clusterCertificatesRotate: 'cluster.certificates.rotate',
 } as const;
 

@@ -28,7 +28,7 @@ export const FORTUNA_ROLE_HELP_ROWS = [
     key: 'admin',
     title: 'Admin',
     body:
-      'Full platform: clusters, findings, inventory, policies, risk evaluation, platform audit, certificate rotation, malware upload, and full user management—including other Admin accounts.',
+      'Full platform: clusters, findings, inventory, policies, risk evaluation, platform audit, certificate rotation, and full user management—including other Admin accounts.',
   },
   {
     key: 'user_admin',
@@ -40,7 +40,7 @@ export const FORTUNA_ROLE_HELP_ROWS = [
     key: 'cluster_admin',
     title: 'Cluster admin',
     body:
-      'Cluster-scoped security administration: triage findings, evaluate risk, inspect inventory/runtime/attack paths, and manage operational evidence inside assigned clusters. No Fortuna user management, platform audit, global policy/rule writes, malware upload, or certificate rotation.',
+      'Cluster-scoped security administration: triage findings, evaluate risk, inspect inventory/runtime/attack paths, and manage operational evidence inside assigned clusters. No Fortuna user management, platform audit, global policy/rule writes, or certificate rotation.',
   },
   {
     key: 'operator',
