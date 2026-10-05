@@ -31,6 +31,7 @@ func setupNotificationsTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 		&models.SBOM{},
 		&models.CVEMatch{},
 		&models.MalwareMatch{},
+		&models.RiskScore{},
 	))
 	require.NoError(t, db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_dedupe_key_unique ON notifications(dedupe_key) WHERE dedupe_key <> '' AND deleted_at IS NULL`).Error)
 
@@ -55,7 +56,11 @@ func TestNotificationsSynthesizesSecurityEventsAndReadState(t *testing.T) {
 		Name:      "fortuna-core",
 		Namespace: "fortuna",
 	}).Error)
+	require.NoError(t, db.Create(&models.RiskScore{
+		ClusterID: "cluster-a", ResourceType: "Pod", ResourceUID: "pod-core-uid", TotalScore: 55, ScorerVersion: "v3", CalculatedAt: now,
+	}).Error)
 	require.NoError(t, db.Create(&models.Insight{
+		ClusterID:         "cluster-a",
 		ResourceType:      "Pod",
 		ResourceNamespace: "fortuna",
 		ResourceName:      "fortuna-core",
@@ -72,7 +77,7 @@ func TestNotificationsSynthesizesSecurityEventsAndReadState(t *testing.T) {
 		PathID:    "path-core-admin",
 		Nodes:     "[]",
 		Edges:     "[]",
-		TotalRisk: 86,
+		TotalRisk: 9.2,
 		Length:    4,
 		UpdatedAt: now,
 	}).Error)
@@ -111,9 +116,11 @@ func TestNotificationsSynthesizesSecurityEventsAndReadState(t *testing.T) {
 		require.Equal(t, "fortuna/fortuna-core", n.ResourceName)
 		require.NotContains(t, n.Message, "pod-core-uid")
 	}
-	require.Contains(t, notificationByCategory(first.Notifications, "risk").Route, "search=fortuna-core")
-	require.Contains(t, notificationByCategory(first.Notifications, "cve").Route, "search=fortuna-core")
-	require.Contains(t, notificationByCategory(first.Notifications, "malware").Route, "search=fortuna-core")
+	require.Regexp(t, `^/risks/\d+$`, notificationByCategory(first.Notifications, "risk").Route, "a finding alert opens that finding")
+	require.Equal(t, "high", notificationByCategory(first.Notifications, "risk").Severity, "score 55 is the high risk level")
+	require.Equal(t, "critical", notificationByCategory(first.Notifications, "attack-path").Severity, "9.2/10 is a critical path")
+	require.Equal(t, "/resources/pods/uid/pod-core-uid?tab=sbom", notificationByCategory(first.Notifications, "cve").Route)
+	require.Equal(t, "/resources/pods/uid/pod-core-uid?tab=sbom", notificationByCategory(first.Notifications, "malware").Route)
 	require.Equal(t,
 		"/risks/findings?search=fortuna-core",
 		humanizeNotificationRoute("/risks/findings?search=fortuna%2Ffortuna-core", "pod-core-uid", "fortuna/fortuna-core"),
@@ -151,6 +158,8 @@ type notificationTestItem struct {
 	Category     string `json:"category"`
 	Route        string `json:"route"`
 	Message      string `json:"message"`
+	Severity     string `json:"severity"`
+	Title        string `json:"title"`
 	ResourceName string `json:"resourceName"`
 }
 
@@ -188,4 +197,84 @@ func notificationByCategory(items []notificationTestItem, category string) notif
 		}
 	}
 	return notificationTestItem{}
+}
+
+// A finding's alert must carry the same level as the finding page it opens: the
+// band of its resource's risk score, not the rule severity.
+func TestFindingNotificationsUseRiskLevel(t *testing.T) {
+	r, db := setupNotificationsTestRouter(t)
+	now := time.Now().UTC().Add(-5 * time.Minute)
+	pod := func(uid string) {
+		require.NoError(t, db.Create(&models.Pod{ClusterID: "c1", UID: uid, Name: uid, Namespace: "ns"}).Error)
+	}
+	finding := func(uid, severity, title string) models.Insight {
+		i := models.Insight{
+			ClusterID: "c1", ResourceType: "Pod", ResourceUID: uid, ResourceName: uid, ResourceNamespace: "ns",
+			InsightType: "vulnerability", Severity: severity, Title: title, Description: title, Status: "active", DetectedAt: now,
+		}
+		require.NoError(t, db.Create(&i).Error)
+		return i
+	}
+	score := func(uid string, total float64, at time.Time) {
+		require.NoError(t, db.Create(&models.RiskScore{
+			ClusterID: "c1", ResourceType: "Pod", ResourceUID: uid, TotalScore: total, ScorerVersion: "v3", CalculatedAt: at,
+		}).Error)
+	}
+	for _, uid := range []string{"low-pod", "crit-pod", "drop-pod"} {
+		pod(uid)
+	}
+	finding("low-pod", "critical", "rule says critical")     // score 25: medium risk
+	escalated := finding("crit-pod", "low", "rule says low") // score 75: critical risk
+	dropping := finding("drop-pod", "high", "will drop")     // score 50, then 10
+	score("low-pod", 25, now)
+	score("crit-pod", 75, now)
+	score("drop-pod", 50, now)
+
+	byTitle := func(resp notificationsTestResponse) map[string]notificationTestItem {
+		out := map[string]notificationTestItem{}
+		for _, n := range resp.Notifications {
+			if n.Category == "risk" {
+				out[n.Route] = n
+			}
+		}
+		return out
+	}
+	first := byTitle(getNotificationsForTest(t, r))
+	require.Len(t, first, 2, "the critical-rule finding on a medium-risk pod raises no alert")
+	crit := first["/risks/"+strconv.FormatUint(uint64(escalated.ID), 10)]
+	require.Equal(t, "critical", crit.Severity)
+	require.Contains(t, crit.Title, "Critical risk finding")
+	require.Contains(t, crit.Message, "rule severity low")
+	require.Equal(t, "high", first["/risks/"+strconv.FormatUint(uint64(dropping.ID), 10)].Severity)
+
+	// The pod is rescored to low: its stored alert goes away instead of staying "high".
+	score("drop-pod", 10, now.Add(time.Minute))
+	// The escalated pod drops to high: its alert follows.
+	score("crit-pod", 45, now.Add(time.Minute))
+	second := byTitle(getNotificationsForTest(t, r))
+	require.Len(t, second, 1)
+	require.Equal(t, "high", second["/risks/"+strconv.FormatUint(uint64(escalated.ID), 10)].Severity)
+	require.Contains(t, second["/risks/"+strconv.FormatUint(uint64(escalated.ID), 10)].Title, "High risk finding")
+
+	// Resolving the finding removes its alert.
+	require.NoError(t, db.Model(&models.Insight{}).Where("id = ?", escalated.ID).Update("status", "resolved").Error)
+	require.Empty(t, byTitle(getNotificationsForTest(t, r)))
+}
+
+// Alerts stored before this rule (rule severity, search link) are corrected on the next read.
+func TestStoredFindingNotificationIsReconciled(t *testing.T) {
+	r, db := setupNotificationsTestRouter(t)
+	now := time.Now().UTC()
+	require.NoError(t, db.Create(&models.Pod{ClusterID: "c1", UID: "p", Name: "p", Namespace: "ns"}).Error)
+	i := models.Insight{ClusterID: "c1", ResourceType: "Pod", ResourceUID: "p", ResourceName: "p", ResourceNamespace: "ns",
+		InsightType: "vulnerability", Severity: "critical", Title: "t", Description: "t", Status: "active", DetectedAt: now}
+	require.NoError(t, db.Create(&i).Error)
+	require.NoError(t, db.Create(&models.RiskScore{ClusterID: "c1", ResourceType: "Pod", ResourceUID: "p", TotalScore: 15, ScorerVersion: "v3", CalculatedAt: now}).Error)
+	require.NoError(t, db.Create(&models.Notification{
+		Title: "Critical finding: t", Severity: "critical", Category: "risk", Source: "risk-engine",
+		Route: "/risks/findings?search=p", DedupeKey: "insight:" + strconv.FormatUint(uint64(i.ID), 10), ClusterID: "c1", CreatedAt: now,
+	}).Error)
+
+	resp := getNotificationsForTest(t, r)
+	require.Zero(t, resp.Total, "a stored critical alert for a low-risk finding is removed")
 }

@@ -21,7 +21,10 @@ type ExecutivePosture = {
     totalClusters?: number;
     runningPods?: number;
   } | null;
-  summary: { total?: number; critical?: number; high?: number; medium?: number; low?: number } | null;
+  summary: {
+    total?: number;
+    riskLevelCounts?: { critical?: number; high?: number; medium?: number; low?: number };
+  } | null;
   pipeline: {
     layer2?: { exploitedCapCount?: number };
     layer3?: { totalPaths?: number; criticalPaths?: number };
@@ -103,10 +106,13 @@ export const ExecutiveBriefPanel: React.FC<{ open: boolean; onToggle: (open: boo
 
   const busy = postureLoading || !postureLoaded;
   const activeFindings = posture.summary?.total;
-  const criticalFindings = posture.summary?.critical;
-  const highFindings = posture.summary?.high;
-  const mediumFindings = posture.summary?.medium;
-  const lowFindings = posture.summary?.low;
+  // Risk levels (score bands), the same levels the findings list and alerts show.
+  const levels = posture.summary?.riskLevelCounts;
+  const criticalFindings = levels?.critical;
+  const highFindings = levels?.high;
+  const mediumFindings = levels?.medium;
+  const lowFindings = levels?.low;
+  const scoredFindings = levels ? (levels.critical ?? 0) + (levels.high ?? 0) + (levels.medium ?? 0) + (levels.low ?? 0) : undefined;
   const criticalPaths = posture.pipeline?.layer3?.criticalPaths;
   const totalPaths = posture.pipeline?.layer3?.totalPaths;
   const exploitedSignals = posture.pipeline?.layer2?.exploitedCapCount;
@@ -129,7 +135,7 @@ export const ExecutiveBriefPanel: React.FC<{ open: boolean; onToggle: (open: boo
       `Cluster scope: ${clusterId ?? 'all clusters in your scope'}`,
       '',
       `Active findings: ${activeFindings ?? 'n/a'}`,
-      `Critical findings: ${criticalFindings ?? 'n/a'}`,
+      `Critical risk findings: ${criticalFindings ?? 'n/a'}`,
       `Critical attack paths: ${criticalPaths ?? 'n/a'} / ${totalPaths ?? 'n/a'} total`,
       `Runtime exploited signals: ${exploitedSignals ?? 'n/a'}`,
       `Clusters in scope: ${fleetClusterCount ?? 'n/a'}`,
@@ -253,7 +259,7 @@ export const ExecutiveBriefPanel: React.FC<{ open: boolean; onToggle: (open: boo
               label="Critical exposure"
               value={busy ? 'Loading' : criticalFindings ?? 'Unavailable'}
               detail={activeFindings != null ? `${activeFindings} active finding(s)` : 'Source unavailable'}
-              onClick={() => navigate('/risks')}
+              onClick={() => navigate('/risks/findings?finalLevel=critical')}
             />
             <ExecutiveMetricCard
               icon={<Route className="w-4 h-4 text-warning" />}
@@ -329,16 +335,16 @@ export const ExecutiveBriefPanel: React.FC<{ open: boolean; onToggle: (open: boo
 
         <Card className="p-4">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <h3 className="fortuna-card-title">Finding distribution</h3>
+            <h3 className="fortuna-card-title">Findings by risk level</h3>
             <Button variant="ghost" size="sm" onClick={() => navigate('/risks')}>
               Review risks
             </Button>
           </div>
           <div className="grid gap-2">
-            <SeverityRow label="Critical" value={criticalFindings} severity="critical" total={activeFindings} loading={busy} />
-            <SeverityRow label="High" value={highFindings} severity="high" total={activeFindings} loading={busy} />
-            <SeverityRow label="Medium" value={mediumFindings} severity="medium" total={activeFindings} loading={busy} />
-            <SeverityRow label="Low" value={lowFindings} severity="low" total={activeFindings} loading={busy} />
+            <SeverityRow label="Critical" value={criticalFindings} severity="critical" total={scoredFindings} loading={busy} />
+            <SeverityRow label="High" value={highFindings} severity="high" total={scoredFindings} loading={busy} />
+            <SeverityRow label="Medium" value={mediumFindings} severity="medium" total={scoredFindings} loading={busy} />
+            <SeverityRow label="Low" value={lowFindings} severity="low" total={scoredFindings} loading={busy} />
           </div>
         </Card>
       </section>

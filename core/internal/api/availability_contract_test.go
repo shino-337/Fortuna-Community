@@ -161,7 +161,7 @@ func TestDashboardIntegrityClusterQualifiesPodAndSBOMCoverage(t *testing.T) {
 
 func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{})
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}, &models.RiskScore{})
 	now := time.Now().UTC()
 	for _, clusterID := range []string{"cluster-a", "cluster-b"} {
 		require.NoError(t, db.Create(&models.Cluster{
@@ -174,6 +174,9 @@ func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
 			ClusterID: clusterID, ResourceType: "Pod", ResourceUID: "same-pod",
 			ResourceName: "pod", InsightType: "vulnerability", Severity: "critical",
 			Title: clusterID, Description: clusterID, Status: "active", DetectedAt: now,
+		}).Error)
+		require.NoError(t, db.Create(&models.RiskScore{
+			ClusterID: clusterID, ResourceType: "Pod", ResourceUID: "same-pod", TotalScore: 90, ScorerVersion: "v3", CalculatedAt: now,
 		}).Error)
 	}
 	// Same resource_uid on a non-Pod resource must not contaminate Pod aggregates.
@@ -199,7 +202,7 @@ func TestDashboardStatsSeparatesDuplicatePodUIDAcrossClusters(t *testing.T) {
 
 func TestDashboardStatsSelectedClusterRespectsActiveInventory(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{})
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}, &models.RiskScore{})
 	now := time.Now().UTC()
 	for _, item := range []struct {
 		id, source string
@@ -332,7 +335,7 @@ func TestDashboardStatsMissingSchemaIsNonRetryable(t *testing.T) {
 
 func TestDashboardStatsCatalogFailureIsRetryable(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{})
+	db := availabilityTestDB(t, &models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}, &models.RiskScore{})
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())

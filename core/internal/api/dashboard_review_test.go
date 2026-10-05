@@ -63,6 +63,10 @@ func seedTwoClusterFindings(t *testing.T, db *gorm.DB) {
 			ResourceNamespace: "default", InsightType: "misconfiguration", Severity: "high",
 			Title: "finding-" + cl, Status: "active", DetectedAt: now,
 		}).Error)
+		// A high risk score, so the finding raises a notification and exports with a level.
+		require.NoError(t, db.Create(&models.RiskScore{
+			ClusterID: cl, ResourceType: "Pod", ResourceUID: "pod-" + cl, TotalScore: 55, ScorerVersion: "v3", CalculatedAt: now,
+		}).Error)
 	}
 }
 
@@ -143,7 +147,7 @@ func TestNotificationsFollowClusterScope(t *testing.T) {
 func notificationTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	return reviewDB(t, &models.Notification{}, &models.NotificationRead{}, &models.Pod{}, &models.Insight{},
-		&models.AttackPath{}, &models.SBOM{}, &models.CVEMatch{}, &models.MalwareMatch{}, &models.Cluster{})
+		&models.AttackPath{}, &models.SBOM{}, &models.CVEMatch{}, &models.MalwareMatch{}, &models.Cluster{}, &models.RiskScore{})
 }
 
 func TestNotificationReadStateIsPerUser(t *testing.T) {

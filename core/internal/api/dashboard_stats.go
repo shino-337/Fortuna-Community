@@ -122,7 +122,9 @@ func GetDashboardStats(db *gorm.DB) gin.HandlerFunc {
 		if fail(riskCounts().Count(&result.TotalRisks).Error, "dashboard_stats_risks_unavailable") {
 			return
 		}
-		if fail(riskCounts().Where("LOWER(severity) = ?", "critical").Count(&result.CriticalRisks).Error, "dashboard_stats_critical_risks_unavailable") {
+		// Critical means the critical risk level (score band), as on the findings list,
+		// not the rule severity, so this count matches the findings it links to.
+		if fail(whereInsightRiskScoreAtLeast(riskCounts(), "insights", riskLevelCriticalMinScore).Count(&result.CriticalRisks).Error, "dashboard_stats_critical_risks_unavailable") {
 			return
 		}
 		affected := unresolved().

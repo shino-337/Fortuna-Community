@@ -95,3 +95,34 @@ func TestNotificationReadsPostgres(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 	require.JSONEq(t, `{"updated":0}`, w.Body.String())
 }
+
+// The risk-level alert queries (preferred score window, reconcile by dedupe key)
+// run on PostgreSQL too.
+func TestFindingNotificationsRiskLevelPostgres(t *testing.T) {
+	db := notificationsPostgresDB(t)
+	require.NoError(t, db.AutoMigrate(&models.Notification{}, &models.NotificationRead{}, &models.Pod{}, &models.Insight{},
+		&models.RiskScore{}, &models.AttackPath{}, &models.CVEMatch{}, &models.MalwareMatch{}, &models.Cluster{}))
+	now := time.Now().UTC()
+	// Pod has jsonb columns that reject empty strings; insert only what the alert query reads.
+	require.NoError(t, db.Exec(`INSERT INTO clusters (id, name) VALUES ('c1', 'c1')`).Error)
+	require.NoError(t, db.Exec(`INSERT INTO pods (cluster_id, uid, name, namespace, service_account) VALUES ('c1', 'p', 'p', 'ns', 'default')`).Error)
+	i := models.Insight{ClusterID: "c1", ResourceType: "Pod", ResourceUID: "p", ResourceName: "p", ResourceNamespace: "ns",
+		InsightType: "vulnerability", Severity: "low", Title: "t", Description: "t", Status: "active", DetectedAt: now,
+		Evidence: "{}", ViolatedRules: "[]", Remediation: "{}"}
+	require.NoError(t, db.Create(&i).Error)
+	// An older V3 row and a newer non-V3 row: the V3 row is the one that counts.
+	require.NoError(t, db.Create(&models.RiskScore{ClusterID: "c1", ResourceType: "Pod", ResourceUID: "p", TotalScore: 72, ScorerVersion: "v3", CalculatedAt: now}).Error)
+	require.NoError(t, db.Create(&models.RiskScore{ClusterID: "c1", ResourceType: "Pod", ResourceUID: "p", TotalScore: 5, ScorerVersion: "v2", CalculatedAt: now.Add(time.Minute)}).Error)
+
+	synthesizeSecurityNotifications(db)
+	var n models.Notification
+	require.NoError(t, db.Where("dedupe_key = ?", "insight:"+strconv.Itoa(int(i.ID))).First(&n).Error)
+	require.Equal(t, "critical", n.Severity)
+	require.Equal(t, "/risks/"+strconv.Itoa(int(i.ID)), n.Route)
+
+	require.NoError(t, db.Create(&models.RiskScore{ClusterID: "c1", ResourceType: "Pod", ResourceUID: "p", TotalScore: 30, ScorerVersion: "v3", CalculatedAt: now.Add(2 * time.Minute)}).Error)
+	synthesizeSecurityNotifications(db)
+	var left int64
+	require.NoError(t, db.Model(&models.Notification{}).Count(&left).Error)
+	require.Zero(t, left, "a finding rescored to medium no longer has an alert")
+}

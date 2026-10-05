@@ -19,7 +19,7 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
 	}
-	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}); err != nil {
+	if err := db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}, &models.RiskScore{}); err != nil {
 		t.Fatalf("migrate: %v", err)
 	}
 
@@ -47,6 +47,15 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 		{ClusterID: "cluster-active", ResourceType: "Pod", ResourceUID: "pod-active", ResourceName: "api", ResourceNamespace: "default", InsightType: "vulnerability", Severity: "critical", Title: "inactive", Description: "inactive", Status: "resolved", DetectedAt: now},
 	}).Error; err != nil {
 		t.Fatalf("seed insights: %v", err)
+	}
+
+	// Critical counts the critical risk level (score >= 70), not the rule severity.
+	for _, uid := range []string{"pod-active", "pod-stale-cluster", "pod-deleted", "pod-missing"} {
+		clusterID := "cluster-active"
+		if uid == "pod-stale-cluster" {
+			clusterID = "cluster-stale"
+		}
+		db.Create(&models.RiskScore{ClusterID: clusterID, ResourceType: "Pod", ResourceUID: uid, TotalScore: 80, ScorerVersion: "v3", CalculatedAt: now})
 	}
 
 	router := gin.New()
@@ -113,13 +122,14 @@ func TestDashboardStatsKeepsAcknowledgedRisks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}); err != nil {
+	if err = db.AutoMigrate(&models.Cluster{}, &models.Pod{}, &models.Agent{}, &models.Insight{}, &models.RiskScore{}); err != nil {
 		t.Fatal(err)
 	}
 	now := time.Now()
 	db.Create(&models.Cluster{ID: "cluster-a", Name: "a", Source: "env", Status: "active", LastSync: now})
 	db.Create(&models.Pod{UID: "pod-a", ClusterID: "cluster-a", Name: "a", Namespace: "default"})
 	db.Create(&models.Insight{ClusterID: "cluster-a", ResourceType: "Pod", ResourceUID: "pod-a", ResourceName: "a", InsightType: "vulnerability", Severity: "critical", Title: "review", Description: "review", Status: "acknowledged", DetectedAt: now})
+	db.Create(&models.RiskScore{ClusterID: "cluster-a", ResourceType: "Pod", ResourceUID: "pod-a", TotalScore: 75, ScorerVersion: "v3", CalculatedAt: now})
 	r := gin.New()
 	r.GET("/stats", GetDashboardStats(db))
 	for _, query := range []string{"?byType=all", "?byType=all&clusterId=cluster-a", "?clusterId=cluster-a"} {
