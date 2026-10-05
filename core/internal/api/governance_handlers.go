@@ -104,12 +104,3 @@ func ListSecurityActivity(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"items": rows, "total": total, "limit": limit, "offset": offset})
 	}
 }
-
-// EmergencyAccessPlaceholder returns an empty emergency-access payload until break-glass workflows ship.
-func EmergencyAccessPlaceholder(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"items":       []any{},
-		"message":     "Emergency access workflow is not enabled yet (reserved for future break-glass integration).",
-		"placeholder": true,
-	})
-}

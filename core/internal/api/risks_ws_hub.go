@@ -14,8 +14,6 @@ import (
 	"gorm.io/gorm"
 )
 
-const risksWSChannel = "risks"
-
 // risksWSConnCountByIP tracks active WS connections per IP for rate limiting (Phase 3).
 var risksWSConnCountByIP = struct {
 	sync.Mutex

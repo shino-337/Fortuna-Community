@@ -1,8 +1,6 @@
 package api_test
 
 import (
-	"bytes"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -78,16 +76,12 @@ func tokenForUser(t *testing.T, db *gorm.DB, u models.User) (string, string) {
 	return tok, sid
 }
 
-func TestBulkServiceAccountDeleteHonorsClusterScope(t *testing.T) {
+func TestServiceAccountDeleteHonorsClusterScope(t *testing.T) {
 	db := newSecurityRegressionDB(t)
 	user := createSecurityUser(t, db, "scoped-op", models.RoleOperator, `{"cluster_ids":["cluster-a"]}`, "OldPassword123!")
 	token, _ := tokenForUser(t, db, user)
 
-	saA := models.ServiceAccount{ClusterID: "cluster-a", Name: "sa-a", Namespace: "default", UID: "sa-a"}
 	saB := models.ServiceAccount{ClusterID: "cluster-b", Name: "sa-b", Namespace: "default", UID: "sa-b"}
-	if err := db.Create(&saA).Error; err != nil {
-		t.Fatalf("create sa-a: %v", err)
-	}
 	if err := db.Create(&saB).Error; err != nil {
 		t.Fatalf("create sa-b: %v", err)
 	}
@@ -95,52 +89,20 @@ func TestBulkServiceAccountDeleteHonorsClusterScope(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.Use(middleware.AuthMiddleware(db, securityRegressionJWTSecret))
-	r.POST("/bulk-delete", api.BulkDeleteServiceAccounts(db))
+	r.DELETE("/serviceaccounts/:uid", api.DeleteServiceAccountByUID(db))
 
-	body, _ := json.Marshal(map[string]any{"ids": []uint{saA.ID, saB.ID}})
-	req := httptest.NewRequest(http.MethodPost, "/bulk-delete", bytes.NewReader(body))
+	req := httptest.NewRequest(http.MethodDelete, "/serviceaccounts/sa-b", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusForbidden {
-		t.Fatalf("bulk delete: want 403 got %d body=%s", w.Code, w.Body.String())
+		t.Fatalf("out-of-scope delete: want 403 got %d body=%s", w.Code, w.Body.String())
 	}
 
-	var countA, countB int64
-	db.Unscoped().Model(&models.ServiceAccount{}).Where("id = ?", saA.ID).Count(&countA)
+	var countB int64
 	db.Unscoped().Model(&models.ServiceAccount{}).Where("id = ?", saB.ID).Count(&countB)
-	if countA != 1 {
-		t.Fatalf("expected rejected batch to preserve in-scope service account, remaining count %d", countA)
-	}
 	if countB != 1 {
 		t.Fatalf("expected out-of-scope service account preserved, remaining count %d", countB)
-	}
-}
-
-func TestBulkServiceAccountDisableRejectsOversizedRequest(t *testing.T) {
-	db := newSecurityRegressionDB(t)
-	user := createSecurityUser(t, db, "bulk-op", models.RoleAdmin, `{}`, "OldPassword123!")
-	token, _ := tokenForUser(t, db, user)
-
-	ids := make([]uint, 101)
-	for i := range ids {
-		ids[i] = uint(i + 1)
-	}
-	body, _ := json.Marshal(map[string]any{"ids": ids})
-
-	gin.SetMode(gin.TestMode)
-	r := gin.New()
-	r.Use(middleware.AuthMiddleware(db, securityRegressionJWTSecret))
-	r.POST("/bulk-disable", api.BulkDisableServiceAccounts(db))
-
-	req := httptest.NewRequest(http.MethodPost, "/bulk-disable", bytes.NewReader(body))
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusBadRequest {
-		t.Fatalf("oversized bulk disable: want 400 got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

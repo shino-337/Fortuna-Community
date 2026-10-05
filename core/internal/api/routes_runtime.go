@@ -41,7 +41,6 @@ func registerRuntimeV2Routes(api *gin.RouterGroup, db *gorm.DB) {
 	}
 	pods := rt.Group("/pods")
 	pods.Use(middleware.RequirePodUIDClusterScope(db, "uid"))
-	pods.GET("/:uid/security-state", p(authorization.PermissionRuntimeRead), GetPodAssetSecurityState(db))
 	pods.GET("/:uid/facts", p(authorization.PermissionRuntimeRead), GetPodRuntimeBehaviorFactsScoped(db))
 	pods.GET("/:uid/incidents", p(authorization.PermissionRuntimeRead), GetPodRuntimeIncidentsScoped(db))
 	pods.GET("/:uid/capabilities", p(authorization.PermissionInventoryRead), GetPodCapabilitiesScoped(db))

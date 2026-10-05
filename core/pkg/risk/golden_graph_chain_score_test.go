@@ -138,11 +138,6 @@ func materializePathsForPod(t *testing.T, podUID, podName, namespace string, pat
 	return db
 }
 
-func requireMaterializationInvariants(t *testing.T, db *gorm.DB) {
-	t.Helper()
-	requireMaterializationInvariantsOpts(t, db, fixturePodUID, true)
-}
-
 func requireMaterializationInvariantsOpts(t *testing.T, db *gorm.DB, podUID string, expectCaps bool) {
 	t.Helper()
 	var nPaths, nCaps int64

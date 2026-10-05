@@ -6,12 +6,13 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/pem"
-	"github.com/stretchr/testify/require"
 	"math/big"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestClientCertificateRotationFailsClosed(t *testing.T) {

@@ -31,12 +31,6 @@ type InsightEvidenceRefs struct {
 	RuleIDs       []string `json:"ruleIds,omitempty"`
 }
 
-type insightWithExplainability struct {
-	models.Insight
-	EvidenceRefs     InsightEvidenceRefs        `json:"evidence_refs"`
-	ExplanationChain []explainability.ChainStep `json:"explanation_chain,omitempty"`
-}
-
 func resourceUIDClusterID(db *gorm.DB, resourceUID string) (string, error) {
 	resourceUID = strings.TrimSpace(resourceUID)
 	if db == nil || resourceUID == "" {

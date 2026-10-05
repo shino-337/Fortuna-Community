@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -442,32 +441,4 @@ func (e *Evaluator) Shutdown() {
 		e.refreshTicker.Stop()
 	}
 	close(e.stopRefresh)
-}
-
-// Helper functions for scope matching
-func matchesPatterns(patterns []string, value string) bool {
-	for _, pattern := range patterns {
-		if matchesPatternString(pattern, value) {
-			return true
-		}
-	}
-	return false
-}
-
-func matchesPatternString(pattern, value string) bool {
-	// Simple wildcard matching: "prod-*" matches "prod-cluster-1"
-	if strings.HasSuffix(pattern, "*") {
-		prefix := strings.TrimSuffix(pattern, "*")
-		return strings.HasPrefix(value, prefix)
-	}
-	return pattern == value
-}
-
-func contains(slice []string, value string) bool {
-	for _, s := range slice {
-		if s == value {
-			return true
-		}
-	}
-	return false
 }

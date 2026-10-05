@@ -1,11 +1,9 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -32,17 +30,6 @@ func hasTable(db *gorm.DB, name string) bool {
 	return db.Migrator().HasTable(name)
 }
 
-// getActiveAgentCutoff returns how long since last_seen_at to consider an agent "active" for dashboard.
-// Configurable via ACTIVE_AGENT_CUTOFF_MINUTES (default 15). Ensures dashboard shows agents that ping regularly.
-func getActiveAgentCutoff() time.Duration {
-	if m := os.Getenv("ACTIVE_AGENT_CUTOFF_MINUTES"); m != "" {
-		if n, err := strconv.Atoi(m); err == nil && n > 0 {
-			return time.Duration(n) * time.Minute
-		}
-	}
-	return 15 * time.Minute
-}
-
 // getClustersForAPI returns the authorized cluster inventory (active by default;
 // optional includeStale). Cluster membership comes from the clusters table itself,
 // not from whether Pod inventory currently contains rows. An active empty cluster
@@ -64,37 +51,6 @@ func getClustersForAPI(db *gorm.DB, c *gin.Context) ([]models.Cluster, error) {
 		return nil, err
 	}
 	return clusters, nil
-}
-
-// GetDefaultActiveClusterID returns a cluster_id for graph endpoints when the client omits ?cluster_id=
-// (newest active agent-synced cluster with pods; if none, any cluster that already has pod inventory).
-func GetDefaultActiveClusterID(db *gorm.DB, ctx context.Context) (string, error) {
-	var cluster models.Cluster
-	cutoff := time.Now().Add(-ActiveClusterCutoff)
-	err := db.WithContext(ctx).Model(&models.Cluster{}).
-		Where("source IN ?", []string{"auto", "env"}).
-		Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = clusters.id AND p.deleted_at IS NULL)").
-		Where("last_sync >= ?", cutoff).
-		Order("last_sync DESC").
-		First(&cluster).Error
-	if err == nil {
-		return cluster.ID, nil
-	}
-	if err != nil && err != gorm.ErrRecordNotFound {
-		return "", err
-	}
-	var fallback models.Cluster
-	err2 := db.WithContext(ctx).Model(&models.Cluster{}).
-		Where("EXISTS (SELECT 1 FROM pods p WHERE p.cluster_id = clusters.id AND p.deleted_at IS NULL)").
-		Order("last_sync DESC NULLS LAST").
-		First(&fallback).Error
-	if err2 != nil {
-		if err2 == gorm.ErrRecordNotFound {
-			return "", fmt.Errorf("no cluster with pod inventory; pass cluster_id or wait for agent sync")
-		}
-		return "", err2
-	}
-	return fallback.ID, nil
 }
 
 // GetClusters returns clusters that have synced recently (within ActiveClusterCutoff).
@@ -129,64 +85,6 @@ func GetCluster(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		c.JSON(http.StatusOK, cluster)
-	}
-}
-
-// ClusterInfoResponse for GET /cluster/info (cluster domain: list of clusters with basic info).
-func ClusterInfoResponseFrom(clusters []models.Cluster) gin.H {
-	list := make([]map[string]interface{}, 0, len(clusters))
-	for _, c := range clusters {
-		list = append(list, map[string]interface{}{
-			"id":       c.ID,
-			"name":     c.Name,
-			"lastSync": c.LastSync,
-			"source":   c.Source,
-		})
-	}
-	return gin.H{"clusters": list}
-}
-
-// GetClusterInfo returns cluster list with basic info for GET /cluster/info (infrastructure domain).
-func GetClusterInfo(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		clusters, err := getClustersForAPI(db, c)
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		c.JSON(http.StatusOK, ClusterInfoResponseFrom(clusters))
-	}
-}
-
-// GetClusterNodes returns node names for a cluster for GET /cluster/:id/nodes (infrastructure domain).
-func GetClusterNodes(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.Param("id")
-		db := db.WithContext(c.Request.Context())
-		if !requireAvailabilityTables(c, db, "cluster_nodes_schema_unavailable",
-			"Cluster node inventory requires cluster and Pod schemas", "clusters", "pods") {
-			return
-		}
-		var cluster models.Cluster
-		if err := db.First(&cluster, "id = ?", id).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "Cluster not found"})
-				return
-			}
-			respondDataUnavailable(c, "cluster_nodes_cluster_unavailable", "Cluster node inventory could not verify cluster state")
-			return
-		}
-		var nodes []string
-		if err := db.Model(&models.Pod{}).
-			Where("cluster_id = ? AND deleted_at IS NULL AND node_name IS NOT NULL AND node_name != ''", id).
-			Distinct("node_name").Pluck("node_name", &nodes).Error; err != nil {
-			respondDataUnavailable(c, "cluster_nodes_unavailable", "Cluster node inventory could not be loaded")
-			return
-		}
-		if nodes == nil {
-			nodes = []string{}
-		}
-		c.JSON(http.StatusOK, gin.H{"nodes": nodes})
 	}
 }
 
@@ -1094,16 +992,8 @@ func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "uid is required"})
 			return
 		}
-		var sa models.ServiceAccount
-		if err := db.Where("uid = ?", uid).First(&sa).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				c.JSON(http.StatusNotFound, gin.H{"error": "ServiceAccount not found"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		if !authorizeServiceAccount(db, c, &sa) {
+		sa, ok := loadScopedServiceAccountByUID(db, c, uid, false)
+		if !ok {
 			return
 		}
 
@@ -1112,7 +1002,7 @@ func UpdateServiceAccountByUID(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 
-		if err := db.Model(&sa).Updates(updateData).Error; err != nil {
+		if err := db.Model(sa).Updates(updateData).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

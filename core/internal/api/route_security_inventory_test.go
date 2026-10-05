@@ -24,7 +24,7 @@ func TestVerifyFortunaRouteSecurityContract_DefaultEngine(t *testing.T) {
 	_ = db.AutoMigrate(&models.User{})
 	cfg := &config.Config{JWTSecret: "x", AuthEnabled: false, IngestToken: "ingest"}
 	r := gin.New()
-	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil, nil)
+	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil)
 	opts := api.RouteVerifyOptions{}
 	if err := api.VerifyFortunaRouteSecurityContract(r, opts); err != nil {
 		t.Fatal(err)
@@ -39,7 +39,7 @@ func TestAgentIngestRoutesAcceptIngestTokenWithoutJWT(t *testing.T) {
 	}
 	cfg := &config.Config{JWTSecret: "x", AuthEnabled: true, IngestToken: "ingest"}
 	r := gin.New()
-	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil, nil)
+	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil)
 
 	body := []byte(`{"podUid":"pod-1","clusterId":"cluster-1","namespace":"default","connections":[]}`)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/agent/pod-network-connections", bytes.NewReader(body))

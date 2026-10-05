@@ -21,32 +21,6 @@ type Engine struct {
 	rules []Rule
 }
 
-// NewEngine creates a new risk engine.
-// Source of truth: YAML rules from /core/rules (or FORTUNA_RULES_DIR override).
-func NewEngine(db *gorm.DB) *Engine {
-	engine := &Engine{
-		db: db,
-	}
-
-	// YAML-only loading path.
-	rulesDir := getRulesDirectory()
-	if rulesDir != "" {
-		if yamlEngine, err := NewYAMLEngine(db, rulesDir); err == nil {
-			engine.rules = yamlEngine.GetRules()
-			log.Printf("[RiskEngine] ✅ Loaded %d YAML rules from %s", len(engine.rules), rulesDir)
-			return engine
-		} else {
-			log.Printf("[RiskEngine] ❌ Failed to load YAML rules from %s: %v", rulesDir, err)
-		}
-	} else {
-		log.Printf("[RiskEngine] ❌ No rules directory configured/found (FORTUNA_RULES_DIR or ./rules or core/rules)")
-	}
-
-	// No hardcoded fallback: keep empty ruleset to enforce YAML-only governance.
-	engine.rules = []Rule{}
-	return engine
-}
-
 // getRulesDirectory returns the rules directory path
 func getRulesDirectory() string {
 	// Try environment variable first
@@ -470,16 +444,6 @@ func (e *Engine) simpleFieldAccess(data map[string]interface{}, field string) in
 	}
 
 	return nil
-}
-
-// indexOf finds the index of a character in a string
-func indexOf(s string, c byte) int {
-	for i := 0; i < len(s); i++ {
-		if s[i] == c {
-			return i
-		}
-	}
-	return -1
 }
 
 // getApplicableRules returns rules applicable to a resource type. Caller must hold e.mu at least RLock.

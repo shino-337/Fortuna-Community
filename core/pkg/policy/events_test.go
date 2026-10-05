@@ -15,6 +15,11 @@ func newTestPolicyWorkerDB(t *testing.T) *gorm.DB {
 	t.Helper()
 	// Same manual DDL as setupTestDBViolation (AutoMigrate breaks on SQLite for policy models).
 	db := setupTestDBViolation(t)
+	// One connection: each new :memory: connection is a separate empty database, and the
+	// insight manager schedules Pod risk scoring on another goroutine.
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	sqlDB.SetMaxOpenConns(1)
 	require.NoError(t, db.Exec(`
 		CREATE TABLE IF NOT EXISTS insights (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -121,14 +126,26 @@ func TestPolicyWorker_ProcessViolationEvent_CreatesBaselineInsights(t *testing.T
 	require.NoError(t, err)
 
 	require.NoError(t, worker.ProcessViolationEvent(context.Background(), raw))
+	// A repeated admission of the same resource updates the existing finding.
+	require.NoError(t, worker.ProcessViolationEvent(context.Background(), raw))
+
+	// A violation without a known cluster is never recorded under a guessed identity.
+	unknown := ev
+	unknownViolation := *ev.Violations[0]
+	unknownViolation.ClusterID = "unknown"
+	unknownViolation.ResourceUID = "pod-uid-2"
+	unknown.Violations = []*Violation{&unknownViolation}
+	rawUnknown, err := json.Marshal(unknown)
+	require.NoError(t, err)
+	require.NoError(t, worker.ProcessViolationEvent(context.Background(), rawUnknown))
 
 	var violations int64
 	require.NoError(t, db.Model(&models.PolicyViolation{}).Count(&violations).Error)
-	require.Equal(t, int64(1), violations, "expected 1 persisted violation")
+	require.Equal(t, int64(2), violations, "expected one persisted violation per known-cluster admission")
 
 	var insights int64
 	require.NoError(t, db.Model(&models.Insight{}).Count(&insights).Error)
-	require.Equal(t, int64(1), insights, "expected baseline insight to be created")
+	require.Equal(t, int64(1), insights, "expected one baseline insight per resource and policy instance")
 
 	var insight models.Insight
 	require.NoError(t, db.Where("insight_type = ?", "policy_violation").First(&insight).Error)

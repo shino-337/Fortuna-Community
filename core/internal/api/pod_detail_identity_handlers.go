@@ -49,9 +49,13 @@ func GetPodProcessesByUIDScoped(db *gorm.DB) gin.HandlerFunc {
 		if !ok {
 			return
 		}
-		var list []models.PodProcess
-		if err := db.Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID).
-			Order("observed_at DESC").Limit(1000).Find(&list).Error; err != nil {
+		// Each report appends a full snapshot; serve only the latest one so a
+		// process is listed once rather than once per retained report.
+		list := []models.PodProcess{}
+		latest := db.Model(&models.PodProcess{}).Select("MAX(observed_at)").
+			Where("cluster_id = ? AND pod_uid = ?", clusterID, podUID)
+		if err := db.Where("cluster_id = ? AND pod_uid = ? AND observed_at = (?)", clusterID, podUID, latest).
+			Order("container_name ASC, p_id ASC").Limit(1000).Find(&list).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}

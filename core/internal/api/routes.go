@@ -28,11 +28,7 @@ var (
 	_ = policy.NewPolicyHandler
 )
 
-func SetupRoutes(router *gin.Engine, db *gorm.DB, cfg *config.Config) {
-	SetupRoutesWithCertManager(router, db, cfg, nil, nil, nil)
-}
-
-func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter, publishSBOMCreated PublishSBOMCreatedFunc) {
+func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter) {
 	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey, cfg.PodDetailEncryptionPreviousKeys)
 	defaultRisksCache = NewMemoryRisksCache(60 * time.Second)
 	log.Printf("[API] ========================================")
@@ -100,15 +96,12 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		registerMalwareRoutes(v1, db, malwareMgr)
 
 		v1.GET("/health/dashboard-data-integrity", p(authorization.PermissionObservabilityMetricsRead), DashboardDataIntegrity(db))
-		v1.GET("/debug/technique-overlay", p(authorization.PermissionSystemDebug), GetTechniqueOverlayDigest)
 
 		v1.GET("/me", p(authorization.PermissionAuthSession), GetCurrentUser())
 		v1.POST("/change-password", p(authorization.PermissionAuthPasswordChange), ChangePassword(db))
 		v1.GET("/users", p(authorization.PermissionUsersRead), GetUsers(db))
 		v1.PATCH("/users/:id", middleware.RequireAnyPermission(db, authorization.PermissionUsersUpdate, authorization.PermissionUsersRoleAssign), PatchUser(db))
 		v1.DELETE("/users/:id", p(authorization.PermissionUsersDelete), DeleteUser(db))
-
-		v1.GET("/rbac/permission-catalog", p(authorization.PermissionSystemAuditRead), GetRBACPermissionCatalog)
 
 		v1.GET("/sessions", p(authorization.PermissionSessionsRead), ListUserSessions(db))
 		v1.DELETE("/sessions/:id", p(authorization.PermissionSessionsRevoke), RevokeUserSession(db))
@@ -119,7 +112,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.GET("/governance/permission-explorer", p(authorization.PermissionSystemAuditRead), GetGovernancePermissionExplorer())
 		v1.GET("/governance/access-review", p(authorization.PermissionSystemAuditRead), GetGovernanceAccessReview(db))
 		v1.GET("/governance/correlation-signals", p(authorization.PermissionSystemAuditRead), GetGovernanceCorrelationSignals(db))
-		v1.GET("/governance/emergency-access", p(authorization.PermissionSystemAuditRead), EmergencyAccessPlaceholder)
 
 		v1.GET("/capability-metadata", p(authorization.PermissionInventoryRead), GetCapabilityMetadataList(db))
 		v1.GET("/capability-metadata/:capabilityId", p(authorization.PermissionInventoryRead), GetCapabilityMetadata(db))
@@ -136,8 +128,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 		cluster := v1.Group("/cluster")
 		cluster.Use(middleware.RequireClusterScope(db, "id"))
-		cluster.GET("/info", p(authorization.PermissionInventoryRead), GetClusterInfo(db))
-		cluster.GET("/:id/nodes", p(authorization.PermissionInventoryRead), GetClusterNodes(db))
 		cluster.GET("/certificates/rotation/history", p(authorization.PermissionInventoryRead), GetCertificateRotationHistory(db))
 		if certManager != nil {
 			log.Printf("[API] Registering cluster certificate routes")
@@ -147,7 +137,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		}
 
 		v1.GET("/metrics/system", p(authorization.PermissionObservabilityMetricsRead), GetSystemMetrics(db))
-		v1.GET("/metrics/policy-evaluation-cost", p(authorization.PermissionObservabilityMetricsRead), GetPolicyEvaluationCost(db))
 		v1.GET("/metrics/workers", p(authorization.PermissionObservabilityMetricsRead), GetWorkerStatus(db))
 		v1.GET("/error-logs", p(authorization.PermissionObservabilityLogsRead), GetErrorLogs(db))
 		v1.GET("/agents/status", p(authorization.PermissionObservabilityAgentsRead), GetAgentStatus(db))
@@ -158,10 +147,6 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.PATCH("/notifications/:id/read", p(authorization.PermissionObservabilityMetricsRead), MarkNotificationRead(db))
 		v1.POST("/notifications/read-all", p(authorization.PermissionObservabilityMetricsRead), MarkAllNotificationsRead(db))
 		v1.GET("/monitoring/pipeline-health", p(authorization.PermissionObservabilityMetricsRead), GetPipelineHealth(db))
-
-		if publishSBOMCreated != nil {
-			v1.POST("/internal/trigger-cve-match", p(authorization.PermissionInternalCVETrigger), TriggerCVEMatch(db, publishSBOMCreated))
-		}
 	}
 
 	v2 := router.Group("/api/v2")
@@ -176,8 +161,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 
 	if strings.TrimSpace(os.Getenv("FORTUNA_SKIP_ROUTE_SECURITY_VERIFY")) != "true" {
 		opts := RouteVerifyOptions{
-			CertRoutesRegistered:    certManager != nil,
-			CVEMatchRouteRegistered: publishSBOMCreated != nil,
+			CertRoutesRegistered: certManager != nil,
 		}
 		if err := VerifyFortunaRouteSecurityContract(router, opts); err != nil {
 			log.Fatalf("[API] route security contract verification failed: %v", err)

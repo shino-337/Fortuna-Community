@@ -98,8 +98,6 @@ func NewCVEMatcherWorker(js nats.JetStreamContext, db *gorm.DB, publishInsightsU
 	}
 }
 
-func (w *CVEMatcherWorker) Name() string { return "cve_matcher" }
-
 func (w *CVEMatcherWorker) Subject() string { return "fortuna.sbom.created" }
 
 func (w *CVEMatcherWorker) Process(ctx context.Context, msg *nats.Msg) error {

@@ -12,7 +12,8 @@ var (
 	globalMu     sync.Mutex
 )
 
-// RegisterEngine registers the risk engine used by the worker so API can trigger reload after rule create/update/delete.
+// RegisterEngine registers the long-lived runtime rescore engine so rule create/update/delete reloads it.
+// Other evaluators build a fresh engine per run and need no reload.
 func RegisterEngine(e ReloadableEngine) {
 	globalMu.Lock()
 	globalEngine = e

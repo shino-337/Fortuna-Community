@@ -463,13 +463,6 @@ func (l *BulkLoader) printFinalStats() {
 
 // Helper functions
 
-func formatTimestamp(t *time.Time) string {
-	if t == nil {
-		return ""
-	}
-	return t.Format(time.RFC3339)
-}
-
 func joinStrings(strs []string, sep string) string {
 	if len(strs) == 0 {
 		return ""

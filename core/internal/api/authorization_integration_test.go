@@ -148,7 +148,7 @@ func TestAuthorizationIntegration_AttackPathsEnforceClusterScope(t *testing.T) {
 	const secret = "integration-test-secret-key-32b!!"
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
-	api.SetupRoutesWithCertManager(r, db, &config.Config{JWTSecret: secret, AuthEnabled: true}, nil, nil, nil)
+	api.SetupRoutesWithCertManager(r, db, &config.Config{JWTSecret: secret, AuthEnabled: true}, nil, nil)
 
 	tok := loginToken(t, db, secret, "viewer1")
 

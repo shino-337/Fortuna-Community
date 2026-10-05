@@ -11,17 +11,30 @@ RETIRED_HANDLERS = (
     "bindRuntimeV1Payloads", "GetPodNetworkTopDestinationsByUID",
     "GetPodSpecYAML", "GetInsightsSummary", "QueryPrometheusMetrics",
     "GetServiceAccount", "UpdateServiceAccount", "DeleteServiceAccount", "GetServiceAccountPermissions",
+    "GetClusterInfo", "GetClusterNodes", "GetTechniqueOverlayDigest", "EmergencyAccessPlaceholder",
+    "TriggerCVEMatch", "BulkDeleteServiceAccounts", "BulkDisableServiceAccounts",
+    "DisableInactiveServiceAccounts", "GetPolicyEvaluationCost", "GetRBACPermissionCatalog",
+    "GetRuntimeRiskSummary", "GetTopRuntimeRisks", "GetPodAssetSecurityState",
+)
+RETIRED_ALIASES = (
+    "/bulk/serviceaccounts/", "/monitoring/agents", "/policy/rules/:id",
+    "/serviceaccounts/bulk/", "/serviceaccounts/disable-inactive", "/cluster/info",
+    "/debug/technique-overlay", "/governance/emergency-access", "/trigger-cve-match",
+    "/malware/check", "/malware/stats", "/malware/db/upload", "/policy-evaluation-cost",
+    "/rbac/permission-catalog", "/risk/runtime/summary", "/risk/runtime/top", "/security-state",
 )
 RETIRED_GRAPH = ("blast-radius", "shortest-path", "accessible", "query", "permissions", "risky-pods")
 
 
 def violations(path, source):
     errors = []
-    for alias in ("/bulk/serviceaccounts/", "/monitoring/agents", "/policy/rules/:id"):
+    for alias in RETIRED_ALIASES:
         if alias in source:
             errors.append("retired alias: " + alias)
     if path.endswith("routes_policy.go") and "/rules/:id" in source:
         errors.append("retired policy rule ID registration")
+    if re.search(r"/cluster/(?::id|\$\{[^}]*\}|[\w-]+)/nodes\b", source):
+        errors.append("retired cluster nodes endpoint")
     if "/api/v1/runtime/events" in source:
         errors.append("retired runtime v1 ingest endpoint")
     if re.search(r"/(?:api/v1/)?graph/(?:" + "|".join(RETIRED_GRAPH) + r")(?:[/:\s\"'`]|$)", source):

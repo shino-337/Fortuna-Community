@@ -81,21 +81,6 @@ func RotateCertificateHandler(db *gorm.DB, cm *security.CertManager) gin.Handler
 	}
 }
 
-// RotateCertificate triggers certificate rotation
-func (h *CertHandler) RotateCertificate(c *gin.Context) {
-	if err := h.certManager.RotateCertificate(); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":   "Certificate rotation failed",
-			"details": err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "Certificate rotated successfully",
-	})
-}
-
 // GetCertificateRotationHistory returns certificate rotation history.
 // Returns empty list until rotation_history table exists; no mock data.
 func GetCertificateRotationHistory(db *gorm.DB) gin.HandlerFunc {

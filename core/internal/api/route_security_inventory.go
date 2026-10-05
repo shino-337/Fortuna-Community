@@ -50,8 +50,7 @@ type RouteSecuritySpec struct {
 
 // RouteVerifyOptions toggles optional routes that exist only when subsystems are wired.
 type RouteVerifyOptions struct {
-	CertRoutesRegistered    bool
-	CVEMatchRouteRegistered bool
+	CertRoutesRegistered bool
 }
 
 type routeB struct {
@@ -132,16 +131,12 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"GET", "/api/v1/cluster/certificates/info", authJWT, auditSensitiveRead, graphNone, clusterCertOptional, false, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"POST", "/api/v1/cluster/certificates/rotate", authJWT, auditWrite, graphNone, clusterCertOptional, true, false, false, false, authorization.PermissionClusterCertificatesRotate})
 	add(routeB{"GET", "/api/v1/cluster/certificates/rotation/history", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
-	add(routeB{"GET", "/api/v1/cluster/info", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
-	add(routeB{"GET", "/api/v1/cluster/:id/nodes", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 
 	add(routeB{"GET", "/api/v1/dashboard/metrics/threat-velocity", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionFindingsRead})
 	add(routeB{"GET", "/api/v1/dashboard/stats", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionFindingsRead})
-	add(routeB{"GET", "/api/v1/debug/technique-overlay", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemDebug})
 	add(routeB{"GET", "/api/v1/error-logs", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityLogsRead})
 	add(routeB{"GET", "/api/v1/governance/access-review", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemAuditRead})
 	add(routeB{"GET", "/api/v1/governance/correlation-signals", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemAuditRead})
-	add(routeB{"GET", "/api/v1/governance/emergency-access", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemAuditRead})
 	add(routeB{"GET", "/api/v1/governance/investigation-events", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemAuditRead})
 	add(routeB{"GET", "/api/v1/investigations", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
 	add(routeB{"GET", "/api/v1/investigations/stats", authJWT, auditNonSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
@@ -189,20 +184,10 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/:uid/mutations/preview", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"GET", "/api/v1/inventory/serviceaccount-mutations/:operationID", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"POST", "/api/v1/inventory/serviceaccount-mutations/:operationID/execute", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionInventoryRead})
-	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/bulk/delete", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
-	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/bulk/disable", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
-	add(routeB{"POST", "/api/v1/inventory/serviceaccounts/disable-inactive", authJWT, auditBulk, graphNone, false, true, true, false, false, authorization.PermissionInventoryBulk})
 
-	cveOpt := !opts.CVEMatchRouteRegistered
-	add(routeB{"POST", "/api/v1/internal/trigger-cve-match", authJWT, auditWrite, graphNone, cveOpt, true, false, false, false, authorization.PermissionInternalCVETrigger})
-
-	add(routeB{"GET", "/api/v1/malware/check", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionMalwareRead})
-	add(routeB{"POST", "/api/v1/malware/db/upload", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionMalwareUpload})
-	add(routeB{"GET", "/api/v1/malware/stats", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionMalwareRead})
 	add(routeB{"GET", "/api/v1/malware/threats", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionMalwareRead})
 	add(routeB{"GET", "/api/v1/malware/threats/:pod_uid", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionMalwareRead})
 	add(routeB{"GET", "/api/v1/me", authJWT, auditNonSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionAuthSession})
-	add(routeB{"GET", "/api/v1/metrics/policy-evaluation-cost", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"GET", "/api/v1/metrics/system", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"GET", "/api/v1/metrics/workers", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
 	add(routeB{"GET", "/api/v1/monitoring/pipeline-health", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionObservabilityMetricsRead})
@@ -234,7 +219,6 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"GET", "/api/v1/promotion-rules", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRulesRead})
 	add(routeB{"GET", "/api/v1/promotion-rules/capability/:capabilityId", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRulesRead})
 	add(routeB{"GET", "/api/v1/promotion-rules/signal/:signalType", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRulesRead})
-	add(routeB{"GET", "/api/v1/rbac/permission-catalog", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionSystemAuditRead})
 	add(routeB{"GET", "/api/v1/resources", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"GET", "/api/v1/resources/:kind/:uid", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 
@@ -279,8 +263,6 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 		{"POST", "/api/v1/risk/rules/import", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionRulesImport},
 		{"POST", "/api/v1/risk/rules/validate", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRulesRead},
 		{"PUT", "/api/v1/risk/rules/:id", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionRulesWrite},
-		{"GET", "/api/v1/risk/runtime/summary", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRuntimeRead},
-		{"GET", "/api/v1/risk/runtime/top", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRuntimeRead},
 		{"GET", "/api/v1/risk/scores", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionFindingsRead},
 		{"POST", "/api/v1/risk/scores/sync", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionRiskEvaluate},
 		{"GET", "/api/v1/risk/scores/:uid", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionFindingsRead},
@@ -340,7 +322,6 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"GET", "/api/v2/runtime/pods/:uid/capabilities", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"GET", "/api/v2/runtime/pods/:uid/facts", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRuntimeRead})
 	add(routeB{"GET", "/api/v2/runtime/pods/:uid/incidents", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRuntimeRead})
-	add(routeB{"GET", "/api/v2/runtime/pods/:uid/security-state", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionRuntimeRead})
 
 	out := make([]RouteSecuritySpec, 0, len(bb))
 	seen := make(map[string]struct{})

@@ -26,21 +26,3 @@ func (csc *CapabilityStateController) PromoteCapability(ctx context.Context, pod
 	}
 	return csc.PromoteCapabilityForIdentity(ctx, id, capabilityID, signalType, signalConfidence)
 }
-
-// InitializeCapability remains as a fail-closed compatibility wrapper.
-func (csc *CapabilityStateController) InitializeCapability(ctx context.Context, podUID, namespace, capabilityID, group, severity string, evidence map[string]interface{}) error {
-	id, err := resolveUniquePodIdentity(ctx, csc.db, podUID)
-	if err != nil {
-		return err
-	}
-	return csc.InitializeCapabilityForIdentity(ctx, id, namespace, capabilityID, group, severity, evidence)
-}
-
-// GetCapabilityState remains as a fail-closed compatibility wrapper.
-func (csc *CapabilityStateController) GetCapabilityState(ctx context.Context, podUID, capabilityID string) (string, error) {
-	id, err := resolveUniquePodIdentity(ctx, csc.db, podUID)
-	if err != nil {
-		return "", err
-	}
-	return csc.GetCapabilityStateForIdentity(ctx, id, capabilityID)
-}

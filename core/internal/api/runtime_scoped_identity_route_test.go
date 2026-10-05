@@ -61,7 +61,7 @@ func newRuntimeRouteHarness(t *testing.T, scoped bool) runtimeRouteHarness {
 		AgentCredentialRegistryPath: registry,
 	}
 	r := gin.New()
-	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil, nil)
+	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil)
 	return runtimeRouteHarness{router: r, db: db, scopedToken: scopedToken, legacyToken: legacyToken, registry: registry}
 }
 

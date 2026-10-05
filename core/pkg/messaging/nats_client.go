@@ -88,10 +88,6 @@ func (c *NATSClient) SetupStreams() error {
 		subjects []string
 	}{
 		{
-			name:     "fortuna-raw",
-			subjects: []string{"fortuna.raw.pods", "fortuna.raw.serviceaccounts", "fortuna.raw.roles", "fortuna.raw.rolebindings"},
-		},
-		{
 			name:     "fortuna-events",
 			subjects: []string{"fortuna.events.runtime", "fortuna.sbom.>", "fortuna.cve.>"},
 		},
@@ -100,8 +96,9 @@ func (c *NATSClient) SetupStreams() error {
 			subjects: []string{"fortuna.insights.created", "fortuna.insights.updated"},
 		},
 		{
-			name:     "fortuna-normalized",
-			subjects: []string{"fortuna.normalized.>"},
+			// Admission webhook violations (fast path) recorded by the policy worker (slow path).
+			name:     "fortuna-policy",
+			subjects: []string{"fortuna.policy.>"},
 		},
 		{
 			name:     "fortuna-siem",
@@ -116,11 +113,10 @@ func (c *NATSClient) SetupStreams() error {
 		maxAge := 7 * 24 * time.Hour // Default: 7 days for events/insights
 		retention := nats.LimitsPolicy
 
-		if stream.name == "fortuna-raw" || stream.name == "fortuna-normalized" {
-			// For pod-related streams: Use 24h retention with WorkQueuePolicy
-			// This prevents message loss while still cleaning up processed messages
-			maxAge = 24 * time.Hour
-			retention = nats.WorkQueuePolicy // Delete after ALL consumers ack
+		if stream.name == "fortuna-policy" {
+			// One durable consumer records each violation; delete after it acks.
+			maxAge = 48 * time.Hour
+			retention = nats.WorkQueuePolicy
 		} else if stream.name == "fortuna-events" {
 			// For SBOM/CVE events: Longer retention for retry safety
 			maxAge = 48 * time.Hour
@@ -129,7 +125,7 @@ func (c *NATSClient) SetupStreams() error {
 
 		// Calculate stream limits based on retention and storage capacity
 		// For 3 replicas: Each stream replicated 3x, total storage = 30GB (3 x 10GB)
-		// Stream storage: 4 streams * 1GB = 4GB, leaving 26GB buffer across replicas
+		// Stream storage: each stream is capped by MaxBytes below
 		// Per-replica: 4GB streams + 8.67GB buffer = ~12.67GB per replica (within 10GB limit per PVC)
 		// Note: With 3 replicas, each stream is replicated, so actual storage per replica is lower
 		maxMsgs := int64(100000)                  // Max 100K messages per stream
@@ -219,15 +215,6 @@ func (c *NATSClient) PublishCore(subject string, data []byte) error {
 		return fmt.Errorf("core NATS connection is nil")
 	}
 	return c.conn.Publish(subject, data)
-}
-
-// Subscribe creates a subscription to a subject
-func (c *NATSClient) Subscribe(subject string, handler func(*nats.Msg)) (*nats.Subscription, error) {
-	sub, err := c.js.Subscribe(subject, handler, nats.Durable("fortuna-worker"))
-	if err != nil {
-		return nil, fmt.Errorf("failed to subscribe to %s: %w", subject, err)
-	}
-	return sub, nil
 }
 
 // Close closes the NATS connection

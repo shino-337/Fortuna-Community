@@ -35,19 +35,6 @@ func init() {
 	}
 }
 
-// CapabilityKnowledgeShort returns a one-line explanation for a legacy capability id, if present.
-func CapabilityKnowledgeShort(capID string) string {
-	c := strings.ToUpper(strings.TrimSpace(capID))
-	if e, ok := ckByCap[c]; ok {
-		return e.ExplanationShort
-	}
-	c2 := CanonicalCapability(capID)
-	if e, ok := ckByCap[strings.ToUpper(c2)]; ok {
-		return e.ExplanationShort
-	}
-	return ""
-}
-
 // CKDBRiskPointsForCapability returns CKDB-derived risk contribution for a pod capability id (0 if unknown).
 func CKDBRiskPointsForCapability(capID string) float64 {
 	c := strings.ToUpper(strings.TrimSpace(capID))

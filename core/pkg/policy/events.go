@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/riskengine"
 	"gorm.io/gorm"
 )
 
@@ -53,6 +54,15 @@ func (w *PolicyWorker) ProcessViolationEvent(ctx context.Context, eventData []by
 	// Process each violation
 	insightsToCreate := make([]*models.Insight, 0, len(event.Violations))
 	for _, violation := range event.Violations {
+		if violation == nil {
+			continue
+		}
+		// Never attribute a violation to a guessed cluster: the webhook only knows its
+		// cluster when DEFAULT_CLUSTER_ID is set.
+		if cid := strings.TrimSpace(violation.ClusterID); cid == "" || cid == "unknown" {
+			log.Printf("[PolicyWorker] Skipping violation for %s/%s: cluster id unknown (set DEFAULT_CLUSTER_ID)", violation.Namespace, violation.ResourceName)
+			continue
+		}
 		// Get policy instance from database
 		var instance models.PolicyInstance
 		if err := w.db.WithContext(ctx).Where("id = ?", violation.InstanceID).First(&instance).Error; err != nil {
@@ -84,8 +94,7 @@ func (w *PolicyWorker) ProcessViolationEvent(ctx context.Context, eventData []by
 			detectedAt = *pv.DetectedAt
 		}
 
-		// Baseline insight output for policy events (D1).
-		// Use stable keys (ResourceUID + template/action) so repeated events don't explode in DB.
+		// Baseline insight output for policy events, keyed by policy instance.
 		title := fmt.Sprintf("Policy violation: %s (%s)", pv.TemplateName, pv.Action)
 		insightsToCreate = append(insightsToCreate, &models.Insight{
 			ClusterID:         pv.ClusterID,
@@ -109,19 +118,17 @@ func (w *PolicyWorker) ProcessViolationEvent(ctx context.Context, eventData []by
 		log.Printf("[PolicyWorker] ✅ Recorded violation: %s/%s", violation.Namespace, violation.ResourceName)
 	}
 
-	if len(insightsToCreate) > 0 {
-		if err := w.db.WithContext(ctx).Create(insightsToCreate).Error; err != nil {
-			return fmt.Errorf("create policy insights: %w", err)
+	// Upsert on (cluster, resource, type, policy instance) so repeated admissions of the
+	// same resource update one finding and respect resolved/dismissed state and exceptions.
+	insightMgr := riskengine.NewInsightManager(w.db.WithContext(ctx))
+	for _, insight := range insightsToCreate {
+		if insight.ResourceUID == "" {
+			continue
+		}
+		if err := insightMgr.CreateOrUpdateInsight(insight); err != nil {
+			return fmt.Errorf("upsert policy insight: %w", err)
 		}
 	}
 
-	return nil
-}
-
-// ProcessRemediationEvent processes a remediation event from the event bus
-// Phase 2.7: Slow path processing for remediation
-func (w *PolicyWorker) ProcessRemediationEvent(ctx context.Context, eventData []byte) error {
-	// TODO: Implement remediation event processing
-	log.Printf("[PolicyWorker] Remediation event processing (not yet implemented)")
 	return nil
 }

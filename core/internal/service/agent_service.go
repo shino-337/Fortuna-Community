@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"net/http"
 	"os"
 	"reflect"
 	"strconv"
@@ -17,12 +16,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/internal/auth"
-	"github.com/fortuna/core/internal/middleware"
-	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/capability"
 	"github.com/fortuna/core/pkg/lifecycle"
 	"github.com/fortuna/core/pkg/models"
@@ -1906,41 +1902,5 @@ func (s *AgentService) cleanupStalePods(clusterID string) {
 		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodRuntimeMetrics{})
 		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodNetworkConnection{})
 		s.logger.Printf("🧹 Soft-deleted stale pod %s/%s (%s), updated_at=%s", p.Namespace, p.Name, p.UID, p.UpdatedAt.Format(time.RFC3339))
-	}
-}
-
-// GetAgentHandler returns gin handler for agent sync. Requires elevated permissions (inventory.write) since it writes cluster RBAC data.
-func GetAgentHandler(db *gorm.DB) gin.HandlerFunc {
-	service := NewAgentService(db)
-	return func(c *gin.Context) {
-		var req struct {
-			ClusterID   string                 `json:"clusterId"`
-			ClusterName string                 `json:"clusterName"`
-			Data        map[string]interface{} `json:"data"`
-		}
-
-		if err := c.ShouldBindJSON(&req); err != nil {
-			c.JSON(400, gin.H{"error": "Invalid request body", "details": err.Error()})
-			return
-		}
-
-		if req.ClusterID == "" {
-			c.JSON(400, gin.H{"error": "clusterId is required"})
-			return
-		}
-
-		granted := middleware.GrantedPermissions(c)
-		hasInventoryWrite := authorization.HasAnyPermission(granted, authorization.PermissionInventoryModify, authorization.PermissionInventoryBulk)
-		if !hasInventoryWrite {
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden", "required_permission": string(authorization.PermissionInventoryModify)})
-			return
-		}
-
-		if err := service.SyncData(req.ClusterID, req.ClusterName, "", "", "", req.Data, ""); err != nil {
-			c.JSON(500, gin.H{"error": "Failed to sync data", "details": err.Error()})
-			return
-		}
-
-		c.JSON(200, gin.H{"success": true, "message": "Data synced successfully"})
 	}
 }

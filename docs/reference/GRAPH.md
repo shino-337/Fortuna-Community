@@ -42,8 +42,13 @@ Unused HTTP aliases are also retired:
 
 | Removed route | Supported replacement |
 | --- | --- |
-| POST /api/v1/bulk/serviceaccounts/disable | POST /api/v1/inventory/serviceaccounts/bulk/disable |
-| DELETE /api/v1/bulk/serviceaccounts/delete | POST /api/v1/inventory/serviceaccounts/bulk/delete |
+| ServiceAccount bulk delete, bulk disable and disable-inactive | DELETE /api/v1/inventory/serviceaccounts/:uid, or a reviewed ServiceAccount mutation |
+| GET /api/v1/cluster/info, GET /api/v1/cluster/:id/nodes | GET /api/v1/inventory/clusters, GET /api/v1/inventory/clusters/:id/nodes/:nodeName |
+| GET /api/v1/risk/runtime/summary, GET /api/v1/risk/runtime/top | GET /api/v1/runtime/signals |
+| GET /api/v2/runtime/pods/:uid/security-state | GET /api/v2/runtime/pods/:uid/facts |
+| GET /api/v1/rbac/permission-catalog | GET /api/v1/governance/permission-explorer |
+| GET /api/v1/malware/check, GET /api/v1/malware/stats, POST /api/v1/malware/db/upload | GET /api/v1/malware/threats; the malware feed is synced by Core |
+| GET /api/v1/metrics/policy-evaluation-cost, GET /api/v1/debug/technique-overlay, GET /api/v1/governance/emergency-access, POST /api/v1/internal/trigger-cve-match | none |
 | GET /api/v1/monitoring/agents | GET /api/v1/agents/status |
 | /api/v1/policy/rules/:id (detail/update/delete/test/metrics/matches) | /api/v1/policy/rules/uid/:uid with the same operation |
 

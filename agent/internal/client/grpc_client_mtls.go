@@ -18,8 +18,6 @@ import (
 	"google.golang.org/grpc/metadata"
 
 	pb "github.com/fortuna/api/proto/agent"
-
-	"github.com/fortuna/agent/internal/config"
 )
 
 // GRPCClient interface for Agent→Core communication
@@ -28,13 +26,8 @@ type GRPCClient interface {
 	Close() error
 	Reconnect(ctx context.Context) error // Close then Connect; use after transient DNS/connection failure
 	SendSBOMFinding(ctx context.Context, finding *pb.SBOMFinding) (*pb.SBOMFindingResponse, error)
-	SendCombinedFinding(ctx context.Context, finding *pb.CombinedFinding) (*pb.CombinedFindingResponse, error)
 	RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error)
 	Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingResponse, error)
-	// StreamInventory streams inventory items to Core (no-op in current Core; collector uses HTTP syncer in main path)
-	StreamInventory(ctx context.Context, items interface{}) error
-	// Heartbeat sends periodic health status to Core
-	Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error)
 }
 
 // MTLSClient implements GRPCClient with mTLS support
@@ -210,30 +203,6 @@ func (c *MTLSClient) SendSBOMFinding(ctx context.Context, finding *pb.SBOMFindin
 	}
 }
 
-// SendCombinedFinding sends combined SBOM + CVE findings to Core
-func (c *MTLSClient) SendCombinedFinding(ctx context.Context, finding *pb.CombinedFinding) (*pb.CombinedFindingResponse, error) {
-	for {
-		c.mu.RLock()
-		if c.client == nil {
-			c.mu.RUnlock()
-			if err := c.dialIfNeeded(ctx); err != nil {
-				return nil, fmt.Errorf("connect before CombinedFinding: %w", err)
-			}
-			continue
-		}
-
-		c.logger.Printf("Sending CombinedFinding: pod=%s/%s", finding.Sbom.Namespace, finding.Sbom.PodName)
-
-		resp, err := c.client.SendCombinedFinding(ctx, finding)
-		c.mu.RUnlock()
-
-		if err != nil {
-			return nil, fmt.Errorf("SendCombinedFinding RPC failed: %w", err)
-		}
-		return resp, nil
-	}
-}
-
 // RegisterAgent registers the agent with Core
 func (c *MTLSClient) RegisterAgent(ctx context.Context, req *pb.RegisterAgentRequest) (*pb.RegisterAgentResponse, error) {
 	for {
@@ -280,53 +249,4 @@ func (c *MTLSClient) Ping(ctx context.Context, req *pb.PingRequest) (*pb.PingRes
 		}
 		return resp, nil
 	}
-}
-
-// StreamInventory is a no-op: current Core does not expose StreamInventory RPC; agent uses HTTP syncer for inventory.
-func (c *MTLSClient) StreamInventory(ctx context.Context, items interface{}) error {
-	return nil
-}
-
-// Heartbeat sends periodic health status to Core.
-func (c *MTLSClient) Heartbeat(ctx context.Context, req *pb.HeartbeatRequest) (*pb.HeartbeatResponse, error) {
-	for {
-		c.mu.RLock()
-		if c.client == nil {
-			c.mu.RUnlock()
-			if err := c.dialIfNeeded(ctx); err != nil {
-				return nil, fmt.Errorf("connect before Heartbeat: %w", err)
-			}
-			continue
-		}
-
-		resp, err := c.client.Heartbeat(ctx, req)
-		c.mu.RUnlock()
-
-		if err != nil {
-			return nil, fmt.Errorf("Heartbeat RPC failed: %w", err)
-		}
-		return resp, nil
-	}
-}
-
-// NewNewGRPCClient creates a GRPCClient from config (MTLS client) and connects. Used by collector when instantiated.
-func NewNewGRPCClient(cfg *config.Config) (GRPCClient, error) {
-	clusterID := ""
-	if cfg != nil {
-		clusterID = cfg.ClusterID
-	}
-	cli := NewMTLSClient(
-		cfg.CoreGRPCEndpoint,
-		cfg.TLSEnabled,
-		cfg.TLSCertPath,
-		cfg.TLSKeyPath,
-		cfg.TLSCACertPath,
-		clusterID,
-	)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	if err := cli.Connect(ctx); err != nil {
-		return nil, err
-	}
-	return cli, nil
 }

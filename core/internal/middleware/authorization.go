@@ -63,23 +63,6 @@ func RequireAnyPermission(db *gorm.DB, required ...authorization.Permission) gin
 	}
 }
 
-// RequireAllPermissions requires every listed permission.
-func RequireAllPermissions(db *gorm.DB, required ...authorization.Permission) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		granted := GrantedPermissions(c)
-		if !authorization.HasAllPermissions(granted, required...) {
-			names := make([]string, len(required))
-			for i, p := range required {
-				names[i] = string(p)
-			}
-			auditAuthzDenied(db, c, "all:"+strings.Join(names, ","), granted)
-			c.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "forbidden", "required_permissions": names})
-			return
-		}
-		c.Next()
-	}
-}
-
 // RequireScopedPermission enforces an atomic permission then optional cluster scope on route param `param` (RBAC v2).
 func RequireScopedPermission(db *gorm.DB, param string, need authorization.Permission) gin.HandlerFunc {
 	return func(c *gin.Context) {

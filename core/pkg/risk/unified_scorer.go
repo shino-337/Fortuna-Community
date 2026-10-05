@@ -18,7 +18,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"log"
 	"math"
 	"sort"
 	"strings"
@@ -190,28 +189,6 @@ func (s *UnifiedScorerV3) SaveScoreV3(ctx context.Context, score *UnifiedScoreV3
 			}),
 		}).
 		Create(&record).Error
-}
-
-// ScheduleUnifiedScoreCalculation triggers an async V3 score calculation for the
-// given resource UID.  It is a fire-and-forget goroutine — failures are logged but
-// do not propagate.
-func (s *UnifiedScorerV3) ScheduleUnifiedScoreCalculation(resourceUID string) {
-	if resourceUID == "" {
-		return
-	}
-	go func() {
-		ctx := context.Background()
-		score, err := s.CalculateScoreV3(ctx, resourceUID)
-		if err != nil {
-			log.Printf("[UnifiedScorerV3] calculation failed for %s: %v", resourceUID, err)
-			return
-		}
-		if err := s.SaveScoreV3(ctx, score); err != nil {
-			log.Printf("[UnifiedScorerV3] save failed for %s: %v", resourceUID, err)
-			return
-		}
-		log.Printf("[UnifiedScorerV3] score updated for %s total=%.1f", resourceUID, score.TotalScore)
-	}()
 }
 
 // --- dimension scorers ---------------------------------------------------

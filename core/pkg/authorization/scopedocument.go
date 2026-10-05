@@ -214,21 +214,3 @@ func (d ScopeDocument) Validate() error {
 	}
 	return nil
 }
-
-// IntersectClusters returns cluster IDs present in both scope documents (intersection primitive).
-func IntersectClusters(a, b ScopeDocument) []string {
-	ma := make(map[string]struct{})
-	for _, id := range a.clusterIDs() {
-		if id == "" || id == "__invalid_scope__" {
-			continue
-		}
-		ma[id] = struct{}{}
-	}
-	var out []string
-	for _, id := range b.clusterIDs() {
-		if _, ok := ma[id]; ok {
-			out = append(out, id)
-		}
-	}
-	return out
-}

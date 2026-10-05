@@ -160,9 +160,3 @@ func isFalcoGenericSyscall(syscall string) bool {
 	s := strings.ToLower(strings.TrimSpace(syscall))
 	return s == "" || s == "falco.alert"
 }
-
-// FalcoRuleWorthRescore reports whether a Falco alert (named rule) should open a debounced
-// rescore window. Any non-empty rule name qualifies so low-priority Falco severities still refresh V3.
-func FalcoRuleWorthRescore(rule string) bool {
-	return strings.TrimSpace(rule) != ""
-}

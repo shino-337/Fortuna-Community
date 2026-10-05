@@ -311,23 +311,3 @@ func hasAnyFactType(facts []models.RuntimeBehaviorFact, factTypes ...string) boo
 	}
 	return false
 }
-
-func countFactTypes(facts []models.RuntimeBehaviorFact, factTypes ...string) int64 {
-	if len(facts) == 0 || len(factTypes) == 0 {
-		return 0
-	}
-	set := map[string]struct{}{}
-	for _, t := range factTypes {
-		k := strings.ToUpper(strings.TrimSpace(t))
-		if k != "" {
-			set[k] = struct{}{}
-		}
-	}
-	var n int64
-	for i := range facts {
-		if _, ok := set[strings.ToUpper(strings.TrimSpace(facts[i].FactType))]; ok {
-			n++
-		}
-	}
-	return n
-}

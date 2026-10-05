@@ -3,7 +3,6 @@ package loader
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"time"
@@ -465,13 +464,4 @@ type Stats struct {
 	CVEsCreated          int
 	PackageVulnsCreated  int
 	SkippedNoPackageInfo int
-}
-
-// LogProgress logs parsing progress
-func LogProgress(stats *Stats, filename string) {
-	if stats.TotalFiles%1000 == 0 {
-		log.Printf("Progress: %d/%d files processed, %d CVEs, %d package vulns",
-			stats.SuccessfullyParsed, stats.TotalFiles,
-			stats.CVEsCreated, stats.PackageVulnsCreated)
-	}
 }

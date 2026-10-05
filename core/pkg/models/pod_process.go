@@ -3,8 +3,8 @@ package models
 import "time"
 
 // PodProcess represents a process in a pod container (Process Service snapshot).
-// History is kept: each POST adds a new snapshot (same observed_at per batch).
-// Retention job deletes rows with observed_at older than POD_PROCESS_RETENTION_DAYS (default 30).
+// Each POST adds a new snapshot (same observed_at per batch); reads serve the latest one.
+// The retention job deletes rows with observed_at older than POD_PROCESS_RETENTION_HOURS (default 24).
 // API stores truncated strings: command 1024, binary_path 512, user_name 128, container_name 256.
 type PodProcess struct {
 	ID            uint       `gorm:"primaryKey" json:"id"`

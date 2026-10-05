@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/fortuna/core/internal/auth"
 	"github.com/fortuna/core/internal/config"
 	corek8s "github.com/fortuna/core/internal/k8s"
@@ -42,7 +44,6 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
-	"sync"
 )
 
 func livePostgresDB(t *testing.T) *gorm.DB {
@@ -208,7 +209,7 @@ func TestTwoClusterDaemonSetLive(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	secret := rand.Text() + rand.Text()
-	SetupRoutesWithCertManager(router, db, &config.Config{AuthEnabled: true, JWTSecret: secret, AgentCredentialRegistryPath: registry, TokenExpirationHours: 1}, nil, nil, nil)
+	SetupRoutesWithCertManager(router, db, &config.Config{AuthEnabled: true, JWTSecret: secret, AgentCredentialRegistryPath: registry, TokenExpirationHours: 1}, nil, nil)
 	listener, err := net.Listen("tcp", "0.0.0.0:0")
 	require.NoError(t, err)
 	server := &http.Server{Handler: router, ReadHeaderTimeout: 5 * time.Second}

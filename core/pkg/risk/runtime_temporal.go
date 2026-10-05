@@ -9,8 +9,6 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-const runtimeTemporalHalfLifeHours = 12.0
-
 // runtimeShellAPIPairingMaxGap caps how far apart shell-class and API-class evidence may be
 // while still contributing a coherent narrative pairing (spec V.1).
 const runtimeShellAPIPairingMaxGap = 20 * time.Minute
@@ -132,16 +130,4 @@ func ComputeRuntimeTemporalCoherence(events []models.RuntimeEvent, signals []mod
 	meta.CoherenceMultiplier = math.Max(0.86, 1.0+meta.SequenceBonus-meta.DisorderPenalty)
 	meta.CoherenceMultiplier = math.Min(1.12, meta.CoherenceMultiplier)
 	return meta
-}
-
-// EventTemporalDecay returns a multiplier in (0,1] from event age (spec V.2).
-func EventTemporalDecay(oldestEventAge time.Duration, halfLifeHours float64) float64 {
-	if halfLifeHours <= 0 {
-		halfLifeHours = runtimeTemporalHalfLifeHours
-	}
-	h := oldestEventAge.Hours()
-	if h <= 0 {
-		return 1.0
-	}
-	return math.Exp(-h / halfLifeHours)
 }

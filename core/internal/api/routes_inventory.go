@@ -38,9 +38,6 @@ func registerInventoryRoutes(api *gin.RouterGroup, db *gorm.DB, cfg *config.Conf
 	sas.POST("/:uid/mutations/preview", p(authorization.PermissionInventoryRead), PreviewServiceAccountMutation(db))
 	inv.GET("/serviceaccount-mutations/:operationID", p(authorization.PermissionInventoryRead), GetServiceAccountMutation(db))
 	inv.POST("/serviceaccount-mutations/:operationID/execute", p(authorization.PermissionInventoryRead), ExecuteServiceAccountMutation(db))
-	sas.POST("/bulk/disable", p(authorization.PermissionInventoryBulk), BulkDisableServiceAccounts(db))
-	sas.POST("/bulk/delete", p(authorization.PermissionInventoryBulk), BulkDeleteServiceAccounts(db))
-	sas.POST("/disable-inactive", p(authorization.PermissionInventoryBulk), DisableInactiveServiceAccounts(db))
 
 	// Clusters (list + stats global; :id routes enforce optional user cluster scope)
 	inv.GET("/clusters", p(authorization.PermissionInventoryRead), GetClusters(db))

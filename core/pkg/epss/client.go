@@ -151,11 +151,6 @@ func EvidenceJSON(epssScore, percentile float64) string {
 
 var defaultClient = sync.OnceValue(func() *Client { return NewClient() })
 
-// LookupDefault uses the process-wide client.
-func LookupDefault(ctx context.Context, cveID string) (epss float64, percentile float64, ok bool) {
-	return defaultClient().Lookup(ctx, cveID)
-}
-
 // EpssResult holds one successful EPSS lookup.
 type EpssResult struct {
 	EPSS       float64
