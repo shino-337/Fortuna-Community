@@ -150,6 +150,19 @@ The #51 gate becomes permanent CI/lab evidence. Future changes touching cluster
 identity, ingest, storage, authorization, runtime evidence, findings or migration
 code must continue to pass it.
 
+## Invariant 9 — Agent privileges are an allowlist
+
+A compromised Agent pod must not be able to run code in other pods, read
+Secrets, write to the Kubernetes API or reach node root from the container that
+parses untrusted data. The Agent's RBAC, pod spec and code are therefore pinned
+to the allowlist in [Agent privileges](SECURITY.md#agent-privileges):
+read-only verbs on listed resources; no exec, attach, port-forward or proxy
+subresource; no host namespaces, added capabilities, privilege escalation or
+writable root filesystem; and the containerd socket only in the credential-less
+`image-export` container. `scripts/verify/test-agent-privileges.py` enforces
+this in CI and applies each known escalation to prove it is rejected. Adding a
+privilege requires changing that test and the security reference together.
+
 ## Repository governance prerequisite
 
 CODEOWNERS covers security-sensitive paths, but CODEOWNERS alone does not enforce

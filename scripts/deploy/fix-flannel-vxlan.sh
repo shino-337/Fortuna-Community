@@ -378,7 +378,7 @@ main() {
     echo "  1. Wait 30-60 seconds for VXLAN to fully initialize"
     echo "  2. Verify VXLAN interfaces: ip addr show flannel.1 (on each node)"
     echo "  3. Verify routes: ip route | grep 10.244 (on each node)"
-    echo "  4. Monitor Agent logs: kubectl logs -n fortuna -l app=fortuna-agent --tail=20"
+    echo "  4. Monitor Agent logs: kubectl logs -n fortuna -l app.kubernetes.io/component=agent -c agent --tail=20"
     echo "  5. Look for 'Heartbeat successful' messages in Agent logs"
     echo ""
     echo "If Agent still cannot connect:"

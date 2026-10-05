@@ -11,14 +11,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/containerd/containerd"
-	"github.com/containerd/containerd/images/archive"
-	"github.com/containerd/containerd/namespaces"
 	"github.com/google/go-containerregistry/pkg/name"
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/google/go-containerregistry/pkg/v1/tarball"
 
+	"github.com/fortuna/agent/pkg/sbom/imageexport"
 	"github.com/fortuna/agent/pkg/sbom/signatures"
 	sbomversion "github.com/fortuna/agent/pkg/sbom/version"
 )
@@ -426,30 +424,9 @@ func (e *Extractor) getImage(ctx context.Context, ref name.Reference) (v1.Image,
 }
 
 func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Reference) (v1.Image, error) {
-	socket := getEnv("CONTAINERD_SOCKET", "/run/containerd/containerd.sock")
-	if _, err := os.Stat(socket); err != nil {
-		return nil, fmt.Errorf("containerd socket not available: %w", err)
-	}
-
-	namespace := getEnv("CONTAINERD_NAMESPACE", "k8s.io")
-	client, err := containerd.New(socket)
+	export, err := containerdExportFunc()
 	if err != nil {
-		return nil, fmt.Errorf("containerd client error: %w", err)
-	}
-	defer client.Close()
-
-	cctx := namespaces.WithNamespace(ctx, namespace)
-	candidates := containerdImageNames(ref.Name())
-
-	var selected string
-	for _, name := range candidates {
-		if _, err := client.ImageService().Get(cctx, name); err == nil {
-			selected = name
-			break
-		}
-	}
-	if selected == "" {
-		return nil, fmt.Errorf("image not found in containerd: %s", ref.Name())
+		return nil, err
 	}
 
 	tmp, err := os.CreateTemp("", "fortuna-image-*.tar")
@@ -461,9 +438,10 @@ func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Referen
 		_ = os.Remove(tmp.Name())
 	}()
 
-	if err := archive.Export(cctx, client.ContentStore(), tmp, archive.WithImage(client.ImageService(), selected)); err != nil {
-		return nil, fmt.Errorf("containerd export error: %w", err)
+	if err := export(ctx, ref.Name(), tmp); err != nil {
+		return nil, err
 	}
+	selected := ref.Name()
 	if _, err := tmp.Seek(0, 0); err != nil {
 		return nil, fmt.Errorf("containerd export seek error: %w", err)
 	}
@@ -513,15 +491,20 @@ func (e *Extractor) getImageFromContainerd(ctx context.Context, ref name.Referen
 	}, nil
 }
 
-func containerdImageNames(refName string) []string {
-	names := []string{refName}
-	if strings.HasPrefix(refName, "index.docker.io/") {
-		names = append(names, strings.Replace(refName, "index.docker.io", "docker.io", 1))
+// containerdExportFunc returns how to export images from the node's containerd.
+// With IMAGE_EXPORT_SOCKET set (the bundled DaemonSet), the image-export helper
+// does it and this container never touches the containerd socket.
+func containerdExportFunc() (func(context.Context, string, io.Writer) error, error) {
+	if helper := strings.TrimSpace(os.Getenv("IMAGE_EXPORT_SOCKET")); helper != "" {
+		return func(ctx context.Context, ref string, w io.Writer) error {
+			return imageexport.Export(ctx, helper, ref, w, 0)
+		}, nil
 	}
-	if strings.HasPrefix(refName, "docker.io/") {
-		names = append(names, strings.Replace(refName, "docker.io", "index.docker.io", 1))
+	socket := getEnv("CONTAINERD_SOCKET", "/run/containerd/containerd.sock")
+	if _, err := os.Stat(socket); err != nil {
+		return nil, fmt.Errorf("containerd socket not available: %w", err)
 	}
-	return names
+	return imageexport.ContainerdExporter{Socket: socket, Namespace: getEnv("CONTAINERD_NAMESPACE", "k8s.io")}.Export, nil
 }
 
 func getEnv(key, defaultValue string) string {

@@ -80,7 +80,7 @@ k apply -f "$ROOT/deploy/fortuna-core-deployment.yaml"
 k apply -f "$ROOT/deploy/fortuna-agent-daemonset.yaml"
 k apply -f "$ROOT/deploy/dashboard-deployment.yaml"
 k -n "$NAMESPACE" set image deployment/fortuna-core core="${REGISTRY}/fortuna-core:${VERSION}" >/dev/null
-k -n "$NAMESPACE" set image daemonset/fortuna-agent agent="${REGISTRY}/fortuna-agent:${VERSION}" >/dev/null
+k -n "$NAMESPACE" set image daemonset/fortuna-agent agent="${REGISTRY}/fortuna-agent:${VERSION}" image-export="${REGISTRY}/fortuna-agent:${VERSION}" >/dev/null
 k -n "$NAMESPACE" set image deployment/fortuna-dashboard dashboard="${REGISTRY}/fortuna-dashboard:${VERSION}" >/dev/null
 if [ "$VERSION" = "latest" ]; then
   # Always pull the current published build rather than a stale cached one.
@@ -88,6 +88,8 @@ if [ "$VERSION" = "latest" ]; then
     k -n "$NAMESPACE" patch "$target" --type=json \
       -p '[{"op":"replace","path":"/spec/template/spec/containers/0/imagePullPolicy","value":"Always"}]' >/dev/null
   done
+  k -n "$NAMESPACE" patch daemonset/fortuna-agent --type=json \
+    -p '[{"op":"replace","path":"/spec/template/spec/containers/1/imagePullPolicy","value":"Always"}]' >/dev/null
 fi
 
 step "Waiting for Fortuna to become ready (first start runs migrations; this takes a few minutes)"

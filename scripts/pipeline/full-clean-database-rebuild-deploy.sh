@@ -630,7 +630,7 @@ _set_workload_images_for_tag() {
       kubectl set image deployment/fortuna-core -n "$NAMESPACE" core="$core_image" >/dev/null 2>&1 || true
       ;;
     agent)
-      kubectl set image daemonset/fortuna-agent -n "$NAMESPACE" agent="$agent_image" >/dev/null 2>&1 || true
+      kubectl set image daemonset/fortuna-agent -n "$NAMESPACE" agent="$agent_image" image-export="$agent_image" >/dev/null 2>&1 || true
       ;;
     dashboard)
       kubectl set image deployment/fortuna-dashboard -n "$NAMESPACE" dashboard="$dashboard_image" >/dev/null 2>&1 || true
@@ -638,7 +638,7 @@ _set_workload_images_for_tag() {
     *)
       kubectl set image deployment/fortuna-core -n "$NAMESPACE" core="$core_image" >/dev/null 2>&1 || true
       kubectl set image deployment/fortuna-dashboard -n "$NAMESPACE" dashboard="$dashboard_image" >/dev/null 2>&1 || true
-      kubectl set image daemonset/fortuna-agent -n "$NAMESPACE" agent="$agent_image" >/dev/null 2>&1 || true
+      kubectl set image daemonset/fortuna-agent -n "$NAMESPACE" agent="$agent_image" image-export="$agent_image" >/dev/null 2>&1 || true
       ;;
   esac
 }
@@ -1347,7 +1347,7 @@ if [ "$WITH_EBPF" = true ] && [ "$SKIP_DEPLOY" = false ]; then
   if [ "$CURRENT_EBPF" != "true" ]; then
     kubectl set env daemonset/fortuna-agent -n "$NAMESPACE" EBPF_ENABLED=true 2>/dev/null || true
     RUNTIME_RESTART_NEEDED=true
-    log_success "eBPF sensor enabled on Agent"
+    log_warn "eBPF sensor enabled, but it is an experimental no-op scaffold and the DaemonSet grants no eBPF capabilities; use Falco for runtime evidence"
   else
     log_info "Agent already has EBPF_ENABLED=true"
   fi

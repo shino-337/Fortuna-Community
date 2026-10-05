@@ -137,7 +137,7 @@ sync_one_remote() {
       "$SCRIPTS/utils/push-images-to-workers.sh" --agent-only --build-if-missing --no-dashboard
   fi
 
-  KUBECONFIG="$kubeconfig" kubectl -n "$NAMESPACE" set image daemonset/fortuna-agent "agent=$AGENT_IMAGE" >/dev/null
+  KUBECONFIG="$kubeconfig" kubectl -n "$NAMESPACE" set image daemonset/fortuna-agent "agent=$AGENT_IMAGE" "image-export=$AGENT_IMAGE" >/dev/null
   KUBECONFIG="$kubeconfig" kubectl -n "$NAMESPACE" patch daemonset/fortuna-agent \
     --type=strategic \
     -p "{\"spec\":{\"template\":{\"spec\":{\"containers\":[{\"name\":\"agent\",\"imagePullPolicy\":\"$REMOTE_IMAGE_PULL_POLICY\"}]}}}}" >/dev/null

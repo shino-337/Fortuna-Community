@@ -1,24 +1,71 @@
-# Security Reference
+# Security reference
 
-This reference covers runtime secret handling and repository hygiene for Fortuna deployments.
+How Fortuna limits its own privileges, what an attacker gains from each component, and how credentials and the repository are handled. To report a vulnerability, see the [security policy](../../SECURITY.md). Hardening steps for an installation are in [production deployment](../operations/PRODUCTION_DEPLOYMENT.md).
 
-## Runtime Secrets
+## Agent privileges
 
-- Store `FORTUNA_JWT_SECRET`, `FORTUNA_ADMIN_PASSWORD`, `FORTUNA_INGEST_TOKEN`, registry credentials, and PostgreSQL credentials in Kubernetes Secrets or an external secret manager.
-- Generate deployment secrets per environment. Do not reuse local development credentials in production.
-- Rotate mTLS certificate authorities and client/server certificates after any suspected disclosure or history rewrite.
-- Use short-lived tokens where possible and avoid putting bearer tokens in logs, issue reports, screenshots, or shell history.
+The Agent runs on every node, so its privileges are what an attacker gets from one compromised Agent pod. They are kept to what the code uses, split so that the part that parses untrusted data holds no node-level power, and enforced in CI.
 
-## Repository Hygiene
+### What the Agent pod is granted
 
-- Do not commit real private keys, certificates, kubeconfigs, database dumps, `.env` files, node credentials, package vulnerability mirrors, generated reports, or local binaries.
-- Keep examples under `deploy/samples/` and `*.example` files generic.
-- Run the full-history secret scan before public releases and after large documentation imports.
-- Treat deleted files as still public until Git history has been rewritten and the sanitized branch has been force-pushed.
+| Privilege | Container | Used for |
+|---|---|---|
+| Read-only RBAC: pods, events, nodes, namespaces, ServiceAccounts, Roles, ClusterRoles and bindings, Deployments, ReplicaSets | `agent` | Inventory and attack-path analysis |
+| Read-only `metrics.k8s.io` pods | `agent` | CPU and memory in Pod Detail (needs metrics-server; without it those values are empty) |
+| Host `/proc`, read-only | `agent` | Processes, sockets and network counters per pod |
+| Host `/var/log/falco`, read-only | `agent` | Falco events |
+| Host `/var/lib/fortuna-agent`, read-write | `agent` | Falco delivery cursor and outbox |
+| Host containerd socket | `image-export` only | Exporting image archives for SBOM extraction |
+| uid 0 with every capability dropped | both | The containerd socket and existing state files are root-owned |
 
-## Deployment Notes
+Both containers run with a read-only root filesystem, `allowPrivilegeEscalation: false` and the `RuntimeDefault` seccomp profile. The pod has no `hostPID`, `hostNetwork` or `hostIPC`, adds no capabilities and is not privileged. Writable scratch space is an `emptyDir` at `/tmp`.
 
-- Prefer immutable image tags such as release tags or `sha-<commit>` tags for production.
-- Enable authentication for user-facing Core API routes.
-- Use mTLS for agent-to-core gRPC traffic.
-- Review dashboard and API logs before sharing bug reports.
+The Agent is never granted Secrets, `pods/exec`, `pods/attach`, `pods/portforward`, `nodes/proxy` (it also reaches the kubelet exec endpoint), `serviceaccounts/token`, any write verb or any wildcard.
+
+### Separating the containerd socket
+
+The containerd socket is equivalent to root on the node, and SBOM extraction parses untrusted image content. The two are kept in different containers:
+
+- `image-export` is the only container that mounts the socket. It has no ServiceAccount token (the pod sets `automountServiceAccountToken: false`, and the token is projected into the `agent` container only), no Core credentials, no other host mounts and no network listener. It accepts one request type on a pod-local unix socket (mode `0600`): a JSON line of at most 1 KiB naming a fully qualified image reference. It streams the archive back with a size limit and never parses image content.
+- `agent` parses the archive, runs Syft and talks to Core and the Kubernetes API, without the socket.
+
+### What an attacker gets
+
+| Compromised | Gains | Does not gain |
+|---|---|---|
+| `agent` container, for example through a crafted image or a parser bug | Read-only cluster inventory including RBAC; this Agent's Core credential (scoped to one Agent and cluster with [scoped credentials](../../deploy/scoped-agent-credentials/README.md)); command lines and sockets of processes on the node; Falco events; archives of images present on the node through `image-export` | Secrets, exec into pods, API writes, kubelet access, kernel or host filesystem changes outside its state directory, node root |
+| `image-export` container | Root on the node through containerd | Kubernetes or Core credentials |
+| Agent ServiceAccount token | Read-only inventory until the token expires (about an hour) | Everything in the first row beyond inventory |
+
+### Residual risk
+
+- **The containerd socket.** If `image-export` is compromised, the node is. Its input is a single validated reference, which keeps that surface small but not zero. To remove the socket entirely, delete the `image-export` container and `containerd-socket` volume and set `SBOM_PREFER_REGISTRY=1` on the `agent` container; SBOMs then come from anonymous registry pulls, so images in private registries get no SBOM.
+- **Process command lines.** Pod Detail reads `/proc/<pid>/cmdline` for every process on the node. Secrets passed as command-line arguments are visible to the Agent and stored in Core.
+- **Image contents.** A compromised `agent` container can read any image on its node, including secrets baked into images.
+- **Root without capabilities.** The `agent` container still runs as uid 0 because existing Falco state files are root-owned; it cannot bypass file permissions. Running it as non-root needs a state-directory ownership migration first.
+
+### Guardrails
+
+- **CI gate.** [`scripts/verify/test-agent-privileges.py`](../../scripts/verify/test-agent-privileges.py) fails the build if the bundled manifests or overlays grant anything outside the lists above, mount the socket outside `image-export`, or give `image-export` a token, a secret or another mount, and if Agent code calls an exec, attach or proxy subresource. It also applies each known escalation to the manifest and checks that it is rejected. Adding a privilege means changing that script in review, together with this section.
+- **Network.** [`network-policies.yaml`](../../deploy/infrastructure/network-policies.yaml) denies all ingress to Agent pods.
+- **Check a live cluster.**
+
+  ```bash
+  kubectl auth can-i --list --as=system:serviceaccount:fortuna:fortuna-agent
+  kubectl -n fortuna get ds fortuna-agent -o jsonpath='{.spec.template.spec.containers[*].securityContext}'
+  ```
+
+- **Detect misuse.** Alert in the Kubernetes audit log on any request from `system:serviceaccount:fortuna:fortuna-agent` that is denied (a compromised Agent probing) or is not a `get`, `list` or `watch`. With Falco, alert on processes in Agent pods other than `fortuna-agent`, `syft` and `fortuna-image-export`, and on connections to the containerd socket from any other process.
+
+The built-in eBPF sensor is an experimental scaffold that attaches no-op programs. It needs capabilities this manifest deliberately does not grant, so enabling it only produces a coverage error; use Falco for runtime evidence.
+
+## Credentials
+
+- Keep `JWT_SECRET`, `FORTUNA_ADMIN_PASSWORD`, `FORTUNA_INGEST_TOKEN`, registry credentials and PostgreSQL credentials in Kubernetes Secrets or an external secret manager, generated per environment.
+- Prefer per-Agent HTTP tokens and gRPC client certificates over the shared ingest token; see [scoped Agent credentials](../../deploy/scoped-agent-credentials/README.md).
+- Rotate the mTLS CA and certificates after any suspected disclosure.
+- Keep bearer tokens out of logs, issue reports, screenshots and shell history. Core redacts `?token=` query values from its access logs.
+
+## Repository hygiene
+
+Contributor rules for keeping secrets and generated files out of the repository are in [CONTRIBUTING.md](../../CONTRIBUTING.md#repository-rules). Before a public release, maintainers run the [public release checklist](../maintainers/PUBLIC_RELEASE_CHECKLIST.md), including the full-history secret scan.

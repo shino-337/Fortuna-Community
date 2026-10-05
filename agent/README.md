@@ -1,6 +1,6 @@
 # Fortuna Agent
 
-Fortuna Agent is a privileged DaemonSet for **Fortuna**. It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
+Fortuna Agent is a DaemonSet for **Fortuna**. It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
 
 ---
 
@@ -122,8 +122,10 @@ agent/
 - `TLS_KEY_PATH`: Client private key path (default: `/etc/fortuna/tls/client/tls.key`)
 - `TLS_CA_CERT_PATH`: CA certificate path (default: `/etc/fortuna/tls/client/ca.crt`)
 
-**Containerd**:
-- `CONTAINERD_SOCKET`: Containerd socket path (default: `/run/containerd/containerd.sock`)
+**Image access (SBOM)**:
+- `IMAGE_EXPORT_SOCKET`: Unix socket of the `image-export` container (bundled manifest: `/run/fortuna-image-export/export.sock`). When unset, the Agent opens `CONTAINERD_SOCKET` itself.
+- `CONTAINERD_SOCKET`, `CONTAINERD_NAMESPACE`: containerd socket and namespace, used by `image-export` (defaults `/run/containerd/containerd.sock`, `k8s.io`)
+- `SBOM_PREFER_REGISTRY=1`: skip containerd and pull images anonymously from the registry
 
 **Logging**:
 - `LOG_LEVEL`: Log level (default: `info`)
@@ -134,7 +136,7 @@ agent/
 **Inventory and runtime**:
 - `SYNC_INTERVAL` (default `30s`; the bundled manifest uses `5m`), `HEARTBEAT_INTERVAL`, `WATCH_NAMESPACE`
 - `FALCO_EVENTS_ENABLED`, `FALCO_EVENTS_PATH`, `FALCO_DELIVERY_STATE_PATH`
-- `EBPF_ENABLED`, `EBPF_SIMULATE` (synthetic events; never use as real evidence)
+- `EBPF_ENABLED`, `EBPF_SIMULATE`: experimental no-op eBPF scaffold; the bundled manifest grants it no capabilities. `EBPF_SIMULATE` emits synthetic events; never use them as evidence.
 
 ---
 
@@ -190,10 +192,10 @@ See [deploy/README.md](../deploy/README.md) for every manifest and its settings.
 
 ```bash
 # Check pods
-kubectl get pods -l app=fortuna-agent -n fortuna
+kubectl get pods -l app.kubernetes.io/component=agent -n fortuna
 
 # Check logs
-kubectl logs -l app=fortuna-agent -n fortuna
+kubectl logs -l app.kubernetes.io/component=agent -n fortuna -c agent
 ```
 
 ### Local Development
@@ -237,8 +239,8 @@ go run cmd/main.go
 
 ### SBOM Extraction Process
 
-1. **Image Access**: Access container image via containerd socket
-2. **Filesystem Mount**: Mount container root filesystem
+1. **Image Access**: Ask the `image-export` container for the image archive (it alone holds the containerd socket), or pull from the registry
+2. **Layer Unpacking**: Unpack image layers into a scratch filesystem
 3. **OS Detection**: Detect OS type (Debian, Alpine, etc.)
 4. **Parser Selection**: Select relevant parsers based on OS
 5. **Package Extraction**: Extract packages with versions
@@ -263,7 +265,7 @@ The Agent reads pods, nodes, namespaces, ServiceAccounts, workloads, events and 
 
 ### Node privileges
 
-The Agent runs as root with host PID access, `SYS_ADMIN`, `SYS_BPF`, `PERFMON` and `SYS_RESOURCE`, and mounts the containerd socket, `/proc`, the Falco log directory and its state directory from the host. These are required for container image access, PID-to-container mapping and runtime sensors. It has no RBAC access to Secrets, but the containerd socket and root on the node give equivalent reach. Run it only in clusters where that trade-off is acceptable.
+Both containers drop every Linux capability and run with a read-only root filesystem and no privilege escalation; the pod uses no host namespaces. The `agent` container reads host `/proc` and the Falco log directory and writes only its state directory. The containerd socket is mounted only into the credential-less `image-export` container. [Agent privileges](../docs/reference/SECURITY.md#agent-privileges) lists each privilege, what a compromise would give an attacker, and the CI gate that keeps the list from growing.
 
 ---
 
@@ -272,7 +274,7 @@ The Agent runs as root with host PID access, `SYS_ADMIN`, `SYS_BPF`, `PERFMON` a
 ### Check Agent Logs
 
 ```bash
-kubectl logs -l app=fortuna-agent -n fortuna
+kubectl logs -l app.kubernetes.io/component=agent -n fortuna -c agent
 ```
 
 ### Verify RBAC Permissions
@@ -287,16 +289,15 @@ kubectl auth can-i list pods \
 
 ```bash
 # From agent pod
-kubectl exec -it <agent-pod> -n fortuna -- \
-  wget -O- http://fortuna-core.fortuna.svc.cluster.local:8080/healthz
+kubectl exec -it <agent-pod> -n fortuna -c agent -- \
+  curl -s http://fortuna-core.fortuna.svc.cluster.local:8080/healthzz
 ```
 
-### Verify Containerd Access
+### Verify Image Access
 
 ```bash
-# Check containerd socket
-kubectl exec -it <agent-pod> -n fortuna -- \
-  ls -la /run/containerd/containerd.sock
+# Each export is logged by the image-export container
+kubectl logs <agent-pod> -n fortuna -c image-export --tail=20
 ```
 
 ### Common Issues
@@ -311,7 +312,7 @@ kubectl exec -it <agent-pod> -n fortuna -- \
 - **Solution**: Check `CORE_GRPC_ENDPOINT` and network policies
 
 **Issue**: SBOM extraction fails
-- **Solution**: Verify containerd socket access and image availability
+- **Solution**: Check the `image-export` container logs (above). "image not found in containerd" means the image is not on this node; the Agent then falls back to an anonymous registry pull
 
 **Issue**: mTLS handshake fails
 - **Solution**: Verify certificates are mounted correctly

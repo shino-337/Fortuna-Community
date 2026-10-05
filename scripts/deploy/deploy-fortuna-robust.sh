@@ -554,7 +554,8 @@ if [ "$DEPLOY_EBPF" = true ]; then
   echo ""
   echo -e "${BLUE}Step 9a: Enabling eBPF sensor on Agent DaemonSet...${NC}"
   kubectl set env daemonset/fortuna-agent -n "$NAMESPACE" EBPF_ENABLED=true 2>/dev/null || true
-  echo -e "${GREEN}✅${NC} eBPF sensor enabled (will activate on next rollout restart)"
+  echo -e "${YELLOW}⚠️${NC}  The built-in eBPF sensor is an experimental no-op scaffold and the bundled DaemonSet grants no eBPF capabilities;"
+  echo "    attach fails and runtime coverage reports it. Use Falco (--with-falco) for runtime evidence."
 fi
 # Step 9b: Deploy Dashboard
 echo ""

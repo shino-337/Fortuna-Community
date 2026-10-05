@@ -4,7 +4,7 @@ Detailed contracts for operators and contributors who need to know exactly how F
 
 ## Security
 
-- [Security](SECURITY.md): credentials, JWT, mTLS, image pulls, runtime sensors and repository hygiene.
+- [Security](SECURITY.md): Agent privileges and their blast radius, the CI guardrails on them, and credential handling.
 - [Security invariants](SECURITY_INVARIANTS.md): properties every change must preserve.
 
 ## Identity and data ownership

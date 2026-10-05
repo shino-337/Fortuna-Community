@@ -2,7 +2,7 @@
 
 This is the single install guide for running Fortuna from published images. To try Fortuna on your laptop first, use the [one-command local demo](DEMO.md). To build images from source, see [local containerd build and deploy](../operations/DEPLOYMENT_CONTAINERD.md). For hardening a long-lived installation, continue with [production deployment](../operations/PRODUCTION_DEPLOYMENT.md).
 
-Start in an isolated cluster and read the [environment requirements](ENVIRONMENT_REQUIREMENTS.md). The Agent runs privileged on every node.
+Start in an isolated cluster and read the [environment requirements](ENVIRONMENT_REQUIREMENTS.md). The Agent runs on every node with read access to host processes and, through a sidecar, the containerd socket; see [Agent privileges](../reference/SECURITY.md#agent-privileges).
 
 ## Prerequisites
 
@@ -78,7 +78,7 @@ kubectl apply -f deploy/fortuna-agent-daemonset.yaml
 kubectl apply -f deploy/dashboard-deployment.yaml
 
 kubectl -n fortuna set image deployment/fortuna-core core="${FORTUNA_REGISTRY}/fortuna-core:${FORTUNA_VERSION}"
-kubectl -n fortuna set image daemonset/fortuna-agent agent="${FORTUNA_REGISTRY}/fortuna-agent:${FORTUNA_VERSION}"
+kubectl -n fortuna set image daemonset/fortuna-agent agent="${FORTUNA_REGISTRY}/fortuna-agent:${FORTUNA_VERSION}" image-export="${FORTUNA_REGISTRY}/fortuna-agent:${FORTUNA_VERSION}"
 kubectl -n fortuna set image deployment/fortuna-dashboard dashboard="${FORTUNA_REGISTRY}/fortuna-dashboard:${FORTUNA_VERSION}"
 ```
 
