@@ -132,6 +132,13 @@ export const Capabilities: React.FC = () => {
       toolbar={
         <FilterBar
           embedded
+          reset={{
+            onReset: () => {
+              setSearchTerm('');
+              setDomain('all');
+            },
+            active: searchTerm.trim() !== '' || domain !== 'all',
+          }}
           search={{
             value: searchTerm,
             onChange: setSearchTerm,

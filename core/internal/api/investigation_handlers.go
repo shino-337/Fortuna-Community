@@ -381,6 +381,47 @@ func ListInvestigationCases(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
+// investigationAccessibleCases is the SQL form of investigationCanAccessCase: admins see every case;
+// other users see cases they created or own, limited to their cluster scope (cases without a
+// cluster stay visible).
+func investigationAccessibleCases(db *gorm.DB, c *gin.Context, u *models.User) *gorm.DB {
+	q := db.Model(&models.InvestigationCase{})
+	if investigationIsAdmin(c) {
+		return q
+	}
+	q = q.Where("(created_by_user_id = ? OR LOWER(owner) = LOWER(?))", u.ID, u.Username)
+	doc := authorization.ParseScopeDocument(u.ScopeJSON)
+	if !doc.RestrictsClusters() {
+		return q
+	}
+	const noCluster = "cluster_id IS NULL OR TRIM(cluster_id) = ''"
+	var allowed []string
+	if !doc.HasUnenforcedRestrictions() {
+		// Same allow-list as ScopeDocument.ClusterAllowed, which denies the invalid-scope marker.
+		if ids := doc.ClusterIDs(); !(len(ids) == 1 && ids[0] == "__invalid_scope__") {
+			allowed = ids
+		}
+	}
+	if len(allowed) == 0 {
+		return q.Where("(" + noCluster + ")")
+	}
+	return q.Where("("+noCluster+" OR TRIM(cluster_id) IN ?)", allowed)
+}
+
+// countOverdueRemediation counts open remediation actions whose RFC 3339 due date has passed.
+func countOverdueRemediation(actions []investigationRemediationDTO, now time.Time) int {
+	n := 0
+	for _, rem := range actions {
+		if rem.Status == "done" || rem.DueAt == "" {
+			continue
+		}
+		if t, err := time.Parse(time.RFC3339, rem.DueAt); err == nil && t.Before(now) {
+			n++
+		}
+	}
+	return n
+}
+
 func GetInvestigationCaseStats(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !db.Migrator().HasTable(&models.InvestigationCase{}) {
@@ -392,34 +433,32 @@ func GetInvestigationCaseStats(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
 			return
 		}
-		var rows []models.InvestigationCase
-		q := db.Model(&models.InvestigationCase{})
-		if !investigationIsAdmin(c) {
-			q = q.Where("created_by_user_id = ? OR LOWER(owner) = LOWER(?)", u.ID, u.Username)
-		}
-		if err := q.Order("updated_at DESC").Find(&rows).Error; err != nil {
+		q := investigationAccessibleCases(db, c, u)
+		var openCases int64
+		if err := q.Session(&gorm.Session{}).
+			Where("UPPER(TRIM(COALESCE(status, ''))) NOT IN ?", []string{invpkg.StatusResolved, invpkg.StatusArchived, "CLOSED"}).
+			Count(&openCases).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
+		// Due dates are free-form strings inside remediation_json and are parsed with Go's RFC 3339
+		// rules, which SQL cannot match portably. Only cases whose JSON mentions dueAt (keys match
+		// case-insensitively, as in encoding/json) are read, one column, in batches.
 		now := time.Now().UTC()
-		openCases := 0
 		overdue := 0
-		for i := range rows {
-			if !investigationCanAccessCase(c, &rows[i]) {
-				continue
-			}
-			dto := toInvestigationDTO(rows[i])
-			if invpkg.IsTerminalOpen(dto.Status) {
-				openCases++
-			}
-			for _, rem := range dto.RemediationActions {
-				if rem.Status == "done" || rem.DueAt == "" {
-					continue
+		var batch []models.InvestigationCase
+		err := q.Session(&gorm.Session{}).
+			Select("id", "remediation_json").
+			Where("LOWER(CAST(remediation_json AS TEXT)) LIKE ?", "%dueat%").
+			FindInBatches(&batch, 500, func(_ *gorm.DB, _ int) error {
+				for i := range batch {
+					overdue += countOverdueRemediation(parseRemediation(batch[i].RemediationJSON), now)
 				}
-				if t, err := time.Parse(time.RFC3339, rem.DueAt); err == nil && t.Before(now) {
-					overdue++
-				}
-			}
+				return nil
+			}).Error
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 		c.JSON(http.StatusOK, gin.H{"openCases": openCases, "overdueRemediation": overdue})
 	}

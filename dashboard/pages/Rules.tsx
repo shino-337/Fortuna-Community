@@ -426,9 +426,24 @@ export const Rules: React.FC = () => {
     },
   }[activeTab];
 
+  const detectionFiltersActive =
+    searchTerm.trim() !== "" ||
+    statusFilter !== "enabled" ||
+    severityFilter !== "all" ||
+    sortBy !== "severity_desc" ||
+    overlappingOnly;
+  const resetDetectionFilters = () => {
+    setSearchTerm("");
+    setStatusFilter("enabled");
+    setSeverityFilter("all");
+    setSortBy("severity_desc");
+    setOverlappingOnly(false);
+  };
+
   const detectionToolbar = (
     <FilterBar
       embedded
+      reset={{ onReset: resetDetectionFilters, active: detectionFiltersActive }}
       search={{
         value: searchTerm,
         onChange: setSearchTerm,

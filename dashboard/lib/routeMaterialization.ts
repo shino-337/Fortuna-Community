@@ -46,7 +46,7 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
     '/identities/uid/:uid',
     '/identities/:id',
   ],
-  '/clusters': ['/clusters/:id', '/clusters/:clusterId/nodes/:nodeName'],
+  '/resources/clusters': ['/clusters/:id', '/clusters/:clusterId/nodes/:nodeName'],
   '/rules/catalog': ['/capabilities/:id'],
   '/rules/risk-scoring': [],
   '/rules': ['/rules/uid/:uid', '/rules/:id'],
@@ -64,10 +64,10 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
 const ALL_APP_ROUTES = [
   '/',
   '/dashboard',
-  '/clusters',
   '/clusters/:id',
   '/clusters/:clusterId/nodes/:nodeName',
   '/resources',
+  '/resources/clusters',
   '/resources/pods/uid/:uid',
   '/resources/pods/:id',
   '/identities/uid/:uid',
@@ -167,7 +167,7 @@ function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
   if (can(ctx.user, P.findingsRead)) routes.add('/risks');
   if (can(ctx.user, P.inventoryRead)) {
     routes.add('/resources');
-    routes.add('/clusters');
+    routes.add('/resources/clusters');
     routes.add('/rules/catalog');
   }
   if (can(ctx.user, P.runtimeRead)) routes.add('/network-activity');

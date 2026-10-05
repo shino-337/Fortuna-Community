@@ -28,7 +28,6 @@ const MISSION_CATALOG: Record<
   exposure: { label: PAGE_TITLES.riskOperations, path: '/risks/findings', iconKey: 'risks' },
   investigations: { label: PAGE_TITLES.investigations, path: '/investigation', iconKey: 'investigation' },
   reports: { label: PAGE_TITLES.reports, path: '/reports', iconKey: 'reports' },
-  clusters: { label: PAGE_TITLES.clusters, path: '/clusters', iconKey: 'clusters' },
   resources: { label: PAGE_TITLES.resources, path: '/resources', iconKey: 'resources' },
   // Rules & Catalog opens on the first section the user can read (viewers only see the catalog).
   rules: { label: PAGE_TITLES.policyRules, path: '/rules', iconKey: 'rules', fallbackPaths: ['/rules/catalog'] },
@@ -44,19 +43,19 @@ const MISSION_CATALOG: Record<
 
 const VIEWER_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Overview', keys: ['home', 'dashboardKpis', 'exposure', 'investigations', 'reports'] },
-  { section: 'Context', keys: ['attackPaths', 'runtime', 'resources', 'clusters', 'rules', 'telemetry'] },
+  { section: 'Context', keys: ['attackPaths', 'runtime', 'resources', 'rules', 'telemetry'] },
 ];
 
 const OPERATOR_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Triage', keys: ['activeResponse', 'dashboardKpis', 'threatOps', 'investigations'] },
-  { section: 'Evidence', keys: ['attackPaths', 'runtime', 'resources', 'clusters'] },
+  { section: 'Evidence', keys: ['attackPaths', 'runtime', 'resources'] },
   { section: 'Controls', keys: ['rules', 'telemetry'] },
 ];
 
 const ADMIN_MISSIONS: { section: string; keys: string[] }[] = [
   { section: 'Overview', keys: ['platform', 'dashboardKpis', 'telemetry'] },
   { section: 'Risk workflow', keys: ['threatOps', 'investigations', 'attackPaths', 'runtime'] },
-  { section: 'Inventory', keys: ['resources', 'clusters', 'reports'] },
+  { section: 'Inventory', keys: ['resources', 'reports'] },
   { section: 'Controls', keys: ['rules'] },
   { section: 'Administration', keys: ['governance', 'settings'] },
 ];

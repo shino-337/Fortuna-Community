@@ -55,3 +55,15 @@ func loadRiskTrendPoints(db *gorm.DB, scope analyticsScope, period, namespace st
 	err := query.Select(selectSQL).Group(bucket).Order(bucket + " ASC").Scan(&trends).Error
 	return trends, err
 }
+
+// riskScoreDayBucketSQL returns the SQL for the UTC calendar day (YYYY-MM-DD) of calculated_at.
+func riskScoreDayBucketSQL(db *gorm.DB) (string, error) {
+	switch db.Dialector.Name() {
+	case "postgres":
+		return "to_char(date_trunc('day',calculated_at AT TIME ZONE 'UTC'),'YYYY-MM-DD')", nil
+	case "sqlite":
+		return "strftime('%Y-%m-%d',calculated_at)", nil
+	default:
+		return "", fmt.Errorf("unsupported trend aggregation database")
+	}
+}

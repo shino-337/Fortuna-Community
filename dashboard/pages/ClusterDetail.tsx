@@ -170,7 +170,7 @@ const ClusterDetailContent: React.FC = () => {
           {(loadError || issue) && issue?.retryable !== false ? (
             <Button variant="secondary" onClick={() => void fetchCluster()} isLoading={loading}>Retry cluster</Button>
           ) : null}
-          <Button variant="secondary" onClick={() => navigate('/clusters')}>
+          <Button variant="secondary" onClick={() => navigate('/resources/clusters')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters
           </Button>
         </div>
@@ -191,7 +191,7 @@ const ClusterDetailContent: React.FC = () => {
       title={getClusterDisplayName(cluster)}
       description={cluster.distribution ? `${cluster.distribution} · ${cluster.version ?? cluster.k8sVersion ?? ''}` : cluster.version ?? cluster.k8sVersion ?? undefined}
       actions={
-        <Button variant="secondary" onClick={() => navigate('/clusters')}>
+        <Button variant="secondary" onClick={() => navigate('/resources/clusters')}>
           <ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters
         </Button>
       }

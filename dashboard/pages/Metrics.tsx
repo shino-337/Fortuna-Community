@@ -13,7 +13,6 @@ import {
   SyncStatus,
   WorkerStatus,
   PipelineHealth,
-  AuditLog,
   DashboardDataIntegrity,
 } from '../types';
 import {
@@ -23,7 +22,6 @@ import {
   Download,
   History,
   AlertCircle,
-  FileText,
   AlertTriangle,
   Activity,
   Layers,
@@ -52,6 +50,7 @@ import {
 } from '../lib/tableChrome';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { Pagination } from '../components/Pagination';
+import { ResetFiltersButton } from '../components/ResetFiltersButton';
 import { can, canAny, P } from '../lib/permissions';
 import { usePermUser } from '../hooks/usePermUser';
 import { usePersona } from '../hooks/usePersona';
@@ -317,6 +316,8 @@ export const Monitoring: React.FC = () => {
   const canObservabilityAgents = can(permUser, P.observabilityAgentsRead);
   const canObservabilityLogs = can(permUser, P.observabilityLogsRead);
   const canInventoryRead = can(permUser, P.inventoryRead);
+  // Worker status and catalog health are platform-wide; Core returns 403 to cluster-scoped accounts.
+  const isClusterScoped = (permUser?.operationalScope?.clusters?.length ?? 0) > 0;
   // The Certificates page is gated by rotate permission; hide links that would bounce.
   const canCertificates = can(permUser, P.clusterCertificatesRotate);
   const canObservabilityShell = canAny(permUser, [
@@ -340,13 +341,6 @@ export const Monitoring: React.FC = () => {
   const [partialErrors, setPartialErrors] = useState<string[]>([]);
   const [logFilter, setLogFilter] = useState<LogFilter>('ALL');
 
-  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
-  const [auditTotal, setAuditTotal] = useState(0);
-  const [auditPage, setAuditPage] = useState(1);
-  const [auditPageSize, setAuditPageSize] = useState(20);
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditError, setAuditError] = useState<string | null>(null);
-  const auditRequestRef = useRef(0);
 
   const [errLogs, setErrLogs] = useState<ErrorLog[]>([]);
   const [errTotal, setErrTotal] = useState(0);
@@ -383,15 +377,20 @@ export const Monitoring: React.FC = () => {
       }
       if (canObservabilityMetrics) {
         tasks.push(run('Sync status', api.getSyncStatus().then(setSyncStatus)));
-        tasks.push(
-          run('Worker status', api.getWorkerStatus().then(setWorkerStatus)),
-        );
-        tasks.push(
-          run(
-            'Catalog health',
-            api.getDashboardDataIntegrity().then(setDataIntegrity),
-          ),
-        );
+        if (isClusterScoped) {
+          setWorkerStatus([]);
+          setDataIntegrity(null);
+        } else {
+          tasks.push(
+            run('Worker status', api.getWorkerStatus().then(setWorkerStatus)),
+          );
+          tasks.push(
+            run(
+              'Catalog health',
+              api.getDashboardDataIntegrity().then(setDataIntegrity),
+            ),
+          );
+        }
         tasks.push(
           run(
             'Pipeline health',
@@ -433,6 +432,7 @@ export const Monitoring: React.FC = () => {
     canObservabilityAgents,
     canObservabilityLogs,
     canObservabilityMetrics,
+    isClusterScoped,
   ]);
 
   const intervalMs = useRefreshIntervalStore((s) =>
@@ -444,38 +444,6 @@ export const Monitoring: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  const fetchAuditPage = useCallback(async () => {
-    const seq = ++auditRequestRef.current;
-    if (!canPlatformAudit) {
-      setAuditLogs([]);
-      setAuditTotal(0);
-      setAuditError(null);
-      setAuditLoading(false);
-      return;
-    }
-    setAuditLoading(true);
-    try {
-      const data = await api.getAuditLogs({
-        page: auditPage,
-        pageSize: auditPageSize,
-      });
-      if (seq !== auditRequestRef.current) return;
-      setAuditLogs(data.logs);
-      setAuditTotal(Number.isFinite(data.total) ? data.total : 0);
-      setAuditError(null);
-    } catch (e) {
-      if (seq !== auditRequestRef.current) return;
-      setAuditLogs([]);
-      setAuditTotal(0);
-      setAuditError(getAvailabilityIssue(e, 'Platform audit logs').description);
-    } finally {
-      if (seq === auditRequestRef.current) setAuditLoading(false);
-    }
-  }, [canPlatformAudit, auditPage, auditPageSize]);
-
-  useEffect(() => {
-    void fetchAuditPage();
-  }, [fetchAuditPage]);
 
   const fetchErrorLogsPage = useCallback(async () => {
     // Level/source/page changes can overlap; only the latest request may update the table.
@@ -515,23 +483,28 @@ export const Monitoring: React.FC = () => {
 
   const refreshMonitoringAll = useCallback(async () => {
     await fetchData();
-    await Promise.allSettled([fetchAuditPage(), fetchErrorLogsPage()]);
-  }, [fetchData, fetchAuditPage, fetchErrorLogsPage]);
+    await fetchErrorLogsPage();
+  }, [fetchData, fetchErrorLogsPage]);
 
   const sectionParam = searchParams.get('section');
   useEffect(() => {
-    if (sectionParam !== 'audit' && sectionParam !== 'error-logs') return;
-    if (sectionParam === 'audit' && !canPlatformAudit) {
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete('section');
-          return next;
-        },
-        { replace: true },
-      );
+    if (sectionParam === 'audit') {
+      // The platform audit log moved to the Audit page.
+      if (canPlatformAudit) {
+        navigate('/governance?tab=platform', { replace: true });
+      } else {
+        setSearchParams(
+          (prev) => {
+            const next = new URLSearchParams(prev);
+            next.delete('section');
+            return next;
+          },
+          { replace: true },
+        );
+      }
       return;
     }
+    if (sectionParam !== 'error-logs') return;
     if (sectionParam === 'error-logs' && !canObservabilityLogs) {
       setSearchParams(
         (prev) => {
@@ -543,10 +516,7 @@ export const Monitoring: React.FC = () => {
       );
       return;
     }
-    const id =
-      sectionParam === 'audit'
-        ? 'platform-audit-logs'
-        : 'operational-error-logs';
+    const id = 'operational-error-logs';
     const raf = requestAnimationFrame(() => {
       document
         .getElementById(id)
@@ -566,7 +536,7 @@ export const Monitoring: React.FC = () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(t);
     };
-  }, [sectionParam, canPlatformAudit, canObservabilityLogs, setSearchParams]);
+  }, [sectionParam, canPlatformAudit, canObservabilityLogs, setSearchParams, navigate]);
 
   const lastHeartbeatIso = useMemo(() => {
     if (agents.length === 0) return null;
@@ -913,7 +883,7 @@ export const Monitoring: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.monitoring}
-      description="Agent health, synchronization status, certificates, operational errors, and platform audit trail."
+      description="Agent health, synchronization status, certificates, and operational errors. The platform audit log is on the Audit page."
       actions={
         <div className="flex items-center gap-2 flex-wrap">
           <Button
@@ -938,13 +908,9 @@ export const Monitoring: React.FC = () => {
                   size="sm"
                   className="text-body px-3 py-2"
                   type="button"
-                  onClick={() => {
-                    document
-                      .getElementById('platform-audit-logs')
-                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                  }}
+                  onClick={() => navigate('/governance?tab=platform')}
                 >
-                  <History className="mr-1.5 h-4 w-4 shrink-0" /> Audit logs
+                  <History className="mr-1.5 h-4 w-4 shrink-0" /> Audit log
                 </Button>
               ) : null}
               {canObservabilityShell ? (
@@ -970,16 +936,6 @@ export const Monitoring: React.FC = () => {
                   onClick={() => navigate('/monitoring/certificates')}
                 >
                   <Lock className="mr-1.5 h-4 w-4 shrink-0" /> Certificates
-                </Button>
-              ) : null}
-              {canPlatformAudit ? (
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  className="text-body px-3 py-2"
-                  onClick={() => navigate('/reports')}
-                >
-                  <FileText className="mr-1.5 h-4 w-4 shrink-0" /> Reports
                 </Button>
               ) : null}
             </>
@@ -1788,6 +1744,15 @@ export const Monitoring: React.FC = () => {
                   </option>
                 ))}
               </select>
+              <ResetFiltersButton
+                active={errLevel !== '' || errSource !== ''}
+                onReset={() => {
+                  setErrLevel('');
+                  setErrSource('');
+                  setErrPage(1);
+                }}
+                title="Clear level and source filters"
+              />
             </div>
             {errLoading ? (
               <PageLoading className="py-8 px-3" />
@@ -1852,97 +1817,6 @@ export const Monitoring: React.FC = () => {
                   }}
                   pageSizeOptions={[10, 20, 50, 100]}
                   itemLabel="rows"
-                />
-              </>
-            )}
-          </Card>
-        </section>
-      ) : null}
-
-      {canPlatformAudit ? (
-        <section id="platform-audit-logs" className="mb-4 scroll-mt-24">
-          <Card
-            variant="panel"
-            contentClassName="p-0"
-            title="Platform audit logs"
-            actions={
-              <Button
-                variant="secondary"
-                size="sm"
-                type="button"
-                onClick={() => void fetchAuditPage()}
-                disabled={auditLoading}
-              >
-                <RefreshCw className="w-4 h-4 mr-1.5" /> Refresh
-              </Button>
-            }
-          >
-            {auditLoading ? (
-              <PageLoading className="py-8 px-3" />
-            ) : auditError ? (
-              <PageError
-                title="Audit logs unavailable"
-                description={auditError}
-                className="py-8 px-3"
-              />
-            ) : auditLogs.length === 0 ? (
-              <PageEmpty
-                title="No audit entries"
-                description="No platform audit records for this page."
-                className="py-8 px-3"
-              />
-            ) : (
-              <>
-                <div className="ui-table-scroll">
-                  <table className={UI_TABLE}>
-                    <thead className={UI_THEAD_STICKY}>
-                      <tr>
-                        <th className={UI_TH}>Time</th>
-                        <th className={UI_TH}>Actor</th>
-                        <th className={UI_TH}>Action</th>
-                        <th className={UI_TH}>Resource</th>
-                        <th className={UI_TH}>Status</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {auditLogs.map((log) => (
-                        <tr
-                          key={log.id || `${log.timestamp}-${log.action}`}
-                          className={UI_TR}
-                        >
-                          <td
-                            className={`${UI_TD} font-mono text-caption text-muted`}
-                          >
-                            {formatDateTime(log.timestamp)}
-                          </td>
-                          <td className={`${UI_TD} text-text font-medium`}>
-                            {log.actor || log.user || 'system'}
-                          </td>
-                          <td className={`${UI_TD} text-muted`}>
-                            {log.action}
-                          </td>
-                          <td
-                            className={`${UI_TD} text-muted font-mono text-caption`}
-                          >
-                            {log.resource}
-                          </td>
-                          <td className={UI_TD}>{log.status}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-                <Pagination
-                  page={auditPage}
-                  pageSize={auditPageSize}
-                  total={auditTotal}
-                  onPageChange={setAuditPage}
-                  onPageSizeChange={(size) => {
-                    setAuditPageSize(size);
-                    setAuditPage(1);
-                  }}
-                  pageSizeOptions={[10, 20, 50]}
-                  itemLabel="entries"
                 />
               </>
             )}

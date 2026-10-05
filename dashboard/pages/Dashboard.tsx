@@ -978,7 +978,7 @@ export const Dashboard: React.FC = () => {
 
   const clusterStatsRow = (
     <div className="rounded-lg border border-border/60 bg-surface/20 px-3 py-2.5 flex flex-wrap gap-x-6 gap-y-3 text-caption">
-      <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/clusters')}>
+      <button type="button" className="text-left hover:text-brand transition-colors" onClick={() => navigate('/resources/clusters')}>
         <span className="text-typo-micro block">{STAT_LABELS.CLUSTERS}</span>
         <span className="font-mono font-semibold text-body text-text">{statsLoaded ? stats.clusters : '—'}</span>
       </button>

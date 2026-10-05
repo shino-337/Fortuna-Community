@@ -147,6 +147,9 @@ type RiskFilter struct {
 	FinalLevel   string `form:"finalLevel"` // low|medium|high|critical — filter by ADR bands on preferred total_score
 	ScoreBin     int    `form:"scoreBin"`   // when 0,10,...,90: filter to findings whose resource score is in [scoreBin, scoreBin+10) (histogram click)
 	View         string `form:"view"`       // instance (default) | group — grouped findings by type + CVE/title key
+	// Sort and Order pick the server-side ordering (see normalizeInsightsListSort). Unknown values are ignored.
+	Sort  string `form:"sort"`
+	Order string `form:"order"`
 }
 
 func applyRiskFilterClusterScope(db *gorm.DB, c *gin.Context, filter *RiskFilter) bool {
@@ -371,7 +374,7 @@ func getInsightsGroupListData(db *gorm.DB, filter RiskFilter, page, pageSize int
 			MIN(insights.id) AS sample_insight_id,
 			MAX(insights.title) AS display_title`).
 		Group(`insights.insight_type, ` + groupKeyExpr).
-		Order(`(MAX(pref.total_score) IS NULL) ASC, MAX(pref.total_score) DESC, COUNT(*) DESC, MAX(insights.detected_at) DESC`).
+		Order(insightsGroupListOrder(normalizeInsightsListSort(filter.Sort, filter.Order))).
 		Offset(offset).Limit(pageSize).
 		Scan(&rows).Error
 	if err != nil {
@@ -445,7 +448,9 @@ func getInsightsListData(db *gorm.DB, filter RiskFilter, page, pageSize int, has
 	query.Count(&total)
 	offset := (page - 1) * pageSize
 	var insights []models.Insight
-	query.Order("detected_at DESC").Offset(offset).Limit(pageSize).Find(&insights)
+	sortKey, sortOrder := normalizeInsightsListSort(filter.Sort, filter.Order)
+	query = applyInsightsListOrder(query, sortKey, sortOrder)
+	query.Offset(offset).Limit(pageSize).Find(&insights)
 
 	if filter.WithScores == 0 || len(insights) == 0 {
 		listLen = len(insights)
@@ -586,7 +591,8 @@ func GetInsightsListCached(db *gorm.DB) gin.HandlerFunc {
 		} else if len(filter.ScopedClusterIDs) > 0 {
 			clusterID = "scope:" + strings.Join(filter.ScopedClusterIDs, ",")
 		}
-		key := BuildRisksListCacheKey(clusterID, statusFilter, filter.Severity, filter.Search, strings.TrimSpace(filter.FinalLevel), strings.TrimSpace(filter.ResourceNamespace), strings.TrimSpace(filter.Type), filter.SinceMinutes, page, pageSize, filter.WithScores, filter.ScoreBin, strings.ToLower(strings.TrimSpace(filter.View)))
+		sortKey, sortOrder := normalizeInsightsListSort(filter.Sort, filter.Order)
+		key := BuildRisksListCacheKey(clusterID, statusFilter, filter.Severity, filter.Search, strings.TrimSpace(filter.FinalLevel), strings.TrimSpace(filter.ResourceNamespace), strings.TrimSpace(filter.Type), filter.SinceMinutes, page, pageSize, filter.WithScores, filter.ScoreBin, strings.ToLower(strings.TrimSpace(filter.View)), sortKey, sortOrder)
 		key = authorizationCacheKey(c, key) + ":bin=" + strconv.FormatBool(hasScoreBin)
 		if b, ok := defaultRisksCache.Get(key); ok {
 			c.Data(http.StatusOK, "application/json", b)

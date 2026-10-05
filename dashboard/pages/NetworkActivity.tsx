@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useId, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   RefreshCw,
   Share2,
@@ -874,12 +874,21 @@ export function NetworkActivity() {
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
   const setSelectedClusterId = useClusterStore((s) => s.setSelectedClusterId);
   const { clusters } = useClusters();
-  const [namespaceDraft, setNamespaceDraft] = useState('');
-  const [searchDraft, setSearchDraft] = useState('');
-  const [namespaceApplied, setNamespaceApplied] = useState('');
-  const [searchApplied, setSearchApplied] = useState('');
+  // Deep links (e.g. from Pod detail): ?clusterId=&namespace=&podUid=&q=&tab=pods|connections|topology
+  const [searchParams] = useSearchParams();
+  const deepLink = useRef({
+    clusterId: searchParams.get('clusterId')?.trim() ?? '',
+    namespace: searchParams.get('namespace')?.trim() ?? '',
+    podUid: searchParams.get('podUid')?.trim() ?? '',
+    q: searchParams.get('q')?.trim() ?? '',
+    tab: searchParams.get('tab')?.trim() ?? '',
+  }).current;
+  const [namespaceDraft, setNamespaceDraft] = useState(deepLink.namespace);
+  const [searchDraft, setSearchDraft] = useState(deepLink.q);
+  const [namespaceApplied, setNamespaceApplied] = useState(deepLink.namespace);
+  const [searchApplied, setSearchApplied] = useState(deepLink.q);
   /** Exact filter by source pod (query podUid on Core); drill when podName is unavailable. */
-  const [podUidApplied, setPodUidApplied] = useState('');
+  const [podUidApplied, setPodUidApplied] = useState(deepLink.podUid);
   const [sinceMinutes, setSinceMinutes] = useState(15 as number | '');
   const [loading, setLoading] = useState(false);
   const [topologyHydrating, setTopologyHydrating] = useState(false);
@@ -899,7 +908,13 @@ export function NetworkActivity() {
   const [legendDrawerOpen, setLegendDrawerOpen] = useState(false);
   const [topologyFiltersCollapsed, setTopologyFiltersCollapsed] = useState(true);
 
-  const [mainTab, setMainTab] = useState<NetworkMainTab>('topology');
+  const [mainTab, setMainTab] = useState<NetworkMainTab>(() =>
+    deepLink.tab === 'pods' || deepLink.tab === 'connections' || deepLink.tab === 'topology'
+      ? deepLink.tab
+      : deepLink.podUid || deepLink.q
+        ? 'connections'
+        : 'topology',
+  );
   const filterDebounceMs = useMemo(
     () => (mainTab === 'topology' ? 880 : 700),
     [mainTab],
@@ -952,18 +967,37 @@ export function NetworkActivity() {
   );
 
   useEffect(() => {
-    if (selectedClusterId != null) return;
-    if (clusters.length !== 1) return;
-    setSelectedClusterId(String(clusters[0].id));
-  }, [clusters, selectedClusterId, setSelectedClusterId]);
+    if (deepLink.clusterId && deepLink.clusterId !== selectedClusterId) setSelectedClusterId(deepLink.clusterId);
+    // Apply the linked cluster once on mount; later header changes win.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
+    if (selectedClusterId != null || deepLink.clusterId) return;
+    if (clusters.length !== 1) return;
+    setSelectedClusterId(String(clusters[0].id));
+  }, [clusters, selectedClusterId, setSelectedClusterId, deepLink.clusterId]);
+
+  const previousClusterRef = useRef(selectedClusterId);
+  const deepLinkClusterPendingRef = useRef(Boolean(deepLink.clusterId) && deepLink.clusterId !== selectedClusterId);
+  useEffect(() => {
+    const previous = previousClusterRef.current;
+    previousClusterRef.current = selectedClusterId;
+    if (previous === selectedClusterId) return;
     clearInventoryPodNamesCache();
-    setPodUidApplied('');
     setTopologyDataIssue(null);
     setTableDataIssue(null);
     setTopologySelection(null);
     setLegendDrawerOpen(false);
+    // The first selection and the deep-linked cluster keep the link's filters; switching clusters drops them.
+    const arrivedAtDeepLink = deepLinkClusterPendingRef.current && selectedClusterId === deepLink.clusterId;
+    if (arrivedAtDeepLink) deepLinkClusterPendingRef.current = false;
+    if (previous == null || arrivedAtDeepLink) return;
+    setPodUidApplied('');
+    setNamespaceDraft('');
+    setNamespaceApplied('');
+    setSearchDraft('');
+    setSearchApplied('');
   }, [selectedClusterId]);
 
   useEffect(() => {

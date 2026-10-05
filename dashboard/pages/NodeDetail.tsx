@@ -76,7 +76,7 @@ const NodeDetailContent: React.FC = () => {
         <PageError
           title="Node identifier missing"
           description="Open node detail from a cluster inventory so the route contains both cluster ID and node name."
-          action={<Button variant="secondary" onClick={() => navigate('/clusters')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters</Button>}
+          action={<Button variant="secondary" onClick={() => navigate('/resources/clusters')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters</Button>}
         />
       </PageLayout>
     );

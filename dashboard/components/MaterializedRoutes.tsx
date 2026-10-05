@@ -29,10 +29,10 @@ const Dashboard = React.lazy(() => import('../pages/Dashboard').then((m) => ({ d
 
 const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/dashboard', element: <Dashboard /> },
-  { pattern: '/clusters', element: <Clusters /> },
   { pattern: '/clusters/:id', element: <ClusterDetail /> },
   { pattern: '/clusters/:clusterId/nodes/:nodeName', element: <NodeDetail /> },
   { pattern: '/resources', element: <Resources /> },
+  { pattern: '/resources/clusters', element: <Clusters /> },
   { pattern: '/network-activity', element: <NetworkActivity /> },
   { pattern: '/resources/pods/uid/:uid', element: <PodDetail /> },
   { pattern: '/resources/pods/:id', element: <PodDetail /> },
@@ -63,11 +63,12 @@ function buildRedirectTarget(path: string, search: string): string | null {
   if (path === '/network') {
     return `/network-activity${search}`;
   }
-  // Pages merged into Platform Health and Rules & Catalog keep working as links.
+  // Pages merged into Platform Health, Rules & Catalog and Inventory keep working as links.
   const merged: Record<string, string> = {
     '/certificates': '/monitoring/certificates',
     '/notifications': '/monitoring/notifications',
     '/capabilities': '/rules/catalog',
+    '/clusters': '/resources/clusters',
   };
   if (merged[path]) {
     return `${merged[path]}${search}`;

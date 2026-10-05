@@ -22,21 +22,28 @@ export const Certificates: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [rotating, setRotating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [rotateError, setRotateError] = useState<string | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
 
   const fetchData = async () => {
     setLoading(true);
-    try {
-      const [certData, historyData] = await Promise.all([api.getCertificates(), api.getRotationHistory()]);
-      setCerts(certData);
-      setHistory(historyData);
+    // Certificates and rotation history fail independently; a history error must not read as "no rotations".
+    const [certResult, historyResult] = await Promise.allSettled([api.getCertificates(), api.getRotationHistory()]);
+    if (certResult.status === 'fulfilled') {
+      setCerts(certResult.value);
       setError(null);
       setUpdatedAt(new Date());
-    } catch {
+    } else {
       setError('Certificate data could not be refreshed.');
-    } finally {
-      setLoading(false);
     }
+    if (historyResult.status === 'fulfilled') {
+      setHistory(historyResult.value);
+      setHistoryError(null);
+    } else {
+      setHistoryError(historyResult.reason instanceof Error ? historyResult.reason.message : 'Rotation history could not be loaded.');
+    }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -45,9 +52,12 @@ export const Certificates: React.FC = () => {
 
   const rotateCertificate = async () => {
     setRotating(true);
+    setRotateError(null);
     try {
       await api.rotateCertificate();
       await fetchData();
+    } catch (err) {
+      setRotateError(err instanceof Error ? err.message : 'Certificate rotation failed.');
     } finally {
       setRotating(false);
     }
@@ -98,6 +108,9 @@ export const Certificates: React.FC = () => {
       }
     >
       <SectionNav sections={PLATFORM_HEALTH_SECTIONS} ariaLabel="Platform health sections" />
+      {rotateError ? (
+        <PageError title="Certificate rotation failed" description={rotateError} className="mb-4" />
+      ) : null}
       {error && certs.length === 0 ? (
         <PageError
           title="Could not load certificates"
@@ -139,12 +152,10 @@ export const Certificates: React.FC = () => {
       )}
 
       <Card className="mt-6 p-0 overflow-hidden" title="Rotation History">
-        {history.length === 0 && !updatedAt ? (
-          loading ? (
-            <PageLoading message="Loading rotation history…" className="py-8" />
-          ) : (
-            <PageError title="Rotation history unavailable" description="Rotation history could not be loaded." className="py-8" />
-          )
+        {historyError && history.length === 0 ? (
+          <PageError title="Rotation history unavailable" description={historyError} className="py-8" />
+        ) : history.length === 0 && loading ? (
+          <PageLoading message="Loading rotation history…" className="py-8" />
         ) : history.length === 0 ? (
           <PageEmpty title="No rotation history records" description="Rotation history table is not populated yet." className="py-8" />
         ) : (

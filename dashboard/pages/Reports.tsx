@@ -1,33 +1,26 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
-import type { Report } from '../types';
 import { can, P } from '../lib/permissions';
 import { usePermUser } from '../hooks/usePermUser';
 import { Card } from '../design-system/components/Card';
 import {
-  FileText,
   Download,
   ArrowLeft,
   Activity,
   Route,
   ShieldAlert,
-  ClipboardList,
   Layers,
   Briefcase,
-  AlertCircle,
-  BarChart3,
-  Database,
   RefreshCw,
   ShieldCheck,
   RotateCcw,
 } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
-import { PageEmpty, PageError } from '../design-system/components/PageStatus';
-import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
+import { PageError } from '../design-system/components/PageStatus';
 import { PAGE_TITLES } from '../lib/pageTitles';
-import { downloadText, toCsv } from '../lib/download';
+import { downloadText } from '../lib/download';
 import { useToast } from '../design-system/components/Toast';
 
 type ExecutivePosture = {
@@ -57,10 +50,6 @@ const REPORT_RANGE_OPTIONS: Array<{ days: ReportRangeDays; label: string }> = [
 
 const DEFAULT_REPORT_RANGE_DAYS: ReportRangeDays = 1;
 
-function rangeToHours(days: ReportRangeDays): number {
-  return days * 24;
-}
-
 function rangeToSinceMinutes(days: ReportRangeDays): number {
   return days * 24 * 60;
 }
@@ -69,47 +58,17 @@ export const Reports: React.FC = () => {
   const navigate = useNavigate();
   const toast = useToast();
   const permUser = usePermUser();
-  const canPlatformAudit = can(permUser, P.systemAuditRead);
   const canFindingsRead = can(permUser, P.findingsRead);
   const canPipelineHealth = can(permUser, P.observabilityMetricsRead);
   const canExportFindings = can(permUser, P.exportFindings);
   const [rangeDays, setRangeDays] = useState<ReportRangeDays>(DEFAULT_REPORT_RANGE_DAYS);
-  const [reports, setReports] = useState<Report[]>([]);
-  const [loading, setLoading] = useState(true);
   const [postureLoading, setPostureLoading] = useState(true);
-  const [auditError, setAuditError] = useState<string | null>(null);
   const [postureError, setPostureError] = useState<string | null>(null);
   const [riskExporting, setRiskExporting] = useState<'csv' | 'pdf' | null>(null);
   const [posture, setPosture] = useState<ExecutivePosture>({ stats: null, summary: null, pipeline: null });
   const canInvestigationsRead = can(permUser, P.investigationsRead);
   // null = not loaded (no permission or the request failed); never shown as 0.
   const [investigationStats, setInvestigationStats] = useState<{ openCases: number; overdueRemediation: number } | null>(null);
-
-  const auditRequestRef = useRef(0);
-  const loadAuditReports = useCallback(() => {
-    // A slower response for a previous range must not overwrite the current range.
-    const seq = ++auditRequestRef.current;
-    if (!canPlatformAudit) {
-      setReports([]);
-      setLoading(false);
-      setAuditError(null);
-      return;
-    }
-    setLoading(true);
-    setAuditError(null);
-    api.getReportsStrict({ hours: rangeToHours(rangeDays) })
-      .then((data) => {
-        if (seq !== auditRequestRef.current) return;
-        setReports(data);
-        setLoading(false);
-      })
-      .catch((err) => {
-        if (seq !== auditRequestRef.current) return;
-        setAuditError(err instanceof Error ? err.message : 'Could not load audit aggregates.');
-        setReports([]);
-        setLoading(false);
-      });
-  }, [canPlatformAudit, rangeDays]);
 
   const loadPosture = useCallback(() => {
     if (!canFindingsRead) {
@@ -145,10 +104,6 @@ export const Reports: React.FC = () => {
   }, [canFindingsRead, canPipelineHealth, rangeDays]);
 
   useEffect(() => {
-    loadAuditReports();
-  }, [loadAuditReports]);
-
-  useEffect(() => {
     if (!canInvestigationsRead) {
       setInvestigationStats(null);
       return;
@@ -170,16 +125,6 @@ export const Reports: React.FC = () => {
     return loadPosture();
   }, [loadPosture]);
 
-  const auditTotal = useMemo(
-    () => reports.reduce((sum, report) => sum + Number(report.count ?? 0), 0),
-    [reports],
-  );
-
-  const topAuditAggregate = useMemo(
-    () => [...reports].sort((a, b) => Number(b.count ?? 0) - Number(a.count ?? 0))[0],
-    [reports],
-  );
-
   const activeFindings = posture.summary?.total;
   const criticalFindings = posture.summary?.critical;
   const highFindings = posture.summary?.high;
@@ -195,30 +140,11 @@ export const Reports: React.FC = () => {
     posture.summary ? null : 'risk summary',
     posture.pipeline ? null : 'pipeline',
   ].filter(Boolean) as string[];
-  const auditByResource = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const report of reports) {
-      const key = (report.resource || 'unknown').trim() || 'unknown';
-      map.set(key, (map.get(key) ?? 0) + Number(report.count ?? 0));
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [reports]);
-  const auditByAction = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const report of reports) {
-      const key = (report.action || 'unknown').trim() || 'unknown';
-      map.set(key, (map.get(key) ?? 0) + Number(report.count ?? 0));
-    }
-    return [...map.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6);
-  }, [reports]);
-  const maxAuditResourceCount = Math.max(1, ...auditByResource.map(([, count]) => count));
-  const maxAuditActionCount = Math.max(1, ...auditByAction.map(([, count]) => count));
   const activeRangeLabel = `${rangeDays} day${rangeDays === 1 ? '' : 's'}`;
 
   const refreshAll = useCallback(() => {
-    loadAuditReports();
     loadPosture();
-  }, [loadAuditReports, loadPosture]);
+  }, [loadPosture]);
 
   const resetRange = useCallback(() => {
     setRangeDays(DEFAULT_REPORT_RANGE_DAYS);
@@ -240,14 +166,6 @@ export const Reports: React.FC = () => {
       `Overdue remediation actions: ${investigationStats?.overdueRemediation ?? 'n/a'}`,
     ];
     downloadText(lines.join('\n'), `executive-posture-${new Date().toISOString().replace(/[:.]/g, '-')}.md`, 'text/markdown;charset=utf-8');
-  };
-
-  const exportCsv = () => {
-    const content = toCsv([
-      ['resource', 'action', 'count'],
-      ...reports.map((r) => [r.resource || '', r.action || '', String(r.count ?? 0)]),
-    ]);
-    downloadText(content, `audit-reports-${rangeDays}d-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`, 'text/csv;charset=utf-8');
   };
 
   const exportRiskPosture = async (format: 'csv' | 'pdf') => {
@@ -275,14 +193,14 @@ export const Reports: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.reports}
-      description={`Posture exports, audit aggregates, and report-ready evidence for the last ${activeRangeLabel}.`}
+      description={`Posture exports and report-ready evidence for the last ${activeRangeLabel}. Audit summaries are on the Audit page.`}
       actions={
         <div className="flex items-center gap-2 flex-wrap">
           <Button variant="secondary" size="sm" onClick={() => (window.history.length > 1 ? navigate(-1) : navigate('/'))}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back
           </Button>
-          <Button variant="secondary" size="sm" onClick={refreshAll} disabled={loading || postureLoading}>
-            <RefreshCw className={`w-4 h-4 mr-2 ${loading || postureLoading ? 'animate-spin motion-reduce:animate-none' : ''}`} />
+          <Button variant="secondary" size="sm" onClick={refreshAll} disabled={postureLoading}>
+            <RefreshCw className={`w-4 h-4 mr-2 ${postureLoading ? 'animate-spin motion-reduce:animate-none' : ''}`} />
             Refresh
           </Button>
           <Button variant="secondary" size="sm" onClick={exportExecutiveBrief} disabled={postureLoading}>
@@ -309,7 +227,7 @@ export const Reports: React.FC = () => {
           <div className="min-w-0">
             <h2 className="text-body font-semibold text-text">Report window</h2>
             <p className="mt-1 text-caption text-muted">
-              Findings and audit aggregates are scoped to the last {activeRangeLabel}. Pipeline health and investigation counts are current snapshots.
+              Findings are scoped to the last {activeRangeLabel}. Pipeline health and investigation counts are current snapshots.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -423,12 +341,6 @@ export const Reports: React.FC = () => {
               value={canExportFindings ? 'Enabled' : 'Restricted'}
               detail={canExportFindings ? 'CSV and print-ready PDF available' : 'Requires export.findings permission'}
             />
-            <ReadinessRow
-              icon={<Database className="h-4 w-4 text-warning" />}
-              label="Audit aggregates"
-              value={canPlatformAudit ? 'Enabled' : 'Restricted'}
-              detail={canPlatformAudit ? `${reports.length} row(s), last ${activeRangeLabel}` : 'Requires system.audit.read permission'}
-            />
           </div>
         </Card>
       </section>
@@ -457,22 +369,9 @@ export const Reports: React.FC = () => {
           onClick={() => navigate('/investigation')}
         />
         ) : null}
-        <ExecutiveMetricCard
-          icon={<ClipboardList className="w-4 h-4 text-muted" />}
-          label="Audit activity"
-          value={!canPlatformAudit ? 'Restricted' : loading ? 'Loading' : auditError ? 'n/a' : auditTotal}
-          detail={
-            !canPlatformAudit
-              ? 'Requires system.audit.read'
-              : topAuditAggregate
-                ? `${topAuditAggregate.resource || 'resource'} / ${topAuditAggregate.action || 'action'}`
-                : 'No aggregate yet'
-          }
-        />
           </div>
           <div className="mt-4 grid gap-2 text-caption text-muted-2">
             <p>Finding export permissions are enforced by `/api/v1/risk/insights/export`.</p>
-            <p>Audit aggregates are generated from `audit_logs` for the selected report window.</p>
           </div>
         </Card>
 
@@ -492,86 +391,6 @@ export const Reports: React.FC = () => {
         </Card>
       </section>
 
-      <section className="grid gap-3 xl:grid-cols-[minmax(0,0.45fr)_minmax(0,0.55fr)]">
-        <Card className="p-4">
-          <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <h2 className="fortuna-card-title">Audit overview</h2>
-              <p className="mt-1 text-caption text-muted">Top resources and actions from audit logs in the last {activeRangeLabel}.</p>
-            </div>
-            <Button variant="secondary" size="sm" onClick={exportCsv} disabled={!canPlatformAudit || reports.length === 0 || loading} title={canPlatformAudit ? 'Export audit aggregate CSV' : 'Requires system.audit.read permission'}>
-              <Download className="mr-1.5 h-3.5 w-3.5" />
-              Audit CSV
-            </Button>
-          </div>
-          {!canPlatformAudit ? (
-            <AccessNotice
-              title="Audit aggregates restricted"
-              description="This section requires system.audit.read. Risk posture and report exports remain available according to your role."
-            />
-          ) : loading ? (
-            <div className="rounded-lg border border-border/60 bg-base/40 p-4 text-caption text-muted">Loading audit aggregates...</div>
-          ) : auditError ? (
-            <PageError title="Could not load audit aggregates" description={auditError} className="py-6" action={<Button variant="secondary" size="sm" onClick={loadAuditReports}>Retry</Button>} />
-          ) : reports.length === 0 ? (
-            <PageEmpty title="No audit activity" description={`No audit aggregate data returned for the last ${activeRangeLabel}.`} className="py-6" />
-          ) : (
-            <div className="grid gap-4 md:grid-cols-2">
-              <AuditBarList title="Top resources" items={auditByResource} max={maxAuditResourceCount} />
-              <AuditBarList title="Top actions" items={auditByAction} max={maxAuditActionCount} />
-            </div>
-          )}
-        </Card>
-
-        <Card className="p-0 overflow-hidden">
-          <div className="flex items-center justify-between gap-3 border-b border-border px-4 py-3">
-            <div>
-              <h2 className="fortuna-card-title">Audit aggregate table</h2>
-              <p className="mt-1 text-caption text-muted">Resource/action counts from the audit log table, last {activeRangeLabel}.</p>
-            </div>
-            <BarChart3 className="h-4 w-4 text-muted" />
-          </div>
-          {!canPlatformAudit ? (
-            <AccessNotice
-              title="Table hidden by role"
-              description="Backend authorization protects /api/v1/audit/reports with system.audit.read."
-              className="m-4"
-            />
-          ) : loading ? (
-            <div className="p-8 text-muted">Loading reports...</div>
-          ) : auditError ? (
-            <PageError title="Could not load reports" description={auditError} className="py-8" />
-          ) : reports.length === 0 ? (
-            <PageEmpty title="No reports available" description={`No audit aggregate data returned for the last ${activeRangeLabel}.`} className="py-8" />
-          ) : (
-            <div className="ui-table-scroll">
-              <table className={UI_TABLE}>
-                <thead className={UI_THEAD_STICKY}>
-                  <tr>
-                    <th className={UI_TH}>Resource</th>
-                    <th className={UI_TH}>Action</th>
-                    <th className={`${UI_TH} text-right`}>Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {reports.map((report) => (
-                    <tr key={report.id} className={UI_TR}>
-                      <td className={UI_TD}>
-                        <div className="flex items-center font-medium text-text">
-                          <FileText className="w-4 h-4 mr-3 text-muted shrink-0" />
-                          {report.resource || 'unknown'}
-                        </div>
-                      </td>
-                      <td className={`${UI_TD} text-muted`}>{report.action || 'unknown'}</td>
-                      <td className={`${UI_TD} text-right text-text font-mono tabular-nums`}>{report.count ?? 0}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </section>
       </div>
     </PageLayout>
   );
@@ -661,41 +480,3 @@ const SeverityRow: React.FC<{
   );
 };
 
-const AuditBarList: React.FC<{
-  title: string;
-  items: Array<[string, number]>;
-  max: number;
-}> = ({ title, items, max }) => (
-  <div>
-    <h3 className="mb-2 text-caption font-semibold text-text">{title}</h3>
-    <div className="space-y-2">
-      {items.map(([label, count]) => (
-        <div key={label} className="grid gap-1">
-          <div className="flex items-center justify-between gap-2 text-caption">
-            <span className="min-w-0 truncate text-muted" title={label}>{label}</span>
-            <span className="font-mono tabular-nums text-text">{count}</span>
-          </div>
-          <div className="h-2 overflow-hidden rounded-full bg-surface-2">
-            <div className="h-full rounded-full bg-brand" style={{ width: `${Math.max(4, Math.round((count / max) * 100))}%` }} />
-          </div>
-        </div>
-      ))}
-    </div>
-  </div>
-);
-
-const AccessNotice: React.FC<{
-  title: string;
-  description: string;
-  className?: string;
-}> = ({ title, description, className = '' }) => (
-  <div className={`rounded-lg border border-warning/30 bg-warning/10 p-4 text-caption ${className}`}>
-    <div className="flex items-start gap-2">
-      <AlertCircle className="mt-0.5 h-4 w-4 shrink-0 text-warning" />
-      <div>
-        <p className="font-semibold text-warning">{title}</p>
-        <p className="mt-1 text-warning/80">{description}</p>
-      </div>
-    </div>
-  </div>
-);

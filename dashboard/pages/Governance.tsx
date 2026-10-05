@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
@@ -11,6 +12,10 @@ import { formatDateTime } from '../lib/display';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
 import type { SecurityActivityItem } from '../types';
 import { PAGE_TITLES } from '../lib/pageTitles';
+import { Tabs } from '../design-system/components/Tabs';
+import { SecurityActivityPanel } from '../components/audit/SecurityActivityPanel';
+import { PlatformAuditLogPanel } from '../components/audit/PlatformAuditLogPanel';
+import { AuditAggregatesPanel } from '../components/audit/AuditAggregatesPanel';
 
 type PermRow = {
   permission: string;
@@ -29,11 +34,45 @@ type CorrSig = { code: string; severity: string; detail?: Record<string, unknown
 
 const TIMELINE_LIMIT = 80;
 
+/** One place for "who did what in Fortuna": every audit view lives under a ?tab= of this page. */
+const AUDIT_TABS = [
+  { id: 'activity', label: 'Security activity' },
+  { id: 'platform', label: 'Platform audit log' },
+  { id: 'aggregates', label: 'Audit summary' },
+  { id: 'timeline', label: 'Investigation timeline' },
+  { id: 'permissions', label: 'Permission explorer' },
+  { id: 'access', label: 'Access review' },
+  { id: 'signals', label: 'Correlation signals' },
+] as const;
+type AuditTab = (typeof AUDIT_TABS)[number]['id'];
+/** Tab names used before the audit views were merged here. */
+const LEGACY_TABS: Record<string, AuditTab> = { explorer: 'permissions', intel: 'signals' };
+
+function parseTab(raw: string | null): AuditTab {
+  if (!raw) return 'activity';
+  if (raw in LEGACY_TABS) return LEGACY_TABS[raw];
+  return AUDIT_TABS.some((t) => t.id === raw) ? (raw as AuditTab) : 'activity';
+}
+
 export const Governance: React.FC = () => {
   const permUser = usePermUser();
   const allowed = can(permUser, P.systemAuditRead);
   const { id: personaId } = usePersona();
-  const [tab, setTab] = useState<'explorer' | 'access' | 'intel' | 'timeline'>('explorer');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = parseTab(searchParams.get('tab'));
+  const setTab = useCallback(
+    (next: AuditTab) => {
+      setSearchParams(
+        (prev) => {
+          const qs = new URLSearchParams(prev);
+          qs.set('tab', next);
+          return qs;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
   const [permRows, setPermRows] = useState<PermRow[]>([]);
   const [accessSignals, setAccessSignals] = useState<AccessSignal[]>([]);
   const [corr, setCorr] = useState<CorrSig[]>([]);
@@ -89,13 +128,19 @@ export const Governance: React.FC = () => {
 
   useEffect(() => {
     if (!allowed) return;
+    // The audit log panels load their own data.
+    if (tab === 'activity' || tab === 'platform' || tab === 'aggregates') {
+      setBusy(false);
+      setErr('');
+      return;
+    }
     setBusy(true);
     setErr('');
     const run = async () => {
       try {
-        if (tab === 'explorer') await loadExplorer();
+        if (tab === 'permissions') await loadExplorer();
         if (tab === 'access') await loadAccess();
-        if (tab === 'intel') await loadCorr();
+        if (tab === 'signals') await loadCorr();
         if (tab === 'timeline') await loadTimeline();
       } catch (e) {
         setErr(String(e instanceof Error ? e.message : e));
@@ -109,7 +154,7 @@ export const Governance: React.FC = () => {
   if (!allowed) {
     return (
       <PageLayout title={PAGE_TITLES.governance} description="Requires system.audit.read.">
-        <Card className="p-6 text-muted">You do not have permission to view governance analytics.</Card>
+        <Card className="p-6 text-muted">You do not have permission to view the audit log.</Card>
       </PageLayout>
     );
   }
@@ -117,23 +162,24 @@ export const Governance: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.governance}
-      description="Authorization assurance, privilege analytics, and investigation views. Data is server-authoritative; API enforces system.audit.read."
+      description="Who did what in Fortuna: security activity, the platform audit log, audit summaries, and access analytics. The API enforces system.audit.read."
     >
       {personaId === 'admin' ? <GovernancePersonaStrip /> : null}
-      <div className="flex flex-wrap gap-2 border-b border-border pb-3 mb-4">
-        {(['explorer', 'access', 'intel', 'timeline'] as const).map((k) => (
-          <Button key={k} size="sm" variant={tab === k ? 'primary' : 'secondary'} type="button" onClick={() => setTab(k)}>
-            {k === 'explorer' && 'Permission explorer'}
-            {k === 'access' && 'Access review'}
-            {k === 'intel' && 'Correlation signals'}
-            {k === 'timeline' && 'Investigation timeline'}
-          </Button>
-        ))}
-      </div>
+      <Tabs
+        variant="underline"
+        ariaLabel="Audit views"
+        className="mb-4 border-b border-border"
+        items={AUDIT_TABS.map((t) => ({ id: t.id, label: t.label }))}
+        value={tab}
+        onChange={(id) => setTab(id as AuditTab)}
+      />
+      {tab === 'activity' ? <SecurityActivityPanel /> : null}
+      {tab === 'platform' ? <PlatformAuditLogPanel /> : null}
+      {tab === 'aggregates' ? <AuditAggregatesPanel /> : null}
       {err ? <div className="text-red-500 text-caption mb-3">{err}</div> : null}
       {busy ? <div className="text-muted text-caption mb-3">Loading…</div> : null}
 
-      {tab === 'explorer' && (
+      {tab === 'permissions' && (
         <Card className="p-0 overflow-hidden">
           <div className="ui-table-scroll max-h-[70vh]">
             <table className={UI_TABLE}>
@@ -185,7 +231,7 @@ export const Governance: React.FC = () => {
         </Card>
       )}
 
-      {tab === 'intel' && (
+      {tab === 'signals' && (
         <Card className="p-4">
           <ul className="space-y-2">
             {corr.length === 0 && !err && !busy ? <li className="text-muted text-caption">No burst patterns in the last 24h window.</li> : null}

@@ -29,7 +29,7 @@ func TestMemoryRisksCache_GetSet(t *testing.T) {
 
 func TestCacheKeysDoNotCollide(t *testing.T) {
 	key := func(cluster, namespace, search string, since int) string {
-		return BuildRisksListCacheKey(cluster, "active", "", search, "", namespace, "", since, 1, 20, 0, 0, "")
+		return BuildRisksListCacheKey(cluster, "active", "", search, "", namespace, "", since, 1, 20, 0, 0, "", "", "")
 	}
 	pairs := [][2]string{
 		{key("a:b", "c", "", 0), key("a", "b:c", "", 0)},
