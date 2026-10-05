@@ -139,7 +139,7 @@ jobs:
           set -euo pipefail
           python -m pip install PyYAML==6.0.2
           python scripts/verify/check-service-selectors.py
-          python scripts/e2e/test-webhook-bootstrap.py
+          python scripts/verify/test-webhook-bootstrap.py
           python scripts/verify/test-agent-credential-tool.py
           python scripts/verify/test-agent-certificate-tool.py
           python scripts/verify/test-scoped-agent-credential-overlay.py

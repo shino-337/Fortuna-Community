@@ -6,6 +6,12 @@
 
 - Removed internal working notes (audit plan, remediation status, dated integration and performance records, public-release checklist). The reference docs now describe current behavior only.
 - The local CI guide moved to `docs/development/LOCAL_CI.md` and also covers the two-cluster integration test and the populated-migration rehearsal.
+- Merged the component catalog into the architecture guide and the use cases into the user guide, and removed the per-folder index pages; `docs/README.md` is the single index.
+
+### Scripts
+
+- Removed the lab pipeline (`full-clean-database-rebuild-deploy.sh`), `deploy-fortuna-robust.sh` and the helpers only it used (Flannel install and VXLAN repair, control-plane labelling, DNS and prerequisite checks), the shell E2E suite, and the clean, monitor and one-off verify scripts. Install with Helm or the plain manifests; build from source with `build-and-load-containerd.sh` and deploy with `helm install --set image.tag=...`.
+- `verify-k8s-e2e.sh` is now `scripts/verify/verify-scenarios.sh`, and `test-webhook-bootstrap.py` moved to `scripts/verify/`.
 
 ## v1.0.0 (refreshed 2026-10-05)
 

@@ -42,7 +42,7 @@ export FORTUNA_CLUSTER_ID="<fortuna-cluster-id>"
 # If auth is enabled:
 # export FORTUNA_JWT="<token>"
 
-./scripts/verify-k8s-e2e.sh
+./scripts/verify/verify-scenarios.sh
 ```
 
 The verifier is intentionally evidence-driven:
@@ -68,7 +68,7 @@ Optional lab manifests (same CRB/SA as S2; apply manually if needed):
 | `optional/s2-rbac-pod-master.yaml` | `rbac-pod` on control-plane node (Falco co-located with Fortuna on small clusters). Delete the existing `rbac-pod` before applying because pod scheduling fields are immutable. |
 | `optional/s2-rbac-api-sim-pod.yaml` | `rbac-api-sim` with `curl` image for valid TLS to the Kubernetes API (busybox cannot) |
 
-How attack paths are presented: [Components: attack paths](../docs/components/README.md#attack-paths). What a path does and does not claim: [graph and runtime boundaries](../docs/reference/GRAPH.md).
+How attack paths are presented: [Architecture: attack paths](../docs/architecture/ARCHITECTURE.md#attack-paths). What a path does and does not claim: [graph and runtime boundaries](../docs/reference/GRAPH.md).
 
 ## Teardown
 

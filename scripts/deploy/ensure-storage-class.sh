@@ -4,7 +4,7 @@
 # ============================================================================
 # Checks for StorageClass "local-path"; if missing, installs Rancher
 # local-path-provisioner so PostgreSQL/NATS PVCs can bind (avoid Pending).
-# Called by: deploy-fortuna-robust.sh (Step 3b), full-clean-database-rebuild-deploy.sh (Phase 2c).
+# Run before installing Fortuna on a cluster without a default StorageClass.
 #
 # Usage: ./scripts/deploy/ensure-storage-class.sh
 # Env:   SKIP_STORAGE_CLASS_INSTALL=1  to only check, never install

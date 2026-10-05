@@ -7,7 +7,7 @@ Fortuna is an open-source Kubernetes security platform focused on **attack paths
 - Read [README.md](README.md) for the product model and user paths.
 - Check the [Roadmap](ROADMAP.md) for security capabilities and community priorities.
 - Read [docs/README.md](docs/README.md) for the documentation map.
-- For installation and deployment work, start with [Getting Started](docs/getting-started/README.md).
+- For installation and deployment work, start with [Install on a cluster](docs/getting-started/QUICKSTART.md).
 - For script changes, read [scripts/README.md](scripts/README.md) and keep scripts in the documented directory contract.
 
 ## What Contributions Are Most Valuable?
