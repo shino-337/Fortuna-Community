@@ -12,7 +12,7 @@ CURL_INSECURE="${CURL_INSECURE:-0}"
 fail() { echo "FAIL: $*" >&2; exit 1; }
 warn() { echo "WARN: $*" >&2; }
 pass() { echo "PASS: $*"; }
-log() { echo "[verify-k8s-e2e] $*"; }
+log() { echo "[verify-scenarios] $*"; }
 need_cmd() { command -v "$1" >/dev/null 2>&1 || fail "missing command: $1"; }
 
 need_cmd kubectl

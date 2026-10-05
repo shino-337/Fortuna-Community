@@ -97,12 +97,13 @@ For a full installation (secrets, mTLS, storage, rollout), follow the [Quickstar
 
 | Need | Guide |
 |---|---|
-| Install and first finding | [Getting started](docs/getting-started/README.md) |
+| Everything, by task | [Documentation index](docs/README.md) |
+| Install on a cluster | [Install guide](docs/getting-started/QUICKSTART.md) |
 | Dashboard workflows | [User guide](docs/user-guide/README.md) |
 | Architecture and multi-cluster model | [Architecture](docs/architecture/ARCHITECTURE.md) |
 | Production operations | [Operations](docs/operations/PRODUCTION_DEPLOYMENT.md) |
 | Validation scenarios | [Scenarios](scenarios/README.md) |
-| Behavior contracts, security model and invariants | [Reference](docs/reference/README.md) |
+| Behavior contracts, security model and invariants | [Reference](docs/README.md#reference) |
 
 ## Contributing
 

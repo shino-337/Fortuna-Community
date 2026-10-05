@@ -1,59 +1,45 @@
 # Fortuna Agent
 
-Fortuna Agent is a DaemonSet for **Fortuna**. It runs on each Kubernetes node to detect pods, extract SBOMs (Software Bill of Materials) from container images, and send them to Fortuna Core for security analysis.
+Fortuna Agent runs as a DaemonSet on every Kubernetes node. It extracts SBOMs from the images of the pods on its node, syncs cluster inventory, reports Pod Detail data and forwards runtime events to Fortuna Core. It does **not** match CVEs; Core does that.
 
 ---
 
 ## Overview
 
-Fortuna Agent operates at the data plane, focusing on pod detection and SBOM extraction. It does **not** perform CVE matching (that's done in Core). The Agent uses an asynchronous work queue to prevent blocking pod detection during slow SBOM extraction operations.
-
 ### Key Responsibilities
 
-- **Pod Detection**: Real-time monitoring of pods on the local node
-- **SBOM Extraction**: Extract Software Bill of Materials from container images
-- **Asynchronous Processing**: Work queue prevents blocking during SBOM extraction
-- **gRPC Communication**: Send SBOMs to Core via secure gRPC with mTLS support
-- **Multi-Parser Support**: 12 parsers — **dpkg**, **apk**, **rpm**, **npm**, **pip**, **gomod**, **gobinary**, **maven**, **cargo**, **ruby** (Gemfile.lock), **nuget** (packages.lock.json), **distroless**
+- **SBOM extraction**: detect pods on the local node and extract an SBOM for each container image through an asynchronous work queue, then send it to Core over gRPC with mTLS
+- **Inventory sync**: list Pods, ServiceAccounts, RBAC objects, Deployments and ReplicaSets and send them to Core over HTTP with a collection receipt ([Inventory](../docs/reference/INVENTORY.md))
+- **Pod Detail**: read processes, sockets and network counters for local pods from host `/proc`, and CPU/memory usage from `metrics.k8s.io`
+- **Runtime evidence**: forward Falco or file-based runtime events and report producer coverage ([Runtime evidence](../docs/reference/RUNTIME_EVIDENCE.md))
+- **Parsers**: dpkg, apk, rpm, npm, pip, gomod, gobinary, maven, cargo, ruby (Gemfile.lock), nuget and distroless, with a Syft fallback for images where they find little
 
 ---
 
 ## Architecture
 
-### Components
+### Layout
 
 ```
 agent/
 ├── cmd/
-│   └── main.go                    # Application entry point
+│   ├── main.go               # Agent entry point
+│   └── image-export/         # Credential-less sidecar that alone holds the containerd socket
 ├── internal/
-│   ├── watcher/                   # Pod watcher
-│   │   └── local_pod_watcher.go  # Local node pod detection
-│   ├── sbom/                      # SBOM extraction
-│   │   ├── processor.go          # SBOM processing logic
-│   │   ├── extractor.go          # Image SBOM extraction
-│   │   ├── parser/                # Package parsers
-│   │   │   ├── dpkg.go           # Debian dpkg parser
-│   │   │   ├── apk.go            # Alpine apk parser
-│   │   │   ├── rpm.go            # RPM parser
-│   │   │   ├── npm.go            # npm parser
-│   │   │   ├── pip.go            # pip parser
-│   │   │   ├── gomod.go          # Go modules parser
-│   │   │   ├── maven.go          # Maven pom.xml (Tier 3)
-│   │   │   ├── cargo.go          # Cargo.lock (Tier 3)
-│   │   │   ├── ruby.go           # Gemfile.lock (Tier 3)
-│   │   │   └── nuget.go          # packages.lock.json (Tier 3)
-│   │   └── queue.go              # Work queue for async processing
-│   ├── client/                    # gRPC client
-│   │   ├── grpc_client_mtls.go   # mTLS-enabled gRPC client
-│   │   └── ...
-│   ├── k8s/                       # Kubernetes client
-│   │   └── client.go              # K8s client setup
-│   └── config/                    # Configuration
-│       └── config.go              # Config loading
-├── Dockerfile
-├── go.mod
-└── go.sum
+│   ├── watcher/, k8s/        # Local pod watcher and Kubernetes client
+│   ├── sbom/                 # SBOM work queue and processor
+│   ├── client/               # mTLS gRPC client to Core
+│   ├── syncer/, collector/   # Inventory collection and HTTP sync
+│   ├── corehttp/             # HTTP delivery to Core with per-Agent credentials
+│   ├── poddetail/            # Host /proc readers and Pod Detail reporter
+│   ├── runtime/              # Falco/file readers, coverage, lifecycle, source health, eBPF scaffold
+│   └── cluster/, config/, converter/, retry/
+├── pkg/
+│   └── sbom/
+│       ├── extractor/        # Package parsers and Syft adapter
+│       ├── imageexport/      # Client for the image-export socket
+│       └── signatures/       # Distroless binary signatures
+└── Dockerfile
 ```
 
 ---
@@ -68,7 +54,7 @@ agent/
 
 ### 2. SBOM Extraction
 
-- **Multi-Parser Support**:
+- **Parsers** (`pkg/sbom/extractor/`):
   - **dpkg**: Debian/Ubuntu packages (`/var/lib/dpkg/status`)
   - **apk**: Alpine packages (`/lib/apk/db/installed`)
   - **rpm**: RedHat/CentOS packages (Fortuna inventory or `rpmdb.sqlite` fallback)
@@ -83,6 +69,7 @@ agent/
   - **distroless**: Control-plane binaries via signature allowlist
 
 - **OS-Aware Parsing**: Only runs relevant parsers based on detected OS
+- **Syft fallback**: distroless or unknown images with few packages also get a Syft pass (`SBOM_USE_SYFT_FALLBACK`)
 - **PURL Support**: Generates Package URLs (PURL) for all components
 - **Metadata Extraction**: OS name, version, architecture
 
@@ -104,12 +91,13 @@ agent/
 
 ## Configuration
 
-### Environment Variables
+The most common settings are below; every setting with its default is in the [configuration reference](../docs/reference/CONFIGURATION.md#agent).
 
 **Core Connection**:
 - `CORE_GRPC_ENDPOINT`: Core gRPC endpoint (default `fortuna-core.fortuna.svc.cluster.local:9090`)
 - `CORE_HTTP_ENDPOINT`: Core HTTP endpoint for inventory and runtime ingest (default `http://fortuna-core.fortuna.svc.cluster.local:8080`)
-- `FORTUNA_INGEST_TOKEN`: Shared HTTP ingest token (legacy; see [scoped Agent credentials](../deploy/scoped-agent-credentials/README.md))
+- `FORTUNA_AGENT_TOKEN_FILE`: Per-Agent HTTP token file ([scoped Agent credentials](../deploy/scoped-agent-credentials/README.md))
+- `FORTUNA_INGEST_TOKEN`: Shared HTTP ingest token, used only when Core has no per-Agent credential registry
 
 **Agent Identity**:
 - `NODE_NAME`: Kubernetes node name (set from the downward API)
@@ -203,10 +191,13 @@ kubectl logs -l app.kubernetes.io/component=agent -n fortuna -c agent
 1. **Set Environment Variables**:
 ```bash
 export CORE_GRPC_ENDPOINT=localhost:9090
+export CORE_HTTP_ENDPOINT=http://localhost:8080
 export NODE_NAME=local-node
 export TLS_ENABLED=false
 export LOG_LEVEL=debug
 ```
+
+Without TLS and a per-Agent certificate, Core refuses the Agent's gRPC writes (SBOMs); inventory sync over HTTP still works with a token. To exercise SBOM delivery locally, provision a client certificate as in [per-Agent mTLS](../deploy/scoped-agent-credentials/MTLS.md).
 
 2. **Run**:
 ```bash
@@ -227,7 +218,7 @@ go run cmd/main.go
 3. Agent Enqueues Pod to SBOM Queue (Asynchronous)
    ↓
 4. SBOM Worker Extracts SBOM:
-   - Mounts container filesystem
+   - Exports and unpacks the image
    - Runs OS-aware parsers
    - Extracts packages with PURLs
    - Collects OS metadata
@@ -290,7 +281,7 @@ kubectl auth can-i list pods \
 ```bash
 # From agent pod
 kubectl exec -it <agent-pod> -n fortuna -c agent -- \
-  curl -s http://fortuna-core.fortuna.svc.cluster.local:8080/healthzz
+  curl -s http://fortuna-core.fortuna.svc.cluster.local:8080/healthz
 ```
 
 ### Verify Image Access
@@ -343,9 +334,5 @@ kubectl logs <agent-pod> -n fortuna -c image-export --tail=20
 
 - [Architecture](../docs/architecture/ARCHITECTURE.md)
 - [Production Deployment](../docs/operations/PRODUCTION_DEPLOYMENT.md)
+- [Configuration reference](../docs/reference/CONFIGURATION.md)
 - [Core README](../core/README.md)
-
----
-
-**Version**: 1.0.0  
-**Last Updated**: 2026-01-06

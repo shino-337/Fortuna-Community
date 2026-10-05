@@ -5,15 +5,10 @@ sequentially. The default `native` backend uses host Go/Node and small isolated
 Python/PostgreSQL containers; the optional `act` backend uses
 [`act`](https://nektosact.com/). It is a preflight for the current working tree,
 not a replacement for the required GitHub check on the exact PR head.
-PR #54 has a specific owner-approved local-gate exception while hosted jobs
-fail before execution because of account entitlement; see
-[`NEXT_AUDIT_PLAN.md`](NEXT_AUDIT_PLAN.md#historical-54-local-exact-head-verification).
-That exception requires results for the exact committed SHA and does not make
-an interrupted `act` run or earlier working-tree run sufficient evidence.
 
 ## Requirements
 
-### Native backend (default on the constrained Kubernetes VM)
+### Native backend (default)
 
 - Bash, Git, Python 3 with PyYAML for reading the workflow, Go and Docker.
 - Go uses the exact `setup-go` toolchain from the workflow with `GOWORK=off`,
@@ -87,10 +82,33 @@ deployment; the script does not reset or deploy Fortuna.
 The medium runner is not identical to GitHub's hosted `ubuntu-latest` image, so
 an `act` pass is useful local evidence but GitHub Actions remains authoritative.
 If the image or dependencies cannot be downloaded, run the desired job later
-when network access and disk space are available; avoid switching to a full
-runner image on a storage-constrained Kubernetes VM.
+when network access and disk space are available; avoid switching to the full
+runner image on a host with little free disk, such as a Kubernetes node.
 
 If a run is interrupted, inspect `docker ps -a --filter name=act-` and remove
 only the containers/networks left by that specific run after confirming their
 identities. In particular, confirm that the temporary PostgreSQL service and
 its loopback port have stopped.
+
+## Two-cluster integration and migration rehearsal
+
+The `cluster-identity-postgres` job ends with
+`scripts/verify/run-two-cluster-integration.py`. It needs Linux x86-64, Docker,
+network access to download a checksum-pinned `kind`, and
+`FORTUNA_TEST_POSTGRES_URL` pointing at an isolated test database (the native
+backend provides one). It builds the real Agent, creates two uniquely named
+disposable kind clusters, runs `TestTwoClusterDaemonSetLive` against them and
+deletes only the clusters and images it created. It never uses an existing
+kubeconfig context, deployed workload or live database.
+
+Before upgrading an installation with existing data, rehearse the Core
+migrations against a copy of its database:
+
+```bash
+python3 scripts/verify/rehearse-populated-migration.py --backup /secure/path/fortuna.dump
+```
+
+The script restores a `pg_dump -Fc` backup (see
+[backup and reset](../operations/BACKUP_AND_RESET.md)) into a temporary
+PostgreSQL 16/AGE container, runs the migrations there and removes the
+container. It never connects to the running installation.

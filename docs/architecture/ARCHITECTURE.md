@@ -2,18 +2,15 @@
 
 Fortuna is a Kubernetes security platform for workload inventory, SBOM/CVE visibility, runtime telemetry, policy/rule evidence, attack-path analysis, and unified risk operations.
 
-This document describes the current public architecture. It intentionally avoids phase notes, internal backlog, and design-system gap tracking.
-
 ## Runtime Topology
 
 ```mermaid
 flowchart LR
   browser[Browser] --> dashboard[Dashboard nginx]
   dashboard --> core[Core REST API]
-  agent[Agent DaemonSet] -->|gRPC mTLS| core
-  remote[Remote cluster Agent] -->|gRPC mTLS via NodePort/Ingress| core
-  agent -->|HTTP ingest fallback| core
-  remote -->|HTTP ingest fallback| core
+  agent[Agent DaemonSet] -->|gRPC mTLS: SBOMs| core
+  agent -->|HTTP: inventory, Pod Detail, runtime| core
+  remote[Remote cluster Agent] -->|same, via NodePort/Ingress| core
   falco[Optional Falco/eBPF sensors] --> agent
   core --> db[(PostgreSQL)]
   core <--> nats[(NATS JetStream)]
@@ -21,13 +18,21 @@ flowchart LR
   workers --> db
 ```
 
-Dashboard is a projection of Core APIs. Agent and optional sensors write evidence into Core; Core persists source-of-truth state and publishes asynchronous processing work through NATS JetStream.
+Dashboard is a projection of Core APIs. The Agent sends SBOMs over gRPC with a per-Agent client certificate, and inventory, Pod Detail and runtime evidence over HTTP with a per-Agent token ([Agent identity](../reference/AGENT_IDENTITY.md)). Agent and optional sensors write evidence into Core; Core persists source-of-truth state and publishes asynchronous processing work through NATS JetStream.
 
 In multi-cluster deployments, Core/Dashboard/PostgreSQL/NATS run once in the management cluster. Remote clusters run Agent only. Every inventory, SBOM, runtime, network, risk, and attack-path record is owned by `cluster_id`; dashboard cluster totals are computed from active cluster-scoped records.
 
 ## Workloads
 
-Core, Agent, Dashboard, PostgreSQL and NATS JetStream; the [component catalog](../components/README.md#runtime-workloads) lists each one's Kubernetes shape, code and purpose.
+| Component | Kubernetes shape | Code | Purpose |
+|-----------|------------------|------|---------|
+| Core | Deployment + Service | `core/` | REST API, gRPC ingest, workers, migrations, risk, policy, runtime and SBOM processing |
+| Agent | DaemonSet | `agent/` | Per-node inventory, SBOM extraction, Pod Detail snapshots, network observations, Falco ingestion |
+| Dashboard | Deployment + Service | `dashboard/` | React UI served by nginx; proxies `/api/*` to Core |
+| PostgreSQL | Deployment + PVC | `deploy/infrastructure/postgresql.yaml` | Source of truth for inventory, SBOM, CVE, risk, runtime, users and reports |
+| NATS JetStream | StatefulSet | `deploy/infrastructure/nats.yaml` | Async queue for SBOM and event pipelines |
+
+Core runs migrations at startup. `/healthz` only reports that the process is up; `/status` checks PostgreSQL and NATS (see [Core health endpoints](../../core/README.md#health-endpoints)). If the Dashboard shows no Pod Detail or runtime data, check the Agent DaemonSet, its connection to Core and its node permissions first. Details for each component are in [Core](../../core/README.md), [Agent](../../agent/README.md) and [Dashboard](../../dashboard/README.md).
 
 ## Data Ownership
 
@@ -84,7 +89,7 @@ flowchart TD
 3. Core matches packages against the CVE catalog stored in PostgreSQL.
 4. CVE evidence feeds pod detail, reports, findings, and unified risk.
 
-After a DB reset, an empty CVE view is not proof of a clean image until catalog load and SBOM ingestion have been verified.
+CVE matching needs the catalog loaded into PostgreSQL (`./scripts/utils/load-cve-data.sh`). After a database reset, an empty CVE view is not proof of a clean image until catalog load and SBOM ingestion have been verified. When a match looks wrong, compare package name, version, ecosystem and source fields.
 
 ### Unified Risk
 
@@ -97,15 +102,19 @@ Core exposes one user-facing risk result for resources and findings. Inputs may 
 - Rule matches and workflow state.
 - Data freshness and telemetry health where relevant.
 
-UI pages should display the same unified risk level/score across overview, resource list, pod detail, reports, and finding detail.
+UI pages display the same unified risk level and score across overview, resource list, Pod Detail, reports and finding detail. How findings are evaluated, scored and resolved is in [Findings and risk](../reference/FINDINGS_AND_RISK.md).
 
 ### Attack Paths
 
-Attack paths are generated from relationships between workloads, identities, RBAC, network observations, runtime evidence, and sensitive objectives. The graph is a navigation surface; detail panes should carry the longer evidence text.
+Attack paths are generated from relationships between workloads, identities, RBAC, network observations, runtime evidence, and sensitive objectives. A path shows the source workload and namespace, the target or objective, the key RBAC, network or runtime edge, its confidence and evidence type, and linked findings. It is an inference of what is possible; runtime confirmation requires matching telemetry. See [Attack graph](../reference/GRAPH.md).
+
+### Rules
+
+Policy Rules is the rule catalog. Rule detail links use stable rule UIDs (`/#/rules/uid/<rule_uid>`); older code-based identifiers may still appear in imported data.
 
 ### Runtime Monitoring
 
-Runtime visibility depends on sensor configuration and agent health. Monitoring must make these states explicit:
+Runtime visibility depends on sensor configuration and agent health. Falco is the supported runtime sensor; the built-in eBPF sensor is an experimental scaffold that collects no real exec/connect events, and `EBPF_SIMULATE=true` events are never evidence. Monitoring makes these states explicit:
 
 - Runtime sensor disabled or not installed.
 - Sensor enabled but no events observed.
@@ -134,8 +143,6 @@ Implementation should reuse dashboard primitives where possible:
 - `dashboard/design-system/components/Table.tsx`
 - shared form/table chrome in `dashboard/lib/`
 
-Detailed visual design guidance is not published in this repo documentation.
-
 ```mermaid
 flowchart LR
   request[Dashboard route request] --> auth{Authenticated?}
@@ -153,6 +160,19 @@ flowchart LR
   stale -- yes --> page[Render data]
 ```
 
+## Product domains
+
+| Domain | What it shows | Primary data |
+|--------|---------------|--------------|
+| Platform Integrity | Telemetry freshness, runtime coverage, governance, pipeline health | Core status, Agent sync, runtime visibility |
+| Findings Queue | Current findings and one unified risk value | `risk_scores`, insights, rules, runtime/CVE/path evidence |
+| Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
+| Kubernetes Inventory / Pod Detail | Workload inventory and per-pod evidence | Pods, containers, SBOM, CVE, processes, network, events |
+| Runtime Network | Runtime topology and external destinations | Agent network observations |
+| Policy Rules | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
+| Pipeline & Runtime Health | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
+| Reports | Time-windowed summaries | Findings, resources, runtime events, posture |
+
 ## API Shape
 
 Core routes are grouped by product domain under `/api/v1` (plus `/api/v2/runtime`). The route map and response conventions are in [API_STANDARD.md](API_STANDARD.md).
@@ -162,16 +182,16 @@ Core routes are grouped by product domain under `/api/v1` (plus `/api/v2/runtime
 | Path | Purpose |
 |------|---------|
 | `agent/` | Node agent Go module |
-| `api/` | gRPC definitions and generated code |
+| `api/` | Shared module: gRPC definitions, generated code and HTTP collection payloads |
 | `core/` | Core API, workers, models, migrations |
 | `dashboard/` | React/Vite dashboard |
-| `deploy/` | Kubernetes manifests and deployment examples |
+| `deploy/` | Helm chart (`deploy/helm/fortuna`), the manifests rendered from it, and optional overlays |
+| `scenarios/` | Reproducible attack-path validation scenarios |
 | `scripts/` | Build, deploy, verify, and utility scripts |
-| `docs/` | Public documentation |
+| `docs/` | Documentation |
 
 ## Related Docs
 
-- [Component catalog](../components/README.md)
 - [User guide](../user-guide/README.md)
 - [Production deployment](../operations/PRODUCTION_DEPLOYMENT.md)
 - [Security guide](../reference/SECURITY.md)

@@ -95,7 +95,7 @@ A new scenario should add or update:
 scenarios/<scenario>.yaml
 scenarios/README.md
 scenarios/SCENARIO_CONTRACT.md (matrix)
-scripts/verify-k8s-e2e.sh
+scripts/verify/verify-scenarios.sh
 ```
 
 If the scenario requires a new external dependency, document it explicitly rather than silently weakening the verifier.

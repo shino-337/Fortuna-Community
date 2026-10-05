@@ -135,5 +135,6 @@ connection setup, so restart/reconnect clients after updating their trust bundle
 CI covers populated PostgreSQL cutover/rerun, concurrent duplicate Agent IDs,
 legacy quarantine, scoped restoration, read-only legacy Ping, blocked legacy
 streams, certificate issuance/overlap/revocation, key-file rotation and revocation
-during a blocked receive. The real two-cluster deployment exercise remains work
-package F; passing source tests alone does not certify that rollout.
+during a blocked receive. The two-cluster CI gate
+(`scripts/verify/run-two-cluster-integration.py`) runs six scoped Agents across two
+kind clusters. Your own rollout still needs the checks above on each cluster.

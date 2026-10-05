@@ -7,7 +7,7 @@ Fortuna is an open-source Kubernetes security platform focused on **attack paths
 - Read [README.md](README.md) for the product model and user paths.
 - Check the [Roadmap](ROADMAP.md) for security capabilities and community priorities.
 - Read [docs/README.md](docs/README.md) for the documentation map.
-- For installation and deployment work, start with [Getting Started](docs/getting-started/README.md).
+- For installation and deployment work, start with [Install on a cluster](docs/getting-started/QUICKSTART.md).
 - For script changes, read [scripts/README.md](scripts/README.md) and keep scripts in the documented directory contract.
 
 ## What Contributions Are Most Valuable?
@@ -53,6 +53,10 @@ go test ./...
 cd ../agent
 go test ./...
 
+# Shared API module
+cd ../api
+go test ./...
+
 # Dashboard
 cd ../dashboard
 npm ci
@@ -69,7 +73,10 @@ Additional checks by touched area:
 | Deployment flow | `./scripts/verify/check-full-deployment.sh` on a live cluster when deploy behavior changes |
 | Multi-cluster flow | `./scripts/verify/verify-multicluster-sync.sh` when remote Agent behavior changes |
 | Dashboard UI | `npm run typecheck` and `npm run build`; run Playwright checks when changing UI flows |
-| Docs only | `git diff --check` and verify links/commands against current scripts/manifests |
+| Helm chart or `deploy/*.yaml` | `./scripts/build/render-manifests.sh --check` (the manifests are rendered from the chart) |
+| Docs, manifests or settings | `python3 scripts/verify/check-docs-sync.py` (links, named paths and documented environment variables) |
+
+To run the whole CI workflow locally, see [Local CI](docs/development/LOCAL_CI.md).
 
 Use the scripts under [scripts](scripts) for local cluster workflows and image distribution. See [scripts/README.md](scripts/README.md) for supported entrypoints.
 

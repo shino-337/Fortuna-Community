@@ -68,4 +68,4 @@ The built-in eBPF sensor is an experimental scaffold that attaches no-op program
 
 ## Repository hygiene
 
-Contributor rules for keeping secrets and generated files out of the repository are in [CONTRIBUTING.md](../../CONTRIBUTING.md#repository-rules). Before a public release, maintainers run the [public release checklist](../maintainers/PUBLIC_RELEASE_CHECKLIST.md), including the full-history secret scan.
+Contributor rules for keeping secrets and generated files out of the repository are in [CONTRIBUTING.md](../../CONTRIBUTING.md#repository-rules). The manual `Secret scan` workflow (`.github/workflows/secret-scan.yml`) runs Gitleaks over the full Git history with `.gitleaks.toml`.

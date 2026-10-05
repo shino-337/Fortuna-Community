@@ -50,8 +50,8 @@ kubectl -n fortuna scale deployment/fortuna-core --replicas=1
 Keep the dump securely until the new rollout is verified. The reset keeps the
 PostgreSQL PVC and Kubernetes Secrets; Core recreates the schema and bootstrap
 admin on startup. A fresh vulnerability catalog must be loaded separately if
-Core has no configured OSV source directory. New Core builds quarantine Agent
-gRPC writes until the [per-Agent mTLS registry and client certificate overlay](../../deploy/scoped-agent-credentials/MTLS.md)
+Core has no configured OSV source directory. Core quarantines Agent gRPC writes
+until the [per-Agent mTLS registry and client certificate overlay](../../deploy/scoped-agent-credentials/MTLS.md)
 is provisioned; the old shared Agent certificate is not a fallback. If the
 original Fortuna CA private key is unavailable, use the dedicated Agent-client
 CA procedure in that guide rather than rotating Core and webhook certificates.

@@ -41,23 +41,11 @@ Other files, maintained by hand:
 | `sql/` | Maintenance SQL used by the procedures below and by helper scripts |
 | `infrastructure/postgres-with-age/` | Dockerfiles for a PostgreSQL image with Apache AGE; not built by CI |
 
-Workload images are `ghcr.io/shino-337/fortuna-community/fortuna-*:latest`. Pin a release with `kubectl set image` as the Quickstart shows, or set `FORTUNA_VERSION` for the install scripts, which substitute the images in temporary copies and never edit these files.
+Workload images are `ghcr.io/shino-337/fortuna-community/fortuna-*:latest`. Pin a release with the Helm value `image.tag` or with `kubectl set image`, as the Quickstart shows.
 
 ## Configuration
 
 Every environment variable that Core and the Agent read, with its default, is listed in the [configuration reference](../docs/reference/CONFIGURATION.md). CI (`scripts/verify/check-docs-sync.py`) fails when a manifest sets a variable that is missing there or that the code never reads.
-
-## Redeploying with scoped Agent credentials
-
-On a subsequent `deploy-fortuna-robust.sh` run, existing scoped Agent registry
-secrets are detected before the old Core Deployment is deleted. The script
-requires the HTTP registry, mTLS registry and Agent-client CA secret together,
-then reapplies the HTTP/mTLS Core and Agent patches before rollout. Keep the
-per-node token and client-certificate files provisioned at the host paths in
-those patches. Set `APPLY_SCOPED_AGENT_CREDENTIALS=false` only if another
-deployment controller manages these overlays; a partial secret set otherwise
-stops deployment before replacing Core. Scoped mTLS also requires cluster DNS;
-the script refuses the legacy TLS-disabled IP fallback.
 
 ## Backup, reset and data maintenance
 

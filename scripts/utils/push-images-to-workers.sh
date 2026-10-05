@@ -35,7 +35,7 @@
 #   --build-if-missing   If Core/Agent (and dashboard when included) are missing in local k8s.io, run
 #                        scripts/build/build-and-load-containerd.sh once before export. Env: AUTO_BUILD_IF_MISSING=1.
 #
-# Called automatically by: full-clean-database-rebuild-deploy.sh (Phase 2b), deploy-fortuna-robust.sh (Step 5b when multi-node).
+# Also called by scripts/deploy/sync-remote-agent.sh with REMOTE_IMAGE_MODE=local.
 
 set -e
 
