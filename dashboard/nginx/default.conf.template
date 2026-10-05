@@ -3,8 +3,7 @@
 # the variables matched by NGINX_ENVSUBST_FILTER (see dashboard/Dockerfile):
 #   FORTUNA_CORE_HOST      Core Service FQDN (the Helm chart and deploy/ set it)
 #   NGINX_LOCAL_RESOLVERS  nameservers from /etc/resolv.conf (cluster DNS)
-# Log $uri (no query string): browser WebSocket clients authenticate with
-# ?token=<JWT>, which must not be written to access logs.
+# Log $uri (no query string) so query values never reach the access log.
 log_format fortuna_noquery '$remote_addr - $remote_user [$time_local] '
                            '"$request_method $uri $server_protocol" $status $body_bytes_sent '
                            '"$http_referer" "$http_user_agent"';
@@ -40,7 +39,7 @@ server {
     proxy_connect_timeout 10s;
     proxy_send_timeout 3600s;
     proxy_read_timeout 3600s;
-    # WebSocket: /api/v1/ws/pod/:uid and /api/v1/ws/risks (auth via ?token=)
+    # WebSocket: /api/v1/ws/pod/:uid and /api/v1/ws/risks (JWT in Sec-WebSocket-Protocol)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $upstream_core;

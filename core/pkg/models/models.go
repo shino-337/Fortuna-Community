@@ -1,6 +1,7 @@
 package models
 
 import (
+	"encoding/json"
 	"time"
 
 	"gorm.io/gorm"
@@ -168,6 +169,17 @@ type AuditLog struct {
 
 	Cluster Cluster `gorm:"foreignKey:ClusterID" json:"cluster,omitempty"`
 	UserObj User    `gorm:"foreignKey:UserID" json:"userObj,omitempty"`
+}
+
+// BeforeSave keeps Details valid for the jsonb column; Postgres rejects an
+// empty string, which would silently drop the audit row.
+func (a *AuditLog) BeforeSave(*gorm.DB) error {
+	a.Details = jsonOrDefault(a.Details, "{}")
+	if !json.Valid([]byte(a.Details)) {
+		b, _ := json.Marshal(map[string]string{"message": a.Details})
+		a.Details = string(b)
+	}
+	return nil
 }
 
 // TableName overrides table names

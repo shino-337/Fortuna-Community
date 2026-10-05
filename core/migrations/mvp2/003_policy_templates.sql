@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS policy_templates (
     id SERIAL PRIMARY KEY,
     
     -- Template identity
-    template_id VARCHAR(255) NOT NULL UNIQUE,
+    template_id VARCHAR(255) NOT NULL,
     version VARCHAR(20) NOT NULL,
     
     -- Metadata
@@ -28,7 +28,7 @@ CREATE TABLE IF NOT EXISTS policy_templates (
     
     -- Documentation
     rationale TEXT,  -- Why this policy exists
-    references TEXT[],  -- Links to docs
+    "references" TEXT[],  -- Links to docs
     examples JSONB,  -- Example violations
     
     -- Metadata

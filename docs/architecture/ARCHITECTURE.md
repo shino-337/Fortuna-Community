@@ -32,7 +32,7 @@ In multi-cluster deployments, Core/Dashboard/PostgreSQL/NATS run once in the man
 | PostgreSQL | Deployment + PVC | `deploy/infrastructure/postgresql.yaml` | Source of truth for inventory, SBOM, CVE, risk, runtime, users and reports |
 | NATS JetStream | StatefulSet | `deploy/infrastructure/nats.yaml` | Async queue for SBOM and event pipelines |
 
-Core runs migrations at startup. `/healthz` only reports that the process is up; `/status` checks PostgreSQL and NATS (see [Core health endpoints](../../core/README.md#health-endpoints)). If the Dashboard shows no Pod Detail or runtime data, check the Agent DaemonSet, its connection to Core and its node permissions first. Details for each component are in [Core](../../core/README.md), [Agent](../../agent/README.md) and [Dashboard](../../dashboard/README.md).
+Core runs migrations at startup. `/healthz` only reports that the process is up; `/status` checks PostgreSQL (NATS is not checked) (see [Core health endpoints](../../core/README.md#health-endpoints)). If the Dashboard shows no Pod Detail or runtime data, check the Agent DaemonSet, its connection to Core and its node permissions first. Details for each component are in [Core](../../core/README.md), [Agent](../../agent/README.md) and [Dashboard](../../dashboard/README.md).
 
 ## Data Ownership
 

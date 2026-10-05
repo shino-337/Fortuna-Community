@@ -102,7 +102,7 @@ func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 			Role     string         `json:"role,omitempty"`
 			Detail   map[string]any `json:"detail,omitempty"`
 		}
-		var signals []signal
+		signals := []signal{}
 
 		// Admin count: only users whose role mentions "admin" are read (one column), then the
 		// exact role rule below decides.
@@ -276,7 +276,7 @@ LIMIT 50`, since).Scan(&rows).Error; err != nil {
 			Severity string         `json:"severity"`
 			Detail   map[string]any `json:"detail"`
 		}
-		var out []sig
+		out := []sig{}
 		for _, r := range rows {
 			code := "EVENT_BURST"
 			sev := "MEDIUM"

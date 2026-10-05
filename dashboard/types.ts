@@ -999,8 +999,9 @@ export interface QueueMetric {
 
 /** Inventory sync status (last/next scan, resource counts). */
 export interface SyncStatus {
-  lastScan: string;
-  nextScan: string;
+  /** Null until an Agent has synced. */
+  lastScan: string | null;
+  nextScan: string | null;
   drift: boolean;
   resources: { pods: number; sas: number; roles?: number; bindings?: number };
 }

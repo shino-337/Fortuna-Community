@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -94,6 +95,8 @@ func PodDetailWS(db *gorm.DB) gin.HandlerFunc {
 		ReadBufferSize:  1024,
 		WriteBufferSize: 1024,
 		CheckOrigin:     wsAllowedOrigin,
+		// Echo only the fixed protocol, never the bearer entry the client also offers.
+		Subprotocols: []string{middleware.WebSocketProtocol},
 	}
 	return func(c *gin.Context) {
 		pathRaw := c.Request.URL.Path

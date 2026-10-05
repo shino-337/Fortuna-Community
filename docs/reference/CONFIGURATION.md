@@ -12,6 +12,7 @@ Defaults below are the values in the code. "none" means the feature is off or th
 | --- | --- | --- |
 | `DATABASE_URL` | `postgres://postgres:postgres@postgres:5432/fortuna?sslmode=disable` | PostgreSQL connection string; Core retries the connection and exits if it never succeeds or migrations fail. |
 | `NATS_ENDPOINT` | `nats://nats.fortuna.svc.cluster.local:4222` | NATS JetStream URL; if unreachable Core still starts, without the SBOM, CVE and risk pipeline. |
+| `FORTUNA_NATS_STREAM_REPLICAS` | `3` | JetStream replicas for the streams Core creates (1 to 5); must not exceed the number of NATS servers. The Helm chart sets it to `min(3, nats.replicas)`. |
 | `HTTP_PORT` | `8080` | Port of the REST API and dashboard backend. |
 | `GRPC_PORT` | `9090` | Port of the gRPC AgentService used by Agents. |
 | `LOG_LEVEL` | `info` | Printed at startup only; it does not change log verbosity. |
@@ -28,7 +29,6 @@ Defaults below are the values in the code. "none" means the feature is off or th
 | `JWT_SECRET` | none | Secret that signs login tokens. Required (or `FORTUNA_JWT_SECRET`) and at least 32 bytes; otherwise Core does not start. |
 | `FORTUNA_JWT_SECRET` | none | Alternative name for the JWT secret, used only when `JWT_SECRET` is empty. |
 | `TOKEN_EXPIRATION_HOURS` | `24` | Lifetime of login tokens in hours. |
-| `FORTUNA_ALLOW_AUTH_QUERY_TOKEN` | `false` | `true` or `1` accepts the JWT from `?token=` on WebSocket upgrades, which browsers need; off because URL tokens leak into logs. |
 | `FORTUNA_ALLOWED_ORIGINS` | none | Comma-separated extra CORS origins; `http://localhost:*` and `http://127.0.0.1:*` are always allowed. |
 | `FORTUNA_WS_ALLOWED_ORIGINS` | none | Comma-separated origins allowed to open WebSockets; requests without an Origin and localhost origins are always allowed. |
 | `FORTUNA_TRUSTED_PROXIES` | none | Comma-separated proxy IPs or CIDRs whose `X-Forwarded-For` / `X-Real-IP` are trusted for the client IP; an invalid entry stops Core. |
@@ -59,7 +59,7 @@ These are read by the database migrations that run at Core startup.
 | `FORTUNA_INGEST_TOKEN` | none | Shared token required on HTTP Agent and runtime ingest routes; without it (and without a credential registry) those routes fail closed. |
 | `FORTUNA_ALLOW_UNAUTHED_INGEST` | none | Local development only (`1` or `true`): accepts HTTP ingest without a token when `FORTUNA_INGEST_TOKEN` is empty. |
 | `FORTUNA_AGENT_CREDENTIAL_REGISTRY` | none | Path to the scoped Agent credential registry; when set, HTTP ingest requires per-Agent credentials and the shared token is not accepted. See [Agent identity](AGENT_IDENTITY.md). |
-| `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` | none | Path to the registry that binds gRPC client certificates to Agent identities; requires `TLS_ENABLED=true`, otherwise Core does not start. |
+| `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` | none | Path to the registry that binds gRPC client certificates to Agent identities; requires `TLS_ENABLED=true`, otherwise Core does not start. Unset, Core refuses all Agent gRPC writes, so no SBOMs are ingested. |
 | `FORTUNA_SOURCE_HEALTH_REGISTRY` | none | Trust registry used to verify signed runtime source-health reports; without it those reports are rejected. |
 | `RATE_LIMIT_PER_CLUSTER_ENABLED` | `true` | Rate-limits inventory sync and SBOM ingest per cluster id. |
 | `RATE_LIMIT_SYNC_PER_CLUSTER_RPS` | `10` | Sync requests per second allowed per cluster. |
@@ -199,7 +199,7 @@ These are read by the database migrations that run at Core startup.
 | `PIPELINE_HEALTH_LAYER4_HEALTHY_MINUTES` | `30` | Pipeline health: risk score calculation is healthy if newer than this. |
 | `PIPELINE_HEALTH_LAYER4_DEGRADED_MINUTES` | `180` | Pipeline health: risk score calculation is degraded, not stale, if newer than this. |
 
-Not listed: `FORTUNA_SKIP_ROUTE_SECURITY_VERIFY` and `FORTUNA_ROUTE_SECURITY_REPORT`, internal hooks for the route security check that is run in CI.
+Not listed: `FORTUNA_SKIP_ROUTE_SECURITY_VERIFY` and `FORTUNA_ROUTE_SECURITY_REPORT`, internal hooks for the route security check that is run in CI, and `FORTUNA_REHEARSAL_POSTGRES_URL`, read only by the `core/cmd/migration-rehearsal` tool.
 
 ## Agent
 
@@ -215,7 +215,7 @@ The Agent has no log level setting.
 | `FORTUNA_AGENT_TOKEN_FILE` | none | File holding a scoped Agent credential, reread on every request; when set it replaces the shared token on ingest routes and a missing or invalid file fails closed. |
 | `FORTUNA_CORE_HTTP_AUTHORIZATION` | none | Value sent as the `Authorization` header on every Core HTTP request, for a reverse proxy in front of Core. |
 | `SYNC_INTERVAL` | `30s` | Interval of the full inventory sync (pods, RBAC, resources) to Core. |
-| `HEARTBEAT_INTERVAL` | `15s` | Interval of the gRPC ping that keeps the Agent's last-seen time fresh (minimum 5s). |
+| `HEARTBEAT_INTERVAL` | `15s` | Interval of the gRPC ping that keeps the Agent's last-seen time fresh when Core has the gRPC registry configured (minimum 5s). |
 | `BATCH_SIZE` | `50` | Read but not currently used. |
 | `BATCH_TIMEOUT_MS` | `5000` | Read but not currently used. |
 

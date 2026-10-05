@@ -606,7 +606,7 @@ const PodDetailContent: React.FC = () => {
     const wsUrl = api.getPodDetailWsUrl(wsUid, pod.clusterId);
     let ws: WebSocket | null = null;
     try {
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(wsUrl, api.getWebSocketProtocols());
       ws.onmessage = (e) => {
         const currentUid = podUidRef.current;
         if (!currentUid) return;

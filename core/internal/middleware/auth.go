@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -32,8 +31,8 @@ func AuthMiddleware(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 				tokenString = parts[1]
 			}
 		}
-		if tokenString == "" && allowAuthQueryToken() && isWebSocketUpgrade(c.Request) {
-			tokenString = c.Query("token")
+		if tokenString == "" && isWebSocketUpgrade(c.Request) {
+			tokenString = webSocketProtocolToken(c.Request)
 		}
 		if tokenString == "" {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header required"})
@@ -118,11 +117,23 @@ func passwordChangeAllowedPath(method, path string) bool {
 	return false
 }
 
-// allowAuthQueryToken controls reading JWT from ?token= for browser WebSocket upgrades.
-// It is disabled by default because URL tokens leak through logs, history, and referrers.
-func allowAuthQueryToken() bool {
-	v := strings.TrimSpace(strings.ToLower(os.Getenv("FORTUNA_ALLOW_AUTH_QUERY_TOKEN")))
-	return v == "true" || v == "1"
+// WebSocketProtocol is the subprotocol Core selects on WebSocket upgrades.
+const WebSocketProtocol = "fortuna.v1"
+
+// webSocketBearerPrefix marks the subprotocol entry that carries the JWT. Browsers cannot
+// set an Authorization header on a WebSocket handshake, and a token in the URL would leak
+// into proxy and access logs, so the Dashboard offers ["fortuna.v1", "fortuna.bearer.<jwt>"].
+const webSocketBearerPrefix = "fortuna.bearer."
+
+func webSocketProtocolToken(r *http.Request) string {
+	for _, header := range r.Header.Values("Sec-WebSocket-Protocol") {
+		for _, proto := range strings.Split(header, ",") {
+			if token, ok := strings.CutPrefix(strings.TrimSpace(proto), webSocketBearerPrefix); ok && token != "" {
+				return token
+			}
+		}
+	}
+	return ""
 }
 
 func isWebSocketUpgrade(r *http.Request) bool {

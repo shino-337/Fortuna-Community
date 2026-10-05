@@ -24,7 +24,7 @@ Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legac
 | Users and sessions | `/api/v1/users/*`, `/api/v1/sessions/*` | User and session administration |
 | Dashboard | `/api/v1/dashboard/*` | Dashboard summary and metric aggregates |
 | Inventory | `/api/v1/inventory/*`, `/api/v1/resources/*` | Pods, service accounts, deployments, replicasets, clusters and their nodes, SBOM inventory |
-| Cluster certificates | `/api/v1/cluster/certificates/*` | Core certificate information and rotation |
+| Cluster certificates | `/api/v1/cluster/certificates/*` | Core certificate information; rotation only when `TLS_ENABLED=true` |
 | Risk | `/api/v1/risk/*` | Insights, findings workflow, risk scores, risk analytics, exceptions |
 | Policy | `/api/v1/policy/*` | Policy rules, templates, instances, rule metrics and matches |
 | Runtime | `/api/v1/runtime/*`, `/api/v2/runtime/*` | Runtime events, signals, process/network facts |
@@ -32,9 +32,11 @@ Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legac
 | Audit and governance | `/api/v1/audit/*`, `/api/v1/governance/*` | Audit logs, reports, security activity, access review |
 | Investigations | `/api/v1/investigations/*` | Investigation cases, timeline, pinned entities |
 | Malware | `/api/v1/malware/*` | Malware threat views |
-| Agent ingest | `/api/v1/agent/*` | Agent inventory/runtime HTTP ingest fallback |
-| WebSocket | `/api/v1/ws/*` | Live pod detail and risk updates |
-| Observability | `/api/v1/metrics/*`, `/api/v1/monitoring/*`, `/api/v1/error-logs` | System, worker, agent, pipeline, and log views |
+| Agent ingest | `/api/v1/agent/*`, `POST /api/v2/runtime/{events,producers,coverage,source-health}` | Agent inventory, Pod Detail and runtime HTTP ingest |
+| WebSocket | `/api/v1/ws/*` | Live pod detail and risk updates; the JWT travels in `Sec-WebSocket-Protocol` (`fortuna.v1`, `fortuna.bearer.<jwt>`), never in the URL |
+| Observability | `/api/v1/metrics/*`, `/api/v1/monitoring/*`, `/api/v1/error-logs`, `/api/v1/agents/status`, `/api/v1/health/dashboard-data-integrity` | System, worker, agent, pipeline, catalog health and log views |
+| Notifications | `/api/v1/notifications*` | Notification list and read state |
+| Capability catalog | `/api/v1/capability-metadata*`, `/api/v1/promotion-rules*` | Capability metadata and promotion rules |
 
 ## Route Design Principles
 
@@ -44,7 +46,7 @@ Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legac
 4. Use stable Kubernetes UIDs for pod-scoped resources.
 5. Enforce cluster scope on cluster-owned records.
 6. Protect every user route with explicit permission middleware.
-7. Use POST for actions and ingest, PATCH for partial state changes, PUT for full updates, DELETE for removal.
+7. Use POST for actions and ingest, PATCH for partial state changes, PUT for updates, DELETE for removal. Policy instance and template PUT are partial: omitted fields keep their stored values.
 
 ## Common Endpoint Patterns
 
@@ -62,12 +64,11 @@ Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legac
 ```json
 {
   "error": "string",
-  "code": "string",
-  "details": {}
+  "code": "string"
 }
 ```
 
-Standard HTTP status codes are used: `200`, `201`, `400`, `401`, `403`, `404`, and `500`.
+Every error carries `error`; `code` (and `retryable` on some 503 responses) is added where clients branch on the cause. Status codes in use: `200`, `201`, `202`, `204`, `400`, `401`, `403`, `404`, `409`, `413`, `429`, `500`, `501` and `503`. A 5xx body never contains internal error text.
 
 ## Implementation Source
 

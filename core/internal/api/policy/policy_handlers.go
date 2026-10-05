@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"github.com/gin-gonic/gin"
+	"github.com/gin-gonic/gin/binding"
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/internal/api/listlimit"
@@ -112,10 +113,24 @@ func (h *PolicyHandler) CreateTemplate(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "celExpression is required"})
 		return
 	}
+	if !oneOf(template.Category, templateCategories) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "category must be one of security, compliance, operational, governance"})
+		return
+	}
+	if template.DefaultAction != "" && !oneOf(template.DefaultAction, templateActions) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "defaultAction must be one of alert, block, audit"})
+		return
+	}
+	if !oneOf(template.DefaultSeverity, policySeverities) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "defaultSeverity must be one of low, medium, high, critical"})
+		return
+	}
 
 	// Check if template already exists
 	var existing models.PolicyTemplate
-	if err := h.db.Where("template_id = ? AND version = ?", template.TemplateID, template.Version).
+	// Unscoped: a deleted template keeps its (templateId, version) because
+	// instances and violations refer to it; publish a new version instead.
+	if err := h.db.Unscoped().Where("template_id = ? AND version = ?", template.TemplateID, template.Version).
 		First(&existing).Error; err == nil {
 		c.JSON(http.StatusConflict, gin.H{"error": "Template already exists"})
 		return
@@ -128,8 +143,9 @@ func (h *PolicyHandler) CreateTemplate(c *gin.Context) {
 	if template.CreatedBy == "" {
 		template.CreatedBy = "system"
 	}
-	// Respect JSON `isSystem` (defaults to false when omitted). DB column default:true
-	// still applies only when the zero value is inserted as DEFAULT; do not force true here.
+	// Templates created through the API are user templates and can be deleted;
+	// only migrations seed system templates.
+	template.IsSystem = false
 
 	if err := h.db.Create(&template).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create template"})
@@ -155,18 +171,30 @@ func (h *PolicyHandler) UpdateTemplate(c *gin.Context) {
 		return
 	}
 
-	// Prevent updates to immutable fields
-	var updates models.PolicyTemplate
+	// Only documentation fields can change; fields left out of the body keep
+	// their stored value.
+	var updates struct {
+		Description *string   `json:"description"`
+		Rationale   *string   `json:"rationale"`
+		References  *[]string `json:"references"`
+		Examples    *string   `json:"examples"`
+	}
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Only allow updates to certain fields
-	template.Description = updates.Description
-	template.Rationale = updates.Rationale
-	template.References = updates.References
-	template.Examples = updates.Examples
+	if updates.Description != nil {
+		template.Description = *updates.Description
+	}
+	if updates.Rationale != nil {
+		template.Rationale = *updates.Rationale
+	}
+	if updates.References != nil {
+		template.References = *updates.References
+	}
+	if updates.Examples != nil {
+		template.Examples = *updates.Examples
+	}
 
 	if err := h.db.Save(&template).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update template"})
@@ -260,11 +288,21 @@ func (h *PolicyHandler) GetInstance(c *gin.Context) {
 // CreateInstance creates a new policy instance
 func (h *PolicyHandler) CreateInstance(c *gin.Context) {
 	var instance models.PolicyInstance
-
-	if err := c.ShouldBindJSON(&instance); err != nil {
+	// The flags default to true when omitted, so their presence in the body matters.
+	var flags struct {
+		Enabled           *bool `json:"enabled"`
+		RemediationDryRun *bool `json:"remediationDryRun"`
+	}
+	if err := c.ShouldBindBodyWith(&instance, binding.JSON); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	if err := c.ShouldBindBodyWith(&flags, binding.JSON); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	instance.Enabled = flags.Enabled == nil || *flags.Enabled
+	instance.RemediationDryRun = flags.RemediationDryRun == nil || *flags.RemediationDryRun
 
 	// Validate required fields
 	if instance.TemplateID == "" {
@@ -292,6 +330,18 @@ func (h *PolicyHandler) CreateInstance(c *gin.Context) {
 		return
 	}
 
+	// Empty action/severity inherit from the template.
+	if instance.Action == "" {
+		instance.Action = template.DefaultAction
+	}
+	if instance.Severity == "" {
+		instance.Severity = template.DefaultSeverity
+	}
+	if msg := validateInstanceOverrides(instance.Action, instance.Severity); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		return
+	}
+
 	// Check if instance already exists
 	var existing models.PolicyInstance
 	if err := h.db.Where("instance_name = ?", instance.InstanceName).
@@ -305,7 +355,28 @@ func (h *PolicyHandler) CreateInstance(c *gin.Context) {
 		instance.CreatedBy = "system"
 	}
 
-	if err := h.db.Create(&instance).Error; err != nil {
+	// GORM inserts DEFAULT (true) for a false value in a column with a default
+	// and reads the stored value back, so the requested flags are written after.
+	enabled, dryRun := instance.Enabled, instance.RemediationDryRun
+	err := h.db.Transaction(func(tx *gorm.DB) error {
+		// The unique index on instance_name also covers soft-deleted rows, so a
+		// deleted instance's name is freed before it is reused.
+		if err := tx.Unscoped().Where("instance_name = ? AND deleted_at IS NOT NULL", instance.InstanceName).
+			Delete(&models.PolicyInstance{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Create(&instance).Error; err != nil {
+			return err
+		}
+		if !enabled || !dryRun {
+			return tx.Model(&instance).Updates(map[string]any{
+				"enabled":             enabled,
+				"remediation_dry_run": dryRun,
+			}).Error
+		}
+		return nil
+	})
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create instance"})
 		return
 	}
@@ -328,26 +399,44 @@ func (h *PolicyHandler) UpdateInstance(c *gin.Context) {
 		return
 	}
 
-	var updates models.PolicyInstance
+	// Partial update: fields left out of the body keep their stored value. The
+	// template reference and instance name cannot change.
+	var updates struct {
+		Description       *string             `json:"description"`
+		Enabled           *bool               `json:"enabled"`
+		Clusters          *models.StringArray `json:"clusters"`
+		Namespaces        *models.StringArray `json:"namespaces"`
+		ResourceTypes     *models.StringArray `json:"resourceTypes"`
+		LabelSelectors    *string             `json:"labelSelectors"`
+		Action            *string             `json:"action"`
+		Severity          *string             `json:"severity"`
+		CustomMessage     *string             `json:"customMessage"`
+		AutoRemediate     *bool               `json:"autoRemediate"`
+		RemediationDryRun *bool               `json:"remediationDryRun"`
+		Exemptions        *string             `json:"exemptions"`
+		UpdatedBy         *string             `json:"updatedBy"`
+	}
 	if err := c.ShouldBindJSON(&updates); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-
-	// Update allowed fields
-	instance.Description = updates.Description
-	instance.Enabled = updates.Enabled
-	instance.Clusters = updates.Clusters
-	instance.Namespaces = updates.Namespaces
-	instance.ResourceTypes = updates.ResourceTypes
-	instance.LabelSelectors = updates.LabelSelectors
-	instance.Action = updates.Action
-	instance.Severity = updates.Severity
-	instance.CustomMessage = updates.CustomMessage
-	instance.AutoRemediate = updates.AutoRemediate
-	instance.RemediationDryRun = updates.RemediationDryRun
-	instance.Exemptions = updates.Exemptions
-	instance.UpdatedBy = updates.UpdatedBy
+	setIf(&instance.Description, updates.Description)
+	setIf(&instance.Enabled, updates.Enabled)
+	setIf(&instance.Clusters, updates.Clusters)
+	setIf(&instance.Namespaces, updates.Namespaces)
+	setIf(&instance.ResourceTypes, updates.ResourceTypes)
+	setIf(&instance.LabelSelectors, updates.LabelSelectors)
+	setIf(&instance.Action, updates.Action)
+	setIf(&instance.Severity, updates.Severity)
+	setIf(&instance.CustomMessage, updates.CustomMessage)
+	setIf(&instance.AutoRemediate, updates.AutoRemediate)
+	setIf(&instance.RemediationDryRun, updates.RemediationDryRun)
+	setIf(&instance.Exemptions, updates.Exemptions)
+	setIf(&instance.UpdatedBy, updates.UpdatedBy)
+	if msg := validateInstanceOverrides(instance.Action, instance.Severity); msg != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": msg})
+		return
+	}
 
 	if err := h.db.Save(&instance).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update instance"})
@@ -378,4 +467,38 @@ func (h *PolicyHandler) DeleteInstance(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Instance deleted successfully"})
+}
+
+var (
+	templateCategories = []string{"security", "compliance", "operational", "governance"}
+	templateActions    = []string{"alert", "block", "audit"}
+	instanceActions    = []string{"alert", "block", "audit", "remediate"}
+	policySeverities   = []string{"low", "medium", "high", "critical"}
+)
+
+func oneOf(v string, allowed []string) bool {
+	for _, a := range allowed {
+		if v == a {
+			return true
+		}
+	}
+	return false
+}
+
+// validateInstanceOverrides mirrors the database check constraints so a bad
+// value is a 400 instead of a failed write.
+func validateInstanceOverrides(action, severity string) string {
+	if !oneOf(action, instanceActions) {
+		return "action must be one of alert, block, audit, remediate"
+	}
+	if !oneOf(severity, policySeverities) {
+		return "severity must be one of low, medium, high, critical"
+	}
+	return ""
+}
+
+func setIf[T any](dst *T, v *T) {
+	if v != nil {
+		*dst = *v
+	}
 }

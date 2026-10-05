@@ -128,7 +128,7 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"POST", "/api/v1/change-password", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionAuthPasswordChange})
 
 	clusterCertOptional := !opts.CertRoutesRegistered
-	add(routeB{"GET", "/api/v1/cluster/certificates/info", authJWT, auditSensitiveRead, graphNone, clusterCertOptional, false, false, false, false, authorization.PermissionInventoryRead})
+	add(routeB{"GET", "/api/v1/cluster/certificates/info", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 	add(routeB{"POST", "/api/v1/cluster/certificates/rotate", authJWT, auditWrite, graphNone, clusterCertOptional, true, false, false, false, authorization.PermissionClusterCertificatesRotate})
 	add(routeB{"GET", "/api/v1/cluster/certificates/rotation/history", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInventoryRead})
 

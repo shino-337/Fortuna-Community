@@ -239,7 +239,7 @@ type nsRiskRow struct {
 }
 
 func correlateCVECountVsRisk(ctx context.Context, db *gorm.DB, scope analyticsScope) (CorrelationResult, error) {
-	result := CorrelationResult{Factor: "cve_count", Insights: []string{}}
+	result := CorrelationResult{Factor: "cve_count", Insights: []string{}, DataPoints: []CorrelationPoint{}}
 
 	rows, err := queryNamespaceCorrelation(ctx, db, scope, false)
 	if err != nil {
@@ -291,7 +291,7 @@ func correlateCVECountVsRisk(ctx context.Context, db *gorm.DB, scope analyticsSc
 }
 
 func correlateCVESeverityVsRisk(ctx context.Context, db *gorm.DB, scope analyticsScope) (CorrelationResult, error) {
-	result := CorrelationResult{Factor: "cve_severity", Insights: []string{}}
+	result := CorrelationResult{Factor: "cve_severity", Insights: []string{}, DataPoints: []CorrelationPoint{}}
 
 	rows, err := queryNamespaceCorrelation(ctx, db, scope, true)
 	if err != nil {

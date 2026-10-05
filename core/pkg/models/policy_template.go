@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -42,10 +43,25 @@ type PolicyTemplate struct {
 
 	// Metadata
 	CreatedBy string `gorm:"default:'system'" json:"createdBy"`
-	IsSystem  bool   `gorm:"default:true" json:"isSystem"` // Cannot be deleted
+	IsSystem  bool   `json:"isSystem"` // Seeded by migrations; cannot be deleted
 }
 
 // TableName specifies the table name for PolicyTemplate
 func (PolicyTemplate) TableName() string {
 	return "policy_templates"
+}
+
+// BeforeSave stores empty JSON fields as valid JSON; PostgreSQL rejects ” in jsonb columns.
+func (t *PolicyTemplate) BeforeSave(*gorm.DB) error {
+	t.DefaultScope = jsonOrDefault(t.DefaultScope, "{}")
+	t.RemediationTemplate = jsonOrDefault(t.RemediationTemplate, "{}")
+	t.Examples = jsonOrDefault(t.Examples, "[]")
+	return nil
+}
+
+func jsonOrDefault(v, empty string) string {
+	if strings.TrimSpace(v) == "" {
+		return empty
+	}
+	return v
 }

@@ -64,7 +64,7 @@ The built-in eBPF sensor is an experimental scaffold that attaches no-op program
 - Keep `JWT_SECRET`, `FORTUNA_ADMIN_PASSWORD`, `FORTUNA_INGEST_TOKEN`, registry credentials and PostgreSQL credentials in Kubernetes Secrets or an external secret manager, generated per environment.
 - Prefer per-Agent HTTP tokens and gRPC client certificates over the shared ingest token; see [scoped Agent credentials](../../deploy/scoped-agent-credentials/README.md).
 - Rotate the mTLS CA and certificates after any suspected disclosure.
-- Keep bearer tokens out of logs, issue reports, screenshots and shell history. Core redacts `?token=` query values from its access logs.
+- Keep bearer tokens out of logs, issue reports, screenshots and shell history. Core never reads a JWT from the URL: browser WebSocket connections send it in the `Sec-WebSocket-Protocol` header, and Core redacts token-like query values from its access logs.
 
 ## Repository hygiene
 

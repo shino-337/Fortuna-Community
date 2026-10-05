@@ -1360,15 +1360,22 @@ export const api = {
   /** @deprecated Use getPodByUid */
   get getPod() { return this.getPodByUid; },
 
-  /** WebSocket URL for pod detail live updates (Phase 5.1). Pass uid; token is appended as query for auth. */
+  /**
+   * Subprotocols for Core WebSockets. Browsers cannot send an Authorization header on the
+   * handshake, so the JWT travels as "fortuna.bearer.<jwt>" and never appears in the URL.
+   */
+  getWebSocketProtocols: (): string[] => {
+    const token = getToken();
+    return token ? ['fortuna.v1', `fortuna.bearer.${token}`] : ['fortuna.v1'];
+  },
+
+  /** WebSocket URL for pod detail live updates. Authenticate with getWebSocketProtocols(). */
   getPodDetailWsUrl: (uid: string, clusterId?: string): string => {
     const path = `/api/v1/ws/pod/${encodeURIComponent(uid)}`;
     const base = CORE_API_URL ? CORE_API_URL.replace(/\/$/, '') : window.location.origin;
     const protocol = base.startsWith('https') ? 'wss:' : 'ws:';
     const host = base.startsWith('http') ? new URL(base).host : window.location.host;
-    const token = getToken();
     const params = new URLSearchParams();
-    if (token) params.set('token', token);
     if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
     const qs = params.toString();
     return `${protocol}//${host}${path}${qs ? `?${qs}` : ''}`;
@@ -1380,9 +1387,7 @@ export const api = {
     const base = CORE_API_URL ? CORE_API_URL.replace(/\/$/, '') : window.location.origin;
     const protocol = base.startsWith('https') ? 'wss:' : 'ws:';
     const host = base.startsWith('http') ? new URL(base).host : window.location.host;
-    const token = getToken();
-    const qs = token ? `?token=${encodeURIComponent(token)}` : '';
-    return `${protocol}//${host}${path}${qs}`;
+    return `${protocol}//${host}${path}`;
   },
 
   /** Runtime domain: pod-scoped APIs use /api/v1/runtime/pods/:uid/... */
@@ -2275,13 +2280,14 @@ export const api = {
   },
 
   getSyncStatus: async (): Promise<SyncStatus> => {
-      const data = await request<{ health?: { status?: string }, sync?: { lastFullScan?: string, nextScan?: string }, resources?: { pods?: number, serviceAccounts?: number, roles?: number, bindings?: number } }>('/metrics/system');
-      if (!data.sync?.lastFullScan || !data.sync?.nextScan || !data.resources) {
+      const data = await request<{ health?: { status?: string }, sync?: { lastFullScan?: string | null, nextScan?: string | null }, resources?: { pods?: number, serviceAccounts?: number, roles?: number, bindings?: number } }>('/metrics/system');
+      // Core reports null sync times until an Agent has synced.
+      if (!data.sync || data.sync.lastFullScan === undefined || data.sync.nextScan === undefined || !data.resources) {
         invalidResponse('system_metrics_invalid_response', 'System metrics response is incomplete');
       }
       return {
-        lastScan: data.sync.lastFullScan,
-        nextScan: data.sync.nextScan,
+        lastScan: data.sync.lastFullScan || null,
+        nextScan: data.sync.nextScan || null,
         drift: false,
         resources: {
           pods: requireFiniteNumber(data.resources.pods, 'system_metrics_invalid_response', 'resources.pods'),

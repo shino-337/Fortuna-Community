@@ -79,12 +79,9 @@ const (
 	PermissionGraphQueryAdvanced  Permission = "graph.query.advanced"
 	PermissionGraphExport         Permission = "graph.export"
 
-	PermissionMalwareRead   Permission = "malware.read"
-	PermissionMalwareUpload Permission = "malware.upload"
+	PermissionMalwareRead Permission = "malware.read"
 
-	PermissionInternalCVETrigger Permission = "internal.cve.trigger"
-	PermissionSystemDebug        Permission = "system.debug"
-	PermissionSystemAuditRead    Permission = "system.audit.read"
+	PermissionSystemAuditRead Permission = "system.audit.read"
 
 	// Observability (v2 — replaces system.observability.read)
 	PermissionObservabilityMetricsRead Permission = "observability.metrics.read"
@@ -115,7 +112,6 @@ func ClassifyPermission(p Permission) PermissionLevel {
 		PermissionInvestigationsDelete,
 		PermissionInventoryDelete, PermissionInventoryBulk, PermissionInventoryQuarantine,
 		PermissionRulesDelete, PermissionPoliciesDelete,
-		PermissionMalwareUpload, PermissionInternalCVETrigger,
 		PermissionClusterCertificatesRotate:
 		return LevelDestructive
 	case PermissionUsersCreate, PermissionUsersUpdate, PermissionUsersDisable,
@@ -129,7 +125,7 @@ func ClassifyPermission(p Permission) PermissionLevel {
 		PermissionRuntimeMappingWrite, PermissionRiskEvaluate,
 		PermissionExportFindings:
 		return LevelWrite
-	case PermissionSystemDebug, PermissionObservabilityDebugRead:
+	case PermissionObservabilityDebugRead:
 		return LevelPlatform
 	case PermissionAuthRegister, PermissionSystemAuditRead:
 		return LevelSecurityCritical
@@ -195,9 +191,6 @@ func AllPermissions() []Permission {
 		PermissionGraphQueryAdvanced,
 		PermissionGraphExport,
 		PermissionMalwareRead,
-		PermissionMalwareUpload,
-		PermissionInternalCVETrigger,
-		PermissionSystemDebug,
 		PermissionSystemAuditRead,
 		PermissionObservabilityMetricsRead,
 		PermissionObservabilityLogsRead,

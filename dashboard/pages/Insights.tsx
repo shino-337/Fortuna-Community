@@ -767,7 +767,7 @@ export const RiskCenter: React.FC = () => {
     const wsUrl = api.getRisksWsUrl();
     let ws: WebSocket | null = null;
     try {
-      ws = new WebSocket(wsUrl);
+      ws = new WebSocket(wsUrl, api.getWebSocketProtocols());
       ws.onmessage = (e) => {
         try {
           const d = JSON.parse(e.data as string) as { type?: string; insightId?: string };

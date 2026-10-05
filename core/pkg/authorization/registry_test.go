@@ -55,11 +55,8 @@ func TestViewerCannotMutateFindingsOrTraverseGraph(t *testing.T) {
 	}
 }
 
-func TestOperatorCannotUploadMalware(t *testing.T) {
+func TestOperatorCannotRegisterUsers(t *testing.T) {
 	perms := authorization.PermissionsForRole(models.RoleOperator)
-	if authorization.HasPermission(perms, authorization.PermissionMalwareUpload) {
-		t.Fatal("operator must not have malware.upload")
-	}
 	if authorization.HasPermission(perms, authorization.PermissionAuthRegister) {
 		t.Fatal("operator must not register users")
 	}
@@ -126,7 +123,6 @@ func TestClusterAdminMayOperateScopedSecurityButNotPlatformAdmin(t *testing.T) {
 		authorization.PermissionObservabilityLogsRead,
 		authorization.PermissionRulesWrite,
 		authorization.PermissionPoliciesPublish,
-		authorization.PermissionMalwareUpload,
 		authorization.PermissionFindingsDelete,
 		authorization.PermissionFindingsExceptionDelete,
 	} {

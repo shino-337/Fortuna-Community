@@ -27,6 +27,11 @@ func NewCertHandler(certManager *security.CertManager) *CertHandler {
 
 // GetCertificateInfo returns certificate information
 func (h *CertHandler) GetCertificateInfo(c *gin.Context) {
+	if h.certManager == nil {
+		// Core runs without TLS: there is no Core certificate to report.
+		c.JSON(http.StatusOK, gin.H{"tlsEnabled": false, "certificates": []gin.H{}})
+		return
+	}
 	info, err := h.certManager.GetCertificateInfo()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
