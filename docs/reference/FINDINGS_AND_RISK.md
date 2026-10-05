@@ -4,7 +4,7 @@ How the risk APIs apply cluster scope, how finding actions behave, how findings 
 
 ## Cluster scope
 
-Every risk endpoint resolves the signed-in user's cluster allow-list before it reads, aggregates, caches or paginates data. This covers finding actions, runtime signal lists and suppression statistics, summaries, histograms, dashboard statistics, threat velocity, the five `/api/v1/risk/analytics/*` endpoints, risk score lists, exceptions and attack-step summaries.
+Every risk endpoint resolves the signed-in user's cluster allow-list before it reads, aggregates, caches or paginates data. This covers finding actions, runtime signal lists and suppression statistics, summaries, histograms, dashboard statistics, threat velocity, the five `/api/v1/risk/analytics/*` endpoints, risk score lists, exceptions, attack-step summaries and the findings export (`/risk/insights/export`, CSV and print-ready HTML). The export applies the same filters as the Risk Center list, including `finalLevel`, and prefixes CSV cells that start with `=`, `+`, `-`, `@`, tab or carriage return with `'` so spreadsheets do not evaluate them. Outside the risk API, notifications (list, mark read, mark all read), agent status and the counts in `/metrics/system` follow the same allow-list; a restricted user does not see notifications without a cluster.
 
 - Both `cluster` and `clusterId` filters are accepted and trimmed. Conflicting non-empty values return 400; an explicitly forbidden cluster returns 403 before any cache lookup. A filter narrows the scope; it never grants access. Omitting it means all authorized clusters.
 - Admin and unrestricted users keep global access. Missing user context returns 401.
@@ -17,7 +17,7 @@ Regression tests warm caches as an unrestricted admin, then request the same res
 
 ## Finding actions
 
-Acknowledging persists `acknowledged` (shown as In review). It stays an unresolved finding: it contributes to scoring and to unresolved counts in the API and Dashboard. Resolved and dismissed findings must be reopened before acknowledgement. Resolving records `resolved_at`, preserves the original recommendation and stores resolution notes in the audit trail. PATCH checks the permission for the requested action.
+Acknowledging persists `acknowledged` (shown as In review). It stays an unresolved finding: it contributes to scoring and to unresolved counts in the API and Dashboard. Resolved and dismissed findings must be reopened before acknowledgement: `PATCH /risk/insights/:id` with `{"status":"active"}` reopens a resolved, dismissed or acknowledged finding, requires `findings.reopen` and clears `resolved_at`. The Dashboard shows Reopen on a closed finding's detail page to users with that permission. Resolving records `resolved_at`, preserves the original recommendation and stores resolution notes in the audit trail. PATCH checks the permission for the requested action.
 
 Bulk actions:
 

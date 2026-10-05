@@ -27,6 +27,8 @@ import { PageLayout } from '../design-system/layouts/PageLayout';
 import { PageEmpty, PageError } from '../design-system/components/PageStatus';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../lib/tableChrome';
 import { PAGE_TITLES } from '../lib/pageTitles';
+import { downloadText, toCsv } from '../lib/download';
+import { useToast } from '../design-system/components/Toast';
 
 type ExecutivePosture = {
   stats: {
@@ -65,11 +67,12 @@ function rangeToSinceMinutes(days: ReportRangeDays): number {
 
 export const Reports: React.FC = () => {
   const navigate = useNavigate();
+  const toast = useToast();
   const permUser = usePermUser();
   const canPlatformAudit = can(permUser, P.systemAuditRead);
   const canFindingsRead = can(permUser, P.findingsRead);
+  const canPipelineHealth = can(permUser, P.observabilityMetricsRead);
   const canExportFindings = can(permUser, P.exportFindings);
-  const canViewReports = canFindingsRead || canPlatformAudit;
   const [rangeDays, setRangeDays] = useState<ReportRangeDays>(DEFAULT_REPORT_RANGE_DAYS);
   const [reports, setReports] = useState<Report[]>([]);
   const [loading, setLoading] = useState(true);
@@ -79,10 +82,8 @@ export const Reports: React.FC = () => {
   const [riskExporting, setRiskExporting] = useState<'csv' | 'pdf' | null>(null);
   const [posture, setPosture] = useState<ExecutivePosture>({ stats: null, summary: null, pipeline: null });
   const canInvestigationsRead = can(permUser, P.investigationsRead);
-  const [investigationStats, setInvestigationStats] = useState({
-    openCases: 0,
-    overdueRemediation: 0,
-  });
+  // null = not loaded (no permission or the request failed); never shown as 0.
+  const [investigationStats, setInvestigationStats] = useState<{ openCases: number; overdueRemediation: number } | null>(null);
 
   const loadAuditReports = useCallback(() => {
     if (!canPlatformAudit) {
@@ -106,7 +107,7 @@ export const Reports: React.FC = () => {
   }, [canPlatformAudit, rangeDays]);
 
   const loadPosture = useCallback(() => {
-    if (!canFindingsRead && !canPlatformAudit) {
+    if (!canFindingsRead) {
       setPostureLoading(false);
       return;
     }
@@ -117,7 +118,7 @@ export const Reports: React.FC = () => {
     Promise.allSettled([
       api.getStats(),
       api.getInsightsSummary(null, sinceMinutes),
-      api.getPipelineHealth(),
+      canPipelineHealth ? api.getPipelineHealth() : Promise.reject(new Error('observability.metrics.read required')),
     ]).then(([statsResult, summaryResult, pipelineResult]) => {
       if (cancelled) return;
       setPosture({
@@ -136,21 +137,24 @@ export const Reports: React.FC = () => {
       if (!cancelled) setPostureLoading(false);
     });
     return () => { cancelled = true; };
-  }, [canFindingsRead, canPlatformAudit, rangeDays]);
+  }, [canFindingsRead, canPipelineHealth, rangeDays]);
 
   useEffect(() => {
     loadAuditReports();
   }, [loadAuditReports]);
 
   useEffect(() => {
-    if (!canInvestigationsRead) return;
+    if (!canInvestigationsRead) {
+      setInvestigationStats(null);
+      return;
+    }
     let cancelled = false;
     api.getInvestigationCaseStats()
       .then((stats) => {
         if (!cancelled) setInvestigationStats(stats);
       })
       .catch(() => {
-        if (!cancelled) setInvestigationStats({ openCases: 0, overdueRemediation: 0 });
+        if (!cancelled) setInvestigationStats(null);
       });
     return () => {
       cancelled = true;
@@ -227,31 +231,18 @@ export const Reports: React.FC = () => {
       `Runtime exploited signals: ${exploitedSignals ?? 'n/a'}`,
       `Clusters in scope: ${fleetClusterCount ?? 'n/a'}`,
       `Pods inventoried: ${fleetPodCount ?? 'n/a'}`,
-      `Open investigations: ${investigationStats.openCases}`,
-      `Overdue remediation actions: ${investigationStats.overdueRemediation}`,
+      `Open investigations: ${investigationStats?.openCases ?? 'n/a'}`,
+      `Overdue remediation actions: ${investigationStats?.overdueRemediation ?? 'n/a'}`,
     ];
-    const blob = new Blob([lines.join('\n')], { type: 'text/markdown;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `executive-posture-${new Date().toISOString().replace(/[:.]/g, '-')}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadText(lines.join('\n'), `executive-posture-${new Date().toISOString().replace(/[:.]/g, '-')}.md`, 'text/markdown;charset=utf-8');
   };
 
   const exportCsv = () => {
-    const header = ['resource', 'action', 'count'];
-    const rows = reports.map((r) => [r.resource || '', r.action || '', String(r.count ?? 0)]);
-    const content = [header, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `audit-reports-${rangeDays}d-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
+    const content = toCsv([
+      ['resource', 'action', 'count'],
+      ...reports.map((r) => [r.resource || '', r.action || '', String(r.count ?? 0)]),
+    ]);
+    downloadText(content, `audit-reports-${rangeDays}d-${new Date().toISOString().replace(/[:.]/g, '-')}.csv`, 'text/csv;charset=utf-8');
   };
 
   const exportRiskPosture = async (format: 'csv' | 'pdf') => {
@@ -261,12 +252,18 @@ export const Reports: React.FC = () => {
       const params = { sinceMinutes: rangeToSinceMinutes(rangeDays) };
       if (format === 'csv') await api.exportRisksCSV(params);
       else await api.exportRisksPDF(params);
+    } catch (err) {
+      toast({
+        title: 'Export failed',
+        description: err instanceof Error ? err.message : 'The findings export could not be downloaded.',
+        variant: 'error',
+      });
     } finally {
       setRiskExporting(null);
     }
   };
 
-  if (!canViewReports) {
+  if (!canFindingsRead) {
     return <Navigate to="/monitoring" replace />;
   }
 
@@ -444,11 +441,13 @@ export const Reports: React.FC = () => {
         <ExecutiveMetricCard
           icon={<Briefcase className="w-4 h-4 text-success" />}
           label="Open investigations"
-          value={investigationStats.openCases}
+          value={investigationStats ? investigationStats.openCases : 'n/a'}
           detail={
-            investigationStats.overdueRemediation > 0
-              ? `${investigationStats.overdueRemediation} overdue remediation step(s)`
-              : 'Server-persisted SOC cases'
+            !investigationStats
+              ? 'Investigation stats unavailable'
+              : investigationStats.overdueRemediation > 0
+                ? `${investigationStats.overdueRemediation} overdue remediation step(s)`
+                : 'Server-persisted SOC cases'
           }
           onClick={() => navigate('/investigation')}
         />
@@ -456,10 +455,10 @@ export const Reports: React.FC = () => {
         <ExecutiveMetricCard
           icon={<ClipboardList className="w-4 h-4 text-muted" />}
           label="Audit activity"
-          value={loading ? 'Loading' : auditTotal}
+          value={!canPlatformAudit ? 'Restricted' : loading ? 'Loading' : auditError ? 'n/a' : auditTotal}
           detail={
-            investigationStats.overdueRemediation > 0
-              ? `${investigationStats.overdueRemediation} overdue remediation (investigations)`
+            !canPlatformAudit
+              ? 'Requires system.audit.read'
               : topAuditAggregate
                 ? `${topAuditAggregate.resource || 'resource'} / ${topAuditAggregate.action || 'action'}`
                 : 'No aggregate yet'

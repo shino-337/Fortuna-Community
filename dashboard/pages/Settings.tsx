@@ -18,6 +18,7 @@ import {
   fortunaRoleSelectLabel,
   fortunaRoleShortLabel,
   fortunaRoleTooltip,
+  normalizeFortunaRoleKey,
 } from '../lib/fortunaRoles';
 import { useAuthStore } from '../store/authStore';
 import { can, P } from '../lib/permissions';
@@ -26,6 +27,7 @@ import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
 import { isPlatformAdmin } from '../lib/roles';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
+import { downloadText } from '../lib/download';
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
 const CATEGORIES = ['rbac', 'pod-security', 'network-policy', 'secrets', 'runtime-behavior', 'compliance'] as const;
@@ -153,6 +155,15 @@ export const Settings: React.FC = () => {
   const canUsersReadForSessions = can(permUser, P.usersRead);
 
   const isFortunaAdmin = isPlatformAdmin(user);
+  // Mirrors core: a user admin cannot change or delete admin and cluster_admin accounts.
+  const userAdminCannotManage = useCallback(
+    (row: User) => {
+      if (isFortunaAdmin) return false;
+      const rowRole = normalizeFortunaRoleKey(row.role);
+      return rowRole === 'admin' || rowRole === 'cluster_admin';
+    },
+    [isFortunaAdmin],
+  );
   const fortunaRoleEditOptions = useMemo(
     () =>
       isFortunaAdmin
@@ -614,12 +625,7 @@ export const Settings: React.FC = () => {
   };
 
   const downloadYaml = (yamlContent: string, filename: string) => {
-    const blob = new Blob([yamlContent], { type: 'application/x-yaml' });
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(a.href);
+    downloadText(yamlContent, filename, 'application/x-yaml');
   };
 
   const handleExportAll = async () => {
@@ -790,9 +796,9 @@ export const Settings: React.FC = () => {
                         <td className={UI_TD}>
                           {(() => {
                             const rowRole = (u.role || 'viewer').toLowerCase();
-                            const userAdminCannotEditThisRole =
-                              !isFortunaAdmin && (rowRole === 'admin' || rowRole === 'cluster_admin');
-                            if (canUsersRoleAssign && !userAdminCannotEditThisRole) {
+                            // The server refuses a user admin changing their own role.
+                            const ownRowLocked = !isFortunaAdmin && String(user?.id) === u.id;
+                            if (canUsersRoleAssign && !userAdminCannotManage(u) && !ownRowLocked) {
                               const selVal = rowRole === 'user' ? 'operator' : rowRole;
                               return (
                                 <select
@@ -888,10 +894,7 @@ export const Settings: React.FC = () => {
                         </td>
                         <td className={UI_TD}>
                           {(() => {
-                            const rowRole = (u.role || 'viewer').toLowerCase();
-                            const userAdminCannotEditThisRow =
-                              !isFortunaAdmin && (rowRole === 'admin' || rowRole === 'cluster_admin');
-                            if (canUsersUpdate && !userAdminCannotEditThisRow) {
+                            if (canUsersUpdate && !userAdminCannotManage(u)) {
                               return (
                                 <label className="inline-flex items-center gap-2 text-body text-text cursor-pointer select-none">
                                   <input
@@ -920,7 +923,7 @@ export const Settings: React.FC = () => {
                         </td>
                         {(canUsersRowActions) && (
                           <td className={`${UI_TD} text-right`}>
-                            {canUsersDelete && String(user?.id) !== u.id && (
+                            {canUsersDelete && String(user?.id) !== u.id && !userAdminCannotManage(u) && (
                               <button
                                 type="button"
                                 className="inline-flex min-h-10 min-w-10 items-center justify-center rounded-lg text-muted transition-colors hover:bg-critical/10 hover:text-critical focus:outline-none focus-visible:ring-2 focus-visible:ring-critical/60 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-8 sm:min-w-8"
@@ -1280,9 +1283,8 @@ export const Settings: React.FC = () => {
                       <tbody>
                         {sessionRows.map((s) => {
                           const isOwn = String(user?.id ?? '') === s.userId;
-                          const mayRevoke =
-                            canSessionsRevoke &&
-                            (isOwn || (isFortunaAdmin && canUsersReadForSessions));
+                          // Matches core: another user's session needs sessions.revoke_all.
+                          const mayRevoke = canSessionsRevoke && (isOwn || canSessionsRevokeAll);
                           return (
                             <tr key={s.id} className={UI_TR}>
                               <td className={`${UI_TD} font-mono text-caption`}>{s.id.slice(0, 8)}…</td>

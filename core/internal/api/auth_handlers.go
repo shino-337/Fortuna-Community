@@ -416,6 +416,16 @@ func actorMaySetUserRole(actor *models.User, newRole string) bool {
 	return false
 }
 
+// userAdminMayManage mirrors Register: a user admin may not create admin or
+// cluster_admin accounts, so it may not change or delete them either.
+func userAdminMayManage(actor *models.User, target models.User) bool {
+	if actor == nil || authorization.NormalizeRole(actor.Role) != models.RoleUserAdmin {
+		return true
+	}
+	tr := authorization.NormalizeRole(target.Role)
+	return tr != models.RoleAdmin && tr != models.RoleClusterAdmin
+}
+
 func countActiveAdmins(db *gorm.DB) (int64, error) {
 	var n int64
 	err := db.Model(&models.User{}).
@@ -552,8 +562,8 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if authorization.NormalizeRole(actor.Role) == models.RoleUserAdmin && authorization.NormalizeRole(target.Role) == models.RoleAdmin {
-			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot modify admin accounts"})
+		if !userAdminMayManage(actor, target) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot modify admin or cluster_admin accounts"})
 			return
 		}
 		if authorization.NormalizeRole(actor.Role) == models.RoleUserAdmin && actor.ID == target.ID && body.Role != nil {
@@ -718,8 +728,8 @@ func DeleteUser(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if authorization.NormalizeRole(actor.Role) == models.RoleUserAdmin && authorization.NormalizeRole(target.Role) == models.RoleAdmin {
-			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot delete admin accounts"})
+		if !userAdminMayManage(actor, target) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot delete admin or cluster_admin accounts"})
 			return
 		}
 		// Count active admins, consistent with PatchUser: an inactive admin cannot

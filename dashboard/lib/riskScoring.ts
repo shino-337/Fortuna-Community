@@ -4,7 +4,7 @@
  *
  * Previously duplicated between Dashboard.tsx and PodDetail.tsx.
  */
-import { deriveUnifiedRiskLevelFromScore, type SeverityLevel } from './severity';
+import { deriveUnifiedRiskLevelFromScore} from './severity';
 import type { PodWithRisk, UnifiedRiskScore } from '../types';
 
 /* ─── types ──────────────────────────────────────────────── */

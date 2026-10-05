@@ -4,8 +4,7 @@ import { FEATURE_REGISTRY } from '../lib/featureRegistry';
 import {
   evaluateVisibility,
   isNavVisible,
-  type VisibilityInput,
-  type VisibilityResult,
+  type VisibilityResult
 } from '../lib/visibilityEngine';
 import { useOperationalContext } from './useOperationalContext';
 import type { TelemetryContext } from '../lib/telemetryContext';

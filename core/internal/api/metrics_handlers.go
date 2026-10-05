@@ -9,6 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 )
 
@@ -24,7 +25,16 @@ func GetAgentStatus(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		var agentsList []models.Agent
-		if err := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready").
+		agentQuery := db.Where("deleted_at IS NULL AND (status = ? OR status IS NULL)", "ready")
+		// Agents name nodes and clusters; restricted users only see their clusters.
+		if ids, restricted := middleware.ScopedClusterIDs(c); restricted {
+			if len(ids) == 0 {
+				agentQuery = agentQuery.Where("1 = 0")
+			} else {
+				agentQuery = agentQuery.Where("cluster_id IN ?", ids)
+			}
+		}
+		if err := agentQuery.
 			Order("last_seen_at DESC NULLS LAST").Find(&agentsList).Error; err != nil {
 			respondDataUnavailable(c, "agent_status_query_failed", "Agent status could not be loaded")
 			return
@@ -131,41 +141,48 @@ func GetSystemMetrics(db *gorm.DB) gin.HandlerFunc {
 			return true
 		}
 
+		// Counts follow the caller's cluster scope, like the dashboard stats.
+		scopedIDs, restricted := middleware.ScopedClusterIDs(c)
+		inScope := func(q *gorm.DB, column string) *gorm.DB {
+			if !restricted {
+				return q
+			}
+			if len(scopedIDs) == 0 {
+				return q.Where("1 = 0")
+			}
+			return q.Where(column+" IN ?", scopedIDs)
+		}
+
 		var clusterCount int64
 		cutoff := time.Now().Add(-ActiveClusterCutoff)
-		if fail(db.Model(&models.Cluster{}).Where("last_sync >= ?", cutoff).Count(&clusterCount).Error,
+		if fail(inScope(db.Model(&models.Cluster{}), "id").Where("last_sync >= ?", cutoff).Count(&clusterCount).Error,
 			"system_metrics_clusters_unavailable", "Cluster metrics could not be loaded") {
 			return
 		}
 
 		var podCount int64
-		if fail(db.Raw(`
-			SELECT COUNT(*) FROM (
-				SELECT cluster_id, uid
-				FROM pods
-				WHERE deleted_at IS NULL
-				GROUP BY cluster_id, uid
-			) scoped_pods
-		`).Scan(&podCount).Error,
+		podIdentities := inScope(db.Table("pods").Select("cluster_id, uid").Where("deleted_at IS NULL"), "cluster_id").
+			Group("cluster_id, uid")
+		if fail(db.Table("(?) AS scoped_pods", podIdentities).Count(&podCount).Error,
 			"system_metrics_pods_unavailable", "Pod metrics could not be loaded") {
 			return
 		}
 
 		var saCount int64
-		if fail(db.Model(&models.ServiceAccount{}).Count(&saCount).Error,
+		if fail(inScope(db.Model(&models.ServiceAccount{}), "cluster_id").Count(&saCount).Error,
 			"system_metrics_service_accounts_unavailable", "ServiceAccount metrics could not be loaded") {
 			return
 		}
 
 		var insightCount int64
-		if fail(db.Model(&models.Insight{}).Count(&insightCount).Error,
+		if fail(inScope(db.Model(&models.Insight{}), "cluster_id").Count(&insightCount).Error,
 			"system_metrics_insights_unavailable", "Insight metrics could not be loaded") {
 			return
 		}
 
 		var lastSync time.Time
 		var latestCluster models.Cluster
-		err := db.Order("last_sync DESC").First(&latestCluster).Error
+		err := inScope(db.Model(&models.Cluster{}), "id").Order("last_sync DESC").First(&latestCluster).Error
 		if err == nil {
 			lastSync = latestCluster.LastSync
 		} else if err != gorm.ErrRecordNotFound {

@@ -140,7 +140,6 @@ function labelAnchor(d: GraphLink): [number, number] {
 }
 
 function assignCurveOffsets(rawLinks: AttackPathGraphData['links']): Map<number, number> {
-  const pairFirstIndex = new Map<string, number>();
   const pairCount = new Map<string, number>();
   rawLinks.forEach((l) => {
     const k = `${l.source}->${l.target}`;

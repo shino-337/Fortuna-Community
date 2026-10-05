@@ -5,7 +5,7 @@ import type {
   NetworkActivityDestinationRow,
   NetworkActivityTalkerRow,
 } from '../types';
-import type { GraphTrustContext, GraphTrustPosture } from '../lib/graphTrustSemantics';
+import type { GraphTrustContext} from '../lib/graphTrustSemantics';
 import {
   buildGraphTrustPosture,
   classifyEdgeTrust,
