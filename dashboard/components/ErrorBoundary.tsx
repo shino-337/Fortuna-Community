@@ -26,7 +26,7 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
 
   private goDashboard = () => {
     this.setState({ error: null }, () => {
-      window.location.hash = '#/dashboard';
+      window.location.hash = '#/';
     });
   };
 

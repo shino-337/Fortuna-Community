@@ -35,7 +35,7 @@ export const RiskPersonaWorkspaceBanner: React.FC<{ personaId: PersonaId }> = ({
           </Link>
         ) : null}
         {personaId === 'viewer' ? (
-          <Link to="/reports" className="text-brand hover:underline font-medium">
+          <Link to="/?section=brief" className="text-brand hover:underline font-medium">
             Executive brief
           </Link>
         ) : null}

@@ -10,7 +10,8 @@ import { MaterializedRoutes } from './components/MaterializedRoutes';
 import { useOperationalMaterialization } from './hooks/useOperationalMaterialization';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
-const PersonaHome = React.lazy(() => import('./pages/PersonaHome').then((m) => ({ default: m.PersonaHome })));
+// Home is the persona-aware operations dashboard (the old /dashboard and /reports pages redirect here).
+const Home = React.lazy(() => import('./pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 
 const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -44,7 +45,7 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 const MaterializedHome: React.FC = () => {
   const { allowedRoutes, defaultRoute } = useOperationalMaterialization();
   if (allowedRoutes.includes('/')) {
-    return <PersonaHome />;
+    return <Home />;
   }
   return <Navigate to={defaultRoute} replace />;
 };

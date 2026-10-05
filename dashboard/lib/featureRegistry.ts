@@ -18,7 +18,6 @@ export type FeatureId =
   | 'attack_paths'
   | 'monitoring'
   | 'governance'
-  | 'reports'
   | 'settings'
   | 'certificates'
   | 'findings_export'
@@ -152,16 +151,6 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
     permissionsAny: [P.systemAuditRead],
     personas: ['admin'],
     ownershipModel: 'platform',
-    telemetryRequired: false,
-    navEligible: true,
-    graphRelevant: false,
-  },
-  reports: {
-    id: 'reports',
-    label: PAGE_TITLES.reports,
-    permissionsAny: [P.findingsRead],
-    personas: ['viewer', 'operator', 'admin'],
-    ownershipModel: 'clusterScoped',
     telemetryRequired: false,
     navEligible: true,
     graphRelevant: false,

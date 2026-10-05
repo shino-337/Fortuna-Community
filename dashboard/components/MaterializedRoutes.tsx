@@ -12,7 +12,6 @@ const Rules = React.lazy(() => import('../pages/Rules').then((m) => ({ default: 
 const Governance = React.lazy(() => import('../pages/Governance').then((m) => ({ default: m.Governance })));
 const Settings = React.lazy(() => import('../pages/Settings').then((m) => ({ default: m.Settings })));
 const Certificates = React.lazy(() => import('../pages/Certificates').then((m) => ({ default: m.Certificates })));
-const Reports = React.lazy(() => import('../pages/Reports').then((m) => ({ default: m.Reports })));
 const Notifications = React.lazy(() => import('../pages/Notifications').then((m) => ({ default: m.Notifications })));
 const RiskScoringRules = React.lazy(() => import('../pages/RiskScoringRules').then((m) => ({ default: m.RiskScoringRules })));
 const Capabilities = React.lazy(() => import('../pages/Capabilities').then((m) => ({ default: m.Capabilities })));
@@ -25,10 +24,8 @@ const NodeDetail = React.lazy(() => import('../pages/NodeDetail').then((m) => ({
 const IdentityDetail = React.lazy(() => import('../pages/IdentityDetail').then((m) => ({ default: m.IdentityDetail })));
 const RuleDetail = React.lazy(() => import('../pages/RuleDetail').then((m) => ({ default: m.RuleDetail })));
 const Investigation = React.lazy(() => import('../pages/Investigation').then((m) => ({ default: m.Investigation })));
-const Dashboard = React.lazy(() => import('../pages/Dashboard').then((m) => ({ default: m.Dashboard })));
 
 const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
-  { pattern: '/dashboard', element: <Dashboard /> },
   { pattern: '/clusters/:id', element: <ClusterDetail /> },
   { pattern: '/clusters/:clusterId/nodes/:nodeName', element: <NodeDetail /> },
   { pattern: '/resources', element: <Resources /> },
@@ -56,12 +53,18 @@ const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/monitoring/notifications', element: <Notifications /> },
   { pattern: '/governance', element: <Governance /> },
   { pattern: '/settings', element: <Settings /> },
-  { pattern: '/reports', element: <Reports /> },
 ];
 
 function buildRedirectTarget(path: string, search: string): string | null {
   if (path === '/network') {
     return `/network-activity${search}`;
+  }
+  // The Operations Dashboard and Reports were folded into Home.
+  if (path === '/dashboard') {
+    return `/${search}`;
+  }
+  if (path === '/reports') {
+    return '/?section=brief';
   }
   // Pages merged into Platform Health, Rules & Catalog and Inventory keep working as links.
   const merged: Record<string, string> = {
