@@ -51,4 +51,3 @@ func ComputeSBOMCoverageStats(components []CoverageComponent, matches map[string
 	}
 	return stats
 }
-

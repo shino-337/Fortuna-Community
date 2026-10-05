@@ -10,8 +10,8 @@ import (
 
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
-	riskpkg "github.com/fortuna/core/pkg/risk"
 	"github.com/fortuna/core/pkg/resourceidentity"
+	riskpkg "github.com/fortuna/core/pkg/risk"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )

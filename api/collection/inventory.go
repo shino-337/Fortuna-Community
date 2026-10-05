@@ -18,14 +18,14 @@ const ProjectionSemanticsNonAuthoritativeDeletion = "non_authoritative_deletion"
 var InventoryKinds = []string{"pods", "serviceAccounts", "roles", "roleBindings", "clusterRoles", "clusterRoleBindings", "deployments", "replicasets"}
 
 type Inventory struct {
-	Version    int            `json:"version"`
-	ID         string         `json:"id"`
-	Status     string         `json:"status"`    // collection complete/failed only; never means the DB projection is fully reconciled
-	Namespace  string         `json:"namespace"` // empty means all namespaces
-	StartedAt  time.Time      `json:"startedAt"`
-	ObservedAt    time.Time            `json:"observedAt"` // end of the multi-kind collection interval
+	Version       int                  `json:"version"`
+	ID            string               `json:"id"`
+	Status        string               `json:"status"`    // collection complete/failed only; never means the DB projection is fully reconciled
+	Namespace     string               `json:"namespace"` // empty means all namespaces
+	StartedAt     time.Time            `json:"startedAt"`
+	ObservedAt    time.Time            `json:"observedAt"`              // end of the multi-kind collection interval
 	KindStartedAt map[string]time.Time `json:"kindStartedAt,omitempty"` // conservative lower bound captured immediately before each List request
-	Counts         map[string]int       `json:"counts,omitempty"`
+	Counts        map[string]int       `json:"counts,omitempty"`
 }
 
 func (c Inventory) Validate(now time.Time) error {

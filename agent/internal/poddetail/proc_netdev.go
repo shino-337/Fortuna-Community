@@ -71,4 +71,3 @@ func ParseProcNetDev(procRoot string, pid int) (NetDevCounters, error) {
 	}
 	return out, nil
 }
-

@@ -6,7 +6,7 @@ import "time"
 type InvestigationActivityLog struct {
 	ID uint `gorm:"primaryKey" json:"id"`
 
-	CaseID string `gorm:"size:64;index;not null" json:"caseId"`
+	CaseID  string `gorm:"size:64;index;not null" json:"caseId"`
 	EventID string `gorm:"size:36;uniqueIndex" json:"eventId"`
 
 	ActorUserID   uint   `gorm:"index" json:"actorUserId"`
@@ -15,8 +15,8 @@ type InvestigationActivityLog struct {
 	EventType string `gorm:"size:64;index;not null" json:"eventType"`
 	Summary   string `gorm:"size:1024" json:"summary"`
 
-	BeforeJSON string `gorm:"type:jsonb" json:"-"`
-	AfterJSON  string `gorm:"type:jsonb" json:"-"`
+	BeforeJSON  string `gorm:"type:jsonb" json:"-"`
+	AfterJSON   string `gorm:"type:jsonb" json:"-"`
 	DetailsJSON string `gorm:"type:jsonb" json:"-"`
 
 	CorrelationID string `gorm:"size:128;index" json:"correlationId,omitempty"`

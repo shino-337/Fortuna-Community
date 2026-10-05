@@ -74,4 +74,3 @@ func GetPriorityLevel(score float64) string {
 	}
 	return PriorityP3
 }
-

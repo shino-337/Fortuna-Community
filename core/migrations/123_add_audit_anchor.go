@@ -16,4 +16,3 @@ func Migration123_AddAuditAnchor(db *gorm.DB) error {
 	log.Println("Migration123: audit_anchor table ensured")
 	return nil
 }
-

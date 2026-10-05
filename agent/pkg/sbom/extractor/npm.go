@@ -181,4 +181,3 @@ func (p *NpmParser) parsePackageJson(content []byte) (Package, error) {
 		Type:    "npm",
 	}, nil
 }
-

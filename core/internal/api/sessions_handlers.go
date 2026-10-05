@@ -48,14 +48,14 @@ func ListUserSessions(db *gorm.DB) gin.HandlerFunc {
 		out := make([]gin.H, 0, len(rows))
 		for _, s := range rows {
 			out = append(out, gin.H{
-				"id":               s.ID,
-				"userId":           s.UserID,
-				"issuedAt":         s.IssuedAt,
-				"expiresAt":        s.ExpiresAt,
-				"revokedAt":        s.RevokedAt,
-				"lastActivityAt":   s.LastActivityAt,
-				"sourceIp":         s.SourceIP,
-				"authMethod":       s.AuthMethod,
+				"id":                s.ID,
+				"userId":            s.UserID,
+				"issuedAt":          s.IssuedAt,
+				"expiresAt":         s.ExpiresAt,
+				"revokedAt":         s.RevokedAt,
+				"lastActivityAt":    s.LastActivityAt,
+				"sourceIp":          s.SourceIP,
+				"authMethod":        s.AuthMethod,
 				"deviceFingerprint": s.DeviceFingerprint,
 			})
 		}

@@ -34,16 +34,16 @@ func NewCVEProcessor(db *gorm.DB, insightManager *riskengine.InsightManager) *CV
 
 // Vulnerability represents a vulnerability from Trivy scan
 type Vulnerability struct {
-	VulnerabilityID  string   `json:"VulnerabilityID"`
-	PkgName          string   `json:"PkgName"`
-	PkgPath          string   `json:"PkgPath"`
-	InstalledVersion string   `json:"InstalledVersion"`
-	FixedVersion     string   `json:"FixedVersion"`
-	Severity         string   `json:"Severity"`
-	Title            string   `json:"Title"`
-	Description      string   `json:"Description"`
+	VulnerabilityID  string                 `json:"VulnerabilityID"`
+	PkgName          string                 `json:"PkgName"`
+	PkgPath          string                 `json:"PkgPath"`
+	InstalledVersion string                 `json:"InstalledVersion"`
+	FixedVersion     string                 `json:"FixedVersion"`
+	Severity         string                 `json:"Severity"`
+	Title            string                 `json:"Title"`
+	Description      string                 `json:"Description"`
 	CVSS             map[string]interface{} `json:"CVSS"`
-	References       []string `json:"References"`
+	References       []string               `json:"References"`
 }
 
 // ProcessScanResult processes scan results and creates insights for critical/high CVEs
@@ -263,4 +263,3 @@ func getCVSSVector(cveInfo *models.CVE, vuln Vulnerability) string {
 	}
 	return ""
 }
-

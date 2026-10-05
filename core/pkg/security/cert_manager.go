@@ -23,7 +23,7 @@ type CertManager struct {
 	caCert   *x509.CertPool
 	caCertMu sync.RWMutex
 
-	stopChan           chan struct{}
+	stopChan            chan struct{}
 	expiryCheckInterval time.Duration
 }
 
@@ -66,7 +66,7 @@ func (cm *CertManager) LoadCertificate() error {
 	}
 
 	daysUntilExpiry := time.Until(x509Cert.NotAfter).Hours() / 24
-	log.Printf("[CertManager] Certificate loaded: Subject=%s, Expires in %.0f days", 
+	log.Printf("[CertManager] Certificate loaded: Subject=%s, Expires in %.0f days",
 		x509Cert.Subject.String(), daysUntilExpiry)
 
 	// Update certificate atomically
@@ -167,14 +167,14 @@ func (cm *CertManager) GetCertificateInfo() (*CertificateInfo, error) {
 	daysUntilExpiry := time.Until(x509Cert.NotAfter).Hours() / 24
 
 	return &CertificateInfo{
-		Subject:        x509Cert.Subject.String(),
-		Issuer:         x509Cert.Issuer.String(),
-		SerialNumber:   x509Cert.SerialNumber.String(),
-		NotBefore:      x509Cert.NotBefore,
-		NotAfter:       x509Cert.NotAfter,
+		Subject:         x509Cert.Subject.String(),
+		Issuer:          x509Cert.Issuer.String(),
+		SerialNumber:    x509Cert.SerialNumber.String(),
+		NotBefore:       x509Cert.NotBefore,
+		NotAfter:        x509Cert.NotAfter,
 		DaysUntilExpiry: int(daysUntilExpiry),
-		IsExpired:      time.Now().After(x509Cert.NotAfter),
-		DNSNames:       x509Cert.DNSNames,
+		IsExpired:       time.Now().After(x509Cert.NotAfter),
+		DNSNames:        x509Cert.DNSNames,
 	}, nil
 }
 
@@ -268,4 +268,3 @@ func (cm *CertManager) RotateCertificate() error {
 func (cm *CertManager) Stop() {
 	close(cm.stopChan)
 }
-

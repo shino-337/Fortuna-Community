@@ -167,10 +167,10 @@ func TestComputeTemporalScore_RuntimeExploitPlusBurstBand(t *testing.T) {
 	base := 65.0
 	prev := 60.0
 	final, _ := ComputeTemporalScore(base, &prev, TemporalSignals{
-		BurstEvents5m:      50,
+		BurstEvents5m:       50,
 		UniqueSignalTypes5m: 4,
-		TrendDelta:         10,
-		PersistenceMinutes: 40,
+		TrendDelta:          10,
+		PersistenceMinutes:  40,
 	})
 	if final < 74 || final > 85 {
 		t.Fatalf("runtime exploit + burst should be in 74-85 band, got %.2f", final)
@@ -180,9 +180,9 @@ func TestComputeTemporalScore_RuntimeExploitPlusBurstBand(t *testing.T) {
 func TestComputeTemporalScore_CVEOnlyPlusBurstStillLow(t *testing.T) {
 	base := 0.38
 	final, _ := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      50,
+		BurstEvents5m:       50,
 		UniqueSignalTypes5m: 1,
-		PersistenceMinutes: 0,
+		PersistenceMinutes:  0,
 	})
 	if final >= 5 {
 		t.Fatalf("cve-only burst should remain low (<5), got %.2f", final)
@@ -203,11 +203,11 @@ func TestComputeTemporalScore_HighRiskNoActivityNoInflation(t *testing.T) {
 func TestComputeTemporalScore_BurstEntropyAntiSpam(t *testing.T) {
 	base := 60.0
 	spamScore, spam := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      1000,
+		BurstEvents5m:       1000,
 		UniqueSignalTypes5m: 1,
 	})
 	diverseScore, diverse := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      1000,
+		BurstEvents5m:       1000,
 		UniqueSignalTypes5m: 6,
 	})
 	if spam.BurstEntropyFactor >= diverse.BurstEntropyFactor {
@@ -229,10 +229,10 @@ func TestComputeTemporalScore_DeterministicRepeatedRuns(t *testing.T) {
 	base := 58.0
 	prev := 50.0
 	signals := TemporalSignals{
-		BurstEvents5m:      12,
+		BurstEvents5m:       12,
 		UniqueSignalTypes5m: 3,
-		TrendDelta:         8,
-		PersistenceMinutes: 45,
+		TrendDelta:          8,
+		PersistenceMinutes:  45,
 	}
 	s1, d1 := ComputeTemporalScore(base, &prev, signals)
 	s2, d2 := ComputeTemporalScore(base, &prev, signals)
@@ -275,15 +275,15 @@ func TestComputeTemporalScore_BurstWindowReset(t *testing.T) {
 func TestComputeTemporalScore_BurstEntropyGradient(t *testing.T) {
 	base := 60.0
 	s1, _ := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      100,
+		BurstEvents5m:       100,
 		UniqueSignalTypes5m: 1,
 	})
 	s2, _ := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      100,
+		BurstEvents5m:       100,
 		UniqueSignalTypes5m: 3,
 	})
 	s3, _ := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      100,
+		BurstEvents5m:       100,
 		UniqueSignalTypes5m: 6,
 	})
 	if !(s1 < s2 && s2 < s3) {
@@ -294,10 +294,10 @@ func TestComputeTemporalScore_BurstEntropyGradient(t *testing.T) {
 func TestComputeTemporalScore_ExtremeLowBaseStillLow(t *testing.T) {
 	base := 0.1
 	score, _ := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      500,
+		BurstEvents5m:       500,
 		UniqueSignalTypes5m: 6,
-		TrendDelta:         20,
-		PersistenceMinutes: 180,
+		TrendDelta:          20,
+		PersistenceMinutes:  180,
 	})
 	if score >= 5 {
 		t.Fatalf("extremely low base should remain low after temporal boosts, got %.2f", score)
@@ -307,10 +307,10 @@ func TestComputeTemporalScore_ExtremeLowBaseStillLow(t *testing.T) {
 func TestComputeTemporalScore_DoesNotExplodeWithHighBase(t *testing.T) {
 	base := 95.0
 	score, detail := ComputeTemporalScore(base, nil, TemporalSignals{
-		BurstEvents5m:      999,
+		BurstEvents5m:       999,
 		UniqueSignalTypes5m: 6,
-		TrendDelta:         50,
-		PersistenceMinutes: 999,
+		TrendDelta:          50,
+		PersistenceMinutes:  999,
 	})
 	if detail.Multiplier > 1.4 {
 		t.Fatalf("multiplier exceeded cap: %.3f", detail.Multiplier)
@@ -324,9 +324,9 @@ func TestComputeTemporalScore_EMAConvergence(t *testing.T) {
 	base := 70.0
 	prev := 50.0
 	signals := TemporalSignals{
-		BurstEvents5m:      10,
+		BurstEvents5m:       10,
 		UniqueSignalTypes5m: 4,
-		PersistenceMinutes: 30,
+		PersistenceMinutes:  30,
 	}
 
 	// Target raw score with fixed signals should be constant.
@@ -394,4 +394,3 @@ func TestComputeTemporalScore_H4_SlowDrip(t *testing.T) {
 		t.Fatalf("slow drip persistence should raise score over time: initial %.2f after %.2f", initial, after)
 	}
 }
-

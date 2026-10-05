@@ -4,8 +4,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"testing"
 	"strings"
+	"testing"
 )
 
 // TestGoBinaryParser_NoFiles ensures parser returns empty when no binaries are present.
@@ -98,4 +98,3 @@ func TestIsPseudoVersion(t *testing.T) {
 		}
 	}
 }
-

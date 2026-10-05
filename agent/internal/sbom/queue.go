@@ -184,21 +184,21 @@ func (q *WorkQueue) worker(id int) {
 						}(pod)
 						continue // do not remove from active; pod will be processed again
 					}
+					q.mu.Lock()
+					delete(q.retryCount, key)
+					q.failedPods[key] = pod
+					q.mu.Unlock()
+					q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s (uid=%s) after %d send retries; will retry on reconciliation", id, label, key, maxSendRetries)
+				}
+			} else {
+				duration := time.Since(start)
+				q.logger.Printf("[Worker %d] ✅ Completed pod %s (uid=%s) in %v", id, label, key, duration)
 				q.mu.Lock()
 				delete(q.retryCount, key)
-				q.failedPods[key] = pod
+				delete(q.failedPods, key)
+				q.succeeded[key] = true
 				q.mu.Unlock()
-				q.logger.Printf("[Worker %d] ⚠️  Gave up pod %s (uid=%s) after %d send retries; will retry on reconciliation", id, label, key, maxSendRetries)
 			}
-		} else {
-			duration := time.Since(start)
-			q.logger.Printf("[Worker %d] ✅ Completed pod %s (uid=%s) in %v", id, label, key, duration)
-			q.mu.Lock()
-			delete(q.retryCount, key)
-			delete(q.failedPods, key)
-			q.succeeded[key] = true
-			q.mu.Unlock()
-		}
 
 			// Remove from active set
 			q.mu.Lock()

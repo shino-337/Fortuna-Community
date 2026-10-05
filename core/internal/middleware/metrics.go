@@ -4,8 +4,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/fortuna/core/internal/metrics"
+	"github.com/gin-gonic/gin"
 )
 
 // MetricsMiddleware records HTTP metrics
@@ -25,4 +25,3 @@ func MetricsMiddleware() gin.HandlerFunc {
 		metrics.HTTPRequestDuration.WithLabelValues(method, endpoint).Observe(duration)
 	}
 }
-

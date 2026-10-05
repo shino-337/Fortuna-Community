@@ -57,12 +57,12 @@ func NewCoverageReporter(coreURL, producerID, sourceKind string, sessionIDs ...s
 		sessionID = rand.Text()
 	}
 	return &CoverageReporter{
-		coreURL: strings.TrimRight(coreURL, "/"),
+		coreURL:    strings.TrimRight(coreURL, "/"),
 		producerID: strings.TrimSpace(producerID),
 		sourceKind: strings.TrimSpace(sourceKind),
-		sessionID: sessionID,
+		sessionID:  sessionID,
 		httpClient: &http.Client{Timeout: 10 * time.Second},
-		nextStart: time.Now().UTC(),
+		nextStart:  time.Now().UTC(),
 	}
 }
 
@@ -157,20 +157,20 @@ func (r *CoverageReporter) promoteBacklog() {
 		}
 	}
 	r.pending = &collection.RuntimeCoverage{
-		Version: collection.RuntimeCoverageVersion,
-		ID: rand.Text(),
-		ProducerID: r.producerID,
-		SourceKind: r.sourceKind,
-		SessionID: r.sessionID,
-		Status: status,
+		Version:     collection.RuntimeCoverageVersion,
+		ID:          rand.Text(),
+		ProducerID:  r.producerID,
+		SourceKind:  r.sourceKind,
+		SessionID:   r.sessionID,
+		Status:      status,
 		WindowStart: a.start,
-		WindowEnd: a.end,
-		Emitted: a.stats.Emitted,
-		Delivered: a.stats.Delivered,
-		Dropped: a.stats.Dropped,
-		Invalid: a.stats.Invalid,
-		Errors: a.stats.Errors,
-		Reason: reason,
+		WindowEnd:   a.end,
+		Emitted:     a.stats.Emitted,
+		Delivered:   a.stats.Delivered,
+		Dropped:     a.stats.Dropped,
+		Invalid:     a.stats.Invalid,
+		Errors:      a.stats.Errors,
+		Reason:      reason,
 	}
 }
 

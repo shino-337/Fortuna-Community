@@ -16,4 +16,3 @@ func Migration122_HardenRuntimeSignalStepMappings(db *gorm.DB) error {
 	log.Println("Migration122: runtime_signal_step_mappings hardened (effective_from, created_by, updated_by)")
 	return nil
 }
-

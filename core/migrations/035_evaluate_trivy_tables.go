@@ -57,7 +57,7 @@ func Migration035_EvaluateTrivyTables(db *gorm.DB) error {
 	// Decision: Drop Trivy tables since they're no longer used
 	// System now uses Agent-based SBOM extraction, Trivy tables are obsolete
 	log.Printf("[Migration 035] Found %d deprecated Trivy table(s), dropping them...", len(existingTables))
-	
+
 	for _, tableName := range existingTables {
 		// Check for foreign key constraints before dropping
 		var hasFK bool
@@ -71,7 +71,7 @@ func Migration035_EvaluateTrivyTables(db *gorm.DB) error {
 			log.Printf("[Migration 035] ⚠️  Error checking constraints for %s: %v", tableName, err)
 			continue
 		}
-		
+
 		if hasFK {
 			log.Printf("[Migration 035] ⚠️  Table %s has foreign key constraints, skipping drop (manual cleanup required)", tableName)
 			// Add deprecation comment instead
@@ -91,4 +91,3 @@ func Migration035_EvaluateTrivyTables(db *gorm.DB) error {
 	log.Println("[Migration 035] ✅ Completed successfully")
 	return nil
 }
-

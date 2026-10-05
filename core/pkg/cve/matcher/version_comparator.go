@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/hashicorp/go-version"
 	debversion "github.com/knqyf263/go-deb-version"
 	rpmversion "github.com/knqyf263/go-rpm-version"
-	"github.com/hashicorp/go-version"
 )
 
 // VersionComparator compares versions for different ecosystems
@@ -329,5 +329,3 @@ func (vc *VersionComparator) parseConstraint(constraint string) (string, string)
 	// Default: exact match
 	return "==", constraint
 }
-
-

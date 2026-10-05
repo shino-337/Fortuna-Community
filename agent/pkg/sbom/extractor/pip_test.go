@@ -131,4 +131,3 @@ func TestPipParser_Parse_DedupRequirementsAndMetadata(t *testing.T) {
 		t.Fatalf("expected deduped flask@2.3.4 once, got count=%d packages=%+v", count, pkgs)
 	}
 }
-

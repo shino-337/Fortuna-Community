@@ -8,10 +8,10 @@ import (
 
 // Schema groups for asset_security_state (ADR-003). SQL columns are assigned to groups here for documentation and CI validation hooks.
 const (
-	GroupIdentityContext           = "identity_context"
-	GroupExposureContext           = "exposure_context"
-	GroupSoftwareRiskContext       = "software_risk_context"
-	GroupRuntimeSecurityContext    = "runtime_security_context"
+	GroupIdentityContext            = "identity_context"
+	GroupExposureContext            = "exposure_context"
+	GroupSoftwareRiskContext        = "software_risk_context"
+	GroupRuntimeSecurityContext     = "runtime_security_context"
 	GroupEffectiveCapabilityContext = "effective_capability_context"
 )
 

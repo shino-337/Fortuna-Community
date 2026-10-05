@@ -13,27 +13,31 @@ import (
 // Ticket: Migration Audit - Phase 1
 //
 // Description:
-//   Consolidates insights table schema migration, combining functionality from
-//   old migrations 030, 031, and 038. Migrates from old JSONB-based schema to
-//   new relational schema with direct resource references.
+//
+//	Consolidates insights table schema migration, combining functionality from
+//	old migrations 030, 031, and 038. Migrates from old JSONB-based schema to
+//	new relational schema with direct resource references.
 //
 // Schema Changes:
-//   OLD Schema: type, affected_resources (JSONB), sbom_id, cve_match_id, recommended_action, etc.
-//   NEW Schema: insight_type, resource_type, resource_uid, resource_namespace, resource_name, recommendation, etc.
+//
+//	OLD Schema: type, affected_resources (JSONB), sbom_id, cve_match_id, recommended_action, etc.
+//	NEW Schema: insight_type, resource_type, resource_uid, resource_namespace, resource_name, recommendation, etc.
 //
 // Tables Affected:
 //   - insights: Complete schema overhaul (add new columns, migrate data, drop old columns)
 //
 // Consolidation History:
-//   This migration replaces:
-//   - Old Migration 030: Initial schema migration
-//   - Old Migration 031: Cleanup old columns
-//   - Old Migration 038: Remove deprecated fields
+//
+//	This migration replaces:
+//	- Old Migration 030: Initial schema migration
+//	- Old Migration 031: Cleanup old columns
+//	- Old Migration 038: Remove deprecated fields
 //
 // Rollback Plan:
-//   WARNING: This migration is destructive (drops old columns)
-//   Rollback requires restore from backup:
-//     pg_restore -t insights insights_backup_before_migration030.sql
+//
+//	WARNING: This migration is destructive (drops old columns)
+//	Rollback requires restore from backup:
+//	  pg_restore -t insights insights_backup_before_migration030.sql
 //
 // Testing:
 //   - Verify column migration: SELECT insight_type, resource_type FROM insights LIMIT 10;
@@ -49,7 +53,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 
 	// Step 1: Add new columns if they don't exist
 	log.Println("[Migration 030] Step 1: Adding new columns...")
-	
+
 	newColumns := []struct {
 		name    string
 		sqlType string
@@ -63,9 +67,9 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 		{"recommendation", "TEXT"}, // Remediation recommendation
 		{"affected_component", "VARCHAR(255)"},
 		{"affected_version", "VARCHAR(100)"},
-		{"fixed_version", "VARCHAR(255)"}, // Fixed version for vulnerabilities
-		{"cve_id", "VARCHAR(20)"},          // CVE ID for vulnerability insights
-		{"cvss", "REAL"},                   // CVSS score (standardized to REAL)
+		{"fixed_version", "VARCHAR(255)"},                                     // Fixed version for vulnerabilities
+		{"cve_id", "VARCHAR(20)"},                                             // CVE ID for vulnerability insights
+		{"cvss", "REAL"},                                                      // CVSS score (standardized to REAL)
 		{"detected_at", "TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP"}, // Detection timestamp
 	}
 
@@ -90,7 +94,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 
 	// Step 2: Migrate data from old columns to new columns (if old columns exist)
 	log.Println("[Migration 030] Step 2: Migrating data from old columns...")
-	
+
 	// Migrate type -> insight_type
 	if err := db.Exec(`
 		UPDATE insights 
@@ -138,7 +142,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 
 	// Step 3: Create indexes on new columns
 	log.Println("[Migration 030] Step 3: Creating indexes on new columns...")
-	
+
 	newIndexes := []struct {
 		name    string
 		columns string
@@ -174,10 +178,10 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 
 	// Step 4: Drop old columns and indexes
 	log.Println("[Migration 030] Step 4: Dropping old columns and indexes...")
-	
+
 	oldColumns := []struct {
-		name        string
-		dropFKFirst bool
+		name           string
+		dropFKFirst    bool
 		dropIndexFirst bool
 	}{
 		{"type", false, true},
@@ -205,7 +209,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 			)
 		`, col.name).Scan(&exists).Error; err == nil && exists {
 			log.Printf("[Migration 030] Dropping old column: insights.%s", col.name)
-			
+
 			// Drop foreign key constraint first if needed
 			if col.dropFKFirst {
 				if col.name == "sbom_id" {
@@ -214,7 +218,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 					db.Exec(`ALTER TABLE insights DROP CONSTRAINT IF EXISTS insights_cve_match_id_fkey CASCADE`)
 				}
 			}
-			
+
 			// Drop index first if needed
 			if col.dropIndexFirst {
 				indexName := "idx_insights_" + col.name
@@ -223,7 +227,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 					db.Exec(`DROP INDEX IF EXISTS idx_insights_affected_resources_gin CASCADE`)
 				}
 			}
-			
+
 			// Drop column
 			if err := db.Exec(`ALTER TABLE insights DROP COLUMN IF EXISTS ` + col.name + ` CASCADE`).Error; err != nil {
 				log.Printf("[Migration 030] ⚠️  Error dropping insights.%s: %v", col.name, err)
@@ -235,17 +239,17 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 
 	// Step 5: Drop duplicate/redundant indexes
 	log.Println("[Migration 030] Step 5: Dropping duplicate indexes...")
-	
+
 	duplicateIndexes := []string{
-		"idx_insights_created",           // Duplicate of idx_insights_created_at
-		"idx_insights_type",              // Old, replaced by idx_insights_insight_type
+		"idx_insights_created",                // Duplicate of idx_insights_created_at
+		"idx_insights_type",                   // Old, replaced by idx_insights_insight_type
 		"idx_insights_affected_resources_gin", // Old JSONB index
-		"idx_insights_cve_match_id",      // Old column index
-		"idx_insights_sbom_id",           // Old column index
-		"idx_insights_package_name",      // Old column index
-		"idx_insights_exploit_available", // Old column index
-		"idx_insights_source",            // Old column index
-		"idx_insights_vuln_dedup",        // Old schema based
+		"idx_insights_cve_match_id",           // Old column index
+		"idx_insights_sbom_id",                // Old column index
+		"idx_insights_package_name",           // Old column index
+		"idx_insights_exploit_available",      // Old column index
+		"idx_insights_source",                 // Old column index
+		"idx_insights_vuln_dedup",             // Old schema based
 	}
 
 	for _, idx := range duplicateIndexes {
@@ -268,7 +272,7 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 
 	// Step 6: Set NOT NULL constraints on required columns (after data migration)
 	log.Println("[Migration 030] Step 6: Setting NOT NULL constraints...")
-	
+
 	// Only set NOT NULL if all rows have values
 	var nullCount int64
 	if err := db.Raw(`SELECT COUNT(*) FROM insights WHERE insight_type IS NULL`).Scan(&nullCount).Error; err == nil && nullCount == 0 {
@@ -280,4 +284,3 @@ func Migration030_MigrateInsightsSchemaComplete(db *gorm.DB) error {
 	log.Println("[Migration 030] ✅ Completed successfully")
 	return nil
 }
-

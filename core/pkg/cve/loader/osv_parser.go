@@ -51,9 +51,9 @@ type OSVPackage struct {
 
 // OSVRange represents version ranges
 type OSVRange struct {
-	Type   string      `json:"type"` // SEMVER, ECOSYSTEM, GIT
-	Repo   string      `json:"repo,omitempty"`
-	Events []OSVEvent  `json:"events,omitempty"`
+	Type   string     `json:"type"` // SEMVER, ECOSYSTEM, GIT
+	Repo   string     `json:"repo,omitempty"`
+	Events []OSVEvent `json:"events,omitempty"`
 }
 
 // OSVEvent represents a version event
@@ -459,12 +459,12 @@ func sanitizeUTF8(s string) string {
 
 // Stats tracks parsing statistics
 type Stats struct {
-	TotalFiles            int
-	SuccessfullyParsed    int
-	FailedToParse         int
-	CVEsCreated           int
-	PackageVulnsCreated   int
-	SkippedNoPackageInfo  int
+	TotalFiles           int
+	SuccessfullyParsed   int
+	FailedToParse        int
+	CVEsCreated          int
+	PackageVulnsCreated  int
+	SkippedNoPackageInfo int
 }
 
 // LogProgress logs parsing progress

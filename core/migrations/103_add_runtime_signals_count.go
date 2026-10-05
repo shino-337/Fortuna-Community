@@ -28,4 +28,3 @@ func Migration103_AddRuntimeSignalsCount(db *gorm.DB) error {
 	_ = db.Exec("CREATE INDEX IF NOT EXISTS idx_runtime_signals_created_at ON runtime_signals(created_at)").Error
 	return nil
 }
-

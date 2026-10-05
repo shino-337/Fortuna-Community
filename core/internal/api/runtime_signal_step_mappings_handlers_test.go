@@ -171,4 +171,3 @@ func TestRuntimeSignalStepMappings_PatchRejectsIdentityFields(t *testing.T) {
 		t.Fatalf("expected 400 on immutable identity patch, got %d body=%s", w.Code, w.Body.String())
 	}
 }
-

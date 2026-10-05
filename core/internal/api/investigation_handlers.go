@@ -21,10 +21,10 @@ const investigationRetentionYears = 7
 
 type investigationEntitySnapshotDTO struct {
 	CapturedAt string         `json:"capturedAt"`
-	Entity     map[string]any   `json:"entity,omitempty"`
-	Evidence   map[string]any   `json:"evidence,omitempty"`
-	Score      map[string]any   `json:"score,omitempty"`
-	Graph      map[string]any   `json:"graph,omitempty"`
+	Entity     map[string]any `json:"entity,omitempty"`
+	Evidence   map[string]any `json:"evidence,omitempty"`
+	Score      map[string]any `json:"score,omitempty"`
+	Graph      map[string]any `json:"graph,omitempty"`
 }
 
 type investigationEntityDTO struct {
@@ -94,33 +94,33 @@ type investigationPinRequest struct {
 }
 
 type investigationCaseDTO struct {
-	ID                  string                        `json:"id"`
-	Title               string                        `json:"title"`
-	Status              string                        `json:"status"`
-	Owner               string                        `json:"owner"`
-	ClusterID           *string                       `json:"clusterId"`
-	Notes               []investigationNoteDTO        `json:"notes"`
-	Entities            []investigationEntityDTO      `json:"entities"`
-	RemediationActions  []investigationRemediationDTO `json:"remediationActions"`
-	Collaboration       investigationCollaborationDTO `json:"collaboration"`
-	CreatedAt           string                        `json:"createdAt"`
-	UpdatedAt           string                        `json:"updatedAt"`
-	SLADueAt            *string                       `json:"slaDueAt,omitempty"`
-	ArchivedAt          *string                       `json:"archivedAt,omitempty"`
-	RetentionUntil      *string                       `json:"retentionUntil,omitempty"`
-	CreatedByUserID     uint                          `json:"createdByUserId"`
+	ID                 string                        `json:"id"`
+	Title              string                        `json:"title"`
+	Status             string                        `json:"status"`
+	Owner              string                        `json:"owner"`
+	ClusterID          *string                       `json:"clusterId"`
+	Notes              []investigationNoteDTO        `json:"notes"`
+	Entities           []investigationEntityDTO      `json:"entities"`
+	RemediationActions []investigationRemediationDTO `json:"remediationActions"`
+	Collaboration      investigationCollaborationDTO `json:"collaboration"`
+	CreatedAt          string                        `json:"createdAt"`
+	UpdatedAt          string                        `json:"updatedAt"`
+	SLADueAt           *string                       `json:"slaDueAt,omitempty"`
+	ArchivedAt         *string                       `json:"archivedAt,omitempty"`
+	RetentionUntil     *string                       `json:"retentionUntil,omitempty"`
+	CreatedByUserID    uint                          `json:"createdByUserId"`
 }
 
 type investigationCasePatch struct {
-	Title              *string                         `json:"title"`
-	Status             *string                         `json:"status"`
-	Owner              *string                         `json:"owner"`
-	ClusterID          *string                         `json:"clusterId"`
-	SLADueAt           *string                         `json:"slaDueAt"`
-	Entities           *[]investigationEntityDTO       `json:"entities"`
-	Notes              *[]investigationNoteDTO         `json:"notes"`
-	RemediationActions *[]investigationRemediationDTO  `json:"remediationActions"`
-	Collaboration      *investigationCollaborationDTO  `json:"collaboration"`
+	Title              *string                        `json:"title"`
+	Status             *string                        `json:"status"`
+	Owner              *string                        `json:"owner"`
+	ClusterID          *string                        `json:"clusterId"`
+	SLADueAt           *string                        `json:"slaDueAt"`
+	Entities           *[]investigationEntityDTO      `json:"entities"`
+	Notes              *[]investigationNoteDTO        `json:"notes"`
+	RemediationActions *[]investigationRemediationDTO `json:"remediationActions"`
+	Collaboration      *investigationCollaborationDTO `json:"collaboration"`
 }
 
 type investigationCreateRequest struct {

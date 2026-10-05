@@ -6,7 +6,7 @@ import (
 
 func TestClusterRateLimiter_AllowSync(t *testing.T) {
 	cfg := ClusterLimitConfig{
-		SyncRPS:   2,   // 2 per second
+		SyncRPS:   2, // 2 per second
 		SyncBurst: 2,
 		SBOMRPS:   10,
 		SBOMBurst: 10,

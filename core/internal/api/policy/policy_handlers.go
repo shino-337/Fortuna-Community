@@ -365,4 +365,3 @@ func (h *PolicyHandler) DeleteInstance(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Instance deleted successfully"})
 }
-

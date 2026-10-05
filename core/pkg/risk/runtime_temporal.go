@@ -17,12 +17,12 @@ const runtimeShellAPIPairingMaxGap = 20 * time.Minute
 
 // RuntimeTemporalMeta is returned for factors / tuning (spec V).
 type RuntimeTemporalMeta struct {
-	SequenceBonus           float64 `json:"sequence_bonus"`
-	DisorderPenalty         float64 `json:"disorder_penalty"`
-	CoherenceMultiplier     float64 `json:"coherence_multiplier"`
-	ShellBeforeAPI          *bool   `json:"shell_before_api,omitempty"`
-	PairingWindowExceeded   bool    `json:"pairing_window_exceeded,omitempty"`
-	PairingGapSeconds       float64 `json:"pairing_gap_seconds,omitempty"`
+	SequenceBonus         float64 `json:"sequence_bonus"`
+	DisorderPenalty       float64 `json:"disorder_penalty"`
+	CoherenceMultiplier   float64 `json:"coherence_multiplier"`
+	ShellBeforeAPI        *bool   `json:"shell_before_api,omitempty"`
+	PairingWindowExceeded bool    `json:"pairing_window_exceeded,omitempty"`
+	PairingGapSeconds     float64 `json:"pairing_gap_seconds,omitempty"`
 }
 
 func parseRuntimeSignalTime(rs models.RuntimeSignal) time.Time {

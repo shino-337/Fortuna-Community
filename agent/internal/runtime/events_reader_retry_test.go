@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-
 func TestRuntimeReaderStartPerformsImmediateRead(t *testing.T) {
 	delivered := make(chan struct{}, 1)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -26,4 +26,3 @@ func TestParseImageRef(t *testing.T) {
 		}
 	}
 }
-

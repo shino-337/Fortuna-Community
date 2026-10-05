@@ -13,8 +13,8 @@ import (
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/riskengine"
 	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"gopkg.in/yaml.v3"
+	"gorm.io/gorm"
 )
 
 // flexibleString unmarshals JSON number or string into string (avoids "cannot unmarshal number into Go struct field Rule.id of type string" when client sends id as number).
@@ -338,16 +338,16 @@ func CreateRiskRule(db *gorm.DB) gin.HandlerFunc {
 
 // updateRiskRuleRequest mirrors riskengine.Rule but ID accepts JSON number or string (API returns id as number; client may send it back).
 type updateRiskRuleRequest struct {
-	ID          flexibleString           `json:"id"`
-	Name        string                  `json:"name"`
-	Category    riskengine.RuleCategory  `json:"category"`
-	Severity    riskengine.Severity      `json:"severity"`
-	Description string                  `json:"description"`
-	Enabled     bool                    `json:"enabled"`
-	Conditions  []riskengine.Condition   `json:"conditions"`
+	ID          flexibleString             `json:"id"`
+	Name        string                     `json:"name"`
+	Category    riskengine.RuleCategory    `json:"category"`
+	Severity    riskengine.Severity        `json:"severity"`
+	Description string                     `json:"description"`
+	Enabled     bool                       `json:"enabled"`
+	Conditions  []riskengine.Condition     `json:"conditions"`
 	Aggregation riskengine.AggregationType `json:"aggregation"`
-	BaseScore   float64                 `json:"base_score"`
-	Tags        []string                `json:"tags,omitempty"`
+	BaseScore   float64                    `json:"base_score"`
+	Tags        []string                   `json:"tags,omitempty"`
 }
 
 // UpdateRiskRule updates a risk rule by rule_id.

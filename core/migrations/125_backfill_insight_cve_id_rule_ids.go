@@ -16,19 +16,21 @@ import (
 //
 // Date: 2026-04-22
 // Description:
-//   The risk engine stores rule.ID in insights.cve_id (see riskengine.createInsight).
-//   Earlier versions matched rules to insights via LIKE on insight_type / description,
-//   which could produce false positives and prevented efficient indexed queries.
-//   This migration finds insights whose insight_type equals a known rule category and
-//   whose description starts with the rule name, and sets cve_id = rule.ID when it is
-//   currently empty. Only non-vulnerability rows are touched (vulnerability insights
-//   already have a real CVE-ID in that column).
+//
+//	The risk engine stores rule.ID in insights.cve_id (see riskengine.createInsight).
+//	Earlier versions matched rules to insights via LIKE on insight_type / description,
+//	which could produce false positives and prevented efficient indexed queries.
+//	This migration finds insights whose insight_type equals a known rule category and
+//	whose description starts with the rule name, and sets cve_id = rule.ID when it is
+//	currently empty. Only non-vulnerability rows are touched (vulnerability insights
+//	already have a real CVE-ID in that column).
 //
 // Tables Affected:
 //   - insights: updates cve_id column for matching rows
 //
 // Rollback Plan:
-//   UPDATE insights SET cve_id = '' WHERE cve_id IN (...rule ids...) AND insight_type != 'vulnerability';
+//
+//	UPDATE insights SET cve_id = '' WHERE cve_id IN (...rule ids...) AND insight_type != 'vulnerability';
 func Migration125_BackfillInsightCVEIDRuleIDs(db *gorm.DB) error {
 	log.Println("[Migration 125] Starting: Backfill insights.cve_id with YAML rule IDs")
 

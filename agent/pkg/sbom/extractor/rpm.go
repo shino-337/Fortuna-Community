@@ -279,6 +279,7 @@ func rpmDistroFromOSRelease(fs *Filesystem) string {
 //   - name<TAB>version<TAB>release<TAB>arch
 //   - name|version|release|arch
 //   - name<TAB>epoch<TAB>version<TAB>release<TAB>arch
+//
 // Lines starting with # or empty are skipped.
 func parseRPMPackagesList(content, distro string) ([]Package, error) {
 	seen := make(map[string]struct{})

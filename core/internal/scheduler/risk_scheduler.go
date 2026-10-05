@@ -11,11 +11,11 @@ import (
 
 // RiskScheduler schedules periodic risk evaluations
 type RiskScheduler struct {
-	db         *gorm.DB
-	interval   time.Duration
-	ctx        context.Context
-	cancel     context.CancelFunc
-	stopChan   chan struct{}
+	db       *gorm.DB
+	interval time.Duration
+	ctx      context.Context
+	cancel   context.CancelFunc
+	stopChan chan struct{}
 }
 
 // NewRiskScheduler creates a new risk scheduler
@@ -33,7 +33,7 @@ func NewRiskScheduler(db *gorm.DB, interval time.Duration) *RiskScheduler {
 // Start starts the scheduler
 func (s *RiskScheduler) Start() {
 	log.Printf("[RiskScheduler] Starting risk evaluation scheduler with interval %v", s.interval)
-	
+
 	go func() {
 		ticker := time.NewTicker(s.interval)
 		defer ticker.Stop()
@@ -85,4 +85,3 @@ func (s *RiskScheduler) runEvaluation() {
 	duration := time.Since(startTime)
 	log.Printf("[RiskScheduler] Risk evaluation completed in %v", duration)
 }
-

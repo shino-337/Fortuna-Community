@@ -547,7 +547,7 @@ func Migration020_AddSBOMTables(db *gorm.DB) error {
 	var sbomsExists bool
 	var sbomComponentsExists bool
 	var cveMatchesExists bool
-	
+
 	if err := db.Raw("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = CURRENT_SCHEMA() AND table_name = 'sboms')").Scan(&sbomsExists).Error; err != nil {
 		return fmt.Errorf("failed to check if sboms table exists: %w", err)
 	}
@@ -561,7 +561,7 @@ func Migration020_AddSBOMTables(db *gorm.DB) error {
 	// If all tables exist, verify they have required columns
 	if sbomsExists && sbomComponentsExists && cveMatchesExists {
 		log.Println("[Migration 020] All SBOM tables exist, verifying schema...")
-		
+
 		// Check if sboms has all required columns
 		var hasRequiredColumns bool
 		checkSQL := `

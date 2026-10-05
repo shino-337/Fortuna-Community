@@ -179,7 +179,6 @@ func TestUserLifecycle_AdminRegistersNewUserWithClusterScope(t *testing.T) {
 	}
 }
 
-
 func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnRegister(t *testing.T) {
 	db := setupUserLifecycleDB(t)
 	r := routerUserLifecycleV1(t, db)
@@ -461,7 +460,6 @@ func TestUserLifecycle_AdminPatchesUserClusterScope(t *testing.T) {
 		t.Fatalf("scope after patch: %q", u.ScopeJSON)
 	}
 }
-
 
 func TestUserLifecycle_AdminRejectsMalformedClusterScopeOnPatch(t *testing.T) {
 	db := setupUserLifecycleDB(t)

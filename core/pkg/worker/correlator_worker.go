@@ -28,7 +28,7 @@ type CorrelatorWorker struct {
 	k8sClient   kubernetes.Interface
 	// Layer 2: Cache validation results (1 min)
 	validationCache map[string]time.Time // canonical cluster/pod key -> validation time
-	cacheMutex       sync.RWMutex
+	cacheMutex      sync.RWMutex
 }
 
 // NewCorrelatorWorker creates a new correlator worker
@@ -49,11 +49,11 @@ func NewCorrelatorWorker(js nats.JetStreamContext, db *gorm.DB) *CorrelatorWorke
 	}
 
 	return &CorrelatorWorker{
-		js:               js,
-		db:               db,
-		graphEngine:      nil, // Will be set if AGE is available
-		k8sClient:        k8sClient,
-		validationCache:  make(map[string]time.Time),
+		js:              js,
+		db:              db,
+		graphEngine:     nil, // Will be set if AGE is available
+		k8sClient:       k8sClient,
+		validationCache: make(map[string]time.Time),
 	}
 }
 
@@ -80,7 +80,7 @@ func (w *CorrelatorWorker) Process(ctx context.Context, msg *nats.Msg) error {
 		}
 		// else leave as "" or "default" so downstream can handle
 	}
-	
+
 	// Layer 1: Extract eventType
 	eventType, _ := normalizedData["event_type"].(string)
 	if eventType == "" {
@@ -114,7 +114,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 		uid, _ := data["uid"].(string)
 		name, _ := data["name"].(string)
 		namespace, _ := data["namespace"].(string)
-		
+
 		if uid == "" {
 			log.Printf("[CorrelatorWorker] DELETE event missing UID, skipping")
 			return nil
@@ -123,13 +123,13 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 		if err != nil {
 			return fmt.Errorf("invalid pod identity on delete: %w", err)
 		}
-		
+
 		// Soft delete pod
 		result := w.db.Model(&models.Pod{}).Where("cluster_id = ? AND uid = ? AND deleted_at IS NULL", id.ClusterID, id.ResourceUID).Update("deleted_at", time.Now())
 		if result.Error != nil {
 			return fmt.Errorf("failed to soft delete pod: %w", result.Error)
 		}
-		
+
 		// Terminate pod instance if pod_instances table exists
 		if w.db.Migrator().HasTable(&models.PodInstance{}) {
 			lifecycleManager := lifecycle.NewPodInstanceManager(w.db)
@@ -216,17 +216,17 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 				log.Printf("[CorrelatorWorker] Soft-deleted %d pod_image_scans for pod %s/%s", del.RowsAffected, namespace, name)
 			}
 		}
-		
+
 		if result.RowsAffected > 0 {
-			log.Printf("[CorrelatorWorker] Soft-deleted pod %s/%s (UID: %s) from DELETE event (Layer 1: Prevention)", 
+			log.Printf("[CorrelatorWorker] Soft-deleted pod %s/%s (UID: %s) from DELETE event (Layer 1: Prevention)",
 				namespace, name, uid)
 		} else {
-			log.Printf("[CorrelatorWorker] Pod %s/%s (UID: %s) not found or already deleted", 
+			log.Printf("[CorrelatorWorker] Pod %s/%s (UID: %s) not found or already deleted",
 				namespace, name, uid)
 		}
 		return nil
 	}
-	
+
 	// Continue with normal processing for Added/Modified events
 	uid, _ := data["uid"].(string)
 	name, _ := data["name"].(string)
@@ -276,7 +276,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 	} else {
 		containersJSON = "[]"
 	}
-	
+
 	// Ensure containersJSON is never empty - use empty array if empty string
 	if containersJSON == "" {
 		containersJSON = "[]"
@@ -316,7 +316,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 		// This prevents restoring old deleted pods from NATS stream
 		var deletedPod models.Pod
 		deletedExists := w.db.Unscoped().Where("cluster_id = ? AND uid = ? AND deleted_at IS NOT NULL AND deleted_at > NOW() - INTERVAL '1 hour'", id.ClusterID, id.ResourceUID).First(&deletedPod).Error == nil
-		
+
 		if deletedExists {
 			// Layer 2: Validate pod exists in K8s before restoring
 			if w.validatePodExists(id.ClusterID, namespace, name, id.ResourceUID) {
@@ -343,7 +343,7 @@ func (w *CorrelatorWorker) processPod(data map[string]interface{}, clusterID str
 				log.Printf("[CorrelatorWorker] Skipped creating pod %s/%s (not found in K8s - likely ghost pod from old NATS message)", namespace, name)
 				return nil // Skip creating ghost pods
 			}
-			
+
 			// Create new pod using raw SQL
 			insertSQL := `INSERT INTO pods (uid, cluster_id, name, namespace, service_account, containers, created_at, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?::jsonb, ?, ?)`
@@ -628,18 +628,18 @@ func (w *CorrelatorWorker) validatePodExists(clusterID, namespace, name, uid str
 	if err != nil {
 		// Pod not found or error - mark as invalid
 		log.Printf("[CorrelatorWorker] Validation failed for pod %s/%s (UID: %s): %v", namespace, name, uid, err)
-		
+
 		// Cache negative result (shorter TTL - 30 seconds)
 		w.cacheMutex.Lock()
 		w.validationCache[cacheKey] = time.Now()
 		w.cacheMutex.Unlock()
-		
+
 		return false
 	}
 
 	// Verify UID matches
 	if string(pod.UID) != uid {
-		log.Printf("[CorrelatorWorker] Validation failed: UID mismatch for pod %s/%s (expected: %s, got: %s)", 
+		log.Printf("[CorrelatorWorker] Validation failed: UID mismatch for pod %s/%s (expected: %s, got: %s)",
 			namespace, name, uid, pod.UID)
 		return false
 	}

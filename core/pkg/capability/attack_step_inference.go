@@ -67,17 +67,17 @@ func (asi *AttackStepInference) updateStepEvidence(ctx context.Context, step *mo
 // getStepCategory returns category for attack step ID
 func getStepCategory(stepID string) string {
 	categories := map[string]string{
-		"NODE_FS_WRITE":        "FILESYSTEM",
-		"NODE_KERNEL_ACCESS":   "KERNEL",
+		"NODE_FS_WRITE":         "FILESYSTEM",
+		"NODE_KERNEL_ACCESS":    "KERNEL",
 		"PROC_NAMESPACE_ACCESS": "PROCESS",
 		"IPC_NAMESPACE_ACCESS":  "IPC",
-		"NODE_CRED_DUMP":       "CREDENTIALS",
-		"NODE_PERSISTENCE":     "PERSISTENCE",
-		"KUBELET_CRED_ACCESS":  "CREDENTIALS",
-		"PROC_ROOT_PIVOT":      "ESCAPE",
-		"RBAC_ABUSE":           "RBAC",
-		"NETWORK_SNIFFING":     "NETWORK",
-		"RBAC_ESCALATION":      "RBAC",
+		"NODE_CRED_DUMP":        "CREDENTIALS",
+		"NODE_PERSISTENCE":      "PERSISTENCE",
+		"KUBELET_CRED_ACCESS":   "CREDENTIALS",
+		"PROC_ROOT_PIVOT":       "ESCAPE",
+		"RBAC_ABUSE":            "RBAC",
+		"NETWORK_SNIFFING":      "NETWORK",
+		"RBAC_ESCALATION":       "RBAC",
 		"RESOURCE_MANIPULATION": "RBAC",
 		"CONTROL_PLANE_ACCESS":  "CONTROL_PLANE",
 	}
@@ -91,17 +91,17 @@ func getStepCategory(stepID string) string {
 // getStepDescription returns description for attack step ID
 func getStepDescription(stepID string) string {
 	descriptions := map[string]string{
-		"NODE_FS_WRITE":        "Write access to node filesystem",
-		"NODE_KERNEL_ACCESS":   "Access to kernel resources",
+		"NODE_FS_WRITE":         "Write access to node filesystem",
+		"NODE_KERNEL_ACCESS":    "Access to kernel resources",
 		"PROC_NAMESPACE_ACCESS": "Access to process namespace",
 		"IPC_NAMESPACE_ACCESS":  "Access to IPC namespace",
-		"NODE_CRED_DUMP":       "Dump credentials from node",
-		"NODE_PERSISTENCE":     "Establish persistence on node",
-		"KUBELET_CRED_ACCESS":  "Access kubelet credentials",
-		"PROC_ROOT_PIVOT":      "Proc root pivot (container escape)",
-		"RBAC_ABUSE":           "Abuse RBAC permissions",
-		"NETWORK_SNIFFING":     "Sniff network traffic",
-		"RBAC_ESCALATION":      "Escalate RBAC privileges",
+		"NODE_CRED_DUMP":        "Dump credentials from node",
+		"NODE_PERSISTENCE":      "Establish persistence on node",
+		"KUBELET_CRED_ACCESS":   "Access kubelet credentials",
+		"PROC_ROOT_PIVOT":       "Proc root pivot (container escape)",
+		"RBAC_ABUSE":            "Abuse RBAC permissions",
+		"NETWORK_SNIFFING":      "Sniff network traffic",
+		"RBAC_ESCALATION":       "Escalate RBAC privileges",
 		"RESOURCE_MANIPULATION": "Manipulate Kubernetes resources",
 		"CONTROL_PLANE_ACCESS":  "Access control plane components",
 	}

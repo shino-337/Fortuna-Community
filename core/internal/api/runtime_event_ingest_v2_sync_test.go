@@ -15,13 +15,12 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-
 func useRuntimeAgentPrincipal(r *gin.Engine, clusterID string) {
 	r.Use(func(c *gin.Context) {
 		c.Set("fortuna.agent.principal", agentidentity.Principal{
 			CredentialID: "test-runtime-credential",
-			ClusterID: clusterID,
-			AgentID: "agent-a",
+			ClusterID:    clusterID,
+			AgentID:      "agent-a",
 		})
 		c.Next()
 	})
@@ -44,9 +43,9 @@ func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *tes
 		t.Fatal(err)
 	}
 	payload := []map[string]interface{}{{
-		"pod": map[string]interface{}{"uid": "pod-no-record-id", "namespace": "ns"},
-		"syscall": "execve",
-		"target": "/bin/sh",
+		"pod":        map[string]interface{}{"uid": "pod-no-record-id", "namespace": "ns"},
+		"syscall":    "execve",
+		"target":     "/bin/sh",
 		"confidence": 0.9,
 	}}
 	body, _ := json.Marshal(payload)
@@ -65,7 +64,6 @@ func TestPostRuntimeEventsV2_RejectsProcessableEventWithoutSourceRecordID(t *tes
 		t.Fatalf("missing source_record_id persisted %d runtime events", count)
 	}
 }
-
 
 func TestPostRuntimeEventsV2_ExactReplaySkipsDownstreamEffects(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -163,7 +161,9 @@ func TestPostRuntimeEventsV2_PersistsCanonicalFields(t *testing.T) {
 	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
-	if err := db.Create(&models.Pod{UID: "pod-v2-1", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.Pod{UID: "pod-v2-1", ClusterID: "c1", Namespace: "ns", Name: "demo"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-1",
 		"source_record_id": "1111111111111111111111111111111111111111111111111111111111111111",
@@ -225,7 +225,9 @@ func TestPostRuntimeEventsV2_AcceptsFlattenedSourceFields(t *testing.T) {
 	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
-	if err := db.Create(&models.Pod{UID: "pod-v2-2", ClusterID: "c1", Namespace: "ns", Name: "demo2"}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.Pod{UID: "pod-v2-2", ClusterID: "c1", Namespace: "ns", Name: "demo2"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-2",
 		"source_record_id": "2222222222222222222222222222222222222222222222222222222222222222",
@@ -285,7 +287,9 @@ func TestPostRuntimeEventsV2_PreservesPartialResolutionState(t *testing.T) {
 	useRuntimeAgentPrincipal(r, "c1")
 	r.POST("/api/v2/runtime/events", requireScopedRuntimeOwnership(db), PostRuntimeEventsV2Scoped(db))
 
-	if err := db.Create(&models.Pod{UID: "pod-v2-3", ClusterID: "c1", Namespace: "ns", Name: "demo3"}).Error; err != nil { t.Fatal(err) }
+	if err := db.Create(&models.Pod{UID: "pod-v2-3", ClusterID: "c1", Namespace: "ns", Name: "demo3"}).Error; err != nil {
+		t.Fatal(err)
+	}
 	payload := []map[string]interface{}{{
 		"event_id":         "evt-3",
 		"source_record_id": "3333333333333333333333333333333333333333333333333333333333333333",

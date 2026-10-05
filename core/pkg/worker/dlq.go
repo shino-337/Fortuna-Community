@@ -14,11 +14,11 @@ import (
 
 // DLQConfig configures dead letter queue behavior
 type DLQConfig struct {
-	Enabled         bool
-	StreamName      string
-	Subject         string
-	Retention       time.Duration
-	AlertThreshold  int // Alert if message count exceeds this
+	Enabled        bool
+	StreamName     string
+	Subject        string
+	Retention      time.Duration
+	AlertThreshold int // Alert if message count exceeds this
 }
 
 // DefaultDLQConfig returns default DLQ configuration
@@ -92,13 +92,13 @@ func (m *DLQManager) setupDLQStream() error {
 
 // DLQMessage represents a message sent to DLQ
 type DLQMessage struct {
-	OriginalSubject string          `json:"original_subject"`
-	OriginalData    json.RawMessage `json:"original_data"`
-	Error           string          `json:"error"`
-	ErrorType       string          `json:"error_type"`
-	Attempts        int             `json:"attempts"`
-	Timestamp       time.Time       `json:"timestamp"`
-	WorkerName      string          `json:"worker_name"`
+	OriginalSubject string                 `json:"original_subject"`
+	OriginalData    json.RawMessage        `json:"original_data"`
+	Error           string                 `json:"error"`
+	ErrorType       string                 `json:"error_type"`
+	Attempts        int                    `json:"attempts"`
+	Timestamp       time.Time              `json:"timestamp"`
+	WorkerName      string                 `json:"worker_name"`
 	Metadata        map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -202,6 +202,3 @@ func (m *DLQManager) GetDLQStats() (map[string]interface{}, error) {
 
 	return stats, nil
 }
-
-
-

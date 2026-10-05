@@ -77,13 +77,13 @@ func (s *ImageScanner) ScanImage(ctx context.Context, imageRef string) (*models.
 
 	// Convert to our model
 	scanResult := &models.ImageScanResult{
-		ImageName:          imageName,
-		ImageTag:           imageTag,
-		ImageDigest:        trivyResult.ArtifactName,
-		ScannedAt:          time.Now(),
-		ScannerVersion:     trivyResult.Metadata.Version,
+		ImageName:           imageName,
+		ImageTag:            imageTag,
+		ImageDigest:         trivyResult.ArtifactName,
+		ScannedAt:           time.Now(),
+		ScannerVersion:      trivyResult.Metadata.Version,
 		ScanDurationSeconds: time.Since(start).Seconds(),
-		Status:             "completed",
+		Status:              "completed",
 	}
 
 	// Process vulnerabilities
@@ -187,4 +187,3 @@ func (s *ImageScanner) saveScanResult(ctx context.Context, result *models.ImageS
 func parseImageRef(imageRef string) (string, string) {
 	return parseImageRefFromString(imageRef)
 }
-

@@ -93,4 +93,3 @@ var (
 		[]string{"cache_type"},
 	)
 )
-

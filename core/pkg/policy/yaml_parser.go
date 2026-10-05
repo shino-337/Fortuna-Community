@@ -29,40 +29,40 @@ func NewYAMLParser(templatesDir, instancesDir string) *YAMLParser {
 
 // TemplateYAML represents a Policy Template in YAML format
 type TemplateYAML struct {
-	TemplateID    string                 `yaml:"templateId"`
-	Version       string                 `yaml:"version"`
-	Name          string                 `yaml:"name"`
-	Description   string                 `yaml:"description"`
-	Category      string                 `yaml:"category"` // security, compliance, operational, governance
-	DefaultSeverity string               `yaml:"defaultSeverity"`
-	CELExpression string                 `yaml:"celExpression"`
-	DefaultScope  map[string]interface{} `yaml:"defaultScope,omitempty"`
-	DefaultAction string                 `yaml:"defaultAction"` // alert, block, audit
-	SupportsRemediation bool             `yaml:"supportsRemediation,omitempty"`
-	RemediationTemplate map[string]interface{} `yaml:"remediationTemplate,omitempty"`
-	Rationale     string                 `yaml:"rationale,omitempty"`
-	References    []string               `yaml:"references,omitempty"`
-	Examples      []map[string]interface{} `yaml:"examples,omitempty"`
-	IsSystem      bool                   `yaml:"isSystem,omitempty"`
+	TemplateID          string                   `yaml:"templateId"`
+	Version             string                   `yaml:"version"`
+	Name                string                   `yaml:"name"`
+	Description         string                   `yaml:"description"`
+	Category            string                   `yaml:"category"` // security, compliance, operational, governance
+	DefaultSeverity     string                   `yaml:"defaultSeverity"`
+	CELExpression       string                   `yaml:"celExpression"`
+	DefaultScope        map[string]interface{}   `yaml:"defaultScope,omitempty"`
+	DefaultAction       string                   `yaml:"defaultAction"` // alert, block, audit
+	SupportsRemediation bool                     `yaml:"supportsRemediation,omitempty"`
+	RemediationTemplate map[string]interface{}   `yaml:"remediationTemplate,omitempty"`
+	Rationale           string                   `yaml:"rationale,omitempty"`
+	References          []string                 `yaml:"references,omitempty"`
+	Examples            []map[string]interface{} `yaml:"examples,omitempty"`
+	IsSystem            bool                     `yaml:"isSystem,omitempty"`
 }
 
 // InstanceYAML represents a Policy Instance in YAML format
 type InstanceYAML struct {
-	TemplateID      string                 `yaml:"templateId"`
-	TemplateVersion string                 `yaml:"templateVersion"`
-	InstanceName    string                 `yaml:"instanceName"`
-	Description     string                 `yaml:"description,omitempty"`
-	Enabled         bool                   `yaml:"enabled,omitempty"`
-	Clusters        []string               `yaml:"clusters,omitempty"`
-	Namespaces      []string               `yaml:"namespaces,omitempty"`
-	ResourceTypes   []string               `yaml:"resourceTypes,omitempty"`
-	LabelSelectors  map[string]string      `yaml:"labelSelectors,omitempty"`
-	Action          string                 `yaml:"action,omitempty"` // Override default action
-	Severity        string                 `yaml:"severity,omitempty"` // Override default severity
-	CustomMessage   string                 `yaml:"customMessage,omitempty"`
-	AutoRemediate   bool                   `yaml:"autoRemediate,omitempty"`
-	RemediationDryRun bool                 `yaml:"remediationDryRun,omitempty"`
-	Exemptions      []map[string]interface{} `yaml:"exemptions,omitempty"`
+	TemplateID        string                   `yaml:"templateId"`
+	TemplateVersion   string                   `yaml:"templateVersion"`
+	InstanceName      string                   `yaml:"instanceName"`
+	Description       string                   `yaml:"description,omitempty"`
+	Enabled           bool                     `yaml:"enabled,omitempty"`
+	Clusters          []string                 `yaml:"clusters,omitempty"`
+	Namespaces        []string                 `yaml:"namespaces,omitempty"`
+	ResourceTypes     []string                 `yaml:"resourceTypes,omitempty"`
+	LabelSelectors    map[string]string        `yaml:"labelSelectors,omitempty"`
+	Action            string                   `yaml:"action,omitempty"`   // Override default action
+	Severity          string                   `yaml:"severity,omitempty"` // Override default severity
+	CustomMessage     string                   `yaml:"customMessage,omitempty"`
+	AutoRemediate     bool                     `yaml:"autoRemediate,omitempty"`
+	RemediationDryRun bool                     `yaml:"remediationDryRun,omitempty"`
+	Exemptions        []map[string]interface{} `yaml:"exemptions,omitempty"`
 }
 
 // LoadTemplatesFromYAML loads all Policy Templates from YAML files
@@ -258,22 +258,22 @@ func (p *YAMLParser) convertTemplateToModel(t *TemplateYAML) *models.PolicyTempl
 	}
 
 	template := &models.PolicyTemplate{
-		TemplateID:         t.TemplateID,
-		Version:            t.Version,
-		Name:               t.Name,
-		Description:        t.Description,
-		Category:           t.Category,
-		DefaultSeverity:    t.DefaultSeverity,
-		CELExpression:      t.CELExpression,
-		DefaultScope:       defaultScopeJSON,
-		DefaultAction:      t.DefaultAction,
+		TemplateID:          t.TemplateID,
+		Version:             t.Version,
+		Name:                t.Name,
+		Description:         t.Description,
+		Category:            t.Category,
+		DefaultSeverity:     t.DefaultSeverity,
+		CELExpression:       t.CELExpression,
+		DefaultScope:        defaultScopeJSON,
+		DefaultAction:       t.DefaultAction,
 		SupportsRemediation: t.SupportsRemediation,
 		RemediationTemplate: remediationJSON,
-		Rationale:          t.Rationale,
-		References:        t.References,
-		Examples:          examplesJSON,
-		IsSystem:          t.IsSystem,
-		CreatedBy:         "system",
+		Rationale:           t.Rationale,
+		References:          t.References,
+		Examples:            examplesJSON,
+		IsSystem:            t.IsSystem,
+		CreatedBy:           "system",
 	}
 
 	if template.DefaultAction == "" {
@@ -360,4 +360,3 @@ func isValidSeverity(severity string) bool {
 	}
 	return false
 }
-

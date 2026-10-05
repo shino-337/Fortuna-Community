@@ -13,7 +13,8 @@ import (
 // Ticket: FORTUNA-XXX
 //
 // Description:
-//   [Detailed description of what this migration does]
+//
+//	[Detailed description of what this migration does]
 //
 // Tables Affected:
 //   - table_name: [description of changes]
@@ -27,10 +28,11 @@ import (
 //   - Requires [external dependency]
 //
 // Rollback Plan:
-//   [SQL commands to undo this migration]
-//   Example:
-//     DROP TABLE IF EXISTS new_table;
-//     ALTER TABLE existing_table DROP COLUMN new_column;
+//
+//	[SQL commands to undo this migration]
+//	Example:
+//	  DROP TABLE IF EXISTS new_table;
+//	  ALTER TABLE existing_table DROP COLUMN new_column;
 //
 // Testing:
 //   - Test in local environment with: [command]
@@ -48,4 +50,3 @@ func MigrationXXX_DescriptiveName(db *gorm.DB) error {
 	log.Println("[Migration XXX] ✅ Completed successfully")
 	return nil
 }
-

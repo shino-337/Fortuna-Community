@@ -6,10 +6,10 @@ import (
 
 func TestParseImageRef(t *testing.T) {
 	tests := []struct {
-		name      string
-		imageRef  string
-		wantName  string
-		wantTag   string
+		name     string
+		imageRef string
+		wantName string
+		wantTag  string
 	}{
 		{
 			name:     "registry with port and tag",

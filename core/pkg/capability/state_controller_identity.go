@@ -51,7 +51,7 @@ func (csc *CapabilityStateController) InitializeCapabilityForIdentity(ctx contex
 	}
 	return csc.db.WithContext(ctx).
 		Clauses(clause.OnConflict{
-			Columns: []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}, {Name: "capability_id"}},
+			Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}, {Name: "capability_id"}},
 			DoUpdates: clause.AssignmentColumns([]string{"capability_group", "severity", "evidence", "last_seen_at", "updated_at"}),
 		}).Create(&cap).Error
 }

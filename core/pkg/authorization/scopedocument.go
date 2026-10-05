@@ -183,9 +183,9 @@ func (d ScopeDocument) Validate() error {
 	}
 
 	for _, spec := range []struct {
-		name string
+		name   string
 		values []string
-		max int
+		max    int
 	}{
 		{"clusters", d.Clusters, 512},
 		{"cluster_ids", d.LegacyCluster, 512},

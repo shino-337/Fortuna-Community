@@ -13,22 +13,22 @@ const (
 	PermissionAuthRegister       Permission = "auth.register"
 
 	// Sessions (JWT binding + governance)
-	PermissionSessionsRead       Permission = "sessions.read"
-	PermissionSessionsRevoke     Permission = "sessions.revoke"
-	PermissionSessionsRevokeAll  Permission = "sessions.revoke_all"
+	PermissionSessionsRead      Permission = "sessions.read"
+	PermissionSessionsRevoke    Permission = "sessions.revoke"
+	PermissionSessionsRevokeAll Permission = "sessions.revoke_all"
 
 	// Export governance (sensitive data egress)
-	PermissionExportFindings Permission = "export.findings"
-	PermissionUsersRead         Permission = "users.read"
-	PermissionUsersCreate       Permission = "users.create"
-	PermissionUsersUpdate       Permission = "users.update"
-	PermissionUsersDisable      Permission = "users.disable"
-	PermissionUsersDelete       Permission = "users.delete"
+	PermissionExportFindings     Permission = "export.findings"
+	PermissionUsersRead          Permission = "users.read"
+	PermissionUsersCreate        Permission = "users.create"
+	PermissionUsersUpdate        Permission = "users.update"
+	PermissionUsersDisable       Permission = "users.disable"
+	PermissionUsersDelete        Permission = "users.delete"
 	PermissionUsersPasswordReset Permission = "users.password.reset"
 	PermissionUsersRoleAssign    Permission = "users.role.assign"
 
 	// Findings (v2 — replaces findings.write / findings.exceptions)
-	PermissionFindingsRead               Permission = "findings.read"
+	PermissionFindingsRead             Permission = "findings.read"
 	PermissionFindingsAck              Permission = "findings.ack"
 	PermissionFindingsDismiss          Permission = "findings.dismiss"
 	PermissionFindingsResolve          Permission = "findings.resolve"
@@ -48,11 +48,11 @@ const (
 
 	// Policies (v2 — replaces policies.write)
 	PermissionPoliciesRead    Permission = "policies.read"
-	PermissionPoliciesDraft     Permission = "policies.draft"
-	PermissionPoliciesReview    Permission = "policies.review"
-	PermissionPoliciesApprove   Permission = "policies.approve"
-	PermissionPoliciesPublish   Permission = "policies.publish"
-	PermissionPoliciesDelete    Permission = "policies.delete"
+	PermissionPoliciesDraft   Permission = "policies.draft"
+	PermissionPoliciesReview  Permission = "policies.review"
+	PermissionPoliciesApprove Permission = "policies.approve"
+	PermissionPoliciesPublish Permission = "policies.publish"
+	PermissionPoliciesDelete  Permission = "policies.delete"
 
 	PermissionRulesRead   Permission = "rules.read"
 	PermissionRulesWrite  Permission = "rules.write"
@@ -72,12 +72,12 @@ const (
 	PermissionRuntimeMappingWrite Permission = "runtime.mapping.write"
 
 	// Graph (v2 — replaces graph.read + graph.query.safe)
-	PermissionGraphReadSummary   Permission = "graph.read.summary"
-	PermissionGraphReadPaths     Permission = "graph.read.paths"
-	PermissionGraphQueryEntity   Permission = "graph.query.entity"
+	PermissionGraphReadSummary    Permission = "graph.read.summary"
+	PermissionGraphReadPaths      Permission = "graph.read.paths"
+	PermissionGraphQueryEntity    Permission = "graph.query.entity"
 	PermissionGraphQueryTraversal Permission = "graph.query.traversal"
-	PermissionGraphQueryAdvanced Permission = "graph.query.advanced"
-	PermissionGraphExport        Permission = "graph.export"
+	PermissionGraphQueryAdvanced  Permission = "graph.query.advanced"
+	PermissionGraphExport         Permission = "graph.export"
 
 	PermissionMalwareRead   Permission = "malware.read"
 	PermissionMalwareUpload Permission = "malware.upload"
@@ -99,11 +99,11 @@ const (
 type PermissionLevel string
 
 const (
-	LevelRead              PermissionLevel = "READ"
-	LevelWrite             PermissionLevel = "WRITE"
-	LevelDestructive       PermissionLevel = "DESTRUCTIVE"
-	LevelPlatform          PermissionLevel = "PLATFORM"
-	LevelSecurityCritical  PermissionLevel = "SECURITY_CRITICAL"
+	LevelRead             PermissionLevel = "READ"
+	LevelWrite            PermissionLevel = "WRITE"
+	LevelDestructive      PermissionLevel = "DESTRUCTIVE"
+	LevelPlatform         PermissionLevel = "PLATFORM"
+	LevelSecurityCritical PermissionLevel = "SECURITY_CRITICAL"
 )
 
 // ClassifyPermission returns coarse classification for governance UI / policy.

@@ -267,7 +267,7 @@ func ensurePodRiskProfileForIdentity(ctx context.Context, db *gorm.DB, id resour
 		CreatedAt: now, UpdatedAt: now,
 	}
 	if err := db.WithContext(ctx).Clauses(clause.OnConflict{
-		Columns: []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}},
+		Columns:   []clause.Column{{Name: "cluster_id"}, {Name: "pod_uid"}},
 		DoUpdates: clause.AssignmentColumns([]string{"namespace", "static_risk", "updated_at"}),
 	}).Create(&profile).Error; err != nil {
 		return 0, namespace, fmt.Errorf("rep: ensure pod risk profile: %w", err)

@@ -58,15 +58,15 @@ func TriggerCVEMatch(db *gorm.DB, publishSBOMCreated PublishSBOMCreatedFunc) gin
 		containerName := sbom.ContainerName
 		event := map[string]interface{}{
 			"type":            "sbom.created",
-			"timestamp":      time.Now().Unix(),
-			"cluster_id":     clusterID,
-			"pod_uid":        sbom.PodUID,
-			"pod_name":       podName,
-			"pod_namespace":  podNamespace,
-			"container_name": containerName,
+			"timestamp":       time.Now().Unix(),
+			"cluster_id":      clusterID,
+			"pod_uid":         sbom.PodUID,
+			"pod_name":        podName,
+			"pod_namespace":   podNamespace,
+			"container_name":  containerName,
 			"container_image": containerImage,
-			"sbom_id":        sbom.ID,
-			"image_digest":   sbom.ImageDigest,
+			"sbom_id":         sbom.ID,
+			"image_digest":    sbom.ImageDigest,
 		}
 		eventJSON, err := json.Marshal(event)
 		if err != nil {

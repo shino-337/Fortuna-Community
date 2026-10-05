@@ -1,8 +1,8 @@
 package api
 
 import (
-	"net/http"
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -47,14 +47,16 @@ func GetPodAttackSteps(db *gorm.DB) gin.HandlerFunc {
 func GetAttackStepsSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scope, ok := resolveRiskGovernanceScope(db, c)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 15*time.Second)
 		defer cancel()
 		queryDB := db.WithContext(ctx)
 		type Summary struct {
-			StepID     string `json:"stepId"`
-			Category   string `json:"category"`
-			Count      int64  `json:"count"`
+			StepID        string  `json:"stepId"`
+			Category      string  `json:"category"`
+			Count         int64   `json:"count"`
 			AvgConfidence float64 `json:"avgConfidence"`
 		}
 

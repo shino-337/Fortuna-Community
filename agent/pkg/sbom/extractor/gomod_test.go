@@ -45,4 +45,3 @@ func TestGoModParser_Parse_FallbackFindPathsBySuffix(t *testing.T) {
 		t.Fatalf("expected github.com/pkg/errors@v0.9.1 from suffix fallback, got %+v", pkgs)
 	}
 }
-

@@ -12,9 +12,9 @@ type ComponentSnapshot struct {
 	NormalizedName string `json:"normalized_name,omitempty"`
 	VersionClass   string `json:"version_class,omitempty"` // STRICT | LOOSE | INVALID | UNKNOWN
 
-	Ecosystem  string `json:"ecosystem,omitempty"`
-	Namespace  string `json:"namespace,omitempty"` // distro
-	Arch       string `json:"arch,omitempty"`
+	Ecosystem string `json:"ecosystem,omitempty"`
+	Namespace string `json:"namespace,omitempty"` // distro
+	Arch      string `json:"arch,omitempty"`
 
 	Source        string `json:"source,omitempty"`
 	TrustLevel    string `json:"trust_level,omitempty"`
@@ -49,5 +49,3 @@ type SBOMCreatedEvent struct {
 	// P1-5: component snapshot at publish time (avoids race: matcher uses this instead of DB when present)
 	ComponentsSnapshot []ComponentSnapshot `json:"components_snapshot,omitempty"`
 }
-
-

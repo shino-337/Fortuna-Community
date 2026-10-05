@@ -11,5 +11,3 @@ import (
 func main() {
 	println("gobinary test with logrus")
 }
-
-

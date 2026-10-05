@@ -120,4 +120,3 @@ func TestGetInsightContext_NotFound(t *testing.T) {
 		t.Fatalf("expected 404, got %d body=%s", w.Code, w.Body.String())
 	}
 }
-

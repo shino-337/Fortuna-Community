@@ -48,7 +48,7 @@ func Retry(ctx context.Context, cfg *Config, fn func() error) error {
 		// Don't wait after last attempt
 		if attempt < cfg.MaxRetries {
 			wait := calculateWait(cfg, attempt)
-			
+
 			// Wait with context cancellation support
 			select {
 			case <-ctx.Done():
@@ -65,7 +65,7 @@ func Retry(ctx context.Context, cfg *Config, fn func() error) error {
 // calculateWait calculates wait time with exponential backoff
 func calculateWait(cfg *Config, attempt int) time.Duration {
 	wait := float64(cfg.InitialWait) * math.Pow(cfg.Multiplier, float64(attempt))
-	
+
 	if wait > float64(cfg.MaxWait) {
 		wait = float64(cfg.MaxWait)
 	}
@@ -77,4 +77,3 @@ func calculateWait(cfg *Config, attempt int) time.Duration {
 func WithRetry(cfg *Config, fn func() error) error {
 	return Retry(context.Background(), cfg, fn)
 }
-

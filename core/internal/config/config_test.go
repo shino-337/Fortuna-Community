@@ -78,8 +78,8 @@ func TestParsePodDetailEncryptionKeys(t *testing.T) {
 	short := base64.StdEncoding.EncodeToString(make([]byte, 16))
 	cases := []struct {
 		name, current, previous string
-		wantKeys               int
-		wantErr                bool
+		wantKeys                int
+		wantErr                 bool
 	}{
 		{name: "unset", wantKeys: 0},
 		{name: "current only", current: valid, wantKeys: 1},

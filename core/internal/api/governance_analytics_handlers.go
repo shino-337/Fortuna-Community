@@ -87,12 +87,12 @@ func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 		}
 
 		type signal struct {
-			Code       string         `json:"code"`
-			Severity   string         `json:"severity"`
-			UserID     uint           `json:"userId,omitempty"`
-			Username   string         `json:"username,omitempty"`
-			Role       string         `json:"role,omitempty"`
-			Detail     map[string]any `json:"detail,omitempty"`
+			Code     string         `json:"code"`
+			Severity string         `json:"severity"`
+			UserID   uint           `json:"userId,omitempty"`
+			Username string         `json:"username,omitempty"`
+			Role     string         `json:"role,omitempty"`
+			Detail   map[string]any `json:"detail,omitempty"`
 		}
 		var signals []signal
 
@@ -139,7 +139,7 @@ func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 					Severity: "MEDIUM",
 					UserID:   u.ID,
 					Username: u.Username,
-					Detail: map[string]any{"clusterCount": doc.ClusterAllowListSize()},
+					Detail:   map[string]any{"clusterCount": doc.ClusterAllowListSize()},
 				})
 			}
 		}

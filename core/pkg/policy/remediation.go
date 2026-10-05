@@ -21,9 +21,9 @@ import (
 
 // RemediationService handles policy remediation operations
 type RemediationService struct {
-	db          *gorm.DB
-	k8sClients  map[string]kubernetes.Interface // Per-cluster clients
-	clientsMux  sync.RWMutex
+	db         *gorm.DB
+	k8sClients map[string]kubernetes.Interface // Per-cluster clients
+	clientsMux sync.RWMutex
 }
 
 // NewRemediationService creates a new remediation service
@@ -82,7 +82,7 @@ func (s *RemediationService) RemediateResource(
 		s.auditRemediationAttempt(ctx, instance, resource, resourceType, resourceName, namespace, clusterID, beforeState, nil, false, err)
 		return false, fmt.Errorf("failed to parse remediation template: %w", err)
 	}
-	
+
 	// ✅ FIX #4: Log remediation attempt
 	s.auditRemediationAttempt(ctx, instance, resource, resourceType, resourceName, namespace, clusterID, beforeState, remediationTemplate, false, nil)
 
@@ -847,16 +847,16 @@ func (s *RemediationService) auditRemediationAttempt(
 	err error,
 ) {
 	details := map[string]interface{}{
-		"instance_id":        instance.ID,
-		"instance_name":      instance.InstanceName,
-		"template_id":        instance.TemplateID,
-		"resource_type":      resourceType,
-		"resource_name":      resourceName,
-		"namespace":          namespace,
-		"cluster_id":         clusterID,
-		"dry_run":            dryRun,
-		"remediation_type":   "attempt",
-		"before_state":       beforeState,
+		"instance_id":          instance.ID,
+		"instance_name":        instance.InstanceName,
+		"template_id":          instance.TemplateID,
+		"resource_type":        resourceType,
+		"resource_name":        resourceName,
+		"namespace":            namespace,
+		"cluster_id":           clusterID,
+		"dry_run":              dryRun,
+		"remediation_type":     "attempt",
+		"before_state":         beforeState,
 		"remediation_template": remediationTemplate,
 	}
 
@@ -948,13 +948,13 @@ func (s *RemediationService) logAudit(ctx context.Context, action string, detail
 	// Create audit log entry
 	auditLog := models.AuditLog{
 		ClusterID:  clusterID,
-		UserID:     0,              // System user (0 = system)
+		UserID:     0, // System user (0 = system)
 		Action:     action,
 		Resource:   resourceType,
 		ResourceID: resourceID,
 		Details:    string(detailsJSON),
 		User:       "policy-engine", // System user for policy remediation
-		IP:         "internal",     // Internal system action
+		IP:         "internal",      // Internal system action
 	}
 
 	// Store in database (non-blocking - errors are logged but don't fail remediation)
@@ -963,4 +963,3 @@ func (s *RemediationService) logAudit(ctx context.Context, action string, detail
 		// Don't return error - audit logging should not fail remediation
 	}
 }
-

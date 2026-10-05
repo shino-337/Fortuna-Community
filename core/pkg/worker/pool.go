@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/fortuna/core/pkg/metrics"
+	"github.com/nats-io/nats.go"
 )
 
 // Worker represents a single worker that processes messages
@@ -22,17 +22,17 @@ type Worker interface {
 
 // Pool manages a pool of workers
 type Pool struct {
-	workers         []Worker
-	concurrency     int
-	wg              sync.WaitGroup
-	ctx             context.Context
-	cancel          context.CancelFunc
-	js              nats.JetStreamContext
-	retryConfig     RetryConfig
-	dlqManager      *DLQManager
+	workers            []Worker
+	concurrency        int
+	wg                 sync.WaitGroup
+	ctx                context.Context
+	cancel             context.CancelFunc
+	js                 nats.JetStreamContext
+	retryConfig        RetryConfig
+	dlqManager         *DLQManager
 	backpressureConfig BackpressureConfig
-	loadTrackers    map[string]*WorkerLoadTracker // Per-worker-type load tracking
-	loadTrackersMu  sync.RWMutex
+	loadTrackers       map[string]*WorkerLoadTracker // Per-worker-type load tracking
+	loadTrackersMu     sync.RWMutex
 }
 
 // NewPool creates a new worker pool
@@ -141,7 +141,7 @@ func (p *Pool) runWorker(worker Worker, id int) {
 		<-p.ctx.Done()
 		return
 	}
-	
+
 	// For WorkQueuePolicy streams, also ensure we don't create multiple consumers
 	// by using a durable consumer name that's unique per worker type but same for all instances
 	// This ensures only one consumer exists even if multiple workers try to subscribe
@@ -159,7 +159,7 @@ func (p *Pool) runWorker(worker Worker, id int) {
 		nats.DeliverAll(),
 		nats.MaxAckPending(10),
 	}
-	
+
 	// For WorkQueuePolicy streams, use durable consumer to ensure only one consumer exists
 	if isWorkQueueStream {
 		opts = append(opts, nats.Durable(durableName))
@@ -180,7 +180,7 @@ func (p *Pool) runWorker(worker Worker, id int) {
 			ApplyBackpressure(p.ctx, msg, worker.Name(), tracker)
 			return // Don't process, message will be redelivered later
 		}
-		
+
 		// Release slot when done (success or error)
 		defer tracker.Release()
 
@@ -260,11 +260,11 @@ func (p *Pool) runWorker(worker Worker, id int) {
 		// Success - ack the message
 		msg.Ack()
 		duration := time.Since(start)
-		
+
 		// Update metrics
 		metrics.WorkerMessagesProcessedTotal.WithLabelValues(worker.Name(), "success").Inc()
 		metrics.WorkerProcessingDuration.WithLabelValues(worker.Name()).Observe(duration.Seconds())
-		
+
 		if attempts > 1 {
 			log.Printf("[WorkerPool] Worker %s-%d processed message in %v (after %d attempts)", worker.Name(), id, duration, attempts)
 		} else {
@@ -310,7 +310,7 @@ func (p *Pool) StartQueueDepthMonitoring(ctx context.Context) {
 	go func() {
 		ticker := time.NewTicker(10 * time.Second) // Check every 10 seconds
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -330,13 +330,13 @@ func (p *Pool) updateQueueDepthMetrics() {
 		if streamName == "" {
 			continue
 		}
-		
+
 		streamInfo, err := p.js.StreamInfo(streamName)
 		if err != nil {
 			// Stream might not exist yet, skip
 			continue
 		}
-		
+
 		// Update queue depth metric
 		metrics.WorkerQueueDepth.WithLabelValues(worker.Name()).Set(float64(streamInfo.State.Msgs))
 	}
@@ -346,17 +346,17 @@ func (p *Pool) updateQueueDepthMetrics() {
 func getStreamNameFromSubject(subject string) string {
 	// Map subject patterns to stream names (matching actual stream names in nats_client.go)
 	if subject == "fortuna.raw.>" {
-		return "fortuna-raw"  // Fixed: use hyphen, not underscore
+		return "fortuna-raw" // Fixed: use hyphen, not underscore
 	}
 	if subject == "fortuna.normalized.>" {
-		return "fortuna-normalized"  // Fixed: use hyphen, not underscore
+		return "fortuna-normalized" // Fixed: use hyphen, not underscore
 	}
 	// Default: try to infer from subject
 	if len(subject) > 0 {
 		// Remove wildcards and convert to stream name
 		streamName := subject
 		streamName = strings.ReplaceAll(streamName, ".>", "")
-		streamName = strings.ReplaceAll(streamName, ".", "-")  // Use hyphen to match stream names
+		streamName = strings.ReplaceAll(streamName, ".", "-") // Use hyphen to match stream names
 		return streamName
 	}
 	return ""

@@ -9,7 +9,7 @@ type K8sEvent struct {
 	EventUID       string     `gorm:"type:varchar(255);not null" json:"eventUid"`
 	Namespace      string     `gorm:"type:varchar(255);not null" json:"namespace"`
 	EventName      string     `gorm:"type:varchar(255);not null" json:"eventName"`
-	InvolvedKind   string     `gorm:"type:varchar(64);not null;index" json:"involvedKind"`   // Pod, Deployment, Node, ...
+	InvolvedKind   string     `gorm:"type:varchar(64);not null;index" json:"involvedKind"` // Pod, Deployment, Node, ...
 	InvolvedUID    string     `gorm:"type:varchar(255);not null;index" json:"involvedUid"`
 	InvolvedName   string     `gorm:"type:varchar(255);not null" json:"involvedName"`
 	Reason         string     `gorm:"type:varchar(128);not null" json:"reason"`

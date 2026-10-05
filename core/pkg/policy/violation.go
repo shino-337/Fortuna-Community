@@ -35,7 +35,7 @@ func (s *ViolationService) RecordViolation(
 		return nil, ctx.Err()
 	default:
 	}
-	
+
 	// ✅ FIX #2: Sampling strategy - only record violations based on severity/action
 	// Low severity + audit action: 10% sampling (1 in 10)
 	// Medium severity + warn action: 50% sampling (1 in 2)
@@ -44,7 +44,7 @@ func (s *ViolationService) RecordViolation(
 		log.Printf("[Violation] Skipping violation recording due to sampling: instance=%s, action=%s", instance.InstanceName, action)
 		return nil, nil // Return nil to indicate skipped (not an error)
 	}
-	
+
 	// Get template name
 	var template models.PolicyTemplate
 	if err := s.db.Where("template_id = ? AND version = ?", instance.TemplateID, instance.TemplateVersion).
@@ -170,9 +170,9 @@ func (s *ViolationService) ResolveViolation(ctx context.Context, violationID uin
 	return s.db.Model(&models.PolicyViolation{}).
 		Where("id = ?", violationID).
 		Updates(map[string]interface{}{
-			"status":     "resolved",
+			"status":      "resolved",
 			"resolved_at": now,
-			"updated_at": now,
+			"updated_at":  now,
 		}).Error
 }
 
@@ -248,20 +248,20 @@ func (s *ViolationService) BatchUpdateViolationStatus(ctx context.Context, viola
 	if len(violationIDs) == 0 {
 		return nil
 	}
-	
+
 	// ✅ FIX #6: Enforce batch size limit (prevent memory issues)
 	const maxBatchSize = 1000
 	if len(violationIDs) > maxBatchSize {
 		return fmt.Errorf("batch size exceeds maximum of %d, got %d", maxBatchSize, len(violationIDs))
 	}
-	
+
 	// Check context
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	return s.db.WithContext(ctx).Model(&models.PolicyViolation{}).
 		Where("id IN ?", violationIDs).
 		Updates(map[string]interface{}{
@@ -276,20 +276,20 @@ func (s *ViolationService) BatchResolveViolations(ctx context.Context, violation
 	if len(violationIDs) == 0 {
 		return nil
 	}
-	
+
 	// ✅ FIX #6: Enforce batch size limit (prevent memory issues)
 	const maxBatchSize = 1000
 	if len(violationIDs) > maxBatchSize {
 		return fmt.Errorf("batch size exceeds maximum of %d, got %d", maxBatchSize, len(violationIDs))
 	}
-	
+
 	// Check context
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	now := time.Now()
 	return s.db.WithContext(ctx).Model(&models.PolicyViolation{}).
 		Where("id IN ?", violationIDs).
@@ -306,20 +306,20 @@ func (s *ViolationService) BatchDeleteViolations(ctx context.Context, violationI
 	if len(violationIDs) == 0 {
 		return nil
 	}
-	
+
 	// ✅ FIX #6: Enforce batch size limit (prevent memory issues)
 	const maxBatchSize = 1000
 	if len(violationIDs) > maxBatchSize {
 		return fmt.Errorf("batch size exceeds maximum of %d, got %d", maxBatchSize, len(violationIDs))
 	}
-	
+
 	// Check context
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	return s.db.WithContext(ctx).Where("id IN ?", violationIDs).
 		Delete(&models.PolicyViolation{}).Error
 }
@@ -342,4 +342,3 @@ type ViolationFilters struct {
 	Limit        int
 	Offset       int
 }
-

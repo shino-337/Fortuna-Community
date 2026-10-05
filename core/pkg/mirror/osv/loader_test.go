@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/glebarez/sqlite"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -130,4 +130,3 @@ func TestIngestDocument_AlpineECOSYSTEMRange(t *testing.T) {
 		t.Fatalf("ecosystem=%q, want alpine", p.Ecosystem)
 	}
 }
-

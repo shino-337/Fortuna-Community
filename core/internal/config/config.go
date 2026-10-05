@@ -61,7 +61,7 @@ type Config struct {
 	// Base64 of 32 bytes. Empty disables encryption (Core logs a warning); an invalid
 	// value stops Core from starting. Previous keys (comma-separated) still decrypt
 	// rows written before a rotation.
-	PodDetailEncryptionKey         string
+	PodDetailEncryptionKey          string
 	PodDetailEncryptionPreviousKeys string
 
 	// Per-cluster rate limit (Finding #6). When enabled, sync and SBOM ingest are limited per cluster_id.

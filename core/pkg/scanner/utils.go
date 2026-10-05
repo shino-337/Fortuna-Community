@@ -26,5 +26,3 @@ func parseImageRefFromString(imageRef string) (string, string) {
 	}
 	return imageRef, "latest"
 }
-
-

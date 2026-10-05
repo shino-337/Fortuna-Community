@@ -42,4 +42,3 @@ func Migration102_AddRuntimeEventsMetadata(db *gorm.DB) error {
 	_ = db.Exec("CREATE INDEX IF NOT EXISTS idx_runtime_events_capability ON runtime_events(capability)").Error
 	return nil
 }
-

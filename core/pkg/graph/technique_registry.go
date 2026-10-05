@@ -40,77 +40,77 @@ type AttackTechnique struct {
 var techniqueRegistry = map[string]AttackTechnique{
 	// ── Container escape techniques ───────────────────────────────────────────
 	"ESCAPE_HOSTPATH": {
-		TechniqueID: "ESCAPE_HOSTPATH",
-		Name:        "HostPath volume node escape",
-		Requires:    []string{"CONTAINER_ACCESS"},
-		Provides:    []string{"NODE_SHELL_ACCESS"},
-		Cost:        3,
-		Realism:     0.90,
+		TechniqueID:   "ESCAPE_HOSTPATH",
+		Name:          "HostPath volume node escape",
+		Requires:      []string{"CONTAINER_ACCESS"},
+		Provides:      []string{"NODE_SHELL_ACCESS"},
+		Cost:          3,
+		Realism:       0.90,
 		Preconditions: []string{"pod_has_writable_hostpath"},
 	},
 	"ESCAPE_RUNTIME": {
-		TechniqueID: "ESCAPE_RUNTIME",
-		Name:        "Container runtime escape",
-		Requires:    []string{"CONTAINER_ACCESS"},
-		Provides:    []string{"NODE_SHELL_ACCESS"},
-		Cost:        3,
-		Realism:     0.85,
+		TechniqueID:   "ESCAPE_RUNTIME",
+		Name:          "Container runtime escape",
+		Requires:      []string{"CONTAINER_ACCESS"},
+		Provides:      []string{"NODE_SHELL_ACCESS"},
+		Cost:          3,
+		Realism:       0.85,
 		Preconditions: []string{"runtime_escape_confirmed"},
 	},
 	"ESCAPE_PROC_ROOT": {
-		TechniqueID: "ESCAPE_PROC_ROOT",
-		Name:        "/proc/1/root filesystem pivot",
-		Requires:    []string{"CONTAINER_ACCESS"},
-		Provides:    []string{"NODE_SHELL_ACCESS"},
-		Cost:        3,
-		Realism:     0.80,
+		TechniqueID:   "ESCAPE_PROC_ROOT",
+		Name:          "/proc/1/root filesystem pivot",
+		Requires:      []string{"CONTAINER_ACCESS"},
+		Provides:      []string{"NODE_SHELL_ACCESS"},
+		Cost:          3,
+		Realism:       0.80,
 		Preconditions: []string{"hostpid_or_privileged"},
 	},
 	"ESCAPE_PRIVILEGED": {
-		TechniqueID: "ESCAPE_PRIVILEGED",
-		Name:        "Privileged container escape",
-		Requires:    []string{"CONTAINER_ACCESS"},
-		Provides:    []string{"CONTAINER_RUNTIME_ACCESS"},
-		Cost:        2,
-		Realism:     0.80,
+		TechniqueID:   "ESCAPE_PRIVILEGED",
+		Name:          "Privileged container escape",
+		Requires:      []string{"CONTAINER_ACCESS"},
+		Provides:      []string{"CONTAINER_RUNTIME_ACCESS"},
+		Cost:          2,
+		Realism:       0.80,
 		Preconditions: []string{"pod_is_privileged"},
 	},
 	"ESCAPE_HOSTPID": {
-		TechniqueID: "ESCAPE_HOSTPID",
-		Name:        "hostPID namespace pivot",
-		Requires:    []string{"CONTAINER_ACCESS"},
-		Provides:    []string{"CONTAINER_RUNTIME_ACCESS"},
-		Cost:        2,
-		Realism:     0.75,
+		TechniqueID:   "ESCAPE_HOSTPID",
+		Name:          "hostPID namespace pivot",
+		Requires:      []string{"CONTAINER_ACCESS"},
+		Provides:      []string{"CONTAINER_RUNTIME_ACCESS"},
+		Cost:          2,
+		Realism:       0.75,
 		Preconditions: []string{"pod_has_hostpid"},
 	},
 
 	// ── Node-level harvesting techniques ─────────────────────────────────────
 	"KUBELET_TOKEN_HARVEST": {
-		TechniqueID: "KUBELET_TOKEN_HARVEST",
-		Name:        "Harvest SA tokens via node filesystem",
-		Requires:    []string{"NODE_SHELL_ACCESS"},
-		Provides:    []string{"SA_TOKEN"},
-		Cost:        3,
-		Realism:     0.75,
+		TechniqueID:   "KUBELET_TOKEN_HARVEST",
+		Name:          "Harvest SA tokens via node filesystem",
+		Requires:      []string{"NODE_SHELL_ACCESS"},
+		Provides:      []string{"SA_TOKEN"},
+		Cost:          3,
+		Realism:       0.75,
 		Preconditions: []string{"automount_enabled_on_target_pod"},
 	},
 	"RUNTIME_TOKEN_HARVEST": {
-		TechniqueID: "RUNTIME_TOKEN_HARVEST",
-		Name:        "Harvest SA token via container runtime exec",
-		Requires:    []string{"CONTAINER_RUNTIME_ACCESS"},
-		Provides:    []string{"SA_TOKEN"},
-		Cost:        2,
-		Realism:     0.60,
+		TechniqueID:   "RUNTIME_TOKEN_HARVEST",
+		Name:          "Harvest SA token via container runtime exec",
+		Requires:      []string{"CONTAINER_RUNTIME_ACCESS"},
+		Provides:      []string{"SA_TOKEN"},
+		Cost:          2,
+		Realism:       0.60,
 		Preconditions: []string{"target_pod_running_on_same_node"},
 	},
 	"KUBELET_API_PROBE": {
-		TechniqueID: "KUBELET_API_PROBE",
-		Name:        "Kubelet API credential enumeration",
-		Requires:    []string{"NODE_SHELL_ACCESS"},
-		Provides:    []string{"KUBELET_API_ACCESS"},
-		Cost:        2,
-		Realism:     0.70,
+		TechniqueID:   "KUBELET_API_PROBE",
+		Name:          "Kubelet API credential enumeration",
+		Requires:      []string{"NODE_SHELL_ACCESS"},
+		Provides:      []string{"KUBELET_API_ACCESS"},
+		Cost:          2,
+		Realism:       0.70,
 		Preconditions: []string{"kubelet_anon_auth_disabled_unknown"},
 	},
 
@@ -142,12 +142,12 @@ var techniqueRegistry = map[string]AttackTechnique{
 		Realism:     0.80,
 	},
 	"SA_TOKEN_REUSE": {
-		TechniqueID: "SA_TOKEN_REUSE",
-		Name:        "Reuse existing service account token",
-		Requires:    []string{"SA_TOKEN"},
-		Provides:    []string{"SA_TOKEN"},
-		Cost:        1,
-		Realism:     0.90,
+		TechniqueID:   "SA_TOKEN_REUSE",
+		Name:          "Reuse existing service account token",
+		Requires:      []string{"SA_TOKEN"},
+		Provides:      []string{"SA_TOKEN"},
+		Cost:          1,
+		Realism:       0.90,
 		Preconditions: []string{"same_sa_or_node_derived"},
 	},
 }
@@ -190,15 +190,15 @@ func TechniqueByID(id string) (AttackTechnique, bool) {
 // Key: "FROM_CAP→TO_CAP"
 
 var capabilityBridgeMap = map[string]string{
-	"NODE_SHELL_ACCESS→SA_TOKEN":             "KUBELET_TOKEN_HARVEST",
-	"NODE_SHELL_ACCESS→KUBELET_API_ACCESS":   "KUBELET_API_PROBE",
-	"CONTAINER_RUNTIME_ACCESS→SA_TOKEN":      "RUNTIME_TOKEN_HARVEST",
-	"CONTAINER_ACCESS→NODE_SHELL_ACCESS":     "ESCAPE_HOSTPATH",   // default; overridden by cap ID
+	"NODE_SHELL_ACCESS→SA_TOKEN":                "KUBELET_TOKEN_HARVEST",
+	"NODE_SHELL_ACCESS→KUBELET_API_ACCESS":      "KUBELET_API_PROBE",
+	"CONTAINER_RUNTIME_ACCESS→SA_TOKEN":         "RUNTIME_TOKEN_HARVEST",
+	"CONTAINER_ACCESS→NODE_SHELL_ACCESS":        "ESCAPE_HOSTPATH", // default; overridden by cap ID
 	"CONTAINER_ACCESS→CONTAINER_RUNTIME_ACCESS": "ESCAPE_PRIVILEGED",
-	"NETWORK_ACCESS→CONTAINER_ACCESS":        "LATERAL_NETWORK",
-	"SA_TOKEN→ROLE":                          "RBAC_PRIV_ESC",
-	"SA_TOKEN→CLUSTER_ADMIN":                 "CLUSTER_ADMIN_ESC",
-	"SA_TOKEN→SA_TOKEN":                      "SA_TOKEN_REUSE",
+	"NETWORK_ACCESS→CONTAINER_ACCESS":           "LATERAL_NETWORK",
+	"SA_TOKEN→ROLE":                             "RBAC_PRIV_ESC",
+	"SA_TOKEN→CLUSTER_ADMIN":                    "CLUSTER_ADMIN_ESC",
+	"SA_TOKEN→SA_TOKEN":                         "SA_TOKEN_REUSE",
 }
 
 // CapabilityToBridgeTechnique returns the technique that connects `from` to `to`,
@@ -220,13 +220,13 @@ func CapabilityToBridgeTechnique(from, to string) (AttackTechnique, bool) {
 // string-based edge type inference.
 
 var escapeCapToTechniqueID = map[string]string{
-	"ESC_HOSTPATH_NODE":   "ESCAPE_HOSTPATH",
-	"ESC_RUNTIME_ACTIVE":  "ESCAPE_RUNTIME",
+	"ESC_HOSTPATH_NODE":     "ESCAPE_HOSTPATH",
+	"ESC_RUNTIME_ACTIVE":    "ESCAPE_RUNTIME",
 	"ESC_RUNTIME_PROC_ROOT": "ESCAPE_PROC_ROOT",
-	"ESC_PRIV_POD":        "ESCAPE_PRIVILEGED",
-	"ESC_HOSTPID_POD":     "ESCAPE_HOSTPID",
-	"ESC_HOSTIPC_POD":     "ESCAPE_HOSTPID",  // same class
-	"ESC_RUNTIME_PROBE":   "ESCAPE_RUNTIME",
+	"ESC_PRIV_POD":          "ESCAPE_PRIVILEGED",
+	"ESC_HOSTPID_POD":       "ESCAPE_HOSTPID",
+	"ESC_HOSTIPC_POD":       "ESCAPE_HOSTPID", // same class
+	"ESC_RUNTIME_PROBE":     "ESCAPE_RUNTIME",
 }
 
 // EscapeCapToTechnique returns the technique for a raw capability ID.
@@ -245,7 +245,7 @@ func EscapeCapToTechnique(capID string) (AttackTechnique, bool) {
 
 var chainTypeToTechniqueSequence = map[string][]string{
 	"ESCAPE_TO_PRIV_ESC": {
-		"ESCAPE_HOSTPATH",        // or ESCAPE_RUNTIME etc (overridden by actual cap)
+		"ESCAPE_HOSTPATH", // or ESCAPE_RUNTIME etc (overridden by actual cap)
 		"KUBELET_TOKEN_HARVEST",
 		"RBAC_PRIV_ESC",
 	},

@@ -8,14 +8,14 @@ import (
 
 // ReplicaSet represents a Kubernetes ReplicaSet
 type ReplicaSet struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index:idx_replicasets_cluster_id" json:"clusterId"`
-	UID       string         `gorm:"not null;uniqueIndex:idx_replicasets_uid" json:"uid"`
-	Name      string         `gorm:"not null;index:idx_replicasets_name" json:"name"`
-	Namespace string         `gorm:"not null;index:idx_replicasets_namespace" json:"namespace"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	ClusterID string `gorm:"not null;index:idx_replicasets_cluster_id" json:"clusterId"`
+	UID       string `gorm:"not null;uniqueIndex:idx_replicasets_uid" json:"uid"`
+	Name      string `gorm:"not null;index:idx_replicasets_name" json:"name"`
+	Namespace string `gorm:"not null;index:idx_replicasets_namespace" json:"namespace"`
 
 	// Replica status
-	Replicas              int32 `json:"replicas"`
+	Replicas             int32 `json:"replicas"`
 	ReadyReplicas        int32 `json:"readyReplicas"`
 	AvailableReplicas    int32 `json:"availableReplicas"`
 	FullyLabeledReplicas int32 `json:"fullyLabeledReplicas"`
@@ -49,4 +49,3 @@ type ReplicaSet struct {
 func (ReplicaSet) TableName() string {
 	return "replicasets"
 }
-

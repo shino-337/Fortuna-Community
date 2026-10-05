@@ -140,11 +140,11 @@ func PostRuntimeEventsV2Scoped(db *gorm.DB) gin.HandlerFunc {
 			}
 			result, err := rep.ProcessRuntimeEventForIdentity(c.Request.Context(), db, id, rep.RuntimeEventInput{
 				AgentID: agentID,
-				PodUID: podUID, PodName: strings.TrimSpace(p.Pod.Name), Namespace: strings.TrimSpace(p.Pod.Namespace),
+				PodUID:  podUID, PodName: strings.TrimSpace(p.Pod.Name), Namespace: strings.TrimSpace(p.Pod.Namespace),
 				NodeName: strings.TrimSpace(p.Pod.Node), Syscall: strings.TrimSpace(p.Syscall), TargetPath: strings.TrimSpace(p.Target),
 				Capability: capabilityName, Timestamp: observedAt, EventID: strings.TrimSpace(p.EventID),
 				SourceRecordID: sourceRecordID,
-				ObservedAt: observedAt, IngestedAt: ingestedAt, ResolutionState: strings.TrimSpace(p.ResolutionState),
+				ObservedAt:     observedAt, IngestedAt: ingestedAt, ResolutionState: strings.TrimSpace(p.ResolutionState),
 				SourceKind: sourceKind, SourceSensorID: sourceSensorID, SourceRule: sourceRule,
 				PayloadJSON: payloadJSON, PayloadHash: strings.TrimSpace(p.PayloadHash), Runtime: strings.TrimSpace(p.Runtime),
 				EventType: strings.TrimSpace(p.EventType), Signal: strings.TrimSpace(p.Signal),

@@ -27,8 +27,8 @@ type DistrolessJSON struct {
 
 // DistrolessSignature stores PURL and confidence for a known binary.
 type DistrolessSignature struct {
-	PURL       string `json:"purl"`
-	Confidence string `json:"confidence"`
+	PURL           string            `json:"purl"`
+	Confidence     string            `json:"confidence"`
 	VersionFromTag bool              `json:"versionFromTag"` // use image tag if present
 	DigestMap      map[string]string `json:"digestMap"`      // digest -> version override
 	LabelKeys      []string          `json:"labelKeys"`      // OCI label keys to try (e.g., org.opencontainers.image.version)

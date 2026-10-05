@@ -203,4 +203,3 @@ func TestFormatBytesIEC(t *testing.T) {
 		t.Fatalf("2 KiB: %q", formatBytesIEC(2048))
 	}
 }
-

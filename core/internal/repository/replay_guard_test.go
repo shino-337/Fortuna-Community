@@ -116,4 +116,3 @@ func TestReplayGuard_SameTimestampDifferentEventID_AllowsSecond(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, ok)
 }
-

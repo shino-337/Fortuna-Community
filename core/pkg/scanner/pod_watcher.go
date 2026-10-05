@@ -19,12 +19,12 @@ import (
 
 // PodWatcher watches Kubernetes pods and triggers image scans
 type PodWatcher struct {
-	db          *gorm.DB
-	k8sClient   kubernetes.Interface
-	scanner     *ImageScanner
-	processor   *CVEProcessor
-	clusterID   string
-	logger      *log.Logger
+	db        *gorm.DB
+	k8sClient kubernetes.Interface
+	scanner   *ImageScanner
+	processor *CVEProcessor
+	clusterID string
+	logger    *log.Logger
 }
 
 // NewPodWatcher creates a new pod watcher
@@ -161,4 +161,3 @@ func findContainer(pod *corev1.Pod, name string) *corev1.Container {
 	}
 	return nil
 }
-

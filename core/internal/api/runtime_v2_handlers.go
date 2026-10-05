@@ -44,8 +44,5 @@ func GetPodAssetSecurityState(db *gorm.DB) gin.HandlerFunc {
 // GetPodRuntimeBehaviorFacts returns Layer-2 behavior facts for a pod.
 // GetPodRuntimeBehaviorFacts is retained only for source compatibility.
 
-
 // GetPodRuntimeIncidents returns Layer-3 incidents for a pod.
 // GetPodRuntimeIncidents is retained only for source compatibility.
-
-

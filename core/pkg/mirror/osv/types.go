@@ -41,4 +41,3 @@ type Event struct {
 	Fixed        string `json:"fixed,omitempty"`
 	LastAffected string `json:"last_affected,omitempty"`
 }
-

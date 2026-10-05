@@ -21,7 +21,7 @@ type RateLimiterConfig struct {
 func DefaultRateLimiterConfig() *RateLimiterConfig {
 	return &RateLimiterConfig{
 		RequestsPerSecond: 100.0, // 100 requests per second
-		BurstSize:         200,    // Allow burst of 200 requests
+		BurstSize:         200,   // Allow burst of 200 requests
 		Enabled:           true,
 	}
 }
@@ -156,7 +156,7 @@ func RateLimiterMiddleware(config *RateLimiterConfig) gin.HandlerFunc {
 
 // PerEndpointRateLimiter creates rate limiters for specific endpoints
 type PerEndpointRateLimiter struct {
-	endpoints map[string]*RateLimiterConfig
+	endpoints     map[string]*RateLimiterConfig
 	defaultConfig *RateLimiterConfig
 }
 
@@ -209,4 +209,3 @@ func (p *PerEndpointRateLimiter) Middleware() gin.HandlerFunc {
 		c.Next()
 	}
 }
-

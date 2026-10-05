@@ -119,8 +119,8 @@ func calcFreshness(last *time.Time, p freshnessPolicy) (int64, string) {
 func latestQueryTime(q *gorm.DB, column string) (*time.Time, error) {
 	var values []time.Time
 	if err := q.
-		Where(column + " IS NOT NULL").
-		Order(column + " DESC").
+		Where(column+" IS NOT NULL").
+		Order(column+" DESC").
 		Limit(1).
 		Pluck(column, &values).Error; err != nil {
 		return nil, err

@@ -89,4 +89,3 @@ func (j *AttackPathReconcileJob) run() {
 	}
 	log.Printf("[AttackPathReconcileJob] reconcile completed, computed paths=%d", len(paths))
 }
-

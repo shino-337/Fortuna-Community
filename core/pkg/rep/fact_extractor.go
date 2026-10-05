@@ -79,9 +79,9 @@ func deriveBehaviorFacts(event *models.RuntimeEvent) []behaviorFactDraft {
 		lower := strings.ToLower(target)
 		capability := strings.ToUpper(strings.TrimSpace(event.Capability))
 		add("PROCESS_EXEC", "execution", map[string]interface{}{
-			"syscall": syscall,
-			"target":  target,
-			"runtime": rt,
+			"syscall":    syscall,
+			"target":     target,
+			"runtime":    rt,
 			"capability": capability,
 		})
 		// Keep eBPF exec traces mapped to EBPF_EXEC_ACTIVITY in legacy REP path,

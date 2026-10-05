@@ -151,4 +151,3 @@ func StatusCheck(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(httpStatus, status)
 	}
 }
-

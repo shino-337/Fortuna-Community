@@ -33,13 +33,13 @@ func RejectSecurityActivityMutation(db *gorm.DB, c ContextMeta, attemptedOp stri
 		return
 	}
 	ev := Event{
-		EventID:      NewEventID(),
-		Action:       ActionAuditTamperDenied,
-		ResourceType: "audit_store",
-		ResourceID:   attemptedOp,
-		Result:       "deny",
-		Severity:     "critical",
-		AuthMethod:   "internal",
+		EventID:       NewEventID(),
+		Action:        ActionAuditTamperDenied,
+		ResourceType:  "audit_store",
+		ResourceID:    attemptedOp,
+		Result:        "deny",
+		Severity:      "critical",
+		AuthMethod:    "internal",
 		ActorUsername: "system",
 		Details: map[string]any{
 			"attempted": attemptedOp,

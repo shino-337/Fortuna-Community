@@ -27,7 +27,7 @@ type Info struct {
 	ID           string // stable, immutable (hash or env override); never set to Name
 	Name         string // display name, mutable
 	Source       string // "auto" | "env"
-	K8sVersion  string
+	K8sVersion   string
 	Distribution string // "eks" | "gke" | "aks" | "kubeadm" | "unknown"
 }
 
@@ -47,7 +47,7 @@ func Discover(ctx context.Context, client kubernetes.Interface, kubeconfigPath s
 			ID:           envID,
 			Name:         name,
 			Source:       SourceEnv,
-			K8sVersion:  getVersionFromAPI(ctx, client),
+			K8sVersion:   getVersionFromAPI(ctx, client),
 			Distribution: inferDistribution(""),
 		}, nil
 	}
@@ -64,7 +64,7 @@ func Discover(ctx context.Context, client kubernetes.Interface, kubeconfigPath s
 		ID:           id,
 		Name:         name,
 		Source:       SourceAuto,
-		K8sVersion:  version,
+		K8sVersion:   version,
 		Distribution: dist,
 	}, nil
 }
@@ -205,4 +205,3 @@ func inferDistribution(version string) string {
 		return "unknown"
 	}
 }
-

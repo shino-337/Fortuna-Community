@@ -82,14 +82,14 @@ func TestRuntimeCoveragePostgres(t *testing.T) {
 	principal := agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
 	now := time.Now().UTC().Truncate(time.Microsecond)
 	first := collection.RuntimeCoverage{
-		Version: collection.RuntimeCoverageVersion,
-		ID: "postgres-coverage-0001",
-		ProducerID: "falco",
-		SourceKind: collection.RuntimeSourceFalco,
-		SessionID: "session-postgres-000001",
-		Status: "complete",
+		Version:     collection.RuntimeCoverageVersion,
+		ID:          "postgres-coverage-0001",
+		ProducerID:  "falco",
+		SourceKind:  collection.RuntimeSourceFalco,
+		SessionID:   "session-postgres-000001",
+		Status:      "complete",
 		WindowStart: now.Add(-4 * time.Second),
-		WindowEnd: now.Add(-3 * time.Second),
+		WindowEnd:   now.Add(-3 * time.Second),
 	}
 
 	manifest := runtimeManifest(first.SessionID, now.Add(-5*time.Second), now.Add(-4500*time.Millisecond), true)
@@ -364,7 +364,6 @@ func TestRuntimeCoveragePostgresLegacySchemaUpgrade(t *testing.T) {
 		VALUES ('cluster-a','agent-a','falco','duplicate','failed')
 	`).Error, "upgraded latest projection must reject duplicate producer identity")
 }
-
 
 func TestRuntimeCoveragePostgresLegacySchemaRejectsUnownedRows(t *testing.T) {
 	dsn := os.Getenv("FORTUNA_TEST_POSTGRES_URL")

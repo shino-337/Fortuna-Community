@@ -79,7 +79,6 @@ func TestDashboardStatsAffectedPodCountUsesActiveInventoryScope(t *testing.T) {
 	}
 }
 
-
 func TestClusterInventoryIncludesActiveClusterWithoutPods(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

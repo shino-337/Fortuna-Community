@@ -196,7 +196,6 @@ func TestFlushLoopAccountsRetainedBatchOnShutdownFailure(t *testing.T) {
 	}
 }
 
-
 func TestCoverageReportsPendingDeliveryAsFailed(t *testing.T) {
 	var got runtimeCoverageEnvelope
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -225,7 +224,6 @@ type runtimeCoverageEnvelope struct {
 	Status string `json:"status"`
 	Errors uint64 `json:"errors"`
 }
-
 
 func TestCoverageSnapshotDoesNotSplitInflightDelivery(t *testing.T) {
 	eventEntered := make(chan struct{})
@@ -304,7 +302,6 @@ type runtimeCoverageWindow struct {
 	Delivered uint64 `json:"delivered"`
 	Errors    uint64 `json:"errors"`
 }
-
 
 func TestEBPFCoverageNeverClaimsCompleteWhileSensorIsNoop(t *testing.T) {
 	var got runtimeCoverageWindow

@@ -221,4 +221,3 @@ func (c *Client) LookupMany(ctx context.Context, cveIDs []string, concurrency in
 	wg.Wait()
 	return out
 }
-

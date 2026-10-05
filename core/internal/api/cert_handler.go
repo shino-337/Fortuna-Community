@@ -37,14 +37,14 @@ func (h *CertHandler) GetCertificateInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"subject":          info.Subject,
-		"issuer":           info.Issuer,
-		"serial_number":    info.SerialNumber,
-		"not_before":       info.NotBefore.Format(time.RFC3339),
-		"not_after":        info.NotAfter.Format(time.RFC3339),
+		"subject":           info.Subject,
+		"issuer":            info.Issuer,
+		"serial_number":     info.SerialNumber,
+		"not_before":        info.NotBefore.Format(time.RFC3339),
+		"not_after":         info.NotAfter.Format(time.RFC3339),
 		"days_until_expiry": info.DaysUntilExpiry,
-		"is_expired":       info.IsExpired,
-		"dns_names":        info.DNSNames,
+		"is_expired":        info.IsExpired,
+		"dns_names":         info.DNSNames,
 	})
 }
 
@@ -106,6 +106,3 @@ func GetCertificateRotationHistory(db *gorm.DB) gin.HandlerFunc {
 		})
 	}
 }
-
-
-

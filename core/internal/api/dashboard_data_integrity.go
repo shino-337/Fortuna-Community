@@ -183,23 +183,33 @@ func DashboardDataIntegrity(db *gorm.DB) gin.HandlerFunc {
 		// cannot be queried is an availability failure rather than an empty catalog.
 		if db.Migrator().HasTable("cves") {
 			if fail(db.Table("cves").Count(&resp.CrossChecks.CVEsCount).Error,
-				"dashboard_integrity_cves_unavailable", "CVE catalog cross-checks could not be loaded") { return }
+				"dashboard_integrity_cves_unavailable", "CVE catalog cross-checks could not be loaded") {
+				return
+			}
 		}
 		if db.Migrator().HasTable("package_vulnerabilities") {
 			if fail(db.Table("package_vulnerabilities").Count(&resp.CrossChecks.PackageVulnerabilitiesCount).Error,
-				"dashboard_integrity_packages_unavailable", "Package vulnerability cross-checks could not be loaded") { return }
+				"dashboard_integrity_packages_unavailable", "Package vulnerability cross-checks could not be loaded") {
+				return
+			}
 		}
 		if db.Migrator().HasTable("osv_packages") {
 			if fail(db.Table("osv_packages").Count(&resp.CrossChecks.OsvPackagesCount).Error,
-				"dashboard_integrity_osv_unavailable", "OSV cross-checks could not be loaded") { return }
+				"dashboard_integrity_osv_unavailable", "OSV cross-checks could not be loaded") {
+				return
+			}
 		}
 		if db.Migrator().HasTable("malware_packages") {
 			if fail(db.Table("malware_packages").Where("deleted_at IS NULL").Count(&resp.CrossChecks.MalwarePackagesCount).Error,
-				"dashboard_integrity_malware_unavailable", "Malware catalog cross-checks could not be loaded") { return }
+				"dashboard_integrity_malware_unavailable", "Malware catalog cross-checks could not be loaded") {
+				return
+			}
 		}
 		if db.Migrator().HasTable("sboms") {
 			if fail(db.Table("sboms").Where("deleted_at IS NULL").Count(&resp.CrossChecks.SbomsCount).Error,
-				"dashboard_integrity_sboms_unavailable", "SBOM cross-checks could not be loaded") { return }
+				"dashboard_integrity_sboms_unavailable", "SBOM cross-checks could not be loaded") {
+				return
+			}
 		}
 		if db.Migrator().HasTable("sboms") && db.Migrator().HasTable("pods") {
 			if fail(db.Raw(`

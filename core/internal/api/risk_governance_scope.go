@@ -89,7 +89,7 @@ func requireGlobalRiskEvaluation(db *gorm.DB, c *gin.Context) bool {
 	}
 	if s.restricted {
 		c.AbortWithStatusJSON(http.StatusForbidden, gin.H{
-			"error": "global risk evaluation requires unrestricted cluster scope",
+			"error":  "global risk evaluation requires unrestricted cluster scope",
 			"reason": "global_operation",
 		})
 		return false

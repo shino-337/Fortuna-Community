@@ -32,7 +32,7 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 			log.Printf("[Migration 036] ⚠️  Error adding pod_uid: %v", err)
 		} else {
 			log.Println("[Migration 036] ✅ Added pod_uid column to sboms")
-			
+
 			// Add index
 			if err := db.Exec(`
 				CREATE INDEX IF NOT EXISTS idx_sboms_pod_uid 
@@ -93,7 +93,7 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 			log.Printf("[Migration 036] ⚠️  Error adding namespace: %v", err)
 		} else {
 			log.Println("[Migration 036] ✅ Added namespace column to sboms")
-			
+
 			// Add index
 			if err := db.Exec(`
 				CREATE INDEX IF NOT EXISTS idx_sboms_namespace 
@@ -136,4 +136,3 @@ func Migration036_AddMissingSBOMColumns(db *gorm.DB) error {
 	log.Println("[Migration 036] ✅ Completed successfully")
 	return nil
 }
-

@@ -108,4 +108,3 @@ func TestGetRiskScore_DetailPrefersV3(t *testing.T) {
 		t.Fatalf("expected final_score 79, got %v", payload["final_score"])
 	}
 }
-

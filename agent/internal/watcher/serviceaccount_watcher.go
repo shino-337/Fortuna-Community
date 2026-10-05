@@ -76,5 +76,3 @@ func (w *ServiceAccountWatcher) Start() error {
 func (w *ServiceAccountWatcher) Stop() {
 	w.cancel()
 }
-
-

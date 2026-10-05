@@ -77,4 +77,3 @@ func GetClusterName(kubeconfigPath string) (string, error) {
 	}
 	return kctx.Cluster, nil
 }
-

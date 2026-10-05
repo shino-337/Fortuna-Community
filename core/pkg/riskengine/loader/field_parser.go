@@ -12,10 +12,10 @@ type FieldPath struct {
 
 // PathSegment represents a segment in a field path
 type PathSegment struct {
-	Name      string
-	IsArray   bool
-	ArrayIndex *int // nil means all items ([])
-	Field     string // For array items, the field to access
+	Name       string
+	IsArray    bool
+	ArrayIndex *int   // nil means all items ([])
+	Field      string // For array items, the field to access
 }
 
 // ParseFieldPath parses a field path like "roleRef.name" or "subjects[].kind"
@@ -164,4 +164,3 @@ func SimpleFieldAccess(data map[string]interface{}, field string) interface{} {
 	}
 	return path.GetValue(data)
 }
-

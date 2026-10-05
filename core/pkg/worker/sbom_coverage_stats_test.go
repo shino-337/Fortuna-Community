@@ -77,4 +77,3 @@ func TestCoverageStats_EdgeCases(t *testing.T) {
 		require.Equal(t, 1.0, stats.RawMatchRatio())
 	})
 }
-

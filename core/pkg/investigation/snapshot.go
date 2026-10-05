@@ -72,10 +72,10 @@ func BuildEntitySnapshot(db *gorm.DB, entityType, label, href string, meta map[s
 		}
 	case "attack_path":
 		out.Graph = map[string]any{
-			"headline": meta["headline"],
-			"confidence": meta["confidence"],
+			"headline":    meta["headline"],
+			"confidence":  meta["confidence"],
 			"maxStrength": meta["maxStrength"],
-			"variants": meta["variants"],
+			"variants":    meta["variants"],
 		}
 	}
 	return out

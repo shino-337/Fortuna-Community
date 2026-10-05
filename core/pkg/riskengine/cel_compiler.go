@@ -82,11 +82,11 @@ func (c *CELCompiler) Evaluate(expression string, data map[string]interface{}) (
 	// Prepare input for CEL evaluation
 	// CEL expects a map with variable names as keys
 	celInput := make(map[string]interface{})
-	
+
 	// Add object as root
 	if obj, ok := data["object"].(map[string]interface{}); ok {
 		celInput["object"] = obj
-		
+
 		// Extract metadata, spec, status if present
 		if metadata, ok := obj["metadata"].(map[string]interface{}); ok {
 			celInput["metadata"] = metadata
@@ -142,4 +142,3 @@ func (c *CELCompiler) GetCacheSize() int {
 	defer c.programsMutex.RUnlock()
 	return len(c.programs)
 }
-

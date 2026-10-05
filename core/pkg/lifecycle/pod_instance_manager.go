@@ -39,13 +39,13 @@ func (m *PodInstanceManager) EnsureActiveInstanceForIdentity(ctx context.Context
 		First(&instance).Error
 	if err == gorm.ErrRecordNotFound {
 		instance = models.PodInstance{
-			ClusterID: id.ClusterID,
-			PodUID: id.ResourceUID,
-			Namespace: namespace,
-			Name: name,
+			ClusterID:  id.ClusterID,
+			PodUID:     id.ResourceUID,
+			Namespace:  namespace,
+			Name:       name,
 			Generation: 1,
-			StartedAt: time.Now(),
-			Status: "active",
+			StartedAt:  time.Now(),
+			Status:     "active",
 		}
 		return m.db.WithContext(ctx).Create(&instance).Error
 	}
@@ -75,7 +75,7 @@ func (m *PodInstanceManager) TerminateInstanceForIdentity(ctx context.Context, i
 	now := time.Now()
 	return m.db.WithContext(ctx).Model(&models.PodInstance{}).
 		Where("cluster_id = ? AND pod_uid = ? AND status = 'active'", id.ClusterID, id.ResourceUID).
-		Updates(map[string]interface{}{"status":"terminated","terminated_at":now}).Error
+		Updates(map[string]interface{}{"status": "terminated", "terminated_at": now}).Error
 }
 
 // IsActiveForIdentity checks active state without collapsing Pod UID across clusters.

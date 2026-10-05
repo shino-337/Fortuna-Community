@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/nats-io/nats.go"
 	"github.com/fortuna/core/pkg/metrics"
+	"github.com/nats-io/nats.go"
 )
 
 // BackpressurePolicy defines the behavior when a worker queue is saturated.
@@ -40,12 +40,12 @@ func BackpressurePolicyFromEnv() BackpressurePolicy {
 
 // BackpressureConfig configures backpressure behavior
 type BackpressureConfig struct {
-	MaxConcurrent  int            // Maximum concurrent messages per worker type (default: 100)
-	Threshold      float64        // Backpressure threshold (0.8 = trigger at 80% capacity)
-	CheckInterval  time.Duration  // How often to check backpressure (default: 1s)
-	BackpressureCh chan struct{}   // Channel to signal backpressure events
+	MaxConcurrent  int                // Maximum concurrent messages per worker type (default: 100)
+	Threshold      float64            // Backpressure threshold (0.8 = trigger at 80% capacity)
+	CheckInterval  time.Duration      // How often to check backpressure (default: 1s)
+	BackpressureCh chan struct{}      // Channel to signal backpressure events
 	Policy         BackpressurePolicy // Survival policy when queue is saturated
-	DeferDelay     time.Duration  // Sleep duration for PolicyDefer (default: 250ms)
+	DeferDelay     time.Duration      // Sleep duration for PolicyDefer (default: 250ms)
 }
 
 // DefaultBackpressureConfig returns default backpressure configuration
@@ -62,8 +62,8 @@ func DefaultBackpressureConfig() BackpressureConfig {
 
 // WorkerLoadTracker tracks load for a worker type
 type WorkerLoadTracker struct {
-	currentLoad           int32  // Atomic counter for current concurrent processing
-	maxConcurrent         int32  // Maximum concurrent processing
+	currentLoad           int32 // Atomic counter for current concurrent processing
+	maxConcurrent         int32 // Maximum concurrent processing
 	workerType            string
 	backpressureCh        chan struct{}
 	backpressureStartTime *int64 // Unix timestamp when backpressure started (atomic)
@@ -241,4 +241,3 @@ func ApplyBackpressure(ctx context.Context, msg *nats.Msg, workerType string, tr
 	// The per-policy QueuePressureTotal metric (above) is preferred for new alerts.
 	metrics.WorkerMessagesProcessedTotal.WithLabelValues(workerType, "backpressure").Inc()
 }
-

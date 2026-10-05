@@ -30,4 +30,3 @@ func Migration077_AddInsightExplanationRemediation(db *gorm.DB) error {
 	log.Println("[Migration 077] ✅ Completed successfully")
 	return nil
 }
-

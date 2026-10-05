@@ -267,5 +267,3 @@ func (w *ClusterRoleBindingWatcher) Start() error {
 func (w *ClusterRoleBindingWatcher) Stop() {
 	w.cancel()
 }
-
-
