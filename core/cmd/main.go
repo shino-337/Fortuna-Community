@@ -459,7 +459,7 @@ func main() {
 	// Add recovery middleware (from gin.Default())
 	router.Use(gin.Recovery())
 
-	// Access log with ?token= values redacted (WebSocket auth must not reach logs).
+	// Access log with token-like query values redacted.
 	router.Use(middleware.RedactingLogger())
 
 	router.Use(middleware.MaxRequestBody(middleware.MaxRequestBodyBytesFromEnv()))

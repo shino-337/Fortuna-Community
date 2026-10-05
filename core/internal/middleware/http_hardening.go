@@ -63,8 +63,8 @@ func MaxRequestBody(limit int64) gin.HandlerFunc {
 	}
 }
 
-// sensitiveQueryParams are redacted from access logs. Browser WebSocket clients
-// may authenticate with ?token=<JWT>, which must never be written to logs.
+// sensitiveQueryParams are redacted from access logs in case a client puts a
+// credential in the URL; Core never accepts one from there.
 var sensitiveQueryParams = []string{"token", "access_token"}
 
 // RedactQuery replaces sensitive query parameter values in a request URI.
