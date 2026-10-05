@@ -56,4 +56,3 @@ func TestSBOMCreatedEvent_ContractRoundTrip(t *testing.T) {
 			c.NormalizedName, c.Ecosystem, c.VersionClass)
 	}
 }
-

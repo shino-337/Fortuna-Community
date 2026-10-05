@@ -16,4 +16,3 @@ func Migration106_AddAssetSecurityState(db *gorm.DB) error {
 	_ = db.Exec("CREATE INDEX IF NOT EXISTS idx_asset_security_state_pod_uid_updated ON asset_security_state(pod_uid, updated_at DESC)").Error
 	return nil
 }
-

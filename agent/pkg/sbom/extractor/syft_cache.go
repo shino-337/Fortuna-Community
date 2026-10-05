@@ -6,11 +6,11 @@ import (
 )
 
 type SyftResultCache struct {
-	mu        sync.RWMutex
-	items     map[string]syftCacheEntry
-	ttl       time.Duration
-	maxItems  int
-	now       func() time.Time
+	mu       sync.RWMutex
+	items    map[string]syftCacheEntry
+	ttl      time.Duration
+	maxItems int
+	now      func() time.Time
 }
 
 type syftCacheEntry struct {
@@ -73,4 +73,3 @@ func (c *SyftResultCache) Set(key string, pkgs []Package) {
 		expiry: c.now().Add(c.ttl),
 	}
 }
-

@@ -55,4 +55,3 @@ func validateIndexExists(db *gorm.DB, indexName string) (bool, error) {
 	}
 	return exists, nil
 }
-

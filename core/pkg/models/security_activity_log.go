@@ -15,13 +15,13 @@ type SecurityActivityLog struct {
 
 	PermissionsJSON string `gorm:"type:jsonb" json:"permissionsJson"`
 
-	Action         string `gorm:"size:128;index" json:"action"`
-	Resource       string `gorm:"size:128;index" json:"resource"` // legacy / coarse bucket (e.g. http, findings)
-	ResourceType   string `gorm:"size:128;index" json:"resourceType"`
-	ResourceID     string `gorm:"size:512;index" json:"resourceId"`
-	Result         string `gorm:"size:32;index" json:"result"` // success | deny | error
-	Severity       string `gorm:"size:32;index" json:"severity"`
-	TargetUserID   *uint  `gorm:"index" json:"targetUserId,omitempty"`
+	Action       string `gorm:"size:128;index" json:"action"`
+	Resource     string `gorm:"size:128;index" json:"resource"` // legacy / coarse bucket (e.g. http, findings)
+	ResourceType string `gorm:"size:128;index" json:"resourceType"`
+	ResourceID   string `gorm:"size:512;index" json:"resourceId"`
+	Result       string `gorm:"size:32;index" json:"result"` // success | deny | error
+	Severity     string `gorm:"size:32;index" json:"severity"`
+	TargetUserID *uint  `gorm:"index" json:"targetUserId,omitempty"`
 
 	RequestID     string `gorm:"size:128;index" json:"requestId"`
 	SessionID     string `gorm:"size:128;index" json:"sessionId"`

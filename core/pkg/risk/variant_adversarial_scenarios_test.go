@@ -199,4 +199,3 @@ func TestBoundaryInvariant_Monotonicity(t *testing.T) {
 			low.TotalScore, highV.TotalScore, highR.TotalScore, highP.TotalScore)
 	}
 }
-

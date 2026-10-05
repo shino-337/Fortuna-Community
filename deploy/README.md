@@ -2,47 +2,50 @@
 
 Kubernetes manifests for Fortuna. To install, follow [Install on a cluster](../docs/getting-started/QUICKSTART.md); to try it locally, use the [demo](../docs/getting-started/DEMO.md).
 
+## Helm chart
+
+[`helm/fortuna`](helm/fortuna) installs everything below, generates the secrets and mTLS certificates, and works in any namespace:
+
+```bash
+helm install fortuna deploy/helm/fortuna --namespace fortuna --create-namespace
+```
+
+Settings are documented in [`values.yaml`](helm/fortuna/values.yaml) and the [Quickstart](../docs/getting-started/QUICKSTART.md#option-a-helm).
+
 ## Manifests
+
+The plain manifests are rendered from the chart (`scripts/build/render-manifests.sh`, values in [`helm/fortuna/ci/raw-manifests-values.yaml`](helm/fortuna/ci/raw-manifests-values.yaml)) and CI fails when they differ. Change the chart, then re-render; do not edit these files directly. They install into the `fortuna` namespace and expect the secrets from `create_mtls_secret.sh` and `ensure-fortuna-secrets.sh`.
 
 | File | Purpose |
 |------|---------|
 | `fortuna-core-deployment.yaml` | Core: REST API, gRPC ingest, auth, risk processing, admission webhook backend |
 | `fortuna-agent-daemonset.yaml` | Agent on every node: Kubernetes inventory, SBOM and runtime data sent to Core |
-| `dashboard-deployment.yaml`, `dashboard-nginx-configmap.yaml` | Web UI and the nginx proxy to Core |
+| `dashboard-deployment.yaml` | Web UI and its nginx proxy to Core (ClusterIP Service) |
 | `fortuna-rbac.yaml` | ServiceAccounts, ClusterRoles and bindings for Core and Agent |
 | `fortuna-core-external-service.yaml` | NodePort for Agents in remote clusters |
-| `infrastructure/postgresql-with-age.yaml` | Bundled PostgreSQL (default); `postgresql.yaml` is a simpler fallback |
+| `infrastructure/postgresql.yaml` | Bundled single-instance PostgreSQL (`postgres:15-alpine`, no Apache AGE: graph queries use the relational fallback) |
 | `infrastructure/nats.yaml` | NATS JetStream event bus |
-| `infrastructure/network-policies.yaml` | Limits NATS and PostgreSQL ingress to Core |
+| `infrastructure/network-policies.yaml` | Limits NATS and PostgreSQL ingress to Core, denies ingress to Agents |
 | `webhook-service.yaml`, `webhook-config.yaml` | Optional admission webhook; enable with `./scripts/deploy/enable-webhook.sh` ([guide](../docs/operations/WEBHOOK.md)) |
 | `risk-evaluation-cronjob.yaml` | Optional CronJob that triggers historical risk evaluation every 6 hours |
+
+Other files, maintained by hand:
+
+| Path | Purpose |
+|------|---------|
 | `falco/helm-values-fortuna.yaml` | Falco values used by `./scripts/deploy/install-falco-fortuna.sh` |
 | `prometheus/risk-center.alerts.yaml` | Prometheus alert rules for active findings (scrape Core's `metrics` port) |
 | `certs/` | cert-manager alternative to `create_mtls_secret.sh` |
 | `scoped-agent-credentials/` | Overlays for per-Agent tokens and mTLS ([guide](scoped-agent-credentials/README.md)) |
 | `samples/` | Private registry pull secrets and image tag overlays ([guide](samples/README.md)) |
 | `sql/` | Maintenance SQL used by the procedures below and by helper scripts |
+| `infrastructure/postgres-with-age/` | Dockerfiles for a PostgreSQL image with Apache AGE; not built by CI |
 
-The image fields in the workload manifests are local build tags. Installs from the registry override them with `kubectl set image`, as the Quickstart shows.
+Workload images are `ghcr.io/shino-337/fortuna-community/fortuna-*:latest`. Pin a release with `kubectl set image` as the Quickstart shows, or set `FORTUNA_VERSION` for the install scripts, which substitute the images in temporary copies and never edit these files.
 
 ## Configuration
 
-Core settings (environment variables in `fortuna-core-deployment.yaml`):
-
-| Variable | Purpose |
-|---|---|
-| `DATABASE_URL`, `NATS_ENDPOINT` | Data stores |
-| `JWT_SECRET`, `FORTUNA_ADMIN_USERNAME`, `FORTUNA_ADMIN_PASSWORD` | Authentication and bootstrap admin |
-| `FORTUNA_INGEST_TOKEN` | Shared Agent ingest token (legacy; see scoped credentials) |
-| `FORTUNA_AGENT_CREDENTIAL_REGISTRY`, `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` | Per-Agent HTTP and gRPC credentials |
-| `TLS_ENABLED`, `TLS_*_PATH`, `WEBHOOK_TLS_*_PATH` | mTLS for gRPC and the webhook server |
-| `FORTUNA_TRUSTED_PROXIES` | Proxies allowed to set `X-Forwarded-For`; unset trusts none |
-| `FORTUNA_WS_ALLOWED_ORIGINS` | Dashboard origins allowed to open WebSockets |
-| `FORTUNA_MAX_REQUEST_BODY_BYTES` | Request body limit (default 64 MiB) |
-| `FORTUNA_METRICS_ADDR` | Listen address for Prometheus `/metrics` (manifest: `:9091`); unset disables it |
-| `AUTH_ENABLED` | Must stay `true`; `false` is accepted only with `FORTUNA_DEV_MODE=1` |
-
-Agent settings (in `fortuna-agent-daemonset.yaml`): `CORE_GRPC_ENDPOINT`, `CORE_HTTP_ENDPOINT`, `FORTUNA_INGEST_TOKEN`, `SYNC_INTERVAL`, `HEARTBEAT_INTERVAL`, `TLS_ENABLED`, `CONTAINERD_SOCKET`, `FALCO_EVENTS_ENABLED`, `EBPF_ENABLED`. Cluster identity is discovered automatically; set `CLUSTER_ID` or `CLUSTER_NAME` only when you need fixed values.
+Every environment variable that Core and the Agent read, with its default, is listed in the [configuration reference](../docs/reference/CONFIGURATION.md). CI (`scripts/verify/check-docs-sync.py`) fails when a manifest sets a variable that is missing there or that the code never reads.
 
 ## Redeploying with scoped Agent credentials
 

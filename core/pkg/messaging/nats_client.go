@@ -132,17 +132,17 @@ func (c *NATSClient) SetupStreams() error {
 		// Stream storage: 4 streams * 1GB = 4GB, leaving 26GB buffer across replicas
 		// Per-replica: 4GB streams + 8.67GB buffer = ~12.67GB per replica (within 10GB limit per PVC)
 		// Note: With 3 replicas, each stream is replicated, so actual storage per replica is lower
-		maxMsgs := int64(100000)  // Max 100K messages per stream
+		maxMsgs := int64(100000)                  // Max 100K messages per stream
 		maxBytes := int64(1 * 1024 * 1024 * 1024) // Max 1GB per stream
-		
+
 		// Adjust limits based on stream importance and retention
 		if stream.name == "fortuna-events" {
 			// SBOM/CVE events are critical - allow more messages
-			maxMsgs = 200000  // 200K messages for events
+			maxMsgs = 200000                  // 200K messages for events
 			maxBytes = 2 * 1024 * 1024 * 1024 // 2GB for events stream
 		} else if stream.name == "fortuna-insights" {
 			// Insights are important but less frequent
-			maxMsgs = 50000   // 50K messages for insights
+			maxMsgs = 50000              // 50K messages for insights
 			maxBytes = 512 * 1024 * 1024 // 512MB for insights
 		}
 
@@ -168,7 +168,7 @@ func (c *NATSClient) SetupStreams() error {
 			// With 3 replicas, stream creation requires quorum (2/3 nodes)
 			_, err := c.js.AddStream(cfg)
 			if err == nil {
-				log.Printf("[NATS] Stream %s ready (replicas: %d, retention: %v, maxBytes: %dMB, maxMsgs: %d)", 
+				log.Printf("[NATS] Stream %s ready (replicas: %d, retention: %v, maxBytes: %dMB, maxMsgs: %d)",
 					stream.name, cfg.Replicas, maxAge, cfg.MaxBytes/(1024*1024), cfg.MaxMsgs)
 				lastErr = nil
 				break

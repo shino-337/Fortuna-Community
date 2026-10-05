@@ -43,4 +43,3 @@ func TestIsNetworkReachable_FallbackOnlyNewNoRestart(t *testing.T) {
 		t.Fatalf("expected deny for restarted pod, got %v", d)
 	}
 }
-

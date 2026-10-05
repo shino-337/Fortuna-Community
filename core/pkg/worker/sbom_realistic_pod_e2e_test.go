@@ -74,13 +74,13 @@ func seedCVEWithPackageVuln(t *testing.T, db *gorm.DB, cveID, eco, pkg string, e
 		CWEIDs:           pq.StringArray{},
 	}).Error)
 	require.NoError(t, db.Create(&models.PackageVulnerability{
-		CVEID:                 cveID,
-		PackageName:           pkg,
-		Ecosystem:             eco,
-		PackageType:           eco,
-		VersionEndExcluding:   endExcl,
-		FixedVersion:          fixed,
-		FixedInVersions:       pq.StringArray{},
+		CVEID:               cveID,
+		PackageName:         pkg,
+		Ecosystem:           eco,
+		PackageType:         eco,
+		VersionEndExcluding: endExcl,
+		FixedVersion:        fixed,
+		FixedInVersions:     pq.StringArray{},
 	}).Error)
 }
 
@@ -169,8 +169,8 @@ func TestE2E_RealisticPod_AlpineIngressStyle_Busybox_FromDB(t *testing.T) {
 
 	comp := models.SBOMComponent{
 		SBOMID: sbomRow.ID, ComponentType: "os-package", ComponentName: "busybox", ComponentVersion: "1.36.1-r19",
-		PURL:          "pkg:apk/alpine/busybox@1.36.1-r19?arch=x86_64",
-		TrustLevel:    "high", PURLValidated: true, Source: "apk",
+		PURL:       "pkg:apk/alpine/busybox@1.36.1-r19?arch=x86_64",
+		TrustLevel: "high", PURLValidated: true, Source: "apk",
 	}
 	require.NoError(t, db.Create(&comp).Error)
 

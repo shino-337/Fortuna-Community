@@ -15,7 +15,7 @@ func TestCIS51_4_ExpressionMatchesWhenRulesIsJSONString(t *testing.T) {
 	if !ok {
 		t.Fatal("runtime.Caller failed")
 	}
-	pkgDir := filepath.Dir(thisFile) // .../core/pkg/riskengine
+	pkgDir := filepath.Dir(thisFile)                                    // .../core/pkg/riskengine
 	repoRoot := filepath.Clean(filepath.Join(pkgDir, "..", "..", "..")) // .../Fortuna
 	rulesDir := filepath.Join(repoRoot, "core", "rules")
 
@@ -67,4 +67,3 @@ func insightTitlesCIS(insights []*models.Insight) []string {
 	}
 	return out
 }
-

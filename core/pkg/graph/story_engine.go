@@ -24,9 +24,10 @@ import (
 
 // confidenceToLanguage returns the appropriate modal verb for the chain confidence.
 // Spec §5.1:
-//   ≥ 0.75 → "can"
-//   0.5–0.75 → "may"
-//   < 0.5  → "unlikely but could"
+//
+//	≥ 0.75 → "can"
+//	0.5–0.75 → "may"
+//	< 0.5  → "unlikely but could"
 func confidenceToLanguage(confidenceRaw float64) string {
 	switch {
 	case confidenceRaw >= 0.75:
@@ -91,17 +92,17 @@ var chainTypeToSteps = map[string][]string{
 
 // stepActionText maps canonical step tokens to human verb phrases.
 var stepActionText = map[string]string{
-	"container_escape":    "escape the container via %s",
-	"node_access":         "gain access to node %s",
-	"token_harvest":       "harvest service account tokens from node storage",
-	"rbac_escalation":     "escalate privileges to %s level",
-	"lateral_move":        "move laterally to pod %s",
-	"token_acquire":       "obtain a service account token",
-	"network_reach":       "reach pod %s via network",
-	"token_reuse":         "reuse a service account token",
-	"cluster_control":     "exert control over cluster resources",
-	"initial_priv_esc":    "escalate to %s",
-	"secondary_priv_esc":  "further escalate to %s",
+	"container_escape":   "escape the container via %s",
+	"node_access":        "gain access to node %s",
+	"token_harvest":      "harvest service account tokens from node storage",
+	"rbac_escalation":    "escalate privileges to %s level",
+	"lateral_move":       "move laterally to pod %s",
+	"token_acquire":      "obtain a service account token",
+	"network_reach":      "reach pod %s via network",
+	"token_reuse":        "reuse a service account token",
+	"cluster_control":    "exert control over cluster resources",
+	"initial_priv_esc":   "escalate to %s",
+	"secondary_priv_esc": "further escalate to %s",
 }
 
 // ─── Impact text mapping (spec §7.3) ──────────────────────────────────────────
@@ -139,11 +140,11 @@ var impactTextByObjective = map[string][]string{
 // ─── Headline emoji mapping ────────────────────────────────────────────────────
 
 var headlineEmojiByObjective = map[string]string{
-	"CLUSTER_TAKEOVER": "🔥",
-	"NODE_COMPROMISE":  "⚠️",
-	"SECRET_EXFIL":     "🔑",
-	"WORKLOAD_CONTROL": "🚀",
-	"LATERAL_MOVEMENT": "↔️",
+	"CLUSTER_TAKEOVER":  "🔥",
+	"NODE_COMPROMISE":   "⚠️",
+	"SECRET_EXFIL":      "🔑",
+	"WORKLOAD_CONTROL":  "🚀",
+	"LATERAL_MOVEMENT":  "↔️",
 	"DATA_EXFILTRATION": "📦",
 }
 
@@ -160,11 +161,11 @@ var chainTypeHeadline = map[string]string{
 
 // objectivePhraseShort maps objective to a short target phrase for headlines.
 var objectivePhraseShort = map[string]string{
-	"CLUSTER_TAKEOVER": "Cluster takeover",
-	"NODE_COMPROMISE":  "Node compromise",
-	"SECRET_EXFIL":     "Secret exfiltration",
-	"WORKLOAD_CONTROL": "Workload control",
-	"LATERAL_MOVEMENT": "Lateral movement",
+	"CLUSTER_TAKEOVER":  "Cluster takeover",
+	"NODE_COMPROMISE":   "Node compromise",
+	"SECRET_EXFIL":      "Secret exfiltration",
+	"WORKLOAD_CONTROL":  "Workload control",
+	"LATERAL_MOVEMENT":  "Lateral movement",
 	"DATA_EXFILTRATION": "Data exfiltration",
 }
 
@@ -270,8 +271,9 @@ func GenerateStory(ch AttackChain, paths []pathNormalized, totalClusterNodes int
 
 // buildNarrative constructs the conditional prose narrative (spec §5.2 template):
 // "If an attacker compromises {source}, and successfully performs {technique},
-//  they {may/can} gain {capability}, which allows them to {technique_2},
-//  eventually leading to {objective}."
+//
+//	they {may/can} gain {capability}, which allows them to {technique_2},
+//	eventually leading to {objective}."
 func buildNarrative(ch AttackChain, source, escape, node string, paths []pathNormalized, confLang string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("If an attacker compromises %s, ", source))

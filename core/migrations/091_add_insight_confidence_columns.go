@@ -65,4 +65,3 @@ SELECT EXISTS (
 	log.Println("[Migration 091] Completed insight confidence migration")
 	return nil
 }
-

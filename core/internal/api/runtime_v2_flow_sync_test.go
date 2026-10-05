@@ -246,10 +246,10 @@ func TestRuntimeFlow_StatefulIncidents_ReconAndPostExploit(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		payload = append(payload, map[string]interface{}{
 			"source_record_id": fmt.Sprintf("%064x", i+1),
-			"pod":        basePod,
-			"syscall":    "connect",
-			"target":     "dst=8.8.8.8:53 proto=udp dport=53",
-			"confidence": 0.9,
+			"pod":              basePod,
+			"syscall":          "connect",
+			"target":           "dst=8.8.8.8:53 proto=udp dport=53",
+			"confidence":       0.9,
 		})
 	}
 	// Emit execution chain to trigger POST_EXPLOIT_EXEC_CHAIN:

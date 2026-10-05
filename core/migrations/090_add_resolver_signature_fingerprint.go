@@ -20,8 +20,8 @@ func Migration090_AddResolverSignatureFingerprint(db *gorm.DB) error {
 
 	// sboms columns
 	columnsToAddSboms := []struct {
-		name   string
-		sql    string
+		name string
+		sql  string
 	}{
 		{
 			name: "resolver_version",
@@ -94,4 +94,3 @@ SELECT EXISTS (
 	log.Println("[Migration 090] Completed determinism metadata migration")
 	return nil
 }
-

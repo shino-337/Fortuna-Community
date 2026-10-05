@@ -142,4 +142,3 @@ func (w *RuleWatcher) Stop() {
 		w.watcher.Close()
 	}
 }
-

@@ -1,27 +1,46 @@
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: nats-config
-  namespace: fortuna
-data:
-  nats.conf: |
-    port: 4222
-    http_port: 8222
-    cluster {
-      name: fortuna-nats-cluster
-      port: 6222
-      routes = [
-        nats://nats-0.nats.fortuna.svc.cluster.local:6222
-        nats://nats-1.nats.fortuna.svc.cluster.local:6222
-        nats://nats-2.nats.fortuna.svc.cluster.local:6222
-      ]
-    }
-    jetstream {
-      store_dir: /data/jetstream
-      max_mem: 512Mi
-      max_file: 10GB
-    }
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: fortuna
+spec:
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: 4222
+      name: client
+    - port: 8222
+      targetPort: 8222
+      name: monitor
+    - port: 6222
+      targetPort: 6222
+      name: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-client
+  namespace: fortuna
+spec:
+  type: ClusterIP
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: 4222
+      name: client
+    - port: 8222
+      targetPort: 8222
+      name: monitor
+---
+# NATS JetStream cluster used by Core. It has no client authentication; the
+# NetworkPolicies in network-policies.yaml limit it to Core.
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -38,131 +57,96 @@ spec:
       labels:
         app: nats
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-      - name: nats
-        image: nats:2.10-alpine
-        command:
-        - /bin/sh
-        - -c
-        - |
-          cat > /tmp/nats.conf <<EOF
-          port: 4222
-          http_port: 8222
-          server_name: ${POD_NAME}
-          cluster {
-            name: fortuna-nats-cluster
-            port: 6222
-            advertise: ${POD_NAME}.nats.${POD_NAMESPACE}.svc.cluster.local:6222
-            routes = [
-              nats://nats-0.nats.fortuna.svc.cluster.local:6222
-              nats://nats-1.nats.fortuna.svc.cluster.local:6222
-              nats://nats-2.nats.fortuna.svc.cluster.local:6222
-            ]
-            no_advertise: false
-          }
-          jetstream {
-            store_dir: /data/jetstream
-            max_mem: 512Mi
-            max_file: 10GB
-          }
-          EOF
-          exec nats-server -c /tmp/nats.conf -js
-        env:
-        - name: POD_NAME
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.name
-        - name: POD_NAMESPACE
-          valueFrom:
-            fieldRef:
-              fieldPath: metadata.namespace
-        ports:
-        - containerPort: 4222
-          name: client
-        - containerPort: 8222
-          name: monitor
-        - containerPort: 6222
-          name: cluster
-        startupProbe:
-          tcpSocket:
-            port: client
-          periodSeconds: 5
-          timeoutSeconds: 3
-          failureThreshold: 72
-        readinessProbe:
-          tcpSocket:
-            port: client
-          periodSeconds: 10
-          timeoutSeconds: 3
-          failureThreshold: 6
-        livenessProbe:
-          tcpSocket:
-            port: client
-          initialDelaySeconds: 300
-          periodSeconds: 30
-          timeoutSeconds: 5
-          failureThreshold: 6
-        volumeMounts:
-        - name: config
-          mountPath: /etc/nats
-        - name: data
-          mountPath: /data/jetstream
+        - name: nats
+          image: nats:2.10-alpine
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cat > /tmp/nats.conf <<EOF
+              port: 4222
+              http_port: 8222
+              server_name: ${POD_NAME}
+              cluster {
+                name: fortuna-nats-cluster
+                port: 6222
+                advertise: ${POD_NAME}.nats.${POD_NAMESPACE}.svc.cluster.local:6222
+                routes = [
+                  nats://nats-0.nats.fortuna.svc.cluster.local:6222
+                  nats://nats-1.nats.fortuna.svc.cluster.local:6222
+                  nats://nats-2.nats.fortuna.svc.cluster.local:6222
+                ]
+                no_advertise: false
+              }
+              jetstream {
+                store_dir: /data/jetstream
+                max_mem: 512Mi
+                max_file: 10GB
+              }
+              EOF
+              exec nats-server -c /tmp/nats.conf -js
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 4222
+              name: client
+            - containerPort: 8222
+              name: monitor
+            - containerPort: 6222
+              name: cluster
+          startupProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 72
+          readinessProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data/jetstream
+          resources:
+            limits:
+              cpu: 500m
+              memory: 1Gi
+            requests:
+              cpu: 250m
+              memory: 384Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        storageClassName: local-path
         resources:
           requests:
-            memory: "384Mi"
-            cpu: "250m"
-          limits:
-            memory: "1Gi"
-            cpu: "500m"
-      volumes:
-      - name: config
-        configMap:
-          name: nats-config
-  volumeClaimTemplates:
-  - metadata:
-      name: data
-    spec:
-      accessModes:
-      - ReadWriteOnce
-      storageClassName: local-path
-      resources:
-        requests:
-          storage: 10Gi
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nats
-  namespace: fortuna
-spec:
-  publishNotReadyAddresses: true
-  clusterIP: None
-  selector:
-    app: nats
-  ports:
-  - port: 4222
-    targetPort: 4222
-    name: client
-  - port: 8222
-    targetPort: 8222
-    name: monitor
-  - port: 6222
-    targetPort: 6222
-    name: cluster
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: nats-client
-  namespace: fortuna
-spec:
-  type: ClusterIP
-  selector:
-    app: nats
-  ports:
-  - port: 4222
-    targetPort: 4222
-    name: client
-  - port: 8222
-    targetPort: 8222
-    name: monitor
+            storage: 10Gi

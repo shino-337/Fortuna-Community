@@ -1,3 +1,5 @@
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
 ---
 apiVersion: v1
 kind: Service
@@ -51,21 +53,28 @@ spec:
     spec:
       serviceAccountName: fortuna-core
       
-      # Schedule Core only on master/control-plane nodes
-      nodeSelector:
-        node-role.kubernetes.io/control-plane: ""
-      
-      # Allow scheduling on master node (which may have taints)
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      # Prefers control-plane nodes when they are schedulable, runs anywhere otherwise.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+          - preference:
+              matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: Exists
+            weight: 100
       tolerations:
-        - key: node-role.kubernetes.io/control-plane
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
           operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/master
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
           operator: Exists
-          effect: NoSchedule
-        - key: node.kubernetes.io/disk-pressure
+        - effect: NoSchedule
+          key: node.kubernetes.io/disk-pressure
           operator: Exists
-          effect: NoSchedule
 
       # Avoid Core starting migrations before Postgres/NATS accept connections (reduces CrashLoopBackOff race).
       initContainers:
@@ -84,6 +93,14 @@ spec:
                 sleep 1
               done
               echo "PostgreSQL is reachable."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
         - name: wait-for-nats
           image: busybox:1.36
           command:
@@ -99,6 +116,14 @@ spec:
                 sleep 1
               done
               echo "NATS is reachable."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
 
       volumes:
         # mTLS certificates
@@ -111,12 +136,12 @@ spec:
         - name: webhook-certs
           secret:
             secretName: fortuna-webhook-tls
-      
+
       containers:
         - name: core
-          image: fortuna-core:depfix-20260927-54-r2
+          image: ghcr.io/shino-337/fortuna-community/fortuna-core:latest
           imagePullPolicy: IfNotPresent
-          
+
           ports:
             - name: http
               containerPort: 8080
@@ -127,7 +152,7 @@ spec:
             - name: metrics
               containerPort: 9091
               protocol: TCP
-          
+
           env:
             # Database
             - name: DATABASE_URL
@@ -135,17 +160,17 @@ spec:
                 secretKeyRef:
                   name: fortuna-secrets
                   key: database-url
-            
+
             # NATS
             - name: NATS_ENDPOINT
               value: "nats://nats-client.fortuna.svc.cluster.local:4222"
-            
+
             # Ports
             - name: HTTP_PORT
               value: "8080"
             - name: GRPC_PORT
               value: "9090"
-            
+
             # mTLS Configuration
             - name: TLS_ENABLED
               value: "true"
@@ -155,26 +180,23 @@ spec:
               value: "/etc/fortuna/tls/server/tls.key"
             - name: TLS_CA_CERT_PATH
               value: "/etc/fortuna/ca-cert/ca.crt"
-            
+
             # Webhook TLS Configuration
             - name: WEBHOOK_TLS_CERT_PATH
               value: "/etc/webhook/certs/tls.crt"
             - name: WEBHOOK_TLS_KEY_PATH
               value: "/etc/webhook/certs/tls.key"
-            
+
             # Logging
             - name: LOG_LEVEL
               value: "info"
-            # V3 risk: deployment tier for context multiplier (dev|staging|prod).
+            # Risk context multiplier tier (dev|staging|prod).
             - name: FORTUNA_RISK_CONTEXT_TIER
               value: "prod"
             # Seed capability_metadata + promotion_rules (Capability Catalog & PCE). Required for catalog to show data.
             - name: FORTUNA_ENABLE_SEED_DATA
               value: "true"
-            # Active agent cutoff (minutes) for dashboard; agents with last_seen_at within this window are shown (default 15)
-            # - name: ACTIVE_AGENT_CUTOFF_MINUTES
-            #   value: "15"
-            
+
             # Auth
             - name: AUTH_ENABLED
               value: "true"
@@ -182,14 +204,14 @@ spec:
             # handshake, so local dashboard WS streams authenticate via ?token=.
             - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
               value: "true"
+            # Prometheus /metrics on a separate, unauthenticated listener that the
+            # Service does not expose.
+            - name: FORTUNA_METRICS_ADDR
+              value: ":9091"
             # Proxies allowed to set X-Forwarded-For / X-Real-IP (the dashboard nginx
             # runs on the pod network). Without this, every dashboard user would share
             # one login rate-limit bucket; with gin's default (trust everyone), clients
             # could spoof their IP. Narrow this to your pod CIDR where possible.
-            # Prometheus /metrics on a separate, unauthenticated listener that the
-            # Service does not expose. Remove to disable.
-            - name: FORTUNA_METRICS_ADDR
-              value: ":9091"
             - name: FORTUNA_TRUSTED_PROXIES
               value: "10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
             - name: FORTUNA_WS_ALLOWED_ORIGINS
@@ -206,15 +228,22 @@ spec:
                   name: fortuna-secrets
                   key: ingest-token
                   optional: false
-            # Pod Detail encryption at-rest: base64-encoded 32-byte key. Optional; leave unset to disable.
-            # Option A: set value before deploy. Option B: use secret (e.g. fortuna-secrets, key: pod-detail-encryption-key).
+            # Encrypts process command lines at rest (base64 of 32 bytes). Without it Core
+            # logs a warning and stores plaintext; an invalid value stops Core. Previous
+            # keys (comma-separated) keep rows written before a rotation readable.
             - name: POD_DETAIL_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: fortuna-secrets
                   key: pod-detail-encryption-key
                   optional: true
-            # network queue anomaly tuning (core-side baseline detector).
+            - name: POD_DETAIL_ENCRYPTION_KEY_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: pod-detail-encryption-key-previous
+                  optional: true
+            # Network queue anomaly tuning (core-side baseline detector).
             - name: POD_DETAIL_NET_SPIKE_WINDOW_MINUTES
               value: "30"
             - name: POD_DETAIL_NET_SPIKE_MIN_SAMPLES
@@ -225,7 +254,7 @@ spec:
               value: "4096"
             - name: POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES
               value: "10"
-            # hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
+            # Hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
             - name: ADMISSION_RISK_GATE_ENABLED
               value: "true"
             - name: ADMISSION_RISK_SENSITIVE_NAMESPACES
@@ -234,7 +263,7 @@ spec:
               value: "70"
             - name: ADMISSION_RISK_GATE_MODE
               value: "audit"
-            # Default admin (migrations). Password from Secret created by scripts/utils/ensure-fortuna-secrets.sh.
+            # Bootstrap admin, created by migrations. The password comes from fortuna-secrets.
             - name: FORTUNA_ADMIN_USERNAME
               value: "admin"
             - name: FORTUNA_ADMIN_PASSWORD
@@ -250,13 +279,13 @@ spec:
                   optional: true
             - name: FORTUNA_ADMIN_EMAIL
               value: "admin@fortuna.local"
-            
+
             # PCE Scheduler
             - name: PCE_SCHEDULER_ENABLED
               value: "true"
             - name: PCE_SCHEDULER_INTERVAL
               value: "6h"
-          
+
           volumeMounts:
             - name: fortuna-core-server-tls
               mountPath: /etc/fortuna/tls/server
@@ -267,27 +296,27 @@ spec:
             - name: webhook-certs
               mountPath: /etc/webhook/certs
               readOnly: true
-          
-          # Production-ready resource limits
+
           resources:
-            requests:
-              cpu: 100m
-              memory: 256Mi
             limits:
               cpu: 1000m
               memory: 1Gi
-          
-          # Security context - non-root user
+            requests:
+              cpu: 100m
+              memory: 256Mi
+
+          # Non-root, no capabilities. The root filesystem stays writable because
+          # rules created through the API are written under /app/rules.
           securityContext:
             runAsNonRoot: true
             runAsUser: 1000
             runAsGroup: 1000
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: false  # Core needs to write logs and temp files
+            readOnlyRootFilesystem: false
             capabilities:
               drop:
                 - ALL
-          
+
           # Long migration chains on cold DB can exceed default liveness window; startupProbe gates liveness/readiness until HTTP is up.
           startupProbe:
             httpGet:
@@ -296,7 +325,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 60
-          
+
           livenessProbe:
             httpGet:
               path: /healthz
@@ -305,7 +334,7 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
-          
+
           readinessProbe:
             httpGet:
               path: /ready

@@ -12,7 +12,6 @@ import (
 	"time"
 )
 
-
 func TestFalcoPodUIDResolutionBudgetIsBoundedByPoll(t *testing.T) {
 	r := NewFalcoReader("/tmp/falco.jsonl", 5*time.Second, "http://core", "node-1", nil)
 	if got := r.podUIDResolutionBudget(); got != 2*time.Second {
@@ -153,7 +152,6 @@ func TestFalcoReader_ToRuntimeEvent_PreservesResolutionStateFromTags(t *testing.
 		t.Fatalf("resolution_state: %q", ev.ResolutionState)
 	}
 }
-
 
 func TestFalcoPartialRecordSurvivesReaderRestart(t *testing.T) {
 	var delivered int

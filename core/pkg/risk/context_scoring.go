@@ -10,11 +10,11 @@ const envRiskContextTier = "FORTUNA_RISK_CONTEXT_TIER"
 
 // RiskContextInfo captures how environment / exposure adjust the aggregation context multiplier.
 type RiskContextInfo struct {
-	Tier                 string  `json:"tier"`
-	BaseMultiplier       float64 `json:"base_multiplier"`
-	InternetFacing       bool    `json:"internet_facing"`
-	SystemNamespace      bool    `json:"system_namespace"`
-	EffectiveMultiplier  float64 `json:"effective_multiplier"`
+	Tier                string  `json:"tier"`
+	BaseMultiplier      float64 `json:"base_multiplier"`
+	InternetFacing      bool    `json:"internet_facing"`
+	SystemNamespace     bool    `json:"system_namespace"`
+	EffectiveMultiplier float64 `json:"effective_multiplier"`
 }
 
 // ResolveRiskContextMultiplier picks a tiered base multiplier then applies internet-facing and system-namespace rules.

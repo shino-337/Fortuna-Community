@@ -1,0 +1,29 @@
+{{- if and .Values.core.enabled .Values.core.externalService.enabled }}
+---
+# NodePort Service for Agents in remote clusters. Not needed for a single-cluster
+# install; the in-cluster Agent uses the fortuna-core ClusterIP Service.
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortuna-core-external
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+spec:
+  type: NodePort
+  selector:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      nodePort: {{ .Values.core.externalService.httpNodePort }}
+      protocol: TCP
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      nodePort: {{ .Values.core.externalService.grpcNodePort }}
+      protocol: TCP
+{{- end }}

@@ -2,6 +2,10 @@
 
 Detailed contracts for operators and contributors who need to know exactly how Fortuna behaves. For installation and everyday use, start with the [documentation index](../README.md).
 
+## Configuration
+
+- [Configuration](CONFIGURATION.md): every environment variable Core and the Agent read, with defaults.
+
 ## Security
 
 - [Security](SECURITY.md): Agent privileges and their blast radius, the CI guardrails on them, and credential handling.

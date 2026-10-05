@@ -1,0 +1,43 @@
+{{- if and (eq .Values.manifestMode "helm") .Values.tls.generate }}
+{{- $t := include "fortuna.generatedTLS" . | fromYaml }}
+{{- $ns := .Release.Namespace }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fortuna-ca-cert
+  namespace: {{ $ns }}
+type: Opaque
+data:
+  ca.crt: {{ $t.caCrt | b64enc | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fortuna-core-tls
+  namespace: {{ $ns }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $t.coreCrt | b64enc | quote }}
+  tls.key: {{ $t.coreKey | b64enc | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fortuna-agent-tls
+  namespace: {{ $ns }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $t.agentCrt | b64enc | quote }}
+  tls.key: {{ $t.agentKey | b64enc | quote }}
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: fortuna-webhook-tls
+  namespace: {{ $ns }}
+type: kubernetes.io/tls
+data:
+  tls.crt: {{ $t.webhookCrt | b64enc | quote }}
+  tls.key: {{ $t.webhookKey | b64enc | quote }}
+{{- end }}

@@ -21,6 +21,7 @@ Adding a privilege means changing this file in review, together with the
 "Agent privileges" section of docs/reference/SECURITY.md.
 """
 import copy
+import os
 from pathlib import Path
 import re
 import unittest
@@ -72,8 +73,27 @@ FORBIDDEN_GO = [
 ]
 
 
+def manifest_paths():
+    """deploy/*.yaml plus rendered manifests named in FORTUNA_RENDERED_MANIFESTS.
+
+    Chart templates under deploy/helm are not YAML; CI renders the chart and
+    passes the output here (os.pathsep-separated) so Helm installs are checked too.
+    """
+    paths = [p for p in DEPLOY.rglob("*.yaml") if (DEPLOY / "helm") not in p.parents]
+    return sorted(paths + list(rendered_paths()))
+
+
+def display(path):
+    return path.relative_to(REPO) if REPO in path.parents else path
+
+
+def rendered_paths():
+    extra = os.environ.get("FORTUNA_RENDERED_MANIFESTS", "")
+    return {Path(p) for p in extra.split(os.pathsep) if p}
+
+
 def load_docs():
-    for path in sorted(DEPLOY.rglob("*.yaml")):
+    for path in manifest_paths():
         for doc in yaml.safe_load_all(path.read_text(encoding="utf-8")):
             if isinstance(doc, dict):
                 yield path, doc
@@ -189,19 +209,19 @@ class AgentPrivilegeTest(unittest.TestCase):
             found.add(key)
             for rule in doc.get("rules") or []:
                 for problem in rule_violations(rule):
-                    self.fail(f"{path.relative_to(REPO)} {key[0]}/{key[1]}: {problem}")
+                    self.fail(f"{display(path)} {key[0]}/{key[1]}: {problem}")
         self.assertEqual(found, roles, "every role bound to the Agent must be defined under deploy/")
 
     def test_agent_pod_spec_stays_within_allowed_host_access(self):
         specs = list(agent_pod_specs(self.docs))
         self.assertIn(BASE_DAEMONSET, [path for path, _ in specs], "fortuna-agent DaemonSet not found under deploy/")
         for path, spec in specs:
-            for problem in pod_spec_violations(spec, strict=path == BASE_DAEMONSET):
-                self.fail(f"{path.relative_to(REPO)}: {problem}")
+            for problem in pod_spec_violations(spec, strict=path == BASE_DAEMONSET or path in rendered_paths()):
+                self.fail(f"{display(path)}: {problem}")
 
     def test_agent_code_never_execs_or_proxies_into_pods(self):
         for path in sorted(AGENT_SRC.rglob("*.go")):
-            rel = path.relative_to(REPO)
+            rel = display(path)
             if "third_party" in rel.parts or path.name.endswith("_test.go"):
                 continue
             text = path.read_text(encoding="utf-8")

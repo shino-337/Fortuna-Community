@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"strings"
-
 )
 
 // GoModParser parses Go packages from go.sum or go.mod
@@ -145,7 +144,7 @@ func (p *GoModParser) parseGoMod(content []byte) ([]Package, error) {
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
-		
+
 		if strings.HasPrefix(line, "require (") {
 			inRequire = true
 			continue
@@ -179,4 +178,3 @@ func (p *GoModParser) parseGoMod(content []byte) ([]Package, error) {
 
 	return packages, nil
 }
-

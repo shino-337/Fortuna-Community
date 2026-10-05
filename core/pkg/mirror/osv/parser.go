@@ -15,4 +15,3 @@ func ParseDocument(data []byte) (*Document, error) {
 	}
 	return &doc, nil
 }
-

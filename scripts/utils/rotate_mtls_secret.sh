@@ -2,10 +2,12 @@
 # ============================================================================
 # Rotate mTLS secrets and restart Core/Agent
 # ============================================================================
-# Regenerates certs (create_mtls_secret.sh), applies secrets, then rollout
-# restarts Core and Agent so they load the new certificates. Run before cert
-# expiry (e.g. within 30 days of 365-day expiry). Optional: schedule via cron
-# or pipeline.
+# Issues new Core, webhook and Agent certificates from the existing CA in
+# CERT_DIR (create_mtls_secret.sh with MTLS_RENEW=1), applies the secrets, then
+# restarts Core and Agent so they load them. Run before the certificates expire
+# (365 days by default). Remote clusters keep working, because the CA does not
+# change, but re-run sync-remote-agent.sh there before their old Agent
+# certificate expires.
 #
 # Usage:
 #   NAMESPACE=fortuna ./scripts/utils/rotate_mtls_secret.sh
@@ -31,7 +33,7 @@ echo ""
 
 # 1. Generate and apply new secrets
 echo "[1/3] Generating and applying mTLS secrets..."
-if ! cd "$PROJECT_ROOT" && NAMESPACE="$NAMESPACE" bash "$SCRIPT_DIR/create_mtls_secret.sh"; then
+if ! cd "$PROJECT_ROOT" && MTLS_RENEW=1 NAMESPACE="$NAMESPACE" bash "$SCRIPT_DIR/create_mtls_secret.sh"; then
   echo -e "${RED}Failed to create mTLS secrets${NC}"
   exit 1
 fi
@@ -39,8 +41,8 @@ echo ""
 
 # 2. Rollout restart Core and Agent
 echo "[2/3] Rolling out Core and Agent to load new certs..."
-kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE" 2>/dev/null || true
-kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE" 2>/dev/null || true
+kubectl rollout restart deployment/fortuna-core -n "$NAMESPACE"
+kubectl rollout restart daemonset/fortuna-agent -n "$NAMESPACE"
 echo -e "${GREEN}Rollout restart requested${NC}"
 echo ""
 

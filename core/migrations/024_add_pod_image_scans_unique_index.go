@@ -49,5 +49,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_pod_image_scans_unique_pod_uid_container_n
 	log.Println("[Migration 024] ✅ Completed")
 	return nil
 }
-
-

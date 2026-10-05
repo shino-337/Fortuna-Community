@@ -48,7 +48,7 @@ func CollectProcessesFromHost(procRoot string, containerMap map[string]PodContai
 		if comm == "" {
 			comm = readProcComm(procRoot, pid)
 		}
-		cmdline := readProcCmdline(procRoot, pid)
+		cmdline := redactCommandLine(readProcCmdline(procRoot, pid))
 		if cmdline == "" {
 			cmdline = comm
 		}

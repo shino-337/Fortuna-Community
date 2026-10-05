@@ -25,4 +25,3 @@ CREATE TABLE IF NOT EXISTS sbom_processing_state (
 	log.Println("[Migration 086] Completed creating sbom_processing_state table")
 	return nil
 }
-

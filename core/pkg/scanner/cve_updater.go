@@ -40,11 +40,11 @@ func NewCVEUpdater(db *gorm.DB, nvdAPIKey string) *CVEUpdater {
 
 // NVDVulnerability represents a CVE from NVD API
 type NVDVulnerability struct {
-	ID       string `json:"id"`
-	Source   string `json:"sourceIdentifier"`
-	Published string `json:"published"`
-	Modified  string `json:"lastModified"`
-	VulnStatus string `json:"vulnStatus"`
+	ID           string `json:"id"`
+	Source       string `json:"sourceIdentifier"`
+	Published    string `json:"published"`
+	Modified     string `json:"lastModified"`
+	VulnStatus   string `json:"vulnStatus"`
 	Descriptions struct {
 		LangData []struct {
 			Lang  string `json:"lang"`
@@ -53,32 +53,32 @@ type NVDVulnerability struct {
 	} `json:"descriptions"`
 	Metrics struct {
 		CvssMetricV31 []struct {
-			Source   string  `json:"source"`
-			Type     string  `json:"type"`
+			Source   string `json:"source"`
+			Type     string `json:"type"`
 			CvssData struct {
-				Version     string  `json:"version"`
-				VectorString string `json:"vectorString"`
-				BaseScore   float64 `json:"baseScore"`
-				BaseSeverity string `json:"baseSeverity"`
+				Version      string  `json:"version"`
+				VectorString string  `json:"vectorString"`
+				BaseScore    float64 `json:"baseScore"`
+				BaseSeverity string  `json:"baseSeverity"`
 			} `json:"cvssData"`
 		} `json:"cvssMetricV31"`
 		CvssMetricV30 []struct {
-			Source   string  `json:"source"`
-			Type     string  `json:"type"`
+			Source   string `json:"source"`
+			Type     string `json:"type"`
 			CvssData struct {
-				Version     string  `json:"version"`
-				VectorString string `json:"vectorString"`
-				BaseScore   float64 `json:"baseScore"`
-				BaseSeverity string `json:"baseSeverity"`
+				Version      string  `json:"version"`
+				VectorString string  `json:"vectorString"`
+				BaseScore    float64 `json:"baseScore"`
+				BaseSeverity string  `json:"baseSeverity"`
 			} `json:"cvssData"`
 		} `json:"cvssMetricV30"`
 		CvssMetricV2 []struct {
-			Source   string  `json:"source"`
-			Type     string  `json:"type"`
+			Source   string `json:"source"`
+			Type     string `json:"type"`
 			CvssData struct {
-				Version     string  `json:"version"`
-				VectorString string `json:"vectorString"`
-				BaseScore   float64 `json:"baseScore"`
+				Version      string  `json:"version"`
+				VectorString string  `json:"vectorString"`
+				BaseScore    float64 `json:"baseScore"`
 			} `json:"cvssData"`
 		} `json:"cvssMetricV2"`
 	} `json:"metrics"`
@@ -97,9 +97,9 @@ type NVDVulnerability struct {
 
 // NVDResponse represents NVD API response
 type NVDResponse struct {
-	ResultsPerPage int                `json:"resultsPerPage"`
-	StartIndex     int                `json:"startIndex"`
-	TotalResults   int                `json:"totalResults"`
+	ResultsPerPage  int                `json:"resultsPerPage"`
+	StartIndex      int                `json:"startIndex"`
+	TotalResults    int                `json:"totalResults"`
 	Vulnerabilities []NVDVulnerability `json:"vulnerabilities"`
 }
 
@@ -300,4 +300,3 @@ func (u *CVEUpdater) upsertCVE(ctx context.Context, cve *models.CVE, pkgVulns []
 
 	return nil
 }
-

@@ -16,7 +16,7 @@ type RiskRule struct {
 	Severity    string         `gorm:"size:32;index" json:"severity"`
 	Description string         `gorm:"type:text" json:"description"`
 	Enabled     bool           `gorm:"default:true;index" json:"enabled"`
-	Conditions  string         `gorm:"type:text;not null" json:"conditions"`  // JSON array of condition objects
+	Conditions  string         `gorm:"type:text;not null" json:"conditions"` // JSON array of condition objects
 	Aggregation string         `gorm:"size:32;default:AND" json:"aggregation"`
 	BaseScore   float64        `gorm:"type:decimal(4,2);default:0" json:"baseScore"`
 	Tags        string         `gorm:"type:text" json:"tags"` // JSON array of strings

@@ -19,7 +19,7 @@ import uuid
 
 import yaml
 
-GROUPS = ("hygiene", "scripts", "go-test", "cluster-identity-postgres", "dashboard")
+GROUPS = ("hygiene", "scripts", "helm", "go-test", "cluster-identity-postgres", "dashboard")
 
 
 def capture(command, cwd=None, env=None):
@@ -56,7 +56,7 @@ def step_runs(job, module=None):
         if "uses" in step:
             if set(step) - {"name", "uses", "with"}:
                 raise ValueError("Unsupported local action configuration")
-            if not re.fullmatch(r"actions/(checkout|setup-go|setup-node|setup-python)@v[0-9]+", step["uses"]):
+            if not re.fullmatch(r"(actions/(checkout|setup-go|setup-node|setup-python)|azure/setup-helm)@v[0-9]+", step["uses"]):
                 raise ValueError("Unsupported local action: " + step["uses"])
             continue
         if "run" not in step:
@@ -102,6 +102,13 @@ def setup_version(job, action, field):
     matches = [step["with"][field] for step in job["steps"] if step.get("uses", "").startswith("actions/" + action + "@")]
     if len(matches) != 1:
         raise ValueError("Expected one " + action + " version")
+    return str(matches[0])
+
+
+def helm_version(job):
+    matches = [step["with"]["version"] for step in job["steps"] if step.get("uses", "").startswith("azure/setup-helm@")]
+    if len(matches) != 1:
+        raise ValueError("Expected one setup-helm version")
     return str(matches[0])
 
 
@@ -231,6 +238,13 @@ class Runner:
                 if group in ("go-test", "cluster-identity-postgres"):
                     self.env["GOTOOLCHAIN"] = "go" + setup_version(job, "setup-go", "go-version")
                     self.execute(["go", "version"], log)
+                if group == "helm":
+                    # Not downloaded: an installed helm must match the workflow's pinned version.
+                    wanted = helm_version(job)
+                    installed = capture(["helm", "version", "--template", "{{.Version}}"], env=self.env)
+                    if installed != wanted:
+                        raise ValueError("helm " + installed + " found; the workflow pins " + wanted)
+                    self.env["RUNNER_TEMP"] = str(self.output)
                 if group == "dashboard":
                     ensure_node(setup_version(job, "setup-node", "node-version"), self.env)
                     self.execute(["node", "--version"], log)
@@ -239,7 +253,7 @@ class Runner:
                     runs = list(step_runs(job))
                     if any(directory != "." or variables for _, _, directory, variables in runs):
                         raise ValueError("Scripts job working directory/env changed")
-                    text = "apt-get update -qq\napt-get install -y --no-install-recommends git openssl >/dev/null\n" + "\n".join(run for _, run, _, _ in runs)
+                    text = "apt-get update -qq\napt-get install -y --no-install-recommends git openssl shellcheck >/dev/null\n" + "\n".join(run for _, run, _, _ in runs)
                     name = "fortuna-local-ci-scripts-" + uuid.uuid4().hex[:12]
                     try:
                         self.execute(["docker", "run", "--rm", "--name", name, "--cpus", "1", "--memory", "512m", "--mount", "type=bind,src=" + str(self.repo) + ",dst=/repo,readonly", "-w", "/repo", "python:" + version + "-slim", "bash", "-euo", "pipefail", "-c", text], log)

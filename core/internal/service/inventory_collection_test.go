@@ -197,15 +197,14 @@ func TestInventoryCollectionEmptyMissingReplayAndScope(t *testing.T) {
 	}
 }
 
-
 func TestInventoryCollectionRejectsCrossNamespaceRows(t *testing.T) {
 	cases := map[string]map[string]interface{}{
 		"serviceAccounts": {"uid": "sa", "name": "sa", "namespace": "other"},
-		"roles": {"uid": "role", "name": "role", "namespace": "other", "rules": []interface{}{}},
-		"roleBindings": {"uid": "rb", "name": "rb", "namespace": "other", "roleRef": map[string]interface{}{"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "role"}, "subjects": []interface{}{}},
-		"deployments": {"uid": "dep", "name": "dep", "namespace": "other"},
-		"replicasets": {"uid": "rs", "name": "rs", "namespace": "other"},
-		"pods": {"uid": "pod", "name": "pod", "namespace": "other", "hostNetwork": false, "hostPID": false, "hostIPC": false, "automountServiceAccountToken": true, "containers": []interface{}{map[string]interface{}{"name": "c"}}},
+		"roles":           {"uid": "role", "name": "role", "namespace": "other", "rules": []interface{}{}},
+		"roleBindings":    {"uid": "rb", "name": "rb", "namespace": "other", "roleRef": map[string]interface{}{"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "role"}, "subjects": []interface{}{}},
+		"deployments":     {"uid": "dep", "name": "dep", "namespace": "other"},
+		"replicasets":     {"uid": "rs", "name": "rs", "namespace": "other"},
+		"pods":            {"uid": "pod", "name": "pod", "namespace": "other", "hostNetwork": false, "hostPID": false, "hostIPC": false, "automountServiceAccountToken": true, "containers": []interface{}{map[string]interface{}{"name": "c"}}},
 	}
 	for kind, row := range cases {
 		t.Run(kind, func(t *testing.T) {
@@ -217,7 +216,6 @@ func TestInventoryCollectionRejectsCrossNamespaceRows(t *testing.T) {
 		})
 	}
 }
-
 
 func TestInventoryCollectionRejectsDuplicateUIDAcrossNamespacesInPayload(t *testing.T) {
 	_, _, data, meta := collectionFixture(t)
@@ -239,32 +237,44 @@ func TestInventoryCollectionRejectsPersistedCrossNamespaceUIDCollision(t *testin
 	}{
 		{
 			name: "serviceaccount", kind: "serviceAccounts",
-			setup: func(db *gorm.DB) error { return db.Create(&models.ServiceAccount{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error },
+			setup: func(db *gorm.DB) error {
+				return db.Create(&models.ServiceAccount{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error
+			},
 			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns"},
 		},
 		{
 			name: "role", kind: "roles",
-			setup: func(db *gorm.DB) error { return db.Create(&models.Role{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", Rules: "[]"}).Error },
+			setup: func(db *gorm.DB) error {
+				return db.Create(&models.Role{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", Rules: "[]"}).Error
+			},
 			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns", "rules": []interface{}{}},
 		},
 		{
 			name: "rolebinding", kind: "roleBindings",
-			setup: func(db *gorm.DB) error { return db.Create(&models.RoleBinding{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", RoleRef: "{}", Subjects: "[]"}).Error },
+			setup: func(db *gorm.DB) error {
+				return db.Create(&models.RoleBinding{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", RoleRef: "{}", Subjects: "[]"}).Error
+			},
 			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns", "roleRef": map[string]interface{}{"apiGroup": "rbac.authorization.k8s.io", "kind": "Role", "name": "r"}, "subjects": []interface{}{}},
 		},
 		{
 			name: "pod", kind: "pods",
-			setup: func(db *gorm.DB) error { return db.Create(&models.Pod{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", ServiceAccount: "default", Containers: "[]", ImageDigests: "[]"}).Error },
+			setup: func(db *gorm.DB) error {
+				return db.Create(&models.Pod{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other", ServiceAccount: "default", Containers: "[]", ImageDigests: "[]"}).Error
+			},
 			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns", "hostNetwork": false, "hostPID": false, "hostIPC": false, "automountServiceAccountToken": true, "containers": []interface{}{map[string]interface{}{"name": "c"}}},
 		},
 		{
 			name: "deployment", kind: "deployments",
-			setup: func(db *gorm.DB) error { return db.Create(&models.Deployment{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error },
+			setup: func(db *gorm.DB) error {
+				return db.Create(&models.Deployment{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error
+			},
 			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns"},
 		},
 		{
 			name: "replicaset", kind: "replicasets",
-			setup: func(db *gorm.DB) error { return db.Create(&models.ReplicaSet{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error },
+			setup: func(db *gorm.DB) error {
+				return db.Create(&models.ReplicaSet{ClusterID: "cluster-a", UID: "same", Name: "foreign", Namespace: "other"}).Error
+			},
 			row: map[string]interface{}{"uid": "same", "name": "local", "namespace": "ns"},
 		},
 	}
@@ -283,22 +293,22 @@ func TestInventoryCollectionRejectsPersistedCrossNamespaceUIDCollision(t *testin
 			var total int64
 			require.NoError(t, db.Table(map[string]string{
 				"serviceAccounts": "service_accounts",
-				"roles": "roles",
-				"roleBindings": "role_bindings",
-				"pods": "pods",
-				"deployments": "deployments",
-				"replicasets": "replicasets",
+				"roles":           "roles",
+				"roleBindings":    "role_bindings",
+				"pods":            "pods",
+				"deployments":     "deployments",
+				"replicasets":     "replicasets",
 			}[tc.kind]).Where("cluster_id = ? AND uid = ?", "cluster-a", "same").Count(&total).Error)
 			require.EqualValues(t, 1, total, "collision must not create a second row")
 
 			var foreign int64
 			require.NoError(t, db.Table(map[string]string{
 				"serviceAccounts": "service_accounts",
-				"roles": "roles",
-				"roleBindings": "role_bindings",
-				"pods": "pods",
-				"deployments": "deployments",
-				"replicasets": "replicasets",
+				"roles":           "roles",
+				"roleBindings":    "role_bindings",
+				"pods":            "pods",
+				"deployments":     "deployments",
+				"replicasets":     "replicasets",
 			}[tc.kind]).Where("cluster_id = ? AND uid = ? AND namespace = ?", "cluster-a", "same", "other").Count(&foreign).Error)
 			require.EqualValues(t, 1, foreign, "collision must not move the existing row across namespaces")
 		})

@@ -172,7 +172,6 @@ func TestRuntimeRegisteredRoutesPreserveExplicitLegacyMode(t *testing.T) {
 	assertNoRuntimeEvents(t, h.db)
 }
 
-
 func runtimeLifecycleRouteBodies(t *testing.T) (string, string) {
 	t.Helper()
 	now := time.Now().UTC()
@@ -185,25 +184,25 @@ func runtimeLifecycleRouteBodies(t *testing.T) (string, string) {
 	}
 	collection.SortRuntimeProducerDeclarations(producers)
 	manifest, err := json.Marshal(collection.RuntimeProducerManifest{
-		Version: collection.RuntimeProducerManifestVersion,
-		SessionID: "route-session-00000001",
+		Version:          collection.RuntimeProducerManifestVersion,
+		SessionID:        "route-session-00000001",
 		SessionStartedAt: now.Add(-time.Second),
-		ReportedAt: now,
-		AgentState: collection.RuntimeAgentRunning,
-		Producers: producers,
+		ReportedAt:       now,
+		AgentState:       collection.RuntimeAgentRunning,
+		Producers:        producers,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	coverage, err := json.Marshal(collection.RuntimeCoverage{
-		Version: collection.RuntimeCoverageVersion,
-		ID: "route-coverage-0000001",
-		ProducerID: "falco",
-		SourceKind: collection.RuntimeSourceFalco,
-		SessionID: "route-session-00000001",
-		Status: "complete",
+		Version:     collection.RuntimeCoverageVersion,
+		ID:          "route-coverage-0000001",
+		ProducerID:  "falco",
+		SourceKind:  collection.RuntimeSourceFalco,
+		SessionID:   "route-session-00000001",
+		Status:      "complete",
 		WindowStart: now.Add(-500 * time.Millisecond),
-		WindowEnd: now,
+		WindowEnd:   now,
 	})
 	if err != nil {
 		t.Fatal(err)

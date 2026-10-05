@@ -13,12 +13,13 @@
 | Goal | Guide |
 |---|---|
 | Check requirements | [Environment requirements](getting-started/ENVIRONMENT_REQUIREMENTS.md) |
-| Install on a cluster from published images | [Install on a cluster](getting-started/QUICKSTART.md) |
+| Install on a cluster from published images (Helm or plain manifests) | [Install on a cluster](getting-started/QUICKSTART.md) |
 | Harden a long-lived installation | [Production deployment](operations/PRODUCTION_DEPLOYMENT.md) |
 | Build and deploy from source | [Local containerd build and deploy](operations/DEPLOYMENT_CONTAINERD.md) |
 | Optional features | [Runtime sensors (Falco, source health)](operations/RUNTIME_SENSORS.md), [admission webhook](operations/WEBHOOK.md), [ServiceAccount revocation](operations/SERVICEACCOUNT_MUTATIONS.md) |
 | Back up or reset data | [Backup and reset](operations/BACKUP_AND_RESET.md) |
-| Manifest reference | [deploy/README.md](../deploy/README.md) |
+| Manifests and Helm chart | [deploy/README.md](../deploy/README.md) |
+| Every Core and Agent setting | [Configuration reference](reference/CONFIGURATION.md) |
 | Helper scripts | [scripts/README.md](../scripts/README.md) |
 
 ## Understand how it works
@@ -35,6 +36,7 @@
 | Goal | Guide |
 |---|---|
 | Contribution workflow | [CONTRIBUTING.md](../CONTRIBUTING.md) |
+| Release history | [CHANGELOG.md](../CHANGELOG.md) |
 | Run CI checks locally | [Local CI](maintainers/LOCAL_CI.md) |
 | Audit plans, remediation status, release checklist | [Maintainer records](maintainers/README.md) |
 

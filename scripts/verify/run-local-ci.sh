@@ -65,7 +65,7 @@ run_job() {
 
 if [[ $selection == all ]]; then
   # Keep the PostgreSQL service and the Go matrix from competing for VM resources.
-  for job in hygiene scripts go-test cluster-identity-postgres dashboard; do
+  for job in hygiene scripts helm go-test cluster-identity-postgres dashboard; do
     run_job "$job"
   done
 else

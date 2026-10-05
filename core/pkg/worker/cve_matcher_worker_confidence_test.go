@@ -177,4 +177,3 @@ func TestBuildVulnInsightFromEvent_MatchConstraintSatisfiedRaisesConfidence(t *t
 	require.Equal(t, "HIGH", insight.SBOMConfidence)
 	require.Equal(t, "HIGH", insight.FinalRiskConfidence)
 }
-

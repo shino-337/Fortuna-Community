@@ -84,6 +84,3 @@ func init() {
 	prometheus.MustRegister(CertRotationDuration)
 	prometheus.MustRegister(LastCertRotationTime)
 }
-
-
-

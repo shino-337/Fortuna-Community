@@ -100,7 +100,6 @@ func TestCoverageReporterMarksLossAndErrorsFailed(t *testing.T) {
 	}
 }
 
-
 func TestCoverageReporterCoalescesCleanWindowsByCadence(t *testing.T) {
 	var got []collection.RuntimeCoverage
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -1,3 +1,5 @@
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
 ---
 apiVersion: apps/v1
 kind: DaemonSet
@@ -21,6 +23,7 @@ spec:
         kubectl.kubernetes.io/default-container: agent
     spec:
       serviceAccountName: fortuna-agent
+      
       # Privileges are kept to what the Agent uses and are checked in CI by
       # scripts/verify/test-agent-privileges.py; see the "Agent privileges"
       # section of docs/reference/SECURITY.md before adding any.
@@ -32,16 +35,15 @@ spec:
       # The ServiceAccount token is projected into the agent container only
       # (kube-api-access below), never into image-export.
       automountServiceAccountToken: false
-      
-      # Allow Agent to run on all nodes including master (if master has taints)
+      # Runs on every node, including tainted control-plane nodes.
       tolerations:
-        - key: node-role.kubernetes.io/control-plane
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/control-plane
           operator: Exists
-          effect: NoSchedule
-        - key: node-role.kubernetes.io/master
+        - effect: NoSchedule
+          key: node-role.kubernetes.io/master
           operator: Exists
-          effect: NoSchedule
-      
+
       volumes:
         # mTLS certificates
         - name: tls-certs
@@ -79,12 +81,12 @@ spec:
           hostPath:
             path: /run/containerd/containerd.sock
             type: Socket
-        # Host /proc for host inspection (process/network from node, no exec)
+        # Host /proc, read-only: process and socket data from the node, no exec.
         - name: host-proc
           hostPath:
             path: /proc
             type: Directory
-        # Falco JSONL (optional R9): ensure Falco writes e.g. /var/log/falco/events.jsonl on each node
+        # Falco JSONL: Falco must write /var/log/falco/events.jsonl on each node.
         - name: falco-events
           hostPath:
             path: /var/log/falco
@@ -102,12 +104,12 @@ spec:
         - name: image-export
           emptyDir:
             sizeLimit: 1Mi
-      
+
       containers:
         - name: agent
-          image: fortuna-agent:depfix-20260927-54-r2
+          image: ghcr.io/shino-337/fortuna-community/fortuna-agent:latest
           imagePullPolicy: IfNotPresent
-          
+
           env:
             # Core endpoints
             - name: CORE_GRPC_ENDPOINT
@@ -120,28 +122,15 @@ spec:
                   name: fortuna-secrets
                   key: ingest-token
                   optional: false
-            
-            # Cluster: name is discovered from cluster (kubeadm-config, node labels, default API service, or cluster-<shortID>).
-            # Optional override: set CLUSTER_ID/CLUSTER_NAME to force a specific id/name.
-            # - name: CLUSTER_ID
-            #   valueFrom:
-            #     configMapKeyRef:
-            #       name: fortuna-cluster-config
-            #       key: cluster_id
-            #       optional: true
-            # - name: CLUSTER_NAME
-            #   valueFrom:
-            #     configMapKeyRef:
-            #       name: fortuna-cluster-config
-            #       key: cluster_name
-            #       optional: true
+            # The cluster id and name are discovered from the API server (kubeadm-config,
+            # node labels, the default API Service, or cluster-<shortID>).
             - name: SYNC_INTERVAL
               value: "5m"
-            # Heartbeat interval (Ping to Core); default 15s so last_seen_at stays fresh for dashboard
+            # Heartbeat to Core; keeps last_seen_at fresh on the dashboard.
             - name: HEARTBEAT_INTERVAL
               value: "15s"
-            
-            # Node info (AgentID defaults to NODE_NAME-agent in agent config if AGENT_ID unset)
+
+            # Node info. The Agent id defaults to <NODE_NAME>-agent (AGENT_ID overrides it).
             - name: NODE_NAME
               valueFrom:
                 fieldRef:
@@ -150,14 +139,7 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.uid
-            - name: POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
-            # Optional: override agent id (default: NODE_NAME-agent, unique per node)
-            # - name: AGENT_ID
-            #   value: "my-agent-1"
-            
+
             # mTLS Configuration
             - name: TLS_ENABLED
               value: "true"
@@ -167,23 +149,20 @@ spec:
               value: "/etc/fortuna/certs/tls.key"
             - name: TLS_CA_CERT_PATH
               value: "/etc/fortuna/ca-cert/ca.crt"
-            
+
             # SBOM: image archives come from the image-export container; this
             # container has no containerd socket.
             - name: IMAGE_EXPORT_SOCKET
               value: "/run/fortuna-image-export/export.sock"
-            
-            # Logging
-            - name: LOG_LEVEL
-              value: "info"
-            # Explicit host proc root for runtime collectors (kept explicit for deploy clarity)
+
+            # Host /proc mount used by the process and network collectors.
             - name: POD_DETAIL_PROC_ROOT
               value: "/host/proc"
             # Approximate per-process CPU% from /proc; set false to disable
             - name: POD_DETAIL_PROCESS_CPU_APPROX_FROM_PROC
               value: "true"
-            # Falco JSONL → Core (R9). First use skips complete historical records;
-            # subsequent rollouts resume the durable cursor. Never clear logs/state to retry ingestion.
+            # Falco JSONL to Core. First use skips existing records; later rollouts
+            # resume from the durable cursor. Never clear logs or state to retry ingestion.
             - name: FALCO_EVENTS_ENABLED
               value: "true"
             - name: FALCO_EVENTS_PATH
@@ -204,23 +183,14 @@ spec:
               value: "/tmp/.cache"
             - name: SBOM_CACHE_DIR
               value: "/tmp/sbom-cache"
-            # Lower peak memory when many pods queue SBOM (default queue workers=2 in code).
+            # SBOM queue workers; 1 keeps peak memory low when many pods queue at once.
             - name: SBOM_WORKERS
               value: "1"
             # Experimental eBPF scaffold. It needs extra capabilities that this
             # manifest deliberately does not grant; leave it disabled.
             - name: EBPF_ENABLED
               value: "false"
-            - name: EBPF_MODE
-              value: "exec"
-            - name: EBPF_EVENT_FLUSH_INTERVAL
-              value: "5s"
-            - name: EBPF_EVENT_BUFFER_SIZE
-              value: "200"
-            # For canary verification only; keep false in production.
-            - name: EBPF_SIMULATE
-              value: "false"
-          
+
           volumeMounts:
             - name: tls-certs
               mountPath: /etc/fortuna/certs
@@ -243,16 +213,16 @@ spec:
               mountPath: /var/lib/fortuna-agent
             - name: scratch
               mountPath: /tmp
-          
-          # SBOM + Falco JSONL poll: 2Gi limit caused OOM when Falco backlog was read before tail-from-EOF fix; keep headroom.
+
+          # SBOM extraction and the Falco backlog need headroom; 2Gi caused OOM kills.
           resources:
-            requests:
-              cpu: 100m
-              memory: 1Gi
             limits:
               cpu: "1"
               memory: 6Gi
-          
+            requests:
+              cpu: 100m
+              memory: 1Gi
+
           # Root (uid 0) with every capability dropped: it cannot override file
           # permissions, load eBPF, ptrace or change kernel settings. It is kept
           # for the root-owned Falco log and delivery state on existing nodes.
@@ -270,7 +240,7 @@ spec:
         # request type ("stream the archive for this image reference") on the
         # pod-local socket. It never parses image content.
         - name: image-export
-          image: fortuna-agent:depfix-20260927-54-r2
+          image: ghcr.io/shino-337/fortuna-community/fortuna-agent:latest
           imagePullPolicy: IfNotPresent
           command: ["/app/fortuna-image-export"]
           env:
@@ -287,12 +257,12 @@ spec:
             - name: image-export
               mountPath: /run/fortuna-image-export
           resources:
-            requests:
-              cpu: 10m
-              memory: 32Mi
             limits:
               cpu: 500m
               memory: 256Mi
+            requests:
+              cpu: 10m
+              memory: 32Mi
           securityContext:
             runAsNonRoot: false
             runAsUser: 0

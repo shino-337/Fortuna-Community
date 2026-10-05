@@ -12,11 +12,11 @@ import (
 // DiskCache stores and retrieves RawSBOM by image digest + signature version (Finding #8.5 / B2).
 // CACHE-1: optional TTL / max disk / max files via SBOM_CACHE_MAX_* (see cache_eviction.go).
 type DiskCache struct {
-	dir             string
-	logger          logger
-	maxAge          time.Duration
-	maxTotalBytes   int64
-	maxFiles        int
+	dir           string
+	logger        logger
+	maxAge        time.Duration
+	maxTotalBytes int64
+	maxFiles      int
 }
 
 type logger interface {
@@ -114,13 +114,13 @@ func (c *DiskCache) Set(digest, sigVersion string, sbom *RawSBOM) error {
 
 // rawSBOMJSON is the JSON-serializable shape of RawSBOM (time as RFC3339 string).
 type rawSBOMJSON struct {
-	ImageName   string       `json:"image_name"`
-	ImageDigest string       `json:"image_digest"`
-	OS          OSInfo       `json:"os"`
-	Packages    []Package    `json:"packages"`
-	ExtractedAt string       `json:"extracted_at"`
-	SBOMSource  string       `json:"sbom_source"`
-	Confidence  string       `json:"confidence"`
+	ImageName   string    `json:"image_name"`
+	ImageDigest string    `json:"image_digest"`
+	OS          OSInfo    `json:"os"`
+	Packages    []Package `json:"packages"`
+	ExtractedAt string    `json:"extracted_at"`
+	SBOMSource  string    `json:"sbom_source"`
+	Confidence  string    `json:"confidence"`
 	// SignatureVersion is used for cache invalidation boundaries.
 	SignatureVersion string `json:"signature_version"`
 	// GoVersion: Go toolchain for Core stdlib CVE matching.
@@ -129,15 +129,15 @@ type rawSBOMJSON struct {
 
 func rawSBOMFrom(s *RawSBOM) rawSBOMJSON {
 	return rawSBOMJSON{
-		ImageName:   s.ImageName,
-		ImageDigest: s.ImageDigest,
-		OS:          s.OS,
-		Packages:    s.Packages,
-		ExtractedAt: s.ExtractedAt.Format(time.RFC3339),
-		SBOMSource:  s.SBOMSource,
-		Confidence:  s.Confidence,
+		ImageName:        s.ImageName,
+		ImageDigest:      s.ImageDigest,
+		OS:               s.OS,
+		Packages:         s.Packages,
+		ExtractedAt:      s.ExtractedAt.Format(time.RFC3339),
+		SBOMSource:       s.SBOMSource,
+		Confidence:       s.Confidence,
 		SignatureVersion: s.SignatureVersion,
-		GoVersion:          s.GoVersion,
+		GoVersion:        s.GoVersion,
 	}
 }
 
@@ -149,13 +149,13 @@ func (r rawSBOMJSON) toRawSBOM() *RawSBOM {
 		t = time.Time{}
 	}
 	return &RawSBOM{
-		ImageName:   r.ImageName,
-		ImageDigest: r.ImageDigest,
-		OS:          r.OS,
-		Packages:    r.Packages,
-		ExtractedAt: t,
-		SBOMSource:  r.SBOMSource,
-		Confidence:  r.Confidence,
+		ImageName:        r.ImageName,
+		ImageDigest:      r.ImageDigest,
+		OS:               r.OS,
+		Packages:         r.Packages,
+		ExtractedAt:      t,
+		SBOMSource:       r.SBOMSource,
+		Confidence:       r.Confidence,
 		SignatureVersion: r.SignatureVersion,
 		GoVersion:        r.GoVersion,
 	}

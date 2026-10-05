@@ -100,4 +100,3 @@ func LoadK8sComponentMap() (map[string]K8sComponentMapping, error) {
 
 	return k8sComponentMap, k8sComponentMapErr
 }
-

@@ -139,4 +139,3 @@ func BenchmarkCELEvaluation(b *testing.B) {
 		compiler.Evaluate(expression, data)
 	}
 }
-

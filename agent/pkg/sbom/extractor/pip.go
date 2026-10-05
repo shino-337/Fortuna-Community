@@ -3,7 +3,6 @@ package extractor
 import (
 	"regexp"
 	"strings"
-
 )
 
 // PipParser parses Python packages from requirements.txt or *.dist-info/METADATA
@@ -160,4 +159,3 @@ func (p *PipParser) parseMetadata(content []byte) (Package, error) {
 
 	return pkg, nil
 }
-

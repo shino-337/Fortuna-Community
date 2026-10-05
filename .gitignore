@@ -24,10 +24,6 @@ coverage.html
 # Dependency directories
 vendor/
 
-# Go workspace file
-go.work
-go.work.sum
-
 # IDE / local agent metadata (do not commit)
 .cursor/
 .agents/
@@ -37,7 +33,7 @@ go.work.sum
 
 # Certificates and keys
 .certs/
-certs/
+/certs/
 *.key
 *.crt
 *.pem

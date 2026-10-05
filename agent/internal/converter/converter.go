@@ -41,7 +41,7 @@ func PodToInventoryItem(pod *corev1.Pod, clusterID string, eventType watch.Event
 		podJSON["_fortuna_event_type"] = eventTypeStr
 		podJSON["_fortuna_timestamp"] = timestamp
 		podJSON["_fortuna_cluster_id"] = clusterID
-		
+
 		// Re-marshal with metadata
 		if rawJSONBytes, err := json.Marshal(podJSON); err == nil {
 			rawJSON = string(rawJSONBytes)
@@ -87,7 +87,7 @@ func ServiceAccountToInventoryItem(sa *corev1.ServiceAccount, clusterID string, 
 		saJSON["_fortuna_event_type"] = eventTypeStr
 		saJSON["_fortuna_timestamp"] = timestamp
 		saJSON["_fortuna_cluster_id"] = clusterID
-		
+
 		if rawJSONBytes, err := json.Marshal(saJSON); err == nil {
 			rawJSON = string(rawJSONBytes)
 		}
@@ -132,7 +132,7 @@ func RoleToInventoryItem(role *rbacv1.Role, clusterID string, eventType watch.Ev
 		roleJSON["_fortuna_event_type"] = eventTypeStr
 		roleJSON["_fortuna_timestamp"] = timestamp
 		roleJSON["_fortuna_cluster_id"] = clusterID
-		
+
 		if rawJSONBytes, err := json.Marshal(roleJSON); err == nil {
 			rawJSON = string(rawJSONBytes)
 		}
@@ -177,7 +177,7 @@ func RoleBindingToInventoryItem(rb *rbacv1.RoleBinding, clusterID string, eventT
 		rbJSON["_fortuna_event_type"] = eventTypeStr
 		rbJSON["_fortuna_timestamp"] = timestamp
 		rbJSON["_fortuna_cluster_id"] = clusterID
-		
+
 		if rawJSONBytes, err := json.Marshal(rbJSON); err == nil {
 			rawJSON = string(rawJSONBytes)
 		}
@@ -222,7 +222,7 @@ func ClusterRoleToInventoryItem(cr *rbacv1.ClusterRole, clusterID string, eventT
 		crJSON["_fortuna_event_type"] = eventTypeStr
 		crJSON["_fortuna_timestamp"] = timestamp
 		crJSON["_fortuna_cluster_id"] = clusterID
-		
+
 		if rawJSONBytes, err := json.Marshal(crJSON); err == nil {
 			rawJSON = string(rawJSONBytes)
 		}
@@ -267,7 +267,7 @@ func ClusterRoleBindingToInventoryItem(crb *rbacv1.ClusterRoleBinding, clusterID
 		crbJSON["_fortuna_event_type"] = eventTypeStr
 		crbJSON["_fortuna_timestamp"] = timestamp
 		crbJSON["_fortuna_cluster_id"] = clusterID
-		
+
 		if rawJSONBytes, err := json.Marshal(crbJSON); err == nil {
 			rawJSON = string(rawJSONBytes)
 		}
@@ -292,4 +292,3 @@ func marshalObject(obj interface{}) string {
 	}
 	return string(data)
 }
-

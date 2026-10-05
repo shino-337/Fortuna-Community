@@ -13,8 +13,9 @@ import (
 // Ticket: Migration Audit - Phase 1
 //
 // Description:
-//   Removes duplicate and redundant indexes identified during schema optimization.
-//   Consolidates index cleanup from old migrations 032 and 038.
+//
+//	Removes duplicate and redundant indexes identified during schema optimization.
+//	Consolidates index cleanup from old migrations 032 and 038.
 //
 // Tables Affected:
 //   - cve_matches: Remove old component_id-based indexes
@@ -22,14 +23,16 @@ import (
 //   - sbom_components: Remove duplicate unique indexes
 //
 // Consolidation History:
-//   This migration replaces:
-//   - Old Migration 032: Remove duplicate indexes
-//   - Old Migration 038: Index cleanup portion
+//
+//	This migration replaces:
+//	- Old Migration 032: Remove duplicate indexes
+//	- Old Migration 038: Index cleanup portion
 //
 // Rollback Plan:
-//   Indexes can be recreated if needed:
-//     CREATE INDEX idx_cve_matches_component_id ON cve_matches(component_id);
-//     (Note: component_id column no longer exists, so this is not applicable)
+//
+//	Indexes can be recreated if needed:
+//	  CREATE INDEX idx_cve_matches_component_id ON cve_matches(component_id);
+//	  (Note: component_id column no longer exists, so this is not applicable)
 //
 // Testing:
 //   - Verify indexes removed: \di | grep -E "(component_id|duplicate)"
@@ -43,10 +46,10 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 
 	// 1. Remove duplicate indexes on cve_matches (old component_id based)
 	log.Println("[Migration 031] Cleaning up cve_matches indexes...")
-	
+
 	cveMatchIndexes := []string{
-		"idx_cve_matches_component_id",              // Old column index
-		"idx_cve_matches_unique_sbom_component_cve", // Old component_id based
+		"idx_cve_matches_component_id",                  // Old column index
+		"idx_cve_matches_unique_sbom_component_cve",     // Old component_id based
 		"idx_cve_matches_unique_sbom_component_cve_all", // Old component_id based
 	}
 
@@ -70,7 +73,7 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 
 	// 2. Remove duplicate indexes on sboms
 	log.Println("[Migration 031] Cleaning up sboms indexes...")
-	
+
 	sbomIndexes := []string{
 		"idx_sboms_image_digest", // Duplicate of sboms_image_digest_key (unique constraint)
 	}
@@ -95,7 +98,7 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 
 	// 3. Remove duplicate indexes on sbom_components
 	log.Println("[Migration 031] Cleaning up sbom_components indexes...")
-	
+
 	sbomComponentIndexes := []string{
 		"idx_sbom_components_unique_sbom_purl",     // Duplicate
 		"idx_sbom_components_unique_sbom_purl_all", // Duplicate
@@ -122,4 +125,3 @@ func Migration031_CleanupDuplicateIndexes(db *gorm.DB) error {
 	log.Println("[Migration 031] ✅ Completed successfully")
 	return nil
 }
-

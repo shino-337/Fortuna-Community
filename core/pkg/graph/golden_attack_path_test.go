@@ -15,7 +15,7 @@ func TestApplyCapabilityValidationToRealism_adjustsDown(t *testing.T) {
 		Realism: 1.0,
 		CapabilityValidation: &CapabilityValidationResult{
 			Confidence: 0,
-			SoftMode:     true,
+			SoftMode:   true,
 		},
 	}
 	applyCapabilityValidationToRealism(ch)

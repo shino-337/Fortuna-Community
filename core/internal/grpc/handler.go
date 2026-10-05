@@ -13,8 +13,8 @@ import (
 
 // FortunaServiceServer implements the gRPC service
 type FortunaServiceServer struct {
-	db            *gorm.DB
-	agentService  *service.AgentService
+	db           *gorm.DB
+	agentService *service.AgentService
 	// UnimplementedFortunaServiceServer must be embedded for forward compatibility
 	// pb.UnimplementedFortunaServiceServer
 }
@@ -32,7 +32,7 @@ func NewFortunaServiceServer(db *gorm.DB) *FortunaServiceServer {
 func (s *FortunaServiceServer) SyncData(ctx context.Context, req interface{}) (interface{}, error) {
 	// TODO: Replace with actual proto types after generating from proto file
 	// For now, we'll use a generic approach
-	
+
 	// Convert request to map[string]interface{}
 	reqData, ok := req.(map[string]interface{})
 	if !ok {
@@ -96,4 +96,3 @@ func (s *FortunaServiceServer) HealthCheck(ctx context.Context, req interface{})
 		"message": "Service is healthy",
 	}, nil
 }
-

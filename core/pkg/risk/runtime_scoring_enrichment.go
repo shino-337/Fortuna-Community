@@ -139,8 +139,8 @@ type registryCapAgg struct {
 }
 
 type runtimeCapabilityProvenance struct {
-	Source       string              `json:"source"`
-	SignalTypes  []string            `json:"source_signal_types,omitempty"`
+	Source       string               `json:"source"`
+	SignalTypes  []string             `json:"source_signal_types,omitempty"`
 	SourceEvents []provenanceEventRef `json:"source_events,omitempty"`
 }
 

@@ -6,8 +6,8 @@ import (
 )
 
 const (
-	sbomCreatedSubject    = "fortuna.sbom.created"
-	sbomCreatedDLQSubject = "fortuna.sbom.created.dlq"
+	sbomCreatedSubject     = "fortuna.sbom.created"
+	sbomCreatedDLQSubject  = "fortuna.sbom.created.dlq"
 	sbomPublishMaxAttempts = 5
 	sbomPublishBaseDelay   = 250 * time.Millisecond
 	sbomPublishMaxSleep    = 3 * time.Second

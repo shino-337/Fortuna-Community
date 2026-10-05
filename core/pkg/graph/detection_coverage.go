@@ -11,9 +11,9 @@ import (
 var detectionCoverageYAML []byte
 
 type detectionCoverageFile struct {
-	Version                  int      `yaml:"version"`
-	MitreWithDetection       []string `yaml:"mitre_with_detection"`
-	MitreExplicitNotCovered  []string `yaml:"mitre_explicit_not_covered"`
+	Version                 int      `yaml:"version"`
+	MitreWithDetection      []string `yaml:"mitre_with_detection"`
+	MitreExplicitNotCovered []string `yaml:"mitre_explicit_not_covered"`
 }
 
 var mitreDetectionAllow map[string]bool

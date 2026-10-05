@@ -37,8 +37,8 @@ type BulkLoaderStats struct {
 	StartTime          time.Time
 	LastCheckpointTime time.Time
 	// Pointer avoids copying a sync.Mutex when snapshots are returned by value.
-	mu                 *sync.Mutex
-	Errors             []string
+	mu     *sync.Mutex
+	Errors []string
 }
 
 // Stats returns a point-in-time snapshot of loader counters.

@@ -47,4 +47,3 @@ SELECT EXISTS (
 
 	return nil
 }
-

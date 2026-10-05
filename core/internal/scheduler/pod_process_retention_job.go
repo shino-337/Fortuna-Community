@@ -12,11 +12,11 @@ import (
 
 // PodProcessRetentionJob deletes pod_processes rows older than retention days (e.g. 30).
 type PodProcessRetentionJob struct {
-	db             *gorm.DB
-	retentionDays  int
-	interval       time.Duration
-	ctx            context.Context
-	cancel         context.CancelFunc
+	db            *gorm.DB
+	retentionDays int
+	interval      time.Duration
+	ctx           context.Context
+	cancel        context.CancelFunc
 }
 
 // NewPodProcessRetentionJob creates a retention job. retentionDays must be > 0 (default 30).

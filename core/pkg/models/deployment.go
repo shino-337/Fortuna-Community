@@ -8,11 +8,11 @@ import (
 
 // Deployment represents a Kubernetes Deployment
 type Deployment struct {
-	ID        uint           `gorm:"primaryKey" json:"id"`
-	ClusterID string         `gorm:"not null;index:idx_deployments_cluster_id" json:"clusterId"`
-	UID       string         `gorm:"not null;uniqueIndex:idx_deployments_uid" json:"uid"`
-	Name      string         `gorm:"not null;index:idx_deployments_name" json:"name"`
-	Namespace string         `gorm:"not null;index:idx_deployments_namespace" json:"namespace"`
+	ID        uint   `gorm:"primaryKey" json:"id"`
+	ClusterID string `gorm:"not null;index:idx_deployments_cluster_id" json:"clusterId"`
+	UID       string `gorm:"not null;uniqueIndex:idx_deployments_uid" json:"uid"`
+	Name      string `gorm:"not null;index:idx_deployments_name" json:"name"`
+	Namespace string `gorm:"not null;index:idx_deployments_namespace" json:"namespace"`
 
 	// Replica status
 	Replicas            int32 `json:"replicas"`
@@ -51,8 +51,8 @@ func (Deployment) TableName() string {
 
 // DeploymentCondition represents a condition in deployment status
 type DeploymentCondition struct {
-	Type               string    `json:"type"`               // Available, Progressing, ReplicaFailure
-	Status             string    `json:"status"`             // True, False, Unknown
+	Type               string    `json:"type"`   // Available, Progressing, ReplicaFailure
+	Status             string    `json:"status"` // True, False, Unknown
 	LastUpdateTime     time.Time `json:"lastUpdateTime"`
 	LastTransitionTime time.Time `json:"lastTransitionTime"`
 	Reason             string    `json:"reason"`
@@ -67,8 +67,8 @@ type PodTemplateInfo struct {
 
 // ContainerInfo contains container information
 type ContainerInfo struct {
-	Name      string            `json:"name"`
-	Image     string            `json:"image"`
+	Name      string               `json:"name"`
+	Image     string               `json:"image"`
 	Resources ResourceRequirements `json:"resources,omitempty"`
 }
 
@@ -83,4 +83,3 @@ type ResourceRequirements struct {
 	Limits   map[string]string `json:"limits,omitempty"`
 	Requests map[string]string `json:"requests,omitempty"`
 }
-

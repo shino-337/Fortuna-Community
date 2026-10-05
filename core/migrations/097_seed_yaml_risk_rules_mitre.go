@@ -54,18 +54,18 @@ func Migration097_SeedYAMLRiskRulesMITRE(db *gorm.DB) error {
 		}
 
 		assign := map[string]interface{}{
-			"rule_id":      m.RuleID,
-			"name":         m.Name,
-			"category":     m.Category,
-			"severity":     m.Severity,
-			"description":  m.Description,
-			"enabled":      m.Enabled,
-			"conditions":   m.Conditions,
-			"aggregation":  m.Aggregation,
-			"base_score":   m.BaseScore,
-			"tags":         m.Tags,
-			"updated_at":   now,
-			"deleted_at":   nil,
+			"rule_id":     m.RuleID,
+			"name":        m.Name,
+			"category":    m.Category,
+			"severity":    m.Severity,
+			"description": m.Description,
+			"enabled":     m.Enabled,
+			"conditions":  m.Conditions,
+			"aggregation": m.Aggregation,
+			"base_score":  m.BaseScore,
+			"tags":        m.Tags,
+			"updated_at":  now,
+			"deleted_at":  nil,
 		}
 
 		if err := db.Model(&models.RiskRule{}).
@@ -98,4 +98,3 @@ func resolveRulesDir() string {
 	}
 	return ""
 }
-

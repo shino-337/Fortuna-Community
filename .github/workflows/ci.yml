@@ -34,6 +34,13 @@ jobs:
             go.work
             ${{ matrix.module }}/go.mod
             ${{ matrix.module }}/go.sum
+      - name: Format
+        working-directory: ${{ matrix.module }}
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt -w on:"; echo "$unformatted"; exit 1
+          fi
       - name: Test
         working-directory: ${{ matrix.module }}
         run: go test ./...
@@ -144,7 +151,36 @@ jobs:
           python scripts/verify/test-retired-routes.py
           python scripts/verify/test-local-ci-native.py
           python scripts/verify/test-two-cluster-integration.py
+          python scripts/verify/check-docs-sync.py
           while IFS= read -r -d '' file; do bash -n "$file"; done < <(find scripts -type f -name '*.sh' -print0)
+          find scripts -type f -name '*.sh' -print0 | xargs -0 shellcheck --severity=error --external-sources
+
+  helm:
+    name: Helm chart and rendered manifests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: azure/setup-helm@v4
+        with:
+          version: v3.16.3
+      - name: Lint chart
+        run: |
+          set -euo pipefail
+          helm lint deploy/helm/fortuna --strict
+          helm lint deploy/helm/fortuna --strict -f deploy/helm/fortuna/ci/raw-manifests-values.yaml
+      - name: deploy/*.yaml matches the chart
+        run: scripts/build/render-manifests.sh --check
+      - name: Agent privileges in a Helm install
+        run: |
+          set -euo pipefail
+          python -c 'import yaml' 2>/dev/null || python -m pip install PyYAML==6.0.2
+          helm template fortuna deploy/helm/fortuna -n fortuna-test --kube-version 1.31.0 \
+            --set core.webhook.enabled=true --set core.externalService.enabled=true \
+            > "$RUNNER_TEMP/helm-install.yaml"
+          FORTUNA_RENDERED_MANIFESTS="$RUNNER_TEMP/helm-install.yaml" python scripts/verify/test-agent-privileges.py
 
   hygiene:
     name: Repository hygiene

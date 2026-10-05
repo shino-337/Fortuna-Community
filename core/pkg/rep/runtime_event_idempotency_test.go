@@ -39,7 +39,7 @@ func runtimeReplayInput(sourceRecordID, eventID string, ts time.Time) RuntimeEve
 	observed := ts
 	ingested := ts.Add(time.Second)
 	return RuntimeEventInput{
-		AgentID:          "agent-a",
+		AgentID:         "agent-a",
 		PodUID:          "pod-runtime-idempotency",
 		Namespace:       "ns",
 		Syscall:         "connect",
@@ -71,7 +71,7 @@ func TestRuntimeSourceRecordExactReplaySkipsDownstreamEffects(t *testing.T) {
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
 		ServiceAccount: "default",
-		Containers: "[]", ImageDigests: "[]", PodSecurityContext: "{}",
+		Containers:     "[]", ImageDigests: "[]", PodSecurityContext: "{}",
 		ContainerSecurityContexts: "{}", VolumeMounts: "[]", Volumes: "[]",
 		Tolerations: "[]", Affinity: "{}",
 	}).Error)
@@ -123,7 +123,7 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
 		ServiceAccount: "default",
-		Containers: "[]", ImageDigests: "[]", PodSecurityContext: "{}",
+		Containers:     "[]", ImageDigests: "[]", PodSecurityContext: "{}",
 		ContainerSecurityContexts: "{}", VolumeMounts: "[]", Volumes: "[]",
 		Tolerations: "[]", Affinity: "{}",
 	}).Error)
@@ -132,7 +132,7 @@ func TestRuntimeSameSecondIdenticalObservationsRemainDistinct(t *testing.T) {
 
 	ts := time.Unix(1700000000, 0).UTC()
 	base := RuntimeEventInput{
-		AgentID:          "agent-a",
+		AgentID:         "agent-a",
 		PodUID:          "pod-runtime-idempotency",
 		Namespace:       "ns",
 		Syscall:         "noop",
@@ -223,7 +223,7 @@ func TestRuntimeSourceRecordConcurrentDuplicatePostgres(t *testing.T) {
 	require.NoError(t, db.Create(&models.Pod{
 		ClusterID: "cluster-a", UID: "pod-runtime-idempotency", Namespace: "ns", Name: "pod",
 		ServiceAccount: "default",
-		Containers: "[]", ImageDigests: "[]", PodSecurityContext: "{}",
+		Containers:     "[]", ImageDigests: "[]", PodSecurityContext: "{}",
 		ContainerSecurityContexts: "{}", VolumeMounts: "[]", Volumes: "[]",
 		Tolerations: "[]", Affinity: "{}",
 	}).Error)

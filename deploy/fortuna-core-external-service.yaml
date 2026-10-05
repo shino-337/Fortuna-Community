@@ -1,3 +1,8 @@
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
+---
+# NodePort Service for Agents in remote clusters. Not needed for a single-cluster
+# install; the in-cluster Agent uses the fortuna-core ClusterIP Service.
 apiVersion: v1
 kind: Service
 metadata:

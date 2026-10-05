@@ -26,12 +26,12 @@ func runtimeManifest(session string, started, reported time.Time, falcoEnabled b
 	}
 	collection.SortRuntimeProducerDeclarations(producers)
 	return collection.RuntimeProducerManifest{
-		Version: collection.RuntimeProducerManifestVersion,
-		SessionID: session,
+		Version:          collection.RuntimeProducerManifestVersion,
+		SessionID:        session,
 		SessionStartedAt: started,
-		ReportedAt: reported,
-		AgentState: collection.RuntimeAgentRunning,
-		Producers: producers,
+		ReportedAt:       reported,
+		AgentState:       collection.RuntimeAgentRunning,
+		Producers:        producers,
 	}
 }
 
@@ -155,7 +155,6 @@ func TestRuntimeProducerStoppingManifestClosesAllLeases(t *testing.T) {
 	}
 }
 
-
 func TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps(t *testing.T) {
 	db := runtimeCoverageDB(t)
 	principal := agentidentity.Principal{CredentialID: "cred", ClusterID: "cluster-a", AgentID: "agent-a"}
@@ -199,7 +198,7 @@ func TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps(t *testing.T) {
 	require.NoError(t, db.Model(&models.RuntimeProducerState{}).
 		Where("cluster_id = ? AND agent_id = ? AND producer_id = ?", "cluster-a", "agent-a", "falco").
 		Updates(map[string]interface{}{
-			"state": collection.RuntimeProducerActive,
+			"state":             collection.RuntimeProducerActive,
 			"last_coverage_end": staleEnd,
 			"last_heartbeat_at": time.Now().UTC(),
 		}).Error)
@@ -211,7 +210,6 @@ func TestRuntimeProducerHeartbeatPersistsLeaseAndSilenceGaps(t *testing.T) {
 	require.Equal(t, "producer_silent", producer.GapReason)
 	require.NotNil(t, producer.GapSince)
 }
-
 
 func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testing.T) {
 	db := runtimeCoverageDB(t)
@@ -240,7 +238,6 @@ func TestNonAuthoritativeProducerMayReportCompleteButCannotProveAbsence(t *testi
 	require.Equal(t, collection.RuntimeProducerNonAuthoritative, row.EffectiveStatus(&producer, evalNow))
 	require.False(t, row.CoversInterval(&producer, window.WindowStart, window.WindowEnd, evalNow))
 }
-
 
 func TestRuntimeProducerManifestRejectsSelfAssertedAuthority(t *testing.T) {
 	db := runtimeCoverageDB(t)

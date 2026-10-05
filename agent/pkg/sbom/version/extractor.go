@@ -21,8 +21,8 @@ func NewExtractor(logger *log.Logger) *Extractor {
 
 // ExtractFromBinary returns (version, source, confidence).
 // Priority:
-//  1) Go buildinfo (high confidence for Go-based control-plane components)
-//  2) Embedded string heuristics (medium confidence; best-effort)
+//  1. Go buildinfo (high confidence for Go-based control-plane components)
+//  2. Embedded string heuristics (medium confidence; best-effort)
 func (e *Extractor) ExtractFromBinary(binaryContent []byte, componentName string) (string, string, string) {
 	if len(binaryContent) < 1024 {
 		return "", "", ""
@@ -91,4 +91,3 @@ func (e *Extractor) extractFromComponentStrings(binaryContent []byte, componentN
 	}
 	return "", "", ""
 }
-

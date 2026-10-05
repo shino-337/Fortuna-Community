@@ -1,11 +1,40 @@
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
+---
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: postgres-config
   namespace: fortuna
 data:
-  POSTGRES_DB: fortuna
-  POSTGRES_USER: postgres
+  POSTGRES_DB: "fortuna"
+  POSTGRES_USER: "postgres"
+---
+# Runs once, on an empty data directory. Images without Apache AGE (such as the
+# stock postgres image) keep working: Core falls back to relational graph queries.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: fortuna
+data:
+  01-init-age.sh: |
+    #!/bin/bash
+    set -e
+    psql -v ON_ERROR_STOP=0 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+        CREATE EXTENSION IF NOT EXISTS age;
+        DO \$\$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'age') THEN
+                LOAD 'age';
+                SET search_path = ag_catalog, "\$user", public;
+                PERFORM create_graph('fortuna_graph');
+                RAISE NOTICE 'Apache AGE initialized';
+            ELSE
+                RAISE NOTICE 'Apache AGE not available; graph queries use the relational fallback';
+            END IF;
+        END \$\$;
+    EOSQL
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -19,6 +48,19 @@ spec:
   resources:
     requests:
       storage: 20Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: fortuna
+spec:
+  selector:
+    app: postgres
+  ports:
+    - port: 5432
+      targetPort: 5432
+  type: ClusterIP
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -37,51 +79,56 @@ spec:
       labels:
         app: postgres
     spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
-      - name: postgres
-        image: postgres:15-alpine
-        ports:
-        - containerPort: 5432
-        env:
-        - name: POSTGRES_DB
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: POSTGRES_DB
-        - name: POSTGRES_USER
-          valueFrom:
-            configMapKeyRef:
-              name: postgres-config
-              key: POSTGRES_USER
-        - name: POSTGRES_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: postgres-credentials
-              key: POSTGRES_PASSWORD
-        volumeMounts:
-        - name: postgres-storage
-          mountPath: /var/lib/postgresql/data
-        resources:
-          requests:
-            memory: "512Mi"
-            cpu: "10m"
-          limits:
-            memory: "2Gi"
-            cpu: "1000m"
+        - name: postgres
+          image: postgres:15-alpine
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-config
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                configMapKeyRef:
+                  name: postgres-config
+                  key: POSTGRES_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-credentials
+                  key: POSTGRES_PASSWORD
+          readinessProbe:
+            exec:
+              command: ["sh", "-c", "pg_isready -U \"$POSTGRES_USER\" -d \"$POSTGRES_DB\""]
+            periodSeconds: 10
+            timeoutSeconds: 5
+          volumeMounts:
+            - name: postgres-storage
+              mountPath: /var/lib/postgresql/data
+            - name: init-scripts
+              mountPath: /docker-entrypoint-initdb.d
+          resources:
+            limits:
+              cpu: 1000m
+              memory: 2Gi
+            requests:
+              cpu: 10m
+              memory: 512Mi
+          # The image entrypoint starts as root and switches to the postgres user.
+          securityContext:
+            allowPrivilegeEscalation: false
       volumes:
-      - name: postgres-storage
-        persistentVolumeClaim:
-          claimName: postgres-pvc
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres
-  namespace: fortuna
-spec:
-  selector:
-    app: postgres
-  ports:
-  - port: 5432
-    targetPort: 5432
-  type: ClusterIP
+        - name: postgres-storage
+          persistentVolumeClaim:
+            claimName: postgres-pvc
+        - name: init-scripts
+          configMap:
+            name: postgres-init-scripts
+            defaultMode: 0755

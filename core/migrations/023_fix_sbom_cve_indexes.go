@@ -86,5 +86,3 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_cve_matches_unique_sbom_package_cve
 	log.Println("[Migration 023] ✅ Completed")
 	return nil
 }
-
-

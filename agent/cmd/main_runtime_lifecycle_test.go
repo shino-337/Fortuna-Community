@@ -10,9 +10,9 @@ import (
 func TestRuntimeProducerDeclarationsAreCompleteAndFailClosed(t *testing.T) {
 	cfg := &config.Config{
 		RuntimeEventsEnabled: true,
-		FalcoEventsEnabled: false,
-		EBPFEnabled: true,
-		EBPFMode: "exec",
+		FalcoEventsEnabled:   false,
+		EBPFEnabled:          true,
+		EBPFMode:             "exec",
 	}
 	got := runtimeProducerDeclarations(cfg)
 	if len(got) != collection.RuntimeProducerRegistrySize() {
@@ -41,13 +41,12 @@ func TestRuntimeProducerDeclarationsAreCompleteAndFailClosed(t *testing.T) {
 	}
 }
 
-
 func TestRuntimeProducerDeclarationsNeverInferAuthorityFromEnablement(t *testing.T) {
 	cfg := &config.Config{
 		RuntimeEventsEnabled: true,
-		FalcoEventsEnabled: true,
-		EBPFEnabled: true,
-		EBPFMode: "all",
+		FalcoEventsEnabled:   true,
+		EBPFEnabled:          true,
+		EBPFMode:             "all",
 	}
 	for _, p := range runtimeProducerDeclarations(cfg) {
 		if p.Authoritative {

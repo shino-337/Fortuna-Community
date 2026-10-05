@@ -65,5 +65,6 @@ This deletes the kind cluster and `.fortuna-demo/`.
 - **A rollout times out.** Check `kubectl -n fortuna get pods` and `kubectl -n fortuna logs deploy/fortuna-core`. Core's first start runs many migrations; rerun `./scripts/demo/up.sh` (it reuses the cluster) or raise `FORTUNA_DEMO_TIMEOUT`.
 - **Pods stay `Pending`.** Docker may not have enough CPU or memory; raise its limits.
 - **Image pull errors.** Check that your machine can reach `ghcr.io`.
+- **No CPU or memory in Pod Detail.** kind has no metrics-server, and the Agent reads usage only from the Metrics API. Install it with `kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml` and add `--kubelet-insecure-tls` to its arguments (kind kubelets use self-signed certificates); keep that flag to the demo.
 
 For a real cluster, use the [Quickstart](QUICKSTART.md) instead.

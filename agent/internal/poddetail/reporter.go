@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -31,7 +32,11 @@ type Reporter struct {
 	nodeName    string
 	interval    time.Duration
 	httpClient  *http.Client
+	// hostProcReadable remembers the last /proc check so availability changes are logged once.
+	hostProcReadable *bool
 }
+
+var warnExecRuntimeOnce sync.Once
 
 // NewReporter creates a Reporter. coreBaseURL is the Core HTTP base (e.g. http://fortuna-core:8080).
 // Process and socket data come only from the host /proc mount; the Agent never execs into pods.
@@ -76,7 +81,23 @@ func (r *Reporter) Start(ctx context.Context) {
 func warnIfExecRuntimeRequested() {
 	v := strings.ToLower(strings.TrimSpace(os.Getenv("POD_DETAIL_RUNTIME_SOURCE")))
 	if v == "exec" || v == "0" || v == "false" {
-		log.Printf("[PodDetail] POD_DETAIL_RUNTIME_SOURCE=%s is no longer supported; collecting from the host /proc mount instead", v)
+		warnExecRuntimeOnce.Do(func() {
+			log.Printf("[PodDetail] POD_DETAIL_RUNTIME_SOURCE=%s is no longer supported; collecting from the host /proc mount instead", v)
+		})
+	}
+}
+
+// noteHostProcAvailability logs when the host /proc mount becomes unreadable or
+// readable again, instead of once per report cycle.
+func (r *Reporter) noteHostProcAvailability(readable bool) {
+	if r.hostProcReadable != nil && *r.hostProcReadable == readable {
+		return
+	}
+	r.hostProcReadable = &readable
+	if readable {
+		log.Printf("[PodDetail] host /proc at %s is readable; reporting processes and sockets", hostProcRoot())
+	} else {
+		log.Printf("[PodDetail] host /proc at %s is not readable; not reporting processes or sockets until it is (Pod Detail keeps showing the last snapshot with its timestamp)", hostProcRoot())
 	}
 }
 
@@ -117,6 +138,7 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 	var netCountersByPod map[string]NetDevCounters
 	warnIfExecRuntimeRequested()
 	hostRt := canUseHostProc(hostProcRoot())
+	r.noteHostProcAvailability(hostRt)
 	if hostRt {
 		procRoot := hostProcRoot()
 		containerMap := BuildContainerIDToPodMap(pods)
@@ -165,25 +187,23 @@ func (r *Reporter) reportOnce(ctx context.Context) error {
 		if err := r.sendRuntimeMetrics(ctx, pod, usageByPod[uid], netc); err != nil {
 			log.Printf("[PodDetail] send metrics for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
-		// Process / network: when POD_DETAIL_RUNTIME_SOURCE=host, never fall back to exec for pods
-		// with no PIDs mapped from /host/proc (nil map entry); exec would spam "container not found"
-		// for workloads whose cgroups are not visible the same way (e.g. some nginx/alpine pods).
-		var procArg []processPayload
-		var connArg []connectionPayload
-		if hostRt {
-			procArg = processesByPod[uid]
-			if procArg == nil {
-				procArg = []processPayload{}
-			}
-			connArg = connectionsByPod[uid]
-			if connArg == nil {
-				connArg = []connectionPayload{}
-			}
+		// Without a readable host /proc there is nothing to report. Sending empty
+		// lists would look like "no processes" rather than "not collected".
+		if !hostRt {
+			continue
 		}
-		if err := r.sendProcessSnapshotsForPod(ctx, pod, procArg, hostRt); err != nil {
+		procArg := processesByPod[uid]
+		if procArg == nil {
+			procArg = []processPayload{}
+		}
+		connArg := connectionsByPod[uid]
+		if connArg == nil {
+			connArg = []connectionPayload{}
+		}
+		if err := r.sendProcessSnapshotsForPod(ctx, pod, procArg); err != nil {
 			log.Printf("[PodDetail] send processes for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
-		if err := r.sendNetworkConnectionsForPod(ctx, pod, connArg, hostRt); err != nil {
+		if err := r.sendNetworkConnectionsForPod(ctx, pod, connArg); err != nil {
 			log.Printf("[PodDetail] send network for %s/%s: %v", pod.Namespace, pod.Name, err)
 		}
 	}
@@ -280,25 +300,18 @@ type processPayload struct {
 	ObservedAt    string  `json:"observedAt"`
 }
 
-// sendProcessSnapshotsForPod sends process list for one pod. When runtimeFromHost is true, hostProcesses
-// is used as-is (may be empty). When false (host /proc unavailable), an empty list is sent.
-func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.Pod, hostProcesses []processPayload, runtimeFromHost bool) error {
+// sendProcessSnapshotsForPod sends the process list read from host /proc for one pod (may be empty).
+func (r *Reporter) sendProcessSnapshotsForPod(ctx context.Context, pod *corev1.Pod, processes []processPayload) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
 	}
-	var processes []processPayload
-	if runtimeFromHost {
-		processes = hostProcesses
-	}
 	body := map[string]interface{}{
-		"podUid":    uid,
-		"clusterId": r.clusterID,
-		"namespace": pod.Namespace,
-		"processes": processes,
-	}
-	if runtimeFromHost {
-		body["runtimeSource"] = "host"
+		"podUid":        uid,
+		"clusterId":     r.clusterID,
+		"namespace":     pod.Namespace,
+		"processes":     processes,
+		"runtimeSource": "host",
 	}
 	return r.post(ctx, "/api/v1/agent/pod-processes", body)
 }
@@ -349,25 +362,18 @@ func (r *Reporter) postWithRetry(ctx context.Context, path string, body interfac
 	return nil
 }
 
-// sendNetworkConnectionsForPod sends network connections for one pod. When runtimeFromHost is true,
-// hostConnections is used as-is (may be empty); no exec fallback.
-func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1.Pod, hostConnections []connectionPayload, runtimeFromHost bool) error {
+// sendNetworkConnectionsForPod sends the sockets read from host /proc for one pod (may be empty).
+func (r *Reporter) sendNetworkConnectionsForPod(ctx context.Context, pod *corev1.Pod, connections []connectionPayload) error {
 	uid := string(pod.UID)
 	if uid == "" || uid == "0" {
 		return nil
 	}
-	var connections []connectionPayload
-	if runtimeFromHost {
-		connections = hostConnections
-	}
 	body := map[string]interface{}{
-		"podUid":      uid,
-		"clusterId":   r.clusterID,
-		"namespace":   pod.Namespace,
-		"connections": connections,
-	}
-	if runtimeFromHost {
-		body["runtimeSource"] = "host"
+		"podUid":        uid,
+		"clusterId":     r.clusterID,
+		"namespace":     pod.Namespace,
+		"connections":   connections,
+		"runtimeSource": "host",
 	}
 	return r.postWithRetry(ctx, "/api/v1/agent/pod-network-connections", body)
 }

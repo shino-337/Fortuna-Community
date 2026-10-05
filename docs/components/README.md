@@ -24,7 +24,7 @@ flowchart LR
 | Core | Deployment + Service | `core/` | REST API, gRPC ingest, workers, migrations, risk, policy, runtime and SBOM processing |
 | Agent | DaemonSet | `agent/` | Per-node inventory, SBOM extraction, runtime snapshots, network observations, optional Falco/eBPF ingestion |
 | Dashboard | Deployment + Service | `dashboard/` | React UI served by nginx; proxies `/api/*` to Core |
-| PostgreSQL | Deployment + PVC | `deploy/infrastructure/postgresql-with-age.yaml` | Source of truth for inventory, SBOM, CVE, risk, runtime, users and reports |
+| PostgreSQL | Deployment + PVC | `deploy/infrastructure/postgresql.yaml` | Source of truth for inventory, SBOM, CVE, risk, runtime, users and reports |
 | NATS JetStream | StatefulSet | `deploy/infrastructure/nats.yaml` | Async queue for SBOM and event pipelines |
 
 ### Core

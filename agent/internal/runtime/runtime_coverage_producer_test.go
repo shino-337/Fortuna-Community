@@ -107,7 +107,6 @@ func TestFalcoCoverageRejectsUnresolvedEventAsDrop(t *testing.T) {
 	}
 }
 
-
 func TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile(t *testing.T) {
 	var coverage []collection.RuntimeCoverage
 	var delivered int
@@ -164,7 +163,6 @@ func TestFalcoCoverageDetectsFileReplacementAndProcessesNewFile(t *testing.T) {
 		t.Fatalf("file replacement must break clean continuity: %+v", coverage)
 	}
 }
-
 
 func TestRuntimeFileCoverageRetainsPartialRecord(t *testing.T) {
 	var coverage []collection.RuntimeCoverage
@@ -280,7 +278,6 @@ func TestRuntimeFileCoverageDetectsFileReplacement(t *testing.T) {
 		t.Fatalf("runtime file replacement must break clean continuity: %+v", coverage)
 	}
 }
-
 
 func TestRuntimeFilePartialRecordSurvivesReaderRestart(t *testing.T) {
 	var coverage []collection.RuntimeCoverage

@@ -10,7 +10,10 @@
 #                               first-login default when FORTUNA_ADMIN_PASSWORD is omitted
 #   FORTUNA_JWT_SECRET         generated with openssl when omitted
 #   FORTUNA_INGEST_TOKEN       generated with openssl when omitted; required for Core/Agent ingest
-#   POD_DETAIL_ENCRYPTION_KEY  encryption key for pod detail payloads
+#   POD_DETAIL_ENCRYPTION_KEY  key that encrypts process command lines at rest;
+#                               generated with openssl when omitted. To rotate, set the
+#                               new key here and the old one in
+#                               POD_DETAIL_ENCRYPTION_KEY_PREVIOUS (comma-separated).
 #   FORTUNA_POSTGRES_PASSWORD  creates postgres-credentials for bundled PostgreSQL manifests
 #   FORTUNA_SECRET_NAME        defaults to fortuna-secrets
 #
@@ -49,6 +52,7 @@ existing_bootstrap_default_credential="$(secret_value bootstrap-default-credenti
 existing_jwt_secret="$(secret_value jwt-secret)"
 existing_ingest_token="$(secret_value ingest-token)"
 existing_pod_detail_encryption_key="$(secret_value pod-detail-encryption-key)"
+existing_pod_detail_encryption_key_previous="$(secret_value pod-detail-encryption-key-previous)"
 
 BOOTSTRAP_DEFAULT_CREDENTIAL="${FORTUNA_BOOTSTRAP_DEFAULT_CREDENTIAL:-false}"
 if [ -z "${FORTUNA_ADMIN_PASSWORD:-}" ]; then
@@ -101,13 +105,30 @@ secret_args=(
   "--from-literal=bootstrap-default-credential=${BOOTSTRAP_DEFAULT_CREDENTIAL}"
 )
 
-if [ -z "${POD_DETAIL_ENCRYPTION_KEY:-}" ] && [ -n "$existing_pod_detail_encryption_key" ]; then
-  POD_DETAIL_ENCRYPTION_KEY="$existing_pod_detail_encryption_key"
-  echo "Reusing existing pod-detail-encryption-key from $SECRET_NAME. Set POD_DETAIL_ENCRYPTION_KEY to rotate it."
+if [ -z "${POD_DETAIL_ENCRYPTION_KEY:-}" ]; then
+  if [ -n "$existing_pod_detail_encryption_key" ]; then
+    POD_DETAIL_ENCRYPTION_KEY="$existing_pod_detail_encryption_key"
+    echo "Reusing existing pod-detail-encryption-key from $SECRET_NAME."
+  else
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "ERROR: POD_DETAIL_ENCRYPTION_KEY is not set and openssl is unavailable." >&2
+      exit 1
+    fi
+    POD_DETAIL_ENCRYPTION_KEY="$(openssl rand -base64 32)"
+    echo "Generated POD_DETAIL_ENCRYPTION_KEY; process command lines are encrypted at rest."
+  fi
+elif [ -n "$existing_pod_detail_encryption_key" ] && [ "$POD_DETAIL_ENCRYPTION_KEY" != "$existing_pod_detail_encryption_key" ] \
+  && [ -z "${POD_DETAIL_ENCRYPTION_KEY_PREVIOUS:-}" ]; then
+  # Rotating without keeping the old key would make every stored command line unreadable.
+  POD_DETAIL_ENCRYPTION_KEY_PREVIOUS="$existing_pod_detail_encryption_key${existing_pod_detail_encryption_key_previous:+,$existing_pod_detail_encryption_key_previous}"
+  echo "Rotating pod-detail-encryption-key; the old key stays in pod-detail-encryption-key-previous for decryption."
 fi
-
-if [ -n "${POD_DETAIL_ENCRYPTION_KEY:-}" ]; then
-  secret_args+=("--from-literal=pod-detail-encryption-key=${POD_DETAIL_ENCRYPTION_KEY}")
+if [ -z "${POD_DETAIL_ENCRYPTION_KEY_PREVIOUS:-}" ] && [ -n "$existing_pod_detail_encryption_key_previous" ]; then
+  POD_DETAIL_ENCRYPTION_KEY_PREVIOUS="$existing_pod_detail_encryption_key_previous"
+fi
+secret_args+=("--from-literal=pod-detail-encryption-key=${POD_DETAIL_ENCRYPTION_KEY}")
+if [ -n "${POD_DETAIL_ENCRYPTION_KEY_PREVIOUS:-}" ]; then
+  secret_args+=("--from-literal=pod-detail-encryption-key-previous=${POD_DETAIL_ENCRYPTION_KEY_PREVIOUS}")
 fi
 
 kubectl -n "$NAMESPACE" create secret generic "$SECRET_NAME" \

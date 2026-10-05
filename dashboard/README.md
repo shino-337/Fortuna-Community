@@ -35,6 +35,12 @@ From `dashboard/`:
 3. `npm run build` — production bundle (same as Dockerfile build step)
 4. (Optional) `VITE_CORE_API_URL=http://localhost:8080` then `npm run dev`
 
+## Layout and tests
+
+The app source lives at the top of `dashboard/` (`App.tsx`, `pages/`, `components/`, `hooks/`, `lib/`, `store/`); `src/styles/` holds only shared CSS. CI runs the typecheck, the production build and the runtime-evidence Playwright suite (`playwright.runtime.config.ts`). The other specs in `e2e/` need a running stack and are run by hand with `npx playwright test`.
+
+The container image renders `nginx/default.conf.template` at start-up. `FORTUNA_CORE_HOST` sets the Core Service it proxies `/api/` to; the resolver comes from the pod's `/etc/resolv.conf`.
+
 ## Deploy in Kubernetes
 
-The dashboard is deployed with the rest of Fortuna (`deploy/dashboard-deployment.yaml` plus `deploy/dashboard-nginx-configmap.yaml`); see [Install on a cluster](../docs/getting-started/QUICKSTART.md). It runs as the `fortuna-dashboard` Service in the `fortuna` namespace.
+The dashboard is deployed with the rest of Fortuna (`deploy/dashboard-deployment.yaml`, or the Helm chart in `deploy/helm/fortuna`); see [Install on a cluster](../docs/getting-started/QUICKSTART.md). It runs as the `fortuna-dashboard` Service in the `fortuna` namespace.

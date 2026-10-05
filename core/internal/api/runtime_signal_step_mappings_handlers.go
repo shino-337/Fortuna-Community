@@ -2,15 +2,15 @@ package api
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"os"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
@@ -407,17 +407,17 @@ func writeRuntimeMappingAudit(db *gorm.DB, c *gin.Context, action string, oldRow
 		return
 	}
 	detail := map[string]interface{}{
-		"actor":           actorUsername(c),
-		"action":          action,
-		"signal_type":     newRow.SignalType,
-		"step_id":         newRow.StepID,
-		"old_value":       oldRow,
-		"new_value":       newRow,
+		"actor":             actorUsername(c),
+		"action":            action,
+		"signal_type":       newRow.SignalType,
+		"step_id":           newRow.StepID,
+		"old_value":         oldRow,
+		"new_value":         newRow,
 		"affected_estimate": affected,
-		"timestamp":       time.Now().UTC().Format(time.RFC3339),
-		"reason":          strings.TrimSpace(reason),
-		"auth_source":     contextString(c, "auth_source", "unknown"),
-		"scope_source":    contextString(c, "scope_source", "unknown"),
+		"timestamp":         time.Now().UTC().Format(time.RFC3339),
+		"reason":            strings.TrimSpace(reason),
+		"auth_source":       contextString(c, "auth_source", "unknown"),
+		"scope_source":      contextString(c, "scope_source", "unknown"),
 	}
 	prevHash := lastRuntimeMappingAuditHash(db)
 	detail["prev_hash"] = prevHash
@@ -551,4 +551,3 @@ func contextString(c *gin.Context, key, fallback string) string {
 	}
 	return fallback
 }
-

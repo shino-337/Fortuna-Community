@@ -29,12 +29,12 @@ type matchFingerprint struct {
 }
 
 type insightFingerprint struct {
-	CVEID             string
-	AffectedComponent string
-	FixedVersion      string
-	Severity          string
-	CVSS              float32
-	Recommendation    string
+	CVEID               string
+	AffectedComponent   string
+	FixedVersion        string
+	Severity            string
+	CVSS                float32
+	Recommendation      string
 	FinalRiskConfidence string
 	Degraded            bool
 }
@@ -132,9 +132,9 @@ func seedDeterministicFixtures(t *testing.T, db *gorm.DB, sb *models.SBOM) {
 	}
 
 	if err := db.Create(&models.Pod{
-		ClusterID:     clusterID,
-		Name:          sb.PodName,
-		Namespace:     sb.Namespace,
+		ClusterID:      clusterID,
+		Name:           sb.PodName,
+		Namespace:      sb.Namespace,
 		ServiceAccount: "sa-1",
 		UID:            sb.PodUID,
 		Containers:     "[]",
@@ -160,7 +160,7 @@ func seedDeterministicFixtures(t *testing.T, db *gorm.DB, sb *models.SBOM) {
 	}
 
 	cve := models.CVE{
-		CVEID:          "CVE-TEST-1",
+		CVEID:         "CVE-TEST-1",
 		Severity:      "HIGH",
 		CVSSScore:     7.5,
 		CVSSVector:    "AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H",
@@ -176,15 +176,15 @@ func seedDeterministicFixtures(t *testing.T, db *gorm.DB, sb *models.SBOM) {
 
 	// Debian-like version constraint: vulnerable if installedVersion < 2.0.
 	pv := models.PackageVulnerability{
-		CVEID:                 cve.CVEID,
-		PackageName:           "openssl",
-		PackageType:           "deb",
-		Ecosystem:             "debian",
-		VersionEndExcluding:  "2.0",
-		FixedVersion:         "2.0",
-		Vendor:                "test",
-		Product:               "test",
-		CreatedAt:             time.Now(),
+		CVEID:               cve.CVEID,
+		PackageName:         "openssl",
+		PackageType:         "deb",
+		Ecosystem:           "debian",
+		VersionEndExcluding: "2.0",
+		FixedVersion:        "2.0",
+		Vendor:              "test",
+		Product:             "test",
+		CreatedAt:           time.Now(),
 	}
 	if err := db.Create(&pv).Error; err != nil {
 		t.Fatalf("create package vulnerability: %v", err)
@@ -283,12 +283,12 @@ func captureSnapshot(t *testing.T, db *gorm.DB, sbomID uint, podUID string) repl
 		out := make([]insightFingerprint, 0, len(items))
 		for _, i := range items {
 			out = append(out, insightFingerprint{
-				CVEID:             i.CVEID,
-				AffectedComponent: i.AffectedComponent,
-				FixedVersion:      i.FixedVersion,
-				Severity:          i.Severity,
-				CVSS:              i.CVSS,
-				Recommendation:    i.Recommendation,
+				CVEID:               i.CVEID,
+				AffectedComponent:   i.AffectedComponent,
+				FixedVersion:        i.FixedVersion,
+				Severity:            i.Severity,
+				CVSS:                i.CVSS,
+				Recommendation:      i.Recommendation,
 				FinalRiskConfidence: i.FinalRiskConfidence,
 				Degraded:            i.Degraded,
 			})
@@ -310,13 +310,13 @@ func captureSnapshot(t *testing.T, db *gorm.DB, sbomID uint, podUID string) repl
 	}(insights)
 
 	return replayScenarioSnapshot{
-		LatestEventTS:    latestTS,
-		LatestEventID:    latestID,
-		MatchRunsCount:   matchRuns,
-		CVEMatchesFP:     cveMatchesFP,
-		InsightsFP:       insightsFP,
-		CVEMatchesCount:  int64(len(cvematches)),
-		InsightsCount:    int64(len(insights)),
+		LatestEventTS:   latestTS,
+		LatestEventID:   latestID,
+		MatchRunsCount:  matchRuns,
+		CVEMatchesFP:    cveMatchesFP,
+		InsightsFP:      insightsFP,
+		CVEMatchesCount: int64(len(cvematches)),
+		InsightsCount:   int64(len(insights)),
 	}
 }
 
@@ -330,11 +330,11 @@ func runScenario(t *testing.T, mirrorAfterFirst int64, order string) (replayScen
 
 	// Events: same SBOM content but different ingest timestamps.
 	evNew := sbom.SBOMCreatedEvent{
-		Type:            "sbom.created",
-		Timestamp:       100,
-		EventID:         "ev-new",
-		SchemaVersion:   sbom.SBOMCreatedEventSchemaVersion,
-		SBOMID:          sb.ID,
+		Type:           "sbom.created",
+		Timestamp:      100,
+		EventID:        "ev-new",
+		SchemaVersion:  sbom.SBOMCreatedEventSchemaVersion,
+		SBOMID:         sb.ID,
 		ImageDigest:    sb.ImageDigest,
 		ClusterID:      "cluster-1",
 		PodUID:         sb.PodUID,
@@ -344,11 +344,11 @@ func runScenario(t *testing.T, mirrorAfterFirst int64, order string) (replayScen
 		ContainerImage: sb.ImageName + ":" + sb.ImageTag,
 	}
 	evOld := sbom.SBOMCreatedEvent{
-		Type:            "sbom.created",
-		Timestamp:       90,
-		EventID:         "ev-old",
-		SchemaVersion:   sbom.SBOMCreatedEventSchemaVersion,
-		SBOMID:          sb.ID,
+		Type:           "sbom.created",
+		Timestamp:      90,
+		EventID:        "ev-old",
+		SchemaVersion:  sbom.SBOMCreatedEventSchemaVersion,
+		SBOMID:         sb.ID,
 		ImageDigest:    sb.ImageDigest,
 		ClusterID:      "cluster-1",
 		PodUID:         sb.PodUID,
@@ -425,4 +425,3 @@ func TestE2E_IngestionReplay_DeterministicOutput(t *testing.T) {
 	require.Equal(t, int64(1), finalOldFirst.InsightsCount)
 	require.Equal(t, int64(2), finalOldFirst.MatchRunsCount)
 }
-

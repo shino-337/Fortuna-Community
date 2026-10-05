@@ -1,0 +1,87 @@
+{{- if and .Values.core.enabled .Values.core.riskEvaluationCronJob.enabled }}
+---
+# Triggers historical risk evaluation on a schedule, logging in as the bootstrap admin.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: fortuna-risk-evaluation
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: fortuna-risk-evaluation
+spec:
+  schedule: {{ .Values.core.riskEvaluationCronJob.schedule | quote }}
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        metadata:
+          labels:
+            app: fortuna-risk-evaluation
+        spec:
+          # Talks to Core over HTTP only; it needs no Kubernetes API access.
+          automountServiceAccountToken: false
+          securityContext:
+            seccompProfile:
+              type: RuntimeDefault
+          restartPolicy: OnFailure
+          containers:
+            - name: risk-evaluator
+              image: {{ .Values.core.riskEvaluationCronJob.image }}
+              command:
+                - /bin/sh
+                - -c
+                - |
+                  set -eu
+                  echo "Starting risk evaluation at $(date)"
+                  echo "Authenticating..."
+                  TOKEN=$(curl -sS -X POST "${CORE_SERVICE_URL}/api/v1/auth/login" \
+                    -H "Content-Type: application/json" \
+                    -d "{\"username\":\"${ADMIN_USERNAME}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+                    | grep -o '"token":"[^"]*' | cut -d'"' -f4 || true)
+                  if [ -z "$TOKEN" ]; then
+                    echo "ERROR: Failed to get authentication token"
+                    exit 1
+                  fi
+
+                  echo "Token obtained, triggering risk evaluation..."
+                  RESPONSE=$(curl -sS -w "\nHTTP_CODE:%{http_code}" -X POST \
+                    "${CORE_SERVICE_URL}/api/v1/risk/insights/evaluate/historical" \
+                    -H "Content-Type: application/json" \
+                    -H "Authorization: Bearer ${TOKEN}")
+                  HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
+                  BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
+                  echo "Response: $BODY"
+                  if [ "$HTTP_CODE" = "200" ]; then
+                    echo "Risk evaluation completed successfully"
+                  else
+                    echo "Risk evaluation failed with HTTP code: $HTTP_CODE"
+                    exit 1
+                  fi
+              env:
+                - name: CORE_SERVICE_URL
+                  value: "http://{{ include "fortuna.coreHost" . }}:8080"
+                - name: ADMIN_USERNAME
+                  value: {{ .Values.core.admin.username | quote }}
+                - name: ADMIN_PASSWORD
+                  valueFrom:
+                    secretKeyRef:
+                      name: fortuna-secrets
+                      key: admin-password
+              resources:
+                requests:
+                  memory: "32Mi"
+                  cpu: "50m"
+                limits:
+                  memory: "64Mi"
+                  cpu: "100m"
+              securityContext:
+                runAsNonRoot: true
+                runAsUser: 100
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop:
+                    - ALL
+{{- end }}

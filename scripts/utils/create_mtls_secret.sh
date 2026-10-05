@@ -7,7 +7,14 @@
 # By default, if all TLS secrets already exist in the namespace, exits without
 # regenerating (avoids Agent disconnect on every deploy). Force new certs:
 #   MTLS_REGEN=1 NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
+#     New CA and certificates. Every Agent, including remote clusters, must get
+#     the new client certificate and CA.
+#   MTLS_RENEW=1 NAMESPACE=fortuna ./scripts/utils/create_mtls_secret.sh
+#     New Core, webhook and Agent certificates from the existing CA in CERT_DIR
+#     (used by rotate_mtls_secret.sh before the certificates expire).
 # Certificates and the CA key are written to CERT_DIR (default: <repo>/.certs).
+# Validity: MTLS_CA_DAYS (default 3650) for the CA, MTLS_CERT_DAYS (default 365)
+# for the certificates it signs.
 # ============================================================================
 
 set -euo pipefail
@@ -65,8 +72,23 @@ fi
 # Create cert directory
 mkdir -p "$CERT_DIR"
 
+MTLS_CA_DAYS="${MTLS_CA_DAYS:-3650}"
+MTLS_CERT_DAYS="${MTLS_CERT_DAYS:-365}"
+RENEW=false
+case "${MTLS_RENEW:-0}" in 1|true) RENEW=true ;; esac
+REGEN=false
+case "${MTLS_REGEN:-0}" in 1|true) REGEN=true ;; esac
+if [ "$RENEW" = true ] && [ "$REGEN" = true ]; then
+    log_error "Set MTLS_RENEW or MTLS_REGEN, not both."
+    exit 1
+fi
+if [ "$RENEW" = true ] && { [ ! -f "$CERT_DIR/ca.crt" ] || [ ! -f "$CERT_DIR/ca.key" ]; }; then
+    log_error "MTLS_RENEW=1 needs the existing CA ($CERT_DIR/ca.crt and ca.key). Without it, only MTLS_REGEN=1 (new CA) is possible."
+    exit 1
+fi
+
 # Skip if cluster already has TLS material (avoids Agent disconnect on every deploy)
-if [ "${MTLS_REGEN:-0}" != "1" ] && [ "${MTLS_REGEN:-}" != "true" ]; then
+if [ "$REGEN" = false ] && [ "$RENEW" = false ]; then
     if kubectl get secret fortuna-core-tls -n "$NAMESPACE" &>/dev/null && \
        kubectl get secret fortuna-agent-tls -n "$NAMESPACE" &>/dev/null && \
        kubectl get secret fortuna-ca-cert -n "$NAMESPACE" &>/dev/null && \
@@ -76,27 +98,33 @@ if [ "${MTLS_REGEN:-0}" != "1" ] && [ "${MTLS_REGEN:-}" != "true" ]; then
     fi
 fi
 
-if [ "${MTLS_REGEN:-0}" = "1" ] || [ "${MTLS_REGEN:-}" = "true" ]; then
+if [ "$REGEN" = true ]; then
     log_info "MTLS_REGEN=1 — clearing local cert material before regeneration..."
     rm -f "$CERT_DIR"/*.crt "$CERT_DIR"/*.key "$CERT_DIR"/*.csr "$CERT_DIR"/*.srl "$CERT_DIR"/*.conf 2>/dev/null || true
+fi
+if [ "$RENEW" = true ]; then
+    log_info "MTLS_RENEW=1 — issuing new certificates from the existing CA..."
+    rm -f "$CERT_DIR"/server.* "$CERT_DIR"/client.* 2>/dev/null || true
 fi
 
 GENERATE=true
 if [ -f "$CERT_DIR/ca.crt" ] && [ -f "$CERT_DIR/ca.key" ] && [ -f "$CERT_DIR/server.crt" ] && [ -f "$CERT_DIR/server.key" ] && \
-   [ -f "$CERT_DIR/client.crt" ] && [ -f "$CERT_DIR/client.key" ] && [ "${MTLS_REGEN:-0}" != "1" ] && [ "${MTLS_REGEN:-}" != "true" ]; then
+   [ -f "$CERT_DIR/client.crt" ] && [ -f "$CERT_DIR/client.key" ]; then
     GENERATE=false
-    log_info "Reusing existing certificate files in $CERT_DIR (set MTLS_REGEN=1 to regenerate on disk)."
+    log_info "Reusing existing certificate files in $CERT_DIR (set MTLS_RENEW=1 or MTLS_REGEN=1 to replace them)."
 fi
 
-# Generate certificates (first run, missing files, or MTLS_REGEN cleared them)
+# Generate certificates (first run, missing files, or MTLS_REGEN/MTLS_RENEW cleared them)
 if [ "$GENERATE" = true ]; then
 log_info "Generating mTLS certificates..."
 
-# Generate CA
-log_info "Generating CA certificate..."
-openssl genrsa -out "$CERT_DIR/ca.key" 4096
-openssl req -new -x509 -days 365 -key "$CERT_DIR/ca.key" -out "$CERT_DIR/ca.crt" \
-    -subj "/CN=Fortuna CA/O=Fortuna/C=US" 2>/dev/null
+if [ ! -f "$CERT_DIR/ca.crt" ] || [ ! -f "$CERT_DIR/ca.key" ]; then
+    log_info "Generating CA certificate (valid ${MTLS_CA_DAYS} days)..."
+    openssl genrsa -out "$CERT_DIR/ca.key" 4096
+    openssl req -new -x509 -days "$MTLS_CA_DAYS" -key "$CERT_DIR/ca.key" -out "$CERT_DIR/ca.crt" \
+        -subj "/CN=Fortuna CA/O=Fortuna/C=US" 2>/dev/null
+    chmod 600 "$CERT_DIR/ca.key"
+fi
 
 # Generate server certificate with SANs
 log_info "Generating server certificate with SANs..."
@@ -131,7 +159,7 @@ EOF
 
 openssl req -new -key "$CERT_DIR/server.key" -out "$CERT_DIR/server.csr" \
     -config "$CERT_DIR/server.conf" 2>/dev/null
-openssl x509 -req -days 365 -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.crt" \
+openssl x509 -req -days "$MTLS_CERT_DAYS" -in "$CERT_DIR/server.csr" -CA "$CERT_DIR/ca.crt" \
     -CAkey "$CERT_DIR/ca.key" -CAcreateserial -out "$CERT_DIR/server.crt" \
     -extensions v3_req -extfile "$CERT_DIR/server.conf" 2>/dev/null
 
@@ -163,7 +191,7 @@ EOF
 
 openssl req -new -key "$CERT_DIR/client.key" -out "$CERT_DIR/client.csr" \
     -config "$CERT_DIR/client.conf" 2>/dev/null
-openssl x509 -req -days 365 -in "$CERT_DIR/client.csr" -CA "$CERT_DIR/ca.crt" \
+openssl x509 -req -days "$MTLS_CERT_DAYS" -in "$CERT_DIR/client.csr" -CA "$CERT_DIR/ca.crt" \
     -CAkey "$CERT_DIR/ca.key" -CAcreateserial -out "$CERT_DIR/client.crt" \
     -extensions v3_req -extfile "$CERT_DIR/client.conf" 2>/dev/null
 
@@ -219,4 +247,5 @@ echo "  - fortuna-agent-tls (for Agent gRPC client)"
 echo "  - fortuna-webhook-tls (for Webhook server)"
 echo ""
 log_info "Certificates location: $CERT_DIR"
+log_info "Expiry: CA $(openssl x509 -enddate -noout -in "$CERT_DIR/ca.crt" | cut -d= -f2); certificates $(openssl x509 -enddate -noout -in "$CERT_DIR/server.crt" | cut -d= -f2)"
 

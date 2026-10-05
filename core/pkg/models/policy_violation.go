@@ -48,4 +48,3 @@ type PolicyViolation struct {
 func (PolicyViolation) TableName() string {
 	return "policy_violations"
 }
-

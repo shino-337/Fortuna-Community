@@ -211,9 +211,15 @@ func GetRiskScores(db *gorm.DB) gin.HandlerFunc {
 		// Pagination
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
-		if page < 1 { page = 1 }
-		if pageSize < 1 { pageSize = 50 }
-		if pageSize > 500 { pageSize = 500 }
+		if page < 1 {
+			page = 1
+		}
+		if pageSize < 1 {
+			pageSize = 50
+		}
+		if pageSize > 500 {
+			pageSize = 500
+		}
 		// Load candidate rows then collapse to one authoritative score per resource
 		// v3-only authoritative selection.
 		if err := query.Find(&rawScores).Error; err != nil {

@@ -16,9 +16,9 @@ func baseCaps() map[string]float64 {
 
 func mkPath(risk float64, length int, desc string) models.AttackPath {
 	return models.AttackPath{
-		TotalRisk:    risk,
-		Length:       length,
-		Description:  desc,
+		TotalRisk:   risk,
+		Length:      length,
+		Description: desc,
 	}
 }
 
@@ -75,7 +75,7 @@ func TestAdversarialScenarios(t *testing.T) {
 				TotalRisk:   1.5,
 				Length:      4,
 				Description: "ESCAPE_PATH",
-				Nodes: `[{"id":"step:x:CREDENTIAL_ACCESS","type":"attack_step","properties":{"stepId":"CREDENTIAL_ACCESS"}},{"id":"step:x:PRIV_ESC","type":"attack_step","properties":{"stepId":"PRIV_ESC"}}]`,
+				Nodes:       `[{"id":"step:x:CREDENTIAL_ACCESS","type":"attack_step","properties":{"stepId":"CREDENTIAL_ACCESS"}},{"id":"step:x:PRIV_ESC","type":"attack_step","properties":{"stepId":"PRIV_ESC"}}]`,
 			},
 		}
 		pi := computePathInfluence(paths, signals, signalMap, 0.3, nil)
@@ -164,7 +164,7 @@ func TestAdversarialScenarios(t *testing.T) {
 				TotalRisk:   7.8,
 				Length:      4,
 				Description: "PRIV_ESC_PATH realistic",
-				Nodes: `[{"id":"step:x:RECON","type":"attack_step","properties":{"stepId":"RECON"}},{"id":"step:x:CREDENTIAL_ACCESS","type":"attack_step","properties":{"stepId":"CREDENTIAL_ACCESS"}},{"id":"step:x:LATERAL_MOVE","type":"attack_step","properties":{"stepId":"LATERAL_MOVE"}},{"id":"step:x:PRIV_ESC","type":"attack_step","properties":{"stepId":"PRIV_ESC"}}]`,
+				Nodes:       `[{"id":"step:x:RECON","type":"attack_step","properties":{"stepId":"RECON"}},{"id":"step:x:CREDENTIAL_ACCESS","type":"attack_step","properties":{"stepId":"CREDENTIAL_ACCESS"}},{"id":"step:x:LATERAL_MOVE","type":"attack_step","properties":{"stepId":"LATERAL_MOVE"}},{"id":"step:x:PRIV_ESC","type":"attack_step","properties":{"stepId":"PRIV_ESC"}}]`,
 			},
 		}
 		signals := []models.RuntimeSignal{
@@ -204,4 +204,3 @@ func TestAdversarialScenarios(t *testing.T) {
 		}
 	})
 }
-

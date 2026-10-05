@@ -20,4 +20,3 @@ func IsSBOMMutationAllowed(ctx context.Context) bool {
 	allowed, _ := v.(bool)
 	return allowed
 }
-

@@ -29,4 +29,3 @@ func TestUpdatePURLVersionPreservesQuery(t *testing.T) {
 		t.Fatalf("UpdatePURLVersion() = %q, want %q", got, want)
 	}
 }
-

@@ -76,5 +76,3 @@ func (w *PodWatcher) Start() error {
 func (w *PodWatcher) Stop() {
 	w.cancel()
 }
-
-

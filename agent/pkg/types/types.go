@@ -1,10 +1,10 @@
 package types
 
 import (
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	rbacv1 "k8s.io/api/rbac/v1"
-	corev1 "k8s.io/api/core/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ServiceAccountData represents collected ServiceAccount data
@@ -19,72 +19,72 @@ type ServiceAccountData struct {
 
 // RoleBindingData represents collected RoleBinding data
 type RoleBindingData struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	UID       string            `json:"uid"`
-	RoleRef   rbacv1.RoleRef    `json:"roleRef"`
-	Subjects  []rbacv1.Subject  `json:"subjects"`
-	CreatedAt metav1.Time       `json:"createdAt"`
+	Name      string           `json:"name"`
+	Namespace string           `json:"namespace"`
+	UID       string           `json:"uid"`
+	RoleRef   rbacv1.RoleRef   `json:"roleRef"`
+	Subjects  []rbacv1.Subject `json:"subjects"`
+	CreatedAt metav1.Time      `json:"createdAt"`
 }
 
 // ClusterRoleBindingData represents collected ClusterRoleBinding data
 type ClusterRoleBindingData struct {
-	Name      string            `json:"name"`
-	UID       string            `json:"uid"`
-	RoleRef   rbacv1.RoleRef    `json:"roleRef"`
-	Subjects  []rbacv1.Subject  `json:"subjects"`
-	CreatedAt metav1.Time       `json:"createdAt"`
+	Name      string           `json:"name"`
+	UID       string           `json:"uid"`
+	RoleRef   rbacv1.RoleRef   `json:"roleRef"`
+	Subjects  []rbacv1.Subject `json:"subjects"`
+	CreatedAt metav1.Time      `json:"createdAt"`
 }
 
 // RoleData represents collected Role data
 type RoleData struct {
-	Name      string            `json:"name"`
-	Namespace string            `json:"namespace"`
-	UID       string            `json:"uid"`
+	Name      string              `json:"name"`
+	Namespace string              `json:"namespace"`
+	UID       string              `json:"uid"`
 	Rules     []rbacv1.PolicyRule `json:"rules"`
-	CreatedAt metav1.Time       `json:"createdAt"`
+	CreatedAt metav1.Time         `json:"createdAt"`
 }
 
 // ClusterRoleData represents collected ClusterRole data
 type ClusterRoleData struct {
-	Name      string            `json:"name"`
-	UID       string            `json:"uid"`
+	Name      string              `json:"name"`
+	UID       string              `json:"uid"`
 	Rules     []rbacv1.PolicyRule `json:"rules"`
-	CreatedAt metav1.Time       `json:"createdAt"`
+	CreatedAt metav1.Time         `json:"createdAt"`
 }
 
 // PodData represents Pod that uses a ServiceAccount
 type PodData struct {
-	Name            string `json:"name"`
-	Namespace       string `json:"namespace"`
-	ServiceAccount  string `json:"serviceAccount"`
-	UID             string `json:"uid"`
+	Name           string `json:"name"`
+	Namespace      string `json:"namespace"`
+	ServiceAccount string `json:"serviceAccount"`
+	UID            string `json:"uid"`
 }
 
 // DeploymentData represents collected Deployment data
 type DeploymentData struct {
-	Name                string                     `json:"name"`
-	Namespace           string                     `json:"namespace"`
-	UID                 string                     `json:"uid"`
-	Replicas            int32                      `json:"replicas"`
-	ReadyReplicas       int32                      `json:"readyReplicas"`
-	AvailableReplicas   int32                      `json:"availableReplicas"`
-	UnavailableReplicas int32                      `json:"unavailableReplicas"`
-	UpdatedReplicas     int32                      `json:"updatedReplicas"`
-	Strategy            string                     `json:"strategy"`
-	Labels              map[string]string          `json:"labels,omitempty"`
-	Annotations         map[string]string          `json:"annotations,omitempty"`
-	Selector            map[string]string          `json:"selector,omitempty"`
-	Containers          []ContainerInfo            `json:"containers,omitempty"`
+	Name                string                       `json:"name"`
+	Namespace           string                       `json:"namespace"`
+	UID                 string                       `json:"uid"`
+	Replicas            int32                        `json:"replicas"`
+	ReadyReplicas       int32                        `json:"readyReplicas"`
+	AvailableReplicas   int32                        `json:"availableReplicas"`
+	UnavailableReplicas int32                        `json:"unavailableReplicas"`
+	UpdatedReplicas     int32                        `json:"updatedReplicas"`
+	Strategy            string                       `json:"strategy"`
+	Labels              map[string]string            `json:"labels,omitempty"`
+	Annotations         map[string]string            `json:"annotations,omitempty"`
+	Selector            map[string]string            `json:"selector,omitempty"`
+	Containers          []ContainerInfo              `json:"containers,omitempty"`
 	Conditions          []appsv1.DeploymentCondition `json:"conditions,omitempty"`
-	CreatedAt           metav1.Time                `json:"createdAt"`
+	CreatedAt           metav1.Time                  `json:"createdAt"`
 }
 
 // ContainerInfo contains simplified container information
 type ContainerInfo struct {
-	Name      string            `json:"name"`
-	Image     string            `json:"image"`
-	Resources ResourceInfo      `json:"resources,omitempty"`
+	Name      string       `json:"name"`
+	Image     string       `json:"image"`
+	Resources ResourceInfo `json:"resources,omitempty"`
 }
 
 // ResourceInfo contains resource requests and limits
@@ -106,8 +106,8 @@ type CollectedData struct {
 	ReplicaSets         []ReplicaSetData         `json:"replicasets"`
 	CollectedAt         metav1.Time              `json:"collectedAt"`
 	// Delta sync flags
-	IsFullSync          bool                     `json:"isFullSync,omitempty"` // true for full sync, false for delta
-	IsDeltaSync         bool                     `json:"isDeltaSync,omitempty"` // true if only sending changes
+	IsFullSync  bool `json:"isFullSync,omitempty"`  // true for full sync, false for delta
+	IsDeltaSync bool `json:"isDeltaSync,omitempty"` // true if only sending changes
 }
 
 // ConvertServiceAccount converts k8s ServiceAccount to our data type
@@ -262,22 +262,22 @@ func ConvertDeployment(dep *appsv1.Deployment) DeploymentData {
 
 // ReplicaSetData represents collected ReplicaSet data
 type ReplicaSetData struct {
-	Name                string                     `json:"name"`
-	Namespace           string                     `json:"namespace"`
-	UID                 string                     `json:"uid"`
-	Replicas            int32                      `json:"replicas"`
-	ReadyReplicas       int32                      `json:"readyReplicas"`
-	AvailableReplicas   int32                      `json:"availableReplicas"`
-	FullyLabeledReplicas int32                     `json:"fullyLabeledReplicas"`
-	Labels              map[string]string          `json:"labels,omitempty"`
-	Annotations         map[string]string          `json:"annotations,omitempty"`
-	Selector            map[string]string          `json:"selector,omitempty"`
-	Containers          []ContainerInfo             `json:"containers,omitempty"`
-	Conditions          []appsv1.ReplicaSetCondition `json:"conditions,omitempty"`
-	OwnerKind           string                     `json:"ownerKind,omitempty"`
-	OwnerName           string                     `json:"ownerName,omitempty"`
-	OwnerUID            string                     `json:"ownerUid,omitempty"`
-	CreatedAt           metav1.Time                `json:"createdAt"`
+	Name                 string                       `json:"name"`
+	Namespace            string                       `json:"namespace"`
+	UID                  string                       `json:"uid"`
+	Replicas             int32                        `json:"replicas"`
+	ReadyReplicas        int32                        `json:"readyReplicas"`
+	AvailableReplicas    int32                        `json:"availableReplicas"`
+	FullyLabeledReplicas int32                        `json:"fullyLabeledReplicas"`
+	Labels               map[string]string            `json:"labels,omitempty"`
+	Annotations          map[string]string            `json:"annotations,omitempty"`
+	Selector             map[string]string            `json:"selector,omitempty"`
+	Containers           []ContainerInfo              `json:"containers,omitempty"`
+	Conditions           []appsv1.ReplicaSetCondition `json:"conditions,omitempty"`
+	OwnerKind            string                       `json:"ownerKind,omitempty"`
+	OwnerName            string                       `json:"ownerName,omitempty"`
+	OwnerUID             string                       `json:"ownerUid,omitempty"`
+	CreatedAt            metav1.Time                  `json:"createdAt"`
 }
 
 // ConvertReplicaSet converts k8s ReplicaSet to our data type
@@ -341,22 +341,21 @@ func ConvertReplicaSet(rs *appsv1.ReplicaSet) ReplicaSetData {
 	}
 
 	return ReplicaSetData{
-		Name:                rs.Name,
-		Namespace:           rs.Namespace,
-		UID:                 string(rs.UID),
-		Replicas:            replicas,
-		ReadyReplicas:       rs.Status.ReadyReplicas,
-		AvailableReplicas:   rs.Status.AvailableReplicas,
+		Name:                 rs.Name,
+		Namespace:            rs.Namespace,
+		UID:                  string(rs.UID),
+		Replicas:             replicas,
+		ReadyReplicas:        rs.Status.ReadyReplicas,
+		AvailableReplicas:    rs.Status.AvailableReplicas,
 		FullyLabeledReplicas: rs.Status.FullyLabeledReplicas,
-		Labels:              rs.Labels,
-		Annotations:         rs.Annotations,
-		Selector:            selector,
-		Containers:          containers,
-		Conditions:          rs.Status.Conditions,
-		OwnerKind:           ownerKind,
-		OwnerName:           ownerName,
-		OwnerUID:            ownerUID,
-		CreatedAt:           rs.CreationTimestamp,
+		Labels:               rs.Labels,
+		Annotations:          rs.Annotations,
+		Selector:             selector,
+		Containers:           containers,
+		Conditions:           rs.Status.Conditions,
+		OwnerKind:            ownerKind,
+		OwnerName:            ownerName,
+		OwnerUID:             ownerUID,
+		CreatedAt:            rs.CreationTimestamp,
 	}
 }
-

@@ -37,4 +37,3 @@ func Migration101_AddPodRuntimeMetricsNetDev(db *gorm.DB) error {
 	}
 	return nil
 }
-

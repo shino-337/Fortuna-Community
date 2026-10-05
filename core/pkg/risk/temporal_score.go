@@ -11,11 +11,11 @@ const (
 
 // TemporalSignals captures time-aware context for score adjustments.
 type TemporalSignals struct {
-	BurstEvents5m      int
+	BurstEvents5m       int
 	UniqueSignalTypes5m int
-	TrendDelta         float64
-	PersistenceMinutes int
-	InactivityMinutes  int
+	TrendDelta          float64
+	PersistenceMinutes  int
+	InactivityMinutes   int
 }
 
 // TemporalResult provides explainable temporal contributions.
@@ -147,17 +147,16 @@ func ComputeTemporalScore(baseScore float64, previousScore *float64, signals Tem
 	}
 
 	result := TemporalResult{
-		Burst:            math.Round(burst*1000) / 1000,
+		Burst:              math.Round(burst*1000) / 1000,
 		BurstEntropyFactor: math.Round(entropyFactor*1000) / 1000,
-		Trend:            math.Round(trend*1000) / 1000,
-		Persistence:      math.Round(persistence*1000) / 1000,
-		InactivityDecay:  math.Round(inactivity*1000) / 1000,
-		Multiplier:       math.Round(multiplier*1000) / 1000,
-		RawTemporalScore: math.Round(rawTemporal*100) / 100,
-		EmaSmoothedScore: math.Round(smoothed*100) / 100,
-		PreviousScore:    math.Round(prev*100) / 100,
-		UsedPrevious:     usedPrevious,
+		Trend:              math.Round(trend*1000) / 1000,
+		Persistence:        math.Round(persistence*1000) / 1000,
+		InactivityDecay:    math.Round(inactivity*1000) / 1000,
+		Multiplier:         math.Round(multiplier*1000) / 1000,
+		RawTemporalScore:   math.Round(rawTemporal*100) / 100,
+		EmaSmoothedScore:   math.Round(smoothed*100) / 100,
+		PreviousScore:      math.Round(prev*100) / 100,
+		UsedPrevious:       usedPrevious,
 	}
 	return result.EmaSmoothedScore, result
 }
-

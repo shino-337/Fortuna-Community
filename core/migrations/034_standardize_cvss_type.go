@@ -160,4 +160,3 @@ func Migration034_StandardizeCVSSType(db *gorm.DB) error {
 	log.Println("[Migration 034] ✅ Completed successfully")
 	return nil
 }
-

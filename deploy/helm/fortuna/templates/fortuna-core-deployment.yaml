@@ -1,0 +1,344 @@
+{{- if .Values.core.enabled }}
+{{- $ns := .Release.Namespace }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fortuna-core
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+spec:
+  selector:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
+    - name: grpc
+      port: 9090
+      targetPort: 9090
+      protocol: TCP
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fortuna-core
+  namespace: {{ $ns }}
+  labels:
+    app.kubernetes.io/name: fortuna
+    app.kubernetes.io/component: core
+spec:
+  strategy:
+    type: Recreate
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fortuna
+      app.kubernetes.io/component: core
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fortuna
+        app.kubernetes.io/component: core
+      {{- if .Values.core.metrics.enabled }}
+      annotations:
+        # Prometheus scrapes the pod directly; the metrics port is not on the Service.
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.core.metrics.port | quote }}
+        prometheus.io/path: /metrics
+      {{- end }}
+    spec:
+      serviceAccountName: fortuna-core
+      {{- include "fortuna.imagePullSecrets" . | nindent 6 }}
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      {{- with .Values.core.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.affinity }}
+      # Prefers control-plane nodes when they are schedulable, runs anywhere otherwise.
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.core.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+
+      # Avoid Core starting migrations before Postgres/NATS accept connections (reduces CrashLoopBackOff race).
+      initContainers:
+        - name: wait-for-postgres
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for PostgreSQL at postgres.{{ $ns }}.svc.cluster.local:5432 ..."
+              i=0
+              while ! nc -z postgres.{{ $ns }}.svc.cluster.local 5432; do
+                i=$((i + 1))
+                if [ "$i" -ge 600 ]; then echo "timeout after ${i}s"; exit 1; fi
+                sleep 1
+              done
+              echo "PostgreSQL is reachable."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+        - name: wait-for-nats
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              echo "Waiting for NATS at nats-client.{{ $ns }}.svc.cluster.local:4222 ..."
+              i=0
+              while ! nc -z nats-client.{{ $ns }}.svc.cluster.local 4222; do
+                i=$((i + 1))
+                if [ "$i" -ge 600 ]; then echo "timeout after ${i}s"; exit 1; fi
+                sleep 1
+              done
+              echo "NATS is reachable."
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 65534
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+      volumes:
+        # mTLS certificates
+        - name: fortuna-core-server-tls
+          secret:
+            secretName: fortuna-core-tls
+        - name: fortuna-ca-cert
+          secret:
+            secretName: fortuna-ca-cert
+        - name: webhook-certs
+          secret:
+            secretName: fortuna-webhook-tls
+
+      containers:
+        - name: core
+          image: {{ include "fortuna.image" (dict "root" . "image" .Values.core.image) }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: grpc
+              containerPort: 9090
+              protocol: TCP
+            {{- if .Values.core.metrics.enabled }}
+            - name: metrics
+              containerPort: {{ .Values.core.metrics.port }}
+              protocol: TCP
+            {{- end }}
+
+          env:
+            # Database
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: database-url
+
+            # NATS
+            - name: NATS_ENDPOINT
+              value: "nats://nats-client.{{ $ns }}.svc.cluster.local:4222"
+
+            # Ports
+            - name: HTTP_PORT
+              value: "8080"
+            - name: GRPC_PORT
+              value: "9090"
+
+            # mTLS Configuration
+            - name: TLS_ENABLED
+              value: "true"
+            - name: TLS_CERT_PATH
+              value: "/etc/fortuna/tls/server/tls.crt"
+            - name: TLS_KEY_PATH
+              value: "/etc/fortuna/tls/server/tls.key"
+            - name: TLS_CA_CERT_PATH
+              value: "/etc/fortuna/ca-cert/ca.crt"
+
+            # Webhook TLS Configuration
+            - name: WEBHOOK_TLS_CERT_PATH
+              value: "/etc/webhook/certs/tls.crt"
+            - name: WEBHOOK_TLS_KEY_PATH
+              value: "/etc/webhook/certs/tls.key"
+
+            # Logging
+            - name: LOG_LEVEL
+              value: {{ .Values.core.logLevel | quote }}
+            # Risk context multiplier tier (dev|staging|prod).
+            - name: FORTUNA_RISK_CONTEXT_TIER
+              value: {{ .Values.core.riskContextTier | quote }}
+            # Seed capability_metadata + promotion_rules (Capability Catalog & PCE). Required for catalog to show data.
+            - name: FORTUNA_ENABLE_SEED_DATA
+              value: "true"
+
+            # Auth
+            - name: AUTH_ENABLED
+              value: "true"
+            # Browser WebSocket clients cannot set Authorization headers during the
+            # handshake, so local dashboard WS streams authenticate via ?token=.
+            - name: FORTUNA_ALLOW_AUTH_QUERY_TOKEN
+              value: "true"
+            {{- if .Values.core.metrics.enabled }}
+            # Prometheus /metrics on a separate, unauthenticated listener that the
+            # Service does not expose.
+            - name: FORTUNA_METRICS_ADDR
+              value: ":{{ .Values.core.metrics.port }}"
+            {{- end }}
+            # Proxies allowed to set X-Forwarded-For / X-Real-IP (the dashboard nginx
+            # runs on the pod network). Without this, every dashboard user would share
+            # one login rate-limit bucket; with gin's default (trust everyone), clients
+            # could spoof their IP. Narrow this to your pod CIDR where possible.
+            - name: FORTUNA_TRUSTED_PROXIES
+              value: {{ .Values.core.trustedProxies | quote }}
+            - name: FORTUNA_WS_ALLOWED_ORIGINS
+              value: {{ .Values.core.wsAllowedOrigins | quote }}
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: jwt-secret
+                  optional: false
+            - name: FORTUNA_INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: ingest-token
+                  optional: false
+            # Encrypts process command lines at rest (base64 of 32 bytes). Without it Core
+            # logs a warning and stores plaintext; an invalid value stops Core. Previous
+            # keys (comma-separated) keep rows written before a rotation readable.
+            - name: POD_DETAIL_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: pod-detail-encryption-key
+                  optional: true
+            - name: POD_DETAIL_ENCRYPTION_KEY_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: pod-detail-encryption-key-previous
+                  optional: true
+            # Network queue anomaly tuning (core-side baseline detector).
+            - name: POD_DETAIL_NET_SPIKE_WINDOW_MINUTES
+              value: "30"
+            - name: POD_DETAIL_NET_SPIKE_MIN_SAMPLES
+              value: "5"
+            - name: POD_DETAIL_NET_SPIKE_MULTIPLIER
+              value: "4.0"
+            - name: POD_DETAIL_NET_SPIKE_MIN_QUEUE_BYTES
+              value: "4096"
+            - name: POD_DETAIL_NET_SPIKE_COOLDOWN_MINUTES
+              value: "10"
+            # Hybrid admission gate: only escalate block in sensitive namespaces when risk threshold reached.
+            - name: ADMISSION_RISK_GATE_ENABLED
+              value: {{ .Values.core.admission.riskGateEnabled | quote }}
+            - name: ADMISSION_RISK_SENSITIVE_NAMESPACES
+              value: {{ .Values.core.admission.sensitiveNamespaces | quote }}
+            - name: ADMISSION_RISK_BLOCK_THRESHOLD
+              value: {{ .Values.core.admission.blockThreshold | quote }}
+            - name: ADMISSION_RISK_GATE_MODE
+              value: {{ .Values.core.admission.mode | quote }}
+            # Bootstrap admin, created by migrations. The password comes from fortuna-secrets.
+            - name: FORTUNA_ADMIN_USERNAME
+              value: {{ .Values.core.admin.username | quote }}
+            - name: FORTUNA_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: admin-password
+            - name: FORTUNA_BOOTSTRAP_DEFAULT_CREDENTIAL
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: bootstrap-default-credential
+                  optional: true
+            - name: FORTUNA_ADMIN_EMAIL
+              value: {{ .Values.core.admin.email | quote }}
+
+            # PCE Scheduler
+            - name: PCE_SCHEDULER_ENABLED
+              value: {{ .Values.core.pceScheduler.enabled | quote }}
+            - name: PCE_SCHEDULER_INTERVAL
+              value: {{ .Values.core.pceScheduler.interval | quote }}
+            {{- with .Values.core.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+          volumeMounts:
+            - name: fortuna-core-server-tls
+              mountPath: /etc/fortuna/tls/server
+              readOnly: true
+            - name: fortuna-ca-cert
+              mountPath: /etc/fortuna/ca-cert
+              readOnly: true
+            - name: webhook-certs
+              mountPath: /etc/webhook/certs
+              readOnly: true
+
+          resources:
+            {{- toYaml .Values.core.resources | nindent 12 }}
+
+          # Non-root, no capabilities. The root filesystem stays writable because
+          # rules created through the API are written under /app/rules.
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: false
+            capabilities:
+              drop:
+                - ALL
+
+          # Long migration chains on cold DB can exceed default liveness window; startupProbe gates liveness/readiness until HTTP is up.
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 60
+
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+{{- end }}

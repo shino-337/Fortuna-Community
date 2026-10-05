@@ -71,4 +71,3 @@ func keysOf(m map[string]cveCacheEntry) []string {
 	}
 	return out
 }
-

@@ -8,13 +8,13 @@ import (
 	"strings"
 	"time"
 
-	corev1 "k8s.io/api/core/v1"
 	"google.golang.org/protobuf/types/known/timestamppb"
+	corev1 "k8s.io/api/core/v1"
 
-	"github.com/google/go-containerregistry/pkg/name"
-	pb "github.com/fortuna/api/proto/agent"
 	"github.com/fortuna/agent/internal/client"
 	"github.com/fortuna/agent/pkg/sbom/extractor"
+	pb "github.com/fortuna/api/proto/agent"
+	"github.com/google/go-containerregistry/pkg/name"
 )
 
 // Processor handles SBOM generation for pods on the local node
@@ -140,7 +140,7 @@ func (p *Processor) processContainer(ctx context.Context, pod *corev1.Pod, conta
 		return fmt.Errorf("Core rejected SBOM: %s", resp.Message)
 	}
 
-	p.logger.Printf("✅ SBOM sent to Core: sbom_id=%s message=%s", 
+	p.logger.Printf("✅ SBOM sent to Core: sbom_id=%s message=%s",
 		resp.SbomId, resp.Message)
 	return nil
 }

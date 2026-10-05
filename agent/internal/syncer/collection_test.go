@@ -79,7 +79,6 @@ func TestInventoryCollectionAgentReportsEmptyAndFailure(t *testing.T) {
 	}
 }
 
-
 func TestInventoryCollectionRecordsListStartBeforeResponse(t *testing.T) {
 	client := fake.NewSimpleClientset()
 	entered := make(chan struct{})

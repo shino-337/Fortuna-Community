@@ -2,6 +2,7 @@ package config
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -56,9 +57,12 @@ type Config struct {
 	PCESchedulerEnabled  bool
 	PCESchedulerInterval time.Duration
 
-	// Pod Detail – encryption at-rest for process command/binary_path (Phase 4.2).
-	// Base64-encoded 32-byte key. Empty = no encryption. Set POD_DETAIL_ENCRYPTION_KEY (env) or in config file before deploy.
-	PodDetailEncryptionKey string
+	// Pod Detail encryption at rest for process command, binary path and working dir.
+	// Base64 of 32 bytes. Empty disables encryption (Core logs a warning); an invalid
+	// value stops Core from starting. Previous keys (comma-separated) still decrypt
+	// rows written before a rotation.
+	PodDetailEncryptionKey          string
+	PodDetailEncryptionPreviousKeys string
 
 	// Per-cluster rate limit (Finding #6). When enabled, sync and SBOM ingest are limited per cluster_id.
 	RateLimitPerClusterEnabled   bool
@@ -99,6 +103,7 @@ func Load(configPath string) (*Config, error) {
 		PCESchedulerEnabled:             getEnv("PCE_SCHEDULER_ENABLED", "true") == "true",
 		PCESchedulerInterval:            parseDuration(getEnv("PCE_SCHEDULER_INTERVAL", "6h")),
 		PodDetailEncryptionKey:          getEnv("POD_DETAIL_ENCRYPTION_KEY", ""),
+		PodDetailEncryptionPreviousKeys: getEnv("POD_DETAIL_ENCRYPTION_KEY_PREVIOUS", ""),
 		RateLimitPerClusterEnabled:      getEnv("RATE_LIMIT_PER_CLUSTER_ENABLED", "true") == "true",
 		RateLimitSyncPerClusterRPS:      parseFloat(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_RPS", "10"), 10),
 		RateLimitSyncPerClusterBurst:    parseIntEnv(getEnv("RATE_LIMIT_SYNC_PER_CLUSTER_BURST", "20"), 20),
@@ -127,6 +132,9 @@ func Load(configPath string) (*Config, error) {
 	} else if len(cfg.JWTSecret) < 32 && !devMode {
 		return nil, fmt.Errorf("JWT_SECRET or FORTUNA_JWT_SECRET must be at least 32 bytes; current length %d", len(cfg.JWTSecret))
 	}
+	if _, err := ParsePodDetailEncryptionKeys(cfg.PodDetailEncryptionKey, cfg.PodDetailEncryptionPreviousKeys); err != nil {
+		return nil, err
+	}
 	if cfg.AgentCredentialRegistryPath != "" {
 		log.Printf("[Config] FORTUNA_AGENT_CREDENTIAL_REGISTRY is set: HTTP agent/runtime ingest uses scoped agent credentials; shared-token fallback is disabled for scoped ingest routes")
 	} else if cfg.IngestToken != "" {
@@ -146,6 +154,40 @@ func jwtSecretFromEnv() string {
 		return v
 	}
 	return strings.TrimSpace(os.Getenv("FORTUNA_JWT_SECRET"))
+}
+
+// ParsePodDetailEncryptionKeys decodes the current key and the comma-separated
+// previous keys. Each must be base64 of exactly 32 bytes. An empty current key
+// means encryption is off. Keys that are set but unusable are an error, so a typo
+// never silently turns encryption off.
+func ParsePodDetailEncryptionKeys(current, previous string) ([][]byte, error) {
+	current = strings.TrimSpace(current)
+	previous = strings.TrimSpace(previous)
+	if current == "" {
+		if previous != "" {
+			return nil, fmt.Errorf("POD_DETAIL_ENCRYPTION_KEY_PREVIOUS is set but POD_DETAIL_ENCRYPTION_KEY is empty")
+		}
+		return nil, nil
+	}
+	values := []string{current}
+	for _, p := range strings.Split(previous, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			values = append(values, p)
+		}
+	}
+	keys := make([][]byte, 0, len(values))
+	for i, v := range values {
+		key, err := base64.StdEncoding.DecodeString(v)
+		if err != nil || len(key) != 32 {
+			name := "POD_DETAIL_ENCRYPTION_KEY"
+			if i > 0 {
+				name = fmt.Sprintf("POD_DETAIL_ENCRYPTION_KEY_PREVIOUS entry %d", i)
+			}
+			return nil, fmt.Errorf("%s must be base64 of exactly 32 bytes (generate one with: openssl rand -base64 32)", name)
+		}
+		keys = append(keys, key)
+	}
+	return keys, nil
 }
 
 func envEnabled(key string) bool {

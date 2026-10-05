@@ -19,13 +19,13 @@ type MitreCoverageItem struct {
 
 // AttackChainMitreSummary correlates path-derived MITRE IDs with runtime observations.
 type AttackChainMitreSummary struct {
-	PathMitreDistinct      int      `json:"path_mitre_distinct"`
-	RuntimeMitreDistinct   int      `json:"runtime_mitre_distinct"`
-	MatchedMitreIDs        []string `json:"matched_mitre_ids"`
-	AlignmentRatio         float64  `json:"alignment_ratio"`
-	ObservingPodCount      int      `json:"observing_pod_count"`
+	PathMitreDistinct    int      `json:"path_mitre_distinct"`
+	RuntimeMitreDistinct int      `json:"runtime_mitre_distinct"`
+	MatchedMitreIDs      []string `json:"matched_mitre_ids"`
+	AlignmentRatio       float64  `json:"alignment_ratio"`
+	ObservingPodCount    int      `json:"observing_pod_count"`
 	// CorrelationPrecision = matched_events_for_steps / max(1, runtime_events_considered)
-	CorrelationPrecision   float64 `json:"correlation_precision,omitempty"`
-	RuntimeEventsConsidered int    `json:"runtime_events_considered,omitempty"`
-	RuntimeEventsMatched    int    `json:"runtime_events_matched,omitempty"`
+	CorrelationPrecision    float64 `json:"correlation_precision,omitempty"`
+	RuntimeEventsConsidered int     `json:"runtime_events_considered,omitempty"`
+	RuntimeEventsMatched    int     `json:"runtime_events_matched,omitempty"`
 }

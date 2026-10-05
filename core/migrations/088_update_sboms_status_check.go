@@ -51,4 +51,3 @@ CHECK (status IN ('pending','finalized','complete','partial','failed'))
 	log.Println("[Migration 088] Completed sboms.status check constraint update")
 	return nil
 }
-

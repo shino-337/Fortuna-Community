@@ -189,7 +189,6 @@ func TestIdleWebSocketRevocationAndTokenDeadline(t *testing.T) {
 	}
 }
 
-
 func TestWSAuthorizationBindsDuplicatePodUIDToHandshakeCluster(t *testing.T) {
 	db, u, sid := wsSessionFixture(t)
 	if err := db.Create(&models.Pod{UID: "dup", ClusterID: "a", Name: "dup-a", Namespace: "default"}).Error; err != nil {

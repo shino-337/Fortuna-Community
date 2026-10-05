@@ -15,12 +15,12 @@ func validRuntimeManifest(now time.Time) RuntimeProducerManifest {
 	}
 	SortRuntimeProducerDeclarations(producers)
 	return RuntimeProducerManifest{
-		Version: RuntimeProducerManifestVersion,
-		SessionID: "session-contract-000001",
+		Version:          RuntimeProducerManifestVersion,
+		SessionID:        "session-contract-000001",
 		SessionStartedAt: now.Add(-time.Second),
-		ReportedAt: now,
-		AgentState: RuntimeAgentRunning,
-		Producers: producers,
+		ReportedAt:       now,
+		AgentState:       RuntimeAgentRunning,
+		Producers:        producers,
 	}
 }
 
@@ -65,13 +65,13 @@ func TestRuntimeProducerManifestRequiresCompleteFailClosedRegistry(t *testing.T)
 func TestRuntimeCoverageRequiresExecutionSession(t *testing.T) {
 	now := time.Now().UTC()
 	c := RuntimeCoverage{
-		Version: RuntimeCoverageVersion,
-		ID: "coverage-contract-00001",
-		ProducerID: "falco",
-		SourceKind: RuntimeSourceFalco,
-		Status: "complete",
+		Version:     RuntimeCoverageVersion,
+		ID:          "coverage-contract-00001",
+		ProducerID:  "falco",
+		SourceKind:  RuntimeSourceFalco,
+		Status:      "complete",
 		WindowStart: now.Add(-time.Second),
-		WindowEnd: now,
+		WindowEnd:   now,
 	}
 	if err := c.Validate(now); err == nil {
 		t.Fatal("coverage without session was accepted")

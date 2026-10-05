@@ -71,4 +71,3 @@ END$m084$;
 	log.Println("[Migration 084] Completed SBOM component trust fields")
 	return nil
 }
-

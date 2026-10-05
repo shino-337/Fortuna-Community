@@ -117,4 +117,3 @@ func (sm *ScopeMatcher) matchesLabels(selectorsJSON string, resourceLabels map[s
 
 	return true
 }
-

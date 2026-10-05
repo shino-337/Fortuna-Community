@@ -17,9 +17,9 @@ type InventoryCollection struct {
 	ObservedAt    time.Time `json:"observedAt"`
 	ReceivedAt    time.Time `json:"receivedAt"`
 	PayloadSHA256 string    `gorm:"size:64" json:"payloadSha256"`
-	Counts         string    `gorm:"type:text" json:"counts"`
+	Counts        string    `gorm:"type:text" json:"counts"`
 	KindStartedAt string    `gorm:"type:text" json:"kindStartedAt"`
-	RoleDigests    string    `gorm:"type:text" json:"-"`
+	RoleDigests   string    `gorm:"type:text" json:"-"`
 	FailureStage  string    `json:"failureStage,omitempty"`
 }
 

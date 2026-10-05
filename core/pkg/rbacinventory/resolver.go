@@ -11,9 +11,9 @@ import (
 
 // These are synchronized RBAC grants, not a live Kubernetes authorization decision.
 type ServiceAccountPermissions struct {
-	ServiceAccountID  uint   `json:"serviceAccountId"`
-	ServiceAccountUID string `json:"serviceAccountUid"`
-	ClusterID         string `json:"clusterId"`
+	ServiceAccountID    uint                           `json:"serviceAccountId"`
+	ServiceAccountUID   string                         `json:"serviceAccountUid"`
+	ClusterID           string                         `json:"clusterId"`
 	RoleBindings        []RoleBindingPermission        `json:"roleBindings"`
 	ClusterRoleBindings []ClusterRoleBindingPermission `json:"clusterRoleBindings"`
 	EffectiveRules      []Rule                         `json:"effectiveRules"`

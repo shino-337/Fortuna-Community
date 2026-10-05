@@ -29,57 +29,57 @@ type AggregatedFactor struct {
 
 // InteractionCombo describes a detected toxic combination and its computed boost.
 type InteractionCombo struct {
-	Name           string  `json:"name"`
-	Multiplier     float64 `json:"multiplier"`
-	RelatedDimSum  float64 `json:"related_dim_sum"`
-	ComputedBoost  float64 `json:"computed_boost"`
+	Name          string  `json:"name"`
+	Multiplier    float64 `json:"multiplier"`
+	RelatedDimSum float64 `json:"related_dim_sum"`
+	ComputedBoost float64 `json:"computed_boost"`
 }
 
 // AxisScore represents one of the three risk axes in the multiplicative model.
 // Risk = 100 × Exploitability^α × Impact^β × Reachability^γ
 type AxisScore struct {
-	Name            string             `json:"name"`
-	RawScore        float64            `json:"raw_score"`
-	NormScore       float64            `json:"norm_score"`
-	BaseNormScore   float64            `json:"base_norm_score"`
-	InjectionBoost  float64            `json:"injection_boost"`
-	InjectionK      float64            `json:"injection_k"`
-	MaxScore        float64            `json:"max_score"`
-	Exponent        float64            `json:"exponent"`
-	Components      map[string]float64 `json:"components"`
+	Name           string             `json:"name"`
+	RawScore       float64            `json:"raw_score"`
+	NormScore      float64            `json:"norm_score"`
+	BaseNormScore  float64            `json:"base_norm_score"`
+	InjectionBoost float64            `json:"injection_boost"`
+	InjectionK     float64            `json:"injection_k"`
+	MaxScore       float64            `json:"max_score"`
+	Exponent       float64            `json:"exponent"`
+	Components     map[string]float64 `json:"components"`
 }
 
 // AggregationResult provides score breakdown for explainability.
 type AggregationResult struct {
-	Factors            []RiskFactor            `json:"factors"`
-	AggregatedFactors  []AggregatedFactor      `json:"aggregated_factors,omitempty"`
-	CategorySums       map[string]float64      `json:"category_sums"`
-	CategoryCaps       map[string]float64      `json:"category_caps"`
-	PreCapScoreRaw     float64                 `json:"pre_cap_score_raw"`
-	PostCapScoreRaw    float64                 `json:"post_cap_score_raw"`
-	CrossFactorBoost   float64                 `json:"cross_factor_boost"`
-	TotalScoreRaw      float64                 `json:"total_score_raw"`
-	TotalScore         float64                 `json:"total_score"`
-	ExplanationSummary string                  `json:"explanation_summary,omitempty"`
-	RecommendedActions []string                `json:"recommended_actions,omitempty"`
+	Factors            []RiskFactor             `json:"factors"`
+	AggregatedFactors  []AggregatedFactor       `json:"aggregated_factors,omitempty"`
+	CategorySums       map[string]float64       `json:"category_sums"`
+	CategoryCaps       map[string]float64       `json:"category_caps"`
+	PreCapScoreRaw     float64                  `json:"pre_cap_score_raw"`
+	PostCapScoreRaw    float64                  `json:"post_cap_score_raw"`
+	CrossFactorBoost   float64                  `json:"cross_factor_boost"`
+	TotalScoreRaw      float64                  `json:"total_score_raw"`
+	TotalScore         float64                  `json:"total_score"`
+	ExplanationSummary string                   `json:"explanation_summary,omitempty"`
+	RecommendedActions []string                 `json:"recommended_actions,omitempty"`
 	TopContributors    []map[string]interface{} `json:"top_contributors,omitempty"`
 
-	InteractionCombos  []InteractionCombo      `json:"interaction_combos,omitempty"`
-	ActiveDimCount     int                     `json:"active_dim_count"`
-	TotalDimCount      int                     `json:"total_dim_count"`
-	DimNormMultiplier  float64                 `json:"dim_norm_multiplier"`
-	ContextMultiplier  float64                 `json:"context_multiplier"`
+	InteractionCombos []InteractionCombo `json:"interaction_combos,omitempty"`
+	ActiveDimCount    int                `json:"active_dim_count"`
+	TotalDimCount     int                `json:"total_dim_count"`
+	DimNormMultiplier float64            `json:"dim_norm_multiplier"`
+	ContextMultiplier float64            `json:"context_multiplier"`
 
-	Axes             map[string]AxisScore `json:"axes,omitempty"`
-	ComboAmplifier   float64             `json:"combo_amplifier"`
-	BaseRisk         float64             `json:"base_risk"`
-	ThreatCore       float64             `json:"threat_core"`
-	ThreatAmplifierRaw float64           `json:"threat_amplifier_raw"`
-	ThreatAmplifier  float64             `json:"threat_amplifier"`
-	ComboThreatBoost float64             `json:"combo_threat_boost,omitempty"`
-	MaxThreatAmplifier float64           `json:"max_threat_amplifier"`
-	FinalFormula     string              `json:"final_formula,omitempty"`
-	OverridesApplied []string            `json:"overrides_applied,omitempty"`
+	Axes               map[string]AxisScore `json:"axes,omitempty"`
+	ComboAmplifier     float64              `json:"combo_amplifier"`
+	BaseRisk           float64              `json:"base_risk"`
+	ThreatCore         float64              `json:"threat_core"`
+	ThreatAmplifierRaw float64              `json:"threat_amplifier_raw"`
+	ThreatAmplifier    float64              `json:"threat_amplifier"`
+	ComboThreatBoost   float64              `json:"combo_threat_boost,omitempty"`
+	MaxThreatAmplifier float64              `json:"max_threat_amplifier"`
+	FinalFormula       string               `json:"final_formula,omitempty"`
+	OverridesApplied   []string             `json:"overrides_applied,omitempty"`
 }
 
 // RiskAggregationEngine normalizes factors and computes final score.
@@ -107,14 +107,14 @@ var DefaultSourceConfidence = map[string]float64{
 // Capability and runtime are elevated (actionable execution power);
 // vulnerability is slightly reduced (noise-prone, scan-dependent).
 var DefaultDimensionWeights = map[string]float64{
-	"capability":  1.20,
-	"runtime":     1.20,
-	"attack_path": 1.10,
-	"rbac_policy": 1.00,
-	"exposure":    1.00,
-	"blast_radius":1.00,
-	"vulnerability":0.90,
-	"interaction": 1.00,
+	"capability":    1.20,
+	"runtime":       1.20,
+	"attack_path":   1.10,
+	"rbac_policy":   1.00,
+	"exposure":      1.00,
+	"blast_radius":  1.00,
+	"vulnerability": 0.90,
+	"interaction":   1.00,
 }
 
 func NewRiskAggregationEngine(categoryCaps map[string]float64) *RiskAggregationEngine {
@@ -178,20 +178,20 @@ func softCap(x, cap float64) float64 {
 // Tri-axial multiplicative model parameters.
 // Risk = 100 × E^α × I^β × R^γ
 const (
-	alphaExploitability = 1.2
-	betaImpact          = 1.3
-	gammaReachability   = 1.1
-	axisFloor           = 0.15
-	axisFloorElevated   = 0.25
-	axisFloorHighSignal = 0.30
-	maxToxicBoost       = 20.0
-	maxComboAmplifier   = 1.8
-	maxThreatAmplifier  = 1.5
-	overrideSoftCapK    = 6.0
+	alphaExploitability  = 1.2
+	betaImpact           = 1.3
+	gammaReachability    = 1.1
+	axisFloor            = 0.15
+	axisFloorElevated    = 0.25
+	axisFloorHighSignal  = 0.30
+	maxToxicBoost        = 20.0
+	maxComboAmplifier    = 1.8
+	maxThreatAmplifier   = 1.5
+	overrideSoftCapK     = 6.0
 	baseWeightVuln       = 0.40
 	baseWeightCapability = 0.40
-	baseWeightExposure  = 0.10
-	baseWeightRBAC      = 0.05
+	baseWeightExposure   = 0.10
+	baseWeightRBAC       = 0.05
 )
 
 func (e *RiskAggregationEngine) getCap(category string) float64 {
@@ -254,10 +254,10 @@ func (e *RiskAggregationEngine) computeAxisScores(
 		exposureEnabler = 0
 	}
 	exploitComps := map[string]float64{
-		"vulnerability":      catNormValue(categorySums["vulnerability"], getMax("vulnerability")),
-		"runtime":            runtimeNorm,
-		"attack_path":        attackPathNorm,
-		"exposure_enabler":   exposureEnabler,
+		"vulnerability":    catNormValue(categorySums["vulnerability"], getMax("vulnerability")),
+		"runtime":          runtimeNorm,
+		"attack_path":      attackPathNorm,
+		"exposure_enabler": exposureEnabler,
 	}
 	exploitNorm := 0.6*exploitComps["vulnerability"] +
 		0.2*exploitComps["runtime"] +
@@ -279,7 +279,7 @@ func (e *RiskAggregationEngine) computeAxisScores(
 			0.45*exploitComps["attack_path"],
 	)
 	reachComps := map[string]float64{
-		"exposure":             catNormValue(categorySums["exposure"], getMax("exposure")),
+		"exposure":              catNormValue(categorySums["exposure"], getMax("exposure")),
 		"internal_reachability": internalReachNorm,
 	}
 	reachNorm := 0.45*reachComps["exposure"] + 0.55*reachComps["internal_reachability"]
@@ -538,40 +538,40 @@ func budgetAndCapAxisInjections(baseAxes, comboAxes, finalAxes map[string]AxisSc
 }
 
 type scoreOverrideRule struct {
-	name      string
-	axisBoost map[string]float64
+	name        string
+	axisBoost   map[string]float64
 	saturationK float64
-	detect    func(categorySums map[string]float64) bool
+	detect      func(categorySums map[string]float64) bool
 }
 
 var defaultOverrideRules = []scoreOverrideRule{
 	{
-		name:      "runtime_active_exploit",
-		axisBoost: map[string]float64{"exploitability": 0.30, "impact": 0.20, "reachability": 0.25},
+		name:        "runtime_active_exploit",
+		axisBoost:   map[string]float64{"exploitability": 0.30, "impact": 0.20, "reachability": 0.25},
 		saturationK: 7.0,
 		detect: func(cs map[string]float64) bool {
 			return cs["runtime"] >= 6
 		},
 	},
 	{
-		name:      "escape+host_access",
-		axisBoost: map[string]float64{"exploitability": 0.20, "impact": 0.30, "reachability": 0.25},
+		name:        "escape+host_access",
+		axisBoost:   map[string]float64{"exploitability": 0.20, "impact": 0.30, "reachability": 0.25},
 		saturationK: 6.0,
 		detect: func(cs map[string]float64) bool {
 			return cs["capability"] >= 5 && (cs["exposure"] >= 3 || cs["blast_radius"] >= 4)
 		},
 	},
 	{
-		name:      "cve_critical+exposure",
-		axisBoost: map[string]float64{"exploitability": 0.20, "reachability": 0.20},
+		name:        "cve_critical+exposure",
+		axisBoost:   map[string]float64{"exploitability": 0.20, "reachability": 0.20},
 		saturationK: 6.0,
 		detect: func(cs map[string]float64) bool {
 			return cs["vulnerability"] >= 5 && cs["exposure"] >= 2
 		},
 	},
 	{
-		name:      "latent_cve+dangerous_capability",
-		axisBoost: map[string]float64{"exploitability": 0.18, "impact": 0.22, "reachability": 0.12},
+		name:        "latent_cve+dangerous_capability",
+		axisBoost:   map[string]float64{"exploitability": 0.18, "impact": 0.22, "reachability": 0.12},
 		saturationK: 5.5,
 		detect: func(cs map[string]float64) bool {
 			return cs["vulnerability"] >= 4 && cs["capability"] >= 4
@@ -784,10 +784,10 @@ func (e *RiskAggregationEngine) ApplyCategoryCaps(in []RiskFactor) []RiskFactor 
 // interactionComboRule defines a toxic combination that acts as a multiplier
 // on related dimension scores, not a flat additive boost.
 type interactionComboRule struct {
-	name             string
-	multiplier       float64
+	name              string
+	multiplier        float64
 	relatedCategories []string
-	detect           func([]RiskFactor) bool
+	detect            func([]RiskFactor) bool
 }
 
 // applyCrossFactorBoost computes interaction boosts as multipliers on related
@@ -805,32 +805,32 @@ func (e *RiskAggregationEngine) applyCrossFactorBoost(in []RiskFactor, categoryS
 
 	rules := []interactionComboRule{
 		{
-			name:       "cve_critical+internet_exposed",
-			multiplier: 0.30,
+			name:              "cve_critical+internet_exposed",
+			multiplier:        0.30,
 			relatedCategories: []string{"vulnerability", "exposure"},
 			detect: func(_ []RiskFactor) bool {
 				return catActive["vulnerability"] && catActive["exposure"]
 			},
 		},
 		{
-			name:       "capability+runtime_threat",
-			multiplier: 0.40,
+			name:              "capability+runtime_threat",
+			multiplier:        0.40,
 			relatedCategories: []string{"capability", "runtime"},
 			detect: func(_ []RiskFactor) bool {
 				return catActive["capability"] && catActive["runtime"]
 			},
 		},
 		{
-			name:       "rbac_policy+exposure",
-			multiplier: 0.30,
+			name:              "rbac_policy+exposure",
+			multiplier:        0.30,
 			relatedCategories: []string{"rbac_policy", "exposure"},
 			detect: func(_ []RiskFactor) bool {
 				return catActive["rbac_policy"] && catActive["exposure"]
 			},
 		},
 		{
-			name:       "priv_esc+cluster_admin_path",
-			multiplier: 0.35,
+			name:              "priv_esc+cluster_admin_path",
+			multiplier:        0.35,
 			relatedCategories: []string{"capability", "attack_path"},
 			detect: func(_ []RiskFactor) bool {
 				return catActive["capability"] && catActive["attack_path"]
@@ -868,18 +868,18 @@ func (e *RiskAggregationEngine) applyCrossFactorBoost(in []RiskFactor, categoryS
 func (e *RiskAggregationEngine) ComputeScore(in []RiskFactor) AggregationResult {
 	if len(in) == 0 {
 		return AggregationResult{
-			CategorySums:     map[string]float64{},
-			CategoryCaps:     e.categoryCaps,
-			Axes:             map[string]AxisScore{},
-			ComboAmplifier:   1.0,
-			BaseRisk:         0.0,
-			ThreatCore:       0.0,
+			CategorySums:       map[string]float64{},
+			CategoryCaps:       e.categoryCaps,
+			Axes:               map[string]AxisScore{},
+			ComboAmplifier:     1.0,
+			BaseRisk:           0.0,
+			ThreatCore:         0.0,
 			ThreatAmplifierRaw: 0.0,
 			ThreatAmplifier:    0.0,
 			ComboThreatBoost:   0.0,
 			MaxThreatAmplifier: 0.0,
-			FinalFormula:     "score = 100 * base_risk * (1 + threat_amplifier) * context_multiplier",
-			ContextMultiplier: e.contextMultiplier,
+			FinalFormula:       "score = 100 * base_risk * (1 + threat_amplifier) * context_multiplier",
+			ContextMultiplier:  e.contextMultiplier,
 		}
 	}
 
@@ -1140,4 +1140,3 @@ func (e *RiskAggregationEngine) ComputeScore(in []RiskFactor) AggregationResult 
 		OverridesApplied:   overridesApplied,
 	}
 }
-

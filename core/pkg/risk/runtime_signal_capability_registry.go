@@ -5,11 +5,11 @@ import "strings"
 // Canonical logical capability IDs (spec III). Physical scoring/CKDB rows may use
 // ESC_* / ID_TOKEN_POD; LogicalID documents the spec name where it differs.
 type SignalCapabilityBinding struct {
-	CapabilityID     string // persisted / merged into pod capability scoring ID
-	LogicalID        string // spec label for explainability (optional)
-	Scope            string // pod | container | node | cluster
-	BaseState        string // confirmed | exploited — gated by confidence + corroboration
-	StrongClaim      bool   // if true, corroboration not required for BaseState exploited
+	CapabilityID     string  // persisted / merged into pod capability scoring ID
+	LogicalID        string  // spec label for explainability (optional)
+	Scope            string  // pod | container | node | cluster
+	BaseState        string  // confirmed | exploited — gated by confidence + corroboration
+	StrongClaim      bool    // if true, corroboration not required for BaseState exploited
 	ExploitConfFloor float64 // min signal confidence to allow exploited (0 = use global threshold)
 }
 

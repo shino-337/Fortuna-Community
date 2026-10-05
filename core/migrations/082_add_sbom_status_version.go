@@ -75,4 +75,3 @@ SELECT EXISTS (
 	log.Println("[Migration 082] Completed adding status and version columns to sboms table")
 	return nil
 }
-

@@ -1,0 +1,16 @@
+# Values that render the plain manifests in deploy/ (scripts/build/render-manifests.sh).
+# Secrets and certificates are created by the install scripts, not by these files.
+manifestMode: raw
+image:
+  tag: latest
+secrets:
+  create: false
+tls:
+  generate: false
+core:
+  externalService:
+    enabled: true
+  webhook:
+    enabled: true
+  riskEvaluationCronJob:
+    enabled: true

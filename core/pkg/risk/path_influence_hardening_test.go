@@ -11,9 +11,9 @@ import (
 
 func TestComputePathInfluence_ProgressSaturationMonotonic(t *testing.T) {
 	path := models.AttackPath{
-		Nodes:      `[{"id":"step:p:RECON","type":"attack_step","properties":{"stepId":"RECON"}},{"id":"step:p:CRED_ACCESS","type":"attack_step","properties":{"stepId":"CRED_ACCESS"}}]`,
-		TotalRisk:  8,
-		Length:     2,
+		Nodes:       `[{"id":"step:p:RECON","type":"attack_step","properties":{"stepId":"RECON"}},{"id":"step:p:CRED_ACCESS","type":"attack_step","properties":{"stepId":"CRED_ACCESS"}}]`,
+		TotalRisk:   8,
+		Length:      2,
 		Description: "LATERAL_PATH test",
 	}
 	signalMap := map[string][]string{
@@ -66,9 +66,9 @@ func TestLoadRuntimeSignalStepMappingsWithMeta_HashStableOnReorder(t *testing.T)
 func TestComputePathInfluence_InjectScaleByStrength(t *testing.T) {
 	signalMap := map[string][]string{"S1": {"EXEC"}}
 	weak := models.AttackPath{
-		Nodes:      `[{"id":"step:p:EXEC","type":"attack_step","properties":{"stepId":"EXEC"}}]`,
-		TotalRisk:  2.0,
-		Length:     1,
+		Nodes:       `[{"id":"step:p:EXEC","type":"attack_step","properties":{"stepId":"EXEC"}}]`,
+		TotalRisk:   2.0,
+		Length:      1,
 		Description: "LATERAL_PATH weak",
 	}
 	strong := weak
@@ -79,4 +79,3 @@ func TestComputePathInfluence_InjectScaleByStrength(t *testing.T) {
 		t.Fatalf("expected strong inject scale > weak, weak=%v strong=%v", piWeak.InjectScale, piStrong.InjectScale)
 	}
 }
-

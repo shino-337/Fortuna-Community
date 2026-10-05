@@ -92,7 +92,6 @@ func TestRequirePodUIDClusterScopeDoesNotDiscloseAmbiguousClustersToRestrictedUs
 	}
 }
 
-
 func TestRequirePodUIDClusterScopeAllowsVerifiedClusterDisambiguation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})

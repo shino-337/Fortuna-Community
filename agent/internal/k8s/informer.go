@@ -54,4 +54,3 @@ func (f *InformerFactory) GetFactory() informers.SharedInformerFactory {
 func (f *InformerFactory) Stop() {
 	close(f.stopCh)
 }
-

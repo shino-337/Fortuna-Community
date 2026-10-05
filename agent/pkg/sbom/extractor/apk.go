@@ -2,7 +2,6 @@ package extractor
 
 import (
 	"strings"
-
 )
 
 // ApkParser parses Alpine packages from /lib/apk/db/installed
@@ -32,7 +31,7 @@ func (p *ApkParser) Parse(fs *Filesystem) ([]Package, error) {
 	// ...
 
 	lines := strings.Split(string(content), "\n")
-		var currentPkg Package
+	var currentPkg Package
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -63,4 +62,3 @@ func (p *ApkParser) Parse(fs *Filesystem) ([]Package, error) {
 
 	return packages, nil
 }
-

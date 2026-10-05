@@ -13,15 +13,15 @@ import (
 )
 
 type PodRiskProfileDTO struct {
-	PodUID       string    `json:"podUid"`
-	Namespace    string    `json:"namespace"`
-	StaticRisk   int       `json:"staticRisk"`
-	RuntimeScore int       `json:"runtimeScore"`
-	TotalRisk    int       `json:"totalRisk"`
-	Capabilities []string  `json:"capabilities"`
-	LastEventAt *time.Time `json:"lastEventAt,omitempty"`
-	CreatedAt    time.Time `json:"createdAt"`
-	UpdatedAt    time.Time `json:"updatedAt"`
+	PodUID       string     `json:"podUid"`
+	Namespace    string     `json:"namespace"`
+	StaticRisk   int        `json:"staticRisk"`
+	RuntimeScore int        `json:"runtimeScore"`
+	TotalRisk    int        `json:"totalRisk"`
+	Capabilities []string   `json:"capabilities"`
+	LastEventAt  *time.Time `json:"lastEventAt,omitempty"`
+	CreatedAt    time.Time  `json:"createdAt"`
+	UpdatedAt    time.Time  `json:"updatedAt"`
 }
 
 type RuntimeEventDTO struct {
@@ -85,7 +85,7 @@ func GetPodRiskProfile(db *gorm.DB) gin.HandlerFunc {
 			RuntimeScore: profile.RuntimeScore,
 			TotalRisk:    totalRisk,
 			Capabilities: []string(profile.Capabilities),
-			LastEventAt: profile.LastEventAt,
+			LastEventAt:  profile.LastEventAt,
 			CreatedAt:    profile.CreatedAt,
 			UpdatedAt:    profile.UpdatedAt,
 		}
@@ -97,12 +97,13 @@ func GetPodRiskProfile(db *gorm.DB) gin.HandlerFunc {
 // GetPodRuntimeEvents returns runtime events for a specific pod UID.
 // GetPodRuntimeEvents is retained only for source compatibility.
 
-
 // GetRuntimeRiskSummary returns summary of runtime risks across all pods.
 func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scope, ok := resolveRiskGovernanceScope(db, c)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		var stats struct {
 			TotalPods           int64 `json:"totalPods"`
 			PodsWithRuntimeRisk int64 `json:"podsWithRuntimeRisk"`
@@ -116,20 +117,20 @@ func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 		profileBase = scope.apply(profileBase, "p.cluster_id")
 		profileBase.Count(&stats.TotalPods)
 		profileBase.Where("pod_risk_profiles.runtime_score > 0").Count(&stats.PodsWithRuntimeRisk)
-		
+
 		// Count by severity from pod_capabilities with runtime capabilities (active pods only)
 		scope.apply(db.Model(&models.PodCapability{}).
 			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL"), "p.cluster_id").
 			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
 			Where("pod_capabilities.severity = ?", "CRITICAL").
 			Count(&stats.CriticalCount)
-		
+
 		scope.apply(db.Model(&models.PodCapability{}).
 			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL"), "p.cluster_id").
 			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
 			Where("pod_capabilities.severity = ?", "HIGH").
 			Count(&stats.HighCount)
-		
+
 		scope.apply(db.Model(&models.PodCapability{}).
 			Joins("JOIN pods p ON p.cluster_id = pod_capabilities.cluster_id AND p.uid = pod_capabilities.pod_uid AND p.deleted_at IS NULL"), "p.cluster_id").
 			Where("pod_capabilities.capability_id IN (?)", []string{"ESC_RUNTIME_ACTIVE", "ESC_RUNTIME_PROBE"}).
@@ -144,7 +145,9 @@ func GetRuntimeRiskSummary(db *gorm.DB) gin.HandlerFunc {
 func GetTopRuntimeRisks(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		scope, ok := resolveRiskGovernanceScope(db, c)
-		if !ok { return }
+		if !ok {
+			return
+		}
 		limit := 10
 		if l := c.Query("limit"); l != "" {
 			if parsed, err := parseInt(l); err == nil && parsed > 0 && parsed <= 100 {
@@ -178,7 +181,7 @@ func GetTopRuntimeRisks(db *gorm.DB) gin.HandlerFunc {
 				RuntimeScore: p.RuntimeScore,
 				TotalRisk:    totalRisk,
 				Capabilities: []string(p.Capabilities),
-				LastEventAt: p.LastEventAt,
+				LastEventAt:  p.LastEventAt,
 				CreatedAt:    p.CreatedAt,
 				UpdatedAt:    p.UpdatedAt,
 			}

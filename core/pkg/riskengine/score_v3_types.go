@@ -7,29 +7,29 @@ package riskengine
 type ScoreDimension string
 
 const (
-	DimExposure           ScoreDimension = "exposure"
-	DimPrivilege          ScoreDimension = "privilege"
-	DimSoftwareRisk       ScoreDimension = "software_risk"
-	DimRuntimeThreat      ScoreDimension = "runtime_threat"
-	DimCapabilityRisk     ScoreDimension = "capability_risk"
-	DimConfidence         ScoreDimension = "confidence"
-	DimFreshness          ScoreDimension = "freshness"
+	DimExposure       ScoreDimension = "exposure"
+	DimPrivilege      ScoreDimension = "privilege"
+	DimSoftwareRisk   ScoreDimension = "software_risk"
+	DimRuntimeThreat  ScoreDimension = "runtime_threat"
+	DimCapabilityRisk ScoreDimension = "capability_risk"
+	DimConfidence     ScoreDimension = "confidence"
+	DimFreshness      ScoreDimension = "freshness"
 )
 
 // DimensionProvenance records why a dimension received a contribution (for explainability / golden tests).
 type DimensionProvenance struct {
 	Dimension ScoreDimension `json:"dimension"`
-	Reason    string         `json:"reason"`    // stable machine-readable code
-	Weight    float64        `json:"weight"`    // applied weight before normalization (0 ok)
+	Reason    string         `json:"reason"` // stable machine-readable code
+	Weight    float64        `json:"weight"` // applied weight before normalization (0 ok)
 	Detail    string         `json:"detail,omitempty"`
 }
 
 // ScoreV3Snapshot is a portable struct for future persistence on risk_scores / worker output.
 type ScoreV3Snapshot struct {
-	ScorerVersion string                 `json:"scorerVersion"`
-	Total         float64                `json:"total"`
+	ScorerVersion string                     `json:"scorerVersion"`
+	Total         float64                    `json:"total"`
 	ByDimension   map[ScoreDimension]float64 `json:"byDimension"`
-	Provenance    []DimensionProvenance  `json:"provenance"`
+	Provenance    []DimensionProvenance      `json:"provenance"`
 }
 
 // MergeDimensionScores sums non-negative dimension values into Total (MVP helper).

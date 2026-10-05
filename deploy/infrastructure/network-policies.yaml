@@ -1,3 +1,6 @@
+# Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
+# Do not edit: change the chart and re-render. CI fails when they differ.
+---
 # Restrict the data plane to Fortuna Core.
 #
 # NATS runs without client authentication, so any pod that can reach it could

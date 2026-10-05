@@ -47,7 +47,7 @@ func TestProducerLifecycleReporterRunningAndStopping(t *testing.T) {
 	}
 	// A repeated Stop and a late ticker-style running report cannot reopen or
 	// move the acknowledged stopping lifecycle.
-	
+
 	if err := r.Report(collection.RuntimeAgentRunning); err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +72,6 @@ func TestProducerLifecycleReporterRunningAndStopping(t *testing.T) {
 		t.Fatalf("stopping manifest invalid: %v", err)
 	}
 }
-
 
 func TestProducerLifecycleStopSerializesAfterInflightHeartbeat(t *testing.T) {
 	entered := make(chan struct{})

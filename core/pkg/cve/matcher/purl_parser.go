@@ -68,8 +68,8 @@ func ParsePURL(purlString string) (*PURL, error) {
 	}
 
 	purl := &PURL{
-		Type:    "pkg",
-		Version: version,
+		Type:       "pkg",
+		Version:    version,
 		Qualifiers: qualifiers,
 	}
 
@@ -94,6 +94,3 @@ func ParsePURL(purlString string) (*PURL, error) {
 
 	return purl, nil
 }
-
-
-

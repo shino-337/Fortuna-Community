@@ -29,11 +29,11 @@ func NewProducerLifecycleReporter(coreURL, sessionID string, sessionStartedAt ti
 	copyProducers := append([]collection.RuntimeProducerDeclaration(nil), producers...)
 	collection.SortRuntimeProducerDeclarations(copyProducers)
 	return &ProducerLifecycleReporter{
-		coreURL: strings.TrimRight(coreURL, "/"),
-		sessionID: strings.TrimSpace(sessionID),
+		coreURL:          strings.TrimRight(coreURL, "/"),
+		sessionID:        strings.TrimSpace(sessionID),
 		sessionStartedAt: sessionStartedAt.UTC(),
-		producers: copyProducers,
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		producers:        copyProducers,
+		httpClient:       &http.Client{Timeout: 10 * time.Second},
 	}
 }
 
@@ -63,12 +63,12 @@ func (r *ProducerLifecycleReporter) Report(agentState string) error {
 		}
 	}
 	manifest := collection.RuntimeProducerManifest{
-		Version: collection.RuntimeProducerManifestVersion,
-		SessionID: r.sessionID,
+		Version:          collection.RuntimeProducerManifestVersion,
+		SessionID:        r.sessionID,
 		SessionStartedAt: r.sessionStartedAt,
-		ReportedAt: time.Now().UTC(),
-		AgentState: agentState,
-		Producers: producers,
+		ReportedAt:       time.Now().UTC(),
+		AgentState:       agentState,
+		Producers:        producers,
 	}
 	body, err := json.Marshal(manifest)
 	if err != nil {

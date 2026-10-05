@@ -1,0 +1,26 @@
+Fortuna {{ .Chart.AppVersion }} is installed in namespace {{ .Release.Namespace }}.
+
+Wait for Core (migrations can take a few minutes on a new database):
+  kubectl -n {{ .Release.Namespace }} rollout status deploy/fortuna-core --timeout=10m
+
+{{- if .Values.dashboard.enabled }}
+
+Open the dashboard:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/fortuna-dashboard 8081:{{ .Values.dashboard.service.port }}
+  then browse to http://localhost:8081
+{{- end }}
+
+Sign in as "{{ .Values.core.admin.username }}". The password is in the fortuna-secrets Secret:
+  kubectl -n {{ .Release.Namespace }} get secret fortuna-secrets -o jsonpath='{.data.admin-password}' | base64 -d; echo
+{{- if and .Values.tls.generate (eq .Values.manifestMode "helm") }}
+
+The generated mTLS certificates are valid for {{ .Values.tls.validityDays }} days and are kept on
+upgrade. To renew them, delete fortuna-ca-cert, fortuna-core-tls, fortuna-agent-tls and
+fortuna-webhook-tls, then run "helm upgrade": this issues a new CA, so Agents in other
+clusters need the new certificates too.
+{{- end }}
+{{- if not .Values.secrets.create }}
+
+secrets.create is false: create fortuna-secrets and postgres-credentials before
+the pods can start (scripts/utils/ensure-fortuna-secrets.sh).
+{{- end }}

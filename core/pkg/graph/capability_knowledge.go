@@ -12,7 +12,7 @@ import (
 var capabilityKnowledgeYAML []byte
 
 type ckFile struct {
-	Version int `yaml:"version"`
+	Version int                `yaml:"version"`
 	Entries map[string]ckEntry `yaml:"entries"`
 }
 

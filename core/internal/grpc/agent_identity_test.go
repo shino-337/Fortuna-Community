@@ -193,7 +193,7 @@ func TestGRPCAgentStreamReauthenticatesEveryReceivedMessage(t *testing.T) {
 
 func TestNewServerRejectsScopedGRPCIdentityWithoutTLS(t *testing.T) {
 	_, err := NewServer(&config.Config{
-		TLSEnabled:                     false,
+		TLSEnabled:                      false,
 		GRPCAgentCredentialRegistryPath: "/tmp/grpc-agent-registry.json",
 	}, nil, nil, nil)
 	if err == nil {

@@ -1,0 +1,150 @@
+{{- if .Values.nats.enabled }}
+{{- $ns := .Release.Namespace }}
+---
+# NATS JetStream cluster used by Core. It has no client authentication; the
+# NetworkPolicies in network-policies.yaml limit it to Core.
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: {{ $ns }}
+spec:
+  serviceName: nats
+  replicas: {{ .Values.nats.replicas }}
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image }}
+          command:
+            - /bin/sh
+            - -c
+            - |
+              cat > /tmp/nats.conf <<EOF
+              port: 4222
+              http_port: 8222
+              server_name: ${POD_NAME}
+              cluster {
+                name: fortuna-nats-cluster
+                port: 6222
+                advertise: ${POD_NAME}.nats.${POD_NAMESPACE}.svc.cluster.local:6222
+                routes = [
+              {{- range $i := until (int .Values.nats.replicas) }}
+                  nats://nats-{{ $i }}.nats.{{ $ns }}.svc.cluster.local:6222
+              {{- end }}
+                ]
+                no_advertise: false
+              }
+              jetstream {
+                store_dir: /data/jetstream
+                max_mem: 512Mi
+                max_file: 10GB
+              }
+              EOF
+              exec nats-server -c /tmp/nats.conf -js
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          ports:
+            - containerPort: 4222
+              name: client
+            - containerPort: 8222
+              name: monitor
+            - containerPort: 6222
+              name: cluster
+          startupProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 72
+          readinessProbe:
+            tcpSocket:
+              port: client
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 6
+          livenessProbe:
+            tcpSocket:
+              port: client
+            initialDelaySeconds: 300
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 6
+          volumeMounts:
+            - name: data
+              mountPath: /data/jetstream
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.nats.storageClassName }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.nats.size }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: {{ $ns }}
+spec:
+  publishNotReadyAddresses: true
+  clusterIP: None
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: 4222
+      name: client
+    - port: 8222
+      targetPort: 8222
+      name: monitor
+    - port: 6222
+      targetPort: 6222
+      name: cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-client
+  namespace: {{ $ns }}
+spec:
+  type: ClusterIP
+  selector:
+    app: nats
+  ports:
+    - port: 4222
+      targetPort: 4222
+      name: client
+    - port: 8222
+      targetPort: 8222
+      name: monitor
+{{- end }}

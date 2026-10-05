@@ -66,8 +66,9 @@ func normalizeDebVersion(v string) string {
 
 // UpdatePURLVersion replaces the version segment inside a PURL while preserving query parameters.
 // Example:
-//   pkg:deb/debian/openssl@3.0~deb12u2?arch=amd64
-//   => pkg:deb/debian/openssl@3.0?arch=amd64
+//
+//	pkg:deb/debian/openssl@3.0~deb12u2?arch=amd64
+//	=> pkg:deb/debian/openssl@3.0?arch=amd64
 func UpdatePURLVersion(purl, newVersion string) string {
 	p := strings.TrimSpace(purl)
 	if p == "" {
@@ -113,4 +114,3 @@ func FormatConfidence(oldConf, newConf string) string {
 func debugVersionHint(purl string, pkgType string, raw string) string {
 	return fmt.Sprintf("purl=%s pkgType=%s raw=%s", purl, pkgType, raw)
 }
-

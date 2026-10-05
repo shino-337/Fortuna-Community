@@ -12,4 +12,3 @@ type AuditAnchor struct {
 func (AuditAnchor) TableName() string {
 	return "audit_anchor"
 }
-

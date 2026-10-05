@@ -35,4 +35,3 @@ ON sbom_match_runs (sbom_id);`).Error; err != nil {
 	log.Println("[Migration 083] Completed creating sbom_match_runs table")
 	return nil
 }
-

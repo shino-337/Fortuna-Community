@@ -168,4 +168,3 @@ func (j *InsightsCleanupJob) run() {
 
 	log.Printf("[InsightsCleanupJob] Cleanup completed. Active insights: %d", activeCount)
 }
-

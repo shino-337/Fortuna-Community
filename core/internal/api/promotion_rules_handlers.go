@@ -39,8 +39,8 @@ func GetPromotionRulesByCapability(db *gorm.DB) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"capabilityId": capabilityID,
-			"rules":       rules,
-			"count":       len(rules),
+			"rules":        rules,
+			"count":        len(rules),
 		})
 	}
 }
@@ -60,8 +60,8 @@ func GetPromotionRulesBySignalType(db *gorm.DB) gin.HandlerFunc {
 		}
 		c.JSON(http.StatusOK, gin.H{
 			"signalType": signalType,
-			"rules":     rules,
-			"count":     len(rules),
+			"rules":      rules,
+			"count":      len(rules),
 		})
 	}
 }

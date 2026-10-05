@@ -3,13 +3,13 @@ package authorization
 // OperationalScope is the server-normalized operational domain for UX (not security authority).
 // Populated on login and GET /auth/me so clients do not infer scope from heuristics alone.
 type OperationalScope struct {
-	Clusters           []string `json:"clusters"`
-	Namespaces         []string `json:"namespaces"`
-	Teams              []string `json:"teams"`
-	Environments       []string `json:"environments"`
-	BusinessServices   []string `json:"business_services"`
-	CrownJewels        []string `json:"crown_jewels"`
-	RegulatoryDomains  []string `json:"regulatory_domains"`
+	Clusters          []string `json:"clusters"`
+	Namespaces        []string `json:"namespaces"`
+	Teams             []string `json:"teams"`
+	Environments      []string `json:"environments"`
+	BusinessServices  []string `json:"business_services"`
+	CrownJewels       []string `json:"crown_jewels"`
+	RegulatoryDomains []string `json:"regulatory_domains"`
 	// Restricted is true when any explicit allow-list dimension is non-empty.
 	Restricted bool `json:"restricted"`
 }

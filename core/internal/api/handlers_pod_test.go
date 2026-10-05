@@ -96,7 +96,7 @@ func TestGetPodByUIDScoped_RejectsAmbiguousDuplicateUID(t *testing.T) {
 		if err := db.Create(&models.Cluster{ID: clusterID, Name: clusterID}).Error; err != nil {
 			t.Fatal(err)
 		}
-		if err := db.Create(&models.Pod{ClusterID: clusterID, UID: "duplicate-uid", Name: "pod-"+clusterID, Namespace: "default"}).Error; err != nil {
+		if err := db.Create(&models.Pod{ClusterID: clusterID, UID: "duplicate-uid", Name: "pod-" + clusterID, Namespace: "default"}).Error; err != nil {
 			t.Fatal(err)
 		}
 	}

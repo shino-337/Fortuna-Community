@@ -1,3 +1,8 @@
+# nginx config template for the dashboard image. The official nginx entrypoint
+# renders it to /etc/nginx/conf.d/default.conf at start-up, substituting only
+# the variables matched by NGINX_ENVSUBST_FILTER (see dashboard/Dockerfile):
+#   FORTUNA_CORE_HOST      Core Service FQDN (the Helm chart and deploy/ set it)
+#   NGINX_LOCAL_RESOLVERS  nameservers from /etc/resolv.conf (cluster DNS)
 # Log $uri (no query string): browser WebSocket clients authenticate with
 # ?token=<JWT>, which must not be written to access logs.
 log_format fortuna_noquery '$remote_addr - $remote_user [$time_local] '
@@ -27,14 +32,15 @@ server {
   }
 
   location /api/ {
-    # Resolve upstream at request time (Kubernetes DNS)
-    resolver 10.96.0.10 valid=10s ipv6=off;
-    set $upstream_core fortuna-core.fortuna.svc.cluster.local;
+    # Resolve Core at request time so a restarted Core Service is picked up.
+    resolver ${NGINX_LOCAL_RESOLVERS} valid=10s ipv6=off;
+    set $upstream_core ${FORTUNA_CORE_HOST};
     proxy_pass http://$upstream_core:8080;
     proxy_http_version 1.1;
     proxy_connect_timeout 10s;
     proxy_send_timeout 3600s;
     proxy_read_timeout 3600s;
+    # WebSocket: /api/v1/ws/pod/:uid and /api/v1/ws/risks (auth via ?token=)
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
     proxy_set_header Host $upstream_core;

@@ -237,11 +237,11 @@ func (s *Sensor) reportCoverage() {
 	s.coverageMu.Lock()
 	defer s.coverageMu.Unlock()
 	stats := runtime.CoverageStats{
-		Emitted: atomic.SwapUint64(&s.coverageEmitted, 0),
+		Emitted:   atomic.SwapUint64(&s.coverageEmitted, 0),
 		Delivered: atomic.SwapUint64(&s.coverageDelivered, 0),
-		Dropped: atomic.SwapUint64(&s.coverageDropped, 0),
-		Invalid: atomic.SwapUint64(&s.coverageInvalid, 0),
-		Errors: atomic.SwapUint64(&s.coverageErrors, 0),
+		Dropped:   atomic.SwapUint64(&s.coverageDropped, 0),
+		Invalid:   atomic.SwapUint64(&s.coverageInvalid, 0),
+		Errors:    atomic.SwapUint64(&s.coverageErrors, 0),
 	}
 	// The built-in sensor currently attaches no-op tracepoints and does not
 	// observe real exec/connect syscall records. It may verify pipeline plumbing,

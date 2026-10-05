@@ -13,7 +13,6 @@ func TestScopeDocumentValidate(t *testing.T) {
 	}
 }
 
-
 func TestParseScopeDocumentStrictRejectsMalformedAuthorizationShape(t *testing.T) {
 	tests := []string{
 		`{"clusters":"cluster-a"}`,
@@ -49,7 +48,6 @@ func TestParseScopeDocumentStrictAcceptsCurrentAndLegacyClusterLists(t *testing.
 		}
 	}
 }
-
 
 func TestPersistedUnenforcedScopeFailsClosedForClusterAuthorization(t *testing.T) {
 	for _, raw := range []string{

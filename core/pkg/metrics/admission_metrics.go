@@ -79,4 +79,3 @@ func init() {
 	// Admission metrics are auto-registered via promauto
 	// No explicit registration needed
 }
-

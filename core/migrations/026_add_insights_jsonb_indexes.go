@@ -55,7 +55,7 @@ CREATE INDEX IF NOT EXISTS idx_insights_affected_resources_gin
 	var hasType, hasInsightType bool
 	db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name='insights' AND column_name='type')").Scan(&hasType)
 	db.Raw("SELECT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = CURRENT_SCHEMA() AND table_name='insights' AND column_name='insight_type')").Scan(&hasInsightType)
-	
+
 	if hasInsightType {
 		// New schema uses insight_type
 		createVulnIndexSQL := `
@@ -87,4 +87,3 @@ CREATE INDEX IF NOT EXISTS idx_insights_vuln_dedup
 	log.Println("[Migration 026] ✅ Completed")
 	return nil
 }
-

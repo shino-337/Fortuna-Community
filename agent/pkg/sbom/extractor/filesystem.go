@@ -18,10 +18,10 @@ import (
 //   - materialize (default): full content in memory (legacy behavior).
 //   - indexed: path index for all regular files; only selective paths keep []byte content.
 const (
-	envFSMode            = "SBOM_FS_MODE"
-	envFSSpoolDir        = "SBOM_FS_SPOOL_DIR"
-	fsModeMaterialize    = "materialize"
-	fsModeIndexed        = "indexed"
+	envFSMode         = "SBOM_FS_MODE"
+	envFSSpoolDir     = "SBOM_FS_SPOOL_DIR"
+	fsModeMaterialize = "materialize"
+	fsModeIndexed     = "indexed"
 )
 
 // lazyLayerRef points to file payload bytes inside a spooled uncompressed layer stream (A5 Phase 2b).

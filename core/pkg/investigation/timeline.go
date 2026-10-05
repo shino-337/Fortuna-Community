@@ -13,19 +13,19 @@ import (
 
 // Timeline event types (append-only).
 const (
-	EventCaseCreated       = "case.created"
-	EventCaseArchived      = "case.archived"
-	EventStatusChanged     = "case.status_changed"
-	EventAssignmentChanged = "case.assignment_changed"
+	EventCaseCreated          = "case.created"
+	EventCaseArchived         = "case.archived"
+	EventStatusChanged        = "case.status_changed"
+	EventAssignmentChanged    = "case.assignment_changed"
 	EventCollaborationUpdated = "case.collaboration_updated"
-	EventEntityPinned      = "entity.pinned"
-	EventEntityUnpinned    = "entity.unpinned"
-	EventRemediationAdded  = "remediation.added"
-	EventRemediationUpdated = "remediation.updated"
-	EventRemediationRemoved = "remediation.removed"
-	EventNoteAdded         = "note.added"
-	EventHandoffNote       = "handoff.note"
-	EventPivot             = "case.pivot"
+	EventEntityPinned         = "entity.pinned"
+	EventEntityUnpinned       = "entity.unpinned"
+	EventRemediationAdded     = "remediation.added"
+	EventRemediationUpdated   = "remediation.updated"
+	EventRemediationRemoved   = "remediation.removed"
+	EventNoteAdded            = "note.added"
+	EventHandoffNote          = "handoff.note"
+	EventPivot                = "case.pivot"
 )
 
 // AppendTimeline persists an immutable investigation timeline row (best-effort).
