@@ -27,6 +27,7 @@ import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { PodNetworkSummary } from '../components/PodNetworkSummary';
+import { useOperationalMaterialization } from '../hooks/useOperationalMaterialization';
 import { ArrowLeft, Box, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
@@ -107,6 +108,14 @@ const PodDetailContent: React.FC = () => {
   const requestedTab = searchParams.get('tab');
   const requestedClusterId = searchParams.get('clusterId')?.trim() || undefined;
   const [pod, setPod] = useState<PodWithRisk | null>(null);
+  const { allowedRoutes } = useOperationalMaterialization();
+  const runtimeNetworkLink = useMemo(() => {
+    if (!pod?.uid || !allowedRoutes.includes('/network-activity')) return null;
+    const qs = new URLSearchParams({ tab: 'connections', podUid: pod.uid });
+    if (pod.clusterId) qs.set('clusterId', String(pod.clusterId));
+    if (pod.namespace) qs.set('namespace', pod.namespace);
+    return `/network-activity?${qs.toString()}`;
+  }, [pod?.uid, pod?.clusterId, pod?.namespace, allowedRoutes]);
   const [sbom, setSbom] = useState<PodSbom | null>(null);
   const [relatedRisks, setRelatedRisks] = useState<Insight[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1875,6 +1884,15 @@ const PodDetailContent: React.FC = () => {
                 Runtime: {networkConnections[0]?.runtimeSource === 'host' ? 'Host Inspection' : 'Container Exec'}
               </span>
             )}
+            {runtimeNetworkLink ? (
+              <button
+                type="button"
+                onClick={() => navigate(runtimeNetworkLink)}
+                className="ml-auto inline-flex items-center gap-1 text-caption font-medium text-brand hover:underline"
+              >
+                Open in Runtime Network <ExternalLink className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </h3>
 
           {/* Sub-view toggle: Summary vs Raw connections */}

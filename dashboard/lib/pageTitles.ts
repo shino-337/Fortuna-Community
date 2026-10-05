@@ -13,7 +13,7 @@ export const PAGE_TITLES = {
   attackAnalysis: 'Attack Paths',
   networkActivity: 'Network Activity',
   monitoring: 'Platform Health',
-  governance: 'Audit & Governance',
+  governance: 'Audit',
   settings: 'Users & Settings',
   certificates: 'Certificates',
   notifications: 'Notifications',

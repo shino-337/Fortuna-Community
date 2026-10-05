@@ -144,7 +144,7 @@ export const AdminDashboard: React.FC = () => {
             title="Cluster posture"
             description="Review inventory health, ownership, and cluster-level exposure for the current operational scope."
             action={
-              <Button variant="secondary" onClick={() => navigate('/clusters')}>
+              <Button variant="secondary" onClick={() => navigate('/resources/clusters')}>
                 Review cluster posture
               </Button>
             }

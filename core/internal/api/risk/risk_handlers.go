@@ -7,7 +7,6 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -15,6 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/fortuna/core/internal/api/listlimit"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/risk"
 )
@@ -74,66 +74,6 @@ func collapsePreferredScores(scores []models.RiskScore) []models.RiskScore {
 	return out
 }
 
-func unifiedLevelSortRank(total float64) int {
-	switch risk.DeriveFinalLevelFromScore(total) {
-	case "critical":
-		return 0
-	case "high":
-		return 1
-	case "medium":
-		return 2
-	case "low":
-		return 3
-	default:
-		return 4
-	}
-}
-
-func filterRiskScoresByFinalLevel(in []models.RiskScore, want string) []models.RiskScore {
-	want = strings.ToLower(strings.TrimSpace(want))
-	if want == "" {
-		return in
-	}
-	out := make([]models.RiskScore, 0, len(in))
-	for _, s := range in {
-		if strings.ToLower(risk.DeriveFinalLevelFromScore(s.TotalScore)) == want {
-			out = append(out, s)
-		}
-	}
-	return out
-}
-
-func sortCollapsedScores(scores []models.RiskScore, mode riskScoreSortMode) {
-	sort.Slice(scores, func(i, j int) bool { return scores[i].ID < scores[j].ID })
-	sort.SliceStable(scores, func(i, j int) bool {
-		a, b := scores[i], scores[j]
-		switch mode {
-		case sortPriority:
-			pa, pb := unifiedLevelSortRank(a.TotalScore), unifiedLevelSortRank(b.TotalScore)
-			if pa != pb {
-				return pa < pb
-			}
-			return a.TotalScore > b.TotalScore
-		case sortName:
-			if a.ResourceName != b.ResourceName {
-				return strings.ToLower(a.ResourceName) < strings.ToLower(b.ResourceName)
-			}
-			return a.TotalScore > b.TotalScore
-		case sortNamespace:
-			if a.Namespace != b.Namespace {
-				return strings.ToLower(a.Namespace) < strings.ToLower(b.Namespace)
-			}
-			return a.TotalScore > b.TotalScore
-		case sortCalculated:
-			return a.CalculatedAt.After(b.CalculatedAt)
-		case sortScore:
-			fallthrough
-		default:
-			return a.TotalScore > b.TotalScore
-		}
-	})
-}
-
 func normalizeSortMode(v string) riskScoreSortMode {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case string(sortPriority):
@@ -149,26 +89,61 @@ func normalizeSortMode(v string) riskScoreSortMode {
 	}
 }
 
-func paginateScores(scores []models.RiskScore, page, pageSize int) []models.RiskScore {
-	if page < 1 {
-		page = 1
+const (
+	riskScoresDefaultPageSize = 50
+	riskScoresMaxPageSize     = 500
+)
+
+// riskScoresPageOffset returns the row offset for page, or false when the page is past the end.
+// The quotient is checked before multiplying to avoid integer overflow on huge page numbers.
+func riskScoresPageOffset(total int64, page, pageSize int) (int, bool) {
+	if total == 0 || int64(page-1) > (total-1)/int64(pageSize) {
+		return 0, false
 	}
-	if pageSize < 1 {
-		pageSize = 50
+	return (page - 1) * pageSize, true
+}
+
+// riskScoreLevelBands are the [lo, hi) total_score bands of risk.DeriveFinalLevelFromScore.
+var riskScoreLevelBands = map[string]string{
+	"critical": "total_score >= 70",
+	"high":     "total_score >= 40 AND total_score < 70",
+	"medium":   "total_score >= 20 AND total_score < 40",
+	"low":      "total_score < 20",
+}
+
+// applyRiskScoreFinalLevelFilter keeps rows whose unified level is want; an unknown level matches nothing.
+func applyRiskScoreFinalLevelFilter(q *gorm.DB, want string) *gorm.DB {
+	cond, ok := riskScoreLevelBands[strings.ToLower(strings.TrimSpace(want))]
+	if !ok {
+		return q.Where("1 = 0")
 	}
-	// Check the quotient before multiplication to avoid integer overflow.
-	if len(scores) == 0 || page-1 > (len(scores)-1)/pageSize {
-		return []models.RiskScore{}
+	return q.Where(cond)
+}
+
+// riskScoresOrderSQL orders GET /risk/scores. Ties break on id ascending. Name and namespace compare
+// case-insensitively in byte order (COLLATE "C" on PostgreSQL, SQLite's default BINARY collation).
+// Within one case-insensitive value, rows with the exact same spelling sort by score, and different
+// spellings ("Beta" vs "beta") keep the order of their lowest id, as the former in-memory sort did.
+func riskScoresOrderSQL(db *gorm.DB, mode riskScoreSortMode) string {
+	text := func(col string) string {
+		lower := "LOWER(" + col + ")"
+		if db.Dialector.Name() == "postgres" {
+			lower += ` COLLATE "C"`
+		}
+		return lower + " ASC, MIN(id) OVER (PARTITION BY " + col + ")"
 	}
-	offset := (page - 1) * pageSize
-	if offset >= len(scores) {
-		return []models.RiskScore{}
+	switch mode {
+	case sortPriority:
+		return "CASE WHEN total_score >= 70 THEN 0 WHEN total_score >= 40 THEN 1 WHEN total_score >= 20 THEN 2 ELSE 3 END ASC, total_score DESC, id ASC"
+	case sortName:
+		return text("resource_name") + " ASC, total_score DESC, id ASC"
+	case sortNamespace:
+		return text("namespace") + " ASC, total_score DESC, id ASC"
+	case sortCalculated:
+		return "calculated_at DESC, id ASC"
+	default:
+		return "total_score DESC, id ASC"
 	}
-	end := len(scores)
-	if pageSize < len(scores)-offset {
-		end = offset + pageSize
-	}
-	return scores[offset:end]
 }
 
 // GetRiskScores returns all risk scores with optional filtering
@@ -178,7 +153,6 @@ func GetRiskScores(db *gorm.DB) gin.HandlerFunc {
 		if !authorized {
 			return
 		}
-		var rawScores []models.RiskScore
 		// Authoritative store: only unified V3 rows (legacy v1/v2 soft-deleted in migration 120).
 		ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
 		defer cancel()
@@ -208,32 +182,31 @@ func GetRiskScores(db *gorm.DB) gin.HandlerFunc {
 			}
 		}
 
-		// Pagination
+		// Pagination: pageSize uses the shared list limit rules (default 50, max 500).
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
 		if page < 1 {
 			page = 1
 		}
-		if pageSize < 1 {
-			pageSize = 50
+		pageSize := listlimit.ParseParam(c, "pageSize", riskScoresDefaultPageSize, riskScoresMaxPageSize)
+
+		// currentScores already yields one authoritative v3 row per resource, so the
+		// finalLevel filter, count, sort and page all run in the database.
+		if fl := strings.TrimSpace(c.Query("finalLevel")); fl != "" {
+			query = applyRiskScoreFinalLevelFilter(query, fl)
 		}
-		if pageSize > 500 {
-			pageSize = 500
-		}
-		// Load candidate rows then collapse to one authoritative score per resource
-		// v3-only authoritative selection.
-		if err := query.Find(&rawScores).Error; err != nil {
+		var total int64
+		if err := query.Session(&gorm.Session{}).Count(&total).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch risk scores"})
 			return
 		}
-		collapsed := collapsePreferredScores(rawScores)
-		if fl := strings.TrimSpace(c.Query("finalLevel")); fl != "" {
-			collapsed = filterRiskScoresByFinalLevel(collapsed, fl)
-		}
-
 		sortMode := normalizeSortMode(c.DefaultQuery("sortBy", "score"))
-		sortCollapsedScores(collapsed, sortMode)
-		paged := paginateScores(collapsed, page, pageSize)
+		paged := []models.RiskScore{}
+		if offset, ok := riskScoresPageOffset(total, page, pageSize); ok {
+			if err := query.Order(riskScoresOrderSQL(db, sortMode)).Offset(offset).Limit(pageSize).Find(&paged).Error; err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch risk scores"})
+				return
+			}
+		}
 
 		serialized := make([]gin.H, 0, len(paged))
 		for _, s := range paged {
@@ -285,7 +258,7 @@ func GetRiskScores(db *gorm.DB) gin.HandlerFunc {
 
 		c.JSON(http.StatusOK, gin.H{
 			"scores":   serialized,
-			"total":    len(collapsed),
+			"total":    total,
 			"page":     page,
 			"pageSize": pageSize,
 			"sortBy":   string(sortMode),
@@ -480,63 +453,7 @@ func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("cluster_id = ?", clusterID)
 		}
 
-		// Fetch all scores
-		var scores []models.RiskScore
-		err := query.Find(&scores).Error
-		if err != nil {
-			log.Printf("[GetRiskTrends] Error fetching scores: %v", err)
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": "Failed to fetch risk trends",
-			})
-			return
-		}
-
-		log.Printf("[GetRiskTrends] Fetched %d risk scores", len(scores))
-
-		// ✅ Step 3: Aggregate by date in Go
-		type TrendAggregator struct {
-			scoreSum      float64
-			count         int
-			CriticalCount int64
-			HighCount     int64
-			MediumCount   int64
-			LowCount      int64
-		}
-
-		trendsMap := make(map[string]*TrendAggregator)
-
-		for _, score := range scores {
-			date := score.CalculatedAt.UTC().Format("2006-01-02")
-
-			if _, exists := trendsMap[date]; !exists {
-				trendsMap[date] = &TrendAggregator{
-					scoreSum:      0,
-					count:         0,
-					CriticalCount: 0,
-					HighCount:     0,
-					MediumCount:   0,
-					LowCount:      0,
-				}
-			}
-
-			agg := trendsMap[date]
-			agg.scoreSum += score.TotalScore
-			agg.count++
-
-			// Count by unified ADR level (derived from total_score)
-			switch risk.DeriveFinalLevelFromScore(score.TotalScore) {
-			case "critical":
-				agg.CriticalCount++
-			case "high":
-				agg.HighCount++
-			case "medium":
-				agg.MediumCount++
-			case "low":
-				agg.LowCount++
-			}
-		}
-
-		// ✅ Step 4: Convert to response format
+		// Aggregate per UTC day in the database; only one row per day is returned.
 		type TrendPoint struct {
 			Date          string  `json:"date"`
 			AvgScore      float64 `json:"avgScore"`
@@ -545,28 +462,24 @@ func GetRiskTrends(db *gorm.DB) gin.HandlerFunc {
 			MediumCount   int64   `json:"mediumCount"`
 			LowCount      int64   `json:"lowCount"`
 		}
-
-		trends := make([]TrendPoint, 0, len(trendsMap))
-		for date, agg := range trendsMap {
-			avgScore := 0.0
-			if agg.count > 0 {
-				avgScore = agg.scoreSum / float64(agg.count)
-			}
-
-			trends = append(trends, TrendPoint{
-				Date:          date,
-				AvgScore:      avgScore,
-				CriticalCount: agg.CriticalCount,
-				HighCount:     agg.HighCount,
-				MediumCount:   agg.MediumCount,
-				LowCount:      agg.LowCount,
-			})
+		trends := make([]TrendPoint, 0)
+		bucket, err := riskScoreDayBucketSQL(db)
+		if err == nil {
+			// Level bands match risk.DeriveFinalLevelFromScore.
+			err = query.Select(bucket + ` AS date, AVG(COALESCE(total_score, 0)) AS avg_score,
+ SUM(CASE WHEN COALESCE(total_score, 0) >= 70 THEN 1 ELSE 0 END) AS critical_count,
+ SUM(CASE WHEN COALESCE(total_score, 0) >= 40 AND COALESCE(total_score, 0) < 70 THEN 1 ELSE 0 END) AS high_count,
+ SUM(CASE WHEN COALESCE(total_score, 0) >= 20 AND COALESCE(total_score, 0) < 40 THEN 1 ELSE 0 END) AS medium_count,
+ SUM(CASE WHEN COALESCE(total_score, 0) < 20 THEN 1 ELSE 0 END) AS low_count`).
+				Group(bucket).Order(bucket + " ASC").Scan(&trends).Error
 		}
-
-		// ✅ Step 5: Sort by date
-		sort.Slice(trends, func(i, j int) bool {
-			return trends[i].Date < trends[j].Date
-		})
+		if err != nil {
+			log.Printf("[GetRiskTrends] Error aggregating scores: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error": "Failed to fetch risk trends",
+			})
+			return
+		}
 
 		log.Printf("[GetRiskTrends] Successfully aggregated %d trend data points", len(trends))
 

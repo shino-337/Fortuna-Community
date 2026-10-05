@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -413,7 +412,18 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 
 		today := time.Now().UTC().Truncate(24 * time.Hour)
 		start := today.AddDate(0, 0, 1-days)
-		query := db.Table("pod_capabilities AS pc").Select("pc.created_at, pc.severity").
+		var dayExpr string
+		switch db.Dialector.Name() {
+		case "postgres":
+			dayExpr = "to_char(pc.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD')"
+		default: // sqlite: strftime normalizes stored offsets to UTC
+			dayExpr = "strftime('%Y-%m-%d', pc.created_at)"
+		}
+		query := db.Table("pod_capabilities AS pc").Select(dayExpr+` AS day,
+ SUM(CASE WHEN LOWER(pc.severity) = 'critical' THEN 1 ELSE 0 END) AS critical,
+ SUM(CASE WHEN LOWER(pc.severity) = 'high' THEN 1 ELSE 0 END) AS high,
+ SUM(CASE WHEN LOWER(pc.severity) = 'medium' THEN 1 ELSE 0 END) AS medium,
+ SUM(CASE WHEN LOWER(pc.severity) = 'low' THEN 1 ELSE 0 END) AS low`).
 			Joins("JOIN pods p ON p.cluster_id = pc.cluster_id AND p.uid = pc.pod_uid AND p.deleted_at IS NULL").
 			Where("pc.created_at >= ? AND pc.created_at < ?", start, today.AddDate(0, 0, 1))
 
@@ -432,33 +442,33 @@ func GetPodCapabilitiesTrend(db *gorm.DB) gin.HandlerFunc {
 			query = query.Where("p.cluster_id = ?", clusterID)
 		}
 
-		var observations []struct {
-			CreatedAt time.Time
-			Severity  string
+		// One aggregated row per UTC day that has observations.
+		var buckets []struct {
+			Day      string
+			Critical int
+			High     int
+			Medium   int
+			Low      int
 		}
-		if err := query.Scan(&observations).Error; err != nil {
+		if err := query.Group(dayExpr).Scan(&buckets).Error; err != nil {
 			respondDataUnavailable(c, "capability_trend_query_failed", "Capability trend data could not be loaded")
 			return
 		}
 		result := make([]row, days)
+		index := make(map[string]int, days)
 		for i := range result {
 			result[i].Date = start.AddDate(0, 0, i).Format("2006-01-02")
+			index[result[i].Date] = i
 		}
-		for _, observation := range observations {
-			index := int(observation.CreatedAt.UTC().Sub(start) / (24 * time.Hour))
-			if index < 0 || index >= days {
+		for _, b := range buckets {
+			i, ok := index[b.Day]
+			if !ok {
 				continue
 			}
-			switch strings.ToLower(observation.Severity) {
-			case "critical":
-				result[index].Critical++
-			case "high":
-				result[index].High++
-			case "medium":
-				result[index].Medium++
-			case "low":
-				result[index].Low++
-			}
+			result[i].Critical += b.Critical
+			result[i].High += b.High
+			result[i].Medium += b.Medium
+			result[i].Low += b.Low
 		}
 
 		c.JSON(http.StatusOK, gin.H{

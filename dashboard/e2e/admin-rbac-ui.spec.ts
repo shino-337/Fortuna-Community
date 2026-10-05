@@ -119,11 +119,10 @@ test.describe('admin RBAC UI smoke', () => {
       ['/network-activity', 'Network Activity'],
       ['/attack-paths', 'Attack Analysis'],
       ['/rules', 'Rules & Catalog'],
-      ['/clusters', 'Clusters'],
       ['/resources', 'Resources'],
       ['/reports', 'Reports'],
       ['/monitoring', 'Platform Health'],
-      ['/governance', 'Governance'],
+      ['/governance', 'Audit'],
       ['/settings', 'Settings'],
     ] as const;
 

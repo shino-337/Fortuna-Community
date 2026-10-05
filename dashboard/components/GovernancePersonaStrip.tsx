@@ -8,9 +8,9 @@ export const GovernancePersonaStrip: React.FC = () => (
     <div className="flex items-start gap-2">
       <ScrollText className="w-5 h-5 text-violet-300 shrink-0 mt-0.5" />
       <div>
-        <p className="text-caption font-semibold text-text">Governance workspace</p>
+        <p className="text-caption font-semibold text-text">Audit workspace</p>
         <p className="text-meta text-muted mt-0.5">
-          RBAC explorer, access review signals, and investigation event timeline — prioritize platform trust.
+          Security activity, audit logs and access analytics in one place.
         </p>
       </div>
     </div>

@@ -239,6 +239,18 @@ export type AvailabilityIssue = {
   description: string;
 };
 
+/** Sort columns accepted by GET /risk/insights?sort= (server allowlist). */
+export type RiskInsightsSortKey =
+  | 'score'
+  | 'severity'
+  | 'detected'
+  | 'updated'
+  | 'title'
+  | 'type'
+  | 'resource'
+  | 'namespace'
+  | 'status';
+
 export type ServiceAccountMutationAction = 'revoke' | 'delete';
 export type ServiceAccountMutationStatus = 'preview' | 'queued' | 'running' | 'retry' | 'blocked' | 'succeeded';
 export type ServiceAccountMutation = {
@@ -674,7 +686,7 @@ function mapRiskSignals(raw: unknown): ResourceRiskSignals | undefined {
 // - MOCK_REPORTS: getReports() uses real API
 // - MOCK_SYNC_STATUS: getSyncStatus() uses real API
 // - getUsers(): GET /users (from users table; admin only when auth enabled)
-// - getRotationHistory(): GET /certificates/rotation/history (stub [] until rotation_history table)
+// - getRotationHistory(): GET /cluster/certificates/rotation/history (throws on error)
 
 export function normalizeInsightStatus(status: unknown): string {
   if (status === 'active' || status === 'new') return 'new';
@@ -779,14 +791,6 @@ export const api = {
   },
 
   /** GET /api/v1/inventory/clusters/:id/inventory */
-  getClusterInventory: async (id: string): Promise<ClusterInventory | null> => {
-    try {
-      return await request<ClusterInventory>(`/inventory/clusters/${encodeURIComponent(id)}/inventory`);
-    } catch {
-      return null;
-    }
-  },
-
   getClusterInventoryStrict: async (id: string): Promise<ClusterInventory> => {
     const data = await request<Partial<ClusterInventory>>(`/inventory/clusters/${encodeURIComponent(id)}/inventory`);
     if (!Array.isArray(data?.nodes) || !Array.isArray(data?.namespaces)) {
@@ -1154,6 +1158,9 @@ export const api = {
     scoreBin?: number;
     /** instance (default) | group — grouped findings by type + CVE/title */
     view?: 'instance' | 'group';
+    /** Server-side sort column (applies across pages). Omitted: newest detected first. */
+    sort?: RiskInsightsSortKey;
+    order?: 'asc' | 'desc';
   }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number; view?: string }> => {
     const query = new URLSearchParams();
     if (params?.type) query.set('type', params.type);
@@ -1170,6 +1177,8 @@ export const api = {
     if (params?.scoreBin != null && params.scoreBin >= 0 && params.scoreBin <= 90 && params.scoreBin % 10 === 0) query.set('scoreBin', String(params.scoreBin));
     if (params?.view === 'group') query.set('view', 'group');
     else if (params?.view === 'instance') query.set('view', 'instance');
+    if (params?.sort) query.set('sort', params.sort);
+    if (params?.sort && params.order) query.set('order', params.order);
     const qs = query.toString();
     const url = qs ? `/risk/insights?${qs}` : '/risk/insights';
     const data = await request<{
@@ -2148,16 +2157,12 @@ export const api = {
   },
   
   getRotationHistory: async (): Promise<RotationEvent[]> => {
-    try {
-      const data = await request<{ history: Array<Record<string, unknown>> }>('/cluster/certificates/rotation/history');
-      return (data.history || []).map((h) => ({
-        id: String(h.id ?? ''),
-        timestamp: String(h.timestamp ?? h.time ?? ''),
-        success: Boolean(h.success),
-      }));
-    } catch (err) {
-      return [];
-    }
+    const data = await request<{ history: Array<Record<string, unknown>> }>('/cluster/certificates/rotation/history');
+    return (data.history || []).map((h) => ({
+      id: String(h.id ?? ''),
+      timestamp: String(h.timestamp ?? h.time ?? ''),
+      success: Boolean(h.success),
+    }));
   },
 
   rotateCertificate: async (): Promise<{ message?: string }> => {

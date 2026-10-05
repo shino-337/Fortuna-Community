@@ -167,11 +167,12 @@ flowchart LR
 | Platform Integrity | Telemetry freshness, runtime coverage, governance, pipeline health | Core status, Agent sync, runtime visibility |
 | Findings Queue | Current findings and one unified risk value | `risk_scores`, insights, rules, runtime/CVE/path evidence |
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
-| Kubernetes Inventory / Pod Detail | Workload inventory and per-pod evidence | Pods, containers, SBOM, CVE, processes, network, events |
+| Kubernetes Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
 | Runtime Network | Runtime topology and external destinations | Agent network observations |
 | Rules & Catalog | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
 | Platform Health | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
-| Reports | Time-windowed summaries | Findings, resources, runtime events, posture |
+| Reports | Time-windowed executive posture and findings exports | Findings, attack paths, pipeline health, investigations |
+| Audit | Who did what in Fortuna (admin) | Security activity, platform audit log, audit summary, investigation events, permission and access analytics |
 
 ## API Shape
 

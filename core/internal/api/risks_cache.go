@@ -87,11 +87,11 @@ func (c *MemoryRisksCache) cleanup() {
 }
 
 // BuildRisksListCacheKey builds cache key for GET /risks from query params. withScores: 0 or 1; finalLevel, resourceNamespace, insightType, scoreBin optional. view: instance|group|_.
-func BuildRisksListCacheKey(clusterID, status, severity, search, finalLevel, resourceNamespace, insightType string, sinceMinutes, page, pageSize, withScores, scoreBin int, view string) string {
+func BuildRisksListCacheKey(clusterID, status, severity, search, finalLevel, resourceNamespace, insightType string, sinceMinutes, page, pageSize, withScores, scoreBin int, view, sortKey, sortOrder string) string {
 	if status == "" {
 		status = "active"
 	}
-	return encodedCacheKey("risks:list:", []interface{}{clusterID, status, severity, search, finalLevel, resourceNamespace, insightType, sinceMinutes, page, pageSize, withScores, scoreBin, strings.ToLower(strings.TrimSpace(view))})
+	return encodedCacheKey("risks:list:", []interface{}{clusterID, status, severity, search, finalLevel, resourceNamespace, insightType, sinceMinutes, page, pageSize, withScores, scoreBin, strings.ToLower(strings.TrimSpace(view)), sortKey, sortOrder})
 }
 
 // BuildInsightsSummaryCacheKey builds cache key for GET /insights/summary.

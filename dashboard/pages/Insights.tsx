@@ -1,7 +1,7 @@
 import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import { normalizeInsightStatus } from '../lib/api';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
+import { api, getAvailabilityIssue, type AvailabilityIssue, type RiskInsightsSortKey } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useAbortSignal, isAbortError } from '../hooks/useAbortSignal';
 import { useClusters } from '../hooks/useClusters';
@@ -18,6 +18,7 @@ import {
   PodCapabilitySummarySeverity,
   PodCapabilityTrendPoint} from '../types';
 import { Button } from '../components/ui/Button';
+import { ResetFiltersButton } from '../components/ResetFiltersButton';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
@@ -164,6 +165,21 @@ function findingResourceTarget(resource?: FindingResource, clusterId?: string): 
   return undefined;
 }
 
+/** Findings queue sort options → GET /risk/insights sort/order (sorted server-side, across pages). */
+const RISK_SORT_OPTIONS = {
+  newest: { label: 'Newest first', sort: 'detected', order: 'desc' },
+  oldest: { label: 'Oldest first', sort: 'detected', order: 'asc' },
+  updated_desc: { label: 'Recently updated', sort: 'updated', order: 'desc' },
+  updated_asc: { label: 'Least recently updated', sort: 'updated', order: 'asc' },
+  score_desc: { label: 'Priority score high to low', sort: 'score', order: 'desc' },
+  score_asc: { label: 'Priority score low to high', sort: 'score', order: 'asc' },
+  severity_desc: { label: 'Severity critical to info', sort: 'severity', order: 'desc' },
+  severity_asc: { label: 'Severity info to critical', sort: 'severity', order: 'asc' },
+  title_asc: { label: 'Title A-Z', sort: 'title', order: 'asc' },
+  title_desc: { label: 'Title Z-A', sort: 'title', order: 'desc' },
+} as const satisfies Record<string, { label: string; sort: RiskInsightsSortKey; order: 'asc' | 'desc' }>;
+type RiskSortId = keyof typeof RISK_SORT_OPTIONS;
+
 export const RiskCenter: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -222,7 +238,7 @@ export const RiskCenter: React.FC = () => {
   const [risksPage, setRisksPage] = useState(1);
   const [risksPageSize, setRisksPageSize] = useState(riskWorkspace.pageSize);
   const [threatVelocity, setThreatVelocity] = useState<{ date: string; critical: number; high: number; medium: number; low: number }[]>([]);
-  const [riskSort, setRiskSort] = useState<'newest' | 'oldest' | 'score_desc' | 'score_asc' | 'title_asc'>('score_desc');
+  const [riskSort, setRiskSort] = useState<RiskSortId>('score_desc');
   /** Risk Findings table: per-resource rows vs grouped by CVE/title key (backend view=group). */
   const [findingsListView, setFindingsListView] = useState<'instance' | 'group'>('instance');
   const [riskLevelFilter, setRiskLevelFilter] = useState<string>(
@@ -426,6 +442,8 @@ export const RiskCenter: React.FC = () => {
       finalLevel: (riskLevelFilter || undefined) as '' | 'low' | 'medium' | 'high' | 'critical' | undefined,
       scoreBin: selectedScoreBin ?? undefined,
       view: findingsListView === 'group' ? ('group' as const) : undefined,
+      sort: RISK_SORT_OPTIONS[riskSort].sort,
+      order: RISK_SORT_OPTIONS[riskSort].order,
     };
     const countSeverity = (insights: Insight[]) => {
       const bySev = { critical: 0, high: 0, medium: 0, low: 0 };
@@ -780,7 +798,7 @@ export const RiskCenter: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, selectedChartDate]);
+  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, selectedChartDate, riskSort]);
   React.useEffect(() => { setPceListPage(1); }, [effectiveClusterId, pceClusterId, pceNamespace, pceSeverityFilter, pcePodName, pceCapabilityId]);
   // Bulk selection must not carry hidden findings across a filter or scope change.
   React.useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, debouncedSearchTerm, sinceMinutesForApi, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, findingsListView]);
@@ -1094,26 +1112,6 @@ export const RiskCenter: React.FC = () => {
     </div>
   );
 
-  const sortedRisks = useMemo(() => {
-    const out = [...risks];
-    out.sort((a, b) => {
-      switch (riskSort) {
-        case 'oldest':
-          return new Date(a.timestamp ?? 0).getTime() - new Date(b.timestamp ?? 0).getTime();
-        case 'score_desc':
-          return (b.score ?? -1) - (a.score ?? -1);
-        case 'score_asc':
-          return (a.score ?? Number.MAX_SAFE_INTEGER) - (b.score ?? Number.MAX_SAFE_INTEGER);
-        case 'title_asc':
-          return (a.title || '').localeCompare(b.title || '');
-        case 'newest':
-        default:
-          return new Date(b.timestamp ?? 0).getTime() - new Date(a.timestamp ?? 0).getTime();
-      }
-    });
-    return out;
-  }, [risks, riskSort]);
-
   const sortedPceDetails = useMemo(() => {
     const out = [...pceDetails];
     out.sort((a, b) => {
@@ -1136,7 +1134,63 @@ export const RiskCenter: React.FC = () => {
     return out;
   }, [pceDetails, pceSort]);
 
-  const paginatedRisks = sortedRisks;
+  // Rows arrive sorted by the server (sort/order apply across all pages).
+  const paginatedRisks = risks;
+
+  /** True when any findings-queue filter, search or sort differs from its default (status=active, score sort, everything else empty). */
+  const hasFindingsFilters =
+    riskSort !== 'score_desc' ||
+    statusFilter !== 'active' ||
+    riskLevelFilter !== '' ||
+    searchTerm.trim() !== '' ||
+    debouncedSearchTerm !== '' ||
+    namespaceFilter.trim() !== '' ||
+    typeFilter !== '' ||
+    selectedScoreBin != null ||
+    selectedChartDate != null;
+
+  /** Clears every findings-queue filter, search and sort. Cluster scope and time window are global and stay as they are. */
+  const resetFindingsFilters = useCallback(() => {
+    setRiskSort('score_desc');
+    setStatusFilter('active');
+    setRiskLevelFilter('');
+    setSearchTerm('');
+    setDebouncedSearchTerm('');
+    setNamespaceFilter('');
+    setDebouncedNamespaceFilter('');
+    setTypeFilter('');
+    setSelectedScoreBin(null);
+    setSelectedChartDate(null);
+    // search/finalLevel (and legacy severity) are re-synced from the URL, so drop them there too.
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      ['search', 'finalLevel', 'severity'].forEach((k) => next.delete(k));
+      return next;
+    }, { replace: true });
+    setRisksPage(1);
+  }, [setSearchParams]);
+
+  /** True when any Exposure (PCE) drill-down filter or sort differs from its default. */
+  const hasPceFilters =
+    pceClusterId !== '' ||
+    pceNamespace !== '' ||
+    pceCapabilityId !== '' ||
+    pcePodName !== '' ||
+    pceSeverityFilter !== '' ||
+    pceHeatmapFilter != null ||
+    pceSort !== 'severity_desc';
+
+  /** Clears the Exposure (PCE) drill-down filters and sort; the list refetches from page 1. */
+  const resetPceFilters = useCallback(() => {
+    setPceClusterId('');
+    setPceNamespace('');
+    setPceCapabilityId('');
+    setPcePodName('');
+    setPceSeverityFilter('');
+    setPceHeatmapFilter(null);
+    setPceSort('severity_desc');
+    setPceListPage(1);
+  }, []);
   const latestRiskUpdate = useMemo(() => {
     const latest = risks
       .map((r) => r.updatedAt ?? r.timestamp)
@@ -1840,8 +1894,15 @@ export const RiskCenter: React.FC = () => {
 	                <h2 className="text-section-title text-text">Findings queue</h2>
 	                <p className="text-caption text-muted">Prioritize, inspect, and update findings in the current operational scope.</p>
               </div>
-              <div className="text-caption text-muted sm:text-right">
-                {risksTotal} {findingsListView === 'group' ? 'groups' : 'findings'}
+              <div className="flex items-center gap-3 text-caption text-muted sm:justify-end">
+                <span>
+                  {risksTotal} {findingsListView === 'group' ? 'groups' : 'findings'}
+                </span>
+                <ResetFiltersButton
+                  onReset={resetFindingsFilters}
+                  active={hasFindingsFilters}
+                  title="Clear priority level, workflow, namespace, rule type, search, chart filters and sort"
+                />
               </div>
             </div>
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)_220px_220px] xl:items-end">
@@ -1906,21 +1967,17 @@ export const RiskCenter: React.FC = () => {
               />
             </div>
             <div>
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">
-                {/* /risk/insights has no sort parameter: rows are fetched newest-first and sorted per page. */}
-                {risksTotal > risks.length ? 'Sort (current page)' : 'Sort'}
-              </label>
+              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Sort</label>
               <select
                 value={riskSort}
-                title={risksTotal > risks.length ? 'Sorting applies to the rows on the current page; pages are ordered newest-first by the server.' : undefined}
-                onChange={(e) => setRiskSort(e.target.value as typeof riskSort)}
+                onChange={(e) => setRiskSort(e.target.value as RiskSortId)}
                 className="h-10 w-full rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand"
               >
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-	                <option value="score_desc">Priority score high to low</option>
-	                <option value="score_asc">Priority score low to high</option>
-                <option value="title_asc">Title A-Z</option>
+                {(Object.keys(RISK_SORT_OPTIONS) as RiskSortId[]).map((id) => (
+                  <option key={id} value={id}>
+                    {RISK_SORT_OPTIONS[id].label}
+                  </option>
+                ))}
               </select>
             </div>
             <div>
@@ -2617,6 +2674,11 @@ export const RiskCenter: React.FC = () => {
                 >
                   Apply &amp; search
                 </Button>
+                <ResetFiltersButton
+                  onReset={resetPceFilters}
+                  active={hasPceFilters}
+                  title="Clear cluster, namespace, severity, pod, capability and heatmap filters and sort"
+                />
               </div>
             </div>
             <div className="mb-3 flex flex-wrap items-center gap-2">

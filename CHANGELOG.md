@@ -10,9 +10,20 @@
 - A User admin can no longer change, disable or delete Cluster admin accounts, matching the rule that they cannot create them.
 - Every list endpoint has a default and a maximum `limit` (31 routes were unbounded, including users, resources, investigations, graphs and policy rules), and reports `truncated` when rows are cut. `limit=-1` on rule matches no longer returns every row.
 
+### Core
+
+- `GET /risk/insights` sorts server-side: `sort` (score, severity, detected, updated, title, type, resource, namespace, status) with `order=asc|desc`, applied across all pages and part of the list cache key. Unknown values fall back to newest-detected-first, and every ordering ends with the finding id so pages are stable on ties.
+- Statistics endpoints aggregate in SQL instead of loading every row: `/risk/trends` and `/pod-capabilities/trends` group per UTC day, `/investigations/stats` counts open cases in SQL and only reads cases whose remediation JSON mentions a due date, `/risk/scores` filters, counts, sorts and pages in the database (with the shared `pageSize` default of 50 and maximum of 500), and the access review counts users and reads only accounts that can raise a signal. Responses, cluster scope and permissions are unchanged.
+
 ### Dashboard
 
+- The Risk Center findings queue sorts on the server, so the chosen sort applies to every page instead of only the visible one, and changing it returns to page 1. The findings queue and the Exposure tab each have a "Reset filters" button.
 - Platform Health (formerly Pipeline & Runtime Health) has Certificates and Notifications as tabs (`/monitoring/certificates`, `/monitoring/notifications`). Rules & Catalog (formerly Policy Rules) has Risk scoring rules, moved out of Settings, and the Capability catalog (`/rules/risk-scoring`, `/rules/catalog`). Operators and cluster admins, who hold `rules.write` but not `users.read`, can now edit risk scoring rules. Old links to `/certificates`, `/notifications` and `/capabilities` redirect.
+- Audit (formerly Audit & Governance, `/governance`) is the one place for audit data: Security activity, the Platform audit log (moved from Platform Health, now filterable by resource and action), the Audit summary by resource and action (moved from Reports), the investigation timeline and access analytics, each on its own `?tab=`. Settings no longer queries security activity in the background for a hidden panel. Old `/monitoring?section=audit` links open the Audit log.
+- Kubernetes Inventory has Clusters as a tab (`/resources/clusters`); `/clusters` redirects. Changing the header cluster clears a namespace filter that belonged to the previous cluster, on Inventory and Runtime Network.
+- Runtime Network accepts `clusterId`, `namespace`, `podUid`, `q` and `tab` in the URL, and Pod detail links to it with the pod pre-selected.
+- A shared "Reset filters" button clears search, filters and sort on Clusters, Inventory, Rules, Capability catalog, Platform Health error logs, Security activity and the Platform audit log.
+- Certificates: a rotation history error shows as an error instead of "no records", and a failed rotation shows its error.
 - Findings can be reopened (`PATCH /risk/insights/:id` with `status: active`, permission `findings.reopen`) from the finding detail page; the Risk Center status filter includes Dismissed.
 - Reports: export failures show an error instead of failing silently, the Audit activity card shows audit data instead of investigation counts, and unavailable investigation stats show `n/a` instead of 0.
 - The Risk Center ignores responses from a superseded request, so a slow earlier response can no longer overwrite the current filter's results.

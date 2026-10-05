@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -74,14 +75,21 @@ func GetGovernancePermissionExplorer() gin.HandlerFunc {
 	}
 }
 
+// errAccessReviewEnough stops the candidate scan once more per-user signals exist than can be returned.
+var errAccessReviewEnough = errors.New("access review signal cap reached")
+
+// accessReviewExcessiveScopeMinJSONLen is the shortest scope JSON that can list more than 8 distinct
+// cluster IDs: {"clusters":["1","2","3","4","5","6","7","8","9"]} is 50 characters.
+const accessReviewExcessiveScopeMinJSONLen = 50
+
 // GetGovernanceAccessReview returns privilege hygiene signals (system.audit.read).
 func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		const dormantDays = 90
 		const staleDays = 180
 		now := time.Now().UTC()
-		var users []models.User
-		if err := db.Find(&users).Error; err != nil {
+		var userTotal int64
+		if err := db.Model(&models.User{}).Count(&userTotal).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
@@ -96,52 +104,90 @@ func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 		}
 		var signals []signal
 
+		// Admin count: only users whose role mentions "admin" are read (one column), then the
+		// exact role rule below decides.
+		var adminRoles []string
+		if err := db.Model(&models.User{}).Where("LOWER(role) LIKE ?", "%admin%").Pluck("role", &adminRoles).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
+		}
 		adminCount := 0
-		for _, u := range users {
-			role := strings.ToLower(strings.TrimSpace(u.Role))
-			if role == models.RoleAdmin {
+		for _, r := range adminRoles {
+			if strings.ToLower(strings.TrimSpace(r)) == models.RoleAdmin {
 				adminCount++
 			}
-			last := u.LastLogin
-			dormant := !last.IsZero() && now.Sub(last) > dormantDays*24*time.Hour
-			if last.IsZero() {
-				dormant = now.Sub(u.CreatedAt) > dormantDays*24*time.Hour
+		}
+
+		// Per-user signals: SQL narrows to users that can raise one (a superset), in id order,
+		// and the exact rules run in Go. Reading stops once the signal cap is exceeded.
+		dormantCutoff := now.Add(-dormantDays * 24 * time.Hour)
+		staleCutoff := now.Add(-staleDays * 24 * time.Hour)
+		candidates := db.Model(&models.User{}).
+			Select("id", "username", "role", "active", "last_login", "created_at", "scope_json").
+			Where(`(active = ? AND LOWER(role) LIKE ? AND (last_login IS NULL OR last_login < ?))
+ OR (active = ? AND LOWER(TRIM(role)) <> ? AND (last_login IS NULL OR last_login < ?))
+ OR LENGTH(CAST(scope_json AS TEXT)) >= ?`,
+				true, "%admin%", dormantCutoff, true, models.RoleViewer, staleCutoff, accessReviewExcessiveScopeMinJSONLen)
+		perUser := 0
+		var users []models.User
+		err := candidates.FindInBatches(&users, 500, func(tx *gorm.DB, _ int) error {
+			for _, u := range users {
+				role := strings.ToLower(strings.TrimSpace(u.Role))
+				last := u.LastLogin
+				dormant := !last.IsZero() && now.Sub(last) > dormantDays*24*time.Hour
+				if last.IsZero() {
+					dormant = now.Sub(u.CreatedAt) > dormantDays*24*time.Hour
+				}
+				if role == models.RoleAdmin && dormant && u.Active {
+					signals = append(signals, signal{
+						Code:     "DORMANT_ADMIN",
+						Severity: "CRITICAL",
+						UserID:   u.ID,
+						Username: u.Username,
+						Role:     u.Role,
+						Detail: map[string]any{
+							"lastLogin": last,
+						},
+					})
+				}
+				stale := !last.IsZero() && now.Sub(last) > staleDays*24*time.Hour
+				if last.IsZero() {
+					stale = now.Sub(u.CreatedAt) > staleDays*24*time.Hour
+				}
+				if stale && u.Active && role != models.RoleViewer {
+					signals = append(signals, signal{
+						Code:     "STALE_ACCOUNT",
+						Severity: "HIGH",
+						UserID:   u.ID,
+						Username: u.Username,
+						Role:     u.Role,
+					})
+				}
+				doc := authorization.ParseScopeDocument(u.ScopeJSON)
+				if doc.RestrictsClusters() && doc.ClusterAllowListSize() > 8 {
+					signals = append(signals, signal{
+						Code:     "EXCESSIVE_SCOPE",
+						Severity: "MEDIUM",
+						UserID:   u.ID,
+						Username: u.Username,
+						Detail:   map[string]any{"clusterCount": doc.ClusterAllowListSize()},
+					})
+				}
 			}
-			if role == models.RoleAdmin && dormant && u.Active {
-				signals = append(signals, signal{
-					Code:     "DORMANT_ADMIN",
-					Severity: "CRITICAL",
-					UserID:   u.ID,
-					Username: u.Username,
-					Role:     u.Role,
-					Detail: map[string]any{
-						"lastLogin": last,
-					},
-				})
+			perUser = 0
+			for _, s := range signals {
+				if s.UserID != 0 {
+					perUser++
+				}
 			}
-			stale := !last.IsZero() && now.Sub(last) > staleDays*24*time.Hour
-			if last.IsZero() {
-				stale = now.Sub(u.CreatedAt) > staleDays*24*time.Hour
+			if perUser > accessReviewMaxSignals {
+				return errAccessReviewEnough
 			}
-			if stale && u.Active && role != models.RoleViewer {
-				signals = append(signals, signal{
-					Code:     "STALE_ACCOUNT",
-					Severity: "HIGH",
-					UserID:   u.ID,
-					Username: u.Username,
-					Role:     u.Role,
-				})
-			}
-			doc := authorization.ParseScopeDocument(u.ScopeJSON)
-			if doc.RestrictsClusters() && doc.ClusterAllowListSize() > 8 {
-				signals = append(signals, signal{
-					Code:     "EXCESSIVE_SCOPE",
-					Severity: "MEDIUM",
-					UserID:   u.ID,
-					Username: u.Username,
-					Detail:   map[string]any{"clusterCount": doc.ClusterAllowListSize()},
-				})
-			}
+			return nil
+		}).Error
+		if err != nil && !errors.Is(err, errAccessReviewEnough) {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			return
 		}
 		if adminCount > 5 {
 			signals = append(signals, signal{
@@ -193,7 +239,7 @@ func GetGovernanceAccessReview(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{
 			"signals":          signals,
 			"signalsTruncated": signalsTruncated,
-			"userTotal":        len(users),
+			"userTotal":        userTotal,
 			"generatedAt":      now.Format(time.RFC3339),
 		})
 	}

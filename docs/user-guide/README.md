@@ -34,11 +34,12 @@ Roles determine route visibility and actions:
 | Operations Dashboard | `/#/dashboard` | Executive summary of risk, exposure, attack paths, and cluster posture. |
 | Findings Queue | `/#/risks/findings` | Triage findings using the unified risk score and workflow status. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
-| Runtime Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. |
-| Kubernetes Inventory | `/#/resources` | Browse pods and open pod detail for SBOM, risk, runtime, events, and spec. |
+| Runtime Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
+| Kubernetes Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
 | Rules & Catalog | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
 | Platform Health | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility and data freshness; certificates (`/#/monitoring/certificates`) and notifications (`/#/monitoring/notifications`). |
-| Reports | `/#/reports` | Export and review time-windowed operational reports. |
+| Reports | `/#/reports` | Executive posture for a time window and findings exports (CSV, PDF). |
+| Audit | `/#/governance` | Admin only: security activity, the platform audit log, audit summary by resource and action, the investigation timeline and access analytics. |
 | Settings | `/#/settings` | Manage users, roles and sessions. |
 
 ## Cluster Scope
@@ -217,3 +218,5 @@ Steps:
 4. Export only after confirming filters match the intended scope.
 
 Expected data source: report APIs scoped by cluster, role, and time window.
+
+Audit counts by resource and action, and the full audit log, are on the Audit page (`/#/governance?tab=aggregates` and `?tab=platform`) and need `system.audit.read`.

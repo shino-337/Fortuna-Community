@@ -10,6 +10,7 @@ import { Button } from '../components/ui/Button';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
 import { RefreshCw, MoreHorizontal, Globe } from 'lucide-react';
+import { INVENTORY_SECTIONS, SectionNav } from '../components/SectionNav';
 import clsx from 'clsx';
 import { STAT_LABELS } from '../constants/labels';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
@@ -23,6 +24,7 @@ import { DataFreshness } from '../components/DataFreshness';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50];
+const DEFAULT_SORT = 'risk_desc' as const;
 
 export const Clusters: React.FC = () => {
   const navigate = useNavigate();
@@ -32,7 +34,14 @@ export const Clusters: React.FC = () => {
   const [pageSize, setPageSize] = useState(10);
   const [searchName, setSearchName] = useState('');
   const [healthFilter, setHealthFilter] = useState<'all' | 'connected' | 'degraded' | 'disconnected'>('all');
-  const [sortBy, setSortBy] = useState<'name_asc' | 'risk_desc' | 'agents_desc' | 'pods_desc'>('risk_desc');
+  const [sortBy, setSortBy] = useState<'name_asc' | 'risk_desc' | 'agents_desc' | 'pods_desc'>(DEFAULT_SORT);
+  const filtersActive = searchName.trim() !== '' || healthFilter !== 'all' || sortBy !== DEFAULT_SORT;
+  const resetFilters = () => {
+    setSearchName('');
+    setHealthFilter('all');
+    setSortBy(DEFAULT_SORT);
+    setPage(1);
+  };
   const [error, setError] = useState<string | null>(null);
   const [availabilityIssue, setAvailabilityIssue] = useState<AvailabilityIssue | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -90,7 +99,7 @@ export const Clusters: React.FC = () => {
 
   return (
     <PageLayout
-      title={PAGE_TITLES.clusters}
+      title={PAGE_TITLES.resources}
       description={`Manage and monitor clusters. Count matches Dashboard "${STAT_LABELS.CLUSTERS}" (active within 7 days).`}
       actions={
         <Button onClick={fetchClusters} variant="secondary" isLoading={loading}>
@@ -101,6 +110,7 @@ export const Clusters: React.FC = () => {
       toolbar={
         <FilterBar
           embedded
+          reset={{ onReset: resetFilters, active: filtersActive }}
           search={{
             value: searchName,
             onChange: (v) => {
@@ -144,6 +154,7 @@ export const Clusters: React.FC = () => {
         />
       }
     >
+      <SectionNav sections={INVENTORY_SECTIONS} ariaLabel="Inventory sections" />
       {availabilityIssue && clusters.length > 0 ? (
         <AvailabilityNotice
           issue={availabilityIssue}

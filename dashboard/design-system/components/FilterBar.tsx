@@ -1,6 +1,7 @@
 import React from 'react';
 import clsx from 'clsx';
 import { Search } from 'lucide-react';
+import { ResetFiltersButton } from '../../components/ResetFiltersButton';
 
 export interface FilterBarToggle {
   id: string;
@@ -44,6 +45,8 @@ export interface FilterBarProps {
     selectClassName?: string;
   };
   toggles?: FilterBarToggle[];
+  /** Adds a "Reset filters" button; `active` is false when every filter is at its default. */
+  reset?: { onReset: () => void; active: boolean; title?: string };
   trailing?: React.ReactNode;
   children?: React.ReactNode;
 }
@@ -57,6 +60,7 @@ export const FilterBar: React.FC<FilterBarProps> = ({
   namespace,
   sort,
   toggles,
+  reset,
   trailing,
   children,
 }) => (
@@ -142,7 +146,12 @@ export const FilterBar: React.FC<FilterBarProps> = ({
           </select>
         ) : null}
 
-        {trailing ? <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">{trailing}</div> : null}
+        {trailing || reset ? (
+          <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+            {trailing}
+            {reset ? <ResetFiltersButton onReset={reset.onReset} active={reset.active} title={reset.title} /> : null}
+          </div>
+        ) : null}
       </div>
     </div>
 

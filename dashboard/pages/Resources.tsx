@@ -22,6 +22,7 @@ import { AttackPath, AttackPathSummary, Cluster, K8sRbacResourceDetail, K8sResou
 import { deriveUnifiedRiskLevelFromScore, getSeverityBadgeClass, getPodStatusBadgeClass } from '../lib/severity';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
 import { PAGE_TITLES } from '../lib/pageTitles';
+import { INVENTORY_SECTIONS, SectionNav } from '../components/SectionNav';
 import type { SemanticVisibilityState } from '../lib/visibilityEngine';
 
 const PAGE_SIZE_OPTIONS = [10, 20, 50, 100];
@@ -131,6 +132,8 @@ function AttackPathIssueSurface({
 }
 
 /** Legacy URLs merged into Resources → Inventory */
+const DEFAULT_RESOURCE_SORT = 'risk_desc' as const;
+
 const LEGACY_TAB_ALIASES: Record<string, TabId> = { RBACOverview: 'Inventory' };
 
 export const Resources: React.FC = () => {
@@ -161,7 +164,7 @@ export const Resources: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sortBy, setSortBy] = useState<
     'name_asc' | 'namespace_asc' | 'risk_desc' | 'created_desc'
-  >('risk_desc');
+  >(DEFAULT_RESOURCE_SORT);
   const [clusterNamespaces, setClusterNamespaces] = useState<string[]>([]);
   const [attackSummary, setAttackSummary] = useState<AttackPathSummary | null>(null);
   const [attackSummaryLoading, setAttackSummaryLoading] = useState(false);
@@ -319,10 +322,9 @@ export const Resources: React.FC = () => {
       return;
     }
     try {
-      const inv = await api.getClusterInventory(selectedClusterId);
+      const inv = await api.getClusterInventoryStrict(selectedClusterId);
       if (seq !== namespacesRequestRef.current) return;
-      const raw = inv?.namespaces ?? [];
-      setClusterNamespaces([...raw].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
+      setClusterNamespaces([...inv.namespaces].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' })));
     } catch {
       if (seq === namespacesRequestRef.current) setClusterNamespaces([]);
     }
@@ -539,7 +541,7 @@ export const Resources: React.FC = () => {
 
   const tabs = [
     { id: 'Pod' as const, label: 'Pods', icon: <Box size={16} /> },
-    { id: 'Inventory' as const, label: 'Inventory', icon: <LayoutGrid size={16} /> },
+    { id: 'Inventory' as const, label: 'RBAC summary', icon: <LayoutGrid size={16} /> },
     { id: 'ServiceAccount', label: 'Service Accounts', icon: <UserCog size={16} /> },
     { id: 'Role', label: 'Roles', icon: <Scroll size={16} /> },
     { id: 'RoleBinding', label: 'Role Bindings', icon: <Key size={16} /> },
@@ -805,6 +807,22 @@ export const Resources: React.FC = () => {
     });
   };
 
+  // A namespace from the previous cluster rarely exists in the new one and would hide every row.
+  const previousClusterRef = useRef(selectedClusterId);
+  useEffect(() => {
+    if (previousClusterRef.current === selectedClusterId) return;
+    previousClusterRef.current = selectedClusterId;
+    if (namespaceFilter) onNsChange('');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedClusterId]);
+
+  const filtersActive = searchTerm.trim() !== '' || namespaceFilter !== '' || sortBy !== DEFAULT_RESOURCE_SORT;
+  const resetFilters = () => {
+    setSearchTerm('');
+    setSortBy(DEFAULT_RESOURCE_SORT);
+    onNsChange('');
+  };
+
   const selectResourcesTab = useCallback(
     (id: TabId) => {
       setActiveTab(id);
@@ -860,6 +878,7 @@ export const Resources: React.FC = () => {
         activeTab === 'Inventory' ? undefined : (
           <FilterBar
           embedded
+          reset={{ onReset: resetFilters, active: filtersActive }}
           search={{
             value: searchTerm,
             onChange: setSearchTerm,
@@ -899,6 +918,7 @@ export const Resources: React.FC = () => {
         )
       }
     >
+      <SectionNav sections={INVENTORY_SECTIONS} ariaLabel="Inventory sections" />
       <div className="flex flex-col gap-4">
         {availabilityIssue ? (
           <AvailabilityNotice

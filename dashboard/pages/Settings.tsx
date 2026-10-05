@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
-import { Cluster, User, FortunaUserSession, SecurityActivityItem } from '../types';
+import { Cluster, User, FortunaUserSession } from '../types';
 import { api, getAvailabilityIssue, type AvailabilityIssue } from '../lib/api';
 import { Shield, Plus, Trash2 } from 'lucide-react';
 import { PageLayout } from '../design-system/layouts/PageLayout';
@@ -10,7 +10,6 @@ import { useConfirm } from '../design-system/components/ConfirmDialog';
 import { Dialog } from '../design-system/components/Dialog';
 import { useToast } from '../design-system/components/Toast';
 import { formatDateTime } from '../lib/display';
-import { getSeverityBadgeClass } from '../lib/severity';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH, UI_TR, UI_TD } from '../lib/tableChrome';
 import {
   FORTUNA_ADMIN_VS_USER_ADMIN,
@@ -28,7 +27,6 @@ import { isPlatformAdmin } from '../lib/roles';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 
-const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
 
 function parseUserScopeClusters(user: User): { restricted: boolean; clusters: string[]; invalid: boolean } {
   if (user.operationalScope) {
@@ -76,7 +74,6 @@ export const Settings: React.FC = () => {
   const canUsersDelete = canRunAction(permUser, ACTION_IDS.userDelete);
   const canUsersRowActions = canUsersUpdate || canUsersRoleAssign || canUsersDelete;
   const canRegister = can(permUser, P.authRegister);
-  const canGovAudit = can(permUser, P.systemAuditRead);
   const canSessionsRead = can(permUser, P.sessionsRead);
   const canSessionsRevoke = canRunAction(permUser, ACTION_IDS.sessionRevoke);
   const canSessionsRevokeAll = canRunAction(permUser, ACTION_IDS.sessionRevokeAll);
@@ -131,26 +128,13 @@ export const Settings: React.FC = () => {
   const [scopeSaving, setScopeSaving] = useState(false);
   const [scopeError, setScopeError] = useState('');
 
-  const [govActivityItems, setGovActivityItems] = useState<SecurityActivityItem[]>([]);
-  const [govActivityTotal, setGovActivityTotal] = useState(0);
-  const [govActivityOffset, setGovActivityOffset] = useState(0);
-  const govActivityLimit = 30;
-  const [govLoading, setGovLoading] = useState(false);
-  const [govSeverity, setGovSeverity] = useState('');
-  const [govResult, setGovResult] = useState('');
-  const [govAction, setGovAction] = useState('');
   const [sessionRows, setSessionRows] = useState<FortunaUserSession[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(false);
   const [sessionUserIdFilter, setSessionUserIdFilter] = useState('');
   const [sessionsError, setSessionsError] = useState<string | null>(null);
   // Free-text filters are debounced before they reach the API (each keystroke would otherwise refetch).
-  const [debouncedGovAction, setDebouncedGovAction] = useState('');
   const [debouncedSessionUserId, setDebouncedSessionUserId] = useState('');
   const governanceRequestRef = useRef(0);
-  useEffect(() => {
-    const t = window.setTimeout(() => setDebouncedGovAction(govAction.trim()), 300);
-    return () => window.clearTimeout(t);
-  }, [govAction]);
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedSessionUserId(sessionUserIdFilter.trim()), 300);
     return () => window.clearTimeout(t);
@@ -200,29 +184,6 @@ export const Settings: React.FC = () => {
     // Overlapping filter changes: only the newest request may update the tables.
     const seq = ++governanceRequestRef.current;
     const isStale = () => seq !== governanceRequestRef.current;
-    if (canGovAudit) {
-      setGovLoading(true);
-      try {
-        const r = await api.listSecurityActivity({
-          limit: govActivityLimit,
-          offset: govActivityOffset,
-          severity: govSeverity.trim() || undefined,
-          result: govResult.trim() || undefined,
-          action: debouncedGovAction || undefined,
-        });
-        if (isStale()) return;
-        setGovActivityItems(r.items);
-        setGovActivityTotal(r.total);
-      } catch (e) {
-        if (isStale()) return;
-        setGovActivityItems([]);
-        setGovActivityTotal(0);
-        toast({ title: 'Settings action failed', description: String(e instanceof Error ? e.message : e), variant: 'error' });
-      } finally {
-        if (!isStale()) setGovLoading(false);
-      }
-    }
-    if (isStale()) return;
     if (canSessionsRead) {
       setSessionsLoading(true);
       try {
@@ -243,16 +204,10 @@ export const Settings: React.FC = () => {
       }
     }
   }, [
-    canGovAudit,
     canSessionsRead,
-    govActivityOffset,
-    govSeverity,
-    govResult,
-    debouncedGovAction,
     isFortunaAdmin,
     canUsersReadForSessions,
     debouncedSessionUserId,
-    govActivityLimit,
     toast,
   ]);
 
@@ -440,7 +395,7 @@ export const Settings: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.settings}
-      description="Fortuna administration: users, cluster access and sessions. Risk scoring rules live under Rules & Catalog; governance analytics under Audit & Governance."
+      description="Fortuna administration: users, cluster access and sessions. Risk scoring rules live under Rules & Catalog; security activity and audit logs under Audit."
     >
       <div className="border-b border-border">
         <nav className="flex space-x-6 overflow-x-auto">
@@ -686,145 +641,9 @@ export const Settings: React.FC = () => {
             <Card className="p-4 sm:p-5 border border-border/90 bg-surface-2/25">
               <h3 className="mb-2 text-card-title text-text">Sessions</h3>
               <p className="text-caption text-muted leading-snug">
-                Manage JWT-bound dashboard sessions. Authorization analytics, permission explorer, and audit review live under Administration → Audit & Governance.
+                Manage JWT-bound dashboard sessions. Security activity, the platform audit log, and access analytics live on the Audit page.
               </p>
             </Card>
-
-            {false && canGovAudit && (
-              <Card className="p-0 overflow-hidden">
-                <div className="p-4 border-b border-border space-y-3">
-                  <div>
-                    <h4 className="text-body font-semibold text-text">Security activity</h4>
-                    <p className="text-caption text-muted mt-0.5">
-                      Timeline from <span className="font-mono text-caption">GET /governance/security-activity</span> (immutable append-only store).
-                    </p>
-                  </div>
-                  <div className="flex flex-wrap gap-3 items-end">
-                    <div>
-                      <label className="text-caption text-muted block mb-1">Severity</label>
-                      <select
-                        className="bg-base border border-border rounded px-2 py-1.5 text-body min-w-[8rem]"
-                        value={govSeverity}
-                        onChange={(e) => {
-                          setGovSeverity(e.target.value);
-                          setGovActivityOffset(0);
-                        }}
-                      >
-                        <option value="">Any</option>
-                        {SEVERITIES.map((s) => (
-                          <option key={s} value={s}>
-                            {s}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-caption text-muted block mb-1">Result</label>
-                      <select
-                        className="bg-base border border-border rounded px-2 py-1.5 text-body min-w-[8rem]"
-                        value={govResult}
-                        onChange={(e) => {
-                          setGovResult(e.target.value);
-                          setGovActivityOffset(0);
-                        }}
-                      >
-                        <option value="">Any</option>
-                        <option value="success">success</option>
-                        <option value="deny">deny</option>
-                        <option value="error">error</option>
-                      </select>
-                    </div>
-                    <div className="flex-1 min-w-[12rem]">
-                      <label className="text-caption text-muted block mb-1">Action contains</label>
-                      <input
-                        className="w-full bg-base border border-border rounded px-2 py-1.5 text-body"
-                        value={govAction}
-                        onChange={(e) => {
-                          setGovAction(e.target.value);
-                          setGovActivityOffset(0);
-                        }}
-                        placeholder="e.g. graph_query"
-                      />
-                    </div>
-                  </div>
-                </div>
-                {govLoading ? (
-                  <div className="p-8 text-muted">Loading activity…</div>
-                ) : govActivityItems.length === 0 ? (
-                  <PageEmpty title="No events" description="No rows match the current filters, or the audit table is empty." className="py-8" />
-                ) : (
-                  <div className="ui-table-scroll">
-                    <table className={UI_TABLE}>
-                      <thead className={UI_THEAD_STICKY}>
-                        <tr>
-                          <th className={UI_TH}>Time</th>
-                          <th className={UI_TH}>Severity</th>
-                          <th className={UI_TH}>Result</th>
-                          <th className={UI_TH}>Action</th>
-                          <th className={UI_TH}>Actor</th>
-                          <th className={UI_TH}>Resource</th>
-                          <th className={UI_TH}>Session</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {govActivityItems.map((row) => (
-                          <tr key={`${row.id ?? row.eventId ?? row.createdAt}-${row.action}`} className={UI_TR}>
-                            <td className={`${UI_TD} text-caption whitespace-nowrap`}>
-                              {row.createdAt ? formatDateTime(row.createdAt) : '—'}
-                            </td>
-                            <td className={UI_TD}>
-                              <span className={getSeverityBadgeClass((row.severity || 'info').toLowerCase())}>
-                                {row.severity || '—'}
-                              </span>
-                            </td>
-                            <td className={`${UI_TD} text-caption`}>{row.result || '—'}</td>
-                            <td className={`${UI_TD} font-mono text-caption max-w-[14rem] truncate`} title={row.action}>
-                              {row.action || '—'}
-                            </td>
-                            <td className={`${UI_TD} text-caption`}>
-                              {row.actorUsername || '—'}
-                              {row.actorUserId != null ? (
-                                <span className="text-muted"> · uid {row.actorUserId}</span>
-                              ) : null}
-                            </td>
-                            <td className={`${UI_TD} text-caption max-w-[12rem] truncate`} title={row.resourceType || row.resource}>
-                              {row.resourceType || row.resource || '—'}
-                              {row.resourceId ? <span className="text-muted"> / {row.resourceId}</span> : null}
-                            </td>
-                            <td className={`${UI_TD} font-mono text-caption max-w-[8rem] truncate`} title={row.sessionId}>
-                              {row.sessionId ? `${row.sessionId.slice(0, 8)}…` : '—'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-                <div className="p-3 border-t border-border flex flex-wrap justify-between items-center gap-2">
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={govActivityOffset === 0 || govLoading}
-                    onClick={() => setGovActivityOffset((o) => Math.max(0, o - govActivityLimit))}
-                  >
-                    Previous
-                  </Button>
-                  <span className="text-caption text-muted">
-                    {govActivityTotal === 0
-                      ? '0 events'
-                      : `Offset ${govActivityOffset} · ${govActivityItems.length} row(s) · ${govActivityTotal} total`}
-                  </span>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={govLoading || govActivityOffset + govActivityLimit >= govActivityTotal}
-                    onClick={() => setGovActivityOffset((o) => o + govActivityLimit)}
-                  >
-                    Next
-                  </Button>
-                </div>
-              </Card>
-            )}
 
             {canSessionsRead && (
               <Card className="p-0 overflow-hidden">
