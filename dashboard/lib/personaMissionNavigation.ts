@@ -24,10 +24,8 @@ const MISSION_CATALOG: Record<
   { label: string; path: string; iconKey: string; search?: string; highlight?: boolean; fallbackPaths?: string[] }
 > = {
   home: { label: PAGE_TITLES.homeViewer, path: '/', iconKey: 'dashboard' },
-  dashboardKpis: { label: PAGE_TITLES.dashboard, path: '/dashboard', iconKey: 'dashboard' },
   exposure: { label: PAGE_TITLES.riskOperations, path: '/risks/findings', iconKey: 'risks' },
   investigations: { label: PAGE_TITLES.investigations, path: '/investigation', iconKey: 'investigation' },
-  reports: { label: PAGE_TITLES.reports, path: '/reports', iconKey: 'reports' },
   resources: { label: PAGE_TITLES.resources, path: '/resources', iconKey: 'resources' },
   // Rules & Catalog opens on the first section the user can read (viewers only see the catalog).
   rules: { label: PAGE_TITLES.policyRules, path: '/rules', iconKey: 'rules', fallbackPaths: ['/rules/catalog'] },
@@ -42,20 +40,20 @@ const MISSION_CATALOG: Record<
 };
 
 const VIEWER_MISSIONS: { section: string; keys: string[] }[] = [
-  { section: 'Overview', keys: ['home', 'dashboardKpis', 'exposure', 'investigations', 'reports'] },
+  { section: 'Overview', keys: ['home', 'exposure', 'investigations'] },
   { section: 'Context', keys: ['attackPaths', 'runtime', 'resources', 'rules', 'telemetry'] },
 ];
 
 const OPERATOR_MISSIONS: { section: string; keys: string[] }[] = [
-  { section: 'Triage', keys: ['activeResponse', 'dashboardKpis', 'threatOps', 'investigations'] },
+  { section: 'Triage', keys: ['activeResponse', 'threatOps', 'investigations'] },
   { section: 'Evidence', keys: ['attackPaths', 'runtime', 'resources'] },
   { section: 'Controls', keys: ['rules', 'telemetry'] },
 ];
 
 const ADMIN_MISSIONS: { section: string; keys: string[] }[] = [
-  { section: 'Overview', keys: ['platform', 'dashboardKpis', 'telemetry'] },
+  { section: 'Overview', keys: ['platform', 'telemetry'] },
   { section: 'Risk workflow', keys: ['threatOps', 'investigations', 'attackPaths', 'runtime'] },
-  { section: 'Inventory', keys: ['resources', 'reports'] },
+  { section: 'Inventory', keys: ['resources'] },
   { section: 'Controls', keys: ['rules'] },
   { section: 'Administration', keys: ['governance', 'settings'] },
 ];

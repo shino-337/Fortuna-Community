@@ -44,10 +44,10 @@ async function loginAsAdmin(page: Page): Promise<string[]> {
       }),
     );
   }, payload);
-  await page.goto(appUrl(page, '/dashboard'));
+  await page.goto(appUrl(page, '/'));
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('main h1').filter({ hasText: /^Dashboard$/ })).toBeVisible();
+  await expect(page.locator('main h1').filter({ hasText: /^Platform Integrity$/ })).toBeVisible();
   return consoleMessages;
 }
 
@@ -113,14 +113,12 @@ test.describe('admin RBAC UI smoke', () => {
 
     const routes = [
       ['/', 'Platform Integrity'],
-      ['/dashboard', 'Dashboard'],
       ['/risks/findings', 'Risk Operations'],
       ['/investigation', 'Investigations'],
       ['/network-activity', 'Network Activity'],
       ['/attack-paths', 'Attack Analysis'],
       ['/rules', 'Rules & Catalog'],
       ['/resources', 'Resources'],
-      ['/reports', 'Reports'],
       ['/monitoring', 'Platform Health'],
       ['/governance', 'Audit'],
       ['/settings', 'Settings'],

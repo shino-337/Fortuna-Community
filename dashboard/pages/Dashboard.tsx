@@ -16,7 +16,9 @@ import { usePersona } from '../hooks/usePersona';
 import { useOperationalContext } from '../hooks/useOperationalContext';
 import { getDashboardComposition } from '../lib/dashboardComposition';
 import type { GraphSemanticMode } from '../lib/persona';
-import { PersonaDashboardStrip } from './dashboard/PersonaDashboardStrip';
+import { PersonaDecisionPanel } from './home/PersonaDecisionPanel';
+import { ExecutiveBriefPanel } from './home/ExecutiveBriefPanel';
+import { useOperationalMaterialization } from '../hooks/useOperationalMaterialization';
 import {
   buildDashboardLoadPolicy,
   getPersonaWidgetCandidates,
@@ -785,6 +787,9 @@ export const Dashboard: React.FC = () => {
   const sinceMinutes = timeWindowMinutes > 0 ? timeWindowMinutes : undefined;
 
   const { id: personaId, profile } = usePersona();
+  const { shellVariant, dashboardSections, identityLabel } = useOperationalMaterialization();
+  const homeTitle =
+    shellVariant === 'admin' ? PAGE_TITLES.homeAdmin : shellVariant === 'operator' ? PAGE_TITLES.homeOperator : PAGE_TITLES.homeViewer;
   const { user: opUser, ownership, telemetry } = useOperationalContext();
   const bootstrapLoadPolicy = useMemo(
     () => buildDashboardLoadPolicy(opUser, getPersonaWidgetCandidates(personaId)),
@@ -812,6 +817,7 @@ export const Dashboard: React.FC = () => {
     attackChains,
     primitivePaths,
     attackGraphData,
+    pipelineHealth,
     coreReady,
     initialError,
     partialErrors,
@@ -1103,6 +1109,30 @@ export const Dashboard: React.FC = () => {
     }
   }, [entryScenarios, searchParams, setSearchParams]);
 
+  // `/reports` and the "Executive brief" links land on `/?section=brief`.
+  const briefOpen = searchParams.get('section') === 'brief';
+  const setBriefOpen = useCallback(
+    (open: boolean) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (open) next.set('section', 'brief');
+          else next.delete('section');
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+  useEffect(() => {
+    if (!briefOpen || !coreReady) return;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById('executive-brief')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [briefOpen, coreReady]);
+
   const selectedScenario = useMemo(
     () => entryScenarios.find((scenario) => scenario.key === selectedEntryUid) || entryScenarios[0],
     [entryScenarios, selectedEntryUid],
@@ -1236,7 +1266,7 @@ export const Dashboard: React.FC = () => {
 
   if (!dashComposition.pageVisible) {
     return (
-      <PageLayout title={PAGE_TITLES.dashboard} description="Cluster-scoped KPIs and drill-downs.">
+      <PageLayout title={homeTitle} description="Cluster-scoped KPIs and drill-downs.">
         <SemanticEmptyState
           state={dashComposition.pageSemantic.semanticState}
           reason={dashComposition.pageSemantic.reason}
@@ -1248,8 +1278,8 @@ export const Dashboard: React.FC = () => {
 
   return (
     <PageLayout
-      title={PAGE_TITLES.dashboard}
-      description="Operational KPIs and drill-downs. Risk findings follow the header cluster and time window; inventory, capability, and graph data follow cluster scope."
+      title={homeTitle}
+      description={`${identityLabel}. Risk findings follow the header cluster and time window; inventory, capability, and graph data follow cluster scope.`}
       actions={
         <div className="flex items-center gap-2">
           {isRefreshing ? (
@@ -1286,7 +1316,25 @@ export const Dashboard: React.FC = () => {
           </>
         }
       />
-      {isDashboardWidgetVisible(dashComposition, 'persona_strip') ? <PersonaDashboardStrip /> : null}
+      {isDashboardWidgetVisible(dashComposition, 'persona_strip') ? (
+        <PersonaDecisionPanel
+          shellVariant={shellVariant}
+          sections={dashboardSections}
+          identityLabel={identityLabel}
+          onOpenBrief={() => setBriefOpen(true)}
+          data={{
+            activeFindings: activeFindingsCount,
+            criticalFindings: criticalRiskFindingCount,
+            attackPathCount,
+            exploitedCapCount,
+            affectedWorkloads: statsLoaded ? Number(stats.affectedPodCount ?? 0) : 0,
+            clusterName: stats.clusterName,
+            clusterCount: Number(stats.clusters ?? 0),
+            pipelineStatus: pipelineHealth?.layer1?.status ?? null,
+            telemetryDegraded: dashboardLoadMessages.length > 0,
+          }}
+        />
+      ) : null}
       <DashboardSubNav mode={dashboardMode} personaId={personaId} widgets={dashComposition.widgets} />
 
       {isDashboardSectionVisible(personaId, 'exposure', dashboardMode, dashComposition.widgets) ? (
@@ -1696,6 +1744,8 @@ export const Dashboard: React.FC = () => {
           </div>
         </details>
       )}
+
+      <ExecutiveBriefPanel open={briefOpen} onToggle={setBriefOpen} />
 
       {isDashboardSectionVisible(personaId, 'activity', dashboardMode, dashComposition.widgets) && (
         <details id="activity" className="group scroll-mt-24 overflow-hidden rounded-xl border border-border/80 bg-surface/30">

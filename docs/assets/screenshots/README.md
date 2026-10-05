@@ -6,15 +6,15 @@ These screenshots are committed as user-guide assets. They show a local multi-cl
 
 | File | Route | Documentation Use |
 |------|-------|-------------------|
-| `platform-integrity.png` | `/#/` | Platform Integrity workspace |
-| `dashboard-overview.png` | `/#/dashboard` | Operations Dashboard |
+| `platform-integrity.png` | `/#/` | Home, top: the role's next step (Platform Integrity for admins) |
+| `dashboard-overview.png` | `/#/` | Home, risk overview and drill-downs (captured as the former `/#/dashboard` page) |
 | `monitoring.png` | `/#/monitoring` | Platform Health |
 | `risk-operations.png` | `/#/risks/findings` | Findings Queue |
 | `attack-analysis.png` | `/#/attack-paths` | Attack Paths |
 | `network-activity.png` | `/#/network-activity` with a selected cluster | Runtime Network |
 | `resources.png` | `/#/resources` | Kubernetes Inventory and pod investigation entry point |
 | `policy-rules.png` | `/#/rules` | Rules & Catalog |
-| `reports.png` | `/#/reports` | Reports |
+| `reports.png` | `/#/?section=brief` | Executive brief on Home (captured as the former `/#/reports` page) |
 
 ## Refresh Guidance
 

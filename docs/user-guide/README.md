@@ -30,15 +30,13 @@ Roles determine route visibility and actions:
 
 | Workspace | Route | Use it for |
 |-----------|-------|------------|
-| Platform Integrity | `/#/` | Telemetry reliability, governance, runtime coverage, and platform health. |
-| Operations Dashboard | `/#/dashboard` | Executive summary of risk, exposure, attack paths, and cluster posture. |
+| Home | `/#/` | Named for your role: Platform Integrity (admin), Active Response (operator) or My Exposure (viewer). The next step for your role, then risk overview, entry points, exposure trend and cluster health, and the Executive brief. Old `/#/dashboard` links open Home. |
 | Findings Queue | `/#/risks/findings` | Triage findings using the unified risk score and workflow status. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Runtime Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
 | Kubernetes Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
 | Rules & Catalog | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
 | Platform Health | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility and data freshness; certificates (`/#/monitoring/certificates`) and notifications (`/#/monitoring/notifications`). |
-| Reports | `/#/reports` | Executive posture for a time window and findings exports (CSV, PDF). |
 | Audit | `/#/governance` | Admin only: security activity, the platform audit log, audit summary by resource and action, the investigation timeline and access analytics. |
 | Settings | `/#/settings` | Manage users, roles and sessions. |
 
@@ -46,7 +44,7 @@ Roles determine route visibility and actions:
 
 The header cluster selector controls most security data pages.
 
-- `All clusters` is useful for Platform Integrity, Operations Dashboard, global finding triage, and reports.
+- `All clusters` is useful for Home, the Executive brief, and global finding triage.
 - A specific cluster is required for Runtime Network and is recommended when investigating pod detail, attack paths, or inventory.
 - If a remote cluster Agent is connected, it appears in the selector after its first full sync. Dashboard totals should equal the sum of active cluster rows.
 
@@ -82,9 +80,11 @@ These images are representative captures from one local multi-cluster deployment
 
 ![Rules & Catalog](../assets/screenshots/policy-rules.png)
 
-### Reports
+### Executive brief
 
-![Reports](../assets/screenshots/reports.png)
+![Executive brief](../assets/screenshots/reports.png)
+
+This capture was taken when the brief was still a separate Reports page; the same cards now sit in the Executive brief section at the bottom of Home.
 
 ## Reading Empty or Blocked States
 
@@ -107,7 +107,7 @@ A typical investigation:
 4. Jump to Attack Paths for path context.
 5. Open the affected pod in Kubernetes Inventory for SBOM, runtime, network, and event detail.
 6. Use Rules & Catalog to understand the rule or catalog entry behind the finding.
-7. Export from Reports when you need a time-windowed operational handoff.
+7. Export from the Executive brief on Home when you need a time-windowed operational handoff.
 
 Each step is described below.
 
@@ -208,15 +208,15 @@ Expected data source: rule catalog APIs and legacy code-to-rule mapping records.
 
 Goal: create a focused operational summary for a review period.
 
-Reference screen: [Reports](../assets/screenshots/reports.png).
+Reference screen: [Executive brief](../assets/screenshots/reports.png).
 
 Steps:
 
-1. Open `/#/reports`.
-2. Pick a time filter such as 1 day, 3 days, 7 days, or 30 days.
-3. Review included findings, resource changes, runtime events, and posture summary.
-4. Export only after confirming filters match the intended scope.
+1. Open Home and expand **Executive brief** at the bottom, or open `/#/?section=brief` (old `/#/reports` links land here).
+2. Pick a report window: 1, 3, 7 or 30 days. Findings follow the window; pipeline health, inventory and investigation counts are current snapshots.
+3. Review critical exposure, critical attack paths, runtime exploited signals, fleet inventory, open investigations and the finding distribution.
+4. Use **Download brief** for a Markdown summary, or **Risks CSV** / **Risks PDF** (needs `export.findings`) for the findings in the window.
 
-Expected data source: report APIs scoped by cluster, role, and time window.
+The brief only loads when it is expanded. Its numbers come from `/dashboard/stats`, `/risk/insights/summary`, `/monitoring/pipeline-health` and `/investigations/stats`, scoped by your clusters and permissions.
 
 Audit counts by resource and action, and the full audit log, are on the Audit page (`/#/governance?tab=aggregates` and `?tab=platform`) and need `system.audit.read`.

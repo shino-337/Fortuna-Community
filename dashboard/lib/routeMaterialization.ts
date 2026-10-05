@@ -37,8 +37,7 @@ export interface MaterializedOperationalPlane {
 
 /** Child/detail routes unlocked when a parent prefix is materialized. */
 const ROUTE_EXPANSION: Record<string, string[]> = {
-  '/': ['/dashboard'],
-  '/dashboard': [],
+  '/': [],
   '/risks': ['/risks/findings', '/risks/pce', '/risks/evidence', '/risks/:id'],
   '/resources': [
     '/resources/pods/uid/:uid',
@@ -58,12 +57,10 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
   '/monitoring/notifications': [],
   '/governance': [],
   '/settings': [],
-  '/reports': [],
 };
 
 const ALL_APP_ROUTES = [
   '/',
-  '/dashboard',
   '/clusters/:id',
   '/clusters/:clusterId/nodes/:nodeName',
   '/resources',
@@ -91,7 +88,6 @@ const ALL_APP_ROUTES = [
   '/monitoring/notifications',
   '/governance',
   '/settings',
-  '/reports',
 ];
 
 const IDENTITY: Record<
@@ -111,7 +107,7 @@ const IDENTITY: Record<
   admin: {
     label: 'Security Operations Overseer',
     description: 'Govern platform integrity, telemetry reliability, and operational oversight.',
-    defaultRoute: '/dashboard',
+    defaultRoute: '/',
   },
   user_admin: {
     label: 'Identity & Access Administrator',
@@ -182,7 +178,6 @@ function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
   if (can(ctx.user, P.clusterCertificatesRotate)) routes.add('/monitoring/certificates');
   if (can(ctx.user, P.rulesRead)) routes.add('/rules/risk-scoring');
   if (can(ctx.user, P.usersRead)) routes.add('/settings');
-  if (can(ctx.user, P.exportFindings) || can(ctx.user, P.findingsRead)) routes.add('/reports');
 
   return [...routes];
 }

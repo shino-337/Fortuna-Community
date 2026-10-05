@@ -107,7 +107,7 @@ const PROFILES: Record<PersonaId, PersonaProfile> = {
     id: 'admin',
     label: 'Administrator',
     description: 'Full platform, security, runtime, inventory, and governance access.',
-    homeRoute: '/dashboard',
+    homeRoute: '/',
     defaultDashboardMode: 'full',
     tableDensity: 'compact',
     graphMode: 'integrity',
@@ -194,7 +194,6 @@ export function workflowPhaseFromPath(pathname: string): WorkflowPhase {
   if (pathname.startsWith('/attack-paths')) return 'attack_path';
   if (pathname.startsWith('/network-activity') || pathname.startsWith('/monitoring')) return 'runtime';
   if (pathname.startsWith('/governance') || pathname.startsWith('/settings')) return 'governance';
-  if (pathname.startsWith('/reports')) return 'executive';
   if (pathname.includes('remediation')) return 'remediation';
   return 'triage';
 }
