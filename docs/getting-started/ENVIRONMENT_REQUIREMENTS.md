@@ -110,6 +110,8 @@ Fortuna requires a StorageClass that supports:
 |------|----------|-----------|---------|
 | 8080 | TCP | Core | HTTP API |
 | 9090 | TCP | Core | gRPC (mTLS) |
+| 9091 | TCP | Core | Prometheus metrics (pod only, not on the Service) |
+| 8443 | TCP | Core | Admission webhook (when enabled) |
 | 5432 | TCP | PostgreSQL | Database |
 | 4222 | TCP | NATS | Messaging |
 | 6222 | TCP | NATS | Clustering |

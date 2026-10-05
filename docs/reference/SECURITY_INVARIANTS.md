@@ -434,7 +434,7 @@ passed and read back its complete receipt; an empty or skipped selection fails.
 | RBAC semantics | TestServiceAccountRBACResolution, TestClusterAdminBindingForPod, TestPodRiskReportUsesResolvedRBACScope |
 | Workload and capability scope | TestInventoryWorkloadCapabilityScope |
 | Agent cluster association | TestAgentClusterIdentityIsolation |
-| Graph and cache boundaries | TestLegacyGraphFailsBeforeGlobalQuery, TestNetworkServiceCacheSeparatesClustersAndCredentials |
+| Graph and cache boundaries | TestAttackPathCacheIsolation, TestAGECanonicalScopeAndIdentifiers, TestNetworkServiceCacheSeparatesClustersAndCredentials |
 | Evaluator and reconciliation failures | TestEvaluationReportsRuleFailure, TestConfiguredCatalogRejectsPartialAndEmptyLoad, TestReconciliationAuditRollbackAndCatalogFailure, TestReconciliationPreservesDisabledDetector |
 | Runtime input errors | TestRuntimeInputFailureReachesEvaluators, TestRuntimeInputRejectsCorruptSnapshot, TestRuntimeInputRejectsMalformedBindings, TestReconciliationPreservesFindingOnRuntimeInputFailure |
 | Aggregate and finding-action scope | TestAggregateCacheIsolation, TestRuntimeScopeAndFindingActions, TestBulkRequiresActionPermissionAndNonemptySelection |

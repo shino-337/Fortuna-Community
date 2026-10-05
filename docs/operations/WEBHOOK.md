@@ -17,7 +17,7 @@ After any CA rotation, rerun `enable-webhook.sh` to update `caBundle`. Certifica
 
 ## Verify behavior in a disposable namespace
 
-The configuration selects only namespaces labeled `fortuna.io/policy-enabled=true`. It initially uses `failurePolicy: Ignore`, while Core defaults to audit mode. Successful pod creation alone does not prove the webhook was called or enforcement worked.
+The configuration selects only namespaces labeled `fortuna.io/policy-enabled=true`. It initially uses `failurePolicy: Ignore`, while the bundled manifest and Helm chart run the risk gate in audit mode (`ADMISSION_RISK_GATE_MODE`; Core defaults to `enforce` when it is unset). Policies with action `block` deny regardless of that mode. Successful pod creation alone does not prove the webhook was called or enforcement worked.
 
 In a disposable lab namespace:
 

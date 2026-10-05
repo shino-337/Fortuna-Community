@@ -13,7 +13,7 @@ leaf fingerprint; caller metadata and unverified certificates are insufficient.
 ### HTTP
 
 `FORTUNA_AGENT_CREDENTIAL_REGISTRY` enables scoped HTTP authentication for
-`/api/v1/agent/*` and `/api/v2/runtime/events`. Agent identity claims and complete
+`/api/v1/agent/*` and `/api/v2/runtime/{events,producers,coverage,source-health}`. Agent identity claims and complete
 runtime batches are checked before effects. Senders read a node-local
 `FORTUNA_AGENT_TOKEN_FILE`; a configured invalid file never falls back to the
 shared `FORTUNA_INGEST_TOKEN`. There are no v1 runtime ingest routes.
@@ -25,7 +25,7 @@ See [HTTP provisioning](../../deploy/scoped-agent-credentials/README.md).
 ### gRPC
 
 `FORTUNA_GRPC_AGENT_CREDENTIAL_REGISTRY` requires TLS and binds verified leaf
-certificates to trusted principals. Register/Ping/Heartbeat claims must match the
+certificates to trusted principals. Register/Ping claims must match the
 principal. Pod findings resolve ownership using cluster + Pod UID. Conflicting
 cluster metadata and unknown methods fail closed. Combined finding writes are
 retired; standalone CVE findings are not implemented (Core derives CVEs).
@@ -67,10 +67,11 @@ same cluster, or returns 409 for an ID already assigned elsewhere. Database
 failures return 500 rather than being ignored. Cluster agent lists and Dashboard
 counts use explicit cluster_id; unassigned legacy agents are excluded until sync.
 
-Without the gRPC registry, Register/Ping can create an unassigned agent and refresh it by agent
-ID. A Ping without an agent ID never updates a row by node name, which prevents
-accidental cross-cluster node-name correlation. On its own this adds no per-cluster cryptographic attestation; that
-comes from the scoped credentials above. In legacy shared-token mode any Agent
+Without the gRPC registry, Core rejects RegisterAgent, the SBOM RPCs and every
+stream with Unauthenticated; Ping answers `identity_required` and updates nothing.
+A Ping never updates a row by node name, which prevents accidental cross-cluster
+node-name correlation. Per-cluster cryptographic attestation comes from the scoped
+credentials above. In legacy shared-token mode any Agent
 holding the token can still claim any cluster.
 
 After upgrading Core, allow a successful HTTP inventory sync from each Agent so

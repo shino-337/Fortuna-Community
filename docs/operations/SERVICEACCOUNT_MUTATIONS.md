@@ -1,7 +1,7 @@
 # ServiceAccount revocation and durable deletion
 
-Kubernetes has no disabled ServiceAccount field. Legacy disable endpoints still
-return 501. Explicit revocation is available through a persisted preview:
+Kubernetes has no disabled ServiceAccount field. Legacy disable endpoints were
+removed (404). Explicit revocation is available through a persisted preview:
 
 1. `POST /api/v1/inventory/serviceaccounts/{uid}/mutations/preview?clusterId={cluster}`
    with `{"action":"revoke"}` or `{"action":"delete"}`. Inspect `plan.steps`,
@@ -34,7 +34,7 @@ budget. Progress and step audit commit together after Kubernetes succeeds. A
 crash or persistence failure leaves durable intent: replay recognizes the exact
 post-update subjects or NotFound deletion without repeating broader effects.
 Transient failures retry after 30 seconds, up to 20 attempts (about 10 minutes),
-then become blocked; identity/permission conflicts become blocked immediately. The existing explicit single/bulk DELETE endpoints also persist a
+then become blocked; identity/permission conflicts become blocked immediately. The single DELETE endpoint also persists a
 cluster/UID-keyed intent before Kubernetes deletion. Inventory soft deletion and
 completion audit commit atomically only after successful UID-guarded deletion.
 Workers resume after Core restart; watch the operation status rather than treating
@@ -53,8 +53,6 @@ revocation is enabled.
   than 500 RoleBindings, ClusterRoleBindings or Secrets in the namespace to scan.
 - Plan digests are computed over canonical typed JSON, so PostgreSQL JSONB key
   ordering or whitespace cannot invalidate a reviewed plan.
-- Bulk DELETE requires `inventory.bulk` plus `inventory.delete`, validates the
-  whole set first and reports per-item failures with HTTP 207.
 - Coverage: unit regressions for scope, actor, digest, binding drift, replacement
   UIDs and persistence failure, plus the live two-cluster CI gate
   (`scripts/verify/run-two-cluster-integration.py`), which previews and executes a

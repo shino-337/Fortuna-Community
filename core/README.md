@@ -13,7 +13,7 @@ Fortuna Core orchestrates security analysis across Kubernetes clusters. It recei
 - **SBOM Storage & Management**: Store and manage Software Bill of Materials from container images
 - **CVE Matching**: Real-time vulnerability detection by matching SBOM components against CVE database
 - **Insight Generation**: Automated security insights with severity classification (CRITICAL/HIGH/MEDIUM)
-- **Policy Evaluation**: Configurable security policies with CEL-based evaluation
+- **Policy Evaluation**: Configurable security policies with CEL-based evaluation. Instances can alert, audit or block at admission; `remediate` admits the resource and always records the violation, and `autoRemediate` is stored but Core never patches resources
 - **Event-Driven Architecture**: NATS JetStream for asynchronous processing
 - **API Services**: REST API for dashboard and external tools, gRPC for Agent communication
 - **Database Management**: PostgreSQL with automatic migrations
@@ -36,7 +36,7 @@ core/
 │   ├── grpc/                 # Agent gRPC server and per-RPC authorization
 │   ├── auth/, sessions/      # JWT login and server-side sessions
 │   ├── middleware/           # CORS, auth, cluster scope, metrics
-│   ├── ingest/               # Agent HTTP ingest
+│   ├── ingest/               # Per-cluster ingest rate limiter
 │   ├── webhook/              # Admission webhook
 │   ├── scheduler/, service/  # Background jobs and services
 │   └── config/, health/, storage/, metrics/, k8s/, repository/
@@ -83,12 +83,12 @@ The gRPC protocol is defined in the shared [`api`](../api/README.md) module.
 - **Automatic Generation**: From CVE matches
 - **Resource Context**: Links insights to pods, namespaces, clusters
 - **Severity Classification**: CRITICAL, HIGH, MEDIUM, LOW
-- **Status Management**: active, resolved, dismissed
+- **Status Management**: active, acknowledged, resolved, dismissed
 - **Batch Upsert**: Efficient bulk operations
 
 ### 4. Event-Driven Architecture
 
-**NATS JetStream streams** (file storage, 3 replicas, oldest messages discarded at the limit; `core/pkg/messaging/nats_client.go`):
+**NATS JetStream streams** (file storage, `FORTUNA_NATS_STREAM_REPLICAS` replicas with a default of 3, oldest messages discarded at the limit; `core/pkg/messaging/nats_client.go`):
 
 - `fortuna-events`: runtime, SBOM and CVE events (work queue, 48h, 200K messages, 2 GiB)
 - `fortuna-insights`: insight created/updated events (limits, 7 days, 50K messages, 512 MiB)
@@ -239,11 +239,11 @@ Core automatically runs database migrations on startup. Migrations are located i
 - `GET /healthz`, `GET /live`: liveness (process is up)
 - `GET /ready`: readiness (HTTP and gRPC listeners are up; does not check PostgreSQL or NATS)
 - `GET /health`: PostgreSQL connectivity
-- `GET /status`: full dependency status, including PostgreSQL and NATS
+- `GET /status`: dependency status; pings PostgreSQL and reports the HTTP and gRPC listeners (NATS is not checked)
 
 ### Metrics
 
-Set `FORTUNA_METRICS_ADDR` (for example `:9091`, as the bundled manifest does) to serve Prometheus metrics at `/metrics` on a separate listener. It is unauthenticated, so keep that port off any public Service; it is disabled when the variable is unset. Metrics cover HTTP requests, ingest, workers, database connections, CVE matching, insights and the admission webhook (`core/pkg/metrics`, `core/internal/metrics`). Authenticated users can also read operational counters through `GET /api/v1/metrics/system` and `GET /api/v1/metrics/workers`.
+Set `FORTUNA_METRICS_ADDR` (for example `:9091`, as the bundled manifest does) to serve Prometheus metrics at `/metrics` on a separate listener. It is unauthenticated, so keep that port off any public Service; it is disabled when the variable is unset. Metrics cover HTTP requests, ingest, workers, database connections, CVE matching, insights and the admission webhook (`core/pkg/metrics`, `core/internal/metrics`). Authenticated users can also read operational counters through `GET /api/v1/metrics/system` and `GET /api/v1/metrics/workers`. Worker counters and `GET /api/v1/health/dashboard-data-integrity` span every cluster, so users with a cluster allow-list get 403 there.
 
 ---
 
