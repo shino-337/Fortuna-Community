@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/base64"
 	"strings"
 	"testing"
 )
@@ -69,5 +70,42 @@ func TestLoadAllowsAuthDisabledInDevMode(t *testing.T) {
 	}
 	if cfg.AuthEnabled {
 		t.Fatal("expected auth to be disabled in dev mode")
+	}
+}
+
+func TestParsePodDetailEncryptionKeys(t *testing.T) {
+	valid := base64.StdEncoding.EncodeToString(make([]byte, 32))
+	short := base64.StdEncoding.EncodeToString(make([]byte, 16))
+	cases := []struct {
+		name, current, previous string
+		wantKeys               int
+		wantErr                bool
+	}{
+		{name: "unset", wantKeys: 0},
+		{name: "current only", current: valid, wantKeys: 1},
+		{name: "with previous", current: valid, previous: valid + ", " + valid, wantKeys: 3},
+		{name: "not base64", current: "not-a-key!", wantErr: true},
+		{name: "wrong length", current: short, wantErr: true},
+		{name: "bad previous", current: valid, previous: short, wantErr: true},
+		{name: "previous without current", previous: valid, wantErr: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			keys, err := ParsePodDetailEncryptionKeys(tc.current, tc.previous)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("err=%v wantErr=%v", err, tc.wantErr)
+			}
+			if len(keys) != tc.wantKeys {
+				t.Fatalf("keys=%d want %d", len(keys), tc.wantKeys)
+			}
+		})
+	}
+}
+
+func TestLoadRejectsInvalidPodDetailEncryptionKey(t *testing.T) {
+	t.Setenv("JWT_SECRET", "0123456789abcdef0123456789abcdef")
+	t.Setenv("POD_DETAIL_ENCRYPTION_KEY", "too-short")
+	if _, err := Load(""); err == nil || !strings.Contains(err.Error(), "POD_DETAIL_ENCRYPTION_KEY") {
+		t.Fatalf("expected key error, got %v", err)
 	}
 }

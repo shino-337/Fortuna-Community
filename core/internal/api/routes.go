@@ -33,7 +33,7 @@ func SetupRoutes(router *gin.Engine, db *gorm.DB, cfg *config.Config) {
 }
 
 func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Config, certManager *security.CertManager, clusterLimiter *ingest.ClusterRateLimiter, publishSBOMCreated PublishSBOMCreatedFunc) {
-	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey)
+	InitPodDetailEncryptionKey(cfg.PodDetailEncryptionKey, cfg.PodDetailEncryptionPreviousKeys)
 	defaultRisksCache = NewMemoryRisksCache(60 * time.Second)
 	log.Printf("[API] ========================================")
 	log.Printf("[API] SetupRoutesWithCertManager CALLED")

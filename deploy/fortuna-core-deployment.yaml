@@ -206,13 +206,20 @@ spec:
                   name: fortuna-secrets
                   key: ingest-token
                   optional: false
-            # Pod Detail encryption at-rest: base64-encoded 32-byte key. Optional; leave unset to disable.
-            # Option A: set value before deploy. Option B: use secret (e.g. fortuna-secrets, key: pod-detail-encryption-key).
+            # Encrypts process command lines at rest (base64 of 32 bytes). ensure-fortuna-secrets.sh
+            # generates it. Without it Core logs a warning and stores plaintext; an invalid
+            # value stops Core. Previous keys (comma-separated) keep rotated rows readable.
             - name: POD_DETAIL_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: fortuna-secrets
                   key: pod-detail-encryption-key
+                  optional: true
+            - name: POD_DETAIL_ENCRYPTION_KEY_PREVIOUS
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: pod-detail-encryption-key-previous
                   optional: true
             # network queue anomaly tuning (core-side baseline detector).
             - name: POD_DETAIL_NET_SPIKE_WINDOW_MINUTES

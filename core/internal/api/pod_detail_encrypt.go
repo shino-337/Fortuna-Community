@@ -6,110 +6,123 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"io"
-	"os"
+	"log"
+	"strings"
 	"sync"
 
+	"github.com/fortuna/core/internal/config"
 	"github.com/fortuna/core/pkg/models"
 )
 
+// encryptedPrefix marks values written by EncryptSensitive, so Core can tell
+// ciphertext it cannot read (key removed) from legacy plaintext rows.
+const encryptedPrefix = "enc:v1:"
+
+// unreadableSensitiveValue is shown instead of ciphertext no configured key opens.
+const unreadableSensitiveValue = "[encrypted with a key Core no longer has]"
+
 var (
-	encKey     []byte
-	encKeyOnce sync.Once
+	encMu sync.RWMutex
+	// encKeys[0] encrypts; every key is tried to decrypt (current first, then previous keys).
+	encKeys [][]byte
 )
 
-// InitPodDetailEncryptionKey sets the key used for encrypt/decrypt from config (e.g. cfg.PodDetailEncryptionKey).
-// Key must be base64-encoded 32 bytes. If empty or invalid, encryption is disabled. Call once at startup (e.g. from SetupRoutes).
-func InitPodDetailEncryptionKey(keyBase64 string) {
-	encKeyOnce.Do(func() {
-		if keyBase64 == "" {
-			keyBase64 = os.Getenv("POD_DETAIL_ENCRYPTION_KEY")
-		}
-		if keyBase64 == "" {
-			return
-		}
-		key, err := base64.StdEncoding.DecodeString(keyBase64)
-		if err != nil || len(key) != 32 {
-			return
-		}
-		encKey = key
-	})
+// InitPodDetailEncryptionKey installs the keys used for Pod Detail process fields.
+// Config loading has already validated them, so a parse error here only logs.
+func InitPodDetailEncryptionKey(current, previous string) {
+	keys, err := config.ParsePodDetailEncryptionKeys(current, previous)
+	if err != nil {
+		log.Printf("[PodDetail] encryption disabled: %v", err)
+		keys = nil
+	}
+	encMu.Lock()
+	encKeys = keys
+	encMu.Unlock()
+	if len(keys) == 0 {
+		log.Printf("[PodDetail] WARNING: POD_DETAIL_ENCRYPTION_KEY is not set; process command lines are stored in plaintext")
+	}
 }
 
-func getPodDetailEncryptionKey() []byte {
-	return encKey
+func podDetailEncryptionKeys() [][]byte {
+	encMu.RLock()
+	defer encMu.RUnlock()
+	return encKeys
 }
 
-// EncryptSensitive encrypts plaintext with AES-256-GCM (Phase 4.2). Key from POD_DETAIL_ENCRYPTION_KEY (base64 32 bytes). If key not set, returns plaintext unchanged.
+// EncryptSensitive encrypts plaintext with AES-256-GCM under the current key.
+// Without a key it returns plaintext. If encryption fails it returns "" rather
+// than storing the plaintext.
 func EncryptSensitive(plaintext string) string {
-	key := getPodDetailEncryptionKey()
-	if len(key) == 0 || plaintext == "" {
+	keys := podDetailEncryptionKeys()
+	if len(keys) == 0 || plaintext == "" {
 		return plaintext
 	}
-	block, err := aes.NewCipher(key)
+	gcm, err := newGCM(keys[0])
 	if err != nil {
-		return plaintext
-	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return plaintext
+		log.Printf("[PodDetail] encryption failed, dropping value: %v", err)
+		return ""
 	}
 	nonce := make([]byte, gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
-		return plaintext
+		log.Printf("[PodDetail] encryption failed, dropping value: %v", err)
+		return ""
 	}
-	ciphertext := gcm.Seal(nil, nonce, []byte(plaintext), nil)
-	out := make([]byte, len(nonce)+len(ciphertext))
-	copy(out, nonce)
-	copy(out[len(nonce):], ciphertext)
-	return base64.StdEncoding.EncodeToString(out)
+	sealed := gcm.Seal(nonce, nonce, []byte(plaintext), nil)
+	return encryptedPrefix + base64.StdEncoding.EncodeToString(sealed)
 }
 
-// DecryptSensitive decrypts payload from EncryptSensitive. If key not set or decrypt fails, returns ciphertext unchanged.
-func DecryptSensitive(ciphertext string) string {
-	key := getPodDetailEncryptionKey()
-	if len(key) == 0 || ciphertext == "" {
-		return ciphertext
+// DecryptSensitive reverses EncryptSensitive with the current or a previous key.
+// Values without the prefix may be legacy ciphertext (written before the prefix
+// existed) or plaintext stored while encryption was off; those are returned
+// unchanged when no key opens them.
+func DecryptSensitive(value string) string {
+	if value == "" {
+		return value
 	}
-	raw, err := base64.StdEncoding.DecodeString(ciphertext)
-	if err != nil || len(raw) < 12+16 {
-		return ciphertext
+	keys := podDetailEncryptionKeys()
+	if body, ok := strings.CutPrefix(value, encryptedPrefix); ok {
+		if plain, ok := openWithKeys(keys, body); ok {
+			return plain
+		}
+		return unreadableSensitiveValue
 	}
+	if plain, ok := openWithKeys(keys, value); ok {
+		return plain
+	}
+	return value
+}
+
+func openWithKeys(keys [][]byte, encoded string) (string, bool) {
+	raw, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", false
+	}
+	for _, key := range keys {
+		gcm, err := newGCM(key)
+		if err != nil || len(raw) < gcm.NonceSize()+gcm.Overhead() {
+			continue
+		}
+		n := gcm.NonceSize()
+		if plain, err := gcm.Open(nil, raw[:n], raw[n:], nil); err == nil {
+			return string(plain), true
+		}
+	}
+	return "", false
+}
+
+func newGCM(key []byte) (cipher.AEAD, error) {
 	block, err := aes.NewCipher(key)
 	if err != nil {
-		return ciphertext
+		return nil, err
 	}
-	gcm, err := cipher.NewGCM(block)
-	if err != nil {
-		return ciphertext
-	}
-	nonceSize := gcm.NonceSize()
-	if len(raw) < nonceSize {
-		return ciphertext
-	}
-	plain, err := gcm.Open(nil, raw[:nonceSize], raw[nonceSize:], nil)
-	if err != nil {
-		return ciphertext
-	}
-	return string(plain)
+	return cipher.NewGCM(block)
 }
 
 // decryptProcessList decrypts sensitive process fields in place for API response.
 func decryptProcessList(list []models.PodProcess) {
 	for i := range list {
-		if list[i].Command != "" {
-			if dec := DecryptSensitive(list[i].Command); dec != list[i].Command {
-				list[i].Command = dec
-			}
-		}
-		if list[i].BinaryPath != "" {
-			if dec := DecryptSensitive(list[i].BinaryPath); dec != list[i].BinaryPath {
-				list[i].BinaryPath = dec
-			}
-		}
-		if list[i].WorkingDir != "" {
-			if dec := DecryptSensitive(list[i].WorkingDir); dec != list[i].WorkingDir {
-				list[i].WorkingDir = dec
-			}
-		}
+		list[i].Command = DecryptSensitive(list[i].Command)
+		list[i].BinaryPath = DecryptSensitive(list[i].BinaryPath)
+		list[i].WorkingDir = DecryptSensitive(list[i].WorkingDir)
 	}
 }

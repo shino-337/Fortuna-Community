@@ -107,9 +107,13 @@ func buildProcessDiffEventsScoped(db *gorm.DB, clusterID, podUID, namespace stri
 		if _, ok := prevSet[processDiffKey(current[i].ContainerName, current[i].PID)]; ok {
 			continue
 		}
+		// Runtime events are stored unencrypted, so record only the executable,
+		// never the arguments (which can carry credentials).
 		target := strings.TrimSpace(current[i].BinaryPath)
 		if target == "" {
-			target = strings.TrimSpace(current[i].Command)
+			if fields := strings.Fields(current[i].Command); len(fields) > 0 {
+				target = fields[0]
+			}
 		}
 		if len(target) > 500 {
 			target = target[:500]
