@@ -14,6 +14,9 @@ import { useTimeWindowStore } from '../store/timeWindowStore';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import { buildEvidenceLogEntries } from '../lib/evidenceLog';
 import { podDetailPath } from '../lib/podRoute';
+import { can, P } from '../lib/permissions';
+import { usePermUser } from '../hooks/usePermUser';
+import { useToast } from '../design-system/components/Toast';
 
 const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
   if (!violatedRules) return [];
@@ -75,6 +78,11 @@ export const RiskDetail: React.FC = () => {
   const [insight, setInsight] = useState<Insight | null>(null);
   const [loading, setLoading] = useState(true);
   const [resolving, setResolving] = useState(false);
+  const [reopening, setReopening] = useState(false);
+  const permUser = usePermUser();
+  const toast = useToast();
+  const canResolve = can(permUser, P.findingsResolve);
+  const canReopen = can(permUser, P.findingsReopen);
   const [podRuntimeSignals, setPodRuntimeSignals] = useState<RuntimeSignal[]>([]);
   const [linkedRules, setLinkedRules] = useState<Array<{ id: string; name: string; source?: string; signature?: string; isCanonical?: boolean; canonicalRuleId?: string }>>([]);
   const [linkedCapabilities, setLinkedCapabilities] = useState<CapabilityMetadata[]>([]);
@@ -162,13 +170,28 @@ export const RiskDetail: React.FC = () => {
   }, [insight?.id, insight?.affectedResources, timeWindowMinutes]);
 
   const handleResolve = async () => {
-    if (!id || insight?.status === 'resolved') return;
+    if (!id || !canResolve || insight?.status === 'resolved') return;
     setResolving(true);
     try {
       await api.resolveInsight(id);
       await fetchInsight();
+    } catch (err) {
+      toast({ title: 'Could not resolve finding', description: err instanceof Error ? err.message : String(err), variant: 'error' });
     } finally {
       setResolving(false);
+    }
+  };
+
+  const handleReopen = async () => {
+    if (!id || !canReopen) return;
+    setReopening(true);
+    try {
+      await api.reopenInsight(id);
+      await fetchInsight();
+    } catch (err) {
+      toast({ title: 'Could not reopen finding', description: err instanceof Error ? err.message : String(err), variant: 'error' });
+    } finally {
+      setReopening(false);
     }
   };
 
@@ -202,9 +225,12 @@ export const RiskDetail: React.FC = () => {
   const threatIntel = parseThreatIntelEvidence(insight.evidence);
   const statusLabelMap: Record<string, string> = {
     new: 'Active',
+    active: 'Active',
     acknowledged: 'In review',
     resolved: 'Resolved',
+    dismissed: 'Dismissed',
   };
+  const isClosed = insight.status === 'resolved' || insight.status === 'dismissed';
 
   const topEvidenceFields = (() => {
     if (!insight.evidence) return [] as string[];
@@ -227,9 +253,14 @@ export const RiskDetail: React.FC = () => {
       description={`Finding #${insight.id}${formatRiskFindingReference(insight) ? ` · ${formatRiskFindingReference(insight)}` : ''}`}
       actions={
         <div className="flex items-center gap-2">
-          {insight.status !== 'resolved' && (
+          {canResolve && !isClosed && (
             <Button variant="secondary" onClick={handleResolve} disabled={resolving}>
               {resolving ? 'Resolving...' : 'Mark as resolved'}
+            </Button>
+          )}
+          {canReopen && isClosed && (
+            <Button variant="secondary" onClick={handleReopen} disabled={reopening}>
+              {reopening ? 'Reopening...' : 'Reopen'}
             </Button>
           )}
           <Button variant="secondary" onClick={() => navigate('/risks')}>

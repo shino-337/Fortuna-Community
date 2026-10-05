@@ -27,21 +27,18 @@ import { deriveUnifiedRiskLevelFromScore, getSeverityTextClass } from '../lib/se
 import {
   groupChains,
   groupPrimitivePaths,
-  chainTypeHumanLabel,
   buildWhyItMattersHuman,
   weakLinksFromPath,
   strengthSemantic,
   impactSemantic,
   buildFixRecommendations,
   variantLabel,
-  type GroupedScenario,
+  type GroupedScenario
 } from '../lib/attackPathNarrative';
-import { AttackPathConfidenceLanes } from '../components/AttackPathConfidenceLanes';
 import { attackPathConfidenceLane, type AttackPathConfidenceLane } from '../lib/attackPathConfidence';
 import { PinToInvestigationButton } from '../components/PinToInvestigationButton';
 import { attackPathInvestigationEntity } from '../lib/investigationEntities';
 import { AttackPathPriorityList } from '../components/AttackPathPriorityList';
-import { GraphSemanticBanner } from '../components/GraphSemanticBanner';
 import { GraphSemanticLegend } from '../components/GraphSemanticLegend';
 import { GraphVisibilityOverlay } from '../components/GraphVisibilityOverlay';
 import { useFeatureVisibility } from '../hooks/useVisibility';

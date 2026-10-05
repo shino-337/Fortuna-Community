@@ -23,7 +23,6 @@ import {
   isDashboardSectionVisible,
   isDashboardWidgetVisible,
 } from '../lib/dashboardComposition';
-import type { DashboardDataLoadPolicy } from './dashboard/types';
 import { SemanticEmptyState } from '../design-system/components/SemanticEmptyState';
 import { FilterBar } from '../design-system/components/FilterBar';
 import { Button } from '../components/ui/Button';
@@ -41,13 +40,9 @@ import { IncidentPriorityStrip } from '../components/IncidentPriorityStrip';
 import { RuntimeThreatStrip } from '../components/RuntimeThreatStrip';
 import { useIncidentMode } from '../hooks/useIncidentMode';
 import { useGraphTrustContext } from '../hooks/useGraphTrustContext';
-import { ShieldAlert, Boxes, ArrowRight, Shield, Info, Target, Zap, Check, GitBranch, Eye, PanelRight, X, KeyRound, Route } from 'lucide-react';
-import {
-  Cluster,
-  Insight,
-  Notification,
+import { ShieldAlert, ArrowRight, Shield, Info, Target, Zap, Check, GitBranch, Eye, PanelRight, X, KeyRound, Route } from 'lucide-react';
+import { 
   PodCapabilitySummaryCapability,
-  UnifiedRiskScore,
   PodWithRisk,
   AttackChain,
   AttackPath,
@@ -55,7 +50,7 @@ import {
   AttackStep,
   RuntimeSignal,
   PodRuntimeSecurityEvent,
-  MitreCoverageItem,
+  MitreCoverageItem
 } from '../types';
 import { useClusterStore } from '../store/clusterStore';
 import { useTimeWindowStore } from '../store/timeWindowStore';
@@ -67,11 +62,8 @@ import { podDetailPath } from '../lib/podRoute';
 import { reconcileAttackGraphEntryExit } from '../lib/attackPathGraphTopology';
 import { UI_TD_COMPACT, UI_TH, UI_TR, UI_TABLE } from '../lib/tableChrome';
 import {
-  topContributingDimension, scoreForPod, riskBandFrom, riskLabelUpper,
-  riskLabelTitle, rankImpact, rankRisk, CAPABILITY_KNOWLEDGE,
-  EDGE_TO_TECHNIQUE_CATEGORIES, IMPACT_RANK, RISK_RANK,
-  type RiskBand,
-} from '../lib/riskScoring';
+  topContributingDimension, scoreForPod, riskBandFrom, rankImpact, rankRisk, CAPABILITY_KNOWLEDGE,
+  EDGE_TO_TECHNIQUE_CATEGORIES} from '../lib/riskScoring';
 
 /** Dashboard-specific types */
 type RuntimeStatus = 'confirmed' | 'inferred' | 'not_observed';
@@ -794,7 +786,6 @@ export const Dashboard: React.FC = () => {
 
   const { id: personaId, profile } = usePersona();
   const { user: opUser, ownership, telemetry } = useOperationalContext();
-  const { active: incidentActive, graphSemanticMode: incidentGraphMode } = useIncidentMode();
   const bootstrapLoadPolicy = useMemo(
     () => buildDashboardLoadPolicy(opUser, getPersonaWidgetCandidates(personaId)),
     [opUser, personaId],
@@ -817,7 +808,6 @@ export const Dashboard: React.FC = () => {
     exploitedCapCount,
     attackPathCount,
     attackPathSummary,
-    pipelineHealth,
     entryPods,
     attackChains,
     primitivePaths,
@@ -852,8 +842,6 @@ export const Dashboard: React.FC = () => {
   const [criticalOnly, setCriticalOnly] = useState(false);
   const [runtimeSignals, setRuntimeSignals] = useState<RuntimeSignal[]>([]);
   const [runtimeEvents, setRuntimeEvents] = useState<PodRuntimeSecurityEvent[]>([]);
-  const [sevDelta, setSevDelta] = useState<{ c: number; h: number; m: number; l: number } | null>(null);
-  const prevSevRef = useRef<{ c: number; h: number; m: number; l: number } | null>(null);
   const scenarioPanelRef = useRef<HTMLElement>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
@@ -871,32 +859,6 @@ export const Dashboard: React.FC = () => {
   useEffect(() => {
     if (coreReady) void refresh();
   }, [trendDays]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  useEffect(() => {
-    prevSevRef.current = null;
-    setSevDelta(null);
-  }, [selectedClusterId, sinceMinutes]);
-
-  useEffect(() => {
-    if (!insightsSummary) return;
-    const c = Number(insightsSummary.riskLevelCounts?.critical ?? insightsSummary.critical ?? 0);
-    const h = Number(insightsSummary.riskLevelCounts?.high ?? insightsSummary.high ?? 0);
-    const m = Number(insightsSummary.riskLevelCounts?.medium ?? insightsSummary.medium ?? 0);
-    const l = Number(insightsSummary.riskLevelCounts?.low ?? insightsSummary.low ?? 0);
-    const curr = { c, h, m, l };
-    const prev = prevSevRef.current;
-    if (prev) {
-      setSevDelta({
-        c: curr.c - prev.c,
-        h: curr.h - prev.h,
-        m: curr.m - prev.m,
-        l: curr.l - prev.l,
-      });
-    } else {
-      setSevDelta(null);
-    }
-    prevSevRef.current = curr;
-  }, [insightsSummary]);
 
   /** Build /risks URL with current scope (cluster + time) so Risk Center shows same data as Dashboard Security Risks. */
   const risksUrl = useMemo(() => {

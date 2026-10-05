@@ -1,4 +1,3 @@
-import React from 'react';
 import { createRoot } from 'react-dom/client';
 import { Link, MemoryRouter, Route, Routes } from 'react-router-dom';
 import { IdentityDetail } from '../../pages/IdentityDetail';

@@ -52,7 +52,6 @@ const BLOCKER_COPY: Record<ActionBlocker, string> = {
 /** Assess what actions a user can take given their permissions and context. */
 export function assessActionability(input: ActionabilityInput): ActionabilityAssessment {
   const blockers: ActionBlocker[] = [];
-  const username = input.user?.username ?? '';
 
   if (!input.hasOperationalScope) blockers.push('no_operational_scope');
   if (!input.hasWriteOnCase) blockers.push('case_read_only');

@@ -3,7 +3,6 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { NavLink, Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useClusterStore } from '../store/clusterStore';
-import { api } from '../lib/api';
 import { useClusters } from '../hooks/useClusters';
 import { DataControlBar } from './DataControlBar';
 import { 
@@ -34,7 +33,6 @@ import { useIncidentMode } from '../hooks/useIncidentMode';
 import { MultiIncidentStrip } from './MultiIncidentStrip';
 import { TelemetryHealthStrip } from './TelemetryHealthStrip';
 import { OperationalFatigueStrip } from './OperationalFatigueStrip';
-import { Cluster } from '../types';
 import { getClusterDisplayName } from '../lib/clusterDisplay';
 import { can, P } from '../lib/permissions';
 import { fortunaRoleShortLabel, fortunaRoleTooltip } from '../lib/fortunaRoles';

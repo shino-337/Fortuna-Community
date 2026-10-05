@@ -9,7 +9,6 @@ import { useEntityStore } from '../store/entityStore';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import {
   AttackStepSummary,
-  Cluster,
   Insight,
   InsightsSummary,
   InsightsSummaryByClusterItem,
@@ -17,16 +16,13 @@ import {
   PodCapabilityDetail,
   PodCapabilitySummaryNamespace,
   PodCapabilitySummarySeverity,
-  PodCapabilityTrendPoint,
-  RuntimeSignal,
-  AuditLog,
-} from '../types';
+  PodCapabilityTrendPoint} from '../types';
 import { Button } from '../components/ui/Button';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Tabs } from '../design-system/components/Tabs';
 import { Pagination } from '../components/Pagination';
-import { Shield, AlertTriangle, Info, CheckCircle, Search, Box, User, ArrowRight, X, ExternalLink, Loader2, FileText } from 'lucide-react';
+import { Shield, AlertTriangle, Info, CheckCircle, Search, ArrowRight, X, Loader2, FileText } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useClusterStore } from '../store/clusterStore';
 import { useTimeWindowStore } from '../store/timeWindowStore';
@@ -42,7 +38,6 @@ import type { RiskHistogramResponse } from '../types';
 import { insightTypeUiLabel, riskListSecondaryLabel } from '../lib/riskDisplay';
 import { DataQualityNotice } from '../components/DataQualityNotice';
 import { RiskFindingsSavedViews } from '../components/RiskFindingsSavedViews';
-import { runtimeSignalVisual } from '../lib/runtimeSignalVisual';
 import { formatMinutesHuman } from '../lib/formatDuration';
 import { formatDateTime } from '../lib/display';
 import { podDetailPath } from '../lib/podRoute';
@@ -66,11 +61,11 @@ import { can, P } from '../lib/permissions';
 import { usePermUser } from '../hooks/usePermUser';
 import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
 import { usePersona } from '../hooks/usePersona';
-import { personaAllowsAction, tableDensityClass } from '../lib/persona';
+import { personaAllowsAction} from '../lib/persona';
 import { getRiskWorkspaceConfig, type RiskTabId } from '../lib/personaRiskWorkspace';
 import { RiskPersonaWorkspaceBanner } from '../components/RiskPersonaWorkspaceBanner';
 import { ProvenanceBadge } from '../design-system/components/ProvenanceBadge';
-import { insightProvenance, insightProvenanceTitle, severityCountTrustLabel } from '../lib/provenance';
+import { insightProvenance, insightProvenanceTitle} from '../lib/provenance';
 import { PageContract } from '../components/PageContract';
 import { SemanticEmptyState } from '../design-system/components/SemanticEmptyState';
 import { getChartThemeColors } from '../lib/chartTheme';
@@ -86,6 +81,7 @@ import {
   velocityFromTrend,
 } from '../lib/riskOperatorAnalytics';
 import { buildEvidenceLogEntries, summarizeEvidenceLog } from '../lib/evidenceLog';
+import { downloadText, toCsv } from '../lib/download';
 
 type TabId = 'overview' | 'triage' | 'pce' | 'reference';
 type BulkFindingAction = 'acknowledge' | 'resolve' | 'dismiss';
@@ -206,7 +202,7 @@ export const RiskCenter: React.FC = () => {
   const [pceListPage, setPceListPage] = useState(1);
   const [pceListPageSize, setPceListPageSize] = useState(25);
   const [pceListTotal, setPceListTotal] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'resolved' | 'acknowledged'>('active');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed'>('active');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRisk, setSelectedRisk] = useState<Insight | null>(null);
 
@@ -470,6 +466,8 @@ export const RiskCenter: React.FC = () => {
           api.getInsightsSummary(clusterId ?? undefined, sinceMinutes),
           api.getStats(clusterId ?? undefined, sinceMinutes, 'all'),
         ]);
+        // A newer fetch (filter or cluster change) superseded this one.
+        if (signal.aborted) return;
         const [summaryResult, statsResult] = lightResults;
 
         if (statsResult.status === 'fulfilled') {
@@ -498,6 +496,7 @@ export const RiskCenter: React.FC = () => {
         if (activeTab === 'pce') {
           await runPceBlock(errors);
         }
+        if (signal.aborted) return;
         if (errors.length > 0) setError(errors.join('; '));
       } else {
         const errors: string[] = [];
@@ -518,10 +517,12 @@ export const RiskCenter: React.FC = () => {
         const histogramPromise = api
           .getRiskHistogram({ clusterId: clusterId ?? undefined, sinceMinutes })
           .then((r) => {
-            setHistogramData(r);
+            if (!signal.aborted) setHistogramData(r);
             return r;
           })
-          .finally(() => setHistogramLoading(false));
+          .finally(() => {
+            if (!signal.aborted) setHistogramLoading(false);
+          });
         const coreResults = await Promise.allSettled([
           risksPromise,
           summaryPromise,
@@ -532,6 +533,7 @@ export const RiskCenter: React.FC = () => {
           attackStepsPromise,
           pipelineHealthPromise,
         ]);
+        if (signal.aborted) return;
         const [
           risksResult,
           summaryResult,
@@ -578,6 +580,7 @@ export const RiskCenter: React.FC = () => {
               ...risksListParamsBase,
               view: 'instance',
             });
+            if (signal.aborted) return;
             const bySev = countSeverity(wide.insights);
             const byLevel = countRiskLevel(wide.insights);
             const wideTotal = num(wide.total);
@@ -635,9 +638,12 @@ export const RiskCenter: React.FC = () => {
       if (isAbortError(e)) return; // cancelled by rapid filter change — discard silently
       throw e;
     } finally {
-      hasLoadedOnceRef.current = true;
-      setPageBlocking(false);
-      setRefreshing(false);
+      // A superseded fetch leaves the loading state to the fetch that replaced it.
+      if (!signal.aborted) {
+        hasLoadedOnceRef.current = true;
+        setPageBlocking(false);
+        setRefreshing(false);
+      }
     }
   }, [
     getAbortSignal,
@@ -1802,7 +1808,7 @@ export const RiskCenter: React.FC = () => {
                 </button>
               ))}
               <span className="text-caption text-muted uppercase tracking-wider ml-2 mr-1">Workflow</span>
-              {(['all', 'active', 'resolved', 'acknowledged'] as const).map((st) => (
+              {(['all', 'active', 'resolved', 'acknowledged', 'dismissed'] as const).map((st) => (
                 <button
                   key={st}
                   onClick={() => setStatusFilter(st)}
@@ -1810,7 +1816,7 @@ export const RiskCenter: React.FC = () => {
                     statusFilter === st ? UI_PILL_ACTIVE_ELEVATED : UI_PILL_IDLE_ROUNDED
                   }`}
                 >
-                  {st === 'all' ? 'All' : st === 'active' ? 'Active' : st === 'resolved' ? 'Resolved' : 'In review'}
+                  {st === 'all' ? 'All' : st === 'active' ? 'Active' : st === 'resolved' ? 'Resolved' : st === 'dismissed' ? 'Dismissed' : 'In review'}
                 </button>
               ))}
               </div>
@@ -2268,16 +2274,11 @@ export const RiskCenter: React.FC = () => {
                 variant="secondary"
                 size="sm"
                 onClick={() => {
-                  const header = 'namespace,severity,count';
-                  const rows = pceHeatmap.map((r) => `"${String(r.namespace ?? '').replace(/"/g, '""')}","${String(r.severity ?? '').replace(/"/g, '""')}",${r.count}`);
-                  const csv = [header, ...rows].join('\n');
-                  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
-                  const url = URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `pce-heatmap-${new Date().toISOString().slice(0, 10)}.csv`;
-                  a.click();
-                  URL.revokeObjectURL(url);
+                  const csv = toCsv([
+                    ['namespace', 'severity', 'count'],
+                    ...pceHeatmap.map((r) => [r.namespace ?? '', r.severity ?? '', r.count]),
+                  ]);
+                  downloadText(csv, `pce-heatmap-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
                 }}
                 title="Export heatmap data (namespace, severity, count) as CSV"
               >

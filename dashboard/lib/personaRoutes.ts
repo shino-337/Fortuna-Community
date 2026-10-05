@@ -17,6 +17,7 @@ const ROUTE_PERMISSIONS: { prefix: string; perm?: string; permAny?: string[] }[]
   { prefix: '/reports', perm: P.findingsRead },
   { prefix: '/settings', permAny: [P.usersRead, P.usersUpdate, P.rulesRead, P.policiesRead, P.inventoryRead] },
   { prefix: '/certificates', perm: P.clusterCertificatesRotate },
+  { prefix: '/notifications', perm: P.observabilityMetricsRead },
   { prefix: '/', perm: P.findingsRead },
 ];
 

@@ -27,7 +27,7 @@ import { Card } from '../design-system/components/Card';
 import { Button } from '../components/ui/Button';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { PodNetworkSummary } from '../components/PodNetworkSummary';
-import { ArrowLeft, Box, Package, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
+import { ArrowLeft, Box, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
@@ -45,6 +45,7 @@ import {
   UI_PILL_IDLE_FILTER,
   UI_PILL_IDLE_SEGMENT,
 } from '../lib/formChrome';
+import { downloadBlob } from '../lib/download';
 
 type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec'
   | 'risk_sbom' | 'runtime';  // consolidated tab aliases
@@ -1997,11 +1998,7 @@ const PodDetailContent: React.FC = () => {
                     if (!pod?.uid) return;
                     try {
                       const blob = await api.getPodSpecYamlBlob(pod.uid, pod.clusterId);
-                      const a = document.createElement('a');
-                      a.href = URL.createObjectURL(blob);
-                      a.download = `pod-${pod?.name ?? 'spec'}.yaml`;
-                      a.click();
-                      URL.revokeObjectURL(a.href);
+                      downloadBlob(blob, `pod-${pod?.name ?? 'spec'}.yaml`);
                     } catch {
                       setDataErrors((p) => (p.includes('spec') ? p : [...p, 'spec']));
                     }

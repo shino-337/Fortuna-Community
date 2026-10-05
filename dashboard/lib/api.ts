@@ -31,7 +31,6 @@ import {
   RiskLevelCounts,
   ThreatVelocityPoint,
   RiskHistogramResponse,
-  PodCapabilitySummaryCluster,
   PodCapabilitySummaryCapability,
   PodCapabilitySummaryNamespace,
   PodCapabilitySummarySeverity,
@@ -48,7 +47,6 @@ import {
   AttackObjective,
   AttackPathGraphData,
   AttackPathsPageBundle,
-  PromotionRule,
   RuntimeSignal,
   RuntimeSignalSuppressionStats,
   PodRuntimeMetric,
@@ -79,6 +77,7 @@ import {
 } from '../types';
 import { useAuthStore } from '../store/authStore';
 import { deriveUnifiedRiskLevelFromScore } from './severity';
+import { downloadBlob } from './download';
 
 const CORE_API_URL = (import.meta as any).env?.VITE_CORE_API_URL || '';
 const API_BASE = CORE_API_URL
@@ -508,6 +507,41 @@ const requestBlob = async (path: string): Promise<Blob> => {
   return res.blob();
 };
 
+function mapNotification(n: Record<string, unknown>): Notification {
+  const severity = String(n.severity ?? 'info').toLowerCase();
+  const readAt = n.readAt ? String(n.readAt) : undefined;
+  const type = severity === 'critical' || severity === 'error' ? 'error' : severity === 'warning' ? 'warning' : 'info';
+  return {
+    id: String(n.id ?? ''),
+    title: String(n.title ?? ''),
+    message: String(n.message ?? ''),
+    severity,
+    type,
+    source: n.source ? String(n.source) : undefined,
+    category: n.category ? String(n.category) : undefined,
+    route: n.route ? String(n.route) : undefined,
+    resourceUid: n.resourceUid ? String(n.resourceUid) : undefined,
+    resourceName: n.resourceName ? String(n.resourceName) : undefined,
+    readAt,
+    read: Boolean(readAt),
+    timestamp: n.timestamp ? String(n.timestamp) : undefined,
+  } as Notification;
+}
+
+type RiskExportParams = { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number };
+
+function riskExportPath(format: 'csv' | 'pdf', params?: RiskExportParams): string {
+  const query = new URLSearchParams();
+  if (format === 'pdf') query.set('format', 'pdf');
+  if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
+  if (params?.finalLevel) query.set('finalLevel', params.finalLevel);
+  if (params?.status != null) query.set('status', params.status);
+  if (params?.search?.trim()) query.set('search', params.search.trim());
+  if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
+  const qs = query.toString();
+  return qs ? `/risk/insights/export?${qs}` : '/risk/insights/export';
+}
+
 /** Safe message for non-OK responses (no raw body to avoid leaking details). */
 function getErrorMessage(status: number, bodyText?: string): string {
   if (status === 401) return 'Session expired. Please log in again.';
@@ -723,33 +757,6 @@ export const api = {
     return Array.isArray(data?.byCluster) ? data.byCluster : [];
   },
 
-  /** GET /api/v1/risk/insights/summary/global — global (all-clusters) summary. Optional sinceMinutes. Same shape as getInsightsSummary. */
-  getInsightsSummaryGlobal: async (sinceMinutes?: number): Promise<InsightsSummary> => {
-    const params = new URLSearchParams();
-    if (sinceMinutes != null && sinceMinutes > 0) params.set('sinceMinutes', String(sinceMinutes));
-    const qs = params.toString() ? `?${params.toString()}` : '';
-    const data = await request<InsightsSummary & Record<string, unknown>>(`/risk/insights/summary/global${qs}`);
-    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
-    return {
-      total: num(data.total),
-      critical: num(data.critical),
-      high: num(data.high),
-      medium: num(data.medium),
-      low: num(data.low),
-      byType: data.byType,
-      riskLevelCounts: mapRiskLevelCounts(data.riskLevelCounts),
-    };
-  },
-
-  /** GET /api/v1/clusters/:id/overview */
-  getClusterOverview: async (id: string): Promise<ClusterOverview | null> => {
-    try {
-      return await api.getClusterOverviewStrict(id);
-    } catch {
-      return null;
-    }
-  },
-
   getClusterOverviewStrict: async (id: string): Promise<ClusterOverview> => {
     const data = await request<Partial<ClusterOverview>>(`/inventory/clusters/${encodeURIComponent(id)}/overview`);
     return {
@@ -779,15 +786,6 @@ export const api = {
     };
   },
 
-  /** GET /api/v1/clusters/:id/agents */
-  getClusterAgents: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
-    try {
-      return await api.getClusterAgentsStrict(id);
-    } catch {
-      return { agents: [], total: 0 };
-    }
-  },
-
   getClusterAgentsStrict: async (id: string): Promise<{ agents: ClusterAgent[]; total: number }> => {
     const data = await request<{ agents?: ClusterAgent[]; total?: number }>(`/inventory/clusters/${encodeURIComponent(id)}/agents`);
     if (!Array.isArray(data.agents)) {
@@ -807,15 +805,6 @@ export const api = {
     };
   },
 
-  /** GET /api/v1/clusters/:id/security-summary */
-  getClusterSecuritySummary: async (id: string): Promise<ClusterSecuritySummary | null> => {
-    try {
-      return await api.getClusterSecuritySummaryStrict(id);
-    } catch {
-      return null;
-    }
-  },
-
   getClusterSecuritySummaryStrict: async (id: string): Promise<ClusterSecuritySummary> => {
     const data = await request<Partial<ClusterSecuritySummary>>(`/inventory/clusters/${encodeURIComponent(id)}/security-summary`);
     if (!data?.riskBySeverity || typeof data.riskBySeverity !== 'object' || Array.isArray(data.riskBySeverity)) {
@@ -829,15 +818,6 @@ export const api = {
       mediumCount: requireFiniteNumber(data.mediumCount, 'cluster_security_summary_invalid_response', 'mediumCount'),
       lowCount: requireFiniteNumber(data.lowCount, 'cluster_security_summary_invalid_response', 'lowCount'),
     };
-  },
-
-  /** GET /api/v1/clusters/:id/nodes/:nodeName – Node Detail (metadata + optional ?pods=true for workloads) */
-  getClusterNode: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse | null> => {
-    try {
-      return await api.getClusterNodeStrict(clusterId, nodeName, opts);
-    } catch {
-      return null;
-    }
   },
 
   getClusterNodeStrict: async (clusterId: string, nodeName: string, opts?: { pods?: boolean }): Promise<NodeDetailResponse> => {
@@ -859,15 +839,6 @@ export const api = {
       podCount: requireFiniteNumber(data.podCount, 'cluster_node_invalid_response', 'podCount'),
       pods: data.pods,
     } as NodeDetailResponse;
-  },
-
-  /** GET /api/v1/clusters/:id – single cluster for Cluster Detail */
-  getCluster: async (id: string): Promise<Cluster | null> => {
-    try {
-      return await api.getClusterStrict(id);
-    } catch {
-      return null;
-    }
   },
 
   getClusterStrict: async (id: string): Promise<Cluster> => {
@@ -1122,6 +1093,14 @@ export const api = {
     }
   },
 
+  /** PATCH /api/v1/risk/insights/:id {status:"active"} — reopen a resolved, dismissed or acknowledged finding (findings.reopen). */
+  reopenInsight: async (id: string): Promise<void> => {
+    await request(`/risk/insights/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'active' }),
+    });
+  },
+
   /** POST /api/v1/risk/insights/:id/resolve — mark insight as resolved */
   resolveInsight: async (id: string, resolution?: string): Promise<void> => {
     await request(`/risk/insights/${id}/resolve`, {
@@ -1293,59 +1272,14 @@ export const api = {
     }
   },
 
-  /** GET /api/v1/risks/export – download risks as CSV (same filters as getRisks). Triggers browser download. */
-  exportRisksCSV: async (params?: { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number }): Promise<void> => {
-    const query = new URLSearchParams();
-    if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
-    if (params?.finalLevel) query.set('finalLevel', params.finalLevel);
-    if (params?.status != null) query.set('status', params.status);
-    if (params?.search?.trim()) query.set('search', params.search.trim());
-    if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
-    const qs = query.toString();
-    const path = qs ? `/risk/insights/export?${qs}` : '/risk/insights/export';
-    const url = buildUrl(path);
-    const headers: Record<string, string> = {};
-    const token = getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `Export failed: ${res.status}`);
-    }
-    const blob = await res.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'risks-export.csv';
-    a.click();
-    URL.revokeObjectURL(a.href);
+  /** GET /api/v1/risk/insights/export – download the Risk Center findings as CSV (same filters as the list). */
+  exportRisksCSV: async (params?: RiskExportParams): Promise<void> => {
+    downloadBlob(await requestBlob(riskExportPath('csv', params)), 'risks-export.csv');
   },
 
-  /** GET /api/v1/risks/export?format=pdf – download risks as print-optimized HTML (open and use Print → Save as PDF). */
-  exportRisksPDF: async (params?: { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number }): Promise<void> => {
-    const query = new URLSearchParams();
-    query.set('format', 'pdf');
-    if (params?.clusterId?.trim()) query.set('clusterId', params.clusterId.trim());
-    if (params?.finalLevel) query.set('finalLevel', params.finalLevel);
-    if (params?.status != null) query.set('status', params.status);
-    if (params?.search?.trim()) query.set('search', params.search.trim());
-    if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
-    const qs = query.toString();
-    const path = `/risk/insights/export?${qs}`;
-    const url = buildUrl(path);
-    const headers: Record<string, string> = {};
-    const token = getToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
-    const res = await fetch(url, { headers });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text || `Export failed: ${res.status}`);
-    }
-    const blob = await res.blob();
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob);
-    a.download = 'risks-export.html';
-    a.click();
-    URL.revokeObjectURL(a.href);
+  /** GET /api/v1/risk/insights/export?format=pdf – print-optimized HTML (open it and use Print → Save as PDF). */
+  exportRisksPDF: async (params?: RiskExportParams): Promise<void> => {
+    downloadBlob(await requestBlob(riskExportPath('pdf', params)), 'risks-export.html');
   },
 
   /** GET /api/v1/inventory/pods/:uid – single pod by UID (domain route) */
@@ -1512,53 +1446,6 @@ export const api = {
   },
 
 
-  getPodRuntimeMetrics: async (podUid: string): Promise<PodRuntimeMetric[]> => {
-    try {
-      const data = await request<{ items?: PodRuntimeMetric[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/metrics`);
-      return data.items ?? [];
-    } catch {
-      return [];
-    }
-  },
-  getPodProcesses: async (podUid: string): Promise<PodProcessItem[]> => {
-    try {
-      const data = await request<{ items?: PodProcessItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/processes`);
-      return data.items ?? [];
-    } catch {
-      return [];
-    }
-  },
-  getPodNetworkConnections: async (podUid: string): Promise<PodNetworkConnectionItem[]> => {
-    try {
-      const data = await request<{ items?: PodNetworkConnectionItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/network`);
-      return data.items ?? [];
-    } catch {
-      return [];
-    }
-  },
-
-  /** Aggregated dest_ip:port/proto for this pod (same time window semantics as GET .../network). */
-  getPodNetworkTopDestinations: async (
-    podUid: string,
-    params?: { sinceMinutes?: number; limit?: number }
-  ): Promise<PodNetworkTopDestinationItem[]> => {
-    try {
-      const q = new URLSearchParams();
-      if (params?.sinceMinutes != null && params.sinceMinutes > 0) {
-        q.set('sinceMinutes', String(params.sinceMinutes));
-      }
-      if (params?.limit != null && params.limit > 0) {
-        q.set('limit', String(params.limit));
-      }
-      const qs = q.toString();
-      const path = `/runtime/pods/${encodeURIComponent(podUid)}/network/top-destinations${qs ? `?${qs}` : ''}`;
-      const data = await request<{ items?: PodNetworkTopDestinationItem[] }>(path);
-      return data.items ?? [];
-    } catch {
-      return [];
-    }
-  },
-
   /**
    * Cluster-wide network activity from pod_network_connections (same source as Pod Detail).
    * @param view pods | connections | destinations | talkers | edges (edges = aggregated pod→dest for topology)
@@ -1618,15 +1505,6 @@ export const api = {
       items: data?.items ?? [],
     };
   },
-  getPodEvents: async (podUid: string): Promise<PodK8sEventItem[]> => {
-    try {
-      const data = await request<{ items?: PodK8sEventItem[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/events`);
-      return data.items ?? [];
-    } catch {
-      return [];
-    }
-  },
-
   getPodSpecYaml: async (podUid: string, clusterId?: string): Promise<string> => {
     return requestText(withClusterId(`/inventory/pods/${encodeURIComponent(podUid)}/spec`, clusterId));
   },
@@ -1779,26 +1657,6 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({}),
     });
-  },
-
-  /** GET /api/v1/policy/rules/uid/:uid/metrics */
-  getRuleMetrics: async (uid: string): Promise<{ totalMatches: number; recentMatches: Insight[] }> => {
-    try {
-      const data = await request<{ totalMatches?: number; recentMatches?: unknown[] }>(`/policy/rules/uid/${encodeURIComponent(uid)}/metrics`);
-      const recentMatches = (data.recentMatches || []).map((m: unknown) => {
-        const x = m as Record<string, unknown>;
-        return {
-          id: String(x.id ?? ''),
-          title: String(x.title ?? ''),
-          severity: String(x.severity ?? 'medium').toLowerCase(),
-          status: x.status as string,
-          timestamp: (x.detectedAt ?? x.createdAt) as string | undefined,
-        } as Insight;
-      });
-      return { totalMatches: Number(data.totalMatches ?? 0), recentMatches };
-    } catch {
-      return { totalMatches: 0, recentMatches: [] };
-    }
   },
 
   /** POST /api/v1/policy/rules/uid/:uid/test */
@@ -2245,56 +2103,17 @@ export const api = {
 
   getNotifications: async (limit = API_DEFAULTS.LIMIT_LIST): Promise<Notification[]> => {
     try {
-      const data = await request<{ notifications: Array<Record<string, unknown>>, unreadCount?: number }>(`/notifications?limit=${limit}`);
-      return (data.notifications || []).map((n) => {
-        const severity = String(n.severity ?? 'info').toLowerCase();
-        const readAt = n.readAt ? String(n.readAt) : undefined;
-        const type = severity === 'critical' ? 'error' : severity === 'warning' ? 'warning' : severity === 'error' ? 'error' : 'info';
-        return {
-          id: String(n.id ?? ''),
-          title: String(n.title ?? ''),
-          message: String(n.message ?? ''),
-          severity,
-          type,
-          source: n.source ? String(n.source) : undefined,
-          category: n.category ? String(n.category) : undefined,
-          route: n.route ? String(n.route) : undefined,
-          resourceUid: n.resourceUid ? String(n.resourceUid) : undefined,
-          resourceName: n.resourceName ? String(n.resourceName) : undefined,
-          readAt,
-          read: Boolean(readAt),
-          timestamp: n.timestamp ? String(n.timestamp) : undefined,
-        } as Notification;
-      });
-    } catch (err) {
+      const data = await request<{ notifications?: Array<Record<string, unknown>> }>(`/notifications?limit=${limit}`);
+      return (data.notifications || []).map(mapNotification);
+    } catch {
       return [];
     }
   },
 
   getNotificationsSummary: async (limit = 20): Promise<{ notifications: Notification[]; unreadCount: number }> => {
     try {
-      const data = await request<{ notifications: Array<Record<string, unknown>>, unreadCount?: number }>(`/notifications?limit=${limit}`);
-      const notifications = (data.notifications || []).map((n) => {
-        const severity = String(n.severity ?? 'info').toLowerCase();
-        const readAt = n.readAt ? String(n.readAt) : undefined;
-        const type = severity === 'critical' ? 'error' : severity === 'warning' ? 'warning' : severity === 'error' ? 'error' : 'info';
-        return {
-          id: String(n.id ?? ''),
-          title: String(n.title ?? ''),
-          message: String(n.message ?? ''),
-          severity,
-          type,
-          source: n.source ? String(n.source) : undefined,
-          category: n.category ? String(n.category) : undefined,
-          route: n.route ? String(n.route) : undefined,
-          resourceUid: n.resourceUid ? String(n.resourceUid) : undefined,
-          resourceName: n.resourceName ? String(n.resourceName) : undefined,
-          readAt,
-          read: Boolean(readAt),
-          timestamp: n.timestamp ? String(n.timestamp) : undefined,
-        } as Notification;
-      });
-      return { notifications, unreadCount: Number(data.unreadCount || 0) };
+      const data = await request<{ notifications?: Array<Record<string, unknown>>; unreadCount?: number }>(`/notifications?limit=${limit}`);
+      return { notifications: (data.notifications || []).map(mapNotification), unreadCount: Number(data.unreadCount || 0) };
     } catch {
       return { notifications: [], unreadCount: 0 };
     }
@@ -2577,15 +2396,6 @@ export const api = {
       });
   },
 
-  /** GET /api/v1/inventory/pods/:uid/sbom – SBOM detail by pod UID */
-  getPodSbom: async (podUid: string, clusterId?: string): Promise<PodSbom | undefined> => {
-    try {
-      return await api.getPodSbomStrict(podUid, clusterId);
-    } catch {
-      return undefined;
-    }
-  },
-
   getPodSbomStrict: async (podUid: string, clusterId?: string): Promise<PodSbom> => {
     const clusterQuery = clusterId?.trim() ? `?clusterId=${encodeURIComponent(clusterId.trim())}` : '';
     const data = await request<PodSbom>(`/inventory/pods/${encodeURIComponent(podUid)}/sbom${clusterQuery}`);
@@ -2653,14 +2463,6 @@ export const api = {
     return totalThreats <= 0 ? null : result;
   },
 
-  getPodThreatSummary: async (podUid: string, clusterId?: string): Promise<ThreatSummary | null> => {
-    try {
-      return await api.getPodThreatSummaryStrict(podUid, clusterId);
-    } catch {
-      return null;
-    }
-  },
-
   /** GET /api/v1/risk/pods/:uid/runtime/events — security runtime events (Falco ingest, REP, …) */
   getPodRuntimeSecurityEvents: async (podUid: string, limit = 100): Promise<PodRuntimeSecurityEvent[]> => {
     try {
@@ -2672,25 +2474,6 @@ export const api = {
       return [];
     }
   },
-  getPodRuntimeBehaviorFactsV2: async (podUid: string, limit = 100): Promise<PodRuntimeBehaviorFact[]> => {
-    if (!podUid) return [];
-    try {
-      const data = await requestV2<{ facts?: PodRuntimeBehaviorFact[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/facts?limit=${limit}`);
-      return data.facts || [];
-    } catch {
-      return [];
-    }
-  },
-  getPodRuntimeIncidentsV2: async (podUid: string, limit = 100): Promise<PodRuntimeIncident[]> => {
-    if (!podUid) return [];
-    try {
-      const data = await requestV2<{ incidents?: PodRuntimeIncident[] }>(`/runtime/pods/${encodeURIComponent(podUid)}/incidents?limit=${limit}`);
-      return data.incidents || [];
-    } catch {
-      return [];
-    }
-  },
-
   /** GET /api/v1/risk/pods/:uid/report – risk report for pod */
   getPodRiskReport: async (podUid: string): Promise<PodRiskReport> => {
     try {
@@ -2800,11 +2583,6 @@ export const api = {
     } catch {
       return [];
     }
-  },
-
-  getPceSummaryByCluster: async (): Promise<PodCapabilitySummaryCluster[]> => {
-    const data = await request<{ summary?: PodCapabilitySummaryCluster[]; total?: number }>('/inventory/pod-capabilities/summary/cluster');
-    return requireCapabilitySummary(data, 'capability_summary_invalid_response');
   },
 
   getPceSummaryByCapability: async (params?: { clusterId?: string }): Promise<PodCapabilitySummaryCapability[]> => {
@@ -3090,34 +2868,6 @@ export const api = {
     }
   },
 
-  // Phase 2.3: Promotion Rules
-  getPromotionRules: async (): Promise<PromotionRule[]> => {
-    try {
-      const data = await request<{ rules: PromotionRule[]; count: number }>('/promotion-rules');
-      return data.rules || [];
-    } catch (err) {
-      return [];
-    }
-  },
-
-  getPromotionRulesByCapability: async (capabilityId: string): Promise<PromotionRule[]> => {
-    try {
-      const data = await request<{ capabilityId: string; rules: PromotionRule[]; count: number }>(`/promotion-rules/capability/${capabilityId}`);
-      return data.rules || [];
-    } catch (err) {
-      return [];
-    }
-  },
-
-  getPromotionRulesBySignalType: async (signalType: string): Promise<PromotionRule[]> => {
-    try {
-      const data = await request<{ signalType: string; rules: PromotionRule[]; count: number }>(`/promotion-rules/signal/${signalType}`);
-      return data.rules || [];
-    } catch (err) {
-      return [];
-    }
-  },
-
   // Phase 2.3: Runtime Signals
   getRuntimeSignals: async (params?: { clusterId?: string; search?: string; sort?: string; podUid?: string; signalType?: string; category?: string; startDate?: string; endDate?: string; sinceMinutes?: number; limit?: number; offset?: number }): Promise<{ signals: RuntimeSignal[]; count: number; total: number }> => {
     const queryParams = new URLSearchParams();
@@ -3202,33 +2952,11 @@ export const api = {
     return { sinceMinutes, emittedEvents, uniqueKeys, maxRatio, perKey };
   },
 
-  getRuntimeSignalSuppressionStats: async (params?: { podUid?: string; sinceMinutes?: number }): Promise<RuntimeSignalSuppressionStats | null> => {
-    try {
-      const queryParams = new URLSearchParams();
-      if (params?.podUid) queryParams.append('podUid', params.podUid);
-      if (params?.sinceMinutes != null && params.sinceMinutes > 0) queryParams.append('sinceMinutes', params.sinceMinutes.toString());
-      const query = queryParams.toString();
-      const url = query ? `/runtime/signals/suppression-stats?${query}` : '/runtime/signals/suppression-stats';
-      return await request<RuntimeSignalSuppressionStats>(url);
-    } catch {
-      return null;
-    }
-  },
-
   // Attack Analysis Graph
   getAttackPathsGraphStrict: async (clusterId?: string): Promise<AttackPathGraphData> => {
     const query = clusterId?.trim() ? `?cluster_id=${encodeURIComponent(clusterId.trim())}` : '';
     const data = await request<{ data?: { nodes?: unknown; links?: unknown } }>(`/graph/attack-paths/graph${query}`);
     return mapRawAttackPathGraphPayloadStrict(data.data);
-  },
-
-  getAttackPathsGraph: async (clusterId?: string): Promise<AttackPathGraphData> => {
-    try {
-      return await api.getAttackPathsGraphStrict(clusterId);
-    } catch (err) {
-      // If API fails, return empty graph (no mock data)
-      return { nodes: [], links: [] };
-    }
   },
 
   /** One round-trip: graph + summary + chains + objectives (Core ≥ bundle route). */
@@ -3274,36 +3002,10 @@ export const api = {
     return data.data || null;
   },
 
-  getAttackPathsSummary: async (clusterId?: string): Promise<AttackPathSummary | null> => {
-    try {
-      return await api.getAttackPathsSummaryStrict(clusterId);
-    } catch {
-      return null;
-    }
-  },
-
-  getAttackPathObjectives: async (clusterId?: string): Promise<AttackObjective[]> => {
-    try {
-      const query = clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : '';
-      const data = await request<{ data: AttackObjective[] }>(`/graph/attack-paths/objectives${query}`);
-      return asArray<AttackObjective>(data.data);
-    } catch {
-      return [];
-    }
-  },
-
   getAttackChainsStrict: async (clusterId?: string): Promise<AttackChain[]> => {
     const query = clusterId ? `?cluster_id=${encodeURIComponent(clusterId)}` : '';
     const data = await request<{ data: AttackChain[] }>(`/graph/attack-paths/chains${query}`);
     return normalizeAttackChains(data.data);
-  },
-
-  getAttackChains: async (clusterId?: string): Promise<AttackChain[]> => {
-    try {
-      return await api.getAttackChainsStrict(clusterId);
-    } catch {
-      return [];
-    }
   },
 
   // Attack Analysis for a specific pod
@@ -3322,18 +3024,6 @@ export const api = {
     }
     return normalizeAttackPaths(data.paths);
   },
-
-  getAttackPathsForPod: async (podUid: string, clusterId?: string): Promise<AttackPath[]> => {
-    try {
-      return await api.getAttackPathsForPodStrict(podUid, clusterId);
-    } catch {
-      return [];
-    }
-  },
-
-  // ---------------------------------------------------------------------------
-  // Phase 3.5: Unified Risk Pipeline — API functions
-  // ---------------------------------------------------------------------------
 
   /**
    * getUnifiedRiskScore returns the V3 unified risk score for a pod/resource.
@@ -3600,10 +3290,6 @@ export const api = {
 
   getInvestigationCaseStats: async (): Promise<{ openCases: number; overdueRemediation: number }> => {
     return request<{ openCases: number; overdueRemediation: number }>('/investigations/stats');
-  },
-
-  getInvestigationCase: async (id: string): Promise<InvestigationCaseApi> => {
-    return request<InvestigationCaseApi>(`/investigations/${encodeURIComponent(id)}`);
   },
 
   createInvestigationCase: async (body: {

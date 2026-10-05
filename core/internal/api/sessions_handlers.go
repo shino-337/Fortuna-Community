@@ -63,7 +63,7 @@ func ListUserSessions(db *gorm.DB) gin.HandlerFunc {
 	}
 }
 
-// RevokeUserSession revokes a single session (own, or admin with users.read for another user).
+// RevokeUserSession revokes a single session (own, or another user's with sessions.revoke_all).
 func RevokeUserSession(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !sessions.TableExists(db) {
@@ -81,8 +81,11 @@ func RevokeUserSession(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
 			return
 		}
+		// Revoking someone else's session signs them out, so it needs the same
+		// permission as revoking all of their sessions (sessions.revoke_all),
+		// not users.read: a user admin must not be able to sign out an admin.
 		if s.UserID != actor.ID {
-			if !authorization.HasPermission(middleware.GrantedPermissions(c), authorization.PermissionUsersRead) {
+			if !authorization.HasPermission(middleware.GrantedPermissions(c), authorization.PermissionSessionsRevokeAll) {
 				c.JSON(http.StatusForbidden, gin.H{"error": "forbidden"})
 				return
 			}
