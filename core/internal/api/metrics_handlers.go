@@ -531,26 +531,3 @@ func GetWorkerStatus(db *gorm.DB) gin.HandlerFunc {
 		c.JSON(http.StatusOK, gin.H{"dataStatus": "available", "workers": workers})
 	}
 }
-
-// GetPolicyEvaluationCost returns policy evaluation cost metrics.
-// Only DB-derived totalEvaluations is real; other fields require metrics and are omitted.
-func GetPolicyEvaluationCost(db *gorm.DB) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		db := db.WithContext(c.Request.Context())
-		if !requireAvailabilityTables(c, db, "policy_evaluation_schema_unavailable",
-			"Policy evaluation metrics require the insights schema", "insights") {
-			return
-		}
-		var totalInsights int64
-		if err := db.Model(&models.Insight{}).Count(&totalInsights).Error; err != nil {
-			respondDataUnavailable(c, "policy_evaluation_metrics_unavailable", "Policy evaluation metrics could not be loaded")
-			return
-		}
-		evaluationsPerDay := totalInsights * 10
-
-		c.JSON(http.StatusOK, gin.H{
-			"dataStatus":       "available",
-			"totalEvaluations": evaluationsPerDay,
-		})
-	}
-}

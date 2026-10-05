@@ -17,11 +17,6 @@ type AttackStepInference struct {
 	db *gorm.DB
 }
 
-// NewAttackStepInference creates a new attack step inference engine
-func NewAttackStepInference(db *gorm.DB) *AttackStepInference {
-	return &AttackStepInference{db: db}
-}
-
 // resolveUniquePodIdentity is the compatibility bridge for legacy UID-only
 // callers. It fails closed unless the UID maps to exactly one active cluster.
 func resolveUniquePodIdentity(ctx context.Context, db *gorm.DB, podUID string) (resourceidentity.Identity, error) {
@@ -35,15 +30,6 @@ func resolveUniquePodIdentity(ctx context.Context, db *gorm.DB, podUID string) (
 		return resourceidentity.Identity{}, fmt.Errorf("cluster-qualified pod identity required: uid=%s owners=%d", podUID, len(owners))
 	}
 	return resourceidentity.New(owners[0], podUID)
-}
-
-// InferAttackSteps remains only as a fail-closed compatibility wrapper.
-func (asi *AttackStepInference) InferAttackSteps(ctx context.Context, podUID string) error {
-	id, err := resolveUniquePodIdentity(ctx, asi.db, podUID)
-	if err != nil {
-		return err
-	}
-	return asi.InferAttackStepsForIdentity(ctx, id)
 }
 
 // updateStepEvidence updates evidence for existing step

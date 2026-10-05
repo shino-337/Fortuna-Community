@@ -234,21 +234,6 @@ func (s *EnforcementService) getMessage(instance *models.PolicyInstance) string 
 	return fmt.Sprintf("Policy violation: %s", instance.InstanceName)
 }
 
-// BlockResource blocks a resource (returns error)
-func (s *EnforcementService) BlockResource(message string) error {
-	return fmt.Errorf("resource blocked by policy: %s", message)
-}
-
-// WarnResource logs a warning but allows the resource
-func (s *EnforcementService) WarnResource(message string) {
-	log.Printf("[Enforcement] WARNING: %s", message)
-}
-
-// AuditResource records an audit log
-func (s *EnforcementService) AuditResource(message string) {
-	log.Printf("[Enforcement] AUDIT: %s", message)
-}
-
 // extractLabels extracts labels from resource
 func extractLabels(resource map[string]interface{}) map[string]string {
 	labels := make(map[string]string)

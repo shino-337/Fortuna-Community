@@ -5,21 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"gorm.io/gorm"
 )
 
 // QueryService is bound to one already-authorized cluster. Legacy global
 // traversal and arbitrary Cypher entry points are deliberately unavailable.
 type QueryService struct{ engine *AgeGraphEngine }
-
-func NewQueryService(db *gorm.DB, clusterID string) (*QueryService, error) {
-	engine, err := NewAgeGraphEngine(db, clusterID)
-	if err != nil {
-		return nil, err
-	}
-	return &QueryService{engine}, nil
-}
 
 type PathConstraint struct {
 	MaxDepth               int
@@ -119,16 +109,4 @@ func decodeAGEPath(raw, clusterID string) (AttackPath, error) {
 		}
 	}
 	return path, nil
-}
-
-// AGE data currently has no validated risk scoring/runtime contract. Callers
-// must use the relational attack-path API for those named business projections.
-func (s *QueryService) GetAttackPath(ctx context.Context, podUID string, maxDepth int) ([]AttackPath, error) {
-	return nil, fmt.Errorf("use scoped relational attack paths; AGE risk projection unavailable")
-}
-func (s *QueryService) GetServiceAccountPermissions(ctx context.Context, saUID string) ([]Permission, error) {
-	return nil, fmt.Errorf("use scoped RBAC resolver; AGE permission projection unavailable")
-}
-func (s *QueryService) GetPodsWithEscalationRisk(ctx context.Context) ([]RiskyPod, error) {
-	return nil, fmt.Errorf("use scoped relational risk projection; AGE risk projection unavailable")
 }

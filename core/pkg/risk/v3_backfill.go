@@ -86,17 +86,6 @@ func BackfillV3RiskScores(ctx context.Context, db *gorm.DB, uids []string, itemD
 	return ok, fail
 }
 
-// BackfillV3RiskScoresFromActiveInsights is used by POST /risk/scores/sync (insights only).
-func BackfillV3RiskScoresFromActiveInsights(ctx context.Context, db *gorm.DB) (ok, fail, total int, err error) {
-	uids, err := DistinctResourceUIDsWithActiveInsights(db)
-	if err != nil {
-		return 0, 0, 0, err
-	}
-	total = len(uids)
-	ok, fail = BackfillV3RiskScores(ctx, db, uids, 0)
-	return ok, fail, total, nil
-}
-
 func filterNonEmptyUIDs(uids []string) []string {
 	out := make([]string, 0, len(uids))
 	for _, u := range uids {

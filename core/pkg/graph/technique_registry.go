@@ -181,38 +181,6 @@ func TechniqueByID(id string) (AttackTechnique, bool) {
 	return t, true
 }
 
-// ── Capability-to-technique mapping ──────────────────────────────────────────
-//
-// capabilityToTechniques maps a (have, want) capability pair to the technique(s)
-// that can bridge them. This replaces the implicit "if NODE_ACCESS add SA_TOKEN:*"
-// derivation with an explicit lookup.
-//
-// Key: "FROM_CAP→TO_CAP"
-
-var capabilityBridgeMap = map[string]string{
-	"NODE_SHELL_ACCESS→SA_TOKEN":                "KUBELET_TOKEN_HARVEST",
-	"NODE_SHELL_ACCESS→KUBELET_API_ACCESS":      "KUBELET_API_PROBE",
-	"CONTAINER_RUNTIME_ACCESS→SA_TOKEN":         "RUNTIME_TOKEN_HARVEST",
-	"CONTAINER_ACCESS→NODE_SHELL_ACCESS":        "ESCAPE_HOSTPATH", // default; overridden by cap ID
-	"CONTAINER_ACCESS→CONTAINER_RUNTIME_ACCESS": "ESCAPE_PRIVILEGED",
-	"NETWORK_ACCESS→CONTAINER_ACCESS":           "LATERAL_NETWORK",
-	"SA_TOKEN→ROLE":                             "RBAC_PRIV_ESC",
-	"SA_TOKEN→CLUSTER_ADMIN":                    "CLUSTER_ADMIN_ESC",
-	"SA_TOKEN→SA_TOKEN":                         "SA_TOKEN_REUSE",
-}
-
-// CapabilityToBridgeTechnique returns the technique that connects `from` to `to`,
-// or empty string if no registered bridge exists.
-// This enforces the "no implicit derivation" rule (spec §3.3).
-func CapabilityToBridgeTechnique(from, to string) (AttackTechnique, bool) {
-	key := from + "→" + to
-	id, ok := capabilityBridgeMap[key]
-	if !ok {
-		return AttackTechnique{}, false
-	}
-	return TechniqueByID(id)
-}
-
 // ── Capability-to-technique from escape cap ID ────────────────────────────────
 //
 // EscapeCapToTechnique maps a PodCapability.CapabilityID to the technique it

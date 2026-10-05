@@ -683,6 +683,7 @@ func endpointInventory() []EndpointDataSource {
 		{Path: "/api/v1/health/dashboard-data-integrity", Source: "real", Agent: "core", Note: "cross-checks: agents, CVE/OSV/malware/SBOM coverage, alerts"},
 		{Path: "/api/v1/dashboard/stats", Source: "real", Agent: "agent (sync)", Note: "clusters/pods/agents/insights from DB"},
 		{Path: "/api/v1/inventory/clusters", Source: "real", Agent: "agent (sync)", Note: "clusters from DB, filtered by last_sync"},
+		{Path: "/api/v1/inventory/clusters/:id/nodes/:nodeName", Source: "real", Agent: "agent (sync)", Note: "node metadata and optional workloads"},
 		{Path: "/api/v1/agents/status", Source: "real", Agent: "agent (heartbeat)", Note: "agents table"},
 		{Path: "/api/v1/risk/insights", Source: "real", Agent: "core (insights)", Note: "insights table"},
 		{Path: "/api/v1/inventory/sbom", Source: "real", Agent: "agent (SBOM)", Note: "sbom from agent"},
@@ -697,9 +698,6 @@ func endpointInventory() []EndpointDataSource {
 		{Path: "/api/v1/graph/attack-paths/bundle", Source: "real", Agent: "core", Note: "graph+summary+chains+objectives single pass"},
 		{Path: "/api/v1/notifications", Source: "real", Agent: "core", Note: "from notifications table"},
 		{Path: "/api/v1/error-logs", Source: "real", Agent: "core", Note: "from error_logs table"},
-		// Removed: /api/v1/metrics/workers, /api/v1/metrics/queue (use Prometheus when needed)
-		{Path: "/api/v1/cluster/info", Source: "real", Agent: "agent (sync)", Note: "cluster list (infrastructure domain)"},
-		{Path: "/api/v1/cluster/:id/nodes", Source: "real", Agent: "agent (sync)", Note: "node names for cluster"},
 		{Path: "/api/v1/cluster/certificates/info", Source: "real", Agent: "core", Note: "from CertManager when TLS enabled"},
 		{Path: "/api/v1/cluster/certificates/rotation/history", Source: "real", Agent: "core", Note: "empty list until rotation_history table"},
 		{Path: "/api/v1/users", Source: "real", Agent: "core", Note: "from users table; admin only when auth enabled"},

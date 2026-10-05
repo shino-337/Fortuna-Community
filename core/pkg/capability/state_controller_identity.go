@@ -201,20 +201,3 @@ func (csc *CapabilityStateController) promoteCapabilityForIdentityTx(ctx context
 	}
 	return true, nil
 }
-
-func (csc *CapabilityStateController) GetCapabilityStateForIdentity(ctx context.Context, id resourceidentity.Identity, capabilityID string) (string, error) {
-	if err := id.Validate(); err != nil {
-		return "", err
-	}
-	var cap models.PodCapability
-	tx := csc.db.WithContext(ctx).
-		Where("cluster_id = ? AND pod_uid = ? AND capability_id = ?", id.ClusterID, id.ResourceUID, capabilityID).
-		Limit(1).Find(&cap)
-	if tx.Error != nil {
-		return "", tx.Error
-	}
-	if tx.RowsAffected == 0 {
-		return "", gorm.ErrRecordNotFound
-	}
-	return cap.State, nil
-}

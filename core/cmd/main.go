@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -12,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -94,18 +92,13 @@ func main() {
 	log.Printf("[MAIN] Step 1: Connecting database (blocking) BEFORE starting servers")
 	log.Printf("[MAIN] ========================================")
 
-	var db *gorm.DB
-	var sqlDB *sql.DB
-	var dbMutex sync.RWMutex
-	dbReady := make(chan bool, 1)
-
-	tempDB, err := storage.New(cfg)
+	db, err := storage.New(cfg)
 	if err != nil {
 		log.Fatalf("[MAIN] ❌ Failed to connect to database: %v", err)
 	}
 	log.Printf("[MAIN] ✅ Database connection established successfully")
 
-	tempSQLDB, err := tempDB.DB()
+	sqlDB, err := db.DB()
 	if err != nil {
 		log.Fatalf("[MAIN] ❌ Failed to get underlying sql.DB: %v", err)
 	}
@@ -113,47 +106,33 @@ func main() {
 	log.Printf("[MAIN] ========================================")
 	log.Printf("[MAIN] Starting database migrations...")
 	log.Printf("[MAIN] ========================================")
-	if err := storage.Migrate(tempDB); err != nil {
+	if err := storage.Migrate(db); err != nil {
 		log.Fatalf("[MAIN] ❌ Failed to run migrations: %v", err)
 	}
 	log.Printf("[MAIN] ✅ Database migrations completed successfully")
 
-	sc := api.NewSchemaCache(tempDB)
+	sc := api.NewSchemaCache(db)
 	sc.Warm()
 
-	if err := migrations.RunPostMigrations(tempDB); err != nil {
+	if err := migrations.RunPostMigrations(db); err != nil {
 		log.Printf("[MAIN] ⚠️  Warning: Failed to run post-migrations: %v", err)
 	}
 
-	if err := riskengine.RunMalwareInsightMaintenance(tempDB); err != nil {
+	if err := riskengine.RunMalwareInsightMaintenance(db); err != nil {
 		log.Printf("[MAIN] ⚠️  supply_chain_malware insight maintenance: %v", err)
 	} else {
 		log.Printf("[MAIN] ✅ Malware insight maintenance done (backfill + reactivate if match still present)")
 	}
 
-	if n, err := riskengine.SeedRiskRulesFromExportDir(tempDB); err != nil {
+	if n, err := riskengine.SeedRiskRulesFromExportDir(db); err != nil {
 		log.Printf("[MAIN] ⚠️  Risk rules seed from folder failed: %v", err)
 	} else if n > 0 {
 		log.Printf("[MAIN] ✅ Seeded %d risk rules from %s (DB was empty)", n, riskengine.GetRiskRulesExportDir())
 	}
-	bootstrapVulnCatalog(tempDB)
-
-	dbMutex.Lock()
-	db = tempDB
-	sqlDB = tempSQLDB
-	dbMutex.Unlock()
+	bootstrapVulnCatalog(db)
 
 	log.Printf("[MAIN] ✅ Database is now available for use")
-	dbReady <- true
-
-	// Set up cleanup for database (will be set when connection is established)
-	defer func() {
-		dbMutex.RLock()
-		if sqlDB != nil {
-			sqlDB.Close()
-		}
-		dbMutex.RUnlock()
-	}()
+	defer sqlDB.Close()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go mutations.Start(ctx, db)
@@ -184,112 +163,16 @@ func main() {
 		js = natsClient.JetStream()
 	}
 
-	// Initialize worker pool (only if NATS is available)
-	var workerPool *worker.Pool
-	if js != nil {
-		workerPool, err = worker.NewPool(js, 5) // 5 concurrent workers per worker type
-		if err != nil {
-			log.Printf("Warning: Failed to create worker pool with DLQ: %v. Continuing without DLQ.", err)
-			// Create pool without DLQ if setup fails
-			workerPool, err = worker.NewPool(js, 5)
-			if err != nil {
-				log.Printf("⚠️  WARNING: Failed to create worker pool: %v. Continuing without worker pool.", err)
-				workerPool = nil
-			}
-		}
+	// Admission policy evaluator (fast path) and the worker that records violations (slow path).
+	policyEvaluator, err := policy.NewEvaluator(db)
+	if err != nil {
+		log.Printf("[Main] ⚠️  WARNING: Failed to create policy evaluator: %v (admission policies disabled)", err)
+		policyEvaluator = nil
 	} else {
-		log.Printf("⚠️  WARNING: Skipping worker pool initialization (NATS unavailable)")
-		workerPool = nil
+		log.Printf("[Main] ✅ Policy Evaluator initialized")
 	}
-	if workerPool != nil && js != nil {
-		log.Printf("[Main] ========================================")
-		log.Printf("[Main] About to add workers to pool...")
-		log.Printf("[Main] WorkerPool check: workerPool == nil: %v", workerPool == nil)
-		log.Printf("[Main] Adding workers to pool...")
-		// Finding #1.3: publish insight updates via core NATS (fan-out) so all Core replicas can broadcast to their WS clients
-		var publishInsightsUpdated worker.PublishInsightsUpdatedFunc
-		if natsClient != nil {
-			publishInsightsUpdated = func(data []byte) error {
-				return natsClient.PublishCore(worker.SubjectInsightsUpdated, data)
-			}
-		}
-		// NormalizerWorker removed - normalization done in handlers
-		log.Printf("[Main] ✅ NormalizerWorker skipped (handled in handlers)")
-		workerPool.AddWorker(worker.NewCorrelatorWorker(js, db))
-		log.Printf("[Main] ✅ Added CorrelatorWorker")
-		workerPool.AddWorker(worker.NewRiskWorker(js, db, publishInsightsUpdated))
-		log.Printf("[Main] ✅ Added RiskWorker")
-		log.Printf("[Main] ✅ Added 3 workers to pool (normalizer, correlator, risk)")
-		log.Printf("[Main] ========================================")
-	} else {
-		log.Printf("[Main] ⚠️  WARNING: Skipping worker pool setup (NATS unavailable)")
-	}
+	policyWorker := policy.NewPolicyWorker(db, policyEvaluator)
 
-	// Phase 2.7: Initialize Policy Evaluator and Worker
-	log.Printf("[Main] ========================================")
-	log.Printf("[Main] Phase 2.7: Starting Policy Evaluator initialization...")
-	log.Printf("[Main] About to call policy.NewEvaluator(db)...")
-	log.Printf("[Main] Database connection check: db == nil: %v", db == nil)
-
-	// Add panic recovery to catch any silent failures
-	defer func() {
-		if r := recover(); r != nil {
-			log.Printf("[Main] ❌ PANIC in Policy Evaluator initialization: %v", r)
-			panic(r) // Re-panic to ensure we see it
-		}
-	}()
-
-	// Policy Evaluator will be initialized when database is ready
-	var policyEvaluator *policy.Evaluator
-	var policyWorker *policy.PolicyWorker
-
-	dbMutex.RLock()
-	dbReadyNow := db != nil
-	dbMutex.RUnlock()
-
-	if dbReadyNow {
-		log.Printf("[Main] Calling policy.NewEvaluator(db)...")
-		policyEvaluator, err = policy.NewEvaluator(db)
-		if err != nil {
-			log.Printf("[Main] ⚠️  WARNING: Failed to create policy evaluator: %v", err)
-			log.Printf("[Main] ⚠️  WARNING: Policy features will be unavailable, but Core will continue")
-			log.Printf("[Main] ⚠️  WARNING: This may be due to missing policy_templates table - check migrations")
-			policyEvaluator = nil
-		} else {
-			log.Printf("[Main] ✅ Policy Evaluator initialized successfully")
-			log.Printf("[Main] Policy Evaluator pointer: %p", policyEvaluator)
-		}
-
-		// Add Policy Worker to worker pool (for slow path processing)
-		log.Printf("[Main] Creating Policy Worker...")
-		policyWorker = policy.NewPolicyWorker(db, policyEvaluator)
-		log.Printf("[Main] ✅ Policy Worker created")
-	} else {
-		log.Printf("[Main] ⚠️  WARNING: Database not ready, Policy Evaluator will be initialized when DB is available")
-		// Initialize policy evaluator when database becomes available
-		go func() {
-			select {
-			case <-dbReady:
-				dbMutex.RLock()
-				currentDB := db
-				dbMutex.RUnlock()
-				if currentDB != nil {
-					log.Printf("[Main] [Background] Database ready, initializing Policy Evaluator...")
-					pe, err := policy.NewEvaluator(currentDB)
-					if err != nil {
-						log.Printf("[Main] [Background] ⚠️  WARNING: Failed to create policy evaluator: %v", err)
-					} else {
-						policyEvaluator = pe
-						policyWorker = policy.NewPolicyWorker(currentDB, policyEvaluator)
-						log.Printf("[Main] [Background] ✅ Policy Evaluator initialized")
-					}
-				}
-			case <-time.After(5 * time.Minute):
-				log.Printf("[Main] [Background] Database connection timeout, Policy Evaluator not initialized")
-			}
-		}()
-	}
-	log.Printf("[Main] ========================================")
 	// Subscribe to violation events (only if NATS is available)
 	if js != nil {
 		sub, err := js.Subscribe("fortuna.policy.violation.detected", func(msg *nats.Msg) {
@@ -309,22 +192,10 @@ func main() {
 		log.Printf("[Main] ⚠️  WARNING: Skipping policy violation subscription (NATS unavailable)")
 	}
 
-	if workerPool != nil {
-		if err := workerPool.Start(); err != nil {
-			log.Printf("⚠️  WARNING: Failed to start worker pool: %v. Continuing without worker pool.", err)
-		} else {
-			defer workerPool.Stop()
-		}
-	} else {
-		log.Printf("[Main] ⚠️  WARNING: Worker pool is nil, skipping start")
-	}
-
 	// ============================================================
 	// SBOM/CVE pipeline (event-driven, non-duplicated consumption)
 	// ============================================================
-	// NOTE: We intentionally run SBOM/CVE consumers outside the generic worker pool
-	// because the pool creates one durable consumer per concurrency slot, which would
-	// duplicate expensive SBOM generation and CVE matching.
+	// One CVE matcher consumer per Core instance, so expensive matching is not duplicated.
 	//
 	// IMPORTANT (dev/e2e): Using JetStream *push* durables via js.Subscribe is fragile across fast rollouts:
 	// the durable consumer retains its deliver subject (inbox) and subsequent restarts can fail with:
@@ -333,35 +204,9 @@ func main() {
 	// SBOM/CVE pipeline (only if NATS is available)
 	if js != nil && natsClient != nil {
 		useDurables := strings.EqualFold(strings.TrimSpace(os.Getenv("FORTUNA_JS_DURABLES")), "true")
-		sbomDurable := "sbom-worker"
 		cveDurable := "cve-matcher-worker"
 
-		// db may be nil initially - worker will handle it gracefully
-		sbomWorker := worker.NewSBOMWorker(js, db, natsClient)
-		sbomOpts := []nats.SubOpt{
-			nats.ManualAck(),
-			nats.DeliverAll(),      // Changed from DeliverNew() to process all messages, including those published before subscription
-			nats.MaxAckPending(10), // Increased from 1 to 10 to prevent slow consumer message drops
-			nats.AckWait(10 * time.Minute),
-		}
-		if useDurables {
-			sbomOpts = append(sbomOpts, nats.Durable(sbomDurable))
-		}
-		sbomSub, err := js.Subscribe(sbomWorker.Subject(), func(msg *nats.Msg) {
-			if err := sbomWorker.Process(ctx, msg); err != nil {
-				log.Printf("[SBOMWorker] Error: %v (will retry via NATS redelivery)", err)
-				return
-			}
-			msg.Ack()
-		}, sbomOpts...)
-		if err != nil {
-			log.Printf("[Main] Warning: Failed to subscribe SBOM worker: %v", err)
-		} else {
-			log.Printf("[Main] ✅ SBOMWorker subscribed to %s", sbomWorker.Subject())
-			defer sbomSub.Unsubscribe()
-		}
-
-		// db may be nil initially - worker will handle it gracefully. Finding #1.3: pass core NATS publisher for WS fan-out.
+		// Insight updates are fanned out over core NATS to the Risk Center WebSocket.
 		var cvePublishInsights worker.PublishInsightsUpdatedFunc
 		if natsClient != nil {
 			cvePublishInsights = func(data []byte) error {
@@ -446,151 +291,132 @@ func main() {
 		log.Printf("[Main] ⚠️  WARNING: Skipping JetStream SBOM/CVE consumers (NATS unavailable). SBOM gRPC ingest will still run CVE matching in-process after each upsert.")
 	}
 
-	// Start queue depth monitoring (only if worker pool is available)
-	if workerPool != nil {
-		workerPool.StartQueueDepthMonitoring(ctx)
-		log.Printf("Queue depth monitoring started for all workers")
+	// Background jobs
+	// Start risk evaluation scheduler (runs every 6 hours)
+	riskScheduler := scheduler.NewRiskScheduler(db, 6*time.Hour)
+	riskScheduler.Start()
+	defer riskScheduler.Stop()
+	log.Printf("Risk evaluation scheduler started (interval: 6 hours)")
+
+	// Start PCE scheduler if enabled
+	if cfg.PCESchedulerEnabled {
+		pceScheduler := scheduler.NewPCEScheduler(db, cfg.PCESchedulerInterval)
+		pceScheduler.Start()
+		defer pceScheduler.Stop()
+		log.Printf("PCE scheduler started (interval: %s)", cfg.PCESchedulerInterval)
 	} else {
-		log.Printf("[Main] ⚠️  WARNING: Skipping queue depth monitoring (worker pool unavailable)")
+		log.Printf("[Main] PCE scheduler disabled via config")
 	}
 
-	// Start background jobs (only if database is ready)
-	// These will be started after database connection is established
-	if db != nil {
-		// Start risk evaluation scheduler (runs every 6 hours)
-		riskScheduler := scheduler.NewRiskScheduler(db, 6*time.Hour)
-		riskScheduler.Start()
-		defer riskScheduler.Stop()
-		log.Printf("Risk evaluation scheduler started (interval: 6 hours)")
+	// Layer 3: Start pod cleanup job (runs every 5 minutes)
+	// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
+	podCleanupJob := scheduler.NewPodCleanupJob(db)
+	go func() {
+		log.Printf("[Main] Starting pod cleanup job in goroutine...")
+		podCleanupJob.Start() // This blocks forever, so must be in goroutine
+	}()
+	defer podCleanupJob.Stop()
+	log.Printf("Pod cleanup job started (interval: 5 minutes) - Layer 3: Background Cleanup")
 
-		// Start PCE scheduler if enabled
-		if cfg.PCESchedulerEnabled {
-			pceScheduler := scheduler.NewPCEScheduler(db, cfg.PCESchedulerInterval)
-			pceScheduler.Start()
-			defer pceScheduler.Stop()
-			log.Printf("PCE scheduler started (interval: %s)", cfg.PCESchedulerInterval)
-		} else {
-			log.Printf("[Main] PCE scheduler disabled via config")
+	// Start insights cleanup job (runs every 24 hours)
+	// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
+	insightsCleanupJob := scheduler.NewInsightsCleanupJob(db)
+	go func() {
+		log.Printf("[Main] Starting insights cleanup job in goroutine...")
+		insightsCleanupJob.Start() // This blocks forever, so must be in goroutine
+	}()
+	defer insightsCleanupJob.Stop()
+	log.Printf("Insights cleanup job started (interval: 24 hours)")
+
+	// PCE cleanup job: delete stale pod_capabilities (Phase 3, env PCE_CLEANUP_RETENTION_DAYS)
+	pceCleanupJob := scheduler.NewPCECleanupJob(db)
+	go func() {
+		log.Printf("[Main] Starting PCE cleanup job in goroutine...")
+		pceCleanupJob.Start()
+	}()
+	defer pceCleanupJob.Stop()
+	log.Printf("PCE cleanup job started (interval: 24 hours)")
+
+	// Pod network connections retention (bucket_5m; env POD_NETWORK_*)
+	podNetRetention := scheduler.NewPodNetworkRetentionJob(db)
+	go func() {
+		log.Printf("[Main] Starting pod network retention job in goroutine...")
+		podNetRetention.Start()
+	}()
+	defer podNetRetention.Stop()
+	log.Printf("Pod network retention job started (see POD_NETWORK_RETENTION_HOURS / POD_NETWORK_CLEANUP_INTERVAL)")
+
+	// Pod process snapshots retention (env POD_PROCESS_*)
+	podProcRetention := scheduler.NewPodProcessRetentionJob(db)
+	go podProcRetention.Start()
+	defer podProcRetention.Stop()
+
+	// Start SBOM reconciliation loop (runs every hour)
+	// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
+	sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)
+	go func() {
+		log.Printf("[Main] Starting SBOM reconciliation loop in goroutine...")
+		sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
+	}()
+	log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
+
+	// Layer 3 reconciliation: periodically rebuild attack paths to heal drift.
+	attackPathInterval := scheduler.AttackPathReconcileIntervalFromEnv()
+	attackPathReconcileJob := scheduler.NewAttackPathReconcileJob(db, attackPathInterval)
+	go func() {
+		log.Printf("[Main] Starting attack path reconcile job in goroutine...")
+		attackPathReconcileJob.Start()
+	}()
+	defer attackPathReconcileJob.Stop()
+	log.Printf("Attack path reconcile job started (interval: %s)", attackPathInterval)
+
+	// Periodic V3 risk_scores backfill: all pods + insight-bearing resources (see RISK_SCORE_V3_BACKFILL_* env).
+	if scheduler.RiskScoreV3BackfillEnabled() {
+		v3BackfillInterval := scheduler.RiskScoreV3BackfillIntervalFromEnv()
+		v3ItemDelay := scheduler.RiskScoreV3BackfillItemDelay()
+		v3BackfillJob := scheduler.NewRiskScoreV3BackfillJob(db, v3BackfillInterval, v3ItemDelay, 2*time.Minute)
+		go func() {
+			log.Printf("[Main] Starting risk score V3 cluster backfill job in goroutine...")
+			v3BackfillJob.Start()
+		}()
+		defer v3BackfillJob.Stop()
+		log.Printf("[Main] Risk score V3 backfill job started (interval=%s item_delay=%s, first run after 2m)", v3BackfillInterval, v3ItemDelay)
+	} else {
+		log.Printf("[Main] Risk score V3 backfill job disabled (RISK_SCORE_V3_BACKFILL_ENABLED=false)")
+	}
+
+	// Start Aikido malware feed sync (runs every 6 hours)
+	go func() {
+		aikidoSyncer := malwarePkg.NewAikidoSyncer(db)
+		log.Printf("[Main] Starting Aikido malware feed initial sync...")
+		results, err := aikidoSyncer.SyncAll(ctx)
+		if err != nil {
+			log.Printf("[Main] Aikido malware initial sync error: %v", err)
+		}
+		for _, r := range results {
+			log.Printf("[Main] Aikido sync %s: total=%d upserted=%d errors=%d duration=%v",
+				r.Source, r.Total, r.Upserted, r.Errors, r.Duration)
 		}
 
-		// Layer 3: Start pod cleanup job (runs every 5 minutes)
-		// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
-		podCleanupJob := scheduler.NewPodCleanupJob(db)
-		go func() {
-			log.Printf("[Main] Starting pod cleanup job in goroutine...")
-			podCleanupJob.Start() // This blocks forever, so must be in goroutine
-		}()
-		defer podCleanupJob.Stop()
-		log.Printf("Pod cleanup job started (interval: 5 minutes) - Layer 3: Background Cleanup")
-
-		// Start insights cleanup job (runs every 24 hours)
-		// CRITICAL: Must run in goroutine - Start() has infinite loop that blocks!
-		insightsCleanupJob := scheduler.NewInsightsCleanupJob(db)
-		go func() {
-			log.Printf("[Main] Starting insights cleanup job in goroutine...")
-			insightsCleanupJob.Start() // This blocks forever, so must be in goroutine
-		}()
-		defer insightsCleanupJob.Stop()
-		log.Printf("Insights cleanup job started (interval: 24 hours)")
-
-		// PCE cleanup job: delete stale pod_capabilities (Phase 3, env PCE_CLEANUP_RETENTION_DAYS)
-		pceCleanupJob := scheduler.NewPCECleanupJob(db)
-		go func() {
-			log.Printf("[Main] Starting PCE cleanup job in goroutine...")
-			pceCleanupJob.Start()
-		}()
-		defer pceCleanupJob.Stop()
-		log.Printf("PCE cleanup job started (interval: 24 hours)")
-
-		// Pod network connections retention (bucket_5m; env POD_NETWORK_*)
-		podNetRetention := scheduler.NewPodNetworkRetentionJob(db)
-		go func() {
-			log.Printf("[Main] Starting pod network retention job in goroutine...")
-			podNetRetention.Start()
-		}()
-		defer podNetRetention.Stop()
-		log.Printf("Pod network retention job started (see POD_NETWORK_RETENTION_HOURS / POD_NETWORK_CLEANUP_INTERVAL)")
-
-		// Start SBOM reconciliation loop (runs every hour)
-		// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
-		sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)
-		go func() {
-			log.Printf("[Main] Starting SBOM reconciliation loop in goroutine...")
-			sbomReconciler.Start(ctx) // This blocks forever, so must be in goroutine
-		}()
-		log.Printf("SBOM reconciliation loop started (interval: 1 hour)")
-
-		// Layer 3 reconciliation: periodically rebuild attack paths to heal drift.
-		attackPathInterval := scheduler.AttackPathReconcileIntervalFromEnv()
-		attackPathReconcileJob := scheduler.NewAttackPathReconcileJob(db, attackPathInterval)
-		go func() {
-			log.Printf("[Main] Starting attack path reconcile job in goroutine...")
-			attackPathReconcileJob.Start()
-		}()
-		defer attackPathReconcileJob.Stop()
-		log.Printf("Attack path reconcile job started (interval: %s)", attackPathInterval)
-
-		// Periodic V3 risk_scores backfill: all pods + insight-bearing resources (see RISK_SCORE_V3_BACKFILL_* env).
-		if scheduler.RiskScoreV3BackfillEnabled() {
-			v3BackfillInterval := scheduler.RiskScoreV3BackfillIntervalFromEnv()
-			v3ItemDelay := scheduler.RiskScoreV3BackfillItemDelay()
-			v3BackfillJob := scheduler.NewRiskScoreV3BackfillJob(db, v3BackfillInterval, v3ItemDelay, 2*time.Minute)
-			go func() {
-				log.Printf("[Main] Starting risk score V3 cluster backfill job in goroutine...")
-				v3BackfillJob.Start()
-			}()
-			defer v3BackfillJob.Stop()
-			log.Printf("[Main] Risk score V3 backfill job started (interval=%s item_delay=%s, first run after 2m)", v3BackfillInterval, v3ItemDelay)
-		} else {
-			log.Printf("[Main] Risk score V3 backfill job disabled (RISK_SCORE_V3_BACKFILL_ENABLED=false)")
-		}
-
-		// Start Aikido malware feed sync (runs every 6 hours)
-		go func() {
-			aikidoSyncer := malwarePkg.NewAikidoSyncer(db)
-			log.Printf("[Main] Starting Aikido malware feed initial sync...")
-			results, err := aikidoSyncer.SyncAll(ctx)
-			if err != nil {
-				log.Printf("[Main] Aikido malware initial sync error: %v", err)
-			}
-			for _, r := range results {
-				log.Printf("[Main] Aikido sync %s: total=%d upserted=%d errors=%d duration=%v",
-					r.Source, r.Total, r.Upserted, r.Errors, r.Duration)
-			}
-
-			ticker := time.NewTicker(6 * time.Hour)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-ticker.C:
-					log.Printf("[Main] Running periodic Aikido malware sync...")
-					results, err := aikidoSyncer.SyncAll(ctx)
-					if err != nil {
-						log.Printf("[Main] Aikido periodic sync error: %v", err)
-					}
-					for _, r := range results {
-						log.Printf("[Main] Aikido sync %s: total=%d upserted=%d", r.Source, r.Total, r.Upserted)
-					}
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				log.Printf("[Main] Running periodic Aikido malware sync...")
+				results, err := aikidoSyncer.SyncAll(ctx)
+				if err != nil {
+					log.Printf("[Main] Aikido periodic sync error: %v", err)
+				}
+				for _, r := range results {
+					log.Printf("[Main] Aikido sync %s: total=%d upserted=%d", r.Source, r.Total, r.Upserted)
 				}
 			}
-		}()
-		log.Printf("[Main] Aikido malware feed sync enabled (interval: 6 hours)")
-
-	} else {
-		log.Printf("[Main] ⚠️  WARNING: Skipping background jobs (database not ready)")
-		// Start background jobs when database becomes available
-		go func() {
-			select {
-			case <-dbReady:
-				log.Printf("[Main] Database connection established, starting background jobs...")
-				// Start jobs here when db is ready
-			case <-time.After(5 * time.Minute):
-				log.Printf("[Main] Database connection still not ready after 5 minutes")
-			}
-		}()
-	}
+		}
+	}()
+	log.Printf("[Main] Aikido malware feed sync enabled (interval: 6 hours)")
 
 	// Per-cluster rate limiter for sync and SBOM ingest (Finding #6)
 	clusterLimiter := ingest.NewClusterRateLimiter(ingest.ClusterLimitConfig{
@@ -660,7 +486,6 @@ func main() {
 	log.Printf("[Main] ========================================")
 	log.Printf("[Main] Phase 2.7: Setting up admission webhook...")
 	log.Printf("[Main] Policy Evaluator check: policyEvaluator == nil: %v", policyEvaluator == nil)
-	log.Printf("[Main] Database check: db == nil: %v", db == nil)
 	log.Printf("[Main] NATS client check: natsClient == nil: %v", natsClient == nil)
 	log.Printf("[Main] Creating AdmissionWebhook instance...")
 
@@ -693,7 +518,7 @@ func main() {
 	if natsClient != nil {
 		api.SetPodDetailDedupChecker(natsClient)
 	}
-	api.SetupRoutesWithCertManager(router, db, cfg, certManager, clusterLimiter, nil)
+	api.SetupRoutesWithCertManager(router, db, cfg, certManager, clusterLimiter)
 
 	// Phase 2.7: Dedicated HTTPS server for admission webhook
 	log.Printf("[Main] ========================================")

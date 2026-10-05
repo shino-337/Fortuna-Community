@@ -18,7 +18,6 @@ Defaults below are the values in the code. "none" means the feature is off or th
 | `GIN_MODE` | none | `debug` keeps the HTTP framework in debug mode; any other value runs it in release mode. |
 | `KUBECONFIG` | none | Kubeconfig used for Core's own Kubernetes API calls when `~/.kube/config` is absent; otherwise the in-cluster config is used. |
 | `FORTUNA_JS_DURABLES` | `false` | `true` makes the SBOM and CVE JetStream consumers durable instead of ephemeral. |
-| `FORTUNA_BACKPRESSURE_POLICY` | `retry` | What a saturated worker does with new messages: `retry`, `drop`, `defer` or `block`; unknown values mean `retry`. |
 
 ### Authentication
 
@@ -67,9 +66,8 @@ These are read by the database migrations that run at Core startup.
 | `RATE_LIMIT_SYNC_PER_CLUSTER_BURST` | `20` | Sync burst size per cluster. |
 | `RATE_LIMIT_SBOM_PER_CLUSTER_RPS` | `50` | SBOM ingest requests per second allowed per cluster. |
 | `RATE_LIMIT_SBOM_PER_CLUSTER_BURST` | `100` | SBOM ingest burst size per cluster. |
-| `ACTIVE_AGENT_CUTOFF_MINUTES` | `15` | An Agent counts as active on the dashboard if it was seen within this many minutes. |
 | `STALE_POD_CUTOFF_MINUTES` | `30` | Pods not updated by a sync within this many minutes are removed as stale. |
-| `DEFAULT_CLUSTER_ID` | none | Cluster id used for admission requests, insights and correlation when an event carries none (otherwise `unknown`). |
+| `DEFAULT_CLUSTER_ID` | none | Cluster id used for admission requests and insights when an event carries none (otherwise `unknown`). Admission webhook violations are recorded only when it is set, because an admission request does not name its cluster. |
 
 ### TLS
 
@@ -149,8 +147,6 @@ These are read by the database migrations that run at Core startup.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `FORTUNA_SBOM_ENABLED` | `true` | `false` stops the SBOM worker from processing pod events. |
-| `FORTUNA_SBOM_POD_PHASE_POLICY` | `all_non_failed` | Pod phases that get SBOM processing: `all_non_failed`, `running_only` or `all`. |
 | `FORTUNA_SBOM_ORPHAN_GRACE_PERIOD` | `30m` | An SBOM whose pod is missing is kept for at least this long (duration or minutes). |
 | `FORTUNA_SBOM_DLQ_DEPTH_POLL_INTERVAL` | `30s` | How often the SBOM dead-letter queue depth is polled for metrics; `0` or `off` disables. |
 | `FORTUNA_SBOM_DLQ_REPLAY_MAX_ATTEMPTS` | `5` | Replay attempts for a dead-lettered SBOM event before it is dropped. |
@@ -182,6 +178,8 @@ These are read by the database migrations that run at Core startup.
 | `POD_NETWORK_CLEANUP_BATCH` | `20000` | Rows deleted per cleanup round. |
 | `POD_NETWORK_CLEANUP_ROUNDS` | `3` | Maximum cleanup rounds per run. |
 | `POD_NETWORK_CLEANUP_INITIAL_DELAY` | `0` | Delay before the first cleanup run after startup. |
+| `POD_PROCESS_RETENTION_HOURS` | `24` | Deletes Pod process snapshots older than this many hours; the Pod detail view shows only the latest snapshot. |
+| `POD_PROCESS_CLEANUP_INTERVAL` | `1h` | Interval of the process snapshot cleanup. |
 
 ### Metrics and limits
 

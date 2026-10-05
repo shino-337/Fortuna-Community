@@ -41,22 +41,6 @@ func confidenceToLanguage(confidenceRaw float64) string {
 
 // ─── Step text mapping (spec §7.2) ────────────────────────────────────────────
 
-// stepTextFromCapability maps a capability/provide token to a human action verb phrase.
-var stepTextFromCapability = map[string]string{
-	"NODE_SHELL_ACCESS":        "gain shell access to the node",
-	"KUBELET_API_ACCESS":       "reach the kubelet API",
-	"CONTAINER_RUNTIME_ACCESS": "access the container runtime",
-	"NODE_ACCESS":              "gain access to the node",
-	"SA_TOKEN":                 "obtain a service account token",
-	"SA_TOKEN:*":               "harvest service account tokens from node storage",
-	"ROLE":                     "escalate privileges via RBAC",
-	"DATA_ACCESS:secrets":      "read Kubernetes secrets",
-	"WORKLOAD_CONTROL":         "deploy or modify workloads",
-	"EXECUTION":                "execute commands in cluster containers",
-	"IDENTITY_FORGE":           "forge cluster identity certificates",
-	"NETWORK_ACCESS":           "reach cluster-internal services",
-}
-
 // chainTypeToSteps maps rule types to an ordered sequence of action tokens
 // that describe the canonical attack story.
 var chainTypeToSteps = map[string][]string{

@@ -6,7 +6,6 @@ import (
 	"log"
 	"math"
 	"net/http"
-	"sort"
 	"strconv"
 	"time"
 
@@ -445,10 +444,6 @@ func getPeriodMetrics(ctx context.Context, db *gorm.DB, start, end time.Time, sc
 		MaxScore: maxScore,
 		MinScore: minScore,
 	}, nil
-}
-
-func sortTrendsByDate(trends []TrendPoint) {
-	sort.Slice(trends, func(i, j int) bool { return trends[i].Date < trends[j].Date })
 }
 
 // Aggregate scores before joining CVEs so SBOM multiplicity cannot weight scores.

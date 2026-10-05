@@ -25,13 +25,6 @@ func RequireClusterScope(db *gorm.DB, param string) gin.HandlerFunc {
 	}
 }
 
-// RequireClusterQueryScope enforces cluster scope from a query parameter.
-func RequireClusterQueryScope(db *gorm.DB, queryKey string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		enforceClusterScope(c, db, strings.TrimSpace(c.Query(queryKey)))
-	}
-}
-
 // RequirePodUIDClusterScope resolves a Kubernetes pod UID route parameter to
 // exactly one cluster ID, then applies the same per-user cluster allow-list as
 // cluster routes. A duplicated UID across clusters and legacy rows with missing

@@ -8,11 +8,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"github.com/fortuna/api/collection"
 	"log"
 	"net/http"
 	"sort"
 	"time"
+
+	"github.com/fortuna/api/collection"
 
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"

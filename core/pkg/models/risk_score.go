@@ -59,18 +59,3 @@ const (
 	PriorityP3 = "P3" // Low: 10-34 (V2), 0-39 (V1)
 	PriorityP4 = "P4" // Minimal: 0-9 (V2 only)
 )
-
-// GetPriorityLevel returns legacy P0–P3 labels from total_score using historical P-band thresholds (P0≥90, etc.).
-// For UI “risk level” bands (low/medium/high/critical from 0–100), use github.com/fortuna/core/pkg/risk.DeriveFinalLevelFromScore instead.
-//
-// Deprecated for unified UX: do not map this string to severity badges interchangeably with final_level.
-func GetPriorityLevel(score float64) string {
-	if score >= 90 {
-		return PriorityP0
-	} else if score >= 70 {
-		return PriorityP1
-	} else if score >= 40 {
-		return PriorityP2
-	}
-	return PriorityP3
-}

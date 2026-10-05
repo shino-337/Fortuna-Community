@@ -553,16 +553,6 @@ func hasSensitiveHostPathMount(volumesJSON, volumeMountsJSON string) (bool, map[
 	return true, evidence
 }
 
-// isTableMissingError returns true if err indicates the table does not exist (e.g. SQLite "no such table", PostgreSQL "does not exist").
-// Used so PCE evaluation does not fail in test or minimal DBs that omit role_bindings / cluster_role_bindings.
-func isTableMissingError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := strings.ToLower(err.Error())
-	return strings.Contains(s, "no such table") || strings.Contains(s, "does not exist")
-}
-
 // matchFalsePositiveConsiderations checks whether the pod context matches any
 // of the false-positive consideration strings seeded in capability_metadata.
 // PCE-8: When a match is found, the returned string describes the matching

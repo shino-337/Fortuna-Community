@@ -12,7 +12,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -40,21 +39,8 @@ type techniqueOverlayRow struct {
 	ContextScope    []string            `yaml:"context_scope,omitempty"`
 }
 
-// TechniqueOverlayLoadDigest is the last successfully loaded overlay identity (audit / regression).
-type TechniqueOverlayLoadDigest struct {
-	Version         int       `json:"version"`
-	SHA256          string    `json:"sha256"`
-	TechniquesCount int       `json:"techniques_count"`
-	MitreRefsCount  int       `json:"mitre_refs_count"`
-	Bytes           int       `json:"bytes"`
-	LoadedAt        time.Time `json:"loaded_at"`
-}
-
 var (
 	overlayReloadMu sync.Mutex
-
-	overlayDigestMu  sync.RWMutex
-	overlayDigestVal TechniqueOverlayLoadDigest
 
 	techniqueOverlayByID map[string]techniqueOverlayRow
 	overlayDefaultsVals  overlayDefaults
@@ -74,13 +60,6 @@ func init() {
 	if err := applyTechniqueOverlayYAML(techniqueOverlayYAML, true); err != nil {
 		panic(err.Error())
 	}
-}
-
-// TechniqueOverlayDigest returns the digest of the in-memory technique overlay (YAML load).
-func TechniqueOverlayDigest() TechniqueOverlayLoadDigest {
-	overlayDigestMu.RLock()
-	defer overlayDigestMu.RUnlock()
-	return overlayDigestVal
 }
 
 func clearTechniqueOverlayGlobals() {
@@ -202,16 +181,6 @@ func applyTechniqueOverlayYAML(yamlBytes []byte, logReload bool) error {
 	for _, row := range f.Overlays {
 		mitreRefCount += len(row.MitreTechniques)
 	}
-	overlayDigestMu.Lock()
-	overlayDigestVal = TechniqueOverlayLoadDigest{
-		Version:         f.Version,
-		SHA256:          hex.EncodeToString(sum[:]),
-		TechniquesCount: len(f.Overlays),
-		MitreRefsCount:  mitreRefCount,
-		Bytes:           len(yamlBytes),
-		LoadedAt:        time.Now().UTC(),
-	}
-	overlayDigestMu.Unlock()
 	if logReload {
 		avgMitrePerTech := 0.0
 		if len(f.Overlays) > 0 {
@@ -361,16 +330,6 @@ func MitreRiskRecord(mitreID string) (riskWeight float64, tactic string, ok bool
 		return overlayDefaultsVals.RiskWeight, "", false
 	}
 	return rec.RiskWeight, rec.Tactic, true
-}
-
-// ContextScopesForTechnique lists execution-surface hints from overlay.
-func ContextScopesForTechnique(techniqueID string) []string {
-	if r, ok := overlayForTechnique(techniqueID); ok && len(r.ContextScope) > 0 {
-		out := make([]string, len(r.ContextScope))
-		copy(out, r.ContextScope)
-		return out
-	}
-	return nil
 }
 
 // EffectiveMitreWeight = technique_risk_weight × tactic_modifier(tactic).

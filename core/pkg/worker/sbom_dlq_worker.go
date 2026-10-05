@@ -54,7 +54,7 @@ func (w *SBOMDLQWorker) Process(ctx context.Context, msg *nats.Msg) error {
 	}
 	if _, err := w.js.Publish("fortuna.sbom.created", msg.Data); err != nil {
 		if attempt < maxAttempts {
-			return &RetryableError{Err: fmt.Errorf("sbom dlq replay publish failed attempt=%d/%d sbom_id=%d: %w", attempt, maxAttempts, ev.SBOMID, err)}
+			return fmt.Errorf("sbom dlq replay publish failed attempt=%d/%d sbom_id=%d: %w", attempt, maxAttempts, ev.SBOMID, err)
 		}
 		w.logger.Printf("[SBOM_DLQ] drop after max attempts=%d type=%q sbom_id=%d pod_uid=%q err=%v",
 			maxAttempts, ev.Type, ev.SBOMID, ev.PodUID, err)

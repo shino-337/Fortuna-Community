@@ -405,14 +405,3 @@ func extractResourceNameFromDescription(description string) string {
 	}
 	return ""
 }
-
-// countRules counts the number of rules in the rules interface
-func countRules(rules interface{}) int {
-	if rules == nil {
-		return 0
-	}
-	if rulesArr, ok := rules.([]interface{}); ok {
-		return len(rulesArr)
-	}
-	return 0
-}

@@ -317,62 +317,6 @@ func (s *RemediationService) setNestedFieldInPatch(patch map[string]interface{},
 	return nil
 }
 
-// applyPatch applies a JSON patch to the resource
-func (s *RemediationService) applyPatch(template map[string]interface{}, resource map[string]interface{}) (bool, error) {
-	operations, ok := template["operations"].([]interface{})
-	if !ok {
-		return false, fmt.Errorf("invalid patch operations")
-	}
-
-	for _, op := range operations {
-		operation, ok := op.(map[string]interface{})
-		if !ok {
-			continue
-		}
-
-		opType, _ := operation["op"].(string)
-		path, _ := operation["path"].(string)
-		value := operation["value"]
-
-		switch opType {
-		case "add":
-			if err := s.setNestedField(resource, path, value); err != nil {
-				return false, fmt.Errorf("failed to add field %s: %w", path, err)
-			}
-		case "replace":
-			if err := s.setNestedField(resource, path, value); err != nil {
-				return false, fmt.Errorf("failed to replace field %s: %w", path, err)
-			}
-		case "remove":
-			if err := s.removeNestedField(resource, path); err != nil {
-				return false, fmt.Errorf("failed to remove field %s: %w", path, err)
-			}
-		}
-	}
-
-	return true, nil
-}
-
-// applyReplace replaces the entire resource spec
-func (s *RemediationService) applyReplace(template map[string]interface{}, resource map[string]interface{}) (bool, error) {
-	spec, ok := template["spec"].(map[string]interface{})
-	if !ok {
-		return false, fmt.Errorf("invalid replace spec")
-	}
-
-	// Merge spec into resource
-	if resource["spec"] == nil {
-		resource["spec"] = make(map[string]interface{})
-	}
-	resourceSpec := resource["spec"].(map[string]interface{})
-
-	for k, v := range spec {
-		resourceSpec[k] = v
-	}
-
-	return true, nil
-}
-
 // setNestedField sets a nested field in a map using JSON path
 func (s *RemediationService) setNestedField(obj map[string]interface{}, path string, value interface{}) error {
 	// Simple path implementation (supports /spec/containers/0/securityContext/privileged)
@@ -472,29 +416,6 @@ func (s *RemediationService) setNestedField(obj map[string]interface{}, path str
 	return nil
 }
 
-// removeNestedField removes a nested field
-func (s *RemediationService) removeNestedField(obj map[string]interface{}, path string) error {
-	parts := splitPath(path)
-	if len(parts) == 0 {
-		return fmt.Errorf("empty path")
-	}
-
-	current := obj
-	for _, part := range parts[:len(parts)-1] {
-		if part == "" {
-			continue
-		}
-		if current[part] == nil {
-			return nil // Field doesn't exist, nothing to remove
-		}
-		current = current[part].(map[string]interface{})
-	}
-
-	finalKey := parts[len(parts)-1]
-	delete(current, finalKey)
-	return nil
-}
-
 // splitPath splits a JSON path into parts
 func splitPath(path string) []string {
 	if path == "" || path == "/" {
@@ -529,63 +450,6 @@ func isNumeric(s string) bool {
 		}
 	}
 	return len(s) > 0
-}
-
-// ValidateRemediation validates a remediation before applying
-func (s *RemediationService) ValidateRemediation(
-	ctx context.Context,
-	instance *models.PolicyInstance,
-	resource map[string]interface{},
-) error {
-	// Check context
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	// Check if auto-remediation is enabled
-	if !instance.AutoRemediate {
-		return fmt.Errorf("auto-remediation is not enabled for this instance")
-	}
-
-	// Check if template supports remediation
-	var template models.PolicyTemplate
-	if err := s.db.Where("template_id = ? AND version = ?", instance.TemplateID, instance.TemplateVersion).
-		First(&template).Error; err != nil {
-		return fmt.Errorf("failed to get template: %w", err)
-	}
-
-	if !template.SupportsRemediation {
-		return fmt.Errorf("template does not support remediation")
-	}
-
-	return nil
-}
-
-// DryRunRemediation tests remediation without applying
-func (s *RemediationService) DryRunRemediation(
-	ctx context.Context,
-	instance *models.PolicyInstance,
-	resource map[string]interface{},
-) (map[string]interface{}, error) {
-	// Check context
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	default:
-	}
-	// Create a copy of the resource
-	resourceCopy := make(map[string]interface{})
-	resourceJSON, _ := json.Marshal(resource)
-	json.Unmarshal(resourceJSON, &resourceCopy)
-
-	// Apply remediation to copy (dry run - use empty context and minimal params)
-	_, err := s.RemediateResource(ctx, instance, resourceCopy, "", "", "", "")
-	if err != nil {
-		return nil, err
-	}
-
-	return resourceCopy, nil
 }
 
 // validateNamespace validates that namespace is allowed for remediation

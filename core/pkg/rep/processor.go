@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -84,23 +83,6 @@ func ProcessRuntimeEvent(ctx context.Context, db *gorm.DB, input RuntimeEventInp
 		return nil, err
 	}
 	return ProcessRuntimeEventForIdentity(ctx, db, id, input)
-}
-
-func containsSignalType(cands []synthesizedSignal, signal string) bool {
-	for i := range cands {
-		if cands[i].SignalType == signal {
-			return true
-		}
-	}
-	return false
-}
-
-func signalTypes(cands []synthesizedSignal) []string {
-	out := make([]string, 0, len(cands))
-	for i := range cands {
-		out = append(out, cands[i].SignalType)
-	}
-	return out
 }
 
 func classifySignal(syscall, target, capabilityName, runtimeSource, sourceRule string, db *gorm.DB, ctx context.Context, podUID string) (string, string, int) {
@@ -330,13 +312,4 @@ func scoreToCapability(score int) (string, string) {
 		return capability.ESC_RUNTIME_PROBE, "HIGH"
 	}
 	return "", ""
-}
-
-// upsertRuntimeCapability is DEPRECATED - use CapabilityStateController.PromoteCapability() instead
-// This function is kept for backward compatibility but should not be called directly
-// All capability state updates should go through CSC to ensure consistency
-func upsertRuntimeCapability(ctx context.Context, db *gorm.DB, podUID, namespace, capabilityID, severity, signal, mitre string, input RuntimeEventInput) error {
-	log.Printf("[REP] WARNING: upsertRuntimeCapability() is deprecated, use CSC.PromoteCapability() instead")
-	// This function is no longer used - capability promotion is handled by CSC in ProcessRuntimeEvent()
-	return nil
 }

@@ -50,36 +50,6 @@ func (s riskGovernanceScope) apply(q *gorm.DB, column string) *gorm.DB {
 	return q
 }
 
-func (s riskGovernanceScope) podUIDs(db *gorm.DB, historical bool) *gorm.DB {
-	q := db.Model(&models.Pod{}).Select("uid")
-	if historical {
-		q = q.Unscoped()
-	}
-	if s.clusterID != "" {
-		q = q.Where("cluster_id = ?", s.clusterID)
-	}
-	if s.restricted {
-		q = q.Where("cluster_id IN ?", s.clusterIDs)
-	}
-	return q
-}
-
-func (s riskGovernanceScope) requireResource(db *gorm.DB, c *gin.Context, uid string) bool {
-	if !s.restricted && s.clusterID == "" {
-		return true
-	}
-	clusterID, err := resourceUIDClusterID(db, uid)
-	if err != nil {
-		c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": "failed to resolve resource ownership"})
-		return false
-	}
-	if clusterID == "" || !middleware.ClusterAllowed(c, clusterID) || (s.clusterID != "" && s.clusterID != clusterID) {
-		middleware.AbortClusterScopeDenied(db, c, clusterID)
-		return false
-	}
-	return true
-}
-
 // These legacy workers evaluate and reconcile globally. Reject scoped requests
 // before constructing workers until every nested read/write supports scope.
 func requireGlobalRiskEvaluation(db *gorm.DB, c *gin.Context) bool {

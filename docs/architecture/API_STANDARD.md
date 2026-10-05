@@ -23,15 +23,15 @@ Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legac
 | Auth | `/api/v1/auth/*`, `/api/v1/me`, `/api/v1/change-password` | Login, registration, current user, password change |
 | Users and sessions | `/api/v1/users/*`, `/api/v1/sessions/*` | User and session administration |
 | Dashboard | `/api/v1/dashboard/*` | Dashboard summary and metric aggregates |
-| Inventory | `/api/v1/inventory/*`, `/api/v1/resources/*` | Pods, service accounts, deployments, replicasets, clusters, SBOM inventory |
-| Cluster operations | `/api/v1/cluster/*` | Cluster info, nodes, and certificate operations |
-| Risk | `/api/v1/risk/*` | Insights, findings workflow, risk scores, risk analytics, runtime risk, exceptions |
+| Inventory | `/api/v1/inventory/*`, `/api/v1/resources/*` | Pods, service accounts, deployments, replicasets, clusters and their nodes, SBOM inventory |
+| Cluster certificates | `/api/v1/cluster/certificates/*` | Core certificate information and rotation |
+| Risk | `/api/v1/risk/*` | Insights, findings workflow, risk scores, risk analytics, exceptions |
 | Policy | `/api/v1/policy/*` | Policy rules, templates, instances, rule metrics and matches |
-| Runtime | `/api/v1/runtime/*`, `/api/v2/runtime/*` | Runtime events, signals, process/network facts, runtime security state |
-| Graph | `/api/v1/graph/*` | Graph summary, blast radius, attack paths, permissions, advanced graph query |
+| Runtime | `/api/v1/runtime/*`, `/api/v2/runtime/*` | Runtime events, signals, process/network facts |
+| Graph | `/api/v1/graph`, `/api/v1/graph/attack-paths/*` | Cluster-scoped graph and attack paths |
 | Audit and governance | `/api/v1/audit/*`, `/api/v1/governance/*` | Audit logs, reports, security activity, access review |
 | Investigations | `/api/v1/investigations/*` | Investigation cases, timeline, pinned entities |
-| Malware | `/api/v1/malware/*` | Malware package checks and threat views |
+| Malware | `/api/v1/malware/*` | Malware threat views |
 | Agent ingest | `/api/v1/agent/*` | Agent inventory/runtime HTTP ingest fallback |
 | WebSocket | `/api/v1/ws/*` | Live pod detail and risk updates |
 | Observability | `/api/v1/metrics/*`, `/api/v1/monitoring/*`, `/api/v1/error-logs` | System, worker, agent, pipeline, and log views |

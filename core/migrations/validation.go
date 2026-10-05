@@ -39,19 +39,3 @@ func validateColumnExists(db *gorm.DB, tableName, columnName string) (bool, erro
 	}
 	return exists, nil
 }
-
-// validateIndexExists checks if an index exists
-func validateIndexExists(db *gorm.DB, indexName string) (bool, error) {
-	var exists bool
-	query := `
-		SELECT EXISTS (
-			SELECT 1 FROM pg_indexes 
-			WHERE schemaname = CURRENT_SCHEMA()
-			AND indexname = $1
-		)
-	`
-	if err := db.Raw(query, indexName).Scan(&exists).Error; err != nil {
-		return false, fmt.Errorf("failed to check index %s: %w", indexName, err)
-	}
-	return exists, nil
-}

@@ -182,17 +182,6 @@ func HasPermission(granted []Permission, need Permission) bool {
 	return false
 }
 
-// HasPermissionString matches a raw permission string (e.g. from JWT cache) against need.
-func HasPermissionString(granted []string, need Permission) bool {
-	ns := string(need)
-	for _, g := range granted {
-		if strings.EqualFold(strings.TrimSpace(g), ns) {
-			return true
-		}
-	}
-	return false
-}
-
 // HasAnyPermission returns true if at least one required permission is granted.
 func HasAnyPermission(granted []Permission, required ...Permission) bool {
 	for _, r := range required {
@@ -201,19 +190,6 @@ func HasAnyPermission(granted []Permission, required ...Permission) bool {
 		}
 	}
 	return false
-}
-
-// HasAllPermissions returns true if every required permission is granted.
-func HasAllPermissions(granted []Permission, required ...Permission) bool {
-	if len(required) == 0 {
-		return true
-	}
-	for _, r := range required {
-		if !HasPermission(granted, r) {
-			return false
-		}
-	}
-	return true
 }
 
 // ToStrings converts a permission slice to JWT/API string form.
@@ -239,11 +215,6 @@ func FromStrings(in []string) []Permission {
 		}
 	}
 	return out
-}
-
-// IsGraphAdvanced reports whether the grant set allows advanced (less restricted) graph query execution.
-func IsGraphAdvanced(granted []Permission) bool {
-	return HasPermission(granted, PermissionGraphQueryAdvanced)
 }
 
 // MaxGraphTraversalDepth returns the effective max depth for graph traversal endpoints from query params.

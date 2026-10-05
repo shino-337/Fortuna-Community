@@ -48,28 +48,6 @@ func effectiveSignalConfidence(rs models.RuntimeSignal) float64 {
 	return c
 }
 
-func maxConfidenceForSignalTypes(signals []models.RuntimeSignal, types ...string) float64 {
-	want := make(map[string]bool)
-	for _, t := range types {
-		want[strings.ToUpper(strings.TrimSpace(t))] = true
-	}
-	var m float64
-	for _, rs := range signals {
-		st := strings.ToUpper(strings.TrimSpace(rs.SignalType))
-		if !want[st] {
-			continue
-		}
-		c := effectiveSignalConfidence(rs)
-		if c > m {
-			m = c
-		}
-	}
-	if m == 0 {
-		return 0.5
-	}
-	return m
-}
-
 // exploitStateConfidenceThreshold is the minimum signal confidence required to
 // persist an "exploited" state for a given injected capability (token abuse is stricter).
 func exploitStateConfidenceThreshold(capID string) float64 {

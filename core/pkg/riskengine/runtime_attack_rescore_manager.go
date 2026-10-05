@@ -88,6 +88,8 @@ func NewRuntimeAttackRescoreManager(db *gorm.DB) *RuntimeAttackRescoreManager {
 	if m.rulesDir != "" && db != nil {
 		if ye, err := NewYAMLEngine(db, m.rulesDir); err == nil {
 			m.yamlEngine = ye
+			// Rule create/update/delete reloads this long-lived engine (ReloadGlobalFromDB).
+			RegisterEngine(ye)
 			log.Printf("[RuntimeAttackRescore] YAML engine enabled rulesDir=%q rules=%d", m.rulesDir, len(ye.GetRules()))
 		} else {
 			log.Printf("[RuntimeAttackRescore] YAML engine unavailable rulesDir=%q: %v", m.rulesDir, err)

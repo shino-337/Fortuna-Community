@@ -44,7 +44,7 @@ core/
 │   ├── agentidentity/        # Per-Agent HTTP and gRPC credential registries
 │   ├── authorization/        # Permissions and cluster scope
 │   ├── messaging/            # NATS JetStream client and streams
-│   ├── worker/               # SBOM, CVE matcher, correlator, risk and DLQ workers
+│   ├── worker/               # CVE matcher, SBOM DLQ replay, insight status and SIEM workers
 │   ├── riskengine/, risk/    # Rule evaluation, scoring and resolution evidence
 │   ├── rbacinventory/        # Shared RBAC grant resolver
 │   ├── graph/                # Attack graph and cluster-scoped AGE queries
@@ -90,28 +90,27 @@ The gRPC protocol is defined in the shared [`api`](../api/README.md) module.
 
 **NATS JetStream streams** (file storage, 3 replicas, oldest messages discarded at the limit; `core/pkg/messaging/nats_client.go`):
 
-- `fortuna-raw`: raw inventory events (work queue, 24h, 100K messages, 1 GiB)
 - `fortuna-events`: runtime, SBOM and CVE events (work queue, 48h, 200K messages, 2 GiB)
 - `fortuna-insights`: insight created/updated events (limits, 7 days, 50K messages, 512 MiB)
-- `fortuna-normalized`: normalized events (work queue, 24h, 100K messages, 1 GiB)
+- `fortuna-policy`: admission webhook violations (work queue, 48h, 100K messages, 1 GiB)
 - `fortuna-siem`: security audit events for SIEM export (limits, 7 days, 100K messages, 1 GiB)
 
 **NATS Subjects**:
 
-- `fortuna.raw.*`: Raw inventory events
 - `fortuna.events.runtime`: Runtime events
-- `fortuna.sbom.created`: SBOM creation events
+- `fortuna.sbom.created`: SBOM creation events (`fortuna.sbom.created.dlq` holds failed matches for replay)
 - `fortuna.cve.*`: CVE-related events
 - `fortuna.insights.created`, `fortuna.insights.updated`: Insight events
-- `fortuna.normalized.*`: Normalized events
+- `fortuna.policy.violation.detected`: Admission webhook violations, recorded as policy violations and insights
 - `fortuna.siem.events`: Security audit events
 
 **Workers**:
 
-- **SBOM Worker**: Processes SBOM creation events
-- **CVE Matcher Worker**: Matches CVEs and generates insights
-- **Correlator Worker**: Correlates events across resources
-- **Risk Worker**: Calculates risk scores
+- **CVE Matcher**: consumes `fortuna.sbom.created`, matches CVEs and creates insights
+- **SBOM DLQ worker**: replays failed matches from `fortuna.sbom.created.dlq`
+- **Policy worker**: records admission violations from `fortuna.policy.violation.detected`
+- **Runtime attack rescore**: rescores pods after runtime signals, using the risk rules stored in the database
+- Scheduled jobs (`core/internal/scheduler`): stale Pod, insight and capability cleanup, Pod network and process snapshot retention, attack-path reconciliation and risk score backfill
 
 ### 5. REST API
 
@@ -124,7 +123,7 @@ Every `/api/*` route is declared in `internal/api/route_security_inventory.go`; 
 
 Defined in `api/proto/agent/service.proto` and served on `GRPC_PORT` with TLS. Agent calls are authorized per RPC against the per-Agent certificate registry ([Agent identity](../docs/reference/AGENT_IDENTITY.md)).
 
-- `RegisterAgent`, `Heartbeat`, `Ping`: Agent registration and liveness
+- `RegisterAgent`, `Ping`: Agent registration and liveness (`Heartbeat` is not served; Agent liveness comes from inventory and runtime reports)
 - `SendSBOMFinding`: SBOM submission from an Agent
 - `BatchSendSBOMFindings`: client-streamed SBOM submission
 - `SendCVEFinding` and `SendCombinedFinding` are not served: Core derives CVE matches from SBOMs itself.

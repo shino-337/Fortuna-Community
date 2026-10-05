@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"log"
+	"os"
+	"strconv"
 	"time"
 
 	"gorm.io/gorm"
@@ -10,30 +12,40 @@ import (
 	"github.com/fortuna/core/pkg/models"
 )
 
-// PodProcessRetentionJob deletes pod_processes rows older than retention days (e.g. 30).
+// PodProcessRetentionJob deletes pod_processes snapshots older than the retention window.
+// Every Pod Detail report appends a snapshot, so without this job the table grows for
+// as long as a Pod runs. Only the latest snapshot is served, and the previous one is
+// read to derive process-diff events.
 type PodProcessRetentionJob struct {
-	db            *gorm.DB
-	retentionDays int
-	interval      time.Duration
-	ctx           context.Context
-	cancel        context.CancelFunc
+	db             *gorm.DB
+	retentionHours int
+	interval       time.Duration
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
-// NewPodProcessRetentionJob creates a retention job. retentionDays must be > 0 (default 30).
-func NewPodProcessRetentionJob(db *gorm.DB, retentionDays int, interval time.Duration) *PodProcessRetentionJob {
-	if retentionDays <= 0 {
-		retentionDays = 30
+// NewPodProcessRetentionJob creates a retention job tuned via POD_PROCESS_RETENTION_HOURS
+// (default 24) and POD_PROCESS_CLEANUP_INTERVAL (default 1h).
+func NewPodProcessRetentionJob(db *gorm.DB) *PodProcessRetentionJob {
+	retentionHours := 24
+	if v := os.Getenv("POD_PROCESS_RETENTION_HOURS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			retentionHours = n
+		}
 	}
-	if interval <= 0 {
-		interval = 6 * time.Hour
+	interval := time.Hour
+	if v := os.Getenv("POD_PROCESS_CLEANUP_INTERVAL"); v != "" {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
+			interval = d
+		}
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	return &PodProcessRetentionJob{
-		db:            db,
-		retentionDays: retentionDays,
-		interval:      interval,
-		ctx:           ctx,
-		cancel:        cancel,
+		db:             db,
+		retentionHours: retentionHours,
+		interval:       interval,
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -41,7 +53,7 @@ func NewPodProcessRetentionJob(db *gorm.DB, retentionDays int, interval time.Dur
 func (j *PodProcessRetentionJob) Start() {
 	ticker := time.NewTicker(j.interval)
 	defer ticker.Stop()
-	log.Printf("[PodProcessRetentionJob] Started - retention=%d days, interval=%s", j.retentionDays, j.interval)
+	log.Printf("[PodProcessRetentionJob] Started - retention=%dh, interval=%s", j.retentionHours, j.interval)
 	j.run()
 	for {
 		select {
@@ -60,8 +72,8 @@ func (j *PodProcessRetentionJob) Stop() {
 }
 
 func (j *PodProcessRetentionJob) run() {
-	cutoff := time.Now().UTC().Add(-time.Duration(j.retentionDays) * 24 * time.Hour)
-	result := j.db.Where("observed_at < ?", cutoff).Delete(&models.PodProcess{})
+	cutoff := time.Now().UTC().Add(-time.Duration(j.retentionHours) * time.Hour)
+	result := j.db.WithContext(j.ctx).Where("observed_at < ?", cutoff).Delete(&models.PodProcess{})
 	if result.Error != nil {
 		log.Printf("[PodProcessRetentionJob] Error deleting old process data: %v", result.Error)
 		return

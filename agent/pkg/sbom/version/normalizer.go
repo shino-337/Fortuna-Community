@@ -1,7 +1,6 @@
 package version
 
 import (
-	"fmt"
 	"strings"
 )
 
@@ -109,8 +108,4 @@ func FormatConfidence(oldConf, newConf string) string {
 		return newConf
 	}
 	return oldConf
-}
-
-func debugVersionHint(purl string, pkgType string, raw string) string {
-	return fmt.Sprintf("purl=%s pkgType=%s raw=%s", purl, pkgType, raw)
 }

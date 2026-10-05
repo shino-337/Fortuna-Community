@@ -430,7 +430,7 @@ passed and read back its complete receipt; an empty or skipped selection fails.
 
 | Area | Required regression examples |
 | --- | --- |
-| Inventory scope and mutations | TestServiceAccountInventoryScope, TestServiceAccountMutationsProtectIdentity, TestServiceAccountBulkFailuresPreserveInventory |
+| Inventory scope and mutations | TestServiceAccountInventoryScope, TestServiceAccountMutationsProtectIdentity, TestServiceAccountDeleteFailuresPreserveInventory, TestServiceAccountUpdateUsesSelectedClusterRow |
 | RBAC semantics | TestServiceAccountRBACResolution, TestClusterAdminBindingForPod, TestPodRiskReportUsesResolvedRBACScope |
 | Workload and capability scope | TestInventoryWorkloadCapabilityScope |
 | Agent cluster association | TestAgentClusterIdentityIsolation |

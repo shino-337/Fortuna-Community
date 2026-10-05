@@ -292,27 +292,6 @@ func deriveHardeningHints(pods []models.Pod) ClusterHardeningHints {
 	return hints
 }
 
-// BuildPathsForPod computes attack paths originating from a specific pod.
-// Phase 1.2: paths are enriched with pod_capabilities (escape edges) and
-// pod_attack_steps (active step edges) from the PCE pipeline.
-// Phase 1.3: when persist=true, paths are written to attack_paths (background reconcile / explicit rebuild only).
-func (b *RelationalPathBuilder) BuildPathsForPod(ctx context.Context, podUID string, persist bool) ([]AttackPath, error) {
-	var owners []string
-	if err := b.db.WithContext(ctx).Model(&models.Pod{}).
-		Where("uid = ? AND deleted_at IS NULL", podUID).
-		Distinct().Order("cluster_id").Pluck("cluster_id", &owners).Error; err != nil {
-		return nil, err
-	}
-	if len(owners) != 1 {
-		return nil, fmt.Errorf("cluster-qualified pod identity required: uid=%s owners=%d", podUID, len(owners))
-	}
-	id, err := resourceidentity.New(owners[0], podUID)
-	if err != nil {
-		return nil, err
-	}
-	return b.BuildPathsForPodIdentity(ctx, id, persist)
-}
-
 func isServiceAccountPathFeasible(pod models.Pod, podCaps []models.PodCapability) bool {
 	if pod.AutomountServiceAccountToken != nil && !*pod.AutomountServiceAccountToken {
 		for _, c := range podCaps {

@@ -56,18 +56,6 @@ func loadScopedServiceAccountByUID(db *gorm.DB, c *gin.Context, uid string, prel
 	return &matches[0], true
 }
 
-func authorizeServiceAccount(db *gorm.DB, c *gin.Context, sa *models.ServiceAccount) bool {
-	scope, ok := resolveRiskGovernanceScope(db, c)
-	if !ok {
-		return false
-	}
-	if (scope.restricted && sa.ClusterID == "") || !middleware.ClusterAllowed(c, sa.ClusterID) || (scope.clusterID != "" && scope.clusterID != sa.ClusterID) {
-		middleware.AbortClusterScopeDenied(db, c, sa.ClusterID)
-		return false
-	}
-	return true
-}
-
 // Inventory edits are local metadata only. Agent-observed identity, credentials,
 // relationships and lifecycle fields must never be supplied to GORM Updates.
 func serviceAccountMetadataUpdate(c *gin.Context) (map[string]interface{}, bool) {

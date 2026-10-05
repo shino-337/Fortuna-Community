@@ -15,6 +15,11 @@ class RetiredRouteGateTests(unittest.TestCase):
             ("dashboard/api.ts", 'get("/api/v1/graph/shortest-path")'),
             ("core/internal/api/new_routes.go", 'g.GET("/query", ExecuteGraphQuery (db))'),
             ("core/internal/api/old.go", "func PostRuntimeEventsScoped(db DB) {}"),
+            ("dashboard/api.ts", 'post("/inventory/serviceaccounts/bulk/delete")'),
+            ("dashboard/api.ts", "get(`/cluster/${id}/nodes`)"),
+            ("core/internal/api/routes_inventory.go", 'cl.GET("/:id/nodes", GetClusterNodes(db))'),
+            ("dashboard/api.ts", 'get("/risk/runtime/summary")'),
+            ("core/internal/api/malware.go", 'g.POST("/malware/db/upload", h.UploadDB)'),
         ):
             with self.subTest(path=path):
                 self.assertTrue(check(path, source))
@@ -24,6 +29,9 @@ class RetiredRouteGateTests(unittest.TestCase):
         self.assertFalse(check("core/internal/api/routes.go",
                                'GetPodNetworkTopDestinationsByUIDScoped(db)'))
         self.assertFalse(check("dashboard/api.ts", 'get("/api/v1/runtime/signals")'))
+        self.assertFalse(check("dashboard/api.ts",
+                               "request(`/inventory/clusters/${id}/nodes/${node}`)"))
+        self.assertFalse(check("dashboard/api.ts", 'del("/inventory/serviceaccounts/sa-1")'))
 
 
 if __name__ == "__main__":

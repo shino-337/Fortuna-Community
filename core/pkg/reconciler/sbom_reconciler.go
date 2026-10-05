@@ -64,11 +64,6 @@ func (r *SBOMReconciler) Start(ctx context.Context) {
 	}
 }
 
-// Stop stops the reconciliation loop
-func (r *SBOMReconciler) Stop() {
-	close(r.stopChan)
-}
-
 // Reconcile performs the actual reconciliation logic
 func (r *SBOMReconciler) Reconcile(ctx context.Context) error {
 	r.logger.Printf("Starting reconciliation cycle...")

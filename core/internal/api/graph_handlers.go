@@ -1,7 +1,6 @@
 package api
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"strconv"
@@ -145,32 +144,6 @@ func GetAttackPathsBundle(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		viewerGraphJSON(c, http.StatusOK, gin.H{"data": bundle})
-	}
-}
-
-// Helper functions for fallback relational queries
-func getRelationalGraphData(db *gorm.DB) map[string]interface{} {
-	builder := graph.NewRelationalPathBuilder(db)
-	data, err := builder.BuildGraphData(context.Background(), "")
-	if err != nil {
-		return map[string]interface{}{
-			"nodes": []interface{}{},
-			"links": []interface{}{},
-		}
-	}
-	return data
-}
-
-func getRelationalAccessibleResources(db *gorm.DB, saID, resourceType string) []interface{} {
-	// Return empty for now - would implement relational query if needed
-	return []interface{}{}
-}
-
-func getGraphData(graphEngine *graph.AgeGraphEngine) map[string]interface{} {
-	// Return graph data structure
-	return map[string]interface{}{
-		"nodes": []interface{}{},
-		"edges": []interface{}{},
 	}
 }
 

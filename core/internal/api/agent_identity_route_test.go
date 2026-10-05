@@ -72,7 +72,7 @@ func TestAgentRegisteredRoutesUseScopedIdentityWithoutLegacyFallback(t *testing.
 		AgentCredentialRegistryPath: writeAgentCredentialRegistry(t, scopedToken, "cluster-a", "agent-a"),
 	}
 	r := gin.New()
-	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil, nil)
+	api.SetupRoutesWithCertManager(r, db, cfg, nil, nil)
 
 	body := []byte(`{"podUid":"pod-1","clusterId":"cluster-a","namespace":"default","connections":[]}`)
 	request := func(token string) *httptest.ResponseRecorder {

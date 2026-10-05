@@ -18,17 +18,6 @@ type ClusterLimitConfig struct {
 	Enabled   bool
 }
 
-// DefaultClusterLimitConfig returns defaults for per-cluster limits.
-func DefaultClusterLimitConfig() ClusterLimitConfig {
-	return ClusterLimitConfig{
-		SyncRPS:   10.0, // 10 sync requests per second per cluster
-		SyncBurst: 20,   // burst 20
-		SBOMRPS:   50.0, // 50 SBOM findings per second per cluster
-		SBOMBurst: 100,  // burst 100
-		Enabled:   true,
-	}
-}
-
 // ClusterRateLimiter limits requests per cluster_id (sync and SBOM separately).
 type ClusterRateLimiter struct {
 	mu      sync.RWMutex

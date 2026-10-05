@@ -1043,12 +1043,6 @@ func comparatorEcosystemForBulkBatch(purl *PURL, bulkQueryEcosystem string) stri
 	}
 }
 
-// normalizeQueryEcosystem maps PURL ecosystem/namespace into the ecosystem values
-// stored in PostgreSQL by the OSV loader (e.g., debian/ubuntu/alpine/go).
-func normalizeQueryEcosystem(p *PURL) string {
-	return normalizeQueryEcosystemWithOS(p, "")
-}
-
 // normalizeQueryEcosystemWithOS is like normalizeQueryEcosystem but uses SBOM OS name
 // to map generic components to the distro ecosystem when PURL is generic (e.g. from
 // distroless/heuristic), so OSV Debian/Ubuntu data is matched.
@@ -1197,28 +1191,4 @@ func isCVEApplicableToPackageArch(cveData *cve.CVE, purl *PURL) bool {
 		}
 	}
 	return false
-}
-
-// FilterBySeverity filters matches by severity
-func (m *Matcher) FilterBySeverity(
-	matches []*models.CVEMatch,
-	severities []string,
-) []*models.CVEMatch {
-	if len(severities) == 0 {
-		return matches // No filter
-	}
-
-	filtered := make([]*models.CVEMatch, 0)
-	severityMap := make(map[string]bool)
-	for _, sev := range severities {
-		severityMap[strings.ToUpper(sev)] = true
-	}
-
-	for _, match := range matches {
-		if severityMap[strings.ToUpper(match.Severity)] {
-			filtered = append(filtered, match)
-		}
-	}
-
-	return filtered
 }

@@ -14,15 +14,6 @@ import (
 // DefaultSATokenSatisfactionHalfLife controls decay of SA_TOKEN graph satisfaction from K8s API corroboration age.
 const DefaultSATokenSatisfactionHalfLife = 6 * time.Hour
 
-// RuntimeSatisfiedGraphRequirements lists graph precondition capability IDs that runtime
-// telemetry has effectively closed (e.g. SA_TOKEN when K8s API access is corroborated).
-func RuntimeSatisfiedGraphRequirements(events []models.RuntimeEvent, signals []models.RuntimeSignal) []string {
-	if CorroboratesK8sAPIAccess(events, signals) {
-		return []string{"SA_TOKEN"}
-	}
-	return []string{}
-}
-
 // CorroboratesK8sAPIAccess returns true only when there is evidence that outbound
 // traffic targets the Kubernetes API (not generic NETWORK_QUEUE_ANOMALY noise).
 func CorroboratesK8sAPIAccess(events []models.RuntimeEvent, signals []models.RuntimeSignal) bool {

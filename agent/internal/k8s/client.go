@@ -43,37 +43,3 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		Config:    restConfig,
 	}, nil
 }
-
-// GetCurrentContext returns the current kubeconfig context
-func GetCurrentContext(kubeconfigPath string) (string, error) {
-	config, err := clientcmd.LoadFromFile(kubeconfigPath)
-	if err != nil {
-		return "", err
-	}
-	return config.CurrentContext, nil
-}
-
-// GetClusterName extracts the cluster name (context.cluster) from kubeconfig.
-// This matches the name shown by `kubectl config get-clusters`.
-func GetClusterName(kubeconfigPath string) (string, error) {
-	config, err := clientcmd.LoadFromFile(kubeconfigPath)
-	if err != nil {
-		return "", err
-	}
-
-	ctx := config.CurrentContext
-	if ctx == "" {
-		return "unknown", nil
-	}
-
-	kctx, ok := config.Contexts[ctx]
-	if !ok {
-		return "unknown", nil
-	}
-
-	// Cluster name in kubeconfig (context.cluster); matches kubectl config get-clusters
-	if kctx.Cluster == "" {
-		return "unknown", nil
-	}
-	return kctx.Cluster, nil
-}

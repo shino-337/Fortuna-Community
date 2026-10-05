@@ -185,18 +185,6 @@ func (t *IncrementalTracker) MarkProcessingComplete(ctx context.Context, filePat
 	return nil
 }
 
-// MarkProcessingFailed marks files as failed
-func (t *IncrementalTracker) MarkProcessingFailed(ctx context.Context, filePath string, err error) error {
-	return t.db.WithContext(ctx).
-		Model(&FileMetadata{}).
-		Where("file_path = ?", filePath).
-		Updates(map[string]interface{}{
-			"processing_status": "failed",
-			"error_message":     err.Error(),
-			"last_processed_at": time.Now(),
-		}).Error
-}
-
 // GetStats returns processing statistics
 func (t *IncrementalTracker) GetStats(ctx context.Context) (*TrackerStats, error) {
 	var stats TrackerStats

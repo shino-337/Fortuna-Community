@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/glebarez/sqlite"
@@ -125,84 +124,6 @@ func TestRuntimeFlow_AgentToCoreToDBToV2API(t *testing.T) {
 	}
 	if int(incResp["total"].(float64)) == 0 {
 		t.Fatalf("incidents total expected >0, got 0")
-	}
-}
-
-func TestGetPodAssetSecurityState_NotFoundWhenTableMissing(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("db: %v", err)
-	}
-	// Intentionally do NOT migrate AssetSecurityState table.
-	if err := db.AutoMigrate(&models.Pod{}, &models.RuntimeEvent{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	if err := db.Create(&models.Pod{UID: "pod-x", Name: "pod-x", Namespace: "ns", ClusterID: "c1"}).Error; err != nil {
-		t.Fatalf("seed pod: %v", err)
-	}
-
-	r := gin.New()
-	useAdminTestPrincipal(r)
-	r.GET("/api/v2/runtime/pods/:uid/security-state", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodAssetSecurityState(db))
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/pods/pod-x/security-state", nil)
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusNotFound {
-		t.Fatalf("expected 404, got %d body=%s", w.Code, w.Body.String())
-	}
-}
-
-func TestGetPodAssetSecurityState_OK(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
-	if err != nil {
-		t.Fatalf("db: %v", err)
-	}
-	if err := db.AutoMigrate(&models.Pod{}, &models.AssetSecurityState{}); err != nil {
-		t.Fatalf("migrate: %v", err)
-	}
-	podUID := "state-pod-1"
-	clusterID := "c1"
-	if err := db.Create(&models.Pod{UID: podUID, Name: "state-pod-1", Namespace: "ns", ClusterID: clusterID}).Error; err != nil {
-		t.Fatalf("seed pod: %v", err)
-	}
-	now := time.Now().UTC()
-	row := models.AssetSecurityState{
-		AssetType:              "pod",
-		PodUID:                 podUID,
-		Namespace:              "ns",
-		ClusterID:              clusterID,
-		SignalTotal24h:         3,
-		HasSuspiciousExec:      true,
-		HasNetworkQueueAnomaly: true,
-		HasEscapeRelated:       false,
-		RuntimeSignalsByType:   `{"NETWORK_QUEUE_ANOMALY":2}`,
-		EffectiveCapabilities:  `["ESC_RUNTIME_PROBE"]`,
-		CreatedAt:              now,
-		UpdatedAt:              now,
-	}
-	if err := db.Create(&row).Error; err != nil {
-		t.Fatalf("seed state: %v", err)
-	}
-
-	r := gin.New()
-	useAdminTestPrincipal(r)
-	r.GET("/api/v2/runtime/pods/:uid/security-state", middleware.RequirePodUIDClusterScope(db, "uid"), GetPodAssetSecurityState(db))
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodGet, "/api/v2/runtime/pods/"+podUID+"/security-state", nil)
-	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("expected 200, got %d body=%s", w.Code, w.Body.String())
-	}
-	var out map[string]interface{}
-	if err := json.Unmarshal(w.Body.Bytes(), &out); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if out["podUid"] != podUID {
-		t.Fatalf("podUid mismatch: %+v", out)
 	}
 }
 

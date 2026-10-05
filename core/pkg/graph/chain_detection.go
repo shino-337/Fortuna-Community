@@ -462,23 +462,6 @@ func capabilityIntersection(a, b []string) []string {
 	return uniqStrings(out)
 }
 
-func minConfidence(a, b string) string {
-	rank := func(v string) int {
-		switch strings.ToLower(v) {
-		case "high":
-			return 3
-		case "medium":
-			return 2
-		default:
-			return 1
-		}
-	}
-	if rank(a) < rank(b) {
-		return strings.ToLower(a)
-	}
-	return strings.ToLower(b)
-}
-
 func pathClassFromPath(p AttackPath) string {
 	if p.Explainability != nil && p.Explainability.Class != "" {
 		switch p.Explainability.Class {

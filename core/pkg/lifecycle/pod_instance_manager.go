@@ -19,15 +19,6 @@ func NewPodInstanceManager(db *gorm.DB) *PodInstanceManager {
 	return &PodInstanceManager{db: db}
 }
 
-// GetActiveInstances returns all active pod instances
-func (m *PodInstanceManager) GetActiveInstances(ctx context.Context) ([]models.PodInstance, error) {
-	var instances []models.PodInstance
-	err := m.db.WithContext(ctx).
-		Where("status = ?", "active").
-		Find(&instances).Error
-	return instances, err
-}
-
 // EnsureActiveInstanceForIdentity ensures one canonical Pod instance exists and is active.
 func (m *PodInstanceManager) EnsureActiveInstanceForIdentity(ctx context.Context, id resourceidentity.Identity, namespace, name string) error {
 	if err := id.Validate(); err != nil {
@@ -65,27 +56,4 @@ func (m *PodInstanceManager) EnsureActiveInstanceForIdentity(ctx context.Context
 		return m.db.WithContext(ctx).Save(&instance).Error
 	}
 	return nil
-}
-
-// TerminateInstanceForIdentity terminates only the requested cluster-qualified Pod instance.
-func (m *PodInstanceManager) TerminateInstanceForIdentity(ctx context.Context, id resourceidentity.Identity) error {
-	if err := id.Validate(); err != nil {
-		return err
-	}
-	now := time.Now()
-	return m.db.WithContext(ctx).Model(&models.PodInstance{}).
-		Where("cluster_id = ? AND pod_uid = ? AND status = 'active'", id.ClusterID, id.ResourceUID).
-		Updates(map[string]interface{}{"status": "terminated", "terminated_at": now}).Error
-}
-
-// IsActiveForIdentity checks active state without collapsing Pod UID across clusters.
-func (m *PodInstanceManager) IsActiveForIdentity(ctx context.Context, id resourceidentity.Identity) (bool, error) {
-	if err := id.Validate(); err != nil {
-		return false, err
-	}
-	var count int64
-	err := m.db.WithContext(ctx).Model(&models.PodInstance{}).
-		Where("cluster_id = ? AND pod_uid = ? AND status = ?", id.ClusterID, id.ResourceUID, "active").
-		Count(&count).Error
-	return count > 0, err
 }

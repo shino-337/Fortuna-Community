@@ -3,11 +3,12 @@ package k8s
 import (
 	"context"
 	"fmt"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	"k8s.io/apimachinery/pkg/types"
 	"os"
 	"path/filepath"
 	"time"
+
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/types"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -91,28 +92,6 @@ func NewClientFromPath(kubeconfigPath string) (*Client, error) {
 		Clientset: clientset,
 		Config:    restConfig,
 	}, nil
-}
-
-// NewClientFromConfig creates a Kubernetes client from rest.Config
-func NewClientFromConfig(config *rest.Config) (*Client, error) {
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create clientset: %w", err)
-	}
-
-	return &Client{
-		Clientset: clientset,
-		Config:    config,
-	}, nil
-}
-
-// DeleteServiceAccount deletes a ServiceAccount from Kubernetes cluster
-func (c *Client) DeleteServiceAccount(namespace, name string) error {
-	return c.Clientset.CoreV1().ServiceAccounts(namespace).Delete(
-		context.Background(),
-		name,
-		metav1.DeleteOptions{},
-	)
 }
 
 // DeleteServiceAccountUID prevents deletion of a replacement object with the same name.

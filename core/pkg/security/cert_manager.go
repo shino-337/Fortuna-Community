@@ -130,26 +130,6 @@ func (cm *CertManager) GetTLSCertificate(clientHello *tls.ClientHelloInfo) (*tls
 	return cm.cert, nil
 }
 
-// GetCertificate returns the current certificate
-func (cm *CertManager) GetCertificate() (*tls.Certificate, error) {
-	cm.certMu.RLock()
-	defer cm.certMu.RUnlock()
-
-	if cm.cert == nil {
-		return nil, fmt.Errorf("certificate not loaded")
-	}
-
-	return cm.cert, nil
-}
-
-// GetCACertPool returns the current CA certificate pool
-func (cm *CertManager) GetCACertPool() *x509.CertPool {
-	cm.caCertMu.RLock()
-	defer cm.caCertMu.RUnlock()
-
-	return cm.caCert
-}
-
 // GetCertificateInfo returns detailed certificate information
 func (cm *CertManager) GetCertificateInfo() (*CertificateInfo, error) {
 	cm.certMu.RLock()
