@@ -14,6 +14,8 @@ import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../../lib/tableC
 
 const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
 const RESULTS = ['success', 'deny', 'error'] as const;
+/** Event domains the server tags activity with (the former Investigation timeline filtered by these). */
+const DOMAINS = ['auth', 'sessions', 'rbac', 'findings', 'graph', 'export'] as const;
 
 /** Security activity timeline (GET /governance/security-activity, append-only). Requires system.audit.read. */
 export const SecurityActivityPanel: React.FC = () => {
@@ -25,6 +27,7 @@ export const SecurityActivityPanel: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [severity, setSeverity] = useState('');
   const [result, setResult] = useState('');
+  const [domain, setDomain] = useState('');
   const [action, setAction] = useState('');
   const [debouncedAction, setDebouncedAction] = useState('');
   const requestRef = useRef(0);
@@ -45,6 +48,7 @@ export const SecurityActivityPanel: React.FC = () => {
         severity: severity || undefined,
         result: result || undefined,
         action: debouncedAction || undefined,
+        domain: domain || undefined,
       });
       if (seq !== requestRef.current) return;
       setItems(r.items);
@@ -58,16 +62,17 @@ export const SecurityActivityPanel: React.FC = () => {
     } finally {
       if (seq === requestRef.current) setLoading(false);
     }
-  }, [page, pageSize, severity, result, debouncedAction]);
+  }, [page, pageSize, severity, result, debouncedAction, domain]);
 
   useEffect(() => {
     void fetchPage();
   }, [fetchPage]);
 
-  const filtersActive = severity !== '' || result !== '' || action.trim() !== '';
+  const filtersActive = severity !== '' || result !== '' || domain !== '' || action.trim() !== '';
   const resetFilters = () => {
     setSeverity('');
     setResult('');
+    setDomain('');
     setAction('');
     setPage(1);
   };
@@ -97,6 +102,22 @@ export const SecurityActivityPanel: React.FC = () => {
           }}
           trailing={
             <>
+              <select
+                aria-label="Domain"
+                className={UI_FILTER_SELECT}
+                value={domain}
+                onChange={(e) => {
+                  setDomain(e.target.value);
+                  setPage(1);
+                }}
+              >
+                <option value="">Any domain</option>
+                {DOMAINS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
               <select
                 aria-label="Severity"
                 className={UI_FILTER_SELECT}

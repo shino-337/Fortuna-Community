@@ -441,11 +441,11 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
                 )}
               </section>
               <section className="mt-4">
-                <h3 className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Capability Exposure Impact</h3>
-                <p className="text-muted text-caption mb-2">Open the Capability Exposure tab for detailed filtering.</p>
+                <h3 className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Capability exposure</h3>
+                <p className="text-muted text-caption mb-2">Rules › Capability exposure lists every pod holding a capability, by namespace and severity.</p>
                 {onOpenPceTab && (
                   <button type="button" onClick={() => { onClose(); onOpenPceTab(); }} className="text-caption text-brand hover:underline">
-                    Open capability exposure tab
+                    Open capability exposure
                   </button>
                 )}
                 <div className="mt-3">

@@ -18,6 +18,7 @@ export const RULES_CATALOG_SECTIONS: SectionNavItem[] = [
   { path: '/rules', label: 'Detection & policies' },
   { path: '/rules/risk-scoring', label: 'Risk scoring rules' },
   { path: '/rules/catalog', label: 'Capability catalog' },
+  { path: '/rules/exposure', label: 'Capability exposure' },
 ];
 
 export const INVENTORY_SECTIONS: SectionNavItem[] = [

@@ -133,7 +133,7 @@ export const SURFACE_REGISTRY: SurfaceDefinition[] = [
     personas: ['operator'],
     requiredPermissions: [P.findingsRead],
     relevance: (ctx) => ctx.ownership.hasOperationalScope,
-    routes: ['/', '/risks', '/risks/findings', '/risks/pce', '/risks/evidence'],
+    routes: ['/', '/risks', '/risks/findings', '/risks/evidence'],
     dashboardSections: ['triage_queue', 'sla_pressure'],
     graphModes: ['exploitability'],
     shellVariant: 'operator',
