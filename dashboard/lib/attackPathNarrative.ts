@@ -299,12 +299,15 @@ function buildDynamicNarrative(chain: AttackChain, paths: AttackPath[]): string 
   }
 
   if (t.includes('ESCAPE') && sourcePod && nodeName) {
-    const capDesc = capabilities.find((c) => c.includes('HOST'))
-      ? 'hostPath mount'
+    const capDesc = capabilities.find((c) => c.includes('HOSTPATH'))
+      ? 'a hostPath mount'
       : capabilities.find((c) => c.includes('PRIVILEGED'))
-        ? 'privileged container'
-        : 'container escape vector';
-    return `If an attacker compromises ${sourcePod}, they can escape the container using ${capDesc}, gain access to node ${nodeName}, and escalate privileges${targetRole ? ` via ${targetRole}` : ''}.`;
+        ? 'privileged mode'
+        : capabilities.find((c) => c.includes('HOSTPID') || c.includes('HOSTIPC'))
+          ? 'the shared host PID/IPC namespace'
+          : 'a container escape vector';
+    const via = targetRole && targetRole !== nodeName ? ` via ${targetRole}` : '';
+    return `If an attacker compromises ${sourcePod}, they can escape the container using ${capDesc}, gain access to node ${nodeName}, and escalate privileges${via}.`;
   }
   if (t.includes('LATERAL') && sourcePod) {
     return `An attacker may move laterally from ${sourcePod}${nodeName ? ` through node ${nodeName}` : ''} to reach ${targetRole || 'sensitive workloads'}, chaining service account credentials and RBAC bindings.`;
@@ -336,7 +339,8 @@ function buildScenarioHeadline(chain: AttackChain, paths: AttackPath[]): string 
   }
 
   if (t.includes('ESCAPE') && nodeName) {
-    return `Container escape → node ${nodeName} → ${targetRole || 'cluster privilege escalation'}`;
+    const beyond = targetRole && targetRole !== nodeName ? ` → ${targetRole}` : '';
+    return `Container escape${sourcePod ? ` from ${sourcePod}` : ''} → node ${nodeName}${beyond}`;
   }
   if (t.includes('LATERAL')) {
     return `Lateral movement${sourcePod ? ` from ${sourcePod}` : ''} → ${targetRole || 'privilege escalation'}`;
@@ -565,5 +569,65 @@ export function buildFixRecommendations(chain: AttackChain): { label: string; pr
   }
 
   if (fixes.length === 0) fixes.push({ label: 'Review workload isolation and RBAC policies', priority: 'MEDIUM' });
-  return fixes.slice(0, 4);
+  const rank: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  return fixes.sort((a, b) => (rank[a.priority] ?? 9) - (rank[b.priority] ?? 9)).slice(0, 4);
+}
+
+/* ── list helpers for the paths workspace ──────────────────── */
+
+/** Every primitive path id in a scenario, across its variants. */
+export function scenarioPathIds(scenario: GroupedScenario): string[] {
+  const ids = new Set<string>();
+  for (const v of Array.isArray(scenario.variants) ? scenario.variants : []) {
+    for (const id of Array.isArray(v.paths) ? v.paths : []) if (id) ids.add(id);
+  }
+  return [...ids];
+}
+
+/** Highest 0-10 path risk in a scenario; falls back to the chain's impact band when no path is loaded. */
+export function scenarioMaxRisk(scenario: GroupedScenario, pathById: Map<string, AttackPath>): number | null {
+  let max: number | null = null;
+  for (const id of scenarioPathIds(scenario)) {
+    const risk = pathById.get(id)?.total_risk;
+    if (typeof risk === 'number' && Number.isFinite(risk)) max = max === null ? risk : Math.max(max, risk);
+  }
+  if (max !== null) return max;
+  const band = String(scenario.representativeChain.impact || '').toUpperCase();
+  return band === 'CRITICAL' ? 9 : band === 'HIGH' ? 7 : band === 'MEDIUM' ? 4 : band === 'LOW' ? 0 : null;
+}
+
+/** First pod and last node of a scenario's strongest path: who starts it and what it reaches. */
+export function scenarioEnds(scenario: GroupedScenario, pathById: Map<string, AttackPath>): { entry: AttackPath['nodes'][number] | null; target: string } {
+  for (const id of scenarioPathIds(scenario)) {
+    const nodes = pathById.get(id)?.nodes ?? [];
+    const entry = nodes.find((n) => String(n.type || '').toLowerCase() === 'pod') ?? null;
+    const last = nodes[nodes.length - 1];
+    const target = cleanTargetRole(String(last?.properties?.name || last?.id || '')) || cleanTargetRole(scenario.finalTarget);
+    if (entry || target) return { entry, target };
+  }
+  return { entry: null, target: cleanTargetRole(scenario.finalTarget) };
+}
+
+export interface SharedFix {
+  label: string;
+  priority: string;
+  scenarioKeys: string[];
+}
+
+/** The same fix proposed by several scenarios, counted once, most-shared and most-urgent first. */
+export function fixesAcrossScenarios(scenarios: GroupedScenario[]): SharedFix[] {
+  const byLabel = new Map<string, SharedFix>();
+  const rank: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  for (const s of scenarios) {
+    for (const fix of buildFixRecommendations(s.representativeChain)) {
+      if (fix.label.startsWith('Validate inferred') || fix.label.startsWith('Review workload isolation')) continue;
+      const entry = byLabel.get(fix.label) ?? { label: fix.label, priority: fix.priority, scenarioKeys: [] };
+      if (!entry.scenarioKeys.includes(s.key)) entry.scenarioKeys.push(s.key);
+      if ((rank[fix.priority] ?? 9) < (rank[entry.priority] ?? 9)) entry.priority = fix.priority;
+      byLabel.set(fix.label, entry);
+    }
+  }
+  return [...byLabel.values()].sort(
+    (a, b) => b.scenarioKeys.length - a.scenarioKeys.length || (rank[a.priority] ?? 9) - (rank[b.priority] ?? 9),
+  );
 }

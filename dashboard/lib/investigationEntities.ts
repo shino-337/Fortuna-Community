@@ -19,15 +19,20 @@ export function findingInvestigationEntity(insight: Insight): Omit<Investigation
   };
 }
 
+/** A scenario pinned to a case; the link reopens that path in its cluster. */
 export function attackPathInvestigationEntity(
   scenario: GroupedScenario,
-  podUid?: string | null,
+  where: { podUid?: string | null; clusterId?: string | null; pathId?: string | null } = {},
 ): Omit<InvestigationEntity, 'id' | 'pinnedAt'> {
-  const qs = podUid ? `?podUid=${encodeURIComponent(podUid)}` : '';
+  const params = new URLSearchParams();
+  if (where.podUid) params.set('podUid', where.podUid);
+  if (where.clusterId) params.set('clusterId', where.clusterId);
+  if (where.pathId) params.set('path', where.pathId);
+  const qs = params.toString();
   return {
     type: 'attack_path',
     label: scenario.headline || scenario.type || 'Attack scenario',
-    href: `#/attack-paths${qs}`,
+    href: `#/attack-paths${qs ? `?${qs}` : ''}`,
     meta: {
       confidence: scenario.confidence,
       variants: String(scenario.variants.length),

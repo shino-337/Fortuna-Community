@@ -33,7 +33,7 @@ Roles determine route visibility and actions:
 | Home | `/#/` | What needs your attention in the header scope. Four counts (needs triage, critical open, your open cases, exposed workloads), the five open findings with the highest risk that nobody has acknowledged, your open cases, a one-line data freshness check, new findings per day for 30 days by risk level, and **Export brief**. Admins also see a Platform card with agent and pipeline status. Every count uses the risk level. Old `/#/dashboard` links open Home. |
 | Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, Assigned to me, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow, including who owns the finding. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Runtime evidence. `/#/risks` opens the queue. |
 | Cases | `/#/investigation` | Work that spans several findings. Views for Open, Mine, Closed and All; one case at `/#/investigation?case=<id>` shows its lifecycle, linked findings with their current status, affected assets, the timeline, remediation tasks and owner. **Add to case** on a finding, pod or attack path links it to an open case or starts a new one, and the finding panel says which cases already link it. **Close case** asks for a reason and can resolve the linked findings that are still open in the same step. |
-| Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
+| Attack Paths | `/#/attack-paths` | **Break these first** lists the fixes that cut the most paths. Below it, one list of paths (level, entry pod → target, confidence) and the selected path: its graph, steps, fix, and every pod, service account and binding on it, each linked. `?podUid=` keeps only the paths through one pod and `?path=` opens one path. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
 | Inventory | `/#/resources` | Three views: **Workloads** ranked by risk with level counts, **Identities** (service accounts, roles and bindings, filtered by kind) and **Clusters**. Clicking a row opens a side panel with the workload's open findings and attack paths, or what an identity can do and who uses it. Pod detail opens with links to the pod's findings, attack paths, network flows and service account, and has an **Attack paths** tab. |
 | Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`), the capability catalog (`/#/rules/catalog`) and capability exposure (`/#/rules/exposure`): which pods hold each capability, by namespace and severity. Old `/#/risks/pce` links redirect. |
@@ -159,10 +159,10 @@ Reference screen: [Attack Paths](../assets/screenshots/attack-analysis.png).
 Steps:
 
 1. Open `/#/attack-paths`.
-2. Select a priority path.
-3. Review graph nodes, edge labels, attack steps, confidence, and runtime evidence.
-4. Open the source pod or linked finding for detail.
-5. Validate whether the path is inventory-derived, runtime-supported, or both.
+2. Start with **Break these first**, or pick a path from the list by level.
+3. Read its steps and fix; steps marked **seen at runtime** matched runtime events.
+4. Open a pod, its findings or its network flows from **On this path**.
+5. Check the confidence (Confirmed, Probable, Theoretical) and **Evidence and assumptions** before acting.
 
 Expected data source: graph attack-path bundle and summary APIs, runtime attack-step evidence, RBAC inventory, and network telemetry.
 

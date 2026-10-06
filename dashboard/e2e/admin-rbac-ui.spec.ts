@@ -279,9 +279,11 @@ test.describe('admin RBAC UI smoke', () => {
 
     await panel.getByRole('link', { name: 'Open in Attack Paths' }).click();
     await page.waitForURL(new RegExp(`#\\/attack-paths\\?podUid=${candidate.pod.uid}`), { timeout: 15_000 });
-    await expect(page.getByText(`podUid=${candidate.pod.uid}`)).toBeVisible();
-    await expect(page.getByText(`${endpointPaths.length} path(s) returned for this workload.`)).toBeVisible();
-    await expect(page.getByText(expectedPathIds[0]).first()).toBeVisible();
+    await expect(page.getByText('Through pod')).toBeVisible();
+    await expect(
+      page.getByText(`${endpointPaths.length} ${endpointPaths.length === 1 ? 'path runs' : 'paths run'} through this pod`),
+    ).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Attack paths' }).getByRole('listitem').first()).toBeVisible();
     await expectNoForbiddenShell(page);
     await expectNoRedundantContextStrips(page);
   });
