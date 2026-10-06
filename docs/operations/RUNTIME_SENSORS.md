@@ -9,7 +9,7 @@ Runtime evidence comes from Falco through the Agent. The built-in eBPF sensor is
 kubectl -n fortuna rollout restart daemonset/fortuna-agent
 ```
 
-The Agent reads Falco's JSONL output from `/var/log/falco/events.jsonl` on each node (`FALCO_EVENTS_ENABLED`, `FALCO_EVENTS_PATH`). Platform Health tells apart "no events arrived" from "no sensor is enabled".
+The Agent reads Falco's JSONL output from `/var/log/falco/events.jsonl` on each node (`FALCO_EVENTS_ENABLED`, `FALCO_EVENTS_PATH`). Platform tells apart "no events arrived" from "no sensor is enabled".
 
 ## Preserve Falco delivery state
 

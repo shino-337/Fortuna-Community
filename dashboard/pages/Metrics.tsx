@@ -1449,9 +1449,9 @@ export const Monitoring: React.FC = () => {
                 </p>
               ) : (
                 <p className="text-caption text-muted">
-                  DB-derived mode: processed and failed counts come from
-                  persisted outputs; queue and active worker counts are not
-                  exposed.
+                  Processed and failed counts come from stored results. Live
+                  queue depth and worker counts are not reported by this
+                  deployment.
                 </p>
               )}
 

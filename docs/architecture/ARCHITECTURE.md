@@ -45,10 +45,10 @@ Cluster identity is part of the primary data contract. Agent either auto-discove
 | Inventory | Agent pod sync and Kubernetes API observations | Resources, Pod Detail, Monitoring, Risk |
 | SBOM | Agent image/package extraction | Pod Detail, CVE, Risk |
 | CVE matches | Core matcher against loaded CVE catalog | Risk, Pod Detail |
-| Runtime events | Falco/eBPF/agent facts through runtime ingest | Monitoring, Pod Detail, Attack Analysis, Risk |
-| Network activity | Agent runtime observations | Network Activity, Pod Detail, Attack Analysis |
-| Rules | Policy/rule catalog and mapped legacy identifiers | Rules & Catalog, Risk evidence |
-| Risk | Core unified scorer | Home, Findings Queue, Inventory, Pod Detail |
+| Runtime events | Falco/eBPF/agent facts through runtime ingest | Monitoring, Pod Detail, Attack Paths, Risk |
+| Network activity | Agent runtime observations | Network, Pod Detail, Attack Paths |
+| Rules | Policy/rule catalog and mapped legacy identifiers | Rules, Risk evidence |
+| Risk | Core unified scorer | Home, Findings, Inventory, Pod Detail |
 | Findings export | `/risk/insights/export`, scoped by role, cluster and time | Executive brief on Home |
 
 ## Core Data Flows
@@ -110,7 +110,7 @@ Attack paths are generated from relationships between workloads, identities, RBA
 
 ### Rules
 
-Rules & Catalog holds the rule catalog, risk scoring rules and the capability catalog. Rule detail links use stable rule UIDs (`/#/rules/uid/<rule_uid>`); older code-based identifiers may still appear in imported data.
+Rules holds the rule catalog, risk scoring rules and the capability catalog. Rule detail links use stable rule UIDs (`/#/rules/uid/<rule_uid>`); older code-based identifiers may still appear in imported data.
 
 ### Runtime Monitoring
 
@@ -164,13 +164,13 @@ flowchart LR
 
 | Domain | What it shows | Primary data |
 |--------|---------------|--------------|
-| Home (Platform Integrity / Active Response / My Exposure) | The role's next step, risk overview, entry points, cluster health, and the Executive brief (time-windowed posture and findings exports) | Dashboard stats, findings summary, attack paths, pipeline health, investigations |
-| Findings Queue | Current findings and one unified risk value | `risk_scores`, insights, rules, runtime/CVE/path evidence |
+| Home | The role's next step, risk overview, entry points, cluster health, and the Executive brief (time-windowed posture and findings exports) | Dashboard stats, findings summary, attack paths, pipeline health, investigations |
+| Findings | Current findings and one unified risk value | `risk_scores`, insights, rules, runtime/CVE/path evidence |
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
-| Kubernetes Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
-| Runtime Network | Runtime topology and external destinations | Agent network observations |
-| Rules & Catalog | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
-| Platform Health | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
+| Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
+| Network | Runtime topology and external destinations | Agent network observations |
+| Rules | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
+| Platform | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
 | Audit | Who did what in Fortuna (admin) | Security activity, platform audit log, audit summary, investigation events, permission and access analytics |
 
 ## API Shape

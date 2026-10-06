@@ -189,7 +189,7 @@ test('notification bell opens above page content and supports read actions', asy
   }, adminUser);
 
   await page.goto(appUrl('/monitoring/notifications'));
-  await expect(page.locator('main h1').filter({ hasText: /^Platform Health$/ })).toBeVisible();
+  await expect(page.locator('main h1').filter({ hasText: /^Platform$/ })).toBeVisible();
 
   const bell = page.getByRole('button', { name: /security notifications/i }).first();
   await expect(bell).toBeVisible();
@@ -213,7 +213,7 @@ test('notification bell opens above page content and supports read actions', asy
   expect(patchRead).toBe(1);
 
   await page.goto(appUrl('/monitoring/notifications'));
-  await expect(page.locator('main h1').filter({ hasText: /^Platform Health$/ })).toBeVisible();
+  await expect(page.locator('main h1').filter({ hasText: /^Platform$/ })).toBeVisible();
   await bell.click();
   await page.getByRole('button', { name: /read all/i }).click();
   await expect(page.getByText('No unread alerts')).toBeVisible();

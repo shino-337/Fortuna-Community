@@ -79,6 +79,13 @@ import { useAuthStore } from '../store/authStore';
 import { deriveUnifiedRiskLevelFromScore } from './severity';
 import { downloadBlob } from './download';
 
+/** Number from a response field, or `fallback` when it is missing or not a finite number (never NaN). */
+function numberOr(value: unknown, fallback: number): number {
+  if (value == null || value === '') return fallback;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : fallback;
+}
+
 const CORE_API_URL = (import.meta as any).env?.VITE_CORE_API_URL || '';
 const API_BASE = CORE_API_URL
   ? `${CORE_API_URL.replace(/\/$/, '')}/api/v1`
@@ -1194,9 +1201,9 @@ export const api = {
       const insights = data.groups.map(mapRiskInsightGroupToInsight);
       return {
         insights,
-        total: Number(data.total) ?? 0,
-        page: Number(data.page) ?? 1,
-        pageSize: Number(data.pageSize) ?? 20,
+        total: numberOr(data.total, 0),
+        page: numberOr(data.page, 1),
+        pageSize: numberOr(data.pageSize, 20),
         view: 'group',
       };
     }
@@ -1282,9 +1289,9 @@ export const api = {
     });
     return {
       insights,
-      total: Number(data.total) ?? 0,
-      page: Number(data.page) ?? 1,
-      pageSize: Number(data.pageSize) ?? 20,
+      total: numberOr(data.total, 0),
+      page: numberOr(data.page, 1),
+      pageSize: numberOr(data.pageSize, 20),
       view: 'instance',
     };
   },
@@ -1559,9 +1566,9 @@ export const api = {
     const pods = (data.pods || []).map((p: Record<string, unknown>) => mapApiPodToPodWithRisk(p));
     return {
       pods,
-      total: Number(data.total) ?? pods.length,
-      page: Number(data.page) ?? 1,
-      pageSize: Number(data.pageSize) ?? 50,
+      total: numberOr(data.total, pods.length),
+      page: numberOr(data.page, 1),
+      pageSize: numberOr(data.pageSize, 50),
     };
   },
 
@@ -1594,8 +1601,8 @@ export const api = {
       return {
         pods,
         total: requireFiniteNumber(data.total, 'pod_inventory_invalid_response', 'total'),
-        page: Number(data.page) ?? 1,
-        pageSize: Number(data.pageSize) ?? 50,
+        page: numberOr(data.page, 1),
+        pageSize: numberOr(data.pageSize, 50),
       };
   },
 
@@ -1911,7 +1918,7 @@ export const api = {
       });
       return {
         rule,
-        matchCount: Number(data.matchCount) ?? 0,
+        matchCount: numberOr(data.matchCount, 0),
         recentMatches,
       };
     } catch {
@@ -2212,9 +2219,9 @@ export const api = {
     });
     return {
       logs,
-      total: Number(data.total) ?? 0,
-      page: Number(data.page) ?? 1,
-      pageSize: Number(data.pageSize) ?? 50,
+      total: numberOr(data.total, 0),
+      page: numberOr(data.page, 1),
+      pageSize: numberOr(data.pageSize, 50),
     };
   },
 

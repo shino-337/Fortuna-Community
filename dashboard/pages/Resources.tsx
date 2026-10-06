@@ -939,7 +939,7 @@ export const Resources: React.FC = () => {
             value={attackSummaryLoading ? '…' : attackPathScopeValue}
             icon={<Target className="w-5 h-5" />}
             tone="warning"
-            subtitle={selectedResource?.kind === 'Pod' ? 'Source paths / cluster total' : 'Cluster total, matches Attack Analysis'}
+            subtitle={selectedResource?.kind === 'Pod' ? 'Source paths / cluster total' : 'Cluster total, matches Attack Paths'}
           />
           <StatCard
             title="Critical paths"
@@ -1151,7 +1151,7 @@ export const Resources: React.FC = () => {
                       value={selectedAttackPathsLoading ? '…' : `${selectedAttackPaths.length.toLocaleString('en-US')} / ${totalAttackPathCount.toLocaleString('en-US')}`}
                       icon={<Target className="w-5 h-5" />}
                       tone="warning"
-                      subtitle="Matches Attack Analysis pod scope"
+                      subtitle="Matches Attack Paths pod scope"
                     />
                     <StatCard
                       title="Risk score"
@@ -1216,7 +1216,7 @@ export const Resources: React.FC = () => {
                               className="text-caption font-medium text-brand hover:underline"
                               onClick={() => navigate(`/attack-paths?podUid=${encodeURIComponent(selectedResource.pod.uid)}`)}
                             >
-                              Open same pod scope in Attack Analysis
+                              Open same pod scope in Attack Paths
                             </button>
                           </div>
                           <div className="mt-2 space-y-2">

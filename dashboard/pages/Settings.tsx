@@ -395,7 +395,7 @@ export const Settings: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.settings}
-      description="Fortuna administration: users, cluster access and sessions. Risk scoring rules live under Rules & Catalog; security activity and audit logs under Audit."
+      description="Who can sign in, their role, cluster access and sessions. Your own password and sessions are under Account."
     >
       <div className="border-b border-border">
         <nav className="flex space-x-6 overflow-x-auto">

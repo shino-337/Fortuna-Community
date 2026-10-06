@@ -208,7 +208,7 @@ export const RiskDetail: React.FC = () => {
     return (
       <PageLayout title="Risk not found" description="The risk may have been resolved or removed.">
         <Button variant="secondary" onClick={() => navigate('/risks')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Risk Operations
+          <ArrowLeft className="w-4 h-4 mr-2" /> Back to Findings
         </Button>
       </PageLayout>
     );
@@ -264,7 +264,7 @@ export const RiskDetail: React.FC = () => {
             </Button>
           )}
           <Button variant="secondary" onClick={() => navigate('/risks')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Risk Operations
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Findings
           </Button>
         </div>
       }

@@ -23,7 +23,7 @@ const PIPELINE_META: Record<TelemetryPipeline, { label: string; impacts: string[
   agent_heartbeat: { label: 'Agent heartbeat', impacts: ['cluster health', 'agent coverage'] },
   runtime_events: { label: 'Runtime security events', impacts: ['runtime-confirmed findings', 'exploit validation'] },
   identity_inventory: { label: 'Identity / RBAC inventory', impacts: ['attack path graph', 'RBAC blast radius'] },
-  network_flows: { label: 'Network Activity', impacts: ['network topology graph', 'lateral movement edges'] },
+  network_flows: { label: 'Network activity', impacts: ['network topology graph', 'lateral movement edges'] },
   risk_scoring: { label: 'Risk scoring pipeline', impacts: ['severity counts', 'risk operations queue'] },
   graph_topology: { label: 'Graph topology sync', impacts: ['attack paths', 'dependency chains'] },
 };

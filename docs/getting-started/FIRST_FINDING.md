@@ -7,7 +7,7 @@ The expected path is pod → ServiceAccount → ClusterRoleBinding → ClusterRo
 ## Before you begin
 
 - Fortuna is running and has collected inventory from the selected cluster.
-- You can open the dashboard and inspect Attack Paths and Kubernetes Inventory.
+- You can open the dashboard and inspect Attack Paths and Inventory.
 - Your kubectl identity can create the fixture and impersonate a ServiceAccount for `auth can-i` checks.
 - Use the scenario files from your selected checkout; the commands below use the existing S2 object names.
 - Check `kubectl config current-context`. Stop if this is not your disposable lab.
@@ -47,7 +47,7 @@ kubectl get clusterrole cluster-admin -o yaml
 Wait for an inventory sync and graph/risk reconciliation. The current main Agent manifest sets `SYNC_INTERVAL` to `5m`; do not assume the dashboard updates immediately. Check pipeline health and the data timestamps if the workload is missing.
 
 1. Select the lab cluster in the dashboard.
-2. Find `fortuna-test/rbac-pod` in Kubernetes Inventory.
+2. Find `fortuna-test/rbac-pod` in Inventory.
 3. Inspect its ServiceAccount and RBAC evidence.
 4. Open Attack Paths and locate the path for this workload.
 5. Record the pod, ServiceAccount, binding, role, path classification, and evidence timestamp.

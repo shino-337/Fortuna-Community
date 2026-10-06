@@ -90,7 +90,7 @@ function classifyAttackPathIssue(error: unknown, fallbackTitle = 'Could not load
         kind: 'forbidden',
         title: 'Permission required',
         description: required
-          ? `Attack Analysis requires ${required}. Ask an administrator to update your Fortuna role or permissions.`
+          ? `Attack Paths requires ${required}. Ask an administrator to update your Fortuna role or permissions.`
           : 'Your account does not include permission for attack-path APIs.',
         detail: 'Core returned 403 forbidden.',
         actionLabel: 'Refresh',

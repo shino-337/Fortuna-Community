@@ -57,6 +57,7 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
   '/monitoring/notifications': [],
   '/governance': [],
   '/settings': [],
+  '/account': [],
 };
 
 const ALL_APP_ROUTES = [
@@ -88,6 +89,7 @@ const ALL_APP_ROUTES = [
   '/monitoring/notifications',
   '/governance',
   '/settings',
+  '/account',
 ];
 
 const IDENTITY: Record<
@@ -144,8 +146,9 @@ function expandRoutes(prefixes: string[]): Set<string> {
  * reachable whenever the user has the underlying read capability.
  */
 function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
+  // Every signed-in user manages their own password and sessions.
   if (ctx.personaId === 'user_admin') {
-    return can(ctx.user, P.usersRead) ? ['/settings'] : [];
+    return can(ctx.user, P.usersRead) ? ['/settings', '/account'] : ['/account'];
   }
 
   const routes = new Set<string>();
@@ -178,6 +181,7 @@ function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
   if (can(ctx.user, P.clusterCertificatesRotate)) routes.add('/monitoring/certificates');
   if (can(ctx.user, P.rulesRead)) routes.add('/rules/risk-scoring');
   if (can(ctx.user, P.usersRead)) routes.add('/settings');
+  routes.add('/account');
 
   return [...routes];
 }
@@ -213,6 +217,7 @@ export function materializeOperationalPlane(ctx: MaterializationContext): Materi
   if (shellVariant === 'user_admin') {
     routePrefixes.clear();
     routePrefixes.add('/settings');
+    routePrefixes.add('/account');
   }
 
   const allowedSet = expandRoutes([...routePrefixes]);

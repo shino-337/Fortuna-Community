@@ -45,7 +45,7 @@ export function useOperationalMaterialization(): MaterializedOperationalPlane & 
       signals,
     });
 
-    const navigation = buildMissionNavigation(personaId, plane);
+    const navigation = buildMissionNavigation(plane);
 
     return { ...plane, navigation };
   }, [user, personaId, clusters, selectedClusterId]);

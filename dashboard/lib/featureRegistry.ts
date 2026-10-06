@@ -47,7 +47,7 @@ export interface FeatureDefinition {
 export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   dashboard: {
     id: 'dashboard',
-    label: PAGE_TITLES.dashboard,
+    label: PAGE_TITLES.home,
     permissionsAny: [P.findingsRead],
     personas: ['viewer', 'operator', 'admin'],
     ownershipModel: 'clusterScoped',

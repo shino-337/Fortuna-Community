@@ -19,6 +19,7 @@ import {
   Share2,
   Briefcase,
   FileText,
+  UserRound,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useClusterStore } from '../../store/clusterStore';
@@ -27,7 +28,10 @@ import { DataControlBar } from '../DataControlBar';
 import { NotificationBell } from '../NotificationBell';
 import { getClusterDisplayName } from '../../lib/clusterDisplay';
 import { can, P } from '../../lib/permissions';
+import { fortunaRoleShortLabel } from '../../lib/fortunaRoles';
 import type { MissionNavSection } from '../../lib/personaMissionNavigation';
+import { useTimeWindowStore, TIME_WINDOW_OPTIONS } from '../../store/timeWindowStore';
+import { ShellBanner } from './ShellBanner';
 
 const NAV_ICONS: Record<string, React.ReactElement> = {
   dashboard: <LayoutDashboard size={18} />,
@@ -40,7 +44,7 @@ const NAV_ICONS: Record<string, React.ReactElement> = {
   rules: <ScrollText size={18} />,
   attackPaths: <Network size={18} />,
   monitoring: <Activity size={18} />,
-  governance: <ScrollText size={18} />,
+  governance: <FileText size={18} />,
   reports: <FileText size={18} />,
   settings: <Settings size={18} />,
 };
@@ -63,21 +67,18 @@ function navItemMatchesLocation(item: MissionNavSection['items'][number], pathna
 }
 
 export const ShellChrome: React.FC<{
-  identityLabel: string;
-  identityDescription: string;
   navSections: MissionNavSection[];
-  globalStrips?: React.ReactNode;
-  showClusterSelector?: boolean;
+  allowedRoutes: string[];
+  /** Cluster and time window controls; off for roles that never read cluster data. */
+  showScope?: boolean;
   showFindingSearch?: boolean;
-  showDataControl?: boolean;
+  showBanner?: boolean;
 }> = ({
-  identityLabel,
-  identityDescription,
   navSections,
-  globalStrips,
-  showClusterSelector = true,
+  allowedRoutes,
+  showScope = true,
   showFindingSearch = true,
-  showDataControl = true,
+  showBanner = true,
 }) => {
   const { user, logout } = useAuthStore();
   const { selectedClusterId, setSelectedClusterId } = useClusterStore();
@@ -86,6 +87,7 @@ export const ShellChrome: React.FC<{
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const { clusters, loading: clustersLoading, availabilityIssue: clusterAvailabilityIssue } = useClusters();
   const [clusterDropdownOpen, setClusterDropdownOpen] = useState(false);
+  const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const mainRef = useRef<HTMLElement | null>(null);
 
@@ -115,6 +117,11 @@ export const ShellChrome: React.FC<{
   const selectedClusterLabel = selectedClusterId
     ? getClusterDisplayName(clusters.find((c) => c.id === selectedClusterId) ?? { id: selectedClusterId })
     : 'All clusters';
+  const timeWindowMinutes = useTimeWindowStore((s) => s.valueMinutes);
+  const timeWindowLabel =
+    TIME_WINDOW_OPTIONS.find((o) => o.valueMinutes === timeWindowMinutes)?.label ?? `Last ${timeWindowMinutes}m`;
+  const accountName = user?.username || user?.email || 'Account';
+  const accountInitials = accountName.slice(0, 2).toUpperCase();
 
   const handleLogout = () => {
     logout();
@@ -132,6 +139,7 @@ export const ShellChrome: React.FC<{
 
   useEffect(() => {
     setClusterDropdownOpen(false);
+    setAccountMenuOpen(false);
     setIsMobileMenuOpen(false);
   }, [location.pathname, location.search]);
 
@@ -157,20 +165,26 @@ export const ShellChrome: React.FC<{
         type="button"
         onClick={() => setClusterDropdownOpen((o) => !o)}
         className="flex h-10 w-full min-w-0 items-center gap-2 rounded-lg border border-border bg-surface/80 px-3 text-body text-text transition-colors hover:border-muted hover:bg-surface-2/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 lg:h-9"
-        aria-haspopup="listbox"
+        aria-haspopup="dialog"
         aria-expanded={clusterDropdownOpen}
+        aria-label={`Scope: ${selectedClusterLabel}, ${timeWindowLabel}`}
       >
         <Globe className="h-4 w-4 shrink-0 text-brand" aria-hidden />
-        <span className="min-w-0 flex-1 truncate text-left">{selectedClusterLabel}</span>
+        <span className="min-w-0 flex-1 truncate text-left">
+          {selectedClusterLabel}
+          <span className="text-muted"> · {timeWindowLabel}</span>
+        </span>
         <ChevronDown className="h-4 w-4 shrink-0 text-muted" aria-hidden />
       </button>
 
       {clusterDropdownOpen ? (
         <div
-            className="absolute right-0 top-[calc(100%+0.5rem)] z-popover w-full min-w-[18rem] overflow-hidden rounded-lg border border-border bg-surface shadow-xl shadow-black/30"
-          role="listbox"
-          aria-label="Select cluster scope"
+            className="absolute left-0 top-[calc(100%+0.5rem)] z-popover w-[24rem] max-w-[calc(100vw-2rem)] overflow-hidden rounded-lg border border-border bg-surface shadow-xl shadow-black/30"
+          role="dialog"
+          aria-label="Scope"
         >
+          <p className="px-3 pt-3 pb-1 text-micro font-semibold uppercase tracking-wide text-muted">Cluster</p>
+          <div role="listbox" aria-label="Select cluster scope">
           <button
             type="button"
             role="option"
@@ -217,6 +231,11 @@ export const ShellChrome: React.FC<{
               </div>
             )}
           </div>
+          </div>
+          <div className="border-t border-border/70 p-3">
+            <p className="pb-2 text-micro font-semibold uppercase tracking-wide text-muted">Time window and refresh</p>
+            <DataControlBar className="!border-0 !bg-transparent !p-0" />
+          </div>
         </div>
       ) : null}
     </div>
@@ -239,32 +258,70 @@ export const ShellChrome: React.FC<{
           value={globalSearchQuery}
           onChange={(e) => setGlobalSearchQuery(e.target.value)}
           placeholder="Search findings"
-          className="h-10 w-full rounded-lg border border-border bg-surface px-9 text-body text-text placeholder:text-muted focus:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/50 lg:h-9"
+          aria-label="Search findings"
+          className="h-10 w-full rounded-lg border border-border bg-surface pl-9 pr-3 text-body text-text placeholder:text-muted focus:outline-none focus-visible:border-brand focus-visible:ring-2 focus-visible:ring-brand/50 lg:h-9"
         />
       </div>
-      <button
-        type="submit"
-        className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-surface/80 text-muted transition-colors hover:border-muted hover:bg-surface-2 hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 disabled:cursor-not-allowed disabled:opacity-50 lg:h-9 lg:w-9"
-        disabled={!globalSearchQuery.trim()}
-        aria-label="Run findings search"
-      >
-        <Search className="h-4 w-4" aria-hidden />
-      </button>
     </form>
+  );
+
+  const renderAccountMenu = () => (
+    <div className="relative shrink-0">
+      <button
+        type="button"
+        onClick={() => setAccountMenuOpen((o) => !o)}
+        aria-haspopup="menu"
+        aria-expanded={accountMenuOpen}
+        aria-label={`Account menu for ${accountName}`}
+        className="flex h-10 w-10 items-center justify-center rounded-full border border-border bg-surface-2 text-caption font-semibold text-text transition-colors hover:border-muted focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 lg:h-9 lg:w-9"
+      >
+        {accountInitials}
+      </button>
+      {accountMenuOpen ? (
+        <div
+          role="menu"
+          aria-label="Account"
+          className="absolute right-0 top-[calc(100%+0.5rem)] z-popover w-60 overflow-hidden rounded-lg border border-border bg-surface shadow-xl shadow-black/30"
+        >
+          <div className="border-b border-border/70 px-3 py-3">
+            <p className="truncate text-body font-semibold text-text">{accountName}</p>
+            <p className="text-caption text-muted">{fortunaRoleShortLabel(user?.role)}</p>
+          </div>
+          {allowedRoutes.includes('/account') ? (
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => navigate('/account')}
+              className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-body text-text hover:bg-surface-2 focus:outline-none focus-visible:bg-surface-2"
+            >
+              <UserRound className="h-4 w-4 text-muted" aria-hidden /> Account
+            </button>
+          ) : null}
+          <button
+            type="button"
+            role="menuitem"
+            onClick={handleLogout}
+            className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-body text-text hover:bg-critical/10 hover:text-critical focus:outline-none focus-visible:bg-surface-2"
+          >
+            <LogOut className="h-4 w-4" aria-hidden /> Sign out
+          </button>
+        </div>
+      ) : null}
+    </div>
   );
 
   return (
     <div className="flex h-dvh min-w-0 overflow-hidden bg-base">
       <a
         href="#main-content"
-          className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-skip focus:rounded-md focus:bg-brand focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-white"
+        className="sr-only focus:not-sr-only focus:fixed focus:left-4 focus:top-4 focus:z-skip focus:rounded-md focus:bg-brand focus:px-4 focus:py-2.5 focus:text-sm focus:font-semibold focus:text-white"
       >
         Skip to main content
       </a>
 
       {isMobileMenuOpen ? (
         <div
-            className="fixed inset-0 z-overlay bg-surface/80 lg:hidden"
+          className="fixed inset-0 z-overlay bg-surface/80 lg:hidden"
           onClick={() => setIsMobileMenuOpen(false)}
         />
       ) : null}
@@ -273,29 +330,22 @@ export const ShellChrome: React.FC<{
         className={`fixed lg:static inset-y-0 left-0 z-50 w-64 bg-surface border-r border-border flex flex-col transform transition-transform duration-150 motion-reduce:transition-none ${
           isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
-        aria-label="Operational navigation"
+        aria-label="Main navigation"
       >
         <div className="h-16 flex items-center px-6 border-b border-border shrink-0">
           <img src="/logo.png" alt="" className="w-8 h-8 shrink-0" />
-          <div className="ml-3 min-w-0">
-            <span className="text-lg font-bold text-text block truncate">Fortuna</span>
-            <span className="text-meta text-muted block truncate">{identityLabel}</span>
-          </div>
-            <button
-              type="button"
-              className="ml-auto rounded-lg p-1 text-muted transition-colors hover:bg-surface-2/50 hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 lg:hidden"
-              onClick={() => setIsMobileMenuOpen(false)}
-              aria-label="Close menu"
-            >
+          <span className="ml-3 min-w-0 truncate text-lg font-bold text-text">Fortuna</span>
+          <button
+            type="button"
+            className="ml-auto rounded-lg p-1 text-muted transition-colors hover:bg-surface-2/50 hover:text-text focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 lg:hidden"
+            onClick={() => setIsMobileMenuOpen(false)}
+            aria-label="Close menu"
+          >
             <X size={20} />
           </button>
         </div>
 
-        <p className="shrink-0 px-4 pt-3 pb-2 text-meta text-muted-2 leading-snug">
-          {identityDescription}
-        </p>
-
-        <nav className="flex-1 min-h-0 px-4 pt-2 pb-4 space-y-4 overflow-y-auto">
+        <nav className="flex-1 min-h-0 px-4 pt-4 pb-4 space-y-4 overflow-y-auto">
           {navSections.map((section) => (
             <div key={section.title}>
               <p className="px-3 text-caption font-bold text-muted uppercase tracking-wide mb-2">{section.title}</p>
@@ -313,9 +363,7 @@ export const ShellChrome: React.FC<{
                         `flex items-center px-3 py-2.5 rounded-lg text-body font-medium border transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60 ${
                           itemActive
                             ? 'bg-brand/15 text-text border-brand/40'
-                            : item.highlight
-                              ? 'text-text bg-amber-500/10 border-amber-500/30'
-                              : 'text-muted border-transparent hover:bg-surface/80'
+                            : 'text-muted border-transparent hover:bg-surface/80'
                         }`
                       }
                     >
@@ -328,33 +376,15 @@ export const ShellChrome: React.FC<{
             </div>
           ))}
         </nav>
-
-        <div className="shrink-0 border-t border-border p-4 lg:hidden">
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-border bg-surface/80 py-2.5 text-body font-medium text-muted transition-colors hover:border-critical/30 hover:bg-critical/5 hover:text-critical focus:outline-none focus-visible:ring-2 focus-visible:ring-critical/70"
-            >
-            <LogOut size={16} /> Sign out
-          </button>
-        </div>
       </aside>
 
       <div className="flex min-h-0 flex-1 flex-col min-w-0">
-        <header className="relative z-dropdown hidden h-16 shrink-0 items-center justify-end gap-2 overflow-visible border-b border-border bg-base/70 px-6 backdrop-blur-md lg:flex">
-          <div className="flex min-w-0 flex-1 items-center justify-end gap-2 overflow-visible">
-            {showClusterSelector ? renderClusterSelector('w-[13rem] xl:w-[14rem]') : null}
-            {canSearchFindings ? renderFindingSearch('w-[14rem] xl:w-[17rem]') : null}
-            {showDataControl ? <DataControlBar compact className="h-9 !flex-nowrap overflow-hidden !py-0" /> : null}
+        <header className="relative z-dropdown hidden h-16 shrink-0 items-center gap-3 overflow-visible border-b border-border bg-base/70 px-6 backdrop-blur-md lg:flex">
+          {showScope ? renderClusterSelector('w-[17rem] xl:w-[19rem]') : null}
+          {canSearchFindings ? renderFindingSearch('w-full max-w-[26rem]') : null}
+          <div className="ml-auto flex shrink-0 items-center gap-2">
             {canReadNotifications ? <NotificationBell /> : null}
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="flex h-9 shrink-0 items-center gap-1.5 rounded-lg px-2.5 text-caption text-muted transition-colors hover:bg-critical/10 hover:text-critical focus:outline-none focus-visible:ring-2 focus-visible:ring-critical/60"
-            >
-              <LogOut size={14} aria-hidden />
-              Sign out
-            </button>
+            {renderAccountMenu()}
           </div>
         </header>
 
@@ -369,15 +399,13 @@ export const ShellChrome: React.FC<{
           </button>
           <span className="min-w-0 flex-1 truncate font-semibold text-text">Fortuna</span>
           {canReadNotifications ? <NotificationBell /> : null}
+          {renderAccountMenu()}
         </header>
 
-        {(showClusterSelector || canSearchFindings || showDataControl) ? (
-          <div className="space-y-2 border-b border-border bg-base/80 px-4 py-3 lg:hidden">
-            <div className="grid gap-2 sm:grid-cols-2">
-              {showClusterSelector ? renderClusterSelector() : null}
-              {canSearchFindings ? renderFindingSearch() : null}
-            </div>
-            {showDataControl ? <DataControlBar /> : null}
+        {(showScope || canSearchFindings) ? (
+          <div className="grid gap-2 border-b border-border bg-base/80 px-4 py-3 sm:grid-cols-2 lg:hidden">
+            {showScope ? renderClusterSelector() : null}
+            {canSearchFindings ? renderFindingSearch() : null}
           </div>
         ) : null}
 
@@ -389,17 +417,19 @@ export const ShellChrome: React.FC<{
             location.pathname === '/network-activity' ? 'lg:overflow-hidden' : ''
           } outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/50`}
         >
-          {globalStrips}
+          {showBanner ? <ShellBanner allowedRoutes={allowedRoutes} /> : null}
           <Outlet />
         </main>
-
-        <footer className="shrink-0 border-t border-border py-2 text-center text-caption text-muted">
-          Fortuna · {identityLabel}
-        </footer>
       </div>
 
-      {showClusterSelector && clusterDropdownOpen ? (
-          <div className="fixed inset-0 z-overlay" onClick={() => setClusterDropdownOpen(false)} />
+      {(showScope && clusterDropdownOpen) || accountMenuOpen ? (
+        <div
+          className="fixed inset-0 z-overlay"
+          onClick={() => {
+            setClusterDropdownOpen(false);
+            setAccountMenuOpen(false);
+          }}
+        />
       ) : null}
     </div>
   );

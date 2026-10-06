@@ -37,9 +37,7 @@ import { AttackPathGraph } from '../components/AttackPathGraph';
 import { GraphVisibilityOverlay } from '../components/GraphVisibilityOverlay';
 import { GraphSemanticBanner } from '../components/GraphSemanticBanner';
 import { useFeatureVisibility } from '../hooks/useVisibility';
-import { IncidentModeBanner } from '../components/IncidentModeBanner';
 import { IncidentPriorityStrip } from '../components/IncidentPriorityStrip';
-import { RuntimeThreatStrip } from '../components/RuntimeThreatStrip';
 import { useIncidentMode } from '../hooks/useIncidentMode';
 import { useGraphTrustContext } from '../hooks/useGraphTrustContext';
 import { ShieldAlert, ArrowRight, Shield, Info, Target, Zap, Check, GitBranch, Eye, PanelRight, X, KeyRound, Route } from 'lucide-react';
@@ -788,8 +786,7 @@ export const Dashboard: React.FC = () => {
 
   const { id: personaId, profile } = usePersona();
   const { shellVariant, dashboardSections, identityLabel } = useOperationalMaterialization();
-  const homeTitle =
-    shellVariant === 'admin' ? PAGE_TITLES.homeAdmin : shellVariant === 'operator' ? PAGE_TITLES.homeOperator : PAGE_TITLES.homeViewer;
+  const homeTitle = PAGE_TITLES.home;
   const { user: opUser, ownership, telemetry } = useOperationalContext();
   const bootstrapLoadPolicy = useMemo(
     () => buildDashboardLoadPolicy(opUser, getPersonaWidgetCandidates(personaId)),
@@ -1279,7 +1276,7 @@ export const Dashboard: React.FC = () => {
   return (
     <PageLayout
       title={homeTitle}
-      description={`${identityLabel}. Risk findings follow the header cluster and time window; inventory, capability, and graph data follow cluster scope.`}
+      description="What needs your attention in the selected clusters and time window."
       actions={
         <div className="flex items-center gap-2">
           {isRefreshing ? (
@@ -1292,8 +1289,6 @@ export const Dashboard: React.FC = () => {
       }
     >
       <div className="space-y-6">
-      <IncidentModeBanner />
-      <RuntimeThreatStrip />
       <IncidentPriorityStrip
         criticalCount={criticalRiskFindingCount}
         attackPathCount={attackPathCount}

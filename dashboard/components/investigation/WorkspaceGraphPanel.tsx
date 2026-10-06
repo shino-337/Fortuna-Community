@@ -20,7 +20,7 @@ export const WorkspaceGraphPanel: React.FC<{ activeCase: InvestigationCase }> = 
   return (
     <div className="space-y-4">
       <p className="text-caption text-muted">
-        Active graph scope follows this case. Open Attack Analysis for full topology with trust semantics.
+        Active graph scope follows this case. Open Attack Paths for full topology with trust semantics.
       </p>
       <div className="rounded-lg border border-border bg-base/30 p-3 text-caption space-y-2">
         <p>
