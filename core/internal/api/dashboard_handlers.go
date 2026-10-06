@@ -148,6 +148,7 @@ type RiskFilter struct {
 	ClusterID         string   `form:"clusterId"`
 	ScopedClusterIDs  []string `form:"-"`
 	ResourceNamespace string   `form:"resourceNamespace"` // namespace filter (Phase 1)
+	ResourceUID       string   `form:"resourceUid"`       // one resource (e.g. a pod), for links from pod detail, Network and Attack Paths
 	// SinceMinutes: when > 0, only insights with detected_at >= now - sinceMinutes.
 	// Not applied when Type is vulnerability or supply_chain_malware (SBOM-derived; detected_at is first-seen, not recurring).
 	SinceMinutes int    `form:"sinceMinutes"`
@@ -285,6 +286,9 @@ func insightsListApplyFilters(query *gorm.DB, db *gorm.DB, filter RiskFilter, st
 	}
 	if strings.TrimSpace(filter.ResourceNamespace) != "" {
 		query = query.Where("insights.resource_namespace = ?", strings.TrimSpace(filter.ResourceNamespace))
+	}
+	if uid := strings.TrimSpace(filter.ResourceUID); uid != "" {
+		query = query.Where("insights.resource_uid = ?", uid)
 	}
 	if filter.Search != "" {
 		search := "%" + strings.ToLower(filter.Search) + "%"
@@ -652,6 +656,7 @@ func GetInsightsListCached(db *gorm.DB) gin.HandlerFunc {
 		key = authorizationCacheKey(c, key) + ":bin=" + strconv.FormatBool(hasScoreBin)
 		// "me" differs per caller, so the resolved user id is part of the key.
 		key += ":assignee=" + filter.Assignee + ":" + strconv.FormatUint(uint64(filter.AssigneeUserID), 10)
+		key += ":uid=" + strconv.Quote(strings.TrimSpace(filter.ResourceUID))
 		if b, ok := defaultRisksCache.Get(key); ok {
 			c.Data(http.StatusOK, "application/json", b)
 			return

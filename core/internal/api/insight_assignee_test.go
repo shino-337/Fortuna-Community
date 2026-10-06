@@ -164,3 +164,16 @@ func TestInsightsListAssigneeFilter(t *testing.T) {
 	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/risk/insights?assignee=someone", nil))
 	require.Equal(t, http.StatusBadRequest, w.Code)
 }
+
+func TestInsightsListResourceUIDFilter(t *testing.T) {
+	db := assigneeDB(t)
+	r := assigneeRouter(db, operatorIn(11, "mai", `["c1","c2"]`))
+
+	one := getJSON(t, r, "/risk/insights?resourceUid=pod-c2")
+	require.Equal(t, float64(1), one["total"])
+	require.Equal(t, "pod-c2", one["insights"].([]any)[0].(map[string]any)["resourceUid"])
+
+	// The filter narrows within the caller's scope; it never widens it.
+	scoped := assigneeRouter(db, operatorIn(12, "an", `["c1"]`))
+	require.Equal(t, float64(0), getJSON(t, scoped, "/risk/insights?resourceUid=pod-c2")["total"])
+}

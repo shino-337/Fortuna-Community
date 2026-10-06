@@ -64,7 +64,7 @@ Exception lists and mutations enforce resource ownership through retained pod re
 Notifications are derived from current data each time the list is read:
 
 - **Findings:** an open finding raises an alert when its risk level is high or critical. The alert's severity is that risk level, the text gives the score (and the rule severity when it differs), and it opens the finding (`/risks/:id`). Stored finding alerts are re-checked on every read: they take the finding's current level, and they are removed when the finding is resolved, dismissed, deleted or rescored below high, or when its pod is gone.
-- **Attack paths:** a path with risk 7.0/10 or more raises a high alert, 9.0 or more a critical one, matching the Attack Paths page.
+- **Attack paths:** a path's level comes from its 0-10 risk: 9.0+ critical, 7.0+ high, 4.0+ medium, else low. The Attack Paths page (cards and counts) and the alerts use these bands; a high or critical path raises an alert.
 - **CVEs and malware:** the alert carries the CVE severity (critical or high) or the package verdict, and opens the pod's SBOM tab, where the same CVE or package is listed.
 
 Stored alerts also take a refreshed title, text and link when their source changes; read state is kept.

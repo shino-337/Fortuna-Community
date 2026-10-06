@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } from 'react';
+import { attackPathsForPodPath } from '../lib/entityLinks';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Box, UserCog, Scroll, Key, RefreshCw, Link2, LayoutGrid, Shield, Target, AlertTriangle, Zap, PanelRight, Boxes } from 'lucide-react';
 import { Card } from '../design-system/components/Card';
@@ -1214,9 +1215,9 @@ export const Resources: React.FC = () => {
                             <button
                               type="button"
                               className="text-caption font-medium text-brand hover:underline"
-                              onClick={() => navigate(`/attack-paths?podUid=${encodeURIComponent(selectedResource.pod.uid)}`)}
+                              onClick={() => navigate(attackPathsForPodPath({ uid: selectedResource.pod.uid, clusterId: selectedResource.pod.clusterId ? String(selectedResource.pod.clusterId) : null }))}
                             >
-                              Open same pod scope in Attack Paths
+                              Open in Attack Paths
                             </button>
                           </div>
                           <div className="mt-2 space-y-2">

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
 	"github.com/fortuna/core/pkg/rbacinventory"
+	"github.com/fortuna/core/pkg/risk"
 )
 
 type SubjectReport struct {
@@ -42,17 +44,20 @@ type RoleReport struct {
 }
 
 type PodRiskReport struct {
-	PodUID            string                 `json:"podUid"`
-	PodName           string                 `json:"podName"`
-	Namespace         string                 `json:"namespace"`
-	ClusterID         string                 `json:"clusterId"`
-	ServiceAccount    string                 `json:"serviceAccount"`
-	ServiceAccountUID string                 `json:"serviceAccountUid"`
-	Bindings          []BindingReport        `json:"bindings"`
-	Roles             []RoleReport           `json:"roles"`
-	Insights          []models.Insight       `json:"insights"`
-	InsightsTruncated bool                   `json:"insightsTruncated,omitempty"` // Insights hit podReportMaxInsights
-	Summary           map[string]interface{} `json:"summary"`
+	PodUID            string           `json:"podUid"`
+	PodName           string           `json:"podName"`
+	Namespace         string           `json:"namespace"`
+	ClusterID         string           `json:"clusterId"`
+	ServiceAccount    string           `json:"serviceAccount"`
+	ServiceAccountUID string           `json:"serviceAccountUid"`
+	Bindings          []BindingReport  `json:"bindings"`
+	Roles             []RoleReport     `json:"roles"`
+	Insights          []models.Insight `json:"insights"`
+	InsightsTruncated bool             `json:"insightsTruncated,omitempty"` // Insights hit podReportMaxInsights
+	// InsightLevels maps finding id to its risk level (the band of its resource's preferred score), as on
+	// the Findings list. Findings whose resource has no score are absent.
+	InsightLevels map[string]string      `json:"insightLevels,omitempty"`
+	Summary       map[string]interface{} `json:"summary"`
 }
 
 // GetPodRiskReport builds a detailed RBAC risk report for a pod.
@@ -165,6 +170,14 @@ func GetPodRiskReport(db *gorm.DB) gin.HandlerFunc {
 				log.Printf("[GetPodRiskReport] Failed to load insights: %v", err)
 			}
 			report.Insights, report.InsightsTruncated = listlimit.Trim(report.Insights, podReportMaxInsights)
+		}
+		if scores := preferredScoresForInsights(db, report.Insights); len(scores) > 0 {
+			report.InsightLevels = map[string]string{}
+			for _, ins := range report.Insights {
+				if s, ok := scores[riskScoreKey(ins.ClusterID, ins.ResourceUID)]; ok {
+					report.InsightLevels[strconv.FormatUint(uint64(ins.ID), 10)] = risk.DeriveFinalLevelFromScore(s)
+				}
+			}
 		}
 
 		// Align with risk engine / UI: 24h runtime signal window (same default as FORTUNA_RUNTIME_RISK_LOOKBACK_HOURS).

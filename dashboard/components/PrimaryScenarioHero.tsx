@@ -123,6 +123,8 @@ export const PrimaryScenarioHero: React.FC<{
   scenarioOrdinal: number;
   visibleScenarioCount: number;
   onVisualize: () => void;
+  /** Findings on the scenario's entry workload, in its cluster; the link is hidden without it. */
+  findingsHref?: string;
   /** Opens Technical Evidence tab (parent switches tab + may scroll). */
   onOpenTechnical?: () => void;
   /** 1-based attack step aligned with graph edge stepIndex where mapped. */
@@ -133,6 +135,7 @@ export const PrimaryScenarioHero: React.FC<{
   scenarioOrdinal,
   visibleScenarioCount,
   onVisualize,
+  findingsHref,
   onOpenTechnical,
   highlightedStepIndex,
   onStepClick,
@@ -564,13 +567,15 @@ export const PrimaryScenarioHero: React.FC<{
             Technical evidence
           </button>
         )}
-        {/* Navigation bridge: Attack Path → Risk Center */}
+        {/* Navigation bridge: Attack Path → findings on the entry workload */}
+        {findingsHref ? (
         <Link
-          to={`/risks/findings?attackPath=true`}
+          to={findingsHref}
           className="px-5 py-2 rounded border border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/15 text-amber-300 font-semibold text-body transition-colors duration-150 motion-reduce:transition-none flex items-center gap-2"
         >
-          <ShieldAlert size={16} /> View related findings
+          <ShieldAlert size={16} /> Findings on the entry pod
         </Link>
+        ) : null}
       </div>
     </div>
   );

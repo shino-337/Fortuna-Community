@@ -28,6 +28,7 @@ import { Button } from '../components/ui/Button';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { PodNetworkSummary } from '../components/PodNetworkSummary';
 import { useOperationalMaterialization } from '../hooks/useOperationalMaterialization';
+import { attackPathsForPodPath, findingsForResourcePath, networkForPodPath } from '../lib/entityLinks';
 import { ArrowLeft, Box, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
@@ -111,10 +112,7 @@ const PodDetailContent: React.FC = () => {
   const { allowedRoutes } = useOperationalMaterialization();
   const runtimeNetworkLink = useMemo(() => {
     if (!pod?.uid || !allowedRoutes.includes('/network-activity')) return null;
-    const qs = new URLSearchParams({ tab: 'connections', podUid: pod.uid });
-    if (pod.clusterId) qs.set('clusterId', String(pod.clusterId));
-    if (pod.namespace) qs.set('namespace', pod.namespace);
-    return `/network-activity?${qs.toString()}`;
+    return networkForPodPath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }, pod.namespace || undefined);
   }, [pod?.uid, pod?.clusterId, pod?.namespace, allowedRoutes]);
   const [sbom, setSbom] = useState<PodSbom | null>(null);
   const [relatedRisks, setRelatedRisks] = useState<Insight[]>([]);
@@ -976,7 +974,17 @@ const PodDetailContent: React.FC = () => {
                     <span className="text-muted shrink-0">Attack-path context</span>
                     <span className="font-mono font-medium text-text uppercase">{pod.riskSignals.maxImpact}</span>
                     {pod.riskSignals.hasAttackPath && (pod.riskSignals.pathCount ?? 0) > 0 ? (
-                      <span className="text-muted">({pod.riskSignals.pathCount} path{pod.riskSignals.pathCount !== 1 ? 's' : ''})</span>
+                      allowedRoutes.includes('/attack-paths') ? (
+                        <button
+                          type="button"
+                          className="text-brand hover:underline"
+                          onClick={() => navigate(attackPathsForPodPath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}
+                        >
+                          {pod.riskSignals.pathCount} path{pod.riskSignals.pathCount !== 1 ? 's' : ''}
+                        </button>
+                      ) : (
+                        <span className="text-muted">({pod.riskSignals.pathCount} path{pod.riskSignals.pathCount !== 1 ? 's' : ''})</span>
+                      )
                     ) : null}
                   </div>
                   {pod.riskSignals.summary ? <p className="text-muted max-w-xl leading-snug">{pod.riskSignals.summary}</p> : null}
@@ -1279,14 +1287,7 @@ const PodDetailContent: React.FC = () => {
               <div className="mt-3 flex flex-wrap gap-3 text-body">
                 <button
                   type="button"
-                  onClick={() => {
-                    const ns = pod.namespace || '';
-                    const name = pod.name || '';
-                    const params = new URLSearchParams();
-                    if (ns) params.set('resourceNamespace', ns);
-                    if (name) params.set('search', name);
-                    navigate(`/risks?${params.toString()}`);
-                  }}
+                  onClick={() => navigate(findingsForResourcePath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}
                   className="inline-flex items-center px-2.5 py-1.5 rounded bg-base border border-border text-text hover:border-brand"
                 >
                   View findings for this pod
@@ -2526,9 +2527,14 @@ const PodDetailContent: React.FC = () => {
               View node
             </Button>
           )}
-          <Button variant="secondary" size="sm" onClick={() => navigate('/risks')}>
-            View all risks
+          <Button variant="secondary" size="sm" onClick={() => navigate(findingsForResourcePath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}>
+            Findings on this pod
           </Button>
+          {allowedRoutes.includes('/attack-paths') ? (
+            <Button variant="secondary" size="sm" onClick={() => navigate(attackPathsForPodPath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}>
+              Attack paths
+            </Button>
+          ) : null}
           <Button variant="secondary" size="sm" onClick={() => navigate('/rules/catalog')}>
             Capabilities
           </Button>
