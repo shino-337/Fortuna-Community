@@ -722,6 +722,8 @@ export interface AttackPathSummary {
   criticalPaths: number;
   highPaths: number;
   mediumPaths: number;
+  /** Paths below 4.0/10; absent from older Core versions. */
+  lowPaths?: number;
   targetBreakdown: Record<string, number>;
   topPods: Array<{
     uid: string;

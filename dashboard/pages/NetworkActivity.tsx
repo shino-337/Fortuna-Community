@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useId, useRef } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import {
   RefreshCw,
   Share2,
@@ -42,6 +42,8 @@ import type {
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import type { SemanticVisibilityState } from '../lib/visibilityEngine';
 import { podDetailPath } from '../lib/podRoute';
+import { attackPathsForPodPath, findingsForResourcePath } from '../lib/entityLinks';
+import { useOperationalMaterialization } from '../hooks/useOperationalMaterialization';
 
 type NetworkMainTab = 'topology' | 'pods' | 'connections';
 
@@ -871,6 +873,7 @@ export function NetworkActivity() {
   const confirm = useConfirm();
   const networkGraphTrust = useGraphTrustContext('network_activity');
   const navigate = useNavigate();
+  const { allowedRoutes } = useOperationalMaterialization();
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
   const setSelectedClusterId = useClusterStore((s) => s.setSelectedClusterId);
   const { clusters } = useClusters();
@@ -1877,6 +1880,18 @@ export function NetworkActivity() {
                                   Open pod
                                 </Button>
                               ) : null}
+                              {topologySelection.kind === 'pod' ? (
+                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-1">
+                                  <Link className="text-brand hover:underline" to={findingsForResourcePath({ uid: topologySelection.id.replace(/^pod:/, ''), clusterId: selectedClusterId })}>
+                                    Findings
+                                  </Link>
+                                  {allowedRoutes.includes('/attack-paths') ? (
+                                    <Link className="text-brand hover:underline" to={attackPathsForPodPath({ uid: topologySelection.id.replace(/^pod:/, ''), clusterId: selectedClusterId })}>
+                                      Attack paths
+                                    </Link>
+                                  ) : null}
+                                </div>
+                              ) : null}
                             </div>
                           ) : null}
                         </div>
@@ -1895,7 +1910,7 @@ export function NetworkActivity() {
                     posture={topologyPosture}
                     selection={topologySelection}
                     onClose={() => setLegendDrawerOpen(false)}
-                    onOpenPod={goPod}
+                    onOpenPod={(uid) => goPod(uid, selectedClusterId)}
                   />
                 </section>
               )}

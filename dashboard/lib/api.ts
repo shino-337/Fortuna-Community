@@ -575,7 +575,7 @@ function mapNotification(n: Record<string, unknown>): Notification {
   } as Notification;
 }
 
-type RiskExportParams = { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number; assignee?: 'me' | 'none' };
+type RiskExportParams = { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number; assignee?: 'me' | 'none'; resourceUid?: string };
 
 function riskExportPath(format: 'csv' | 'pdf', params?: RiskExportParams): string {
   const query = new URLSearchParams();
@@ -586,6 +586,7 @@ function riskExportPath(format: 'csv' | 'pdf', params?: RiskExportParams): strin
   if (params?.search?.trim()) query.set('search', params.search.trim());
   if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
   if (params?.assignee) query.set('assignee', params.assignee);
+  if (params?.resourceUid?.trim()) query.set('resourceUid', params.resourceUid.trim());
   const qs = query.toString();
   return qs ? `/risk/insights/export?${qs}` : '/risk/insights/export';
 }
@@ -1202,6 +1203,8 @@ export const api = {
     order?: 'asc' | 'desc';
     /** me: assigned to the signed-in user; none: nobody owns it yet. */
     assignee?: 'me' | 'none';
+    /** Findings on one resource (e.g. a pod UID). */
+    resourceUid?: string;
   }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number; view?: string }> => {
     const query = new URLSearchParams();
     if (params?.type) query.set('type', params.type);
@@ -1221,6 +1224,7 @@ export const api = {
     if (params?.sort) query.set('sort', params.sort);
     if (params?.sort && params.order) query.set('order', params.order);
     if (params?.assignee) query.set('assignee', params.assignee);
+    if (params?.resourceUid?.trim()) query.set('resourceUid', params.resourceUid.trim());
     const qs = query.toString();
     const url = qs ? `/risk/insights?${qs}` : '/risk/insights';
     const data = await request<{
@@ -2573,8 +2577,11 @@ export const api = {
       if (clusterId?.trim() && String(data.clusterId ?? '').trim() !== clusterId.trim()) {
         invalidResponse('pod_risk_report_cluster_identity_mismatch', 'Pod risk report response does not match the requested cluster');
       }
+      // Risk level per finding (score band of its resource), as on the Findings list; absent means no score.
+      const levels = (data.insightLevels && typeof data.insightLevels === 'object' ? data.insightLevels : {}) as Record<string, unknown>;
       const insights = data.insights.map((i: any) => ({
         id: String(i.id ?? ''),
+        finalLevel: typeof levels[String(i.id ?? '')] === 'string' ? String(levels[String(i.id ?? '')]) : undefined,
         cveId:
           i.cveId != null ? String(i.cveId) : i.cve_id != null ? String(i.cve_id) : undefined,
         affectedComponent:

@@ -53,6 +53,7 @@ type AttackPathSummary struct {
 	CriticalPaths   int            `json:"criticalPaths"`
 	HighPaths       int            `json:"highPaths"`
 	MediumPaths     int            `json:"mediumPaths"`
+	LowPaths        int            `json:"lowPaths"`
 	TargetBreakdown map[string]int `json:"targetBreakdown"` // target role name → count
 	TopPods         []RiskyPod     `json:"topPods"`
 }
@@ -883,13 +884,16 @@ func (b *RelationalPathBuilder) summarizePaths(ctx context.Context, paths []Atta
 	podInfoMap := map[string]RiskyPod{}
 
 	for _, p := range paths {
-		switch {
-		case p.TotalRisk >= 9.0:
+		// Same bands as the stored path label, the Attack Paths page and attack-path alerts.
+		switch classifyRiskLabel(p.TotalRisk) {
+		case "critical":
 			summary.CriticalPaths++
-		case p.TotalRisk >= 7.0:
+		case "high":
 			summary.HighPaths++
-		default:
+		case "medium":
 			summary.MediumPaths++
+		default:
+			summary.LowPaths++
 		}
 
 		// Target = last node
@@ -1219,6 +1223,7 @@ func bindingRefersToSA(subjectsJSON, saName, saNamespace string) bool {
 	return false
 }
 
+// classifyRiskLabel bands a path's 0-10 total_risk: 9+ critical, 7+ high, 4+ medium, else low.
 func classifyRiskLabel(score float64) string {
 	if score >= 9.0 {
 		return "critical"

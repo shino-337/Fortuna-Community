@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { PrimaryScenarioHero } from '../components/PrimaryScenarioHero';
 import { AttackStepsTimeline } from '../components/AttackStepsTimeline';
-import { deriveUnifiedRiskLevelFromScore, getSeverityTextClass } from '../lib/severity';
+import { getSeverityTextClass } from '../lib/severity';
 import {
   groupChains,
   groupPrimitivePaths,
@@ -37,6 +37,7 @@ import {
 } from '../lib/attackPathNarrative';
 import { attackPathConfidenceLane, type AttackPathConfidenceLane } from '../lib/attackPathConfidence';
 import { AddToCaseButton } from '../components/AddToCaseButton';
+import { findingsForResourcePath } from '../lib/entityLinks';
 import { attackPathInvestigationEntity } from '../lib/investigationEntities';
 import { AttackPathPriorityList } from '../components/AttackPathPriorityList';
 import { GraphSemanticLegend } from '../components/GraphSemanticLegend';
@@ -169,7 +170,8 @@ function topItems(items: unknown[], max = 3): string[] {
   return items.map((x) => String(x || '').trim()).filter(Boolean).slice(0, max);
 }
 
-function riskLabel(score: number): string {
+/** Path level from a path's 0-10 total_risk: 9+ critical, 7+ high, 4+ medium, else low (matches Core's classifyRiskLabel). */
+function riskLabel(score: number): 'critical' | 'high' | 'medium' | 'low' {
   if (score >= 9) return 'critical';
   if (score >= 7) return 'high';
   if (score >= 4) return 'medium';
@@ -207,12 +209,7 @@ function getTechniqueStepIndex(edgeType: string, techniques?: any[]): number | u
 function buildGraphDataFromPrimitivePaths(paths: AttackPath[], techniques?: any[]): AttackPathGraphData {
   const nodeMap = new Map<string, AttackPathGraphData['nodes'][0]>();
   const linkMap = new Map<string, AttackPathGraphData['links'][0]>();
-  const riskFromScore = (totalRisk: number) => {
-    if (totalRisk >= 9) return 'critical';
-    if (totalRisk >= 7) return 'high';
-    if (totalRisk >= 4) return 'medium';
-    return 'low';
-  };
+  const riskFromScore = riskLabel;
   const addPathId = (target: { pathIds?: string[] }, pathId: string) => {
     const next = new Set(target.pathIds ?? []);
     next.add(pathId);
@@ -645,6 +642,16 @@ export const AttackPaths: React.FC = () => {
     setHighlightedStepIndex(null);
   }, [selectedScenarioKey]);
 
+  // ?path= (attack-path alerts) opens the scenario that contains that path, once per link.
+  const pathParam = searchParams.get('path') || '';
+  const appliedPathParamRef = useRef('');
+  useEffect(() => {
+    if (!pathParam || appliedPathParamRef.current === pathParam || groupedScenarios.length === 0) return;
+    const scenario = groupedScenarios.find((s) => s.variants.some((c) => Array.isArray(c.paths) && c.paths.includes(pathParam)));
+    appliedPathParamRef.current = pathParam;
+    if (scenario) setSelectedScenarioKey(scenario.key);
+  }, [pathParam, groupedScenarios]);
+
   const { highlightedNodeIds, highlightedEdgeKeys } = useMemo(() => {
     const targetPathId = hoveredPathId || clickedPathId;
     if (!targetPathId) return { highlightedNodeIds: undefined, highlightedEdgeKeys: undefined };
@@ -782,12 +789,13 @@ export const AttackPaths: React.FC = () => {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-2 md:grid-cols-3 xl:grid-cols-6">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 xl:grid-cols-7">
             <StatCard icon={<Target size={14} className="text-brand" />} label="Scenario groups" value={visibleScenarios.length} accent="yellow" />
             <StatCard icon={<Layers size={14} className="text-red-400" />} label="Visible paths" value={`${visiblePathCount}/${totalPathCount || '—'}`} />
             <StatCard icon={<AlertTriangle size={14} className="text-red-400" />} label="Critical" value={summary?.criticalPaths ?? '—'} accent="red" />
             <StatCard icon={<Zap size={14} className="text-orange-400" />} label="High" value={summary?.highPaths ?? '—'} accent="orange" />
             <StatCard icon={<Shield size={14} className="text-yellow-400" />} label="Medium" value={summary?.mediumPaths ?? '—'} accent="yellow" />
+            <StatCard icon={<Shield size={14} className="text-muted" />} label="Low" value={summary?.lowPaths ?? '—'} />
             <StatCard icon={<Network size={14} className="text-muted" />} label="Low confidence" value={lowConfidenceScenarioCount} accent={lowConfidenceScenarioCount > 0 ? 'yellow' : undefined} />
           </div>
 
@@ -933,6 +941,10 @@ export const AttackPaths: React.FC = () => {
                       setHighlightedStepIndex((prev) => (prev === n ? null : n))
                     }
                     onOpenTechnical={() => setGraphExpanded(false)}
+                    findingsHref={(() => {
+                      const entry = podUidParam || currentScenario.representativeChain.source_id || '';
+                      return entry ? findingsForResourcePath({ uid: entry, clusterId: effectiveClusterId || null }) : undefined;
+                    })()}
                     onVisualize={() => {
                       setSelectedScenarioKey(currentScenario.key);
                       document.getElementById('graph-section')?.scrollIntoView({ behavior: 'smooth' });
@@ -1435,7 +1447,8 @@ const PathCard: React.FC<{
   onPointerEnter?: () => void;
   onPointerLeave?: () => void;
 }> = ({ path, isSelected, onSelect, onPointerEnter, onPointerLeave }) => {
-  const level = deriveUnifiedRiskLevelFromScore(path.total_risk * 10) || riskLabel(path.total_risk);
+  // Path level: the 0-10 path bands, the same as the counts above, the stored label and attack-path alerts.
+  const level = riskLabel(path.total_risk);
   const whyItMatters = buildWhyItMattersHuman(path);
   const weakLinks = weakLinksFromPath(path);
   const x = path.explainability;

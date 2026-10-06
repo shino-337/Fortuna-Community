@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { attackPathsForPodPath, findingsForResourcePath, podDetailPath } from '../../lib/entityLinks';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Loader2, Trash2, X } from 'lucide-react';
 import { Button } from '../../components/ui/Button';
@@ -63,9 +64,10 @@ function affectedAssets(findings: InvestigationLinkedFindingApi[], entities: Inv
     if (out.has(key)) continue;
     const links: Asset['links'] = [];
     if (f.resourceType === 'Pod' && f.resourceUid) {
-      const cluster = f.clusterId ? `?clusterId=${encodeURIComponent(f.clusterId)}` : '';
-      links.push({ label: 'Pod', to: `/resources/pods/uid/${encodeURIComponent(f.resourceUid)}${cluster}` });
-      links.push({ label: 'Attack paths', to: `/attack-paths?podUid=${encodeURIComponent(f.resourceUid)}` });
+      const pod = { uid: f.resourceUid, clusterId: f.clusterId };
+      links.push({ label: 'Pod', to: podDetailPath(pod.uid, pod.clusterId) });
+      links.push({ label: 'Findings', to: findingsForResourcePath(pod) });
+      links.push({ label: 'Attack paths', to: attackPathsForPodPath(pod) });
     }
     out.set(key, {
       key,

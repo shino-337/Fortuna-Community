@@ -239,6 +239,8 @@ export const RiskCenter: React.FC = () => {
   const [exportLoading, setExportLoading] = useState(false);
   const insightIdFromUrl = searchParams.get('insightId');
   const podUidFromEvidenceUrl = searchParams.get('podUid');
+  /** Set by links from pod detail, Network and Attack Paths: the queue narrowed to one workload. */
+  const resourceUidFilter = searchParams.get('resourceUid')?.trim() ?? '';
   const suppressedInsightOpenRef = React.useRef<string | null>(null);
 
   const sinceMinutesForApi = effectiveSinceMinutesNum ?? (timeWindowMinutes > 0 ? timeWindowMinutes : undefined);
@@ -357,6 +359,7 @@ export const RiskCenter: React.FC = () => {
       search: debouncedSearchTerm || undefined,
       clusterId: clusterId ?? undefined,
       namespace: debouncedNamespaceFilter || undefined,
+      resourceUid: resourceUidFilter || undefined,
       type: typeFilter || undefined,
       sinceMinutes,
       // Always ask for scores: the level badge is the risk level from the score, whatever the sort.
@@ -411,6 +414,7 @@ export const RiskCenter: React.FC = () => {
     riskSort,
     riskLevelFilter,
     debouncedNamespaceFilter,
+    resourceUidFilter,
     typeFilter,
     activeTab,
     findingsListView,
@@ -494,7 +498,7 @@ export const RiskCenter: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, riskSort]);
+  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, resourceUidFilter, typeFilter, effectiveClusterId, riskSort]);
   // Bulk selection must not carry hidden findings across a filter or scope change.
   React.useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, debouncedSearchTerm, sinceMinutesForApi, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, findingsListView]);
 
@@ -653,6 +657,7 @@ export const RiskCenter: React.FC = () => {
     !debouncedSearchTerm &&
     !riskLevelFilter &&
     !debouncedNamespaceFilter &&
+    !resourceUidFilter &&
     !typeFilter &&
     statusFilter === 'active';
 
@@ -681,6 +686,7 @@ export const RiskCenter: React.FC = () => {
     searchTerm.trim() !== '' ||
     debouncedSearchTerm !== '' ||
     namespaceFilter.trim() !== '' ||
+    resourceUidFilter !== '' ||
     typeFilter !== '';
 
   /** Clears every findings-queue filter, search and sort. Cluster scope and time window are global and stay as they are. */
@@ -695,7 +701,7 @@ export const RiskCenter: React.FC = () => {
     // search/finalLevel (and legacy severity) are re-synced from the URL, so drop them there too.
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
-      ['search', 'finalLevel', 'severity'].forEach((k) => next.delete(k));
+      ['search', 'finalLevel', 'severity', 'resourceUid'].forEach((k) => next.delete(k));
       return next;
     }, { replace: true });
     setRisksPage(1);
@@ -882,6 +888,7 @@ export const RiskCenter: React.FC = () => {
                 sinceMinutes: sinceMinutesForApi,
                 status: statusFilter,
                 assignee: assigneeForStatus(statusFilter),
+                resourceUid: resourceUidFilter || undefined,
                 finalLevel: riskLevelFilter || undefined,
                 search: debouncedSearchTerm || undefined,
               });
@@ -912,6 +919,7 @@ export const RiskCenter: React.FC = () => {
                 sinceMinutes: sinceMinutesForApi,
                 status: statusFilter,
                 assignee: assigneeForStatus(statusFilter),
+                resourceUid: resourceUidFilter || undefined,
                 finalLevel: riskLevelFilter || undefined,
                 search: debouncedSearchTerm || undefined,
               });
@@ -1020,6 +1028,31 @@ export const RiskCenter: React.FC = () => {
           ) : null}
           {/* Filters: one row. The view above sets the workflow status. */}
           <div className="order-1 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3">
+            {resourceUidFilter ? (
+              <span className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-brand/50 bg-brand/10 pl-3 pr-1 text-caption text-text" data-testid="resource-filter">
+                Workload:{' '}
+                <span className="font-mono">
+                  {(() => {
+                    const r = risks.find((x) => x.affectedResources?.[0]?.id === resourceUidFilter)?.affectedResources?.[0];
+                    return r?.name ? `${r.namespace ? `${r.namespace}/` : ''}${r.name}` : resourceUidFilter;
+                  })()}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Show findings on every workload"
+                  className="rounded p-1 text-muted hover:text-text"
+                  onClick={() =>
+                    setSearchParams((prev) => {
+                      const next = new URLSearchParams(prev);
+                      next.delete('resourceUid');
+                      return next;
+                    }, { replace: true })
+                  }
+                >
+                  <X className="h-3.5 w-3.5" aria-hidden />
+                </button>
+              </span>
+            ) : null}
             <div className="relative min-w-[16rem] flex-1">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
               <input

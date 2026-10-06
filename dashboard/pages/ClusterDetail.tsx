@@ -416,8 +416,8 @@ const ClusterDetailContent: React.FC = () => {
                   <div className="text-xl font-bold text-cyan-400">{securitySummary.capabilityCount}</div>
                 </div>
               </div>
-              <Button variant="secondary" onClick={() => navigate('/risks')}>
-                View all risks
+              <Button variant="secondary" onClick={() => navigate(id ? `/risks/findings?clusterId=${encodeURIComponent(id)}` : '/risks')}>
+                View findings in this cluster
               </Button>
             </div>
           ) : currentTabIssue && !securityLoaded ? (
@@ -425,8 +425,8 @@ const ClusterDetailContent: React.FC = () => {
           ) : (
             <div>
               <PageEmpty title="No security summary data" description="No security summary rows were returned for this cluster scope." className="py-2" />
-              <Button variant="secondary" className="mt-4" onClick={() => navigate('/risks')}>
-                View all risks
+              <Button variant="secondary" className="mt-4" onClick={() => navigate(id ? `/risks/findings?clusterId=${encodeURIComponent(id)}` : '/risks')}>
+                View findings in this cluster
               </Button>
             </div>
           )}
