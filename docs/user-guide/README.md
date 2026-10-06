@@ -30,55 +30,58 @@ Roles determine route visibility and actions:
 
 | Workspace | Route | Use it for |
 |-----------|-------|------------|
-| Home | `/#/` | Named for your role: Platform Integrity (admin), Active Response (operator) or My Exposure (viewer). The next step for your role, then risk overview, entry points, exposure trend and cluster health, and the Executive brief. Old `/#/dashboard` links open Home. |
-| Findings Queue | `/#/risks/findings` | Triage findings using the unified risk score and workflow status. |
+| Home | `/#/` | Same page and name for every role; the content follows your role. The next step for your role, then risk overview, entry points, exposure trend and cluster health, and the Executive brief. Old `/#/dashboard` links open Home. |
+| Findings | `/#/risks/findings` | Triage findings using the unified risk score and workflow status. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
-| Runtime Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
-| Kubernetes Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
-| Rules & Catalog | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
-| Platform Health | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility and data freshness; certificates (`/#/monitoring/certificates`) and notifications (`/#/monitoring/notifications`). |
+| Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
+| Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
+| Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
+| Platform | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility and data freshness; certificates (`/#/monitoring/certificates`) and notifications (`/#/monitoring/notifications`). |
 | Audit | `/#/governance` | Admin only: security activity, the platform audit log, audit summary by resource and action, the investigation timeline and access analytics. |
-| Settings | `/#/settings` | Manage users, roles and sessions. |
+| Users & Access | `/#/settings` | Admin and User admin: manage users, roles, cluster access and other people's sessions. |
+| Account | `/#/account` | Every role: your profile, password and your own sessions. Open it from the avatar menu in the header. |
 
 ## Cluster Scope
 
-The header cluster selector controls most security data pages.
+The scope button in the header sets the cluster and the time window (plus auto refresh) for most security data pages. The header also holds finding search, notifications and the account menu (Account, Sign out).
+
+At most one system banner appears under the header: an active incident first, then several investigations competing for attention, then data that may be incomplete because a pipeline is behind.
 
 - `All clusters` is useful for Home, the Executive brief, and global finding triage.
-- A specific cluster is required for Runtime Network and is recommended when investigating pod detail, attack paths, or inventory.
-- If a remote cluster Agent is connected, it appears in the selector after its first full sync. Dashboard totals should equal the sum of active cluster rows.
+- A specific cluster is required for Network and is recommended when investigating pod detail, attack paths, or inventory.
+- If a remote cluster Agent is connected, it appears in the scope menu after its first full sync. Dashboard totals should equal the sum of active cluster rows.
 
 ## Workspace Screenshots
 
 These images are representative captures from one local multi-cluster deployment. Your data, cluster name, and health states may differ.
 
-### Platform Integrity
+### Home
 
-![Platform Integrity](../assets/screenshots/platform-integrity.png)
+![Home](../assets/screenshots/platform-integrity.png)
 
-### Platform Health
+### Platform
 
-![Platform Health](../assets/screenshots/monitoring.png)
+![Platform](../assets/screenshots/monitoring.png)
 
-### Findings Queue
+### Findings
 
-![Findings Queue](../assets/screenshots/risk-operations.png)
+![Findings](../assets/screenshots/risk-operations.png)
 
 ### Attack Paths
 
 ![Attack Paths](../assets/screenshots/attack-analysis.png)
 
-### Runtime Network
+### Network
 
-![Runtime Network](../assets/screenshots/network-activity.png)
+![Network](../assets/screenshots/network-activity.png)
 
-### Kubernetes Inventory
+### Inventory
 
-![Kubernetes Inventory](../assets/screenshots/resources.png)
+![Inventory](../assets/screenshots/resources.png)
 
-### Rules & Catalog
+### Rules
 
-![Rules & Catalog](../assets/screenshots/policy-rules.png)
+![Rules](../assets/screenshots/policy-rules.png)
 
 ### Executive brief
 
@@ -93,7 +96,7 @@ This capture was taken when the brief was still a separate Reports page; the sam
 | Unauthenticated | The JWT/session is missing or expired. | Sign in again. |
 | Forbidden | Your role lacks the required permission. | Ask an admin to update role or permission grants. |
 | Cluster scope | You selected or opened a cluster outside your assigned scope. | Change cluster selector or request access. |
-| No telemetry | The page needs Agent or runtime data that has not arrived for this cluster. | Check Platform Health and the Agent or sensor for that cluster. |
+| No telemetry | The page needs Agent or runtime data that has not arrived for this cluster. | Check Platform and the Agent or sensor for that cluster. |
 | No data | The route is allowed and data is flowing, but current filters have no records. | Clear filters or widen the time range. |
 | Stale | Data exists but its freshness checks failed, so it may not reflect the cluster now. | Check data timestamps and Agent sync before acting on it. |
 
@@ -101,21 +104,21 @@ This capture was taken when the brief was still a separate Reports page; the sam
 
 A typical investigation:
 
-1. Start at Platform Integrity to confirm data freshness and runtime coverage.
-2. Open Findings Queue and sort by unified risk score.
+1. Start at Home to confirm data freshness and runtime coverage.
+2. Open Findings and sort by unified risk score.
 3. Open a finding drawer or full detail page to inspect evidence.
 4. Jump to Attack Paths for path context.
-5. Open the affected pod in Kubernetes Inventory for SBOM, runtime, network, and event detail.
-6. Use Rules & Catalog to understand the rule or catalog entry behind the finding.
+5. Open the affected pod in Inventory for SBOM, runtime, network, and event detail.
+6. Use Rules to understand the rule or catalog entry behind the finding.
 7. Export from the Executive brief on Home when you need a time-windowed operational handoff.
 
 Each step is described below.
 
-### 1. Confirm Platform Health Before Investigation
+### 1. Confirm Platform Before Investigation
 
 Goal: make sure missing data is not caused by ingestion or sensor failure.
 
-Reference screens: [Platform Integrity](../assets/screenshots/platform-integrity.png), [Platform Health](../assets/screenshots/monitoring.png).
+Reference screens: [Home](../assets/screenshots/platform-integrity.png), [Platform](../assets/screenshots/monitoring.png).
 
 Steps:
 
@@ -124,13 +127,13 @@ Steps:
 3. Open `/#/monitoring`.
 4. Confirm pipeline processing activity, agent visibility, Falco/runtime event visibility, and recent data timestamps.
 
-Decision rule: do not treat a quiet Findings Queue as safe until Platform Health confirms ingestion is healthy.
+Decision rule: do not treat a quiet Findings as safe until Platform confirms ingestion is healthy.
 
 ### 2. Triage High-Risk Findings
 
 Goal: prioritize work using one user-facing risk value.
 
-Reference screen: [Findings Queue](../assets/screenshots/risk-operations.png).
+Reference screen: [Findings](../assets/screenshots/risk-operations.png).
 
 Steps:
 
@@ -162,7 +165,7 @@ Expected data source: graph attack-path bundle and summary APIs, runtime attack-
 
 Goal: understand SBOM, CVE, malware package, and runtime context for a workload.
 
-Reference screen: [Kubernetes Inventory](../assets/screenshots/resources.png).
+Reference screen: [Inventory](../assets/screenshots/resources.png).
 
 Steps:
 
@@ -170,15 +173,15 @@ Steps:
 2. Search by namespace, pod name, image, or risk.
 3. Open pod detail.
 4. Review SBOM/CVE, risk, runtime, process, network, event, and spec tabs.
-5. Use linked findings to return to Findings Queue.
+5. Use linked findings to return to Findings.
 
 Expected data source: pod inventory, SBOM extraction results, CVE catalog matches, risk scores, runtime snapshots, and Kubernetes events.
 
-### 5. Verify Runtime Network
+### 5. Verify Network
 
 Goal: distinguish in-cluster traffic, service traffic, and external destinations.
 
-Reference screen: [Runtime Network](../assets/screenshots/network-activity.png).
+Reference screen: [Network](../assets/screenshots/network-activity.png).
 
 Steps:
 
@@ -193,7 +196,7 @@ Expected data source: agent network activity snapshots and runtime telemetry API
 
 Goal: understand why a rule matched and whether it is catalog-backed.
 
-Reference screen: [Rules & Catalog](../assets/screenshots/policy-rules.png).
+Reference screen: [Rules](../assets/screenshots/policy-rules.png).
 
 Steps:
 

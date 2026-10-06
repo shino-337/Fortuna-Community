@@ -23,6 +23,7 @@ const PodDetail = React.lazy(() => import('../pages/PodDetail').then((m) => ({ d
 const NodeDetail = React.lazy(() => import('../pages/NodeDetail').then((m) => ({ default: m.NodeDetail })));
 const IdentityDetail = React.lazy(() => import('../pages/IdentityDetail').then((m) => ({ default: m.IdentityDetail })));
 const RuleDetail = React.lazy(() => import('../pages/RuleDetail').then((m) => ({ default: m.RuleDetail })));
+const Account = React.lazy(() => import('../pages/Account').then((m) => ({ default: m.Account })));
 const Investigation = React.lazy(() => import('../pages/Investigation').then((m) => ({ default: m.Investigation })));
 
 const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
@@ -53,6 +54,7 @@ const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/monitoring/notifications', element: <Notifications /> },
   { pattern: '/governance', element: <Governance /> },
   { pattern: '/settings', element: <Settings /> },
+  { pattern: '/account', element: <Account /> },
 ];
 
 function buildRedirectTarget(path: string, search: string): string | null {
@@ -66,7 +68,7 @@ function buildRedirectTarget(path: string, search: string): string | null {
   if (path === '/reports') {
     return '/?section=brief';
   }
-  // Pages merged into Platform Health, Rules & Catalog and Inventory keep working as links.
+  // Pages merged into Platform, Rules and Inventory keep working as links.
   const merged: Record<string, string> = {
     '/certificates': '/monitoring/certificates',
     '/notifications': '/monitoring/notifications',

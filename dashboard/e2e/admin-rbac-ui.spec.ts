@@ -47,7 +47,7 @@ async function loginAsAdmin(page: Page): Promise<string[]> {
   await page.goto(appUrl(page, '/'));
   await page.waitForLoadState('networkidle');
 
-  await expect(page.locator('main h1').filter({ hasText: /^Platform Integrity$/ })).toBeVisible();
+  await expect(page.locator('main h1').filter({ hasText: /^Home$/ })).toBeVisible();
   return consoleMessages;
 }
 
@@ -112,16 +112,16 @@ test.describe('admin RBAC UI smoke', () => {
     await loginAsAdmin(page);
 
     const routes = [
-      ['/', 'Platform Integrity'],
-      ['/risks/findings', 'Risk Operations'],
+      ['/', 'Home'],
+      ['/risks/findings', 'Findings'],
       ['/investigation', 'Investigations'],
-      ['/network-activity', 'Network Activity'],
-      ['/attack-paths', 'Attack Analysis'],
-      ['/rules', 'Rules & Catalog'],
-      ['/resources', 'Resources'],
-      ['/monitoring', 'Platform Health'],
+      ['/network-activity', 'Network'],
+      ['/attack-paths', 'Attack Paths'],
+      ['/rules', 'Rules'],
+      ['/resources', 'Inventory'],
+      ['/monitoring', 'Platform'],
       ['/governance', 'Audit'],
-      ['/settings', 'Settings'],
+      ['/settings', 'Users & Access'],
     ] as const;
 
     for (const [route, title] of routes) {
@@ -140,9 +140,10 @@ test.describe('admin RBAC UI smoke', () => {
     const consoleMessages = await loginAsAdmin(page);
     await dashboardStats;
 
-    await expect(page.getByText('Resources')).toBeVisible();
-    await expect(page.getByText('Network Activity')).toBeVisible();
-    await expect(page.getByText('Settings')).toBeVisible();
+    const sidebar = page.locator('aside nav');
+    await expect(sidebar.getByText('Inventory', { exact: true })).toBeVisible();
+    await expect(sidebar.getByText('Network', { exact: true })).toBeVisible();
+    await expect(sidebar.getByText('Users & Access', { exact: true })).toBeVisible();
     await expect(page.getByText(/Pods \(cluster\)/i).first()).toBeVisible();
     await expect(page.getByText(/Attack paths/i).first()).toBeVisible();
     await expectNoForbiddenShell(page);
@@ -278,7 +279,7 @@ test.describe('admin RBAC UI smoke', () => {
     await expect(inspector).toContainText(
       `${endpointPaths.length.toLocaleString('en-US')} / ${Number(summary.totalPaths ?? summary.total_paths ?? bundlePaths.length).toLocaleString('en-US')}`,
     );
-    await expect(inspector).toContainText('Matches Attack Analysis pod scope');
+    await expect(inspector).toContainText('Matches Attack Paths pod scope');
     await expect(inspector).toContainText(expectedPathIds[0]);
 
     await inspector.getByRole('button', { name: /open same pod scope in attack analysis/i }).click();
@@ -295,7 +296,7 @@ test.describe('admin RBAC UI smoke', () => {
 
     await openNetworkActivity(page);
 
-    await expect(page.locator('main h1').filter({ hasText: /^Network Activity$/ })).toBeVisible();
+    await expect(page.locator('main h1').filter({ hasText: /^Network$/ })).toBeVisible();
     await expect(page.getByRole('img', { name: /Network topology graph/i })).toBeVisible();
     await expect(page.locator('main')).toContainText(/\d+\s+src\s+·\s+\d+\s+dest\s+·\s+\d+\s+edges/i);
     await expect(page.locator('main')).toContainText('Pod');

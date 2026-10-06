@@ -1288,7 +1288,7 @@ const PodDetailContent: React.FC = () => {
                   }}
                   className="inline-flex items-center px-2.5 py-1.5 rounded bg-base border border-border text-text hover:border-brand"
                 >
-                  View risk insights in Risk Operations
+                  View findings for this pod
                 </button>
               </div>
             </div>
@@ -1990,7 +1990,7 @@ const PodDetailContent: React.FC = () => {
           ) : (
             <PageEmpty
               title="No network data"
-              description="Network connections are collected by the agent. Enable network collection on the agent. For cluster-wide topology, use Dashboard → Network Activity → Topology graph."
+              description="Network connections are collected by the agent. Enable network collection on the agent. For cluster-wide topology, open Network → Topology graph."
               className="py-6"
             />
           )}

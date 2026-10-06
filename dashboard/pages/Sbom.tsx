@@ -403,7 +403,7 @@ export const Sbom: React.FC = () => {
                         if (name) params.set('search', name);
                         navigate(`/risks?${params.toString()}`);
                       }}
-                      title="Open related risks in Risk Operations"
+                      title="Open related findings"
                     >
                       View related risks
                     </Button>

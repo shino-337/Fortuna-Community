@@ -1,22 +1,23 @@
 import React from 'react';
-import { ViewerShell } from './ViewerShell';
-import { OperatorShell } from './OperatorShell';
-import { AdminShell } from './AdminShell';
-import { UserAdminShell } from './UserAdminShell';
+import { ShellChrome } from './ShellChrome';
 import { useOperationalMaterialization } from '../../hooks/useOperationalMaterialization';
 
+/**
+ * One shell for every role. The role only changes which navigation items exist
+ * (by permission) and, for User admin, hides cluster scope, search and the
+ * system banner because that role never reads cluster data.
+ */
 export const AppShell: React.FC = () => {
-  const { shellVariant } = useOperationalMaterialization();
+  const plane = useOperationalMaterialization();
+  const accountsOnly = plane.shellVariant === 'user_admin';
 
-  switch (shellVariant) {
-    case 'user_admin':
-      return <UserAdminShell />;
-    case 'admin':
-      return <AdminShell />;
-    case 'operator':
-      return <OperatorShell />;
-    case 'viewer':
-    default:
-      return <ViewerShell />;
-  }
+  return (
+    <ShellChrome
+      navSections={plane.navigation}
+      allowedRoutes={plane.allowedRoutes}
+      showScope={!accountsOnly}
+      showFindingSearch={!accountsOnly}
+      showBanner={!accountsOnly}
+    />
+  );
 };

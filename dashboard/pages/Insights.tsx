@@ -1278,9 +1278,9 @@ export const RiskCenter: React.FC = () => {
 
   if (pageBlocking) {
     return (
-      <PageContract feature="risk_operations" loading loadingMessage="Loading Risk Operations…">
+      <PageContract feature="risk_operations" loading loadingMessage="Loading findings…">
         <PageLayout title={PAGE_TITLES.riskOperations} description={RISK_CENTER_DESCRIPTION}>
-        <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Loading Risk Operations">
+        <div className="space-y-6 animate-pulse" aria-busy="true" aria-label="Loading findings">
           <div className="h-10 bg-surface-2/80 rounded-lg border border-border" />
           <div className="h-14 bg-surface-2/60 rounded-lg border border-border" />
           <div className="grid gap-3 sm:grid-cols-3">
@@ -1320,26 +1320,22 @@ export const RiskCenter: React.FC = () => {
     { id: 'reference', label: 'Evidence' },
   ];
   const tabs = allTabs.filter((t) => riskWorkspace.visibleTabs.includes(t.id as RiskTabId));
-  const routeObjective: Record<TabId, { title: string; body: string; api: string }> = {
+  const routeObjective: Record<TabId, { title: string; body: string }> = {
     overview: {
-      title: 'Risk Operations = one prioritization workflow',
+      title: 'One prioritization workflow',
       body: 'Start with unified risk levels, drill into the queue, use exposure to explain why a pod is risky, then verify with evidence.',
-      api: 'risk summary, risk list, score histogram',
     },
     triage: {
       title: 'Work the active findings queue',
       body: 'Filter by unified risk level, inspect impacted resources, and update workflow status.',
-      api: 'GET /risk/insights, export APIs',
     },
     pce: {
       title: 'Explain pod capability exposure',
       body: 'Inventory-derived exposure records. They explain why risk exists; they are not counted as findings.',
-      api: 'inventory pod-capability APIs',
     },
     reference: {
       title: 'Inspect supporting evidence',
       body: 'Normalized evidence and runtime signals for findings loaded in the current scope.',
-      api: 'finding evidence, runtime signals',
     },
   };
   return (
@@ -1401,11 +1397,6 @@ export const RiskCenter: React.FC = () => {
           <div className="min-w-0">
             <h2 className="text-body font-semibold text-text">{routeObjective[activeTab].title}</h2>
             <p className="mt-1 max-w-3xl text-caption text-muted">{routeObjective[activeTab].body}</p>
-          </div>
-          <div className="shrink-0 rounded-md border border-border/70 bg-base/40 px-2.5 py-1 text-caption text-muted xl:text-right">
-            Metric: <span className="text-text">Unified risk level</span>
-            <span className="mx-1 text-muted-2">·</span>
-            Data: <span className="text-text">{routeObjective[activeTab].api}</span>
           </div>
         </div>
       </div>
@@ -2405,7 +2396,7 @@ export const RiskCenter: React.FC = () => {
 	              Capability exposure summary
             </h2>
             <p className="text-caption text-muted mb-3">
-              Counts by severity from current pod capability inventory. These numbers are separate from active findings and do not use the Risk Operations time window.
+              Counts by severity from current pod capability inventory. These numbers are separate from active findings and do not use the Findings time window.
               {scopeClusterDisplay ? ` Scoped to cluster: ${scopeClusterDisplay}.` : ' All clusters.'}
             </p>
             {pceSummary.length === 0 && !pceIssue ? (
@@ -2861,7 +2852,7 @@ export const RiskCenter: React.FC = () => {
               <AlertTriangle size={18} className="text-brand" />
               Runtime evidence
             </h2>
-            <p className="text-caption text-muted mb-4">Runtime events used as supporting telemetry for risk investigation. Filtered to the Risk Operations time scope.</p>
+            <p className="text-caption text-muted mb-4">Runtime events used as supporting telemetry for risk investigation. Filtered to the Findings time window.</p>
             <RuntimeSignalsTable
               clusterId={effectiveClusterId || undefined}
               podUid={podUidFromEvidenceUrl?.trim() || undefined}
@@ -2918,7 +2909,7 @@ export const RiskCenter: React.FC = () => {
                   Review bulk {pendingBulkActionLabel.toLowerCase()} action
                 </h3>
                 <p className="mt-1 text-caption text-muted">
-                  This updates {selectedIds.size} selected finding(s) in the current Risk Operations queue.
+                  This updates {selectedIds.size} selected finding(s) in the current Findings queue.
                 </p>
               </div>
               <button

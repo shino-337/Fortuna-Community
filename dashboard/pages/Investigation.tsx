@@ -200,7 +200,7 @@ export const Investigation: React.FC = () => {
               state="no_data"
               compact
               title="No cases in this workspace"
-              reason="Pin a finding or attack path from Risk Operations or Attack Analysis, or create a case here."
+              reason="Pin a finding from Findings or a path from Attack Paths, or create a case here."
             />
           ) : (
             <ul className="space-y-1 max-h-[min(70vh,32rem)] overflow-y-auto">
@@ -353,7 +353,7 @@ export const Investigation: React.FC = () => {
               </h3>
               {activeCase.entities.length === 0 ? (
                 <p className="text-caption text-muted">
-                  Pin findings from Risk Operations, attack scenarios from Attack Analysis, or pods from Resources.
+                  Pin findings from Findings, attack scenarios from Attack Paths, or pods from Inventory.
                 </p>
               ) : (
                 <ul className="divide-y divide-border rounded-md border border-border overflow-hidden">
