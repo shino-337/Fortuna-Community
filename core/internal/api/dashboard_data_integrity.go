@@ -692,7 +692,7 @@ func endpointInventory() []EndpointDataSource {
 		{Path: "/api/v1/audit/logs", Source: "real", Agent: "core", Note: "audit_logs table"},
 		{Path: "/api/v1/audit/reports", Source: "real", Agent: "core", Note: "aggregated from audit_logs"},
 		{Path: "/api/v1/metrics/system", Source: "real", Agent: "core", Note: "DB aggregates"},
-		{Path: "/api/v1/dashboard/metrics/threat-velocity", Source: "real", Agent: "core", Note: "insights by severity/date"},
+		{Path: "/api/v1/dashboard/metrics/threat-velocity", Source: "real", Agent: "core", Note: "insights by risk level/date"},
 		{Path: "/api/v1/inventory/pod-capabilities/summary/*", Source: "real", Agent: "agent (PCE)", Note: "pod_capabilities"},
 		{Path: "/api/v1/graph/attack-paths/graph", Source: "real", Agent: "core", Note: "graph from DB"},
 		{Path: "/api/v1/graph/attack-paths/bundle", Source: "real", Agent: "core", Note: "graph+summary+chains+objectives single pass"},

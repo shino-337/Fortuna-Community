@@ -2595,28 +2595,28 @@ export const api = {
       };
   },
 
-  /** byType 'all' = all insight types (default 'vulnerability' = CVE only). */
+  /**
+   * New findings per day by risk level. byType 'all' = all insight types (default 'vulnerability' = CVE only).
+   * Throws when the request fails, so callers can tell "no findings" from "could not load".
+   */
   getThreatVelocity: async (days = 7, clusterId?: string | null, byType?: 'all' | 'vulnerability'): Promise<ThreatVelocityPoint[]> => {
-    try {
-      const params = new URLSearchParams({ days: String(days) });
-      if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
-      if (byType === 'all') params.set('byType', 'all');
-      const qs = params.toString();
-      const data = await request<{ trend?: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?${qs}`);
-      const raw = Array.isArray(data)
-        ? data
-        : (Array.isArray((data as any)?.trend) ? (data as any).trend : Array.isArray((data as any)?.Trend) ? (data as any).Trend : []);
-      const out = (raw || []).map((p: any) => ({
-        date: String(p.date ?? p.Date ?? ''),
-        critical: Number(p.critical ?? p.CriticalCount ?? 0),
-        high: Number(p.high ?? p.HighCount ?? 0),
-        medium: Number(p.medium ?? p.MediumCount ?? 0),
-        low: Number(p.low ?? p.LowCount ?? 0),
-      })).filter((p: { date: string }) => p.date);
-      return out;
-    } catch {
-      return [];
-    }
+    const params = new URLSearchParams({ days: String(days) });
+    if (clusterId?.trim()) params.set('clusterId', clusterId.trim());
+    if (byType === 'all') params.set('byType', 'all');
+    const qs = params.toString();
+    const data = await request<{ trend?: ThreatVelocityPoint[] }>(`/dashboard/metrics/threat-velocity?${qs}`);
+    const raw = Array.isArray(data)
+      ? data
+      : (Array.isArray((data as any)?.trend) ? (data as any).trend : Array.isArray((data as any)?.Trend) ? (data as any).Trend : []);
+    const out = (raw || []).map((p: any) => ({
+      date: String(p.date ?? p.Date ?? ''),
+      critical: Number(p.critical ?? p.CriticalCount ?? 0),
+      high: Number(p.high ?? p.HighCount ?? 0),
+      medium: Number(p.medium ?? p.MediumCount ?? 0),
+      low: Number(p.low ?? p.LowCount ?? 0),
+      unscored: Number(p.unscored ?? 0),
+    })).filter((p: { date: string }) => p.date);
+    return out;
   },
 
   getPceSummaryByCapability: async (params?: { clusterId?: string }): Promise<PodCapabilitySummaryCapability[]> => {
@@ -3074,28 +3074,17 @@ export const api = {
   },
 
   /**
-   * getTopRiskyPods returns the top N pods by unified risk score (V3 rows only, backend).
-   * Optional clusterId matches dashboard scope; omit for global top N.
-   * Uses GET /api/v1/risk/scores?sortBy=score&page=1&pageSize=N[&cluster=...]
+   * Number of workloads whose current risk score is at least minScore (40 = high or critical).
+   * Uses GET /api/v1/risk/scores?minScore=N&pageSize=1[&cluster=...] and reads its total.
    */
-  getTopRiskyPods: async (limit: number = 5, clusterId?: string): Promise<UnifiedRiskScore[]> => {
-    try {
-      const clusterQs =
-        clusterId && String(clusterId).trim() !== ''
-          ? `&cluster=${encodeURIComponent(String(clusterId).trim())}`
-          : '';
-      const data = await request<{ data?: UnifiedRiskScore[]; scores?: UnifiedRiskScore[] }>(
-        `/risk/scores?sortBy=score&page=1&pageSize=${limit}${clusterQs}`,
-        { cache: 'no-store' }
-      );
-      const raw = Array.isArray(data?.data) ? data.data : Array.isArray(data?.scores) ? data.scores : [];
-      return raw.map((row) => ({
-        ...row,
-        finalLevel: row.finalLevel ?? deriveUnifiedRiskLevelFromScore(row.totalScore),
-      }));
-    } catch {
-      return [];
+  countRiskScoresAtLeast: async (minScore: number, clusterId?: string): Promise<number> => {
+    const params = new URLSearchParams({ minScore: String(minScore), page: '1', pageSize: '1' });
+    if (clusterId?.trim()) params.set('cluster', clusterId.trim());
+    const data = await request<{ total?: number }>(`/risk/scores?${params.toString()}`, { cache: 'no-store' });
+    if (typeof data?.total !== 'number') {
+      throw new ApiError(502, 'Risk score response had no total', { code: 'risk_scores_invalid_response', retryable: true });
     }
+    return data.total;
   },
 
   /**

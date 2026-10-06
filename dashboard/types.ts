@@ -329,12 +329,14 @@ export interface InsightsSummary {
   riskLevelCounts?: RiskLevelCounts;
 }
 
+/** Findings first detected per day, counted by risk level (score band); `unscored` has no score yet. */
 export interface ThreatVelocityPoint {
   date: string;
   critical: number;
   high: number;
   medium: number;
   low: number;
+  unscored?: number;
 }
 
 /** GET /risk/histogram – Risk Score Distribution (bins 0–100) for histogram chart */

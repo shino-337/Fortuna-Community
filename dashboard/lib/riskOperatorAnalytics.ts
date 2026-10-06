@@ -61,6 +61,11 @@ export function criticalAttackPathSplit(risks: Insight[]): { inPath: number; inS
   return { inPath, inSample: crit.length };
 }
 
+/** Every finding in a velocity point, scored or not. */
+export function velocityPointTotal(p: ThreatVelocityPoint): number {
+  return (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0) + (p.unscored ?? 0);
+}
+
 export function velocityFromTrend(threatVelocity: ThreatVelocityPoint[]): {
   lastDelta: number;
   baselinePerDay: number;
@@ -69,7 +74,7 @@ export function velocityFromTrend(threatVelocity: ThreatVelocityPoint[]): {
 } | null {
   if (threatVelocity.length < 2) return null;
   const sorted = [...threatVelocity].sort((a, b) => a.date.localeCompare(b.date));
-  const totals = sorted.map((p) => (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0));
+  const totals = sorted.map(velocityPointTotal);
   const rangeDelta = totals[totals.length - 1] - totals[0];
   const deltas: number[] = [];
   for (let i = 1; i < totals.length; i++) deltas.push(totals[i] - totals[i - 1]);
@@ -88,7 +93,7 @@ export function trendSpikeAnnotation(
 ): { idx: number; date: string; delta: number } | null {
   if (threatVelocity.length < 2) return null;
   const sorted = [...threatVelocity].sort((a, b) => a.date.localeCompare(b.date));
-  const totals = sorted.map((p) => (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0));
+  const totals = sorted.map(velocityPointTotal);
   let maxD = 0;
   let maxIdx = 1;
   for (let i = 1; i < totals.length; i++) {
@@ -108,7 +113,7 @@ export function trendAnomalyDetected(
   const spike = trendSpikeAnnotation(threatVelocity);
   if (!spike || threatVelocity.length < 3) return { spike: false };
   const sorted = [...threatVelocity].sort((a, b) => a.date.localeCompare(b.date));
-  const totals = sorted.map((p) => (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0));
+  const totals = sorted.map(velocityPointTotal);
   const deltas: number[] = [];
   for (let i = 1; i < totals.length; i++) deltas.push(totals[i] - totals[i - 1]);
   const mean = deltas.reduce((a, b) => a + b, 0) / deltas.length;

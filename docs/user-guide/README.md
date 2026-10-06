@@ -30,7 +30,7 @@ Roles determine route visibility and actions:
 
 | Workspace | Route | Use it for |
 |-----------|-------|------------|
-| Home | `/#/` | Same page and name for every role; the content follows your role. The next step for your role, then risk overview, entry points, exposure trend and cluster health, and the Executive brief. Old `/#/dashboard` links open Home. |
+| Home | `/#/` | What needs your attention in the header scope. Four counts (needs triage, critical open, your open cases, exposed workloads), the five open findings with the highest risk that nobody has acknowledged, your open cases, a one-line data freshness check, new findings per day for 30 days by risk level, and **Export brief**. Admins also see a Platform card with agent and pipeline status. Every count uses the risk level. Old `/#/dashboard` links open Home. |
 | Findings | `/#/risks/findings` | Triage findings using the unified risk score and workflow status. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
