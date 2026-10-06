@@ -6,8 +6,8 @@ These screenshots are committed as user-guide assets. They show a local multi-cl
 
 | File | Route | Documentation Use |
 |------|-------|-------------------|
-| `platform-integrity.png` | `/#/` | Home, top: the role's next step (admin view) |
-| `dashboard-overview.png` | `/#/` | Home, risk overview and drill-downs (captured as the former `/#/dashboard` page) |
+| `platform-integrity.png` | `/#/` | Home before the 2026-10 redesign (admin view); retake on a live deployment |
+| `dashboard-overview.png` | `/#/` | Home before the 2026-10 redesign (captured as the former `/#/dashboard` page); retake on a live deployment |
 | `monitoring.png` | `/#/monitoring` | Platform |
 | `risk-operations.png` | `/#/risks/findings` | Findings |
 | `attack-analysis.png` | `/#/attack-paths` | Attack Paths |

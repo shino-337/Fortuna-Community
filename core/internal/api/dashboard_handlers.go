@@ -38,9 +38,12 @@ type ThreatVelocityPoint struct {
 	HighCount     int64  `json:"high"`
 	MediumCount   int64  `json:"medium"`
 	LowCount      int64  `json:"low"`
+	// UnscoredCount counts findings whose resource has no risk score yet, so they have no risk level.
+	UnscoredCount int64 `json:"unscored"`
 }
 
-// GetThreatVelocity returns daily counts of insights grouped by severity.
+// GetThreatVelocity returns daily counts of insights grouped by risk level (the score band of the
+// resource's preferred risk score, as in the insights summary), never by rule severity.
 // Query param days: 1–30 (default 7). Query param clusterId: optional.
 // Query param byType: "vulnerability" (default) = CVE + supply_chain_malware insights; "all" = every insight_type (RBAC, capability, etc.).
 // Pod filter: only count Pod insights when pod exists (deleted_at IS NULL).
@@ -65,9 +68,9 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 		start := time.Now().UTC().AddDate(0, 0, -days+1).Truncate(24 * time.Hour)
 
 		var rows []struct {
-			Date     time.Time
-			Severity string
-			Count    int64
+			Date  time.Time
+			Level string
+			Count int64
 		}
 
 		// Pod filter: same as insights/summary – only count Pod insights when pod still exists
@@ -85,11 +88,14 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 		if clusterID != "" {
 			baseQuery = baseQuery.Where("insights.cluster_id = ?", clusterID)
 		}
-		baseQuery = scopedAggregateQuery(db, baseQuery, filter, "resource_uid")
+		baseQuery = scopedAggregateQuery(db, baseQuery, filter, "insights.resource_uid")
+		level := "CASE WHEN pref.total_score IS NULL THEN 'unscored' WHEN pref.total_score >= 70 THEN 'critical' WHEN pref.total_score >= 40 THEN 'high' WHEN pref.total_score >= 20 THEN 'medium' ELSE 'low' END"
+		day := "date_trunc('day', insights.detected_at)"
 		if err := baseQuery.
-			Select("date_trunc('day', detected_at) as date, LOWER(severity) as severity, COUNT(*) as count").
-			Group("date_trunc('day', detected_at), LOWER(severity)").
-			Order("date_trunc('day', detected_at)").
+			Joins("LEFT JOIN " + preferredRiskScoreSubquerySQL + " AS pref ON pref.cluster_id = insights.cluster_id AND pref.resource_uid = insights.resource_uid").
+			Select(day + " as date, " + level + " as level, COUNT(*) as count").
+			Group(day + ", " + level).
+			Order(day).
 			Scan(&rows).Error; err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "could not load threat velocity"})
 			return
@@ -109,7 +115,9 @@ func GetThreatVelocity(db *gorm.DB) gin.HandlerFunc {
 				point = &ThreatVelocityPoint{Date: key}
 				points[key] = point
 			}
-			switch row.Severity {
+			switch row.Level {
+			case "unscored":
+				point.UnscoredCount = row.Count
 			case "critical":
 				point.CriticalCount = row.Count
 			case "high":

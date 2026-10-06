@@ -80,6 +80,7 @@ import {
   privilegedDriftHint,
   trendSpikeAnnotation,
   velocityFromTrend,
+  velocityPointTotal,
 } from '../lib/riskOperatorAnalytics';
 import { buildEvidenceLogEntries, summarizeEvidenceLog } from '../lib/evidenceLog';
 import { downloadText, toCsv } from '../lib/download';
@@ -978,7 +979,7 @@ export const RiskCenter: React.FC = () => {
         .map((p) => ({
           ...p,
           name: p.date,
-          risk: (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0),
+          risk: velocityPointTotal(p),
         }))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [threatVelocity],

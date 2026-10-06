@@ -164,7 +164,7 @@ flowchart LR
 
 | Domain | What it shows | Primary data |
 |--------|---------------|--------------|
-| Home | The role's next step, risk overview, entry points, cluster health, and the Executive brief (time-windowed posture and findings exports) | Dashboard stats, findings summary, attack paths, pipeline health, investigations |
+| Home | What needs attention: triage, critical and exposure counts, the top unacknowledged findings, the user's open cases, data freshness, a 30-day trend by risk level, and the Executive brief (time-windowed posture and findings exports) | Findings list and summary, risk score counts, threat velocity, dashboard stats, pipeline health, investigations |
 | Findings | Current findings and one unified risk value | `risk_scores`, insights, rules, runtime/CVE/path evidence |
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
 | Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
