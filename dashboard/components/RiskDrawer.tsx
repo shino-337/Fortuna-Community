@@ -20,6 +20,8 @@ export interface RiskDrawerProps {
   onClose: () => void;
   /** Called after a successful workflow action so the parent can refresh its list */
   onActionComplete: (action: FindingAction) => void;
+  /** Called after the owner changed; the panel stays on this finding. */
+  onAssigneeChange?: (assignee: string) => void;
   /** Callback to switch the parent to the PCE tab */
   onOpenPceTab?: () => void;
 }
@@ -61,6 +63,7 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
   sinceMinutesForApi,
   onClose,
   onActionComplete,
+  onAssigneeChange,
   onOpenPceTab,
 }) => {
   const navigate = useNavigate();
@@ -73,6 +76,8 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
   const [reviewOpen, setReviewOpen] = useState(false);
 
   const [detail, setDetail] = useState<Insight | null>(null);
+  /** Owner saved from this panel, shown until the list refresh brings it back on the row. */
+  const [ownerPatch, setOwnerPatch] = useState<{ id: string; fields: Pick<Insight, 'assignee' | 'assigneeUserId'> } | null>(null);
   const [signals, setSignals] = useState<RuntimeSignal[]>([]);
   const [capabilities, setCapabilities] = useState<PodCapabilityDetail[]>([]);
   const [references, setReferences] = useState<string[]>([]);
@@ -482,7 +487,15 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
 
           {/* Actions: the same component as the full detail page */}
           <section className="pt-4 mt-4 border-t border-border empty:hidden">
-            <FindingActions insight={detail ? { ...insight, ...detail } : insight} onDone={onActionComplete} onReviewOpenChange={setReviewOpen} />
+            <FindingActions
+              insight={{ ...insight, ...(detail ?? {}), ...(ownerPatch?.id === insight.id ? ownerPatch.fields : {}) }}
+              onDone={onActionComplete}
+              onReviewOpenChange={setReviewOpen}
+              onAssigned={(a) => {
+                setOwnerPatch({ id: insight.id, fields: { assignee: a?.username ?? '', assigneeUserId: a?.id } });
+                onAssigneeChange?.(a?.username ?? '');
+              }}
+            />
           </section>
         </div>
       </div>

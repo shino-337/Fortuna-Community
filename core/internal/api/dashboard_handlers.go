@@ -158,6 +158,32 @@ type RiskFilter struct {
 	// Sort and Order pick the server-side ordering (see normalizeInsightsListSort). Unknown values are ignored.
 	Sort  string `form:"sort"`
 	Order string `form:"order"`
+	// Assignee is "me" (the caller's findings) or "none" (unassigned). AssigneeUserID is resolved from the session.
+	Assignee       string `form:"assignee"`
+	AssigneeUserID uint   `form:"-"`
+}
+
+// applyRiskFilterAssignee validates the assignee filter and resolves "me" to the caller. It answers 400
+// for any other value, so a typo does not silently return every finding.
+func applyRiskFilterAssignee(c *gin.Context, filter *RiskFilter) bool {
+	filter.Assignee = strings.ToLower(strings.TrimSpace(filter.Assignee))
+	switch filter.Assignee {
+	case "":
+		return true
+	case "none":
+		return true
+	case "me":
+		id, ok := requestUserID(c)
+		if !ok {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "assignee=me needs a signed-in user"})
+			return false
+		}
+		filter.AssigneeUserID = id
+		return true
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": "assignee must be me or none"})
+		return false
+	}
 }
 
 func applyRiskFilterClusterScope(db *gorm.DB, c *gin.Context, filter *RiskFilter) bool {
@@ -246,7 +272,12 @@ func insightsListApplyFilters(query *gorm.DB, db *gorm.DB, filter RiskFilter, st
 	if filter.Severity != "" {
 		query = query.Where("LOWER(insights.severity) = ?", filter.Severity)
 	}
-	if statusFilter != "" && statusFilter != "all" {
+	switch statusFilter {
+	case "", "all":
+	case "open":
+		// Everything still on someone's plate: needs triage or in review.
+		query = query.Where("insights.status IN ?", []string{"active", "acknowledged"})
+	default:
 		query = query.Where("insights.status = ?", statusFilter)
 	}
 	if filter.Type != "" {
@@ -265,6 +296,16 @@ func insightsListApplyFilters(query *gorm.DB, db *gorm.DB, filter RiskFilter, st
 	if filter.SinceMinutes > 0 && riskInsightsListTimeWindowApplies(filter.Type) {
 		since := time.Now().Add(-time.Duration(filter.SinceMinutes) * time.Minute)
 		query = query.Where("insights.detected_at >= ?", since)
+	}
+	switch filter.Assignee {
+	case "me":
+		if filter.AssigneeUserID == 0 {
+			query = query.Where("1 = 0")
+		} else {
+			query = query.Where("insights.assignee_user_id = ?", filter.AssigneeUserID)
+		}
+	case "none":
+		query = query.Where("insights.assignee_user_id IS NULL")
 	}
 	query = applyInsightsListFinalLevelFilter(query, filter.FinalLevel)
 	return query
@@ -547,6 +588,9 @@ func GetInsightsList(db *gorm.DB) gin.HandlerFunc {
 		if !applyRiskFilterClusterScope(db, c, &filter) {
 			return
 		}
+		if !applyRiskFilterAssignee(c, &filter) {
+			return
+		}
 		hasScoreBin := strings.TrimSpace(c.Query("scoreBin")) != ""
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
@@ -581,6 +625,9 @@ func GetInsightsListCached(db *gorm.DB) gin.HandlerFunc {
 		if !applyRiskFilterClusterScope(db, c, &filter) {
 			return
 		}
+		if !applyRiskFilterAssignee(c, &filter) {
+			return
+		}
 		hasScoreBin := strings.TrimSpace(c.Query("scoreBin")) != ""
 		statusFilter := strings.TrimSpace(filter.Status)
 		if statusFilter == "" {
@@ -603,6 +650,8 @@ func GetInsightsListCached(db *gorm.DB) gin.HandlerFunc {
 		sortKey, sortOrder := normalizeInsightsListSort(filter.Sort, filter.Order)
 		key := BuildRisksListCacheKey(clusterID, statusFilter, filter.Severity, filter.Search, strings.TrimSpace(filter.FinalLevel), strings.TrimSpace(filter.ResourceNamespace), strings.TrimSpace(filter.Type), filter.SinceMinutes, page, pageSize, filter.WithScores, filter.ScoreBin, strings.ToLower(strings.TrimSpace(filter.View)), sortKey, sortOrder)
 		key = authorizationCacheKey(c, key) + ":bin=" + strconv.FormatBool(hasScoreBin)
+		// "me" differs per caller, so the resolved user id is part of the key.
+		key += ":assignee=" + filter.Assignee + ":" + strconv.FormatUint(uint64(filter.AssigneeUserID), 10)
 		if b, ok := defaultRisksCache.Get(key); ok {
 			c.Data(http.StatusOK, "application/json", b)
 			return
@@ -793,7 +842,7 @@ func writeRisksExportHTML(w http.ResponseWriter, insights []models.Insight, scor
 }
 
 // ExportRisksCSV returns risks (insights) as CSV or PDF (print-optimized HTML) with same filters as GetInsightsList.
-// Query params: clusterId, severity, status, search, type, sinceMinutes, format=csv|pdf (default csv).
+// Query params: clusterId, severity, status, search, type, sinceMinutes, assignee=me|none, format=csv|pdf (default csv).
 func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		var filter RiskFilter
@@ -804,6 +853,9 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 		// Exports leave the platform, so they get the same user cluster scope and
 		// the same filters as the Risk Center list they are exported from.
 		if !applyRiskFilterClusterScope(db, c, &filter) {
+			return
+		}
+		if !applyRiskFilterAssignee(c, &filter) {
 			return
 		}
 		format := strings.ToLower(strings.TrimSpace(c.Query("format")))

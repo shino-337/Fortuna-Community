@@ -238,6 +238,8 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 		{"GET", "/api/v1/risk/histogram", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionFindingsRead},
 		{"DELETE", "/api/v1/risk/insights/:id", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionFindingsDelete},
 		{"POST", "/api/v1/risk/insights/:id/acknowledge", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionFindingsAck},
+		{"GET", "/api/v1/risk/insights/:id/assignees", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionFindingsAck},
+		{"PUT", "/api/v1/risk/insights/:id/assignee", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionFindingsAck},
 		{"POST", "/api/v1/risk/insights/:id/dismiss", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionFindingsDismiss},
 		{"POST", "/api/v1/risk/insights/:id/resolve", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionFindingsResolve},
 		{"PATCH", "/api/v1/risk/insights/:id", authJWT, auditWrite, graphNone, false, true, false, false, false, authorization.PermissionFindingsAck},

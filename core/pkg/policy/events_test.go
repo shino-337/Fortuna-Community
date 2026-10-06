@@ -52,6 +52,9 @@ func newTestPolicyWorkerDB(t *testing.T) *gorm.DB {
 			remediation TEXT,
 			status TEXT,
 			sensitivity TEXT NOT NULL DEFAULT 'internal',
+			assignee_user_id INTEGER,
+			assignee_username TEXT NOT NULL DEFAULT '',
+			assigned_at DATETIME,
 			detected_at DATETIME NOT NULL,
 			resolved_at DATETIME
 		)

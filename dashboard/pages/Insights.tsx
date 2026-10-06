@@ -12,7 +12,7 @@ import { Button } from '../components/ui/Button';
 import { ResetFiltersButton } from '../components/ResetFiltersButton';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
-import { Shield, AlertTriangle, Info, CheckCircle, Search, ArrowRight, X, Loader2, FileText } from 'lucide-react';
+import { Shield, AlertTriangle, Info, CheckCircle, Search, ArrowRight, X, Loader2, FileText, UserRound } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useClusterStore } from '../store/clusterStore';
 import { useTimeWindowStore } from '../store/timeWindowStore';
@@ -55,11 +55,13 @@ import { SemanticEmptyState } from '../design-system/components/SemanticEmptySta
 import { buildEvidenceLogEntries, summarizeEvidenceLog } from '../lib/evidenceLog';
 
 type TabId = 'triage' | 'reference';
-type FindingStatusFilter = 'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed';
+/** `open` (needs triage or in review) is only used by the Assigned to me view. */
+type FindingStatusFilter = 'all' | 'active' | 'open' | 'resolved' | 'acknowledged' | 'dismissed';
 
 /** Findings views, in workflow order. `view` is the URL value; the queue itself is the default. */
 const QUEUE_VIEWS: { view: string; status: FindingStatusFilter; label: string }[] = [
   { view: 'triage', status: 'active', label: 'Needs triage' },
+  { view: 'mine', status: 'open', label: 'Assigned to me' },
   { view: 'review', status: 'acknowledged', label: 'In review' },
   { view: 'resolved', status: 'resolved', label: 'Resolved' },
   { view: 'dismissed', status: 'dismissed', label: 'Dismissed' },
@@ -68,6 +70,11 @@ const QUEUE_VIEWS: { view: string; status: FindingStatusFilter; label: string }[
 
 function statusForView(view: string | null): FindingStatusFilter {
   return QUEUE_VIEWS.find((v) => v.view === view)?.status ?? 'active';
+}
+
+/** The Assigned to me view is the open queue narrowed to the signed-in user. */
+function assigneeForStatus(status: FindingStatusFilter): 'me' | undefined {
+  return status === 'open' ? 'me' : undefined;
 }
 type BulkFindingAction = 'acknowledge' | 'resolve' | 'dismiss';
 
@@ -176,6 +183,8 @@ export const RiskCenter: React.FC = () => {
   const canExportFindings = canRunAction(permUser, ACTION_IDS.findingExport);
   const canRiskEvaluate = canRunAction(permUser, ACTION_IDS.riskEvaluate);
   const canPlatformAudit = can(permUser, P.systemAuditRead);
+  // Only people who can triage are ever assigned, so the view would always be empty for anyone else.
+  const queueViews = QUEUE_VIEWS.filter((v) => v.view !== 'mine' || can(permUser, P.findingsAck));
   const { valueMinutes: timeWindowMinutes, setValueMinutes: setTimeWindowMinutes } = useTimeWindowStore();
   const [searchParams, setSearchParams] = useSearchParams();
   // `severity` is accepted only as a legacy deep-link alias for finalLevel.
@@ -344,6 +353,7 @@ export const RiskCenter: React.FC = () => {
     const clusterId = effectiveClusterId ?? selectedClusterId ?? undefined;
     const risksListParamsBase = {
       status: statusFilter,
+      assignee: assigneeForStatus(statusFilter),
       search: debouncedSearchTerm || undefined,
       clusterId: clusterId ?? undefined,
       namespace: debouncedNamespaceFilter || undefined,
@@ -871,6 +881,7 @@ export const RiskCenter: React.FC = () => {
                 clusterId: effectiveClusterId ?? undefined,
                 sinceMinutes: sinceMinutesForApi,
                 status: statusFilter,
+                assignee: assigneeForStatus(statusFilter),
                 finalLevel: riskLevelFilter || undefined,
                 search: debouncedSearchTerm || undefined,
               });
@@ -900,6 +911,7 @@ export const RiskCenter: React.FC = () => {
                 clusterId: effectiveClusterId ?? undefined,
                 sinceMinutes: sinceMinutesForApi,
                 status: statusFilter,
+                assignee: assigneeForStatus(statusFilter),
                 finalLevel: riskLevelFilter || undefined,
                 search: debouncedSearchTerm || undefined,
               });
@@ -939,7 +951,7 @@ export const RiskCenter: React.FC = () => {
 
       {/* Views replace tabs: one queue, filtered by where each finding is in its workflow. */}
       <nav aria-label="Finding views" className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-base/60 p-1">
-        {QUEUE_VIEWS.map((v) => {
+        {queueViews.map((v) => {
           const active = activeTab === 'triage' && statusFilter === v.status;
           return (
             <button key={v.view} type="button" aria-current={active ? 'page' : undefined} onClick={() => openQueueView(v.status)} className={viewButtonClass(active)}>
@@ -1208,16 +1220,25 @@ export const RiskCenter: React.FC = () => {
                   {paginatedRisks.length === 0 ? (
                     <tr>
                       <td colSpan={findingsTableColCount} className="px-2 py-4">
-                        <SemanticEmptyState
-                          state={riskDataEmpty ? 'no_data' : 'no_scope'}
-                          compact
-	                          title={riskDataEmpty ? 'No active findings in scope' : 'No findings match filters'}
-	                          reason={
-	                            riskDataEmpty
-	                              ? `No active findings exist in ${scopeClusterDisplay ?? 'all clusters'}. This is a legitimate empty state, not a visibility restriction.`
-	                              : 'Adjust severity, status, search, or time window — results may also be limited by your operational scope.'
-	                          }
-                        />
+                        {statusFilter === 'open' && !debouncedSearchTerm && !riskLevelFilter && !debouncedNamespaceFilter && !typeFilter ? (
+                          <SemanticEmptyState
+                            state="no_data"
+                            compact
+                            title="Nothing is assigned to you"
+                            reason="Open a finding and use Take it, or ask a teammate to assign one to you. Resolved and dismissed findings leave this view."
+                          />
+                        ) : (
+                          <SemanticEmptyState
+                            state={riskDataEmpty ? 'no_data' : 'no_scope'}
+                            compact
+                            title={riskDataEmpty ? 'No active findings in scope' : 'No findings match filters'}
+                            reason={
+                              riskDataEmpty
+                                ? `No active findings exist in ${scopeClusterDisplay ?? 'all clusters'}. This is a legitimate empty state, not a visibility restriction.`
+                                : 'Adjust severity, status, search, or time window — results may also be limited by your operational scope.'
+                            }
+                          />
+                        )}
                       </td>
                     </tr>
                   ) : (
@@ -1278,6 +1299,12 @@ export const RiskCenter: React.FC = () => {
                           <span className="text-muted ml-1 text-caption font-mono" title={risk.cveId}>
                             ({riskListSecondaryLabel(risk)})
                           </span>
+                          {risk.assignee ? (
+                            <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-border px-1.5 text-meta text-muted" title="Owner">
+                              <UserRound className="h-3 w-3" aria-hidden />
+                              {String(risk.assigneeUserId ?? '') === String(permUser?.id ?? '') ? 'You' : risk.assignee}
+                            </span>
+                          ) : null}
                           {riskWorkspace.narrativeTable && risk.riskExplanation ? (
                             <p className="text-meta text-muted mt-1 line-clamp-2 max-w-prose">{risk.riskExplanation}</p>
                           ) : null}
@@ -1564,6 +1591,10 @@ export const RiskCenter: React.FC = () => {
             setToast({ message: `Finding ${done}.`, variant: 'success' });
             // Decide, then move on: the next finding opens, or the panel closes at the end of the page.
             if (!stepRiskDrawer(1) && !stepRiskDrawer(-1)) closeRiskDrawer();
+            fetchDataRef.current();
+          }}
+          onAssigneeChange={(name) => {
+            setToast({ message: name ? `Assigned to ${name}.` : 'Finding unassigned.', variant: 'success' });
             fetchDataRef.current();
           }}
           onOpenPceTab={allowedRoutes.includes('/rules/exposure') ? () => navigate('/rules/exposure') : undefined}

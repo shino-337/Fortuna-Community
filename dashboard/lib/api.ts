@@ -80,6 +80,22 @@ import { deriveUnifiedRiskLevelFromScore } from './severity';
 import { downloadBlob } from './download';
 
 /** Number from a response field, or `fallback` when it is missing or not a finite number (never NaN). */
+export interface InsightAssigneeCandidate {
+  id: number;
+  username: string;
+}
+
+/** Owner fields on a finding row; absent when nobody owns it. */
+function mapInsightAssignee(raw: Record<string, unknown>): Pick<Insight, 'assignee' | 'assigneeUserId' | 'assignedAt'> {
+  const name = typeof raw.assignee === 'string' ? raw.assignee : '';
+  if (!name) return {};
+  return {
+    assignee: name,
+    assigneeUserId: raw.assigneeUserId != null ? Number(raw.assigneeUserId) : undefined,
+    assignedAt: raw.assignedAt != null ? String(raw.assignedAt) : undefined,
+  };
+}
+
 function numberOr(value: unknown, fallback: number): number {
   if (value == null || value === '') return fallback;
   const n = Number(value);
@@ -559,7 +575,7 @@ function mapNotification(n: Record<string, unknown>): Notification {
   } as Notification;
 }
 
-type RiskExportParams = { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number };
+type RiskExportParams = { clusterId?: string | null; finalLevel?: string; status?: string; search?: string; sinceMinutes?: number; assignee?: 'me' | 'none' };
 
 function riskExportPath(format: 'csv' | 'pdf', params?: RiskExportParams): string {
   const query = new URLSearchParams();
@@ -569,6 +585,7 @@ function riskExportPath(format: 'csv' | 'pdf', params?: RiskExportParams): strin
   if (params?.status != null) query.set('status', params.status);
   if (params?.search?.trim()) query.set('search', params.search.trim());
   if (params?.sinceMinutes != null && params.sinceMinutes > 0) query.set('sinceMinutes', String(params.sinceMinutes));
+  if (params?.assignee) query.set('assignee', params.assignee);
   const qs = query.toString();
   return qs ? `/risk/insights/export?${qs}` : '/risk/insights/export';
 }
@@ -1091,6 +1108,7 @@ export const api = {
       remediation: insight.remediation ?? undefined,
         resolvedAt: insight.resolvedAt != null ? String(insight.resolvedAt) : undefined,
         updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
+        ...mapInsightAssignee(insight),
         evidence: insight.evidence,
         violatedRules: insight.violatedRules,
         evidence_refs,
@@ -1121,6 +1139,20 @@ export const api = {
     await request(`/risk/insights/${encodeURIComponent(id)}`, {
       method: 'PATCH',
       body: JSON.stringify({ status: 'active' }),
+    });
+  },
+
+  /** GET /api/v1/risk/insights/:id/assignees — active users who can triage this finding (findings.ack). */
+  listInsightAssignees: async (id: string): Promise<InsightAssigneeCandidate[]> => {
+    const data = await request<{ items?: InsightAssigneeCandidate[] }>(`/risk/insights/${encodeURIComponent(id)}/assignees`);
+    return Array.isArray(data.items) ? data.items : [];
+  },
+
+  /** PUT /api/v1/risk/insights/:id/assignee — set or clear (userId null) who owns the finding. */
+  assignInsight: async (id: string, userId: number | null): Promise<{ assignee: InsightAssigneeCandidate | null }> => {
+    return request<{ assignee: InsightAssigneeCandidate | null }>(`/risk/insights/${encodeURIComponent(id)}/assignee`, {
+      method: 'PUT',
+      body: JSON.stringify({ userId }),
     });
   },
 
@@ -1168,6 +1200,8 @@ export const api = {
     /** Server-side sort column (applies across pages). Omitted: newest detected first. */
     sort?: RiskInsightsSortKey;
     order?: 'asc' | 'desc';
+    /** me: assigned to the signed-in user; none: nobody owns it yet. */
+    assignee?: 'me' | 'none';
   }): Promise<{ insights: Insight[]; total: number; page: number; pageSize: number; view?: string }> => {
     const query = new URLSearchParams();
     if (params?.type) query.set('type', params.type);
@@ -1186,6 +1220,7 @@ export const api = {
     else if (params?.view === 'instance') query.set('view', 'instance');
     if (params?.sort) query.set('sort', params.sort);
     if (params?.sort && params.order) query.set('order', params.order);
+    if (params?.assignee) query.set('assignee', params.assignee);
     const qs = query.toString();
     const url = qs ? `/risk/insights?${qs}` : '/risk/insights';
     const data = await request<{
@@ -1267,6 +1302,7 @@ export const api = {
         status: normalizeInsightStatus(insight.status),
         timestamp: insight.detectedAt || insight.createdAt,
         updatedAt: insight.updatedAt != null ? String(insight.updatedAt) : undefined,
+        ...mapInsightAssignee(insight),
         clusterId: (insight.clusterId ?? insight.resourceNamespace) ?? '',
         clusterName: (insight.clusterName ?? insight.resourceNamespace) ?? '',
         affectedResources: [

@@ -228,6 +228,10 @@ export const RiskDetail: React.FC = () => {
               toast({ title: `Finding ${done}`, variant: 'success' });
               void fetchInsight();
             }}
+            onAssigned={(a) => {
+              toast({ title: a ? `Assigned to ${a.username}` : 'Finding unassigned', variant: 'success' });
+              void fetchInsight();
+            }}
           />
           <Button variant="secondary" onClick={() => navigate('/risks')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Findings

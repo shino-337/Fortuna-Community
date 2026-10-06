@@ -31,7 +31,7 @@ Roles determine route visibility and actions:
 | Workspace | Route | Use it for |
 |-----------|-------|------------|
 | Home | `/#/` | What needs your attention in the header scope. Four counts (needs triage, critical open, your open cases, exposed workloads), the five open findings with the highest risk that nobody has acknowledged, your open cases, a one-line data freshness check, new findings per day for 30 days by risk level, and **Export brief**. Admins also see a Platform card with agent and pipeline status. Every count uses the risk level. Old `/#/dashboard` links open Home. |
-| Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Runtime evidence. `/#/risks` opens the queue. |
+| Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, Assigned to me, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow, including who owns the finding. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Runtime evidence. `/#/risks` opens the queue. |
 | Cases | `/#/investigation` | Work that spans several findings. Views for Open, Mine, Closed and All; one case at `/#/investigation?case=<id>` shows its lifecycle, linked findings with their current status, affected assets, the timeline, remediation tasks and owner. **Add to case** on a finding, pod or attack path links it to an open case or starts a new one, and the finding panel says which cases already link it. **Close case** asks for a reason and can resolve the linked findings that are still open in the same step. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
@@ -145,9 +145,10 @@ Steps:
 2. Narrow it with the risk level, namespace, type or search filters.
 3. Select a finding, or press J, to open the detail panel.
 4. Review affected resource, evidence, linked rules, and workflow status.
-5. Acknowledge, resolve, dismiss or pin it to a case, as your role allows. Resolve and dismiss ask for a reason, which goes to the audit trail. The panel then moves to the next finding.
+5. Use **Take it** to own the finding, or **Assign…** to hand it to a teammate. Only people who can triage that finding (its cluster is in their scope) are offered. Your open findings are in the **Assigned to me** view, and Home shows how many there are.
+6. Acknowledge, resolve, dismiss or add it to a case, as your role allows. Resolve and dismiss ask for a reason, which goes to the audit trail. The panel then moves to the next finding.
 
-Expected data source: `GET /api/v1/risk/insights`, `POST /api/v1/risk/insights/bulk` and linked evidence APIs.
+Expected data source: `GET /api/v1/risk/insights` (`assignee=me` for Assigned to me), `PUT /api/v1/risk/insights/:id/assignee`, `POST /api/v1/risk/insights/bulk` and linked evidence APIs.
 
 ### 3. Investigate an Attack Path
 

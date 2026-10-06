@@ -57,6 +57,7 @@ Agent and sensors -> Core HTTP ingest :8080 with a per-Agent token (or the legac
 | Action | `POST /api/v1/risk/insights/:id/acknowledge` | Workflow state transitions are action endpoints |
 | Partial update | `PATCH /api/v1/risk/insights/:id` | Used for partial status changes |
 | Bulk action | `POST /api/v1/risk/insights/bulk` | Used when a command targets multiple entities |
+| Set a sub-resource | `PUT /api/v1/risk/insights/:id/assignee` | Replaces one owned value; `{"userId": null}` clears it |
 | Ingest | `POST /api/v1/agent/sync` | Authenticated with an Agent credential, not a user JWT |
 
 ## Error Response Format
