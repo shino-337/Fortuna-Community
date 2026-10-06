@@ -102,7 +102,7 @@ export const Notifications: React.FC = () => {
 
   return (
     <PageLayout
-      title={PAGE_TITLES.monitoring}
+      title={PAGE_TITLES.notifications}
       description="Security events for the clusters you can access. Read state is your own."
       actions={
         <div className="flex items-center gap-2 flex-wrap">

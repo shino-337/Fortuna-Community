@@ -1,21 +1,15 @@
 import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import { normalizeInsightStatus } from '../lib/api';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { api, getAvailabilityIssue, type AvailabilityIssue, type RiskInsightsSortKey } from '../lib/api';
+import { api, getAvailabilityIssue, type RiskInsightsSortKey } from '../lib/api';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useAbortSignal, isAbortError } from '../hooks/useAbortSignal';
 import { useClusters } from '../hooks/useClusters';
 import { useEntityStore } from '../store/entityStore';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
-import {
-  Insight,
-  PodCapabilityDetail,
-  PodCapabilitySummaryNamespace,
-  PodCapabilitySummarySeverity,
-  PodCapabilityTrendPoint} from '../types';
+import { Insight } from '../types';
 import { Button } from '../components/ui/Button';
 import { ResetFiltersButton } from '../components/ResetFiltersButton';
-import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
 import { Shield, AlertTriangle, Info, CheckCircle, Search, ArrowRight, X, Loader2, FileText } from 'lucide-react';
@@ -23,12 +17,11 @@ import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-do
 import { useClusterStore } from '../store/clusterStore';
 import { useTimeWindowStore } from '../store/timeWindowStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
-import { getSeverityBadgeClass, getSeverityTextClass } from '../lib/severity';
+import { getSeverityBadgeClass } from '../lib/severity';
 import { RISK_CENTER_DESCRIPTION } from '../constants/labels';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { RuntimeSignalsTable } from '../components/RuntimeSignalsTable';
 import { RiskDrawer } from '../components/RiskDrawer';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { insightTypeUiLabel, riskListSecondaryLabel } from '../lib/riskDisplay';
 import { RiskFindingsSavedViews } from '../components/RiskFindingsSavedViews';
 import { formatMinutesHuman } from '../lib/formatDuration';
@@ -52,17 +45,16 @@ import { can, P } from '../lib/permissions';
 import { usePermUser } from '../hooks/usePermUser';
 import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
 import { usePersona } from '../hooks/usePersona';
+import { useOperationalMaterialization } from '../hooks/useOperationalMaterialization';
 import { personaAllowsAction} from '../lib/persona';
 import { getRiskWorkspaceConfig, type RiskTabId } from '../lib/personaRiskWorkspace';
 import { ProvenanceBadge } from '../design-system/components/ProvenanceBadge';
 import { insightProvenance, insightProvenanceTitle} from '../lib/provenance';
 import { PageContract } from '../components/PageContract';
 import { SemanticEmptyState } from '../design-system/components/SemanticEmptyState';
-import { getChartThemeColors } from '../lib/chartTheme';
 import { buildEvidenceLogEntries, summarizeEvidenceLog } from '../lib/evidenceLog';
-import { downloadText, toCsv } from '../lib/download';
 
-type TabId = 'triage' | 'pce' | 'reference';
+type TabId = 'triage' | 'reference';
 type FindingStatusFilter = 'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed';
 
 /** Findings views, in workflow order. `view` is the URL value; the queue itself is the default. */
@@ -178,6 +170,7 @@ export const RiskCenter: React.FC = () => {
   const { selectedClusterId, setSelectedClusterId } = useClusterStore();
   const permUser = usePermUser();
   const { id: personaId, profile } = usePersona();
+  const { allowedRoutes } = useOperationalMaterialization();
   const riskWorkspace = getRiskWorkspaceConfig(personaId);
   const canBulkFindings = personaAllowsAction(profile, 'bulk', permUser, P.findingsBulk);
   const canExportFindings = canRunAction(permUser, ACTION_IDS.findingExport);
@@ -193,22 +186,7 @@ export const RiskCenter: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabId>('triage');
   const [risks, setRisks] = useState<Insight[]>([]);
   const [risksTotal, setRisksTotal] = useState(0);
-  const [pceSummary, setPceSummary] = useState<PodCapabilitySummarySeverity[]>([]);
-  const [pceDetails, setPceDetails] = useState<PodCapabilityDetail[]>([]);
-  const [pceIssue, setPceIssue] = useState<AvailabilityIssue | null>(null);
-  const pceRequestRef = useRef(0);
   const { clusters } = useClusters();
-  const [pceClusterId, setPceClusterId] = useState('');
-  const [pceNamespace, setPceNamespace] = useState('');
-  const [pceCapabilityId, setPceCapabilityId] = useState('');
-  const [pcePodName, setPcePodName] = useState('');
-  const [pceSeverityFilter, setPceSeverityFilter] = useState<string>('');
-  /** When user clicks a heatmap cell, filter drill-down table by this namespace + severity. */
-  const [pceHeatmapFilter, setPceHeatmapFilter] = useState<{ namespace: string; severity: string } | null>(null);
-  /** PCE drill-down server pagination (GET /inventory/pod-capabilities returns total). */
-  const [pceListPage, setPceListPage] = useState(1);
-  const [pceListPageSize, setPceListPageSize] = useState(25);
-  const [pceListTotal, setPceListTotal] = useState(0);
   const viewFromUrl = searchParams.get('view');
   const [statusFilter, setStatusFilter] = useState<FindingStatusFilter>(() => statusForView(viewFromUrl));
   const [searchTerm, setSearchTerm] = useState('');
@@ -223,17 +201,11 @@ export const RiskCenter: React.FC = () => {
   const [riskLevelFilter, setRiskLevelFilter] = useState<string>(
     finalLevelFromUrl && ['critical', 'high', 'medium', 'low'].includes(finalLevelFromUrl) ? finalLevelFromUrl : ''
   ); // ADR: low|medium|high|critical → API finalLevel
-  const [pceSort, setPceSort] = useState<'severity_desc' | 'severity_asc' | 'capability_asc' | 'pod_asc' | 'namespace_asc'>('severity_desc');
-  /** PCE trend (7 days) and namespace×severity heatmap data. Phase 4. */
-  const [pceTrend, setPceTrend] = useState<PodCapabilityTrendPoint[]>([]);
-  const [pceHeatmap, setPceHeatmap] = useState<PodCapabilitySummaryNamespace[]>([]);
   const [namespaceFilter, setNamespaceFilter] = useState<string>('');
   const [debouncedNamespaceFilter, setDebouncedNamespaceFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
   const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' } | null>(null);
-  const [pceTrendDays, setPceTrendDays] = useState(7);
-  const [heatmapShowAll, setHeatmapShowAll] = useState(false);
   const [pageBlocking, setPageBlocking] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -244,7 +216,6 @@ export const RiskCenter: React.FC = () => {
   const [bulkActionReason, setBulkActionReason] = useState('');
   const [bulkActionBusy, setBulkActionBusy] = useState(false);
   const bulkActionDialogRef = useRef<HTMLDivElement>(null);
-  const chartTheme = getChartThemeColors();
 
   /** Recalculate all scores (POST /risk/scores/sync). */
   const [syncScoresBusy, setSyncScoresBusy] = useState(false);
@@ -252,15 +223,6 @@ export const RiskCenter: React.FC = () => {
 
   // Resolve cluster + time: URL from Dashboard link overrides store so Risk Center shows same scope
   const effectiveClusterId = clusterIdFromUrl ?? selectedClusterId ?? undefined;
-  useEffect(() => {
-    pceRequestRef.current += 1;
-    setPceSummary([]);
-    setPceDetails([]);
-    setPceListTotal(0);
-    setPceTrend([]);
-    setPceHeatmap([]);
-    setPceIssue(null);
-  }, [effectiveClusterId, pceClusterId]);
   const effectiveSinceMinutes = sinceMinutesFromUrl != null ? parseInt(sinceMinutesFromUrl, 10) : timeWindowMinutes;
   const effectiveSinceMinutesNum = Number.isFinite(effectiveSinceMinutes) && effectiveSinceMinutes > 0 ? effectiveSinceMinutes : undefined;
 
@@ -309,10 +271,10 @@ export const RiskCenter: React.FC = () => {
     ? (clusterLabelById.get(effectiveClusterId) ?? effectiveClusterId)
     : null;
 
-  // Sync active tab with route: /risks and /risks/findings are the queue; /risks/pce, /risks/evidence the secondary views.
+  // Sync active tab with route: /risks and /risks/findings are the queue; /risks/evidence is the secondary view.
   React.useEffect(() => {
     const path = location.pathname || '';
-    const tab: TabId = path.endsWith('/pce') ? 'pce' : path.endsWith('/evidence') ? 'reference' : 'triage';
+    const tab: TabId = path.endsWith('/evidence') ? 'reference' : 'triage';
     // A deep link must not open a tab the persona's workspace hides.
     setActiveTab(riskWorkspace.visibleTabs.includes(tab as RiskTabId) ? tab : (riskWorkspace.defaultTab as TabId));
   }, [location.pathname, riskWorkspace]);
@@ -394,55 +356,9 @@ export const RiskCenter: React.FC = () => {
       sort: RISK_SORT_OPTIONS[riskSort].sort,
       order: RISK_SORT_OPTIONS[riskSort].order,
     };
-    const runPceBlock = async (errors: string[]) => {
-      const requestId = ++pceRequestRef.current;
-      const pceDrillCluster = (pceClusterId || '').trim() || clusterId;
-      const pceResults = await Promise.allSettled([
-        api.getPceSummaryBySeverity({ clusterId: pceDrillCluster || undefined }),
-        api.getPceCapabilities({
-          clusterId: pceDrillCluster || undefined,
-          namespace: pceNamespace.trim() || undefined,
-          severity: pceSeverityFilter || undefined,
-          podName: pcePodName.trim() || undefined,
-          capabilityId: pceCapabilityId.trim() || undefined,
-          limit: pceListPageSize,
-          offset: (pceListPage - 1) * pceListPageSize,
-        }),
-        api.getPceTrend(pceTrendDays, { clusterId: clusterId ?? undefined }),
-        api.getPceSummaryByNamespace({ clusterId: clusterId ?? undefined }),
-      ]);
-      if (requestId !== pceRequestRef.current) return;
-      const [pceSummaryResult, pceListResult, pceTrendResult, pceHeatmapResult] = pceResults;
-      const failed = pceResults.find((result) => result.status === 'rejected');
-      setPceIssue(failed?.status === 'rejected' ? getAvailabilityIssue(failed.reason, 'Capability data') : null);
-      if (pceSummaryResult.status === 'fulfilled') {
-        setPceSummary(pceSummaryResult.value);
-      } else {
-        errors.push(getAvailabilityIssue(pceSummaryResult.reason, 'Capability summary').description);
-      }
-      if (pceListResult.status === 'fulfilled') {
-        const v = pceListResult.value;
-        setPceDetails(v.capabilities);
-        setPceListTotal(v.total);
-      } else {
-        errors.push(getAvailabilityIssue(pceListResult.reason, 'Capability inventory').description);
-      }
-      if (pceTrendResult.status === 'fulfilled') {
-        setPceTrend(Array.isArray(pceTrendResult.value) ? pceTrendResult.value : []);
-      } else {
-        errors.push(getAvailabilityIssue(pceTrendResult.reason, 'Capability trend').description);
-      }
-      if (pceHeatmapResult.status === 'fulfilled') {
-        setPceHeatmap(Array.isArray(pceHeatmapResult.value) ? pceHeatmapResult.value : []);
-      } else {
-        errors.push(getAvailabilityIssue(pceHeatmapResult.reason, 'Capability heatmap').description);
-      }
-    };
     try {
       const errors: string[] = [];
-      if (activeTab === 'pce') {
-        await runPceBlock(errors);
-      } else {
+      {
         // The Runtime evidence view summarizes evidence across the first page of up to the API maximum.
         try {
           const page = await api.getRisks({
@@ -487,14 +403,6 @@ export const RiskCenter: React.FC = () => {
     debouncedNamespaceFilter,
     typeFilter,
     activeTab,
-    pceTrendDays,
-    pceClusterId,
-    pceNamespace,
-    pceSeverityFilter,
-    pcePodName,
-    pceCapabilityId,
-    pceListPage,
-    pceListPageSize,
     findingsListView,
   ]);
 
@@ -577,7 +485,6 @@ export const RiskCenter: React.FC = () => {
   }, [fetchData]);
 
   React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, riskSort]);
-  React.useEffect(() => { setPceListPage(1); }, [effectiveClusterId, pceClusterId, pceNamespace, pceSeverityFilter, pcePodName, pceCapabilityId]);
   // Bulk selection must not carry hidden findings across a filter or scope change.
   React.useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, debouncedSearchTerm, sinceMinutesForApi, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, findingsListView]);
 
@@ -724,22 +631,6 @@ export const RiskCenter: React.FC = () => {
     }
   };
 
-  const summarizePceEvidence = (ev: Record<string, unknown> | undefined): { label: string; title: string } => {
-    if (!ev || typeof ev !== 'object' || Object.keys(ev).length === 0) {
-      return { label: '', title: '' };
-    }
-    const full = JSON.stringify(ev);
-    const keys = Object.keys(ev).slice(0, 5);
-    const label = keys
-      .map((k) => {
-        const v = ev[k];
-        const vs =
-          v != null && typeof v === 'object' ? JSON.stringify(v).slice(0, 32) : String(v ?? '').slice(0, 32);
-        return `${k}: ${vs}`;
-      })
-      .join(' · ');
-    return { label: label.length > 90 ? `${label.slice(0, 87)}…` : label, title: full };
-  };
 
   React.useEffect(() => {
     setRisksPage(1);
@@ -767,30 +658,8 @@ export const RiskCenter: React.FC = () => {
     [risks],
   );
 
-  const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
 
-  const sortedPceDetails = useMemo(() => {
-    const out = [...pceDetails];
-    out.sort((a, b) => {
-      const aSev = (a.severity || '').toLowerCase();
-      const bSev = (b.severity || '').toLowerCase();
-      switch (pceSort) {
-        case 'severity_asc':
-          return (severityRank[aSev] ?? 0) - (severityRank[bSev] ?? 0);
-        case 'capability_asc':
-          return (a.capabilityId || '').localeCompare(b.capabilityId || '');
-        case 'pod_asc':
-          return (a.podName || a.podUid || '').localeCompare(b.podName || b.podUid || '');
-        case 'namespace_asc':
-          return (a.namespace || '').localeCompare(b.namespace || '');
-        case 'severity_desc':
-        default:
-          return (severityRank[bSev] ?? 0) - (severityRank[aSev] ?? 0);
-      }
-    });
-    return out;
-  }, [pceDetails, pceSort]);
 
   // Rows arrive sorted by the server (sort/order apply across all pages).
   const paginatedRisks = risks;
@@ -822,27 +691,6 @@ export const RiskCenter: React.FC = () => {
     setRisksPage(1);
   }, [setSearchParams]);
 
-  /** True when any Exposure (PCE) drill-down filter or sort differs from its default. */
-  const hasPceFilters =
-    pceClusterId !== '' ||
-    pceNamespace !== '' ||
-    pceCapabilityId !== '' ||
-    pcePodName !== '' ||
-    pceSeverityFilter !== '' ||
-    pceHeatmapFilter != null ||
-    pceSort !== 'severity_desc';
-
-  /** Clears the Exposure (PCE) drill-down filters and sort; the list refetches from page 1. */
-  const resetPceFilters = useCallback(() => {
-    setPceClusterId('');
-    setPceNamespace('');
-    setPceCapabilityId('');
-    setPcePodName('');
-    setPceSeverityFilter('');
-    setPceHeatmapFilter(null);
-    setPceSort('severity_desc');
-    setPceListPage(1);
-  }, []);
 
   const statusLabelMap: Record<string, string> = {
     dismissed: 'Dismissed',
@@ -942,23 +790,9 @@ export const RiskCenter: React.FC = () => {
     );
   }
 
-  const loadPceDetails = async (params: Parameters<typeof api.getPceCapabilities>[0]) => {
-    const requestId = ++pceRequestRef.current;
-    try {
-      const result = await api.getPceCapabilities(params);
-      if (requestId !== pceRequestRef.current) return;
-      setPceDetails(result.capabilities);
-      setPceListTotal(result.total);
-    } catch (err) {
-      if (requestId !== pceRequestRef.current) return;
-      setPceIssue(getAvailabilityIssue(err, 'Capability inventory'));
-      setError(getAvailabilityIssue(err, 'Capability inventory').description);
-    }
-  };
 
   const secondaryViews = (
     [
-      { id: 'pce' as const, label: 'Capability exposure', path: '/risks/pce' },
       { id: 'reference' as const, label: 'Runtime evidence', path: '/risks/evidence' },
     ]
   ).filter((v) => riskWorkspace.visibleTabs.includes(v.id as RiskTabId));
@@ -1611,409 +1445,6 @@ export const RiskCenter: React.FC = () => {
         </div>
       )}
 
-      {/* ----- PCE tab ----- */}
-      {activeTab === 'pce' && (
-        <div className="space-y-6">
-          {pceIssue ? <AvailabilityNotice issue={pceIssue} onRetry={pceIssue.retryable ? () => { void fetchData(); } : undefined} /> : null}
-          <div className="flex items-center justify-between gap-4 flex-wrap">
-            <h1 className="text-section-title text-text">Capability exposure</h1>
-            {pceHeatmap.length > 0 && (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={() => {
-                  const csv = toCsv([
-                    ['namespace', 'severity', 'count'],
-                    ...pceHeatmap.map((r) => [r.namespace ?? '', r.severity ?? '', r.count]),
-                  ]);
-                  downloadText(csv, `pce-heatmap-${new Date().toISOString().slice(0, 10)}.csv`, 'text/csv;charset=utf-8');
-                }}
-                title="Export heatmap data (namespace, severity, count) as CSV"
-              >
-                Export Heatmap
-              </Button>
-            )}
-          </div>
-          {/* Capability exposure summary: capability counts, not risk counts */}
-          <div className="bg-surface border border-border p-4 rounded-lg">
-	                <h2 className="text-body font-semibold text-muted uppercase tracking-wider mb-1">
-	              Capability exposure summary
-            </h2>
-            <p className="text-caption text-muted mb-3">
-              Counts by severity from current pod capability inventory. These numbers are separate from active findings and do not use the Findings time window.
-              {scopeClusterDisplay ? ` Scoped to cluster: ${scopeClusterDisplay}.` : ' All clusters.'}
-            </p>
-            {pceSummary.length === 0 && !pceIssue ? (
-              <p className="text-body text-muted">No capability exposure data available for this scope.</p>
-            ) : pceSummary.length > 0 ? (
-              <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
-                {pceSummary.map((row) => (
-                  <div key={row.severity} className="bg-base border border-border rounded p-3 flex items-center justify-between">
-                    <span className={`text-caption uppercase ${getSeverityTextClass(row.severity)}`}>{row.severity}</span>
-                    <span className="text-body font-bold text-text">{row.count}</span>
-                  </div>
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Capability exposure trend */}
-          {pceTrend.length > 0 && (
-            <div className="bg-surface border border-border p-4 rounded-lg">
-              <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                <h2 className="text-body font-semibold text-muted uppercase tracking-wider">Capability exposure trend (last {pceTrendDays === 1 ? '24h' : `${pceTrendDays}d`})</h2>
-                <div className="flex items-center gap-1 text-caption text-muted">
-                  <span>Range:</span>
-                  {[1, 7, 30].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setPceTrendDays(d)}
-                      className={`px-2 py-0.5 rounded-full border ${
-                        pceTrendDays === d
-                          ? 'border-brand text-brand/90 bg-brand/10'
-                          : 'border-border text-muted hover:border-muted'
-                      }`}
-                    >
-                      {d === 1 ? '24h' : `${d}d`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="text-caption text-muted mb-3">Capability exposure counts by day. Same cluster scope as this route.</p>
-              {pceTrend.length >= 2 ? (
-                <div className="h-[220px] min-h-[220px] w-full min-w-0">
-                  <ResponsiveContainer width="100%" height="100%" minWidth={1} minHeight={220}>
-                    <AreaChart data={pceTrend.map((p) => ({ ...p, total: (p.critical ?? 0) + (p.high ?? 0) + (p.medium ?? 0) + (p.low ?? 0) }))}>
-                      <CartesianGrid strokeDasharray="3 3" stroke={chartTheme.grid} />
-                      <XAxis dataKey="date" tick={{ fill: chartTheme.axis, fontSize: 11 }} />
-                      <YAxis tick={{ fill: chartTheme.axis, fontSize: 11 }} />
-                      <Tooltip contentStyle={{ backgroundColor: chartTheme.tooltipBg, border: `1px solid ${chartTheme.tooltipBorder}` }} labelStyle={{ color: chartTheme.axis }} />
-                      <Area type="monotone" dataKey="critical" stackId="1" stroke={chartTheme.critical} fill={chartTheme.critical} fillOpacity={0.6} name="Critical" />
-                      <Area type="monotone" dataKey="high" stackId="1" stroke={chartTheme.high} fill={chartTheme.high} fillOpacity={0.6} name="High" />
-                      <Area type="monotone" dataKey="medium" stackId="1" stroke={chartTheme.medium} fill={chartTheme.medium} fillOpacity={0.6} name="Medium" />
-                      <Area type="monotone" dataKey="low" stackId="1" stroke={chartTheme.low} fill={chartTheme.low} fillOpacity={0.6} name="Low" />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-              ) : (
-                <div className="flex h-[220px] items-center justify-center rounded-lg border border-border/60 bg-base/25 px-4 text-center text-body text-muted">
-                  Trend needs at least two time buckets for this scope and range.
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* PCE Heatmap: namespace × severity – click cell to filter drill-down table (Phase 3) */}
-          {pceHeatmap.length > 0 && (() => {
-            const byNs: Record<string, { critical: number; high: number; medium: number; low: number }> = {};
-            pceHeatmap.forEach((r) => {
-              if (!byNs[r.namespace]) byNs[r.namespace] = { critical: 0, high: 0, medium: 0, low: 0 };
-              const sev = (r.severity || '').toLowerCase();
-              if (sev in byNs[r.namespace]) (byNs[r.namespace] as Record<string, number>)[sev] = r.count;
-            });
-            const namespaces = Object.keys(byNs).sort();
-            const maxCount = Math.max(1, ...namespaces.flatMap((ns) => Object.values(byNs[ns])));
-            const handleHeatmapCellClick = async (ns: string, severity: string) => {
-              setPceHeatmapFilter({ namespace: ns, severity });
-              setPceNamespace(ns);
-              setPceSeverityFilter(severity);
-              setPceListPage(1);
-              const merged =
-                (pceClusterId || '').trim() ||
-                effectiveClusterId ||
-                selectedClusterId ||
-                undefined;
-              await loadPceDetails({
-                clusterId: merged,
-                namespace: ns,
-                severity,
-                limit: pceListPageSize,
-                offset: 0,
-              });
-            };
-            return (
-              <div className="bg-surface border border-border p-4 rounded-lg">
-                <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-                  <h2 className="text-body font-semibold text-muted uppercase tracking-wider">Exposure by namespace</h2>
-                  {namespaces.length > 30 && (
-                    <Button variant="secondary" size="sm" type="button" onClick={() => setHeatmapShowAll((v) => !v)}>
-                      {heatmapShowAll ? 'Show first 30 only' : `Show all (${namespaces.length})`}
-                    </Button>
-                  )}
-                </div>
-                <p className="text-caption text-muted mb-3">Click a cell with count &gt; 0 to filter the table below by that namespace and severity.</p>
-                <div className="overflow-x-auto max-h-[min(70dvh,520px)] overflow-y-auto overscroll-contain rounded-lg border border-border">
-                  <table className={UI_TABLE}>
-                    <thead className={UI_THEAD_STICKY}>
-                      <tr>
-                        <th className={UI_TH_COMPACT}>Namespace</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-red-400`}>Critical</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-orange-400`}>High</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-yellow-500`}>Medium</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-green-400`}>Low</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(heatmapShowAll ? namespaces : namespaces.slice(0, 30)).map((ns) => {
-                        const row = byNs[ns];
-                        const td = (n: number, sev: string, rgba: string) => (
-                          <td
-                            key={sev}
-                            role={n > 0 ? 'button' : undefined}
-                            tabIndex={n > 0 ? 0 : undefined}
-                            className={`text-right py-1.5 px-2 rounded ${n > 0 ? 'cursor-pointer hover:ring-2 hover:ring-inset hover:ring-white/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-inset' : 'cursor-default opacity-50'}`}
-                            style={{ backgroundColor: `rgba(${rgba},${0.15 + (n / maxCount) * 0.75})` }}
-                            onClick={() => n > 0 && handleHeatmapCellClick(ns, sev)}
-                            onKeyDown={(event) => {
-                              if (n > 0 && (event.key === 'Enter' || event.key === ' ')) {
-                                event.preventDefault();
-                                handleHeatmapCellClick(ns, sev);
-                              }
-                            }}
-                            title={n > 0 ? `Filter table by ${ns}, ${sev}` : 'No exposures in this cell'}
-                          >
-                            {n}
-                          </td>
-                        );
-                        return (
-                          <tr key={ns} className={UI_TR}>
-                            <td className={`${UI_TD_COMPACT_TIGHT} font-mono text-text`}>{ns}</td>
-                            {td(row.critical, 'critical', '220,38,38')}
-                            {td(row.high, 'high', '234,88,12')}
-                            {td(row.medium, 'medium', '202,138,4')}
-                            {td(row.low, 'low', '22,163,74')}
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                  {!heatmapShowAll && namespaces.length > 30 && (
-                    <p className="text-caption text-muted mt-2">Showing first 30 of {namespaces.length} namespaces. Use &quot;Show all&quot; to expand.</p>
-                  )}
-                </div>
-              </div>
-            );
-          })()}
-
-          {/* PCE Drill-down */}
-          <div className="bg-surface border border-border p-4 rounded-lg">
-            <h2 className="text-body font-semibold text-muted uppercase tracking-wider mb-2">
-              Capability drill-down by pod
-            </h2>
-            <p className="text-caption text-muted mb-2">
-              Explore pod-level capabilities that may explain exposure behind findings. Click a heatmap cell above to filter by namespace and severity, or use the filters below.
-            </p>
-            {pceHeatmapFilter && (
-              <div className="mb-3 flex items-center gap-2 flex-wrap">
-                <span className="text-caption text-muted">Filtered by namespace <strong className="text-text">{pceHeatmapFilter.namespace}</strong>, severity <strong className="text-text">{pceHeatmapFilter.severity}</strong></span>
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={async () => {
-                    setPceHeatmapFilter(null);
-                    setPceNamespace('');
-                    setPceSeverityFilter('');
-                    setPceListPage(1);
-                    const merged =
-                      (pceClusterId || '').trim() ||
-                      effectiveClusterId ||
-                      selectedClusterId ||
-                      undefined;
-                    await loadPceDetails({
-                      clusterId: merged,
-                      limit: pceListPageSize,
-                      offset: 0,
-                    });
-                  }}
-                >
-                  Clear filter
-                </Button>
-              </div>
-            )}
-            <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-4">
-              <div>
-                <label className="block text-caption text-muted mb-1">Cluster</label>
-                <select
-                  value={pceClusterId}
-                  onChange={(e) => setPceClusterId(e.target.value)}
-                  className="w-full bg-base border border-border rounded px-3 py-2 text-body text-text"
-                >
-                  <option value="">All Clusters</option>
-                  {clusters.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name || c.id}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-caption text-muted mb-1">Namespace</label>
-                <input
-                  value={pceNamespace}
-                  onChange={(e) => setPceNamespace(e.target.value)}
-                  placeholder="e.g. default"
-                  className="w-full bg-base border border-border rounded px-3 py-2 text-body text-text"
-                />
-              </div>
-              <div>
-                <label className="block text-caption text-muted mb-1">Severity</label>
-                <select
-                  value={pceSeverityFilter}
-                  onChange={(e) => setPceSeverityFilter(e.target.value)}
-                  className="w-full bg-base border border-border rounded px-3 py-2 text-body text-text"
-                >
-                  <option value="">All</option>
-                  <option value="critical">Critical</option>
-                  <option value="high">High</option>
-                  <option value="medium">Medium</option>
-                  <option value="low">Low</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-caption text-muted mb-1">Pod name</label>
-                <input
-                  value={pcePodName}
-                  onChange={(e) => setPcePodName(e.target.value)}
-                  placeholder="e.g. my-pod"
-                  className="w-full bg-base border border-border rounded px-3 py-2 text-body text-text"
-                />
-              </div>
-              <div>
-                <label className="block text-caption text-muted mb-1">Capability ID</label>
-                <input
-                  value={pceCapabilityId}
-                  onChange={(e) => setPceCapabilityId(e.target.value)}
-                  placeholder="e.g. ESC_PRIV_POD"
-                  className="w-full bg-base border border-border rounded px-3 py-2 text-body text-text"
-                />
-              </div>
-              <div className="flex items-end gap-2">
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    setPceListPage(1);
-                    const merged =
-                      (pceClusterId || '').trim() ||
-                      effectiveClusterId ||
-                      selectedClusterId ||
-                      undefined;
-                    await loadPceDetails({
-                      clusterId: merged,
-                      namespace: pceNamespace.trim() || undefined,
-                      severity: pceSeverityFilter || undefined,
-                      podName: pcePodName.trim() || undefined,
-                      capabilityId: pceCapabilityId.trim() || undefined,
-                      limit: pceListPageSize,
-                      offset: 0,
-                    });
-                  }}
-                >
-                  Apply &amp; search
-                </Button>
-                <ResetFiltersButton
-                  onReset={resetPceFilters}
-                  active={hasPceFilters}
-                  title="Clear cluster, namespace, severity, pod, capability and heatmap filters and sort"
-                />
-              </div>
-            </div>
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <label className="text-caption text-muted uppercase tracking-wider">Sort:</label>
-              <select
-                value={pceSort}
-                onChange={(e) => setPceSort(e.target.value as typeof pceSort)}
-                className="bg-base border border-border rounded px-3 py-1.5 text-body text-text focus:outline-none focus:border-brand"
-              >
-                <option value="severity_desc">Severity high to low</option>
-                <option value="severity_asc">Severity low to high</option>
-                <option value="capability_asc">Capability A-Z</option>
-                <option value="pod_asc">Pod name A-Z</option>
-                <option value="namespace_asc">Namespace A-Z</option>
-              </select>
-              <span className="text-caption text-muted">Sort applies to the current page of results.</span>
-            </div>
-            <div className="ui-table-scroll rounded-lg border border-border bg-surface">
-              <table className={UI_TABLE}>
-                <thead className={UI_THEAD_STICKY}>
-                  <tr>
-                    <th className={UI_TH_COMPACT}>Pod Name</th>
-                    <th className={`${UI_TH_COMPACT} hidden lg:table-cell`}>Pod UID</th>
-                    <th className={UI_TH_COMPACT}>Namespace</th>
-                    <th className={UI_TH_COMPACT}>Capability</th>
-                    <th className={UI_TH_COMPACT}>Severity</th>
-                    <th className={`${UI_TH_COMPACT} max-w-[140px]`}>Evidence</th>
-                    <th className={`${UI_TH_COMPACT} whitespace-nowrap`}>Last Seen</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {pceDetails.length === 0 && !pceIssue ? (
-                    <tr>
-                      <td colSpan={7} className={`${UI_TD_COMPACT_TIGHT} py-4 text-center text-muted`}>No matching capability records. Adjust filters and run again.</td>
-                    </tr>
-                  ) : pceDetails.length > 0 ? (
-                    sortedPceDetails.map((row) => {
-                      const evSum = summarizePceEvidence(row.evidence);
-                      const lastSeen = row.lastSeenAt ? (() => {
-                        try {
-                          const d = new Date(row.lastSeenAt);
-                          const now = Date.now();
-                          const diffMs = now - d.getTime();
-                          if (diffMs < 60000) return 'Just now';
-                          if (diffMs < 3600000) return `${Math.floor(diffMs / 60000)}m ago`;
-                          if (diffMs < 86400000) return `${Math.floor(diffMs / 3600000)}h ago`;
-                          if (diffMs < 604800000) return `${Math.floor(diffMs / 86400000)}d ago`;
-                          return d.toLocaleDateString();
-                        } catch {
-                          return row.lastSeenAt;
-                        }
-                      })() : (row.updatedAt ? (() => {
-                        try {
-                          const d = new Date(row.updatedAt);
-                          return d.toLocaleDateString();
-                        } catch {
-                          return '—';
-                        }
-                      })() : '—');
-                      return (
-                        <tr key={`${row.podUid}-${row.capabilityId}`} className={UI_TR}>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-text font-medium`} title={row.podUid}>{row.podName ?? '—'}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted font-mono text-caption truncate max-w-[120px] hidden lg:table-cell`} title={row.podUid}>{row.podUid}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-text`}>{row.namespace}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-text`}>{row.capabilityId}</td>
-                          <td className={UI_TD_COMPACT_TIGHT}>
-                            <span className={`px-2 py-0.5 rounded text-caption font-bold uppercase border ${getSeverityBadgeClass(row.severity)}`}>
-                              {row.severity}
-                            </span>
-                          </td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted text-caption max-w-[200px] leading-snug`} title={evSum.title || undefined}>
-                            {evSum.label ? <span className="line-clamp-2">{evSum.label}</span> : '—'}
-                          </td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-muted text-caption whitespace-nowrap`} title={row.lastSeenAt || row.updatedAt || undefined}>{lastSeen}</td>
-                        </tr>
-                      );
-                    })
-                  ) : null}
-                </tbody>
-              </table>
-            </div>
-            {(pceListTotal > 0 || pceDetails.length > 0) && (
-              <Pagination
-                page={pceListPage}
-                pageSize={pceListPageSize}
-                total={pceListTotal}
-                onPageChange={setPceListPage}
-                onPageSizeChange={(size) => {
-                  setPceListPageSize(size);
-                  setPceListPage(1);
-                }}
-                pageSizeOptions={[10, 25, 50, 100]}
-                itemLabel="rows"
-                className="rounded-b-lg border border-t-0 border-border"
-              />
-            )}
-          </div>
-        </div>
-      )}
-
       {/* ----- Evidence & References tab ----- */}
       {activeTab === 'reference' && (
         <div className="space-y-6">
@@ -2135,7 +1566,7 @@ export const RiskCenter: React.FC = () => {
             if (!stepRiskDrawer(1) && !stepRiskDrawer(-1)) closeRiskDrawer();
             fetchDataRef.current();
           }}
-          onOpenPceTab={() => setActiveTab('pce')}
+          onOpenPceTab={allowedRoutes.includes('/rules/exposure') ? () => navigate('/rules/exposure') : undefined}
         />
       )}
       {pendingBulkAction && (

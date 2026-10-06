@@ -165,16 +165,16 @@ flowchart LR
 | Domain | What it shows | Primary data |
 |--------|---------------|--------------|
 | Home | What needs attention: triage, critical and exposure counts, the top unacknowledged findings, the user's open cases, data freshness, a 30-day trend by risk level, and the Executive brief (time-windowed posture and findings exports) | Findings list and summary, risk score counts, threat velocity, dashboard stats, pipeline health, investigations |
-| Findings | The triage queue by workflow status (needs triage, in review, resolved, dismissed), one detail panel whose actions are shared with the finding page, and for operators capability exposure and runtime evidence | `risk_scores`, insights, rules, runtime/CVE/path evidence |
+| Findings | The triage queue by workflow status (needs triage, in review, resolved, dismissed), one detail panel whose actions are shared with the finding page, and for operators runtime evidence | `risk_scores`, insights, rules, runtime/CVE/path evidence |
 | Cases | Incidents that span findings: lifecycle, linked findings read live, affected assets, timeline and remediation tasks; closing a case can resolve its open findings | Investigation cases and timeline, `/investigations/:id/findings`, findings bulk actions |
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
 | Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
 | Network | Runtime topology and external destinations | Agent network observations |
-| Rules | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
+| Rules | Rule catalog, matching metadata, linked findings, the capability catalog and which pods hold each capability | Rule catalog APIs, pod capability summaries |
 | Platform | One verdict on data collection: agents per cluster, pipeline stage freshness, certificates, recent errors and the operational log | Agent status, pipeline health, sync status, dashboard data integrity (catalog and runtime ingest), certificates, error logs |
 | Notifications | The user's alert inbox, also reached from the header bell | Notifications |
 | Setup | First-run checklist for admins, derived from live data and not stored | Agent status, sync status, findings by status, users, clusters |
-| Audit | Who did what in Fortuna (admin) | Security activity, platform audit log, audit summary, investigation events, permission and access analytics |
+| Audit | Who did what in Fortuna (admin), in three views: activity, platform log, access | Security activity (by domain), platform audit log and summary, permission and access analytics |
 
 ## API Shape
 

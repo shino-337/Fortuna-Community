@@ -31,16 +31,16 @@ Roles determine route visibility and actions:
 | Workspace | Route | Use it for |
 |-----------|-------|------------|
 | Home | `/#/` | What needs your attention in the header scope. Four counts (needs triage, critical open, your open cases, exposed workloads), the five open findings with the highest risk that nobody has acknowledged, your open cases, a one-line data freshness check, new findings per day for 30 days by risk level, and **Export brief**. Admins also see a Platform card with agent and pipeline status. Every count uses the risk level. Old `/#/dashboard` links open Home. |
-| Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Capability exposure and Runtime evidence. `/#/risks` opens the queue. |
+| Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Runtime evidence. `/#/risks` opens the queue. |
 | Cases | `/#/investigation` | Work that spans several findings. Views for Open, Mine, Closed and All; one case at `/#/investigation?case=<id>` shows its lifecycle, linked findings with their current status, affected assets, the timeline, remediation tasks and owner. **Add to case** on a finding, pod or attack path links it to an open case or starts a new one, and the finding panel says which cases already link it. **Close case** asks for a reason and can resolve the linked findings that are still open in the same step. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
 | Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
-| Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
+| Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`), the capability catalog (`/#/rules/catalog`) and capability exposure (`/#/rules/exposure`): which pods hold each capability, by namespace and severity. Old `/#/risks/pce` links redirect. |
 | Platform | `/#/monitoring` | Whether Fortuna is collecting complete, fresh data from every cluster. One page, top to bottom: a verdict with the first problem and its fix, clusters and agents (reporting, last heartbeat, agent version), the pipeline stages with when each last produced data, certificates (manage them at `/#/monitoring/certificates`), errors in the last 24 hours grouped by message, and the full operational log. |
 | Notifications | `/#/notifications` | Every alert, with unread and read views. Open it from **View all** in the bell. Old `/#/monitoring/notifications` links redirect. |
 | Setup | `/#/setup` | Admin only, until its required steps are done: the first-run checklist (agent reporting, first scan, first finding triaged, team invited, and optionally another cluster). Each step checks itself from live data, and the sidebar shows how many are done. |
-| Audit | `/#/governance` | Admin only: security activity, the platform audit log, audit summary by resource and action, the investigation timeline and access analytics. |
+| Audit | `/#/governance` | Admin only, in three views: **Activity** (security activity, filterable by domain, severity, result and action), **Platform log** (counts by resource and action, then the full log) and **Access** (account hygiene, correlation signals and permissions by role). Old `?tab=` links open the view that now holds them. |
 | Users & Access | `/#/settings` | Admin and User admin: manage users, roles, cluster access and other people's sessions. |
 | Account | `/#/account` | Every role: your profile, password and your own sessions. Open it from the avatar menu in the header. |
 
@@ -226,4 +226,4 @@ Steps:
 
 The brief only loads when it is expanded. Its numbers come from `/dashboard/stats`, `/risk/insights/summary`, `/monitoring/pipeline-health` and `/investigations/stats`, scoped by your clusters and permissions.
 
-Audit counts by resource and action, and the full audit log, are on the Audit page (`/#/governance?tab=aggregates` and `?tab=platform`) and need `system.audit.read`.
+Audit counts by resource and action, and the full audit log, are on the Audit page's Platform log (`/#/governance?tab=platform`) and need `system.audit.read`.

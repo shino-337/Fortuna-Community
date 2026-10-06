@@ -38,7 +38,7 @@ export interface MaterializedOperationalPlane {
 /** Child/detail routes unlocked when a parent prefix is materialized. */
 const ROUTE_EXPANSION: Record<string, string[]> = {
   '/': [],
-  '/risks': ['/risks/findings', '/risks/pce', '/risks/evidence', '/risks/:id'],
+  '/risks': ['/risks/findings', '/risks/evidence', '/risks/:id'],
   '/resources': [
     '/resources/pods/uid/:uid',
     '/resources/pods/:id',
@@ -46,7 +46,7 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
     '/identities/:id',
   ],
   '/resources/clusters': ['/clusters/:id', '/clusters/:clusterId/nodes/:nodeName'],
-  '/rules/catalog': ['/capabilities/:id'],
+  '/rules/catalog': ['/capabilities/:id', '/rules/exposure'],
   '/rules/risk-scoring': [],
   '/rules': ['/rules/uid/:uid', '/rules/:id'],
   '/attack-paths': [],
@@ -74,7 +74,6 @@ const ALL_APP_ROUTES = [
   '/network-activity',
   '/risks',
   '/risks/findings',
-  '/risks/pce',
   '/risks/evidence',
   '/risks/:id',
   '/investigation',
@@ -82,6 +81,7 @@ const ALL_APP_ROUTES = [
   '/rules',
   '/rules/risk-scoring',
   '/rules/catalog',
+  '/rules/exposure',
   '/rules/uid/:uid',
   '/rules/:id',
   '/attack-paths',

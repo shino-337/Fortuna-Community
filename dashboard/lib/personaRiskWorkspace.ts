@@ -1,7 +1,7 @@
 import type { PersonaId } from './persona';
 
-/** The Findings queue plus its two secondary views (capability exposure, runtime evidence). */
-export type RiskTabId = 'triage' | 'pce' | 'reference';
+/** The Findings queue plus its secondary view (runtime evidence). */
+export type RiskTabId = 'triage' | 'reference';
 
 export type RiskFindingsColKey = 'type' | 'resource' | 'score' | 'nsCluster' | 'detected' | 'updated';
 
@@ -50,7 +50,7 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     showProvenanceColumn: true,
   },
   operator: {
-    visibleTabs: ['triage', 'pce', 'reference'],
+    visibleTabs: ['triage', 'reference'],
     defaultTab: 'triage',
     defaultCols: OPERATOR_COLS,
     pageSize: 25,
@@ -61,7 +61,7 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     showProvenanceColumn: true,
   },
   admin: {
-    visibleTabs: ['triage', 'pce', 'reference'],
+    visibleTabs: ['triage', 'reference'],
     defaultTab: 'triage',
     defaultCols: ADMIN_COLS,
     pageSize: 20,

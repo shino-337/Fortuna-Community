@@ -15,6 +15,7 @@ const Settings = React.lazy(() => import('../pages/Settings').then((m) => ({ def
 const Certificates = React.lazy(() => import('../pages/Certificates').then((m) => ({ default: m.Certificates })));
 const Notifications = React.lazy(() => import('../pages/Notifications').then((m) => ({ default: m.Notifications })));
 const RiskScoringRules = React.lazy(() => import('../pages/RiskScoringRules').then((m) => ({ default: m.RiskScoringRules })));
+const CapabilityExposure = React.lazy(() => import('../pages/rules/CapabilityExposure').then((m) => ({ default: m.CapabilityExposure })));
 const Capabilities = React.lazy(() => import('../pages/Capabilities').then((m) => ({ default: m.Capabilities })));
 const CapabilityDetail = React.lazy(() => import('../pages/CapabilityDetail').then((m) => ({ default: m.CapabilityDetail })));
 const Clusters = React.lazy(() => import('../pages/Clusters').then((m) => ({ default: m.Clusters })));
@@ -37,7 +38,6 @@ const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/resources/pods/:id', element: <PodDetail /> },
   { pattern: '/risks', element: <RiskCenter /> },
   { pattern: '/risks/findings', element: <RiskCenter /> },
-  { pattern: '/risks/pce', element: <RiskCenter /> },
   { pattern: '/risks/evidence', element: <RiskCenter /> },
   { pattern: '/investigation', element: <Investigation /> },
   { pattern: '/risks/:id', element: <RiskDetail /> },
@@ -47,6 +47,7 @@ const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/rules', element: <Rules /> },
   { pattern: '/rules/risk-scoring', element: <RiskScoringRules /> },
   { pattern: '/rules/catalog', element: <Capabilities /> },
+  { pattern: '/rules/exposure', element: <CapabilityExposure /> },
   { pattern: '/rules/uid/:uid', element: <RuleDetail /> },
   { pattern: '/rules/:id', element: <RuleDetail /> },
   { pattern: '/attack-paths', element: <AttackPaths /> },
@@ -74,6 +75,7 @@ function buildRedirectTarget(path: string, search: string): string | null {
   const merged: Record<string, string> = {
     '/certificates': '/monitoring/certificates',
     '/monitoring/notifications': '/notifications',
+    '/risks/pce': '/rules/exposure',
     '/capabilities': '/rules/catalog',
     '/clusters': '/resources/clusters',
   };
