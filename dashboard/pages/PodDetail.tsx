@@ -19,7 +19,7 @@ import {
 import { useClusters } from '../hooks/useClusters';
 import { RUNTIME_SIGNALS_LOOKBACK_MINUTES } from '../lib/runtimeLookback';
 import { PageLayout } from '../design-system/layouts/PageLayout';
-import { PinToInvestigationButton } from '../components/PinToInvestigationButton';
+import { AddToCaseButton } from '../components/AddToCaseButton';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { podInvestigationEntity } from '../lib/investigationEntities';
 import { Tabs } from '../design-system/components/Tabs';
@@ -772,13 +772,14 @@ const PodDetailContent: React.FC = () => {
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
           </Button>
           {pod?.uid ? (
-            <PinToInvestigationButton
+            <AddToCaseButton
               entity={podInvestigationEntity({
                 uid: pod.uid,
                 name: pod.name,
                 namespace: pod.namespace,
                 clusterId: pod.clusterId,
               })}
+              clusterId={pod.clusterId || null}
             />
           ) : null}
         </div>

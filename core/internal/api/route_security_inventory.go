@@ -141,6 +141,7 @@ func FortunaRouteSecurityInventory(opts RouteVerifyOptions) []RouteSecuritySpec 
 	add(routeB{"GET", "/api/v1/investigations", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
 	add(routeB{"GET", "/api/v1/investigations/stats", authJWT, auditNonSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
 	add(routeB{"POST", "/api/v1/investigations", authJWT, auditWrite, graphNone, true, false, false, false, false, authorization.PermissionInvestigationsWrite})
+	add(routeB{"GET", "/api/v1/investigations/:id/findings", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
 	add(routeB{"GET", "/api/v1/investigations/:id/timeline", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
 	add(routeB{"GET", "/api/v1/investigations/:id", authJWT, auditSensitiveRead, graphNone, false, false, false, false, false, authorization.PermissionInvestigationsRead})
 	add(routeB{"POST", "/api/v1/investigations/:id/pin", authJWT, auditWrite, graphNone, true, false, false, false, false, authorization.PermissionInvestigationsWrite})

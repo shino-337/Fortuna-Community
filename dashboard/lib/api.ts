@@ -3358,6 +3358,22 @@ export const api = {
     );
   },
 
+  /** Findings linked to a case, with their current status and risk level. */
+  listInvestigationFindings: async (
+    caseId: string,
+  ): Promise<{ items: InvestigationLinkedFindingApi[]; hidden: number; truncated: boolean }> => {
+    const data = await request<{ items: InvestigationLinkedFindingApi[]; hidden?: number; truncated?: boolean }>(
+      `/investigations/${encodeURIComponent(caseId)}/findings`,
+    );
+    return { items: data.items ?? [], hidden: Number(data.hidden ?? 0), truncated: Boolean(data.truncated) };
+  },
+  /** Cases the caller can see that link one finding. */
+  listInvestigationCasesForFinding: async (insightId: string): Promise<InvestigationCaseApi[]> => {
+    const data = await request<{ items: InvestigationCaseApi[] }>(
+      `/investigations?findingId=${encodeURIComponent(insightId)}`,
+    );
+    return data.items ?? [];
+  },
   listInvestigationTimeline: async (
     caseId: string,
   ): Promise<{ items: InvestigationTimelineEntryApi[]; total: number }> => {
@@ -3366,6 +3382,23 @@ export const api = {
     );
     return { items: data.items ?? [], total: Number(data.total ?? 0) };
   },
+};
+
+export type InvestigationLinkedFindingApi = {
+  insightId: string;
+  title: string;
+  status: string;
+  severityHint: string;
+  finalLevel?: string;
+  finalScore?: number;
+  clusterId?: string;
+  resourceType: string;
+  resourceNamespace?: string;
+  resourceName: string;
+  resourceUid?: string;
+  linkedAt: string;
+  /** The finding no longer exists. */
+  missing?: boolean;
 };
 
 export type InvestigationEntitySnapshotApi = {

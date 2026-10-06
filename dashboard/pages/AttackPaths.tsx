@@ -36,7 +36,7 @@ import {
   type GroupedScenario
 } from '../lib/attackPathNarrative';
 import { attackPathConfidenceLane, type AttackPathConfidenceLane } from '../lib/attackPathConfidence';
-import { PinToInvestigationButton } from '../components/PinToInvestigationButton';
+import { AddToCaseButton } from '../components/AddToCaseButton';
 import { attackPathInvestigationEntity } from '../lib/investigationEntities';
 import { AttackPathPriorityList } from '../components/AttackPathPriorityList';
 import { GraphSemanticLegend } from '../components/GraphSemanticLegend';
@@ -938,7 +938,7 @@ export const AttackPaths: React.FC = () => {
                       document.getElementById('graph-section')?.scrollIntoView({ behavior: 'smooth' });
                     }}
                   />
-                  <PinToInvestigationButton
+                  <AddToCaseButton
                     entity={attackPathInvestigationEntity(currentScenario, podUidParam)}
                   />
                 </div>

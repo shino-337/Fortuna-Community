@@ -2,7 +2,7 @@
 export const PAGE_TITLES = {
   home: 'Home',
   riskOperations: 'Findings',
-  investigations: 'Investigations',
+  investigations: 'Cases',
   clusters: 'Clusters',
   resources: 'Inventory',
   capabilities: 'Capability Catalog',

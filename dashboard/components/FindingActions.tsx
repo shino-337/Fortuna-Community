@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Dialog } from '../design-system/components/Dialog';
-import { PinToInvestigationButton } from './PinToInvestigationButton';
+import { AddToCaseButton } from './AddToCaseButton';
 import { api } from '../lib/api';
 import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import { findingInvestigationEntity } from '../lib/investigationEntities';
@@ -49,16 +49,17 @@ export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone,
   if (!closed && canRunAction(permUser, ACTION_IDS.findingResolve)) allowed.push('resolve');
   if (!closed && canRunAction(permUser, ACTION_IDS.findingDismiss)) allowed.push('dismiss');
   if (closed && can(permUser, P.findingsReopen)) allowed.push('reopen');
-  const canPin = can(permUser, P.investigationsWrite);
+  const canSeeCases = can(permUser, P.investigationsWrite) || can(permUser, P.investigationsRead);
 
   const [pending, setPending] = useState<FindingAction | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [caseDialogOpen, setCaseDialogOpen] = useState(false);
   useEffect(() => {
-    onReviewOpenChange?.(pending !== null);
-  }, [pending, onReviewOpenChange]);
+    onReviewOpenChange?.(pending !== null || caseDialogOpen);
+  }, [pending, caseDialogOpen, onReviewOpenChange]);
 
   const needsReason = pending === 'resolve' || pending === 'dismiss';
   const close = () => {
@@ -101,7 +102,7 @@ export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone,
     }
   };
 
-  if (allowed.length === 0 && !canPin) return null;
+  if (allowed.length === 0 && !canSeeCases) return null;
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className ?? ''}`}>
@@ -119,7 +120,14 @@ export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone,
           {action === 'dismiss' ? 'Dismiss…' : ACTION_LABEL[action]}
         </Button>
       ))}
-      {canPin ? <PinToInvestigationButton entity={findingInvestigationEntity(insight)} /> : null}
+      {canSeeCases ? (
+        <AddToCaseButton
+          entity={findingInvestigationEntity(insight)}
+          insightId={String(insight.id)}
+          clusterId={insight.clusterId || null}
+          onOpenChange={setCaseDialogOpen}
+        />
+      ) : null}
 
       <Dialog
         open={pending !== null}
