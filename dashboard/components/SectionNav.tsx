@@ -10,9 +10,8 @@ export interface SectionNavItem {
 
 /** Sections of one workspace that live on their own routes (e.g. Platform, Rules). */
 export const PLATFORM_HEALTH_SECTIONS: SectionNavItem[] = [
-  { path: '/monitoring', label: 'Pipeline & runtime' },
+  { path: '/monitoring', label: 'Health' },
   { path: '/monitoring/certificates', label: 'Certificates' },
-  { path: '/monitoring/notifications', label: 'Notifications' },
 ];
 
 export const RULES_CATALOG_SECTIONS: SectionNavItem[] = [

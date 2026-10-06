@@ -188,7 +188,7 @@ test('notification bell opens above page content and supports read actions', asy
     );
   }, adminUser);
 
-  await page.goto(appUrl('/monitoring/notifications'));
+  await page.goto(appUrl('/notifications'));
   await expect(page.locator('main h1').filter({ hasText: /^Platform$/ })).toBeVisible();
 
   const bell = page.getByRole('button', { name: /security notifications/i }).first();
@@ -212,7 +212,7 @@ test('notification bell opens above page content and supports read actions', asy
   await expect(page).toHaveURL(/#\/resources\/pods\/uid\/pod-core-uid/);
   expect(patchRead).toBe(1);
 
-  await page.goto(appUrl('/monitoring/notifications'));
+  await page.goto(appUrl('/notifications'));
   await expect(page.locator('main h1').filter({ hasText: /^Platform$/ })).toBeVisible();
   await bell.click();
   await page.getByRole('button', { name: /read all/i }).click();

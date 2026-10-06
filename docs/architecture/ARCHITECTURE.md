@@ -171,7 +171,9 @@ flowchart LR
 | Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
 | Network | Runtime topology and external destinations | Agent network observations |
 | Rules | Rule catalog, matching metadata, linked findings | Rule catalog APIs |
-| Platform | Pipeline, Agent, sensor and data freshness | Core health, pipeline state, Agent telemetry |
+| Platform | One verdict on data collection: agents per cluster, pipeline stage freshness, certificates, recent errors and the operational log | Agent status, pipeline health, sync status, dashboard data integrity (catalog and runtime ingest), certificates, error logs |
+| Notifications | The user's alert inbox, also reached from the header bell | Notifications |
+| Setup | First-run checklist for admins, derived from live data and not stored | Agent status, sync status, findings by status, users, clusters |
 | Audit | Who did what in Fortuna (admin) | Security activity, platform audit log, audit summary, investigation events, permission and access analytics |
 
 ## API Shape

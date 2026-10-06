@@ -20,6 +20,7 @@ import {
   Briefcase,
   FileText,
   UserRound,
+  ListChecks,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useClusterStore } from '../../store/clusterStore';
@@ -32,6 +33,10 @@ import { fortunaRoleShortLabel } from '../../lib/fortunaRoles';
 import type { MissionNavSection } from '../../lib/personaMissionNavigation';
 import { useTimeWindowStore, TIME_WINDOW_OPTIONS } from '../../store/timeWindowStore';
 import { ShellBanner } from './ShellBanner';
+import { setupComplete, setupDoneCount, SETUP_STEP_ORDER, useSetupProgressStore } from '../../store/setupProgressStore';
+
+/** How old the setup checklist may get before the sidebar badge reads it again. */
+const SETUP_BADGE_MAX_AGE_MS = 5 * 60 * 1000;
 
 const NAV_ICONS: Record<string, React.ReactElement> = {
   dashboard: <LayoutDashboard size={18} />,
@@ -45,6 +50,7 @@ const NAV_ICONS: Record<string, React.ReactElement> = {
   attackPaths: <Network size={18} />,
   monitoring: <Activity size={18} />,
   governance: <FileText size={18} />,
+  setup: <ListChecks size={18} />,
   reports: <FileText size={18} />,
   settings: <Settings size={18} />,
 };
@@ -90,6 +96,26 @@ export const ShellChrome: React.FC<{
   const [accountMenuOpen, setAccountMenuOpen] = useState(false);
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const mainRef = useRef<HTMLElement | null>(null);
+  const setupAllowed = allowedRoutes.includes('/setup');
+  const setupSteps = useSetupProgressStore((s) => s.steps);
+  const loadSetupIfStale = useSetupProgressStore((s) => s.loadIfStale);
+  const resetSetup = useSetupProgressStore((s) => s.reset);
+  useEffect(() => resetSetup, [user?.id, resetSetup]);
+  useEffect(() => {
+    if (setupAllowed) loadSetupIfStale(SETUP_BADGE_MAX_AGE_MS);
+  }, [setupAllowed, loadSetupIfStale, location.pathname]);
+  // Setup leaves the sidebar once its required steps are done (or before it is known); /setup itself keeps working.
+  const onSetup = location.pathname.startsWith('/setup');
+  const visibleNavSections = useMemo(
+    () =>
+      navSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => item.id !== 'setup' || onSetup || (setupSteps !== null && !setupComplete(setupSteps))),
+        }))
+        .filter((section) => section.items.length > 0),
+    [navSections, onSetup, setupSteps],
+  );
 
   const navUser = useMemo(() => {
     if (!user) return user;
@@ -346,7 +372,7 @@ export const ShellChrome: React.FC<{
         </div>
 
         <nav className="flex-1 min-h-0 px-4 pt-4 pb-4 space-y-4 overflow-y-auto">
-          {navSections.map((section) => (
+          {visibleNavSections.map((section) => (
             <div key={section.title}>
               <p className="px-3 text-caption font-bold text-muted uppercase tracking-wide mb-2">{section.title}</p>
               <div className="space-y-1">
@@ -369,6 +395,14 @@ export const ShellChrome: React.FC<{
                     >
                       <span className="mr-3 shrink-0">{NAV_ICONS[item.iconKey] ?? NAV_ICONS.dashboard}</span>
                       <span className="truncate">{item.label}</span>
+                      {item.id === 'setup' && setupSteps !== null ? (
+                        <span
+                          className="ml-auto rounded-full bg-brand/20 px-2 py-0.5 text-meta font-semibold tabular-nums text-brand"
+                          aria-label={`${setupDoneCount(setupSteps)} of ${SETUP_STEP_ORDER.length} setup steps done`}
+                        >
+                          {setupDoneCount(setupSteps)}/{SETUP_STEP_ORDER.length}
+                        </span>
+                      ) : null}
                     </NavLink>
                   );
                 })}

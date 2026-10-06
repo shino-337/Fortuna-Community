@@ -11,6 +11,7 @@ export const PAGE_TITLES = {
   networkActivity: 'Network',
   monitoring: 'Platform',
   governance: 'Audit',
+  setup: 'Setup',
   settings: 'Users & Access',
   account: 'Account',
   certificates: 'Certificates',

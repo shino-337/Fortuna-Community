@@ -54,8 +54,9 @@ const ROUTE_EXPANSION: Record<string, string[]> = {
   '/network-activity': [],
   '/monitoring': [],
   '/monitoring/certificates': [],
-  '/monitoring/notifications': [],
+  '/notifications': [],
   '/governance': [],
+  '/setup': [],
   '/settings': [],
   '/account': [],
 };
@@ -86,8 +87,9 @@ const ALL_APP_ROUTES = [
   '/attack-paths',
   '/monitoring',
   '/monitoring/certificates',
-  '/monitoring/notifications',
+  '/notifications',
   '/governance',
+  '/setup',
   '/settings',
   '/account',
 ];
@@ -177,7 +179,17 @@ function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
     routes.add('/monitoring');
   }
   if (can(ctx.user, P.systemAuditRead)) routes.add('/governance');
-  if (can(ctx.user, P.observabilityMetricsRead)) routes.add('/monitoring/notifications');
+  // The first-run checklist reads agents, scans, findings, users and clusters; only a full admin has all of them.
+  if (
+    can(ctx.user, P.usersRead) &&
+    can(ctx.user, P.observabilityAgentsRead) &&
+    can(ctx.user, P.observabilityMetricsRead) &&
+    can(ctx.user, P.findingsRead) &&
+    can(ctx.user, P.inventoryRead)
+  ) {
+    routes.add('/setup');
+  }
+  if (can(ctx.user, P.observabilityMetricsRead)) routes.add('/notifications');
   if (can(ctx.user, P.clusterCertificatesRotate)) routes.add('/monitoring/certificates');
   if (can(ctx.user, P.rulesRead)) routes.add('/rules/risk-scoring');
   if (can(ctx.user, P.usersRead)) routes.add('/settings');
