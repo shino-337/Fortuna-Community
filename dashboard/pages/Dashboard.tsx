@@ -203,7 +203,7 @@ export const Dashboard: React.FC = () => {
   const canReadPipeline = can(permUser, P.observabilityMetricsRead);
   const showPlatformCard = shellVariant === 'admin' && canReadPipeline;
 
-  const home = useHomeData(selectedClusterId, sinceMinutes, { canReadPipeline });
+  const home = useHomeData(selectedClusterId, sinceMinutes, { canReadPipeline, canTriage: can(permUser, P.findingsAck) });
   const cases = useInvestigationCases();
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
@@ -353,9 +353,16 @@ export const Dashboard: React.FC = () => {
             description="Open findings nobody has acknowledged, highest risk first."
             actions={
               canOpen('/risks') ? (
-                <Link to={findingsUrl()} className="inline-flex items-center gap-1 text-caption font-semibold text-brand hover:text-brand/90">
-                  Open queue <ArrowRight className="h-3.5 w-3.5" aria-hidden />
-                </Link>
+                <div className="flex flex-wrap items-center gap-3">
+                  {home.assignedToMe.data ? (
+                    <Link to={findingsUrl({ view: 'mine' })} className="text-caption font-semibold text-text hover:text-brand">
+                      {home.assignedToMe.data.toLocaleString()} assigned to you
+                    </Link>
+                  ) : null}
+                  <Link to={findingsUrl()} className="inline-flex items-center gap-1 text-caption font-semibold text-brand hover:text-brand/90">
+                    Open queue <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                  </Link>
+                </div>
               ) : null
             }
           >

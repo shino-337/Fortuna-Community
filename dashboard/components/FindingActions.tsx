@@ -3,7 +3,8 @@ import { Loader2 } from 'lucide-react';
 import { Button } from './ui/Button';
 import { Dialog } from '../design-system/components/Dialog';
 import { AddToCaseButton } from './AddToCaseButton';
-import { api } from '../lib/api';
+import { FindingAssignee } from './FindingAssignee';
+import { api, type InsightAssigneeCandidate } from '../lib/api';
 import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import { findingInvestigationEntity } from '../lib/investigationEntities';
 import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
@@ -33,6 +34,8 @@ interface FindingActionsProps {
   onDone: (action: FindingAction) => void;
   /** Lets a surrounding dialog pause its own focus trap while the review dialog is open. */
   onReviewOpenChange?: (open: boolean) => void;
+  /** Called after the owner changed; the finding stays open, so callers refresh in place. */
+  onAssigned?: (assignee: InsightAssigneeCandidate | null) => void;
   className?: string;
 }
 
@@ -40,7 +43,7 @@ interface FindingActionsProps {
  * Every workflow action on one finding, in one place: the detail panel and the full detail page both
  * render this. Only the actions the finding's state and the user's role allow are shown.
  */
-export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone, onReviewOpenChange, className }) => {
+export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone, onReviewOpenChange, onAssigned, className }) => {
   const permUser = usePermUser();
   const status = workflowStatus(insight);
   const closed = status === 'resolved' || status === 'dismissed';
@@ -57,9 +60,10 @@ export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone,
   const [error, setError] = useState<string | null>(null);
 
   const [caseDialogOpen, setCaseDialogOpen] = useState(false);
+  const [assignDialogOpen, setAssignDialogOpen] = useState(false);
   useEffect(() => {
-    onReviewOpenChange?.(pending !== null || caseDialogOpen);
-  }, [pending, caseDialogOpen, onReviewOpenChange]);
+    onReviewOpenChange?.(pending !== null || caseDialogOpen || assignDialogOpen);
+  }, [pending, caseDialogOpen, assignDialogOpen, onReviewOpenChange]);
 
   const needsReason = pending === 'resolve' || pending === 'dismiss';
   const close = () => {
@@ -102,10 +106,16 @@ export const FindingActions: React.FC<FindingActionsProps> = ({ insight, onDone,
     }
   };
 
-  if (allowed.length === 0 && !canSeeCases) return null;
+  const showOwner = Boolean(insight.assignee) || (can(permUser, P.findingsAck) && !closed);
+  if (allowed.length === 0 && !canSeeCases && !showOwner) return null;
 
   return (
     <div className={`flex flex-wrap items-center gap-2 ${className ?? ''}`}>
+      {showOwner ? (
+        <div className="flex flex-wrap items-center gap-2 border-border sm:border-r sm:pr-3">
+          <FindingAssignee insight={insight} onChange={(a) => onAssigned?.(a)} onDialogOpenChange={setAssignDialogOpen} />
+        </div>
+      ) : null}
       {allowed.map((action) => (
         <Button
           key={action}

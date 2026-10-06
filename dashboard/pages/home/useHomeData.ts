@@ -21,6 +21,8 @@ export interface HomeData {
   inventory: HomeSection<{ agents: number; clusters: number; clusterName?: string }>;
   /** Only loaded for roles that can read platform health. */
   pipeline: HomeSection<PipelineHealth>;
+  /** Open findings owned by the signed-in user; only loaded for roles that can triage. */
+  assignedToMe: HomeSection<number>;
   loadedAt: Date | null;
   refresh: () => Promise<void>;
 }
@@ -42,7 +44,7 @@ function settle<T>(prev: HomeSection<T>, result: PromiseSettledResult<T>): HomeS
 export function useHomeData(
   clusterId: string | null | undefined,
   sinceMinutes: number | undefined,
-  options: { canReadPipeline: boolean },
+  options: { canReadPipeline: boolean; canTriage: boolean },
 ): HomeData {
   const [queue, setQueue] = useState(emptySection<{ items: Insight[]; total: number }>);
   const [criticalOpen, setCriticalOpen] = useState(emptySection<number>);
@@ -50,15 +52,16 @@ export function useHomeData(
   const [trend, setTrend] = useState(emptySection<ThreatVelocityPoint[]>);
   const [inventory, setInventory] = useState(emptySection<{ agents: number; clusters: number; clusterName?: string }>);
   const [pipeline, setPipeline] = useState(emptySection<PipelineHealth>);
+  const [assignedToMe, setAssignedToMe] = useState(emptySection<number>);
   const [loadedAt, setLoadedAt] = useState<Date | null>(null);
   const requestSeq = useRef(0);
-  const { canReadPipeline } = options;
+  const { canReadPipeline, canTriage } = options;
 
   const refresh = useCallback(async () => {
     // A cluster or time-window change can overlap a poll; only the newest load may write state.
     const seq = ++requestSeq.current;
     const cluster = clusterId ?? undefined;
-    const [queueResult, summaryResult, podsResult, trendResult, statsResult, pipelineResult] = await Promise.allSettled([
+    const [queueResult, summaryResult, podsResult, trendResult, statsResult, pipelineResult, mineResult] = await Promise.allSettled([
       api
         .getRisks({ status: 'active', sort: 'score', order: 'desc', page: 1, pageSize: QUEUE_SIZE, clusterId: cluster, sinceMinutes })
         .then(({ insights, total }) => ({ items: insights, total: total ?? insights.length })),
@@ -76,6 +79,11 @@ export function useHomeData(
         clusterName: s.clusterName,
       })),
       canReadPipeline ? api.getPipelineHealth() : Promise.reject(new Error('Not permitted')),
+      canTriage
+        ? api
+            .getRisks({ status: 'open', assignee: 'me', page: 1, pageSize: 1, withScores: 0, clusterId: cluster, sinceMinutes })
+            .then(({ total }) => total)
+        : Promise.reject(new Error('Not permitted')),
     ]);
     if (seq !== requestSeq.current) return;
 
@@ -87,8 +95,9 @@ export function useHomeData(
     setPipeline((prev) =>
       canReadPipeline ? settle(prev, pipelineResult) : { data: null, loading: false, failed: false },
     );
+    setAssignedToMe((prev) => (canTriage ? settle(prev, mineResult) : { data: null, loading: false, failed: false }));
     setLoadedAt(new Date());
-  }, [clusterId, sinceMinutes, canReadPipeline]);
+  }, [clusterId, sinceMinutes, canReadPipeline, canTriage]);
 
-  return { queue, criticalOpen, exposedWorkloads, trend, inventory, pipeline, loadedAt, refresh };
+  return { queue, criticalOpen, exposedWorkloads, trend, inventory, pipeline, assignedToMe, loadedAt, refresh };
 }

@@ -83,12 +83,17 @@ type Insight struct {
 	// Status & Timestamps
 	Status string `gorm:"type:varchar(20);default:active;index" json:"status"` // active, resolved, dismissed
 	// Sensitivity is data classification for future ABAC / elevated controls (default internal).
-	Sensitivity string         `gorm:"type:varchar(32);default:internal;index" json:"sensitivity,omitempty"`
-	DetectedAt  time.Time      `gorm:"not null;index" json:"detectedAt"`
-	ResolvedAt  *time.Time     `json:"resolvedAt,omitempty"`
-	CreatedAt   time.Time      `json:"createdAt"`
-	UpdatedAt   time.Time      `json:"updatedAt"`
-	DeletedAt   gorm.DeletedAt `gorm:"index" json:"-"`
+	Sensitivity string `gorm:"type:varchar(32);default:internal;index" json:"sensitivity,omitempty"`
+	// AssigneeUserID is the user who owns the next step on this finding (nil when unassigned).
+	// AssigneeUsername is denormalized for display; the id is authoritative.
+	AssigneeUserID   *uint          `gorm:"index" json:"assigneeUserId,omitempty"`
+	AssigneeUsername string         `gorm:"type:varchar(255);not null;default:''" json:"assignee,omitempty"`
+	AssignedAt       *time.Time     `json:"assignedAt,omitempty"`
+	DetectedAt       time.Time      `gorm:"not null;index" json:"detectedAt"`
+	ResolvedAt       *time.Time     `json:"resolvedAt,omitempty"`
+	CreatedAt        time.Time      `json:"createdAt"`
+	UpdatedAt        time.Time      `json:"updatedAt"`
+	DeletedAt        gorm.DeletedAt `gorm:"index" json:"-"`
 }
 
 // EventIndex represents an index entry pointing to raw events in ClickHouse/Timescale

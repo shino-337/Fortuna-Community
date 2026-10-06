@@ -1455,6 +1455,10 @@ export interface Insight {
   impact?: string;
   resolvedAt?: string;
   updatedAt?: string;
+  /** Username of the person who owns this finding; empty when nobody does. */
+  assignee?: string;
+  assigneeUserId?: number;
+  assignedAt?: string;
   /** Risk Detail: evidence (JSON from backend insights.evidence) */
   evidence?: Record<string, unknown> | string;
   /** Risk Detail: violated rules (JSON from backend insights.violated_rules) */

@@ -53,6 +53,8 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.DELETE("/risk/insights/:id", p(authorization.PermissionFindingsDelete), DeleteInsight(db))
 	api.POST("/risk/insights/bulk", p(authorization.PermissionFindingsBulk), BulkInsightsAction(db))
 	api.POST("/risk/insights/:id/acknowledge", p(authorization.PermissionFindingsAck), AcknowledgeInsight(db))
+	api.GET("/risk/insights/:id/assignees", p(authorization.PermissionFindingsAck), ListInsightAssignees(db))
+	api.PUT("/risk/insights/:id/assignee", p(authorization.PermissionFindingsAck), AssignInsight(db))
 	api.POST("/risk/insights/:id/resolve", p(authorization.PermissionFindingsResolve), ResolveInsight(db))
 	api.POST("/risk/insights/:id/dismiss", p(authorization.PermissionFindingsDismiss), DismissInsight(db))
 	api.PATCH("/risk/insights/:id", middleware.RequireAnyPermission(db, authorization.PermissionFindingsAck, authorization.PermissionFindingsDismiss, authorization.PermissionFindingsResolve, authorization.PermissionFindingsReopen), UpdateInsightStatus(db))

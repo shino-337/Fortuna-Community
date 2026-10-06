@@ -10,7 +10,7 @@ import {
 } from '../lib/savedViews';
 
 export interface RiskFindingsFilterSnapshot {
-  statusFilter: 'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed';
+  statusFilter: 'all' | 'active' | 'open' | 'resolved' | 'acknowledged' | 'dismissed';
   riskLevelFilter: string;
   searchTerm: string;
   clusterId?: string;

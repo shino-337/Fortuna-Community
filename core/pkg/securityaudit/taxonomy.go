@@ -7,6 +7,7 @@ const (
 	ActionFindingsResolve             = "findings.status.resolve"
 	ActionFindingsDismiss             = "findings.status.dismiss"
 	ActionFindingsPatch               = "findings.status.patch"
+	ActionFindingsAssign              = "findings.assignee.set"
 	ActionFindingsBulk                = "findings.bulk"
 	ActionFindingsExceptionCreate     = "findings.exception.create"
 	ActionFindingsExceptionDelete     = "findings.exception.delete"

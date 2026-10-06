@@ -10,7 +10,7 @@ export interface RiskFindingsSavedView {
   createdAt: string;
   personaId?: PersonaId;
   filters: {
-    statusFilter: 'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed';
+    statusFilter: 'all' | 'active' | 'open' | 'resolved' | 'acknowledged' | 'dismissed';
     riskLevelFilter: string;
     searchTerm: string;
     clusterId?: string;
