@@ -166,10 +166,10 @@ test.describe('admin RBAC UI smoke', () => {
     );
     await page.goto(appUrl(page, '/resources'));
     await podsList;
-    await expect(page.locator('main h1').filter({ hasText: /^Resources$/ })).toBeVisible();
-    await expect(page.getByText(/Pods in scope/i)).toBeVisible();
+    await expect(page.locator('main h1').filter({ hasText: /^Inventory$/ })).toBeVisible();
+    await expect(page.getByRole('navigation', { name: 'Inventory views' })).toBeVisible();
 
-    await page.getByRole('button', { name: /^Pod detail$/ }).first().click();
+    await page.getByRole('row').nth(1).getByRole('link').first().click();
     await page.waitForURL(/#\/resources\/pods\/uid\/[0-9a-f-]{36}/, { timeout: 15_000 });
 
     const detailResponse = await page.waitForResponse(
@@ -218,7 +218,7 @@ test.describe('admin RBAC UI smoke', () => {
     await expectNoRedundantContextStrips(page);
   });
 
-  test('resources attack-path panel matches attack analysis pod scope', async ({ page }) => {
+  test('inventory pod panel lists the same attack paths as attack analysis', async ({ page }) => {
     await loginAsAdmin(page);
     const token = await getAdminToken(page);
     const podsPayload = await apiGet<any>(page, '/inventory/pods?page=1&pageSize=100&sortBy=risk_desc', token);
@@ -232,8 +232,6 @@ test.describe('admin RBAC UI smoke', () => {
     const bundlePaths = responseList<any>(bundle, 'paths').length
       ? responseList<any>(bundle, 'paths')
       : responseList<any>(bundle, 'primitive_paths');
-    const summaryPayload = await apiGet<any>(page, `/graph/attack-paths/summary${clusterQuery}`, token);
-    const summary = summaryPayload.data || summaryPayload;
 
     const candidate = pods
       .map((pod: any) => ({
@@ -260,7 +258,7 @@ test.describe('admin RBAC UI smoke', () => {
     await page.goto(appUrl(page, '/resources'));
     await podsList;
 
-    await page.getByPlaceholder('Search pods (name, namespace, UID, node)').fill(candidate.pod.name);
+    await page.getByPlaceholder('Search name, namespace, node or UID').fill(candidate.pod.name);
     await page.waitForResponse(
       (response) =>
         response.url().includes('/api/v1/inventory/pods') &&
@@ -271,18 +269,15 @@ test.describe('admin RBAC UI smoke', () => {
 
     const row = page.getByRole('row').filter({ hasText: candidate.pod.name }).first();
     await expect(row).toBeVisible();
-    await row.getByRole('button', { name: /show attack paths/i }).click();
+    // The Attack paths cell shows the same count the pod endpoint returns.
+    await expect(row).toContainText(endpointPaths.length.toLocaleString('en-US'));
+    await row.click({ position: { x: 8, y: 8 } });
 
-    const inspector = page.locator('#resource-inspector').locator('..');
-    await expect(inspector).toContainText(candidate.pod.name);
-    await expect(inspector).toContainText('Source paths');
-    await expect(inspector).toContainText(
-      `${endpointPaths.length.toLocaleString('en-US')} / ${Number(summary.totalPaths ?? summary.total_paths ?? bundlePaths.length).toLocaleString('en-US')}`,
-    );
-    await expect(inspector).toContainText('Matches Attack Paths pod scope');
-    await expect(inspector).toContainText(expectedPathIds[0]);
+    const panel = page.getByRole('dialog', { name: candidate.pod.name });
+    await expect(panel).toBeVisible();
+    await expect(panel).toContainText('Attack paths from here');
 
-    await inspector.getByRole('button', { name: /open same pod scope in attack analysis/i }).click();
+    await panel.getByRole('link', { name: 'Open in Attack Paths' }).click();
     await page.waitForURL(new RegExp(`#\\/attack-paths\\?podUid=${candidate.pod.uid}`), { timeout: 15_000 });
     await expect(page.getByText(`podUid=${candidate.pod.uid}`)).toBeVisible();
     await expect(page.getByText(`${endpointPaths.length} path(s) returned for this workload.`)).toBeVisible();

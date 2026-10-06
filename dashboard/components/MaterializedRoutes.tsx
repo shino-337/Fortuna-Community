@@ -4,7 +4,7 @@ import { useOperationalMaterialization } from '../hooks/useOperationalMaterializ
 import { isRouteMaterialized } from '../lib/routeMaterialization';
 
 const RiskCenter = React.lazy(() => import('../pages/Insights').then((m) => ({ default: m.RiskCenter })));
-const Resources = React.lazy(() => import('../pages/Resources').then((m) => ({ default: m.Resources })));
+const Inventory = React.lazy(() => import('../pages/inventory/Inventory').then((m) => ({ default: m.Inventory })));
 const NetworkActivity = React.lazy(() => import('../pages/NetworkActivity').then((m) => ({ default: m.NetworkActivity })));
 const AttackPaths = React.lazy(() => import('../pages/AttackPaths').then((m) => ({ default: m.AttackPaths })));
 const Setup = React.lazy(() => import('../pages/setup/Setup').then((m) => ({ default: m.Setup })));
@@ -18,7 +18,6 @@ const RiskScoringRules = React.lazy(() => import('../pages/RiskScoringRules').th
 const CapabilityExposure = React.lazy(() => import('../pages/rules/CapabilityExposure').then((m) => ({ default: m.CapabilityExposure })));
 const Capabilities = React.lazy(() => import('../pages/Capabilities').then((m) => ({ default: m.Capabilities })));
 const CapabilityDetail = React.lazy(() => import('../pages/CapabilityDetail').then((m) => ({ default: m.CapabilityDetail })));
-const Clusters = React.lazy(() => import('../pages/Clusters').then((m) => ({ default: m.Clusters })));
 const ClusterDetail = React.lazy(() => import('../pages/ClusterDetail').then((m) => ({ default: m.ClusterDetail })));
 const RiskDetail = React.lazy(() => import('../pages/RiskDetail').then((m) => ({ default: m.RiskDetail })));
 const PodDetail = React.lazy(() => import('../pages/PodDetail').then((m) => ({ default: m.PodDetail })));
@@ -31,8 +30,9 @@ const Investigation = React.lazy(() => import('../pages/Investigation').then((m)
 const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/clusters/:id', element: <ClusterDetail /> },
   { pattern: '/clusters/:clusterId/nodes/:nodeName', element: <NodeDetail /> },
-  { pattern: '/resources', element: <Resources /> },
-  { pattern: '/resources/clusters', element: <Clusters /> },
+  { pattern: '/resources', element: <Inventory /> },
+  // Clusters is a view of Inventory now.
+  { pattern: '/resources/clusters', element: <Navigate to="/resources?view=clusters" replace /> },
   { pattern: '/network-activity', element: <NetworkActivity /> },
   { pattern: '/resources/pods/uid/:uid', element: <PodDetail /> },
   { pattern: '/resources/pods/:id', element: <PodDetail /> },

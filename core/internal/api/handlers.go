@@ -1198,6 +1198,24 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			)
 		}
 
+		// Risk-level counts are for the rows before the level filter, so the chips show what each filter would return.
+		var levelCounts *podLevelCounts
+		if c.Query("withLevelCounts") == "1" {
+			counts, err := countPodsByRiskLevel(db, query)
+			if err != nil {
+				respondDataUnavailable(c, "pod_level_counts_unavailable", "Pod risk-level counts could not be loaded")
+				return
+			}
+			levelCounts = &counts
+		}
+		if level := strings.ToLower(strings.TrimSpace(c.Query("level"))); level != "" {
+			var ok bool
+			if query, ok = wherePodRiskLevel(db, query, level); !ok {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "level must be critical, high, medium, low or unscored"})
+				return
+			}
+		}
+
 		page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 		pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "50"))
 		if page < 1 {
@@ -1270,12 +1288,16 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			for i := range pageRows {
 				out = append(out, pageRows[i])
 			}
-			c.JSON(http.StatusOK, gin.H{
+			resp := gin.H{
 				"pods":     out,
 				"total":    total,
 				"page":     page,
 				"pageSize": pageSize,
-			})
+			}
+			if levelCounts != nil {
+				resp["levelCounts"] = levelCounts
+			}
+			c.JSON(http.StatusOK, resp)
 			return
 		}
 
@@ -1340,12 +1362,16 @@ func GetPods(db *gorm.DB) gin.HandlerFunc {
 			out = append(out, rows[i])
 		}
 
-		c.JSON(http.StatusOK, gin.H{
+		resp := gin.H{
 			"pods":     out,
 			"total":    total,
 			"page":     page,
 			"pageSize": pageSize,
-		})
+		}
+		if levelCounts != nil {
+			resp["levelCounts"] = levelCounts
+		}
+		c.JSON(http.StatusOK, resp)
 	}
 }
 

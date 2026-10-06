@@ -312,3 +312,84 @@ func buildPodRowsWithRiskSignals(ctx context.Context, db *gorm.DB, pods []models
 	}
 	return out
 }
+
+// podScoreSQL is a pod's latest V3 risk score, the score the pod list and pod detail show.
+const podScoreSQL = `(SELECT rs.total_score FROM risk_scores rs
+	WHERE rs.cluster_id = pods.cluster_id AND rs.resource_uid = pods.uid
+	  AND LOWER(rs.resource_type) = 'pod' AND rs.deleted_at IS NULL
+	  AND LOWER(TRIM(COALESCE(rs.scorer_version, ''))) = 'v3'
+	ORDER BY rs.calculated_at DESC, rs.id DESC LIMIT 1)`
+
+// podLevelCounts counts pods per risk level (the score bands of risk.DeriveFinalLevelFromScore).
+type podLevelCounts struct {
+	Critical int64 `json:"critical"`
+	High     int64 `json:"high"`
+	Medium   int64 `json:"medium"`
+	Low      int64 `json:"low"`
+	Unscored int64 `json:"unscored"`
+}
+
+func countPodsByRiskLevel(db *gorm.DB, query *gorm.DB) (podLevelCounts, error) {
+	var out podLevelCounts
+	if !hasTable(db, "risk_scores") {
+		err := query.Session(&gorm.Session{}).Count(&out.Unscored).Error
+		return out, err
+	}
+	var rows []struct {
+		Level string
+		N     int64
+	}
+	err := query.Session(&gorm.Session{}).
+		Select(`CASE
+			WHEN ` + podScoreSQL + ` IS NULL THEN 'unscored'
+			WHEN ` + podScoreSQL + ` >= 70 THEN 'critical'
+			WHEN ` + podScoreSQL + ` >= 40 THEN 'high'
+			WHEN ` + podScoreSQL + ` >= 20 THEN 'medium'
+			ELSE 'low' END AS level, COUNT(*) AS n`).
+		Group("level").Scan(&rows).Error
+	if err != nil {
+		return out, err
+	}
+	for _, r := range rows {
+		switch r.Level {
+		case "critical":
+			out.Critical = r.N
+		case "high":
+			out.High = r.N
+		case "medium":
+			out.Medium = r.N
+		case "low":
+			out.Low = r.N
+		default:
+			out.Unscored = r.N
+		}
+	}
+	return out, nil
+}
+
+// wherePodRiskLevel keeps pods whose risk level is level; false for an unknown level.
+func wherePodRiskLevel(db *gorm.DB, query *gorm.DB, level string) (*gorm.DB, bool) {
+	if !hasTable(db, "risk_scores") {
+		if level == "unscored" {
+			return query, true
+		}
+		switch level {
+		case "critical", "high", "medium", "low":
+			return query.Where("1 = 0"), true
+		}
+		return query, false
+	}
+	switch level {
+	case "critical":
+		return query.Where(podScoreSQL+" >= ?", 70), true
+	case "high":
+		return query.Where(podScoreSQL+" >= ? AND "+podScoreSQL+" < ?", 40, 70), true
+	case "medium":
+		return query.Where(podScoreSQL+" >= ? AND "+podScoreSQL+" < ?", 20, 40), true
+	case "low":
+		return query.Where(podScoreSQL+" < ?", 20), true
+	case "unscored":
+		return query.Where(podScoreSQL + " IS NULL"), true
+	}
+	return query, false
+}

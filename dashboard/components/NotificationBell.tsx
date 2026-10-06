@@ -26,7 +26,7 @@ function notificationRoute(note: Notification): string {
   const key = `${note.category || ''} ${note.source || ''} ${note.title || ''} ${note.message || ''}`.toLowerCase();
   if (key.includes('attack')) return '/attack-paths';
   if (key.includes('malware') || key.includes('sbom') || key.includes('cve')) {
-    return note.resourceUid ? podDetailPath(note.resourceUid, note.clusterId) : '/resources?tab=Pod';
+    return note.resourceUid ? podDetailPath(note.resourceUid, note.clusterId) : '/resources';
   }
   if (key.includes('risk') || key.includes('finding')) return '/risks/findings';
   return '/';

@@ -35,7 +35,7 @@ Roles determine route visibility and actions:
 | Cases | `/#/investigation` | Work that spans several findings. Views for Open, Mine, Closed and All; one case at `/#/investigation?case=<id>` shows its lifecycle, linked findings with their current status, affected assets, the timeline, remediation tasks and owner. **Add to case** on a finding, pod or attack path links it to an open case or starts a new one, and the finding panel says which cases already link it. **Close case** asks for a reason and can resolve the linked findings that are still open in the same step. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
-| Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
+| Inventory | `/#/resources` | Three views: **Workloads** ranked by risk with level counts, **Identities** (service accounts, roles and bindings, filtered by kind) and **Clusters**. Clicking a row opens a side panel with the workload's open findings and attack paths, or what an identity can do and who uses it. Pod detail opens with links to the pod's findings, attack paths, network flows and service account, and has an **Attack paths** tab. |
 | Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`), the capability catalog (`/#/rules/catalog`) and capability exposure (`/#/rules/exposure`): which pods hold each capability, by namespace and severity. Old `/#/risks/pce` links redirect. |
 | Platform | `/#/monitoring` | Whether Fortuna is collecting complete, fresh data from every cluster. One page, top to bottom: a verdict with the first problem and its fix, clusters and agents (reporting, last heartbeat, agent version), the pipeline stages with when each last produced data, certificates (manage them at `/#/monitoring/certificates`), errors in the last 24 hours grouped by message, and the full operational log. |
 | Notifications | `/#/notifications` | Every alert, with unread and read views. Open it from **View all** in the bell. Old `/#/monitoring/notifications` links redirect. |
@@ -175,10 +175,10 @@ Reference screen: [Inventory](../assets/screenshots/resources.png).
 Steps:
 
 1. Open `/#/resources`.
-2. Search by namespace, pod name, image, or risk.
-3. Open pod detail.
-4. Review SBOM/CVE, risk, runtime, process, network, event, and spec tabs.
-5. Use linked findings to return to Findings.
+2. Search by pod name, namespace, node or UID, or pick a risk level.
+3. Click a row to preview its findings and attack paths, or open pod detail.
+4. Review the Risk & SBOM, Attack paths, Runtime, Network and Spec tabs.
+5. Use **Findings** at the top of pod detail to return to that pod's findings.
 
 Expected data source: pod inventory, SBOM extraction results, CVE catalog matches, risk scores, runtime snapshots, and Kubernetes events.
 

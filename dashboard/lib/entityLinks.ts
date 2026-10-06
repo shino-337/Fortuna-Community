@@ -36,3 +36,27 @@ export function networkForPodPath({ uid, clusterId }: PodRef, namespace?: string
   if (namespace) params.set('namespace', namespace);
   return `/network-activity?${params.toString()}`;
 }
+
+/** Service account detail. */
+export function identityDetailPath({ uid, clusterId }: PodRef): string {
+  const params = withCluster(new URLSearchParams(), clusterId);
+  const qs = params.toString();
+  return `/identities/uid/${encodeURIComponent(uid.trim())}${qs ? `?${qs}` : ''}`;
+}
+
+export type InventoryView = 'workloads' | 'identities' | 'clusters';
+
+/** Inventory, optionally on one view and filtered (e.g. the workloads on one node or in one namespace). */
+export function inventoryPath(
+  view: InventoryView = 'workloads',
+  filters?: { clusterId?: string | null; namespace?: string; node?: string; kind?: string },
+): string {
+  const params = new URLSearchParams();
+  if (view !== 'workloads') params.set('view', view);
+  if (filters?.clusterId) params.set('clusterId', filters.clusterId);
+  if (filters?.namespace) params.set('namespace', filters.namespace);
+  if (filters?.node) params.set('node', filters.node);
+  if (filters?.kind) params.set('kind', filters.kind);
+  const qs = params.toString();
+  return `/resources${qs ? `?${qs}` : ''}`;
+}

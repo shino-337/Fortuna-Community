@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import { PrimaryScenarioHero } from '../components/PrimaryScenarioHero';
 import { AttackStepsTimeline } from '../components/AttackStepsTimeline';
-import { getSeverityTextClass } from '../lib/severity';
+import { getSeverityTextClass, pathRiskLevel } from '../lib/severity';
 import {
   groupChains,
   groupPrimitivePaths,
@@ -170,13 +170,7 @@ function topItems(items: unknown[], max = 3): string[] {
   return items.map((x) => String(x || '').trim()).filter(Boolean).slice(0, max);
 }
 
-/** Path level from a path's 0-10 total_risk: 9+ critical, 7+ high, 4+ medium, else low (matches Core's classifyRiskLabel). */
-function riskLabel(score: number): 'critical' | 'high' | 'medium' | 'low' {
-  if (score >= 9) return 'critical';
-  if (score >= 7) return 'high';
-  if (score >= 4) return 'medium';
-  return 'low';
-}
+const riskLabel = pathRiskLevel;
 
 const EDGE_TO_TECHNIQUE_CATEGORIES: Record<string, string[]> = {
   ESC_HOSTPATH_NODE: ['ESCAPE_HOSTPATH'],
