@@ -7,7 +7,8 @@ const RiskCenter = React.lazy(() => import('../pages/Insights').then((m) => ({ d
 const Resources = React.lazy(() => import('../pages/Resources').then((m) => ({ default: m.Resources })));
 const NetworkActivity = React.lazy(() => import('../pages/NetworkActivity').then((m) => ({ default: m.NetworkActivity })));
 const AttackPaths = React.lazy(() => import('../pages/AttackPaths').then((m) => ({ default: m.AttackPaths })));
-const Monitoring = React.lazy(() => import('../pages/Metrics').then((m) => ({ default: m.Monitoring })));
+const Setup = React.lazy(() => import('../pages/setup/Setup').then((m) => ({ default: m.Setup })));
+const Platform = React.lazy(() => import('../pages/platform/Platform').then((m) => ({ default: m.Platform })));
 const Rules = React.lazy(() => import('../pages/Rules').then((m) => ({ default: m.Rules })));
 const Governance = React.lazy(() => import('../pages/Governance').then((m) => ({ default: m.Governance })));
 const Settings = React.lazy(() => import('../pages/Settings').then((m) => ({ default: m.Settings })));
@@ -49,10 +50,11 @@ const ROUTES: Array<{ pattern: string; element: React.ReactNode }> = [
   { pattern: '/rules/uid/:uid', element: <RuleDetail /> },
   { pattern: '/rules/:id', element: <RuleDetail /> },
   { pattern: '/attack-paths', element: <AttackPaths /> },
-  { pattern: '/monitoring', element: <Monitoring /> },
+  { pattern: '/monitoring', element: <Platform /> },
   { pattern: '/monitoring/certificates', element: <Certificates /> },
-  { pattern: '/monitoring/notifications', element: <Notifications /> },
+  { pattern: '/notifications', element: <Notifications /> },
   { pattern: '/governance', element: <Governance /> },
+  { pattern: '/setup', element: <Setup /> },
   { pattern: '/settings', element: <Settings /> },
   { pattern: '/account', element: <Account /> },
 ];
@@ -68,10 +70,10 @@ function buildRedirectTarget(path: string, search: string): string | null {
   if (path === '/reports') {
     return '/?section=brief';
   }
-  // Pages merged into Platform, Rules and Inventory keep working as links.
+  // Pages merged into Platform, Rules and Inventory, and Notifications moved out of Platform, keep working as links.
   const merged: Record<string, string> = {
     '/certificates': '/monitoring/certificates',
-    '/notifications': '/monitoring/notifications',
+    '/monitoring/notifications': '/notifications',
     '/capabilities': '/rules/catalog',
     '/clusters': '/resources/clusters',
   };

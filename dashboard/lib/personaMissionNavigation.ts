@@ -31,6 +31,7 @@ const MISSION_CATALOG: Record<
   // Rules opens on the first section the user can read (viewers only see the catalog).
   rules: { label: PAGE_TITLES.policyRules, path: '/rules', iconKey: 'rules', fallbackPaths: ['/rules/catalog'] },
   platform: { label: PAGE_TITLES.monitoring, path: '/monitoring', iconKey: 'monitoring' },
+  setup: { label: PAGE_TITLES.setup, path: '/setup', iconKey: 'setup' },
   audit: { label: PAGE_TITLES.governance, path: '/governance', iconKey: 'governance' },
   users: { label: PAGE_TITLES.settings, path: '/settings', iconKey: 'settings' },
 };
@@ -43,7 +44,7 @@ const NAVIGATION_PLAN: { section: string; keys: string[] }[] = [
   { section: 'Work', keys: ['home', 'findings', 'investigations'] },
   { section: 'Explore', keys: ['attackPaths', 'network', 'inventory'] },
   { section: 'Configure', keys: ['rules', 'platform'] },
-  { section: 'Administration', keys: ['audit', 'users'] },
+  { section: 'Administration', keys: ['setup', 'audit', 'users'] },
 ];
 
 function routeAllowed(path: string, allowedRoutes: string[]): boolean {

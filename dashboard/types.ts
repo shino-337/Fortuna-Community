@@ -989,6 +989,9 @@ export interface Agent {
   node: string;
   status: string;
   lastHeartbeat: string;
+  clusterId?: string;
+  clusterName?: string;
+  version?: string;
 }
 
 /** Pipeline queue metrics snapshot. */

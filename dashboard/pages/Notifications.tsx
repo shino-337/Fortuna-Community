@@ -1,5 +1,3 @@
-
-import { PLATFORM_HEALTH_SECTIONS, SectionNav } from '../components/SectionNav';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
@@ -133,7 +131,6 @@ export const Notifications: React.FC = () => {
         </div>
       }
     >
-      <SectionNav sections={PLATFORM_HEALTH_SECTIONS} ariaLabel="Platform health sections" />
       {loading && notifications.length === 0 ? (
         <PageLoading message="Loading notifications..." className="min-h-[30dvh]" />
       ) : error && notifications.length === 0 ? (

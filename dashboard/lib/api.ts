@@ -2092,12 +2092,18 @@ export const api = {
         nodeName: string;
         status: string;
         lastHeartbeat: string;
+        clusterId?: string;
+        clusterName?: string;
+        version?: string;
       }>;
     }>(`/agents/status?limit=${API_DEFAULTS.LIMIT_ALL_AGENTS}`);
       const raw = data.agents || [];
       return raw.map((a) => ({
         id: a.agentId,
         node: a.nodeName,
+        clusterId: a.clusterId || undefined,
+        clusterName: a.clusterName || undefined,
+        version: a.version || undefined,
         status: a.status === 'healthy' ? 'up' : a.status === 'slow' ? 'slow' : a.status === 'disconnected' ? 'down' : a.status,
         lastHeartbeat: typeof a.lastHeartbeat === 'string' ? a.lastHeartbeat : a.lastHeartbeat ? new Date(a.lastHeartbeat as unknown as string).toISOString() : '',
       }));

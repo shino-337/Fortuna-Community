@@ -37,7 +37,9 @@ Roles determine route visibility and actions:
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
 | Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
 | Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`) and the capability catalog (`/#/rules/catalog`). |
-| Platform | `/#/monitoring` | Verify pipeline processing, runtime event ingestion, Falco/eBPF visibility and data freshness; certificates (`/#/monitoring/certificates`) and notifications (`/#/monitoring/notifications`). |
+| Platform | `/#/monitoring` | Whether Fortuna is collecting complete, fresh data from every cluster. One page, top to bottom: a verdict with the first problem and its fix, clusters and agents (reporting, last heartbeat, agent version), the pipeline stages with when each last produced data, certificates (manage them at `/#/monitoring/certificates`), errors in the last 24 hours grouped by message, and the full operational log. |
+| Notifications | `/#/notifications` | Every alert, with unread and read views. Open it from **View all** in the bell. Old `/#/monitoring/notifications` links redirect. |
+| Setup | `/#/setup` | Admin only, until its required steps are done: the first-run checklist (agent reporting, first scan, first finding triaged, team invited, and optionally another cluster). Each step checks itself from live data, and the sidebar shows how many are done. |
 | Audit | `/#/governance` | Admin only: security activity, the platform audit log, audit summary by resource and action, the investigation timeline and access analytics. |
 | Users & Access | `/#/settings` | Admin and User admin: manage users, roles, cluster access and other people's sessions. |
 | Account | `/#/account` | Every role: your profile, password and your own sessions. Open it from the avatar menu in the header. |

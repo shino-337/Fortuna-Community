@@ -181,7 +181,7 @@ export const NotificationBell: React.FC = () => {
               type="button"
               onClick={() => {
                 setOpen(false);
-                navigate('/monitoring/notifications');
+                navigate('/notifications');
               }}
               className="w-full rounded-lg px-2 py-1.5 text-caption font-semibold text-brand transition-colors hover:bg-surface-2/70 focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
             >
