@@ -4,6 +4,7 @@ import { api } from '../lib/api';
 import { CapabilityMetadata, Insight, RuntimeSignal } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Card } from '../design-system/components/Card';
+import { FindingActions } from '../components/FindingActions';
 import { Button } from '../components/ui/Button';
 import { ArrowLeft, ShieldAlert, Calendar, FileText, Box, AlertTriangle, Link2, Info } from 'lucide-react';
 import { getSeverityBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
@@ -14,8 +15,6 @@ import { useTimeWindowStore } from '../store/timeWindowStore';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT } from '../lib/tableChrome';
 import { buildEvidenceLogEntries } from '../lib/evidenceLog';
 import { podDetailPath } from '../lib/podRoute';
-import { can, P } from '../lib/permissions';
-import { usePermUser } from '../hooks/usePermUser';
 import { useToast } from '../design-system/components/Toast';
 
 const parseRuleIDsFromViolatedRules = (violatedRules: Insight['violatedRules']): string[] => {
@@ -77,12 +76,7 @@ export const RiskDetail: React.FC = () => {
   const navigate = useNavigate();
   const [insight, setInsight] = useState<Insight | null>(null);
   const [loading, setLoading] = useState(true);
-  const [resolving, setResolving] = useState(false);
-  const [reopening, setReopening] = useState(false);
-  const permUser = usePermUser();
   const toast = useToast();
-  const canResolve = can(permUser, P.findingsResolve);
-  const canReopen = can(permUser, P.findingsReopen);
   const [podRuntimeSignals, setPodRuntimeSignals] = useState<RuntimeSignal[]>([]);
   const [linkedRules, setLinkedRules] = useState<Array<{ id: string; name: string; source?: string; signature?: string; isCanonical?: boolean; canonicalRuleId?: string }>>([]);
   const [linkedCapabilities, setLinkedCapabilities] = useState<CapabilityMetadata[]>([]);
@@ -169,32 +163,6 @@ export const RiskDetail: React.FC = () => {
     return () => { cancelled = true; };
   }, [insight?.id, insight?.affectedResources, timeWindowMinutes]);
 
-  const handleResolve = async () => {
-    if (!id || !canResolve || insight?.status === 'resolved') return;
-    setResolving(true);
-    try {
-      await api.resolveInsight(id);
-      await fetchInsight();
-    } catch (err) {
-      toast({ title: 'Could not resolve finding', description: err instanceof Error ? err.message : String(err), variant: 'error' });
-    } finally {
-      setResolving(false);
-    }
-  };
-
-  const handleReopen = async () => {
-    if (!id || !canReopen) return;
-    setReopening(true);
-    try {
-      await api.reopenInsight(id);
-      await fetchInsight();
-    } catch (err) {
-      toast({ title: 'Could not reopen finding', description: err instanceof Error ? err.message : String(err), variant: 'error' });
-    } finally {
-      setReopening(false);
-    }
-  };
-
   if (loading || !id) {
     return (
       <div className="flex flex-col justify-center items-center h-[40dvh]">
@@ -230,7 +198,6 @@ export const RiskDetail: React.FC = () => {
     resolved: 'Resolved',
     dismissed: 'Dismissed',
   };
-  const isClosed = insight.status === 'resolved' || insight.status === 'dismissed';
 
   const topEvidenceFields = (() => {
     if (!insight.evidence) return [] as string[];
@@ -252,17 +219,16 @@ export const RiskDetail: React.FC = () => {
       title={insight.title}
       description={`Finding #${insight.id}${formatRiskFindingReference(insight) ? ` · ${formatRiskFindingReference(insight)}` : ''}`}
       actions={
-        <div className="flex items-center gap-2">
-          {canResolve && !isClosed && (
-            <Button variant="secondary" onClick={handleResolve} disabled={resolving}>
-              {resolving ? 'Resolving...' : 'Mark as resolved'}
-            </Button>
-          )}
-          {canReopen && isClosed && (
-            <Button variant="secondary" onClick={handleReopen} disabled={reopening}>
-              {reopening ? 'Reopening...' : 'Reopen'}
-            </Button>
-          )}
+        <div className="flex flex-wrap items-center gap-2">
+          {/* Same actions as the panel on Findings. */}
+          <FindingActions
+            insight={insight}
+            onDone={(action) => {
+              const done = { acknowledge: 'acknowledged', resolve: 'resolved', dismiss: 'dismissed', reopen: 'reopened' }[action];
+              toast({ title: `Finding ${done}`, variant: 'success' });
+              void fetchInsight();
+            }}
+          />
           <Button variant="secondary" onClick={() => navigate('/risks')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Back to Findings
           </Button>

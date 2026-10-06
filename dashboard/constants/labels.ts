@@ -16,4 +16,4 @@ export const STAT_LABELS = {
 } as const;
 
 /** Risk Operations – aligned terms for Findings, Capability Exposure (PCE), and Evidence */
-export const RISK_CENTER_DESCRIPTION = 'Prioritize findings, investigate evidence, and track exposure reduction in the current scope.';
+export const RISK_CENTER_DESCRIPTION = 'Pick a finding, understand it, decide. Press J and K to move through the queue, O to open the full page.';

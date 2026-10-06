@@ -31,7 +31,7 @@ Roles determine route visibility and actions:
 | Workspace | Route | Use it for |
 |-----------|-------|------------|
 | Home | `/#/` | What needs your attention in the header scope. Four counts (needs triage, critical open, your open cases, exposed workloads), the five open findings with the highest risk that nobody has acknowledged, your open cases, a one-line data freshness check, new findings per day for 30 days by risk level, and **Export brief**. Admins also see a Platform card with agent and pipeline status. Every count uses the risk level. Old `/#/dashboard` links open Home. |
-| Findings | `/#/risks/findings` | Triage findings using the unified risk score and workflow status. |
+| Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Capability exposure and Runtime evidence. `/#/risks` opens the queue. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
 | Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
@@ -137,13 +137,13 @@ Reference screen: [Findings](../assets/screenshots/risk-operations.png).
 
 Steps:
 
-1. Open `/#/risks/findings`.
-2. Sort or filter by final risk level and score.
-3. Open the finding drawer.
+1. Open `/#/risks/findings`. It starts on **Needs triage**, highest risk first.
+2. Narrow it with the risk level, namespace, type or search filters.
+3. Select a finding, or press J, to open the detail panel.
 4. Review affected resource, evidence, linked rules, and workflow status.
-5. Acknowledge, resolve, dismiss, or escalate based on role permissions.
+5. Acknowledge, resolve, dismiss or pin it to a case, as your role allows. Resolve and dismiss ask for a reason, which goes to the audit trail. The panel then moves to the next finding.
 
-Expected data source: `GET /api/v1/risk/insights`, risk summary APIs, and linked evidence APIs.
+Expected data source: `GET /api/v1/risk/insights`, `POST /api/v1/risk/insights/bulk` and linked evidence APIs.
 
 ### 3. Investigate an Attack Path
 

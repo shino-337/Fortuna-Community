@@ -165,7 +165,7 @@ flowchart LR
 | Domain | What it shows | Primary data |
 |--------|---------------|--------------|
 | Home | What needs attention: triage, critical and exposure counts, the top unacknowledged findings, the user's open cases, data freshness, a 30-day trend by risk level, and the Executive brief (time-windowed posture and findings exports) | Findings list and summary, risk score counts, threat velocity, dashboard stats, pipeline health, investigations |
-| Findings | Current findings and one unified risk value | `risk_scores`, insights, rules, runtime/CVE/path evidence |
+| Findings | The triage queue by workflow status (needs triage, in review, resolved, dismissed), one detail panel whose actions are shared with the finding page, and for operators capability exposure and runtime evidence | `risk_scores`, insights, rules, runtime/CVE/path evidence |
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
 | Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
 | Network | Runtime topology and external destinations | Agent network observations |
