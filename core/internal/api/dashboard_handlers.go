@@ -286,13 +286,14 @@ func applyInsightsListFinalLevelFilter(query *gorm.DB, finalLevel string) *gorm.
 	)`, lo, hi)
 }
 
-// preferredRiskScoreSubquerySQL returns one authoritative v3 total_score per resource_uid.
+// preferredRiskScoreSubquerySQL returns one authoritative total_score per (cluster, resource):
+// the latest V3 row, else the latest row of any scorer version (see preferredRiskScoreOrderSQL).
 const preferredRiskScoreSubquerySQL = `(SELECT z.cluster_id, z.resource_uid, z.total_score FROM (
 	SELECT rs.cluster_id AS cluster_id, rs.resource_uid AS resource_uid, rs.total_score AS total_score,
 		ROW_NUMBER() OVER (
 			PARTITION BY rs.cluster_id, rs.resource_uid
 			ORDER BY CASE LOWER(TRIM(COALESCE(rs.scorer_version, ''))) WHEN 'v3' THEN 1 ELSE 0 END DESC,
-				rs.calculated_at DESC
+				rs.calculated_at DESC, rs.id DESC
 		) AS rn
 	FROM risk_scores rs WHERE rs.deleted_at IS NULL
 ) z WHERE z.rn = 1)`
@@ -754,17 +755,28 @@ func csvSafeCell(v string) string {
 }
 
 // writeRisksExportHTML writes print-optimized HTML table for "Print to PDF" (Phase 3.3).
-func writeRisksExportHTML(w http.ResponseWriter, insights []models.Insight) {
+// exportRiskLevel returns the finding's risk level and score as the Risk Center shows
+// them, or empty strings when its resource has no score yet.
+func exportRiskLevel(scores map[string]float64, i models.Insight) (string, string) {
+	score, ok := scores[riskScoreKey(i.ClusterID, i.ResourceUID)]
+	if !ok {
+		return "", ""
+	}
+	return risk.DeriveFinalLevelFromScore(score), strconv.FormatFloat(score, 'f', 0, 64)
+}
+
+func writeRisksExportHTML(w http.ResponseWriter, insights []models.Insight, scores map[string]float64) {
 	w.Write([]byte(`<!DOCTYPE html><html><head><meta charset="utf-8"/><title>Risks Export</title>`))
 	w.Write([]byte(`<style>body{font-family:sans-serif;margin:1rem;} table{border-collapse:collapse;width:100%;} th,td{border:1px solid #333;padding:6px;text-align:left;} th{background:#444;color:#fff;} @media print{body{margin:0;}}</style></head><body>`))
 	w.Write([]byte(`<h1>Risks Export</h1><p>Generated at ` + time.Now().Format(time.RFC3339) + ` — ` + strconv.Itoa(len(insights)) + ` findings. Use browser Print → Save as PDF.</p><table><thead><tr>`))
-	headers := []string{"ID", "Title", "Severity", "Status", "Type", "Resource", "Namespace", "Finding ref", "Detected At"}
+	headers := []string{"ID", "Title", "Risk level", "Risk score", "Rule severity", "Status", "Type", "Resource", "Namespace", "Finding ref", "Detected At"}
 	for _, h := range headers {
 		w.Write([]byte("<th>" + html.EscapeString(h) + "</th>"))
 	}
 	w.Write([]byte("</tr></thead><tbody>"))
 	for _, i := range insights {
-		w.Write([]byte("<tr><td>" + strconv.FormatUint(uint64(i.ID), 10) + "</td><td>" + html.EscapeString(i.Title) + "</td><td>" + html.EscapeString(i.Severity) + "</td><td>" + html.EscapeString(i.Status) + "</td><td>" + html.EscapeString(i.InsightType) + "</td><td>" + html.EscapeString(i.ResourceName) + "</td><td>" + html.EscapeString(i.ResourceNamespace) + "</td><td>" + html.EscapeString(i.CVEID) + "</td><td>" + i.DetectedAt.Format(time.RFC3339) + "</td></tr>"))
+		level, score := exportRiskLevel(scores, i)
+		w.Write([]byte("<tr><td>" + strconv.FormatUint(uint64(i.ID), 10) + "</td><td>" + html.EscapeString(i.Title) + "</td><td>" + html.EscapeString(level) + "</td><td>" + html.EscapeString(score) + "</td><td>" + html.EscapeString(i.Severity) + "</td><td>" + html.EscapeString(i.Status) + "</td><td>" + html.EscapeString(i.InsightType) + "</td><td>" + html.EscapeString(i.ResourceName) + "</td><td>" + html.EscapeString(i.ResourceNamespace) + "</td><td>" + html.EscapeString(i.CVEID) + "</td><td>" + i.DetectedAt.Format(time.RFC3339) + "</td></tr>"))
 	}
 	w.Write([]byte("</tbody></table></body></html>"))
 	if flusher, ok := w.(http.Flusher); ok {
@@ -801,10 +813,8 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 		}
 		// Histogram bin filter: score in [scoreBin, scoreBin+10) (e.g. scoreBin=10 → 10–19)
 		// Only apply when scoreBin query param is explicitly provided.
-		if hasScoreBin && filter.ScoreBin >= 0 && filter.ScoreBin <= 90 && (filter.ScoreBin%10) == 0 {
-			query = query.Where("insights.resource_uid IN (SELECT resource_uid FROM risk_scores WHERE total_score >= ? AND total_score < ? AND deleted_at IS NULL)",
-				filter.ScoreBin, filter.ScoreBin+10)
-		}
+		// Same preferred score per (cluster, resource) as the list.
+		query = applyInsightsListScoreBinFilter(query, hasScoreBin, filter.ScoreBin)
 
 		if format == "pdf" {
 			// PDF: load up to limit for HTML (single response)
@@ -812,7 +822,7 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 			query.Order("detected_at DESC").Limit(maxRisksExportLimit).Find(&insights)
 			c.Header("Content-Type", "text/html; charset=utf-8")
 			c.Header("Content-Disposition", `attachment; filename="risks-export.html"`)
-			writeRisksExportHTML(c.Writer, insights)
+			writeRisksExportHTML(c.Writer, insights, preferredScoresForInsights(db, insights))
 			ev := securityaudit.FromRequest(
 				c,
 				authorization.ToStrings(middleware.GrantedPermissions(c)),
@@ -841,6 +851,8 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 		_ = csvW.Write([]string{
 			"id", "title", "description", "severity", "status", "insight_type", "resource_type",
 			"resource_name", "resource_namespace", "resource_uid", "finding_reference", "detected_at", "created_at", "updated_at",
+			// Appended so existing column positions stay; severity above is the rule severity.
+			"risk_level", "risk_score",
 		})
 		csvW.Flush()
 		if err := csvW.Error(); err != nil {
@@ -858,7 +870,9 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 				break
 			}
 			totalExported += len(chunk)
+			scores := preferredScoresForInsights(db, chunk)
 			for _, i := range chunk {
+				level, score := exportRiskLevel(scores, i)
 				_ = csvW.Write([]string{
 					strconv.FormatUint(uint64(i.ID), 10),
 					csvSafeCell(i.Title),
@@ -874,6 +888,8 @@ func ExportRisksCSV(db *gorm.DB) gin.HandlerFunc {
 					i.DetectedAt.Format(time.RFC3339),
 					i.CreatedAt.Format(time.RFC3339),
 					i.UpdatedAt.Format(time.RFC3339),
+					level,
+					score,
 				})
 			}
 			csvW.Flush()

@@ -173,8 +173,9 @@ func preferredScoreForResource(db *gorm.DB, clusterID, resourceUID string) *mode
 	}
 	var rs models.RiskScore
 	if err := db.Model(&models.RiskScore{}).
-		Where("cluster_id = ? AND resource_uid = ? AND deleted_at IS NULL AND LOWER(TRIM(COALESCE(scorer_version, ''))) = ?", clusterID, resourceUID, "v3").
-		Order("calculated_at DESC, id DESC").
+		Where("cluster_id = ? AND resource_uid = ? AND deleted_at IS NULL", clusterID, resourceUID).
+		// Same row the findings list, filters and counts use, so detail and list show one level.
+		Order(preferredRiskScoreOrderSQL).
 		First(&rs).Error; err != nil {
 		return nil
 	}
@@ -529,19 +530,19 @@ func getInsightsSummaryData(db *gorm.DB, filter RiskFilter, sinceMinutes int) (I
 	if err := base().Joins("INNER JOIN " + preferredRiskScoreSubquerySQL + " AS pref ON pref.cluster_id=i.cluster_id AND pref.resource_uid=i.resource_uid").Select(band + " AS level, COUNT(*) AS count").Group(band).Scan(&levels).Error; err != nil {
 		return summary, err
 	}
-	if len(levels) > 0 {
-		summary.RiskLevelCounts = &RiskLevelCounts{}
-		for _, r := range levels {
-			switch r.Level {
-			case "critical":
-				summary.RiskLevelCounts.Critical += r.Count
-			case "high":
-				summary.RiskLevelCounts.High += r.Count
-			case "medium":
-				summary.RiskLevelCounts.Medium += r.Count
-			case "low":
-				summary.RiskLevelCounts.Low += r.Count
-			}
+	// Always present (zeros when nothing is scored), so clients never fall back to
+	// counting rule severities as risk levels.
+	summary.RiskLevelCounts = &RiskLevelCounts{}
+	for _, r := range levels {
+		switch r.Level {
+		case "critical":
+			summary.RiskLevelCounts.Critical += r.Count
+		case "high":
+			summary.RiskLevelCounts.High += r.Count
+		case "medium":
+			summary.RiskLevelCounts.Medium += r.Count
+		case "low":
+			summary.RiskLevelCounts.Low += r.Count
 		}
 	}
 	return summary, nil

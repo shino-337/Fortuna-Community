@@ -14,6 +14,7 @@ import (
 
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/risk"
 )
 
 // GetNotifications returns notifications from the notifications table (real data).
@@ -144,17 +145,20 @@ func synthesizeSecurityNotifications(db *gorm.DB) {
 		return
 	}
 	now := time.Now().UTC()
+	// Finding alerts already stored follow the finding's current risk level first,
+	// so an alert never says critical while the finding it opens says low.
+	reconcileFindingNotifications(db)
 	for _, n := range derivedInsightNotifications(db, now) {
-		createNotificationIfMissing(db, n)
+		upsertDerivedNotification(db, n)
 	}
 	for _, n := range derivedAttackPathNotifications(db, now) {
-		createNotificationIfMissing(db, n)
+		upsertDerivedNotification(db, n)
 	}
 	for _, n := range derivedCVENotifications(db, now) {
-		createNotificationIfMissing(db, n)
+		upsertDerivedNotification(db, n)
 	}
 	for _, n := range derivedMalwareNotifications(db, now) {
-		createNotificationIfMissing(db, n)
+		upsertDerivedNotification(db, n)
 	}
 }
 
@@ -294,21 +298,114 @@ func resourceSearchTerm(resourceName, fallbackUID string) string {
 	return resourceName
 }
 
-func createNotificationIfMissing(db *gorm.DB, n models.Notification) {
+// upsertDerivedNotification stores a derived notification once per dedupe key.
+// When the row already exists, its severity, text and link are refreshed so the
+// bell always describes the source as it is now; read state is kept.
+func upsertDerivedNotification(db *gorm.DB, n models.Notification) {
 	if strings.TrimSpace(n.DedupeKey) == "" {
 		return
 	}
 	if n.CreatedAt.IsZero() {
 		n.CreatedAt = time.Now().UTC()
 	}
-	clusterID := strings.TrimSpace(n.ClusterID)
+	want := n
 	if err := db.Where("dedupe_key = ? AND deleted_at IS NULL", n.DedupeKey).FirstOrCreate(&n).Error; err != nil {
 		return
 	}
+	updates := map[string]interface{}{}
+	if want.Severity != n.Severity {
+		updates["severity"] = want.Severity
+	}
+	if want.Title != n.Title {
+		updates["title"] = want.Title
+	}
+	if want.Message != n.Message {
+		updates["message"] = want.Message
+	}
+	if want.Route != n.Route {
+		updates["route"] = want.Route
+	}
 	// Rows written before notifications carried a cluster have none; stamp it
 	// so cluster-scoped users can see them.
-	if clusterID != "" && strings.TrimSpace(n.ClusterID) == "" {
-		_ = db.Model(&models.Notification{}).Where("id = ?", n.ID).Update("cluster_id", clusterID).Error
+	if clusterID := strings.TrimSpace(want.ClusterID); clusterID != "" && strings.TrimSpace(n.ClusterID) == "" {
+		updates["cluster_id"] = clusterID
+	}
+	if len(updates) > 0 {
+		_ = db.Model(&models.Notification{}).Where("id = ?", n.ID).Updates(updates).Error
+	}
+}
+
+// findingNotificationMinScore is the lowest risk score that raises a finding alert (the high band).
+const findingNotificationMinScore = riskLevelHighMinScore
+
+// findingAlertQuery selects open findings whose resource scores high or critical.
+func findingAlertQuery(db *gorm.DB) *gorm.DB {
+	q := db.Model(&models.Insight{}).
+		Where("insights.deleted_at IS NULL AND insights.status = ?", "active").
+		// Same rule as the findings list and counts: a Pod finding counts only while its pod exists.
+		Where(`(insights.resource_type != 'Pod' OR EXISTS (
+			SELECT 1 FROM pods p WHERE p.cluster_id = insights.cluster_id AND p.uid = insights.resource_uid AND p.deleted_at IS NULL))`)
+	return whereInsightRiskScoreAtLeast(q, "insights", findingNotificationMinScore)
+}
+
+// reconcileFindingNotifications brings stored finding alerts in line with the
+// findings they point at. Alerts whose finding is gone, closed, or no longer
+// scores high or critical are removed; the rest take the current level.
+func reconcileFindingNotifications(db *gorm.DB) {
+	if !db.Migrator().HasTable("insights") {
+		return
+	}
+	const batch = 500
+	var lastID uint
+	for {
+		var rows []models.Notification
+		if err := db.Where("deleted_at IS NULL AND id > ? AND dedupe_key LIKE ?", lastID, "insight:%").
+			Order("id ASC").Limit(batch).Find(&rows).Error; err != nil || len(rows) == 0 {
+			return
+		}
+		lastID = rows[len(rows)-1].ID
+		byInsight := map[uint][]models.Notification{}
+		ids := make([]uint, 0, len(rows))
+		for _, n := range rows {
+			id, err := strconv.ParseUint(strings.TrimPrefix(n.DedupeKey, "insight:"), 10, 64)
+			if err != nil {
+				continue
+			}
+			if _, ok := byInsight[uint(id)]; !ok {
+				ids = append(ids, uint(id))
+			}
+			byInsight[uint(id)] = append(byInsight[uint(id)], n)
+		}
+		var still []models.Insight
+		if len(ids) > 0 {
+			if err := findingAlertQuery(db).Where("insights.id IN ?", ids).Find(&still).Error; err != nil {
+				return
+			}
+		}
+		scores := preferredScoresForInsights(db, still)
+		qualifying := map[uint]models.Notification{}
+		for _, i := range still {
+			if score, ok := scores[riskScoreKey(i.ClusterID, i.ResourceUID)]; ok {
+				qualifying[i.ID] = findingNotification(i, score, time.Now().UTC())
+			}
+		}
+		var stale []uint
+		for id, list := range byInsight {
+			want, ok := qualifying[id]
+			for _, n := range list {
+				if !ok {
+					stale = append(stale, n.ID)
+					continue
+				}
+				upsertDerivedNotification(db, want)
+			}
+		}
+		if len(stale) > 0 {
+			_ = db.Where("id IN ?", stale).Delete(&models.Notification{}).Error
+		}
+		if len(rows) < batch {
+			return
+		}
 	}
 }
 
@@ -316,47 +413,74 @@ func derivedInsightNotifications(db *gorm.DB, now time.Time) []models.Notificati
 	if !db.Migrator().HasTable("insights") {
 		return nil
 	}
+	if !db.Migrator().HasTable(&models.RiskScore{}) {
+		return nil
+	}
 	var insights []models.Insight
-	if err := db.Where("deleted_at IS NULL AND status = ? AND lower(severity) IN ?", "active", []string{"critical", "high"}).
-		Order("detected_at DESC").
+	if err := findingAlertQuery(db).
+		Order("insights.detected_at DESC, insights.id DESC").
 		Limit(8).
 		Find(&insights).Error; err != nil {
 		return nil
 	}
+	scores := preferredScoresForInsights(db, insights)
 	out := make([]models.Notification, 0, len(insights))
 	for _, i := range insights {
-		resource := strings.TrimSpace(i.ResourceName)
-		if resource == "" {
-			resource = strings.TrimSpace(i.ResourceUID)
+		score, ok := scores[riskScoreKey(i.ClusterID, i.ResourceUID)]
+		if !ok {
+			continue
 		}
-		resourceDisplay := podDisplayName(i.ResourceNamespace, resource, i.ResourceUID)
-		createdAt := i.DetectedAt
-		if createdAt.IsZero() {
-			createdAt = now
-		}
-		out = append(out, models.Notification{
-			Title:        fmt.Sprintf("%s finding: %s", titleWord(i.Severity), compactTitle(i.Title, 72)),
-			Message:      fmt.Sprintf("%s %s requires review.", i.ResourceType, resourceDisplay),
-			Severity:     strings.ToLower(i.Severity),
-			Source:       "risk-engine",
-			Category:     "risk",
-			Route:        "/risks/findings?search=" + url.QueryEscape(resourceSearchTerm(resourceDisplay, i.ResourceUID)),
-			DedupeKey:    fmt.Sprintf("insight:%d", i.ID),
-			ClusterID:    i.ClusterID,
-			ResourceUID:  i.ResourceUID,
-			ResourceName: resourceDisplay,
-			CreatedAt:    createdAt,
-		})
+		out = append(out, findingNotification(i, score, now))
 	}
 	return out
 }
+
+// findingNotification describes one finding alert. Its severity is the finding's
+// risk level (the band of its resource's score), the same level the finding's
+// page shows; the rule severity is only mentioned in the text.
+func findingNotification(i models.Insight, score float64, now time.Time) models.Notification {
+	resource := strings.TrimSpace(i.ResourceName)
+	if resource == "" {
+		resource = strings.TrimSpace(i.ResourceUID)
+	}
+	resourceDisplay := podDisplayName(i.ResourceNamespace, resource, i.ResourceUID)
+	createdAt := i.DetectedAt
+	if createdAt.IsZero() {
+		createdAt = now
+	}
+	level := risk.DeriveFinalLevelFromScore(score)
+	message := fmt.Sprintf("%s %s has risk score %.0f/100 and requires review.", i.ResourceType, resourceDisplay, score)
+	if sev := strings.ToLower(strings.TrimSpace(i.Severity)); sev != "" && sev != level {
+		message = fmt.Sprintf("%s %s has risk score %.0f/100 (rule severity %s) and requires review.", i.ResourceType, resourceDisplay, score, sev)
+	}
+	return models.Notification{
+		Title:        fmt.Sprintf("%s risk finding: %s", titleWord(level), compactTitle(i.Title, 72)),
+		Message:      message,
+		Severity:     level,
+		Source:       "risk-engine",
+		Category:     "risk",
+		Route:        fmt.Sprintf("/risks/%d", i.ID),
+		DedupeKey:    fmt.Sprintf("insight:%d", i.ID),
+		ClusterID:    i.ClusterID,
+		ResourceUID:  i.ResourceUID,
+		ResourceName: resourceDisplay,
+		CreatedAt:    createdAt,
+	}
+}
+
+// Attack path risk is on a 0-10 scale; these are the Attack Paths page's critical and high bands.
+const (
+	attackPathCriticalRisk = 9.0
+	attackPathHighRisk     = 7.0
+)
 
 func derivedAttackPathNotifications(db *gorm.DB, now time.Time) []models.Notification {
 	if !db.Migrator().HasTable("attack_paths") {
 		return nil
 	}
 	var paths []models.AttackPath
-	if err := db.Order("total_risk DESC, updated_at DESC").
+	if err := db.Where("total_risk >= ?", attackPathHighRisk).
+		Order("total_risk DESC, updated_at DESC").
 		Limit(6).
 		Find(&paths).Error; err != nil {
 		return nil
@@ -364,11 +488,8 @@ func derivedAttackPathNotifications(db *gorm.DB, now time.Time) []models.Notific
 	podNames := podDisplayNamesByUID(db, attackPathPodUIDs(paths))
 	out := make([]models.Notification, 0, len(paths))
 	for _, p := range paths {
-		if p.TotalRisk < 60 {
-			continue
-		}
 		severity := "high"
-		if p.TotalRisk >= 80 {
+		if p.TotalRisk >= attackPathCriticalRisk {
 			severity = "critical"
 		}
 		createdAt := p.UpdatedAt
@@ -378,7 +499,7 @@ func derivedAttackPathNotifications(db *gorm.DB, now time.Time) []models.Notific
 		resourceName := trimOrFallback(podNames[p.PodUID], p.PodUID)
 		out = append(out, models.Notification{
 			Title:        fmt.Sprintf("%s attack path detected", titleWord(severity)),
-			Message:      fmt.Sprintf("%s has path %s with risk %.0f across %d steps.", resourceName, p.PathID, p.TotalRisk, p.Length),
+			Message:      fmt.Sprintf("%s has path %s with risk %.1f/10 across %d steps.", resourceName, p.PathID, p.TotalRisk, p.Length),
 			Severity:     severity,
 			Source:       "attack-path",
 			Category:     "attack-path",
@@ -418,7 +539,7 @@ func derivedCVENotifications(db *gorm.DB, now time.Time) []models.Notification {
 			Severity:     strings.ToLower(m.Severity),
 			Source:       "cve-matcher",
 			Category:     "cve",
-			Route:        "/resources?tab=Pod&search=" + url.QueryEscape(resourceSearchTerm(resourceName, m.PodUID)),
+			Route:        podSBOMRoute(m.PodUID, m.ClusterID),
 			DedupeKey:    fmt.Sprintf("cve-match:%d", m.ID),
 			ClusterID:    m.ClusterID,
 			ResourceUID:  m.PodUID,
@@ -457,7 +578,7 @@ func derivedMalwareNotifications(db *gorm.DB, now time.Time) []models.Notificati
 			Severity:     severity,
 			Source:       "malware-matcher",
 			Category:     "malware",
-			Route:        "/resources?tab=Pod&search=" + url.QueryEscape(resourceSearchTerm(resourceName, m.PodUID)),
+			Route:        podSBOMRoute(m.PodUID, m.ClusterID),
 			DedupeKey:    fmt.Sprintf("malware-match:%d", m.ID),
 			ClusterID:    m.ClusterID,
 			ResourceUID:  m.PodUID,
@@ -466,6 +587,17 @@ func derivedMalwareNotifications(db *gorm.DB, now time.Time) []models.Notificati
 		})
 	}
 	return out
+}
+
+// podSBOMRoute opens the pod's SBOM tab, where the matched CVE or package is
+// listed with the same severity the notification shows.
+func podSBOMRoute(podUID, clusterID string) string {
+	q := url.Values{}
+	if c := strings.TrimSpace(clusterID); c != "" {
+		q.Set("clusterId", c)
+	}
+	q.Set("tab", "sbom")
+	return "/resources/pods/uid/" + url.PathEscape(strings.TrimSpace(podUID)) + "?" + q.Encode()
 }
 
 func compactTitle(s string, max int) string {

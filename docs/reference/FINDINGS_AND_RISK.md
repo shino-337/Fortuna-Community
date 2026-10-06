@@ -15,6 +15,15 @@ Every risk endpoint resolves the signed-in user's cluster allow-list before it r
 
 Regression tests warm caches as an unrestricted admin, then request the same resources as users in two separate clusters, and check cross-cluster denial, filtered cache identity, SQL errors, score-history duplication and concurrent pod disconnect and broadcast.
 
+## Risk levels
+
+A finding has two severities, and only one of them is its risk level.
+
+- **Risk level** (critical, high, medium, low) is the band of the preferred risk score of the finding's resource: 70 and above is critical, 40 to 69 high, 20 to 39 medium, below 20 low. The preferred score is the latest V3 score row for that cluster and resource, or the latest row of any scorer version when there is no V3 row. The findings list and its `finalLevel` filter, the finding detail page, `riskLevelCounts` in `/risk/insights/summary`, `criticalRisks` in `/dashboard/stats`, finding notifications and the `risk_level` / `risk_score` export columns all use it. A finding whose resource has no score yet has no risk level.
+- **Rule severity** is the `severity` stored on the finding by its rule or CVE. It is shown as a hint, kept in the export's `severity` column, counted in the summary's `critical`/`high`/`medium`/`low` fields, and used by the `severity` filter and the "Rule severity" sort.
+
+`riskLevelCounts` is always returned (zeros when nothing is scored), so clients never count rule severities as risk levels.
+
 ## Finding actions
 
 Acknowledging persists `acknowledged` (shown as In review). It stays an unresolved finding: it contributes to scoring and to unresolved counts in the API and Dashboard. Resolved and dismissed findings must be reopened before acknowledgement: `PATCH /risk/insights/:id` with `{"status":"active"}` reopens a resolved, dismissed or acknowledged finding, requires `findings.reopen` and clears `resolved_at`. The Dashboard shows Reopen on a closed finding's detail page to users with that permission. Resolving records `resolved_at`, preserves the original recommendation and stores resolution notes in the audit trail. PATCH checks the permission for the requested action.
@@ -51,6 +60,14 @@ Attack-step summaries include only active pods in the authorized clusters; scope
 Exception lists and mutations enforce resource ownership through retained pod records, including soft-deleted pods, for both history and create/delete. Orphan policies are hidden from scoped lists and cannot be changed by scoped users. Scoped users cannot manage exceptions on non-pod resources. Invalid exception IDs return 400; query errors return a generic 500.
 
 ## Notification center
+
+Notifications are derived from current data each time the list is read:
+
+- **Findings:** an open finding raises an alert when its risk level is high or critical. The alert's severity is that risk level, the text gives the score (and the rule severity when it differs), and it opens the finding (`/risks/:id`). Stored finding alerts are re-checked on every read: they take the finding's current level, and they are removed when the finding is resolved, dismissed, deleted or rescored below high, or when its pod is gone.
+- **Attack paths:** a path with risk 7.0/10 or more raises a high alert, 9.0 or more a critical one, matching the Attack Paths page.
+- **CVEs and malware:** the alert carries the CVE severity (critical or high) or the package verdict, and opens the pod's SBOM tab, where the same CVE or package is listed.
+
+Stored alerts also take a refreshed title, text and link when their source changes; read state is kept.
 
 `GET /notifications` returns the caller's notifications newest first (`limit` up to 100, `offset`, `unreadOnly=true`) with `total` and `unreadCount`. Read state is per user and stored in `notification_reads`: marking one notification or all of them read changes only the caller's bell. Migration 152 keeps notifications that were already marked read under the old shared `read_at` column read for every existing user.
 

@@ -173,8 +173,8 @@ const RISK_SORT_OPTIONS = {
   updated_asc: { label: 'Least recently updated', sort: 'updated', order: 'asc' },
   score_desc: { label: 'Priority score high to low', sort: 'score', order: 'desc' },
   score_asc: { label: 'Priority score low to high', sort: 'score', order: 'asc' },
-  severity_desc: { label: 'Severity critical to info', sort: 'severity', order: 'desc' },
-  severity_asc: { label: 'Severity info to critical', sort: 'severity', order: 'asc' },
+  severity_desc: { label: 'Rule severity critical to info', sort: 'severity', order: 'desc' },
+  severity_asc: { label: 'Rule severity info to critical', sort: 'severity', order: 'asc' },
   title_asc: { label: 'Title A-Z', sort: 'title', order: 'asc' },
   title_desc: { label: 'Title Z-A', sort: 'title', order: 'desc' },
 } as const satisfies Record<string, { label: string; sort: RiskInsightsSortKey; order: 'asc' | 'desc' }>;
@@ -430,7 +430,6 @@ export const RiskCenter: React.FC = () => {
     const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
     const sinceMinutes = sinceMinutesForApi;
     const clusterId = effectiveClusterId ?? selectedClusterId ?? undefined;
-    const useScores = riskSort === 'score_desc' || riskSort === 'score_asc' || riskLevelFilter !== '';
     const risksListParamsBase = {
       status: statusFilter,
       search: debouncedSearchTerm || undefined,
@@ -438,7 +437,8 @@ export const RiskCenter: React.FC = () => {
       namespace: debouncedNamespaceFilter || undefined,
       type: typeFilter || undefined,
       sinceMinutes,
-      withScores: useScores ? 1 : undefined,
+      // Always ask for scores: the level badge is the risk level from the score, whatever the sort.
+      withScores: 1,
       finalLevel: (riskLevelFilter || undefined) as '' | 'low' | 'medium' | 'high' | 'critical' | undefined,
       scoreBin: selectedScoreBin ?? undefined,
       view: findingsListView === 'group' ? ('group' as const) : undefined,
@@ -2824,9 +2824,15 @@ export const RiskCenter: React.FC = () => {
                             <div className="mt-1 flex flex-wrap items-center gap-1.5 text-caption text-muted">
                               <span className="font-mono">#{risk.id}</span>
                               <span>{insightTypeUiLabel(risk.insightType)}</span>
-                              <span className={`rounded border px-1.5 py-0.5 text-micro font-semibold uppercase ${getSeverityBadgeClass(risk.finalLevel ?? risk.severity)}`}>
-                                {risk.finalLevel ?? risk.severity}
-                              </span>
+                              {risk.finalLevel ? (
+                                <span className={`rounded border px-1.5 py-0.5 text-micro font-semibold uppercase ${getSeverityBadgeClass(risk.finalLevel)}`}>
+                                  {risk.finalLevel}
+                                </span>
+                              ) : (
+                                <span className="rounded border border-border px-1.5 py-0.5 text-micro font-semibold text-muted" title={`Not scored yet; rule severity ${risk.severity ?? 'unknown'}`}>
+                                  no score
+                                </span>
+                              )}
                             </div>
                           </div>
                         </td>
