@@ -34,7 +34,7 @@ Roles determine route visibility and actions:
 | Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, Assigned to me, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow, including who owns the finding. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Runtime evidence. `/#/risks` opens the queue. |
 | Cases | `/#/investigation` | Work that spans several findings. Views for Open, Mine, Closed and All; one case at `/#/investigation?case=<id>` shows its lifecycle, linked findings with their current status, affected assets, the timeline, remediation tasks and owner. **Add to case** on a finding, pod or attack path links it to an open case or starts a new one, and the finding panel says which cases already link it. **Close case** asks for a reason and can resolve the linked findings that are still open in the same step. |
 | Attack Paths | `/#/attack-paths` | **Break these first** lists the fixes that cut the most paths. Below it, one list of paths (level, entry pod → target, confidence) and the selected path: its graph, steps, fix, and every pod, service account and binding on it, each linked. `?podUid=` keeps only the paths through one pod and `?path=` opens one path. |
-| Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
+| Network | `/#/network-activity` | One table of flows (pod to destination and port), flagged flows first, grouped by pod or by destination, with a Map view. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`; `view=map` and `group=dest` open the map or the destination grouping. |
 | Inventory | `/#/resources` | Three views: **Workloads** ranked by risk with level counts, **Identities** (service accounts, roles and bindings, filtered by kind) and **Clusters**. Clicking a row opens a side panel with the workload's open findings and attack paths, or what an identity can do and who uses it. Pod detail opens with links to the pod's findings, attack paths, network flows and service account, and has an **Attack paths** tab. |
 | Rules | `/#/rules` | Detection rules and policies, risk scoring rules (`/#/rules/risk-scoring`), the capability catalog (`/#/rules/catalog`) and capability exposure (`/#/rules/exposure`): which pods hold each capability, by namespace and severity. Old `/#/risks/pce` links redirect. |
 | Platform | `/#/monitoring` | Whether Fortuna is collecting complete, fresh data from every cluster. One page, top to bottom: a verdict with the first problem and its fix, clusters and agents (reporting, last heartbeat, agent version), the pipeline stages with when each last produced data, certificates (manage them at `/#/monitoring/certificates`), errors in the last 24 hours grouped by message, and the full operational log. |
@@ -191,9 +191,9 @@ Reference screen: [Network](../assets/screenshots/network-activity.png).
 Steps:
 
 1. Open `/#/network-activity`.
-2. Check topology, edge width, node type, and destination classification.
-3. Use filters for namespace, direction, protocol, and time.
-4. Open pod detail when an edge needs workload-level evidence.
+2. Read **Worth a look** first: flows to the internet on an unusual port, or from a pod with open findings.
+3. Narrow with namespace, search (IP, pod, namespace or port) and time range; switch to **By destination** to see who talks to one service or IP, or to **Map** for the topology.
+4. Click a flow to see its source pod, destination and latest sockets, then open the pod or add the flow to a case.
 
 Expected data source: agent network activity snapshots and runtime telemetry APIs.
 

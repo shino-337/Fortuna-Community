@@ -294,14 +294,13 @@ test.describe('admin RBAC UI smoke', () => {
     await openNetworkActivity(page);
 
     await expect(page.locator('main h1').filter({ hasText: /^Network$/ })).toBeVisible();
-    await expect(page.getByRole('img', { name: /Network topology graph/i })).toBeVisible();
-    await expect(page.locator('main')).toContainText(/\d+\s+src\s+·\s+\d+\s+dest\s+·\s+\d+\s+edges/i);
-    await expect(page.locator('main')).toContainText('Pod');
-    await expect(page.locator('main')).toContainText('Internal');
-    await expect(page.locator('main')).toContainText('External');
-    await expect(page.locator('main')).toContainText('Flow count');
-    await expect(page.locator('main')).toContainText(/Showing top .* entities|Not enough data to show topology/i);
-    await expect(page.getByText(/destinations/i).first()).toBeVisible();
+    await expect(page.locator('main')).toContainText(/Source|No traffic in this time range/);
+    await expect(page.locator('main')).toContainText(/\d+ flows?/);
+    await page.getByRole('button', { name: 'Map', exact: true }).click();
+    await expect(page).toHaveURL(/view=map/);
+    await expect(
+      page.getByRole('img', { name: /Network topology graph/i }).or(page.getByText(/Not enough data to show topology/i)),
+    ).toBeVisible({ timeout: 15_000 });
     await expectNoForbiddenShell(page);
     await expectNoRedundantContextStrips(page);
     await expect(page.getByText(/^Loading/i)).toHaveCount(0);
@@ -335,13 +334,5 @@ test.describe('admin RBAC UI smoke', () => {
     expect(timeMobile).not.toBeNull();
     expect(searchMobile!.y).toBeLessThan(namespaceMobile!.y);
     expect(namespaceMobile!.y).toBeLessThan(timeMobile!.y);
-    await expect(page.getByText(/^Advanced$/)).toBeVisible();
-    await expect(page.locator('#na-poduid-input')).toBeHidden();
-
-    await page.getByText(/^Advanced$/).click();
-    const podUidMobile = await page.locator('#na-poduid-input').boundingBox();
-    expect(podUidMobile).not.toBeNull();
-    expect(timeMobile!.y).toBeLessThan(podUidMobile!.y);
-    await expect(page.getByText(/Numeric search terms filter by port/i)).toBeVisible();
   });
 });

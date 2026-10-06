@@ -1,4 +1,5 @@
 import React, { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X } from 'lucide-react';
 
 interface SidePanelProps {
@@ -56,7 +57,8 @@ export const SidePanel: React.FC<SidePanelProps> = ({ open, onClose, title, subt
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  // Portal to <body>: a transformed ancestor (page transitions) would otherwise pin the panel to the page, not the viewport.
+  return createPortal(
     <>
       <div className="fixed inset-0 z-overlay bg-black/40" onClick={onClose} aria-hidden="true" />
       <div
@@ -87,6 +89,7 @@ export const SidePanel: React.FC<SidePanelProps> = ({ open, onClose, title, subt
         </div>
         <div className="flex flex-1 flex-col gap-5 p-4">{children}</div>
       </div>
-    </>
+    </>,
+    document.body,
   );
 };

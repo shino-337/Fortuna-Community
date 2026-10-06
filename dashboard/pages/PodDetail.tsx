@@ -1851,7 +1851,7 @@ const PodDetailContent: React.FC = () => {
                 onClick={() => navigate(runtimeNetworkLink)}
                 className="ml-auto inline-flex items-center gap-1 text-caption font-medium text-brand hover:underline"
               >
-                Open in Runtime Network <ExternalLink className="h-3.5 w-3.5" />
+                See in Network <ExternalLink className="h-3.5 w-3.5" />
               </button>
             ) : null}
           </h3>

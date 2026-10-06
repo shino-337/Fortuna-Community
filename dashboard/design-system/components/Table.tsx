@@ -23,6 +23,7 @@ export interface TableProps<T> {
   /** Makes each row a button (click, Enter or Space). Links and buttons inside a cell keep their own action. */
   onRowClick?: (row: T) => void;
   isRowSelected?: (row: T) => boolean;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 export function Table<T>({
@@ -36,6 +37,7 @@ export function Table<T>({
   scrollClassName = 'ui-table-scroll',
   onRowClick,
   isRowSelected,
+  rowClassName,
 }: TableProps<T>): React.ReactElement {
   return (
     <div className={clsx('relative min-w-0', className)}>
@@ -71,6 +73,7 @@ export function Table<T>({
                     UI_TR,
                     onRowClick && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/70',
                     isRowSelected?.(row) && 'bg-brand/10',
+                    rowClassName?.(row),
                   )}
                   {...(onRowClick
                     ? {
