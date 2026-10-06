@@ -8,11 +8,7 @@ import { useClusters } from '../hooks/useClusters';
 import { useEntityStore } from '../store/entityStore';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import {
-  AttackStepSummary,
   Insight,
-  InsightsSummary,
-  InsightsSummaryByClusterItem,
-  PipelineHealth,
   PodCapabilityDetail,
   PodCapabilitySummaryNamespace,
   PodCapabilitySummarySeverity,
@@ -21,7 +17,6 @@ import { Button } from '../components/ui/Button';
 import { ResetFiltersButton } from '../components/ResetFiltersButton';
 import { AvailabilityNotice } from '../components/AvailabilityNotice';
 import { PageLayout } from '../design-system/layouts/PageLayout';
-import { Tabs } from '../design-system/components/Tabs';
 import { Pagination } from '../components/Pagination';
 import { Shield, AlertTriangle, Info, CheckCircle, Search, ArrowRight, X, Loader2, FileText } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
@@ -32,12 +27,9 @@ import { getSeverityBadgeClass, getSeverityTextClass } from '../lib/severity';
 import { RISK_CENTER_DESCRIPTION } from '../constants/labels';
 import { PAGE_TITLES } from '../lib/pageTitles';
 import { RuntimeSignalsTable } from '../components/RuntimeSignalsTable';
-import { RiskHistogram } from '../components/RiskHistogram';
 import { RiskDrawer } from '../components/RiskDrawer';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceDot } from 'recharts';
-import type { RiskHistogramResponse } from '../types';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { insightTypeUiLabel, riskListSecondaryLabel } from '../lib/riskDisplay';
-import { DataQualityNotice } from '../components/DataQualityNotice';
 import { RiskFindingsSavedViews } from '../components/RiskFindingsSavedViews';
 import { formatMinutesHuman } from '../lib/formatDuration';
 import { formatDateTime } from '../lib/display';
@@ -54,8 +46,6 @@ import {
 } from '../lib/tableChrome';
 import {
   UI_PILL_ACTIVE,
-  UI_PILL_ACTIVE_ELEVATED,
-  UI_PILL_IDLE_ROUNDED,
   UI_PILL_IDLE_SPLIT,
 } from '../lib/formChrome';
 import { can, P } from '../lib/permissions';
@@ -64,28 +54,29 @@ import { ACTION_IDS, canRunAction } from '../lib/actionAccess';
 import { usePersona } from '../hooks/usePersona';
 import { personaAllowsAction} from '../lib/persona';
 import { getRiskWorkspaceConfig, type RiskTabId } from '../lib/personaRiskWorkspace';
-import { RiskPersonaWorkspaceBanner } from '../components/RiskPersonaWorkspaceBanner';
 import { ProvenanceBadge } from '../design-system/components/ProvenanceBadge';
 import { insightProvenance, insightProvenanceTitle} from '../lib/provenance';
 import { PageContract } from '../components/PageContract';
 import { SemanticEmptyState } from '../design-system/components/SemanticEmptyState';
 import { getChartThemeColors } from '../lib/chartTheme';
-import {
-  attackNarrativeHint,
-  blastRadiusBuckets,
-  criticalAttackPathSplit,
-  exploitabilityBuckets,
-  histogramScoreTailInsight,
-  newVsExistingFindings,
-  privilegedDriftHint,
-  trendSpikeAnnotation,
-  velocityFromTrend,
-  velocityPointTotal,
-} from '../lib/riskOperatorAnalytics';
 import { buildEvidenceLogEntries, summarizeEvidenceLog } from '../lib/evidenceLog';
 import { downloadText, toCsv } from '../lib/download';
 
-type TabId = 'overview' | 'triage' | 'pce' | 'reference';
+type TabId = 'triage' | 'pce' | 'reference';
+type FindingStatusFilter = 'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed';
+
+/** Findings views, in workflow order. `view` is the URL value; the queue itself is the default. */
+const QUEUE_VIEWS: { view: string; status: FindingStatusFilter; label: string }[] = [
+  { view: 'triage', status: 'active', label: 'Needs triage' },
+  { view: 'review', status: 'acknowledged', label: 'In review' },
+  { view: 'resolved', status: 'resolved', label: 'Resolved' },
+  { view: 'dismissed', status: 'dismissed', label: 'Dismissed' },
+  { view: 'all', status: 'all', label: 'All' },
+];
+
+function statusForView(view: string | null): FindingStatusFilter {
+  return QUEUE_VIEWS.find((v) => v.view === view)?.status ?? 'active';
+}
 type BulkFindingAction = 'acknowledge' | 'resolve' | 'dismiss';
 
 /** Shared table chrome for Risk Center data tables */
@@ -190,9 +181,6 @@ export const RiskCenter: React.FC = () => {
   const riskWorkspace = getRiskWorkspaceConfig(personaId);
   const canBulkFindings = personaAllowsAction(profile, 'bulk', permUser, P.findingsBulk);
   const canExportFindings = canRunAction(permUser, ACTION_IDS.findingExport);
-  const canDrawerAck = canRunAction(permUser, ACTION_IDS.findingAcknowledge);
-  const canDrawerResolve = canRunAction(permUser, ACTION_IDS.findingResolve);
-  const canDrawerDismiss = canRunAction(permUser, ACTION_IDS.findingDismiss);
   const canRiskEvaluate = canRunAction(permUser, ACTION_IDS.riskEvaluate);
   const canPlatformAudit = can(permUser, P.systemAuditRead);
   const { valueMinutes: timeWindowMinutes, setValueMinutes: setTimeWindowMinutes } = useTimeWindowStore();
@@ -202,7 +190,7 @@ export const RiskCenter: React.FC = () => {
   const searchFromUrl = searchParams.get('search') ?? '';
   const clusterIdFromUrl = searchParams.get('clusterId');
   const sinceMinutesFromUrl = searchParams.get('sinceMinutes');
-  const [activeTab, setActiveTab] = useState<TabId>('overview');
+  const [activeTab, setActiveTab] = useState<TabId>('triage');
   const [risks, setRisks] = useState<Insight[]>([]);
   const [risksTotal, setRisksTotal] = useState(0);
   const [pceSummary, setPceSummary] = useState<PodCapabilitySummarySeverity[]>([]);
@@ -221,24 +209,14 @@ export const RiskCenter: React.FC = () => {
   const [pceListPage, setPceListPage] = useState(1);
   const [pceListPageSize, setPceListPageSize] = useState(25);
   const [pceListTotal, setPceListTotal] = useState(0);
-  const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'resolved' | 'acknowledged' | 'dismissed'>('active');
+  const viewFromUrl = searchParams.get('view');
+  const [statusFilter, setStatusFilter] = useState<FindingStatusFilter>(() => statusForView(viewFromUrl));
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedRisk, setSelectedRisk] = useState<Insight | null>(null);
 
-  const [resolved24h, setResolved24h] = useState<number>(0);
-  const [insightsSummary, setInsightsSummary] = useState<{
-    total: number;
-    critical: number;
-    high: number;
-    medium: number;
-    low: number;
-    byType?: Record<string, number>;
-    riskLevelCounts?: InsightsSummary['riskLevelCounts'];
-  } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [risksPage, setRisksPage] = useState(1);
   const [risksPageSize, setRisksPageSize] = useState(riskWorkspace.pageSize);
-  const [threatVelocity, setThreatVelocity] = useState<{ date: string; critical: number; high: number; medium: number; low: number }[]>([]);
   const [riskSort, setRiskSort] = useState<RiskSortId>('score_desc');
   /** Risk Findings table: per-resource rows vs grouped by CVE/title key (backend view=group). */
   const [findingsListView, setFindingsListView] = useState<'instance' | 'group'>('instance');
@@ -246,10 +224,6 @@ export const RiskCenter: React.FC = () => {
     finalLevelFromUrl && ['critical', 'high', 'medium', 'low'].includes(finalLevelFromUrl) ? finalLevelFromUrl : ''
   ); // ADR: low|medium|high|critical → API finalLevel
   const [pceSort, setPceSort] = useState<'severity_desc' | 'severity_asc' | 'capability_asc' | 'pod_asc' | 'namespace_asc'>('severity_desc');
-  /** When user clicks a date on Threat Velocity chart, filter risk table to that day (spec: drill-down). */
-  const [selectedChartDate, setSelectedChartDate] = useState<string | null>(null);
-  /** Risks by cluster (when scope = all clusters). Phase 2.2. */
-  const [risksByCluster, setRisksByCluster] = useState<InsightsSummaryByClusterItem[]>([]);
   /** PCE trend (7 days) and namespace×severity heatmap data. Phase 4. */
   const [pceTrend, setPceTrend] = useState<PodCapabilityTrendPoint[]>([]);
   const [pceHeatmap, setPceHeatmap] = useState<PodCapabilitySummaryNamespace[]>([]);
@@ -257,8 +231,6 @@ export const RiskCenter: React.FC = () => {
   const [debouncedNamespaceFilter, setDebouncedNamespaceFilter] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<string>('');
   const [debouncedSearchTerm, setDebouncedSearchTerm] = useState('');
-  /** When summary API fails: 'page' = current table page only; 'sample' = first N rows (≤1000); 'exact' = trusted counts */
-  const [severityCountTrust, setSeverityCountTrust] = useState<'exact' | 'sample' | 'page'>('exact');
   const [toast, setToast] = useState<{ message: string; variant: 'success' | 'error' } | null>(null);
   const [pceTrendDays, setPceTrendDays] = useState(7);
   const [heatmapShowAll, setHeatmapShowAll] = useState(false);
@@ -274,17 +246,8 @@ export const RiskCenter: React.FC = () => {
   const bulkActionDialogRef = useRef<HTMLDivElement>(null);
   const chartTheme = getChartThemeColors();
 
-  /** Risk Score Distribution histogram (GET /risk/histogram) */
-  const [histogramData, setHistogramData] = useState<RiskHistogramResponse | null>(null);
-  const [histogramLoading, setHistogramLoading] = useState(false);
-  /** When user clicks a histogram bar, filter findings to this score bin (e.g. 10 = 10–20) */
-  const [selectedScoreBin, setSelectedScoreBin] = useState<number | null>(null);
-  const [trendDays, setTrendDays] = useState<number>(7);
-  /** Recalculate all scores: loading and success message (POST /risk/scores/sync) */
-  const [syncScoresLoading, setSyncScoresLoading] = useState(false);
-  const [syncScoresMessage, setSyncScoresMessage] = useState<string | null>(null);
-  const [attackStepsSummary, setAttackStepsSummary] = useState<AttackStepSummary[]>([]);
-  const [riskPipelineHealth, setRiskPipelineHealth] = useState<PipelineHealth | null>(null);
+  /** Recalculate all scores (POST /risk/scores/sync). */
+  const [syncScoresBusy, setSyncScoresBusy] = useState(false);
   const [riskFindingsCols, setRiskFindingsCols] = useState<RiskFindingsTableCols>(() => loadRiskFindingsCols());
 
   // Resolve cluster + time: URL from Dashboard link overrides store so Risk Center shows same scope
@@ -301,25 +264,13 @@ export const RiskCenter: React.FC = () => {
   const effectiveSinceMinutes = sinceMinutesFromUrl != null ? parseInt(sinceMinutesFromUrl, 10) : timeWindowMinutes;
   const effectiveSinceMinutesNum = Number.isFinite(effectiveSinceMinutes) && effectiveSinceMinutes > 0 ? effectiveSinceMinutes : undefined;
 
-  /** Phase 2 design: /risks = Overview only (KPI, trend, histogram, Quick Links). /risks/findings = full table. */
-  const isOverviewPage = location.pathname === '/risks' || location.pathname.replace(/\/$/, '') === '/risks';
   /** Export loading for UX feedback (tooltip 10k, filter warning). */
   const [exportLoading, setExportLoading] = useState(false);
   const insightIdFromUrl = searchParams.get('insightId');
   const podUidFromEvidenceUrl = searchParams.get('podUid');
-  const riskTrendChartRef = React.useRef<HTMLDivElement | null>(null);
-  const [riskTrendChartWidth, setRiskTrendChartWidth] = useState(0);
   const suppressedInsightOpenRef = React.useRef<string | null>(null);
 
-  /** Since minutes for API: if a chart date is selected, use from start of that day to now; else use URL/store. */
-  const sinceMinutesForApi = useMemo(() => {
-    if (selectedChartDate) {
-      const start = new Date(selectedChartDate + 'T00:00:00Z').getTime();
-      const now = Date.now();
-      return Math.max(0, Math.floor((now - start) / 60000));
-    }
-    return effectiveSinceMinutesNum ?? (timeWindowMinutes > 0 ? timeWindowMinutes : undefined);
-  }, [selectedChartDate, effectiveSinceMinutesNum, timeWindowMinutes]);
+  const sinceMinutesForApi = effectiveSinceMinutesNum ?? (timeWindowMinutes > 0 ? timeWindowMinutes : undefined);
 
   React.useEffect(() => {
     try {
@@ -358,16 +309,10 @@ export const RiskCenter: React.FC = () => {
     ? (clusterLabelById.get(effectiveClusterId) ?? effectiveClusterId)
     : null;
 
-  // Sync active tab with route: /risks, /risks/findings, /risks/pce, /risks/evidence
+  // Sync active tab with route: /risks and /risks/findings are the queue; /risks/pce, /risks/evidence the secondary views.
   React.useEffect(() => {
     const path = location.pathname || '';
-    const tab: TabId = path.endsWith('/pce')
-      ? 'pce'
-      : path.endsWith('/evidence')
-        ? 'reference'
-        : path.endsWith('/findings')
-          ? 'triage'
-          : 'overview';
+    const tab: TabId = path.endsWith('/pce') ? 'pce' : path.endsWith('/evidence') ? 'reference' : 'triage';
     // A deep link must not open a tab the persona's workspace hides.
     setActiveTab(riskWorkspace.visibleTabs.includes(tab as RiskTabId) ? tab : (riskWorkspace.defaultTab as TabId));
   }, [location.pathname, riskWorkspace]);
@@ -402,6 +347,11 @@ export const RiskCenter: React.FC = () => {
     // Only react to store changes; the URL -> store effects above handle URL changes.
   }, [selectedClusterId, timeWindowMinutes]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Back/forward and links move between views through ?view=.
+  React.useEffect(() => {
+    setStatusFilter(statusForView(viewFromUrl));
+  }, [viewFromUrl]);
+
   // Sync filter and search from URL (e.g. from global search or deep links)
   React.useEffect(() => {
     if (finalLevelFromUrl && ['critical', 'high', 'medium', 'low'].includes(finalLevelFromUrl)) {
@@ -428,7 +378,6 @@ export const RiskCenter: React.FC = () => {
     const isFirst = !hasLoadedOnceRef.current;
     if (!isFirst) setRefreshing(true);
     setError(null);
-    const num = (v: unknown) => (typeof v === 'number' ? v : Number(v) || 0);
     const sinceMinutes = sinceMinutesForApi;
     const clusterId = effectiveClusterId ?? selectedClusterId ?? undefined;
     const risksListParamsBase = {
@@ -441,26 +390,9 @@ export const RiskCenter: React.FC = () => {
       // Always ask for scores: the level badge is the risk level from the score, whatever the sort.
       withScores: 1,
       finalLevel: (riskLevelFilter || undefined) as '' | 'low' | 'medium' | 'high' | 'critical' | undefined,
-      scoreBin: selectedScoreBin ?? undefined,
       view: findingsListView === 'group' ? ('group' as const) : undefined,
       sort: RISK_SORT_OPTIONS[riskSort].sort,
       order: RISK_SORT_OPTIONS[riskSort].order,
-    };
-    const countSeverity = (insights: Insight[]) => {
-      const bySev = { critical: 0, high: 0, medium: 0, low: 0 };
-      insights.forEach((r: Insight) => {
-        const sev = (r.severity || '').toLowerCase();
-        if (sev in bySev) (bySev as Record<string, number>)[sev]++;
-      });
-      return bySev;
-    };
-    const countRiskLevel = (insights: Insight[]) => {
-      const byLevel = { critical: 0, high: 0, medium: 0, low: 0 };
-      insights.forEach((r: Insight) => {
-        const level = (r.finalLevel || '').toLowerCase();
-        if (level in byLevel) (byLevel as Record<string, number>)[level]++;
-      });
-      return byLevel;
     };
     const runPceBlock = async (errors: string[]) => {
       const requestId = ++pceRequestRef.current;
@@ -507,181 +439,29 @@ export const RiskCenter: React.FC = () => {
       }
     };
     try {
-      const loadRisksHeavy = activeTab === 'overview' || activeTab === 'triage' || activeTab === 'reference';
-      if (!loadRisksHeavy) {
-        const errors: string[] = [];
-        const lightResults = await Promise.allSettled([
-          api.getInsightsSummary(clusterId ?? undefined, sinceMinutes),
-          api.getStats(clusterId ?? undefined, sinceMinutes, 'all'),
-        ]);
-        // A newer fetch (filter or cluster change) superseded this one.
-        if (signal.aborted) return;
-        const [summaryResult, statsResult] = lightResults;
-
-        if (statsResult.status === 'fulfilled') {
-          const st = statsResult.value as { resolved24h?: number };
-          setResolved24h(st?.resolved24h ?? 0);
-        } else {
-          setResolved24h(0);
-        }
-        if (summaryResult.status === 'fulfilled') {
-          setSeverityCountTrust('exact');
-          const s = summaryResult.value;
-          setInsightsSummary({
-            total: num(s?.total),
-            critical: num(s?.critical),
-            high: num(s?.high),
-            medium: num(s?.medium),
-            low: num(s?.low),
-            byType: s?.byType && typeof s.byType === 'object' ? (s.byType as Record<string, number>) : undefined,
-            riskLevelCounts: s?.riskLevelCounts,
-          });
-        } else {
-          errors.push('Summary: ' + (summaryResult.reason?.message || String(summaryResult.reason)));
-          setInsightsSummary(null);
-          setSeverityCountTrust('exact');
-        }
-        if (activeTab === 'pce') {
-          await runPceBlock(errors);
-        }
-        if (signal.aborted) return;
-        if (errors.length > 0) setError(errors.join('; '));
+      const errors: string[] = [];
+      if (activeTab === 'pce') {
+        await runPceBlock(errors);
       } else {
-        const errors: string[] = [];
-        const overviewRisksPageSize = isOverviewPage || activeTab === 'reference' ? RISKS_API_MAX_PAGE_SIZE : risksPageSize;
-        const risksPromise = api.getRisks({
-          page: activeTab === 'reference' ? 1 : risksPage,
-          pageSize: overviewRisksPageSize,
-          ...risksListParamsBase,
-        });
-        const summaryPromise = api.getInsightsSummary(clusterId ?? undefined, sinceMinutes);
-        const threatPromise = api.getThreatVelocity(trendDays, clusterId ?? undefined).catch(() => []);
-
-        const statsPromise = api.getStats(clusterId ?? undefined, sinceMinutes, 'all');
-        const byClusterPromise = !clusterId ? api.getInsightsSummaryByCluster(sinceMinutes) : Promise.resolve([] as InsightsSummaryByClusterItem[]);
-        const attackStepsPromise = api.getAttackStepsSummary();
-        const pipelineHealthPromise = api.getPipelineHealth();
-        setHistogramLoading(true);
-        const histogramPromise = api
-          .getRiskHistogram({ clusterId: clusterId ?? undefined, sinceMinutes })
-          .then((r) => {
-            if (!signal.aborted) setHistogramData(r);
-            return r;
-          })
-          .finally(() => {
-            if (!signal.aborted) setHistogramLoading(false);
+        // The Runtime evidence view summarizes evidence across the first page of up to the API maximum.
+        try {
+          const page = await api.getRisks({
+            page: activeTab === 'reference' ? 1 : risksPage,
+            pageSize: activeTab === 'reference' ? RISKS_API_MAX_PAGE_SIZE : risksPageSize,
+            ...risksListParamsBase,
           });
-        const coreResults = await Promise.allSettled([
-          risksPromise,
-          summaryPromise,
-          threatPromise,
-          statsPromise,
-          byClusterPromise,
-          histogramPromise,
-          attackStepsPromise,
-          pipelineHealthPromise,
-        ]);
-        if (signal.aborted) return;
-        const [
-          risksResult,
-          summaryResult,
-          threatResult,
-          statsResult,
-          byClusterResult,
-          _histogramSettled,
-          attackStepsResult,
-          pipelineHealthResult,
-        ] = coreResults;
-        if (threatResult.status === 'fulfilled') {
-          setThreatVelocity(threatResult.value);
-        } else {
-          setThreatVelocity([]);
-        }
-        if (risksResult.status === 'fulfilled') {
-          setRisks(risksResult.value.insights);
-          setRisksTotal(risksResult.value.total);
-        } else {
+          if (signal.aborted) return;
+          setRisks(page.insights);
+          setRisksTotal(page.total);
+        } catch (e) {
+          if (signal.aborted || isAbortError(e)) return;
           setRisks([]);
           setRisksTotal(0);
-          errors.push('Risks: ' + (risksResult.reason?.message || String(risksResult.reason)));
+          errors.push(getAvailabilityIssue(e, 'Findings').description);
         }
-        if (summaryResult.status === 'fulfilled') {
-          setSeverityCountTrust('exact');
-          const s = summaryResult.value;
-          setInsightsSummary({
-            total: num(s?.total),
-            critical: num(s?.critical),
-            high: num(s?.high),
-            medium: num(s?.medium),
-            low: num(s?.low),
-            byType: s?.byType && typeof s.byType === 'object' ? (s.byType as Record<string, number>) : undefined,
-            riskLevelCounts: s?.riskLevelCounts,
-          });
-        } else if (risksResult.status === 'fulfilled') {
-          const { insights, total } = risksResult.value;
-          const totalN = num(total);
-          const sampleSize = Math.min(RISKS_API_MAX_PAGE_SIZE, Math.max(1, totalN));
-          try {
-            const wide = await api.getRisks({
-              page: 1,
-              pageSize: sampleSize,
-              ...risksListParamsBase,
-              view: 'instance',
-            });
-            if (signal.aborted) return;
-            const bySev = countSeverity(wide.insights);
-            const byLevel = countRiskLevel(wide.insights);
-            const wideTotal = num(wide.total);
-            setInsightsSummary({
-              total: wideTotal,
-              critical: bySev.critical,
-              high: bySev.high,
-              medium: bySev.medium,
-              low: bySev.low,
-              riskLevelCounts: byLevel,
-            });
-            setSeverityCountTrust(wide.insights.length >= wideTotal ? 'exact' : 'sample');
-          } catch {
-            const bySev = countSeverity(insights);
-            const byLevel = countRiskLevel(insights);
-            setInsightsSummary({
-              total: totalN,
-              critical: bySev.critical,
-              high: bySev.high,
-              medium: bySev.medium,
-              low: bySev.low,
-              riskLevelCounts: byLevel,
-            });
-            setSeverityCountTrust('page');
-          }
-        } else {
-          setSeverityCountTrust('exact');
-          setInsightsSummary(null);
-        }
-
-        if (statsResult.status === 'fulfilled') {
-          const st = statsResult.value as { resolved24h?: number };
-          setResolved24h(st?.resolved24h ?? 0);
-        } else {
-          setResolved24h(0);
-        }
-        if (byClusterResult.status === 'fulfilled') {
-          setRisksByCluster(Array.isArray(byClusterResult.value) ? byClusterResult.value : []);
-        } else {
-          setRisksByCluster([]);
-        }
-        if (attackStepsResult.status === 'fulfilled') {
-          setAttackStepsSummary(attackStepsResult.value);
-        } else {
-          setAttackStepsSummary([]);
-        }
-        if (pipelineHealthResult.status === 'fulfilled') {
-          setRiskPipelineHealth(pipelineHealthResult.value);
-        } else {
-          setRiskPipelineHealth(null);
-        }
-        if (errors.length > 0) setError(errors.join('; '));
       }
+      if (signal.aborted) return;
+      if (errors.length > 0) setError(errors.join('; '));
     } catch (e) {
       if (isAbortError(e)) return; // cancelled by rapid filter change — discard silently
       throw e;
@@ -704,10 +484,8 @@ export const RiskCenter: React.FC = () => {
     selectedClusterId,
     riskSort,
     riskLevelFilter,
-    selectedScoreBin,
     debouncedNamespaceFilter,
     typeFilter,
-    trendDays,
     activeTab,
     pceTrendDays,
     pceClusterId,
@@ -718,7 +496,6 @@ export const RiskCenter: React.FC = () => {
     pceListPage,
     pceListPageSize,
     findingsListView,
-    isOverviewPage,
   ]);
 
   const intervalMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.SBOM_RISK_LIST));
@@ -799,21 +576,26 @@ export const RiskCenter: React.FC = () => {
     fetchData();
   }, [fetchData]);
 
-  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, selectedChartDate, riskSort]);
+  React.useEffect(() => { setRisksPage(1); }, [statusFilter, debouncedSearchTerm, timeWindowMinutes, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, riskSort]);
   React.useEffect(() => { setPceListPage(1); }, [effectiveClusterId, pceClusterId, pceNamespace, pceSeverityFilter, pcePodName, pceCapabilityId]);
   // Bulk selection must not carry hidden findings across a filter or scope change.
-  React.useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, debouncedSearchTerm, sinceMinutesForApi, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, selectedScoreBin, findingsListView]);
-  React.useEffect(() => { setSelectedScoreBin(null); }, [effectiveClusterId, effectiveSinceMinutesNum]);
+  React.useEffect(() => { setSelectedIds(new Set()); }, [statusFilter, debouncedSearchTerm, sinceMinutesForApi, riskLevelFilter, debouncedNamespaceFilter, typeFilter, effectiveClusterId, findingsListView]);
 
+  const appliedInsightIdRef = React.useRef<string | null>(null);
   // Global drawer: open by URL ?insightId= (from Overview/PCE/Evidence deep link)
   React.useEffect(() => {
     if (!insightIdFromUrl) {
       suppressedInsightOpenRef.current = null;
+      appliedInsightIdRef.current = null;
       return;
     }
     const id = insightIdFromUrl.trim();
     if (!id) return;
     if (suppressedInsightOpenRef.current === id) return;
+    // Only a changed URL (deep link, back/forward) drives the selection. A URL that has not caught up
+    // with a J/K step yet must not pull the selection back.
+    if (appliedInsightIdRef.current === id && selectedRisk) return;
+    appliedInsightIdRef.current = id;
     if (selectedRisk?.id === id) return;
     const inList = risks.find((r) => r.id === id);
     if (inList) {
@@ -861,7 +643,47 @@ export const RiskCenter: React.FC = () => {
   const openRiskDrawer = React.useCallback((risk: Insight) => {
     suppressedInsightOpenRef.current = null;
     setSelectedRisk(risk);
-  }, []);
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.set('insightId', risk.id);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  /** Opens the row `delta` away from the open finding (J/K, and after an action). Returns false at either end. */
+  const stepRiskDrawer = React.useCallback((delta: 1 | -1): boolean => {
+    if (risks.length === 0) return false;
+    const idx = selectedRisk ? risks.findIndex((r) => r.id === selectedRisk.id) : -1;
+    const next = idx === -1 ? (delta === 1 ? 0 : risks.length - 1) : idx + delta;
+    if (next < 0 || next >= risks.length) return false;
+    openRiskDrawer(risks[next]);
+    document.querySelector(`[data-finding-row="${CSS.escape(risks[next].id)}"]`)?.scrollIntoView({ block: 'nearest' });
+    return true;
+  }, [risks, selectedRisk, openRiskDrawer]);
+
+  // Queue shortcuts: J next, K previous, O open the full page. Ignored while typing or in a dialog.
+  React.useEffect(() => {
+    if (activeTab !== 'triage') return undefined;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.defaultPrevented || e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))) return;
+      const otherDialogOpen = Array.from(document.querySelectorAll('[role="dialog"][aria-modal="true"]')).some(
+        (el) => !el.hasAttribute('data-risk-drawer'),
+      );
+      if (otherDialogOpen) return;
+      const key = e.key.toLowerCase();
+      if (key === 'j' || key === 'k') {
+        e.preventDefault();
+        stepRiskDrawer(key === 'j' ? 1 : -1);
+      } else if (key === 'o' && selectedRisk) {
+        e.preventDefault();
+        navigate(`/risks/${encodeURIComponent(selectedRisk.id)}`);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeTab, stepRiskDrawer, selectedRisk, navigate]);
 
   const toggleRiskDrawer = React.useCallback((risk: Insight) => {
     if (selectedRisk?.id === risk.id) {
@@ -923,28 +745,8 @@ export const RiskCenter: React.FC = () => {
     setRisksPage(1);
   }, [findingsListView]);
 
-  React.useEffect(() => {
-    const el = riskTrendChartRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
-    const update = () => {
-      setRiskTrendChartWidth(Math.max(0, Math.floor(el.getBoundingClientRect().width)));
-    };
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
 
 
-  // Primary Risk Operations KPI: unified risk level from risk_scores.final_level.
-  // Raw finding severity remains available in the API but is not used for drill-down totals.
-  const riskLevelBar = {
-    total: Number(insightsSummary?.total ?? risksTotal ?? 0),
-    critical: Number(insightsSummary?.riskLevelCounts?.critical ?? risks.filter(r => (r.finalLevel || '').toLowerCase() === 'critical').length),
-    high: Number(insightsSummary?.riskLevelCounts?.high ?? risks.filter(r => (r.finalLevel || '').toLowerCase() === 'high').length),
-    medium: Number(insightsSummary?.riskLevelCounts?.medium ?? risks.filter(r => (r.finalLevel || '').toLowerCase() === 'medium').length),
-    low: Number(insightsSummary?.riskLevelCounts?.low ?? risks.filter(r => (r.finalLevel || '').toLowerCase() === 'low').length),
-  };
   const riskDataEmpty =
     risksTotal === 0 &&
     !debouncedSearchTerm &&
@@ -953,15 +755,6 @@ export const RiskCenter: React.FC = () => {
     !typeFilter &&
     statusFilter === 'active';
 
-  const critPathSplit = useMemo(() => criticalAttackPathSplit(risks), [risks]);
-  const velocityStats = useMemo(() => velocityFromTrend(threatVelocity), [threatVelocity]);
-  const trendSpike = useMemo(() => trendSpikeAnnotation(threatVelocity), [threatVelocity]);
-  const histogramTail = useMemo(() => histogramScoreTailInsight(histogramData), [histogramData]);
-  const newExisting = useMemo(() => newVsExistingFindings(risks, 24), [risks]);
-  const exploitBuckets = useMemo(() => exploitabilityBuckets(risks), [risks]);
-  const blastBuckets = useMemo(() => blastRadiusBuckets(risks), [risks]);
-  const privilegedDrift = useMemo(() => privilegedDriftHint(risks), [risks]);
-  const attackNarrative = useMemo(() => attackNarrativeHint(attackStepsSummary), [attackStepsSummary]);
   const findingEvidenceRows = useMemo(
     () =>
       risks
@@ -973,145 +766,9 @@ export const RiskCenter: React.FC = () => {
         .filter((row) => row.entries.length > 0),
     [risks],
   );
-  const riskTrendChartData = useMemo(
-    () =>
-      threatVelocity
-        .map((p) => ({
-          ...p,
-          name: p.date,
-          risk: velocityPointTotal(p),
-        }))
-        .sort((a, b) => a.name.localeCompare(b.name)),
-    [threatVelocity],
-  );
-  const spikeChartIdx = useMemo(() => {
-    if (!trendSpike) return -1;
-    return riskTrendChartData.findIndex((d) => d.name === trendSpike.date);
-  }, [trendSpike, riskTrendChartData]);
-  const riskComputationFreshness = useMemo(() => {
-    const iso = riskPipelineHealth?.layer4?.lastScoreCalc;
-    if (!iso) return { ago: '—', staleness: '—' as string };
-    const min = (Date.now() - new Date(iso).getTime()) / 60000;
-    const staleness = min < 10 ? 'LOW' : min < 45 ? 'MED' : 'HIGH';
-    const ago =
-      min < 1 ? '<1m ago' : min < 60 ? `${Math.round(min)}m ago` : `${Math.round(min / 60)}h ago`;
-    return { ago, staleness };
-  }, [riskPipelineHealth]);
 
   const severityRank: Record<string, number> = { critical: 4, high: 3, medium: 2, low: 1 };
 
-  const RiskTrendTooltipContent = ({ active, payload, label }: { active?: boolean; payload?: any[]; label?: string }) => {
-    if (!active || !payload || !payload.length) return null;
-    const row = payload[0]?.payload as { date: string; critical?: number; high?: number; medium?: number; low?: number; risk?: number };
-    if (!row) return null;
-    const total = row.risk ?? ((row.critical ?? 0) + (row.high ?? 0) + (row.medium ?? 0) + (row.low ?? 0));
-    return (
-      <div className="bg-surface border border-border rounded-lg shadow-xl p-3 text-left min-w-[180px]">
-        <div className="text-text font-medium">Date: {label}</div>
-        <div className="text-muted text-body mt-1">
-          Total risks: <span className="text-text font-semibold">{total}</span>
-        </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-2 text-caption">
-          <span className="text-red-400">Critical: {row.critical ?? 0}</span>
-          <span className="text-orange-400">High: {row.high ?? 0}</span>
-          <span className="text-yellow-400">Medium: {row.medium ?? 0}</span>
-          <span className="text-blue-400">Low: {row.low ?? 0}</span>
-        </div>
-      </div>
-    );
-  };
-
-  const renderRiskHistogramCard = () => (
-    <div className="bg-surface border border-border rounded-lg p-3 md:p-4 flex flex-col">
-      <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
-        <h2 className="text-caption font-semibold text-muted uppercase tracking-wider">Priority score distribution</h2>
-        <Button
-          variant="secondary"
-          size="sm"
-          disabled={syncScoresLoading || !canRiskEvaluate}
-          title={
-            canRiskEvaluate
-              ? 'Recalculate priority scores for all resources with active findings.'
-              : 'Requires risk.evaluate permission (operator or admin).'
-          }
-          onClick={async () => {
-            setSyncScoresLoading(true);
-            setSyncScoresMessage(null);
-            try {
-              const res = await api.syncRiskScores();
-              setSyncScoresMessage(
-                res.resources === 0
-                  ? 'No resources to sync.'
-                  : `Sync started for ${res.resources} resources. Refreshing in a few seconds…`,
-              );
-              if (res.resources > 0) {
-                setTimeout(() => {
-                  fetchDataRef.current();
-                  setSyncScoresMessage(null);
-                }, 4000);
-              }
-            } catch (e) {
-              setSyncScoresMessage(String(e instanceof Error ? e.message : e));
-            } finally {
-              setSyncScoresLoading(false);
-            }
-          }}
-        >
-          {syncScoresLoading ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
-          Recalculate all scores
-        </Button>
-      </div>
-      {syncScoresMessage && <p className="text-caption text-muted mb-2">{syncScoresMessage}</p>}
-      {histogramData?.totalFindings === 0 && !histogramLoading ? (
-        <div className="py-3 text-center">
-          <p className="text-caption text-muted-2">
-            No score data yet. Click &quot;Recalculate all scores&quot; to compute priority scores for all resources with findings.
-          </p>
-          <p className="text-caption text-muted-2 mt-1">Bins 0–10 … 90–100. Stacked by severity. Click a bar to filter findings by score range.</p>
-        </div>
-      ) : (
-        <>
-          <p className="text-caption text-muted-2 mb-3">
-            Bins 0–10 … 90–100. Stacked by severity. Click a bar to filter the table to that score range. Ref lines: P0 (90), P1 (70).
-          </p>
-          {selectedScoreBin != null && (
-            <p className="text-caption text-muted mb-2">
-              Filtered to score{' '}
-              <span className="font-medium text-brand">
-                {selectedScoreBin}–{selectedScoreBin + 10}
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedScoreBin(null);
-                  setRisksPage(1);
-                  fetchDataRef.current();
-                }}
-                className="ml-2 text-brand hover:underline"
-              >
-                Clear filter
-              </button>
-            </p>
-          )}
-          <RiskHistogram
-            data={histogramData}
-            loading={histogramLoading}
-            compact={isOverviewPage}
-            onBinClick={(bin) => {
-              setSelectedScoreBin(bin);
-              setRisksPage(1);
-              if (isOverviewPage) navigate('/risks/findings');
-              fetchDataRef.current();
-            }}
-            selectedBin={selectedScoreBin}
-          />
-        </>
-      )}
-      {isOverviewPage && histogramTail ? (
-        <p className="text-caption text-sky-200/85 mt-3 leading-relaxed border-t border-border/50 pt-2">{histogramTail}</p>
-      ) : null}
-    </div>
-  );
 
   const sortedPceDetails = useMemo(() => {
     const out = [...pceDetails];
@@ -1141,27 +798,21 @@ export const RiskCenter: React.FC = () => {
   /** True when any findings-queue filter, search or sort differs from its default (status=active, score sort, everything else empty). */
   const hasFindingsFilters =
     riskSort !== 'score_desc' ||
-    statusFilter !== 'active' ||
     riskLevelFilter !== '' ||
     searchTerm.trim() !== '' ||
     debouncedSearchTerm !== '' ||
     namespaceFilter.trim() !== '' ||
-    typeFilter !== '' ||
-    selectedScoreBin != null ||
-    selectedChartDate != null;
+    typeFilter !== '';
 
   /** Clears every findings-queue filter, search and sort. Cluster scope and time window are global and stay as they are. */
   const resetFindingsFilters = useCallback(() => {
     setRiskSort('score_desc');
-    setStatusFilter('active');
     setRiskLevelFilter('');
     setSearchTerm('');
     setDebouncedSearchTerm('');
     setNamespaceFilter('');
     setDebouncedNamespaceFilter('');
     setTypeFilter('');
-    setSelectedScoreBin(null);
-    setSelectedChartDate(null);
     // search/finalLevel (and legacy severity) are re-synced from the URL, so drop them there too.
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev);
@@ -1192,15 +843,6 @@ export const RiskCenter: React.FC = () => {
     setPceSort('severity_desc');
     setPceListPage(1);
   }, []);
-  const latestRiskUpdate = useMemo(() => {
-    const latest = risks
-      .map((r) => r.updatedAt ?? r.timestamp)
-      .filter((t): t is string => Boolean(t))
-      .map((t) => new Date(t).getTime())
-      .filter((t) => Number.isFinite(t))
-      .sort((a, b) => b - a)[0];
-    return latest ? formatDateTime(new Date(latest).toISOString()) : '—';
-  }, [risks]);
 
   const statusLabelMap: Record<string, string> = {
     dismissed: 'Dismissed',
@@ -1314,40 +956,132 @@ export const RiskCenter: React.FC = () => {
     }
   };
 
-  const allTabs: { id: TabId; label: string }[] = [
-    { id: 'overview', label: 'Summary' },
-    { id: 'triage', label: 'Findings queue' },
-    { id: 'pce', label: 'Exposure' },
-    { id: 'reference', label: 'Evidence' },
-  ];
-  const tabs = allTabs.filter((t) => riskWorkspace.visibleTabs.includes(t.id as RiskTabId));
-  const routeObjective: Record<TabId, { title: string; body: string }> = {
-    overview: {
-      title: 'One prioritization workflow',
-      body: 'Start with unified risk levels, drill into the queue, use exposure to explain why a pod is risky, then verify with evidence.',
-    },
-    triage: {
-      title: 'Work the active findings queue',
-      body: 'Filter by unified risk level, inspect impacted resources, and update workflow status.',
-    },
-    pce: {
-      title: 'Explain pod capability exposure',
-      body: 'Inventory-derived exposure records. They explain why risk exists; they are not counted as findings.',
-    },
-    reference: {
-      title: 'Inspect supporting evidence',
-      body: 'Normalized evidence and runtime signals for findings loaded in the current scope.',
-    },
+  const secondaryViews = (
+    [
+      { id: 'pce' as const, label: 'Capability exposure', path: '/risks/pce' },
+      { id: 'reference' as const, label: 'Runtime evidence', path: '/risks/evidence' },
+    ]
+  ).filter((v) => riskWorkspace.visibleTabs.includes(v.id as RiskTabId));
+  const openQueueView = (status: FindingStatusFilter) => {
+    closeRiskDrawer();
+    const sp = new URLSearchParams(searchParams);
+    sp.delete('insightId');
+    const view = QUEUE_VIEWS.find((v) => v.status === status)?.view;
+    if (view && view !== 'triage') sp.set('view', view);
+    else sp.delete('view');
+    setStatusFilter(status);
+    const qs = sp.toString();
+    navigate(`/risks/findings${qs ? `?${qs}` : ''}`);
   };
+  const openSecondaryView = (path: string) => {
+    closeRiskDrawer();
+    const sp = new URLSearchParams(searchParams);
+    ['insightId', 'view'].forEach((k) => sp.delete(k));
+    const qs = sp.toString();
+    navigate(`${path}${qs ? `?${qs}` : ''}`);
+  };
+  const viewButtonClass = (active: boolean) =>
+    `whitespace-nowrap rounded-md px-3 py-1.5 text-body font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 ${
+      active ? 'bg-surface-2 text-text shadow-sm' : 'text-muted hover:text-text'
+    }`;
   return (
     <PageContract
       feature="risk_operations"
       dataEmpty={riskDataEmpty}
-      telemetry={{ pipelineDegraded: severityCountTrust !== 'exact' ? true : undefined }}
     >
     <PageLayout
       title={PAGE_TITLES.riskOperations}
       description={RISK_CENTER_DESCRIPTION}
+      actions={
+        activeTab === 'triage' ? (
+          <div className="flex flex-wrap gap-2">
+            {canRiskEvaluate ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                disabled={syncScoresBusy}
+                title="Recalculate risk scores for every resource with active findings."
+                onClick={async () => {
+                  setSyncScoresBusy(true);
+                  try {
+                    const res = await api.syncRiskScores();
+                    setToast({
+                      message: res.resources === 0 ? 'No resources to rescore.' : `Rescoring ${res.resources} resources. The list refreshes in a few seconds.`,
+                      variant: 'success',
+                    });
+                    if (res.resources > 0) window.setTimeout(() => fetchDataRef.current(), 4000);
+                  } catch (e) {
+                    setToast({ message: `Could not recalculate scores: ${e instanceof Error ? e.message : String(e)}`, variant: 'error' });
+                  } finally {
+                    setSyncScoresBusy(false);
+                  }
+                }}
+              >
+                {syncScoresBusy ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
+                Recalculate scores
+              </Button>
+            ) : null}
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={exportLoading || !canExportFindings}
+          title={
+            canExportFindings
+              ? 'Max 10,000 rows. Current filters (cluster, time, risk level, status, search) apply.'
+              : 'Requires export.findings permission (server-enforced on download).'
+          }
+          onClick={async () => {
+            setExportLoading(true);
+            try {
+              await api.exportRisksCSV({
+                clusterId: effectiveClusterId ?? undefined,
+                sinceMinutes: sinceMinutesForApi,
+                status: statusFilter,
+                finalLevel: riskLevelFilter || undefined,
+                search: debouncedSearchTerm || undefined,
+              });
+            } catch (e) {
+              setError(String(e instanceof Error ? e.message : e));
+            } finally {
+              setExportLoading(false);
+            }
+          }}
+        >
+          {exportLoading ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
+          Export CSV
+        </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          disabled={exportLoading || !canExportFindings}
+          title={
+            canExportFindings
+              ? 'Max 10,000 rows. Print-optimized HTML; use browser Print → Save as PDF. Current filters apply.'
+              : 'Requires export.findings permission (server-enforced on download).'
+          }
+          onClick={async () => {
+            setExportLoading(true);
+            try {
+              await api.exportRisksPDF({
+                clusterId: effectiveClusterId ?? undefined,
+                sinceMinutes: sinceMinutesForApi,
+                status: statusFilter,
+                finalLevel: riskLevelFilter || undefined,
+                search: debouncedSearchTerm || undefined,
+              });
+            } catch (e) {
+              setError(String(e instanceof Error ? e.message : e));
+            } finally {
+              setExportLoading(false);
+            }
+          }}
+        >
+          {exportLoading ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
+          Export PDF
+        </Button>
+          </div>
+        ) : undefined
+      }
     >
       <div className="contents">
       {/* Error banner when some APIs failed */}
@@ -1369,473 +1103,30 @@ export const RiskCenter: React.FC = () => {
         </div>
       )}
 
-      <RiskPersonaWorkspaceBanner personaId={personaId} />
-
-      {/* Tabs */}
-      <Tabs
-        items={tabs}
-        value={activeTab}
-        onChange={(id) => {
-          const tabId = id as TabId;
-          closeRiskDrawer();
-          const sp = new URLSearchParams(searchParams);
-          sp.delete('insightId');
-          const qs = sp.toString();
-          const suffix = qs ? `?${qs}` : '';
-          if (tabId === 'overview') {
-            navigate(`/risks${suffix}`);
-          } else if (tabId === 'triage') {
-            navigate(`/risks/findings${suffix}`);
-          } else if (tabId === 'pce') {
-            navigate(`/risks/pce${suffix}`);
-          } else {
-            navigate(`/risks/evidence${suffix}`);
-          }
-        }}
-      />
-      <div className="rounded-lg border border-border bg-surface/70 px-4 py-3">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <h2 className="text-body font-semibold text-text">{routeObjective[activeTab].title}</h2>
-            <p className="mt-1 max-w-3xl text-caption text-muted">{routeObjective[activeTab].body}</p>
-          </div>
-        </div>
-      </div>
-      <div className="mt-3 flex flex-col gap-3 rounded-lg border border-border bg-surface/70 px-4 py-3 text-caption text-muted lg:flex-row lg:items-center lg:justify-between">
-        <div className="grid gap-2 sm:grid-cols-3 lg:flex lg:flex-wrap lg:items-center lg:gap-x-4 lg:gap-y-1">
-          {activeTab !== 'overview' && activeTab !== 'triage' && (
-            <span title="Count of active findings in current scope. On Findings queue, see Priority overview for the same total.">
-              Active findings: <span className="text-text font-medium">{riskLevelBar.total}</span>
-            </span>
-          )}
-          <span>
-            Scope:{' '}
-            <span className="text-text font-medium" title={effectiveClusterId ?? undefined}>
-              {scopeClusterDisplay ? `cluster: ${scopeClusterDisplay}` : 'all clusters'}
-            </span>
-          </span>
-          <span>
-            Window: <span className="text-text font-medium">{formatMinutesHuman(sinceMinutesForApi)}</span>
-          </span>
-          <span>
-            Updated: <span className="text-text font-medium">{latestRiskUpdate}</span>
-          </span>
-        </div>
-        {activeTab === 'triage' && (
-          <div className="flex flex-wrap gap-2 lg:justify-end">
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={exportLoading || !canExportFindings}
-              title={
-                canExportFindings
-                  ? 'Max 10,000 rows. Current filters (cluster, time, risk level, status, search) apply.'
-                  : 'Requires export.findings permission (server-enforced on download).'
-              }
-              onClick={async () => {
-                setExportLoading(true);
-                try {
-                  await api.exportRisksCSV({
-                    clusterId: effectiveClusterId ?? undefined,
-                    sinceMinutes: sinceMinutesForApi,
-                    status: statusFilter,
-                    finalLevel: riskLevelFilter || undefined,
-                    search: debouncedSearchTerm || undefined,
-                  });
-                } catch (e) {
-                  setError(String(e instanceof Error ? e.message : e));
-                } finally {
-                  setExportLoading(false);
-                }
-              }}
-            >
-              {exportLoading ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
-              Export CSV
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              disabled={exportLoading || !canExportFindings}
-              title={
-                canExportFindings
-                  ? 'Max 10,000 rows. Print-optimized HTML; use browser Print → Save as PDF. Current filters apply.'
-                  : 'Requires export.findings permission (server-enforced on download).'
-              }
-              onClick={async () => {
-                setExportLoading(true);
-                try {
-                  await api.exportRisksPDF({
-                    clusterId: effectiveClusterId ?? undefined,
-                    sinceMinutes: sinceMinutesForApi,
-                    status: statusFilter,
-                    finalLevel: riskLevelFilter || undefined,
-                    search: debouncedSearchTerm || undefined,
-                  });
-                } catch (e) {
-                  setError(String(e instanceof Error ? e.message : e));
-                } finally {
-                  setExportLoading(false);
-                }
-              }}
-            >
-              {exportLoading ? <Loader2 className="w-4 h-4 animate-spin inline mr-1" /> : null}
-              Export PDF
-            </Button>
-          </div>
-        )}
-      </div>
+      {/* Views replace tabs: one queue, filtered by where each finding is in its workflow. */}
+      <nav aria-label="Finding views" className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-base/60 p-1">
+        {QUEUE_VIEWS.map((v) => {
+          const active = activeTab === 'triage' && statusFilter === v.status;
+          return (
+            <button key={v.view} type="button" aria-current={active ? 'page' : undefined} onClick={() => openQueueView(v.status)} className={viewButtonClass(active)}>
+              {v.label}
+              {active && v.status === 'active' && risksTotal > 0 && findingsListView === 'instance' ? (
+                <span className="ml-1.5 rounded-full bg-base px-1.5 text-meta font-semibold text-muted">{risksTotal}</span>
+              ) : null}
+            </button>
+          );
+        })}
+        {secondaryViews.length > 0 ? <span className="mx-1 h-5 w-px bg-border" aria-hidden /> : null}
+        {secondaryViews.map((v) => (
+          <button key={v.id} type="button" aria-current={activeTab === v.id ? 'page' : undefined} onClick={() => openSecondaryView(v.path)} className={viewButtonClass(activeTab === v.id)}>
+            {v.label}
+          </button>
+        ))}
+      </nav>
 
       {/* ----- Risks tab ----- */}
-      {(activeTab === 'overview' || activeTab === 'triage') && (
+      {activeTab === 'triage' && (
         <div className="flex flex-col gap-6">
-          {isOverviewPage && (
-            <div className="rounded-lg border border-border bg-surface p-4 md:p-5">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h2 className="text-body font-bold text-text flex items-center gap-2">
-                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0" />
-                    Operations summary
-                  </h2>
-                  <p className="text-caption text-muted mt-1 max-w-2xl">
-                    Unified risk counts use risk score bands. Hints below use the findings loaded for this screen.
-                  </p>
-                </div>
-                <div className="text-caption text-muted text-right">
-                  <div>
-                    Last risk computation:{' '}
-                    <span className="text-text font-medium">{riskComputationFreshness.ago}</span>
-                  </div>
-                  <div>
-                    Staleness: <span className="text-text font-medium">{riskComputationFreshness.staleness}</span>
-                  </div>
-                  <div className="mt-1 text-muted-2">
-                    Resolved (24h): <span className="text-emerald-400 font-semibold">{Number(resolved24h ?? 0)}</span>
-                  </div>
-                </div>
-              </div>
-              <div className="mt-4 grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4">
-                {(['critical', 'high', 'medium', 'low'] as const).map((sev) => (
-                  <button
-                    key={sev}
-                    type="button"
-                    onClick={() => navigate(`/risks/findings?finalLevel=${sev}`)}
-                    className={`rounded-lg border px-4 py-3 text-left transition-colors hover:border-brand/50 ${
-                      sev === 'critical'
-                        ? 'border-red-900/50 bg-red-950/20'
-                        : sev === 'high'
-                          ? 'border-orange-900/40 bg-orange-950/15'
-                          : sev === 'medium'
-                            ? 'border-yellow-900/35 bg-yellow-950/10'
-                            : 'border-sky-900/35 bg-sky-950/10'
-                    }`}
-                  >
-                    <div className="text-micro font-semibold uppercase tracking-wide text-muted">{sev} risk</div>
-                    <div
-                      className={`text-2xl font-bold tabular-nums ${
-                        sev === 'critical' ? 'text-red-400' : sev === 'high' ? 'text-orange-400' : sev === 'medium' ? 'text-yellow-400' : 'text-sky-300'
-                      }`}
-                    >
-                      {riskLevelBar[sev]}
-                    </div>
-                  </button>
-                ))}
-              </div>
-              <div className="mt-4 flex flex-wrap gap-2">
-                <Button variant="secondary" size="sm" onClick={() => navigate('/risks/findings?finalLevel=critical')}>
-                  Open critical queue
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => navigate('/attack-paths')}>
-                  Review attack paths
-                </Button>
-                <Button variant="secondary" size="sm" onClick={() => navigate('/risks/pce')}>
-                  Explain exposure
-                </Button>
-              </div>
-              <details className="mt-4 rounded-lg border border-border/70 bg-base/20 px-3 py-2 text-caption text-muted">
-                <summary className="cursor-pointer select-none font-medium text-muted hover:text-text">
-                  Advanced context
-                </summary>
-                <div className="mt-3 grid gap-3 lg:grid-cols-3">
-                  <div className="rounded border border-border/60 bg-surface/35 p-2">
-                    <div className="text-micro uppercase tracking-wide text-muted-2">
-                      Loaded findings{risksTotal > risks.length ? ` (latest ${risks.length} of ${risksTotal})` : ''}
-                    </div>
-                    <div className="mt-1 text-text">
-                      <span className="font-mono font-semibold text-amber-200">{newExisting.nu}</span> new ·{' '}
-                      <span className="font-mono">{newExisting.existing}</span> existing
-                    </div>
-                  </div>
-                  <div className="rounded border border-border/60 bg-surface/35 p-2">
-                    <div className="text-micro uppercase tracking-wide text-muted-2">Attack-path hints</div>
-                    <div className="mt-1 text-text">
-                      Critical: <span className="font-mono">{riskLevelBar.critical}</span> · In path:{' '}
-                      <span className="font-mono">{critPathSplit.inPath}</span>
-                    </div>
-                  </div>
-                  <div className="rounded border border-border/60 bg-surface/35 p-2">
-                    <div className="text-micro uppercase tracking-wide text-muted-2">Exposure shape</div>
-                    <div className="mt-1 text-text">
-                      External {exploitBuckets.external} · Auth {exploitBuckets.auth} · Cluster {blastBuckets.cluster}
-                    </div>
-                  </div>
-                </div>
-                {attackNarrative || privilegedDrift ? (
-                  <p className="mt-2 text-muted">
-                    {[attackNarrative, privilegedDrift ? `Risk drift: ${privilegedDrift}` : null].filter(Boolean).join(' · ')}
-                  </p>
-                ) : null}
-              </details>
-            </div>
-          )}
-
-          {/* Risk Trend + Risk Score Distribution — split layout on overview (trend full width, then histogram | velocity) */}
-          {isOverviewPage && (
-          <div className="space-y-4">
-            {/* Risk Trend (AreaChart) */}
-            <div className="bg-surface border border-border rounded-lg p-3 md:p-4 flex flex-col">
-              <div className="flex items-center justify-between gap-2 mb-1">
-                <h2 className="text-caption font-semibold text-muted uppercase tracking-wider">
-                  Risk trend + events (last {trendDays} {trendDays === 1 ? 'day' : 'days'})
-                </h2>
-                <div className="flex items-center gap-1 text-caption text-muted">
-                  <span>Range:</span>
-                  {[1, 7, 30].map((d) => (
-                    <button
-                      key={d}
-                      type="button"
-                      onClick={() => setTrendDays(d)}
-                      className={`px-2 py-0.5 rounded-full border ${
-                        trendDays === d
-                          ? 'border-brand text-brand/90 bg-brand/10'
-                          : 'border-border text-muted hover:border-muted'
-                      }`}
-                    >
-                      {d === 1 ? '24h' : `${d}d`}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <p className="text-caption text-muted mb-2 md:mb-3">
-	                Track whether open findings are increasing or decreasing. Same scope as active findings only.{' '}
-                {scopeClusterDisplay ? `Scoped to cluster: ${scopeClusterDisplay}.` : 'All clusters.'} Click a point to filter findings from that date.
-              </p>
-              {riskTrendChartData.length >= 2 ? (
-                <div ref={riskTrendChartRef} className="h-[240px] min-h-[240px] w-full min-w-0">
-                  {riskTrendChartWidth > 0 ? (
-                    <AreaChart
-                      data={riskTrendChartData}
-                      width={riskTrendChartWidth}
-                      height={240}
-                      margin={{ top: 10, right: 10, left: 5, bottom: 0 }}
-                      onClick={(state) => {
-                        const st = state as { activePayload?: Array<{ payload?: { name?: string } }> };
-                        const name = st?.activePayload?.[0]?.payload?.name;
-                        if (name) {
-                          setSelectedChartDate(name);
-                          setRisksPage(1);
-                        }
-                      }}
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke={chartTheme.grid} />
-                      <XAxis dataKey="name" axisLine={false} tickLine={false} tick={{ fill: chartTheme.axis, fontSize: 11 }} />
-                      <YAxis domain={[0, 'auto']} axisLine={false} tickLine={false} tick={{ fill: chartTheme.axis, fontSize: 11 }} width={28} />
-                      <Tooltip content={<RiskTrendTooltipContent />} cursor={{ stroke: chartTheme.threshold, strokeDasharray: '4 4' }} />
-                      <Area type="monotone" dataKey="low" stackId="risk" stroke={chartTheme.low} fill={chartTheme.low} fillOpacity={0.65} name="Low" />
-                      <Area type="monotone" dataKey="medium" stackId="risk" stroke={chartTheme.medium} fill={chartTheme.medium} fillOpacity={0.65} name="Medium" />
-                      <Area type="monotone" dataKey="high" stackId="risk" stroke={chartTheme.high} fill={chartTheme.high} fillOpacity={0.65} name="High" />
-                      <Area type="monotone" dataKey="critical" stackId="risk" stroke={chartTheme.critical} fill={chartTheme.critical} fillOpacity={0.7} name="Critical" />
-                      {spikeChartIdx >= 0 && riskTrendChartData[spikeChartIdx] ? (
-                        <ReferenceDot
-                          x={riskTrendChartData[spikeChartIdx].name}
-                          y={riskTrendChartData[spikeChartIdx].risk}
-                          r={6}
-                          fill={chartTheme.spike}
-                          stroke={chartTheme.tooltipBg}
-                          strokeWidth={1}
-                        />
-                      ) : null}
-                    </AreaChart>
-                  ) : null}
-                  {selectedChartDate && (
-                    <p className="text-caption text-muted mt-2">
-                      Showing findings since <span className="font-medium text-brand">{selectedChartDate}</span>
-                      <button type="button" onClick={() => setSelectedChartDate(null)} className="ml-2 text-brand hover:underline">Clear</button>
-                    </p>
-                  )}
-                  {trendSpike && trendSpike.delta > 0 ? (
-                    <p className="text-caption text-pink-300/90 mt-2">
-                      ↑ {trendSpike.date}: +{trendSpike.delta} findings (day-over-day); spike marker on chart. Cause not inferred — correlate with deploys or config changes.
-                    </p>
-                  ) : null}
-                </div>
-              ) : (
-                <div className="flex h-[220px] items-center justify-center rounded-lg border border-border/60 bg-base/25 px-4 text-center text-body text-muted md:h-[240px]">
-                  Trend needs at least two time buckets for this scope and range.
-                </div>
-              )}
-            </div>
-
-              <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)] items-stretch">
-                {renderRiskHistogramCard()}
-                <div className="bg-surface border border-border rounded-lg p-3 md:p-4 flex flex-col">
-                  <h2 className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Velocity</h2>
-                  <p className="text-meta text-muted-2 mb-3">
-                    Baseline = mean of earlier day-over-day steps in the visible trend (excluding the latest step).
-                  </p>
-                  {velocityStats ? (
-                    <div className="space-y-3 text-body">
-                      <div>
-                        <div className="text-caption text-muted uppercase tracking-wide">Latest step Δ</div>
-                        <div className={`text-2xl font-bold tabular-nums ${velocityStats.lastDelta >= 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                          {velocityStats.lastDelta >= 0 ? '+' : ''}
-                          {velocityStats.lastDelta}
-                        </div>
-                      </div>
-                      {velocityStats.pctVsBaseline != null ? (
-                        <div className="text-caption">
-                          <span className="text-muted">vs baseline: </span>
-                          <span className="text-amber-200 font-semibold">
-                            {velocityStats.pctVsBaseline >= 0 ? '+' : ''}
-                            {velocityStats.pctVsBaseline}%
-                          </span>
-                        </div>
-                      ) : null}
-                      <div className="text-caption text-muted">
-                        Baseline: ~{velocityStats.baselinePerDay.toFixed(1)} findings / trend step
-                      </div>
-                      <div className="text-caption text-muted border-t border-border/50 pt-2">
-                        Range Δ (first → last bucket):{' '}
-                        <span className="text-text font-mono">{velocityStats.rangeDelta >= 0 ? '+' : ''}{velocityStats.rangeDelta}</span>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-caption text-muted">Need at least two trend points.</p>
-                  )}
-                </div>
-              </div>
-          </div>
-          )}
-
-          {/* Layer 2 - Risk level overview: totals, velocity, resolved, and level breakdown */}
-          {!isOverviewPage ? (
-          <div className="rounded-lg border border-border bg-surface p-4">
-	                  <h2 className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Priority overview (active findings)</h2>
-            {severityCountTrust !== 'exact' && (
-              <DataQualityNotice
-                level={severityCountTrust === 'sample' ? 'sampled' : 'estimated'}
-                className="mb-2"
-              >
-                {severityCountTrust === 'sample' ? (
-                  <>
-                    Summary API unavailable: risk-level counts use the <strong>first up to {RISKS_API_MAX_PAGE_SIZE}</strong> findings matching your filters. Total count is still the server total.
-                  </>
-                ) : (
-                  <>
-	                    Summary API unavailable: priority counts reflect the <strong>current table page</strong> only. Active findings still matches the server total.
-                  </>
-                )}
-              </DataQualityNotice>
-            )}
-            <div className="grid grid-cols-2 gap-2 md:grid-cols-6">
-              <button
-                type="button"
-                onClick={() => setRiskLevelFilter('')}
-                className={`rounded-lg border px-3 py-2 text-left ${riskLevelFilter === '' ? 'border-brand/50 bg-brand/10' : 'border-border bg-base/25 hover:border-brand/40'}`}
-                title="All active findings in current scope"
-              >
-                <div className="text-micro font-semibold uppercase tracking-wide text-muted">Total</div>
-                <div className="text-xl font-bold tabular-nums text-text">{riskLevelBar.total}</div>
-              </button>
-              {(['critical', 'high', 'medium', 'low'] as const).map((sev) => (
-                <button
-                  key={sev}
-                  type="button"
-                  onClick={() => setRiskLevelFilter(sev)}
-                  className={`rounded-lg border px-3 py-2 text-left ${riskLevelFilter === sev ? 'border-brand/50 bg-brand/10' : 'border-border bg-base/25 hover:border-brand/40'}`}
-                  title={`Filter queue to ${sev} unified risk`}
-                >
-                  <div className={`text-micro font-semibold uppercase tracking-wide ${getSeverityTextClass(sev)}`}>
-                    {sev}
-                  </div>
-                  <div className="text-xl font-bold tabular-nums text-text">{riskLevelBar[sev]}</div>
-                </button>
-              ))}
-              <div className="rounded-lg border border-border bg-base/25 px-3 py-2" title="Insights resolved in the last 24h">
-                <div className="text-micro font-semibold uppercase tracking-wide text-muted">Resolved 24h</div>
-                <div className="text-xl font-bold tabular-nums text-emerald-400">{Number(resolved24h ?? 0)}</div>
-              </div>
-            </div>
-            {/* Risks by cluster (Phase 2.2) – when scope is all clusters */}
-            {!effectiveClusterId && risksByCluster.length > 0 && (
-              <div className="mt-4">
-                <h3 className="text-caption font-semibold text-muted uppercase tracking-wider mb-2">Risks by cluster</h3>
-                <div className="overflow-x-auto border border-border rounded-lg">
-                  <table className={UI_TABLE}>
-                    <thead className={UI_THEAD_STICKY}>
-                      <tr>
-                        <th className={UI_TH_COMPACT}>Cluster</th>
-                        <th className={`${UI_TH_COMPACT} text-right`}>Total</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-red-400`}>Critical</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-orange-400`}>High</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-yellow-400`}>Medium</th>
-                        <th className={`${UI_TH_COMPACT} text-right text-blue-400`}>Low</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {risksByCluster.map((row) => (
-                        <tr key={row.clusterId} className={UI_TR}>
-                          <td className={UI_TD_COMPACT_TIGHT}>
-                            <button
-                              type="button"
-                              onClick={() => setSelectedClusterId(row.clusterId)}
-                              className="text-brand hover:text-brand/90 hover:underline font-medium text-left"
-                            >
-                              {row.clusterName || row.clusterId}
-                            </button>
-                          </td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-right text-text`}>{row.total}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-right text-red-400`}>{row.critical}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-right text-orange-400`}>{row.high}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-right text-yellow-400`}>{row.medium}</td>
-                          <td className={`${UI_TD_COMPACT_TIGHT} text-right text-blue-400`}>{row.low}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
-          </div>
-          ) : null}
-
-          {/* Overview: suggested actions + drill-down. Findings page: filters + table. */}
-          {isOverviewPage ? (
-            <details className="rounded-lg border border-border/70 bg-base/20 px-4 py-2 text-caption text-muted">
-              <summary className="cursor-pointer select-none font-medium hover:text-text">
-                More shortcuts
-              </summary>
-              <div className="mt-3 flex flex-wrap gap-2">
-                  <Button variant="secondary" size="sm" onClick={() => navigate('/risks/findings?finalLevel=critical')}>
-                    View critical only
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={() => navigate('/attack-paths')}>
-                    Investigate attack paths
-                  </Button>
-                  <Button variant="secondary" size="sm" onClick={() => navigate('/risks/findings?sinceMinutes=1440')}>
-                    New findings (24h)
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => navigate(`/risks/findings?search=${encodeURIComponent('privileged')}`)}
-                  >
-                    Filter: privileged pods
-                  </Button>
-              </div>
-            </details>
-          ) : (
-            <>
           {riskWorkspace.showSavedViews ? (
           <details className="order-1 rounded-lg border border-border/70 bg-surface/60 px-4 py-2 text-caption text-muted">
             <summary className="cursor-pointer select-none font-medium hover:text-text">Saved views</summary>
@@ -1859,8 +1150,6 @@ export const RiskCenter: React.FC = () => {
               setNamespaceFilter('');
               setDebouncedNamespaceFilter('');
               setTypeFilter('');
-              setSelectedScoreBin(null);
-              setSelectedChartDate(null);
               setSelectedClusterId(filters.clusterId ?? null);
               if (filters.sinceMinutes != null) setTimeWindowMinutes(filters.sinceMinutes);
               setSearchParams((prev) => {
@@ -1871,6 +1160,10 @@ export const RiskCenter: React.FC = () => {
                 else next.delete('search');
                 if (filters.riskLevelFilter) next.set('finalLevel', filters.riskLevelFilter);
                 else next.delete('finalLevel');
+                // The view (workflow status) is part of a saved view too.
+                const view = QUEUE_VIEWS.find((v) => v.status === filters.statusFilter)?.view;
+                if (view && view !== 'triage') next.set('view', view);
+                else next.delete('view');
                 return next;
               }, { replace: true });
               setRisksPage(1);
@@ -1879,124 +1172,74 @@ export const RiskCenter: React.FC = () => {
             </div>
           </details>
           ) : null}
-          {/* Filters: Final risk level, workflow, search */}
-          <div className="order-1 rounded-lg border border-border bg-surface p-4">
-            <div className="mb-3 flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-	                <h2 className="text-section-title text-text">Findings queue</h2>
-	                <p className="text-caption text-muted">Prioritize, inspect, and update findings in the current operational scope.</p>
-              </div>
-              <div className="flex items-center gap-3 text-caption text-muted sm:justify-end">
-                <span>
-                  {risksTotal} {findingsListView === 'group' ? 'groups' : 'findings'}
-                </span>
-                <ResetFiltersButton
-                  onReset={resetFindingsFilters}
-                  active={hasFindingsFilters}
-                  title="Clear priority level, workflow, namespace, rule type, search, chart filters and sort"
-                />
-              </div>
-            </div>
-            <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(280px,360px)_220px_220px] xl:items-end">
-              <div className="xl:col-span-4 flex flex-wrap gap-2 items-center">
-	              <span className="text-caption text-muted uppercase tracking-wider mr-1">Priority level</span>
-              {['all', 'critical', 'high', 'medium', 'low'].map((sev) => (
-                <button
-                  key={sev}
-                  onClick={() => setRiskLevelFilter(sev === 'all' ? '' : sev)}
-                  className={`px-3 py-1.5 rounded-full text-body font-medium capitalize transition-colors whitespace-nowrap ${
-                    (riskLevelFilter || 'all') === sev ? UI_PILL_ACTIVE_ELEVATED : UI_PILL_IDLE_ROUNDED
-                  }`}
-                >
-                  {sev}
-                </button>
-              ))}
-              <span className="text-caption text-muted uppercase tracking-wider ml-2 mr-1">Workflow</span>
-              {(['all', 'active', 'resolved', 'acknowledged', 'dismissed'] as const).map((st) => (
-                <button
-                  key={st}
-                  onClick={() => setStatusFilter(st)}
-                  className={`px-3 py-1.5 rounded-full text-body font-medium capitalize transition-colors whitespace-nowrap ${
-                    statusFilter === st ? UI_PILL_ACTIVE_ELEVATED : UI_PILL_IDLE_ROUNDED
-                  }`}
-                >
-                  {st === 'all' ? 'All' : st === 'active' ? 'Active' : st === 'resolved' ? 'Resolved' : st === 'dismissed' ? 'Dismissed' : 'In review'}
-                </button>
-              ))}
-              </div>
-              <div>
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Namespace</label>
+          {/* Filters: one row. The view above sets the workflow status. */}
+          <div className="order-1 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-3">
+            <div className="relative min-w-[16rem] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted" aria-hidden />
               <input
-                value={namespaceFilter}
-                onChange={(e) => setNamespaceFilter(e.target.value)}
-                placeholder="All"
-                className="h-10 w-full rounded-lg border border-border bg-base px-3 text-body text-text placeholder:text-muted-2 focus:outline-none focus:border-brand"
-              />
-              </div>
-              <div>
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Rule type</label>
-              <select
-                value={typeFilter}
-                onChange={(e) => setTypeFilter(e.target.value)}
-                className="h-10 w-full rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand"
-              >
-                <option value="">All</option>
-                <option value="vulnerability">Vulnerability</option>
-                <option value="supply_chain_malware">Supply-chain malware</option>
-                <option value="rbac_risk">RBAC risk</option>
-                <option value="capability">Capability</option>
-              </select>
-              </div>
-            <div className="relative min-w-0">
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Search</label>
-              <Search className="absolute left-3 top-[2.15rem] text-muted w-4 h-4" />
-              <input
-                type="text"
+                type="search"
+                aria-label="Search findings"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                placeholder="Search title, CVE, package, pod, namespace..."
-                className="h-10 w-full rounded-lg border border-border bg-base pl-9 pr-4 text-body text-text placeholder:text-muted-2 focus:border-brand focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60"
+                placeholder="Search title, CVE, package, pod, namespace"
+                className="h-9 rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand w-full pl-9 placeholder:text-muted-2"
               />
             </div>
-            <div>
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Sort</label>
-              <select
-                value={riskSort}
-                onChange={(e) => setRiskSort(e.target.value as RiskSortId)}
-                className="h-10 w-full rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand"
+            <select aria-label="Risk level" value={riskLevelFilter} onChange={(e) => setRiskLevelFilter(e.target.value)} className="h-9 rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand">
+              <option value="">All risk levels</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <input
+              aria-label="Namespace"
+              value={namespaceFilter}
+              onChange={(e) => setNamespaceFilter(e.target.value)}
+              placeholder="All namespaces"
+              className="h-9 rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand w-40 placeholder:text-muted-2"
+            />
+            <select aria-label="Rule type" value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-9 rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand">
+              <option value="">All types</option>
+              <option value="vulnerability">Vulnerability</option>
+              <option value="supply_chain_malware">Supply-chain malware</option>
+              <option value="rbac_risk">RBAC risk</option>
+              <option value="capability">Capability</option>
+            </select>
+            <select aria-label="Sort" value={riskSort} onChange={(e) => setRiskSort(e.target.value as RiskSortId)} className="h-9 rounded-lg border border-border bg-base px-3 text-body text-text focus:outline-none focus:border-brand">
+              {(Object.keys(RISK_SORT_OPTIONS) as RiskSortId[]).map((id) => (
+                <option key={id} value={id}>
+                  {RISK_SORT_OPTIONS[id].label}
+                </option>
+              ))}
+            </select>
+            <div className="inline-flex h-9 overflow-hidden rounded-lg border border-border text-caption" role="group" aria-label="Layout">
+              <button
+                type="button"
+                aria-pressed={findingsListView === 'instance'}
+                onClick={() => setFindingsListView('instance')}
+                className={`px-3 font-medium ${findingsListView === 'instance' ? UI_PILL_ACTIVE : UI_PILL_IDLE_SPLIT}`}
               >
-                {(Object.keys(RISK_SORT_OPTIONS) as RiskSortId[]).map((id) => (
-                  <option key={id} value={id}>
-                    {RISK_SORT_OPTIONS[id].label}
-                  </option>
-                ))}
-              </select>
+                By resource
+              </button>
+              <button
+                type="button"
+                aria-pressed={findingsListView === 'group'}
+                onClick={() => setFindingsListView('group')}
+                className={`border-l border-border px-3 font-medium ${findingsListView === 'group' ? UI_PILL_ACTIVE : UI_PILL_IDLE_SPLIT}`}
+                title="Group findings by rule type and CVE (or title when no CVE). A row opens a sample finding."
+              >
+                Grouped
+              </button>
             </div>
-            <div>
-              <label className="mb-1 block text-caption text-muted uppercase tracking-wider">Layout</label>
-              <div className="inline-flex h-10 w-full rounded-lg border border-border overflow-hidden text-caption">
-                <button
-                  type="button"
-                  onClick={() => setFindingsListView('instance')}
-                  className={`flex-1 px-3 py-2 font-medium ${
-                    findingsListView === 'instance' ? UI_PILL_ACTIVE : UI_PILL_IDLE_SPLIT
-                  }`}
-                >
-                  By resource
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFindingsListView('group')}
-                  className={`flex-1 px-3 py-2 font-medium border-l border-border ${
-                    findingsListView === 'group' ? UI_PILL_ACTIVE : UI_PILL_IDLE_SPLIT
-                  }`}
-                  title="Group findings by rule type and CVE (or title when no CVE). Row opens a sample finding."
-                >
-                  Grouped
-                </button>
-              </div>
-            </div>
-          </div>
+            <span className="ml-auto text-caption text-muted">
+              {risksTotal} {findingsListView === 'group' ? 'groups' : 'findings'}
+            </span>
+            <ResetFiltersButton
+              onReset={resetFindingsFilters}
+              active={hasFindingsFilters}
+              title="Clear risk level, namespace, rule type, search and sort"
+            />
           </div>
 	          <details className="order-1 rounded-lg border border-border/70 bg-surface/60 px-4 py-2 text-caption text-muted">
 	            <summary className="cursor-pointer select-none text-muted hover:text-text">Columns and table display</summary>
@@ -2147,9 +1390,11 @@ export const RiskCenter: React.FC = () => {
                     paginatedRisks.map((risk) => (
                           <tr
                         key={risk.id}
+                        data-finding-row={risk.id}
                         role="button"
                         tabIndex={0}
-                        className={`${UI_TR} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-inset`}
+                        aria-current={selectedRisk?.id === risk.id ? 'true' : undefined}
+                        className={`${UI_TR} ${selectedRisk?.id === risk.id ? 'bg-brand/10' : ''} cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70 focus-visible:ring-inset`}
                         onClick={() => openRiskDrawer(risk)}
                         onKeyDown={(event) => {
                           if (event.key === 'Enter' || event.key === ' ') {
@@ -2362,8 +1607,6 @@ export const RiskCenter: React.FC = () => {
 	              itemLabel={findingsListView === 'group' ? 'groups' : 'findings'}
 	              className="order-2"
 	            />
-          )}
-            </>
           )}
         </div>
       )}
@@ -2884,12 +2127,12 @@ export const RiskCenter: React.FC = () => {
         <RiskDrawer
           insight={selectedRisk}
           sinceMinutesForApi={sinceMinutesForApi}
-          canAck={canDrawerAck}
-          canResolve={canDrawerResolve}
-          canDismiss={canDrawerDismiss}
           onClose={closeRiskDrawer}
           onActionComplete={(action) => {
-            setToast({ message: `Finding ${action === 'acknowledge' ? 'acknowledged' : action === 'resolve' ? 'resolved' : 'dismissed'}.`, variant: 'success' });
+            const done = { acknowledge: 'acknowledged', resolve: 'resolved', dismiss: 'dismissed', reopen: 'reopened' }[action];
+            setToast({ message: `Finding ${done}.`, variant: 'success' });
+            // Decide, then move on: the next finding opens, or the panel closes at the end of the page.
+            if (!stepRiskDrawer(1) && !stepRiskDrawer(-1)) closeRiskDrawer();
             fetchDataRef.current();
           }}
           onOpenPceTab={() => setActiveTab('pce')}

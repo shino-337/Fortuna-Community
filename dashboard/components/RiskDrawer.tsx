@@ -1,4 +1,3 @@
-import { summarizeBulkFindingResult } from '../lib/bulkFindingResult';
 import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Box, User, ExternalLink, Loader2, X } from 'lucide-react';
@@ -10,8 +9,7 @@ import type { AuditLog, Insight, PodCapabilityDetail, RuntimeSignal } from '../t
 import {
   UI_TABLE, UI_THEAD_STICKY, UI_TH_COMPACT, UI_TR, UI_TD_COMPACT_TIGHT,
 } from '../lib/tableChrome';
-import { PinToInvestigationButton } from './PinToInvestigationButton';
-import { findingInvestigationEntity } from '../lib/investigationEntities';
+import { FindingActions, type FindingAction } from './FindingActions';
 import { podDetailPath } from '../lib/podRoute';
 
 /* ─── props ──────────────────────────────────────────────── */
@@ -19,18 +17,14 @@ import { podDetailPath } from '../lib/podRoute';
 export interface RiskDrawerProps {
   insight: Insight;
   sinceMinutesForApi?: number;
-  canAck: boolean;
-  canResolve: boolean;
-  canDismiss: boolean;
   onClose: () => void;
   /** Called after a successful workflow action so the parent can refresh its list */
-  onActionComplete: (action: 'acknowledge' | 'resolve' | 'dismiss') => void;
+  onActionComplete: (action: FindingAction) => void;
   /** Callback to switch the parent to the PCE tab */
   onOpenPceTab?: () => void;
 }
 
 type DrawerTab = 'summary' | 'evidence' | 'pce';
-type RiskWorkflowAction = 'acknowledge' | 'resolve' | 'dismiss';
 
 const statusLabelMap: Record<string, string> = {
   new: 'Active',
@@ -65,24 +59,18 @@ function affectedPodUid(insight: Insight): string | undefined {
 export const RiskDrawer: React.FC<RiskDrawerProps> = ({
   insight,
   sinceMinutesForApi,
-  canAck,
-  canResolve,
-  canDismiss,
   onClose,
   onActionComplete,
   onOpenPceTab,
 }) => {
   const navigate = useNavigate();
   const drawerRef = useRef<HTMLDivElement>(null);
-  const actionDialogRef = useRef<HTMLDivElement>(null);
 
   /* ── local state (owned by this component, not the parent) ── */
   const [tab, setTab] = useState<DrawerTab>('summary');
   const [loading, setLoading] = useState(false);
-  const [actionBusy, setActionBusy] = useState<null | 'ack' | 'resolve' | 'dismiss'>(null);
-  const [pendingAction, setPendingAction] = useState<RiskWorkflowAction | null>(null);
-  const [actionReason, setActionReason] = useState('');
-  const [notice, setNotice] = useState<string | null>(null);
+  /** While the action review dialog is open, it owns focus and Escape. */
+  const [reviewOpen, setReviewOpen] = useState(false);
 
   const [detail, setDetail] = useState<Insight | null>(null);
   const [signals, setSignals] = useState<RuntimeSignal[]>([]);
@@ -152,17 +140,13 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
   useEffect(() => {
     const root = drawerRef.current;
     const onKeyDown = (e: KeyboardEvent) => {
+      if (reviewOpen) return;
       if (e.key === 'Escape') {
         e.preventDefault();
-        if (pendingAction) {
-          setPendingAction(null);
-          setActionReason('');
-        } else {
-          onClose();
-        }
+        onClose();
         return;
       }
-      const activeRoot = pendingAction ? actionDialogRef.current : root;
+      const activeRoot = root;
       if (e.key !== 'Tab' || !activeRoot) return;
       const focusable = Array.from(activeRoot.querySelectorAll<HTMLElement>(
         'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
@@ -182,59 +166,11 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
     };
     window.addEventListener('keydown', onKeyDown, true);
     const t = window.setTimeout(() => {
-      (pendingAction ? actionDialogRef.current : drawerRef.current)?.querySelector<HTMLElement>('button, [href], input, textarea')?.focus();
+      if (reviewOpen || root?.contains(document.activeElement)) return;
+      root?.querySelector<HTMLElement>('button, [href], input, textarea')?.focus();
     }, 0);
     return () => { window.clearTimeout(t); window.removeEventListener('keydown', onKeyDown, true); };
-  }, [onClose, pendingAction, tab]);
-
-  /* ── workflow action helper ───────────────────────────────── */
-  const openActionReview = (action: RiskWorkflowAction) => {
-    setNotice(null);
-    setActionReason('');
-    setPendingAction(action);
-  };
-
-  const runAction = async (action: RiskWorkflowAction) => {
-    if (actionBusy) return;
-    const reason = actionReason.trim();
-    if ((action === 'resolve' || action === 'dismiss') && reason.length < 8) {
-      setNotice('Resolution or dismissal requires a reason of at least 8 characters.');
-      return;
-    }
-    setActionBusy(action === 'acknowledge' ? 'ack' : action === 'resolve' ? 'resolve' : 'dismiss');
-    try {
-      const result = await api.bulkInsightsAction({
-        action,
-        insightIds: [insight.id],
-        resolution: action === 'resolve' ? reason : undefined,
-        reason: action === 'dismiss' ? reason : undefined,
-      });
-      const outcome = summarizeBulkFindingResult(result, [insight.id]);
-      if (!outcome.complete) {
-        setNotice(outcome.message);
-        return;
-      }
-      setNotice(null);
-      setPendingAction(null);
-      setActionReason('');
-      onActionComplete(action);
-    } catch (e) {
-      setNotice(String(e instanceof Error ? e.message : e));
-    } finally {
-      setActionBusy(null);
-    }
-  };
-
-  const pendingActionLabel = pendingAction === 'acknowledge'
-    ? 'Acknowledge'
-    : pendingAction === 'resolve'
-      ? 'Resolve'
-      : pendingAction === 'dismiss'
-        ? 'Dismiss'
-        : '';
-  const pendingActionRequiresReason = pendingAction === 'resolve' || pendingAction === 'dismiss';
-  const pendingActionDisabled =
-    actionBusy !== null || (pendingActionRequiresReason && actionReason.trim().length < 8);
+  }, [onClose, reviewOpen, tab]);
 
   /* ── render ───────────────────────────────────────────────── */
   return (
@@ -246,6 +182,7 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
         role="dialog"
         aria-modal="true"
         aria-labelledby="risk-drawer-title"
+        data-risk-drawer=""
       >
         {/* Header */}
         <div className="p-4 border-b border-border flex items-start justify-between shrink-0">
@@ -269,7 +206,17 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
               <span>Workflow: <span className="uppercase">{statusLabelMap[insight.status || ''] ?? insight.status}</span></span>
             </div>
           </div>
+          <div className="flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => { onClose(); navigate(`/risks/${encodeURIComponent(insight.id)}`); }}
+            className="inline-flex min-h-10 items-center gap-1 rounded px-2 text-caption font-semibold text-brand hover:text-brand/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
+            title="Open the full page to share a link (O)"
+          >
+            Open page <ExternalLink className="h-3.5 w-3.5" aria-hidden />
+          </button>
           <button onClick={onClose} className="inline-flex min-h-10 min-w-10 items-center justify-center rounded text-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70" aria-label="Close"><X size={20} /></button>
+          </div>
         </div>
 
         {/* Body */}
@@ -533,113 +480,11 @@ export const RiskDrawer: React.FC<RiskDrawerProps> = ({
             </>
           )}
 
-          {notice && <p className="text-caption text-muted border border-border rounded-lg px-3 py-2 bg-base/80">{notice}</p>}
-
-          {/* Actions */}
-          <section className="pt-4 mt-4 border-t border-border flex flex-wrap gap-2">
-            <PinToInvestigationButton entity={findingInvestigationEntity(insight)} />
-            <Button size="sm" variant="secondary" onClick={onClose}>Close</Button>
-            <Button size="sm" variant="secondary" onClick={() => { onClose(); navigate(`/risks/${insight.id}`); }}>Open full detail page</Button>
-            <Button size="sm" variant="secondary" disabled={!canAck || actionBusy !== null} onClick={() => openActionReview('acknowledge')}>
-              {actionBusy === 'ack' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />Acknowledge</span> : 'Acknowledge'}
-            </Button>
-            <Button size="sm" disabled={!canResolve || actionBusy !== null} onClick={() => openActionReview('resolve')}>
-              {actionBusy === 'resolve' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />Resolve</span> : 'Resolve'}
-            </Button>
-            <Button size="sm" variant="secondary" disabled={!canDismiss || actionBusy !== null} onClick={() => openActionReview('dismiss')}>
-              {actionBusy === 'dismiss' ? <span className="inline-flex items-center gap-1.5"><Loader2 className="w-3.5 h-3.5 animate-spin" />Dismiss</span> : 'Dismiss'}
-            </Button>
+          {/* Actions: the same component as the full detail page */}
+          <section className="pt-4 mt-4 border-t border-border empty:hidden">
+            <FindingActions insight={detail ? { ...insight, ...detail } : insight} onDone={onActionComplete} onReviewOpenChange={setReviewOpen} />
           </section>
         </div>
-        {pendingAction && (
-          <div className="fixed inset-0 z-toast flex items-center justify-center bg-black/55 px-4">
-            <div
-              ref={actionDialogRef}
-              role="dialog"
-              aria-modal="true"
-              aria-labelledby="risk-action-review-title"
-              className="w-full max-w-md rounded-xl border border-border bg-surface p-4 shadow-2xl"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 id="risk-action-review-title" className="text-body font-semibold text-text">
-                    Review {pendingActionLabel.toLowerCase()} action
-                  </h3>
-                  <p className="mt-1 text-caption text-muted">
-                    This updates one finding and writes to the workflow audit trail.
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  className="inline-flex min-h-10 min-w-10 items-center justify-center rounded text-muted hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand/70"
-                  aria-label="Cancel workflow action"
-                  onClick={() => {
-                    setPendingAction(null);
-                    setActionReason('');
-                  }}
-                >
-                  <X size={18} />
-                </button>
-              </div>
-
-              <div className="mt-4 rounded-lg border border-border bg-base/70 px-3 py-2 text-caption text-muted">
-                <div>Finding: <span className="text-text">{insight.title}</span></div>
-                <div>Target state: <span className="text-text">{pendingActionLabel}</span></div>
-                <div>Affected resources: <span className="text-text">{insight.affectedResources?.length ?? 0}</span></div>
-                <div>Runtime evidence in window: <span className="text-text">{signals.length}</span></div>
-              </div>
-
-              <label className="mt-4 block text-caption font-semibold text-muted" htmlFor="risk-action-reason">
-                {pendingActionRequiresReason ? 'Reason required' : 'Analyst note'}
-              </label>
-              <textarea
-                id="risk-action-reason"
-                value={actionReason}
-                onChange={(event) => setActionReason(event.target.value)}
-                className="mt-1 min-h-24 w-full rounded-lg border border-border bg-base px-3 py-2 text-body text-text outline-none focus:border-brand"
-                placeholder={
-                  pendingAction === 'resolve'
-                    ? 'Describe the remediation or compensating control.'
-                    : pendingAction === 'dismiss'
-                      ? 'Explain why this finding is not actionable.'
-                      : 'Optional local review note.'
-                }
-              />
-              {pendingAction === 'acknowledge' && (
-                <p className="mt-1 text-micro text-muted">
-                  Current API persists acknowledgement state; notes are for review before submitting.
-                </p>
-              )}
-
-              <div className="mt-4 flex flex-wrap justify-end gap-2">
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  onClick={() => {
-                    setPendingAction(null);
-                    setActionReason('');
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  size="sm"
-                  disabled={pendingActionDisabled}
-                  onClick={() => { if (pendingAction) void runAction(pendingAction); }}
-                >
-                  {actionBusy ? (
-                    <span className="inline-flex items-center gap-1.5">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      Submitting
-                    </span>
-                  ) : (
-                    pendingActionLabel
-                  )}
-                </Button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </>
   );

@@ -1,24 +1,20 @@
 import type { PersonaId } from './persona';
 
-export type RiskTabId = 'overview' | 'triage' | 'pce' | 'reference';
+/** The Findings queue plus its two secondary views (capability exposure, runtime evidence). */
+export type RiskTabId = 'triage' | 'pce' | 'reference';
 
 export type RiskFindingsColKey = 'type' | 'resource' | 'score' | 'nsCluster' | 'detected' | 'updated';
 
 export interface RiskWorkspaceConfig {
   visibleTabs: RiskTabId[];
   defaultTab: RiskTabId;
-  defaultFindingsRoute: string;
   defaultCols: Record<RiskFindingsColKey, boolean>;
   pageSize: number;
   showBulkToolbar: boolean;
   showRowSelection: boolean;
-  showOperatorAnalytics: boolean;
   showSavedViews: boolean;
   narrativeTable: boolean;
   showProvenanceColumn: boolean;
-  showTelemetryMeta: boolean;
-  bannerTitle: string;
-  bannerBody: string;
 }
 
 const VIEWER_COLS: Record<RiskFindingsColKey, boolean> = {
@@ -43,68 +39,48 @@ const ADMIN_COLS: Record<RiskFindingsColKey, boolean> = { ...OPERATOR_COLS };
 
 const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
   viewer: {
-    visibleTabs: ['overview', 'triage'],
-    defaultTab: 'overview',
-    defaultFindingsRoute: '/risks',
+    visibleTabs: ['triage'],
+    defaultTab: 'triage',
     defaultCols: VIEWER_COLS,
     pageSize: 15,
     showBulkToolbar: false,
     showRowSelection: false,
-    showOperatorAnalytics: false,
     showSavedViews: false,
     narrativeTable: true,
     showProvenanceColumn: true,
-    showTelemetryMeta: false,
-    bannerTitle: 'Observer workspace',
-    bannerBody: 'Narrative exposure and remediation progress — bulk triage controls are hidden for your role.',
   },
   operator: {
-    visibleTabs: ['overview', 'triage', 'pce', 'reference'],
+    visibleTabs: ['triage', 'pce', 'reference'],
     defaultTab: 'triage',
-    defaultFindingsRoute: '/risks/findings',
     defaultCols: OPERATOR_COLS,
     pageSize: 25,
     showBulkToolbar: true,
     showRowSelection: true,
-    showOperatorAnalytics: true,
     showSavedViews: true,
     narrativeTable: false,
     showProvenanceColumn: true,
-    showTelemetryMeta: false,
-    bannerTitle: 'Responder workspace',
-    bannerBody: 'Dense triage queue, saved views, and bulk actions — optimized for investigation velocity.',
   },
   admin: {
-    visibleTabs: ['overview', 'triage', 'pce', 'reference'],
-    defaultTab: 'overview',
-    defaultFindingsRoute: '/risks',
+    visibleTabs: ['triage', 'pce', 'reference'],
+    defaultTab: 'triage',
     defaultCols: ADMIN_COLS,
     pageSize: 20,
     showBulkToolbar: true,
     showRowSelection: true,
-    showOperatorAnalytics: true,
     showSavedViews: true,
     narrativeTable: false,
     showProvenanceColumn: true,
-    showTelemetryMeta: true,
-    bannerTitle: 'Governance workspace',
-    bannerBody: 'Full telemetry context, pipeline health, and investigation oversight.',
   },
   user_admin: {
     visibleTabs: [],
-    defaultTab: 'overview',
-    defaultFindingsRoute: '/settings',
+    defaultTab: 'triage',
     defaultCols: VIEWER_COLS,
     pageSize: 15,
     showBulkToolbar: false,
     showRowSelection: false,
-    showOperatorAnalytics: false,
     showSavedViews: false,
     narrativeTable: false,
     showProvenanceColumn: false,
-    showTelemetryMeta: false,
-    bannerTitle: '',
-    bannerBody: '',
   },
 };
 
