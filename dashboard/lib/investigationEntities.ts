@@ -10,6 +10,7 @@ export function findingInvestigationEntity(insight: Insight): Omit<Investigation
     label,
     href: `#/risks/${encodeURIComponent(insight.id)}`,
     meta: {
+      insightId: String(insight.id),
       severity: String(insight.severityHint ?? insight.severity ?? ''),
       riskLevel: String(insight.finalLevel ?? ''),
       namespace: String(primaryResource?.namespace ?? ''),

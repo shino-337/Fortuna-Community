@@ -349,6 +349,12 @@ func ListInvestigationCases(db *gorm.DB) gin.HandlerFunc {
 			return
 		}
 		limit := listlimit.Parse(c, investigationCasesDefaultLimit, investigationCasesMaxLimit)
+		// findingId keeps the cases that link one finding (the finding panel's "In case" line).
+		findingID := strings.TrimSpace(c.Query("findingId"))
+		if findingID != "" && !validInsightID(findingID) {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid findingId"})
+			return
+		}
 		baseQuery := func() *gorm.DB {
 			q := db.Model(&models.InvestigationCase{})
 			if !investigationIsAdmin(c) {
@@ -368,6 +374,9 @@ func ListInvestigationCases(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			for i := range rows {
+				if findingID != "" && !caseLinksFinding(&rows[i], findingID) {
+					continue
+				}
 				if investigationCanAccessCase(c, &rows[i]) {
 					filtered = append(filtered, toInvestigationDTO(rows[i]))
 				}
@@ -778,19 +787,30 @@ func PinInvestigationEntity(db *gorm.DB) gin.HandlerFunc {
 			meta = map[string]string{}
 		}
 		entityKey := entityType + ":" + label
+		href := req.Href
+		linkedFinding := ""
+		if strings.EqualFold(entityType, "finding") {
+			// A finding is linked by id, checked against the caller's scope and the case's cluster.
+			key, findingLabel, findingHref, findingMeta, ok := resolveFindingPin(db, c, &row, req)
+			if !ok {
+				return
+			}
+			entityType, entityKey, label, href, meta = "finding", key, findingLabel, findingHref, findingMeta
+			linkedFinding = findingMeta["insightId"]
+		}
 		entities := parseEntities(row.EntitiesJSON)
 		for _, e := range entities {
-			if e.ID == entityKey || (req.Href != "" && e.Href == req.Href) {
+			if e.ID == entityKey || (href != "" && e.Href == href) || (linkedFinding != "" && linkedInsightID(e) == linkedFinding) {
 				c.JSON(http.StatusOK, gin.H{"pinned": false, "entity": e, "case": toInvestigationDTO(row)})
 				return
 			}
 		}
-		snap := invpkg.BuildEntitySnapshot(db, entityType, label, req.Href, meta)
+		snap := invpkg.BuildEntitySnapshot(db, entityType, label, href, meta)
 		pinned := investigationEntityDTO{
 			ID:       entityKey,
 			Type:     entityType,
 			Label:    label,
-			Href:     req.Href,
+			Href:     href,
 			Meta:     meta,
 			PinnedAt: time.Now().UTC().Format(time.RFC3339),
 			Snapshot: snapshotToDTO(snap),

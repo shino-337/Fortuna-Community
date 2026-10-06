@@ -32,6 +32,7 @@ Roles determine route visibility and actions:
 |-----------|-------|------------|
 | Home | `/#/` | What needs your attention in the header scope. Four counts (needs triage, critical open, your open cases, exposed workloads), the five open findings with the highest risk that nobody has acknowledged, your open cases, a one-line data freshness check, new findings per day for 30 days by risk level, and **Export brief**. Admins also see a Platform card with agent and pipeline status. Every count uses the risk level. Old `/#/dashboard` links open Home. |
 | Findings | `/#/risks/findings` | The triage queue. Views for Needs triage, In review, Resolved, Dismissed and All, one row of filters, and a detail panel with every action the finding's state and your role allow. Press J and K to move through the queue and O to open the full page; after an action the panel moves to the next finding. Operators also get Capability exposure and Runtime evidence. `/#/risks` opens the queue. |
+| Cases | `/#/investigation` | Work that spans several findings. Views for Open, Mine, Closed and All; one case at `/#/investigation?case=<id>` shows its lifecycle, linked findings with their current status, affected assets, the timeline, remediation tasks and owner. **Add to case** on a finding, pod or attack path links it to an open case or starts a new one, and the finding panel says which cases already link it. **Close case** asks for a reason and can resolve the linked findings that are still open in the same step. |
 | Attack Paths | `/#/attack-paths` | Review attack paths, RBAC escalation, lateral movement, and runtime attack-step evidence. |
 | Network | `/#/network-activity` | Inspect pod-to-pod and external network activity. Link to one pod with `?clusterId=<id>&namespace=<ns>&podUid=<uid>`. |
 | Inventory | `/#/resources` | Clusters (`/#/resources/clusters`), pods, ServiceAccounts and RBAC; open pod detail for SBOM, risk, runtime, events, and spec. |
@@ -107,10 +108,11 @@ A typical investigation:
 1. Start at Home to confirm data freshness and runtime coverage.
 2. Open Findings and sort by unified risk score.
 3. Open a finding drawer or full detail page to inspect evidence.
-4. Jump to Attack Paths for path context.
-5. Open the affected pod in Inventory for SBOM, runtime, network, and event detail.
-6. Use Rules to understand the rule or catalog entry behind the finding.
-7. Export from the Executive brief on Home when you need a time-windowed operational handoff.
+4. When several findings are one incident, use **Add to case** and work it from the case page.
+5. Jump to Attack Paths for path context.
+6. Open the affected pod in Inventory for SBOM, runtime, network, and event detail.
+7. Use Rules to understand the rule or catalog entry behind the finding.
+8. Close the case, resolving its findings, or export from the Executive brief on Home when you need a time-windowed operational handoff.
 
 Each step is described below.
 

@@ -9,8 +9,8 @@ const EVENT_LABELS: Record<string, string> = {
   'case.status_changed': 'Status changed',
   'case.assignment_changed': 'Assignment changed',
   'case.collaboration_updated': 'Collaboration updated',
-  'entity.pinned': 'Evidence pinned',
-  'entity.unpinned': 'Evidence unpinned',
+  'entity.pinned': 'Linked',
+  'entity.unpinned': 'Unlinked',
   'remediation.added': 'Remediation added',
   'remediation.updated': 'Remediation updated',
   'remediation.removed': 'Remediation removed',
@@ -19,11 +19,17 @@ const EVENT_LABELS: Record<string, string> = {
   'case.pivot': 'Pivot',
 };
 
+function noteBody(ev: InvestigationTimelineEntryApi): string {
+  const note = ev.after?.note as { body?: unknown } | undefined;
+  return typeof note?.body === 'string' ? note.body : '';
+}
+
 function eventLabel(type: string): string {
   return EVENT_LABELS[type] ?? type.replace(/\./g, ' · ');
 }
 
-export const InvestigationTimeline: React.FC<{ caseId: string | null }> = ({ caseId }) => {
+/** The case's activity, newest first. Bump refreshKey after a change to reload it. */
+export const InvestigationTimeline: React.FC<{ caseId: string | null; refreshKey?: number }> = ({ caseId, refreshKey = 0 }) => {
   const [items, setItems] = useState<InvestigationTimelineEntryApi[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +56,7 @@ export const InvestigationTimeline: React.FC<{ caseId: string | null }> = ({ cas
     return () => {
       cancelled = true;
     };
-  }, [caseId]);
+  }, [caseId, refreshKey]);
 
   if (!caseId) return null;
 
@@ -75,6 +81,7 @@ export const InvestigationTimeline: React.FC<{ caseId: string | null }> = ({ cas
               {ev.actorUsername ? ` · ${ev.actorUsername}` : ''}
               {ev.createdAt ? ` · ${formatDateTime(ev.createdAt)}` : ''}
             </div>
+            {noteBody(ev) ? <p className="mt-1 whitespace-pre-wrap text-caption text-text">{noteBody(ev)}</p> : null}
             {ev.after?.status ? (
               <div className="text-meta text-muted mt-0.5">→ {String(ev.after.status)}</div>
             ) : null}

@@ -114,7 +114,7 @@ test.describe('admin RBAC UI smoke', () => {
     const routes = [
       ['/', 'Home'],
       ['/risks/findings', 'Findings'],
-      ['/investigation', 'Investigations'],
+      ['/investigation', 'Cases'],
       ['/network-activity', 'Network'],
       ['/attack-paths', 'Attack Paths'],
       ['/rules', 'Rules'],

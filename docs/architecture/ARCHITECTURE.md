@@ -166,6 +166,7 @@ flowchart LR
 |--------|---------------|--------------|
 | Home | What needs attention: triage, critical and exposure counts, the top unacknowledged findings, the user's open cases, data freshness, a 30-day trend by risk level, and the Executive brief (time-windowed posture and findings exports) | Findings list and summary, risk score counts, threat velocity, dashboard stats, pipeline health, investigations |
 | Findings | The triage queue by workflow status (needs triage, in review, resolved, dismissed), one detail panel whose actions are shared with the finding page, and for operators capability exposure and runtime evidence | `risk_scores`, insights, rules, runtime/CVE/path evidence |
+| Cases | Incidents that span findings: lifecycle, linked findings read live, affected assets, timeline and remediation tasks; closing a case can resolve its open findings | Investigation cases and timeline, `/investigations/:id/findings`, findings bulk actions |
 | Attack Paths | Paths from a workload to sensitive targets | RBAC graph, pod/ServiceAccount links, network/runtime evidence |
 | Inventory / Pod Detail | Clusters, workload inventory, RBAC and per-pod evidence | Clusters, pods, containers, SBOM, CVE, processes, network, events |
 | Network | Runtime topology and external destinations | Agent network observations |
