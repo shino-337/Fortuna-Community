@@ -120,6 +120,7 @@ var (
 	_ = Migration151_RepairBaselinePodPolicyCEL
 	_ = Migration152_NotificationReads
 	_ = Migration153_InsightAssignee
+	_ = Migration154_RetireUserAdmin
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -353,6 +354,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration151_RepairBaselinePodPolicyCEL, // Correct immutable Pod baseline policy CEL and repoint legacy instances
 		Migration152_NotificationReads,          // Notifications: per-user read state
 		Migration153_InsightAssignee,            // Findings: assignee user
+		Migration154_RetireUserAdmin,            // Access: user_admin accounts become viewers with no cluster
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))

@@ -5,7 +5,7 @@
 
 /** Normalize a Fortuna role key to the canonical form. */
 export function normalizeFortunaRoleKey(role: string | null | undefined): string;
-/** @returns The normalized role (admin/cluster_admin/user_admin/operator/viewer) — "user" maps to operator, everything else is lowercased as-is. */
+/** @returns The normalized role (admin/cluster_admin/operator/viewer) — "user" maps to operator, everything else is lowercased as-is. */
 export function normalizeFortunaRoleKey(role: string | null | undefined): string {
   const r = String(role ?? '')
     .trim()
@@ -17,7 +17,6 @@ export function normalizeFortunaRoleKey(role: string | null | undefined): string
 const SHORT_LABEL: Record<string, string> = {
   admin: 'Admin',
   cluster_admin: 'Cluster admin',
-  user_admin: 'User admin',
   operator: 'Operator',
   viewer: 'Viewer',
 };
@@ -28,38 +27,31 @@ export const FORTUNA_ROLE_HELP_ROWS = [
     key: 'admin',
     title: 'Admin',
     body:
-      'Full platform: clusters, findings, inventory, policies, risk evaluation, platform audit, certificate rotation, and full user management—including other Admin accounts.',
-  },
-  {
-    key: 'user_admin',
-    title: 'User admin',
-    body:
-      'Fortuna account administration only: create and manage users with roles User admin or Viewer; Operator and above are assigned by an Admin, who also sets their cluster scope. No access to security data, clusters, or platform audit logs; cannot create or modify Admin users.',
+      'Full platform: every cluster, user accounts, roles and cluster scope, rules and policies (which apply to every cluster), platform audit, error logs and certificate rotation.',
   },
   {
     key: 'cluster_admin',
     title: 'Cluster admin',
     body:
-      'Cluster-scoped security administration: triage findings, evaluate risk, inspect inventory/runtime/attack paths, and manage operational evidence inside assigned clusters. No Fortuna user management, platform audit, global policy/rule writes, or certificate rotation.',
+      'Runs security for its assigned clusters (at least one): everything an Operator does, plus exceptions, deleting findings, archiving cases and revoking or deleting ServiceAccounts in those clusters. No user management, platform audit, or rule and policy changes.',
   },
   {
     key: 'operator',
     title: 'Operator',
     body:
-      'Day-to-day security operations: triage findings (ack/resolve/dismiss/reopen, bulk, exceptions), inventory changes, runtime, governed graph traversal (not advanced Cypher), findings CSV/PDF export when granted export.findings, policies read, risk rules, risk evaluation. Session list/revoke when granted sessions.*. No platform-wide audit catalog, Fortuna user admin, or policy publish/reload unless granted separately.',
+      'Day-to-day work inside its cluster scope: triage findings (ack, assign, resolve, dismiss, reopen, bulk), cases, findings export and risk evaluation. Reads rules and policies. Exceptions, deletes and Kubernetes changes go to a Cluster admin.',
   },
   {
     key: 'viewer',
     title: 'Viewer',
     body:
-      'Read-only: findings, inventory, runtime, graph summaries and paths (no ad-hoc graph traversal), malware telemetry, and high-level monitoring (metrics and agent status only — not operational error logs). No writes to findings or inventory.',
+      'Read-only inside its cluster scope: findings, inventory, runtime, attack paths, malware telemetry, cases and high-level monitoring. No changes.',
   },
 ] as const;
 
 const SELECT_LABEL: Record<string, string> = {
   admin: 'Admin — full platform',
   cluster_admin: 'Cluster admin — scoped security operations',
-  user_admin: 'User admin — accounts only',
   operator: 'Operator — security operations',
   viewer: 'Viewer — read-only',
 };
@@ -90,6 +82,6 @@ export function fortunaRoleSelectLabel(apiRoleValue: string): string {
   return SELECT_LABEL[k] ?? apiRoleValue;
 }
 
-/** Short paragraph: Admin vs user_admin (for Settings and cross-links). */
-export const FORTUNA_ADMIN_VS_USER_ADMIN =
-  'Admin is the only role with full security and platform capabilities and may assign any Fortuna role, including Admin and Cluster admin. Cluster admin operates security workflows only inside assigned clusters. User admin manages Fortuna login accounts only (User admin, Viewer); they cannot access clusters, findings, or platform audit.';
+/** Short paragraph: how the roles stack (for Settings and cross-links). */
+export const FORTUNA_ROLE_SUMMARY =
+  'Each role holds everything the one below it can do: Viewer, Operator, Cluster admin, Admin. Only an Admin manages accounts and picks which clusters an account sees; a new account sees no cluster until then.';

@@ -71,17 +71,7 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     narrativeTable: false,
     showProvenanceColumn: true,
   },
-  user_admin: {
-    visibleTabs: [],
-    defaultTab: 'triage',
-    defaultCols: VIEWER_COLS,
-    pageSize: 15,
-    showBulkToolbar: false,
-    showRowSelection: false,
-    showSavedViews: false,
-    narrativeTable: false,
-    showProvenanceColumn: false,
-  },
+
 };
 
 export function getRiskWorkspaceConfig(personaId: PersonaId): RiskWorkspaceConfig {

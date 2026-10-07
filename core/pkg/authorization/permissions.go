@@ -18,26 +18,22 @@ const (
 	PermissionSessionsRevokeAll Permission = "sessions.revoke_all"
 
 	// Export governance (sensitive data egress)
-	PermissionExportFindings     Permission = "export.findings"
-	PermissionUsersRead          Permission = "users.read"
-	PermissionUsersCreate        Permission = "users.create"
-	PermissionUsersUpdate        Permission = "users.update"
-	PermissionUsersDisable       Permission = "users.disable"
-	PermissionUsersDelete        Permission = "users.delete"
-	PermissionUsersPasswordReset Permission = "users.password.reset"
-	PermissionUsersRoleAssign    Permission = "users.role.assign"
+	PermissionExportFindings  Permission = "export.findings"
+	PermissionUsersRead       Permission = "users.read"
+	PermissionUsersUpdate     Permission = "users.update"
+	PermissionUsersDelete     Permission = "users.delete"
+	PermissionUsersRoleAssign Permission = "users.role.assign"
 
 	// Findings (v2 — replaces findings.write / findings.exceptions)
-	PermissionFindingsRead             Permission = "findings.read"
-	PermissionFindingsAck              Permission = "findings.ack"
-	PermissionFindingsDismiss          Permission = "findings.dismiss"
-	PermissionFindingsResolve          Permission = "findings.resolve"
-	PermissionFindingsReopen           Permission = "findings.reopen"
-	PermissionFindingsBulk             Permission = "findings.bulk"
-	PermissionFindingsDelete           Permission = "findings.delete"
-	PermissionFindingsExceptionCreate  Permission = "findings.exception.create"
-	PermissionFindingsExceptionApprove Permission = "findings.exception.approve"
-	PermissionFindingsExceptionDelete  Permission = "findings.exception.delete"
+	PermissionFindingsRead            Permission = "findings.read"
+	PermissionFindingsAck             Permission = "findings.ack"
+	PermissionFindingsDismiss         Permission = "findings.dismiss"
+	PermissionFindingsResolve         Permission = "findings.resolve"
+	PermissionFindingsReopen          Permission = "findings.reopen"
+	PermissionFindingsBulk            Permission = "findings.bulk"
+	PermissionFindingsDelete          Permission = "findings.delete"
+	PermissionFindingsExceptionCreate Permission = "findings.exception.create"
+	PermissionFindingsExceptionDelete Permission = "findings.exception.delete"
 
 	// Investigations (SOC case workspace)
 	PermissionInvestigationsRead   Permission = "investigations.read"
@@ -49,8 +45,6 @@ const (
 	// Policies (v2 — replaces policies.write)
 	PermissionPoliciesRead    Permission = "policies.read"
 	PermissionPoliciesDraft   Permission = "policies.draft"
-	PermissionPoliciesReview  Permission = "policies.review"
-	PermissionPoliciesApprove Permission = "policies.approve"
 	PermissionPoliciesPublish Permission = "policies.publish"
 	PermissionPoliciesDelete  Permission = "policies.delete"
 
@@ -61,23 +55,16 @@ const (
 	PermissionRulesExport Permission = "rules.export"
 
 	// Inventory (v2 — replaces inventory.write)
-	PermissionInventoryRead       Permission = "inventory.read"
-	PermissionInventoryAnnotate   Permission = "inventory.annotate"
-	PermissionInventoryModify     Permission = "inventory.modify"
-	PermissionInventoryQuarantine Permission = "inventory.quarantine"
-	PermissionInventoryDelete     Permission = "inventory.delete"
-	PermissionInventoryBulk       Permission = "inventory.bulk"
+	PermissionInventoryRead   Permission = "inventory.read"
+	PermissionInventoryModify Permission = "inventory.modify"
+	PermissionInventoryDelete Permission = "inventory.delete"
 
 	PermissionRuntimeRead         Permission = "runtime.read"
 	PermissionRuntimeMappingWrite Permission = "runtime.mapping.write"
 
 	// Graph (v2 — replaces graph.read + graph.query.safe)
-	PermissionGraphReadSummary    Permission = "graph.read.summary"
-	PermissionGraphReadPaths      Permission = "graph.read.paths"
-	PermissionGraphQueryEntity    Permission = "graph.query.entity"
-	PermissionGraphQueryTraversal Permission = "graph.query.traversal"
-	PermissionGraphQueryAdvanced  Permission = "graph.query.advanced"
-	PermissionGraphExport         Permission = "graph.export"
+	PermissionGraphReadSummary Permission = "graph.read.summary"
+	PermissionGraphReadPaths   Permission = "graph.read.paths"
 
 	PermissionMalwareRead Permission = "malware.read"
 
@@ -87,7 +74,6 @@ const (
 	PermissionObservabilityMetricsRead Permission = "observability.metrics.read"
 	PermissionObservabilityLogsRead    Permission = "observability.logs.read"
 	PermissionObservabilityAgentsRead  Permission = "observability.agents.read"
-	PermissionObservabilityDebugRead   Permission = "observability.debug.read"
 
 	PermissionClusterCertificatesRotate Permission = "cluster.certificates.rotate"
 )
@@ -106,27 +92,22 @@ const (
 // ClassifyPermission returns coarse classification for governance UI / policy.
 func ClassifyPermission(p Permission) PermissionLevel {
 	switch p {
-	case PermissionUsersDelete, PermissionUsersRoleAssign, PermissionUsersPasswordReset,
-		PermissionSessionsRevokeAll,
+	case PermissionUsersDelete, PermissionUsersRoleAssign, PermissionSessionsRevokeAll,
 		PermissionFindingsDelete, PermissionFindingsBulk,
 		PermissionInvestigationsDelete,
-		PermissionInventoryDelete, PermissionInventoryBulk, PermissionInventoryQuarantine,
-		PermissionRulesDelete, PermissionPoliciesDelete,
+		PermissionInventoryDelete, PermissionRulesDelete, PermissionPoliciesDelete,
 		PermissionClusterCertificatesRotate:
 		return LevelDestructive
-	case PermissionUsersCreate, PermissionUsersUpdate, PermissionUsersDisable,
-		PermissionSessionsRevoke,
+	case PermissionUsersUpdate, PermissionSessionsRevoke,
 		PermissionFindingsAck, PermissionFindingsDismiss, PermissionFindingsResolve, PermissionFindingsReopen,
-		PermissionFindingsExceptionCreate, PermissionFindingsExceptionApprove, PermissionFindingsExceptionDelete,
+		PermissionFindingsExceptionCreate, PermissionFindingsExceptionDelete,
 		PermissionInvestigationsWrite,
-		PermissionInventoryAnnotate, PermissionInventoryModify,
+		PermissionInventoryModify,
 		PermissionRulesWrite, PermissionRulesImport,
-		PermissionPoliciesDraft, PermissionPoliciesReview, PermissionPoliciesApprove, PermissionPoliciesPublish,
+		PermissionPoliciesDraft, PermissionPoliciesPublish,
 		PermissionRuntimeMappingWrite, PermissionRiskEvaluate,
 		PermissionExportFindings:
 		return LevelWrite
-	case PermissionObservabilityDebugRead:
-		return LevelPlatform
 	case PermissionAuthRegister, PermissionSystemAuditRead:
 		return LevelSecurityCritical
 	default:
@@ -145,11 +126,8 @@ func AllPermissions() []Permission {
 		PermissionSessionsRevokeAll,
 		PermissionExportFindings,
 		PermissionUsersRead,
-		PermissionUsersCreate,
 		PermissionUsersUpdate,
-		PermissionUsersDisable,
 		PermissionUsersDelete,
-		PermissionUsersPasswordReset,
 		PermissionUsersRoleAssign,
 		PermissionFindingsRead,
 		PermissionFindingsAck,
@@ -159,7 +137,6 @@ func AllPermissions() []Permission {
 		PermissionFindingsBulk,
 		PermissionFindingsDelete,
 		PermissionFindingsExceptionCreate,
-		PermissionFindingsExceptionApprove,
 		PermissionFindingsExceptionDelete,
 		PermissionInvestigationsRead,
 		PermissionInvestigationsWrite,
@@ -167,8 +144,6 @@ func AllPermissions() []Permission {
 		PermissionRiskEvaluate,
 		PermissionPoliciesRead,
 		PermissionPoliciesDraft,
-		PermissionPoliciesReview,
-		PermissionPoliciesApprove,
 		PermissionPoliciesPublish,
 		PermissionPoliciesDelete,
 		PermissionRulesRead,
@@ -177,25 +152,17 @@ func AllPermissions() []Permission {
 		PermissionRulesImport,
 		PermissionRulesExport,
 		PermissionInventoryRead,
-		PermissionInventoryAnnotate,
 		PermissionInventoryModify,
-		PermissionInventoryQuarantine,
 		PermissionInventoryDelete,
-		PermissionInventoryBulk,
 		PermissionRuntimeRead,
 		PermissionRuntimeMappingWrite,
 		PermissionGraphReadSummary,
 		PermissionGraphReadPaths,
-		PermissionGraphQueryEntity,
-		PermissionGraphQueryTraversal,
-		PermissionGraphQueryAdvanced,
-		PermissionGraphExport,
 		PermissionMalwareRead,
 		PermissionSystemAuditRead,
 		PermissionObservabilityMetricsRead,
 		PermissionObservabilityLogsRead,
 		PermissionObservabilityAgentsRead,
-		PermissionObservabilityDebugRead,
 		PermissionClusterCertificatesRotate,
 	}
 }

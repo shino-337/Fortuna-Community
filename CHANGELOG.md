@@ -20,6 +20,12 @@
 - Notifications, agent status and the counts in `/metrics/system` follow the user's cluster scope. Marking notifications read only affects notifications in scope.
 - Revoking another user's session needs `sessions.revoke_all` instead of `users.read`, so a User admin can no longer sign an Admin out.
 - A User admin can no longer change, disable or delete Cluster admin accounts, matching the rule that they cannot create them.
+- Roles now stack: Viewer, Operator, Cluster admin, Admin, each holding everything the one below can do. Before, an Operator could do more than a Cluster admin.
+  - Operator no longer creates or deletes exceptions, deletes findings, revokes or deletes ServiceAccounts, archives cases, writes, deletes or imports risk rules, edits runtime signal mappings or reads error logs.
+  - Cluster admin gains exceptions, finding deletes, ServiceAccount revoke and delete, and case archiving, inside its clusters.
+  - Risk rules and runtime signal mappings apply to every cluster, and error logs are not cluster-scoped, so they are now Admin only.
+- The User admin role is removed. Only an Admin creates, changes or deletes accounts. Existing User admin accounts become Viewers with no cluster (migration 154), each change written to the security activity log, so none gains data access.
+- 14 permissions that no route checked are removed, so the Access page no longer lists controls that do nothing: `users.create`, `users.disable`, `users.password.reset`, `findings.exception.approve`, `policies.review`, `policies.approve`, `inventory.annotate`, `inventory.bulk`, `inventory.quarantine`, `graph.query.entity`, `graph.query.traversal`, `graph.query.advanced`, `graph.export` and `observability.debug.read`.
 - A new account sees no cluster until an Admin picks its clusters. Before, an account created without a scope, or whose scope was cleared, could read every cluster; "All clusters" (`{}`) must now be chosen explicitly, and `{"clusters":[]}` is a valid scope meaning no cluster. Existing accounts keep their scope. The Settings form starts on "Selected clusters", and the account list shows "No clusters" for such accounts.
 - A Cluster admin must have at least one named cluster. Creating one, promoting an account to it, or changing its scope to every cluster or to none is refused with 400.
 - Every list endpoint has a default and a maximum `limit` (31 routes were unbounded, including users, resources, investigations, graphs and policy rules), and reports `truncated` when rows are cut. `limit=-1` on rule matches no longer returns every row.

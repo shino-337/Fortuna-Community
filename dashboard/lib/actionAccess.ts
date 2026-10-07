@@ -32,7 +32,7 @@ const ACTION_PERMISSIONS: Record<ActionId, { all?: PermissionString[]; any?: Per
   [ACTION_IDS.policyDraft]: { all: [P.policiesDraft] },
   [ACTION_IDS.policyPublish]: { all: [P.policiesPublish] },
   [ACTION_IDS.policyDelete]: { all: [P.policiesDelete] },
-  [ACTION_IDS.userCreate]: { all: [P.usersCreate] },
+  [ACTION_IDS.userCreate]: { all: [P.authRegister] },
   [ACTION_IDS.userUpdate]: { all: [P.usersUpdate] },
   [ACTION_IDS.userDelete]: { all: [P.usersDelete] },
   [ACTION_IDS.userRoleAssign]: { all: [P.usersRoleAssign] },

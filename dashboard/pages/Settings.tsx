@@ -12,12 +12,11 @@ import { useToast } from '../design-system/components/Toast';
 import { formatDateTime } from '../lib/display';
 import { UI_TABLE, UI_THEAD_STICKY, UI_TH, UI_TR, UI_TD } from '../lib/tableChrome';
 import {
-  FORTUNA_ADMIN_VS_USER_ADMIN,
+  FORTUNA_ROLE_SUMMARY,
   FORTUNA_ROLE_HELP_ROWS,
   fortunaRoleSelectLabel,
   fortunaRoleShortLabel,
   fortunaRoleTooltip,
-  normalizeFortunaRoleKey,
 } from '../lib/fortunaRoles';
 import { useAuthStore } from '../store/authStore';
 import { can, P } from '../lib/permissions';
@@ -82,20 +81,10 @@ export const Settings: React.FC = () => {
   const canUsersReadForSessions = can(permUser, P.usersRead);
 
   const isFortunaAdmin = isPlatformAdmin(user);
-  // Mirrors core: a user admin cannot change or delete admin and cluster_admin accounts.
-  const userAdminCannotManage = useCallback(
-    (row: User) => {
-      if (isFortunaAdmin) return false;
-      const rowRole = normalizeFortunaRoleKey(row.role);
-      return rowRole === 'admin' || rowRole === 'cluster_admin';
-    },
-    [isFortunaAdmin],
-  );
+  // Mirrors core: only a platform admin changes or deletes accounts.
+  const userAdminCannotManage = useCallback((_row: User) => !isFortunaAdmin, [isFortunaAdmin]);
   const fortunaRoleEditOptions = useMemo(
-    () =>
-      isFortunaAdmin
-        ? (['admin', 'cluster_admin', 'user_admin', 'operator', 'viewer'] as const)
-        : (['user_admin', 'viewer'] as const),
+    () => (isFortunaAdmin ? (['admin', 'cluster_admin', 'operator', 'viewer'] as const) : ([] as const)),
     [isFortunaAdmin],
   );
 
@@ -427,7 +416,7 @@ export const Settings: React.FC = () => {
                 ))}
               </ul>
               <p className="text-caption text-muted mt-4 pt-3 border-t border-border leading-snug">
-                <span className="font-medium text-text">Admin vs User admin:</span> {FORTUNA_ADMIN_VS_USER_ADMIN}
+                <span className="font-medium text-text">How roles stack:</span> {FORTUNA_ROLE_SUMMARY}
               </p>
             </Card>
             {canRegister && canUsersCreate && canUsers && (
@@ -520,8 +509,6 @@ export const Settings: React.FC = () => {
                                       ? 'text-brand'
                                       : rowRole === 'cluster_admin'
                                         ? 'text-info'
-                                      : rowRole === 'user_admin'
-                                        ? 'text-warning'
                                         : 'text-muted'
                                   }`}
                                 />

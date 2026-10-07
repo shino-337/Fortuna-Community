@@ -113,11 +113,7 @@ const IDENTITY: Record<
     description: 'Govern platform integrity, telemetry reliability, and operational oversight.',
     defaultRoute: '/',
   },
-  user_admin: {
-    label: 'Identity & Access Administrator',
-    description: 'Manage Fortuna accounts, roles, and access policies.',
-    defaultRoute: '/settings',
-  },
+
 };
 
 function hasPermissions(user: PermUser, required: string[]): boolean {
@@ -148,11 +144,6 @@ function expandRoutes(prefixes: string[]): Set<string> {
  * reachable whenever the user has the underlying read capability.
  */
 function entitlementRoutePrefixes(ctx: MaterializationContext): string[] {
-  // Every signed-in user manages their own password and sessions.
-  if (ctx.personaId === 'user_admin') {
-    return can(ctx.user, P.usersRead) ? ['/settings', '/account'] : ['/account'];
-  }
-
   const routes = new Set<string>();
   const hasOperationalRead = canAny(ctx.user, [
     P.findingsRead,
@@ -212,24 +203,12 @@ export function materializeOperationalPlane(ctx: MaterializationContext): Materi
 
   const shellVariant: ShellVariant =
     activeSurfaces[0]?.shellVariant ??
-    (ctx.personaId === 'user_admin'
-      ? 'user_admin'
-      : ctx.personaId === 'admin'
-        ? 'admin'
-        : ctx.personaId === 'operator'
-          ? 'operator'
-          : 'viewer');
+    (ctx.personaId === 'admin' ? 'admin' : ctx.personaId === 'operator' ? 'operator' : 'viewer');
 
   const routePrefixes = new Set<string>();
   for (const r of entitlementRoutePrefixes(ctx)) routePrefixes.add(r);
   for (const s of activeSurfaces) {
     for (const r of s.routes) routePrefixes.add(r);
-  }
-
-  if (shellVariant === 'user_admin') {
-    routePrefixes.clear();
-    routePrefixes.add('/settings');
-    routePrefixes.add('/account');
   }
 
   const allowedSet = expandRoutes([...routePrefixes]);

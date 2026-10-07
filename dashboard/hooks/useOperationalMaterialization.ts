@@ -17,7 +17,7 @@ export function useOperationalMaterialization(): MaterializedOperationalPlane & 
 } {
   const user = usePermUser();
   const { id: personaId } = resolvePersona(user);
-  const shouldLoadClusters = personaId !== 'user_admin' && can(user, P.inventoryRead);
+  const shouldLoadClusters = can(user, P.inventoryRead);
   const { clusters } = useClusters({ enabled: shouldLoadClusters });
   const selectedClusterId = useClusterStore((s) => s.selectedClusterId);
 

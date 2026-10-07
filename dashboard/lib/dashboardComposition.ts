@@ -53,21 +53,18 @@ const PERSONA_WIDGETS: Record<PersonaId, DashboardWidgetId[]> = {
     'activity_feed',
     'telemetry_health',
   ],
-  user_admin: [],
 };
 
 const PERSONA_SECTIONS: Record<PersonaId, DashboardSectionId[]> = {
   viewer: ['risk-overview', 'entry-points', 'cluster-health', 'exposure'],
   operator: ['risk-overview', 'entry-points', 'exposure', 'attack-analysis', 'activity'],
   admin: ['risk-overview', 'entry-points', 'cluster-health', 'exposure', 'attack-analysis', 'activity'],
-  user_admin: [],
 };
 
 const PERSONA_DEFAULT_MODE: Record<PersonaId, DashboardMode> = {
   viewer: 'overview',
   operator: 'full',
   admin: 'full',
-  user_admin: 'overview',
 };
 
 export interface DashboardComposition {

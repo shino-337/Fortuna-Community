@@ -158,8 +158,8 @@ export const FEATURE_REGISTRY: Record<FeatureId, FeatureDefinition> = {
   settings: {
     id: 'settings',
     label: PAGE_TITLES.settings,
-    permissionsAny: [P.usersRead, P.usersUpdate, P.usersRoleAssign, P.usersCreate, P.rulesRead, P.policiesRead],
-    personas: ['admin', 'user_admin', 'operator'],
+    permissionsAny: [P.usersRead, P.usersUpdate, P.usersRoleAssign, P.rulesRead, P.policiesRead],
+    personas: ['admin', 'operator'],
     ownershipModel: 'none',
     telemetryRequired: false,
     navEligible: true,
