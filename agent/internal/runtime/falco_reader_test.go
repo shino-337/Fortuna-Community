@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -286,5 +287,55 @@ func TestFalcoReaderRetainsCursorAndPartialLineUntilIngestSucceeds(t *testing.T)
 	}
 	if r.sentEvents != 1 || r.failedEvents != 1 {
 		t.Fatalf("unexpected counters sent=%d failed=%d", r.sentEvents, r.failedEvents)
+	}
+}
+
+func TestFalcoReader_ToRuntimeEvent_RedactsCommandLineSecrets(t *testing.T) {
+	r := NewFalcoReader("/tmp/falco.jsonl", 0, "http://core", "node-1", nil)
+	cmd := `mysql -uroot -pS3cretPw -h db`
+	fe := falcoEvent{
+		Rule:     "DB client in container",
+		Priority: "Notice",
+		Output:   "DB client run (user=root command=" + cmd + " token=x) header Authorization: Bearer abcdefghijklmnop",
+		OutputFields: map[string]interface{}{
+			"k8s.pod.uid":  "11111111-1111-1111-1111-111111111111",
+			"k8s.ns.name":  "default",
+			"k8s.pod.name": "demo",
+			"evt.type":     "execve",
+			"proc.cmdline": cmd,
+		},
+	}
+	ev, ok := r.toRuntimeEvent(context.Background(), &fe)
+	if !ok {
+		t.Fatalf("expected ok=true")
+	}
+	b, _ := json.Marshal(ev)
+	for _, leak := range []string{"S3cretPw", "abcdefghijklmnop"} {
+		if strings.Contains(string(b), leak) {
+			t.Fatalf("event leaks %q: %s", leak, b)
+		}
+	}
+	if ev.Target != "mysql -uroot -p[REDACTED] -h db" {
+		t.Fatalf("target: %q", ev.Target)
+	}
+}
+
+func TestPrepareEventsV2RedactsTargetAndPayload(t *testing.T) {
+	events := []Event{{
+		Syscall: "execve",
+		Target:  "app --password hunter2",
+		PayloadJSON: map[string]interface{}{
+			"output": `curl -d {"password":"hunter2"} http://x`,
+			"nested": []interface{}{"postgres://u:hunter2@db/app"},
+		},
+		PayloadHash: "stale",
+	}}
+	PrepareEventsV2(events)
+	b, _ := json.Marshal(events[0])
+	if strings.Contains(string(b), "hunter2") {
+		t.Fatalf("event leaks the password: %s", b)
+	}
+	if events[0].PayloadHash == "stale" || events[0].PayloadHash == "" {
+		t.Fatalf("payload hash must be recomputed after redaction: %q", events[0].PayloadHash)
 	}
 }

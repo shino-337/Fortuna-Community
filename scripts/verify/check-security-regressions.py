@@ -344,6 +344,10 @@ AGENT_REQUIRED = {
         "TestEventsCollectorDoesNotSplitOtherForbiddenErrors",
         "TestEventsCollectorDeduplicatesResyncedQuarantine",
     ],
+    "./internal/redact": [
+        "TestCommandLine",
+        "TestText",
+    ],
     "./internal/runtime": [
         "TestSourceHealthRelayPreservesSignatureAndRejectsOldSession",
         "TestSourceHealthRelayBackoffStopsSiblingRequests",

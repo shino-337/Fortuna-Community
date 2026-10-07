@@ -180,6 +180,13 @@ These are read by the database migrations that run at Core startup.
 | `POD_NETWORK_CLEANUP_INITIAL_DELAY` | `0` | Delay before the first cleanup run after startup. |
 | `POD_PROCESS_RETENTION_HOURS` | `24` | Deletes Pod process snapshots older than this many hours; the Pod detail view shows only the latest snapshot. |
 | `POD_PROCESS_CLEANUP_INTERVAL` | `1h` | Interval of the process snapshot cleanup. |
+| `FORTUNA_RETENTION_RUNTIME_DAYS` | `30` | Deletes runtime events, behavior facts, signals and incidents last seen more than this many days ago. `0` keeps them. |
+| `FORTUNA_RETENTION_K8S_EVENTS_DAYS` | `14` | Deletes Kubernetes events older than this many days. `0` keeps them. |
+| `FORTUNA_RETENTION_POD_METRICS_DAYS` | `30` | Deletes Pod runtime metrics not observed for this many days. `0` keeps them. |
+| `FORTUNA_RETENTION_SESSIONS_DAYS` | `30` | Deletes login sessions that expired more than this many days ago. `0` keeps them. |
+| `FORTUNA_RETENTION_AUDIT_LOG_DAYS` | `90` | Deletes `audit_logs` rows older than this many days. `0` keeps them. The append-only security activity log is never deleted. |
+| `FORTUNA_RETENTION_CASES_DAYS` | `1` | Any value above `0` hard-deletes archived investigation cases once their `retention_until` date passes. `0` keeps them. |
+| `FORTUNA_RETENTION_INTERVAL` | `6h` | Interval of the retention job. Each run also clears the password hash of deleted users. |
 
 ### Metrics and limits
 

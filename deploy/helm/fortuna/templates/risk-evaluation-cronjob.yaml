@@ -36,9 +36,12 @@ spec:
                   set -eu
                   echo "Starting risk evaluation at $(date)"
                   echo "Authenticating..."
-                  TOKEN=$(curl -sS -X POST "${CORE_SERVICE_URL}/api/v1/auth/login" \
-                    -H "Content-Type: application/json" \
-                    -d "{\"username\":\"${ADMIN_USERNAME}\",\"password\":\"${ADMIN_PASSWORD}\"}" \
+                  # The password and token go to curl on stdin (printf is a shell builtin), never
+                  # as arguments: command lines are visible in /proc to anything on the node.
+                  TOKEN=$(printf '{"username":"%s","password":"%s"}' "${ADMIN_USERNAME}" "${ADMIN_PASSWORD}" \
+                    | curl -sS -X POST "${CORE_SERVICE_URL}/api/v1/auth/login" \
+                      -H "Content-Type: application/json" \
+                      --data-binary @- \
                     | grep -o '"token":"[^"]*' | cut -d'"' -f4 || true)
                   if [ -z "$TOKEN" ]; then
                     echo "ERROR: Failed to get authentication token"
@@ -46,10 +49,11 @@ spec:
                   fi
 
                   echo "Token obtained, triggering risk evaluation..."
-                  RESPONSE=$(curl -sS -w "\nHTTP_CODE:%{http_code}" -X POST \
-                    "${CORE_SERVICE_URL}/api/v1/risk/insights/evaluate/historical" \
-                    -H "Content-Type: application/json" \
-                    -H "Authorization: Bearer ${TOKEN}")
+                  RESPONSE=$(printf 'Authorization: Bearer %s\n' "${TOKEN}" \
+                    | curl -sS -w "\nHTTP_CODE:%{http_code}" -X POST \
+                      "${CORE_SERVICE_URL}/api/v1/risk/insights/evaluate/historical" \
+                      -H "Content-Type: application/json" \
+                      -H @-)
                   HTTP_CODE=$(echo "$RESPONSE" | grep "HTTP_CODE:" | cut -d: -f2)
                   BODY=$(echo "$RESPONSE" | sed '/HTTP_CODE:/d')
                   echo "Response: $BODY"

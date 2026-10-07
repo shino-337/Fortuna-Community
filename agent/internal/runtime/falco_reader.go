@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/fortuna/agent/internal/redact"
 	"io"
 	"log"
 	"net/http"
@@ -529,6 +530,10 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 		)
 	}
 
+	// Command lines and alert output can carry passwords and tokens; hide them before the
+	// event is hashed, written to the node's outbox or sent.
+	target, output := redactFalcoText(fields, strings.TrimSpace(target), fe.Output)
+
 	mitre := extractMitreTechnique(fe.Tags)
 	sev := mapFalcoPriority(fe.Priority)
 	ts := time.Now().Unix()
@@ -539,7 +544,7 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 		"runtime":       "falco",
 		"rule":          strings.TrimSpace(fe.Rule),
 		"priority":      strings.TrimSpace(fe.Priority),
-		"output":        fe.Output,
+		"output":        output,
 		"tags":          fe.Tags,
 		"syscall":       syscall,
 		"target":        strings.TrimSpace(target),
@@ -583,6 +588,24 @@ func (r *FalcoReader) toRuntimeEvent(ctx context.Context, fe *falcoEvent) (Event
 		PayloadHash:     hex.EncodeToString(payloadHash[:]),
 		Confidence:      0.85,
 	}, podUID != "" // Core needs pod uid to store
+}
+
+// redactFalcoText hides credentials in the event target and the alert output. Falco prints the
+// process command line inside its output, so that copy is replaced with the redacted command
+// line first; the rest of the output goes through the free-text rules.
+func redactFalcoText(fields map[string]interface{}, target, output string) (string, string) {
+	for _, key := range []string{"proc.cmdline", "proc.pcmdline", "proc.acmdline"} {
+		raw := strings.TrimSpace(asString(fields[key]))
+		if raw == "" {
+			continue
+		}
+		clean := redact.CommandLine(raw)
+		output = strings.ReplaceAll(output, raw, clean)
+		if target == raw {
+			target = clean
+		}
+	}
+	return redact.CommandLine(target), redact.Text(output)
 }
 
 func resolutionStateFromFalco(fe *falcoEvent) string {
