@@ -25,11 +25,6 @@ import (
 	"github.com/fortuna/core/pkg/resourceidentity"
 )
 
-const (
-	// Audit log TTL - delete logs older than 90 days
-	auditLogTTL = 90 * 24 * time.Hour
-)
-
 // isTableMissingErr returns true if err indicates a missing table (e.g. SQLite "no such table").
 // Used to avoid noisy PCE logs when test DB is torn down before async goroutine runs.
 func isTableMissingErr(err error) bool {
@@ -370,8 +365,7 @@ func (s *AgentService) applySyncData(clusterID string, clusterName string, sourc
 		}
 	}
 
-	// Cleanup old audit logs (TTL)
-	s.launchAfterSync(func() { s.cleanupOldAuditLogs() })
+	// Audit log retention runs in scheduler.DataRetentionJob (FORTUNA_RETENTION_AUDIT_LOG_DAYS).
 
 	// Cleanup stale clusters: soft-delete clusters not synced in 90 days so dashboard/DB don't keep old env data
 	s.launchAfterSync(func() { s.cleanupStaleClusters() })
@@ -1526,6 +1520,7 @@ func (s *AgentService) processSyncedDeployments(clusterID string, data map[strin
 
 		annotationsJSON := "{}"
 		if annotations, ok := depMap["annotations"].(map[string]interface{}); ok {
+			dropManifestAnnotations(annotations)
 			if bytes, err := json.Marshal(annotations); err == nil {
 				annotationsJSON = string(bytes)
 			}
@@ -1723,6 +1718,7 @@ func (s *AgentService) processSyncedReplicaSets(clusterID string, data map[strin
 
 		annotationsJSON := "{}"
 		if annotations, ok := rsMap["annotations"].(map[string]interface{}); ok {
+			dropManifestAnnotations(annotations)
 			if bytes, err := json.Marshal(annotations); err == nil {
 				annotationsJSON = string(bytes)
 			}
@@ -1850,17 +1846,6 @@ func (s *AgentService) processSyncedReplicaSets(clusterID string, data map[strin
 	return nil
 }
 
-// cleanupOldAuditLogs deletes audit logs older than TTL
-func (s *AgentService) cleanupOldAuditLogs() {
-	cutoff := time.Now().Add(-auditLogTTL)
-	result := s.db.Where("created_at < ?", cutoff).Delete(&models.AuditLog{})
-	if result.Error != nil {
-		s.logger.Printf("❌ Failed to cleanup old audit logs: %v", result.Error)
-	} else if result.RowsAffected > 0 {
-		s.logger.Printf("🧹 Cleaned up %d old audit logs", result.RowsAffected)
-	}
-}
-
 // StaleClusterCutoff: clusters not synced in this duration are soft-deleted so dashboard doesn't show old env data.
 const StaleClusterCutoff = 90 * 24 * time.Hour
 
@@ -1902,5 +1887,16 @@ func (s *AgentService) cleanupStalePods(clusterID string) {
 		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodRuntimeMetrics{})
 		s.db.Where("cluster_id = ? AND pod_uid = ?", p.ClusterID, p.UID).Delete(&models.PodNetworkConnection{})
 		s.logger.Printf("🧹 Soft-deleted stale pod %s/%s (%s), updated_at=%s", p.Namespace, p.Name, p.UID, p.UpdatedAt.Format(time.RFC3339))
+	}
+}
+
+// dropManifestAnnotations removes annotations that hold a whole manifest (kubectl's
+// last-applied-configuration carries literal env values). Current agents drop them before
+// sending; this covers older agents.
+func dropManifestAnnotations(annotations map[string]interface{}) {
+	for k := range annotations {
+		if strings.HasSuffix(k, "/last-applied-configuration") {
+			delete(annotations, k)
+		}
 	}
 }

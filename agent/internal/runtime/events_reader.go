@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/fortuna/agent/internal/redact"
 	"io"
 	"log"
 	"net/http"
@@ -298,6 +299,13 @@ func PrepareEventsV2(events []Event) {
 			ev.SourceRecordID = newEphemeralSourceRecordID()
 		}
 
+		// Every producer (file, Falco, eBPF) passes through here: hide credentials in the
+		// target and in the payload's text before the batch leaves the node.
+		ev.Target = redact.CommandLine(ev.Target)
+		if redactPayloadStrings(ev.PayloadJSON) {
+			ev.PayloadHash = ""
+		}
+
 		if ev.PayloadJSON == nil {
 			ev.PayloadJSON = map[string]interface{}{
 				"syscall":    ev.Syscall,
@@ -312,6 +320,41 @@ func PrepareEventsV2(events []Event) {
 			ev.PayloadHash = hex.EncodeToString(h[:])
 		}
 	}
+}
+
+// redactPayloadStrings hides credentials in every string of a payload, in place, and reports
+// whether anything changed.
+func redactPayloadStrings(v interface{}) bool {
+	changed := false
+	switch t := v.(type) {
+	case map[string]interface{}:
+		for k, val := range t {
+			if s, ok := val.(string); ok {
+				if clean := redact.Text(s); clean != s {
+					t[k] = clean
+					changed = true
+				}
+				continue
+			}
+			if redactPayloadStrings(val) {
+				changed = true
+			}
+		}
+	case []interface{}:
+		for i, val := range t {
+			if s, ok := val.(string); ok {
+				if clean := redact.Text(s); clean != s {
+					t[i] = clean
+					changed = true
+				}
+				continue
+			}
+			if redactPayloadStrings(val) {
+				changed = true
+			}
+		}
+	}
+	return changed
 }
 
 func (r *Reader) send(events []Event) error {

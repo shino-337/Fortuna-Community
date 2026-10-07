@@ -351,6 +351,12 @@ func main() {
 	go podProcRetention.Start()
 	defer podProcRetention.Stop()
 
+	// Retention for runtime evidence, K8s events, metrics, sessions, audit logs and
+	// archived cases (env FORTUNA_RETENTION_*)
+	dataRetention := scheduler.NewDataRetentionJob(db)
+	go dataRetention.Start()
+	defer dataRetention.Stop()
+
 	// Start SBOM reconciliation loop (runs every hour)
 	// OPTIMIZATION: Automatically detects missing/orphaned SBOMs and reconciles state
 	sbomReconciler := reconciler.NewSBOMReconciler(db, 1*time.Hour)

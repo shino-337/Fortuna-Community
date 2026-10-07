@@ -1,6 +1,9 @@
 package types
 
 import (
+	"strings"
+
+	"github.com/fortuna/agent/internal/redact"
 	appsv1 "k8s.io/api/apps/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -175,7 +178,7 @@ func ConvertDeployment(dep *appsv1.Deployment) DeploymentData {
 		UpdatedReplicas:     dep.Status.UpdatedReplicas,
 		Strategy:            strategy,
 		Labels:              dep.Labels,
-		Annotations:         dep.Annotations,
+		Annotations:         SafeAnnotations(dep.Annotations),
 		Selector:            selector,
 		Containers:          containers,
 		Conditions:          dep.Status.Conditions,
@@ -272,7 +275,7 @@ func ConvertReplicaSet(rs *appsv1.ReplicaSet) ReplicaSetData {
 		AvailableReplicas:    rs.Status.AvailableReplicas,
 		FullyLabeledReplicas: rs.Status.FullyLabeledReplicas,
 		Labels:               rs.Labels,
-		Annotations:          rs.Annotations,
+		Annotations:          SafeAnnotations(rs.Annotations),
 		Selector:             selector,
 		Containers:           containers,
 		Conditions:           rs.Status.Conditions,
@@ -281,4 +284,24 @@ func ConvertReplicaSet(rs *appsv1.ReplicaSet) ReplicaSetData {
 		OwnerUID:             ownerUID,
 		CreatedAt:            rs.CreationTimestamp,
 	}
+}
+
+// manifestAnnotation holds the object's full last-applied manifest, env values included.
+const manifestAnnotation = "kubectl.kubernetes.io/last-applied-configuration"
+
+// SafeAnnotations returns the annotations without the ones that carry a whole manifest, and with
+// credential values hidden in the rest. Fortuna never reads env values, so it must not receive
+// them through a copy of the manifest either.
+func SafeAnnotations(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return in
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		if k == manifestAnnotation || strings.HasSuffix(k, "/last-applied-configuration") {
+			continue
+		}
+		out[k] = redact.Text(v)
+	}
+	return out
 }

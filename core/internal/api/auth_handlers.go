@@ -751,7 +751,13 @@ func DeleteUser(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 		}
-		if err := saveUserKeepingAnAdmin(db, target, func(tx *gorm.DB) error { return tx.Delete(&target).Error }); err != nil {
+		// The row is kept for audit references; its password hash is not needed again.
+		if err := saveUserKeepingAnAdmin(db, target, func(tx *gorm.DB) error {
+			if err := tx.Model(&models.User{}).Where("id = ?", target.ID).Update("password", "").Error; err != nil {
+				return err
+			}
+			return tx.Delete(&target).Error
+		}); err != nil {
 			if errors.Is(err, errLastActiveAdmin) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "cannot delete the last active admin"})
 				return

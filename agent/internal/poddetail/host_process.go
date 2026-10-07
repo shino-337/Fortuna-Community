@@ -2,6 +2,7 @@ package poddetail
 
 import (
 	"bufio"
+	"github.com/fortuna/agent/internal/redact"
 	"math"
 	"os"
 	"path/filepath"
@@ -48,7 +49,7 @@ func CollectProcessesFromHost(procRoot string, containerMap map[string]PodContai
 		if comm == "" {
 			comm = readProcComm(procRoot, pid)
 		}
-		cmdline := redactCommandLine(readProcCmdline(procRoot, pid))
+		cmdline := redact.CommandLine(readProcCmdline(procRoot, pid))
 		if cmdline == "" {
 			cmdline = comm
 		}
