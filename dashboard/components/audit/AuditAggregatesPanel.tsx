@@ -105,7 +105,7 @@ export const AuditAggregatesPanel: React.FC = () => {
               <h3 className="fortuna-card-title">Resource / action counts</h3>
               <BarChart3 className="h-4 w-4 text-muted" />
             </div>
-            <div className="ui-table-scroll max-h-[60vh]">
+            <div className="ui-table-scroll overflow-y-auto max-h-[60vh]">
               <table className={UI_TABLE}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>

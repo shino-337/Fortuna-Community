@@ -168,7 +168,7 @@ export const Governance: React.FC = () => {
           </Card>
 
           <Card title="Permissions by role" variant="panel" contentClassName="p-0">
-            <div className="ui-table-scroll max-h-[70vh]">
+            <div className="ui-table-scroll overflow-y-auto max-h-[70vh]">
               <table className={UI_TABLE}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>

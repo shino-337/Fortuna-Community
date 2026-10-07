@@ -251,7 +251,7 @@ export const IdentityDetail: React.FC = () => {
           shown: {Math.min(effectiveRules.length, 200)} / {effectiveRules.length}
         </p>
         {effectiveRules.length > 0 ? (
-          <div className="ui-table-scroll rounded-lg border border-border">
+          <div className="ui-table-scroll overflow-y-auto max-h-[min(70dvh,40rem)] rounded-lg border border-border">
             <table className={UI_TABLE}>
               <thead className={UI_THEAD_STICKY}>
                 <tr>

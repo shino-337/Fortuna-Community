@@ -12,7 +12,7 @@ import { Button } from '../components/ui/Button';
 import { ResetFiltersButton } from '../components/ResetFiltersButton';
 import { PageLayout } from '../design-system/layouts/PageLayout';
 import { Pagination } from '../components/Pagination';
-import { Shield, AlertTriangle, Info, CheckCircle, Search, ArrowRight, X, Loader2, FileText, UserRound } from 'lucide-react';
+import { AlertTriangle, Search, ArrowRight, X, Loader2, FileText, UserRound } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams, Link } from 'react-router-dom';
 import { useClusterStore } from '../store/clusterStore';
 import { useTimeWindowStore } from '../store/timeWindowStore';
@@ -49,6 +49,7 @@ import { useOperationalMaterialization } from '../hooks/useOperationalMaterializ
 import { personaAllowsAction} from '../lib/persona';
 import { getRiskWorkspaceConfig, type RiskTabId } from '../lib/personaRiskWorkspace';
 import { ProvenanceBadge } from '../design-system/components/ProvenanceBadge';
+import { When } from '../components/When';
 import { insightProvenance, insightProvenanceTitle} from '../lib/provenance';
 import { PageContract } from '../components/PageContract';
 import { SemanticEmptyState } from '../design-system/components/SemanticEmptyState';
@@ -79,14 +80,14 @@ function assigneeForStatus(status: FindingStatusFilter): 'me' | undefined {
 type BulkFindingAction = 'acknowledge' | 'resolve' | 'dismiss';
 
 /** Shared table chrome for Risk Center data tables */
-const RISK_FINDINGS_COLS_KEY = 'fortuna-risk-findings-table-cols-v1';
+const RISK_FINDINGS_COLS_KEY = 'fortuna-risk-findings-table-cols-v2';
 /** GET /risk/insights silently falls back to 20 rows when pageSize > 100, so never request more. */
 const RISKS_API_MAX_PAGE_SIZE = 100;
 
 type RiskFindingsTableCols = {
   type: boolean;
   resource: boolean;
-  score: boolean;
+  evidence: boolean;
   nsCluster: boolean;
   detected: boolean;
   updated: boolean;
@@ -95,10 +96,10 @@ type RiskFindingsTableCols = {
 const defaultRiskFindingsCols: RiskFindingsTableCols = {
   type: true,
   resource: true,
-  score: true,
+  evidence: false,
   nsCluster: true,
   detected: true,
-  updated: true,
+  updated: false,
 };
 
 function loadRiskFindingsCols(): RiskFindingsTableCols {
@@ -635,17 +636,6 @@ export const RiskCenter: React.FC = () => {
   }, [selectedRisk, searchParams, setSearchParams]);
 
 
-  const getSeverityIcon = (severity: Insight['severity']) => {
-    switch (severity) {
-      case 'critical': return <Shield className="w-5 h-5 text-critical" />;
-      case 'high': return <AlertTriangle className="w-5 h-5 text-high" />;
-      case 'medium': return <Info className="w-5 h-5 text-medium" />;
-      case 'low': return <CheckCircle className="w-5 h-5 text-low" />;
-      default: return <Info className="w-5 h-5 text-muted" aria-label={severity ? String(severity) : 'Unknown severity'} />;
-    }
-  };
-
-
   React.useEffect(() => {
     setRisksPage(1);
   }, [findingsListView]);
@@ -717,17 +707,16 @@ export const RiskCenter: React.FC = () => {
   };
 
   const findingsTableColCount = useMemo(() => {
-    let n = 4; // level, finding, workflow, actions
+    let n = 4; // risk, finding, status, actions
     if (riskWorkspace.showRowSelection) n += 1;
-    if (riskWorkspace.showProvenanceColumn) n += 1;
+    if (riskFindingsCols.evidence) n += 1;
     if (riskFindingsCols.type) n += 1;
     if (riskFindingsCols.resource) n += 1;
-    if (riskFindingsCols.score) n += 1;
     if (!effectiveClusterId && riskFindingsCols.nsCluster) n += 1;
     if (riskFindingsCols.detected) n += 1;
     if (riskFindingsCols.updated) n += 1;
     return n;
-  }, [riskFindingsCols, effectiveClusterId, riskWorkspace.showRowSelection, riskWorkspace.showProvenanceColumn]);
+  }, [riskFindingsCols, effectiveClusterId, riskWorkspace.showRowSelection]);
 
   const pendingBulkActionLabel = pendingBulkAction === 'acknowledge'
     ? 'Acknowledge'
@@ -1127,8 +1116,8 @@ export const RiskCenter: React.FC = () => {
             {(
               [
                 { key: 'type' as const, label: 'Type' },
-                { key: 'resource' as const, label: 'Impacted resource' },
-	                { key: 'score' as const, label: 'Priority score' },
+                { key: 'resource' as const, label: 'Resource' },
+                { key: 'evidence' as const, label: 'Evidence kind' },
                 { key: 'nsCluster' as const, label: 'Namespace / cluster', allClustersOnly: true },
                 { key: 'detected' as const, label: 'Detected' },
                 { key: 'updated' as const, label: 'Updated' },
@@ -1222,31 +1211,28 @@ export const RiskCenter: React.FC = () => {
                       />
                     </th>
                     ) : null}
-	                    <th className={`${tableHeadClass} w-10`}>Priority</th>
-                    {riskWorkspace.showProvenanceColumn ? (
+                    <th className={`${tableHeadClass} w-28`}>Risk</th>
+                    <th className={`${tableHeadClass} min-w-[16rem]`}>Finding</th>
+                    {riskFindingsCols.evidence ? (
                       <th className={`${tableHeadClass} w-24 hidden md:table-cell`}>Evidence</th>
                     ) : null}
-                    <th className={tableHeadClass}>Finding</th>
                     {riskFindingsCols.type && (
-                      <th className={`${tableHeadClass} w-36 hidden sm:table-cell`}>Type</th>
+                      <th className={`${tableHeadClass} w-28 hidden sm:table-cell`}>Type</th>
                     )}
                     {riskFindingsCols.resource && (
-                      <th className={`${tableHeadClass} w-20`}>Impacted Resource</th>
-                    )}
-                    {riskFindingsCols.score && (
-	                      <th className={`${tableHeadClass} w-20 min-w-[5rem]`}>Priority Score</th>
+                      <th className={`${tableHeadClass} w-48`}>Resource</th>
                     )}
                     {!effectiveClusterId && riskFindingsCols.nsCluster && (
                       <th className={`${tableHeadClass} hidden lg:table-cell w-32`}>Namespace / Cluster</th>
                     )}
-                    <th className={`${tableHeadClass} w-24`}>Workflow</th>
+                    <th className={`${tableHeadClass} w-28`}>Status</th>
                     {riskFindingsCols.detected && (
-                      <th className={`${tableHeadClass} w-24 hidden md:table-cell`}>Detected At</th>
+                      <th className={`${tableHeadClass} w-24 hidden md:table-cell`}>Detected</th>
                     )}
                     {riskFindingsCols.updated && (
-                      <th className={`${tableHeadClass} w-24 hidden lg:table-cell`}>Updated At</th>
+                      <th className={`${tableHeadClass} w-24 hidden lg:table-cell`}>Updated</th>
                     )}
-                    <th className={`${tableHeadClass} w-32 text-right`}>Actions</th>
+                    <th className={`${tableHeadClass} w-24 text-right`}><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1310,53 +1296,52 @@ export const RiskCenter: React.FC = () => {
                           />
                         </td>
                         ) : null}
-                        <td className={tableCellClass}>
-                          <div className="flex items-center gap-1">
-                            {risk.finalLevel ? getSeverityIcon(risk.finalLevel) : <span className="text-muted">·</span>}
-                            {risk.finalLevel ? (
-                              <span className={`text-caption font-bold px-1.5 py-0.5 rounded capitalize border ${getSeverityBadgeClass(risk.finalLevel)}`} title="Unified risk level (from score)">
+                        <td
+                          className={tableCellClass}
+                          title={
+                            [
+                              risk.score != null ? `Risk score ${risk.score}/100 (a priority signal, not exploit probability)` : 'No risk score yet',
+                              risk.exploitabilityScore != null ? `Exploitability factor ${risk.exploitabilityScore.toFixed(1)}` : null,
+                              risk.businessImpactScore != null ? `Business impact factor ${risk.businessImpactScore.toFixed(1)}` : null,
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')
+                          }
+                        >
+                          {risk.finalLevel ? (
+                            <div className="flex items-center gap-2 whitespace-nowrap">
+                              <span className={`text-caption font-semibold px-1.5 py-0.5 rounded capitalize border ${getSeverityBadgeClass(risk.finalLevel)}`}>
                                 {risk.finalLevel}
                               </span>
-                            ) : (
-                              <span className="text-caption text-muted">No score</span>
-                            )}
-                          </div>
+                              {risk.score != null ? <span className="text-caption text-muted tabular-nums">{risk.score}</span> : null}
+                            </div>
+                          ) : (
+                            <span className="text-caption text-muted">No score</span>
+                          )}
                         </td>
-                        {riskWorkspace.showProvenanceColumn ? (
-                          <td className={`${tableCellClass} hidden md:table-cell`}>
-                            <ProvenanceBadge kind={insightProvenance(risk)} title={insightProvenanceTitle(risk)} />
-                          </td>
-                        ) : null}
                         <td className={tableCellClass}>
-                          <span className="text-text font-medium">{risk.title}</span>
-                          <span className="text-muted ml-1 text-caption font-mono" title={risk.cveId}>
-                            ({riskListSecondaryLabel(risk)})
-                          </span>
-                          {risk.assignee ? (
-                            <span className="ml-2 inline-flex items-center gap-1 rounded-full border border-border px-1.5 text-meta text-muted" title="Owner">
-                              <UserRound className="h-3 w-3" aria-hidden />
-                              {String(risk.assigneeUserId ?? '') === String(permUser?.id ?? '') ? 'You' : risk.assignee}
-                            </span>
-                          ) : null}
+                          <div className="font-medium text-text leading-snug">{risk.title}</div>
+                          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-meta text-muted">
+                            <span className="font-mono" title={risk.cveId}>{riskListSecondaryLabel(risk)}</span>
+                            {risk.assignee ? (
+                              <span className="inline-flex items-center gap-1 rounded-full border border-border px-1.5" title="Owner">
+                                <UserRound className="h-3 w-3" aria-hidden />
+                                {String(risk.assigneeUserId ?? '') === String(permUser?.id ?? '') ? 'You' : risk.assignee}
+                              </span>
+                            ) : null}
+                          </div>
                           {riskWorkspace.narrativeTable && risk.riskExplanation ? (
                             <p className="text-meta text-muted mt-1 line-clamp-2 max-w-prose">{risk.riskExplanation}</p>
                           ) : null}
                         </td>
+                        {riskFindingsCols.evidence ? (
+                          <td className={`${tableCellClass} hidden md:table-cell`}>
+                            <ProvenanceBadge kind={insightProvenance(risk)} title={insightProvenanceTitle(risk)} />
+                          </td>
+                        ) : null}
                         {riskFindingsCols.type && (
                           <td className={`${UI_TD} text-muted hidden sm:table-cell text-caption leading-snug`}>
-                            {(() => {
-                              const label = insightTypeUiLabel(risk.insightType);
-                              const src =
-                                risk.insightType === 'vulnerability' || risk.insightType === 'supply_chain_malware'
-                                  ? 'Static'
-                                  : 'Runtime';
-                              return (
-                                <>
-                                  <span className="block text-text">{label}</span>
-                                  <span className="text-caption text-muted">({src})</span>
-                                </>
-                              );
-                            })()}
+                            <span className="text-text">{insightTypeUiLabel(risk.insightType)}</span>
                           </td>
                         )}
                         {riskFindingsCols.resource && (
@@ -1397,43 +1382,6 @@ export const RiskCenter: React.FC = () => {
                             ) : '—'}
                           </td>
                         )}
-                        {riskFindingsCols.score && (
-                          <td
-                            className={`${UI_TD} text-text`}
-                            title={
-                              [
-	                                'Priority score, not exploit probability',
-                                risk.score != null ? `Score ${risk.score}/100` : null,
-                                risk.finalLevel ? `Level ${risk.finalLevel}` : null,
-                                risk.exploitabilityScore != null ? `Exploitability factor ${risk.exploitabilityScore.toFixed(1)}` : null,
-                                risk.businessImpactScore != null ? `Business impact factor ${risk.businessImpactScore.toFixed(1)}` : null,
-                              ]
-                                .filter(Boolean)
-                                .join(' · ') || undefined
-                            }
-                          >
-                            {risk.score != null ? (
-                              <div className="space-y-1">
-                                <div className="font-medium tabular-nums">
-                                  {risk.score}/100
-                                  {risk.finalLevel ? <span className="text-muted font-normal capitalize"> {risk.finalLevel}</span> : null}
-                                </div>
-                                <div className="text-micro text-muted">prioritization</div>
-                                <div
-                                  className="h-1 rounded-full bg-surface-2 overflow-hidden max-w-[4.5rem]"
-                                  title="Score / 100"
-                                >
-                                  <div
-                                    className={`h-full rounded-full ${risk.score >= 70 ? 'bg-red-500' : risk.score >= 40 ? 'bg-amber-500' : 'bg-emerald-500/80'}`}
-                                    style={{ width: `${Math.min(100, Math.max(0, risk.score))}%` }}
-                                  />
-                                </div>
-                              </div>
-                            ) : (
-                              '—'
-                            )}
-                          </td>
-                        )}
                         {!effectiveClusterId && riskFindingsCols.nsCluster && (
                           <td
                             className={`${UI_TD} text-muted hidden lg:table-cell max-w-[160px]`} title={`ns: ${risk.affectedResources?.[0]?.namespace ?? '—'} · cl: ${risk.clusterName ?? (risk.clusterId ? clusterLabelById.get(risk.clusterId) ?? risk.clusterId : '—')}`}>
@@ -1452,21 +1400,15 @@ export const RiskCenter: React.FC = () => {
                         </td>
                         {riskFindingsCols.detected && (
                           <td className={`${UI_TD} text-muted hidden md:table-cell text-caption`}>
-                            {risk.timestamp ? new Date(risk.timestamp).toLocaleDateString() : '—'}
+                            <When iso={risk.timestamp} />
                           </td>
                         )}
                         {riskFindingsCols.updated && (
                           <td className={`${UI_TD} text-muted hidden lg:table-cell text-caption`}>
-                            {risk.updatedAt ? new Date(risk.updatedAt).toLocaleDateString() : '—'}
+                            <When iso={risk.updatedAt} />
                           </td>
                         )}
                         <td className={`${UI_TD} text-right`} onClick={(e) => e.stopPropagation()}>
-                          <button
-                            onClick={() => toggleRiskDrawer(risk)}
-                            className="text-brand hover:text-brand/90 text-body font-medium mr-2"
-                          >
-                            {selectedRisk?.id === risk.id ? 'Close view' : 'Quick view'}
-                          </button>
                           <Button
                             size="sm"
                             variant="secondary"

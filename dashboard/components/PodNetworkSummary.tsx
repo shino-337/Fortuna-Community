@@ -155,7 +155,7 @@ export const PodNetworkSummary: React.FC<PodNetworkSummaryProps> = ({
             Top remote endpoints (aggregated, 24 h)
           </p>
           <div className="rounded-lg border border-border bg-base/30 overflow-hidden -mx-1 sm:mx-0">
-            <div className="ui-table-scroll max-h-[min(50dvh,28rem)]">
+            <div className="ui-table-scroll overflow-y-auto max-h-[min(50dvh,28rem)]">
               <table className={`${UI_TABLE} min-w-[640px]`}>
                 <thead className={UI_THEAD_STICKY}>
                   <tr>
