@@ -31,10 +31,9 @@ export type OperationalSurface =
   | 'admin_rules'
   | 'admin_capabilities'
   | 'admin_certificates'
-  | 'admin_settings'
-  | 'user_admin_settings';
+  | 'admin_settings';
 
-export type ShellVariant = 'viewer' | 'operator' | 'admin' | 'user_admin';
+export type ShellVariant = 'viewer' | 'operator' | 'admin';
 
 export interface SurfaceDefinition {
   id: OperationalSurface;
@@ -334,17 +333,7 @@ export const SURFACE_REGISTRY: SurfaceDefinition[] = [
     shellVariant: 'admin',
     priority: 81,
   },
-  {
-    id: 'user_admin_settings',
-    personas: ['user_admin'],
-    requiredPermissions: [P.usersRead],
-    relevance: () => true,
-    routes: ['/settings'],
-    dashboardSections: [],
-    graphModes: ['integrity'],
-    shellVariant: 'user_admin',
-    priority: 100,
-  },
+
 ];
 
 export function getSurfaceDefinition(id: OperationalSurface): SurfaceDefinition | undefined {

@@ -34,3 +34,10 @@ func TestOperationalScopeEmptyUnrestricted(t *testing.T) {
 		t.Fatal("empty scope should not be restricted")
 	}
 }
+
+func TestOperationalScopeNoClustersIsRestricted(t *testing.T) {
+	s := OperationalScopeFromDocument(ScopeNoClusters)
+	if !s.Restricted || len(s.Clusters) != 0 {
+		t.Fatalf("an empty cluster list is restricted to nothing: %+v", s)
+	}
+}

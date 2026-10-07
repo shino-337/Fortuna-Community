@@ -61,7 +61,7 @@ export const Login: React.FC = () => {
           <h1 className="text-page-title text-text">Welcome back</h1>
           <p className="text-muted mt-2">Sign in to access Fortuna</p>
           <p className="text-meta text-muted-2 text-center mt-3 max-w-sm leading-snug">
-            Access is controlled by <strong className="text-muted">Fortuna application roles</strong> (Admin, User admin, Operator, Viewer). These are not the same as Kubernetes Role or ClusterRole objects in your clusters.
+            Access is controlled by <strong className="text-muted">Fortuna application roles</strong> (Admin, Cluster admin, Operator, Viewer). These are not the same as Kubernetes Role or ClusterRole objects in your clusters.
           </p>
         </div>
 

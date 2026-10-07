@@ -179,23 +179,17 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		if u, exists := c.Get("user"); exists {
 			if actor, ok := u.(*models.User); ok && actor != nil {
 				an := authorization.NormalizeRole(actor.Role)
-				if !actorMaySetUserRole(actor, role) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "user administrators can only create viewer or user_admin accounts"})
-					return
-				}
-				if an != models.RoleAdmin && strings.TrimSpace(req.ScopeJSON) != "" && strings.TrimSpace(req.ScopeJSON) != "{}" {
-					c.JSON(http.StatusForbidden, gin.H{"error": "only platform administrators may set cluster scope"})
-					return
-				}
-				if an != models.RoleAdmin && an != models.RoleUserAdmin {
-					c.JSON(http.StatusForbidden, gin.H{"error": "insufficient privileges to register users"})
+				if an != models.RoleAdmin || !actorMaySetUserRole(actor, role) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "only platform administrators may create users"})
 					return
 				}
 			}
 		}
+		// An account created without a scope sees no cluster until an admin picks
+		// its clusters; "{}" (every cluster) must be asked for explicitly.
 		scopeJSON := strings.TrimSpace(req.ScopeJSON)
 		if scopeJSON == "" {
-			scopeJSON = "{}"
+			scopeJSON = authorization.ScopeNoClusters
 		}
 		if !json.Valid([]byte(scopeJSON)) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
@@ -208,6 +202,10 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		}
 		if err := validateSupportedUserScope(doc); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson contains unsupported restrictions", "detail": err.Error()})
+			return
+		}
+		if err := validateRoleScope(role, doc); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		unknownClusters, err := validateScopeClusterReferences(db, scopeJSON)
@@ -240,9 +238,10 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		user.Permissions = authorization.ToStrings(authorization.PermissionsForUser(user.Role))
 
 		LogPlatformSecurityAudit(db, c, "user_create", "user", fmt.Sprintf("%d", user.ID), map[string]interface{}{
-			"username": user.Username,
-			"email":    user.Email,
-			"role":     user.Role,
+			"username":  user.Username,
+			"email":     user.Email,
+			"role":      user.Role,
+			"scopeJson": user.ScopeJSON,
 		})
 
 		c.JSON(http.StatusCreated, gin.H{"user": user})
@@ -398,38 +397,19 @@ func normalizeStoredUserRole(role string) (string, error) {
 		return models.RoleAdmin, nil
 	case strings.EqualFold(role, models.RoleClusterAdmin):
 		return models.RoleClusterAdmin, nil
-	case strings.EqualFold(role, models.RoleUserAdmin):
-		return models.RoleUserAdmin, nil
 	default:
 		return "", fmt.Errorf("invalid role")
 	}
 }
 
+// actorMaySetUserRole reports whether actor may give an account newRole. Only a
+// platform admin manages accounts; a nil actor is the dev-mode unauthenticated
+// register route.
 func actorMaySetUserRole(actor *models.User, newRole string) bool {
 	if actor == nil {
 		return true
 	}
-	an := authorization.NormalizeRole(actor.Role)
-	if an == models.RoleAdmin {
-		return true
-	}
-	if an == models.RoleUserAdmin {
-		// A user admin holds no security-data permission and cannot set cluster scope, so an
-		// account it creates gets every cluster. Limit it to roles that cannot change data;
-		// operator and above need a platform admin, who also sets the account's scope.
-		return newRole == models.RoleViewer || newRole == models.RoleUserAdmin
-	}
-	return false
-}
-
-// userAdminMayManage mirrors Register: a user admin may not create admin or
-// cluster_admin accounts, so it may not change or delete them either.
-func userAdminMayManage(actor *models.User, target models.User) bool {
-	if actor == nil || authorization.NormalizeRole(actor.Role) != models.RoleUserAdmin {
-		return true
-	}
-	tr := authorization.NormalizeRole(target.Role)
-	return tr != models.RoleAdmin && tr != models.RoleClusterAdmin
+	return authorization.NormalizeRole(actor.Role) == models.RoleAdmin
 }
 
 func countActiveAdmins(db *gorm.DB) (int64, error) {
@@ -486,6 +466,19 @@ func saveUserKeepingAnAdmin(db *gorm.DB, before models.User, write func(tx *gorm
 func validateSupportedUserScope(doc authorization.ScopeDocument) error {
 	if doc.HasUnenforcedRestrictions() {
 		return errors.New("only cluster allow-list scope is currently enforced")
+	}
+	return nil
+}
+
+// validateRoleScope rejects a cluster admin without a named cluster: the role
+// exists to run security for given clusters, and without a cluster list it
+// would act on every cluster.
+func validateRoleScope(role string, doc authorization.ScopeDocument) error {
+	if authorization.NormalizeRole(role) != models.RoleClusterAdmin {
+		return nil
+	}
+	if !doc.RestrictsClusters() || len(doc.ClusterIDs()) == 0 {
+		return errors.New("a cluster admin needs at least one cluster in scopeJson")
 	}
 	return nil
 }
@@ -568,12 +561,15 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if !userAdminMayManage(actor, target) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot modify admin or cluster_admin accounts"})
+		if authorization.NormalizeRole(actor.Role) != models.RoleAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "only platform administrators may change users"})
 			return
 		}
-		if authorization.NormalizeRole(actor.Role) == models.RoleUserAdmin && actor.ID == target.ID && body.Role != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot change their own Fortuna role"})
+		// A service account's role and scope come from deployment configuration;
+		// giving the risk evaluation job's credentials another role would hand
+		// that role to whatever can read the job's Secret.
+		if authorization.IsServiceRole(target.Role) && (body.Role != nil || body.ScopeJSON != nil) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "service accounts are managed by deployment configuration"})
 			return
 		}
 		before := map[string]any{
@@ -640,7 +636,7 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			}
 			raw := strings.TrimSpace(*body.ScopeJSON)
 			if raw == "" {
-				raw = "{}"
+				raw = authorization.ScopeNoClusters
 			}
 			if !json.Valid([]byte(raw)) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
@@ -665,6 +661,12 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			target.ScopeJSON = raw
+		}
+		if body.Role != nil || body.ScopeJSON != nil {
+			if err := validateRoleScope(target.Role, authorization.ParseScopeDocument(target.ScopeJSON)); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 		}
 		if err := saveUserKeepingAnAdmin(db, original, func(tx *gorm.DB) error { return tx.Save(&target).Error }); err != nil {
 			if errors.Is(err, errLastActiveAdmin) {
@@ -734,8 +736,12 @@ func DeleteUser(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
 		}
-		if !userAdminMayManage(actor, target) {
-			c.JSON(http.StatusForbidden, gin.H{"error": "user administrators cannot delete admin or cluster_admin accounts"})
+		if authorization.NormalizeRole(actor.Role) != models.RoleAdmin {
+			c.JSON(http.StatusForbidden, gin.H{"error": "only platform administrators may delete users"})
+			return
+		}
+		if authorization.IsServiceRole(target.Role) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "service accounts are managed by deployment configuration; disable it instead"})
 			return
 		}
 		// Count active admins, consistent with PatchUser: an inactive admin cannot

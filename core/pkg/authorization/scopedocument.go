@@ -9,6 +9,7 @@ import (
 
 // ScopeDocument is the v2 scope JSON on users (cluster-only today; extended fields reserved).
 // Backward compatible: {"cluster_ids":["a"]} or {"clusters":["a"],"namespaces":[],"environments":[],"tenants":[],"labels":{}}.
+// "{}" means every cluster; {"clusters":[]} means no cluster.
 type ScopeDocument struct {
 	Clusters          []string          `json:"clusters"`
 	Namespaces        []string          `json:"namespaces"`
@@ -19,7 +20,15 @@ type ScopeDocument struct {
 	RegulatoryDomains []string          `json:"regulatory_domains"`
 	Labels            map[string]string `json:"labels"`
 	LegacyCluster     []string          `json:"cluster_ids"`
+
+	// clustersListed is true when the document names a cluster list, even an
+	// empty one. An empty list grants no cluster; only a document without any
+	// cluster field ("{}") is unrestricted.
+	clustersListed bool
 }
+
+// ScopeNoClusters is the scope of an account that may not see any cluster yet.
+const ScopeNoClusters = `{"clusters":[]}`
 
 // ParseScopeDocumentStrict parses and validates the persisted scope schema.
 // Scope is authorization input: malformed types or unknown fields must never be
@@ -57,15 +66,12 @@ func ParseScopeDocumentStrict(scopeJSON string) (ScopeDocument, error) {
 	if err := json.Unmarshal([]byte(s), &d); err != nil {
 		return ScopeDocument{}, fmt.Errorf("invalid scope field type: %w", err)
 	}
-	// An explicit empty cluster allow-list would otherwise mean "no restriction",
-	// so clearing the last cluster would grant every cluster. Unrestricted access
-	// is expressed only by omitting the field ("{}").
-	if _, ok := raw["clusters"]; ok && len(d.Clusters) == 0 {
-		return ScopeDocument{}, errors.New("clusters: list must not be empty; omit the field for access to all clusters")
-	}
-	if _, ok := raw["cluster_ids"]; ok && len(d.LegacyCluster) == 0 {
-		return ScopeDocument{}, errors.New("cluster_ids: list must not be empty; omit the field for access to all clusters")
-	}
+	// An explicit empty list grants no cluster. It is how an account is created
+	// before an admin picks its clusters, and clearing the last cluster must not
+	// widen access to every cluster.
+	_, hasClusters := raw["clusters"]
+	_, hasLegacy := raw["cluster_ids"]
+	d.clustersListed = hasClusters || hasLegacy
 	if err := d.Validate(); err != nil {
 		return ScopeDocument{}, err
 	}
@@ -139,7 +145,12 @@ func (d ScopeDocument) RestrictsClusters() bool {
 	if d.HasUnenforcedRestrictions() {
 		return true
 	}
-	return len(d.clusterIDs()) > 0
+	return d.clustersListed || len(d.clusterIDs()) > 0
+}
+
+// GrantsNoCluster reports whether the document names an empty cluster list.
+func (d ScopeDocument) GrantsNoCluster() bool {
+	return d.RestrictsClusters() && len(d.ClusterIDs()) == 0
 }
 
 // ClusterAllowed reports whether clusterKey is in scope (exact string match).

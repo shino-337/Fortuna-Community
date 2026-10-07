@@ -1,7 +1,8 @@
 # Generated from deploy/helm/fortuna by scripts/build/render-manifests.sh.
 # Do not edit: change the chart and re-render. CI fails when they differ.
 ---
-# Triggers historical risk evaluation on a schedule, logging in as the bootstrap admin.
+# Triggers historical risk evaluation on a schedule. It signs in as a service
+# account that holds only risk.evaluate, never as the admin.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -39,7 +40,7 @@ spec:
                   echo "Authenticating..."
                   # The password and token go to curl on stdin (printf is a shell builtin), never
                   # as arguments: command lines are visible in /proc to anything on the node.
-                  TOKEN=$(printf '{"username":"%s","password":"%s"}' "${ADMIN_USERNAME}" "${ADMIN_PASSWORD}" \
+                  TOKEN=$(printf '{"username":"%s","password":"%s"}' "${EVALUATOR_USERNAME}" "${EVALUATOR_PASSWORD}" \
                     | curl -sS -X POST "${CORE_SERVICE_URL}/api/v1/auth/login" \
                       -H "Content-Type: application/json" \
                       --data-binary @- \
@@ -67,13 +68,13 @@ spec:
               env:
                 - name: CORE_SERVICE_URL
                   value: "http://fortuna-core.fortuna.svc.cluster.local:8080"
-                - name: ADMIN_USERNAME
-                  value: "admin"
-                - name: ADMIN_PASSWORD
+                - name: EVALUATOR_USERNAME
+                  value: "fortuna-risk-evaluator"
+                - name: EVALUATOR_PASSWORD
                   valueFrom:
                     secretKeyRef:
                       name: fortuna-secrets
-                      key: admin-password
+                      key: risk-evaluator-password
               resources:
                 requests:
                   memory: "32Mi"

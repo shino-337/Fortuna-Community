@@ -613,7 +613,7 @@ func TestUserLifecycle_UserAdminCannotPatchAdmin(t *testing.T) {
 	}
 }
 
-func TestUserLifecycle_UserAdminPatchesNonAdminRole(t *testing.T) {
+func TestUserLifecycle_RetiredUserAdminCannotPatch(t *testing.T) {
 	db := setupUserLifecycleDB(t)
 	r := routerUserLifecycleV1(t, db)
 	tok := loginToken(t, db, userLifecycleSecret, "uadmin1")
@@ -626,8 +626,8 @@ func TestUserLifecycle_UserAdminPatchesNonAdminRole(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+tok)
 	req.Header.Set("Content-Type", "application/json")
 	r.ServeHTTP(w, req)
-	if w.Code != http.StatusOK {
-		t.Fatalf("want 200 got %d %s", w.Code, w.Body.String())
+	if w.Code != http.StatusForbidden {
+		t.Fatalf("want 403 got %d %s", w.Code, w.Body.String())
 	}
 }
 
@@ -695,14 +695,14 @@ func TestUserLifecycle_ViewerCannotListUsers(t *testing.T) {
 	}
 }
 
-func TestUserLifecycle_UserAdminCanListUsers(t *testing.T) {
+func TestUserLifecycle_AdminListsUsersWithScope(t *testing.T) {
 	db := setupUserLifecycleDB(t)
 	opID := userIDByUsername(t, db, "op1")
 	if err := db.Model(&models.User{}).Where("id = ?", opID).Update("scope_json", `{"clusters":["c1"]}`).Error; err != nil {
 		t.Fatalf("seed scope: %v", err)
 	}
 	r := routerUserLifecycleV1(t, db)
-	tok := loginToken(t, db, userLifecycleSecret, "uadmin1")
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)

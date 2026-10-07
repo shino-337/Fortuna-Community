@@ -764,7 +764,7 @@ export const api = {
     return data.user;
   },
 
-  /** POST /api/v1/auth/register — Admin or User admin; requires auth.register. */
+  /** POST /api/v1/auth/register — Admin only; requires auth.register. */
   registerUser: async (body: { username: string; email: string; password: string; role: string; scopeJson?: string }): Promise<User> => {
     const data = await request<{ user: User }>('/auth/register', {
       method: 'POST',

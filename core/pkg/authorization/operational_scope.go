@@ -27,7 +27,7 @@ func OperationalScopeFromDocument(scopeJSON string) OperationalScope {
 		CrownJewels:       append([]string(nil), doc.CrownJewels...),
 		RegulatoryDomains: append([]string(nil), doc.RegulatoryDomains...),
 	}
-	if len(out.Clusters) > 0 || len(out.Namespaces) > 0 || len(out.Teams) > 0 || len(out.Environments) > 0 ||
+	if doc.RestrictsClusters() || len(out.Clusters) > 0 || len(out.Namespaces) > 0 || len(out.Teams) > 0 || len(out.Environments) > 0 ||
 		len(out.BusinessServices) > 0 || len(out.CrownJewels) > 0 || len(out.RegulatoryDomains) > 0 {
 		out.Restricted = true
 	}

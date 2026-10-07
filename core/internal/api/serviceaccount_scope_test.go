@@ -41,9 +41,9 @@ func serviceAccountScopeFixture(t *testing.T) (*gorm.DB, func(string, string, st
 	group := r.Group("/api/v1")
 	group.Use(func(c *gin.Context) {
 		who := c.GetHeader("Test-User")
-		perms := []authorization.Permission{authorization.PermissionInventoryRead, authorization.PermissionInventoryModify, authorization.PermissionInventoryDelete, authorization.PermissionInventoryBulk}
+		perms := []authorization.Permission{authorization.PermissionInventoryRead, authorization.PermissionInventoryModify, authorization.PermissionInventoryDelete}
 		if who == "bulk-only" {
-			perms = []authorization.Permission{authorization.PermissionInventoryBulk}
+			perms = []authorization.Permission{authorization.PermissionRulesRead}
 		}
 		if who == "viewer" {
 			perms = []authorization.Permission{authorization.PermissionInventoryRead}

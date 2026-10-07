@@ -50,7 +50,7 @@ func TestInventoryCollectionPostgres(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.Cluster{}, &models.Agent{}, &models.User{}, &models.AuditLog{}, &models.Role{}))
 	require.NoError(t, migrations.EnsureInventoryCollection(db))
 	require.NoError(t, migrations.EnsureInventoryCollection(db))
-	require.NoError(t, db.Create(&models.User{Username: "system", Email: "system@test", Password: "unused", Role: models.RoleAdmin, Active: true}).Error)
+	require.NoError(t, db.Create(&models.User{Username: "system", Email: "system@test", Password: "unused", Role: models.RoleSystem, Active: true}).Error)
 	data := map[string]interface{}{"isFullSync": true, "isDeltaSync": false}
 	counts := map[string]int{}
 	for _, kind := range collection.InventoryKinds {

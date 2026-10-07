@@ -46,6 +46,8 @@ These are read by the database migrations that run at Core startup.
 | `FORTUNA_BOOTSTRAP_DEFAULT_CREDENTIAL` | none | Marks the admin password as a first-login credential: it is not synced over an existing account and a change is forced at login. |
 | `FORTUNA_FORCE_ADMIN_PASSWORD_CHANGE` | none | Forces the bootstrap admin to change the password at next login. |
 | `FORTUNA_ADMIN_EMAIL` | `<username>@fortuna.local` | Email of the bootstrap admin account. |
+| `FORTUNA_RISK_EVALUATOR_USERNAME` | `fortuna-risk-evaluator` | Username of the service account the risk evaluation CronJob signs in as. |
+| `FORTUNA_RISK_EVALUATOR_PASSWORD` | none | Password of that service account (`risk-evaluator-password` in `fortuna-secrets`). When set, Core creates or updates the account with only `auth.session` and `risk.evaluate`; it never takes over an existing account of another role. Its role and scope cannot be changed or the account deleted through the API, only disabled. |
 | `FORTUNA_ALLOW_WEAK_BOOTSTRAP_PASSWORD` | `false` | `true` creates the admin even if the password fails the password policy; otherwise the admin is not created and Core logs a warning. |
 | `FORTUNA_ENABLE_SEED_DATA` | none | Seeds the capability metadata and promotion rules that the Capability Catalog and PCE need. |
 | `ENVIRONMENT` | `development` | `production` or `staging` makes the SQL files of some early migrations mandatory instead of falling back to automatic schema creation. |

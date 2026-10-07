@@ -52,6 +52,7 @@ Returns YAML; read it with (include "fortuna.generatedSecrets" . | fromYaml).
   "postgresPassword" $postgresPassword
   "databaseUrl" $databaseUrl
   "adminPassword" (.Values.secrets.adminPassword | default (get $data "admin-password" | b64dec) | default (printf "Fa1-%s" (randAlphaNum 20)))
+  "riskEvaluatorPassword" (get $data "risk-evaluator-password" | b64dec | default (printf "Fr1-%s" (randAlphaNum 32)))
   "jwtSecret" (.Values.secrets.jwtSecret | default (get $data "jwt-secret" | b64dec) | default (randAlphaNum 48))
   "ingestToken" (.Values.secrets.ingestToken | default (get $data "ingest-token" | b64dec) | default (randAlphaNum 48))
   "podDetailEncryptionKey" (.Values.secrets.podDetailEncryptionKey | default (get $data "pod-detail-encryption-key" | b64dec) | default (randAlphaNum 32 | b64enc))

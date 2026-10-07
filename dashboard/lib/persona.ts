@@ -6,7 +6,7 @@ import type { User } from '../types';
 import { can, canAny, P, type PermissionString } from './permissions';
 import { normalizeFortunaRoleKey } from './fortunaRoles';
 
-export type PersonaId = 'viewer' | 'operator' | 'admin' | 'user_admin';
+export type PersonaId = 'viewer' | 'operator' | 'admin';
 
 export type TableDensity = 'comfortable' | 'compact';
 
@@ -41,19 +41,15 @@ export type PermUser = Pick<User, 'username' | 'email' | 'role' | 'permissions' 
 
 /** Derive a user's persona ID based on their Fortuna role and permissions. */
 export function derivePersonaId(user: PermUser): PersonaId;
-/** @returns The user's persona (viewer/operator/admin/user_admin) derived from role or JWT permissions. */
+/** @returns The user's persona (viewer/operator/admin) derived from role or JWT permissions. */
 export function derivePersonaId(user: PermUser): PersonaId {
   const role = normalizeFortunaRoleKey(user?.role);
-  if (role === 'user_admin') return 'user_admin';
   if (role === 'admin') return 'admin';
   if (role === 'cluster_admin') return 'operator';
   if (role === 'operator') return 'operator';
   if (role === 'viewer') return 'viewer';
 
   // Permission-only JWT (custom roles): infer operational posture.
-  if (can(user, P.usersRead) && !can(user, P.findingsRead) && !can(user, P.investigationsRead)) {
-    return 'user_admin';
-  }
   if (
     canAny(user, [P.systemAuditRead, P.observabilityAgentsRead, P.observabilityLogsRead]) &&
     can(user, P.findingsRead)
@@ -66,7 +62,6 @@ export function derivePersonaId(user: PermUser): PersonaId {
       P.findingsBulk,
       P.investigationsWrite,
       P.inventoryModify,
-      P.inventoryQuarantine,
     ])
   ) {
     return 'operator';
@@ -117,20 +112,7 @@ const PROFILES: Record<PersonaId, PersonaProfile> = {
     showTelemetryMetadata: true,
     showExecutiveNarrative: false,
   },
-  user_admin: {
-    id: 'user_admin',
-    label: 'Access admin',
-    description: 'Fortuna accounts and access policies only.',
-    homeRoute: '/settings',
-    defaultDashboardMode: 'overview',
-    tableDensity: 'comfortable',
-    graphMode: 'integrity',
-    emphasis: ['users', 'rbac', 'sso'],
-    showBulkActions: false,
-    showRemediationControls: false,
-    showTelemetryMetadata: false,
-    showExecutiveNarrative: false,
-  },
+
 };
 
 /** Get a persona's full configuration by ID. */

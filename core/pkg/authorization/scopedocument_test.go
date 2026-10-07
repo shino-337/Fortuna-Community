@@ -70,18 +70,23 @@ func TestPersistedUnenforcedScopeFailsClosedForClusterAuthorization(t *testing.T
 	}
 }
 
-func TestEmptyClusterAllowListIsRejectedAndFailsClosed(t *testing.T) {
-	for _, raw := range []string{`{"clusters":[]}`, `{"cluster_ids":[]}`, `{"clusters":[],"namespaces":[]}`} {
-		if _, err := ParseScopeDocumentStrict(raw); err == nil {
-			t.Fatalf("empty cluster allow-list must be rejected on write: %s", raw)
+func TestEmptyClusterAllowListGrantsNoCluster(t *testing.T) {
+	for _, raw := range []string{ScopeNoClusters, `{"cluster_ids":[]}`, `{"clusters":[],"namespaces":[]}`} {
+		doc, err := ParseScopeDocumentStrict(raw)
+		if err != nil {
+			t.Fatalf("empty cluster allow-list is a valid scope: %s: %v", raw, err)
 		}
-		doc := ParseScopeDocument(raw)
-		if !doc.RestrictsClusters() || doc.ClusterAllowed("cluster-a") {
-			t.Fatalf("persisted empty cluster allow-list must deny every cluster: %s -> %+v", raw, doc)
+		if !doc.RestrictsClusters() || doc.ClusterAllowed("cluster-a") || !doc.GrantsNoCluster() {
+			t.Fatalf("empty cluster allow-list must deny every cluster: %s -> %+v", raw, doc)
+		}
+		if ids := doc.ClusterIDs(); len(ids) != 0 {
+			t.Fatalf("empty cluster allow-list must have no cluster ids: %s -> %#v", raw, ids)
 		}
 	}
 	// Omitting the field still means unrestricted.
-	if doc := ParseScopeDocument(`{"namespaces":[]}`); doc.RestrictsClusters() {
-		t.Fatal("scope without a cluster field must stay unrestricted")
+	for _, raw := range []string{`{}`, ``, `{"namespaces":[]}`} {
+		if doc := ParseScopeDocument(raw); doc.RestrictsClusters() || doc.GrantsNoCluster() {
+			t.Fatalf("scope without a cluster field must stay unrestricted: %q", raw)
+		}
 	}
 }

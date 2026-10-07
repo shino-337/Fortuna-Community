@@ -15,14 +15,13 @@ import (
 	"github.com/fortuna/core/pkg/securityaudit"
 )
 
-// A user admin has no security-data permission and cannot set cluster scope, so it must not be
-// able to mint an account that can change data (operator and above get every cluster by default).
-func TestUserAdminCanOnlyCreateViewerOrUserAdmin(t *testing.T) {
+// Only a platform admin manages accounts. user_admin is retired: an account
+// still holding it gets no permission, and the handlers refuse it as well.
+func TestOnlyAdminCreatesUsers(t *testing.T) {
 	db := reviewDB(t, &models.User{}, &models.Cluster{})
-	r := reviewRouter(&models.User{ID: 999, Role: models.RoleUserAdmin, Active: true})
-	r.POST("/register", Register(db, "integration-test-secret-key-32b!!"))
-
-	register := func(name, role string) int {
+	register := func(actorRole, name, role string) int {
+		r := reviewRouter(&models.User{ID: 999, Role: actorRole, Active: true})
+		r.POST("/register", Register(db, "integration-test-secret-key-32b!!"))
 		body, _ := json.Marshal(map[string]string{
 			"username": name, "email": name + "@test.local", "password": "AnotherPass12!", "role": role,
 		})
@@ -32,17 +31,18 @@ func TestUserAdminCanOnlyCreateViewerOrUserAdmin(t *testing.T) {
 		r.ServeHTTP(w, req)
 		return w.Code
 	}
-	require.Equal(t, http.StatusForbidden, register("newop", models.RoleOperator))
-	require.Equal(t, http.StatusForbidden, register("legacy", "user"), "legacy user role is operator")
-	require.Equal(t, http.StatusCreated, register("newviewer", models.RoleViewer))
-	require.Equal(t, http.StatusCreated, register("newuadmin", models.RoleUserAdmin))
+	require.Equal(t, http.StatusForbidden, register(models.RoleUserAdmin, "newviewer", models.RoleViewer))
+	require.Equal(t, http.StatusBadRequest, register(models.RoleUserAdmin, "newuadmin", models.RoleUserAdmin), "user_admin is no longer a role")
+	require.Equal(t, http.StatusForbidden, register(models.RoleClusterAdmin, "newop", models.RoleOperator))
+	require.Equal(t, http.StatusBadRequest, register(models.RoleAdmin, "uadmin", models.RoleUserAdmin), "user_admin can no longer be assigned")
+	require.Equal(t, http.StatusCreated, register(models.RoleAdmin, "viewer2", models.RoleViewer))
 
 	var n int64
-	require.NoError(t, db.Model(&models.User{}).Where("username IN ?", []string{"newop", "legacy"}).Count(&n).Error)
+	require.NoError(t, db.Model(&models.User{}).Where("username IN ?", []string{"newviewer", "newuadmin", "newop", "uadmin"}).Count(&n).Error)
 	require.Zero(t, n)
 }
 
-func TestUserAdminCannotPromoteToOperatorButCanDemote(t *testing.T) {
+func TestRetiredUserAdminCannotChangeUsers(t *testing.T) {
 	db := reviewDB(t, &models.User{}, &models.Cluster{})
 	viewer := models.User{Username: "v", Email: "v@test.local", Password: "x", Role: models.RoleViewer, Active: true}
 	op := models.User{Username: "o", Email: "o@test.local", Password: "x", Role: models.RoleOperator, Active: true}
@@ -51,19 +51,20 @@ func TestUserAdminCannotPromoteToOperatorButCanDemote(t *testing.T) {
 
 	r := reviewRouter(&models.User{ID: 999, Role: models.RoleUserAdmin, Active: true})
 	r.PATCH("/users/:id", PatchUser(db))
-	patch := func(id uint, body string) int {
+	r.DELETE("/users/:id", DeleteUser(db))
+	send := func(method string, id uint, body string) int {
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, httptest.NewRequest(http.MethodPatch, "/users/"+strconv.Itoa(int(id)), bytes.NewBufferString(body)))
+		r.ServeHTTP(w, httptest.NewRequest(method, "/users/"+strconv.Itoa(int(id)), bytes.NewBufferString(body)))
 		return w.Code
 	}
-	require.Equal(t, http.StatusForbidden, patch(viewer.ID, `{"role":"operator"}`))
-	require.Equal(t, http.StatusOK, patch(op.ID, `{"role":"viewer"}`))
+	require.Equal(t, http.StatusForbidden, send(http.MethodPatch, viewer.ID, `{"role":"operator"}`))
+	require.Equal(t, http.StatusForbidden, send(http.MethodPatch, op.ID, `{"active":false}`))
+	require.Equal(t, http.StatusForbidden, send(http.MethodDelete, op.ID, ``))
 
-	var stillViewer, demoted models.User
-	require.NoError(t, db.First(&stillViewer, viewer.ID).Error)
-	require.Equal(t, models.RoleViewer, stillViewer.Role)
-	require.NoError(t, db.First(&demoted, op.ID).Error)
-	require.Equal(t, models.RoleViewer, demoted.Role)
+	var unchanged models.User
+	require.NoError(t, db.First(&unchanged, op.ID).Error)
+	require.Equal(t, models.RoleOperator, unchanged.Role)
+	require.True(t, unchanged.Active)
 }
 
 // Rules are global, but their matches are findings and follow the caller's cluster scope.

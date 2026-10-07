@@ -21,10 +21,12 @@ Roles determine route visibility and actions:
 
 | Role | Main purpose |
 |------|--------------|
-| Admin | Full platform, security, policy, monitoring, and user administration. |
-| User admin | Fortuna account administration only. No cluster or finding access. Can create and assign only Viewer and User admin accounts; Operator and above, and cluster scope, are set by an Admin. |
-| Operator | Day-to-day investigation, triage, rules, runtime, and risk workflows. |
-| Viewer | Read-oriented security posture and evidence review. |
+| Admin | Full platform: every cluster, user accounts, roles and cluster scope, rules and policies (they apply to every cluster), platform audit, error logs and certificates. |
+| Cluster admin | Runs security for its assigned clusters, and must have at least one. Everything an Operator does, plus exceptions, deleting findings, archiving cases and revoking or deleting ServiceAccounts in those clusters. |
+| Operator | Day-to-day triage and cases inside its cluster scope, findings export and risk evaluation. Reads rules and policies. |
+| Viewer | Read-only security posture and evidence inside its cluster scope. |
+
+Each role holds everything the one below it can do. Only an Admin creates accounts and picks their clusters; an account created without clusters sees none until an Admin adds them. The User admin role was removed: such accounts became Viewers with no cluster.
 
 ## Main Workspaces
 
@@ -41,7 +43,7 @@ Roles determine route visibility and actions:
 | Notifications | `/#/notifications` | Every alert, with unread and read views. Open it from **View all** in the bell. Old `/#/monitoring/notifications` links redirect. |
 | Setup | `/#/setup` | Admin only, until its required steps are done: the first-run checklist (agent reporting, first scan, first finding triaged, team invited, and optionally another cluster). Each step checks itself from live data, and the sidebar shows how many are done. |
 | Audit | `/#/governance` | Admin only, in three views: **Activity** (security activity, filterable by domain, severity, result and action), **Platform log** (counts by resource and action, then the full log) and **Access** (account hygiene, correlation signals and permissions by role). Old `?tab=` links open the view that now holds them. |
-| Users & Access | `/#/settings` | Admin and User admin: manage users, roles, cluster access and other people's sessions. |
+| Users & Access | `/#/settings` | Admin only: manage users, roles, cluster access and other people's sessions. |
 | Account | `/#/account` | Every role: your profile, password and your own sessions. Open it from the avatar menu in the header. |
 
 ## Cluster Scope

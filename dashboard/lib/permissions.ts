@@ -15,7 +15,6 @@ export const P = {
   findingsBulk: 'findings.bulk',
   findingsDelete: 'findings.delete',
   findingsExceptionCreate: 'findings.exception.create',
-  findingsExceptionApprove: 'findings.exception.approve',
   findingsExceptionDelete: 'findings.exception.delete',
 
   investigationsRead: 'investigations.read',
@@ -26,8 +25,6 @@ export const P = {
 
   policiesRead: 'policies.read',
   policiesDraft: 'policies.draft',
-  policiesReview: 'policies.review',
-  policiesApprove: 'policies.approve',
   policiesPublish: 'policies.publish',
   policiesDelete: 'policies.delete',
 
@@ -38,21 +35,14 @@ export const P = {
   rulesExport: 'rules.export',
 
   inventoryRead: 'inventory.read',
-  inventoryAnnotate: 'inventory.annotate',
   inventoryModify: 'inventory.modify',
-  inventoryQuarantine: 'inventory.quarantine',
   inventoryDelete: 'inventory.delete',
-  inventoryBulk: 'inventory.bulk',
 
   runtimeRead: 'runtime.read',
   runtimeMappingWrite: 'runtime.mapping.write',
 
   graphReadSummary: 'graph.read.summary',
   graphReadPaths: 'graph.read.paths',
-  graphQueryEntity: 'graph.query.entity',
-  graphQueryTraversal: 'graph.query.traversal',
-  graphQueryAdvanced: 'graph.query.advanced',
-  graphExport: 'graph.export',
 
   /** Governed egress for risk findings export (CSV/PDF). */
   exportFindings: 'export.findings',
@@ -65,18 +55,14 @@ export const P = {
   malwareRead: 'malware.read',
 
   usersRead: 'users.read',
-  usersCreate: 'users.create',
   usersUpdate: 'users.update',
-  usersDisable: 'users.disable',
   usersDelete: 'users.delete',
-  usersPasswordReset: 'users.password.reset',
   usersRoleAssign: 'users.role.assign',
 
   systemAuditRead: 'system.audit.read',
   observabilityMetricsRead: 'observability.metrics.read',
   observabilityLogsRead: 'observability.logs.read',
   observabilityAgentsRead: 'observability.agents.read',
-  observabilityDebugRead: 'observability.debug.read',
 
   clusterCertificatesRotate: 'cluster.certificates.rotate',
 } as const;

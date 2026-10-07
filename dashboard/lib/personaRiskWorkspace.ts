@@ -67,16 +67,6 @@ const CONFIG: Record<PersonaId, RiskWorkspaceConfig> = {
     showSavedViews: true,
     narrativeTable: false,
   },
-  user_admin: {
-    visibleTabs: [],
-    defaultTab: 'triage',
-    defaultCols: VIEWER_COLS,
-    pageSize: 15,
-    showBulkToolbar: false,
-    showRowSelection: false,
-    showSavedViews: false,
-    narrativeTable: false,
-  },
 };
 
 export function getRiskWorkspaceConfig(personaId: PersonaId): RiskWorkspaceConfig {

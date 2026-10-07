@@ -51,6 +51,7 @@ existing_admin_password="$(secret_value admin-password)"
 existing_bootstrap_default_credential="$(secret_value bootstrap-default-credential)"
 existing_jwt_secret="$(secret_value jwt-secret)"
 existing_ingest_token="$(secret_value ingest-token)"
+existing_risk_evaluator_password="$(secret_value risk-evaluator-password)"
 existing_pod_detail_encryption_key="$(secret_value pod-detail-encryption-key)"
 existing_pod_detail_encryption_key_previous="$(secret_value pod-detail-encryption-key-previous)"
 
@@ -97,11 +98,26 @@ if [ -z "${FORTUNA_INGEST_TOKEN:-}" ]; then
   fi
 fi
 
+# Password of the risk evaluation CronJob's service account (risk.evaluate only).
+if [ -z "${FORTUNA_RISK_EVALUATOR_PASSWORD:-}" ]; then
+  if [ -n "$existing_risk_evaluator_password" ]; then
+    FORTUNA_RISK_EVALUATOR_PASSWORD="$existing_risk_evaluator_password"
+  else
+    if ! command -v openssl >/dev/null 2>&1; then
+      echo "ERROR: FORTUNA_RISK_EVALUATOR_PASSWORD is not set and openssl is unavailable." >&2
+      exit 1
+    fi
+    FORTUNA_RISK_EVALUATOR_PASSWORD="Fr1-$(openssl rand -hex 24)"
+    echo "Generated risk-evaluator-password for this secret update."
+  fi
+fi
+
 secret_args=(
   "--from-literal=database-url=${FORTUNA_DATABASE_URL}"
   "--from-literal=jwt-secret=${FORTUNA_JWT_SECRET}"
   "--from-literal=ingest-token=${FORTUNA_INGEST_TOKEN}"
   "--from-literal=admin-password=${FORTUNA_ADMIN_PASSWORD}"
+  "--from-literal=risk-evaluator-password=${FORTUNA_RISK_EVALUATOR_PASSWORD}"
   "--from-literal=bootstrap-default-credential=${BOOTSTRAP_DEFAULT_CREDENTIAL}"
 )
 

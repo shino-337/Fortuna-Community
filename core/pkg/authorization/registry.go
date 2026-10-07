@@ -19,10 +19,10 @@ func NormalizeRole(role string) string {
 		return models.RoleAdmin
 	case models.RoleClusterAdmin:
 		return models.RoleClusterAdmin
-	case models.RoleUserAdmin:
-		return models.RoleUserAdmin
 	case models.RoleOperator, models.RoleUser:
 		return models.RoleOperator
+	case models.RoleRiskEvaluator:
+		return models.RoleRiskEvaluator
 	default:
 		return r
 	}
@@ -36,15 +36,25 @@ func PermissionsForRole(canonicalRole string) []Permission {
 		return AllPermissions()
 	case models.RoleClusterAdmin:
 		return clusterAdminPermissions()
-	case models.RoleUserAdmin:
-		return userAdminPermissions()
 	case models.RoleOperator:
 		return operatorPermissions()
 	case models.RoleViewer:
 		return viewerPermissions()
+	case models.RoleRiskEvaluator:
+		return []Permission{PermissionAuthSession, PermissionRiskEvaluate}
 	default:
 		return nil
 	}
+}
+
+// IsServiceRole reports whether role belongs to a non-human account that
+// deployment configuration owns. Such roles are never assigned through the API.
+func IsServiceRole(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case models.RoleRiskEvaluator, models.RoleSystem:
+		return true
+	}
+	return false
 }
 
 // PermissionsForUser resolves permissions from stored user.Role (legacy "user" included).
@@ -52,61 +62,7 @@ func PermissionsForUser(role string) []Permission {
 	return PermissionsForRole(NormalizeRole(role))
 }
 
-// userAdminPermissions: Fortuna account administration only (no security data / cluster scope by default).
-func userAdminPermissions() []Permission {
-	return []Permission{
-		PermissionAuthSession,
-		PermissionAuthPasswordChange,
-		PermissionAuthRegister,
-		PermissionSessionsRead,
-		PermissionSessionsRevoke,
-		PermissionUsersRead,
-		PermissionUsersCreate,
-		PermissionUsersUpdate,
-		PermissionUsersDisable,
-		PermissionUsersDelete,
-		PermissionUsersPasswordReset,
-		PermissionUsersRoleAssign,
-	}
-}
-
-// clusterAdminPermissions: cluster-scoped security administration. User scope
-// must still be enforced by API handlers for resource-ID writes.
-func clusterAdminPermissions() []Permission {
-	return []Permission{
-		PermissionAuthSession,
-		PermissionAuthPasswordChange,
-		PermissionExportFindings,
-		PermissionSessionsRead,
-		PermissionSessionsRevoke,
-		PermissionFindingsRead,
-		PermissionFindingsAck,
-		PermissionFindingsDismiss,
-		PermissionFindingsResolve,
-		PermissionFindingsReopen,
-		PermissionFindingsBulk,
-		PermissionRiskEvaluate,
-		PermissionInventoryRead,
-		PermissionInventoryAnnotate,
-		PermissionInventoryModify,
-		PermissionInventoryQuarantine,
-		PermissionInventoryBulk,
-		PermissionRuntimeRead,
-		PermissionGraphReadSummary,
-		PermissionGraphReadPaths,
-		PermissionGraphQueryEntity,
-		PermissionGraphQueryTraversal,
-		PermissionPoliciesRead,
-		PermissionRulesRead,
-		PermissionRulesExport,
-		PermissionMalwareRead,
-		PermissionInvestigationsRead,
-		PermissionInvestigationsWrite,
-		PermissionObservabilityMetricsRead,
-		PermissionObservabilityAgentsRead,
-	}
-}
-
+// viewerPermissions: read-only security data inside the account's cluster scope.
 func viewerPermissions() []Permission {
 	return []Permission{
 		PermissionAuthSession,
@@ -118,7 +74,6 @@ func viewerPermissions() []Permission {
 		PermissionRuntimeRead,
 		PermissionGraphReadSummary,
 		PermissionGraphReadPaths,
-		PermissionGraphQueryEntity,
 		PermissionMalwareRead,
 		PermissionInvestigationsRead,
 		PermissionObservabilityMetricsRead,
@@ -126,49 +81,40 @@ func viewerPermissions() []Permission {
 	}
 }
 
+// operatorPermissions: day-to-day triage and cases inside the account's
+// cluster scope. Suppressing or deleting findings, changing Kubernetes and
+// changing configuration that applies to every cluster are left to roles
+// above it.
 func operatorPermissions() []Permission {
-	return []Permission{
-		PermissionAuthSession,
-		PermissionAuthPasswordChange,
+	return append(viewerPermissions(),
 		PermissionExportFindings,
-		PermissionSessionsRead,
-		PermissionSessionsRevoke,
-		PermissionFindingsRead,
 		PermissionFindingsAck,
 		PermissionFindingsDismiss,
 		PermissionFindingsResolve,
 		PermissionFindingsReopen,
 		PermissionFindingsBulk,
-		PermissionFindingsDelete,
-		PermissionFindingsExceptionCreate,
-		PermissionFindingsExceptionApprove,
-		PermissionFindingsExceptionDelete,
 		PermissionRiskEvaluate,
-		PermissionInventoryRead,
-		PermissionInventoryAnnotate,
 		PermissionInventoryModify,
-		PermissionInventoryDelete,
-		PermissionInventoryBulk,
-		PermissionRuntimeRead,
-		PermissionRuntimeMappingWrite,
-		PermissionGraphReadSummary,
-		PermissionGraphReadPaths,
-		PermissionGraphQueryEntity,
-		PermissionGraphQueryTraversal,
 		PermissionPoliciesRead,
 		PermissionRulesRead,
-		PermissionRulesWrite,
-		PermissionRulesDelete,
-		PermissionRulesImport,
 		PermissionRulesExport,
-		PermissionMalwareRead,
-		PermissionInvestigationsRead,
 		PermissionInvestigationsWrite,
+	)
+}
+
+// clusterAdminPermissions: runs security for the clusters in its scope (which
+// must name at least one cluster). Everything an operator does, plus accepting
+// risk (exceptions), deleting findings, archiving cases and revoking or
+// deleting ServiceAccounts in those clusters. It does not manage users, read
+// the platform audit or change rules and policies, which apply to every cluster.
+func clusterAdminPermissions() []Permission {
+	return append(operatorPermissions(),
+		PermissionFindingsDelete,
+		PermissionFindingsExceptionCreate,
+		PermissionFindingsExceptionDelete,
+		PermissionInventoryDelete,
 		PermissionInvestigationsDelete,
-		PermissionObservabilityMetricsRead,
-		PermissionObservabilityLogsRead,
-		PermissionObservabilityAgentsRead,
-	}
+	)
 }
 
 // HasPermission reports whether need is satisfied by exactly one entry in granted (deny-by-default).
@@ -217,43 +163,13 @@ func FromStrings(in []string) []Permission {
 	return out
 }
 
-// MaxGraphTraversalDepth returns the effective max depth for graph traversal endpoints from query params.
-func MaxGraphTraversalDepth(granted []Permission, requested int) int {
-	if HasPermission(granted, PermissionGraphQueryAdvanced) {
-		if requested < 1 {
-			return 5
-		}
-		if requested > 10 {
-			return 10
-		}
-		return requested
-	}
-	if HasPermission(granted, PermissionGraphQueryTraversal) {
-		if requested < 1 {
-			return 3
-		}
-		if requested > 5 {
-			return 5
-		}
-		return requested
-	}
-	// Summary / entity / paths only: tight cap (graph DOS mitigation)
-	if requested < 1 {
-		return 2
-	}
-	if requested > 3 {
-		return 3
-	}
-	return requested
-}
-
 // RolesGrantingPermission lists canonical Fortuna roles whose default grant includes permission p.
 func RolesGrantingPermission(p Permission) []string {
 	if !IsValidPermission(p) {
 		return nil
 	}
 	var out []string
-	for _, role := range []string{models.RoleAdmin, models.RoleClusterAdmin, models.RoleUserAdmin, models.RoleOperator, models.RoleViewer} {
+	for _, role := range []string{models.RoleAdmin, models.RoleClusterAdmin, models.RoleOperator, models.RoleViewer, models.RoleRiskEvaluator} {
 		for _, g := range PermissionsForRole(role) {
 			if g == p {
 				out = append(out, role)
