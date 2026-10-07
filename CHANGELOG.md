@@ -20,6 +20,8 @@
 - Notifications, agent status and the counts in `/metrics/system` follow the user's cluster scope. Marking notifications read only affects notifications in scope.
 - Revoking another user's session needs `sessions.revoke_all` instead of `users.read`, so a User admin can no longer sign an Admin out.
 - A User admin can no longer change, disable or delete Cluster admin accounts, matching the rule that they cannot create them.
+- A new account sees no cluster until an Admin picks its clusters. Before, an account created without a scope, or whose scope was cleared, could read every cluster; "All clusters" (`{}`) must now be chosen explicitly, and `{"clusters":[]}` is a valid scope meaning no cluster. Existing accounts keep their scope. The Settings form starts on "Selected clusters", and the account list shows "No clusters" for such accounts.
+- A Cluster admin must have at least one named cluster. Creating one, promoting an account to it, or changing its scope to every cluster or to none is refused with 400.
 - Every list endpoint has a default and a maximum `limit` (31 routes were unbounded, including users, resources, investigations, graphs and policy rules), and reports `truncated` when rows are cut. `limit=-1` on rule matches no longer returns every row.
 
 ### Core

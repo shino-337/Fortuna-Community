@@ -193,9 +193,11 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 				}
 			}
 		}
+		// An account created without a scope sees no cluster until an admin picks
+		// its clusters; "{}" (every cluster) must be asked for explicitly.
 		scopeJSON := strings.TrimSpace(req.ScopeJSON)
 		if scopeJSON == "" {
-			scopeJSON = "{}"
+			scopeJSON = authorization.ScopeNoClusters
 		}
 		if !json.Valid([]byte(scopeJSON)) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
@@ -208,6 +210,10 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		}
 		if err := validateSupportedUserScope(doc); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson contains unsupported restrictions", "detail": err.Error()})
+			return
+		}
+		if err := validateRoleScope(role, doc); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 			return
 		}
 		unknownClusters, err := validateScopeClusterReferences(db, scopeJSON)
@@ -240,9 +246,10 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		user.Permissions = authorization.ToStrings(authorization.PermissionsForUser(user.Role))
 
 		LogPlatformSecurityAudit(db, c, "user_create", "user", fmt.Sprintf("%d", user.ID), map[string]interface{}{
-			"username": user.Username,
-			"email":    user.Email,
-			"role":     user.Role,
+			"username":  user.Username,
+			"email":     user.Email,
+			"role":      user.Role,
+			"scopeJson": user.ScopeJSON,
 		})
 
 		c.JSON(http.StatusCreated, gin.H{"user": user})
@@ -490,6 +497,19 @@ func validateSupportedUserScope(doc authorization.ScopeDocument) error {
 	return nil
 }
 
+// validateRoleScope rejects a cluster admin without a named cluster: the role
+// exists to run security for given clusters, and without a cluster list it
+// would act on every cluster.
+func validateRoleScope(role string, doc authorization.ScopeDocument) error {
+	if authorization.NormalizeRole(role) != models.RoleClusterAdmin {
+		return nil
+	}
+	if !doc.RestrictsClusters() || len(doc.ClusterIDs()) == 0 {
+		return errors.New("a cluster admin needs at least one cluster in scopeJson")
+	}
+	return nil
+}
+
 func validateScopeClusterReferences(db *gorm.DB, scopeJSON string) ([]string, error) {
 	doc, err := authorization.ParseScopeDocumentStrict(scopeJSON)
 	if err != nil {
@@ -640,7 +660,7 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			}
 			raw := strings.TrimSpace(*body.ScopeJSON)
 			if raw == "" {
-				raw = "{}"
+				raw = authorization.ScopeNoClusters
 			}
 			if !json.Valid([]byte(raw)) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "scopeJson must be valid JSON"})
@@ -665,6 +685,12 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 				return
 			}
 			target.ScopeJSON = raw
+		}
+		if body.Role != nil || body.ScopeJSON != nil {
+			if err := validateRoleScope(target.Role, authorization.ParseScopeDocument(target.ScopeJSON)); err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+				return
+			}
 		}
 		if err := saveUserKeepingAnAdmin(db, original, func(tx *gorm.DB) error { return tx.Save(&target).Error }); err != nil {
 			if errors.Is(err, errLastActiveAdmin) {

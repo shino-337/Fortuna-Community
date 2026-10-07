@@ -40,9 +40,11 @@ function parseUserScopeClusters(user: User): { restricted: boolean; clusters: st
   if (raw === '' || raw === '{}') return { restricted: false, clusters: [], invalid: false };
   try {
     const parsed = JSON.parse(raw) as { clusters?: unknown; cluster_ids?: unknown };
+    const listed = Array.isArray(parsed.clusters) || Array.isArray(parsed.cluster_ids);
     const list = Array.isArray(parsed.clusters) ? parsed.clusters : Array.isArray(parsed.cluster_ids) ? parsed.cluster_ids : [];
+    // An empty list is a valid scope that grants no cluster; only "{}" means every cluster.
     return {
-      restricted: list.length > 0,
+      restricted: listed,
       clusters: list.map((id) => String(id)).filter(Boolean),
       invalid: false,
     };
@@ -118,7 +120,8 @@ export const Settings: React.FC = () => {
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [newUserRole, setNewUserRole] = useState('viewer');
-  const [newUserScopeMode, setNewUserScopeMode] = useState<'all' | 'selected'>('all');
+  // New accounts start with no cluster: every cluster is a deliberate choice.
+  const [newUserScopeMode, setNewUserScopeMode] = useState<'all' | 'selected'>('selected');
   const [newUserScopeClusters, setNewUserScopeClusters] = useState<string[]>([]);
   const [addUserError, setAddUserError] = useState('');
   const [addUserBusy, setAddUserBusy] = useState(false);
@@ -280,8 +283,8 @@ export const Settings: React.FC = () => {
       setScopeError('Cluster inventory is unavailable. Retry the inventory before changing a selected-cluster scope.');
       return;
     }
-    if (scopeMode === 'selected' && selectedScopeClusters.length === 0) {
-      setScopeError('Select at least one cluster, or choose All clusters.');
+    if ((scopeEditorUser.role || '').toLowerCase() === 'cluster_admin' && (scopeMode === 'all' || selectedScopeClusters.length === 0)) {
+      setScopeError('A cluster admin needs at least one selected cluster.');
       return;
     }
     setScopeSaving(true);
@@ -333,8 +336,8 @@ export const Settings: React.FC = () => {
       setAddUserError('Cluster inventory is unavailable. Retry the inventory before assigning a selected-cluster scope.');
       return;
     }
-    if (isFortunaAdmin && !newRoleIsAdmin && newUserScopeMode === 'selected' && newUserScopeClusters.length === 0) {
-      setAddUserError('Select at least one cluster, or choose All clusters.');
+    if (newUserRole.toLowerCase() === 'cluster_admin' && (newUserScopeMode === 'all' || newUserScopeClusters.length === 0)) {
+      setAddUserError('A cluster admin needs at least one selected cluster.');
       return;
     }
     setAddUserBusy(true);
@@ -540,7 +543,9 @@ export const Settings: React.FC = () => {
                               : parsed.invalid
                                 ? 'Invalid scope'
                                 : parsed.restricted
-                                  ? `${parsed.clusters.length} cluster${parsed.clusters.length === 1 ? '' : 's'}`
+                                  ? parsed.clusters.length === 0
+                                    ? 'No clusters'
+                                    : `${parsed.clusters.length} cluster${parsed.clusters.length === 1 ? '' : 's'}`
                                   : 'All clusters';
                             return (
                               <div className="flex flex-wrap items-center gap-2">
@@ -897,7 +902,7 @@ export const Settings: React.FC = () => {
                       />
                       <span>
                         <span className="block font-semibold">Selected clusters</span>
-                        <span className="block text-caption text-muted">Restrict by cluster_id allow-list.</span>
+                        <span className="block text-caption text-muted">Restrict by cluster_id allow-list. With none selected, the account sees no cluster until you add one.</span>
                       </span>
                     </label>
                   </div>
