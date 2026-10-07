@@ -16,7 +16,7 @@ import { PageEmpty, PageError } from '../design-system/components/PageStatus';
 import { SemanticEmptyState } from '../design-system/components/SemanticEmptyState';
 import { NetworkTopologyGraph } from '../components/NetworkTopologyGraph';
 import { PAGE_TITLES } from '../lib/pageTitles';
-import type { NetworkActivityDestinationRow, NetworkActivityTalkerRow } from '../types';
+import type { NetworkActivityDestinationRow } from '../types';
 import type { SemanticVisibilityState } from '../lib/visibilityEngine';
 import { podDetailPath } from '../lib/podRoute';
 import { findingsForResourcePath } from '../lib/entityLinks';
@@ -145,7 +145,6 @@ const LEGACY_TABS: Record<string, View> = { topology: 'map', pods: 'table', conn
 
 /** Flows loaded once per filter change for the flagged strip, the summary line and the map. */
 const OVERVIEW_EDGE_LIMIT = 500;
-const MAP_SUMMARY_LIMIT = 200;
 const PAGE_SIZES = [25, 50, 100, 200];
 
 function intParam(v: string | null, fallback: number): number {
@@ -322,21 +321,6 @@ export function NetworkActivity() {
     };
   }, [common, clusterId, view, group, page, pageSize, refreshKey]);
 
-  const [mapData, setMapData] = useState<{ destinations: NetworkActivityDestinationRow[]; talkers: NetworkActivityTalkerRow[] } | null>(null);
-  useEffect(() => {
-    if (!clusterId || view !== 'map') return;
-    let cancelled = false;
-    Promise.all([
-      api.getNetworkActivity({ ...common, view: 'destinations', page: 1, pageSize: MAP_SUMMARY_LIMIT }),
-      api.getNetworkActivity({ ...common, view: 'talkers', page: 1, pageSize: MAP_SUMMARY_LIMIT }),
-    ])
-      .then(([d, t]) => !cancelled && setMapData({ destinations: d.items as NetworkActivityDestinationRow[], talkers: t.items as NetworkActivityTalkerRow[] }))
-      .catch((e) => !cancelled && setIssue(classifyNetworkDataIssue(e)));
-    return () => {
-      cancelled = true;
-    };
-  }, [common, clusterId, view, refreshKey]);
-
   const pollMs = useRefreshIntervalStore((s) => s.getIntervalMs(REFRESH_INTERVALS.STATS_CLUSTERS));
   const refreshTrigger = useRefreshTriggerStore((s) => s.trigger);
   usePolling(() => setRefreshKey((k) => k + 1), pollMs, { refreshTrigger, enabled: Boolean(clusterId) });
@@ -475,6 +459,37 @@ export function NetworkActivity() {
     [patch],
   );
 
+  // Map clicks: a pod narrows the map to that pod's flows; a destination opens its panel.
+  const onMapNodeClick = useCallback(
+    (id: string, kind: 'pod' | 'dest') => {
+      if (kind === 'pod') {
+        setSelection(null);
+        patch({ podUid: id, page: 1 });
+        return;
+      }
+      const rows = (overview?.rows ?? []).filter((r) => `${r.destIp}:${r.destPort}/${r.protocol ?? 'tcp'}` === id);
+      if (rows.length === 0) return;
+      const first = rows[0];
+      setSelection({
+        kind: 'dest',
+        row: {
+          destIp: first.destIp ?? '',
+          destPort: Number(first.destPort),
+          protocol: String(first.protocol ?? 'tcp'),
+          observationCount: rows.reduce((n, r) => n + Number(r.observationCount ?? 0), 0),
+          distinctPodCount: new Set(rows.map((r) => r.podUid)).size,
+          lastObservedAt: rows.map((r) => r.lastObservedAt ?? r.observedAt ?? '').sort().pop(),
+          destServiceName: first.destServiceName,
+          destServiceNamespace: first.destServiceNamespace,
+          destServiceFqdn: first.destServiceFqdn,
+          destWorkloadName: first.destWorkloadName,
+          destWorkloadNamespace: first.destWorkloadNamespace,
+        },
+      });
+    },
+    [overview, patch],
+  );
+
   return (
     <PageLayout title={PAGE_TITLES.networkActivity}>
       {!clusterId ? (
@@ -585,23 +600,15 @@ export function NetworkActivity() {
 
           {view === 'map' ? (
             <div className="relative overflow-hidden rounded-xl border border-border bg-base">
-              {overview && mapData ? (
+              {overview ? (
                 <NetworkTopologyGraph
-                  destinations={mapData.destinations}
-                  talkers={mapData.talkers}
                   connections={overview.rows}
+                  totalFlows={overview.total}
+                  flaggedFlowKeys={flaggedKeys}
                   podNamesByUid={podNames}
                   maxNodes={120}
-                  showTrustOverlay={false}
-                  onNodeClick={(id, kind) => {
-                    if (kind === 'pod') {
-                      patch({ podUid: id, view: 'table', group: 'pod', page: 1 });
-                      return;
-                    }
-                    const dest = mapData.destinations.find((d) => `dest:${d.destIp}:${d.destPort}/${d.protocol ?? 'tcp'}` === id);
-                    if (dest) setSelection({ kind: 'dest', row: dest });
-                  }}
-                  className="h-[min(65dvh,640px)] min-h-[24rem] w-full"
+                  onNodeClick={onMapNodeClick}
+                  className="h-[min(60dvh,640px)] min-h-[20rem]"
                 />
               ) : (
                 <p className="p-6 text-body text-muted">Loading map…</p>
