@@ -1971,12 +1971,26 @@ export const api = {
       };
       const recentMatches = (data.recentMatches || []).map((m: unknown) => {
         const x = m as Record<string, unknown>;
+        const finalScore = x.finalScore != null ? Number(x.finalScore) : undefined;
         return {
           id: String(x.id ?? ''),
           title: (x.title ?? '') as string,
           description: (x.description ?? '') as string,
           severity: String(x.severity ?? 'medium').toLowerCase(),
-          status: x.status as string,
+          // Risk level of the finding's resource (Core adds it); the severity above is the rule's.
+          finalLevel: x.finalLevel ? String(x.finalLevel).toLowerCase() : undefined,
+          finalScore,
+          score: finalScore != null && Number.isFinite(finalScore) ? Math.round(finalScore) : undefined,
+          status: normalizeInsightStatus(x.status),
+          clusterId: x.clusterId != null ? String(x.clusterId) : undefined,
+          affectedResources: [
+            {
+              id: String(x.resourceUid ?? ''),
+              name: x.resourceName != null ? String(x.resourceName) : undefined,
+              kind: x.resourceType != null ? String(x.resourceType) : undefined,
+              namespace: x.resourceNamespace != null ? String(x.resourceNamespace) : undefined,
+            },
+          ],
           impact: (x.resourceName ?? x.resourceUid ?? '') as string,
           evidence: x.evidence,
           violatedRules: x.violatedRules,

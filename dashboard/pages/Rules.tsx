@@ -39,6 +39,9 @@ import {
   Pencil,
 } from "lucide-react";
 import { getSeverityBadgeClass } from "../lib/severity";
+import { Badge } from "../design-system/components/Badge";
+import { When } from "../components/When";
+import { RULES_PAGE_DESCRIPTION } from "../lib/pageTitles";
 import {
   UI_TABLE,
   UI_TD,
@@ -386,7 +389,7 @@ export const Rules: React.FC = () => {
     return (
       <PageLayout
         title={PAGE_TITLES.policyRules}
-        description="Detection rules, CEL templates, and policy instances."
+        description={RULES_PAGE_DESCRIPTION}
       >
         <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
         <SemanticEmptyState
@@ -400,32 +403,12 @@ export const Rules: React.FC = () => {
 
   const tooltipLabelClass =
     "inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 cursor-help";
-  const enabledFilteredCount = filteredRules.filter((r) => r.enabled).length;
-  const disabledFilteredCount = filteredRules.length - enabledFilteredCount;
-  const activeRuleActivityCount = filteredRules.filter(
-    (r) => (r.matches ?? 0) > 0,
-  ).length;
-  const activeTabMeta = {
-    detection: {
-      title: "Detection catalog",
-      description: "Runtime and posture rules used to classify findings.",
-      count: filteredRules.length,
-      countLabel: "rules",
-    },
-    templates: {
-      title: "Policy templates",
-      description: "Reusable CEL definitions for policy evaluation.",
-      count: filteredTemplates.length,
-      countLabel: "templates",
-    },
-    instances: {
-      title: "Policy instances",
-      description: "Scoped policy evaluations created from templates.",
-      count: filteredInstances.length,
-      countLabel: "instances",
-    },
-  }[activeTab];
-
+  const enabledRuleCount = rules.filter((r) => r.enabled).length;
+  const statusCounts = {
+    all: rules.length,
+    enabled: enabledRuleCount,
+    disabled: rules.length - enabledRuleCount,
+  };
   const detectionFiltersActive =
     searchTerm.trim() !== "" ||
     statusFilter !== "enabled" ||
@@ -452,17 +435,21 @@ export const Rules: React.FC = () => {
       }}
       trailing={
         <>
-          <select
-            value={statusFilter}
-            onChange={(e) =>
-              setStatusFilter(e.target.value as typeof statusFilter)
-            }
-            className={SELECT_CLASS}
-          >
-            <option value="all">All status</option>
-            <option value="enabled">Enabled</option>
-            <option value="disabled">Disabled</option>
-          </select>
+          <div className="inline-flex rounded-lg border border-border bg-base p-0.5" role="group" aria-label="Rule status">
+            {(["all", "enabled", "disabled"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                aria-pressed={statusFilter === key}
+                onClick={() => setStatusFilter(key)}
+                className={`rounded-md px-3 py-1.5 text-caption font-medium capitalize ${
+                  statusFilter === key ? "bg-brand/15 text-brand" : "text-muted hover:text-text"
+                }`}
+              >
+                {key} <span className="tabular-nums opacity-80">{statusCounts[key]}</span>
+              </button>
+            ))}
+          </div>
           <select
             value={severityFilter}
             onChange={(e) =>
@@ -560,7 +547,6 @@ export const Rules: React.FC = () => {
       <DataFreshness
         updatedAt={activeTab === "detection" ? rulesUpdatedAt : auxUpdatedAt}
         loading={(loading && activeTab === "detection") || (auxLoading && activeTab !== "detection")}
-        error={activeTab === "detection" ? error : auxError}
         staleAfterMs={intervalMs * 2}
       />
       <Button
@@ -589,17 +575,10 @@ export const Rules: React.FC = () => {
       ) : null}
     </div>
   );
-  const activeSummary =
-    activeTab === "detection"
-      ? `${filteredRules.length.toLocaleString("en-US")} shown · ${activeRuleActivityCount.toLocaleString("en-US")} with finding activity · ${enabledFilteredCount.toLocaleString("en-US")} enabled · ${disabledFilteredCount.toLocaleString("en-US")} disabled`
-      : activeTab === "templates"
-        ? `${filteredTemplates.length.toLocaleString("en-US")} shown · ${templates.length.toLocaleString("en-US")} total`
-        : `${filteredInstances.length.toLocaleString("en-US")} shown · ${instances.length.toLocaleString("en-US")} total`;
-
   return (
     <PageLayout
       title={PAGE_TITLES.policyRules}
-      description="Manage detection rules, reusable CEL templates, and scoped policy instances."
+      description={RULES_PAGE_DESCRIPTION}
     >
       <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
       {activeTab === "detection" && error && (
@@ -645,26 +624,6 @@ export const Rules: React.FC = () => {
         </div>
 
         <div className={`${POLICY_WORKBENCH_SECTION} ${POLICY_WORKBENCH_PAD}`}>
-          <div className="flex min-w-0 flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
-            <div className="min-w-0">
-              <h2 className="text-card-title text-text">
-                {activeTabMeta.title}
-              </h2>
-              <p className="mt-1 text-caption text-muted">
-                {activeTabMeta.description}
-              </p>
-            </div>
-            <p className="shrink-0 text-caption text-muted">
-              <span className="font-semibold text-text">
-                {activeTabMeta.count.toLocaleString("en-US")}
-              </span>{" "}
-              {activeTabMeta.countLabel}
-            </p>
-          </div>
-          <p className="mt-3 text-meta text-muted">{activeSummary}</p>
-        </div>
-
-        <div className={`${POLICY_WORKBENCH_SECTION} ${POLICY_WORKBENCH_PAD}`}>
           {activeToolbar}
         </div>
 
@@ -676,25 +635,18 @@ export const Rules: React.FC = () => {
                   <thead className={UI_THEAD_STICKY}>
                     <tr>
                       <th className={UI_TH}>Rule</th>
-                      <th className={UI_TH}>Category / Type</th>
+                      <th className={UI_TH}>Category</th>
                       <th className={UI_TH}>Severity</th>
                       <th className={UI_TH}>Status</th>
-                      <th className={UI_TH}>
+                      <th className={`${UI_TH} text-right whitespace-nowrap`}>
                         <span
                           className={tooltipLabelClass}
-                          title="Rule source: db (managed), files (YAML), built-in (fallback)"
+                          title="Findings this rule raised in the last 7 days (last 24 hours below)"
                         >
-                          Source <Info className="w-3 h-3" />
+                          Findings 7d <Info className="w-3 h-3" />
                         </span>
                       </th>
-                      <th className={UI_TH}>
-                        <span
-                          className={tooltipLabelClass}
-                          title="Finding activity: persisted findings whose cve_id equals this rule id, plus 24h/7d windows and related capabilities from evidence"
-                        >
-                          Finding activity <Info className="w-3 h-3" />
-                        </span>
-                      </th>
+                      <th className={`${UI_TH} whitespace-nowrap`}>Last match</th>
                       <th className={`${UI_TH} text-right`}>Actions</th>
                     </tr>
                   </thead>
@@ -719,33 +671,34 @@ export const Rules: React.FC = () => {
                       </tr>
                     ) : (
                       paginatedRules.map((rule) => (
-                        <tr key={rule.id} className={UI_TR}>
+                        <tr
+                          key={rule.id}
+                          className={`${UI_TR} cursor-pointer`}
+                          onClick={() => navigate(`/rules/uid/${encodeURIComponent(rule.uid ?? rule.id)}`)}
+                        >
                           <td className={UI_TD}>
-                            <div className="font-medium text-text">
-                              {rule.name}
-                            </div>
-                            <div className="text-caption text-muted font-mono">
+                            <div className="font-medium text-text">{rule.name}</div>
+                            <div
+                              className="text-meta text-muted font-mono"
+                              title="Rule id · where the definition is loaded from (db, files or built-in) · Overlapping = same signature as a primary rule, kept for compatibility or tuning"
+                            >
                               {rule.id}
+                              {rule.source ? ` · ${rule.source}` : ""}
+                              {rule.isCanonical === false ? ` · overlaps ${rule.canonicalRuleId}` : ""}
                             </div>
                             {rule.description && (
-                              <div
-                                className="text-caption text-muted mt-1 max-w-[460px] truncate"
-                                title={rule.description}
-                              >
+                              <div className="text-caption text-muted mt-1 max-w-[460px] truncate" title={rule.description}>
                                 {rule.description}
                               </div>
                             )}
                           </td>
-                          <td className="px-6 py-4 text-muted">
+                          <td className={`${UI_TD} text-muted whitespace-nowrap`} title={rule.type ? `Type: ${rule.type}` : undefined}>
                             {rule.category || "uncategorized"}
-                            {rule.type ? ` / ${rule.type}` : ""}
                           </td>
                           <td className={UI_TD}>
-                            <span
-                              className={`px-2 py-0.5 rounded text-caption font-medium ${getSeverityBadgeClass(rule.severity)}`}
-                            >
+                            <Badge severity={rule.severity} uppercase={false} showShape={false} className="capitalize">
                               {rule.severity}
-                            </span>
+                            </Badge>
                           </td>
                           <td className={UI_TD}>
                             <span
@@ -758,57 +711,21 @@ export const Rules: React.FC = () => {
                               {rule.enabled ? "Enabled" : "Disabled"}
                             </span>
                           </td>
-                          <td className="px-6 py-4 text-caption text-text">
-                            <div title="Where this rule definition is loaded from">
-                              {rule.source ?? "unknown"}
-                            </div>
-                            <div
-                              className="mt-1 text-muted"
-                              title="Primary rule = main rule in a shared signature group. Overlapping rule = same signature group, kept for compatibility/tuning."
-                            >
-                              {rule.isCanonical === false
-                                ? `Overlapping rule of ${rule.canonicalRuleId}`
-                                : "Primary rule"}
-                            </div>
+                          <td
+                            className={`${UI_TD} text-right tabular-nums`}
+                            title={
+                              rule.relatedCapabilities?.length
+                                ? `Capabilities seen in its findings: ${rule.relatedCapabilities.join(", ")}`
+                                : undefined
+                            }
+                          >
+                            <div className="text-text">{rule.impactedFindings7d ?? 0}</div>
+                            <div className="text-meta text-muted">{rule.impactedFindings24h ?? 0} in 24h</div>
                           </td>
-                          <td className="px-6 py-4 text-muted text-caption">
-                            <div>
-                              Matches:{" "}
-                              <span className="text-text">
-                                {rule.matches ?? 0}
-                              </span>
-                            </div>
-                            <div
-                              className="mt-1"
-                              title="Impacted findings in rolling windows"
-                            >
-                              24h/7d:{" "}
-                              <span className="text-text">
-                                {rule.impactedFindings24h ?? 0}/
-                                {rule.impactedFindings7d ?? 0}
-                              </span>
-                            </div>
-                            <div className="mt-1">
-                              Last:{" "}
-                              <span className="text-text">
-                                {rule.lastMatchedAt
-                                  ? new Date(
-                                      rule.lastMatchedAt,
-                                    ).toLocaleString()
-                                  : "Never"}
-                              </span>
-                            </div>
-                            {rule.relatedCapabilities &&
-                              rule.relatedCapabilities.length > 0 && (
-                                <div
-                                  className="mt-1 text-muted truncate max-w-[220px]"
-                                  title={`Related capabilities from evidence: ${rule.relatedCapabilities.join(", ")}`}
-                                >
-                                  Caps: {rule.relatedCapabilities.join(", ")}
-                                </div>
-                              )}
+                          <td className={`${UI_TD} text-caption text-muted`}>
+                            {rule.lastMatchedAt ? <When iso={rule.lastMatchedAt} /> : "Never"}
                           </td>
-                          <td className="px-6 py-4 text-right">
+                          <td className={`${UI_TD} text-right`} onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end gap-2">
                               <Button
                                 size="sm"
@@ -817,12 +734,6 @@ export const Rules: React.FC = () => {
                                 disabled={testingRuleId === rule.id}
                               >
                                 <FlaskConical className="w-4 h-4 mr-1" /> Test
-                              </Button>
-                              <Button
-                                size="sm"
-                                onClick={() => navigate(`/rules/uid/${encodeURIComponent(rule.uid ?? rule.id)}`)}
-                              >
-                                Open
                               </Button>
                             </div>
                           </td>

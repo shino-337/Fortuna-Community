@@ -8,7 +8,7 @@ import { useToast } from '../../design-system/components/Toast';
 import { PageEmpty } from '../../design-system/components/PageStatus';
 import type { RiskRuleFull, RiskRuleItem } from '../../types';
 import { api } from '../../lib/api';
-import { getSeverityBadgeClass } from '../../lib/severity';
+import { Badge } from '../../design-system/components/Badge';
 import { UI_TABLE, UI_TD, UI_TH, UI_THEAD_STICKY, UI_TR } from '../../lib/tableChrome';
 import { can, P } from '../../lib/permissions';
 import { usePermUser } from '../../hooks/usePermUser';
@@ -323,12 +323,9 @@ export const RiskRulesPanel: React.FC = () => {
       <Card className="p-0 overflow-hidden">
         <div className="p-4 border-b border-border flex items-center justify-between flex-wrap gap-2">
           <span className="text-body text-muted">
-            Source: <strong className="text-text">{riskRulesSource || '—'}</strong>
-            {riskRulesSource && (
-              <span className="text-muted ml-1">({riskRules.length} rule{riskRules.length !== 1 ? 's' : ''})</span>
-            )}
-            {riskRulesSource === 'files' && ' — read-only from YAML; add rules in DB to edit here.'}
-            {riskRulesSource === 'db' && ' — rules from database; new rules appear here after Save.'}
+            <strong className="text-text tabular-nums">{riskRules.length}</strong> rule{riskRules.length !== 1 ? 's' : ''}
+            {riskRulesSource === 'db' && ' · stored in the database, editable here'}
+            {riskRulesSource === 'files' && ' · read-only, loaded from YAML files'}
           </span>
           {riskRulesSource === 'db' && (
             <div className="flex items-center gap-2">
@@ -371,11 +368,17 @@ export const RiskRulesPanel: React.FC = () => {
                   <td className={`${UI_TD} font-mono text-text`}>{r.id}</td>
                   <td className={`${UI_TD} text-text font-medium`}>{r.name}</td>
                   <td className={UI_TD}>
-                    <span className={getSeverityBadgeClass(r.severity)}>{r.severity}</span>
+                    <Badge severity={r.severity} uppercase={false} showShape={false} className="capitalize">{r.severity}</Badge>
                   </td>
                   <td className={`${UI_TD} text-muted`}>{r.category || '—'}</td>
                   <td className={UI_TD}>
-                    <span className={r.enabled ? 'text-success' : 'text-muted'}>{r.enabled ? 'Enabled' : 'Disabled'}</span>
+                    <span
+                      className={`px-2 py-0.5 rounded text-caption font-medium border ${
+                        r.enabled ? 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' : 'text-muted bg-surface-2 border-border'
+                      }`}
+                    >
+                      {r.enabled ? 'Enabled' : 'Disabled'}
+                    </span>
                   </td>
                   {riskRulesSource === 'db' && (
                     <td className={`${UI_TD} text-right`}>

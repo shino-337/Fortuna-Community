@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { Link, useSearchParams } from 'react-router-dom';
+import { podDetailPath } from '../../lib/podRoute';
 import { api, getAvailabilityIssue, type AvailabilityIssue } from '../../lib/api';
 import type {
   PodCapabilityDetail,
@@ -13,7 +15,7 @@ import { AvailabilityNotice } from '../../components/AvailabilityNotice';
 import { Pagination } from '../../components/Pagination';
 import { PageLayout } from '../../design-system/layouts/PageLayout';
 import { RULES_CATALOG_SECTIONS, SectionNav } from '../../components/SectionNav';
-import { PAGE_TITLES } from '../../lib/pageTitles';
+import { PAGE_TITLES, RULES_PAGE_DESCRIPTION } from '../../lib/pageTitles';
 import { usePolling, REFRESH_INTERVALS } from '../../hooks/usePolling';
 import { useClusters } from '../../hooks/useClusters';
 import { useClusterStore } from '../../store/clusterStore';
@@ -58,7 +60,9 @@ export const CapabilityExposure: React.FC = () => {
   const pceRequestRef = useRef(0);
   const [pceClusterId, setPceClusterId] = useState('');
   const [pceNamespace, setPceNamespace] = useState('');
-  const [pceCapabilityId, setPceCapabilityId] = useState('');
+  const [searchParams] = useSearchParams();
+  // Capability detail links here with ?capabilityId= to list the pods holding it.
+  const [pceCapabilityId, setPceCapabilityId] = useState(() => searchParams.get('capabilityId') ?? '');
   const [pcePodName, setPcePodName] = useState('');
   const [pceSeverityFilter, setPceSeverityFilter] = useState<string>('');
   /** When user clicks a heatmap cell, filter drill-down table by this namespace + severity. */
@@ -183,7 +187,7 @@ export const CapabilityExposure: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.policyRules}
-      description="Which pods hold the capabilities in the catalog, by namespace and severity. Use it to find over-privileged workloads before they show up as findings."
+      description={RULES_PAGE_DESCRIPTION}
     >
       <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
     <div className="space-y-6">
@@ -480,7 +484,7 @@ export const CapabilityExposure: React.FC = () => {
                 });
               }}
             >
-              Apply &amp; search
+              Search
             </Button>
             <ResetFiltersButton
               onReset={resetPceFilters}
@@ -508,8 +512,7 @@ export const CapabilityExposure: React.FC = () => {
           <table className={UI_TABLE}>
             <thead className={UI_THEAD_STICKY}>
               <tr>
-                <th className={UI_TH_COMPACT}>Pod Name</th>
-                <th className={`${UI_TH_COMPACT} hidden lg:table-cell`}>Pod UID</th>
+                <th className={UI_TH_COMPACT}>Pod</th>
                 <th className={UI_TH_COMPACT}>Namespace</th>
                 <th className={UI_TH_COMPACT}>Capability</th>
                 <th className={UI_TH_COMPACT}>Severity</th>
@@ -520,7 +523,7 @@ export const CapabilityExposure: React.FC = () => {
             <tbody>
               {pceDetails.length === 0 && !pceIssue ? (
                 <tr>
-                  <td colSpan={7} className={`${UI_TD_COMPACT_TIGHT} py-4 text-center text-muted`}>No matching capability records. Adjust filters and run again.</td>
+                  <td colSpan={6} className={`${UI_TD_COMPACT_TIGHT} py-4 text-center text-muted`}>No matching capability records. Adjust filters and run again.</td>
                 </tr>
               ) : pceDetails.length > 0 ? (
                 sortedPceDetails.map((row) => {
@@ -548,12 +551,19 @@ export const CapabilityExposure: React.FC = () => {
                   })() : '—');
                   return (
                     <tr key={`${row.podUid}-${row.capabilityId}`} className={UI_TR}>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-text font-medium`} title={row.podUid}>{row.podName ?? '—'}</td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-muted font-mono text-caption truncate max-w-[120px] hidden lg:table-cell`} title={row.podUid}>{row.podUid}</td>
+                      <td className={`${UI_TD_COMPACT_TIGHT} font-medium`} title={row.podUid}>
+                        {row.podUid ? (
+                          <Link className="text-brand hover:underline" to={podDetailPath(row.podUid, pceClusterId || effectiveClusterId)}>
+                            {row.podName ?? row.podUid}
+                          </Link>
+                        ) : (row.podName ?? '—')}
+                      </td>
                       <td className={`${UI_TD_COMPACT_TIGHT} text-text`}>{row.namespace}</td>
-                      <td className={`${UI_TD_COMPACT_TIGHT} text-text`}>{row.capabilityId}</td>
+                      <td className={`${UI_TD_COMPACT_TIGHT} font-mono text-caption`}>
+                        <Link className="text-brand hover:underline" to={`/capabilities/${encodeURIComponent(row.capabilityId)}`}>{row.capabilityId}</Link>
+                      </td>
                       <td className={UI_TD_COMPACT_TIGHT}>
-                        <span className={`px-2 py-0.5 rounded text-caption font-bold uppercase border ${getSeverityBadgeClass(row.severity)}`}>
+                        <span className={`px-2 py-0.5 rounded text-caption font-semibold capitalize border ${getSeverityBadgeClass(row.severity)}`}>
                           {row.severity}
                         </span>
                       </td>
