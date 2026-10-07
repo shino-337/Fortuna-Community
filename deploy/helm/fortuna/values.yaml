@@ -93,6 +93,9 @@ core:
     enabled: false
     schedule: "0 */6 * * *"
     image: curlimages/curl:8.11.1
+    # Service account the job signs in as. Core creates it with only
+    # risk.evaluate; its password is risk-evaluator-password in fortuna-secrets.
+    username: fortuna-risk-evaluator
 
 agent:
   enabled: true

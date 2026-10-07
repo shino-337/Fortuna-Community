@@ -99,24 +99,17 @@ func (s *AgentService) getSystemUserID() uint {
 	return s.systemUserID
 }
 
-// ensureSystemUser ensures a system user exists for audit logging
+// ensureSystemUser returns the account that agent-sync audit rows are written
+// as. It is a dedicated "system" account with no permissions that cannot sign
+// in. Rows are never attributed to a human admin.
 func (s *AgentService) ensureSystemUser() (uint, error) {
 	var user models.User
-	// Prefer dedicated system user
 	if err := s.db.Where("username = ?", "system").First(&user).Error; err == nil {
 		return user.ID, nil
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, err
 	}
 
-	// Fallback to first admin if available
-	if err := s.db.Where("role = ?", models.RoleAdmin).Order("id ASC").First(&user).Error; err == nil {
-		return user.ID, nil
-	} else if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		return 0, err
-	}
-
-	// Create system user automatically
 	password, err := generateRandomPassword()
 	if err != nil {
 		return 0, err
@@ -127,16 +120,21 @@ func (s *AgentService) ensureSystemUser() (uint, error) {
 	}
 
 	user = models.User{
-		Username: "system",
-		Email:    "system@fortuna.local",
-		Password: hashed,
-		Role:     models.RoleAdmin,
-		Active:   true,
+		Username:  "system",
+		Email:     "system@fortuna.local",
+		Password:  hashed,
+		Role:      models.RoleSystem,
+		ScopeJSON: `{"clusters":[]}`,
+		Active:    false,
 	}
 	if err := s.db.Create(&user).Error; err != nil {
 		return 0, err
 	}
-	s.logger.Printf("Created system user for audit logs (username=system)")
+	// users.active defaults to true in the schema, so a false on Create is dropped.
+	if err := s.db.Model(&user).Update("active", false).Error; err != nil {
+		return 0, err
+	}
+	s.logger.Printf("Created system user for audit logs (username=system, no permissions, cannot sign in)")
 	return user.ID, nil
 }
 

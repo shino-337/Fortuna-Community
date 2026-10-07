@@ -278,6 +278,19 @@ spec:
                   optional: true
             - name: FORTUNA_ADMIN_EMAIL
               value: {{ .Values.core.admin.email | quote }}
+            {{- if .Values.core.riskEvaluationCronJob.enabled }}
+            # Service account for the risk evaluation CronJob: risk.evaluate only.
+            - name: FORTUNA_RISK_EVALUATOR_USERNAME
+              value: {{ .Values.core.riskEvaluationCronJob.username | quote }}
+            - name: FORTUNA_RISK_EVALUATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: fortuna-secrets
+                  key: risk-evaluator-password
+                  # Plain-manifest installs get the key from ensure-fortuna-secrets.sh;
+                  # without it Core still starts and creates no service account.
+                  optional: true
+            {{- end }}
 
             # PCE Scheduler
             - name: PCE_SCHEDULER_ENABLED

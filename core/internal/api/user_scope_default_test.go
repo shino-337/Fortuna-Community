@@ -108,3 +108,34 @@ func TestPatchBlankScopeGrantsNoCluster(t *testing.T) {
 		t.Fatalf("clearing a scope must leave no cluster, got %q", scope)
 	}
 }
+
+func TestServiceAccountRoleCannotBeChangedOrDeleted(t *testing.T) {
+	db := setupUserLifecycleDB(t)
+	svc := models.User{Username: "fortuna-risk-evaluator", Email: "svc@test.local", Password: "x", Role: models.RoleRiskEvaluator, ScopeJSON: "{}", Active: true}
+	if err := db.Create(&svc).Error; err != nil {
+		t.Fatal(err)
+	}
+	r := routerUserLifecycleV1(t, db)
+	tok := loginToken(t, db, userLifecycleSecret, "admin1")
+	path := "/api/v1/users/" + strconv.FormatUint(uint64(svc.ID), 10)
+
+	if w := sendUserJSON(t, r, http.MethodPatch, path, tok, map[string]string{"role": "admin"}); w.Code != http.StatusForbidden {
+		t.Fatalf("promote service account: want 403 got %d %s", w.Code, w.Body.String())
+	}
+	if w := sendUserJSON(t, r, http.MethodPatch, path, tok, map[string]string{"scopeJson": `{"clusters":["c1"]}`}); w.Code != http.StatusForbidden {
+		t.Fatalf("rescope service account: want 403 got %d %s", w.Code, w.Body.String())
+	}
+	if w := sendUserJSON(t, r, http.MethodDelete, path, tok, nil); w.Code != http.StatusForbidden {
+		t.Fatalf("delete service account: want 403 got %d %s", w.Code, w.Body.String())
+	}
+	// An admin can still switch it off.
+	if w := sendUserJSON(t, r, http.MethodPatch, path, tok, map[string]bool{"active": false}); w.Code != http.StatusOK {
+		t.Fatalf("disable service account: want 200 got %d %s", w.Code, w.Body.String())
+	}
+	// And nobody can give a human account a service role.
+	if w := sendUserJSON(t, r, http.MethodPost, "/api/v1/auth/register", tok, map[string]string{
+		"username": "fake-svc", "email": "fake@test.local", "password": "AnotherPass12!", "role": models.RoleRiskEvaluator,
+	}); w.Code != http.StatusBadRequest {
+		t.Fatalf("register with a service role: want 400 got %d %s", w.Code, w.Body.String())
+	}
+}

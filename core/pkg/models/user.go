@@ -40,9 +40,13 @@ func (User) TableName() string {
 // UserRole represents user roles stored in DB (RoleUser is legacy; prefer RoleOperator for new accounts).
 const (
 	RoleAdmin        = "admin"
-	RoleClusterAdmin = "cluster_admin" // cluster-scoped security operations, no platform/user/global policy admin
+	RoleClusterAdmin = "cluster_admin" // security for its named clusters: operator plus exceptions, deletes, ServiceAccount changes
 	RoleUserAdmin    = "user_admin"    // retired: has no permissions; migration 154 turns these accounts into viewers with no cluster
 	RoleOperator     = "operator"
 	RoleUser         = "user" // legacy alias — authorization maps to operator
 	RoleViewer       = "viewer"
+
+	// Non-human accounts. They cannot be assigned through the API.
+	RoleRiskEvaluator = "risk_evaluator" // the scheduled risk evaluation job: auth.session and risk.evaluate only
+	RoleSystem        = "system"         // author of agent-sync audit rows; no permissions, cannot sign in
 )

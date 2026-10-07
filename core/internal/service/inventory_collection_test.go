@@ -20,7 +20,7 @@ func collectionFixture(t *testing.T) (*gorm.DB, *AgentService, map[string]interf
 	require.NoError(t, migrations.EnsureInventoryCollection(db))
 	require.NoError(t, migrations.EnsureInventoryCollection(db))
 	// Keep the receipt transaction independent of password bootstrap.
-	require.NoError(t, db.Create(&models.User{Username: "system", Email: "system@test", Password: "unused", Role: models.RoleAdmin, Active: true}).Error)
+	require.NoError(t, db.Create(&models.User{Username: "system", Email: "system@test", Password: "unused", Role: models.RoleSystem, Active: true}).Error)
 	data := map[string]interface{}{"isFullSync": true, "isDeltaSync": false}
 	counts := map[string]int{}
 	for _, kind := range collection.InventoryKinds {

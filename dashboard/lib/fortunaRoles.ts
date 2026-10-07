@@ -19,6 +19,8 @@ const SHORT_LABEL: Record<string, string> = {
   cluster_admin: 'Cluster admin',
   operator: 'Operator',
   viewer: 'Viewer',
+  risk_evaluator: 'Service: risk evaluation',
+  system: 'System (audit only)',
 };
 
 /** One row per role for Settings help panel and tooltips. */

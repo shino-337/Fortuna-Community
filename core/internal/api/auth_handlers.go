@@ -565,6 +565,13 @@ func PatchUser(db *gorm.DB) gin.HandlerFunc {
 			c.JSON(http.StatusForbidden, gin.H{"error": "only platform administrators may change users"})
 			return
 		}
+		// A service account's role and scope come from deployment configuration;
+		// giving the risk evaluation job's credentials another role would hand
+		// that role to whatever can read the job's Secret.
+		if authorization.IsServiceRole(target.Role) && (body.Role != nil || body.ScopeJSON != nil) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "service accounts are managed by deployment configuration"})
+			return
+		}
 		before := map[string]any{
 			"role":      target.Role,
 			"active":    target.Active,
@@ -731,6 +738,10 @@ func DeleteUser(db *gorm.DB) gin.HandlerFunc {
 		}
 		if authorization.NormalizeRole(actor.Role) != models.RoleAdmin {
 			c.JSON(http.StatusForbidden, gin.H{"error": "only platform administrators may delete users"})
+			return
+		}
+		if authorization.IsServiceRole(target.Role) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "service accounts are managed by deployment configuration; disable it instead"})
 			return
 		}
 		// Count active admins, consistent with PatchUser: an inactive admin cannot

@@ -121,6 +121,7 @@ var (
 	_ = Migration152_NotificationReads
 	_ = Migration153_InsightAssignee
 	_ = Migration154_RetireUserAdmin
+	_ = Migration155_SystemUserHasNoRole
 	_ = Migration093_EnsureK8sEventsTable
 	_ = Migration094_EnsureAgentsTable
 	_ = Migration095_AddPodProcessRuntimeIdentityFields
@@ -355,6 +356,7 @@ func RunMigrations(db *gorm.DB) error {
 		Migration152_NotificationReads,          // Notifications: per-user read state
 		Migration153_InsightAssignee,            // Findings: assignee user
 		Migration154_RetireUserAdmin,            // Access: user_admin accounts become viewers with no cluster
+		Migration155_SystemUserHasNoRole,        // Access: the audit "system" account loses admin
 	}
 
 	log.Printf("Total migrations registered: %d", len(migrations))
@@ -1136,6 +1138,9 @@ func RunPostMigrations(db *gorm.DB) error {
 	forcePasswordChange := bootstrapCredential || envTruthy("FORTUNA_FORCE_ADMIN_PASSWORD_CHANGE")
 	if err := CreateDefaultAdmin(db, adminUsername, adminPassword, adminEmail, forcePasswordChange, bootstrapCredential); err != nil {
 		return fmt.Errorf("failed to create default admin: %w", err)
+	}
+	if err := EnsureRiskEvaluatorAccount(db); err != nil {
+		return fmt.Errorf("failed to ensure risk evaluator account: %w", err)
 	}
 
 	return nil

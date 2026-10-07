@@ -21,6 +21,8 @@ func NormalizeRole(role string) string {
 		return models.RoleClusterAdmin
 	case models.RoleOperator, models.RoleUser:
 		return models.RoleOperator
+	case models.RoleRiskEvaluator:
+		return models.RoleRiskEvaluator
 	default:
 		return r
 	}
@@ -38,9 +40,21 @@ func PermissionsForRole(canonicalRole string) []Permission {
 		return operatorPermissions()
 	case models.RoleViewer:
 		return viewerPermissions()
+	case models.RoleRiskEvaluator:
+		return []Permission{PermissionAuthSession, PermissionRiskEvaluate}
 	default:
 		return nil
 	}
+}
+
+// IsServiceRole reports whether role belongs to a non-human account that
+// deployment configuration owns. Such roles are never assigned through the API.
+func IsServiceRole(role string) bool {
+	switch strings.ToLower(strings.TrimSpace(role)) {
+	case models.RoleRiskEvaluator, models.RoleSystem:
+		return true
+	}
+	return false
 }
 
 // PermissionsForUser resolves permissions from stored user.Role (legacy "user" included).
@@ -155,7 +169,7 @@ func RolesGrantingPermission(p Permission) []string {
 		return nil
 	}
 	var out []string
-	for _, role := range []string{models.RoleAdmin, models.RoleClusterAdmin, models.RoleOperator, models.RoleViewer} {
+	for _, role := range []string{models.RoleAdmin, models.RoleClusterAdmin, models.RoleOperator, models.RoleViewer, models.RoleRiskEvaluator} {
 		for _, g := range PermissionsForRole(role) {
 			if g == p {
 				out = append(out, role)
