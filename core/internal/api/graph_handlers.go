@@ -2,8 +2,8 @@ package api
 
 import (
 	"errors"
+	"log"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,6 +16,13 @@ import (
 )
 
 var errGraphRequestAborted = errors.New("graph request aborted")
+
+// graphInternalError logs the cause and returns a fixed message, so SQL and builder
+// details stay out of responses.
+func graphInternalError(c *gin.Context, err error) {
+	log.Printf("[graph] %s %s: %v", c.Request.Method, c.FullPath(), err)
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not build attack-path data"})
+}
 
 // GetGraph returns relational graph data within the authorized cluster scope.
 func GetGraph(db *gorm.DB) gin.HandlerFunc {
@@ -77,7 +84,7 @@ func GetAttackPathsSummary(db *gorm.DB) gin.HandlerFunc {
 		builder := graph.NewRelationalPathBuilder(db)
 		summary, err := builder.GetSummary(c.Request.Context(), clusterID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			graphInternalError(c, err)
 			return
 		}
 		viewerJSON(c, http.StatusOK, gin.H{"data": summary})
@@ -98,7 +105,7 @@ func GetAttackPathObjectives(db *gorm.DB) gin.HandlerFunc {
 		builder := graph.NewRelationalPathBuilder(db)
 		objectives, err := builder.GetObjectives(c.Request.Context(), clusterID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			graphInternalError(c, err)
 			return
 		}
 		viewerJSON(c, http.StatusOK, gin.H{"data": objectives})
@@ -119,7 +126,7 @@ func GetAttackChains(db *gorm.DB) gin.HandlerFunc {
 		builder := graph.NewRelationalPathBuilder(db)
 		chains, err := builder.GetChains(c.Request.Context(), clusterID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			graphInternalError(c, err)
 			return
 		}
 		chains, truncated := listlimit.Trim(chains, attackChainsMax)
@@ -142,7 +149,7 @@ func GetAttackPathsBundle(db *gorm.DB) gin.HandlerFunc {
 		builder := graph.NewRelationalPathBuilder(db)
 		bundle, err := builder.BuildAttackPathsViewBundle(c.Request.Context(), clusterID)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			graphInternalError(c, err)
 			return
 		}
 		truncated := capAttackPathsBundle(bundle)
@@ -184,21 +191,19 @@ func GetAttackPaths(db *gorm.DB) gin.HandlerFunc {
 				c.JSON(http.StatusNotFound, gin.H{"error": "pod not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			graphInternalError(c, err)
 			return
 		}
 		builder := graph.NewRelationalPathBuilder(db)
 		allPaths, err := builder.BuildAllPaths(c.Request.Context(), clusterID, false)
 		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error": err.Error(),
-			})
+			graphInternalError(c, err)
 			return
 		}
 
+		graph.AssignStablePathIDs(allPaths)
 		paths := make([]graph.AttackPath, 0)
 		for i := range allPaths {
-			allPaths[i].PathID = "p" + strconv.Itoa(i)
 			if strings.EqualFold(attackPathSourcePodUID(allPaths[i]), podUID) {
 				paths = append(paths, allPaths[i])
 			}

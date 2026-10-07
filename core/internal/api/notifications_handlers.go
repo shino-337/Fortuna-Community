@@ -474,6 +474,16 @@ const (
 	attackPathHighRisk     = 7.0
 )
 
+// attackPathNotificationRoute opens the alert's path in its own cluster.
+func attackPathNotificationRoute(p models.AttackPath) string {
+	q := url.Values{}
+	if p.ClusterID != "" {
+		q.Set("clusterId", p.ClusterID)
+	}
+	q.Set("path", p.PathID)
+	return "/attack-paths?" + q.Encode()
+}
+
 func derivedAttackPathNotifications(db *gorm.DB, now time.Time) []models.Notification {
 	if !db.Migrator().HasTable("attack_paths") {
 		return nil
@@ -503,7 +513,7 @@ func derivedAttackPathNotifications(db *gorm.DB, now time.Time) []models.Notific
 			Severity:     severity,
 			Source:       "attack-path",
 			Category:     "attack-path",
-			Route:        "/attack-paths?path=" + url.QueryEscape(p.PathID),
+			Route:        attackPathNotificationRoute(p),
 			DedupeKey:    fmt.Sprintf("attack-path:%d", p.ID),
 			ClusterID:    p.ClusterID,
 			ResourceUID:  p.PodUID,

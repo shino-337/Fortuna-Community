@@ -193,8 +193,12 @@ func normalizePaths(paths []AttackPath) []pathNormalized {
 			provides = uniqStrings(append(provides, semanticCaps...))
 		}
 		requires := deriveRequires(p, source, target, cls)
+		pathID := p.PathID
+		if pathID == "" {
+			pathID = fmt.Sprintf("p%d", idx)
+		}
 		out = append(out, pathNormalized{
-			PathID:       fmt.Sprintf("p%d", idx),
+			PathID:       pathID,
 			Source:       source,
 			Target:       target,
 			Class:        cls,

@@ -22,7 +22,7 @@ export function findingsForResourcePath({ uid, clusterId }: PodRef): string {
   return `/risks/findings?${params.toString()}`;
 }
 
-/** Attack paths that start at or pass through a pod; `pathId` opens one path, `insightId` the path for a finding. */
+/** Attack paths that start at a pod; `pathId` opens one path, `insightId` the path for a finding. */
 export function attackPathsForPodPath({ uid, clusterId }: PodRef, opts?: { pathId?: string; insightId?: string }): string {
   const params = withCluster(new URLSearchParams({ podUid: uid.trim() }), clusterId);
   if (opts?.pathId) params.set('path', opts.pathId);

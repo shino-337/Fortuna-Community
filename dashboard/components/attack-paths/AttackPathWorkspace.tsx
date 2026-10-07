@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { CheckCircle2, ChevronRight, Eye, HelpCircle, Wrench } from 'lucide-react';
+import { ChevronRight, CircleDashed, Eye, HelpCircle, Wrench } from 'lucide-react';
 import clsx from 'clsx';
 import type { AttackPath, AttackPathNode } from '../../types';
 import {
@@ -12,28 +12,26 @@ import {
   type GroupedScenario,
   type SharedFix,
 } from '../../lib/attackPathNarrative';
-import { ATTACK_PATH_LANE_LABELS, attackPathConfidenceLane, type AttackPathConfidenceLane } from '../../lib/attackPathConfidence';
+import {
+  ATTACK_PATH_LANE_HINTS,
+  ATTACK_PATH_LANE_LABELS,
+  attackPathConfidenceLane,
+  type AttackPathConfidenceLane,
+} from '../../lib/attackPathConfidence';
 import { getSeverityBadgeClass, pathRiskLevel, type SeverityLevel } from '../../lib/severity';
 import { findingsForResourcePath, identityDetailPath, networkForPodPath, podDetailPath } from '../../lib/entityLinks';
 
-const PRIORITY_CLASS: Record<string, string> = {
-  CRITICAL: 'text-red-300',
-  HIGH: 'text-orange-300',
-  MEDIUM: 'text-yellow-300',
-  LOW: 'text-muted',
-};
-
 const LANE_ICON: Record<AttackPathConfidenceLane, React.ReactNode> = {
-  confirmed: <CheckCircle2 className="h-3.5 w-3.5" aria-hidden />,
-  probable: <Eye className="h-3.5 w-3.5" aria-hidden />,
+  observed: <Eye className="h-3.5 w-3.5" aria-hidden />,
+  inferred: <CircleDashed className="h-3.5 w-3.5" aria-hidden />,
   theoretical: <HelpCircle className="h-3.5 w-3.5" aria-hidden />,
 };
 
-/** Confidence in neutral colours, so it never reads as a severity. */
+/** Evidence in neutral colours, so it never reads as a severity. */
 export function ConfidenceTag({ scenario }: { scenario: GroupedScenario }) {
   const lane = attackPathConfidenceLane(scenario);
   return (
-    <span className="inline-flex items-center gap-1 text-caption text-muted" title="How much of this path is backed by observed evidence">
+    <span className="inline-flex items-center gap-1 text-caption text-muted" title={ATTACK_PATH_LANE_HINTS[lane]}>
       {LANE_ICON[lane]}
       {ATTACK_PATH_LANE_LABELS[lane]}
     </span>
@@ -59,34 +57,58 @@ function nodeName(node: AttackPathNode | null | undefined): string {
   return ns ? `${ns}/${name}` : name;
 }
 
+type RankedFix = SharedFix & { paths: number; maxRisk: number | null; firstScenarioKey: string };
+
+/** Ranks shared fixes by how many paths they cut, then by the highest path level they cut. */
+export function rankSharedFixes(fixes: SharedFix[], scenarios: GroupedScenario[], pathById: Map<string, AttackPath>): RankedFix[] {
+  const byKey = new Map(scenarios.map((s) => [s.key, s]));
+  return fixes
+    .map((fix) => {
+      const ids = new Set<string>();
+      let maxRisk: number | null = null;
+      let firstScenarioKey = fix.scenarioKeys[0];
+      for (const key of fix.scenarioKeys) {
+        const s = byKey.get(key);
+        if (!s) continue;
+        scenarioPathIds(s).forEach((id) => ids.add(id));
+        const risk = scenarioMaxRisk(s, pathById);
+        if (risk !== null && (maxRisk === null || risk > maxRisk)) {
+          maxRisk = risk;
+          firstScenarioKey = key;
+        }
+      }
+      return { ...fix, paths: Math.max(ids.size, fix.scenarioKeys.length), maxRisk, firstScenarioKey };
+    })
+    .sort((a, b) => b.paths - a.paths || (b.maxRisk ?? -1) - (a.maxRisk ?? -1));
+}
+
 /** Fixes that break the most paths, the first thing to do on this page. */
 export const BreakTheseFirst: React.FC<{
   fixes: SharedFix[];
   scenarios: GroupedScenario[];
+  pathById: Map<string, AttackPath>;
   onSelect: (scenarioKey: string) => void;
-}> = ({ fixes, scenarios, onSelect }) => {
-  if (fixes.length === 0) return null;
-  const pathsBroken = (fix: SharedFix) => {
-    const ids = new Set<string>();
-    for (const s of scenarios) if (fix.scenarioKeys.includes(s.key)) scenarioPathIds(s).forEach((id) => ids.add(id));
-    return Math.max(ids.size, fix.scenarioKeys.length);
-  };
+}> = ({ fixes, scenarios, pathById, onSelect }) => {
+  const ranked = rankSharedFixes(fixes, scenarios, pathById);
+  if (ranked.length === 0) return null;
   return (
     <section aria-labelledby="break-first-title" className="rounded-xl border border-border bg-surface/45 p-3">
       <h2 id="break-first-title" className="mb-2 flex items-center gap-2 text-body font-semibold text-text">
         <Wrench className="h-4 w-4 text-brand" aria-hidden /> Break these first
       </h2>
       <ol className="divide-y divide-border/60">
-        {fixes.slice(0, 3).map((fix) => (
-          <li key={fix.label} className="grid grid-cols-[4rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 py-2 sm:flex sm:items-center">
-            <span className={clsx('w-16 shrink-0 text-meta font-semibold uppercase', PRIORITY_CLASS[fix.priority] ?? 'text-muted')}>{fix.priority}</span>
+        {ranked.slice(0, 3).map((fix) => (
+          <li key={fix.label} className="grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 py-2 sm:flex sm:items-center">
+            <span title="Highest level among the paths this fix cuts">
+              <LevelBadge risk={fix.maxRisk} />
+            </span>
             <span className="min-w-0 text-body text-text sm:flex-1">{fix.label}</span>
             <button
               type="button"
-              onClick={() => onSelect(fix.scenarioKeys[0])}
+              onClick={() => onSelect(fix.firstScenarioKey)}
               className="col-start-2 w-fit shrink-0 text-caption font-semibold text-brand hover:underline"
             >
-              Breaks {pathsBroken(fix)} {pathsBroken(fix) === 1 ? 'path' : 'paths'}
+              Breaks {fix.paths} {fix.paths === 1 ? 'path' : 'paths'}
             </button>
           </li>
         ))}
@@ -298,9 +320,9 @@ export const AttackPathDetail: React.FC<{
 
       <Section title="Fix">
         <ol className="flex flex-col gap-1.5">
-          {fixes.map((fix) => (
+          {fixes.map((fix, i) => (
             <li key={fix.label} className="flex items-start gap-3 text-body text-text">
-              <span className={clsx('w-16 shrink-0 text-meta font-semibold uppercase', PRIORITY_CLASS[fix.priority] ?? 'text-muted')}>{fix.priority}</span>
+              <span className="w-5 shrink-0 text-right font-mono text-caption text-muted">{i + 1}</span>
               <span className="min-w-0 flex-1">{fix.label}</span>
             </li>
           ))}
