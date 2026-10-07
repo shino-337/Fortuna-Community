@@ -111,12 +111,17 @@ CLUSTER_AWARE_DASHBOARD_POD_LINK_FILES = {
     "dashboard/pages/AttackPaths.tsx",
     "dashboard/pages/NetworkActivity.tsx",
     "dashboard/components/RiskDrawer.tsx",
+    "dashboard/pages/inventory/WorkloadsView.tsx",
+    "dashboard/pages/inventory/PodPanel.tsx",
+    "dashboard/pages/inventory/IdentityPanel.tsx",
 }
 DIRECT_DASHBOARD_POD_ROUTE = re.compile(r"/resources/pods/uid/")
 
 CLUSTER_AWARE_DASHBOARD_SA_LINK_FILES = {
     "dashboard/pages/PodDetail.tsx",
-    "dashboard/pages/Resources.tsx",
+    "dashboard/pages/inventory/WorkloadsView.tsx",
+    "dashboard/pages/inventory/IdentitiesView.tsx",
+    "dashboard/pages/inventory/IdentityPanel.tsx",
     "dashboard/pages/Insights.tsx",
     "dashboard/pages/RiskDetail.tsx",
 }

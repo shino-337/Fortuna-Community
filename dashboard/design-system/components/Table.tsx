@@ -20,6 +20,10 @@ export interface TableProps<T> {
   rowKey: (row: T) => string;
   className?: string;
   scrollClassName?: string;
+  /** Makes each row a button (click, Enter or Space). Links and buttons inside a cell keep their own action. */
+  onRowClick?: (row: T) => void;
+  isRowSelected?: (row: T) => boolean;
+  rowClassName?: (row: T) => string | undefined;
 }
 
 export function Table<T>({
@@ -31,6 +35,9 @@ export function Table<T>({
   rowKey,
   className = '',
   scrollClassName = 'ui-table-scroll',
+  onRowClick,
+  isRowSelected,
+  rowClassName,
 }: TableProps<T>): React.ReactElement {
   return (
     <div className={clsx('relative min-w-0', className)}>
@@ -60,7 +67,30 @@ export function Table<T>({
             ) : null}
             {!loading &&
               data.map((row) => (
-                <tr key={rowKey(row)} className={UI_TR}>
+                <tr
+                  key={rowKey(row)}
+                  className={clsx(
+                    UI_TR,
+                    onRowClick && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-brand/70',
+                    isRowSelected?.(row) && 'bg-brand/10',
+                    rowClassName?.(row),
+                  )}
+                  {...(onRowClick
+                    ? {
+                        tabIndex: 0,
+                        'aria-current': isRowSelected?.(row) ? ('true' as const) : undefined,
+                        onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+                          if ((e.target as HTMLElement).closest('a, button, input, select, label')) return;
+                          onRowClick(row);
+                        },
+                        onKeyDown: (e: React.KeyboardEvent<HTMLTableRowElement>) => {
+                          if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+                          e.preventDefault();
+                          onRowClick(row);
+                        },
+                      }
+                    : {})}
+                >
                   {columns.map((col) => (
                     <td key={col.key} className={clsx(UI_TD, col.className)}>
                       {col.cell(row)}

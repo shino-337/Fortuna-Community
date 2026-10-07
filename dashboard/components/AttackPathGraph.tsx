@@ -1087,17 +1087,6 @@ export const AttackPathGraph: React.FC<AttackPathGraphProps> = ({
       .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }, [data.nodes.length, dimensions, focusNodeIds]);
 
-  if (!data.nodes.length) {
-    return (
-      <div className={`flex items-center justify-center py-16 text-muted ${className}`}>
-        <div className="text-center">
-          <p className="text-body font-medium">No attack path found</p>
-          <p className="text-caption mt-1 opacity-75">No RBAC binding data leading to a sensitive privilege yet.</p>
-        </div>
-      </div>
-    );
-  }
-
   const isLOD = !forceFull && data.nodes.length > LOD_THRESHOLD;
 
   const foldedTypeSummary = useMemo(() => {
@@ -1109,6 +1098,18 @@ export const AttackPathGraph: React.FC<AttackPathGraphProps> = ({
       .map(([type, count]) => `${count} ${type.replace(/_/g, ' ')}`)
       .join(', ');
   }, [data.links, data.nodes, isLOD]);
+
+  if (!data.nodes.length) {
+    return (
+      <div className={`flex items-center justify-center py-16 text-muted ${className}`}>
+        <div className="text-center">
+          <p className="text-body font-medium">No attack path found</p>
+          <p className="text-caption mt-1 opacity-75">No RBAC binding data leading to a sensitive privilege yet.</p>
+        </div>
+      </div>
+    );
+  }
+
 
   const ariaLabel = `Attack path graph with ${data.nodes.length} nodes and ${data.links.length} edges. ` +
     `${data.nodes.filter(n => n.isStart).length} entry points, ` +

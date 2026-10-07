@@ -129,10 +129,10 @@ export const IdentityDetail: React.FC = () => {
         <p role="alert" className="mb-4 text-danger">{error}</p>
         <Button variant="secondary" onClick={() => void fetchData()}>Retry</Button>
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => navigate('/resources?tab=ServiceAccount')}>
+          <Button variant="secondary" onClick={() => navigate('/resources?view=identities&kind=ServiceAccount')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Service accounts
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/resources?tab=Pod')}>
+          <Button variant="secondary" onClick={() => navigate('/resources')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Pods
           </Button>
         </div>
@@ -144,10 +144,10 @@ export const IdentityDetail: React.FC = () => {
     return (
       <PageLayout title="Identity not found" description="The service account may have been removed.">
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => navigate('/resources?tab=ServiceAccount')}>
+          <Button variant="secondary" onClick={() => navigate('/resources?view=identities&kind=ServiceAccount')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Service accounts
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/resources?tab=Pod')}>
+          <Button variant="secondary" onClick={() => navigate('/resources')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Pods
           </Button>
         </div>
@@ -164,10 +164,10 @@ export const IdentityDetail: React.FC = () => {
       description={`Service Account · ${namespace}`}
       actions={
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" onClick={() => navigate('/resources?tab=ServiceAccount')}>
+          <Button variant="secondary" onClick={() => navigate('/resources?view=identities&kind=ServiceAccount')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Service accounts
           </Button>
-          <Button variant="secondary" onClick={() => navigate('/resources?tab=Pod')}>
+          <Button variant="secondary" onClick={() => navigate('/resources')}>
             <ArrowLeft className="w-4 h-4 mr-2" /> Pods
           </Button>
         </div>

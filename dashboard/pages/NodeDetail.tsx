@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
+import { inventoryPath } from '../lib/entityLinks';
 import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { NodeDetailResponse } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
@@ -76,7 +77,7 @@ const NodeDetailContent: React.FC = () => {
         <PageError
           title="Node identifier missing"
           description="Open node detail from a cluster inventory so the route contains both cluster ID and node name."
-          action={<Button variant="secondary" onClick={() => navigate('/resources/clusters')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters</Button>}
+          action={<Button variant="secondary" onClick={() => navigate('/resources?view=clusters')}><ArrowLeft className="w-4 h-4 mr-2" /> Back to Clusters</Button>}
         />
       </PageLayout>
     );
@@ -165,9 +166,16 @@ const NodeDetailContent: React.FC = () => {
         </Card>
       )}
       <Card className="p-6">
-        <h3 className="text-section-title text-text mb-4 flex items-center gap-2">
-          <Box className="w-5 h-5 text-brand" /> Workloads on this node
-        </h3>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h3 className="text-section-title text-text flex items-center gap-2">
+            <Box className="w-5 h-5 text-brand" /> Workloads on this node
+          </h3>
+          {pods.length > 0 ? (
+            <Link to={inventoryPath('workloads', { clusterId, node: decodeURIComponent(nodeName ?? '') })} className="text-caption font-semibold text-brand hover:underline">
+              Rank by risk in Inventory
+            </Link>
+          ) : null}
+        </div>
         {pods.length > 0 ? (
           <div className="ui-table-scroll rounded-lg border border-border">
             <table className={UI_TABLE}>

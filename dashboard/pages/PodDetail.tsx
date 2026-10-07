@@ -28,8 +28,9 @@ import { Button } from '../components/ui/Button';
 import { PageEmpty, PageError, PageLoading } from '../design-system/components/PageStatus';
 import { PodNetworkSummary } from '../components/PodNetworkSummary';
 import { useOperationalMaterialization } from '../hooks/useOperationalMaterialization';
-import { attackPathsForPodPath, findingsForResourcePath, networkForPodPath } from '../lib/entityLinks';
-import { ArrowLeft, Box, ShieldAlert, Globe, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
+import { attackPathsForPodPath, networkForPodPath } from '../lib/entityLinks';
+import { PodAttackPaths, PodNextSteps } from '../components/PodNextSteps';
+import { ArrowLeft, Box, ShieldAlert, Download, ChevronDown, ChevronRight, X, FileText, ExternalLink, CheckCircle2, Info, Cpu, Network, Activity, BarChart2, FileCode, Shield, AlertTriangle, RefreshCw, Target, Zap } from 'lucide-react';
 import clsx from 'clsx';
 import { getSeverityBadgeClass, getSeverityBarClass, getSeverityTextClass, getSeverityIcon, getPodStatusBadgeClass, deriveUnifiedRiskLevelFromScore } from '../lib/severity';
 import { formatDateTime, formatUptime } from '../lib/display';
@@ -49,7 +50,7 @@ import {
 } from '../lib/formChrome';
 import { downloadBlob } from '../lib/download';
 
-type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec'
+type TabId = 'overview' | 'sbom' | 'risks' | 'metrics' | 'processes' | 'network' | 'events' | 'timeline' | 'coverage' | 'spec' | 'paths'
   | 'risk_sbom' | 'runtime';  // consolidated tab aliases
 
 /** Map legacy/granular tab IDs to consolidated tab for display */
@@ -76,6 +77,7 @@ function normalizeTabId(value: string | null | undefined): TabId {
     'timeline',
     'coverage',
     'spec',
+    'paths',
     'risk_sbom',
     'runtime',
   ];
@@ -105,7 +107,7 @@ const PodDetailContent: React.FC = () => {
   const { id, uid } = useParams<{ id?: string; uid?: string }>();
   const location = useLocation();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get('tab');
   const requestedClusterId = searchParams.get('clusterId')?.trim() || undefined;
   const [pod, setPod] = useState<PodWithRisk | null>(null);
@@ -654,7 +656,7 @@ const PodDetailContent: React.FC = () => {
           description="Open pod detail from the Resources pod list so the route includes a Kubernetes pod UID."
           action={
             <Button variant="secondary" onClick={() => navigate('/resources')}>
-              <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+              <ArrowLeft className="w-4 h-4 mr-2" /> Back to Inventory
             </Button>
           }
         />
@@ -681,7 +683,7 @@ const PodDetailContent: React.FC = () => {
                   </Button>
                 ) : null}
                 <Button variant="secondary" onClick={() => navigate('/resources')}>
-                  <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+                  <ArrowLeft className="w-4 h-4 mr-2" /> Back to Inventory
                 </Button>
               </div>
             }
@@ -702,7 +704,7 @@ const PodDetailContent: React.FC = () => {
         />
         <div className="mt-4">
           <Button variant="secondary" onClick={() => navigate('/resources')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Inventory
           </Button>
         </div>
       </PageLayout>
@@ -712,6 +714,7 @@ const PodDetailContent: React.FC = () => {
   const tabs: { id: TabId; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <Box className="w-4 h-4" /> },
     { id: 'risk_sbom', label: 'Risk & SBOM', icon: <ShieldAlert className="w-4 h-4" /> },
+    ...(allowedRoutes.includes('/attack-paths') ? [{ id: 'paths' as TabId, label: 'Attack paths', icon: <Target className="w-4 h-4" /> }] : []),
     { id: 'runtime', label: 'Runtime', icon: <Activity className="w-4 h-4" /> },
     { id: 'network', label: 'Network', icon: <Network className="w-4 h-4" /> },
     { id: 'spec', label: 'Spec', icon: <FileCode className="w-4 h-4" /> },
@@ -767,7 +770,7 @@ const PodDetailContent: React.FC = () => {
             <RefreshCw className={clsx('w-4 h-4 mr-2', refreshing && 'animate-spin')} /> {refreshing ? 'Refreshing…' : 'Refresh'}
           </Button>
           <Button variant="secondary" onClick={() => navigate('/resources')}>
-            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Resources
+            <ArrowLeft className="w-4 h-4 mr-2" /> Back to Inventory
           </Button>
           {pod?.uid ? (
             <AddToCaseButton
@@ -835,12 +838,6 @@ const PodDetailContent: React.FC = () => {
         </div>
       </div>
 
-      {/* Hint when pod IP / start time are missing (filled by agent sync; wait for next sync or restart agent) */}
-      {(!pod.podIP || !pod.startTime) && (
-        <p className="text-muted text-caption mb-2">
-          Pod IP and Start time come from agent sync. If empty, wait for the next sync (~2 min) or restart the agent: <code className="bg-surface-2 px-1 rounded">kubectl rollout restart daemonset/fortuna-agent -n fortuna</code>
-        </p>
-      )}
       {dataErrors.length > 0 && (
         <div className="mb-3 p-2.5 rounded-lg border border-amber-700/50 bg-amber-950/30 flex items-center gap-2 text-caption text-amber-300">
           <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -871,69 +868,46 @@ const PodDetailContent: React.FC = () => {
           </span>
         </div>
       )}
-      <div className="mb-6 grid min-w-0 grid-cols-1 overflow-hidden rounded-lg border border-border bg-surface/35 min-[420px]:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
-        <div className="min-w-0 border-b border-border/70 p-3 min-[420px]:border-r md:border-r xl:border-r">
-          <p className="ui-micro-label mb-1">Status</p>
-          <span className={`inline-flex items-center px-2 py-0.5 rounded text-caption font-medium border ${getPodStatusBadgeClass(pod.status ?? pod.phase)}`}>{pod.status ?? pod.phase ?? '—'}</span>
+      <dl className="mb-4 flex min-w-0 flex-wrap items-center gap-x-5 gap-y-2 text-caption">
+        <div className="flex items-center gap-1.5">
+          <dt className="sr-only">Status</dt>
+          <dd className={`inline-flex items-center rounded border px-2 py-0.5 font-medium ${getPodStatusBadgeClass(pod.status ?? pod.phase)}`}>{pod.status ?? pod.phase ?? '—'}</dd>
         </div>
-        <div className="min-w-0 border-b border-border/70 p-3 md:border-r xl:border-r">
-          <p className="ui-micro-label mb-1">Pod IP</p>
-          <p className="text-body font-medium text-text font-mono">{pod.podIP ?? '—'}</p>
-        </div>
-        <div className="min-w-0 border-b border-border/70 p-3 min-[420px]:border-r md:border-r xl:border-r">
-          <p className="ui-micro-label mb-1">Start Time</p>
-          <p className="text-body font-medium text-text">{pod.startTime ? formatDateTime(pod.startTime) : (runtimeMetrics.length > 0 && runtimeMetrics[0].lastObservedAt ? `Last reported: ${formatDateTime(runtimeMetrics[0].lastObservedAt)}` : '—')}</p>
-        </div>
-        <div className="min-w-0 border-b border-border/70 p-3 md:border-r xl:border-r">
-          <p className="ui-micro-label mb-1">Uptime</p>
-          <p className="text-body font-medium text-text">{formatUptime(pod.startTime ?? undefined)}</p>
-        </div>
-        <div className="min-w-0 border-b border-border/70 p-3 min-[420px]:border-r md:border-r xl:border-r">
-          <p className="ui-micro-label mb-1">Restart Count</p>
-          <p className="text-lg font-bold text-text">{pod.restartCount ?? 0}</p>
-        </div>
-        <div className="min-w-0 border-b border-border/70 p-3 xl:border-r">
-          <p className="ui-micro-label mb-1">QoS Class</p>
-          <p className="text-body font-medium text-text">{pod.qosClass ?? '—'}</p>
-        </div>
-        <div className="min-w-0 border-b border-border/70 p-3 min-[420px]:border-r md:border-r xl:border-r xl:border-b-0">
-          <p className="ui-micro-label mb-1">Risk Count</p>
-          <p className="text-lg font-bold text-text">{pod.riskCount}</p>
-        </div>
-        <div className="min-w-0 border-b border-border/70 p-3 md:border-r md:border-b-0 xl:border-r">
-          <p className="ui-micro-label mb-1">Service Account</p>
-          {serviceAccountName ? (
-            <div className="min-w-0 space-y-1">
-              <p className="text-body font-medium text-text truncate" title={`${pod.namespace}/${serviceAccountName}`}>
-                {serviceAccountName}
-              </p>
-              {serviceAccountRef?.uid ? (
-                <button
-                  type="button"
-                  onClick={openServiceAccountIdentity}
-                  className="inline-flex max-w-full items-center gap-1 text-caption font-medium text-brand hover:underline"
-                  title={`Open ServiceAccount identity ${serviceAccountRef.uid}`}
-                >
-                  Open identity
-                  <ExternalLink className="h-3 w-3 shrink-0" aria-hidden />
-                </button>
-              ) : (
-                <p className="text-caption text-muted-2">
-                  {serviceAccountLookupComplete ? 'Identity not synced' : 'Resolving identity...'}
-                </p>
-              )}
-            </div>
-          ) : (
-            <p className="text-body font-medium text-text">—</p>
-          )}
-        </div>
-        <div className="min-w-0 p-3 min-[420px]:border-r md:border-r-0">
-          <p className="ui-micro-label mb-1">Created</p>
-          <p className="text-body font-medium text-text">{pod.createdAt ? formatDateTime(pod.createdAt) : '—'}</p>
-        </div>
-      </div>
+        {[
+          ['IP', pod.podIP ?? '—'],
+          ['Up', pod.startTime ? formatUptime(pod.startTime) : '—'],
+          ['Restarts', String(pod.restartCount ?? 0)],
+          ['QoS', pod.qosClass ?? '—'],
+          ['Created', pod.createdAt ? formatDateTime(pod.createdAt) : '—'],
+        ].map(([label, value]) => (
+          <div key={label} className="flex items-center gap-1.5">
+            <dt className="text-muted">{label}</dt>
+            <dd className="font-medium text-text">{value}</dd>
+          </div>
+        ))}
+      </dl>
 
-      <Tabs items={tabs} value={resolvedTab} onChange={(id) => setActiveTab(id as TabId)} />
+      <PodNextSteps
+        pod={pod}
+        allowedRoutes={allowedRoutes}
+        serviceAccountName={serviceAccountName}
+        onOpenIdentity={serviceAccountRef?.uid ? openServiceAccountIdentity : undefined}
+      />
+
+      <Tabs
+        items={tabs}
+        value={resolvedTab}
+        onChange={(id) => {
+          setActiveTab(id as TabId);
+          // Keep the tab in the URL so a shared link and Back land on it.
+          const next = new URLSearchParams(searchParams);
+          if (id === 'overview') next.delete('tab');
+          else next.set('tab', id);
+          setSearchParams(next, { replace: true });
+        }}
+      />
+
+      {resolvedTab === 'paths' && <PodAttackPaths pod={pod} canOpen={allowedRoutes.includes('/attack-paths')} />}
 
       {resolvedTab === 'overview' && (
         <div className="space-y-6">
@@ -955,12 +929,6 @@ const PodDetailContent: React.FC = () => {
                 <div className={`text-3xl font-bold font-mono ${getSeverityTextClass(unifiedScore.finalLevel ?? deriveUnifiedRiskLevelFromScore(unifiedScore.totalScore))}`}>
                   {Math.round(unifiedScore.totalScore)}<span className="text-muted font-normal text-caption ml-1">/100</span>
                 </div>
-                <p className="text-caption text-muted mt-1">
-                  ADR band:{' '}
-                  <span className="text-text font-medium uppercase">
-                    {unifiedScore.finalLevel ?? deriveUnifiedRiskLevelFromScore(unifiedScore.totalScore) ?? '—'}
-                  </span>
-                </p>
               </div>
               {pod.riskSignals ? (
                 <div className="flex flex-col gap-1.5 text-caption sm:border-l sm:border-border sm:pl-4">
@@ -1282,17 +1250,8 @@ const PodDetailContent: React.FC = () => {
                   )}
                 </div>
               ) : (
-                <p className="text-muted text-body">Open the Runtime metrics, Processes, or Network tab to load data from the agent (or wait for live updates).</p>
+                <p className="text-muted text-body">No runtime data yet.</p>
               )}
-              <div className="mt-3 flex flex-wrap gap-3 text-body">
-                <button
-                  type="button"
-                  onClick={() => navigate(findingsForResourcePath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}
-                  className="inline-flex items-center px-2.5 py-1.5 rounded bg-base border border-border text-text hover:border-brand"
-                >
-                  View findings for this pod
-                </button>
-              </div>
             </div>
           </Card>
         </div>
@@ -1892,7 +1851,7 @@ const PodDetailContent: React.FC = () => {
                 onClick={() => navigate(runtimeNetworkLink)}
                 className="ml-auto inline-flex items-center gap-1 text-caption font-medium text-brand hover:underline"
               >
-                Open in Runtime Network <ExternalLink className="h-3.5 w-3.5" />
+                See in Network <ExternalLink className="h-3.5 w-3.5" />
               </button>
             ) : null}
           </h3>
@@ -2512,37 +2471,6 @@ const PodDetailContent: React.FC = () => {
         </div>
       )}
 
-      <Card className="mt-8 min-w-0" variant="secondary">
-        <div className="flex items-center justify-between mb-3 min-w-0">
-          <h3 className="text-caption font-semibold text-muted uppercase tracking-wider">Related navigation</h3>
-        </div>
-        <div className="flex flex-wrap gap-2 min-w-0">
-          {pod.clusterId && (
-            <Button variant="secondary" size="sm" onClick={() => navigate(`/clusters/${pod.clusterId}`)}>
-              <Globe className="w-4 h-4 mr-1" /> View cluster
-            </Button>
-          )}
-          {pod.nodeName && pod.clusterId && (
-            <Button variant="secondary" size="sm" onClick={() => navigate(`/clusters/${pod.clusterId}/nodes/${encodeURIComponent(pod.nodeName)}`)}>
-              View node
-            </Button>
-          )}
-          <Button variant="secondary" size="sm" onClick={() => navigate(findingsForResourcePath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}>
-            Findings on this pod
-          </Button>
-          {allowedRoutes.includes('/attack-paths') ? (
-            <Button variant="secondary" size="sm" onClick={() => navigate(attackPathsForPodPath({ uid: pod.uid, clusterId: pod.clusterId ? String(pod.clusterId) : null }))}>
-              Attack paths
-            </Button>
-          ) : null}
-          <Button variant="secondary" size="sm" onClick={() => navigate('/rules/catalog')}>
-            Capabilities
-          </Button>
-          <Button variant="secondary" size="sm" onClick={() => navigate('/resources?tab=Pod')}>
-            Back to Resources
-          </Button>
-        </div>
-      </Card>
     </PageLayout>
   );
 };

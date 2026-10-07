@@ -10,6 +10,14 @@ export const deriveUnifiedRiskLevelFromScore = (score?: number): SeverityLevel |
   return 'low';
 };
 
+/** Attack-path level from a path's 0-10 total_risk: 9+ critical, 7+ high, 4+ medium, else low (Core's classifyRiskLabel). */
+export const pathRiskLevel = (totalRisk: number): SeverityLevel => {
+  if (totalRisk >= 9) return 'critical';
+  if (totalRisk >= 7) return 'high';
+  if (totalRisk >= 4) return 'medium';
+  return 'low';
+};
+
 const normalizeSeverity = (severity?: string): SeverityLevel | undefined => {
   if (!severity) return undefined;
   const s = severity.toLowerCase();

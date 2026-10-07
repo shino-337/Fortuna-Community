@@ -21,11 +21,6 @@ export const RULES_CATALOG_SECTIONS: SectionNavItem[] = [
   { path: '/rules/exposure', label: 'Capability exposure' },
 ];
 
-export const INVENTORY_SECTIONS: SectionNavItem[] = [
-  { path: '/resources/clusters', label: 'Clusters' },
-  { path: '/resources', label: 'Workloads & RBAC' },
-];
-
 /** Tab strip linking the sections of a workspace; sections the user cannot open are hidden. */
 export const SectionNav: React.FC<{ sections: SectionNavItem[]; ariaLabel: string }> = ({ sections, ariaLabel }) => {
   const navigate = useNavigate();

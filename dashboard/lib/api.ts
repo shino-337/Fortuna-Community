@@ -80,6 +80,15 @@ import { deriveUnifiedRiskLevelFromScore } from './severity';
 import { downloadBlob } from './download';
 
 /** Number from a response field, or `fallback` when it is missing or not a finite number (never NaN). */
+/** Pods per risk level from GET /inventory/pods?withLevelCounts=1. */
+export interface PodLevelCounts {
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+  unscored: number;
+}
+
 export interface InsightAssigneeCandidate {
   id: number;
   username: string;
@@ -1623,7 +1632,13 @@ export const api = {
     search?: string;
     /** Server-side ordering: name_asc | namespace_asc | risk_desc | created_desc | default newest created first */
     sortBy?: string;
-  }): Promise<{ pods: PodWithRisk[]; total: number; page: number; pageSize: number }> => {
+    /** Risk level of the pod's score: critical | high | medium | low | unscored */
+    level?: string;
+    /** Pods running as this service account (name). */
+    serviceAccount?: string;
+    /** Also return pod counts per risk level, before the level filter. */
+    withLevelCounts?: boolean;
+  }): Promise<{ pods: PodWithRisk[]; total: number; page: number; pageSize: number; levelCounts?: PodLevelCounts }> => {
       const q = new URLSearchParams();
       if (params?.cluster) q.set('cluster', params.cluster);
       if (params?.namespace) q.set('namespace', params.namespace);
@@ -1632,8 +1647,11 @@ export const api = {
       if (params?.pageSize != null) q.set('pageSize', String(params.pageSize));
       if (params?.search?.trim()) q.set('search', params.search.trim());
       if (params?.sortBy) q.set('sortBy', params.sortBy);
+      if (params?.level) q.set('level', params.level);
+      if (params?.serviceAccount) q.set('serviceAccount', params.serviceAccount);
+      if (params?.withLevelCounts) q.set('withLevelCounts', '1');
       const qs = q.toString();
-      const data = await request<{ pods?: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number }>(qs ? `/inventory/pods?${qs}` : '/inventory/pods');
+      const data = await request<{ pods?: Array<Record<string, unknown>>; total?: number; page?: number; pageSize?: number; levelCounts?: Record<string, unknown> }>(qs ? `/inventory/pods?${qs}` : '/inventory/pods');
       if (!Array.isArray(data.pods)) {
         invalidResponse('pod_inventory_invalid_response', 'Pod inventory response is missing the pods array');
       }
@@ -1643,6 +1661,15 @@ export const api = {
         total: requireFiniteNumber(data.total, 'pod_inventory_invalid_response', 'total'),
         page: numberOr(data.page, 1),
         pageSize: numberOr(data.pageSize, 50),
+        levelCounts: data.levelCounts
+          ? {
+              critical: numberOr(data.levelCounts.critical, 0),
+              high: numberOr(data.levelCounts.high, 0),
+              medium: numberOr(data.levelCounts.medium, 0),
+              low: numberOr(data.levelCounts.low, 0),
+              unscored: numberOr(data.levelCounts.unscored, 0),
+            }
+          : undefined,
       };
   },
 
