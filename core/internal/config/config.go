@@ -119,6 +119,10 @@ func Load(configPath string) (*Config, error) {
 		// /api/v1/auth/register; never allow that by accident.
 		return nil, fmt.Errorf("AUTH_ENABLED=false requires FORTUNA_DEV_MODE=1 (local development only)")
 	}
+	if envEnabled("FORTUNA_ALLOW_UNAUTHED_INGEST") && !devMode {
+		// Unauthenticated ingest lets anyone write inventory and runtime data for any cluster.
+		return nil, fmt.Errorf("FORTUNA_ALLOW_UNAUTHED_INGEST=1 requires FORTUNA_DEV_MODE=1 (local development only)")
+	}
 	if cfg.JWTSecret == "" {
 		if !devMode {
 			return nil, fmt.Errorf("JWT_SECRET or FORTUNA_JWT_SECRET must be set; set FORTUNA_DEV_MODE=1 only for local development")

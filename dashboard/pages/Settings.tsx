@@ -93,7 +93,7 @@ export const Settings: React.FC = () => {
     () =>
       isFortunaAdmin
         ? (['admin', 'cluster_admin', 'user_admin', 'operator', 'viewer'] as const)
-        : (['user_admin', 'operator', 'viewer'] as const),
+        : (['user_admin', 'viewer'] as const),
     [isFortunaAdmin],
   );
 
@@ -484,11 +484,7 @@ export const Settings: React.FC = () => {
                               return (
                                 <select
                                   className="bg-base border border-border rounded px-2 py-1.5 text-body text-text min-w-[12rem] max-w-[20rem]"
-                                  value={
-                                    (fortunaRoleEditOptions as readonly string[]).includes(selVal)
-                                      ? selVal
-                                      : fortunaRoleEditOptions[0]
-                                  }
+                                  value={selVal}
                                   disabled={savingUserId === u.id}
                                   title="Fortuna application role (not Kubernetes RBAC)"
                                   onChange={(e) => {
@@ -496,6 +492,12 @@ export const Settings: React.FC = () => {
                                     void updateFortunaUser(u.id, { role: next });
                                   }}
                                 >
+                                  {/* A user admin may move an operator down to viewer but not assign operator. */}
+                                  {(fortunaRoleEditOptions as readonly string[]).includes(selVal) ? null : (
+                                    <option value={selVal} disabled>
+                                      {fortunaRoleSelectLabel(selVal)}
+                                    </option>
+                                  )}
                                   {fortunaRoleEditOptions.map((r) => (
                                     <option key={r} value={r}>
                                       {fortunaRoleSelectLabel(r)}

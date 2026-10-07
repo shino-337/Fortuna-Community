@@ -17,6 +17,7 @@ import (
 	"github.com/fortuna/core/pkg/authorization"
 	"github.com/fortuna/core/pkg/malware"
 	"github.com/fortuna/core/pkg/security"
+	"github.com/fortuna/core/pkg/securityaudit"
 )
 
 var (
@@ -98,7 +99,7 @@ func SetupRoutesWithCertManager(router *gin.Engine, db *gorm.DB, cfg *config.Con
 		v1.GET("/health/dashboard-data-integrity", p(authorization.PermissionObservabilityMetricsRead), middleware.RequireUnrestrictedScope(db), DashboardDataIntegrity(db))
 
 		v1.GET("/me", p(authorization.PermissionAuthSession), GetCurrentUser())
-		v1.POST("/change-password", p(authorization.PermissionAuthPasswordChange), ChangePassword(db))
+		v1.POST("/change-password", p(authorization.PermissionAuthPasswordChange), auditOnSuccess(db, securityaudit.ActionAuthPasswordChange, "user", ""), ChangePassword(db))
 		v1.GET("/users", p(authorization.PermissionUsersRead), GetUsers(db))
 		v1.PATCH("/users/:id", middleware.RequireAnyPermission(db, authorization.PermissionUsersUpdate, authorization.PermissionUsersRoleAssign), PatchUser(db))
 		v1.DELETE("/users/:id", p(authorization.PermissionUsersDelete), DeleteUser(db))

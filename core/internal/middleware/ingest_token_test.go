@@ -24,6 +24,7 @@ func TestRequireIngestToken_emptyFailsClosed(t *testing.T) {
 
 func TestRequireIngestToken_emptyAllowsWithExplicitDevOptIn(t *testing.T) {
 	t.Setenv("FORTUNA_ALLOW_UNAUTHED_INGEST", "1")
+	t.Setenv("FORTUNA_DEV_MODE", "1")
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.POST("/ingest", middleware.RequireIngestToken(""), func(c *gin.Context) { c.Status(http.StatusOK) })
@@ -32,6 +33,20 @@ func TestRequireIngestToken_emptyAllowsWithExplicitDevOptIn(t *testing.T) {
 	r.ServeHTTP(w, req)
 	if w.Code != http.StatusOK {
 		t.Fatalf("want 200 got %d body=%s", w.Code, w.Body.String())
+	}
+}
+
+func TestRequireIngestToken_emptyStaysClosedWithoutDevMode(t *testing.T) {
+	t.Setenv("FORTUNA_ALLOW_UNAUTHED_INGEST", "1")
+	t.Setenv("FORTUNA_DEV_MODE", "")
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.POST("/ingest", middleware.RequireIngestToken(""), func(c *gin.Context) { c.Status(http.StatusOK) })
+	w := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodPost, "/ingest", nil)
+	r.ServeHTTP(w, req)
+	if w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("want 503 got %d body=%s", w.Code, w.Body.String())
 	}
 }
 

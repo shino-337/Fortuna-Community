@@ -34,7 +34,7 @@ export const FORTUNA_ROLE_HELP_ROWS = [
     key: 'user_admin',
     title: 'User admin',
     body:
-      'Fortuna account administration only: create and manage users with roles User admin, Operator, or Viewer. No access to security data, clusters, or platform audit logs; cannot create or modify Admin users.',
+      'Fortuna account administration only: create and manage users with roles User admin or Viewer; Operator and above are assigned by an Admin, who also sets their cluster scope. No access to security data, clusters, or platform audit logs; cannot create or modify Admin users.',
   },
   {
     key: 'cluster_admin',
@@ -52,7 +52,7 @@ export const FORTUNA_ROLE_HELP_ROWS = [
     key: 'viewer',
     title: 'Viewer',
     body:
-      'Read-only: findings, inventory, runtime, graph summaries and paths (no ad-hoc graph traversal), malware telemetry, and high-level monitoring (metrics and agent status only — not operational error logs). Per-finding activity is available only inside a finding you can open. No writes to findings or inventory.',
+      'Read-only: findings, inventory, runtime, graph summaries and paths (no ad-hoc graph traversal), malware telemetry, and high-level monitoring (metrics and agent status only — not operational error logs). No writes to findings or inventory.',
   },
 ] as const;
 
@@ -92,4 +92,4 @@ export function fortunaRoleSelectLabel(apiRoleValue: string): string {
 
 /** Short paragraph: Admin vs user_admin (for Settings and cross-links). */
 export const FORTUNA_ADMIN_VS_USER_ADMIN =
-  'Admin is the only role with full security and platform capabilities and may assign any Fortuna role, including Admin and Cluster admin. Cluster admin operates security workflows only inside assigned clusters. User admin manages Fortuna login accounts only (User admin, Operator, Viewer); they cannot access clusters, findings, or platform audit.';
+  'Admin is the only role with full security and platform capabilities and may assign any Fortuna role, including Admin and Cluster admin. Cluster admin operates security workflows only inside assigned clusters. User admin manages Fortuna login accounts only (User admin, Viewer); they cannot access clusters, findings, or platform audit.';

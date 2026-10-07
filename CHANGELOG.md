@@ -4,6 +4,11 @@
 
 ### Security
 
+- A User admin can create, or change an account to, only Viewer or User admin. Before, it could create an Operator; because only an Admin sets cluster scope, that account could read, export and suppress findings and change risk rules in every cluster.
+- Policy rule detail, metrics and matches, and the rule list's match counts, follow the caller's cluster scope. Before, a user scoped to one cluster could read findings from every cluster through them. `GET /malware/threats` follows cluster scope as well.
+- `FORTUNA_ALLOW_UNAUTHED_INGEST=1` now requires `FORTUNA_DEV_MODE=1`; Core refuses to start otherwise.
+- Password changes, finding and exception deletes, every policy rule, template and instance write, and every risk rule create, update, delete, import and export are recorded in the security activity log.
+- The finding panel shows its audit trail only to roles that can read the platform audit, instead of a misleading "No audit logs" for everyone else.
 - Attack-path and graph endpoints no longer return the internal error text on a 500; they log it and return a fixed message.
 - Assigning a finding needs `findings.ack` and the finding in the caller's cluster scope (otherwise 404), and the person assigned must be active, hold `findings.ack` and have the finding's cluster in scope. An ineligible user and an unknown user id get the same 422, so the endpoint does not reveal which accounts exist. Every change is written to the security audit log as `findings.assignee.set` with the owner before and after.
 - Adding a finding to a case now checks that the finding exists and is in the user's cluster scope, links it by id, and refuses a finding from another cluster than the case's. Before, any label and link were accepted, and the case's snapshot could copy a finding from a cluster the user cannot read.

@@ -7,6 +7,7 @@ import (
 	"github.com/fortuna/core/internal/api/risk"
 	"github.com/fortuna/core/internal/middleware"
 	"github.com/fortuna/core/pkg/authorization"
+	"github.com/fortuna/core/pkg/securityaudit"
 )
 
 // registerRiskRoutes registers /api/v1/risk/* (analytics, scores, rules, insights, pod report, attack-steps, runtime-risk).
@@ -31,13 +32,13 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/trends", p(authorization.PermissionFindingsRead), risk.GetRiskTrends(db))
 
 	api.GET("/risk/rules", p(authorization.PermissionRulesRead), GetRiskRulesList(db))
-	api.GET("/risk/rules/export", p(authorization.PermissionRulesExport), ExportRiskRulesYAML(db))
+	api.GET("/risk/rules/export", p(authorization.PermissionRulesExport), auditOnSuccess(db, securityaudit.ActionRiskRuleExport, "risk_rule", ""), ExportRiskRulesYAML(db))
 	api.POST("/risk/rules/validate", p(authorization.PermissionRulesRead), ValidateRiskRule())
-	api.POST("/risk/rules/import", p(authorization.PermissionRulesImport), ImportRiskRule(db))
+	api.POST("/risk/rules/import", p(authorization.PermissionRulesImport), auditOnSuccess(db, securityaudit.ActionRiskRuleImport, "risk_rule", ""), ImportRiskRule(db))
 	api.GET("/risk/rules/:id", p(authorization.PermissionRulesRead), GetRiskRuleByID(db))
-	api.POST("/risk/rules", p(authorization.PermissionRulesWrite), CreateRiskRule(db))
-	api.PUT("/risk/rules/:id", p(authorization.PermissionRulesWrite), UpdateRiskRule(db))
-	api.DELETE("/risk/rules/:id", p(authorization.PermissionRulesDelete), DeleteRiskRule(db))
+	api.POST("/risk/rules", p(authorization.PermissionRulesWrite), auditOnSuccess(db, securityaudit.ActionRiskRuleCreate, "risk_rule", ""), CreateRiskRule(db))
+	api.PUT("/risk/rules/:id", p(authorization.PermissionRulesWrite), auditOnSuccess(db, securityaudit.ActionRiskRuleUpdate, "risk_rule", "id"), UpdateRiskRule(db))
+	api.DELETE("/risk/rules/:id", p(authorization.PermissionRulesDelete), auditOnSuccess(db, securityaudit.ActionRiskRuleDelete, "risk_rule", "id"), DeleteRiskRule(db))
 
 	api.GET("/risk/histogram", p(authorization.PermissionFindingsRead), GetRiskHistogram(db))
 
@@ -50,7 +51,7 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 	api.GET("/risk/insights", p(authorization.PermissionFindingsRead), GetInsightsListCached(db))
 	api.GET("/risk/insights/:id", p(authorization.PermissionFindingsRead), GetInsight(db))
 	api.GET("/risk/insights/:id/context", p(authorization.PermissionFindingsRead), GetInsightContext(db))
-	api.DELETE("/risk/insights/:id", p(authorization.PermissionFindingsDelete), DeleteInsight(db))
+	api.DELETE("/risk/insights/:id", p(authorization.PermissionFindingsDelete), auditOnSuccess(db, securityaudit.ActionFindingsDelete, "insight", "id"), DeleteInsight(db))
 	api.POST("/risk/insights/bulk", p(authorization.PermissionFindingsBulk), BulkInsightsAction(db))
 	api.POST("/risk/insights/:id/acknowledge", p(authorization.PermissionFindingsAck), AcknowledgeInsight(db))
 	api.GET("/risk/insights/:id/assignees", p(authorization.PermissionFindingsAck), ListInsightAssignees(db))
@@ -61,7 +62,7 @@ func registerRiskRoutes(api *gin.RouterGroup, db *gorm.DB) {
 
 	api.POST("/risk/exceptions", p(authorization.PermissionFindingsExceptionCreate), CreateException(db))
 	api.GET("/risk/exceptions", p(authorization.PermissionFindingsRead), ListExceptions(db))
-	api.DELETE("/risk/exceptions/:id", p(authorization.PermissionFindingsExceptionDelete), DeleteException(db))
+	api.DELETE("/risk/exceptions/:id", p(authorization.PermissionFindingsExceptionDelete), auditOnSuccess(db, securityaudit.ActionFindingsExceptionDelete, "exception_policy", "id"), DeleteException(db))
 
 	riskPods := api.Group("/risk/pods")
 	riskPods.Use(middleware.RequirePodUIDClusterScope(db, "uid"))

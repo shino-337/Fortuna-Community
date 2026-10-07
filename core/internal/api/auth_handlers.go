@@ -179,8 +179,8 @@ func Register(db *gorm.DB, jwtSecret string) gin.HandlerFunc {
 		if u, exists := c.Get("user"); exists {
 			if actor, ok := u.(*models.User); ok && actor != nil {
 				an := authorization.NormalizeRole(actor.Role)
-				if an == models.RoleUserAdmin && (role == models.RoleAdmin || role == models.RoleClusterAdmin) {
-					c.JSON(http.StatusForbidden, gin.H{"error": "cannot create users with admin or cluster_admin role"})
+				if !actorMaySetUserRole(actor, role) {
+					c.JSON(http.StatusForbidden, gin.H{"error": "user administrators can only create viewer or user_admin accounts"})
 					return
 				}
 				if an != models.RoleAdmin && strings.TrimSpace(req.ScopeJSON) != "" && strings.TrimSpace(req.ScopeJSON) != "{}" {
@@ -414,7 +414,10 @@ func actorMaySetUserRole(actor *models.User, newRole string) bool {
 		return true
 	}
 	if an == models.RoleUserAdmin {
-		return newRole != models.RoleAdmin && newRole != models.RoleClusterAdmin
+		// A user admin holds no security-data permission and cannot set cluster scope, so an
+		// account it creates gets every cluster. Limit it to roles that cannot change data;
+		// operator and above need a platform admin, who also sets the account's scope.
+		return newRole == models.RoleViewer || newRole == models.RoleUserAdmin
 	}
 	return false
 }

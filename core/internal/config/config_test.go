@@ -109,3 +109,19 @@ func TestLoadRejectsInvalidPodDetailEncryptionKey(t *testing.T) {
 		t.Fatalf("expected key error, got %v", err)
 	}
 }
+
+func TestLoadRejectsUnauthedIngestOutsideDevMode(t *testing.T) {
+	t.Setenv("JWT_SECRET", strings.Repeat("a", 32))
+	t.Setenv("FORTUNA_ALLOW_UNAUTHED_INGEST", "1")
+	t.Setenv("FORTUNA_DEV_MODE", "")
+
+	_, err := Load("")
+	if err == nil || !strings.Contains(err.Error(), "FORTUNA_ALLOW_UNAUTHED_INGEST") {
+		t.Fatalf("expected FORTUNA_ALLOW_UNAUTHED_INGEST to be rejected outside dev mode, got %v", err)
+	}
+
+	t.Setenv("FORTUNA_DEV_MODE", "1")
+	if _, err := Load(""); err != nil {
+		t.Fatalf("dev mode should allow unauthenticated ingest, got %v", err)
+	}
+}
