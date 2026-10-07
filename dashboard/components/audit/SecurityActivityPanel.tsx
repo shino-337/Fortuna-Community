@@ -8,11 +8,13 @@ import { PageEmpty, PageError, PageLoading } from '../../design-system/component
 import { Button } from '../ui/Button';
 import { Pagination } from '../Pagination';
 import { formatDateTime } from '../../lib/display';
-import { getSeverityBadgeClass } from '../../lib/severity';
+import { Badge } from '../../design-system/components/Badge';
+import { SidePanel } from '../SidePanel';
+import { When } from '../When';
 import { UI_FILTER_SELECT } from '../../lib/formChrome';
 import { UI_TABLE, UI_TD, UI_TH, UI_TR, UI_THEAD_STICKY } from '../../lib/tableChrome';
 
-const SEVERITIES = ['critical', 'high', 'medium', 'low', 'info'] as const;
+const SEVERITIES = ['critical', 'high', 'medium', 'low'] as const;
 const RESULTS = ['success', 'deny', 'error'] as const;
 /** Event domains the server tags activity with (the former Investigation timeline filtered by these). */
 const DOMAINS = ['auth', 'sessions', 'rbac', 'findings', 'graph', 'export'] as const;
@@ -30,6 +32,7 @@ export const SecurityActivityPanel: React.FC = () => {
   const [domain, setDomain] = useState('');
   const [action, setAction] = useState('');
   const [debouncedAction, setDebouncedAction] = useState('');
+  const [selected, setSelected] = useState<SecurityActivityItem | null>(null);
   const requestRef = useRef(0);
 
   useEffect(() => {
@@ -146,7 +149,7 @@ export const SecurityActivityPanel: React.FC = () => {
                 <option value="">Any result</option>
                 {RESULTS.map((r) => (
                   <option key={r} value={r}>
-                    {r}
+                    {r === 'deny' ? 'denied' : r}
                   </option>
                 ))}
               </select>
@@ -170,40 +173,53 @@ export const SecurityActivityPanel: React.FC = () => {
             <table className={UI_TABLE}>
               <thead className={UI_THEAD_STICKY}>
                 <tr>
-                  <th className={UI_TH}>Time</th>
-                  <th className={UI_TH}>Severity</th>
-                  <th className={UI_TH}>Result</th>
-                  <th className={UI_TH}>Action</th>
+                  <th className={UI_TH}>When</th>
                   <th className={UI_TH}>Actor</th>
+                  <th className={UI_TH}>Action</th>
                   <th className={UI_TH}>Resource</th>
-                  <th className={UI_TH}>Session</th>
+                  <th className={UI_TH}>Result</th>
+                  <th className={UI_TH}>Severity</th>
                 </tr>
               </thead>
               <tbody>
                 {items.map((row) => (
-                  <tr key={`${row.id ?? row.eventId ?? row.createdAt}-${row.action}`} className={UI_TR}>
-                    <td className={`${UI_TD} text-caption whitespace-nowrap`}>
-                      {row.createdAt ? formatDateTime(row.createdAt) : '—'}
-                    </td>
-                    <td className={UI_TD}>
-                      <span className={getSeverityBadgeClass((row.severity || 'info').toLowerCase())}>
-                        {row.severity || '—'}
-                      </span>
-                    </td>
-                    <td className={`${UI_TD} text-caption`}>{row.result || '—'}</td>
-                    <td className={`${UI_TD} font-mono text-caption max-w-[14rem] truncate`} title={row.action}>
-                      {row.action || '—'}
+                  <tr
+                    key={`${row.id ?? row.eventId ?? row.createdAt}-${row.action}`}
+                    className={`${UI_TR} cursor-pointer ${selected === row ? 'bg-brand/10' : ''}`}
+                    tabIndex={0}
+                    onClick={() => setSelected(row)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setSelected(row);
+                      }
+                    }}
+                  >
+                    <td className={`${UI_TD} text-caption text-muted`}>
+                      <When iso={row.createdAt} />
                     </td>
                     <td className={`${UI_TD} text-caption`}>
-                      {row.actorUsername || '—'}
-                      {row.actorUserId != null ? <span className="text-muted"> · uid {row.actorUserId}</span> : null}
+                      <div className="text-text">{row.actorUsername || 'system'}</div>
+                      {row.actorRole ? <div className="text-meta text-muted">{row.actorRole}</div> : null}
                     </td>
-                    <td className={`${UI_TD} text-caption max-w-[12rem] truncate`} title={row.resourceType || row.resource}>
+                    <td className={`${UI_TD} font-mono text-caption max-w-[16rem] truncate`} title={row.action}>
+                      {row.action || '—'}
+                    </td>
+                    <td className={`${UI_TD} text-caption max-w-[14rem] truncate`} title={row.resourceType || row.resource}>
                       {row.resourceType || row.resource || '—'}
-                      {row.resourceId ? <span className="text-muted"> / {row.resourceId}</span> : null}
+                      {row.resourceId ? <span className="text-muted"> {row.resourceId}</span> : null}
                     </td>
-                    <td className={`${UI_TD} font-mono text-caption max-w-[8rem] truncate`} title={row.sessionId}>
-                      {row.sessionId ? `${row.sessionId.slice(0, 8)}…` : '—'}
+                    <td className={UI_TD}>
+                      <ResultBadge result={row.result} />
+                    </td>
+                    <td className={UI_TD}>
+                      {row.severity ? (
+                        <Badge severity={row.severity.toLowerCase()} uppercase={false} showShape={false} className="capitalize">
+                          {row.severity}
+                        </Badge>
+                      ) : (
+                        <span className="text-muted">—</span>
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -224,6 +240,82 @@ export const SecurityActivityPanel: React.FC = () => {
           />
         </>
       )}
+      <SidePanel
+        open={selected != null}
+        onClose={() => setSelected(null)}
+        title={<span className="font-mono">{selected?.action || 'Event'}</span>}
+        subtitle={selected?.createdAt ? formatDateTime(selected.createdAt) : undefined}
+      >
+        {selected ? <EventDetail row={selected} /> : null}
+      </SidePanel>
     </Card>
+  );
+};
+
+const RESULT_CLASS: Record<string, string> = {
+  success: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20',
+  deny: 'text-red-300 bg-red-500/10 border-red-500/30',
+  error: 'text-amber-300 bg-amber-500/10 border-amber-500/30',
+};
+
+const ResultBadge: React.FC<{ result?: string }> = ({ result }) => {
+  if (!result) return <span className="text-muted">—</span>;
+  const key = result.toLowerCase();
+  return (
+    <span className={`px-2 py-0.5 rounded border text-caption font-medium ${RESULT_CLASS[key] ?? 'text-muted bg-surface-2 border-border'}`}>
+      {key === 'deny' ? 'denied' : key}
+    </span>
+  );
+};
+
+function prettyJson(raw?: string): string | null {
+  if (!raw) return null;
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+/** Everything the event recorded: who, from where, what changed. */
+const EventDetail: React.FC<{ row: SecurityActivityItem }> = ({ row }) => {
+  const facts: Array<[string, React.ReactNode]> = [
+    ['Actor', [row.actorUsername || 'system', row.actorRole].filter(Boolean).join(' · ')],
+    ['Result', <ResultBadge key="r" result={row.result} />],
+    ['Resource', [row.resourceType || row.resource, row.resourceId].filter(Boolean).join(' ') || '—'],
+    ['Target user', row.targetUserId != null ? String(row.targetUserId) : null],
+    ['Source IP', row.sourceIp],
+    ['Auth method', row.authMethod],
+    ['User agent', row.userAgent],
+    ['Session', row.sessionId],
+    ['Request', row.requestId],
+    ['Correlation', row.correlationId],
+  ];
+  const blocks: Array<[string, string | null]> = [
+    ['Before', prettyJson(row.beforeStateJson)],
+    ['After', prettyJson(row.afterStateJson)],
+    ['Details', prettyJson(row.detailsJson)],
+  ];
+  return (
+    <div className="space-y-5">
+      <dl className="grid grid-cols-[auto,1fr] gap-x-4 gap-y-2 text-body">
+        {facts
+          .filter(([, v]) => v != null && v !== '')
+          .map(([k, v]) => (
+            <React.Fragment key={k}>
+              <dt className="text-muted">{k}</dt>
+              <dd className="text-text break-all">{v}</dd>
+            </React.Fragment>
+          ))}
+      </dl>
+      {blocks
+        .filter(([, v]) => v)
+        .map(([k, v]) => (
+          <div key={k}>
+            <div className="text-caption uppercase tracking-wide text-muted mb-1">{k}</div>
+            <pre className="ui-code-scroll rounded border border-border bg-base/70 p-3 text-caption text-text">{v}</pre>
+          </div>
+        ))}
+    </div>
   );
 };

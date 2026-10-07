@@ -572,7 +572,7 @@ func GetRule(db *gorm.DB) gin.HandlerFunc {
 			"impactedFindings24h": activation.ImpactedFindings24h,
 			"impactedFindings7d":  activation.ImpactedFindings7d,
 			"relatedCapabilities": activation.RelatedCapabilities,
-			"recentMatches":       recentMatches,
+			"recentMatches":       withRiskLevels(db, recentMatches),
 		})
 	}
 }

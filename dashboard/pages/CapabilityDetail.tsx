@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { matchPath, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api, getAvailabilityIssue, isApiError, type AvailabilityIssue } from '../lib/api';
 import { CapabilityMetadata, SecurityRule } from '../types';
 import { PageLayout } from '../design-system/layouts/PageLayout';
@@ -103,16 +103,20 @@ const CapabilityDetailContent: React.FC = () => {
     );
   }
 
-  const tooltipLabelClass = 'inline-flex items-center gap-1 underline decoration-dotted underline-offset-2 cursor-help';
 
   return (
     <PageLayout
       title={meta.name || meta.capabilityId}
       description={meta.summary || meta.description}
       actions={
-        <Button variant="secondary" onClick={() => navigate('/rules/catalog')}>
-          <ArrowLeft className="w-4 h-4 mr-2" /> Back to list
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={() => navigate(`/rules/exposure?capabilityId=${encodeURIComponent(meta.capabilityId)}`)}>
+            Pods with this capability
+          </Button>
+          <Button variant="secondary" onClick={() => navigate('/rules/catalog')}>
+            <ArrowLeft className="w-4 h-4 mr-2" /> Catalog
+          </Button>
+        </div>
       }
     >
       {metaIssue ? (
@@ -270,12 +274,6 @@ const CapabilityDetailContent: React.FC = () => {
         </Card>
       )}
 
-      <p className="text-caption text-muted-2 mt-8">
-        <span className={tooltipLabelClass} title="Operational context">
-          Note <Info className="w-3 h-3 inline" />
-        </span>
-        : For incident triage use <Link to="/risks/findings" className="text-brand hover:underline">Risk Findings</Link>.
-      </p>
     </PageLayout>
   );
 };

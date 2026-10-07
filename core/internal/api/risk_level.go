@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/fortuna/core/pkg/models"
+	"github.com/fortuna/core/pkg/risk"
 )
 
 // One risk level everywhere: a finding's level is the band of its resource's
@@ -78,4 +79,29 @@ func preferredScoresForInsights(db *gorm.DB, insights []models.Insight) map[stri
 func qualifiedPreferredOrder(alias string) string {
 	return `CASE LOWER(TRIM(COALESCE(` + alias + `.scorer_version, ''))) WHEN 'v3' THEN 1 ELSE 0 END DESC, ` +
 		alias + `.calculated_at DESC, ` + alias + `.id DESC`
+}
+
+// insightWithRiskLevel is a finding plus its risk level, for lists that return
+// raw finding rows: without it a client can only show the rule severity.
+type insightWithRiskLevel struct {
+	models.Insight
+	FinalScore *float64 `json:"finalScore,omitempty"`
+	FinalLevel string   `json:"finalLevel,omitempty"`
+}
+
+// withRiskLevels attaches each finding's risk level; findings whose resource has
+// no score keep both fields empty.
+func withRiskLevels(db *gorm.DB, insights []models.Insight) []insightWithRiskLevel {
+	scores := preferredScoresForInsights(db, insights)
+	out := make([]insightWithRiskLevel, 0, len(insights))
+	for _, in := range insights {
+		row := insightWithRiskLevel{Insight: in}
+		if score, ok := scores[riskScoreKey(in.ClusterID, in.ResourceUID)]; ok {
+			s := score
+			row.FinalScore = &s
+			row.FinalLevel = risk.DeriveFinalLevelFromScore(score)
+		}
+		out = append(out, row)
+	}
+	return out
 }

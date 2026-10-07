@@ -14,7 +14,7 @@ import { CapabilityMetadata, SecurityRule } from '../types';
 import { usePolling, REFRESH_INTERVALS } from '../hooks/usePolling';
 import { useRefreshIntervalStore } from '../store/refreshIntervalStore';
 import { useRefreshTriggerStore } from '../store/refreshTriggerStore';
-import { PAGE_TITLES } from '../lib/pageTitles';
+import { PAGE_TITLES, RULES_PAGE_DESCRIPTION } from '../lib/pageTitles';
 import { can, P } from '../lib/permissions';
 import { usePermUser } from '../hooks/usePermUser';
 
@@ -123,46 +123,44 @@ export const Capabilities: React.FC = () => {
   return (
     <PageLayout
       title={PAGE_TITLES.policyRules}
-      description="Capability catalog: MITRE techniques, impact and mitigations for each capability. Exposure per pod is in Risk Findings → Exposure."
-      actions={
-        <Button variant="secondary" isLoading={loading} onClick={() => { loadPage(); loadRules(); }}>
-          <RefreshCw className="w-4 h-4 mr-2" /> Refresh
-        </Button>
-      }
-      toolbar={
-        <FilterBar
-          embedded
-          reset={{
-            onReset: () => {
-              setSearchTerm('');
-              setDomain('all');
-            },
-            active: searchTerm.trim() !== '' || domain !== 'all',
-          }}
-          search={{
-            value: searchTerm,
-            onChange: setSearchTerm,
-            placeholder: 'Search id, name, summary, MITRE, kill chain…',
-            inputClassName: 'max-w-md',
-          }}
-          trailing={
-            <select
-              value={domain}
-              onChange={(e) => setDomain(e.target.value)}
-              className={`${UI_FILTER_SELECT} sm:w-56 focus:ring-2 focus:ring-brand/30`}
-            >
-              <option value="all">All domains</option>
-              {domains.map((d) => (
-                <option key={d} value={d}>
-                  {d}
-                </option>
-              ))}
-            </select>
-          }
-        />
-      }
+      description={RULES_PAGE_DESCRIPTION}
     >
       <SectionNav sections={RULES_CATALOG_SECTIONS} ariaLabel="Rules and catalog sections" />
+      <FilterBar
+        className="mb-4"
+        reset={{
+          onReset: () => {
+            setSearchTerm('');
+            setDomain('all');
+          },
+          active: searchTerm.trim() !== '' || domain !== 'all',
+        }}
+        search={{
+          value: searchTerm,
+          onChange: setSearchTerm,
+          placeholder: 'Search id, name, summary, MITRE, kill chain…',
+          inputClassName: 'max-w-md',
+        }}
+        trailing={
+          <>
+          <select
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            className={`${UI_FILTER_SELECT} sm:w-56 focus:ring-2 focus:ring-brand/30`}
+          >
+            <option value="all">All domains</option>
+            {domains.map((d) => (
+              <option key={d} value={d}>
+                {d}
+              </option>
+            ))}
+          </select>
+          <Button variant="secondary" size="sm" isLoading={loading} onClick={() => { loadPage(); loadRules(); }}>
+            <RefreshCw className="w-4 h-4 mr-1.5" /> Refresh
+          </Button>
+          </>
+        }
+      />
       {error && (
         <PageError
           title="Could not load capabilities"
@@ -188,10 +186,6 @@ export const Capabilities: React.FC = () => {
           </div>
         )}
       </Card>
-
-      {searchTerm.trim() !== debouncedSearch && (
-        <p className="text-caption text-muted mt-2">Updating search (300ms debounce)…</p>
-      )}
 
       {total > 0 && (
         <Pagination

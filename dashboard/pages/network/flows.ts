@@ -90,17 +90,7 @@ export function flowKey(row: Pick<FlowRow, 'podUid' | 'destIp' | 'destPort' | 'p
   return `${row.podUid ?? ''}|${row.destIp ?? ''}|${row.destPort ?? ''}|${(row.protocol ?? '').toLowerCase()}`;
 }
 
-export function relativeTime(iso?: string): string {
-  if (!iso) return '—';
-  const t = Date.parse(iso);
-  if (!Number.isFinite(t)) return '—';
-  const mins = Math.max(0, Math.round((Date.now() - t) / 60000));
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins} min ago`;
-  const hours = Math.round(mins / 60);
-  if (hours < 48) return `${hours} h ago`;
-  return `${Math.round(hours / 24)} d ago`;
-}
+export { relativeTime } from '../../lib/time';
 
 export const SINCE_OPTIONS = [
   { value: 15, label: 'Last 15 min' },

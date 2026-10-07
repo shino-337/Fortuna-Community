@@ -69,8 +69,9 @@ body {
   }
 
   .ui-table-scroll {
-    /* dvh tracks mobile dynamic toolbar; cap avoids huge tables on tall desktop */
-    @apply overflow-x-auto overflow-y-auto max-h-[min(60dvh,36rem)] overscroll-contain;
+    /* Wide tables scroll sideways; the page scrolls down. Pagination bounds the rows,
+       so a second vertical scroll inside the page only hid rows. */
+    @apply overflow-x-auto;
   }
 
   .ui-table-scroll-compact {

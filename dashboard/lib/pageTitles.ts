@@ -21,3 +21,7 @@ export const PAGE_TITLES = {
 } as const;
 
 export type PageTitleKey = keyof typeof PAGE_TITLES;
+
+/** One description for every Rules section, so switching tabs does not rewrite the header. */
+export const RULES_PAGE_DESCRIPTION =
+  'What Fortuna detects, how it scores risk, and which capabilities your pods hold.';
